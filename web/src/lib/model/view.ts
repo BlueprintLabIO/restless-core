@@ -166,5 +166,7 @@ export interface ThreadMessage {
 	intent?: MessageIntentReceipt | null;
 	/** When the recipient's turn consumed this message, for sent / seen receipts. */
 	readAt?: Date | string | null;
+	/** A key that stays the same when a just-sent message gets its saved id, so it is not redrawn. */
+	clientKey?: string;
 	contextPath?: string | null;
 }

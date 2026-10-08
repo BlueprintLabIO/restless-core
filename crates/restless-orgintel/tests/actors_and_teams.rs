@@ -2089,7 +2089,7 @@ async fn fictional_names_are_serial_and_failed_creations_do_not_skip_letters() {
             .map(|a| a.display)
             .collect();
         names.sort();
-        assert_eq!(names, vec!["Alice", "Bart"]);
+        assert_eq!(names, vec!["Ada", "Bea"]);
         assert!(org
             .create_actor(
                 "site-direction",
@@ -2112,7 +2112,7 @@ async fn fictional_names_are_serial_and_failed_creations_do_not_skip_letters() {
         .await?;
         assert_eq!(
             org.active_actor("quality-reviewer").await?.unwrap().display,
-            "Coraline"
+            "Cleo"
         );
         Ok::<(), restless_orgintel::OrgIntelError>(())
     }
@@ -2179,14 +2179,14 @@ async fn team_names_follow_leads_through_creation_transfers_and_replacement() {
         .await?;
         assert_eq!(
             org.active_actor("gamma-strategy").await?.unwrap().display,
-            "Coraline",
+            "Cleo",
             "member names do not consume lead letters"
         );
         org.set_actor_team("alpha-writer", Some(b), "exec", "transfer")
             .await?;
         assert_eq!(
             org.active_actor("alpha-writer").await?.unwrap().display,
-            "Batman"
+            "Bodhi"
         );
         org.set_actor_team("alpha-writer", Some(a), "exec", "return")
             .await?;
@@ -2206,11 +2206,11 @@ async fn team_names_follow_leads_through_creation_transfers_and_replacement() {
         }
         assert_eq!(
             org.active_actor("gamma-strategy").await?.unwrap().display,
-            "Coraline"
+            "Cleo"
         );
         assert_eq!(
             org.active_actor("beta-strategy").await?.unwrap().display,
-            "Bart"
+            "Bea"
         );
         Ok::<(), restless_orgintel::OrgIntelError>(())
     }

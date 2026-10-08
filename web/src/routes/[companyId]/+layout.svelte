@@ -562,7 +562,8 @@
 			}
 			if (includeContext && (!contextPath || result.contextOmitted))
 				return { notice: 'Message sent without the current-screen link.' };
-			return busy ? { notice: `Queued; ${railActorName} reads it after the current reply.` } : {};
+			// A message sent mid-reply says "Queued" on itself, not under the composer.
+			return {};
 		} catch (cause) {
 			const status = (cause as { status?: unknown } | null)?.status;
 			// The conversation query retains this exact send's command ID for a safe retry.

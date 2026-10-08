@@ -376,8 +376,18 @@ pub(super) async fn app_requests(
     if let Err(refusal) = owner_gate(&state, &company, &principal).await {
         return refusal;
     }
+    // A request the owner set aside stays out of the way until it is restored.
     let requests = match state.daemon.orgintel.get(&company).await {
-        Ok(org) => org.app_requests().await.map_err(anyhow::Error::from),
+        Ok(org) => match (org.app_requests().await, org.attention_dismissals().await) {
+            (Ok(requests), dismissed) => {
+                let dismissed = dismissed.unwrap_or_default();
+                Ok(requests
+                    .into_iter()
+                    .filter(|request| !dismissed.contains_key(&format!("orgintel:handoff:{}", request.handoff_id)))
+                    .collect::<Vec<_>>())
+            }
+            (Err(error), _) => Err(anyhow::Error::from(error)),
+        },
         Err(error) => Err(error),
     };
     match requests {

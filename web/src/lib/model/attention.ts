@@ -487,7 +487,36 @@ export async function browserControl(
 
 const ownerError = responseFailure;
 
-/** Set an Inbox item aside as not needed; whoever asked is told in their conversation. */
+export type SetAside = {
+	item_id: string;
+	title: string;
+	responsible_actor?: string | null;
+	dismissed_at: string;
+};
+
+/** What the owner set aside lately, newest first. */
+export async function fetchSetAside(companyId: string): Promise<SetAside[]> {
+	const response = await fetch(`/api/companies/${encodeURIComponent(companyId)}/attention/dismissed`, {
+		credentials: 'same-origin',
+		cache: 'no-store'
+	});
+	if (!response.ok) throw await ownerError(response);
+	return ((await response.json()) as { items: SetAside[] }).items;
+}
+
+/** Bring a set-aside item back to the Inbox. */
+export async function restoreAttention(companyId: string, itemId: string): Promise<void> {
+	const response = await fetch(`/api/companies/${encodeURIComponent(companyId)}/attention/restore`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		credentials: 'same-origin',
+		body: JSON.stringify({ item_id: itemId })
+	});
+	if (!response.ok) throw await ownerError(response);
+}
+
+/** Set an Inbox item aside as not needed. No message is sent: the agent that asked reads it in
+ * its own context, and the item can be restored from the Inbox's set-aside list. */
 export async function dismissAttention(companyId: string, itemId: string): Promise<void> {
 	const response = await fetch(`/api/companies/${encodeURIComponent(companyId)}/attention/dismiss`, {
 		method: 'POST',

@@ -17,6 +17,8 @@ where
     Router::new()
         .route("/companies/{company}/sheets", get(list).post(create))
         .route("/companies/{company}/sheets/{sheet}", get(read))
+        .route("/companies/{company}/sheets-archived", get(list_archived))
+        .route("/companies/{company}/sheets/{sheet}/archive", axum::routing::post(archive))
         .route(
             "/companies/{company}/sheets/{sheet}/operations",
             post(operation),
@@ -91,6 +93,26 @@ async fn list(
     AxumPath(c): AxumPath<String>,
 ) -> Response<Body> {
     run(s, p, c, SheetOperation::List).await
+}
+async fn list_archived(
+    State(s): State<RoomApiState>,
+    RoomPrincipal(p): RoomPrincipal,
+    AxumPath(c): AxumPath<String>,
+) -> Response<Body> {
+    run(s, p, c, SheetOperation::Archived).await
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArchiveInput {
+    archived: bool,
+}
+async fn archive(
+    State(s): State<RoomApiState>,
+    RoomPrincipal(p): RoomPrincipal,
+    AxumPath((c, sheet)): AxumPath<(String, Uuid)>,
+    Json(i): Json<ArchiveInput>,
+) -> Response<Body> {
+    run(s, p, c, SheetOperation::Archive { sheet, archived: i.archived }).await
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

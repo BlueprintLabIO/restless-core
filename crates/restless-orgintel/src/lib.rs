@@ -45,6 +45,7 @@ mod work_collaboration;
 pub use access::*;
 pub use actor_context::*;
 pub use completion_repairs::*;
+pub use attention_dismissals::*;
 pub use decisions::*;
 pub use documents::*;
 pub use events::EventReplayPage;

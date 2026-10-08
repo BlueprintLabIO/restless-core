@@ -239,8 +239,7 @@
 		color: var(--text-tertiary);
 	}
 	.identity-start {
-		border: 1px dashed var(--border-strong);
-		border-radius: var(--radius-lg);
+		display: block;
 	}
 	.start-actions {
 		display: flex;

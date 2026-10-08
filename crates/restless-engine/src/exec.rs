@@ -239,9 +239,18 @@ pub async fn wake(
         )
         .await?;
 
+        // The owner is waiting on this reply: Exec answers, delegates and decides here, so it
+        // thinks at most at medium. Production Work keeps the configured effort.
+        let turn_effort = if !conversation_inbox.is_empty()
+            && matches!(config.reasoning_effort.as_str(), "high" | "xhigh" | "max" | "ultra")
+        {
+            "medium"
+        } else {
+            config.reasoning_effort.as_str()
+        };
         let auth = match agent_auth_for_model(
             model,
-            &config.reasoning_effort,
+            turn_effort,
             capabilities,
             &config.name,
             "exec",
@@ -1436,6 +1445,15 @@ async fn gather_snapshot(
     } else {
         owed_judgements.to_vec()
     };
+    // The last week's set-aside items, so Exec stops waiting on them without an owner message.
+    let week_ago = chrono::Utc::now() - chrono::Duration::days(7);
+    let owner_set_aside = org
+        .recent_attention_dismissals(8)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|item| item.dismissed_at >= week_ago)
+        .collect();
     Ok(ContextSnapshot {
         company: config.name.clone(),
         company_display: config
@@ -1444,6 +1462,7 @@ async fn gather_snapshot(
             .unwrap_or_else(|| crate::company::display_name(&config.name)),
         owner_actor_id: owner_actor_id.to_string(),
         human_is_membership_owner,
+        owner_set_aside,
         operating_rules: crate::context::COMPANY_OPERATING_RULES.to_string(),
         mission: config.mission.clone(),
         legal_identity,

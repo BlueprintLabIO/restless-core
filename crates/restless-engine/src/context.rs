@@ -94,6 +94,8 @@ pub struct ContextSnapshot {
     /// Ordinary organisational judgement currently owed by the Exec. The
     /// five irreducible human categories never appear here.
     pub owed_judgements: Vec<OwnerHandoffRow>,
+    /// What the owner set aside as not needed lately: stop waiting on it.
+    pub owner_set_aside: Vec<restless_orgintel::AttentionDismissal>,
     /// At most one focused collaboration mention. The Runtime processes recipient
     /// Attention serially and the durable unresolved row wakes the next turn.
     pub pending_mention: Option<crate::mentions::MentionContext>,
@@ -369,6 +371,14 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
             handoff.prepared_state,
             handoff.resume_condition,
             brief,
+        ));
+    }
+    for item in &snapshot.owner_set_aside {
+        judgements.push_str(&format!(
+            "- set aside by the owner as not needed ({}{}): {} — do not wait on it or ask again; carry on without it unless the owner brings it back\n",
+            item.dismissed_at.format("%Y-%m-%d %H:%M UTC"),
+            item.responsible_actor.as_deref().map(|actor| format!(", asked by {actor}")).unwrap_or_default(),
+            item.title,
         ));
     }
     let mention = snapshot
@@ -798,6 +808,7 @@ mod tests {
             inbox_skills: Default::default(),
             open_goals: vec![],
             owed_judgements: vec![],
+            owner_set_aside: vec![],
             pending_mention: None,
             wake_reason: "owner-requested wake".into(),
             budget_remaining_usd: Some(7.5),

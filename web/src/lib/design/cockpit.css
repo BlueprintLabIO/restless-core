@@ -797,20 +797,17 @@
 	background: var(--surface-pane);
 }
 
-/* With a queue, list and item are one surface split by a hairline, as Linear's Inbox is, rather
- * than two cards. A clear queue still folds the list away (above). */
+/* The Inbox is laid out as every other surface is (Apps, Work, Company): its list sits on the page
+ * beside one card for the item, not as a second card. A clear queue still folds the list away
+ * (above). */
 @media (min-width: 761px) {
 	.bridge-root .attention-screen:not(.queue-clear) {
-		gap: 0;
+		--attention-index-w: 280px;
 	}
 	.bridge-root .attention-screen:not(.queue-clear) > .attention-index {
-		border-top-right-radius: 0;
-		border-bottom-right-radius: 0;
-	}
-	.bridge-root .attention-screen:not(.queue-clear) > .attention-focus {
-		border-left: 0;
-		border-top-left-radius: 0;
-		border-bottom-left-radius: 0;
+		border-color: transparent;
+		background: transparent;
+		box-shadow: none;
 	}
 }
 
@@ -2394,4 +2391,16 @@ html[data-pane-resizing] .bridge-exrail {
 }
 .bridge-root #bridge-exrail.wide .pinned {
 	width: 100%;
+}
+
+/* At the corner of a clear Inbox, so what was set aside stays reachable when the list folds away. */
+.bridge-root .attention-set-aside {
+	position: absolute;
+	z-index: 6;
+	bottom: 12px;
+	left: 12px;
+	padding: 2px;
+	border-radius: var(--radius-control);
+	background: color-mix(in srgb, var(--surface) 86%, transparent);
+	backdrop-filter: blur(7px);
 }

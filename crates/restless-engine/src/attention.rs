@@ -196,6 +196,44 @@ pub struct AttentionAction {
     pub href: Option<String>,
 }
 
+/// Text for the owner with every address that only the company computer can open
+/// (localhost, 127.0.0.1, [::1]) replaced by "the live preview", which the item's own
+/// review action opens through the plane.
+pub fn without_local_addresses(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = ["http://", "https://"]
+        .iter()
+        .filter_map(|scheme| rest.find(scheme))
+        .min()
+    {
+        let (before, from) = rest.split_at(start);
+        out.push_str(before);
+        let end = from
+            .find(|c: char| c.is_whitespace() || matches!(c, '<' | '>' | '"' | '\'' | ')'))
+            .unwrap_or(from.len());
+        let mut url = &from[..end];
+        let trailing = url.len() - url.trim_end_matches(['.', ',', ';', '!', '?']).len();
+        url = &url[..url.len() - trailing];
+        let host = url
+            .split_once("://")
+            .map(|(_, rest)| rest)
+            .unwrap_or(url)
+            .split(['/', '?', '#'])
+            .next()
+            .unwrap_or_default();
+        let host = host.rsplit_once(':').filter(|(name, port)| !name.is_empty() && port.chars().all(|c| c.is_ascii_digit())).map_or(host, |(name, _)| name);
+        if matches!(host, "localhost" | "127.0.0.1" | "[::1]" | "0.0.0.0") {
+            out.push_str("the live preview");
+        } else {
+            out.push_str(url);
+        }
+        rest = &from[url.len()..];
+    }
+    out.push_str(rest);
+    out
+}
+
 // A request belongs to the current direct conversation, not to a separate workflow.
 // Only the latest message can ask for input: replying or a superseding agent reply
 // clears the old request. Merely reading/opening a conversation does not clear it.
@@ -1230,10 +1268,17 @@ pub async fn project(
                     |brief| brief.recommendation.clone(),
                 ))
             },
+            // The owner reads the brief's ask, never a lead's working instruction; without a
+            // brief, an address only the company computer can open reads as the live preview.
             requested_action: if preparing {
                 "Nothing to do yet. The instructions will appear here when ready.".into()
             } else {
-                payment_action.unwrap_or_else(|| handoff.requested_action.clone())
+                payment_action.unwrap_or_else(|| {
+                    brief.map_or_else(
+                        || without_local_addresses(&handoff.requested_action),
+                        |brief| brief.recommendation.clone(),
+                    )
+                })
             },
             if_no_action: payment_no_action.unwrap_or_else(|| brief.map_or_else(
                 || format!("Work remains paused until: {}", handoff.resume_condition),
@@ -1965,6 +2010,18 @@ fn external_source_verification(metadata: &serde_json::Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_owner_never_reads_an_address_only_the_company_computer_can_open() {
+        assert_eq!(
+            without_local_addresses("Inspect the prepared outcome at http://127.0.0.1:8642/. Then decide."),
+            "Inspect the prepared outcome at the live preview. Then decide."
+        );
+        assert_eq!(
+            without_local_addresses("See (http://localhost:3000/a?b=1) and https://example.com/x."),
+            "See (the live preview) and https://example.com/x."
+        );
+    }
 
     #[tokio::test]
     async fn conversation_needs_you_follows_the_latest_direct_message() {

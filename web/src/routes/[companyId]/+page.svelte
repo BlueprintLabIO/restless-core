@@ -15,6 +15,7 @@
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
 	import InboxList from '$lib/components/InboxList.svelte';
 	import InboxDetail from '$lib/components/InboxDetail.svelte';
+	import SetAsideList from '$lib/components/SetAside.svelte';
 	import { attentionTitle } from '$lib/model/attention-presentation';
 	import { formatRelative, formatMoment } from '$lib/ui/time';
 	import Markdown from '$lib/primitives/Markdown.svelte';
@@ -817,6 +818,7 @@
 				</span>
 				<span>All clear</span>
 			</button>
+			{#if queueClear}<div class="attention-set-aside"><SetAsideList {companyId} /></div>{/if}
 			{#if compactScreen && selectedItemId}<a class="attention-mobile-back" href={baseHref}
 					>← Inbox</a
 				>{/if}

@@ -28,6 +28,7 @@
 	import { formatMoment } from '$lib/ui/time';
 	import { fetchAppRequests, type AppRequest } from '$lib/model/app-requests';
 	import { dismissAttention } from '$lib/model/attention';
+	import { initials } from '$lib/model/initials';
 
 	let {
 		companyId,
@@ -158,7 +159,7 @@
 				await dismissAttention(companyId, item.id);
 				await refreshAttention(client, companyId);
 			},
-			item.responsibleActor ? `Dismissed. ${asker} was told.` : 'Dismissed',
+			'Set aside. It is under Set aside in your Inbox if you want it back.',
 			'That was not dismissed. Try again.'
 		);
 	const sendReply = () =>
@@ -252,7 +253,7 @@
 		}
 		if (event.key === 'Escape') (event.currentTarget as HTMLElement).blur();
 	}
-	const initial = (name: string) => name.trim().charAt(0).toUpperCase() || '?';
+	const initial = (name: string) => initials(name) || '?';
 </script>
 
 <article class="inbox-detail" aria-label={attentionTitle(item)}>
@@ -275,8 +276,8 @@
 			class="btn ghost small dismiss"
 			disabled={acting}
 			title={item.responsibleActor
-				? `Not needed. Removes it from your Inbox and tells ${asker}, who carries on without it.`
-				: 'Not needed. Removes it from your Inbox until it comes up again.'}
+				? `Not needed. Off your Inbox and kept under Set aside; ${asker} stops waiting on it.`
+				: 'Not needed. Off your Inbox and kept under Set aside, until it comes up again.'}
 			onclick={() => void dismiss()}>Dismiss</button
 		>
 		<ActionMenu label="More">

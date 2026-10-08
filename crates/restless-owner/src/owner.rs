@@ -1292,6 +1292,8 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/companies/{company}/restore", post(restore_company))
         .route("/companies/{company}/attention", get(attention_view))
         .route("/companies/{company}/attention/dismiss", post(dismiss_attention))
+        .route("/companies/{company}/attention/dismissed", get(dismissed_attention))
+        .route("/companies/{company}/attention/restore", post(restore_attention))
         .route("/companies/{company}/changes", get(company_changes))
         .route(
             "/companies/{company}/sharing/setup",
@@ -2702,9 +2704,16 @@ async fn consume_account_entry_assertion(
     let ttl = network.session_ttl();
     let token = state.sessions.establish(identity, ttl);
     let cookie = format!("{}={token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}", session_cookie_name(&network), ttl.as_secs());
+    // An account page the owner was opening is where they land; only these exact pages are
+    // accepted, so a return can never point anywhere else.
+    let account_return = request
+        .return_to
+        .as_deref()
+        .filter(|path| matches!(*path, "/account/connections" | "/account/ai-apps" | "/account/appearance"));
     let mut response = if form_post {
         Redirect::to(&request.target_company.as_ref()
             .map(|company| format!("/{company}/company"))
+            .or_else(|| account_return.map(str::to_owned))
             .unwrap_or_else(|| "/account/connections".to_owned())).into_response()
     } else {
         Json(serde_json::json!({"entered": true, "account": true})).into_response()
@@ -4885,8 +4894,8 @@ struct DismissAttentionInput {
 }
 
 /// The owner sets an Inbox item aside as not needed. It grants and declines
-/// nothing; the agent that asked is told in its conversation, as if the owner
-/// had typed it, so it stops waiting and decides what to do instead.
+/// nothing and sends no message: the agent that asked reads it in its own
+/// context, and the owner can restore it from the Inbox's set-aside list.
 async fn dismiss_attention(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,
@@ -4909,67 +4918,60 @@ async fn dismiss_attention(
             return api_error(StatusCode::SERVICE_UNAVAILABLE, "projection", format!("{error:#}"))
         }
     };
-    let Some(item) = view.items.into_iter().find(|item| item.id == input.item_id) else {
-        return api_error(StatusCode::NOT_FOUND, "attention", "this item is no longer in the Inbox");
+    // An app request Exec raised shows in its chat before (or without) an Inbox row.
+    let (title, responsible) = match view.items.into_iter().find(|item| item.id == input.item_id) {
+        Some(item) => {
+            let ask = item.requested_action.split_whitespace().collect::<Vec<_>>().join(" ");
+            let title = if ask.is_empty() || ask.chars().count() > 200 { item.title } else { ask };
+            (title, item.responsible_actor.map(|actor| actor.id))
+        }
+        None => match input.item_id.strip_prefix("orgintel:handoff:") {
+            Some(handoff) => match org.app_requests().await {
+                Ok(requests) => match requests.into_iter().find(|request| request.handoff_id.to_string() == handoff) {
+                    Some(request) => (request.requested_action, Some(request.requested_by)),
+                    None => return api_error(StatusCode::NOT_FOUND, "attention", "this item is no longer waiting"),
+                },
+                Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
+            },
+            None => return api_error(StatusCode::NOT_FOUND, "attention", "this item is no longer in the Inbox"),
+        },
     };
-    let owner = principal.actor_id().to_string();
-    if let Err(error) = org.dismiss_attention(&item.id, &owner).await {
+    if let Err(error) = org
+        .dismiss_attention(&input.item_id, principal.actor_id(), &title, responsible.as_deref())
+        .await
+    {
         return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}"));
     }
-    let mut told = None;
-    if let Some(asker) = item.responsible_actor.as_ref() {
-        let actor = asker.id.clone();
-        let ask = item.requested_action.split_whitespace().collect::<Vec<_>>().join(" ");
-        let body = if item.source.kind == "conversation_owner_need" {
-            // Quoting the question answers it, as a reply from the conversation would.
-            let plain: String = ask.chars().filter(|c| !"*_`>#".contains(*c)).collect();
-            let excerpt = if plain.chars().count() > 180 {
-                format!("{}…", plain.chars().take(180).collect::<String>())
-            } else {
-                plain
-            };
-            format!(
-                "> {}: {excerpt}\n\nNot needed, so I dismissed it from my Inbox. Carry on without it.",
-                asker.display
-            )
-        } else {
-            let what = if ask.is_empty() || ask.chars().count() > 200 {
-                item.title.clone()
-            } else {
-                ask
-            };
-            format!(
-                "I dismissed this from my Inbox as not needed: \"{what}\". Don't wait on it; carry on without it, or tell me if it really matters."
-            )
-        };
-        // One message per raising of the item: a retry replays it, a re-raised item tells again.
-        let command = format!(
-            "dismiss:{:x}",
-            Sha256::digest(format!("{}|{}", item.id, item.created_at.timestamp_micros()))
-        );
-        let digest = format!("{:x}", Sha256::digest(body.as_bytes()));
-        if let Ok((message_id, _, created)) = org
-            .send_human_runtime_conversation_message_idempotent_with_standard(
-                &owner, &actor, &body, false, None, &[], &command, &digest,
-            )
-            .await
-        {
-            if created {
-                state
-                    .daemon
-                    .activities
-                    .expect_message(&company, &actor, message_id, None);
-                if actor == "exec" {
-                    if let Ok(mut claims) = state.daemon.in_flight.lock() {
-                        claims.queue_owner_message(&company);
-                    }
-                    state.daemon.schedule_wake.notify_one();
-                }
-            }
-            told = Some(actor);
-        }
+    Json(serde_json::json!({ "dismissed": input.item_id })).into_response()
+}
+
+/// The set-aside list, newest first, for restoring.
+async fn dismissed_attention(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+) -> impl IntoResponse {
+    match state.daemon.orgintel.get(&company).await {
+        Ok(org) => match org.recent_attention_dismissals(50).await {
+            Ok(items) => Json(serde_json::json!({ "items": items })).into_response(),
+            Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
+        },
+        Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
     }
-    Json(serde_json::json!({ "dismissed": item.id, "told": told })).into_response()
+}
+
+/// Bring a set-aside item back to the Inbox.
+async fn restore_attention(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<DismissAttentionInput>,
+) -> impl IntoResponse {
+    match state.daemon.orgintel.get(&company).await {
+        Ok(org) => match org.restore_attention(&input.item_id).await {
+            Ok(restored) => Json(serde_json::json!({ "restored": restored })).into_response(),
+            Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
+        },
+        Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
+    }
 }
 
 #[derive(Deserialize)]

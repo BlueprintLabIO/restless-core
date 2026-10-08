@@ -153,6 +153,7 @@
 			class:sub={kind === 'sub'}
 			class:active={tab.active}
 			href={tab.href}
+			data-sveltekit-reload={/^https?:\/\//.test(tab.href ?? '') || undefined}
 			title={collapsed ? tab.label : tab.tooltip}
 			aria-label={label}
 			aria-current={tab.active ? 'page' : undefined}>{@render inner()}</a

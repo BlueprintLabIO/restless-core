@@ -15,13 +15,15 @@ export function teamName(name: string, companyId = ''): string {
 	return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-/** Up to two initials for an avatar. Leading articles are skipped, so
- * "The Exec" reads E wherever a person appears. */
+/** Two letters for an avatar. A team shares its lead's initial, so one letter cannot tell its
+ * people apart: a one-word name shows its first two letters ("Bea" is Be, "Bodhi" Bo), and two
+ * words their initials. Leading articles and a trailing number are skipped ("The Exec" is Ex). */
 export function initials(name: string): string {
-	return name
+	const words = name
 		.split(/\s+/)
-		.filter((part) => part && !/^(the|a|an)$/i.test(part))
-		.slice(0, 2)
-		.map((part) => part[0]?.toUpperCase() ?? '')
-		.join('');
+		.filter((part) => part && !/^(the|a|an)$/i.test(part) && !/^\d+$/.test(part));
+	const [first = '', second] = words;
+	if (second && /^\p{L}/u.test(second))
+		return `${first[0] ?? ''}${second[0] ?? ''}`.toUpperCase();
+	return `${first.charAt(0).toUpperCase()}${first.charAt(1).toLowerCase()}`;
 }

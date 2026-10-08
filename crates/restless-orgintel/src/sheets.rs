@@ -247,11 +247,47 @@ impl OrgIntel {
         tx.commit().await?;
         Ok(row)
     }
+    /// Archive a sheet out of the Library, or restore it. Whoever may edit it may.
+    pub async fn set_sheet_archived(&self, id: Uuid, actor: &str, archived: bool) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        if access(&mut tx, id, actor, true).await.is_err() {
+            // The company's owner may tidy any sheet they can see, including one an agent made.
+            access(&mut tx, id, actor, false).await?;
+            let company_owner: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM human_principal_actor_bindings WHERE actor_id=$1 AND membership_role='owner' AND membership_status='active')")
+                .bind(actor)
+                .fetch_one(&mut *tx)
+                .await?;
+            if !company_owner && actor != "owner" {
+                return Err(SheetError::Unavailable);
+            }
+        }
+        sqlx::query(
+            "UPDATE native_sheets SET archived_at = CASE WHEN $2 THEN now() ELSE NULL END WHERE id=$1",
+        )
+        .bind(id)
+        .bind(archived)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn list_sheets(&self, actor: &str) -> Result<Vec<SheetRow>> {
+        self.list_sheets_where(actor, false).await
+    }
+
+    /// The archived sheets an actor can see, for restoring.
+    pub async fn list_archived_sheets(&self, actor: &str) -> Result<Vec<SheetRow>> {
+        self.list_sheets_where(actor, true).await
+    }
+
+    async fn list_sheets_where(&self, actor: &str, archived: bool) -> Result<Vec<SheetRow>> {
         let mut tx = self.pool.begin().await?;
         let rows: Vec<SheetRow> = sqlx::query_as(&format!(
-            "SELECT {ROW} FROM native_sheets ORDER BY updated_at DESC LIMIT 100"
+            "SELECT {ROW} FROM native_sheets WHERE (archived_at IS NOT NULL) = $1 \
+             ORDER BY updated_at DESC LIMIT 100"
         ))
+        .bind(archived)
         .fetch_all(&mut *tx)
         .await?;
         let mut visible = Vec::new();

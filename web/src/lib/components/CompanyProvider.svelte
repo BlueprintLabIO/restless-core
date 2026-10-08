@@ -21,7 +21,16 @@
 		affectsCompany
 	} from '$lib/model/intelligence-events';
 	import { getCompanies, type CompanyCatalogEntry } from '$lib/model/cockpit';
+	import { getApplianceStatus } from '$lib/model/appliance';
 	let { companyId }: { companyId: string } = $props();
+	/* On Cloud the account supplies intelligence: this computer has no harness sign-ins, key storage,
+	 * diagnostics or custom harnesses of its own, so those stay out of view instead of retrying. */
+	let hosted = $state(false);
+	onMount(() => {
+		void getApplianceStatus()
+			.then((status) => (hosted = !!status.hosted))
+			.catch(() => {});
+	});
 	const catalogProjection = companiesQuery();
 	const setupIssue = $derived(
 		catalogProjection.view.find((company) => company.id === companyId)?.unstartable_reason
@@ -864,9 +873,11 @@
 
 	<Section
 		title="Advanced"
-		info="Sign-ins and keys that belong to this company only, the model catalog, diagnostics and custom harnesses."
+		info={hosted
+			? 'The model catalog this company chooses from.'
+			: 'Sign-ins and keys that belong to this company only, the model catalog, diagnostics and custom harnesses.'}
 	>
-		<Fold label="Company-only sign-ins">
+		{#if !hosted}<Fold label="Company-only sign-ins">
 			<div class="pad"><HarnessConnections {companyId} /></div>
 		</Fold>
 		<Fold label="Company-only API keys" count={savedCount || null} bind:open={keysOpen}>
@@ -1040,6 +1051,7 @@
 				{/if}
 			</div>
 		</Fold>
+		{/if}
 		<Fold
 			label="Model catalog"
 			hint={catalog.pending
@@ -1064,12 +1076,14 @@
 				>
 			</div>
 		</Fold>
-		<Fold label="Diagnostics">
-			<div class="pad"><HarnessDiagnostics {companyId} /></div>
-		</Fold>
-		<Fold label="Custom harnesses" bind:open={harnessOpen}>
-			<div class="pad" id="harnesses"><CustomHarnesses {companyId} /></div>
-		</Fold>
+		{#if !hosted}
+			<Fold label="Diagnostics">
+				<div class="pad"><HarnessDiagnostics {companyId} /></div>
+			</Fold>
+			<Fold label="Custom harnesses" bind:open={harnessOpen}>
+				<div class="pad" id="harnesses"><CustomHarnesses {companyId} /></div>
+			</Fold>
+		{/if}
 	</Section>
 </Page>
 

@@ -130,7 +130,8 @@
 	{#snippet accountMenu()}
 		<a href="/account/connections">Settings</a>
 		{#if issuer}
-			<a href={`${issuer}/account/settings#support`}>Support</a>
+			<!-- The account's own page: a full load, so the edge sends it to the account, not this plane. -->
+			<a href={`${issuer}/account/settings#support`} data-sveltekit-reload>Support</a>
 			{#if issuer === page.url.origin}
 				<hr />
 				<form method="POST" action="/account?/signOut"><button>Sign out</button></form>

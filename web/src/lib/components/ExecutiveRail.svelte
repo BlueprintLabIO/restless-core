@@ -48,6 +48,8 @@
 	import { agentExchangesQuery, type AgentExchange } from '$lib/model/exchanges.svelte';
 	import HandoffGroup from '$lib/primitives/HandoffGroup.svelte';
 	import AppRequestCards from './AppRequestCards.svelte';
+	import { fetchSetAside } from '$lib/model/attention';
+	import WorkInFlight from './WorkInFlight.svelte';
 
 	let {
 		messages = [],
@@ -424,7 +426,20 @@
 	}
 
 	/* The newest ask still unanswered: only a reply quoting it, or a newer ask, closes it. */
-	const openQuestionIndex = $derived.by(() => findOpenQuestion(visibleMessages, participantName));
+	/* A question the owner set aside from the Inbox is closed here too, without a message. */
+	let setAsideIds = $state<Set<string>>(new Set());
+	$effect(() => {
+		void messages.length;
+		if (membershipRole !== 'owner') return;
+		void fetchSetAside(companyId)
+			.then((items) => (setAsideIds = new Set(items.map((item) => item.item_id))))
+			.catch(() => {});
+	});
+	const openQuestionIndex = $derived.by(() => {
+		const index = findOpenQuestion(visibleMessages, participantName);
+		const message = index >= 0 ? visibleMessages[index] : null;
+		return message && setAsideIds.has(`conversation:${participantId}:${message.id}`) ? -1 : index;
+	});
 	const openQuestion = $derived.by(() =>
 		openQuestionIndex >= 0
 			? (visibleMessages[openQuestionIndex].intent?.ownerNeed?.trim() ?? '')
@@ -989,7 +1004,7 @@
 							>Show earlier messages</button
 						>
 					{/if}
-					{#each everOpened ? visibleMessages : [] as message, i (message.id)}
+					{#each everOpened ? visibleMessages : [] as message, i (message.clientKey ?? message.id)}
 						{#if focusDividerBefore(i)}
 							<div class="conversation-focus-boundary">
 								<span>New focus</span><i aria-hidden="true"></i><span>Company memory retained</span>
@@ -1106,6 +1121,12 @@
 								{/if}
 							</div>
 						{/if}
+						{#if message.from === 'you' && turn && !message.readAt && messageNumericId(message.id) > (turn.triggerMessageId ?? 0)}<p
+								class="queued"
+								title={`${participantName} reads it after the current reply`}
+							>
+								Queued
+							</p>{/if}
 						{#if answeredAt(i)}<p class="answered" title={message.intent?.ownerNeed ?? ''}>
 								<Check size={12} aria-hidden="true" /> You answered · {answeredAt(i)}
 							</p>{/if}
@@ -1167,7 +1188,6 @@
 						{/if}
 					{/if}
 					<HandoffGroup exchanges={handoffsSinceLast} name={exchanges.name} host={participantId} />
-					{#if membershipRole === 'owner'}<AppRequestCards {companyId} actor={participantId} />{/if}
 					{#if receipt}<p class="receipt" role="status">
 							{#if retractable}<button
 									type="button"
@@ -1213,6 +1233,8 @@
 						>
 					{/if}
 				{:else}
+					{#if membershipRole === 'owner' && participantId === 'exec'}<WorkInFlight {companyId} />{/if}
+					{#if membershipRole === 'owner'}<AppRequestCards {companyId} actor={participantId} />{/if}
 					<form class="exr-composer" onsubmit={submitAsk}>
 						{#if quoting}
 							<div class="quoting">
@@ -1572,6 +1594,13 @@
 	.open-fields .btn {
 		grid-column: 1 / -1;
 		justify-self: start;
+	}
+	/* A message sent while the reply is still being written waits, said on the message itself. */
+	.queued {
+		margin: -2px 14px 4px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		text-align: right;
 	}
 	.answered {
 		display: flex;

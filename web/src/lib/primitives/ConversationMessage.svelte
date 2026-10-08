@@ -432,7 +432,7 @@
 			0 4px 14px rgba(43, 51, 66, 0.1);
 	}
 
-	.message-actions :global(:is(button, summary)) {
+	.message-actions :global(:is(button, summary):not(.action-menu-panel *)) {
 		width: 26px;
 		height: 26px;
 		display: grid;
@@ -456,23 +456,23 @@
 	}
 	/* A finger needs a bigger target than a pointer; every button in the toolbar grows alike. */
 	@media (pointer: coarse) {
-		.message-actions :global(:is(button, summary)) {
+		.message-actions :global(:is(button, summary):not(.action-menu-panel *)) {
 			width: 44px;
 			height: 44px;
 		}
 	}
-	.message-actions :global(:is(button, summary) svg) {
+	.message-actions :global(:is(button, summary):not(.action-menu-panel *) svg) {
 		width: 14px;
 		height: 14px;
 	}
-	.message-actions :global(:is(button, summary):hover) {
+	.message-actions :global(:is(button, summary):not(.action-menu-panel *):hover) {
 		background: color-mix(in srgb, var(--ink) 7%, transparent);
 		color: var(--ink);
 	}
-	.message-actions :global(:is(button, summary):active) {
+	.message-actions :global(:is(button, summary):not(.action-menu-panel *):active) {
 		transform: scale(0.9);
 	}
-	.message-actions :global(:is(button, summary):focus-visible) {
+	.message-actions :global(:is(button, summary):not(.action-menu-panel *):focus-visible) {
 		outline: 2px solid color-mix(in srgb, var(--intent-conversation) 40%, transparent);
 		outline-offset: 0;
 	}

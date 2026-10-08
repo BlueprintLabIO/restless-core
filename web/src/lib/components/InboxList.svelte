@@ -16,7 +16,8 @@
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { Item } from '$lib/ui/page';
 	import { useQueryClient } from '@tanstack/svelte-query';
-	import { completeHandoffHumanStep } from '$lib/model/attention';
+	import { completeHandoffHumanStep, dismissAttention } from '$lib/model/attention';
+	import SetAsideList from './SetAside.svelte';
 	import { refreshAttention } from '$lib/model/queries.svelte';
 	import {
 		attentionAsker,
@@ -54,6 +55,10 @@
 	let undoId = $state('');
 	let completing = $state('');
 	let clock = $state(Date.now());
+	async function notNeeded(item: AttentionItem) {
+		await dismissAttention(companyId, item.id).catch(() => null);
+		await refreshAttention(client, companyId);
+	}
 
 	const snoozedCount = $derived(items.filter((item) => (snoozed[item.id] ?? 0) > clock).length);
 	const visible = $derived(
@@ -264,6 +269,10 @@
 							>{/if}
 						{#if canDecline(item)}<a href={`${href(item.id)}&decline=1`}>Not doing this…</a>{/if}
 						<button onclick={() => snooze(item)}>Snooze for an hour <kbd>H</kbd></button>
+						<button
+							title="Not needed: off your Inbox, kept under Set aside. Whoever asked stops waiting."
+							onclick={() => void notNeeded(item)}>Not needed</button
+						>
 						<button onclick={() => copy(item)}>Copy link</button>
 					</ActionMenu>
 				{/snippet}
@@ -274,10 +283,14 @@
 		{:else if !loaded && !failure}
 			<div class="waiting" aria-label="Loading the Inbox"><i></i><i></i><i></i></div>
 		{/if}
+		<div class="set-aside-slot"><SetAsideList {companyId} version={items.length} /></div>
 	</div>
 </div>
 
 <style>
+	.set-aside-slot {
+		margin: 12px 8px 8px;
+	}
 	.inbox {
 		display: grid;
 		grid-template-rows: auto auto minmax(0, 1fr);

@@ -87,15 +87,29 @@
 		saving = true;
 		inFlight = (async () => {
 			try {
-				const response = await fetch(endpoint, {
-					method: 'PUT',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ display_name: next, ...stored })
-				});
-				const body = await response.json();
-				if (!response.ok)
-					throw new Error(body.message ?? 'The name was not saved. Your edit is kept.');
-				stored = { ...stored, revision: body.revision };
+				if (hosted) {
+					// On Cloud the account owns the name; it is renamed there, right here.
+					const response = await fetch('/account/company-name', {
+						method: 'POST',
+						headers: { 'content-type': 'application/json' },
+						credentials: 'same-origin',
+						body: JSON.stringify({ company: companyId, name: next })
+					});
+					if (!response.ok) {
+						const body = await response.json().catch(() => null);
+						throw new Error(body?.message ?? 'The name was not saved. Your edit is kept.');
+					}
+				} else {
+					const response = await fetch(endpoint, {
+						method: 'PUT',
+						headers: { 'content-type': 'application/json' },
+						body: JSON.stringify({ display_name: next, ...stored })
+					});
+					const body = await response.json();
+					if (!response.ok)
+						throw new Error(body.message ?? 'The name was not saved. Your edit is kept.');
+					stored = { ...stored, revision: body.revision };
+				}
 				savedName = next;
 				saveState = 'saved';
 				sessionStorage.removeItem(draftKey);
@@ -114,12 +128,20 @@
 		return inFlight;
 	}
 
-	/* On Cloud the account owns the name: it shows here and is renamed from Home. */
-	let hostedHome = $state<string | null>(null);
+	/* On Cloud the account owns the name: it is edited here all the same and saved to the account. */
+	let hosted = $state(false);
 	$effect(() => {
 		const controller = new AbortController();
 		void getApplianceStatus(controller.signal)
-			.then((status) => (hostedHome = status.hosted ? (status.home_url ?? null) : null))
+			.then((status) => {
+				hosted = !!status.hosted;
+				// The account's name is the one the owner sees in their portfolio.
+				const listed = catalog.view.find((entry) => entry.id === companyId)?.name;
+				if (hosted && listed && !dirty) {
+					savedName = listed;
+					name = listed;
+				}
+			})
 			.catch(() => {});
 		return () => controller.abort();
 	});
@@ -129,14 +151,7 @@
 	});
 </script>
 
-{#if hostedHome}
-	<span class="name-field">
-		<span class="name-read">{name || 'New company'}</span>
-		<a class="name-state" href={hostedHome} title="On Cloud, rename a company from its menu on Home"
-			>Rename on Home</a
-		>
-	</span>
-{:else}
+
 	<span class="name-field">
 		<input
 			aria-label="Company name"
@@ -163,7 +178,7 @@
 						: ''}</span
 		>
 	</span>
-{/if}
+
 
 <style>
 	.name-field {
@@ -182,16 +197,6 @@
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 		white-space: nowrap;
-	}
-	.name-read {
-		color: var(--ink);
-	}
-	a.name-state {
-		color: var(--intent-conversation);
-		text-decoration: none;
-	}
-	a.name-state:hover {
-		text-decoration: underline;
 	}
 	.name-state:empty {
 		display: none;

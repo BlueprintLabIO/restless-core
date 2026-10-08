@@ -258,6 +258,13 @@ pub fn model_input(state: &SheetState) -> Value {
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SheetOperation {
     List,
+    /// Archived sheets, for restoring.
+    Archived,
+    /// Archive a sheet out of the Library, or restore it.
+    Archive {
+        sheet: Uuid,
+        archived: bool,
+    },
     Create {
         id: Uuid,
         title: String,
@@ -316,6 +323,11 @@ pub async fn execute(
 ) -> Result<Value> {
     match operation {
         SheetOperation::List => Ok(json!(org.list_sheets(actor).await?)),
+        SheetOperation::Archived => Ok(json!(org.list_archived_sheets(actor).await?)),
+        SheetOperation::Archive { sheet, archived } => {
+            org.set_sheet_archived(sheet, actor, archived).await?;
+            Ok(json!({ "sheet": sheet, "archived": archived }))
+        }
         SheetOperation::Create {
             id,
             title,

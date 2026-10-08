@@ -480,7 +480,7 @@
 				><button
 					type="button"
 					class="link-button"
-					title={`Not needed. Tells ${request.asker}, who carries on without it.`}
+					title={`Not needed. Kept under Set aside in your Inbox; ${request.asker} stops waiting on it.`}
 					disabled={!!busy}
 					onclick={() =>
 						act(

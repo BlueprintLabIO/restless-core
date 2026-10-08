@@ -1781,6 +1781,10 @@ pub async fn roll_forward_runtimes(daemon: &Daemon, configs: &[runtime::CompanyC
     // Each look first makes sure the image is here. If this plane cannot pull it (on Cloud the VM
     // agent prefetches it with registry credentials the plane does not hold), a later look finds it
     // once it lands. Observed on Cloud, 7 October: a private image failed the plane's only pull.
+    //
+    // A computer in use is not replaced under the owner: a company that is busy waits for a quiet
+    // moment (see `company_busy`), looked for every ten minutes after the four looks, for up to
+    // six hours, after which it is rebuilt regardless so no company stays on an old release.
     const DELAYS: [u64; 4] = [0, 60, 300, 900];
     let mut fetched = false;
     for (look, delay) in DELAYS.into_iter().enumerate() {
@@ -1799,10 +1803,42 @@ pub async fn roll_forward_runtimes(daemon: &Daemon, configs: &[runtime::CompanyC
         );
         roll_forward_once(daemon, configs).await;
     }
+    while fetched && roll_forward_deferred() {
+        note_roll_forward_stage("waiting_for_quiet", Some("a company is in use; looking again in 10 minutes".into()));
+        tokio::time::sleep(std::time::Duration::from_secs(600)).await;
+        roll_forward_once(daemon, configs).await;
+    }
     // A last look that could not fetch keeps its fetch_failed stage, with the reason.
     if fetched {
         note_roll_forward_stage("done", None);
     }
+}
+
+/// When each company's rebuild was first held back because it was in use.
+static DEFERRED_SINCE: std::sync::LazyLock<std::sync::Mutex<std::collections::BTreeMap<String, chrono::DateTime<Utc>>>> =
+    std::sync::LazyLock::new(Default::default);
+const MAX_DEFERRAL_HOURS: i64 = 6;
+
+fn roll_forward_deferred() -> bool {
+    DEFERRED_SINCE.lock().map(|deferred| !deferred.is_empty()).unwrap_or(false)
+}
+
+/// Why a company's computer should not be replaced right now, if it should not: Exec is mid-turn,
+/// an agent's Work is running, or the owner wrote in the last ten minutes.
+async fn company_busy(daemon: &Daemon, company: &str) -> Option<String> {
+    if daemon.in_flight.lock().map(|claims| claims.is_active(company)).unwrap_or(false) {
+        return Some("Exec is working".into());
+    }
+    let org = daemon.orgintel.get(company).await.ok()?;
+    if org.list_running_work_attempts().await.map(|attempts| !attempts.is_empty()).unwrap_or(false) {
+        return Some("Work is running".into());
+    }
+    let owner = org.current_membership_owner_actor_id().await.ok().flatten().unwrap_or_else(|| "owner".into());
+    let recent = org.human_conversation(&owner, "exec", 1).await.ok().and_then(|mut messages| messages.pop());
+    if recent.is_some_and(|message| message.created_at > Utc::now() - chrono::Duration::minutes(10)) {
+        return Some("the owner is in a conversation".into());
+    }
+    None
 }
 
 /// Each company's latest roll-forward look on this plane, for the plane's /health: what it saw and
@@ -1870,7 +1906,23 @@ async fn roll_forward_once(daemon: &Daemon, configs: &[runtime::CompanyConfig]) 
             }
         };
         if !drifted {
+            if let Ok(mut deferred) = DEFERRED_SINCE.lock() {
+                deferred.remove(&config.name);
+            }
             continue;
+        }
+        if let Some(reason) = company_busy(daemon, &config.name).await {
+            let since = DEFERRED_SINCE
+                .lock()
+                .map(|mut deferred| *deferred.entry(config.name.clone()).or_insert_with(Utc::now))
+                .unwrap_or_else(|_| Utc::now());
+            if Utc::now() - since < chrono::Duration::hours(MAX_DEFERRAL_HOURS) {
+                note_roll_forward(&config.name, "waiting_for_quiet", Some(reason));
+                continue;
+            }
+        }
+        if let Ok(mut deferred) = DEFERRED_SINCE.lock() {
+            deferred.remove(&config.name);
         }
         tracing::info!(company = %config.name, "rebuilding the company computer on this plane's release");
         match recover(daemon, config, RecoveryAction::Reconcile, "daemon").await {

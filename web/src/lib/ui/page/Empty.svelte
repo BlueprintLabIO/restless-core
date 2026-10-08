@@ -23,30 +23,25 @@
 
 <div class="empty" class:compact title={info}>
 	<span class="empty-icon" aria-hidden="true"
-		><Icon size={compact ? 16 : 20} strokeWidth={1.6} /></span
+		><Icon size={16} strokeWidth={1.6} /></span
 	>
 	<p>{title}</p>
 	{#if action}<div class="empty-action">{@render action()}</div>{/if}
 </div>
 
 <style>
+	/* One quiet row everywhere: the line on the left, the action on the right. A big centred
+	 * block made an empty corner of a page louder than its content. */
 	.empty {
-		display: grid;
-		justify-items: center;
-		align-content: center;
-		gap: 10px;
-		min-height: 240px;
-		padding: 32px 16px;
-		text-align: center;
-	}
-	.empty.compact {
 		display: flex;
-		justify-content: flex-start;
+		align-items: center;
+		gap: 10px;
 		min-height: 52px;
 		padding: 10px 16px;
 		text-align: left;
 	}
 	.empty-icon {
+		display: inline-flex;
 		color: var(--text-tertiary);
 	}
 	p {
@@ -54,7 +49,7 @@
 		color: var(--text-secondary);
 		font-size: var(--t-body);
 	}
-	.compact .empty-action {
+	.empty-action {
 		margin-left: auto;
 	}
 </style>

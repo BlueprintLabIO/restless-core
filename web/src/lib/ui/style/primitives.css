@@ -22,10 +22,10 @@
 	min-height: 32px;
 	padding: 0 14px;
 	text-decoration: none;
-	border: 1px solid var(--edge-control);
+	border: 1px solid var(--border-strong);
 	border-radius: var(--radius-control);
-	background: var(--surface-raised);
-	box-shadow: var(--bevel), var(--control-depth);
+	background: var(--surface-pane, var(--surface));
+	box-shadow: none;
 	color: var(--ink);
 	font: inherit;
 	font-size: var(--t-body);
@@ -44,17 +44,13 @@
 
 :is(.bridge-root, .bridge-tokens) .btn:hover:not(:disabled),
 :is(.bridge-root, .bridge-tokens) .hold-approve:hover:not(:disabled) {
-	border-color: var(--edge-control-hover);
-	background: var(--surface-hover);
+	background: var(--surface-alt, var(--surface-hover));
 }
 
-/* A press is felt, not watched: the control settles by a hair and its light
- * edge sinks. */
+/* Flat, as everywhere else: a press is felt as a hair of settle, no sinking bevel. */
 :is(.bridge-root, .bridge-tokens) .btn:active:not(:disabled),
 :is(.bridge-root, .bridge-tokens) .hold-approve:active:not(:disabled) {
-	transform: scale(0.985);
-	background: var(--surface-press);
-	box-shadow: var(--control-depth-pressed);
+	transform: scale(0.98);
 }
 
 :is(.bridge-root, .bridge-tokens) .btn:disabled,
@@ -64,40 +60,28 @@
 	box-shadow: none;
 }
 
-/* One primary per surface: solid ink, a lit top edge and a crisp contact
- * shadow. Pale tints read as disabled at a glance; this reads as the way on. */
+/* One primary per surface: one flat fill in the conversation hue, no gradient, bevel or shadow;
+ * the same as Cloud's, so the product has one button. */
 :is(.bridge-root, .bridge-tokens) .btn.primary {
-	border-color: var(--primary-edge);
-	background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 88%, #fff), var(--primary));
-	box-shadow:
-		inset 0 1px 0 color-mix(in srgb, var(--highlight) 20%, transparent),
-		0 1px 2px rgba(20, 32, 52, 0.22);
-	color: var(--on-primary);
+	border-color: transparent;
+	background: var(--intent-conversation);
+	color: #fff;
 }
 
 :is(.bridge-root, .bridge-tokens) .btn.primary:hover:not(:disabled) {
-	border-color: var(--primary-edge);
-	background: linear-gradient(
-		180deg,
-		color-mix(in srgb, var(--primary) 80%, #fff),
-		color-mix(in srgb, var(--primary) 94%, #fff)
-	);
-}
-
-:is(.bridge-root, .bridge-tokens) .btn.primary:active:not(:disabled) {
-	background: color-mix(in srgb, var(--primary) 92%, #000);
-	box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
+	border-color: transparent;
+	background: color-mix(in srgb, var(--intent-conversation) 86%, black);
 }
 
 :is(.bridge-root, .bridge-tokens) .btn.danger {
-	border-color: color-mix(in srgb, var(--state-danger) 38%, var(--border));
+	border-color: transparent;
 	background: var(--state-danger-soft);
 	color: var(--state-danger);
 }
 
 :is(.bridge-root, .bridge-tokens) .btn.danger:hover:not(:disabled) {
-	border-color: color-mix(in srgb, var(--state-danger) 55%, var(--border));
-	background: color-mix(in srgb, var(--state-danger) 14%, var(--surface-raised));
+	border-color: transparent;
+	background: color-mix(in srgb, var(--state-danger) 14%, var(--state-danger-soft));
 }
 
 :is(.bridge-root, .bridge-tokens) .btn.small,

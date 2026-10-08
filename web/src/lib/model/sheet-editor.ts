@@ -22,6 +22,40 @@ export interface EditorStatus {
 	denied?: boolean;
 }
 type UpstreamMessage = Record<string, any>;
+
+/* Columns fit what they hold the first time an editor opens a sheet, as a real edit everyone
+ * shares, then stay as people set them. A column of long links is capped so it cannot swallow
+ * the view. */
+const FIT_MAX_WIDTH = 320;
+function fitColumnsOnce(model: any, sheet: string) {
+	const key = `restless:sheet-fitted:${sheet}`;
+	try {
+		if (localStorage.getItem(key)) return;
+		localStorage.setItem(key, '1');
+	} catch {
+		return;
+	}
+	for (const sheetId of model.getters.getSheetIds()) {
+		// Only columns that hold something: an empty column keeps the default width.
+		const used = [
+			...new Set(
+				Object.keys(model.getters.getCells(sheetId) ?? {}).map(
+					(cellId) => model.getters.getCellPosition(cellId).col as number
+				)
+			)
+		];
+		if (!used.length) continue;
+		model.dispatch('AUTORESIZE_COLUMNS', { sheetId, cols: used });
+		const wide = used.filter((col) => model.getters.getColSize(sheetId, col) > FIT_MAX_WIDTH);
+		if (wide.length)
+			model.dispatch('RESIZE_COLUMNS_ROWS', {
+				sheetId,
+				dimension: 'COL',
+				elements: wide,
+				size: FIT_MAX_WIDTH
+			});
+	}
+}
 export function mountSheet(
 	element: HTMLDivElement,
 	company: string,
@@ -193,6 +227,7 @@ export function mountSheet(
 							mounted.destroy();
 							return;
 						}
+						if (access === 'edit') fitColumnsOnce(model, sheet);
 					} else for (const m of state.messages) accepted(m.sequence, m.message);
 					model.updateMode(access === 'edit' ? 'normal' : 'readonly');
 					for (const message of pending.values()) socket?.send(JSON.stringify(message));

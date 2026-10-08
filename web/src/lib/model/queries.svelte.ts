@@ -406,6 +406,8 @@ export function conversationQuery(
 	let live = $state<AgentActivityState | null>(null);
 	let transport = $state<ActivityTransport>('idle');
 	let pending = $state<ThreadMessage | null>(null);
+	/* A sent message keeps the key it was drawn with once its saved id arrives. */
+	const sentKeys = new Map<string, string>();
 	let followingMessageId = $state<number | null>(null);
 	let stop: (() => void) | null = null;
 	let uncertainCommand: {
@@ -493,9 +495,11 @@ export function conversationQuery(
 			const conversation = query.data as ActorConversation | undefined;
 			const actorDisplay =
 				conversation?.actor.id === 'exec' ? 'Exec' : (conversation?.actor.display ?? actorId);
-			const messages = (conversation?.messages ?? []).map((message) =>
-				threadMessage(message, actorDisplay, viewerActorId)
-			);
+			const messages = (conversation?.messages ?? []).map((message) => {
+				const thread = threadMessage(message, actorDisplay, viewerActorId);
+				const key = sentKeys.get(thread.id);
+				return key ? { ...thread, clientKey: key } : thread;
+			});
 			return pending && !messages.some((message) => message.id === pending?.id)
 				? [...messages, pending]
 				: messages;
@@ -609,7 +613,11 @@ export function conversationQuery(
 				}
 				throw error;
 			}
-			if (pending?.id === optimisticId) pending.id = String(result.messageId);
+			sentKeys.set(String(result.messageId), optimisticId);
+			if (pending?.id === optimisticId) {
+				pending.clientKey = optimisticId;
+				pending.id = String(result.messageId);
+			}
 			if (queryEnabled(followLiveActivity)) follow(result.messageId, sentAt);
 			void client.invalidateQueries({ queryKey: key });
 			void client.invalidateQueries({ queryKey: ['recent-direct-conversations', companyId] });

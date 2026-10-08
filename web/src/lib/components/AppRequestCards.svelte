@@ -70,67 +70,84 @@
 </script>
 
 {#each requests as request (request.handoff_id)}
-	<div class="app-request" title={request.work_title ? `For “${request.work_title}”` : undefined}>
-		<p><strong>Add {label(request)}?</strong> {request.reason}</p>
-		<div class="row">
-			<button
-				type="button"
-				class="btn primary small"
-				disabled={!!busy}
-				title="Adds it, checks it works and lets the company use it. Anything that acts asks you first."
-				onclick={() => add(request)}
-				>{busy === request.handoff_id ? 'Adding…' : `Add ${label(request)}`}</button
-			>
-			<button
-				type="button"
-				class="btn ghost small"
-				disabled={!!busy}
-				title={`Not needed. Tells ${request.asker}, who carries on without it.`}
-				onclick={() =>
-					act(request, () => dismissAttention(companyId, `orgintel:handoff:${request.handoff_id}`))}
-				>Not needed</button
-			>
-			<a class="more" href={request.href(companyId)}>Details</a>
-		</div>
+	<div
+		class="app-request"
+		title={`${request.reason}${request.work_title ? `\nFor “${request.work_title}”` : ''}`}
+	>
+		<span class="app-request-text"><strong>{request.asker} wants {label(request)}</strong></span>
+		<button
+			type="button"
+			class="btn primary small"
+			disabled={!!busy}
+			title="Adds it, checks it works and lets the company use it. Anything that acts asks you first."
+			onclick={() => add(request)}>{busy === request.handoff_id ? 'Adding…' : 'Add'}</button
+		>
+		<a class="more" href={request.href(companyId)} title="Details">Details</a>
+		<button
+			type="button"
+			class="dismiss"
+			aria-label="Not needed"
+			disabled={!!busy}
+			title={`Not needed. Kept under Set aside in your Inbox; ${request.asker} stops waiting on it.`}
+			onclick={() =>
+				act(request, () => dismissAttention(companyId, `orgintel:handoff:${request.handoff_id}`))}
+			>×</button
+		>
 	</div>
 {/each}
 {#if error}<p class="error" role="alert">{error}</p>{/if}
 
 <style>
+	/* One slim line above the composer: the ask, Add, and a way to say not needed. */
 	.app-request {
-		display: grid;
-		gap: 8px;
-		margin: 6px 14px;
-		padding: 10px 12px;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin: 0 10px 6px;
+		padding: 4px 4px 4px 10px;
 		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
+		border-radius: var(--radius-control);
 		background: var(--surface);
-		font-size: var(--t-body);
+		font-size: var(--t-label);
 	}
-	.app-request p {
-		margin: 0;
+	.app-request-text {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
 		color: var(--text-secondary);
-		line-height: 1.5;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.app-request strong {
 		color: var(--ink);
 		font-weight: 500;
 	}
-	.row {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-	}
 	.more {
-		margin-left: auto;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
 	.more:hover {
 		color: var(--ink);
 	}
+	.dismiss {
+		display: grid;
+		place-items: center;
+		width: 24px;
+		height: 24px;
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-control);
+		background: none;
+		color: var(--text-tertiary);
+		font-size: var(--t-head);
+		cursor: pointer;
+	}
+	.dismiss:hover {
+		background: var(--wash-hover);
+		color: var(--ink);
+	}
 	.error {
-		margin: 0 14px;
+		margin: 0 14px 6px;
 		color: var(--state-danger);
 		font-size: var(--t-label);
 	}

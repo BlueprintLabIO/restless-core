@@ -4553,6 +4553,38 @@ impl OrgIntel {
         )
     }
 
+    /// Archive a document out of the Library, or restore it (to a draft). Whoever may edit it may,
+    /// and so may the company's owner for any document they can see.
+    pub async fn set_document_archived(
+        &self,
+        document_id: Uuid,
+        actor_id: &str,
+        archived: bool,
+    ) -> DocumentResult<()> {
+        let mut tx = self.pool.begin().await?;
+        let access = access_in_transaction(&mut tx, document_id, actor_id)
+            .await?
+            .ok_or(DocumentError::Unavailable)?;
+        if !access.permits(DocumentAccess::Edit) {
+            let company_owner: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM human_principal_actor_bindings WHERE actor_id=$1 AND membership_role='owner' AND membership_status='active')")
+                .bind(actor_id)
+                .fetch_one(&mut *tx)
+                .await?;
+            if !company_owner && actor_id != "owner" {
+                return Err(DocumentError::Unavailable);
+            }
+        }
+        sqlx::query(
+            "UPDATE native_documents SET status = CASE WHEN $2 THEN 'archived'::native_document_status              WHEN status='archived' THEN 'draft'::native_document_status ELSE status END,              version=version+1, updated_at=now() WHERE id=$1",
+        )
+        .bind(document_id)
+        .bind(archived)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn list_documents_for_actor(
         &self,
         actor_id: &str,

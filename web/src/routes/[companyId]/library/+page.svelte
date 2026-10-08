@@ -20,6 +20,8 @@
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import { documentsQuery } from '$lib/model/document-queries.svelte';
 	import { sheetJson, type SheetRow } from '$lib/model/sheets';
+	import { getDocuments, type DocumentSummary } from '$lib/model/documents';
+	import ArchiveIcon from '@lucide/svelte/icons/archive';
 	import {
 		attentionQuery,
 		cockpitQuery,
@@ -62,7 +64,50 @@
 			});
 	});
 
-	type Filter = 'all' | 'docs' | 'sheets' | 'review';
+	/* Archived: out of every list, one view in the sidebar, restorable. */
+	let archivedDocs = $state<DocumentSummary[]>([]);
+	let archivedSheets = $state<SheetRow[]>([]);
+	let archiveBusy = $state('');
+	async function loadArchived() {
+		const target = companyId;
+		const [docs, sheetRows] = await Promise.all([
+			getDocuments(target, null, 50, true).catch(() => null),
+			sheetJson<SheetRow[]>(target, '-archived').catch(() => null)
+		]);
+		if (target !== companyId) return;
+		if (docs) archivedDocs = docs.items.filter((item) => item.document.status === 'archived');
+		if (sheetRows) archivedSheets = sheetRows;
+	}
+	$effect(() => {
+		if (principal.view) void loadArchived();
+	});
+	async function setArchived(entry: { id: string; kind: 'doc' | 'sheet' }, archived: boolean) {
+		if (archiveBusy) return;
+		archiveBusy = entry.id;
+		try {
+			const path =
+				entry.kind === 'doc'
+					? `/api/companies/${encodeURIComponent(companyId)}/documents/${encodeURIComponent(entry.id)}/archive`
+					: `/api/companies/${encodeURIComponent(companyId)}/sheets/${encodeURIComponent(entry.id)}/archive`;
+			const response = await fetch(path, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				credentials: 'same-origin',
+				body: JSON.stringify({ archived })
+			});
+			if (!response.ok) return;
+			if (entry.kind === 'sheet') {
+				sheets = await sheetJson<SheetRow[]>(companyId).catch(() => sheets);
+			} else {
+				await documents.refresh();
+			}
+			await loadArchived();
+		} finally {
+			archiveBusy = '';
+		}
+	}
+
+	type Filter = 'all' | 'docs' | 'sheets' | 'review' | 'archived';
 	const filter = $derived((page.url.searchParams.get('show') as Filter) || 'all');
 	let search = $state('');
 	let creator: LibraryNew | undefined = $state();
@@ -119,16 +164,42 @@
 			}))
 		].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
 	);
+	const archivedEntries = $derived<Entry[]>(
+		[
+			...archivedDocs.map((summary) => ({
+				id: summary.document.id,
+				kind: 'doc' as const,
+				title: summary.document.title || 'Untitled document',
+				href: `${root}/library/documents?document=${encodeURIComponent(summary.document.id)}`,
+				updatedAt: summary.document.updated_at,
+				owner: name(summary.document.owner_actor_id),
+				status: '',
+				review: false
+			})),
+			...archivedSheets.map((sheet) => ({
+				id: sheet.id,
+				kind: 'sheet' as const,
+				title: sheet.title || 'Untitled sheet',
+				href: `${root}/library/sheets?sheet=${encodeURIComponent(sheet.id)}`,
+				updatedAt: sheet.updated_at,
+				owner: name(sheet.owner_actor_id),
+				status: '',
+				review: false
+			}))
+		].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+	);
 	const counts = $derived({
 		all: entries.length,
 		docs: entries.filter((entry) => entry.kind === 'doc').length,
 		sheets: entries.filter((entry) => entry.kind === 'sheet').length,
-		review: entries.filter((entry) => entry.review).length
+		review: entries.filter((entry) => entry.review).length,
+		archived: archivedEntries.length
 	});
 	const shown = $derived(
-		entries.filter(
+		(filter === 'archived' ? archivedEntries : entries).filter(
 			(entry) =>
 				(filter === 'all' ||
+					filter === 'archived' ||
 					(filter === 'docs' && entry.kind === 'doc') ||
 					(filter === 'sheets' && entry.kind === 'sheet') ||
 					(filter === 'review' && entry.review)) &&
@@ -140,7 +211,8 @@
 		{ key: 'all', label: 'All', icon: Library },
 		{ key: 'docs', label: 'Documents', icon: FileText },
 		{ key: 'sheets', label: 'Sheets', icon: Sheet },
-		{ key: 'review', label: 'Needs your review', icon: Eye }
+		{ key: 'review', label: 'Needs your review', icon: Eye },
+		{ key: 'archived', label: 'Archived', icon: ArchiveIcon }
 	];
 
 	const filterHref = (key: Filter) =>
@@ -269,6 +341,19 @@
 									/>{/if}
 								<RelativeTime value={entry.updatedAt} />
 							{/snippet}
+							{#snippet actions()}
+								<ActionMenu label={`Actions for ${entry.title}`}>
+									<a href={entry.href}>Open</a>
+									{#if filter === 'archived'}<button
+											disabled={!!archiveBusy}
+											onclick={() => void setArchived(entry, false)}>Restore</button
+										>{:else}<button
+											disabled={!!archiveBusy}
+											title="Out of the Library lists, kept under Archived; restore it any time."
+											onclick={() => void setArchived(entry, true)}>Archive</button
+										>{/if}
+								</ActionMenu>
+							{/snippet}
 						</Item>
 					{/each}
 					{#if documents.hasMore && filter !== 'sheets'}<button
@@ -284,10 +369,12 @@
 						? 'Nothing matches that search'
 						: filter === 'review'
 							? 'Nothing is waiting for your review'
-							: 'Nothing here yet'}
+							: filter === 'archived'
+								? 'Nothing is archived'
+								: 'Nothing here yet'}
 					info="Documents and sheets the company writes appear here. Agents add to it as they work."
 				>
-					{#snippet action()}{#if !search && filter !== 'review'}<button
+					{#snippet action()}{#if !search && filter !== 'review' && filter !== 'archived'}<button
 								class="btn small"
 								type="button"
 								onclick={() => creator?.open(filter === 'sheets' ? 'sheet' : 'doc')}

@@ -60,6 +60,10 @@ where
             get(get_document).patch(update_document),
         )
         .route(
+            "/companies/{company}/documents/{document}/archive",
+            post(archive_document),
+        )
+        .route(
             "/companies/{company}/documents/{document}/collaboration/token",
             post(issue_document_collaboration_token),
         )
@@ -1192,6 +1196,33 @@ async fn import_document_markdown(
         .await
     {
         Ok(result) => document_json(StatusCode::CREATED, result),
+        Err(error) => document_error(error),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArchiveDocumentInput {
+    archived: bool,
+}
+
+/// Archive a document out of the Library, or restore it.
+async fn archive_document(
+    State(state): State<RoomApiState>,
+    DocumentPrincipal(principal): DocumentPrincipal,
+    AxumPath((company, document)): AxumPath<(String, Uuid)>,
+    Json(input): Json<ArchiveDocumentInput>,
+) -> Response<Body> {
+    let org = match document_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .set_document_archived(document, principal.actor_id(), input.archived)
+        .await
+    {
+        Ok(()) => Json(serde_json::json!({ "document": document, "archived": input.archived }))
+            .into_response(),
         Err(error) => document_error(error),
     }
 }
