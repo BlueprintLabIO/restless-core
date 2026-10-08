@@ -2107,8 +2107,7 @@
 
 .bridge-root .exr-composer {
 	padding: 10px;
-	background: color-mix(in srgb, var(--highlight) 58%, transparent);
-	box-shadow: 0 -10px 30px rgba(43, 51, 66, 0.035);
+	background: transparent;
 }
 
 .bridge-root .exec-context-line {

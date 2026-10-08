@@ -89,7 +89,8 @@
 			case 'responding':
 				return `${participantName} is replying`;
 			case 'complete':
-				return `${participantName} finished replying`;
+				/* Done is not news: the reply itself says so. */
+				return 'Replied';
 			case 'failed':
 				return 'Reply interrupted';
 			case 'queued':
@@ -264,6 +265,23 @@
 		box-shadow: inset 2px 0 0 color-mix(in srgb, var(--intent-conversation) 42%, transparent);
 	}
 
+	/* A finished reply is a faint receipt, not a band: no tint, no edge, smaller words. Live work
+	 * keeps the band, because then it is the news. */
+	.conversation-turn-dock[data-phase='complete']:not(.expanded) {
+		border-block-color: transparent;
+		background: transparent;
+		box-shadow: none;
+	}
+	.conversation-turn-dock[data-phase='complete']:not(.expanded) .turn-summary {
+		gap: 6px;
+		padding-block: 4px;
+		font-size: var(--t-label);
+		opacity: 0.75;
+	}
+	.conversation-turn-dock[data-phase='complete']:not(.expanded) .terminal-mark :global(svg) {
+		width: 12px;
+		height: 12px;
+	}
 	.turn-summary {
 		width: 100%;
 		min-width: 0;

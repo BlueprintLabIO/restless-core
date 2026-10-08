@@ -95,10 +95,10 @@
 			: ''
 	);
 
-	/* Takeaway first: an agent's own one-line reading of the message leads, and
-	 * a long body folds beneath it until the owner asks for the rest. */
+	/* Takeaway first: an agent's own one-line reading of the message leads. A reply reads in full;
+	 * only something genuinely long (a pasted report, a log) folds, and then late. */
 	const takeaway = $derived(sender === 'agent' ? (intent?.summary?.trim() ?? '') : '');
-	const long = $derived(text.split(/\s+/).length > (takeaway ? 60 : 160));
+	const long = $derived(text.split(/\s+/).length > 450);
 	let expanded = $state(false);
 	const folded = $derived(long && !expanded);
 	let preview: ReferencePreview | undefined = $state();
@@ -540,12 +540,12 @@
 		font-weight: 500;
 	}
 	.message-text.folded {
-		max-height: 12.5em;
+		max-height: 30em;
 		overflow: hidden;
 		mask-image: linear-gradient(to bottom, black 70%, transparent);
 	}
 	.message-text.folded.after-takeaway {
-		max-height: 4.6em;
+		max-height: 30em;
 	}
 	/* Folding is a small pill with a chevron that turns, so a long message reads as folded on
 	 * purpose rather than cut off. */
