@@ -14,6 +14,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import X from '@lucide/svelte/icons/x';
+	import Kanban from '@lucide/svelte/icons/kanban';
 	import Target from '@lucide/svelte/icons/target';
 	import {
 		attentionQuery,
@@ -339,7 +340,8 @@
 				/>
 			</header>
 
-			<div class="body" class:board={view === 'board'}>
+			<!-- Board padding only for the board itself: empty, loading and failure sit where List puts them. -->
+			<div class="body" class:board={view === 'board' && loaded && !!graph && !noWorkYet}>
 				{#if failure && graph}<FailureNotice
 						error={failure}
 						subject="Work"
@@ -352,8 +354,10 @@
 					<Skeleton label="Loading work" variant="list" count={6} />
 				{:else if noWorkYet}
 					<Empty
+						page
+						icon={Kanban}
 						title="No work yet"
-						info="Work appears here as Exec turns what you want into outcomes."
+						info="Tell Exec what you want. It turns that into work for the team, and it shows up here as it moves."
 					>
 						{#snippet action()}{#if ownerAccess}<button
 									class="btn small primary"

@@ -24,6 +24,27 @@ Svelte design system.
 Both references must be consulted during the final visual pass. They are a quality bar, not a mandate
 to make every screen animated or ornamental.
 
+## Optimistic, then reconcile
+
+Every control shows the owner's change the moment they make it, then reconciles with the server. It
+never flips back and forth between "not done" and "done" while it waits. The owner reported this
+four times (a just-added key reading "Key unavailable", switches snapping back, a list blanking to
+"loading" on refresh, a chat answer redrawn), so it is a rule, not a polish item:
+
+- A switch, choice or toggle takes its new position at once and holds it while it saves. If the
+  saved value comes back unchanged the save failed: return it and say so (`Toggle` does this).
+- Something on its way is one steady pending state, the shared `Pending` spinner with what it is
+  doing ("Checking key…"), in the place of the thing it will become. Never an error, empty state or
+  the old value while it waits.
+- A refresh keeps what is on screen. Only a first load shows a skeleton; never blank a list to
+  "loading" because data is being re-read.
+- A just-sent item keeps its identity (and key) when its saved id arrives, so it is updated rather
+  than removed and redrawn.
+- A form closes once, when its result is in place, not before and again after.
+
+Check a change with a mutation observer on the element (what is added, removed or changed, and
+when), not by eye; flicker hides between screenshots.
+
 ## Source-first Svelte references
 
 | Reference | Code access | Best use in Restless |
