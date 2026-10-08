@@ -598,6 +598,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          optional reader field when it is not genuinely present; do not manufacture status scaffolding \
          for an ordinary conversation.\n\n\
          # Conversing with the owner [owner-only shared contract]\n{conversation_style}\n\
+         {welcome}\
          \n\
          # What your receipts actually record [observation — stronger than your own notes]\n\
          {ledger}\n\
@@ -621,6 +622,15 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         run_business = crate::owner_brief::RUN_THE_BUSINESS.trim(),
         staffing_routes = snapshot.staffing_routes.trim(),
         conversation_style = crate::owner_brief::CONVERSE_WITH_OWNER.trim(),
+        // A company with no charter is meeting its owner: Exec interviews instead of working.
+        welcome = if snapshot.mission.trim().is_empty() && snapshot.human_is_membership_owner {
+            format!(
+                "\n# Meeting the owner for the first time [owner-only shared contract]\n{}\n",
+                crate::owner_brief::WELCOME_THE_OWNER.trim()
+            )
+        } else {
+            String::new()
+        },
         no_update = EXEC_NO_UPDATE,
         name = snapshot.company,
         mission = snapshot.mission,

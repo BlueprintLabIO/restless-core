@@ -6207,6 +6207,7 @@ fn render_conversation_bindings() -> String {
         restless_orgintel::OutcomeStandard::decl(&config),
         OwnerAttachment::decl(&config),
         crate::transcript::OwnerIntentKind::decl(&config),
+        crate::transcript::ReadbackLine::decl(&config),
         OwnerIntentReceipt::decl(&config),
         ConversationActorView::decl(&config),
         ConversationFocusView::decl(&config),

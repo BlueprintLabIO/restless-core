@@ -5,6 +5,8 @@ pub const PRESENT_TO_OWNER: &str = include_str!("../prompts/present-to-owner.md"
 /// Ordinary conversation is a different surface from Attention: the owner
 /// should receive the answer, not the actor's operating transcript.
 pub const CONVERSE_WITH_OWNER: &str = include_str!("../prompts/converse-with-owner.md");
+/// How Exec meets a new owner: a short interview, then a read-back that becomes the charter.
+pub const WELCOME_THE_OWNER: &str = include_str!("../prompts/welcome-the-owner.md");
 /// How the Exec proposes improvements, what it may change without asking,
 /// and how it weighs labour against model spend.
 pub const RUN_THE_BUSINESS: &str = include_str!("../prompts/run-the-business.md");

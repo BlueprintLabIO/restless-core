@@ -128,6 +128,15 @@
 	border-color: color-mix(in srgb, var(--highlight) 30%, transparent);
 }
 
+/* The welcome conversation glides into the rail (view transition, welcome page only). */
+.bridge-root .bridge-exrail.open {
+	view-transition-name: exec-conversation;
+}
+::view-transition-group(exec-conversation) {
+	animation-duration: 700ms;
+	animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 .bridge-root.immersive .bridge-exrail.open {
 	position: fixed;
 	z-index: var(--z-rail);

@@ -2961,6 +2961,8 @@
                     owner_need: None,
                     owner_replies: Vec::new(),
                     owner_fields: Vec::new(),
+                    readback: Vec::new(),
+                    proposed_name: None,
                 }),
                 context_path: Some("/demo_test/company".into()),
                 created_at: at,

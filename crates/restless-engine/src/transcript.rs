@@ -64,6 +64,22 @@ pub struct OwnerIntentReceipt {
     /// one a field and sends the answers as ordinary text.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub owner_fields: Vec<String>,
+    /// Exec's read-back at the end of the first conversation with a new owner: how it understands
+    /// the company, line by line ("What it is", "Why it matters to you"…). The welcome page shows
+    /// it for the owner to confirm; confirming saves it as the charter.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub readback: Vec<ReadbackLine>,
+    /// The company name Exec proposes with its read-back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proposed_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ReadbackLine {
+    pub label: String,
+    pub text: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -147,6 +163,28 @@ pub fn split_intent_receipt(body: &str) -> (&str, Option<OwnerIntentReceipt>) {
             } else {
                 Vec::new()
             };
+            // A read-back is a few short lines; anything else is dropped rather than shown raw.
+            receipt.readback = receipt
+                .readback
+                .iter()
+                .map(|line| ReadbackLine {
+                    label: line.label.trim().to_string(),
+                    text: line.text.trim().to_string(),
+                })
+                .filter(|line| {
+                    !line.label.is_empty()
+                        && line.label.chars().count() <= 40
+                        && !line.text.is_empty()
+                        && line.text.chars().count() <= 400
+                })
+                .take(8)
+                .collect();
+            receipt.proposed_name = receipt
+                .proposed_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|name| !name.is_empty() && name.chars().count() <= 80)
+                .map(str::to_string);
             receipt.owner_fields = if receipt.owner_need.is_some() {
                 receipt
                     .owner_fields

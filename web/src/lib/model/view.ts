@@ -146,6 +146,10 @@ export interface MessageIntentReceipt {
 	ownerReplies?: string[] | null;
 	/** Separate facts the question asks for; each gets a field. */
 	ownerFields?: string[] | null;
+	/** Exec's read-back of a new company, line by line, for the owner to confirm. */
+	readback?: { label: string; text: string }[] | null;
+	/** The company name Exec proposes with its read-back. */
+	proposedName?: string | null;
 }
 
 export interface ThreadMessage {

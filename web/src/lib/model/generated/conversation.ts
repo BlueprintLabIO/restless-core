@@ -11,6 +11,8 @@ export type OwnerAttachment = { uploadId: string, name: string, mediaType: strin
 
 export type OwnerIntentKind = "conversation" | "work_feedback" | "direction" | "authority";
 
+export type ReadbackLine = { label: string, text: string, };
+
 export type OwnerIntentReceipt = { kind: OwnerIntentKind, summary: string, outcome?: string | null, nextStep?: string | null, ownerNeed?: string | null,
 /**
  * Up to three short answers the agent expects to `owner_need`. The
@@ -22,7 +24,17 @@ ownerReplies?: Array<string>,
  * asks for ("Price paid", "Load test result"). The cockpit gives each
  * one a field and sends the answers as ordinary text.
  */
-ownerFields?: Array<string>, };
+ownerFields?: Array<string>,
+/**
+ * Exec's read-back at the end of the first conversation with a new owner: how it understands
+ * the company, line by line ("What it is", "Why it matters to you"…). The welcome page shows
+ * it for the owner to confirm; confirming saves it as the charter.
+ */
+readback?: Array<ReadbackLine>,
+/**
+ * The company name Exec proposes with its read-back.
+ */
+proposedName?: string | null, };
 
 export type ConversationActorView = { id: string, display: string, kind: string, role: string, };
 

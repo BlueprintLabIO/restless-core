@@ -33,6 +33,7 @@
 	--t-head: 16px; /* pane and section headings */
 	--t-title: clamp(22px, 2vw, 26px); /* the title of a surface — one curve */
 	--t-hero: clamp(26px, 2.6vw, 34px); /* zero states, the door, the portfolio */
+	--t-calm: clamp(34px, 4.8vw, 66px); /* one question at a time: meeting a new owner */
 	--t-mark: 16px; /* the wordmark: a brand asset, not a ramp step */
 	--track-label: 0.07em;
 }

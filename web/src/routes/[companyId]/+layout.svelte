@@ -1,4 +1,5 @@
 <script lang="ts">
+	import WelcomeTour from '$lib/components/WelcomeTour.svelte';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { prefetchOnIntent } from '$lib/model/prefetch';
 	import { describeFailure, failureSentence } from '$lib/model/failure';
@@ -453,6 +454,14 @@
 			(page.url.pathname === `/${companyId}` && page.url.searchParams.has('computer'))
 	);
 	const railYields = $derived(immersiveComputer);
+	/* Meeting a new owner is a page of its own: no top bar, no rail, nothing else on screen. */
+	const welcoming = $derived(page.url.pathname === `/${companyId}/welcome`);
+	/* Straight after meeting Exec: the conversation is now the rail, and a short tour shows the
+	 * owner around. */
+	const touring = $derived(page.url.searchParams.get('tour') === '1');
+	$effect(() => {
+		if (touring) execRailOpen = true;
+	});
 	$effect(() => railConversation.attach());
 	$effect(() => {
 		const authenticated = principal;
@@ -941,58 +950,64 @@
 	use:companyBrowserLinks={{ open: openInCompanyBrowser }}
 	use:prefetchOnIntent={{ client: queryClient, company: () => companyId }}
 >
-	<AppShell
-		{companyId}
-		companyName={companyName ||
-			rememberedName(companyId) ||
-			companyId.charAt(0).toUpperCase() + companyId.slice(1)}
-		{companies}
-		{tabs}
-		{commands}
-		{viewerName}
-		{viewerRole}
-		present={others.present}
-		homeHref={ownerAccess ? '/' : collaboratorHome(companyId)}
-		canSwitchCompanies={ownerAccess}
-		execHref={ownerAccess &&
-		(page.url.pathname === `/${companyId}/people` ||
-			page.url.pathname.startsWith(`/${companyId}/people/`))
-			? `/${companyId}/people?person=exec`
-			: null}
-		execName={railActorName}
-		execLive={railConnected}
-		execUnavailable={!!providerIssue}
-		railOpen={execRailOpen}
-		expandExec={page.url.pathname === `/${companyId}` &&
-			attention.status === 'live' &&
-			liveNeedsYou.length === 0 &&
-			railConnected &&
-			!page.url.searchParams.has('computer') &&
-			!focusedAttention}
-		immersive={immersiveComputer}
-		blocked={startupBlocking}
-		onexectoggle={() => inPlace(() => (execRailOpen = !execRailOpen))}
-		rail={railVisible ? executiveRail : null}
-	>
-		{#if childAllowed}
-			{@render children()}
-		{:else if principalProjection.failure}
-			<section class="company-access-state cockpit-pane">
-				<FailureNotice
-					error={principalProjection.failure}
-					subject="this company"
-					variant="page"
-					onretry={principalProjection.refresh}
-				/>
-			</section>
-		{:else}
-			<section class="company-access-state cockpit-pane" role="status" aria-live="polite">
-				<span class="access-mark" aria-hidden="true"><MatrixGlyph rows={GLYPHS.r} size={11} /></span
-				>
-				<p>{principal ? 'Opening your company workspace…' : 'Verifying company access…'}</p>
-			</section>
-		{/if}
-	</AppShell>
+	{#if welcoming && childAllowed}
+		{@render children()}
+	{:else}
+		<AppShell
+			{companyId}
+			companyName={companyName ||
+				rememberedName(companyId) ||
+				companyId.charAt(0).toUpperCase() + companyId.slice(1)}
+			{companies}
+			{tabs}
+			{commands}
+			{viewerName}
+			{viewerRole}
+			present={others.present}
+			homeHref={ownerAccess ? '/' : collaboratorHome(companyId)}
+			canSwitchCompanies={ownerAccess}
+			execHref={ownerAccess &&
+			(page.url.pathname === `/${companyId}/people` ||
+				page.url.pathname.startsWith(`/${companyId}/people/`))
+				? `/${companyId}/people?person=exec`
+				: null}
+			execName={railActorName}
+			execLive={railConnected}
+			execUnavailable={!!providerIssue}
+			railOpen={execRailOpen}
+			expandExec={page.url.pathname === `/${companyId}` &&
+				attention.status === 'live' &&
+				liveNeedsYou.length === 0 &&
+				railConnected &&
+				!page.url.searchParams.has('computer') &&
+				!focusedAttention}
+			immersive={immersiveComputer}
+			blocked={startupBlocking}
+			onexectoggle={() => inPlace(() => (execRailOpen = !execRailOpen))}
+			rail={railVisible ? executiveRail : null}
+		>
+			{#if childAllowed}
+				{@render children()}
+			{:else if principalProjection.failure}
+				<section class="company-access-state cockpit-pane">
+					<FailureNotice
+						error={principalProjection.failure}
+						subject="this company"
+						variant="page"
+						onretry={principalProjection.refresh}
+					/>
+				</section>
+			{:else}
+				<section class="company-access-state cockpit-pane" role="status" aria-live="polite">
+					<span class="access-mark" aria-hidden="true"
+						><MatrixGlyph rows={GLYPHS.r} size={11} /></span
+					>
+					<p>{principal ? 'Opening your company workspace…' : 'Verifying company access…'}</p>
+				</section>
+			{/if}
+		</AppShell>
+		{#if touring && childAllowed}<WelcomeTour {companyId} />{/if}
+	{/if}
 	{#if startupBlocking}
 		<div class="startup-error-scrim">
 			<div
