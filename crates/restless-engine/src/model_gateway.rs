@@ -467,10 +467,16 @@ pub async fn record_cooldown(
     kind: crate::health::BlockKind,
     reason: &str,
 ) -> Result<()> {
+    // The gateway is still loading providers after a start: nothing is wrong with the route, and a
+    // cooldown here made the owner's first messages after a restart fail for two minutes.
+    if reason.contains("No direct intelligence provider is active yet") {
+        return Ok(());
+    }
     let duration = match kind {
-        crate::health::BlockKind::Credential | crate::health::BlockKind::Model => {
-            chrono::Duration::hours(24)
-        }
+        crate::health::BlockKind::Credential => chrono::Duration::hours(24),
+        // A model the runtime or provider does not offer is usually fixed by choosing another, or
+        // by an update; look again within the hour rather than a day.
+        crate::health::BlockKind::Model => chrono::Duration::minutes(30),
         // A hosted plane's own AI credit: the relay refuses before any provider is called, so
         // checking again is free, and a top-up should be noticed within minutes, not an hour.
         crate::health::BlockKind::Quota if reason.contains("AI credit is used up") => {
@@ -1548,7 +1554,7 @@ async fn relay_pi_stream(
             upstream_status = %status,
             "host model gateway refused Runtime request"
         );
-        return relay_error(status, &refusal_message(status, upstream).await);
+        return relay_error(status, &refusal_message(status, upstream, &grant.model).await);
     }
 
     let status = upstream.status();
@@ -1765,7 +1771,7 @@ async fn relay_responses(
             upstream_status = %status,
             "host model gateway refused Runtime Responses request"
         );
-        return relay_error(status, &refusal_message(status, upstream).await);
+        return relay_error(status, &refusal_message(status, upstream, &grant.model).await);
     }
 
     let status = upstream.status();
@@ -2345,8 +2351,13 @@ pub async fn verify_owner_model_account(
 /// The words to pass on for an upstream refusal. A 402 carries what the owner must do (a hosted
 /// plane's AI credit is used up, with where to top up), so its message travels on, bounded; any
 /// other refusal keeps the plain message.
-async fn refusal_message(status: StatusCode, upstream: reqwest::Response) -> String {
+async fn refusal_message(status: StatusCode, upstream: reqwest::Response, model: &str) -> String {
     const PLAIN: &str = "host model gateway refused the model request";
+    if status == StatusCode::NOT_FOUND {
+        // The gateway's catalogue does not list this model (OMP 18.3.2 predates
+        // claude-sonnet-5-5): say so, so the turn stops as a model choice, not a malformed reply.
+        return format!("404 model {model} not found at the host model gateway; choose another model");
+    }
     if status != StatusCode::PAYMENT_REQUIRED {
         return PLAIN.into();
     }
@@ -3175,7 +3186,17 @@ pub fn models_config(model: &str, runtime_url: &str, token_env: &str) -> Result<
         // Runtime route Restless exposes, producing a false HTTP 404.
         "    discovery:\n      type: proxy\n    modelOverrides:\n      glm-5.3-flash:\n        name: GLM 5.3 Flash\n        reasoning: true\n        supportsTools: true\n        input: [text, image]\n        cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0}\n        contextWindow: 131072\n        maxTokens: 32768\n"
     } else {
-        ""
+        // The granted model is declared, not only discovered. A provider OMP knows (Anthropic)
+        // lists its built-in models at session start, before discovery lands, so a newer model
+        // (claude-sonnet-5-5 against OMP 18.3.2) was absent and every turn failed on 8 October. A
+        // bare entry keeps OMP's own metadata for a model it knows (claude-sonnet-4-6 stays 1M
+        // with reasoning) and makes an unknown one exist with conservative defaults. Since OMP
+        // 18.x custom models honour the provider's `transport: pi-native`.
+        let id = serde_json::to_string(&runtime_model_id(model_id))?;
+        return Ok(format!(
+            "# Managed by Restless. Contains a gateway route, never a provider credential.\n\
+providers:\n  {provider}:\n    baseUrl: {runtime_url}\n    apiKey: {token_env}\n    transport: pi-native\n    api: {api}\n    discovery:\n      type: proxy\n    models:\n      - id: {id}\n        name: {id}\n"
+        ));
     };
     Ok(format!(
         "# Managed by Restless. Contains a gateway route, never a provider credential.\n\
@@ -4908,7 +4929,7 @@ mission = "Choose native intelligence"
             )
         };
         let relay = r#"{"error":{"code":"ai_credit_exhausted","message":"AI credit is used up. Top up to continue: https://app.restless.run/account/settings#billing"}}"#;
-        let message = refusal_message(StatusCode::PAYMENT_REQUIRED, refusal(402, relay)).await;
+        let message = refusal_message(StatusCode::PAYMENT_REQUIRED, refusal(402, relay), "test/model").await;
         assert_eq!(
             message,
             "402 AI credit is used up. Top up to continue: https://app.restless.run/account/settings#billing"
@@ -4919,11 +4940,11 @@ mission = "Choose native intelligence"
         assert!(blocked.message().contains("account/settings#billing"));
         // Other refusals, and a 402 without a readable message, keep the plain words.
         assert_eq!(
-            refusal_message(StatusCode::FORBIDDEN, refusal(403, relay)).await,
+            refusal_message(StatusCode::FORBIDDEN, refusal(403, relay), "test/model").await,
             "host model gateway refused the model request"
         );
         assert_eq!(
-            refusal_message(StatusCode::PAYMENT_REQUIRED, refusal(402, "not json")).await,
+            refusal_message(StatusCode::PAYMENT_REQUIRED, refusal(402, "not json"), "test/model").await,
             "402 host model gateway refused the model request"
         );
     }

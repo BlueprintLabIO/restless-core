@@ -2185,7 +2185,12 @@ async fn launch_agent(
             std::fs::create_dir_all(&profile)?;
             let provider = model.split_once('/').map(|pair| pair.0).context("model must include provider")?;
             // omp discovers models at `{baseUrl}/v1/models` etc.; the relay serves `/v1/*` under the model-gateway prefix.
-            let models = format!("providers:\n  {provider}:\n    baseUrl: {model_url}/v1\n    apiKey: RESTLESS_MODEL_CAPABILITY\n    transport: pi-native\n    api: openai-responses\n");
+            // The granted model is declared as well as discovered: a provider OMP already knows
+            // lists only its built-in models at session start, so a newer one (claude-sonnet-5-5)
+            // was missing and every turn failed. A bare entry keeps OMP's metadata for a known model.
+            let local_id = model.split_once('/').map(|pair| pair.1).unwrap_or(&model).replace(':', "~");
+            let id = serde_json::to_string(&local_id)?;
+            let models = format!("providers:\n  {provider}:\n    baseUrl: {model_url}/v1\n    apiKey: RESTLESS_MODEL_CAPABILITY\n    transport: pi-native\n    api: openai-responses\n    discovery:\n      type: proxy\n    models:\n      - id: {id}\n        name: {id}\n");
             write_private(&profile.join("models.yml"), models.as_bytes())?;
             let runtime_config = profile.join("restless-runtime.yml");
             write_private(&runtime_config, OMP_CONFIG.as_bytes())?;

@@ -91,8 +91,13 @@
 			case 'complete':
 				/* Done is not news: the reply itself says so. */
 				return 'Replied';
-			case 'failed':
-				return 'Reply interrupted';
+			case 'failed': {
+				/* Say why, in one line; the full reason is in the detail. */
+				const reason = (turn.live?.error ?? '').split(/(?<=[.!?])\s/)[0]?.trim() ?? '';
+				return reason
+					? `${participantName} couldn't reply · ${reason.length > 90 ? `${reason.slice(0, 90)}…` : reason}`
+					: `${participantName} couldn't reply`;
+			}
 			case 'queued':
 				return turn.transport === 'connecting'
 					? `Connecting to ${participantName}`
@@ -267,18 +272,25 @@
 
 	/* A finished reply is a faint receipt, not a band: no tint, no edge, smaller words. Live work
 	 * keeps the band, because then it is the news. */
-	.conversation-turn-dock[data-phase='complete']:not(.expanded) {
+	.conversation-turn-dock[data-phase='complete']:not(.expanded),
+	.conversation-turn-dock[data-phase='failed']:not(.expanded) {
 		border-block-color: transparent;
 		background: transparent;
 		box-shadow: none;
 	}
-	.conversation-turn-dock[data-phase='complete']:not(.expanded) .turn-summary {
+	.conversation-turn-dock[data-phase='complete']:not(.expanded) .turn-summary,
+	.conversation-turn-dock[data-phase='failed']:not(.expanded) .turn-summary {
 		gap: 6px;
 		padding-block: 4px;
 		font-size: var(--t-label);
 		opacity: 0.75;
 	}
-	.conversation-turn-dock[data-phase='complete']:not(.expanded) .terminal-mark :global(svg) {
+	/* A failed reply is as quiet as a finished one; only its mark carries the danger tone. */
+	.conversation-turn-dock[data-phase='failed']:not(.expanded) .terminal-mark {
+		color: var(--state-danger);
+	}
+	.conversation-turn-dock[data-phase='complete']:not(.expanded) .terminal-mark :global(svg),
+	.conversation-turn-dock[data-phase='failed']:not(.expanded) .terminal-mark :global(svg) {
 		width: 12px;
 		height: 12px;
 	}

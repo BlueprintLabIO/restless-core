@@ -321,10 +321,35 @@ pub fn classify_provider_error(text: &str) -> Option<Blocked> {
             "Codex session transport received an invalid JSON message",
         ));
     }
+    // The agent runtime could not select the model it was asked for: a Restless configuration
+    // problem, never a provider refusal. Its message lists the runtime's options, whose dated model
+    // ids (…-20250401) once read as an HTTP 401 and put a working key into a 24-hour cooldown.
+    if text.contains("selector did not advertise exact requested value")
+        || text.contains("did not advertise a model session option")
+    {
+        let requested = text
+            .split("requested value ")
+            .nth(1)
+            .and_then(|rest| rest.split([';', ' ']).next())
+            .unwrap_or("the chosen model");
+        return Some(Blocked::new(
+            BlockKind::Model,
+            format!("the agent runtime does not list {requested}; choose another model or update the runtime"),
+        ));
+    }
     let lower = text.to_lowercase();
     let has = |needle: &str| lower.contains(needle);
+    // A status code counts only as a whole number, never as digits inside an id or a date.
+    let has_code = |code: &str| {
+        lower.match_indices(code).any(|(at, _)| {
+            let before = lower[..at].chars().next_back();
+            let after = lower[at + code.len()..].chars().next();
+            !before.is_some_and(|c| c.is_ascii_alphanumeric())
+                && !after.is_some_and(|c| c.is_ascii_alphanumeric())
+        })
+    };
 
-    if has("413") && (has("payload too large") || has("request too large")) {
+    if has_code("413") && (has("payload too large") || has("request too large")) {
         return Some(Blocked::new(
             BlockKind::Context,
             format!(
@@ -334,7 +359,7 @@ pub fn classify_provider_error(text: &str) -> Option<Blocked> {
         ));
     }
 
-    if has("402") || has("insufficient") || has("credit") || has("quota") {
+    if has_code("402") || has("insufficient") || has("credit") || has("quota") {
         return Some(Blocked::new(
             BlockKind::Quota,
             format!(
@@ -343,7 +368,7 @@ pub fn classify_provider_error(text: &str) -> Option<Blocked> {
             ),
         ));
     }
-    if has("401") || has("403") || has("invalid authentication") || has("unauthor") {
+    if has_code("401") || has_code("403") || has("invalid authentication") || has("unauthor") {
         return Some(Blocked::new(
             BlockKind::Credential,
             format!(
@@ -352,13 +377,23 @@ pub fn classify_provider_error(text: &str) -> Option<Blocked> {
             ),
         ));
     }
-    if has("429") || has("rate limit") {
+    if has_code("429") || has("rate limit") {
         return Some(Blocked::new(
             BlockKind::Quota,
             format!("provider rate-limited the company: {}", trim(text)),
         ));
     }
-    if has("404") {
+    // A model the provider or gateway does not serve is a choice to change, not a broken route.
+    if has("model") && (has("not found") || has("unknown") || has("does not exist")) {
+        return Some(Blocked::new(
+            BlockKind::Model,
+            format!(
+                "the configured model is not offered by the provider: {}",
+                trim(text)
+            ),
+        ));
+    }
+    if has_code("404") {
         return Some(Blocked::new(
             BlockKind::Transport,
             format!(
@@ -367,10 +402,10 @@ pub fn classify_provider_error(text: &str) -> Option<Blocked> {
             ),
         ));
     }
-    if has("500")
-        || has("502")
-        || has("503")
-        || has("504")
+    if has_code("500")
+        || has_code("502")
+        || has_code("503")
+        || has_code("504")
         || has("server_error")
         || has("server had an error")
     {
@@ -609,6 +644,18 @@ fn human_bytes(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn digits_inside_a_model_id_are_not_a_status_code() {
+        // Observed 8 October: a working Anthropic key cooled down for a day because the runtime's
+        // option list carried a dated model id containing "401".
+        let selector = r#"select exact ACP session model: ACP agent model selector did not advertise exact requested value anthropic/claude-sonnet-5-5; options=[{"value":"anthropic/claude-3-5-haiku-20250401"}]"#;
+        let blocked = classify_provider_error(selector).unwrap();
+        assert_eq!(blocked.kind, BlockKind::Model);
+        assert!(blocked.detail.contains("anthropic/claude-sonnet-5-5"));
+        assert!(classify_provider_error("model build 20250401 finished").is_none());
+        assert_eq!(classify_provider_error("HTTP 401 Unauthorized").unwrap().kind, BlockKind::Credential);
+    }
 
     /// A transcript reporting `used` tokens and `cost` dollars.
     fn transcript(used: Option<u64>, cost: Option<f64>) -> acp::TurnTranscript {
