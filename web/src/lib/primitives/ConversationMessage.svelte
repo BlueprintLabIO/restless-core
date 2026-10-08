@@ -9,6 +9,7 @@
 	import Markdown from './Markdown.svelte';
 	import ReferencePreview from './ReferencePreview.svelte';
 	import MessageReactions from './MessageReactions.svelte';
+	import ReactionAdd from './ReactionAdd.svelte';
 	import type { ReactionSummary } from '$lib/model/reactions.svelte';
 	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
 	import type { MessageAttachment, MessageIntentReceipt } from '$lib/model/view';
@@ -191,9 +192,10 @@
 		{/if}
 	</div>
 
-	{#if copyable && sender !== 'system'}
+	{#if (copyable || onreact) && sender !== 'system'}
 		<footer class="message-footer">
-			<div class="message-actions" aria-label="Message actions">
+			<div class="message-actions" role="toolbar" aria-label="Message actions">
+				{#if onreact}<ReactionAdd {reactions} {onreact} />{/if}
 				{@render actions?.()}
 				{#if copyable}
 					<button
@@ -277,24 +279,17 @@
 		outline: none;
 	}
 
+	/* With a mouse, someone else's message shows its toolbar riding its top edge, as Slack and Linear
+	 * do, clear of the text. */
 	@media (hover: hover) and (pointer: fine) {
 		.conversation-message:not(.owner) .message-footer {
 			position: absolute;
-			z-index: 1;
-			top: 6px;
-			right: 10px;
+			z-index: 2;
+			top: -10px;
+			right: 12px;
 			min-height: 0;
 			margin: 0;
 			padding: 0;
-		}
-
-		.conversation-message:not(.owner) .message-actions {
-			padding: 2px;
-			border-radius: var(--radius-control);
-			background: var(--surface-raised);
-			box-shadow:
-				0 0 0 1px var(--border),
-				0 2px 8px rgba(43, 51, 66, 0.08);
 		}
 	}
 
@@ -318,10 +313,11 @@
 		grid-column: 2;
 	}
 
+	/* The owner's toolbar waits beside the bubble's top corner, clear of its time above. */
 	.conversation-message.owner .message-footer {
 		grid-row: 2;
 		grid-column: 1;
-		align-self: center;
+		align-self: start;
 		justify-self: end;
 		min-height: 0;
 		margin: 0;
@@ -421,60 +417,93 @@
 		margin-top: 1px;
 	}
 
+	/* One toolbar per message: a small raised pill of borderless icon buttons. Its buttons come from
+	 * here and from the hosting surface alike, so every one is styled here, not by its owner. */
 	.message-actions {
 		min-width: 0;
 		display: flex;
 		align-items: center;
-		gap: 2px;
+		gap: 1px;
+		padding: 3px;
+		border-radius: 9px;
+		background: var(--surface-raised);
+		box-shadow:
+			0 0 0 1px var(--border),
+			0 4px 14px rgba(43, 51, 66, 0.1);
 	}
 
-	/* With a mouse, actions wait for the message you are pointing at; their
-	 * space stays reserved so nothing moves. Touch keeps them visible. */
+	.message-actions :global(:is(button, summary)) {
+		width: 26px;
+		height: 26px;
+		display: grid;
+		place-items: center;
+		margin: 0;
+		padding: 0;
+		border: 0;
+		border-radius: 6px;
+		background: transparent;
+		box-shadow: none;
+		color: var(--text-tertiary);
+		cursor: pointer;
+		list-style: none;
+		transition:
+			background var(--motion-state) var(--ease-standard),
+			color var(--motion-state) var(--ease-standard),
+			transform var(--motion-press) var(--ease-standard);
+	}
+	.message-actions :global(summary::-webkit-details-marker) {
+		display: none;
+	}
+	/* A finger needs a bigger target than a pointer; every button in the toolbar grows alike. */
+	@media (pointer: coarse) {
+		.message-actions :global(:is(button, summary)) {
+			width: 44px;
+			height: 44px;
+		}
+	}
+	.message-actions :global(:is(button, summary) svg) {
+		width: 14px;
+		height: 14px;
+	}
+	.message-actions :global(:is(button, summary):hover) {
+		background: color-mix(in srgb, var(--ink) 7%, transparent);
+		color: var(--ink);
+	}
+	.message-actions :global(:is(button, summary):active) {
+		transform: scale(0.9);
+	}
+	.message-actions :global(:is(button, summary):focus-visible) {
+		outline: 2px solid color-mix(in srgb, var(--intent-conversation) 40%, transparent);
+		outline-offset: 0;
+	}
+	.message-actions :global(button.confirmed) {
+		color: var(--intent-feedback);
+		animation: bridge-acknowledge var(--motion-punctuation) var(--ease-out) both;
+	}
+
+	/* With a mouse, the toolbar waits for the message you are pointing at and settles in from just
+	 * below; nothing reserves room for it. Touch shows it on the tapped message. */
 	@media (hover: hover) and (pointer: fine) {
 		.message-actions {
 			opacity: 0;
-			transition: opacity var(--motion-state) var(--ease-standard);
+			transform: translateY(3px);
+			pointer-events: none;
+			transition:
+				opacity var(--motion-state) var(--ease-standard),
+				transform var(--motion-state) var(--ease-out);
 		}
 
 		.conversation-message:hover .message-actions,
 		.conversation-message:focus-within .message-actions {
 			opacity: 1;
+			transform: none;
+			pointer-events: auto;
 		}
 	}
-
-	.copy-message {
-		width: 18px;
-		height: 18px;
-		display: grid;
-		place-items: center;
-		padding: 0;
-		border: 1px solid transparent;
-		border-radius: var(--radius-control);
-		background: transparent;
-		color: var(--text-tertiary);
-		cursor: pointer;
-		transition:
-			background var(--motion-state) var(--ease-standard),
-			color var(--motion-state) var(--ease-standard),
-			box-shadow var(--motion-state) var(--ease-standard),
-			transform var(--motion-press) var(--ease-standard);
-	}
-
-	.copy-message:hover,
-	.copy-message:focus-visible {
-		border-color: var(--border-strong);
-		background: color-mix(in srgb, var(--surface) 78%, transparent);
-		color: var(--ink);
-	}
-
-	.copy-message:focus-visible {
-		outline: 2px solid color-mix(in srgb, var(--intent-conversation) 34%, transparent);
-		outline-offset: 1px;
-	}
-
-	.copy-message.confirmed {
-		color: var(--intent-feedback);
-		animation: bridge-acknowledge var(--motion-punctuation) var(--ease-out) both;
+	@media (prefers-reduced-motion: reduce) {
+		.message-actions {
+			transform: none !important;
+		}
 	}
 
 	.message-body {

@@ -939,6 +939,13 @@
 			legacy_read_at: null
 		};
 		let sentMessageId: number | null = null;
+		if (parent === null) {
+			// Your message rises to the top of the room and replies grow beneath it.
+			await tick();
+			roomScrollEl?.dispatchEvent(
+				new CustomEvent('chat-scroll-anchor', { detail: { selector: '.room-message.you' } })
+			);
+		}
 		try {
 			if (sendAsAccountableLead && targetConversation && recipientActor) {
 				const contextPath = cockpitContextPath(targetCompany, page.url);
@@ -1935,6 +1942,13 @@
 		overflow-anchor: none;
 		overscroll-behavior: contain;
 		background: var(--surface-pane);
+	}
+
+	/* Room for replies to grow into beneath a message that has just been sent (follow-chat). */
+	.room-message-list::after {
+		content: '';
+		display: block;
+		height: var(--chat-anchor-room, 0px);
 	}
 
 	.message-search-results {

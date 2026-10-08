@@ -135,6 +135,13 @@
 	overflow-y: auto;
 }
 
+/* Room for a reply to grow into beneath a message that has just been sent (follow-chat). */
+.bridge-root .exr-msgs::after {
+	content: '';
+	flex: none;
+	height: var(--chat-anchor-room, 0px);
+}
+
 .bridge-root .exr-empty {
 	max-width: 260px;
 	margin: auto;

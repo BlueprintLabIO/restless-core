@@ -541,7 +541,6 @@
 			connectionStatus !== 'available'
 		)
 			return;
-		scrollReset += 1;
 		sending = true;
 		askError = '';
 		askNotice = '';
@@ -749,7 +748,7 @@
 				}
 				return;
 			}
-			const outcome = await onask(
+			const delivery = onask(
 				outgoing,
 				files,
 				includeContext,
@@ -758,6 +757,10 @@
 				undefined,
 				skills
 			);
+			// Your message rises to the top of the transcript and the reply grows beneath it.
+			await tick();
+			scrollEl?.dispatchEvent(new Event('chat-scroll-anchor'));
+			const outcome = await delivery;
 			if (outcome.error) {
 				composer = sent;
 				askError = outcome.error;
