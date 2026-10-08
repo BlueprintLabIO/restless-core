@@ -377,6 +377,20 @@ pub enum Message {
         mcp_environment: BTreeMap<String, String>,
         deadline_ms: i64,
     },
+    /// Start a connected app's local command in the company computer, as the
+    /// tool identity rather than the agents' one, and stream its stdio over
+    /// `AcpStdin`/`AcpStdout` like an agent's. Its environment carries the
+    /// app's own settings and secrets, which agents cannot read.
+    LaunchTool {
+        operation_id: Uuid,
+        connection: String,
+        command: String,
+        args: Vec<String>,
+        env: BTreeMap<String, String>,
+        /// Let it reach the company browser at `RESTLESS_BROWSER_CDP`.
+        browser: bool,
+        deadline_ms: i64,
+    },
     AcpStdin {
         operation_id: Uuid,
         data_base64: String,
@@ -753,6 +767,25 @@ fn validate_message(message: &Message) -> Result<(), ProtocolError> {
                 && bounded(model_capability, 16_384)
                 && bounded(model_url, 2_048)
                 && valid_mcp_environment(mcp_environment)
+                && valid_deadline(*deadline_ms)
+        }
+        Message::LaunchTool {
+            operation_id,
+            connection,
+            command,
+            args,
+            env,
+            deadline_ms,
+            ..
+        } => {
+            !operation_id.is_nil()
+                && identifier(connection)
+                && !connection.starts_with('.')
+                && connection.len() <= 64
+                && bounded(command, 1_024)
+                && args.len() <= 64
+                && args.iter().all(|arg| arg.len() <= 4_096 && !arg.contains('\0'))
+                && valid_mcp_environment(env)
                 && valid_deadline(*deadline_ms)
         }
         Message::AcpStdin {
@@ -1221,6 +1254,36 @@ mod tests {
             repo: "game".into(),
             worktree: "work-123-r2".into(),
         }
+    }
+
+    #[test]
+    fn a_tool_launch_carries_its_command_but_not_reserved_environment() {
+        let launch = |connection: &str, env: &[(&str, &str)]| Frame {
+            protocol_version: PROTOCOL_VERSION,
+            sequence: 1,
+            identity: identity(),
+            message: Message::LaunchTool {
+                operation_id: Uuid::new_v4(),
+                connection: connection.into(),
+                command: "uvx".into(),
+                args: vec!["--from".into(), "git+https://github.com/acme/tool".into(), "tool".into()],
+                env: env.iter().map(|(name, value)| (name.to_string(), value.to_string())).collect(),
+                browser: true,
+                deadline_ms: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as i64
+                    + 60_000,
+            },
+        };
+        let accepted = launch("frankensurf", &[("GITHUB_TOKEN", "t0ken-value")]);
+        assert_eq!(Frame::decode(&accepted.encode().unwrap()).unwrap(), accepted);
+        assert_eq!(launch("../escape", &[]).validate(), Err(ProtocolError::Invalid));
+        assert_eq!(launch("..", &[]).validate(), Err(ProtocolError::Invalid));
+        assert_eq!(
+            launch("tool", &[("RESTLESS_SESSION_CAPABILITY", "stolen")]).validate(),
+            Err(ProtocolError::Invalid)
+        );
     }
 
     #[test]

@@ -2211,6 +2211,72 @@ async fn answers_sign_in_required(
 /// ordinary outbound networking, no host mounts, a private cache volume for
 /// package managers, and credentials passed by environment name only so the
 /// values never appear in any process's argv.
+/// The newest error output of each local tool, per company and connection, with
+/// its own secrets removed: what an actor or the owner reads to fix a tool.
+static WORKER_LOGS: std::sync::LazyLock<std::sync::Mutex<HashMap<(String, String), String>>> =
+    std::sync::LazyLock::new(Default::default);
+const WORKER_LOG_BYTES: usize = 4096;
+
+/// What a local tool last wrote to its error output, if anything.
+pub fn worker_log_tail(company: &str, connection: &str) -> Option<String> {
+    WORKER_LOGS
+        .lock()
+        .ok()?
+        .get(&(company.to_string(), connection.to_string()))
+        .filter(|tail| !tail.trim().is_empty())
+        .cloned()
+}
+
+/// Record what a local tool printed, when it arrives whole (from a hosted
+/// company computer, in the tool's Exit).
+pub fn record_worker_output(company: &str, connection: &str, said: &str) {
+    let tail: String = said
+        .chars()
+        .rev()
+        .take(WORKER_LOG_BYTES)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    if let Ok(mut logs) = WORKER_LOGS.lock() {
+        logs.insert((company.to_string(), connection.to_string()), tail);
+    }
+}
+
+fn keep_worker_log(
+    company: String,
+    connection: String,
+    stderr: tokio::process::ChildStderr,
+    secrets: Vec<String>,
+) {
+    use tokio::io::AsyncReadExt as _;
+    tokio::spawn(async move {
+        let mut stderr = stderr;
+        let mut tail: Vec<u8> = Vec::new();
+        let mut chunk = [0_u8; 1024];
+        let key = (company, connection);
+        if let Ok(mut logs) = WORKER_LOGS.lock() {
+            logs.insert(key.clone(), String::new());
+        }
+        while let Ok(read) = stderr.read(&mut chunk).await {
+            if read == 0 {
+                break;
+            }
+            tail.extend_from_slice(&chunk[..read]);
+            if tail.len() > WORKER_LOG_BYTES {
+                tail.drain(..tail.len() - WORKER_LOG_BYTES);
+            }
+            let mut text = String::from_utf8_lossy(&tail).into_owned();
+            for secret in secrets.iter().filter(|secret| secret.len() >= 6) {
+                text = text.replace(secret.as_str(), "[secret]");
+            }
+            if let Ok(mut logs) = WORKER_LOGS.lock() {
+                logs.insert(key.clone(), text);
+            }
+        }
+    });
+}
+
 async fn open_local_worker(
     root: &Path,
     company: &str,
@@ -2247,6 +2313,40 @@ async fn open_local_worker(
             "GIT_CONFIG_VALUE_0".into(),
             format!("Authorization: Basic {basic}"),
         );
+    }
+    // A hosted company computer runs the command itself, as the tool identity,
+    // with a private data folder: the plane has no Docker of its own there.
+    if let Some(registry) = crate::runtime_bridge::hosted_registry() {
+        let identity = crate::runtime_bridge::hosted_identity(company).await?;
+        let stream = crate::runtime_bridge::open_tool_transport(
+            registry,
+            &identity,
+            &connection.name,
+            command,
+            &connection.args,
+            secrets,
+            connection.browser,
+        )
+        .await?;
+        let (read, write) = tokio::io::split(stream);
+        let handshake = tokio::time::timeout(
+            LOCAL_STARTUP_TIMEOUT,
+            ().serve(AsyncRwTransport::<RoleClient, _, _>::new(read, write)),
+        )
+        .await;
+        return match handshake {
+            Ok(Ok(client)) => Ok(client),
+            failed => {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                let said = worker_log_tail(company, &connection.name)
+                    .map(|tail| format!(". It said:\n{}", tail.trim()))
+                    .unwrap_or_default();
+                match failed {
+                    Err(_) => bail!("local MCP worker handshake timed out{said}"),
+                    _ => bail!("local MCP worker handshake failed{said}"),
+                }
+            }
+        };
     }
     let image = crate::runtime::company_image();
     // Each tool keeps its own data (a database, a browser profile, state) across runs, in a
@@ -2316,6 +2416,24 @@ async fn open_local_worker(
         "--entrypoint",
         "",
     ]);
+    // Tools the company builds itself live in /company/tools, where actors can fix them; the
+    // worker reads them (never writes) while the company computer is up.
+    let computer = crate::runtime::container_name(company);
+    if crate::runtime::status(company).await? == crate::runtime::ContainerStatus::Running {
+        let made = tokio::process::Command::new("docker")
+            .args(["exec", "--user", "company", &computer, "mkdir", "-p", "/company/tools"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .is_ok_and(|status| status.success());
+        if made {
+            docker.arg("--mount").arg(format!(
+                "type=volume,src={},dst=/company/tools,volume-subpath=tools,readonly",
+                crate::runtime::volume_name(company)
+            ));
+        }
+    }
     if connection.browser {
         // Inside the company computer's network its browser listens on loopback only.
         let computer = crate::runtime::container_name(company);
@@ -2333,7 +2451,7 @@ async fn open_local_worker(
     let mut child = docker
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
         .context("start local MCP worker")?;
@@ -2345,6 +2463,14 @@ async fn open_local_worker(
         .stdin
         .take()
         .context("local MCP worker has no stdin")?;
+    if let Some(stderr) = child.stderr.take() {
+        keep_worker_log(
+            company.to_string(),
+            connection.name.clone(),
+            stderr,
+            secrets.values().cloned().collect(),
+        );
+    }
     let handshake = tokio::time::timeout(
         LOCAL_STARTUP_TIMEOUT,
         ().serve(AsyncRwTransport::<RoleClient, _, _>::new(stdout, stdin)),
@@ -2364,9 +2490,14 @@ async fn open_local_worker(
         failed => {
             let _ = child.kill().await;
             remove_worker(&worker).await;
+            // Let the tool's last words arrive: they say why it would not start.
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            let said = worker_log_tail(company, &connection.name)
+                .map(|tail| format!(". It said:\n{}", tail.trim()))
+                .unwrap_or_default();
             match failed {
-                Err(_) => bail!("local MCP worker handshake timed out"),
-                _ => bail!("local MCP worker handshake failed"),
+                Err(_) => bail!("local MCP worker handshake timed out{said}"),
+                _ => bail!("local MCP worker handshake failed{said}"),
             }
         }
     }

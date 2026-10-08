@@ -56,6 +56,9 @@ struct ConnectionView {
     proposed: Vec<connections::GrantedTool>,
     /// Tools whose upstream definition changed since they were granted.
     changed: Vec<String>,
+    /// What a local tool last printed to its error output, secrets removed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_output: Option<String>,
 }
 
 pub(super) async fn list(
@@ -89,6 +92,7 @@ pub(super) async fn list(
                         .filter(|(name, _)| name == &connection.name)
                         .map(|(_, tool)| tool.clone())
                         .collect(),
+                    last_output: connections::worker_log_tail(&company, &connection.name),
                     connection,
                 })
                 .collect::<Vec<_>>(),
@@ -113,11 +117,6 @@ pub(super) async fn add(
 ) -> Response<Body> {
     if let Err(refusal) = owner_gate(&state, &company, &principal).await {
         return refusal;
-    }
-    if matches!(input, NewConnection::Local { .. }) {
-        if let Err(refusal) = refuse_when_hosted(&state) {
-            return refusal;
-        }
     }
     let pool = state.daemon.authority.pool();
     let added = match connections::add(

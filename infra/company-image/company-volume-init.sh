@@ -23,7 +23,8 @@ mkdir -p \
 	/company/home/.local/share/applications \
 	/company/run/attempts \
 	/company/run/gates \
-	/company/services/supervisor
+	/company/services/supervisor \
+	/company/tools
 
 if [ ! -f /company/.seeded ]; then
 	if [ ! -f /company/mission.md ]; then

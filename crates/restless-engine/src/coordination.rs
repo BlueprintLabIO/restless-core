@@ -297,6 +297,54 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 Err(error) => Response::err(format!("{error:#}")),
             }
         }
+        // Apps as an actor can see and repair them: each one's state, why it fails and what it
+        // last printed, and a fresh check after a fix. Re-checking only reads the tool list.
+        "tools-list" | "tools-check" => {
+            let actor = if principal == Principal::Owner { "owner" } else {
+                match request.orgintel.actor.as_deref() { Some(actor) => actor, None => return Response::err("Missing authenticated actor") }
+            };
+            let pool = daemon.authority.pool();
+            if request.cmd == "tools-check" {
+                let Some(name) = request.tool.as_deref() else {
+                    return Response::err("Missing app name: restless tools check <name>");
+                };
+                if let Err(error) = crate::connections::probe(pool, &daemon.root, company, name).await {
+                    tracing::debug!("tools-check {name}: {error:#}");
+                }
+            }
+            let usable = crate::connections::usable_tools(pool, company, actor).await.unwrap_or_default();
+            match crate::connections::list(pool, company).await {
+                Ok(connections) => {
+                    let rows: Vec<_> = connections
+                        .into_iter()
+                        .filter(|connection| request.tool.as_deref().is_none_or(|name| name == connection.name))
+                        .map(|connection| {
+                            let yours: Vec<_> = usable
+                                .iter()
+                                .filter(|tool| tool.connection.name == connection.name)
+                                .map(|tool| serde_json::json!({ "tool": tool.gateway_name(), "class": tool.grant.class }))
+                                .collect();
+                            serde_json::json!({
+                                "name": connection.name,
+                                "kind": connection.kind,
+                                "status": connection.status,
+                                "frozen": connection.frozen,
+                                "endpoint": connection.endpoint,
+                                "command": connection.command.map(|command| std::iter::once(command).chain(connection.args.clone()).collect::<Vec<_>>().join(" ")),
+                                "browser": connection.browser,
+                                "failure": connection.failure,
+                                "last_output": crate::connections::worker_log_tail(company, &connection.name),
+                                "tools": connection.tools.iter().map(|tool| tool.name.clone()).collect::<Vec<_>>(),
+                                "yours": yours,
+                                "last_checked": connection.last_probe_at,
+                            })
+                        })
+                        .collect();
+                    Response::ok(serde_json::json!({ "apps": rows }))
+                }
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
         "decision-ask" => {
             let actor = if principal == Principal::Owner { "owner" } else {
                 match request.orgintel.actor.as_deref() { Some(actor) => actor, None => return Response::err("Missing authenticated actor") }
@@ -4317,6 +4365,8 @@ pub fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Re
         | "sheet-operation"
         | "room-operation"
         | "decision-ask"
+        | "tools-list"
+        | "tools-check"
         | "document-review-request" => pin_actor(&mut request.orgintel.actor, actor, "actor")?,
         "publish-build" | "publish-candidate" | "publish-request" => {
             pin_actor(&mut request.publication.actor, actor, "publication actor")?

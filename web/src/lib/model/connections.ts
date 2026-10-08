@@ -54,6 +54,8 @@ export type ToolConnection = {
 	grants: ConnectionGrant[];
 	proposed: GrantedTool[];
 	changed: string[];
+	/** What a local tool last printed to its error output, secrets removed. */
+	last_output?: string | null;
 };
 
 export type ToolDecision = { tool: string; class: ToolClass; party_args?: string[] | null };

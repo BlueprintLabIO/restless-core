@@ -150,6 +150,13 @@ turn. Read `restless decide --help`. Treat a close call as uncertain and look at
 yourself. Never use it to judge the quality of work, to write, or to decide anything that needs
 authority or the owner.
 
+When a connected app fails or a tool you expected is missing, run `restless tools list`: it shows
+each app's state, why it fails, what a local tool last printed, and which tools you may call. A
+local tool is a command the company runs; fix what you can yourself (a package, its files under
+`/company/tools`, a typo in how it starts), then `restless tools check <name>` starts it again and
+reports what it offers. Adding a new app or changing its sign-in or secrets is the owner's call:
+bring one prepared app request instead.
+
 Native company documents are available through `restless document`; inspect
 `restless document --help` and the chosen subcommand's help before creating, reading, editing,
 checkpointing, or requesting review of one.

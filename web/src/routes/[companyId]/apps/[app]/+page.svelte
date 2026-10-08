@@ -211,7 +211,7 @@
 		title={app && app.connections.length > 1 ? connection.name : 'Status'}
 		info={connection.endpoint
 			? `An MCP server at ${connection.endpoint}. The sign-in stays on your plane, never in the company computer.`
-			: `Runs ${connection.command ?? ''} on your plane, outside the company computer.`}
+			: `Runs ${connection.command ?? ''} in its own sandbox from the company computer's image, with its own data folder.`}
 	>
 		<div class="status">
 			<span title={connection.account ? `Signed in as ${connection.account}` : undefined}
@@ -277,6 +277,11 @@
 				<span class="quiet">Company browser</span>
 			{/if}
 		</div>
+		{#if connection.status !== 'working' && connection.last_output}
+			<pre
+				class="last-output"
+				title="What it printed last. Exec and Staff see this too, and can fix what they can.">{connection.last_output.trim()}</pre>
+		{/if}
 	</Section>
 
 	{#if connection.status === 'working'}
@@ -559,6 +564,17 @@
 		color: var(--text-secondary);
 		font-size: var(--t-body);
 		line-height: 1.5;
+	}
+	.last-output {
+		margin: 0 14px 12px;
+		padding: 8px 10px;
+		max-height: 12em;
+		overflow: auto;
+		border-radius: var(--radius-control);
+		background: var(--wash-hover);
+		color: var(--text-secondary);
+		font: var(--t-label) / 1.5 var(--font-mono, ui-monospace, monospace);
+		white-space: pre-wrap;
 	}
 	.request .reason {
 		flex: 1;

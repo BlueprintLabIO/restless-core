@@ -637,6 +637,9 @@ pub struct Request {
     /// A typed decision a company actor asks for (`restless decide`): `state` and `questions`.
     #[serde(default)]
     pub decision: Option<serde_json::Value>,
+    /// The app a `restless tools` command is about.
+    #[serde(default)]
+    pub tool: Option<String>,
 }
 
 const ENVELOPE_FIELDS: &[&str] = &["cmd", "company", "principal", "session_capability"];
@@ -776,6 +779,8 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "document-operation" => &["actor", "document_operation"],
         "sheet-operation" => &["actor", "sheet_operation"],
         "decision-ask" => &["actor", "decision"],
+        "tools-list" => &["actor", "tool"],
+        "tools-check" => &["actor", "tool"],
         "document-review-request" => &[
             "document_id",
             "expected_document_version",

@@ -2023,6 +2023,37 @@ async fn handle_incoming(
             )
             .await?;
         }
+        launch @ BridgeMessage::LaunchTool { operation_id, .. } => {
+            if agents.contains_key(&operation_id) {
+                queue(
+                    outbound,
+                    BridgeMessage::Error {
+                        operation_id: Some(operation_id),
+                        code: "duplicate_operation".into(),
+                        message: "this Runtime tool operation is already active".into(),
+                    },
+                )
+                .await?;
+            } else {
+                match launch_tool(launch, outbound.clone()).await {
+                    Ok(control) => {
+                        agents.insert(operation_id, control);
+                    }
+                    Err(error) => {
+                        queue(
+                            outbound,
+                            BridgeMessage::Exit {
+                                operation_id,
+                                code: None,
+                                signal: None,
+                                error: Some(format!("{error:#}")),
+                            },
+                        )
+                        .await?;
+                    }
+                }
+            }
+        }
         launch @ BridgeMessage::LaunchAgent { operation_id, .. } => {
             if agents.contains_key(&operation_id) {
                 queue(
@@ -2276,12 +2307,45 @@ async fn launch_agent(
     unsafe {
         command.pre_exec(drop_agent_privileges);
     }
-    let mut child = command
+    let child = command
         .spawn()
         .context("spawn certified Runtime ACP harness")?;
-    let process_group = child.id().context("Runtime ACP child has no process id")?;
-    let mut child_stdin = child.stdin.take().context("open ACP stdin")?;
-    let mut child_stdout = child.stdout.take().context("open ACP stdout")?;
+    let finish: Finish = Box::new(move |_code| {
+        Box::pin(async move {
+            let cleanup = if let Some(values) = codex_cleanup_values {
+                purge_codex_profile_capabilities(&profile_dir, &values).await
+            } else {
+                Ok(())
+            };
+            let _ = std::fs::remove_dir_all(session_root);
+            cleanup
+                .err()
+                .map(|cleanup| format!("Runtime agent capability cleanup failed: {cleanup:#}"))
+        })
+    });
+    supervise_process(child, operation_id, deadline_ms, outbound, finish)
+}
+
+/// What runs after a supervised process ends, given its exit code; an error it
+/// returns is reported in the `Exit`.
+type Finish = Box<
+    dyn FnOnce(Option<i32>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<String>> + Send>>
+        + Send,
+>;
+
+/// Carry one launched process's stdio over the bridge until it exits, is
+/// cancelled or reaches its deadline, then reap its whole process group and
+/// report `Exit`. Agents and connected apps' local commands share this.
+fn supervise_process(
+    mut child: tokio::process::Child,
+    operation_id: Uuid,
+    deadline_ms: i64,
+    outbound: mpsc::Sender<Outbound>,
+    finish: Finish,
+) -> Result<AgentControl> {
+    let process_group = child.id().context("Runtime child has no process id")?;
+    let mut child_stdin = child.stdin.take().context("open child stdin")?;
+    let mut child_stdout = child.stdout.take().context("open child stdout")?;
     let (stdin_tx, mut stdin_rx) = mpsc::channel::<Vec<u8>>(32);
     let (cancel_tx, mut cancel_rx) = oneshot::channel::<String>();
     tokio::spawn(async move {
@@ -2318,24 +2382,16 @@ async fn launch_agent(
                 }
             }
         }.await;
-        // The agent parent may exit before tool grandchildren. The Linux
-        // process group is the ownership record; reap it on every terminal
-        // path before reporting Exit to Core.
+        // The parent may exit before its grandchildren. The Linux process
+        // group is the ownership record; reap it on every terminal path
+        // before reporting Exit to Core.
         kill_process_group(process_group, nix::sys::signal::Signal::SIGKILL);
-        let cleanup = if let Some(values) = codex_cleanup_values {
-            purge_codex_profile_capabilities(&profile_dir, &values).await
-        } else {
-            Ok(())
-        };
         let (code, mut error) = match outcome {
             Ok(code) => (code, None),
-            Err(error) => (
-                None,
-                Some(format!("Runtime agent supervision failed: {error}")),
-            ),
+            Err(error) => (None, Some(format!("Runtime process supervision failed: {error}"))),
         };
-        if let Err(cleanup) = cleanup {
-            error = Some(format!("Runtime agent capability cleanup failed: {cleanup:#}"));
+        if let Some(finished) = finish(code).await {
+            error = Some(finished);
         }
         let _ = queue(
             &outbound,
@@ -2347,12 +2403,99 @@ async fn launch_agent(
             },
         )
         .await;
-        let _ = std::fs::remove_dir_all(session_root);
     });
     Ok(AgentControl {
         stdin: stdin_tx,
         cancel: cancel_tx,
     })
+}
+
+/// A connected app's local command, run in the company computer as the tool
+/// identity (uid 2001, group 2000) with a private data folder agents cannot
+/// read. Its stdio is MCP; what it prints to stderr comes back in its `Exit`.
+async fn launch_tool(message: BridgeMessage, outbound: mpsc::Sender<Outbound>) -> Result<AgentControl> {
+    let BridgeMessage::LaunchTool {
+        operation_id,
+        connection,
+        command: program,
+        args,
+        env,
+        browser,
+        deadline_ms,
+    } = message
+    else {
+        bail!("launch_tool requires LaunchTool");
+    };
+    // The bridge may chown but not chmod what it no longer owns, so a new folder
+    // gets its mode first and its owner last; an existing one is the tool's.
+    let parent = Path::new("/company/tool-data");
+    if !parent.exists() {
+        std::fs::create_dir(parent).context("create the tools' data folder")?;
+        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o711))?;
+    }
+    let data = parent.join(&connection);
+    if !data.exists() {
+        std::fs::create_dir(&data).context("create the tool's data folder")?;
+        std::fs::set_permissions(&data, std::fs::Permissions::from_mode(0o700))?;
+        std::os::unix::fs::chown(&data, Some(2001), Some(2000))
+            .context("give the tool its data folder")?;
+    }
+    let workdir = if Path::new("/company/tools").is_dir() { PathBuf::from("/company/tools") } else { data.clone() };
+    let mut command = tokio::process::Command::new(&program);
+    command
+        .args(&args)
+        .current_dir(&workdir)
+        .process_group(0)
+        .env_clear()
+        .env("PATH", "/usr/local/bin:/usr/bin:/bin")
+        .env("HOME", &data)
+        .env("RESTLESS_TOOL_DATA", &data)
+        .env("TMPDIR", "/tmp")
+        .env("XDG_CACHE_HOME", data.join(".cache"))
+        .env("UV_CACHE_DIR", data.join(".cache/uv"))
+        .env("npm_config_cache", data.join(".cache/npm"))
+        .envs(&env)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    if browser {
+        command.env("RESTLESS_BROWSER_CDP", "http://127.0.0.1:9222");
+    }
+    unsafe {
+        command.pre_exec(drop_tool_privileges);
+    }
+    let mut child = command.spawn().with_context(|| format!("start {connection}'s command {program:?}"))?;
+    let tail = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    if let Some(mut stderr) = child.stderr.take() {
+        let tail = std::sync::Arc::clone(&tail);
+        tokio::spawn(async move {
+            let mut chunk = [0_u8; 1024];
+            while let Ok(read) = stderr.read(&mut chunk).await {
+                if read == 0 {
+                    break;
+                }
+                if let Ok(mut tail) = tail.lock() {
+                    tail.extend_from_slice(&chunk[..read]);
+                    let excess = tail.len().saturating_sub(3_000);
+                    tail.drain(..excess);
+                }
+            }
+        });
+    }
+    let finish: Finish = Box::new(move |code| {
+        Box::pin(async move {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            let said = tail
+                .lock()
+                .map(|tail| String::from_utf8_lossy(&tail).trim().to_string())
+                .unwrap_or_default();
+            (code != Some(0) && !said.is_empty()).then(|| {
+                said.chars().filter(|c| !c.is_control() || *c == '\n').collect::<String>()
+            })
+        })
+    });
+    supervise_process(child, operation_id, deadline_ms, outbound, finish)
 }
 
 async fn purge_codex_profile_capabilities(profile: &Path, values: &[String]) -> Result<()> {
@@ -2714,6 +2857,11 @@ fn create_session_root(operation_id: Uuid) -> Result<PathBuf> {
 
 #[cfg(target_os = "linux")]
 fn drop_agent_privileges() -> std::io::Result<()> {
+    drop_privileges_to(2000)
+}
+
+#[cfg(target_os = "linux")]
+fn drop_privileges_to(uid: u32) -> std::io::Result<()> {
     // Drop the bounding set before uid transition. CAP_SETPCAP (8) must be
     // retained until every other bound is gone, then drops itself last.
     for capability in (0..=63).filter(|capability| *capability != 8) {
@@ -2737,11 +2885,23 @@ fn drop_agent_privileges() -> std::io::Result<()> {
     } != 0
         || unsafe { nix::libc::setgroups(0, std::ptr::null()) } != 0
         || unsafe { nix::libc::setgid(2000) } != 0
-        || unsafe { nix::libc::setuid(2000) } != 0
+        || unsafe { nix::libc::setuid(uid) } != 0
         || unsafe { nix::libc::prctl(nix::libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } != 0
     {
         return Err(std::io::Error::last_os_error());
     }
+    Ok(())
+}
+
+/// The tool identity: the company's group (to read company tools) but its own
+/// uid, so agents cannot read a tool's environment, secrets or data folder.
+#[cfg(target_os = "linux")]
+fn drop_tool_privileges() -> std::io::Result<()> {
+    drop_privileges_to(2001)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn drop_tool_privileges() -> std::io::Result<()> {
     Ok(())
 }
 

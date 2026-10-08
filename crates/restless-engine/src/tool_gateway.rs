@@ -387,7 +387,15 @@ impl ToolCaller<'_> {
                 Some(ReadFailure::Refused(message)) => ("tool_error", None, Some("refused"),
                     text_error(format!("The server refused the call: {message}"))),
                 _ => ("outcome_unknown", None, Some("call_failed"),
-                    text_error("The read failed or timed out. Reads have no side effects; it is safe to try again.")),
+                    text_error(format!(
+                        "The read failed or timed out. Reads have no side effects; it is safe to try again.{}",
+                        connections::worker_log_tail(self.company(), &tool.connection.name)
+                            .map(|tail| {
+                                let tail: String = tail.chars().rev().take(800).collect::<Vec<_>>().into_iter().rev().collect();
+                                format!(" The tool last printed:\n{}\nIf it is broken, `restless tools list` shows its state and `restless tools check {}` tries it again after a fix.", tail.trim(), tool.connection.name)
+                            })
+                            .unwrap_or_default()
+                    ))),
             },
         };
         let receipt = connections::record_read_receipt(

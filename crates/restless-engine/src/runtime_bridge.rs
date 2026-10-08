@@ -99,12 +99,37 @@ pub struct RuntimeBridgeRegistry {
     hosted: bool,
 }
 
+/// The plane's hosted bridge registry, for code that reaches a company's
+/// computer without holding the daemon (a connected app's local command).
+static HOSTED_REGISTRY: std::sync::OnceLock<RuntimeBridgeRegistry> = std::sync::OnceLock::new();
+
+pub fn hosted_registry() -> Option<&'static RuntimeBridgeRegistry> {
+    HOSTED_REGISTRY.get()
+}
+
+/// Authority's pool, where each company's expected Runtime identity lives.
+static IDENTITY_POOL: std::sync::OnceLock<sqlx::PgPool> = std::sync::OnceLock::new();
+
+pub fn remember_identity_pool(pool: sqlx::PgPool) {
+    let _ = IDENTITY_POOL.set(pool);
+}
+
+/// The exact hosted Runtime a company's work must reach.
+pub async fn hosted_identity(company: &str) -> Result<RuntimeIdentity> {
+    let pool = IDENTITY_POOL
+        .get()
+        .context("the hosted Runtime identity store is not ready")?;
+    expected_identity_in(pool, company).await
+}
+
 impl RuntimeBridgeRegistry {
     pub fn hosted() -> Self {
-        Self {
+        let registry = Self {
             state: Arc::default(),
             hosted: true,
-        }
+        };
+        let _ = HOSTED_REGISTRY.set(registry.clone());
+        registry
     }
 
     pub fn is_hosted(&self) -> bool {
@@ -508,6 +533,7 @@ fn operation_id(message: &BridgeMessage) -> Option<Uuid> {
         | BridgeMessage::CleanupAttempt { operation_id, .. }
         | BridgeMessage::AttemptCleaned { operation_id, .. }
         | BridgeMessage::LaunchAgent { operation_id, .. }
+        | BridgeMessage::LaunchTool { operation_id, .. }
         | BridgeMessage::AcpStdin { operation_id, .. }
         | BridgeMessage::AcpStdout { operation_id, .. }
         | BridgeMessage::Cancel { operation_id, .. }
@@ -525,6 +551,10 @@ pub async fn expected_identity(
     authority: &crate::authority::AuthorityStore,
     company: &str,
 ) -> Result<RuntimeIdentity> {
+    expected_identity_in(authority.pool(), company).await
+}
+
+pub async fn expected_identity_in(pool: &sqlx::PgPool, company: &str) -> Result<RuntimeIdentity> {
     let row = sqlx::query_as::<
         _,
         (
@@ -545,7 +575,7 @@ pub async fn expected_identity(
          FROM restless_authority.runtime_bridge_generations WHERE company_handle=$1",
     )
     .bind(company)
-    .fetch_optional(authority.pool())
+    .fetch_optional(pool)
     .await
     .context("read expected hosted Runtime identity")?
     .with_context(|| format!("company {company:?} has no bootstrapped hosted Runtime"))?;
@@ -1136,7 +1166,7 @@ async fn open_agent_transport_with_environment(
     let deadline_ms = chrono::Utc::now().timestamp_millis()
         + i64::try_from(restless_runtime_bridge_protocol::MAX_OPERATION_MILLIS)
             .expect("operation limit fits i64");
-    let mut responses = registry.begin_operation(
+    let responses = registry.begin_operation(
         identity,
         BridgeMessage::LaunchAgent {
             operation_id,
@@ -1155,16 +1185,32 @@ async fn open_agent_transport_with_environment(
             deadline_ms,
         },
     )?;
+    Ok(pump_operation(registry, identity, operation_id, responses, cleanup_deadline_for(harness)))
+}
+
+fn cleanup_deadline_for(harness: crate::runtime::AgentHarness) -> Duration {
+    if harness == crate::runtime::AgentHarness::Codex {
+        Duration::from_secs(60)
+    } else {
+        Duration::from_secs(10)
+    }
+}
+
+/// Carry one launched process's stdio between a local duplex stream and the
+/// bridge: bytes written locally become `AcpStdin`, `AcpStdout` comes back,
+/// and closing the local side cancels the process.
+fn pump_operation(
+    registry: &RuntimeBridgeRegistry,
+    identity: &RuntimeIdentity,
+    operation_id: Uuid,
+    mut responses: mpsc::Receiver<BridgeMessage>,
+    cleanup_deadline: Duration,
+) -> (tokio::io::DuplexStream, oneshot::Receiver<std::result::Result<(), String>>) {
     let (core, bridge) = tokio::io::duplex(256 * 1024);
     let (completion_tx, completion_rx) = oneshot::channel();
     let (mut bridge_read, mut bridge_write) = tokio::io::split(bridge);
     let registry = registry.clone();
     let identity = identity.clone();
-    let cleanup_deadline = if harness == crate::runtime::AgentHarness::Codex {
-        Duration::from_secs(60)
-    } else {
-        Duration::from_secs(10)
-    };
     tokio::spawn(async move {
         let mut buffer = vec![0_u8; 48 * 1024];
         let mut local_closed = false;
@@ -1219,8 +1265,50 @@ async fn open_agent_transport_with_environment(
         let _ = bridge_write.shutdown().await;
         let _ = completion_tx.send(completion);
     });
-    Ok((core, completion_rx))
+    (core, completion_rx)
 }
+
+/// Start a connected app's local command in a hosted company computer and
+/// return its stdio, for the tool gateway's MCP client.
+pub async fn open_tool_transport(
+    registry: &RuntimeBridgeRegistry,
+    identity: &RuntimeIdentity,
+    connection: &str,
+    command: &str,
+    args: &[String],
+    env: BTreeMap<String, String>,
+    browser: bool,
+) -> Result<tokio::io::DuplexStream> {
+    preflight(registry, identity).await?;
+    let operation_id = Uuid::new_v4();
+    let deadline_ms = chrono::Utc::now().timestamp_millis()
+        + i64::try_from(restless_runtime_bridge_protocol::MAX_OPERATION_MILLIS)
+            .expect("operation limit fits i64");
+    let responses = registry.begin_operation(
+        identity,
+        BridgeMessage::LaunchTool {
+            operation_id,
+            connection: connection.to_string(),
+            command: command.to_string(),
+            args: args.to_vec(),
+            env,
+            browser,
+            deadline_ms,
+        },
+    )?;
+    let (stream, completion) =
+        pump_operation(registry, identity, operation_id, responses, Duration::from_secs(10));
+    // What the tool printed before failing comes back in its Exit.
+    let company = identity.company.clone();
+    let connection = connection.to_string();
+    tokio::spawn(async move {
+        if let Ok(Err(said)) = completion.await {
+            crate::connections::record_worker_output(&company, &connection, &said);
+        }
+    });
+    Ok(stream)
+}
+
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]

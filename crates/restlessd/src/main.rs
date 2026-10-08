@@ -289,6 +289,9 @@ async fn run() -> Result<()> {
         in_flight: std::sync::Arc::new(std::sync::Mutex::new(schedule::WakeClaims::default())),
         schedule_wake: std::sync::Arc::new(tokio::sync::Notify::new()),
     });
+    if daemon.runtime_bridges.is_hosted() {
+        runtime_bridge::remember_identity_pool(daemon.authority.pool().clone());
+    }
     daemon.lifecycle.begin_recovery();
     runtime::begin_startup_recovery();
 

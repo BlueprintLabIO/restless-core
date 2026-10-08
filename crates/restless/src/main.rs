@@ -116,6 +116,18 @@ enum Command {
         #[arg(long)]
         questions: String,
     },
+    /// See the company's apps as you can use them, and check one again after fixing it.
+    ///
+    /// `restless tools list` shows each app's state, why it fails, what a local tool last printed to
+    /// its error output, and which of its tools you may call. After fixing a local tool (its
+    /// command, a package, a file under /company/tools), `restless tools check <name>` starts it
+    /// again and reports what it sees. Checking only lists the tools; it never calls one.
+    Tools {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: ToolsCommand,
+    },
     /// Bring a company environment up (create if absent, then start).
     Up {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -2527,6 +2539,13 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         }
         Command::Document { company, command } => {
             command.request(company.context("no company: pass -c or set RESTLESS_COMPANY")?)?
+        }
+        Command::Tools { company, command } => {
+            let company = company.context("no company: pass -c or set RESTLESS_COMPANY")?;
+            match command {
+                ToolsCommand::List { name } => serde_json::json!({ "cmd": "tools-list", "company": company, "tool": name }),
+                ToolsCommand::Check { name } => serde_json::json!({ "cmd": "tools-check", "company": company, "tool": name }),
+            }
         }
         Command::Decide { company, state, questions } => serde_json::json!({
             "cmd": "decision-ask",
@@ -4951,4 +4970,15 @@ fn decision_arg(raw: &str, text_ok: bool) -> Result<serde_json::Value> {
         Err(_) if text_ok => Ok(serde_json::Value::String(raw)),
         Err(error) => Err(anyhow::anyhow!("questions must be a JSON object: {error}")),
     }
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum ToolsCommand {
+    /// Every app: its state, why it fails, a local tool's last error output, and your tools.
+    List {
+        /// Only this app.
+        name: Option<String>,
+    },
+    /// Start an app again and report what it now offers, after a fix.
+    Check { name: String },
 }
