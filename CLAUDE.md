@@ -321,6 +321,16 @@ This repo is built in sprints by two founders collaborating on the `main` branch
   code and protocols brand-neutral so a configured name is applied in one place.
 - **Pushing** verified work to `main` is standing-authorised (see Checkpoints). Any other push —
   a force-push, another repository, a release tag — needs the owner's explicit request.
+- **CI/CD runs only on our own machine, never on GitHub-hosted runners.** We do not pay for cloud
+  CI minutes. Every job in every workflow, in this repo and in restless-cloud, names a self-hosted
+  runner on the founder's machine: `[self-hosted, linux, x64, restless-core]` here,
+  `[self-hosted, linux, x64, restless-cloud]` in restless-cloud. Never write `runs-on:
+  ubuntu-*`, `macos-*`, `windows-*` or any other GitHub-hosted label, not even for a quick check or
+  an extra platform. A job that needs something this machine lacks, such as arm64 or more cores, is
+  a question for the owner, not a hosted runner. Jobs share the owner's machine, so they must not
+  change it: no global toolchain defaults, no fixed host ports such as 5432 or 80, no `sudo apt-get`
+  that starts services. If a GitHub-hosted job is ever found, or a release stalls on GitHub
+  billing, move the job onto the self-hosted runner rather than asking the owner to pay.
 - **Testing style** (carried forward): add automated tests only for key product invariants and
   security/data-integrity boundaries. Do not add tests for implementation details, trivial wiring,
   styling, snapshots, or every branch merely to increase coverage. Layer-appropriate testing (§16.8):
