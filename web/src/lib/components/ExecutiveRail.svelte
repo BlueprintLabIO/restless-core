@@ -229,8 +229,8 @@
 	function handoffsBefore(index: number): AgentExchange[] {
 		/* Indexes the shown window; the message before it may be hidden. */
 		const previous = messages[windowStart + index - 1];
-		if (!previous) return [];
-		const after = at(previous.createdAt);
+		if (!previous && windowStart + index > 0) return [];
+		const after = previous ? at(previous.createdAt) : -Infinity;
 		const until = at(messages[windowStart + index].createdAt);
 		return exchanges.exchanges.filter(
 			(exchange) => at(exchange.created_at) > after && at(exchange.created_at) <= until
@@ -240,7 +240,7 @@
 		const last = visibleMessages.at(-1);
 		return last
 			? exchanges.exchanges.filter((exchange) => at(exchange.created_at) > at(last.createdAt))
-			: [];
+			: exchanges.exchanges;
 	});
 
 	/* `$skill` selection and the `/goal` and `/loop` commands. Skills are the
@@ -1150,7 +1150,7 @@
 									</div>
 								</div>
 							</div>
-						{:else}
+						{:else if needsProvider || !exchanges.exchanges.length}
 							<div class="exr-empty">
 								<p class="exr-empty-h">
 									{needsProvider ? providerLabel : 'Ask anything.'}

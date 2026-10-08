@@ -12,7 +12,7 @@
 	import WifiOff from '@lucide/svelte/icons/wifi-off';
 	import X from '@lucide/svelte/icons/x';
 	import { initials } from '$lib/model/initials';
-	import HandoffReceipt from '$lib/primitives/HandoffReceipt.svelte';
+	import HandoffGroup from '$lib/primitives/HandoffGroup.svelte';
 	import { agentExchangesQuery, type AgentExchange } from '$lib/model/exchanges.svelte';
 	import IntelligenceChip from '$lib/components/IntelligenceChip.svelte';
 	import { composerOptions, referenceOptions } from '$lib/model/composer-options.svelte';
@@ -541,8 +541,9 @@
 	);
 	const at = (value: string) => new Date(value).getTime();
 	function handoffsBefore(index: number): AgentExchange[] {
-		if (index === 0) return [];
-		const after = at(visibleRoots[index - 1].created_at);
+		/* Before the first loaded message, only when nothing older is left to load. */
+		if (index === 0 && roomProjection?.hasMore) return [];
+		const after = index === 0 ? -Infinity : at(visibleRoots[index - 1].created_at);
 		const until = at(visibleRoots[index].created_at);
 		return exchanges.exchanges.filter(
 			(exchange) => at(exchange.created_at) > after && at(exchange.created_at) <= until
@@ -552,7 +553,7 @@
 		const last = visibleRoots.at(-1);
 		return last
 			? exchanges.exchanges.filter((exchange) => at(exchange.created_at) > at(last.created_at))
-			: [];
+			: exchanges.exchanges;
 	});
 	const directTeam = $derived(
 		directPerson
@@ -1266,10 +1267,11 @@
 						</button>
 					{/if}
 					{#each shownRoots as message, index (message.id)}
-						{#each handoffsBefore(rootStart + index) as exchange (exchange.id)}<HandoffReceipt
-								{exchange}
-								name={exchanges.name}
-							/>{/each}
+						<HandoffGroup
+							exchanges={handoffsBefore(rootStart + index)}
+							name={exchanges.name}
+							host={directPartner}
+						/>
 						{#if index === 0 || dayKey(message.created_at) !== dayKey(shownRoots[index - 1].created_at)}
 							<div class="room-day"><span>{dayLabel(message.created_at)}</span></div>
 						{/if}
@@ -1341,10 +1343,11 @@
 							onedit={(body, commandId) => saveMessageEdit(message, body, commandId)}
 							ondelete={(commandId) => removeMessage(message, commandId)}
 						/>
-						{#if index === visibleRoots.length - 1}{#each handoffsSinceLast as exchange (exchange.id)}<HandoffReceipt
-									{exchange}
-									name={exchanges.name}
-								/>{/each}{/if}
+						{#if index === visibleRoots.length - 1}<HandoffGroup
+								exchanges={handoffsSinceLast}
+								name={exchanges.name}
+								host={directPartner}
+							/>{/if}
 					{:else}
 						{#if roomProjection?.failure && !roomMessages.length}
 							<FailureNotice
@@ -1355,6 +1358,12 @@
 							/>
 						{:else if roomProjection?.status === 'unknown'}
 							<Skeleton label="Loading conversation" variant="messages" count={3} />
+						{:else if handoffsSinceLast.length}
+							<HandoffGroup
+								exchanges={handoffsSinceLast}
+								name={exchanges.name}
+								host={directPartner}
+							/>
 						{:else}
 							<div class="conversation-empty">
 								<strong>Nothing said yet.</strong>
