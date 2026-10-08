@@ -982,6 +982,26 @@ pub fn container_name(company: &str) -> String {
     }
 }
 
+/// Remove a volume once the local MCP workers that used it have finished
+/// removing themselves: a `--rm` worker still exiting holds it for a moment.
+async fn remove_volume_when_free(volume: &str, what: &str) -> Result<()> {
+    let mut attempts = 0;
+    loop {
+        let output = docker_observe(&["volume", "rm", volume]).await?;
+        if output.status.success() {
+            return Ok(());
+        }
+        attempts += 1;
+        if attempts >= 40 {
+            bail!(
+                "remove {what} {volume}: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
 pub fn volume_name(company: &str) -> String {
     match std::env::var("RESTLESS_RESOURCE_NAMESPACE") {
         Ok(namespace) if !namespace.is_empty() => format!("restless-{namespace}-vol-{company}"),
@@ -3174,16 +3194,8 @@ pub async fn destroy(
         removed.push("container");
     }
 
-    let volume = volume_name(company);
-    if docker_observe(&["volume", "inspect", &volume])
-        .await?
-        .status
-        .success()
-    {
-        run_ok(&["volume", "rm", &volume]).await?;
-        removed.push("volume");
-    }
-    // Local MCP workers hold the package cache open; end them first.
+    // Local MCP workers hold the package cache and /company/tools (on the company volume)
+    // open; end them before either volume goes.
     crate::connections::forget_company_upstreams(company).await;
     let company_label = format!("label=io.restless.company={company}");
     let namespace_label = format!(
@@ -3208,27 +3220,22 @@ pub async fn destroy(
         let _ = docker_observe(&["rm", "-f", worker]).await;
         removed.push("local MCP worker");
     }
+    let volume = volume_name(company);
+    if docker_observe(&["volume", "inspect", &volume])
+        .await?
+        .status
+        .success()
+    {
+        remove_volume_when_free(&volume, "company volume").await?;
+        removed.push("volume");
+    }
     let cache = mcp_cache_volume_name(company);
     if docker_observe(&["volume", "inspect", &cache])
         .await?
         .status
         .success()
     {
-        let mut attempts = 0;
-        loop {
-            let output = docker_observe(&["volume", "rm", &cache]).await?;
-            if output.status.success() {
-                break;
-            }
-            attempts += 1;
-            if attempts >= 40 {
-                bail!(
-                    "remove local MCP cache {cache}: {}",
-                    String::from_utf8_lossy(&output.stderr).trim()
-                );
-            }
-            tokio::time::sleep(Duration::from_millis(250)).await;
-        }
+        remove_volume_when_free(&cache, "local MCP cache").await?;
         removed.push("local MCP cache");
     }
     let namespace = std::env::var("RESTLESS_RESOURCE_NAMESPACE").unwrap_or_default();
@@ -3245,13 +3252,7 @@ pub async fn destroy(
     ])
     .await?;
     for volume in String::from_utf8_lossy(&data.stdout).split_whitespace() {
-        let output = docker_observe(&["volume", "rm", volume]).await?;
-        if !output.status.success() {
-            bail!(
-                "remove tool data {volume}: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            );
-        }
+        remove_volume_when_free(volume, "tool data").await?;
         removed.push("local tool data");
     }
 
