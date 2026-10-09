@@ -33,6 +33,18 @@ publish 9, seal 3). Where the time went on 9 October, and what now keeps it shor
   runner, it is skipped and the summary says so. Markers live in
   `~/.cache/restless-runner/connections-passed` (newest 40 kept). A cockpit-only release
   therefore skips the smoke; anything touching Rust, the images, scripts or workflows runs it.
+- **The engine's cache is bounded.** Unconfigured, Dagger lets its cache use 75% of the disk; on
+  9 October it held 400 GB, 71% of it copies of whole checkouts: `seal` (and the lint, cockpit,
+  overlay, release-contract, sheets and issuer entry points) declared no ignore patterns, so
+  each release stored the runner's 14 GB `.git` and each call from a worktree stored its Cargo
+  targets and `node_modules` (17 GB). Every entry point that takes `source` now declares them
+  (`target-*` included); `verify-workflow --source=.` went from a 17 GB upload to 0.2 GB. The
+  engine's GC is capped at `{"gc": {"maxUsedSpace": "150GB", "reservedSpace": "40GB",
+  "minFreeSpace": "15%"}}`, written to `/etc/dagger/engine.json` in the running
+  `dagger-engine-v0.21.10` container and to `~/.config/dagger/engine.json`, which the CLI
+  mounts when it provisions a new engine version. Restart the engine only while both runners
+  are idle (`gh api repos/BlueprintLabIO/restless-core/actions/runners`). Pruning to that
+  policy took 11 s and left 162 GB.
 - **The cockpit still ships through a Core release.** Cloud serves it from the account-plane
   image (`COPY web/build`), so a UI change needs that image, and with the fast lane, the reused
   tool base and cached Rust its release is the short one.

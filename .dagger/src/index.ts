@@ -264,10 +264,14 @@ export class RestlessCore {
     return verifyCompanyRuntimeImage(await this.companyRuntime(source, revision, platform, toolsImage, binaries), revision);
   }
 
+  /* Every function that takes the checkout as \`source\` must declare ignore patterns. Without them
+   * the CLI uploads the whole directory and the engine keeps it: seal stored the runner's 14 GB
+   * \`.git\` on every release, and a call from a development worktree stored its Cargo targets and
+   * node_modules (17 GB). Those copies were most of a 436 GB cache on 9 October 2026. */
   /** Run the current Core checks through the same functions used for builds. */
   @func()
   async qualify(
-    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/.env', '**/.env.*'] })
+    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
     source: Directory,
   ): Promise<string> {
     const timings: Timing[] = [];
@@ -291,7 +295,10 @@ export class RestlessCore {
 
   /** Check workflow wiring with the same pinned tool used by Cloud. */
   @func()
-  verifyWorkflow(source: Directory): Container {
+  verifyWorkflow(
+    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
+    source: Directory,
+  ): Container {
     return dag.container().from('rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667')
       .withDirectory('/src/.github', source.directory('.github')).withWorkdir('/src')
       .withExec(['/bin/sh', '-ec',
@@ -306,19 +313,28 @@ export class RestlessCore {
 
   /** Build the architecture-independent cockpit once per actual UI inputs. */
   @func()
-  cockpit(source: Directory): Directory {
+  cockpit(
+    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
+    source: Directory,
+  ): Directory {
     return cockpit(source).directory('/project/build');
   }
 
   /** Install and render the real packed UI in an empty project, without pretending it is a release. */
   @func()
-  verifyUiArtifact(source: Directory): Container {
+  verifyUiArtifact(
+    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
+    source: Directory,
+  ): Container {
     return project(source, 'web').withExec(['node', 'scripts/smoke-ui-artifact.mjs', '--qualification']);
   }
 
   /** Run the real chrome's browser checks on example data in the isolated builder. */
   @func()
-  verifyOverlays(source: Directory): Container {
+  verifyOverlays(
+    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
+    source: Directory,
+  ): Container {
     // Chromium sits below the web sources so it stays cached across commits; a stalled mirror is retried.
     const browser = dag.container().from(NODE_IMAGE).withExec(['/bin/sh', '-c',
       'for i in 1 2 3; do timeout 300 apk add --no-cache chromium && exit 0; sleep 5; done; exit 1']);
@@ -337,7 +353,10 @@ export class RestlessCore {
 
   /** Exercise the versioned release contracts before any registry mutation. */
   @func()
-  async verifyRelease(source: Directory): Promise<string> {
+  async verifyRelease(
+    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
+    source: Directory,
+  ): Promise<string> {
     await verifyBuildInputs();
     await verifyImageInspection();
     await node(source).withExec(['node', '--test', 'scripts/company-collaboration-contract.test.mjs']).sync();
@@ -351,7 +370,7 @@ export class RestlessCore {
    */
   @func()
   async prebuild(
-    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/.env', '**/.env.*'] })
+    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
     source: Directory, revision: string, username: string, password: Secret, platform: string = 'linux/amd64',
   ): Promise<string> {
     checkPlatform(platform);
@@ -366,7 +385,7 @@ export class RestlessCore {
   /** Publish and qualify exact platform images, including a reusable tool base. */
   @func()
   async publish(
-    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/.env', '**/.env.*'] })
+    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
     source: Directory, revision: string, username: string, password: Secret, scanPeriod: string,
     platform: string = 'linux/amd64',
   ): Promise<Directory> {
@@ -408,7 +427,9 @@ export class RestlessCore {
 
   /** Seal publication through the trusted Core main workflow. */
   @func()
-  seal(source: Directory, artifacts: Directory, revision: string, username: string, password: Secret,
+  seal(
+    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
+    source: Directory, artifacts: Directory, revision: string, username: string, password: Secret,
     oidcRequestUrl: string, oidcRequestToken: Secret, workflowRef: string,
     platform: string = 'linux/amd64',
   ): Promise<Directory> {
@@ -418,13 +439,19 @@ export class RestlessCore {
 
   /** Exercise and export the bounded workbook engine independently of Rust. */
   @func()
-  nativeSheets(source: Directory): Container {
+  nativeSheets(
+    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
+    source: Directory,
+  ): Container {
     return project(source, 'services/native-sheets').withExec(['npm', 'test']);
   }
 
   /** Export the Core-owned issuer package without an entire identity image. */
   @func()
-  issuer(source: Directory): Directory {
+  issuer(
+    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
+    source: Directory,
+  ): Directory {
     const identity = source.directory('services/identity');
     const files = dag.directory().withDirectory('/', identity.directory('library'))
       .withFile('issuer.mjs', identity.file('src/issuer.mjs'))
@@ -482,7 +509,7 @@ export class RestlessCore {
       '!tools/custom-harness/**', '!tools/harness-auth/**', '!tools/schedule-test-proxy.py',
       '!docs/COMPANY_OPERATING_RULES.md', '!infra/account-plane/Dockerfile', '!services/native-sheets/package.json',
       '!services/native-sheets/package-lock.json', '!services/native-sheets/src/**', '!services/native-sheets/NOTICE',
-      '!web/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/.env', '**/.env.*'] })
+      '!web/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
     source: Directory, revision: string, platform: string = 'linux/amd64', binaries?: Directory,
   ): Container {
     checkPlatform(platform);
@@ -504,7 +531,7 @@ export class RestlessCore {
       '!tools/custom-harness/**', '!tools/harness-auth/**', '!tools/schedule-test-proxy.py',
       '!docs/COMPANY_OPERATING_RULES.md', '!infra/account-plane/Dockerfile', '!services/native-sheets/package.json',
       '!services/native-sheets/package-lock.json', '!services/native-sheets/src/**', '!services/native-sheets/NOTICE',
-      '!web/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/.env', '**/.env.*'] })
+      '!web/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
     source: Directory, revision: string, platform: string = 'linux/amd64', binaries?: Directory,
   ): Promise<string> {
     return verifyAccountPlaneImage(this.accountPlane(source, revision, platform, binaries));
