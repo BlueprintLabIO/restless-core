@@ -1,0 +1,126 @@
+name: macOS Core release
+
+# The macOS half of a Core release. For each successful "Immutable Core release" run on main (or one
+# named release, dispatched by hand) this builds restless and restlessd for Apple silicon and Intel
+# from exactly that release's commit, seals the commit and CPU into the archive, signs it keylessly
+# as this workflow on main, and publishes it beside the Linux bundle as <revision>-darwin-<arch>.
+# scripts/install-core.sh accepts only this workflow's signature for macOS binaries. Everything
+# else a Mac runs (company computers, documents, PostgreSQL) is the release's Linux images.
+
+on:
+  workflow_run:
+    workflows: [Immutable Core release]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: 40-character commit of a successful Immutable Core release on main
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+
+concurrency:
+  group: macos-core-release-${{ inputs.revision || github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+env:
+  REPOSITORY: ghcr.io/blueprintlabio/restless-core-release
+  BINARIES_MEDIA_TYPE: application/vnd.restless.core.macos-binaries.v1+tar+gzip
+  SIGNATURE_MEDIA_TYPE: application/vnd.dev.sigstore.bundle.v0.3+json
+
+jobs:
+  build:
+    name: macOS ${{ matrix.arch }}
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: macos-15
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            target: aarch64-apple-darwin
+          - arch: x86_64
+            target: x86_64-apple-darwin
+    steps:
+      - name: Resolve and validate the release
+        env:
+          REVISION: ${{ inputs.revision || github.event.workflow_run.head_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main || { echo 'macOS binaries are signed only by this workflow on main.' >&2; exit 1; }
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]] || { echo "not a commit: $REVISION" >&2; exit 1; }
+          # Only a commit the Linux release already published gets macOS binaries.
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/immutable-core-release.yml/runs?branch=main&status=success&head_sha=$REVISION&per_page=1" \
+            --jq '.total_count' | grep -qx '[1-9][0-9]*' \
+            || { echo "no successful Immutable Core release for $REVISION" >&2; exit 1; }
+          echo "REVISION=$REVISION" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.REVISION }}
+          persist-credentials: false
+      - name: Build restless and restlessd
+        env:
+          RESTLESS_SOURCE_REVISION: ${{ env.REVISION }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REVISION"
+          rustup target add "$TARGET"
+          cargo build --release --locked --target "$TARGET" -p restlessd -p restless
+      - name: Run the binaries on macOS
+        env:
+          TARGET: ${{ matrix.target }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          for bin in restless restlessd; do
+            file "target/$TARGET/release/$bin" | tee /dev/stderr | grep -q "Mach-O 64-bit executable ${ARCH}"
+          done
+          # This runner is Apple silicon; Intel builds run here through Rosetta when it is present.
+          if [ "$ARCH" = arm64 ] || arch -x86_64 /usr/bin/true 2>/dev/null; then
+            ${{ matrix.arch == 'x86_64' && 'arch -x86_64' || '' }} "target/$TARGET/release/restless" --help >/dev/null
+          else
+            echo 'Rosetta is not installed on this runner; the Intel build was checked as a Mach-O x86_64 file only.'
+          fi
+      - name: Package with the release identity sealed inside
+        env:
+          TARGET: ${{ matrix.target }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cp "target/$TARGET/release/restless" "target/$TARGET/release/restlessd" out/
+          jq -n --arg revision "$REVISION" --arg arch "$ARCH" --arg run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '{source_revision: $revision, arch: $arch, built_by: $run}' > out/release.json
+          tar -czf binaries.tar.gz -C out restless restlessd release.json
+          shasum -a 256 binaries.tar.gz
+      - uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: v2.4.1
+      - name: Sign as this workflow on main
+        run: cosign sign-blob --yes --bundle binaries.sigstore.json binaries.tar.gz
+      - name: Verify the signature the installer will check
+        run: |
+          cosign verify-blob --bundle binaries.sigstore.json \
+            --certificate-identity "https://github.com/$GITHUB_REPOSITORY/.github/workflows/macos-core-release.yml@refs/heads/main" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com binaries.tar.gz
+      - uses: oras-project/setup-oras@v1
+      - name: Publish beside the Linux bundle
+        env:
+          ARCH: ${{ matrix.arch }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$REGISTRY_TOKEN" | oras login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          oras push "$REPOSITORY:$REVISION-darwin-$ARCH" \
+            --artifact-type application/vnd.restless.core.macos-release.v1 \
+            "binaries.tar.gz:$BINARIES_MEDIA_TYPE" \
+            "binaries.sigstore.json:$SIGNATURE_MEDIA_TYPE"
+          oras logout ghcr.io
+          printf '### macOS %s\n\nRelease: %s\n\nArtifact: %s:%s-darwin-%s\n' "$ARCH" "$REVISION" "$REPOSITORY" "$REVISION" "$ARCH" >> "$GITHUB_STEP_SUMMARY"

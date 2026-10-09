@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Install or upgrade the Restless appliance from one published Core release.
 #
-#   curl -fsSL https://raw.githubusercontent.com/BlueprintLabIO/restless-core/main/scripts/install-core.sh | bash
+#   curl -fsSL https://restless.run/install | bash
+#
+# (restless.run/install redirects to this file on main.)
 #
 # Or, for one exact release: ... | bash -s -- [<revision>] [--environment <file>] [--force]
 #
@@ -15,10 +17,13 @@
 #      only the trusted main release workflow as signer;
 #   3. pulls the three images the manifest pins by digest;
 #   4. copies the account-plane image's binaries, Cockpit and host tools out
-#      of the image; and
+#      of the image (on macOS: verifies the release's signed macOS binaries and
+#      fetches Node, Bun and the model broker for macOS at the image's versions); and
 #   5. hands them to `restless appliance install` (or `upgrade` when an
 #      appliance is already installed), which drains work, activates the
-#      release under systemd --user and rolls back if it does not become ready.
+#      release under systemd --user (launchd on macOS) and rolls back if it does
+#      not become ready;
+#   6. opens the Cockpit, or on a server prints the port forward that reaches it.
 #
 # Registry access: packages that are not public need `docker login ghcr.io`
 # and GHCR_TOKEN (a token with read:packages) in the environment.
@@ -36,9 +41,19 @@ COSIGN_IMAGE='ghcr.io/sigstore/cosign/cosign:v2.4.1@sha256:b03690aa52bfe94054187
 SIGNER='https://github.com/BlueprintLabIO/restless-core/.github/workflows/immutable-core-release.yml@refs/heads/main'
 ISSUER='https://token.actions.githubusercontent.com'
 BUNDLE_MEDIA_TYPE='application/vnd.restless.core.release-bundle.v1+tar+gzip'
+# macOS: the same release's restless and restlessd, built and signed by the macOS release workflow
+# and published beside the Linux bundle as <revision>-darwin-<arm64|x86_64>.
+MACOS_SIGNER='https://github.com/BlueprintLabIO/restless-core/.github/workflows/macos-core-release.yml@refs/heads/main'
+MACOS_MEDIA_TYPE='application/vnd.restless.core.macos-binaries.v1+tar+gzip'
+SIGSTORE_MEDIA_TYPE='application/vnd.dev.sigstore.bundle.v0.3+json'
 
 fail() { printf 'install-core: %s\n' "$*" >&2; exit 1; }
 step() { printf '\n==> %s\n' "$*" >&2; }
+is_macos() { [ "$(uname -s)" = Darwin ]; }
+# sha256 hex of a file on Linux (coreutils) and macOS (shasum).
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1
+}
 
 usage() {
   sed -n '2,5p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null >&2 || true
@@ -47,12 +62,19 @@ usage() {
 }
 
 require_tools() {
-  [ "$(uname -s)" = Linux ] || fail "released Core binaries are Linux builds; on macOS use a source install"
-  local tool
-  for tool in curl docker jq tar sha256sum systemctl; do
-    command -v "$tool" >/dev/null 2>&1 || fail "$tool is required"
+  local tool tools
+  case "$(uname -s)" in
+    Linux) tools="curl docker jq tar sha256sum systemctl" ;;
+    Darwin) tools="curl docker jq tar shasum unzip launchctl" ;;
+    *) fail "Restless installs on Linux and macOS; on Windows, run this in an Ubuntu (WSL2) terminal" ;;
+  esac
+  for tool in $tools; do
+    command -v "$tool" >/dev/null 2>&1 && continue
+    if is_macos && [ "$tool" = jq ]; then fail "jq is required: brew install jq"; fi
+    if is_macos && [ "$tool" = docker ]; then fail "Docker is required: install Docker Desktop or OrbStack and start it"; fi
+    fail "$tool is required"
   done
-  docker info >/dev/null 2>&1 || fail "Docker is not reachable by this user"
+  docker info >/dev/null 2>&1 || fail "Docker is not reachable by this user; is Docker running?"
 }
 
 host_platform() {
@@ -111,6 +133,7 @@ ensure_database() {
 # Keep the user service running after logout. Usually allowed for one's own
 # user; otherwise say the one command that does it.
 ensure_linger() {
+  is_macos && return 0 # launchd keeps a user agent running while the user is logged in.
   [ "$(loginctl show-user "$USER" --property=Linger --value 2>/dev/null)" = yes ] && return 0
   loginctl enable-linger "$USER" 2>/dev/null && return 0
   printf 'note: Restless stops when you log out until you run: sudo loginctl enable-linger %s\n' "$USER" >&2
@@ -121,7 +144,8 @@ ensure_linger() {
 registry_token() {
   local auth=()
   if [ -n "${GHCR_TOKEN:-}" ]; then auth=(-u "${GHCR_USER:-token}:${GHCR_TOKEN}"); fi
-  curl -fsS "${auth[@]}" "https://${REGISTRY}/token?service=${REGISTRY}&scope=repository:${REPOSITORY}:pull" \
+  # ${a[@]+...}: macOS's bash 3.2 treats an empty array as unset under set -u.
+  curl -fsS ${auth[@]+"${auth[@]}"} "https://${REGISTRY}/token?service=${REGISTRY}&scope=repository:${REPOSITORY}:pull" \
     | jq -er '.token'
 }
 
@@ -135,13 +159,13 @@ fetch_bundle() {
     -o "$work/bundle-manifest.json" \
     "https://${REGISTRY}/v2/${REPOSITORY}/manifests/${revision}-${platform}" \
     || fail "no published Core release for ${revision} on linux/${platform}"
-  manifest_digest="sha256:$(sha256sum "$work/bundle-manifest.json" | cut -d' ' -f1)"
+  manifest_digest="sha256:$(sha256_of "$work/bundle-manifest.json")"
   layer="$(jq -er --arg type "$BUNDLE_MEDIA_TYPE" '[.layers[] | select(.mediaType == $type)] | if length == 1 then .[0].digest else error("expected one bundle layer") end' "$work/bundle-manifest.json")" \
     || fail "the release bundle manifest is not a Core release bundle"
   [[ "$layer" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "the bundle layer digest is malformed"
   curl -fsSL -H "Authorization: Bearer ${token}" -o "$work/bundle.tar.gz" \
     "https://${REGISTRY}/v2/${REPOSITORY}/blobs/${layer}" || fail "could not download the release bundle"
-  [ "sha256:$(sha256sum "$work/bundle.tar.gz" | cut -d' ' -f1)" = "$layer" ] \
+  [ "sha256:$(sha256_of "$work/bundle.tar.gz")" = "$layer" ] \
     || fail "the downloaded bundle does not match its digest ${layer}"
   mkdir -p "$work/bundle"
   tar -xzf "$work/bundle.tar.gz" --no-same-owner --no-same-permissions -C "$work/bundle"
@@ -157,7 +181,7 @@ verify_release() {
   signature="$(jq -er '.release_manifest.signature.path' "$index")"
   expected="$(jq -er '.release_manifest.sha256' "$index")"
   case "$manifest$signature" in *..* | /*) fail "the bundle index names an unsafe path" ;; esac
-  [ "sha256:$(sha256sum "$bundle/$manifest" | cut -d' ' -f1)" = "$expected" ] \
+  [ "sha256:$(sha256_of "$bundle/$manifest")" = "$expected" ] \
     || fail "the release manifest does not match the bundle index"
   # As this user: the bundle sits in a private (0700) temporary directory that
   # the image's own non-root user cannot read.
@@ -205,6 +229,105 @@ stage_account_plane() {
   mv "$tools.partial" "$tools"
 }
 
+# macOS: fetch this release's signed restless and restlessd into <stage>/bin. The artifact holds the
+# binaries' tarball and its Sigstore bundle; both are checked against their digests, then the
+# signature must come from the trusted macOS release workflow on main.
+fetch_macos_binaries() {
+  local revision="$1" arch="$2" work="$3" stage="$4" token manifest binaries signature
+  token="$(registry_token)" || fail "could not get registry access for ${REPOSITORY}"
+  manifest="$work/macos-manifest.json"
+  curl -fsS -H "Authorization: Bearer ${token}" -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+    -o "$manifest" "https://${REGISTRY}/v2/${REPOSITORY}/manifests/${revision}-darwin-${arch}" \
+    || fail "no macOS build of ${revision:0:12} for ${arch} yet; it is published a few minutes after each release"
+  mkdir -p "$work/macos"
+  local type file digest
+  for type in "$MACOS_MEDIA_TYPE" "$SIGSTORE_MEDIA_TYPE"; do
+    digest="$(jq -er --arg type "$type" '[.layers[] | select(.mediaType == $type)] | if length == 1 then .[0].digest else error("expected one layer") end' "$manifest")" \
+      || fail "the macOS artifact is missing its ${type} layer"
+    [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "a macOS artifact digest is malformed"
+    if [ "$type" = "$MACOS_MEDIA_TYPE" ]; then file="$work/macos/binaries.tar.gz"; else file="$work/macos/binaries.sigstore.json"; fi
+    curl -fsSL -H "Authorization: Bearer ${token}" -o "$file" "https://${REGISTRY}/v2/${REPOSITORY}/blobs/${digest}" \
+      || fail "could not download the macOS artifact"
+    [ "sha256:$(sha256_of "$file")" = "$digest" ] || fail "the macOS artifact does not match its digest ${digest}"
+  done
+  docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$work/macos:/work:ro" "$COSIGN_IMAGE" verify-blob \
+    --bundle /work/binaries.sigstore.json --certificate-identity "$MACOS_SIGNER" --certificate-oidc-issuer "$ISSUER" \
+    /work/binaries.tar.gz >&2 \
+    || fail "the macOS binaries' signature did not verify against ${MACOS_SIGNER}"
+  mkdir -p "$stage/bin" "$work/macos/out"
+  tar -xzf "$work/macos/binaries.tar.gz" --no-same-owner -C "$work/macos/out" restless restlessd release.json \
+    || fail "the macOS artifact does not hold restless, restlessd and release.json"
+  # release.json is inside the signed archive: refuse a build of any other release or CPU.
+  jq -e --arg revision "$revision" --arg arch "$arch" '.source_revision == $revision and .arch == $arch' \
+    "$work/macos/out/release.json" >/dev/null \
+    || fail "the macOS binaries were not built from release ${revision:0:12} for ${arch}"
+  mv "$work/macos/out/restless" "$work/macos/out/restlessd" "$stage/bin/"
+  chmod 0755 "$stage/bin/restless" "$stage/bin/restlessd"
+}
+
+# macOS: the Cockpit and the sheets worker's source come from the release's account-plane image;
+# Node, Bun and the model broker are fetched for macOS at the exact versions that image pins, and
+# the sheets worker's dependencies are installed for macOS (some of them are native code).
+stage_macos_host_tools() {
+  local image="$1" stage="$2" tools="$3" work="$4" container versions node_version bun_version omp_version
+  local node_arch bun_arch
+  case "$(uname -m)" in
+    arm64) node_arch=arm64; bun_arch=aarch64 ;;
+    x86_64) node_arch=x64; bun_arch=x64 ;;
+    *) fail "unsupported CPU architecture $(uname -m)" ;;
+  esac
+  versions="$(docker run --rm --entrypoint /bin/sh "$image" -c 'printf "%s %s %s\n" "$(node --version)" "$(bun --version)" "$(omp --version)"')"
+  read -r node_version bun_version omp_version <<<"$versions"
+  node_version="${node_version#v}"
+  omp_version="${omp_version#omp/}"
+  [[ "$node_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$bun_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$omp_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || fail "could not read the pinned Node, Bun and model broker versions from the release image"
+
+  container="restless-install-$$"
+  docker create --name "$container" "$image" >/dev/null
+  STAGING_CONTAINER="$container"
+  rm -rf "$tools.partial"
+  mkdir -p "$stage" "$tools.partial/bin" "$tools.partial/native-sheets"
+  docker cp "$container:/opt/restless/cockpit" "$stage/cockpit"
+  local part
+  for part in package.json package-lock.json src NOTICE; do
+    docker cp "$container:/opt/restless/native-sheets/$part" "$tools.partial/native-sheets/$part"
+  done
+  docker rm -f "$container" >/dev/null
+  STAGING_CONTAINER=""
+
+  # Node, checked against the release's published SHASUMS256.
+  local node_name="node-v${node_version}-darwin-${node_arch}"
+  curl -fsSL -o "$work/$node_name.tar.gz" "https://nodejs.org/dist/v${node_version}/${node_name}.tar.gz" \
+    || fail "could not download Node ${node_version}"
+  curl -fsSL "https://nodejs.org/dist/v${node_version}/SHASUMS256.txt" | grep -q "^$(sha256_of "$work/$node_name.tar.gz")  ${node_name}.tar.gz\$" \
+    || fail "Node ${node_version} does not match its published checksum"
+  tar -xzf "$work/$node_name.tar.gz" -C "$work"
+  cp "$work/$node_name/bin/node" "$tools.partial/bin/node"
+  PATH="$work/$node_name/bin:$PATH" "$work/$node_name/bin/npm" --prefix "$tools.partial/native-sheets" \
+    ci --omit=dev --no-audit --no-fund >&2 || fail "could not install the sheets worker's dependencies"
+
+  # Bun, checked against the release's published SHASUMS256, then the model broker.
+  local bun_zip="bun-darwin-${bun_arch}.zip" bun_url="https://github.com/oven-sh/bun/releases/download/bun-v${bun_version}"
+  curl -fsSL -o "$work/$bun_zip" "$bun_url/$bun_zip" || fail "could not download Bun ${bun_version}"
+  curl -fsSL "$bun_url/SHASUMS256.txt" | grep -q "^$(sha256_of "$work/$bun_zip")  ${bun_zip}\$" \
+    || fail "Bun ${bun_version} does not match its published checksum"
+  unzip -q -o "$work/$bun_zip" -d "$work"
+  cp "$work/bun-darwin-${bun_arch}/bun" "$tools.partial/bin/bun"
+  chmod 0755 "$tools.partial/bin/node" "$tools.partial/bin/bun"
+  BUN_INSTALL="$tools.partial/bun" "$tools.partial/bin/bun" install --global "@oh-my-pi/pi-coding-agent@${omp_version}" >&2 \
+    || fail "could not install the model broker ${omp_version}"
+  local package="$tools.partial/bun/install/global/node_modules/@oh-my-pi/pi-coding-agent" entry
+  entry="$(jq -er 'if (.bin | type) == "string" then .bin else (.bin.omp // first(.bin[])) end' "$package/package.json")" \
+    || fail "the model broker package names no executable"
+  # The wrapper names final paths: the tools directory is renamed into place below.
+  printf '#!/bin/sh\nexec "%s" "%s" "$@"\n' "$tools/bin/bun" "$tools/bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/${entry#./}" \
+    >"$tools.partial/bin/omp"
+  chmod 0755 "$tools.partial/bin/omp"
+  rm -rf "$tools"
+  mv "$tools.partial" "$tools"
+}
+
 STAGING_CONTAINER=""
 cleanup() {
   [ -z "$STAGING_CONTAINER" ] || docker rm -f "$STAGING_CONTAINER" >/dev/null 2>&1 || true
@@ -245,6 +368,9 @@ main() {
   [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || usage
   local platform work bundle manifest tools image
   platform="$(host_platform)"
+  # On a Mac the company computers are Linux containers in Docker's VM. Releases publish linux/amd64,
+  # which Docker Desktop and OrbStack run on Apple silicon through Rosetta.
+  if is_macos && [ "$platform" = arm64 ]; then platform=amd64; fi
   work="$(mktemp -d)"
   WORK="$work"
   trap cleanup EXIT
@@ -265,7 +391,12 @@ main() {
   step "Staging the appliance"
   tools="${HOME}/.local/lib/restless/host-tools/release-${revision:0:12}"
   mkdir -p "$(dirname "$tools")"
-  stage_account_plane "$(jq -er '.images.account_plane' "$manifest")" "$work/stage" "$tools"
+  if is_macos; then
+    fetch_macos_binaries "$revision" "$(uname -m)" "$work" "$work/stage"
+    stage_macos_host_tools "$(jq -er '.images.account_plane' "$manifest")" "$work/stage" "$tools" "$work"
+  else
+    stage_account_plane "$(jq -er '.images.account_plane' "$manifest")" "$work/stage" "$tools"
+  fi
   write_release_environment "$revision" "$manifest" "$tools" "$work/stage/release.env"
 
   local verb=install
@@ -283,8 +414,26 @@ main() {
       --daemon "$work/stage/bin/restlessd" \
       --cockpit "$work/stage/cockpit" \
       --release-environment "$work/stage/release.env" \
-      "${appliance_args[@]}"
-  printf '\nRestless %s is active. Open the Cockpit with: restless open\n' "${revision:0:12}" >&2
+      ${appliance_args[@]+"${appliance_args[@]}"}
+  open_cockpit "${revision:0:12}"
+}
+
+# The install ends in the product: on a desktop the Cockpit opens; on a server
+# the address and the port forward that reaches it are printed instead.
+open_cockpit() {
+  local url="http://127.0.0.1:7788"
+  printf '\nRestless %s is running at %s\n' "$1" "$url" >&2
+  if is_macos; then
+    open "$url" >/dev/null 2>&1 || printf 'Open %s in your browser.\n' "$url" >&2
+    return 0
+  fi
+  if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$url" >/dev/null 2>&1 &
+    return 0
+  fi
+  printf 'From another computer: ssh -L 7788:127.0.0.1:7788 %s@%s, then open %s\n' \
+    "$USER" "$(hostname -f 2>/dev/null || hostname)" "$url" >&2
+  printf 'Later, on this machine: restless open\n' >&2
 }
 
 # Sourcing defines the functions without installing anything.
