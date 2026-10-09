@@ -519,22 +519,33 @@
 		min-height: 0;
 		padding: 6px;
 	}
-	/* One quiet list grouped by team: a label and spacing say "new group"; no
-	 * boxes or header bands compete with the people in it. */
+	/* The same structure as every left sidebar: a section title a step larger than its rows, the
+	 * rows indented beneath it, and a rule between sections. */
 	.directory-section {
 		display: grid;
 		gap: 1px;
-		margin-bottom: 10px;
+	}
+	.directory-section + .directory-section {
+		margin-top: 8px;
+		padding-top: 8px;
+		border-top: 1px solid var(--border-strong);
 	}
 	.team-directory-head {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: 8px;
-		padding: 8px 8px 4px;
+		height: 30px;
+		padding: 0 8px;
+		color: var(--ink);
+		font-size: var(--t-head);
+		font-weight: 600;
+	}
+	.team-directory-head :global(svg) {
 		color: var(--text-tertiary);
-		font-size: var(--t-label);
-		font-weight: 500;
+	}
+	.directory-section:has(> .team-directory-head) .directory-person {
+		padding-left: 26px;
 	}
 	.team-directory-head > span {
 		display: inline-flex;
@@ -568,8 +579,8 @@
 	.directory-person[aria-current='page'] .name {
 		font-weight: 600;
 	}
-	.directory-person.member {
-		padding-left: 24px;
+	.directory-section .directory-person.member {
+		padding-left: 40px;
 	}
 	.directory-person .avatar {
 		width: 22px;

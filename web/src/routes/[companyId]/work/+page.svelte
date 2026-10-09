@@ -16,6 +16,14 @@
 	import X from '@lucide/svelte/icons/x';
 	import Kanban from '@lucide/svelte/icons/kanban';
 	import Target from '@lucide/svelte/icons/target';
+	import ListIcon from '@lucide/svelte/icons/list';
+	import Sparkles from '@lucide/svelte/icons/sparkles';
+	import Plus from '@lucide/svelte/icons/plus';
+	import CircleDashed from '@lucide/svelte/icons/circle-dashed';
+	import ArchiveIcon from '@lucide/svelte/icons/archive';
+	import SidebarShell from '$lib/ui/views/SidebarShell.svelte';
+	import SidebarGroup from '$lib/ui/views/SidebarGroup.svelte';
+	import SidebarRow from '$lib/ui/views/SidebarRow.svelte';
 	import {
 		attentionQuery,
 		cockpitQuery,
@@ -84,6 +92,20 @@
 	const goals = $derived(ownerAccess ? (cockpit?.goals ?? []) : (collaboration?.goals ?? []));
 	const openGoals = $derived(goals.filter((goal) => !goal.closed_at));
 	const closedGoals = $derived(goals.filter((goal) => goal.closed_at));
+	const archivedGoalIds = $derived(new Set(closedGoals.map((goal) => goal.id)));
+	/* Archived lists its goals beneath it only while one of them, or Archived itself, is open. */
+	const archivedOpen = $derived(selectedGoal === 'archived' || archivedGoalIds.has(selectedGoal));
+	function viewHref(goal: string): string {
+		const url = new URL(page.url);
+		if (goal) url.searchParams.set('goal', goal);
+		else url.searchParams.delete('goal');
+		url.searchParams.delete('lens');
+		return `${url.pathname}${url.search}`;
+	}
+	const proposeGoals = () =>
+		askExec(
+			'Suggest two or three Goals for the company from what you know so far, each with what done looks like.'
+		);
 	const people = $derived(ownerAccess ? (cockpit?.people ?? []) : (collaboration?.people ?? []));
 	const noWorkYet = $derived(!!graph && graph.work.length === 0 && goals.length === 0);
 	/* "other" is the Work that serves no Goal: a peer of the Goals, kept small. */
@@ -92,7 +114,11 @@
 			(item) =>
 				item.status !== 'abandoned' &&
 				(!selectedGoal ||
-					(selectedGoal === 'other' ? !item.goal_id : item.goal_id === selectedGoal))
+					(selectedGoal === 'other'
+						? !item.goal_id
+						: selectedGoal === 'archived'
+							? !!item.goal_id && archivedGoalIds.has(item.goal_id)
+							: item.goal_id === selectedGoal))
 		)
 	);
 	const otherOpen = $derived(
@@ -141,7 +167,9 @@
 	const title = $derived(
 		selectedGoal === 'other'
 			? 'Other work'
-			: (goals.find((goal) => goal.id === selectedGoal)?.title ?? 'All work')
+			: selectedGoal === 'archived'
+				? 'Archived'
+				: (goals.find((goal) => goal.id === selectedGoal)?.title ?? 'All work')
 	);
 	/* The quality bar lives on the Goal; a piece of Work shows it only when it
 	 * holds itself to a different one. */
@@ -244,28 +272,38 @@
 
 <CompanyTitle title="Work" {companyId} />
 
-{#snippet goalLink(goal: {
-	id: string;
-	title: string;
-	body?: string | null;
-	closed_at?: string | null;
-})}
+{#snippet goalRow(
+	goal: {
+		id: string;
+		title: string;
+		closed_at?: string | null;
+	},
+	indent = false
+)}
 	{@const progress = goalProgress(goal.id)}
-	<button
-		type="button"
-		class="goal"
-		class:active={selectedGoal === goal.id}
-		aria-pressed={selectedGoal === goal.id}
-		title={`${finishLine(goal) ? `Done when ${finishLine(goal)}` : 'No finish line yet: Exec will agree one with you'} · ${progress.done} of ${progress.total} done · ${standardLabel(goalStandard(goal))} quality bar`}
+	<SidebarRow
 		onclick={() => chooseGoal(goal.id)}
+		label={goal.title}
+		active={selectedGoal === goal.id}
+		{indent}
+		title={[
+			finishLine(goal)
+				? `Done when ${finishLine(goal)}`
+				: 'No finish line yet: Exec will agree one with you',
+			`${progress.done} of ${progress.total} done`,
+			dueLabel(goal) ? `due ${dueLabel(goal)}` : '',
+			`${standardLabel(goalStandard(goal))} quality bar`
+		]
+			.filter(Boolean)
+			.join(' · ')}
 	>
-		<span class="goal-title">{goal.title}</span>
-		<small class="goal-standard">{dueLabel(goal) ? `by ${dueLabel(goal)}` : `${progress.done}/${progress.total}`}</small>
-		{#if finishLine(goal)}<small class="goal-finish">{finishLine(goal)}</small>{/if}
-		<span class="goal-bar" aria-hidden="true"
-			><i style:width={`${progress.total ? (progress.done / progress.total) * 100 : 0}%`}></i></span
-		>
-	</button>
+		{#snippet leading()}<span
+				class="ring"
+				style:--done={`${progress.total ? Math.round((progress.done / progress.total) * 100) : 0}%`}
+				aria-label={`${progress.done} of ${progress.total} done`}
+				role="img"
+			></span>{/snippet}
+	</SidebarRow>
 {/snippet}
 
 {#snippet row(work: WorkItem, tone: 'warning' | 'danger' | 'progress' | 'muted' | 'success')}
@@ -283,235 +321,174 @@
 	</Item>
 {/snippet}
 
-<div class="work">
-	<nav class="goals" aria-label="Goals">
-		<h2>Goals</h2>
+<SidebarShell label="Goals">
+	{#snippet nav()}
+		<SidebarRow
+			href={viewHref('')}
+			label="All work"
+			icon={ListIcon}
+			active={!selectedGoal}
+			count={loaded
+				? (graph?.work ?? []).filter(
+						(item) => item.status !== 'abandoned' && item.status !== 'completed'
+					).length
+				: null}
+		/>
 		{#if loaded && graph}
-			{#each openGoals as goal (goal.id)}{@render goalLink(goal)}{:else}
-				<div class="goals-intro">
-					<p>
-						Goals are the outcomes you're working toward, like "3 paying clients by November".
-						Exec proposes them as you talk and keeps the work under them.
-					</p>
-					{#if ownerAccess}<button
-							type="button"
-							class="btn small"
-							onclick={() =>
-								askExec(
-									'Suggest two or three Goals for the company from what you know so far, each with what done looks like.'
-								)}>Ask Exec to propose goals</button
-						>{/if}
-				</div>
-			{/each}
-			{#if otherOpen}<button
-					type="button"
-					class="goal other"
-					class:active={selectedGoal === 'other'}
-					aria-pressed={selectedGoal === 'other'}
-					title="Work that serves no Goal. Exec keeps this small and proposes a Goal when a theme repeats."
-					onclick={() => chooseGoal('other')}
-					><span class="goal-title">Other work</span><small class="goal-standard"
-						>{otherOpen}</small
-					></button
-				>{/if}
-			{#if closedGoals.length}
-				<div class="closed">
-					<Fold label="Closed" count={closedGoals.length}>
-						{#each closedGoals as goal (goal.id)}{@render goalLink(goal)}{/each}
-					</Fold>
-				</div>
-			{/if}
+			<SidebarGroup
+				label="Goals"
+				help="Goals are the outcomes you're working toward, like “3 paying clients by November”. Exec proposes them as you talk and keeps the work under them."
+				action={ownerAccess && openGoals.length
+					? { label: 'Ask Exec to propose goals', icon: Plus, onclick: proposeGoals }
+					: undefined}
+			>
+				{#each openGoals as goal (goal.id)}{@render goalRow(goal)}{:else}
+					{#if ownerAccess}<SidebarRow
+							onclick={proposeGoals}
+							label="Propose goals"
+							icon={Sparkles}
+							title="Ask Exec to suggest two or three goals, each with what done looks like"
+						/>{/if}
+				{/each}
+				{#if otherOpen}<SidebarRow
+						onclick={() => chooseGoal('other')}
+						label="Other work"
+						icon={CircleDashed}
+						active={selectedGoal === 'other'}
+						count={otherOpen}
+						title="Work that serves no Goal. Exec keeps this small and proposes a Goal when a theme repeats."
+					/>{/if}
+			</SidebarGroup>
 		{:else if !loaded && !failure}
 			<Skeleton label="Loading goals" variant="list" count={4} />
 		{/if}
-	</nav>
+	{/snippet}
+	{#snippet foot()}
+		<SidebarRow
+			href={viewHref(selectedGoal === 'archived' ? '' : 'archived')}
+			label="Archived"
+			icon={ArchiveIcon}
+			active={selectedGoal === 'archived'}
+			count={closedGoals.length || null}
+			title="Goals that are closed, and their work"
+		/>
+		{#if archivedOpen}{#each closedGoals as goal (goal.id)}{@render goalRow(goal, true)}{/each}{/if}
+	{/snippet}
 
-	<main class="stage">
-		<div class="page">
-			<header class="head">
-				{#if selectedGoal}<Target size={15} strokeWidth={1.8} aria-hidden="true" />{/if}
-				<h1>{title}</h1>
-				<span class="count" title="Open work">{loaded ? openCount : ''}</span>
-				{#if selectedGoal}<button
-						class="clear"
-						type="button"
-						aria-label="Show all work"
-						title="Show all work"
-						onclick={() => setQuery('goal', '')}><X size={14} strokeWidth={2} /></button
+	<div class="page">
+		<header class="head">
+			{#if selectedGoal}<Target size={15} strokeWidth={1.8} aria-hidden="true" />{/if}
+			<h1>{title}</h1>
+			<span class="count" title="Open work">{loaded ? openCount : ''}</span>
+			{#if selectedGoal}<button
+					class="clear"
+					type="button"
+					aria-label="Show all work"
+					title="Show all work"
+					onclick={() => setQuery('goal', '')}><X size={14} strokeWidth={2} /></button
+				>{/if}
+			{#if selectedGoalRow && ownerAccess}
+				<div
+					class="goal-standard-picker"
+					title="How far this Goal's Work should go before it is called done"
+				>
+					<ActionMenu label="Quality bar">
+						{#snippet trigger()}<span>{standardLabel(goalStandard(selectedGoalRow))}</span
+							>{/snippet}
+						{#each STANDARDS as option (option.value)}
+							<button
+								type="button"
+								title={option.title}
+								disabled={standardBusy}
+								onclick={() => chooseGoalStandard(option.value)}
+								><span>{option.label}</span
+								>{#if goalStandard(selectedGoalRow) === option.value}<Check
+										size={14}
+										aria-label="Current"
+									/>{/if}</button
+							>
+						{/each}
+					</ActionMenu>
+				</div>
+				{#if standardFailure}<span class="standard-failure" role="alert">{standardFailure}</span
 					>{/if}
-				{#if selectedGoalRow && ownerAccess}
-					<div
-						class="goal-standard-picker"
-						title="How far this Goal's Work should go before it is called done"
-					>
-						<ActionMenu label="Quality bar">
-							{#snippet trigger()}<span>{standardLabel(goalStandard(selectedGoalRow))}</span
-								>{/snippet}
-							{#each STANDARDS as option (option.value)}
-								<button
-									type="button"
-									title={option.title}
-									disabled={standardBusy}
-									onclick={() => chooseGoalStandard(option.value)}
-									><span>{option.label}</span
-									>{#if goalStandard(selectedGoalRow) === option.value}<Check
-											size={14}
-											aria-label="Current"
-										/>{/if}</button
-								>
-							{/each}
-						</ActionMenu>
-					</div>
-					{#if standardFailure}<span class="standard-failure" role="alert">{standardFailure}</span
-						>{/if}
-				{/if}
-				<span class="spacer"></span>
-				<!-- With no goals there is nothing to pick, and "All work" is already the title. -->
-				{#if goals.length}<select
-						class="goal-picker"
-						aria-label="Goal"
-						value={selectedGoal}
-						onchange={(event) => setQuery('goal', event.currentTarget.value)}
-					>
-						<option value="">All work</option>
-						{#each goals as goal (goal.id)}<option value={goal.id}>{goal.title}</option>{/each}
-					</select>{/if}
-				<Segmented
-					label="View"
-					value={view}
-					options={[
-						{ value: 'list', label: 'List' },
-						{ value: 'board', label: 'Board' }
-					]}
-					onchange={(value) => setQuery('view', value === 'board' ? 'board' : '')}
-				/>
-			</header>
+			{/if}
+			<span class="spacer"></span>
+			<!-- With no goals there is nothing to pick, and "All work" is already the title. -->
+			{#if goals.length}<select
+					class="goal-picker"
+					aria-label="Goal"
+					value={selectedGoal}
+					onchange={(event) => setQuery('goal', event.currentTarget.value)}
+				>
+					<option value="">All work</option>
+					{#each goals as goal (goal.id)}<option value={goal.id}>{goal.title}</option>{/each}
+				</select>{/if}
+			<Segmented
+				label="View"
+				value={view}
+				options={[
+					{ value: 'list', label: 'List' },
+					{ value: 'board', label: 'Board' }
+				]}
+				onchange={(value) => setQuery('view', value === 'board' ? 'board' : '')}
+			/>
+		</header>
 
-			<!-- Board padding only for the board itself: empty, loading and failure sit where List puts them. -->
-			<div class="body" class:board={view === 'board' && loaded && !!graph && !noWorkYet}>
-				{#if failure && graph}<FailureNotice
-						error={failure}
-						subject="Work"
-						stale
-						onretry={retryWork}
-					/>{/if}
-				{#if !graph && failure}
-					<FailureNotice error={failure} subject="Work" variant="page" onretry={retryWork} />
-				{:else if !loaded}
-					<Skeleton label="Loading work" variant="list" count={6} />
-				{:else if noWorkYet}
-					<Empty
-						page
-						icon={Kanban}
-						title="No work yet"
-						info="Tell Exec what you want. It turns that into work for the team, and it shows up here as it moves."
-					>
-						{#snippet action()}{#if ownerAccess}<button
-									class="btn small primary"
-									type="button"
-									onclick={askExec}>Tell Exec what you want</button
-								>{/if}{/snippet}
-					</Empty>
-				{:else if view === 'board'}
-					<WorkBoard columns={boardColumns} />
-				{:else}
-					{#each groups.filter((group) => group.rows.length) as group (group.key)}
-						<section class="group" aria-label={group.label}>
-							<h3>{group.label}<span>{group.rows.length}</span></h3>
-							<div class="rows">
-								{#each group.rows as work (work.id)}{@render row(work, group.tone)}{/each}
-							</div>
-						</section>
-					{/each}
-					{#if done.length}
-						<section class="group" aria-label="Done">
-							<div class="rows">
-								<Fold label="Done" count={done.length}>
-									{#each done as work (work.id)}{@render row(work, 'success')}{/each}
-								</Fold>
-							</div>
-						</section>
-					{/if}
-					{#if !goalWork.length}
-						<Empty compact title={selectedGoal ? 'No work under this goal yet' : 'No work yet'} />
-					{/if}
+		<!-- Board padding only for the board itself: empty, loading and failure sit where List puts them. -->
+		<div class="body" class:board={view === 'board' && loaded && !!graph && !noWorkYet}>
+			{#if failure && graph}<FailureNotice
+					error={failure}
+					subject="Work"
+					stale
+					onretry={retryWork}
+				/>{/if}
+			{#if !graph && failure}
+				<FailureNotice error={failure} subject="Work" variant="page" onretry={retryWork} />
+			{:else if !loaded}
+				<Skeleton label="Loading work" variant="list" count={6} />
+			{:else if noWorkYet}
+				<Empty
+					page
+					icon={Kanban}
+					title="No work yet"
+					info="Tell Exec what you want. It turns that into work for the team, and it shows up here as it moves."
+				>
+					{#snippet action()}{#if ownerAccess}<button
+								class="btn small primary"
+								type="button"
+								onclick={askExec}>Tell Exec what you want</button
+							>{/if}{/snippet}
+				</Empty>
+			{:else if view === 'board'}
+				<WorkBoard columns={boardColumns} />
+			{:else}
+				{#each groups.filter((group) => group.rows.length) as group (group.key)}
+					<section class="group" aria-label={group.label}>
+						<h3>{group.label}<span>{group.rows.length}</span></h3>
+						<div class="rows">
+							{#each group.rows as work (work.id)}{@render row(work, group.tone)}{/each}
+						</div>
+					</section>
+				{/each}
+				{#if done.length}
+					<section class="group" aria-label="Done">
+						<div class="rows">
+							<Fold label="Done" count={done.length}>
+								{#each done as work (work.id)}{@render row(work, 'success')}{/each}
+							</Fold>
+						</div>
+					</section>
 				{/if}
-			</div>
+				{#if !goalWork.length}
+					<Empty compact title={selectedGoal ? 'No work under this goal yet' : 'No work yet'} />
+				{/if}
+			{/if}
 		</div>
-	</main>
-</div>
+	</div>
+</SidebarShell>
 
 <style>
-	.work {
-		display: flex;
-		flex: 1 1 auto;
-		gap: 8px;
-		width: 100%;
-		min-width: 0;
-		min-height: 0;
-		overflow: hidden;
-	}
-	/* The goals list is a flat sidebar on the page, like Company, Apps and Library; only the
-	 * Work itself sits in a pane. */
-	.stage {
-		min-height: 0;
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-pane);
-		box-shadow: var(--bevel), var(--shadow-soft);
-	}
-	.goals {
-		display: grid;
-		align-content: start;
-		gap: 1px;
-		flex: none;
-		width: 208px;
-		min-height: 0;
-		padding: 6px 4px;
-		overflow: auto;
-	}
-	h2 {
-		margin: 0;
-		padding: 0 8px 4px;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-		font-weight: 500;
-	}
-	.goal {
-		display: grid;
-		gap: 6px;
-		width: 100%;
-		padding: 8px;
-		border: 0;
-		border-radius: var(--radius-control);
-		background: transparent;
-		color: var(--text-secondary);
-		font: inherit;
-		font-size: var(--t-body);
-		text-align: left;
-		cursor: pointer;
-		transition: background-color var(--motion-state) var(--ease-standard);
-	}
-	.goal:hover {
-		background: var(--wash-hover);
-		color: var(--ink);
-	}
-	.goal.active {
-		background: var(--wash-active, var(--wash-hover));
-		color: var(--ink);
-		font-weight: 500;
-	}
-	.goal-title {
-		display: -webkit-box;
-		overflow: hidden;
-		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 2;
-		line-clamp: 2;
-		line-height: 1.35;
-	}
-	.goal-standard {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
 	.goal-standard-picker :global(summary) {
 		width: auto;
 		height: 26px;
@@ -527,33 +504,6 @@
 	.standard-failure {
 		color: var(--state-danger);
 		font-size: var(--t-label);
-	}
-	.goal-bar {
-		height: 3px;
-		overflow: hidden;
-		border-radius: 999px;
-		background: var(--border);
-	}
-	.goal-bar i {
-		display: block;
-		height: 100%;
-		border-radius: inherit;
-		background: var(--state-success);
-		transition: width var(--motion-disclosure) var(--ease-out);
-	}
-	.closed {
-		margin-top: 8px;
-		border-top: 1px solid var(--border);
-	}
-	.closed :global(.fold summary) {
-		padding-inline: 8px;
-	}
-	.stage {
-		display: flex;
-		flex: 1 1 auto;
-		min-width: 0;
-		overflow: hidden;
-		background: var(--surface-pane);
 	}
 	.page {
 		container: page / inline-size;
@@ -606,31 +556,6 @@
 	.spacer {
 		flex: 1;
 	}
-	.goal-finish {
-		grid-column: 1 / -1;
-		overflow: hidden;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.goals-intro {
-		display: grid;
-		gap: 8px;
-		padding: 2px 8px 8px;
-	}
-	.goals-intro p {
-		margin: 0;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-		line-height: 1.5;
-	}
-	.goals-intro .btn {
-		justify-self: start;
-	}
-	.goal.other .goal-title {
-		color: var(--text-secondary);
-	}
 	.head .goal-picker {
 		display: none;
 		max-width: 160px;
@@ -669,15 +594,18 @@
 	.rows > :global(* + *) {
 		border-top: 1px solid var(--border);
 	}
-	@media (max-width: 760px) {
-		.work {
-			flex-direction: column;
-		}
-		.goals {
-			display: none;
-		}
+	@container sidebar (max-width: 760px) {
 		.head .goal-picker {
 			display: block;
 		}
+	}
+	/* A goal's progress: a small ring, filled as its work completes. */
+	.ring {
+		flex: none;
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		background: conic-gradient(var(--state-success) var(--done), var(--border-strong) 0);
+		mask: radial-gradient(circle, transparent 3.5px, #000 4px);
 	}
 </style>

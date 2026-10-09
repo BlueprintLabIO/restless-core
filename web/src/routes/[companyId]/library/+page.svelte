@@ -8,13 +8,13 @@
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import SidebarShell from '$lib/ui/views/SidebarShell.svelte';
 	import SidebarRow from '$lib/ui/views/SidebarRow.svelte';
+	import SidebarGroup from '$lib/ui/views/SidebarGroup.svelte';
 	import { personName } from '$lib/model/initials';
 	import LibraryNew from '$lib/components/LibraryNew.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FileText from '@lucide/svelte/icons/file-text';
 	import Sheet from '@lucide/svelte/icons/sheet';
 	import Library from '@lucide/svelte/icons/library';
-	import Eye from '@lucide/svelte/icons/eye';
 	import Plus from '@lucide/svelte/icons/plus';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
@@ -211,12 +211,19 @@
 	);
 	const loading = $derived(documents.status === 'unknown' || !sheetsLoaded);
 	const FILTERS: { key: Filter; label: string; icon: typeof Library }[] = [
-		{ key: 'all', label: 'All', icon: Library },
+		{ key: 'all', label: 'All files', icon: Library },
 		{ key: 'docs', label: 'Documents', icon: FileText },
 		{ key: 'sheets', label: 'Sheets', icon: Sheet },
-		{ key: 'review', label: 'Needs your review', icon: Eye },
 		{ key: 'archived', label: 'Archived', icon: ArchiveIcon }
 	];
+	const filterLabel = (key: Filter) =>
+		key === 'review'
+			? 'Needs your review'
+			: (FILTERS.find((item) => item.key === key)?.label ?? 'All files');
+	/* Each type's section shows its three most recent; the title opens the rest. */
+	const RECENT = 3;
+	const recentDocs = $derived(entries.filter((entry) => entry.kind === 'doc').slice(0, RECENT));
+	const recentSheets = $derived(entries.filter((entry) => entry.kind === 'sheet').slice(0, RECENT));
 
 	const filterHref = (key: Filter) =>
 		key === 'all' ? `${root}/library` : `${root}/library?show=${key}`;
@@ -236,19 +243,63 @@
 
 <CompanyTitle title="Library" {companyId} />
 
+{#snippet typeSection(
+	key: 'docs' | 'sheets',
+	label: string,
+	icon: typeof Library,
+	recent: Entry[],
+	total: number
+)}
+	<SidebarGroup
+		{label}
+		href={filterHref(key)}
+		active={filter === key}
+		count={total || null}
+		action={{
+			label: key === 'docs' ? 'New document' : 'New sheet',
+			icon: Plus,
+			onclick: () => creator?.open(key === 'docs' ? 'doc' : 'sheet')
+		}}
+	>
+		{#each recent as entry (entry.id)}
+			<SidebarRow
+				href={entry.href}
+				label={entry.title}
+				{icon}
+				dot={entry.review ? 'Waiting on your review' : undefined}
+				title={`${entry.title} · ${entry.owner}`}
+			/>
+		{/each}
+		{#if total > recent.length}<SidebarRow
+				href={filterHref(key)}
+				label={`${total - recent.length} more`}
+				quiet
+			/>{/if}
+	</SidebarGroup>
+{/snippet}
+
 <!-- The same sidebar as Company and Apps: one way to move between views of an area. -->
 <SidebarShell label="Library">
 	{#snippet nav()}
-		{#each FILTERS as item (item.key)}
-			<SidebarRow
-				href={filterHref(item.key)}
-				label={item.label}
-				icon={item.icon}
-				active={filter === item.key}
-				count={counts[item.key] || null}
-				todo={item.key === 'review'}
-			/>
-		{/each}
+		<SidebarRow
+			href={filterHref('all')}
+			label="All files"
+			icon={Library}
+			active={filter === 'all'}
+			count={counts.all || null}
+		/>
+		{@render typeSection('docs', 'Documents', FileText, recentDocs, counts.docs)}
+		{@render typeSection('sheets', 'Sheets', Sheet, recentSheets, counts.sheets)}
+	{/snippet}
+	{#snippet foot()}
+		<SidebarRow
+			href={filterHref('archived')}
+			label="Archived"
+			icon={ArchiveIcon}
+			active={filter === 'archived'}
+			count={counts.archived || null}
+			title="Documents and sheets taken out of every list; open one to restore it"
+		/>
 	{/snippet}
 	{#snippet narrow()}
 		<nav class="library-filters" aria-label="Library">
@@ -263,7 +314,7 @@
 	{/snippet}
 	<div class="page">
 		<header class="head">
-			<h1>{FILTERS.find((item) => item.key === filter)?.label ?? 'All'}</h1>
+			<h1>{filterLabel(filter)}</h1>
 			<span class="head-count">{shown.length || ''}</span>
 			<span class="spacer"></span>
 			<input
