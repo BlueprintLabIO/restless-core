@@ -145,17 +145,6 @@ const C = {
 	shirtAlt: '#d0644e',
 	hat: '#e9d27a',
 	fern: '#5d9a5b',
-	basalt: '#64676a',
-	basaltLight: '#8d9194',
-	basaltDark: '#46494c',
-	scrub: '#5d8d52',
-	scrubDark: '#46703f',
-	scrubLight: '#82b06c',
-	heath: '#7fa863',
-	pineDark: '#2f5a43',
-	pineNeedle: '#3f7354',
-	lighthouse: '#f4f1ea',
-	lighthouseRed: '#c94a3c',
 	fernLight: '#7fb873',
 	pine: '#3d6d50',
 	pineMid: '#4c8160',
@@ -679,151 +668,6 @@ function paintShells(ctx: Paint, x: number, y: number, seed: number) {
 	}
 }
 
-/** How far out a point lies on the headland: below 1 is on it. The outline wanders, and the
- * seaward (east) side reaches out into a point. */
-export function headlandReach(
-	h: { x: number; y: number; rx: number; ry: number },
-	x: number,
-	y: number
-): number {
-	const dx = (x - h.x) / h.rx;
-	const dy = (y - h.y) / h.ry;
-	const a = Math.atan2(dy, dx);
-	return Math.hypot(dx, dy) / headlandRadius(a);
-}
-
-function headlandRadius(a: number): number {
-	const wobble = (field(Math.cos(a) * 40 + 50, Math.sin(a) * 40 + 50, 1 / 9, 81) - 0.5) * 0.22;
-	const point = Math.max(0, Math.cos(a)) ** 4 * 0.34;
-	return 1 + wobble + point;
-}
-
-/** A point on the headland's outline at angle `a`, scaled by `k`. */
-function headlandPoint(h: { x: number; y: number; rx: number; ry: number }, a: number, k: number) {
-	const r = headlandRadius(a) * k;
-	return [h.x + Math.cos(a) * h.rx * r, h.y + Math.sin(a) * h.ry * r] as const;
-}
-
-/** The rocky headland: shallows and surf around it, dark boulders at the waterline, coastal
- * scrub on top with clearings for the pavilions, Norfolk pines, a boardwalk on posts round its
- * seaward edge to a viewing platform at the point, and a small lighthouse. After real headlands
- * such as Miami and Burleigh on the Gold Coast and Kings Beach at Caloundra. */
-function paintHeadland(
-	ctx: Paint,
-	h: { x: number; y: number; rx: number; ry: number },
-	onPlate: (x: number, y: number, pad?: number) => boolean,
-	seaward: (y: number) => number,
-	right: number
-) {
-	const rand = mulberry(83);
-	// A headland meets the land on one side and the sea on the other: rock and surf belong only
-	// east of `seaward`; to the west its scrub runs on into the forest and beach.
-	const toSea = (draw: () => void) => {
-		ctx.save();
-		ctx.beginPath();
-		const top = h.y - h.ry * 2;
-		const bottom = h.y + h.ry * 2;
-		ctx.moveTo(seaward(top), top);
-		for (let y = top; y <= bottom; y += 2) ctx.lineTo(seaward(y), y);
-		ctx.lineTo(right, bottom);
-		ctx.lineTo(right, top);
-		ctx.closePath();
-		ctx.clip();
-		draw();
-		ctx.restore();
-	};
-	const shape = (k: number, dx: number, dy: number, color: string) => {
-		ctx.fillStyle = color;
-		ctx.beginPath();
-		for (let a = 0; a <= Math.PI * 2 + 0.001; a += 0.02) {
-			const [x, y] = headlandPoint(h, a, k);
-			if (a === 0) ctx.moveTo(x + dx, y + dy);
-			else ctx.lineTo(x + dx, y + dy);
-		}
-		ctx.closePath();
-		ctx.fill();
-	};
-	toSea(() => {
-		// Turquoise shallows over the rock shelf, then a ring of broken surf.
-		shape(1.2, 0, 0, C.shallow);
-		shape(1.1, 0, 0, C.ripple);
-		for (let i = 0; i < 700; i += 1) {
-			const a = rand() * Math.PI * 2;
-			const [x, y] = headlandPoint(h, a, 1.02 + rand() * 0.1);
-			px(ctx, x, y, 1 + rand() * 3, 1, rand() < 0.6 ? C.foam : C.foamDim);
-		}
-		shape(1, 5, 9, 'rgba(30, 60, 70, 0.28)');
-	});
-	// The land under the scrub, joined to the forest and beach behind it.
-	shape(1, 0, 0, C.heath);
-	toSea(() => {
-		// The rock: a dark rim of boulders where the headland meets the water.
-		shape(1, 0, 0, C.basaltDark);
-		shape(0.96, -1, -2, C.basalt);
-		for (let i = 0; i < 160; i += 1) {
-			const a = rand() * Math.PI * 2;
-			const [x, y] = headlandPoint(h, a, 0.9 + rand() * 0.14);
-			const r = 2 + rand() * 4;
-			disc(ctx, x + 1, y + 1, r, r * 0.7, C.basaltDark);
-			disc(ctx, x, y, r, r * 0.7, C.basalt);
-			disc(ctx, x - r * 0.3, y - r * 0.3, r * 0.45, r * 0.3, C.basaltLight);
-		}
-	});
-	// Coastal scrub on top: dense rounded bushes, a heath of lower growth, clearings round the
-	// pavilions (their plates are drawn over the top).
-	shape(0.86, -2, -3, C.heath);
-	for (let i = 0; i < 900; i += 1) {
-		const a = rand() * Math.PI * 2;
-		const [x, y] = headlandPoint(h, a, Math.sqrt(rand()) * 0.82);
-		if (onPlate(x, y, 8)) continue;
-		const r = 3 + rand() * 4;
-		disc(ctx, x + 1, y + 2, r, r * 0.8, C.scrubDark);
-		disc(ctx, x, y, r, r * 0.8, C.scrub);
-		disc(ctx, x - r * 0.35, y - r * 0.35, r * 0.45, r * 0.38, C.scrubLight);
-	}
-	// Norfolk pines: tall, dark, in tiers.
-	for (let i = 0; i < 7; i += 1) {
-		const a = rand() * Math.PI * 2;
-		const [x, y] = headlandPoint(h, a, 0.35 + rand() * 0.4);
-		if (onPlate(x, y, 14)) continue;
-		disc(ctx, x + 6, y + 10, 9, 4, C.shadow);
-		for (let tier = 0; tier < 5; tier += 1) {
-			const w = 3 + tier * 1.6;
-			disc(ctx, x, y - 14 + tier * 4, w, 2, tier % 2 ? C.pineDark : C.pineNeedle);
-		}
-		px(ctx, x, y - 17, 1, 3, C.pineNeedle);
-	}
-	// The boardwalk: on posts round the seaward edge, a railing on its outer side.
-	for (let a = -1.25; a <= 1.25; a += 0.004) {
-		const [x, y] = headlandPoint(h, a, 0.9);
-		const [ox, oy] = headlandPoint(h, a, 0.95);
-		px(ctx, x - 2, y - 2, 4, 4, C.plank);
-		if (Math.round(a * 250) % 6 === 0) px(ctx, x - 2, y - 2, 4, 1, C.plankLight);
-		px(ctx, ox, oy, 1, 1, C.plankDark);
-		if (Math.round(a * 250) % 24 === 0) px(ctx, ox, oy + 2, 2, 2, C.post);
-	}
-	// The lookout at the point: a timber platform with a railing, a bench and a telescope.
-	const [tx, ty] = headlandPoint(h, 0, 0.92);
-	px(ctx, tx - 6, ty - 10, 20, 20, C.plankDark);
-	px(ctx, tx - 5, ty - 9, 18, 18, C.plank);
-	for (let k = -9; k < 9; k += 3) px(ctx, tx - 5, ty + k, 18, 1, C.plankLight);
-	px(ctx, tx + 13, ty - 10, 1, 20, C.post);
-	px(ctx, tx - 6, ty - 10, 20, 1, C.post);
-	px(ctx, tx - 6, ty + 9, 20, 1, C.post);
-	px(ctx, tx - 2, ty - 6, 2, 8, C.trunk); // bench
-	px(ctx, tx + 9, ty + 3, 2, 2, C.net); // telescope
-	px(ctx, tx + 10, ty + 2, 2, 1, '#9aa3ad');
-	// A small lighthouse on the high ground behind the point.
-	const [lx, ly] = headlandPoint(h, -0.55, 0.62);
-	if (!onPlate(lx, ly, 10)) {
-		disc(ctx, lx + 6, ly + 6, 8, 4, C.shadow);
-		disc(ctx, lx, ly, 6, 6, C.lighthouse);
-		disc(ctx, lx - 1, ly - 1, 4, 4, '#ffffff');
-		disc(ctx, lx, ly, 3, 3, C.lighthouseRed);
-		px(ctx, lx - 1, ly - 1, 2, 2, '#f7d774');
-	}
-}
-
 /** A bleached log washed up on the sand. */
 function paintDriftwood(ctx: Paint, x: number, y: number, len: number) {
 	px(ctx, x + 1, y + 2, len, 1, C.duneShade);
@@ -925,10 +769,6 @@ export interface CampusWorld {
 	/** Office-local width and height, for placing things over the campus. */
 	W: number;
 	H: number;
-	/** Art pixels from the plan's north edge to the land's: scenery coordinates start here. */
-	landOffsetY: number;
-	/** The headland, where the shoreline's foam and ripples give way to rock. */
-	headland: { x: number; y: number; rx: number; ry: number } | null;
 }
 
 const MARGIN_X = 640;
@@ -938,31 +778,20 @@ export interface CampusSource {
 	tiles: readonly number[];
 	cols: number;
 	rows: number;
-	/** Rows of headland north of the land; the scenery is painted from the land's north edge. */
-	landOffsetRows?: number;
-}
-
-/** How many plan rows lie north of the land (the headland). */
-export function landOffsetOf(source: { landOffsetRows?: number }): number {
-	return source.landOffsetRows ?? 0;
 }
 
 /** Paint the static campus once for this layout. */
 export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 	if (typeof document === 'undefined' && typeof OffscreenCanvas === 'undefined') return null;
-	// Scenery is painted in land coordinates: y = 0 is the land's north edge, and a headland,
-	// when the company has one, lies at negative y. Plan rows convert through `oy`.
-	const oyRows = landOffsetOf(source);
-	const oy = oyRows * TILE_SIZE;
 	const W = source.cols * TILE_SIZE;
-	const H = source.rows * TILE_SIZE - oy;
-	const canvas = makeSurface(W + MARGIN_X * 2, H + oy + MARGIN_Y * 2);
+	const H = source.rows * TILE_SIZE;
+	const canvas = makeSurface(W + MARGIN_X * 2, H + MARGIN_Y * 2);
 	const ctx = paintOn(canvas);
 	if (!ctx) return null;
 	ctx.imageSmoothingEnabled = false;
-	ctx.translate(MARGIN_X, MARGIN_Y + oy);
+	ctx.translate(MARGIN_X, MARGIN_Y);
 	const left = -MARGIN_X;
-	const top = -MARGIN_Y - oy;
+	const top = -MARGIN_Y;
 	const right = W + MARGIN_X;
 	const bottom = H + MARGIN_Y;
 	const shore = makeShore(W, H);
@@ -1002,9 +831,9 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 		const reach = -pad + Math.floor((2 * pad) / 8) * 8;
 		return solidIn(
 			Math.floor((x - pad) / TILE_SIZE),
-			Math.floor((y + oy - pad) / TILE_SIZE),
+			Math.floor((y - pad) / TILE_SIZE),
 			Math.floor((x + reach) / TILE_SIZE),
-			Math.floor((y + oy + reach) / TILE_SIZE)
+			Math.floor((y + reach) / TILE_SIZE)
 		);
 	};
 	// Where the meadow and forest give way to sand: it wanders rather than following the shore.
@@ -1039,12 +868,7 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 	const forestEdge = (x: number) => {
 		const r = x / W;
 		const base = r < 0 ? 0.36 + r * 0.1 : r < 0.62 ? 0.02 - r * 0.2 : -0.14;
-		return (
-			base * H +
-			Math.sin(x * 0.045) * 10 +
-			Math.sin(x * 0.013 + 2) * 14 +
-			(field(x, 0, 1 / 140, 61) - 0.5) * 110
-		);
+		return base * H + Math.sin(x * 0.045) * 10 + Math.sin(x * 0.013 + 2) * 14;
 	};
 	ctx.fillStyle = C.forestFloor;
 	ctx.beginPath();
@@ -1053,32 +877,6 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 	ctx.lineTo(W * 0.64, top);
 	ctx.closePath();
 	ctx.fill();
-	// The headland: a rocky point at the north end of the beach, around the pavilions in its
-	// clearings and reaching out into the lake. Painted after the water and sand (see below).
-	let headland: CampusWorld['headland'] = null;
-	if (oyRows > 0) {
-		let minX = Infinity;
-		let maxX = -Infinity;
-		let minY = Infinity;
-		let maxY = -Infinity;
-		for (let row = 0; row < oyRows; row += 1)
-			for (let col = 0; col < source.cols; col += 1) {
-				if (!solid(col, row)) continue;
-				minX = Math.min(minX, col * TILE_SIZE);
-				maxX = Math.max(maxX, (col + 1) * TILE_SIZE);
-				minY = Math.min(minY, row * TILE_SIZE - oy);
-				maxY = Math.max(maxY, Math.min(row * TILE_SIZE - oy + TILE_SIZE, -2 * TILE_SIZE));
-			}
-		if (Number.isFinite(minX))
-			headland = {
-				x: (minX + maxX) / 2 + 24,
-				y: (minY + maxY) / 2,
-				rx: (maxX - minX) / 2 + 70,
-				ry: (maxY - minY) / 2 + 52
-			};
-	}
-	const onHeadland = (x: number, y: number) =>
-		headland !== null && headlandReach(headland, x, y) < 1.05;
 	const forestRand = mulberry(11);
 	const trees: Array<[number, number, number, number]> = [];
 	for (let y = top - 8; y < H * 0.5; y += 15) {
@@ -1088,13 +886,7 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 			const edge = forestEdge(tx);
 			const inside = ty < edge - 4;
 			const fringe = !inside && ty < edge + 18 && forestRand() < 0.35;
-			if (
-				!(inside || fringe) ||
-				onPlate(tx, ty, 14) ||
-				tx > beachEdge(ty) + 4 ||
-				onHeadland(tx, ty)
-			)
-				continue;
+			if (!(inside || fringe) || onPlate(tx, ty, 14) || tx > beachEdge(ty) + 4) continue;
 			trees.push([tx, ty, 9 + forestRand() * 6, Math.floor(forestRand() * 10_000)]);
 		}
 	}
@@ -1164,7 +956,6 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 	// scrub blurs the line where the meadow ends.
 	trees.sort((a, b) => a[1] - b[1]);
 	for (const [tx, ty, r, seed] of trees) stampTree(ctx, tx, ty, r, seed, false);
-	if (headland) paintHeadland(ctx, headland, onPlate, (y) => beachEdge(y) + 18, right);
 	const fringeRand = mulberry(43);
 	for (let y = top; y < bottom; y += 2 + Math.floor(fringeRand() * 6)) {
 		const e = beachEdge(y);
@@ -1181,7 +972,6 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 	// huts, a lifeguard's tower, a volleyball game, a sandcastle, surfboards and a fire pit.
 	const beachRand = mulberry(61);
 	const sandFree = (y: number, reach: number) => {
-		if (headland && y < headland.y + headland.ry * 1.5) return false;
 		for (let dy = -reach; dy <= reach; dy += 6)
 			if (onPlate(shore(y + dy) - BEACH / 2, y + dy, BEACH / 2 + 4)) return false;
 		return Math.abs(y - jettyY) > reach + 18;
@@ -1380,7 +1170,7 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 				visit(gx + (meadowRand() - 0.5) * step * 0.9, gy + (meadowRand() - 0.5) * step * 0.9);
 	};
 	span(22, (x, y) => {
-		if (!land(x, y) || onPlate(x, y, 28) || y < forestEdge(x) + 16 || onHeadland(x, y)) return;
+		if (!land(x, y) || onPlate(x, y, 28) || y < forestEdge(x) + 16) return;
 		const g = grove(x, y);
 		const inGrove = g > 0.6 && meadowRand() < (g - 0.6) * 4;
 		const lone = meadowRand() < 0.012;
@@ -1397,7 +1187,7 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 		for (let col = 0; col < source.cols; col += 1) {
 			if (!solid(col, row) || solid(col, row + 1)) continue;
 			const x = col * TILE_SIZE + TILE_SIZE / 2;
-			const y = (row + 1) * TILE_SIZE - oy;
+			const y = (row + 1) * TILE_SIZE;
 			if (!land(x, y + 12)) continue;
 			const better =
 				y > pathStart.y + 0.5 ||
@@ -1499,7 +1289,7 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 		for (let col = 0; col < source.cols; col += 1) {
 			if (!solid(col, row)) continue;
 			const x = col * TILE_SIZE;
-			const y = row * TILE_SIZE - oy;
+			const y = row * TILE_SIZE;
 			const T = TILE_SIZE;
 			// A soft contact shadow, tinted by the ground it falls on; no outline,
 			// so the paving settles into the meadow instead of sitting on it.
@@ -1558,7 +1348,7 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 		for (let col = 0; col < source.cols; col += 1) {
 			if (!solid(col, row) || solid(col + 1, row)) continue;
 			const x = (col + 1) * TILE_SIZE;
-			if (row < oyRows || x <= shore(row * TILE_SIZE - oy) + 40) continue;
+			if (x <= shore(row * TILE_SIZE) + 40) continue;
 			if (x > deckX) {
 				deckX = x;
 				deckRows.length = 0;
@@ -1616,9 +1406,7 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 		H,
 		canvas,
 		originX: MARGIN_X,
-		originY: MARGIN_Y + oy,
-		landOffsetY: oy,
-		headland,
+		originY: MARGIN_Y,
 		width: canvas.width,
 		height: canvas.height,
 		shore,
@@ -1633,7 +1421,7 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 let lastWorld: { key: string; world: CampusWorld | null } | null = null;
 
 export function campusKey(layout: CampusSource): string {
-	return `${layout.cols}x${layout.rows}+${landOffsetOf(layout)}:${layout.tiles.join('')}`;
+	return `${layout.cols}x${layout.rows}:${layout.tiles.join('')}`;
 }
 
 /** The painted campus for this key, if it is the one kept. */
@@ -1646,22 +1434,10 @@ export function keepCampusWorld(key: string, world: CampusWorld | null): void {
 	lastWorld = { key, world };
 }
 
-/** The campus source for a plan: its layout and how far west of it the land begins. */
-export function campusSourceOf(plan: {
-	layout: CampusSource;
-	landOffsetRows?: number;
-}): CampusSource {
-	return { ...plan.layout, landOffsetRows: plan.landOffsetRows ?? landOffsetOf(plan.layout) };
-}
-
-export function campusWorldFor(plan: {
-	layout: CampusSource;
-	landOffsetRows?: number;
-}): CampusWorld | null {
-	const source = campusSourceOf(plan);
-	const key = campusKey(source);
+export function campusWorldFor(plan: { layout: CampusSource }): CampusWorld | null {
+	const key = campusKey(plan.layout);
 	if (lastWorld?.key === key) return lastWorld.world;
-	lastWorld = { key, world: buildCampusWorld(source) };
+	lastWorld = { key, world: buildCampusWorld(plan.layout) };
 	return lastWorld.world;
 }
 
@@ -1702,15 +1478,7 @@ function screen(
 }
 
 /** Everything beneath the office: the painted world plus living water. */
-/** The view shifted so world positions, which are in land coordinates, land on the plan. */
-function landView(world: CampusWorld, view: CampusView): CampusView {
-	return world.landOffsetY
-		? { ...view, offsetY: view.offsetY + world.landOffsetY * view.zoom }
-		: view;
-}
-
-export function drawCampusBackground(ctx: Paint, world: CampusWorld, planView: CampusView): void {
-	const view = landView(world, planView);
+export function drawCampusBackground(ctx: Paint, world: CampusWorld, view: CampusView): void {
 	const z = view.zoom;
 	const worldLeft = view.offsetX - world.originX * z;
 	const worldTop = view.offsetY - world.originY * z;
@@ -2019,7 +1787,6 @@ function drawWater(ctx: Paint, world: CampusWorld, view: CampusView): void {
 	// shore and moves it one pixel in or out; nothing blinks.
 	for (let y = firstRow; y <= lastRow; y += 1) {
 		const s = world.shore(y);
-		if (world.headland && headlandReach(world.headland, s, y) < 1.15) continue;
 		const swell = Math.sin(t * 0.45 - y * 0.035);
 		const reach = swell > 0.55 ? 1 : swell < -0.55 ? -1 : 0;
 		screen(ctx, view, s + reach, y, 2, 1, C.foamDim);
@@ -2030,7 +1797,6 @@ function drawWater(ctx: Paint, world: CampusWorld, view: CampusView): void {
 		if (ripple.y < firstRow || ripple.y > lastRow) continue;
 		const x = ripple.x + Math.floor((t * ripple.speed * 0.4 + ripple.phase * 40) % 40);
 		if (x < world.shore(ripple.y) + 26) continue;
-		if (world.headland && headlandReach(world.headland, x, ripple.y) < 1.25) continue;
 		screen(ctx, view, x, ripple.y, ripple.len, 1, C.rippleDim);
 	}
 	// Sun glints: rare, soft single pixels.
@@ -2046,17 +1812,16 @@ function drawWater(ctx: Paint, world: CampusWorld, view: CampusView): void {
 export function drawCampusOverlay(
 	ctx: Paint,
 	world: CampusWorld,
-	planView: CampusView,
-	_officeCols: number,
-	_officeRows: number
+	view: CampusView,
+	officeCols: number,
+	officeRows: number
 ): void {
-	const view = landView(world, planView);
 	if (world.deckFisher)
 		drawFisher(ctx, view, world.deckFisher.x, world.deckFisher.y, 16, view.now / 1000, view.motion);
 	if (!view.motion) return;
 	const t = view.now / 1000;
-	const W = world.W;
-	const H = world.H;
+	const W = officeCols * TILE_SIZE;
+	const H = officeRows * TILE_SIZE;
 	for (const leaf of world.leaves) {
 		const run = (t * leaf.speed + leaf.phase * 900) % (W * 1.4);
 		const x = leaf.x + run;

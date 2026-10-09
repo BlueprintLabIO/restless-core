@@ -164,12 +164,11 @@ try {
 
 	const widest = Math.max(...shapes.map((shape) => shape.cols));
 	const tallest = Math.max(...shapes.map((shape) => shape.rows));
-	if (widest > 72 + 32 || tallest > 52 + planModule.HEADLAND_ROWS)
-		throw new Error(`Bounded view exceeded: ${widest}x${tallest}`);
+	if (widest > 120 || tallest > 52) throw new Error(`Bounded view exceeded: ${widest}x${tallest}`);
 
-	// Growth: six bays on land, six floating on the lake, four on the headland. Every bay is
-	// placed and walkable; the headland moves the whole campus south by exactly its rows.
-	for (const teamCount of [6, 7, 12, 13, 16, 18]) {
+	// Growth: six bays on land, then six floating round a boardwalk ring on the lake. Every
+	// bay is placed and walkable; land never takes more than six.
+	for (const teamCount of [6, 7, 9, 12, 13]) {
 		const teams = Array.from({ length: teamCount }, (_, index) => ({
 			id: `grow-${index + 1}`,
 			name: `Grow ${index + 1}`,
@@ -191,19 +190,18 @@ try {
 			planModule.DEFAULT_OFFICE_PREFERENCES
 		);
 		const result = planModule.validateOfficePlan(plan);
-		const expectedBays = Math.min(teamCount, 16);
-		const overlook = teamCount > 12;
-		const landBays = plan.zones.filter((zone) => zone.row >= (plan.landOffsetRows ?? 0)).length;
+		const expectedBays = Math.min(teamCount, 12);
+		const landBays = plan.zones.filter((zone) => zone.col + 12 <= 66).length;
 		if (
 			!result.valid ||
 			plan.zones.length !== expectedBays ||
 			plan.zones.some((zone) => !Number.isFinite(zone.col)) ||
-			(plan.landOffsetRows ?? 0) !== (overlook ? planModule.HEADLAND_ROWS : 0) ||
-			landBays !== Math.min(teamCount, 12)
+			plan.layout.rows !== 52 ||
+			landBays !== Math.min(teamCount, 6)
 		)
 			throw new Error(
 				`${teamCount} Teams did not grow the campus outward: ${plan.zones.length} bays, ` +
-					`offset ${plan.landOffsetRows ?? 0}\n${result.errors.join('\n')}`
+					`${landBays} on land\n${result.errors.join('\n')}`
 			);
 	}
 	if (new Set(shapes.map((shape) => shape.floorTileCount)).size < 4)

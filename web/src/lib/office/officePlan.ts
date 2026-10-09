@@ -127,8 +127,6 @@ export interface OfficePlan {
 	garden: { court: TileRect; pond: TileRect };
 	visibleMemberCount: number;
 	signature: string;
-	/** Rows north of the land (the headland); the shore and scenery start below them. */
-	landOffsetRows?: number;
 }
 
 export interface TileRect {
@@ -174,26 +172,22 @@ const BAY_CAPACITY = 6;
 /** Land holds two rows of three team bays, so the core campus never crowds; the company grows
  * outward from there. */
 const LAND_BAY_SLOTS = 6;
-/** Floating pavilions on the lake, nearest the main deck first: middle, north, south. */
-const FLOATING_BAY_SLOTS: ReadonlyArray<{ col: number; row: number }> = [
-	{ col: 74, row: 21 },
-	{ col: 74, row: 4 },
-	{ col: 74, row: 38 },
-	{ col: 90, row: 21 },
-	{ col: 90, row: 4 },
-	{ col: 90, row: 38 }
-];
-/** Rows the headland adds north of the land, where the beach ends in a rocky point. */
-export const HEADLAND_ROWS = 28;
-/** Pavilions in clearings on the headland, nearest the campus first. */
-const HEADLAND_BAY_SLOTS: ReadonlyArray<{ col: number; row: number }> = [
-	{ col: 32, row: 15 },
-	{ col: 49, row: 15 },
-	{ col: 32, row: 3 },
-	{ col: 49, row: 3 }
-];
 const BAY_WIDTH = 12;
 const BAY_HEIGHT = 10;
+/** The floating ring: a circular boardwalk on the lake east of the main deck, its centre tile
+ * and radius in tiles. Pavilions sit around it. */
+const RING = { col: 91, row: 25, radius: 8 };
+/** Floating pavilions around the ring, nearest the main deck first: either side of the way in,
+ * north and south, then the far side. Top-left tiles, from angles of -150, 150, -90, 90, -30
+ * and 30 degrees at 18 tiles from the ring's centre. */
+const FLOATING_BAY_SLOTS: ReadonlyArray<{ col: number; row: number }> = [
+	{ col: 69, row: 11 },
+	{ col: 69, row: 29 },
+	{ col: 85, row: 2 },
+	{ col: 85, row: 38 },
+	{ col: 101, row: 11 },
+	{ col: 101, row: 29 }
+];
 
 function stableHash(value: string): number {
 	let hash = 2166136261;
@@ -335,121 +329,6 @@ function furnishBay(
 	add(`bay-${index}-plant`, 'PLANT_2', col + 11, row + 4);
 }
 
-/** The whole campus moved `dy` rows south, so the headland has room to its north. */
-function shiftPlanSouth(plan: OfficePlan, dy: number): OfficePlan {
-	const { layout } = plan;
-	const rows = layout.rows + dy;
-	const remap = <T>(source: readonly T[], empty: T): T[] => {
-		const next = new Array<T>(layout.cols * rows).fill(empty);
-		for (let index = 0; index < source.length; index += 1)
-			next[index + dy * layout.cols] = source[index];
-		return next;
-	};
-	const at = <P extends { row: number }>(point: P): P => ({ ...point, row: point.row + dy });
-	const spot = <P extends { row: number; poseRow?: number }>(point: P): P => ({
-		...at(point),
-		...(point.poseRow === undefined ? {} : { poseRow: point.poseRow + dy })
-	});
-	return {
-		...plan,
-		layout: {
-			...layout,
-			rows,
-			tiles: remap(layout.tiles, TileType.VOID),
-			tileColors: layout.tileColors ? remap(layout.tileColors, null) : layout.tileColors,
-			carpetTiles: layout.carpetTiles ? remap(layout.carpetTiles, null) : layout.carpetTiles,
-			areaTiles: layout.areaTiles ? remap(layout.areaTiles, null) : layout.areaTiles,
-			furniture: layout.furniture.map(at)
-		},
-		zones: plan.zones.map(at),
-		home: at(plan.home),
-		interactionPoints: plan.interactionPoints.map(at),
-		activityScenes: plan.activityScenes.map((scene) => ({
-			...scene,
-			spots: scene.spots.map(spot)
-		})),
-		restingSpots: plan.restingSpots.map(spot),
-		waitingSpots: plan.waitingSpots.map(at),
-		protectedPath: plan.protectedPath.map(at),
-		animatedAmenities: plan.animatedAmenities.map(at),
-		landmark: at(plan.landmark),
-		garden: { court: at(plan.garden.court), pond: at(plan.garden.pond) },
-		landOffsetRows: (plan.landOffsetRows ?? 0) + dy
-	};
-}
-
-/** Pavilions in clearings on a rocky headland at the north end of the beach, joined to the
- * north deck by a boardwalk. The headland itself (rock, coastal scrub, a boardwalk round its
- * seaward edge, a lookout and a lighthouse) is painted by the campus backdrop. */
-function withHeadland(plan: OfficePlan, bays: BaySource[], firstIndex: number): OfficePlan {
-	const shifted = shiftPlanSouth(plan, HEADLAND_ROWS);
-	const { layout } = shifted;
-	const { cols } = layout;
-	const tiles = layout.tiles as TileType[];
-	const tileColors = layout.tileColors as Array<ColorValue | null>;
-	const carpetTiles = layout.carpetTiles as Array<CarpetTile | null>;
-	const areaTiles = layout.areaTiles as Array<string | null>;
-	const fill = (
-		left: number,
-		top: number,
-		width: number,
-		height: number,
-		tile: TileType,
-		color: ColorValue
-	) => {
-		for (let row = top; row < top + height; row += 1)
-			for (let col = left; col < left + width; col += 1) {
-				tiles[row * cols + col] = tile;
-				tileColors[row * cols + col] = color;
-			}
-	};
-	const add = (uid: string, type: string, col: number, row: number, color?: ColorValue) =>
-		layout.furniture.push({ uid, type, col, row, color });
-	const used = HEADLAND_BAY_SLOTS.slice(0, bays.length);
-	// A boardwalk spine between the two columns of clearings, down to the north deck.
-	const spineTop = Math.min(...used.map((slot) => slot.row));
-	fill(45, spineTop, 2, HEADLAND_ROWS + 15 - spineTop, TileType.FLOOR_7, DAYLIGHT.deck);
-	const zones = [...shifted.zones];
-	const areas = [...(layout.areas ?? [])];
-	const areaMappings = { ...shifted.areaMappings };
-	bays.forEach((bay, i) => {
-		const { col, row } = used[i];
-		const index = firstIndex + i;
-		const west = col < 45;
-		// A short gangway from the spine into the clearing's top row, which has no furniture;
-		// halfway down its side it would meet the bay's plant.
-		if (west)
-			fill(col + BAY_WIDTH, row, 45 - col - BAY_WIDTH, 2, TileType.FLOOR_7, DAYLIGHT.deck);
-		else fill(47, row, col - 47, 2, TileType.FLOOR_7, DAYLIGHT.deck);
-		const suffix = bay.bayIndex ? ` ${bay.bayIndex + 1}` : '';
-		const areaLabel = safeLabel(`${bay.label}${suffix}`);
-		areas.push({ label: areaLabel, color: AREA_COLORS[index % AREA_COLORS.length] });
-		zones.push({
-			id: `${bay.id}:${bay.bayIndex}`,
-			label: areaLabel,
-			kind: bay.kind,
-			col,
-			row,
-			width: BAY_WIDTH,
-			height: BAY_HEIGHT
-		});
-		(areaMappings[bay.id] ??= []).push(areaLabel);
-		fill(col, row, BAY_WIDTH, BAY_HEIGHT, TileType.FLOOR_4, DAYLIGHT.stone);
-		for (let dr = 0; dr < BAY_HEIGHT; dr += 1)
-			for (let dc = 0; dc < BAY_WIDTH; dc += 1) {
-				areaTiles[(row + dr) * cols + col + dc] = areaLabel;
-				if (dr > 0 && dc > 0 && dr < BAY_HEIGHT - 1 && dc < BAY_WIDTH - 1)
-					carpetTiles[(row + dr) * cols + col + dc] = {
-						variant: index % 3,
-						color: DAYLIGHT.carpet,
-						accentColor: DAYLIGHT.accent
-					};
-			}
-		furnishBay(bay, index, col, row, add);
-	});
-	return { ...shifted, layout: { ...layout, areas }, zones, areaMappings };
-}
-
 function buildBays(teams: CockpitTeam[], members: OfficeMember[]): BaySource[] {
 	const visibleStaff = members.filter((member) => member.actorId !== 'exec');
 	const bays: BaySource[] = [];
@@ -494,11 +373,14 @@ export function createCompanyOfficePlan(
 	// column first. Only a company that needs them widens the plan.
 	const landBays = allBays.slice(0, LAND_BAY_SLOTS);
 	const floatingBays = allBays.slice(LAND_BAY_SLOTS, LAND_BAY_SLOTS + FLOATING_BAY_SLOTS.length);
-	const overlookFrom = LAND_BAY_SLOTS + FLOATING_BAY_SLOTS.length;
-	const overlookBays = allBays.slice(overlookFrom, overlookFrom + HEADLAND_BAY_SLOTS.length);
 	const bays = [...landBays, ...floatingBays];
-	const floatingColumns = new Set(floatingBays.map((_, i) => FLOATING_BAY_SLOTS[i].col)).size;
-	const cols = 72 + (floatingColumns === 0 ? 0 : floatingColumns === 1 ? 16 : 32);
+	// The plan widens to hold the ring and whichever pavilions float around it.
+	const cols = floatingBays.length
+		? Math.max(
+				RING.col + RING.radius + 4,
+				...floatingBays.map((_, i) => FLOATING_BAY_SLOTS[i].col + BAY_WIDTH + 3)
+			)
+		: 72;
 	const rows = 52;
 	const centerCol = Math.floor(cols / 2);
 	const tiles = new Array<TileType>(cols * rows).fill(TileType.VOID);
@@ -599,40 +481,33 @@ export function createCompanyOfficePlan(
 	const topColumns = slotColumns(topBayCount);
 	const bottomColumns = slotColumns(Math.max(0, landBays.length - topBayCount));
 	if (floatingBays.length) {
-		const used = FLOATING_BAY_SLOTS.slice(0, floatingBays.length);
-		const spineTop = Math.min(...used.map((slot) => slot.row)) + 4;
-		const spineBottom = Math.max(...used.map((slot) => slot.row)) + 6;
-		// The main deck reaches out to a two-plank boardwalk spine running north and south.
-		fill(69, 24, 3, 4, TileType.FLOOR_7, DAYLIGHT.deck);
-		fill(
-			70,
-			Math.min(spineTop, 24),
-			2,
-			Math.max(spineBottom, 28) - Math.min(spineTop, 24),
-			TileType.FLOOR_7,
-			DAYLIGHT.deck
-		);
-		const inner = FLOATING_BAY_SLOTS[0].col;
-		// The inner column: a gangway from the spine to each floating deck.
-		for (const slot of used.filter((slot) => slot.col === inner))
-			fill(72, slot.row + 4, slot.col - 72, 2, TileType.FLOOR_7, DAYLIGHT.deck);
-		// The outer column has its own spine along its west faces, reached across the open water
-		// between the inner pavilions; walking through an inner pavilion would meet its furniture.
-		const outer = used.filter((slot) => slot.col !== inner);
-		if (outer.length) {
-			const outerCol = outer[0].col;
-			const from = Math.min(...outer.map((slot) => slot.row));
-			const to = Math.max(...outer.map((slot) => slot.row)) + BAY_HEIGHT;
-			fill(72, 17, outerCol - 2 - 72, 2, TileType.FLOOR_7, DAYLIGHT.deck);
-			fill(
-				outerCol - 2,
-				Math.min(from, 17),
-				2,
-				Math.max(to, 19) - Math.min(from, 17),
-				TileType.FLOOR_7,
-				DAYLIGHT.deck
-			);
-		}
+		// A circular boardwalk two planks wide, reached from the main deck by a straight walk.
+		const onRing = (col: number, row: number) => {
+			const d = Math.hypot(col - RING.col, row - RING.row);
+			return d >= RING.radius - 1 && d < RING.radius + 1;
+		};
+		for (let row = RING.row - RING.radius - 1; row <= RING.row + RING.radius + 1; row += 1)
+			for (let col = RING.col - RING.radius - 1; col <= RING.col + RING.radius + 1; col += 1)
+				if (onRing(col, row)) setTile(col, row, TileType.FLOOR_7, DAYLIGHT.deck);
+		fill(69, RING.row - 1, RING.col - RING.radius - 69 + 1, 2, TileType.FLOOR_7, DAYLIGHT.deck);
+		// Each pavilion faces the ring with its top or bottom row, which carries no furniture
+		// (its whiteboard stands in the last two columns). A walk leaves that row, heads level
+		// with the ring's centre, then turns along it until it meets the boardwalk.
+		floatingBays.forEach((_, i) => {
+			const slot = FLOATING_BAY_SLOTS[i];
+			const north = slot.row + BAY_HEIGHT / 2 < RING.row;
+			let col = Math.min(Math.max(RING.col, slot.col), slot.col + BAY_WIDTH - 3);
+			let row = north ? slot.row + BAY_HEIGHT : slot.row - 1;
+			for (let step = 0; step < 40 && !onRing(col, row); step += 1) {
+				if (row !== RING.row) {
+					fill(col, row, 2, 1, TileType.FLOOR_7, DAYLIGHT.deck);
+					row += row < RING.row ? 1 : -1;
+				} else {
+					fill(col, row, 1, 2, TileType.FLOOR_7, DAYLIGHT.deck);
+					col += col < RING.col ? 1 : -1;
+				}
+			}
+		});
 	}
 	bays.forEach((bay, index) => {
 		const floating = index >= landBays.length;
@@ -1182,9 +1057,7 @@ export function createCompanyOfficePlan(
 		visibleMemberCount: visibleMembers.length,
 		signature
 	};
-	return overlookBays.length
-		? withHeadland(built, overlookBays, landBays.length + floatingBays.length)
-		: built;
+	return built;
 }
 
 function furnitureBlockedTiles(layout: OfficeLayout): Set<string> {
