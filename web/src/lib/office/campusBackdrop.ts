@@ -102,6 +102,26 @@ const C = {
 	sand: '#e8dfba',
 	sandShade: '#d6cba0',
 	sandWet: '#cfc59a',
+	dune: '#ede5c4',
+	duneLight: '#f3ecd2',
+	duneShade: '#d4c895',
+	marram: '#8fae6a',
+	marramDark: '#6f9254',
+	plank: '#b48d60',
+	plankLight: '#cfab7c',
+	plankDark: '#8c6a45',
+	post: '#6d5640',
+	rope: '#e3d6b4',
+	hull: '#7a5a3c',
+	hullInside: '#c99c63',
+	sail: '#fbfaf6',
+	sailShade: '#dfe4e2',
+	buoy: '#ec8a4a',
+	buoyLight: '#f7c08f',
+	skin: '#e2b48f',
+	shirt: '#3f7fb3',
+	shirtAlt: '#d0644e',
+	hat: '#e9d27a',
 	pebble: '#bdb59d',
 	shallow: '#8ccfc8',
 	mid: '#79c0bd',
@@ -297,7 +317,26 @@ function paintLily(ctx: Paint, x: number, y: number, seed: number) {
 	if (rand() < 0.4) px(ctx, x - 1, y - 1, 1, 1, C.lotus);
 }
 
+/** People and boats are drawn at the office characters' scale: two art pixels per sprite pixel. */
+const SPRITE = 2;
+
+/** A small wooden rowboat, bow east (dir 1) or west (-1). */
+function paintRowboat(ctx: Paint, x: number, y: number, dir: 1 | -1): void {
+	const p = (dx: number, dy: number, w: number, h: number, c: string) =>
+		px(ctx, x + dx * SPRITE, y + dy * SPRITE, w * SPRITE, h * SPRITE, c);
+	p(1, 5, 11, 1, C.waterDark);
+	p(1, 0, 10, 5, C.hull);
+	p(dir > 0 ? 11 : 0, 1, 1, 3, C.hull);
+	p(2, 1, 8, 3, C.hullInside);
+	p(4, 1, 1, 3, C.hull);
+	p(7, 1, 1, 3, C.hull);
+	p(2, 1, 8, 1, '#b5895a');
+}
+
 /* ---------- the shoreline ---------- */
+
+/** Sand between the meadow and the waterline, in art pixels; dunes sit on its landward half. */
+const BEACH = 64;
 
 const SHORE: Array<[number, number]> = [
 	[-2, 0.61],
@@ -351,6 +390,14 @@ export interface CampusWorld {
 	heron: { x: number; y: number } | null;
 	/** Where ducks paddle and fish leap: a band of open water near the shore. */
 	shoreRows: { top: number; bottom: number };
+	/** Rods over open water: the bobber floats `reach` sprite pixels out; now and then a fish bites. */
+	fishing: Array<{ x: number; y: number; reach: number }>;
+	/** Someone fishing off the far end of a deck, drawn above the office. */
+	deckFisher: { x: number; y: number } | null;
+	/** A swimmer inside the roped area by the jetty. */
+	swim: { x: number; y: number };
+	/** Open water south of the office where a kayaker paddles. */
+	kayakRows: { top: number; bottom: number };
 	/** Office-local width and height, for placing things over the campus. */
 	W: number;
 	H: number;
@@ -421,7 +468,7 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 			Math.floor((y + reach) / TILE_SIZE)
 		);
 	};
-	const land = (x: number, y: number) => x < shore(y) - 14;
+	const land = (x: number, y: number) => x < shore(y) - BEACH - 2;
 
 	// Meadow: a base green with tufts, pale specks and the odd deeper patch,
 	// painted once as a 96-pixel tile and laid as a pattern (fast to build;
@@ -486,16 +533,20 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 		ctx.closePath();
 		ctx.fill();
 	};
-	band(-13, null, C.sand);
-	band(0, null, C.sandWet);
+	band(-BEACH, null, C.sand);
+	band(-4, null, C.sandWet);
 	band(3, null, C.shallow);
 	band(22, null, C.mid);
 	band(50, null, C.deep);
 	band(120, null, C.deeper);
 	for (let y = top; y < bottom; y += 1) {
 		const s = shore(y);
-		if (hash(s, y, 3) < 0.25)
-			px(ctx, s - 13 + Math.floor(hash(y, s, 4) * 10), y, 1, 1, C.sandShade);
+		// Wind-ripple specks across the sand, and a ragged edge where the meadow gives way to it.
+		for (let k = 0; k < 3; k += 1)
+			if (hash(s, y, 3 + k * 11) < 0.3)
+				px(ctx, s - BEACH + Math.floor(hash(y, s, 4 + k * 11) * (BEACH - 6)), y, 2, 1, C.sandShade);
+		const edge = Math.floor(hash(y, s, 9) * 4);
+		if (edge) px(ctx, s - BEACH - edge, y, edge, 1, C.sand);
 		// Soft transitions: dithered seams between depth bands.
 		if (y % 2 === 0) {
 			px(ctx, s + 21, y, 1, 1, C.mid);
@@ -513,6 +564,31 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 			const h = hash(x, y, 5);
 			if (x < shore(y) + 30 || h > 0.18) continue;
 			px(ctx, x, y, 4 + Math.floor(h * 30), 1, x > shore(y) + 120 ? C.deep : C.waterLine);
+		}
+	}
+	// Dunes: a low ridge of overlapping mounds on the landward half of the beach, lit from the
+	// north-west with a shaded lee, tufted with marram grass. The odd gap keeps it from reading
+	// as a wall.
+	const duneRand = mulberry(41);
+	for (let y = top + 4; y < bottom; y += 8 + Math.floor(duneRand() * 8)) {
+		if (duneRand() < 0.12) {
+			y += 10;
+			continue;
+		}
+		const rx = 9 + duneRand() * 13;
+		const ry = 5 + duneRand() * 3.5;
+		const x = shore(y) - BEACH + rx * 0.9 + 2 + duneRand() * 16;
+		if (onPlate(x, y, rx + 4)) continue;
+		disc(ctx, x + 3, y + 2, rx, ry, C.duneShade);
+		disc(ctx, x, y, rx, ry, C.dune);
+		disc(ctx, x - rx * 0.28, y - ry * 0.32, rx * 0.55, ry * 0.5, C.duneLight);
+		const tufts = 3 + Math.floor(duneRand() * 4);
+		for (let t = 0; t < tufts; t += 1) {
+			const tx = x + (duneRand() - 0.5) * rx * 1.5;
+			const ty = y + (duneRand() - 0.65) * ry * 1.3;
+			px(ctx, tx, ty - 1, 1, 3, C.marramDark);
+			px(ctx, tx + 1, ty - 2, 1, 3, C.marram);
+			if (duneRand() < 0.6) px(ctx, tx - 1, ty - 1, 1, 2, C.marram);
 		}
 	}
 	// Pebbles on the beach, lilies in the shallows, reeds at the waterline.
@@ -719,6 +795,45 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 		}
 	}
 
+	// A wooden jetty where the gravel path meets the beach, a rowboat tied up beside it, and a
+	// roped swimming area to the south.
+	const jettyY = Math.round(Math.min(H * 1.28, H + 360));
+	const jettyFrom = shore(jettyY) - 14;
+	const jettyTo = shore(jettyY) + 84;
+	const deck = (x: number, w: number) => {
+		px(ctx, x, jettyY - 6, w, 13, C.plank);
+		px(ctx, x, jettyY - 6, w, 1, C.plankLight);
+		px(ctx, x, jettyY + 6, w, 2, C.plankDark);
+	};
+	px(ctx, shore(jettyY) + 2, jettyY + 8, jettyTo - shore(jettyY) - 1, 2, C.waterDark);
+	deck(jettyFrom, jettyTo - jettyFrom);
+	for (let x = jettyFrom + 6; x < jettyTo; x += 6) px(ctx, x, jettyY - 5, 1, 11, C.plankDark);
+	for (let x = shore(jettyY) + 8; x < jettyTo; x += 18) px(ctx, x, jettyY + 8, 3, 3, C.post);
+	paintRowboat(ctx, jettyTo - 30, jettyY - 20, 1);
+	px(ctx, jettyTo - 8, jettyY - 10, 1, 5, C.rope);
+	for (let y = jettyY + 40; y < jettyY + 150; y += 10) {
+		px(ctx, shore(y) + 70, y, 3, 3, C.buoy);
+		px(ctx, shore(y) + 70, y, 2, 1, C.buoyLight);
+	}
+	const fishing: CampusWorld['fishing'] = [{ x: jettyTo - 6, y: jettyY - 2, reach: 16 }];
+	// A second rod off the middle of the far edge of the deck that reaches furthest out.
+	let deckX = 0;
+	const deckRows: number[] = [];
+	for (let row = 0; row < source.rows; row += 1)
+		for (let col = 0; col < source.cols; col += 1) {
+			if (!solid(col, row) || solid(col + 1, row)) continue;
+			const x = (col + 1) * TILE_SIZE;
+			if (x <= shore(row * TILE_SIZE) + 40) continue;
+			if (x > deckX) {
+				deckX = x;
+				deckRows.length = 0;
+			}
+			if (x === deckX) deckRows.push(row);
+		}
+	const deckRow = deckRows[Math.floor(deckRows.length / 2)];
+	const deckFisher =
+		deckRow === undefined ? null : { x: deckX - 6, y: deckRow * TILE_SIZE + TILE_SIZE / 2 };
+
 	// Motion seeds.
 	const motionRand = mulberry(83);
 	const ripples: CampusWorld['ripples'] = [];
@@ -755,6 +870,10 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 	return {
 		molehills,
 		heron,
+		fishing,
+		deckFisher,
+		swim: { x: shore(jettyY + 90) + 36, y: jettyY + 90 },
+		kayakRows: { top: jettyY + 170, bottom: Math.max(jettyY + 260, bottom - 40) },
 		shoreRows: openShore(),
 		W,
 		H,
@@ -856,6 +975,7 @@ export function drawCampusBackground(ctx: Paint, world: CampusWorld, view: Campu
 function drawGroundLife(ctx: Paint, world: CampusWorld, view: CampusView): void {
 	if (!view.motion) {
 		if (world.heron) drawHeron(ctx, view, world.heron.x, world.heron.y, false);
+		for (const rod of world.fishing) drawFisher(ctx, view, rod.x, rod.y, rod.reach, 0, false);
 		return;
 	}
 	const t = view.now / 1000;
@@ -923,6 +1043,140 @@ function drawGroundLife(ctx: Paint, world: CampusWorld, view: CampusView): void 
 		const dip = t % 11 < 1.2;
 		drawHeron(ctx, view, world.heron.x, world.heron.y, dip);
 	}
+	drawWaterActivities(ctx, world, view, t);
+}
+
+/* People on the water: a sailboat tacking far out, a rowboat, a kayaker, a swimmer, and rods
+ * with bobbers. Drawn at the office characters' scale, deterministic in time and slow enough to
+ * stay calm. */
+function drawWaterActivities(ctx: Paint, world: CampusWorld, view: CampusView, t: number): void {
+	const W = world.W;
+	const H = world.H;
+	const at = (x: number, y: number) => (dx: number, dy: number, w: number, h: number, c: string) =>
+		screen(ctx, view, x + dx * SPRITE, y + dy * SPRITE, w * SPRITE, h * SPRITE, c);
+	// Sailboat: tacks back and forth well beyond every deck.
+	{
+		const span = 260;
+		const travel = (t * 6) % (span * 2);
+		const heading = travel < span ? 1 : -1;
+		const x = W + 60 + (travel < span ? travel : span * 2 - travel);
+		const y = H * 0.55 + Math.sin(t * 0.05) * 24;
+		const p = at(x, y);
+		p(-heading * 9, 2, 4, 1, C.foamDim);
+		p(-heading * 14, 2, 3, 1, C.rippleDim);
+		p(-5, 3, 12, 1, C.waterDark);
+		p(-5, 0, 12, 3, '#f4efe4');
+		p(-5, 2, 12, 1, '#c9c1b0');
+		p(heading > 0 ? 7 : -6, 1, 1, 1, '#f4efe4');
+		p(0, -12, 1, 12, C.trunk);
+		for (let r = 0; r < 11; r += 1) {
+			const w = Math.max(1, Math.round((11 - r) * 0.7));
+			p(heading > 0 ? 1 : -w, -11 + r, w, 1, r % 4 === 3 ? C.sailShade : C.sail);
+		}
+		p(0, -13, 2, 1, C.buoy);
+	}
+	// Rowboat: one rower pulls slowly along open water, oars dipping in turn.
+	{
+		const span = 170;
+		const travel = (t * 3 + 80) % (span * 2);
+		const heading = travel < span ? 1 : -1;
+		const x = W + 30 + (travel < span ? travel : span * 2 - travel);
+		const y = H * 0.18;
+		const stroke = Math.floor(t * 1.4) % 2;
+		const p = at(x, y);
+		p(heading > 0 ? -3 : 13, 3, 2, 1, C.rippleDim);
+		p(1, 5, 11, 1, C.waterDark);
+		p(1, 0, 10, 5, C.hull);
+		p(heading > 0 ? 11 : 0, 1, 1, 3, C.hull);
+		p(2, 1, 8, 3, C.hullInside);
+		p(5, 1, 2, 3, C.shirtAlt);
+		p(5, 1, 2, 1, C.skin);
+		const oar = stroke ? 1 : -1;
+		p(5 + oar, -3, 1, 3, C.plankDark);
+		p(5 + oar, 5, 1, 3, C.plankDark);
+		if (stroke) {
+			p(5 + oar, -4, 1, 1, C.foamDim);
+			p(5 + oar, 8, 1, 1, C.foamDim);
+		}
+	}
+	// Kayak: paddles up and down the open water south of the office.
+	{
+		const top = world.kayakRows.top;
+		const span = Math.max(60, world.kayakRows.bottom - top);
+		const travel = (t * 7) % (span * 2);
+		const heading = travel < span ? 1 : -1;
+		const y = top + (travel < span ? travel : span * 2 - travel);
+		const x = world.shore(y) + 110;
+		const side = Math.floor(t * 2) % 2 ? 1 : -1;
+		const p = at(x, y);
+		p(0, -heading * 9, 1, 2, C.foamDim);
+		p(-1, -6, 3, 12, '#e8b23c');
+		p(0, -7, 1, 14, '#e8b23c');
+		p(-1, -1, 3, 3, C.shirt);
+		p(0, -2, 1, 1, C.skin);
+		p(-4, side, 9, 1, '#4a5463');
+		p(side * 5, side, 1, 1, C.foam);
+	}
+	// A swimmer in the roped area: a head, an arm over now and then, a ring of ripples.
+	{
+		const x = world.swim.x + Math.round(Math.sin(t * 0.3) * 14);
+		const y = world.swim.y + Math.round(Math.cos(t * 0.21) * 18);
+		const ring = Math.floor(t * 1.5) % 3;
+		const p = at(x, y);
+		p(-2 - ring, 1, 1, 1, C.ripple);
+		p(2 + ring, 1, 1, 1, C.ripple);
+		p(-1, -1, 2, 2, C.skin);
+		p(-1, -1, 2, 1, '#5a4636');
+		if (Math.floor(t * 1.2) % 3 === 0) p(2, -2, 1, 2, C.skin);
+	}
+	for (const rod of world.fishing) drawFisher(ctx, view, rod.x, rod.y, rod.reach, t, true);
+}
+
+/** Someone sitting at the end of a jetty or deck with a rod, a line and a bobber. A fish bites
+ * every twenty seconds or so: the bobber goes under and the rod tip bends. */
+function drawFisher(
+	ctx: Paint,
+	view: CampusView,
+	x: number,
+	y: number,
+	reach: number,
+	t: number,
+	moving: boolean
+): void {
+	const p = (dx: number, dy: number, w: number, h: number, c: string) =>
+		screen(ctx, view, x + dx * SPRITE, y + dy * SPRITE, w * SPRITE, h * SPRITE, c);
+	p(-2, -1, 3, 3, C.shirt);
+	p(-2, -3, 2, 2, C.skin);
+	p(-3, -4, 4, 1, C.hat);
+	p(1, 2, 2, 1, '#4a5463');
+	const cycle = moving ? (t + x * 0.37) % 20 : 0;
+	const bite = cycle > 17 && cycle < 18.6;
+	for (let i = 1; i <= 7; i += 1)
+		p(i, -2 - Math.round(i * 0.6) + (bite && i > 5 ? 1 : 0), 1, 1, C.trunk);
+	// The line and bobber are thin, at art scale, out past the rod tip.
+	const tipX = x + 8 * SPRITE;
+	const tipY = y - 6 * SPRITE + (bite ? SPRITE : 0);
+	const bob = moving && !bite ? Math.round(Math.sin(t * 2.4 + x)) : 0;
+	const bx = x + reach * SPRITE;
+	const by = y + 3 * SPRITE + bob + (bite ? 2 : 0);
+	for (let i = 0; i <= 12; i += 1)
+		screen(
+			ctx,
+			view,
+			tipX + ((bx - tipX) * i) / 12,
+			tipY + ((by - tipY) * i * i) / 144,
+			1,
+			1,
+			C.rope
+		);
+	if (!bite) {
+		screen(ctx, view, bx - 1, by - 2, 3, 2, C.buoyLight);
+		screen(ctx, view, bx - 1, by, 3, 2, C.buoy);
+	}
+	const ring = Math.floor(t * 2) % 3;
+	const spread = bite ? 3 + ring * 2 : 3 + (ring % 2);
+	screen(ctx, view, bx - spread, by + 2, 2, 1, C.ripple);
+	screen(ctx, view, bx + spread, by + 2, 2, 1, C.ripple);
 }
 
 function drawHeron(ctx: Paint, view: CampusView, x: number, y: number, dip: boolean): void {
@@ -980,6 +1234,8 @@ export function drawCampusOverlay(
 	officeCols: number,
 	officeRows: number
 ): void {
+	if (world.deckFisher)
+		drawFisher(ctx, view, world.deckFisher.x, world.deckFisher.y, 16, view.now / 1000, view.motion);
 	if (!view.motion) return;
 	const t = view.now / 1000;
 	const W = officeCols * TILE_SIZE;
