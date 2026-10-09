@@ -7,6 +7,10 @@
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
 	import MessageCircleQuestion from '@lucide/svelte/icons/message-circle-question';
+	import Users from '@lucide/svelte/icons/users';
+	import MessagesSquare from '@lucide/svelte/icons/messages-square';
+	import UserPlus from '@lucide/svelte/icons/user-plus';
+	import SidebarRow from '$lib/ui/views/SidebarRow.svelte';
 	import RoomConversation from '$lib/components/RoomConversation.svelte';
 	import RoomManager from '$lib/components/RoomManager.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
@@ -232,12 +236,6 @@
 		const latest = rows[0]?.person ?? directoryExec?.actor_id;
 		if (latest) void goto(href(latest), { replaceState: true, noScroll: true, keepFocus: true });
 	});
-	/* The Exec always sits directly below Recent, so Recent does not repeat it. */
-	const recentRows = $derived(
-		search.trim()
-			? []
-			: rows.filter((row) => row.room || row.person !== directoryExec?.actor_id).slice(0, 5)
-	);
 	/* A hit in a conversation with the Exec or a lead opens that conversation
 	 * (the full-width rail) at the message; anything else opens its room. */
 	function searchHref(message: {
@@ -257,6 +255,110 @@
 	function created(room: Room) {
 		void goto(href('', room.id));
 	}
+
+	/* Two views of the same column, as before the 4 October merge: People is the directory with
+	 * what each person is doing; Chats is every conversation, newest first. The choice is
+	 * remembered per company; an old ?view= link still picks one. */
+	type PeopleView = 'people' | 'chats';
+	let preferredView = $state<PeopleView>('people');
+	$effect(() => {
+		try {
+			preferredView =
+				localStorage.getItem(`restless:${companyId}:people-view`) === 'chats' ? 'chats' : 'people';
+		} catch {
+			preferredView = 'people';
+		}
+	});
+	const view = $derived<PeopleView>(
+		(() => {
+			const requested = page.url.searchParams.get('view');
+			if (requested === 'chats' || requested === 'conversations') return 'chats';
+			if (requested === 'people') return 'people';
+			return preferredView;
+		})()
+	);
+	function chooseView(next: PeopleView) {
+		preferredView = next;
+		try {
+			localStorage.setItem(`restless:${companyId}:people-view`, next);
+		} catch {
+			/* The choice still holds for this visit. */
+		}
+		if (page.url.searchParams.has('view')) {
+			const url = new URL(page.url);
+			url.searchParams.delete('view');
+			void goto(`${url.pathname}${url.search}`, {
+				replaceState: true,
+				noScroll: true,
+				keepFocus: true
+			});
+		}
+	}
+	let manager = $state<{ open: () => void } | null>(null);
+
+	/* Every conversation: direct ones by their last message, group rooms by when they began
+	 * (rooms carry no last-message time). Only direct conversations can say what is unread. */
+	const chats = $derived.by(() => {
+		void seenVersion;
+		const query = search.trim().toLocaleLowerCase();
+		const direct = recent.conversations.flatMap((conversation) => {
+			const person = people.find(
+				(candidate) => candidate.actor_id === conversation.person_actor_id
+			);
+			if (!person) return [];
+			const contact = owner && contacts.some((candidate) => candidate.actor_id === person.actor_id);
+			return [
+				{
+					key: `room:${conversation.room_id}`,
+					name: personName(person.display),
+					mark: initials(person.display),
+					group: false,
+					person: person.actor_id,
+					room: contact ? '' : conversation.room_id,
+					roomId: conversation.room_id,
+					at: conversation.last_message_at,
+					unread:
+						conversation.last_message_id > seenThrough(companyId, conversation.room_id) &&
+						personId !== person.actor_id
+				}
+			];
+		});
+		const groups = rooms.rooms
+			.filter((room) => room.kind !== 'direct' && !room.archived_at)
+			.map((room) => ({
+				key: `room:${room.id}`,
+				name: room.title,
+				mark: '#',
+				group: true,
+				person: '',
+				room: room.id,
+				roomId: room.id,
+				at: room.created_at,
+				unread: false
+			}));
+		return [...direct, ...groups]
+			.filter((chat) => !query || chat.name.toLocaleLowerCase().includes(query))
+			.toSorted((a, b) => Date.parse(b.at) - Date.parse(a.at));
+	});
+	const unreadChats = $derived(chats.filter((chat) => chat.unread).length);
+	/* "14:05" today, "Tue" this week, "3 Oct" before that. */
+	function chatTime(iso: string): string {
+		const at = new Date(iso);
+		if (Number.isNaN(at.getTime())) return '';
+		const now = new Date();
+		if (at.toDateString() === now.toDateString())
+			return at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+		if (now.getTime() - at.getTime() < 6 * 86_400_000)
+			return at.toLocaleDateString(undefined, { weekday: 'short' });
+		return at.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+	}
+	/* A company with only its Exec so far: offer the next useful steps instead of empty space. */
+	const sparse = $derived(
+		!search.trim() &&
+			!directoryTeams.length &&
+			!directoryUnassigned.length &&
+			!directoryHumans.length
+	);
 </script>
 
 <svelte:head
@@ -279,6 +381,7 @@
 				/></label
 			>
 			<RoomManager
+				bind:this={manager}
 				{companyId}
 				actorId={principal.view?.actor_id ?? ''}
 				{people}
@@ -286,6 +389,23 @@
 				onperson={owner ? (id) => goto(href(id)) : undefined}
 				contactIds={contacts.map((p) => p.actor_id)}
 			/>
+		</div>
+		<div class="people-views" role="tablist" aria-label="Show">
+			<button
+				type="button"
+				role="tab"
+				aria-selected={view === 'people'}
+				onclick={() => chooseView('people')}><Users size={14} aria-hidden="true" />People</button
+			>
+			<button
+				type="button"
+				role="tab"
+				aria-selected={view === 'chats'}
+				onclick={() => chooseView('chats')}
+				><MessagesSquare size={14} aria-hidden="true" />Chats{#if unreadChats}<b
+						aria-label={`${unreadChats} unread`}>{unreadChats}</b
+					>{/if}</button
+			>
 		</div>
 		<div class="entries">
 			{#snippet personStatuses(actorId: string, name: string)}
@@ -318,11 +438,15 @@
 					selectedDirectActorId === person.actor_id
 						? 'page'
 						: undefined}
-					title={doing(person.actor_id) || undefined}
+					class:has-doing={!!doing(person.actor_id)}
 				>
 					<span class="avatar">{initials(person.display)}</span>
 					<span class="directory-person-copy"
-						><span class="name">{personName(person.display)}</span
+						><span class="person-lines"
+							><span class="name">{personName(person.display)}</span
+							>{#if doing(person.actor_id)}<small class="doing" title={doing(person.actor_id)}
+									>{doing(person.actor_id)}</small
+								>{/if}</span
 						>{#if hasNew(person.actor_id) && personId !== person.actor_id}<span
 								class="new-dot"
 								title="Something new since you last looked"
@@ -334,76 +458,101 @@
 					>
 				</a>
 			{/snippet}
-			{#if recentRows.length}
-				<section class="directory-section" aria-label="Recent">
-					<header class="team-directory-head"><span>Recent</span></header>
-					{#each recentRows as row (row.key)}
-						<a
-							class="directory-person recent"
-							href={href(row.person, row.room)}
-							onclick={(event) => {
-								if (row.person && !row.room) void openPerson(event, row.person);
-							}}
-							aria-current={(row.room ? roomId === row.room : !roomId && personId === row.person)
-								? 'page'
-								: undefined}
-							title={row.hint}
+			{#if view === 'chats'}
+				{#each chats as chat (chat.key)}
+					<a
+						class="directory-person chat"
+						class:group={chat.group}
+						href={href(chat.person, chat.room)}
+						onclick={(event) => {
+							if (chat.person && !chat.room) void openPerson(event, chat.person);
+						}}
+						aria-current={(chat.room ? roomId === chat.room : !roomId && personId === chat.person)
+							? 'page'
+							: undefined}
+					>
+						<span class="avatar">{chat.mark}</span>
+						<span class="directory-person-copy"
+							><span class="name">{chat.name}</span>{#if chat.unread}<span
+									class="new-dot"
+									title="New since you last looked"
+									aria-label="Unread"
+								></span>{/if}<time class="chat-time" datetime={chat.at}>{chatTime(chat.at)}</time
+							></span
 						>
-							<span class="avatar">{initials(row.name)}</span>
-							<span class="directory-person-copy"
-								><span class="name">{row.name}</span>{#if row.person}{@render personStatuses(
-										row.person,
-										row.name
-									)}{/if}</span
-							>
-						</a>
-					{/each}
-				</section>
+					</a>
+				{:else}
+					<p class="empty">{search.trim() ? 'No conversations match.' : 'No conversations yet.'}</p>
+				{/each}
+				{#if !search.trim()}
+					<div class="people-steps">
+						<SidebarRow
+							label="New group chat"
+							icon={MessagesSquare}
+							onclick={() => manager?.open()}
+						/>
+					</div>
+				{/if}
+			{:else}
+				{#if directoryExec && matchesDirectory(directoryExec, search.trim().toLocaleLowerCase())}
+					<section class="directory-section executive-section" aria-label="Executive">
+						{@render directoryPerson(directoryExec, 'executive')}
+					</section>
+				{/if}
+				{#each directoryTeams as entry (entry.team.id)}
+					<section
+						class="directory-section team-section"
+						aria-label={teamName(entry.team.name, companyId)}
+					>
+						<header class="team-directory-head" title={entry.team.brief}>
+							<span>{teamName(entry.team.name, companyId)}</span>
+						</header>
+						{#if entry.lead}{@render directoryPerson(entry.lead, 'lead')}{/if}
+						{#each entry.members.filter((member) => entry.teamMatches || matchesDirectory(member, search
+										.trim()
+										.toLocaleLowerCase())) as member (member.actor_id)}
+							{@render directoryPerson(member, 'member')}
+						{/each}
+					</section>
+				{/each}
+				{#if directoryUnassigned.length}
+					<section class="directory-section" aria-label="Unassigned staff">
+						<header class="team-directory-head">
+							<span>Unassigned</span>
+						</header>
+						{#each directoryUnassigned as member (member.actor_id)}
+							{@render directoryPerson(member, 'member')}
+						{/each}
+					</section>
+				{/if}
+				{#if directoryHumans.length}
+					<section class="directory-section" aria-label="Human colleagues">
+						<header class="team-directory-head"><span>Colleagues</span></header>
+						{#each directoryHumans as colleague (colleague.actor_id)}
+							{@render directoryPerson(colleague, 'colleague')}
+						{/each}
+					</section>
+				{/if}
+				{#if !directoryExec && !directoryTeams.length && !directoryUnassigned.length && !directoryHumans.length}<p
+						class="empty"
+					>
+						No people match.
+					</p>{/if}
+				{#if sparse}
+					<div class="people-steps">
+						{#if owner}<SidebarRow
+								label="Invite a colleague"
+								icon={UserPlus}
+								href={`/${encodeURIComponent(companyId)}/company/members`}
+							/>{/if}
+						<SidebarRow
+							label="New group chat"
+							icon={MessagesSquare}
+							onclick={() => manager?.open()}
+						/>
+					</div>
+				{/if}
 			{/if}
-			{#if directoryExec && matchesDirectory(directoryExec, search.trim().toLocaleLowerCase())}
-				<section class="directory-section executive-section" aria-label="Executive">
-					{@render directoryPerson(directoryExec, 'executive')}
-				</section>
-			{/if}
-			{#each directoryTeams as entry (entry.team.id)}
-				<section
-					class="directory-section team-section"
-					aria-label={teamName(entry.team.name, companyId)}
-				>
-					<header class="team-directory-head" title={entry.team.brief}>
-						<span>{teamName(entry.team.name, companyId)}</span>
-					</header>
-					{#if entry.lead}{@render directoryPerson(entry.lead, 'lead')}{/if}
-					{#each entry.members.filter((member) => entry.teamMatches || matchesDirectory(member, search
-									.trim()
-									.toLocaleLowerCase())) as member (member.actor_id)}
-						{@render directoryPerson(member, 'member')}
-					{/each}
-				</section>
-			{/each}
-			{#if directoryUnassigned.length}
-				<section class="directory-section" aria-label="Unassigned staff">
-					<header class="team-directory-head">
-						<span>Unassigned</span>
-					</header>
-					{#each directoryUnassigned as member (member.actor_id)}
-						{@render directoryPerson(member, 'member')}
-					{/each}
-				</section>
-			{/if}
-			{#if directoryHumans.length}
-				<section class="directory-section" aria-label="Human colleagues">
-					<header class="team-directory-head"><span>Colleagues</span></header>
-					{#each directoryHumans as colleague (colleague.actor_id)}
-						{@render directoryPerson(colleague, 'colleague')}
-					{/each}
-				</section>
-			{/if}
-			{#if !directoryExec && !directoryTeams.length && !directoryUnassigned.length && !directoryHumans.length}<p
-					class="empty"
-				>
-					No people match.
-				</p>{/if}
 			{#if search.trim()}
 				{#each messageSearch.messages.filter( (message) => recent.conversations.some((conversation) => conversation.room_id === message.room_id) ) as message (message.id)}
 					<a class="search-result" href={searchHref(message)}
@@ -520,6 +669,63 @@
 		outline: none;
 		color: var(--ink);
 	}
+	/* A switch between two modes of the list, not an item in it: a two-part toggle, so it never
+	 * reads as a second selection beside the open conversation. */
+	.people-views {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 2px;
+		margin: 6px 6px 4px;
+		padding: 2px;
+		border-radius: var(--radius-control);
+		background: var(--wash-hover);
+	}
+	.people-views button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+		height: 24px;
+		padding: 0 8px;
+		border: 0;
+		border-radius: calc(var(--radius-control) - 2px);
+		background: transparent;
+		color: var(--text-tertiary);
+		font: inherit;
+		font-size: var(--t-body);
+		cursor: pointer;
+		transition:
+			background var(--motion-state) var(--ease-standard),
+			color var(--motion-state) var(--ease-standard);
+	}
+	.people-views button:hover {
+		color: var(--ink);
+	}
+	.people-views button[aria-selected='true'] {
+		background: var(--surface-pane);
+		box-shadow: var(--shadow-soft);
+		color: var(--ink);
+		font-weight: 500;
+	}
+	.people-views button:focus-visible {
+		outline: 2px solid var(--intent-conversation);
+		outline-offset: -2px;
+	}
+	.people-views b {
+		min-width: 16px;
+		padding: 0 4px;
+		border-radius: 8px;
+		background: color-mix(in srgb, var(--surface-attention) 22%, transparent);
+		color: var(--ink);
+		font-size: var(--t-label);
+		font-weight: 500;
+		line-height: 16px;
+	}
+	.people-steps {
+		display: grid;
+		gap: 1px;
+		margin-top: 14px;
+	}
 	.entries {
 		overflow-y: auto;
 		overflow-x: hidden;
@@ -583,6 +789,33 @@
 	.directory-person:focus-visible {
 		outline: 2px solid var(--intent-conversation);
 		outline-offset: -2px;
+	}
+	/* A person's live work is the point of this list, so it stays visible: their row takes a
+	 * second line rather than hiding it in a tooltip. */
+	.directory-person.has-doing {
+		height: 40px;
+	}
+	.person-lines {
+		display: grid;
+		min-width: 0;
+		flex: 1;
+	}
+	.doing {
+		overflow: hidden;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		line-height: 1.35;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.chat-time {
+		flex: none;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		font-variant-numeric: tabular-nums;
+	}
+	.directory-person.group .avatar {
+		color: var(--text-tertiary);
 	}
 	/* The avatar sits in the icon column every sidebar row shares. */
 	.directory-person .avatar {

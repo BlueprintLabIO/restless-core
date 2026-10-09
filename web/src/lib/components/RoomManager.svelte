@@ -87,7 +87,8 @@
 	function isCurrentScope(scope: string): boolean {
 		return scopeKey === scope;
 	}
-	function open() {
+	/** Opens the dialog, as the trigger does; a row elsewhere ("New group chat") can call it. */
+	export function open() {
 		if (busy || dialog.open) return;
 		failure = '';
 		if (!room) {
