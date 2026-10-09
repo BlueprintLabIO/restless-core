@@ -102,10 +102,32 @@ const C = {
 	sand: '#e8dfba',
 	sandShade: '#d6cba0',
 	sandWet: '#cfc59a',
-	dune: '#efe7c9',
-	duneLight: '#f7f2df',
 	duneShade: '#d6ca9b',
 	marram: '#8fae6a',
+	umbrellas: [
+		['#e8594a', '#f7f1e3'],
+		['#3f8fd2', '#f7f1e3'],
+		['#f2c14e', '#e8594a'],
+		['#5fb38a', '#f7f1e3'],
+		['#e889b5', '#f7f1e3']
+	] as const,
+	towels: ['#e8594a', '#3f8fd2', '#f2c14e', '#5fb38a', '#9a7fd1', '#f29c4c'] as const,
+	huts: ['#e46a6a', '#6aa9e4', '#f2c94c', '#7cc4a0', '#c99be0'] as const,
+	hutRoof: '#5a6470',
+	castle: '#d8c48e',
+	castleTop: '#e9daa9',
+	lifeguard: '#d24a3c',
+	court: '#f6f2e6',
+	net: '#4a5463',
+	stoneRing: '#9a9d96',
+	ember: '#f08a3c',
+	emberHot: '#f7c95a',
+	shell: '#f6ebe2',
+	shellShade: '#e3c6b4',
+	starfish: '#f08a5d',
+	crab: '#d9533f',
+	crabDark: '#a93c2e',
+	board: ['#3fb3b0', '#f29c4c', '#f7f1e3', '#e8594a'] as const,
 	marramDark: '#6f9254',
 	plank: '#b48d60',
 	plankLight: '#cfab7c',
@@ -481,32 +503,168 @@ function paintMushrooms(ctx: Paint, x: number, y: number, seed: number) {
 	}
 }
 
-/** One soft dune hummock: a dithered shadow on its lee, a body with a feathered edge, a pale
- * crest to the north-west, and marram grass on top. */
-function paintDune(ctx: Paint, x: number, y: number, rx: number, ry: number, seed: number) {
+/** A beach umbrella from above: alternating panels, a darker lee rim and a soft shadow. */
+function paintUmbrella(ctx: Paint, x: number, y: number, colors: readonly [string, string]) {
+	disc(ctx, x + 4, y + 5, 9, 4.5, C.shadowSoft);
+	for (let dy = -7; dy <= 7; dy += 1)
+		for (let dx = -9; dx <= 9; dx += 1) {
+			const k = (dx * dx) / 81 + (dy * dy) / 49;
+			if (k >= 1) continue;
+			const sector = Math.floor(((Math.atan2(dy, dx) + Math.PI) / (Math.PI / 4)) % 8);
+			px(ctx, x + dx, y + dy, 1, 1, colors[sector % 2]);
+			if (k > 0.72 && dy + dx * 0.4 > 1) px(ctx, x + dx, y + dy, 1, 1, 'rgba(40, 40, 50, 0.16)');
+		}
+	px(ctx, x - 1, y - 1, 2, 2, '#ffffff');
+}
+
+/** A striped towel laid on the sand, sometimes with someone sunbathing on it. */
+function paintTowel(
+	ctx: Paint,
+	x: number,
+	y: number,
+	color: string,
+	sunbather: boolean,
+	seed: number
+) {
 	const rand = mulberry(seed);
-	const blob = (cx: number, cy: number, ax: number, ay: number, color: string, density: number) => {
-		for (let dy = -Math.ceil(ay); dy <= Math.ceil(ay); dy += 1)
-			for (let dx = -Math.ceil(ax); dx <= Math.ceil(ax); dx += 1) {
-				const k = (dx * dx) / (ax * ax) + (dy * dy) / (ay * ay);
-				if (k >= 1) continue;
-				const keep = k < 0.55 ? density : density * (1 - k) * 2.2;
-				if (hash(Math.round(cx + dx), Math.round(cy + dy), seed % 997) < keep)
-					px(ctx, cx + dx, cy + dy, 1, 1, color);
-			}
-	};
-	blob(x + 2, y + 2, rx, ry, C.duneShade, 0.55);
-	blob(x, y, rx, ry, C.dune, 1);
-	blob(x - rx * 0.25, y - ry * 0.3, rx * 0.55, ry * 0.5, C.duneLight, 0.85);
-	const tufts = Math.round(rx * 0.5 + rand() * 3);
-	for (let t = 0; t < tufts; t += 1) {
-		const a = rand() * Math.PI * 2;
-		const d = Math.sqrt(rand()) * 0.75;
-		const tx = x + Math.cos(a) * rx * d;
-		const ty = y + Math.sin(a) * ry * d;
-		px(ctx, tx, ty - 2, 1, 3, C.marramDark);
-		px(ctx, tx + 1, ty - 3, 1, 3, C.marram);
-		if (rand() < 0.4) px(ctx, tx - 1, ty - 1, 1, 2, C.marram);
+	px(ctx, x + 1, y + 1, 7, 13, 'rgba(120, 100, 60, 0.18)');
+	px(ctx, x, y, 7, 13, color);
+	px(ctx, x, y + 3, 7, 1, '#f7f1e3');
+	px(ctx, x, y + 9, 7, 1, '#f7f1e3');
+	if (!sunbather) return;
+	const suit = C.towels[Math.floor(rand() * C.towels.length)];
+	px(ctx, x + 2, y + 1, 3, 3, C.skin); // head
+	px(ctx, x + 2, y + 1, 3, 1, rand() < 0.5 ? '#5a4636' : '#e0c27a');
+	px(ctx, x + 1, y + 4, 5, 4, C.skin);
+	px(ctx, x + 2, y + 6, 3, 2, suit);
+	px(ctx, x + 2, y + 8, 1, 4, C.skin);
+	px(ctx, x + 4, y + 8, 1, 4, C.skin);
+}
+
+/** A sandcastle in its moat, with a bucket and spade beside it. */
+function paintSandcastle(ctx: Paint, x: number, y: number) {
+	disc(ctx, x, y + 2, 11, 6, C.sandWet);
+	disc(ctx, x, y + 1, 8, 4, C.sand);
+	px(ctx, x - 6, y - 2, 12, 5, C.castle);
+	px(ctx, x - 6, y - 2, 12, 1, C.castleTop);
+	for (const tx of [-7, -1, 5]) {
+		px(ctx, x + tx, y - 6, 3, 6, C.castle);
+		px(ctx, x + tx, y - 6, 3, 1, C.castleTop);
+		px(ctx, x + tx, y - 7, 1, 1, C.castle);
+		px(ctx, x + tx + 2, y - 7, 1, 1, C.castle);
+	}
+	px(ctx, x - 1, y, 2, 3, C.sandShade); // gate
+	px(ctx, x, y - 10, 1, 4, C.trunk);
+	px(ctx, x + 1, y - 10, 3, 2, C.lifeguard);
+	px(ctx, x + 11, y + 1, 4, 4, '#e3604f');
+	px(ctx, x + 11, y + 1, 4, 1, '#f08a7e');
+	px(ctx, x + 16, y - 2, 1, 6, '#4a90c8');
+	px(ctx, x + 15, y + 3, 3, 2, '#4a90c8');
+}
+
+/** A lifeguard's tower facing the water: stilts, a white cabin with a red band, a flag. */
+function paintLifeguardTower(ctx: Paint, x: number, y: number) {
+	disc(ctx, x + 6, y + 9, 11, 4, C.shadowSoft);
+	for (const [dx, dy] of [
+		[-5, 4],
+		[5, 4],
+		[-5, 9],
+		[5, 9]
+	])
+		px(ctx, x + dx, y + dy - 5, 1, 6, C.post);
+	px(ctx, x - 6, y - 3, 13, 9, '#f1ede4');
+	px(ctx, x - 6, y + 1, 13, 2, C.lifeguard);
+	px(ctx, x - 7, y - 6, 15, 4, C.lifeguard);
+	px(ctx, x - 7, y - 6, 15, 1, '#e8705f');
+	px(ctx, x + 6, y + 6, 1, 6, C.plankDark); // ladder
+	px(ctx, x + 8, y + 6, 1, 6, C.plankDark);
+	for (let k = 7; k < 12; k += 2) px(ctx, x + 6, y + k, 3, 1, C.plankDark);
+	px(ctx, x - 9, y - 15, 1, 12, C.trunk);
+	px(ctx, x - 8, y - 15, 5, 2, C.lifeguard);
+	px(ctx, x - 8, y - 13, 5, 2, '#f2c14e');
+}
+
+/** A volleyball court marked out in rope, the net across its middle. */
+function paintVolleyballCourt(ctx: Paint, x: number, y: number, w: number, h: number) {
+	const x0 = Math.round(x - w / 2);
+	const y0 = Math.round(y - h / 2);
+	px(ctx, x0, y0, w, 1, C.court);
+	px(ctx, x0, y0 + h - 1, w, 1, C.court);
+	px(ctx, x0, y0, 1, h, C.court);
+	px(ctx, x0 + w - 1, y0, 1, h, C.court);
+	px(ctx, x0 - 2, y - 1, 2, 3, C.post);
+	px(ctx, x0 + w, y - 1, 2, 3, C.post);
+	for (let k = 0; k < w; k += 2) px(ctx, x0 + k, y, 1, 1, C.net);
+	px(ctx, x0, y - 1, w, 1, 'rgba(74, 84, 99, 0.35)');
+}
+
+/** A rack of surfboards stood in the sand. */
+function paintSurfRack(ctx: Paint, x: number, y: number) {
+	disc(ctx, x + 3, y + 8, 12, 3, C.shadowSoft);
+	px(ctx, x - 10, y + 4, 22, 2, C.plankDark);
+	C.board.forEach((color, i) => {
+		const bx = x - 8 + i * 6;
+		disc(ctx, bx, y - 2, 2.2, 8, color);
+		px(ctx, bx, y - 9, 1, 15, i === 2 ? '#3fb3b0' : 'rgba(255, 255, 255, 0.55)');
+	});
+}
+
+/** A ring of stones round a driftwood fire, logs drawn up as seats. */
+function paintFirePit(ctx: Paint, x: number, y: number) {
+	for (let i = 0; i < 9; i += 1) {
+		const a = (i / 9) * Math.PI * 2;
+		px(ctx, x + Math.cos(a) * 5, y + Math.sin(a) * 3.5, 2, 2, C.stoneRing);
+	}
+	px(ctx, x - 3, y - 1, 6, 2, C.trunk);
+	px(ctx, x - 1, y - 2, 2, 4, C.trunkLight);
+	px(ctx, x - 1, y - 1, 3, 2, C.ember);
+	px(ctx, x, y - 1, 1, 1, C.emberHot);
+	paintDriftwood(ctx, x - 16, y - 2, 9);
+	paintDriftwood(ctx, x + 8, y + 3, 9);
+	paintDriftwood(ctx, x - 4, y + 9, 9);
+}
+
+/** A row of little beach huts seen from the south: a gabled roof, a painted front with a
+ * white-framed door, gaps of sand between them. */
+function paintBeachHuts(ctx: Paint, x: number, y: number, count: number, seed: number) {
+	const rand = mulberry(seed);
+	for (let i = 0; i < count; i += 1) {
+		const hy = y + i * 17;
+		const hx = x + Math.round((rand() - 0.5) * 4);
+		const color = C.huts[(i + Math.floor(rand() * C.huts.length)) % C.huts.length];
+		disc(ctx, hx + 8, hy + 12, 9, 2.5, C.shadowSoft);
+		// Roof: two slopes meeting at a ridge, the near slope lit.
+		for (let r = 0; r < 5; r += 1) {
+			const inset = 4 - r;
+			px(ctx, hx + inset, hy + r, 13 - inset * 2, 1, r < 2 ? '#76808c' : C.hutRoof);
+		}
+		px(ctx, hx + 6, hy - 1, 1, 1, '#76808c');
+		// Front wall with vertical boards, and a white-framed door.
+		px(ctx, hx + 1, hy + 5, 11, 7, color);
+		for (let k = 2; k < 12; k += 3) px(ctx, hx + k, hy + 5, 1, 7, 'rgba(255, 255, 255, 0.28)');
+		px(ctx, hx + 4, hy + 6, 5, 6, '#f7f1e3');
+		px(ctx, hx + 5, hy + 7, 3, 5, 'rgba(40, 40, 50, 0.55)');
+		px(ctx, hx + 1, hy + 12, 11, 1, C.plankDark);
+	}
+}
+
+/** Shells and the odd starfish scattered near the tideline. */
+function paintShells(ctx: Paint, x: number, y: number, seed: number) {
+	const rand = mulberry(seed);
+	const n = 2 + Math.floor(rand() * 4);
+	for (let i = 0; i < n; i += 1) {
+		const sx = x + (rand() - 0.5) * 14;
+		const sy = y + (rand() - 0.5) * 10;
+		px(ctx, sx, sy, 2, 1, C.shell);
+		px(ctx, sx, sy + 1, 2, 1, C.shellShade);
+	}
+	if (rand() < 0.45) {
+		const sx = x + (rand() - 0.5) * 10;
+		const sy = y + (rand() - 0.5) * 8;
+		px(ctx, sx, sy - 2, 1, 5, C.starfish);
+		px(ctx, sx - 2, sy, 5, 1, C.starfish);
+		px(ctx, sx - 1, sy + 1, 1, 1, C.starfish);
+		px(ctx, sx + 1, sy + 1, 1, 1, C.starfish);
 	}
 }
 
@@ -597,6 +755,10 @@ export interface CampusWorld {
 	deckFisher: { x: number; y: number } | null;
 	/** A swimmer inside the roped area by the jetty. */
 	swim: { x: number; y: number };
+	/** The volleyball court's centre, where two players keep a ball in the air. */
+	volleyball: { x: number; y: number } | null;
+	/** Crabs scuttling sideways along the tideline. */
+	crabs: Array<{ y: number; phase: number }>;
 	/** Open water south of the office where a kayaker paddles. */
 	kayakRows: { top: number; bottom: number };
 	/** Office-local width and height, for placing things over the campus. */
@@ -669,7 +831,13 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 			Math.floor((y + reach) / TILE_SIZE)
 		);
 	};
-	const land = (x: number, y: number) => x < shore(y) - BEACH - 2;
+	// Where the meadow and forest give way to sand: it wanders rather than following the shore.
+	const beachEdge = (y: number) =>
+		shore(y) -
+		BEACH +
+		Math.round((field(0, y, 1 / 45, 51) - 0.5) * 20 + (field(3, y, 1 / 11, 52) - 0.5) * 5);
+	const land = (x: number, y: number) => x < beachEdge(y) - 2;
+	const jettyY = Math.round(Math.min(H * 1.28, H + 360));
 
 	// Meadow: a base green with tufts, pale specks and the odd deeper patch,
 	// painted once as a 96-pixel tile and laid as a pattern (fast to build;
@@ -713,12 +881,10 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 			const edge = forestEdge(tx);
 			const inside = ty < edge - 4;
 			const fringe = !inside && ty < edge + 18 && forestRand() < 0.35;
-			if (!(inside || fringe) || onPlate(tx, ty, 14) || !land(tx, ty)) continue;
+			if (!(inside || fringe) || onPlate(tx, ty, 14) || tx > beachEdge(ty) + 4) continue;
 			trees.push([tx, ty, 9 + forestRand() * 6, Math.floor(forestRand() * 10_000)]);
 		}
 	}
-	trees.sort((a, b) => a[1] - b[1]);
-	for (const [tx, ty, r, seed] of trees) stampTree(ctx, tx, ty, r, seed, false);
 
 	// Lake: sand, wet sand, then three depths offset from the shore. Each band
 	// is one filled shape following the shoreline; only the seams are per row.
@@ -734,7 +900,14 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 		ctx.closePath();
 		ctx.fill();
 	};
-	band(-BEACH, null, C.sand);
+	ctx.fillStyle = C.sand;
+	ctx.beginPath();
+	ctx.moveTo(beachEdge(top), top);
+	for (let y = top; y <= bottom; y += 1) ctx.lineTo(beachEdge(y), y);
+	ctx.lineTo(right, bottom);
+	ctx.lineTo(right, top);
+	ctx.closePath();
+	ctx.fill();
 	band(-4, null, C.sandWet);
 	band(3, null, C.shallow);
 	band(22, null, C.mid);
@@ -745,9 +918,16 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 		// Wind-ripple specks across the sand, and a ragged edge where the meadow gives way to it.
 		for (let k = 0; k < 2; k += 1)
 			if (hash(s, y, 3 + k * 11) < 0.12)
-				px(ctx, s - BEACH + Math.floor(hash(y, s, 4 + k * 11) * (BEACH - 6)), y, 2, 1, C.sandShade);
+				px(
+					ctx,
+					beachEdge(y) + Math.floor(hash(y, s, 4 + k * 11) * (s - beachEdge(y) - 6)),
+					y,
+					2,
+					1,
+					C.sandShade
+				);
 		const edge = Math.floor(hash(y, s, 9) * 4);
-		if (edge) px(ctx, s - BEACH - edge, y, edge, 1, C.sand);
+		if (edge) px(ctx, beachEdge(y) - edge, y, edge, 1, C.sand);
 		// Soft transitions: dithered seams between depth bands.
 		if (y % 2 === 0) {
 			px(ctx, s + 21, y, 1, 1, C.mid);
@@ -767,18 +947,96 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 			px(ctx, x, y, 4 + Math.floor(h * 30), 1, x > shore(y) + 120 ? C.deep : C.waterLine);
 		}
 	}
-	// Dunes: soft hummocks of wind-blown sand on the landward half of the beach, gathered in
-	// loose groups with open sand between them. Edges are dithered rather than outlined, and
-	// marram grass holds each one together.
-	const duneRand = mulberry(41);
-	for (let y = top; y < bottom; y += 5 + Math.floor(duneRand() * 9)) {
-		const group = field(0, y, 1 / 120, 21);
-		if (group < 0.42 || duneRand() > (group - 0.42) * 3) continue;
-		const rx = 6 + duneRand() * (6 + group * 10);
-		const ry = 3 + duneRand() * 3;
-		const x = shore(y) - BEACH + 4 + rx * 0.7 + duneRand() * (BEACH * 0.55 - rx);
-		if (onPlate(x, y, rx + 3)) continue;
-		paintDune(ctx, x, y, rx, ry, Math.round(x * 13 + y));
+	// The forest's edge: crowns overhang the sand unevenly, and a fringe of beach grass and low
+	// scrub blurs the line where the meadow ends.
+	trees.sort((a, b) => a[1] - b[1]);
+	for (const [tx, ty, r, seed] of trees) stampTree(ctx, tx, ty, r, seed, false);
+	const fringeRand = mulberry(43);
+	for (let y = top; y < bottom; y += 2 + Math.floor(fringeRand() * 6)) {
+		const e = beachEdge(y);
+		if (field(5, y, 1 / 34, 53) < 0.4 || onPlate(e, y, 8)) continue;
+		const x = e - 4 + fringeRand() * 12;
+		if (fringeRand() < 0.7) {
+			px(ctx, x, y - 2, 1, 3, C.marramDark);
+			px(ctx, x + 1, y - 3, 1, 3, C.marram);
+			if (fringeRand() < 0.5) px(ctx, x - 1, y - 1, 1, 2, C.marram);
+		} else if (x < e) paintShrub(ctx, x - 3, y, 2.5 + fringeRand() * 2);
+	}
+
+	// Beach life, in scenes spaced irregularly along the sand: umbrellas and towels, a row of
+	// huts, a lifeguard's tower, a volleyball game, a sandcastle, surfboards and a fire pit.
+	const beachRand = mulberry(61);
+	const sandFree = (y: number, reach: number) => {
+		for (let dy = -reach; dy <= reach; dy += 6)
+			if (onPlate(shore(y + dy) - BEACH / 2, y + dy, BEACH / 2 + 4)) return false;
+		return Math.abs(y - jettyY) > reach + 18;
+	};
+	const scenes = [
+		'umbrellas',
+		'huts',
+		'volleyball',
+		'umbrellas',
+		'sandcastle',
+		'lifeguard',
+		'umbrellas',
+		'surf',
+		'umbrellas',
+		'firepit',
+		'umbrellas',
+		'sandcastle',
+		'umbrellas'
+	];
+	for (let i = scenes.length - 1; i > 0; i -= 1) {
+		const j = Math.floor(beachRand() * (i + 1));
+		[scenes[i], scenes[j]] = [scenes[j], scenes[i]];
+	}
+	let volleyball: CampusWorld['volleyball'] = null;
+	let scene = 0;
+	for (let y = top + 50; y < bottom - 50 && scene < scenes.length;) {
+		const kind = scenes[scene];
+		const reach = kind === 'volleyball' || kind === 'huts' ? 30 : 16;
+		if (!sandFree(y, reach)) {
+			y += 8;
+			continue;
+		}
+		const s0 = shore(y);
+		const mid = Math.round((beachEdge(y) + s0) / 2);
+		if (kind === 'umbrellas') {
+			const n = 1 + Math.floor(beachRand() * 3);
+			for (let k = 0; k < n; k += 1) {
+				const uy = y - 12 + k * 15;
+				const ux = mid - 6 + Math.round((beachRand() - 0.5) * 10);
+				paintTowel(
+					ctx,
+					ux + 6,
+					uy - 2,
+					C.towels[Math.floor(beachRand() * C.towels.length)],
+					beachRand() < 0.6,
+					Math.round(ux + uy)
+				);
+				paintUmbrella(ctx, ux, uy, C.umbrellas[Math.floor(beachRand() * C.umbrellas.length)]);
+			}
+		} else if (kind === 'huts') paintBeachHuts(ctx, beachEdge(y) + 4, y - 30, 4, Math.round(y));
+		else if (kind === 'volleyball') {
+			paintVolleyballCourt(ctx, mid, y, 22, 46);
+			volleyball = { x: mid, y };
+		} else if (kind === 'sandcastle') paintSandcastle(ctx, s0 - 22, y);
+		else if (kind === 'lifeguard') paintLifeguardTower(ctx, s0 - 24, y);
+		else if (kind === 'surf') paintSurfRack(ctx, mid, y);
+		else if (kind === 'firepit') paintFirePit(ctx, mid, y);
+		scene += 1;
+		y += reach * 2 + 16 + Math.floor(beachRand() * 60);
+	}
+	// Shells along the tideline, gathered where the waves leave them.
+	for (let y = top; y < bottom; y += 18 + Math.floor(beachRand() * 40)) {
+		if (field(9, y, 1 / 60, 55) < 0.5 || onPlate(shore(y) - 10, y, 10)) continue;
+		paintShells(ctx, shore(y) - 9, y, Math.round(y));
+	}
+	const crabs: CampusWorld['crabs'] = [];
+	for (let i = 0; i < 40 && crabs.length < 3; i += 1) {
+		const y = Math.round(top + beachRand() * (bottom - top));
+		if (onPlate(shore(y) - 8, y, 14) || Math.abs(y - jettyY) < 30) continue;
+		crabs.push({ y, phase: beachRand() });
 	}
 	// Pebbles on the beach, lilies in the shallows, reeds at the waterline.
 	const lakeRand = mulberry(29);
@@ -1060,7 +1318,6 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 
 	// A wooden jetty where the gravel path meets the beach, a rowboat tied up beside it, and a
 	// roped swimming area to the south.
-	const jettyY = Math.round(Math.min(H * 1.28, H + 360));
 	const jettyFrom = shore(jettyY) - 14;
 	const jettyTo = shore(jettyY) + 84;
 	const deck = (x: number, w: number) => {
@@ -1135,6 +1392,8 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 		heron,
 		fishing,
 		deckFisher,
+		volleyball,
+		crabs,
 		swim: { x: shore(jettyY + 90) + 36, y: jettyY + 90 },
 		kayakRows: { top: jettyY + 170, bottom: Math.max(jettyY + 260, bottom - 40) },
 		shoreRows: openShore(),
@@ -1396,6 +1655,58 @@ function drawWaterActivities(ctx: Paint, world: CampusWorld, view: CampusView, t
 		if (Math.floor(t * 1.2) % 3 === 0) p(2, -2, 1, 2, C.skin);
 	}
 	for (const rod of world.fishing) drawFisher(ctx, view, rod.x, rod.y, rod.reach, t, true);
+	drawBeachLife(ctx, world, view, t);
+}
+
+/* Crabs scuttle sideways along the tideline, stopping now and then; two players keep a
+ * volleyball in the air over the net. */
+function drawBeachLife(ctx: Paint, world: CampusWorld, view: CampusView, t: number): void {
+	for (const crab of world.crabs) {
+		const cycle = (t / 14 + crab.phase) % 1;
+		const moving = cycle < 0.6;
+		const along = Math.sin(cycle * Math.PI * 2) * 10;
+		const y = crab.y + Math.round(along);
+		const x = world.shore(y) - 8;
+		const step = moving ? Math.floor(t * 6) % 2 : 0;
+		screen(ctx, view, x - 2, y, 5, 3, C.crab);
+		screen(ctx, view, x - 1, y, 3, 1, '#ee7a62');
+		screen(ctx, view, x - 4, y - 1 + step, 2, 2, C.crabDark);
+		screen(ctx, view, x + 3, y - 1 + (1 - step), 2, 2, C.crabDark);
+		screen(ctx, view, x - 1, y - 1, 1, 1, '#1d1a18');
+		screen(ctx, view, x + 1, y - 1, 1, 1, '#1d1a18');
+	}
+	const court = world.volleyball;
+	if (!court) return;
+	const p = (x: number, y: number) => (dx: number, dy: number, w: number, h: number, c: string) =>
+		screen(ctx, view, x + dx * SPRITE, y + dy * SPRITE, w * SPRITE, h * SPRITE, c);
+	const rally = (t / 2.4) % 2;
+	const toSouth = rally < 1;
+	const u = toSouth ? rally : rally - 1;
+	const north = { x: court.x - 3 + Math.round(Math.sin(t * 0.7) * 3), y: court.y - 16 };
+	const south = { x: court.x + 1 + Math.round(Math.cos(t * 0.6) * 3), y: court.y + 16 };
+	for (const [player, shirt, hair] of [
+		[north, C.shirt, '#5a4636'],
+		[south, C.shirtAlt, '#e0c27a']
+	] as const) {
+		const hit = (player === north) === (u > 0.92 || u < 0.08) ? 0 : 1;
+		const q = p(player.x, player.y);
+		q(-1, -3, 3, 3, C.skin);
+		q(-1, -3, 3, 1, hair);
+		q(-2, 0, 5, 4, shirt);
+		q(-2, -hit, 1, 2, C.skin);
+		q(2, -hit, 1, 2, C.skin);
+		q(-1, 4, 1, 3, C.skin);
+		q(1, 4, 1, 3, C.skin);
+	}
+	const from = toSouth ? north : south;
+	const to = toSouth ? south : north;
+	const bx = from.x + (to.x - from.x) * u;
+	const by = from.y + (to.y - from.y) * u - 8;
+	const lift = Math.sin(u * Math.PI) * 18;
+	screen(ctx, view, bx + 2, by + 10, 4, 2, C.shadowSoft);
+	screen(ctx, view, bx, by - lift, 4, 4, '#f7f1e3');
+	screen(ctx, view, bx + 1, by - lift, 2, 1, '#f2c14e');
+	screen(ctx, view, bx, by - lift + 2, 2, 1, '#3f8fd2');
 }
 
 /** Someone sitting at the end of a jetty or deck with a rod, a line and a bobber. A fish bites
