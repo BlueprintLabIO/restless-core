@@ -1024,7 +1024,8 @@ mod tests {
             state
                 .cleaned
                 .store(true, std::sync::atomic::Ordering::SeqCst);
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            // Far past the client timeout, so this response is always lost.
+            tokio::time::sleep(Duration::from_secs(3)).await;
             (StatusCode::OK, Json(cleaned(&state.request)))
         }
         let request = request();
@@ -1041,8 +1042,10 @@ mod tests {
             )
             .with_state(state);
         let (base, server) = serve(app).await;
+        // Long enough for the request to arrive under a loaded test run; a 25 ms timeout could
+        // expire before the cleanup reached the provider, and the test then failed by chance.
         let provider =
-            HttpPublicationProvider::new(&base, TOKEN.into(), Duration::from_millis(25)).unwrap();
+            HttpPublicationProvider::new(&base, TOKEN.into(), Duration::from_millis(500)).unwrap();
         let receipt = provider.cleanup(&request).await.unwrap();
         assert!(receipt.provider_process_absent);
         assert!(receipt.route_absent);

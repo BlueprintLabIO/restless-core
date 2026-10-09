@@ -712,7 +712,9 @@ pub async fn agent_auth_for_model(
     } else if model.starts_with("native-") {
         crate::native_harness::session_access(company, actor, model).await?
     } else {
-        crate::model_gateway::client()?.auth_for(
+        crate::model_gateway::ready_client(std::time::Duration::from_secs(90))
+            .await?
+            .auth_for(
             model,
             capabilities,
             company,

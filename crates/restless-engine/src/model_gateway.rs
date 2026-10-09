@@ -3089,6 +3089,29 @@ pub fn anthropic_model_has_pinned_tariff(provider_model: &str) -> bool {
         .is_some_and(|model| anthropic_tariff_micro_usd(model, 0, 0, 0, 0).is_some())
 }
 
+/// The gateway client, waiting while it starts: a message sent seconds after the plane starts
+/// or a key is granted reached a gateway that was still loading and failed the reply. A plane
+/// with no direct provider at all fails at once.
+pub async fn ready_client(within: Duration) -> Result<ClientConfig> {
+    wait_until_ready(within, Duration::from_millis(500), client, has_no_direct_provider).await
+}
+
+async fn wait_until_ready<T>(
+    within: Duration,
+    every: Duration,
+    probe: impl Fn() -> Result<T>,
+    give_up: impl Fn() -> bool,
+) -> Result<T> {
+    let deadline = tokio::time::Instant::now() + within;
+    loop {
+        let attempt = probe();
+        if attempt.is_ok() || give_up() || tokio::time::Instant::now() >= deadline {
+            return attempt;
+        }
+        tokio::time::sleep(every).await;
+    }
+}
+
 pub fn client() -> Result<ClientConfig> {
     CLIENT
         .read()
@@ -4732,6 +4755,41 @@ mission = "Choose native intelligence"
             "a Haiku 5.5 prompt over 100k tokens, cache reads included, pays the long-prompt rate"
         );
         assert!(anthropic_tariff_micro_usd("unknown", 1, 1, 0, 0).is_none());
+    }
+
+    #[tokio::test]
+    async fn a_wake_waits_for_a_starting_gateway_but_not_for_a_missing_one() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let calls = AtomicU32::new(0);
+        let starting = || {
+            if calls.fetch_add(1, Ordering::SeqCst) < 3 {
+                anyhow::bail!("starting")
+            }
+            Ok("ready")
+        };
+        let ready =
+            wait_until_ready(Duration::from_secs(5), Duration::from_millis(1), starting, || false)
+                .await
+                .unwrap();
+        assert_eq!(ready, "ready", "a gateway that comes up within the wait is used");
+
+        let absent = || -> Result<&str> { anyhow::bail!("no direct provider") };
+        let started = std::time::Instant::now();
+        assert!(
+            wait_until_ready(Duration::from_secs(5), Duration::from_millis(1), absent, || true)
+                .await
+                .is_err()
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "a plane with no provider fails at once"
+        );
+        assert!(
+            wait_until_ready(Duration::from_millis(20), Duration::from_millis(1), absent, || false)
+                .await
+                .is_err(),
+            "the wait is bounded"
+        );
     }
 
     #[test]

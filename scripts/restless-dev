@@ -194,9 +194,11 @@ doctor() {
     "${STACK_TARGET_DIR}/debug/restless" doctor -c "$STACK_COMPANY"
 }
 
+# A freshly reconciled container starts its desktop and browser for about a minute; 20 s
+# reported a healthy stack as degraded and stopped it.
 wait_for_doctor() {
   local probe_attempt
-  for ((probe_attempt = 0; probe_attempt < 40; probe_attempt += 1)); do
+  for ((probe_attempt = 0; probe_attempt < 180; probe_attempt += 1)); do
     if RESTLESS_OWNER_URL="$STACK_OWNER_URL" \
       RESTLESS_COCKPIT_URL="$STACK_WEB_URL" \
       "${STACK_TARGET_DIR}/debug/restless" doctor -c "$STACK_COMPANY" \
