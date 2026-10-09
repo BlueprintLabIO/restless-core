@@ -37,6 +37,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Keep the runner's checkout small
+        run: scripts/release/compact-checkout.sh
       - name: Validate the dispatched source and publication identity
         env:
           PUBLISH: ${{ inputs.publish }}
@@ -139,6 +141,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Keep the runner's checkout small
+        run: scripts/release/compact-checkout.sh
       - name: Validate the publication identity
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
@@ -189,6 +193,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Keep the runner's checkout small
+        run: scripts/release/compact-checkout.sh
       - name: Validate the publication identity
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"

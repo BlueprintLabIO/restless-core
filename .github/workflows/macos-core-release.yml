@@ -71,6 +71,8 @@ jobs:
         with:
           ref: ${{ env.REVISION }}
           persist-credentials: false
+      - name: Keep the runner's checkout small
+        run: scripts/release/compact-checkout.sh
       - name: Build restless and restlessd
         if: env.SKIP != 'true'
         env:
