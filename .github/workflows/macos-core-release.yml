@@ -1,17 +1,17 @@
 name: macOS Core release
 
-# The macOS half of a Core release. For each successful "Immutable Core release" run on main (or one
-# named release, dispatched by hand) this builds restless and restlessd for Apple silicon and Intel
+# The macOS half of a Core release. For one successful "Immutable Core release" commit on main this
+# builds restless and restlessd for Apple silicon and Intel
 # from exactly that release's commit, seals the commit and CPU into the archive, signs it keylessly
 # as this workflow on main, and publishes it beside the Linux bundle as <revision>-darwin-<arch>.
 # scripts/install-core.sh accepts only this workflow's signature for macOS binaries. Everything
 # else a Mac runs (company computers, documents, PostgreSQL) is the release's Linux images.
 
+# CI runs only on the owner's own machines (CLAUDE.md). This job needs a Mac, so it names a
+# self-hosted macOS runner; until one is registered it runs only when dispatched. Once it is, add
+#   workflow_run: { workflows: [Immutable Core release], types: [completed], branches: [main] }
+# so every release gets its macOS build.
 on:
-  workflow_run:
-    workflows: [Immutable Core release]
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
     inputs:
       revision:
@@ -24,7 +24,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: macos-core-release-${{ inputs.revision || github.event.workflow_run.head_sha }}
+  group: macos-core-release-${{ inputs.revision }}
   cancel-in-progress: false
 
 env:
@@ -35,8 +35,7 @@ env:
 jobs:
   build:
     name: macOS ${{ matrix.arch }}
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
-    runs-on: macos-15
+    runs-on: [self-hosted, macOS, ARM64, restless-core]
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -49,7 +48,7 @@ jobs:
     steps:
       - name: Resolve and validate the release
         env:
-          REVISION: ${{ inputs.revision || github.event.workflow_run.head_sha }}
+          REVISION: ${{ inputs.revision }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
