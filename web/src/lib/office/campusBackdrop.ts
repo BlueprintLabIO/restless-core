@@ -102,9 +102,9 @@ const C = {
 	sand: '#e8dfba',
 	sandShade: '#d6cba0',
 	sandWet: '#cfc59a',
-	dune: '#ede5c4',
-	duneLight: '#f3ecd2',
-	duneShade: '#d4c895',
+	dune: '#efe7c9',
+	duneLight: '#f7f2df',
+	duneShade: '#d6ca9b',
 	marram: '#8fae6a',
 	marramDark: '#6f9254',
 	plank: '#b48d60',
@@ -138,7 +138,14 @@ const C = {
 	driftwood: '#a89a85',
 	driftwoodDark: '#857865',
 	flowerCentre: '#f8e8a0',
-	wild: ['#b49ad8', '#e3604f', '#f2d24b', '#f5f2e8', '#f0a6c0', '#7fa6e0', '#f29c4c'],
+	/* Each meadow keeps one pair of colours, as wildflowers do. */
+	meadows: [
+		['#b49ad8', '#f5f2e8'],
+		['#e3604f', '#f2d24b'],
+		['#f0a6c0', '#f5f2e8'],
+		['#7fa6e0', '#f5f2e8'],
+		['#f2d24b', '#f29c4c']
+	] as const,
 	pebble: '#bdb59d',
 	shallow: '#8ccfc8',
 	mid: '#79c0bd',
@@ -186,6 +193,39 @@ function hash(x: number, y: number, salt = 0): number {
 	h = Math.imul(h ^ (h >>> 13), 1274126177);
 	h ^= h >>> 16;
 	return (h >>> 0) / 4294967296;
+}
+
+/** Smooth value noise in [0, 1]: nature clusters where this is high and thins where it is low. */
+function field(x: number, y: number, scale: number, salt: number): number {
+	const fx = x * scale;
+	const fy = y * scale;
+	const x0 = Math.floor(fx);
+	const y0 = Math.floor(fy);
+	const ease = (t: number) => t * t * (3 - 2 * t);
+	const tx = ease(fx - x0);
+	const ty = ease(fy - y0);
+	const a = hash(x0, y0, salt);
+	const b = hash(x0 + 1, y0, salt);
+	const c = hash(x0, y0 + 1, salt);
+	const d = hash(x0 + 1, y0 + 1, salt);
+	const top = a + (b - a) * tx;
+	const bottom = c + (d - c) * tx;
+	const coarse = top + (bottom - top) * ty;
+	// A second, finer octave keeps the edges of each patch from looking drawn with a compass.
+	const fine = (() => {
+		const gx = fx * 2.3 + 17;
+		const gy = fy * 2.3 + 31;
+		const g0 = Math.floor(gx);
+		const h0 = Math.floor(gy);
+		const ux = ease(gx - g0);
+		const uy = ease(gy - h0);
+		const e = hash(g0, h0, salt + 1);
+		const f = hash(g0 + 1, h0, salt + 1);
+		const g = hash(g0, h0 + 1, salt + 1);
+		const h = hash(g0 + 1, h0 + 1, salt + 1);
+		return e + (f - e) * ux + (g + (h - g) * ux - (e + (f - e) * ux)) * uy;
+	})();
+	return coarse * 0.72 + fine * 0.28;
 }
 
 function mulberry(seed: number): () => number {
@@ -334,14 +374,20 @@ function paintLily(ctx: Paint, x: number, y: number, seed: number) {
 	if (rand() < 0.4) px(ctx, x - 1, y - 1, 1, 1, C.lotus);
 }
 
-/** A drift of one or two kinds of wildflower, denser at its heart. */
-function paintWildflowers(ctx: Paint, x: number, y: number, seed: number) {
+/** A drift of wildflowers in one meadow's colours, denser at its heart. */
+function paintWildflowers(
+	ctx: Paint,
+	x: number,
+	y: number,
+	seed: number,
+	palette: readonly string[]
+) {
 	const rand = mulberry(seed);
-	const a = C.wild[Math.floor(rand() * C.wild.length)];
-	const b = rand() < 0.5 ? a : C.wild[Math.floor(rand() * C.wild.length)];
-	const count = 26 + Math.floor(rand() * 26);
-	const rx = 12 + rand() * 14;
-	const ry = 5 + rand() * 5;
+	const a = palette[0];
+	const b = palette[1];
+	const count = 8 + Math.floor(rand() * 14);
+	const rx = 6 + rand() * 9;
+	const ry = 3 + rand() * 3;
 	for (let i = 0; i < count; i += 1) {
 		const r = Math.sqrt(rand());
 		const t = rand() * Math.PI * 2;
@@ -432,6 +478,35 @@ function paintMushrooms(ctx: Paint, x: number, y: number, seed: number) {
 		px(ctx, mx, my, 1, 2, C.capWhite);
 		px(ctx, mx - 1, my - 1, 3, 1, C.capRed);
 		px(ctx, mx, my - 1, 1, 1, C.capWhite);
+	}
+}
+
+/** One soft dune hummock: a dithered shadow on its lee, a body with a feathered edge, a pale
+ * crest to the north-west, and marram grass on top. */
+function paintDune(ctx: Paint, x: number, y: number, rx: number, ry: number, seed: number) {
+	const rand = mulberry(seed);
+	const blob = (cx: number, cy: number, ax: number, ay: number, color: string, density: number) => {
+		for (let dy = -Math.ceil(ay); dy <= Math.ceil(ay); dy += 1)
+			for (let dx = -Math.ceil(ax); dx <= Math.ceil(ax); dx += 1) {
+				const k = (dx * dx) / (ax * ax) + (dy * dy) / (ay * ay);
+				if (k >= 1) continue;
+				const keep = k < 0.55 ? density : density * (1 - k) * 2.2;
+				if (hash(Math.round(cx + dx), Math.round(cy + dy), seed % 997) < keep)
+					px(ctx, cx + dx, cy + dy, 1, 1, color);
+			}
+	};
+	blob(x + 2, y + 2, rx, ry, C.duneShade, 0.55);
+	blob(x, y, rx, ry, C.dune, 1);
+	blob(x - rx * 0.25, y - ry * 0.3, rx * 0.55, ry * 0.5, C.duneLight, 0.85);
+	const tufts = Math.round(rx * 0.5 + rand() * 3);
+	for (let t = 0; t < tufts; t += 1) {
+		const a = rand() * Math.PI * 2;
+		const d = Math.sqrt(rand()) * 0.75;
+		const tx = x + Math.cos(a) * rx * d;
+		const ty = y + Math.sin(a) * ry * d;
+		px(ctx, tx, ty - 2, 1, 3, C.marramDark);
+		px(ctx, tx + 1, ty - 3, 1, 3, C.marram);
+		if (rand() < 0.4) px(ctx, tx - 1, ty - 1, 1, 2, C.marram);
 	}
 }
 
@@ -668,8 +743,8 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 	for (let y = top; y < bottom; y += 1) {
 		const s = shore(y);
 		// Wind-ripple specks across the sand, and a ragged edge where the meadow gives way to it.
-		for (let k = 0; k < 3; k += 1)
-			if (hash(s, y, 3 + k * 11) < 0.3)
+		for (let k = 0; k < 2; k += 1)
+			if (hash(s, y, 3 + k * 11) < 0.12)
 				px(ctx, s - BEACH + Math.floor(hash(y, s, 4 + k * 11) * (BEACH - 6)), y, 2, 1, C.sandShade);
 		const edge = Math.floor(hash(y, s, 9) * 4);
 		if (edge) px(ctx, s - BEACH - edge, y, edge, 1, C.sand);
@@ -692,30 +767,18 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 			px(ctx, x, y, 4 + Math.floor(h * 30), 1, x > shore(y) + 120 ? C.deep : C.waterLine);
 		}
 	}
-	// Dunes: a low ridge of overlapping mounds on the landward half of the beach, lit from the
-	// north-west with a shaded lee, tufted with marram grass. The odd gap keeps it from reading
-	// as a wall.
+	// Dunes: soft hummocks of wind-blown sand on the landward half of the beach, gathered in
+	// loose groups with open sand between them. Edges are dithered rather than outlined, and
+	// marram grass holds each one together.
 	const duneRand = mulberry(41);
-	for (let y = top + 4; y < bottom; y += 8 + Math.floor(duneRand() * 8)) {
-		if (duneRand() < 0.12) {
-			y += 10;
-			continue;
-		}
-		const rx = 9 + duneRand() * 13;
-		const ry = 5 + duneRand() * 3.5;
-		const x = shore(y) - BEACH + rx * 0.9 + 2 + duneRand() * 16;
-		if (onPlate(x, y, rx + 4)) continue;
-		disc(ctx, x + 3, y + 2, rx, ry, C.duneShade);
-		disc(ctx, x, y, rx, ry, C.dune);
-		disc(ctx, x - rx * 0.28, y - ry * 0.32, rx * 0.55, ry * 0.5, C.duneLight);
-		const tufts = 3 + Math.floor(duneRand() * 4);
-		for (let t = 0; t < tufts; t += 1) {
-			const tx = x + (duneRand() - 0.5) * rx * 1.5;
-			const ty = y + (duneRand() - 0.65) * ry * 1.3;
-			px(ctx, tx, ty - 1, 1, 3, C.marramDark);
-			px(ctx, tx + 1, ty - 2, 1, 3, C.marram);
-			if (duneRand() < 0.6) px(ctx, tx - 1, ty - 1, 1, 2, C.marram);
-		}
+	for (let y = top; y < bottom; y += 5 + Math.floor(duneRand() * 9)) {
+		const group = field(0, y, 1 / 120, 21);
+		if (group < 0.42 || duneRand() > (group - 0.42) * 3) continue;
+		const rx = 6 + duneRand() * (6 + group * 10);
+		const ry = 3 + duneRand() * 3;
+		const x = shore(y) - BEACH + 4 + rx * 0.7 + duneRand() * (BEACH * 0.55 - rx);
+		if (onPlate(x, y, rx + 3)) continue;
+		paintDune(ctx, x, y, rx, ry, Math.round(x * 13 + y));
 	}
 	// Pebbles on the beach, lilies in the shallows, reeds at the waterline.
 	const lakeRand = mulberry(29);
@@ -826,47 +889,33 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 		}
 	}
 
-	// Meadow life: trees, rocks and flowers where no plate or water is.
+	// Meadow life. Low-frequency fields decide where things gather: groves of one kind of tree,
+	// a few wildflower meadows in their own colours, patches of long grass, and open lawn
+	// between them and around the buildings.
 	const meadowRand = mulberry(47);
-	const meadowTrees: Array<[number, number, number, number]> = [];
-	// Some meadow trees are conifers or birches rather than broadleaf, by seed.
-	const kindOf = (seed: number) =>
-		seed % 6 === 0 ? 'conifer' : seed % 6 === 1 ? 'birch' : 'broadleaf';
-	for (let i = 0; i < 70; i += 1) {
-		const x = left + meadowRand() * (right - left);
-		const y = H * 0.45 + meadowRand() * (bottom - H * 0.45);
-		if (!land(x, y) || onPlate(x, y, 30) || y < forestEdge(x) + 20) continue;
-		meadowTrees.push([x, y, 8 + meadowRand() * 5, Math.floor(meadowRand() * 10_000)]);
-	}
-	for (let i = 0; i < 26; i += 1) {
-		const x = left + meadowRand() * (W * 0.1 - left);
-		const y = top + meadowRand() * (bottom - top);
-		if (!land(x, y) || onPlate(x, y, 30) || y < forestEdge(x) + 16) continue;
-		meadowTrees.push([x, y, 8 + meadowRand() * 5, Math.floor(meadowRand() * 10_000)]);
-	}
-	for (let i = 0; i < 90; i += 1) {
-		const x = left + meadowRand() * (W * 0.8 - left);
-		const y = top + meadowRand() * (bottom - top);
-		if (!land(x, y) || onPlate(x, y, 30) || y < forestEdge(x) + 20) continue;
-		meadowTrees.push([x, y, 9 + meadowRand() * 6, Math.floor(meadowRand() * 10_000)]);
-	}
-	// The meadow pockets between pavilions: a few trees and flowers, so
-	// nature runs through the campus rather than only around it.
-	for (let i = 0; i < 120; i += 1) {
-		const x = meadowRand() * W;
-		const y = meadowRand() * H;
-		if (!land(x, y) || onPlate(x, y, 22)) continue;
-		if (i % 4 === 0)
-			meadowTrees.push([x, y, 7 + meadowRand() * 3, Math.floor(meadowRand() * 10_000)]);
-		else if (i % 4 === 1) paintFlowers(ctx, x, y, i * 17 + 3, 6);
-	}
-	for (let i = 0; i < 60; i += 1) {
-		const x = left + meadowRand() * (right - left);
-		const y = top + meadowRand() * (bottom - top);
-		if (!land(x, y) || onPlate(x, y, 16) || y < forestEdge(x) + 10) continue;
-		if (i % 3 === 0) paintRock(ctx, x, y, 3 + meadowRand() * 3, i % 2 === 0);
-		else paintFlowers(ctx, x, y, i * 13 + 5, 5 + Math.floor(meadowRand() * 5));
-	}
+	const grove = (x: number, y: number) => field(x, y, 1 / 170, 31);
+	const flowerField = (x: number, y: number) => field(x, y, 1 / 130, 33);
+	const wildGrass = (x: number, y: number) => field(x, y, 1 / 90, 35);
+	const standKind = (x: number, y: number) => {
+		const k = field(x, y, 1 / 280, 37);
+		return k > 0.6 ? 'conifer' : k < 0.36 ? 'birch' : 'broadleaf';
+	};
+	const meadowTrees: Array<[number, number, number, number, string]> = [];
+	const span = (step: number, visit: (x: number, y: number) => void) => {
+		for (let gy = top; gy < bottom; gy += step)
+			for (let gx = left; gx < W * 0.8; gx += step)
+				visit(gx + (meadowRand() - 0.5) * step * 0.9, gy + (meadowRand() - 0.5) * step * 0.9);
+	};
+	span(22, (x, y) => {
+		if (!land(x, y) || onPlate(x, y, 28) || y < forestEdge(x) + 16) return;
+		const g = grove(x, y);
+		const inGrove = g > 0.6 && meadowRand() < (g - 0.6) * 4;
+		const lone = meadowRand() < 0.012;
+		if (!inGrove && !lone) return;
+		const kind = meadowRand() < 0.12 ? 'broadleaf' : standKind(x, y);
+		const r = (inGrove ? 8 : 10) + meadowRand() * 5;
+		meadowTrees.push([x, y, r, Math.floor(meadowRand() * 10_000), kind]);
+	});
 
 	// A gravel path leaves the southernmost paving and wanders to the jetty. It starts under the
 	// plate's south edge, so the floor runs straight onto it.
@@ -886,60 +935,74 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 	const path = (t: number): [number, number] => {
 		const x0 = pathStart.x;
 		const y0 = pathStart.y - 4;
-		const x2 = shore(H * 1.28) - 8;
-		const y2 = H * 1.28;
-		const x1 = x0 + (x2 - x0) * 0.25;
-		const y1 = y2 - 6;
+		const x3 = shore(H * 1.28) - 8;
+		const y3 = H * 1.28;
+		// A cubic with an easy S: it drops away from the building, then leans to the shore.
+		const x1 = x0 + 6;
+		const y1 = y0 + (y3 - y0) * 0.6;
+		const x2 = x0 + (x3 - x0) * 0.55;
+		const y2 = y3 + 4;
 		const u = 1 - t;
-		return [u * u * x0 + 2 * u * t * x1 + t * t * x2, u * u * y0 + 2 * u * t * y1 + t * t * y2];
+		return [
+			u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3,
+			u * u * u * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3
+		];
 	};
 	const pathPoints: Array<[number, number]> = [];
 	for (let t = 0; t <= 1; t += 0.02) pathPoints.push(path(t));
 	const nearPath = (x: number, y: number, reach: number) =>
 		pathPoints.some(([px0, py0]) => Math.hypot(px0 - x, py0 - y) < reach);
-	for (let t = 0; t <= 1; t += 0.004) {
+	// Worn, not ruled: the width wanders and the edge frays into the grass.
+	const pathWidth = (t: number) => 3 + field(t * 400, 0, 1 / 60, 41) * 2.2;
+	for (let t = 0; t <= 1; t += 0.003) {
 		const [x, y] = path(t);
-		disc(ctx, x, y, 5, 4, C.gravelEdge);
+		const w = pathWidth(t);
+		disc(ctx, x, y, w + 1, w * 0.8 + 1, C.gravelEdge);
 	}
-	for (let t = 0; t <= 1; t += 0.004) {
+	for (let t = 0; t <= 1; t += 0.003) {
 		const [x, y] = path(t);
-		disc(ctx, x, y, 4, 3, C.gravel);
-		if (hash(Math.round(x), Math.round(y), 7) < 0.3) px(ctx, x + 2, y - 1, 1, 1, C.gravelDot);
+		const w = pathWidth(t);
+		disc(ctx, x, y, w, w * 0.8, C.gravel);
+		const h = hash(Math.round(x), Math.round(y), 7);
+		if (h < 0.12) px(ctx, x + (h * 40 - 2), y - 1, 1, 1, C.gravelDot);
+		else if (h > 0.96) px(ctx, x + (h > 0.98 ? w : -w), y, 1, 2, C.grassDark);
 	}
 
-	// Varied ground cover across the whole scene: wildflower drifts, tall grass, berry bushes,
-	// and ferns and toadstools where the forest meets the meadow. Painted before the trees, so
-	// crowns overlap it.
-	const groundRand = mulberry(97);
+	// Ground cover, painted before the trees so crowns overlap it. Long grass and stones come
+	// in patches, shrubs skirt the groves, and wildflowers fill a few meadows; the lawn by the
+	// buildings stays clear.
 	const open = (x: number, y: number, pad: number) =>
-		land(x, y) && !onPlate(x, y, pad) && !nearPath(x, y, pad + 4);
-	for (let i = 0; i < 1400; i += 1) {
-		const x = left + groundRand() * (W * 0.8 - left);
-		const y = top + groundRand() * (bottom - top);
-		const kind = groundRand();
-		const inForest = y < forestEdge(x) - 6;
-		if (inForest || !open(x, y, 12)) continue;
-		if (kind < 0.3) paintWildflowers(ctx, x, y, i * 31 + 7);
-		else if (kind < 0.62) paintTallGrass(ctx, x, y, i * 19 + 3);
-		else if (kind < 0.74) paintBerryBush(ctx, x, y, i * 23 + 11);
-		else if (kind < 0.84) paintShrub(ctx, x, y, 3 + groundRand() * 3);
-		else if (kind < 0.92) paintFlowers(ctx, x, y, i * 13 + 2, 6);
-		else paintRock(ctx, x, y, 2 + groundRand() * 3, groundRand() < 0.5);
-	}
-	for (let x = left; x < W * 0.66; x += 14) {
-		const y = forestEdge(x) + 6 + groundRand() * 16;
+		land(x, y) && !onPlate(x, y, pad) && !nearPath(x, y, pad + 3);
+	const groundRand = mulberry(97);
+	span(18, (x, y) => {
+		if (y < forestEdge(x) - 4 || !open(x, y, 24)) return;
+		const f = flowerField(x, y);
+		if (f > 0.6 && groundRand() < (f - 0.6) * 5) {
+			const palette = C.meadows[Math.floor(field(x, y, 1 / 420, 39) * C.meadows.length)];
+			paintWildflowers(ctx, x, y, Math.round(x * 7 + y), palette);
+			return;
+		}
+		const g = grove(x, y);
+		if (g > 0.5 && g < 0.62 && groundRand() < 0.28) {
+			if (groundRand() < 0.4) paintBerryBush(ctx, x, y, Math.round(x + y * 3));
+			else paintShrub(ctx, x, y, 3 + groundRand() * 2.5);
+			return;
+		}
+		const w = wildGrass(x, y);
+		if (w > 0.6 && groundRand() < (w - 0.6) * 3) {
+			paintTallGrass(ctx, x, y, Math.round(x * 3 + y));
+			return;
+		}
+		if (field(x, y, 1 / 210, 43) > 0.78 && groundRand() < 0.25)
+			paintRock(ctx, x, y, 2 + groundRand() * 3, groundRand() < 0.5);
+	});
+	// Where the forest meets the meadow: ferns in the damp stretches, the odd toadstool ring.
+	for (let x = left; x < W * 0.66; x += 6 + Math.floor(groundRand() * 18)) {
+		const y = forestEdge(x) + 4 + groundRand() * 12;
 		if (!open(x, y, 8)) continue;
-		const kind = groundRand();
-		if (kind < 0.45) paintFern(ctx, x, y, Math.round(x));
-		else if (kind < 0.6) paintMushrooms(ctx, x, y, Math.round(x) + 5);
-		else if (kind < 0.8) paintTallGrass(ctx, x, y, Math.round(x) + 9);
-	}
-	// Flowers along both verges of the path.
-	for (let i = 0; i < pathPoints.length; i += 3) {
-		const [x, y] = pathPoints[i];
-		const side = i % 2 ? 1 : -1;
-		if (land(x, y + side * 9) && !onPlate(x, y + side * 9, 4))
-			paintFlowers(ctx, x, y + side * 9, i * 7 + 1, 3);
+		const damp = field(x, 0, 1 / 70, 45);
+		if (damp > 0.55 && groundRand() < 0.7) paintFern(ctx, x, y, Math.round(x));
+		else if (damp < 0.25 && groundRand() < 0.15) paintMushrooms(ctx, x, y, Math.round(x) + 5);
 	}
 	// Driftwood on the sand between the dunes and the water.
 	for (const ry of [0.12, 0.47, 0.83, 1.18, 1.45]) {
@@ -950,9 +1013,8 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 	}
 
 	meadowTrees.sort((a, b) => a[1] - b[1]);
-	for (const [x, y, r, seed] of meadowTrees) {
+	for (const [x, y, r, seed, kind] of meadowTrees) {
 		if (nearPath(x, y, r + 6)) continue;
-		const kind = kindOf(seed);
 		if (kind === 'conifer') paintConifer(ctx, x, y, r + 1);
 		else if (kind === 'birch') paintBirch(ctx, x, y, r, seed);
 		else stampTree(ctx, x, y, r, seed, true);
