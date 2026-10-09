@@ -708,8 +708,13 @@ const SHORE: Array<[number, number]> = [
 	[3, 0.72]
 ];
 
-/** The shoreline x (office-local art pixels) at each row. */
-export function makeShore(width: number, height: number) {
+/** The campus's land is always this many tiles wide; pavilions beyond it float on the lake. */
+export const LAND_COLS = 72;
+
+/** The shoreline x (office-local art pixels) at each row. A plan widened by floating
+ * pavilions keeps the land's shore. */
+export function makeShore(planWidth: number, height: number) {
+	const width = Math.min(planWidth, LAND_COLS * TILE_SIZE);
 	return (y: number): number => {
 		const r = y / height;
 		let i = 0;

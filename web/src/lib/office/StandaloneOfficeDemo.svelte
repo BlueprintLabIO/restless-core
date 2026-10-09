@@ -1,12 +1,10 @@
 <script lang="ts">
 	import OfficeCanvas from '$lib/office/OfficeCanvas.svelte';
-	import {
-		OFFICE_DEMO_MEMBERS,
-		OFFICE_DEMO_PREFERENCES,
-		OFFICE_DEMO_TEAMS
-	} from '$lib/office/officeDemo';
+	import { page } from '$app/state';
+	import { OFFICE_DEMO_PREFERENCES, officeDemoCompany } from '$lib/office/officeDemo';
 	import type { OfficePreferences } from '$lib/office/officePlan';
 
+	const company = $derived(officeDemoCompany(Number(page.url.searchParams.get('teams')) || 0));
 	let selectedActorId = $state<string | null>(null);
 	let preferences = $state<OfficePreferences>({
 		...OFFICE_DEMO_PREFERENCES,
@@ -24,8 +22,8 @@
 
 <main class="office-demo" data-office-demo="standalone">
 	<OfficeCanvas
-		members={OFFICE_DEMO_MEMBERS}
-		teams={OFFICE_DEMO_TEAMS}
+		members={company.members}
+		teams={company.teams}
 		{preferences}
 		bind:selectedActorId
 		onpreferenceschange={(next) => (preferences = next)}

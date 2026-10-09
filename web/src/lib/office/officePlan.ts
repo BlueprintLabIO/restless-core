@@ -37,7 +37,7 @@ import {
 import type { OfficeMember } from './projection';
 
 export const OFFICE_PLAN_VERSION = 7;
-export const MAX_VISIBLE_OFFICE_MEMBERS = 20;
+export const MAX_VISIBLE_OFFICE_MEMBERS = 36;
 
 export type DecorationType =
 	'PLANT_2' | 'LARGE_PLANT' | 'SOFA_FRONT' | 'COFFEE_TABLE' | 'DOUBLE_BOOKSHELF';
@@ -169,6 +169,17 @@ const DAYLIGHT = {
 };
 const AREA_COLORS = ['#4e9a7e', '#5d8fc1', '#7b66b2', '#68b6ba', '#669c76', '#8b78ba'];
 const BAY_CAPACITY = 6;
+/** Land holds two rows of four team bays. */
+const LAND_BAY_SLOTS = 8;
+/** Floating pavilions on the lake, nearest the main deck first: middle, north, south. */
+const FLOATING_BAY_SLOTS: ReadonlyArray<{ col: number; row: number }> = [
+	{ col: 74, row: 21 },
+	{ col: 74, row: 4 },
+	{ col: 74, row: 38 },
+	{ col: 90, row: 21 },
+	{ col: 90, row: 4 },
+	{ col: 90, row: 38 }
+];
 const BAY_WIDTH = 12;
 const BAY_HEIGHT = 10;
 
@@ -327,8 +338,15 @@ export function createCompanyOfficePlan(
 	preferences: OfficePreferences
 ): OfficePlan {
 	const visibleMembers = members.slice(0, MAX_VISIBLE_OFFICE_MEMBERS);
-	const bays = buildBays(teams, visibleMembers);
-	const cols = 72;
+	const allBays = buildBays(teams, visibleMembers);
+	// Eight bays fit on land, four to the north and four to the south. More teams float on the
+	// lake: pavilions on their own decks off a boardwalk spine east of the main deck, the nearest
+	// column first. Only a company that needs them widens the plan.
+	const landBays = allBays.slice(0, LAND_BAY_SLOTS);
+	const floatingBays = allBays.slice(LAND_BAY_SLOTS, LAND_BAY_SLOTS + FLOATING_BAY_SLOTS.length);
+	const bays = [...landBays, ...floatingBays];
+	const floatingColumns = new Set(floatingBays.map((_, i) => FLOATING_BAY_SLOTS[i].col)).size;
+	const cols = 72 + (floatingColumns === 0 ? 0 : floatingColumns === 1 ? 16 : 32);
 	const rows = 52;
 	const centerCol = Math.floor(cols / 2);
 	const tiles = new Array<TileType>(cols * rows).fill(TileType.VOID);
@@ -419,7 +437,7 @@ export function createCompanyOfficePlan(
 	fill(43, 21, 26, 10, TileType.FLOOR_7, DAYLIGHT.deck);
 
 	// Open team neighbourhoods repeat only when real visible membership needs capacity.
-	const topBayCount = Math.ceil(bays.length / 2);
+	const topBayCount = Math.ceil(landBays.length / 2);
 	const slotColumns = (count: number): number[] => {
 		if (count <= 1) return [27];
 		if (count === 2) return [13, 43];
@@ -427,12 +445,36 @@ export function createCompanyOfficePlan(
 		return [5, 20, 35, 50];
 	};
 	const topColumns = slotColumns(topBayCount);
-	const bottomColumns = slotColumns(Math.max(0, bays.length - topBayCount));
+	const bottomColumns = slotColumns(Math.max(0, landBays.length - topBayCount));
+	if (floatingBays.length) {
+		const used = FLOATING_BAY_SLOTS.slice(0, floatingBays.length);
+		const spineTop = Math.min(...used.map((slot) => slot.row)) + 4;
+		const spineBottom = Math.max(...used.map((slot) => slot.row)) + 6;
+		// The main deck reaches out to a two-plank boardwalk spine running north and south.
+		fill(69, 24, 3, 4, TileType.FLOOR_7, DAYLIGHT.deck);
+		fill(
+			70,
+			Math.min(spineTop, 24),
+			2,
+			Math.max(spineBottom, 28) - Math.min(spineTop, 24),
+			TileType.FLOOR_7,
+			DAYLIGHT.deck
+		);
+		for (const slot of used) {
+			// A gangway from the spine, or from the nearer pavilion, to each floating deck.
+			const from =
+				slot.col === FLOATING_BAY_SLOTS[0].col ? 72 : FLOATING_BAY_SLOTS[0].col + BAY_WIDTH;
+			fill(from, slot.row + 4, slot.col - from, 2, TileType.FLOOR_7, DAYLIGHT.deck);
+		}
+	}
 	bays.forEach((bay, index) => {
+		const floating = index >= landBays.length;
 		const upper = index < topBayCount;
 		const slot = upper ? index : index - topBayCount;
-		const col = (upper ? topColumns : bottomColumns)[slot];
-		const row = upper ? 4 : 38;
+		const col = floating
+			? FLOATING_BAY_SLOTS[index - landBays.length].col
+			: (upper ? topColumns : bottomColumns)[slot];
+		const row = floating ? FLOATING_BAY_SLOTS[index - landBays.length].row : upper ? 4 : 38;
 		const suffix = bay.bayIndex ? ` ${bay.bayIndex + 1}` : '';
 		const areaLabel = safeLabel(`${bay.label}${suffix}`);
 		areas.push({ label: areaLabel, color: AREA_COLORS[index % AREA_COLORS.length] });

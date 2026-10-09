@@ -80,3 +80,38 @@ export const OFFICE_DEMO_PREFERENCES: OfficePreferences = {
 	pets: true,
 	decorations: []
 };
+
+/** The demo company grown to `count` teams, each new team with one or two people, for
+ * previewing how the campus makes room (`/office-demo?teams=12`). */
+export function officeDemoCompany(count: number): {
+	teams: CockpitTeam[];
+	members: OfficeMember[];
+} {
+	const extra = Math.max(0, Math.min(16, count) - OFFICE_DEMO_TEAMS.length);
+	const teams = [...OFFICE_DEMO_TEAMS];
+	const members = [...OFFICE_DEMO_MEMBERS];
+	for (let i = 0; i < extra; i += 1) {
+		const id = `demo-team-${i + 1}`;
+		const name = `Team ${i + 5}`;
+		const size = 1 + (i % 2);
+		const lead = `${id}-lead`;
+		teams.push({
+			...OFFICE_DEMO_TEAMS[i % OFFICE_DEMO_TEAMS.length],
+			id,
+			name,
+			lead_actor_id: lead,
+			member_count: size
+		});
+		for (let k = 0; k < size; k += 1)
+			members.push({
+				...OFFICE_DEMO_MEMBERS[(i * 2 + k) % OFFICE_DEMO_MEMBERS.length],
+				actorId: k === 0 ? lead : `${id}-${k}`,
+				numericId: members.length + 1,
+				display: `Member ${members.length + 1}`,
+				teamId: id,
+				teamName: name,
+				isTeamLead: k === 0
+			});
+	}
+	return { teams, members };
+}
