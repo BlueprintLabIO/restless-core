@@ -76,17 +76,17 @@ function run<T>(job: { kind: string; source: unknown }): Promise<T | null> {
 /** campusWorldFor, painted off the main thread where the browser can. */
 export async function campusWorldAsync(plan: {
 	layout: CampusSource;
-	landOffsetCols?: number;
+	landOffsetRows?: number;
 }): Promise<CampusWorld | null> {
 	const source = campusSourceOf(plan);
 	const key = campusKey(source);
 	const kept = keptCampusWorld(key);
 	if (kept !== undefined) return kept;
 	const { cols, rows, tiles } = source;
-	const landOffsetCols = landOffsetOf(source);
+	const landOffsetRows = landOffsetOf(source);
 	const painted = await run<PaintedCampus>({
 		kind: 'campus',
-		source: { cols, rows, tiles: [...tiles], landOffsetCols }
+		source: { cols, rows, tiles: [...tiles], landOffsetRows }
 	});
 	const raced = keptCampusWorld(key);
 	if (raced !== undefined) return raced;

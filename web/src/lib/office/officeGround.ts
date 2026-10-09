@@ -173,10 +173,11 @@ export function paintOfficeGround(ctx: Paint, plan: OfficePlan): void {
 function paintGroundEdges(ctx: Paint, plan: OfficePlan): void {
 	const { tiles, cols, rows } = plan.layout;
 	const T = TILE_SIZE;
-	// The shore is the land's; an overlook ridge to the west moves it by its width.
-	const ox = (plan.landOffsetCols ?? 0) * T;
-	const landShore = makeShore(cols * T - ox, rows * T);
-	const shore = (y: number) => landShore(y) + ox;
+	// The shore is the land's; a headland to the north moves it down by its rows. Headland
+	// plates stand on rock, never at the water's edge.
+	const oy = (plan.landOffsetRows ?? 0) * T;
+	const landShore = makeShore(cols * T, rows * T - oy);
+	const shore = (y: number) => (y < oy ? Infinity : landShore(y - oy));
 	const court = plan.garden.court;
 	const solid = (col: number, row: number) =>
 		col >= 0 && row >= 0 && col < cols && row < rows && tiles[row * cols + col] !== TileType.VOID;
