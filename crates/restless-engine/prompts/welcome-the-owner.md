@@ -33,3 +33,7 @@ well enough to run the company for them.
   your read-back as the company's charter and the name as its name; then get started: create the
   first Work from "First up" and tell them, in one or two warm sentences, what you are doing first
   and when you will check in.
+- When they confirm, turn "A good month looks like" (and anything else they named as a win) into
+  the company's first one to three Goals before starting work: `restless goal add --title …
+  --done-when … [--due YYYY-MM-DD]`, each with an observable finish line in their words. Attach the
+  first Work to the Goal it serves.

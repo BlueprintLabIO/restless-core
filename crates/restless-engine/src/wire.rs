@@ -640,6 +640,12 @@ pub struct Request {
     /// The app a `restless tools` command is about.
     #[serde(default)]
     pub tool: Option<String>,
+    /// A Goal's observable finish line (`restless goal add|update --done-when`).
+    #[serde(default)]
+    pub done_when: Option<String>,
+    /// A Goal's due date, YYYY-MM-DD; empty clears it.
+    #[serde(default)]
+    pub due: Option<String>,
 }
 
 const ENVELOPE_FIELDS: &[&str] = &["cmd", "company", "principal", "session_capability"];
@@ -835,7 +841,8 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "reason",
             "apply",
         ],
-        "goal-add" => &["title", "body", "actor"],
+        "goal-add" => &["title", "body", "actor", "done_when", "due"],
+        "goal-update" => &["goal", "title", "actor", "done_when", "due"],
         "goal-close" => &["goal", "actor"],
         "goal-standard" => &["goal", "outcome_standard", "actor"],
         "work-standard" => &["id", "outcome_standard", "actor"],
@@ -1685,6 +1692,7 @@ mod tests {
             "spend-correct",
             "goals",
             "goal-add",
+            "goal-update",
             "message-react",
             "message-unreact",
             "goal-standard",

@@ -18,7 +18,15 @@
 		return () => clearInterval(timer);
 	});
 
-	type Line = { id: string; title: string; who: string; state: string; tone: string; at: string };
+	type Line = {
+		id: string;
+		title: string;
+		goal: string;
+		who: string;
+		state: string;
+		tone: string;
+		at: string;
+	};
 	const lines = $derived.by<Line[]>(() => {
 		const graph = attention.view?.workGraph;
 		if (!graph) return [];
@@ -48,6 +56,7 @@
 			out.push({
 				id: work.id,
 				title: work.title,
+				goal: cockpit.view?.goals.find((goal) => goal.id === work.goal_id)?.title ?? '',
 				who: name(work.owner_id),
 				state,
 				tone,
@@ -69,7 +78,10 @@
 						: line.title}
 				>
 					<i class="dot" data-tone={line.tone} aria-hidden="true"></i>
-					<span class="title">{line.title}</span>
+					<span class="title"
+						>{#if line.goal}<span class="goal" title={`Toward ${line.goal}`}>{line.goal} ›</span>
+						{/if}{line.title}</span
+					>
 					<span class="who">{line.who}</span>
 					<span class="state">{line.state}</span>
 				</a>
@@ -127,6 +139,9 @@
 		color: var(--ink);
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.goal {
+		color: var(--text-tertiary);
 	}
 	.who,
 	.state {

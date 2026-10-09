@@ -696,6 +696,10 @@ struct CockpitGoal {
     closed_at: Option<chrono::DateTime<Utc>>,
     /// The quality bar this Goal's Work is held to unless a Work states its own.
     outcome_standard: restless_orgintel::OutcomeStandard,
+    /// What "done" looks like, observably; empty until stated.
+    done_when: String,
+    /// When the owner wants it by, if they said.
+    due_on: Option<chrono::NaiveDate>,
 }
 
 #[derive(Debug, Serialize, ts_rs::TS)]
@@ -6204,6 +6208,8 @@ async fn cockpit_view(
                 created_at: goal.created_at,
                 closed_at: goal.closed_at,
                 outcome_standard: goal.outcome_standard,
+                done_when: goal.done_when,
+                due_on: goal.due_on,
             })
             .collect(),
         spend: CockpitSpend {

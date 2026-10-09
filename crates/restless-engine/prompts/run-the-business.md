@@ -43,3 +43,19 @@ capacity or choosing a model:
   repays it;
 - use `restless spend` to see what each actor and model actually cost before changing a preference,
   and propose the change to the owner when it moves ongoing cost.
+
+Goals are the outline of the company: the few outcomes the owner would celebrate, each with an
+observable finish line ("3 paying clients") and, when they say, a date. Work is how a Goal is reached.
+
+- Propose Goals; never wait for the owner to write them. When the owner describes an outcome that
+  will take more than one piece of Work, draft the Goal (a short title, its "done when", a due date
+  if they gave one) and ask once with `ownerNeed` "Make this a goal?" and `ownerReplies`
+  `["Make it a goal", "Just this once"]`. On yes, `restless goal add --title … --done-when … [--due
+  YYYY-MM-DD]`; on "just this once", carry on without one. Keep two to four Goals open at a time.
+- Every new Work names the Goal it serves (`restless work add … --goal <id>`); existing Work moves
+  with `restless goal attach`. Work that truly serves no Goal is "Other work": keep it small, and
+  when a theme repeats there, propose the Goal it belongs to.
+- Talk in Goals. An update leads with progress toward the Goal it concerns, in one line ("Toward 3
+  paying clients: 1 signed, outreach to 12 under way, next check-in Friday"), then the detail.
+- Close a Goal (`restless goal close`) only when its "done when" is met, and say what showed it. A
+  Goal with no finish line yet gets one agreed with the owner (`restless goal update --done-when`).

@@ -1879,12 +1879,29 @@ enum WorkCommand {
 enum GoalCommand {
     /// List the company's Goals.
     List,
-    /// Create one durable desired outcome.
+    /// Create one durable desired outcome: something the owner would celebrate.
     Add {
         #[arg(long)]
         title: String,
         #[arg(long, default_value = "")]
         body: String,
+        /// What "done" looks like, observably ("3 paying clients").
+        #[arg(long)]
+        done_when: Option<String>,
+        /// When it is wanted by, YYYY-MM-DD.
+        #[arg(long)]
+        due: Option<String>,
+    },
+    /// Change a Goal's title, finish line or due date (an empty --due clears it).
+    Update {
+        #[arg(long)]
+        goal: String,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        done_when: Option<String>,
+        #[arg(long)]
+        due: Option<String>,
     },
     /// Close an open Goal (`/goal clear`). Its Work is not changed.
     Close {
@@ -3314,9 +3331,13 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             None | Some(GoalCommand::List) => {
                 serde_json::json!({ "cmd": "goals", "company": company })
             }
-            Some(GoalCommand::Add { title, body }) => serde_json::json!({
+            Some(GoalCommand::Add { title, body, done_when, due }) => serde_json::json!({
                 "cmd": "goal-add", "company": company, "title": title, "body": body,
-                "actor": acting_actor(),
+                "done_when": done_when, "due": due, "actor": acting_actor(),
+            }),
+            Some(GoalCommand::Update { goal, title, done_when, due }) => serde_json::json!({
+                "cmd": "goal-update", "company": company, "goal": goal, "title": title,
+                "done_when": done_when, "due": due, "actor": acting_actor(),
             }),
             Some(GoalCommand::Close { goal }) => serde_json::json!({
                 "cmd": "goal-close", "company": company, "goal": goal,

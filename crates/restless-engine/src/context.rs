@@ -229,8 +229,17 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
             .filter(|item| item.goal_id == Some(goal.id))
             .map(|item| item.id.to_string())
             .collect::<Vec<_>>();
+        let mut finish = String::new();
+        if !goal.done_when.trim().is_empty() {
+            finish.push_str(&format!(" [done when: {}]", goal.done_when.trim()));
+        } else {
+            finish.push_str(" [done when: not stated — agree it with the owner and record it with `restless goal update --goal <id> --done-when \"…\"`]");
+        }
+        if let Some(due) = goal.due_on {
+            finish.push_str(&format!(" [due {due}]"));
+        }
         goals.push_str(&format!(
-            "- Goal {} \"{}\" [quality bar: {}] — serving open Work: {}\n",
+            "- Goal {} \"{}\" [quality bar: {}]{finish} — serving open Work: {}\n",
             goal.id,
             goal.title,
             goal.outcome_standard,
@@ -242,7 +251,13 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         ));
     }
     if goals.is_empty() {
-        goals.push_str("- none\n");
+        goals.push_str("- none yet — propose the first one or two from what the owner wants\n");
+    }
+    let outside = snapshot.open_work.iter().filter(|item| item.goal_id.is_none()).count();
+    if outside > 0 {
+        goals.push_str(&format!(
+            "- Other work (outside any Goal): {outside} open item(s). Keep this small: attach each to the Goal it serves, or propose a Goal when a theme repeats.\n"
+        ));
     }
     let mut work = String::new();
     for item in &snapshot.open_work {
@@ -889,6 +904,8 @@ mod tests {
             created_at: now,
             closed_at: None,
             outcome_standard: restless_orgintel::OutcomeStandard::Thorough,
+            done_when: "The pricing page is live".into(),
+            due_on: None,
         });
         let package = assemble(&with_skill);
         assert!(package
@@ -896,7 +913,7 @@ mod tests {
             .contains("owner message 41 [selected skills: frontend-design (abcdef012345)"));
         assert!(package.user_prompt.contains("--skill frontend-design"));
         assert!(package.system_prompt.contains(&format!(
-            "- Goal {goal_id} \"Ship the pricing page\" [quality bar: thorough] — serving open Work: none yet"
+            "- Goal {goal_id} \"Ship the pricing page\" [quality bar: thorough] [done when: The pricing page is live] — serving open Work: none yet"
         )));
         assert!(package
             .system_prompt

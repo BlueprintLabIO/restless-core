@@ -123,7 +123,15 @@ export type GoalRow = { id: string, title: string, body: string, created_by: str
 /**
  * The quality bar this Goal's Work is held to unless a Work states its own.
  */
-outcome_standard: OutcomeStandard, };
+outcome_standard: OutcomeStandard,
+/**
+ * What "done" looks like, observably ("3 paying clients"). Empty until stated.
+ */
+done_when: string,
+/**
+ * When the owner wants it by, if they said.
+ */
+due_on: string | null, };
 
 export type WorkRow = { id: string, goal_id: string | null, owner_id: string, title: string, outcome: string, status: WorkStatus, resolution: string, priority: number, expected_artifact: string,
 /**

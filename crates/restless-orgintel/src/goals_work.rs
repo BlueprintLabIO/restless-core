@@ -93,11 +93,52 @@ impl OrgIntel {
 
     pub async fn list_goals(&self) -> Result<Vec<GoalRow>> {
         Ok(sqlx::query_as(
-            "SELECT id, title, body, created_by, created_at, closed_at, outcome_standard \
+            "SELECT id, title, body, created_by, created_at, closed_at, outcome_standard, done_when, due_on \
              FROM goals ORDER BY created_at",
         )
         .fetch_all(&self.pool)
         .await?)
+    }
+
+    /// Say what "done" looks like for a Goal and by when, or change its title. Each part is
+    /// changed only when given; an empty due date clears it.
+    pub async fn set_goal_details(
+        &self,
+        goal_id: Uuid,
+        title: Option<&str>,
+        done_when: Option<&str>,
+        due_on: Option<Option<chrono::NaiveDate>>,
+        changed_by: &str,
+    ) -> Result<bool> {
+        if title.is_some_and(|title| title.trim().is_empty()) {
+            return Err(OrgIntelError::InvalidWork("a Goal needs a title".into()));
+        }
+        if done_when.is_some_and(|text| text.chars().count() > 400) {
+            return Err(OrgIntelError::InvalidWork("keep \"done when\" under 400 characters".into()));
+        }
+        let mut tx = self.pool.begin().await?;
+        let changed = sqlx::query(
+            "UPDATE goals SET title=COALESCE($2,title), done_when=COALESCE($3,done_when), \
+             due_on=CASE WHEN $4 THEN $5 ELSE due_on END WHERE id=$1 AND closed_at IS NULL",
+        )
+        .bind(goal_id)
+        .bind(title.map(str::trim))
+        .bind(done_when.map(str::trim))
+        .bind(due_on.is_some())
+        .bind(due_on.flatten())
+        .execute(&mut *tx)
+        .await?
+        .rows_affected()
+            == 1;
+        if changed {
+            sqlx::query("INSERT INTO events (kind, actor_id, body) VALUES ('goal_updated',$1,$2)")
+                .bind(changed_by)
+                .bind(serde_json::json!({ "goal_id": goal_id, "title": title, "done_when": done_when, "due_on": due_on.flatten() }))
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(changed)
     }
 
     /// Set the quality bar a Goal holds its Work to.

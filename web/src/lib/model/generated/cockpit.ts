@@ -23,7 +23,15 @@ export type CockpitGoal = { id: string, title: string, body: string, created_by:
 /**
  * The quality bar this Goal's Work is held to unless a Work states its own.
  */
-outcome_standard: OutcomeStandard, };
+outcome_standard: OutcomeStandard,
+/**
+ * What "done" looks like, observably; empty until stated.
+ */
+done_when: string,
+/**
+ * When the owner wants it by, if they said.
+ */
+due_on: string | null, };
 
 export type CockpitSpend = { accounted_usd: number, ceiling_usd: number, remaining_usd: number | null, status: string, };
 

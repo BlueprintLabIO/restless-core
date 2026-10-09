@@ -398,6 +398,12 @@ pub struct GoalRow {
     /// The quality bar this Goal's Work is held to unless a Work states its own.
     #[sqlx(default)]
     pub outcome_standard: OutcomeStandard,
+    /// What "done" looks like, observably ("3 paying clients"). Empty until stated.
+    #[sqlx(default)]
+    pub done_when: String,
+    /// When the owner wants it by, if they said.
+    #[sqlx(default)]
+    pub due_on: Option<chrono::NaiveDate>,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]

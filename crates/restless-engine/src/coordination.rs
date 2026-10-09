@@ -1916,14 +1916,59 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
             request.common.body.as_deref(),
             request.orgintel.actor.as_deref(),
         ) {
-            (Some(title), Some(body), Some(actor)) => match daemon.orgintel.get(company).await {
-                Ok(org) => match org.add_goal(title, body, actor).await {
-                    Ok(goal_id) => Response::ok(serde_json::json!({ "goal_id": goal_id })),
+            (Some(title), Some(body), Some(actor)) => {
+                let due = match parse_goal_due(request.due.as_deref()) {
+                    Ok(due) => due,
+                    Err(message) => return Response::err(message),
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org.add_goal(title, body, actor).await {
+                        Ok(goal_id) => {
+                            if request.done_when.is_some() || due.is_some() {
+                                if let Err(error) = org
+                                    .set_goal_details(goal_id, None, request.done_when.as_deref(), due, actor)
+                                    .await
+                                {
+                                    return Response::err(format!("{error:#}"));
+                                }
+                            }
+                            Response::ok(serde_json::json!({ "goal_id": goal_id }))
+                        }
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
                     Err(error) => Response::err(format!("{error:#}")),
-                },
-                Err(error) => Response::err(format!("{error:#}")),
-            },
+                }
+            }
             _ => Response::err("goal-add needs title, body and actor attribution"),
+        },
+        "goal-update" => match (request.orgintel.goal.as_deref(), request.orgintel.actor.as_deref()) {
+            (Some(goal), Some(actor)) => {
+                let goal_id = match uuid::Uuid::parse_str(goal) {
+                    Ok(goal_id) => goal_id,
+                    Err(error) => return Response::err(format!("bad Goal id: {error}")),
+                };
+                let due = match parse_goal_due(request.due.as_deref()) {
+                    Ok(due) => due,
+                    Err(message) => return Response::err(message),
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .set_goal_details(
+                            goal_id,
+                            request.orgintel.title.as_deref(),
+                            request.done_when.as_deref(),
+                            due,
+                            actor,
+                        )
+                        .await
+                    {
+                        Ok(changed) => Response::ok(serde_json::json!({ "goal_id": goal_id, "changed": changed })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("goal-update needs a Goal id and actor attribution"),
         },
         "goal-close" => match (
             request.orgintel.goal.as_deref(),
@@ -4336,6 +4381,7 @@ pub fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Re
         | "team-lead"
         | "team-disband"
         | "goal-add"
+        | "goal-update"
         | "goal-close"
         | "message-react"
         | "message-unreact"
@@ -5415,5 +5461,16 @@ mod tests {
         bind_runtime_actor(&mut document, "writer").unwrap();
         assert_eq!(document.orgintel.actor.as_deref(), Some("writer"));
         assert!(bind_runtime_actor(&mut document, "impostor").is_err());
+    }
+}
+
+/// A Goal due date from the CLI: absent leaves it, empty clears it, otherwise YYYY-MM-DD.
+fn parse_goal_due(raw: Option<&str>) -> std::result::Result<Option<Option<chrono::NaiveDate>>, String> {
+    match raw.map(str::trim) {
+        None => Ok(None),
+        Some("") => Ok(Some(None)),
+        Some(text) => chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d")
+            .map(|date| Some(Some(date)))
+            .map_err(|_| format!("due date {text:?} must be YYYY-MM-DD")),
     }
 }

@@ -3144,6 +3144,8 @@
                 created_at: at(),
                 closed_at: None,
                 outcome_standard: restless_orgintel::OutcomeStandard::Thorough,
+                done_when: "The contract is observable".into(),
+                due_on: None,
             }],
             spend: CockpitSpend {
                 accounted_usd: 1.25,

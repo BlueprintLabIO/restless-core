@@ -86,11 +86,29 @@
 	const closedGoals = $derived(goals.filter((goal) => goal.closed_at));
 	const people = $derived(ownerAccess ? (cockpit?.people ?? []) : (collaboration?.people ?? []));
 	const noWorkYet = $derived(!!graph && graph.work.length === 0 && goals.length === 0);
+	/* "other" is the Work that serves no Goal: a peer of the Goals, kept small. */
 	const goalWork = $derived(
 		(graph?.work ?? []).filter(
-			(item) => item.status !== 'abandoned' && (!selectedGoal || item.goal_id === selectedGoal)
+			(item) =>
+				item.status !== 'abandoned' &&
+				(!selectedGoal ||
+					(selectedGoal === 'other' ? !item.goal_id : item.goal_id === selectedGoal))
 		)
 	);
+	const otherOpen = $derived(
+		(graph?.work ?? []).filter(
+			(item) => !item.goal_id && item.status !== 'abandoned' && item.status !== 'completed'
+		).length
+	);
+	const finishLine = (goal: object) =>
+		'done_when' in goal && typeof goal.done_when === 'string' ? goal.done_when.trim() : '';
+	const dueLabel = (goal: object) =>
+		'due_on' in goal && typeof goal.due_on === 'string' && goal.due_on
+			? new Date(`${goal.due_on}T00:00:00`).toLocaleDateString(undefined, {
+					day: 'numeric',
+					month: 'short'
+				})
+			: '';
 	/* Work with a decision or step waiting on the owner. */
 	const waitingOnOwner = $derived(
 		new Set(
@@ -120,7 +138,11 @@
 	]);
 	const done = $derived(goalWork.filter((item) => item.status === 'completed').toSorted(byRecent));
 	const openCount = $derived(goalWork.length - done.length);
-	const title = $derived(goals.find((goal) => goal.id === selectedGoal)?.title ?? 'All work');
+	const title = $derived(
+		selectedGoal === 'other'
+			? 'Other work'
+			: (goals.find((goal) => goal.id === selectedGoal)?.title ?? 'All work')
+	);
 	/* The quality bar lives on the Goal; a piece of Work shows it only when it
 	 * holds itself to a different one. */
 	const goalStandard = (goal: object | undefined): OutcomeStandard | undefined =>
@@ -234,11 +256,12 @@
 		class="goal"
 		class:active={selectedGoal === goal.id}
 		aria-pressed={selectedGoal === goal.id}
-		title={`${goal.body || goal.title} · ${progress.done} of ${progress.total} done · ${standardLabel(goalStandard(goal))} quality bar`}
+		title={`${finishLine(goal) ? `Done when ${finishLine(goal)}` : 'No finish line yet: Exec will agree one with you'} · ${progress.done} of ${progress.total} done · ${standardLabel(goalStandard(goal))} quality bar`}
 		onclick={() => chooseGoal(goal.id)}
 	>
 		<span class="goal-title">{goal.title}</span>
-		<small class="goal-standard">{standardLabel(goalStandard(goal))}</small>
+		<small class="goal-standard">{dueLabel(goal) ? `by ${dueLabel(goal)}` : `${progress.done}/${progress.total}`}</small>
+		{#if finishLine(goal)}<small class="goal-finish">{finishLine(goal)}</small>{/if}
 		<span class="goal-bar" aria-hidden="true"
 			><i style:width={`${progress.total ? (progress.done / progress.total) * 100 : 0}%`}></i></span
 		>
@@ -265,8 +288,32 @@
 		<h2>Goals</h2>
 		{#if loaded && graph}
 			{#each openGoals as goal (goal.id)}{@render goalLink(goal)}{:else}
-				<p class="quiet">No goals yet.</p>
+				<div class="goals-intro">
+					<p>
+						Goals are the outcomes you're working toward, like "3 paying clients by November".
+						Exec proposes them as you talk and keeps the work under them.
+					</p>
+					{#if ownerAccess}<button
+							type="button"
+							class="btn small"
+							onclick={() =>
+								askExec(
+									'Suggest two or three Goals for the company from what you know so far, each with what done looks like.'
+								)}>Ask Exec to propose goals</button
+						>{/if}
+				</div>
 			{/each}
+			{#if otherOpen}<button
+					type="button"
+					class="goal other"
+					class:active={selectedGoal === 'other'}
+					aria-pressed={selectedGoal === 'other'}
+					title="Work that serves no Goal. Exec keeps this small and proposes a Goal when a theme repeats."
+					onclick={() => chooseGoal('other')}
+					><span class="goal-title">Other work</span><small class="goal-standard"
+						>{otherOpen}</small
+					></button
+				>{/if}
 			{#if closedGoals.length}
 				<div class="closed">
 					<Fold label="Closed" count={closedGoals.length}>
@@ -494,10 +541,6 @@
 		background: var(--state-success);
 		transition: width var(--motion-disclosure) var(--ease-out);
 	}
-	.quiet {
-		margin: 0 8px;
-		color: var(--text-tertiary);
-	}
 	.closed {
 		margin-top: 8px;
 		border-top: 1px solid var(--border);
@@ -562,6 +605,31 @@
 	}
 	.spacer {
 		flex: 1;
+	}
+	.goal-finish {
+		grid-column: 1 / -1;
+		overflow: hidden;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.goals-intro {
+		display: grid;
+		gap: 8px;
+		padding: 2px 8px 8px;
+	}
+	.goals-intro p {
+		margin: 0;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		line-height: 1.5;
+	}
+	.goals-intro .btn {
+		justify-self: start;
+	}
+	.goal.other .goal-title {
+		color: var(--text-secondary);
 	}
 	.head .goal-picker {
 		display: none;
