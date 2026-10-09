@@ -244,10 +244,10 @@ RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" \
 # Certified Claude Code ACP transport. The adapter pins its Agent SDK and the
 # bundled native Claude Code binary; Runtime sessions still receive only a
 # short-lived Restless model capability, never the host Anthropic API key.
-ARG CLAUDE_AGENT_ACP_VERSION=0.73.0
-ARG CLAUDE_AGENT_ACP_INTEGRITY="sha512-xKnGIntdBbr2dDS2NEsVGdjoLH62EaWjfYlp/U7TYdxUJzERlApe2gliYW3rVFTeWGjG0dUyPszhG9TWhsqGlA=="
-ARG CLAUDE_AGENT_SDK_VERSION=0.3.257
-ARG CLAUDE_CODE_BUILD_VERSION=2.1.257
+ARG CLAUDE_AGENT_ACP_VERSION=0.88.0
+ARG CLAUDE_AGENT_ACP_INTEGRITY="sha512-o2bfN6S47wHTV7US/0SrDguCQVs7RhgSwA5CzC37oeDvcXTfHJFTlAquglEybIMQXwSk1zYda5Wxa0F17pOlnA=="
+ARG CLAUDE_AGENT_SDK_VERSION=0.3.293
+ARG CLAUDE_CODE_BUILD_VERSION=2.1.293
 RUN archive="$(npm pack "@agentclientprotocol/claude-agent-acp@${CLAUDE_AGENT_ACP_VERSION}" --silent --pack-destination /tmp)" \
     && test "$(node -e 'const {createHash}=require("node:crypto"); const {readFileSync}=require("node:fs"); process.stdout.write("sha512-"+createHash("sha512").update(readFileSync(process.argv[1])).digest("base64"))' "/tmp/${archive}")" = "${CLAUDE_AGENT_ACP_INTEGRITY}" \
     && npm install -g "/tmp/${archive}" \

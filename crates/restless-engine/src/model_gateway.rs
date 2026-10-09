@@ -1851,12 +1851,8 @@ async fn relay_anthropic_messages(
             "model capability does not permit this exact model",
         );
     }
-    if request.get("stream").and_then(serde_json::Value::as_bool) != Some(true) {
-        return relay_error(
-            StatusCode::BAD_REQUEST,
-            "Runtime Messages requests must stream for terminal accounting",
-        );
-    }
+    // A non-streaming reply is accounted from its final usage, like a stream's terminal event.
+    let streaming = request.get("stream").and_then(serde_json::Value::as_bool) == Some(true);
     let request_contract = request.to_string();
     if request_contract.contains("\"ttl\":\"1h\"")
         || request.get("speed").and_then(serde_json::Value::as_str) == Some("fast")
@@ -1941,7 +1937,12 @@ async fn relay_anthropic_messages(
     let status = upstream.status();
     let upstream_headers = upstream.headers().clone();
     let request_id = uuid::Uuid::new_v4();
-    let stream = MeteredStream::new_anthropic(
+    let metered = if streaming {
+        MeteredStream::new_anthropic
+    } else {
+        MeteredStream::new_anthropic_message
+    };
+    let stream = metered(
         upstream.bytes_stream(),
         state.spend.meter(),
         MeteredRequest {
@@ -2070,7 +2071,7 @@ async fn relay_anthropic_count_tokens(
                 .unwrap_or_else(|| "claude-code-20250219,oauth-2025-04-20".to_owned());
             let user_agent = headers.get("user-agent").and_then(|value| value.to_str().ok())
                 .filter(|value| value.starts_with("claude-cli/") && value.len() <= 160)
-                .unwrap_or("claude-cli/2.1.257");
+                .unwrap_or("claude-cli/2.1.293");
             upstream_request.bearer_auth(token)
                 .header("anthropic-beta", beta)
                 .header("anthropic-version", "2023-06-01")
@@ -2431,11 +2432,13 @@ impl MeteredRequest {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum MeteringProtocol {
     PiNative,
     OpenAiResponses,
     AnthropicMessages,
+    /// One non-streaming Messages reply: a single JSON body carrying its final usage.
+    AnthropicMessage,
 }
 
 #[derive(Default)]
@@ -2501,11 +2504,35 @@ impl MeteredStream {
     where
         S: Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Send + 'static,
     {
+        Self::anthropic(inner, meter, request, MeteringProtocol::AnthropicMessages)
+    }
+
+    /// Claude Code checks a model with one small non-streaming request when a session selects it.
+    fn new_anthropic_message<S>(
+        inner: S,
+        meter: crate::spend::TurnMeter,
+        request: MeteredRequest,
+    ) -> Self
+    where
+        S: Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Send + 'static,
+    {
+        Self::anthropic(inner, meter, request, MeteringProtocol::AnthropicMessage)
+    }
+
+    fn anthropic<S>(
+        inner: S,
+        meter: crate::spend::TurnMeter,
+        request: MeteredRequest,
+        protocol: MeteringProtocol,
+    ) -> Self
+    where
+        S: Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Send + 'static,
+    {
         Self {
             inner: Box::pin(inner),
             meter,
             request,
-            protocol: MeteringProtocol::AnthropicMessages,
+            protocol,
             frame_buffer: Vec::new(),
             anthropic_usage: AnthropicUsage::default(),
             settled: false,
@@ -2518,6 +2545,14 @@ impl MeteredStream {
             return;
         }
         self.frame_buffer.extend_from_slice(bytes);
+        if self.protocol == MeteringProtocol::AnthropicMessage {
+            // The usage arrives with the whole body, read at `finish`. A reply too large to hold
+            // stays unaccountable, so it fails closed like a malformed stream.
+            if self.frame_buffer.len() > 16 * 1024 * 1024 {
+                self.failed = true;
+            }
+            return;
+        }
         if self.frame_buffer.len() > 256 * 1024 {
             self.failed = true;
             return;
@@ -2541,6 +2576,21 @@ impl MeteredStream {
             return;
         }
         let frame = std::mem::take(&mut self.frame_buffer);
+        if self.protocol == MeteringProtocol::AnthropicMessage {
+            match serde_json::from_slice::<serde_json::Value>(&frame) {
+                Ok(message) if message.get("type").and_then(serde_json::Value::as_str) == Some("message") => {
+                    match message.get("usage") {
+                        Some(usage) => {
+                            self.observe_anthropic_usage(usage);
+                            self.record_anthropic_terminal();
+                        }
+                        None => self.failed = true,
+                    }
+                }
+                _ => self.failed = true,
+            }
+            return;
+        }
         self.observe_frame(&frame);
     }
 
@@ -2614,6 +2664,8 @@ impl MeteredStream {
                     _ => {}
                 }
             }
+            // Read whole at `finish`, never as SSE frames.
+            MeteringProtocol::AnthropicMessage => self.failed = true,
             MeteringProtocol::AnthropicMessages => {
                 match event.get("type").and_then(serde_json::Value::as_str) {
                     Some("message_start") => {
@@ -4683,6 +4735,44 @@ mission = "Choose native intelligence"
     }
 
     #[test]
+    fn a_non_streaming_anthropic_reply_records_its_pinned_cost() {
+        let root = test_root();
+        let (_issuer, ledger, _state) = test_relay_state(&root);
+        let reply = serde_json::json!({
+            "type": "message",
+            "content": [{ "type": "text", "text": "ok" }],
+            "usage": { "input_tokens": 1_000, "output_tokens": 100 }
+        });
+        {
+            let inner = futures_util::stream::empty::<std::result::Result<Bytes, reqwest::Error>>();
+            let mut stream = MeteredStream::new_anthropic_message(
+                inner,
+                ledger.meter(),
+                metered_request("acme_test", "claude-worker", "probe-session", "anthropic/claude-sonnet-4-6"),
+            );
+            let body = reply.to_string();
+            let (head, tail) = body.split_at(body.len() / 2);
+            stream.observe(&Bytes::from(head.to_owned()));
+            stream.observe(&Bytes::from(tail.to_owned()));
+            stream.finish();
+            stream.finish();
+        }
+        let spool =
+            std::fs::read_to_string(root.join("cells/acme_test/spend/spend.jsonl")).unwrap();
+        let records = spool
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(records.len(), 1, "settled once");
+        assert_eq!(records[0]["inputTokens"], 1_000);
+        assert_eq!(records[0]["outputTokens"], 100);
+        assert_eq!(
+            records[0]["costMicroUsd"].as_u64(),
+            anthropic_tariff_micro_usd("claude-sonnet-4-6", 1_000, 100, 0, 0)
+        );
+    }
+
+    #[test]
     fn anthropic_terminal_records_pinned_cost_and_tokens_once() {
         let root = test_root();
         let (_issuer, ledger, _state) = test_relay_state(&root);
@@ -4737,7 +4827,7 @@ mission = "Choose native intelligence"
     }
 
     #[tokio::test]
-    async fn anthropic_relay_enforces_exact_model_and_streaming_before_forwarding() {
+    async fn anthropic_relay_enforces_exact_model_before_forwarding() {
         let root = test_root();
         let (issuer, ledger, state) = test_relay_state(&root);
         let token = issuer
@@ -4760,14 +4850,6 @@ mission = "Choose native intelligence"
         )
         .await;
         assert_eq!(wrong_model.status(), StatusCode::FORBIDDEN);
-
-        let non_streaming = relay_anthropic_messages(
-            State(state.clone()),
-            bearer_headers(&token),
-            Bytes::from_static(br#"{"model":"claude-sonnet-4-6","stream":false}"#),
-        )
-        .await;
-        assert_eq!(non_streaming.status(), StatusCode::BAD_REQUEST);
 
         let wrong_count_model = relay_anthropic_count_tokens(
             State(state),

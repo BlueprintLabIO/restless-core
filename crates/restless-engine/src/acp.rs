@@ -1430,7 +1430,7 @@ where
                     let info = initialized.agent_info.as_ref().context(
                         "Claude Agent ACP initialize omitted its adapter build identity",
                     )?;
-                    if info.name != "@agentclientprotocol/claude-agent-acp" || info.version != "0.73.0" {
+                    if info.name != "@agentclientprotocol/claude-agent-acp" || info.version != "0.88.0" {
                         anyhow::bail!("hosted Claude Agent ACP build mismatch");
                     }
                 }
@@ -1959,10 +1959,10 @@ where
                         "Claude Agent ACP initialize omitted its adapter build identity",
                     )?;
                     if info.name != "@agentclientprotocol/claude-agent-acp"
-                        || info.version != "0.73.0"
+                        || info.version != "0.88.0"
                     {
                         anyhow::bail!(
-                            "Claude Agent ACP build mismatch: observed {} v{}, required @agentclientprotocol/claude-agent-acp v0.73.0",
+                            "Claude Agent ACP build mismatch: observed {} v{}, required @agentclientprotocol/claude-agent-acp v0.88.0",
                             info.name,
                             info.version
                         );
@@ -3074,8 +3074,8 @@ mod tests {
     fn claude_profile_is_isolated_exact_and_policy_bound() {
         let profile = AcpProfile::new(crate::runtime::AgentHarness::ClaudeAgent).unwrap();
         assert_eq!(profile.config_dir(), "/company/home/.restless/claude-agent");
-        assert_eq!(profile.build(), "claude-agent-acp-0.73.0");
-        assert_eq!(profile.native_agent_build(), Some("claude-code-2.1.257"));
+        assert_eq!(profile.build(), "claude-agent-acp-0.88.0");
+        assert_eq!(profile.native_agent_build(), Some("claude-code-2.1.293"));
         assert_eq!(profile.transport(), "acp-stdio-v1");
         assert_eq!(
             profile

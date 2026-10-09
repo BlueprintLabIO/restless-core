@@ -30,7 +30,7 @@ async fn agent_launch_identity_is_durable_and_updates_the_running_attempt() {
         .unwrap();
     let capabilities = serde_json::json!({
         "harness": "claude-agent",
-        "harness_build": "claude-agent-acp-0.73.0",
+        "harness_build": "claude-agent-acp-0.88.0",
         "transport": "acp-stdio-v1",
         "exact_model_selected": true
     });
@@ -41,7 +41,7 @@ async fn agent_launch_identity_is_durable_and_updates_the_running_attempt() {
         work_id: Some(work_id),
         attempt_id: Some(attempt.attempt_id),
         harness: "claude-agent",
-        harness_build: "claude-agent-acp-0.73.0",
+        harness_build: "claude-agent-acp-0.88.0",
         transport: "acp-stdio-v1",
         model: "anthropic/claude-sonnet-4-6",
         configured_effort: "high",
@@ -59,7 +59,7 @@ async fn agent_launch_identity_is_durable_and_updates_the_running_attempt() {
         work_id: Some(work_id),
         attempt_id: Some(attempt.attempt_id),
         harness: "claude-agent",
-        harness_build: "claude-agent-acp-0.73.0",
+        harness_build: "claude-agent-acp-0.88.0",
         transport: "acp-stdio-v1",
         model: "anthropic/claude-sonnet-4-6",
         configured_effort: "high",
@@ -80,7 +80,7 @@ async fn agent_launch_identity_is_durable_and_updates_the_running_attempt() {
     assert_eq!(attempts[0].harness.as_deref(), Some("claude-agent"));
     assert_eq!(
         attempts[0].harness_build.as_deref(),
-        Some("claude-agent-acp-0.73.0")
+        Some("claude-agent-acp-0.88.0")
     );
     assert_eq!(attempts[0].harness_capabilities, Some(capabilities));
     org.drop_schema().await.unwrap();
