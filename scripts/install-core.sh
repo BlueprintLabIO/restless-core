@@ -85,11 +85,27 @@ host_platform() {
   esac
 }
 
-# The newest successful release on main: the source commit its workflow run built.
+# The newest successful release on main: the source commit its workflow run built. A Mac needs that
+# release's macOS build too, which is published some minutes later, so a Mac takes the newest
+# release that already has one.
 latest_revision() {
-  curl -fsS "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/immutable-core-release.yml/runs?branch=main&status=success&per_page=1" \
-    | jq -er '.workflow_runs[0].head_sha' \
+  local revisions revision token
+  revisions="$(curl -fsS "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/immutable-core-release.yml/runs?branch=main&status=success&per_page=10" \
+    | jq -er 'reduce .workflow_runs[].head_sha as $s ([]; if any(.[]; . == $s) then . else . + [$s] end) | .[]')" \
     || fail "could not find the latest release; pass a revision"
+  if ! is_macos; then
+    printf '%s\n' "$revisions" | head -n 1
+    return 0
+  fi
+  token="$(registry_token)" || fail "could not get registry access for ${REPOSITORY}"
+  for revision in $revisions; do
+    if curl -fsS -o /dev/null -H "Authorization: Bearer ${token}" -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+      "https://${REGISTRY}/v2/${REPOSITORY}/manifests/${revision}-darwin-$(uname -m)"; then
+      printf '%s\n' "$revision"
+      return 0
+    fi
+  done
+  fail "no recent release has a macOS build yet; try again in a few minutes"
 }
 
 # A fresh install on a host with no database of its own gets one: PostgreSQL in a

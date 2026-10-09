@@ -60,11 +60,20 @@ jobs:
             --jq '.total_count' | grep -qx '[1-9][0-9]*' \
             || { echo "no successful Immutable Core release for $REVISION" >&2; exit 1; }
           echo "REVISION=$REVISION" >> "$GITHUB_ENV"
+          # A release dispatched once per Linux platform triggers this twice; build each commit once.
+          token="$(curl -fsS "https://ghcr.io/token?service=ghcr.io&scope=repository:${REPOSITORY#ghcr.io/}:pull" | jq -er .token)"
+          if curl -fsS -o /dev/null -H "Authorization: Bearer $token" -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+            "https://ghcr.io/v2/${REPOSITORY#ghcr.io/}/manifests/$REVISION-darwin-${{ matrix.arch }}"; then
+            echo "SKIP=true" >> "$GITHUB_ENV"
+            echo "macOS ${{ matrix.arch }} for $REVISION is already published." >> "$GITHUB_STEP_SUMMARY"
+          fi
       - uses: actions/checkout@v4
+        if: env.SKIP != 'true'
         with:
           ref: ${{ env.REVISION }}
           persist-credentials: false
       - name: Build restless and restlessd
+        if: env.SKIP != 'true'
         env:
           RESTLESS_SOURCE_REVISION: ${{ env.REVISION }}
           TARGET: ${{ matrix.target }}
@@ -74,6 +83,7 @@ jobs:
           rustup target add "$TARGET"
           cargo build --release --locked --target "$TARGET" -p restlessd -p restless
       - name: Run the binaries on macOS
+        if: env.SKIP != 'true'
         env:
           TARGET: ${{ matrix.target }}
           ARCH: ${{ matrix.arch }}
@@ -89,6 +99,7 @@ jobs:
             echo 'Rosetta is not installed on this runner; the Intel build was checked as a Mach-O x86_64 file only.'
           fi
       - name: Package with the release identity sealed inside
+        if: env.SKIP != 'true'
         env:
           TARGET: ${{ matrix.target }}
           ARCH: ${{ matrix.arch }}
@@ -101,17 +112,22 @@ jobs:
           tar -czf binaries.tar.gz -C out restless restlessd release.json
           shasum -a 256 binaries.tar.gz
       - uses: sigstore/cosign-installer@v3
+        if: env.SKIP != 'true'
         with:
           cosign-release: v2.4.1
       - name: Sign as this workflow on main
+        if: env.SKIP != 'true'
         run: cosign sign-blob --yes --bundle binaries.sigstore.json binaries.tar.gz
       - name: Verify the signature the installer will check
+        if: env.SKIP != 'true'
         run: |
           cosign verify-blob --bundle binaries.sigstore.json \
             --certificate-identity "https://github.com/$GITHUB_REPOSITORY/.github/workflows/macos-core-release.yml@refs/heads/main" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com binaries.tar.gz
       - uses: oras-project/setup-oras@v1
+        if: env.SKIP != 'true'
       - name: Publish beside the Linux bundle
+        if: env.SKIP != 'true'
         env:
           ARCH: ${{ matrix.arch }}
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
