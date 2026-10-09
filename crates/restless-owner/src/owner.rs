@@ -10077,8 +10077,10 @@ async fn intelligence_view(
                 }
                 let suffix = format!("{provider}@{}", account.id);
                 connections.push(serde_json::json!({"id":format!("account:{suffix}"),"provider":provider,"kind":"direct","account_kind":account.kind,"label":account.label,"loaded":row["gateway_loaded"]}));
-                if account.kind == "oauth" {
-                    let harness = match provider {"openai-codex" => Some("codex"), "anthropic" => Some("claude-agent"), _ => None};
+                // Each harness that can run this account is offered beside OMP: Claude Code takes
+                // an Anthropic sign-in or key through the host relay; Codex needs the ChatGPT sign-in.
+                {
+                    let harness = match (provider, account.kind.as_str()) {("openai-codex", "oauth") => Some("codex"), ("anthropic", _) => Some("claude-agent"), _ => None};
                     if let Some(harness) = harness {
                         connections.push(serde_json::json!({"id":format!("account-harness:{harness}:{suffix}"),"provider":harness,"account_provider":provider,"account_kind":account.kind,"kind":"harness","label":account.label,"loaded":row["gateway_loaded"]}));
                     }
@@ -10184,7 +10186,7 @@ async fn update_agent_intelligence(
                 }
                 match harness {
                     runtime::AgentHarness::Codex if provider == "openai-codex" && account.kind == "oauth" => {},
-                    runtime::AgentHarness::ClaudeAgent if provider == "anthropic" && account.kind == "oauth" => {},
+                    runtime::AgentHarness::ClaudeAgent if provider == "anthropic" => {},
                     runtime::AgentHarness::RestlessManaged => {},
                     _ => bail!("This account connection cannot power the selected agent runtime"),
                 }

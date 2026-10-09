@@ -2354,8 +2354,8 @@ pub async fn verify_owner_model_account(
 async fn refusal_message(status: StatusCode, upstream: reqwest::Response, model: &str) -> String {
     const PLAIN: &str = "host model gateway refused the model request";
     if status == StatusCode::NOT_FOUND {
-        // The gateway's catalogue does not list this model (OMP 18.3.2 predates
-        // claude-sonnet-5-5): say so, so the turn stops as a model choice, not a malformed reply.
+        // The gateway's catalogue does not list this model (an OMP release that predates it):
+        // say so, so the turn stops as a model choice, not a malformed reply.
         return format!("404 model {model} not found at the host model gateway; choose another model");
     }
     if status != StatusCode::PAYMENT_REQUIRED {
@@ -3000,13 +3000,26 @@ fn anthropic_tariff_micro_usd(
     cache_creation_input_tokens: u64,
     cache_read_input_tokens: u64,
 ) -> Option<u64> {
+    // Haiku 5.5 is priced by the whole prompt, cache reads and writes included. Its
+    // eighth-of-a-cent cache-write rates round up to the next unit.
+    let long_prompt = input_tokens
+        .saturating_add(cache_creation_input_tokens)
+        .saturating_add(cache_read_input_tokens)
+        > 100_000;
     let (input_rate, output_rate, cache_write_rate, cache_read_rate): (u64, u64, u64, u64) =
         match model {
             "claude-fable-5-1" => (1_000, 5_000, 1_250, 25),
+            "claude-fable-5" => (1_000, 5_000, 1_250, 100),
             "claude-opus-5-5" => (400, 2_000, 500, 20),
+            "claude-sonnet-5-5" => (200, 1_000, 250, 10),
+            "claude-haiku-5-5" if long_prompt => (50, 250, 63, 5),
+            "claude-haiku-5-5" => (10, 50, 13, 1),
             "claude-sonnet-5" => (200, 1_000, 250, 20),
-            "claude-opus-4-6" => (500, 2_500, 625, 50),
-            "claude-sonnet-4-6" | "claude-sonnet-4-5-20250929" => (300, 1_500, 375, 30),
+            "claude-opus-5" | "claude-opus-4-8" | "claude-opus-4-7" | "claude-opus-4-6"
+            | "claude-opus-4-5" | "claude-opus-4-5-20251101" => (500, 2_500, 625, 50),
+            "claude-sonnet-4-6" | "claude-sonnet-4-5" | "claude-sonnet-4-5-20250929" => {
+                (300, 1_500, 375, 30)
+            }
             "claude-haiku-4-5" | "claude-haiku-4-5-20251001" => (100, 500, 125, 10),
             _ => return None,
         };
@@ -4656,6 +4669,15 @@ mission = "Choose native intelligence"
             anthropic_tariff_micro_usd("claude-haiku-4-5", 0, 0, 0, 1),
             Some(1),
             "a positive sub-micro-dollar cache-read charge rounds upward"
+        );
+        assert_eq!(
+            anthropic_tariff_micro_usd("claude-haiku-5-5", 100_000, 0, 0, 0),
+            Some(10_000)
+        );
+        assert_eq!(
+            anthropic_tariff_micro_usd("claude-haiku-5-5", 50_000, 0, 0, 50_001),
+            Some(27_501),
+            "a Haiku 5.5 prompt over 100k tokens, cache reads included, pays the long-prompt rate"
         );
         assert!(anthropic_tariff_micro_usd("unknown", 1, 1, 0, 0).is_none());
     }

@@ -16,6 +16,28 @@
 		error = $state(''),
 		notice = $state('');
 	const selected = $derived(source.view?.connections.find((c) => c.id === connection));
+	/* One saved key or sign-in can run under more than one harness (an Anthropic key under OMP or
+	 * Claude Code). The connection list names each account once; the harness is its own choice. */
+	const account = (id: string) =>
+		id.startsWith('account-harness:')
+			? id.split(':').slice(2).join(':')
+			: id.replace(/^account:/, '');
+	const accounts = $derived(
+		(source.view?.connections ?? []).filter(
+			(c, index, all) => all.findIndex((other) => account(other.id) === account(c.id)) === index
+		)
+	);
+	const harnesses = $derived(
+		(source.view?.connections ?? []).filter((c) => account(c.id) === account(connection))
+	);
+	const HARNESS_NAMES: Record<string, string> = {
+		codex: 'Codex',
+		'claude-agent': 'Claude Code'
+	};
+	const harnessName = (id: string) =>
+		id.startsWith('account-harness:')
+			? (HARNESS_NAMES[id.split(':')[1]] ?? id.split(':')[1])
+			: 'OMP';
 	let custom = $state(false);
 	const presets = $derived(
 		selected?.models ??
@@ -168,14 +190,34 @@
 					>
 						<label
 							><span>Connection</span><select
-								bind:value={connection}
-								onchange={choose}
+								value={accounts.find((c) => account(c.id) === account(connection))?.id ?? ''}
+								onchange={(event) => {
+									const next = event.currentTarget.value;
+									const kept = harnessName(connection);
+									connection =
+										source.view?.connections.find(
+											(c) => account(c.id) === account(next) && harnessName(c.id) === kept
+										)?.id ?? next;
+									choose();
+								}}
 								disabled={busy}
-								>{#each source.view.connections as c}<option value={c.id}
-										>{label(c.id)}{!c.loaded ? ' · restart pending' : ''}</option
+								>{#each accounts as c}<option value={c.id}
+										>{label(c.id.replace(/^account-harness:[^:]+:/, 'account:'))}{!c.loaded
+											? ' · restart pending'
+											: ''}</option
 									>{/each}</select
 							></label
 						>
+						{#if harnesses.length > 1}<label
+								title="The agent program that runs this model. OMP is the built-in harness; Claude Code and Codex are the providers' own."
+								><span>Harness</span><select
+									value={connection}
+									disabled={busy}
+									onchange={(event) => (connection = event.currentTarget.value)}
+									>{#each harnesses as c}<option value={c.id}>{harnessName(c.id)}</option
+										>{/each}</select
+								></label
+							>{/if}
 						<label
 							title={selected?.kind === 'harness'
 								? selected.models?.length
