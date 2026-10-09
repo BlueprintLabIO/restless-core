@@ -181,6 +181,20 @@ async function inventoryFor(reference: string, image: Container, username: strin
   return reports;
 }
 
+/** Whether the registry already holds `component` built from exactly these inputs on this platform. */
+export async function hasInputImage(component: string, platform: Platform, context: Directory, username: string,
+  password: Secret): Promise<boolean> {
+  const tag = `ghcr.io/blueprintlabio/restless-${component}:inputs-${await inputIdentity(context, platform)}-${platform.split('/')[1]}`;
+  try {
+    await withRetry(`${component}: reuse lookup`, () =>
+      dag.container({ platform }).withRegistryAuth('ghcr.io', username, password).from(tag).imageRef());
+    return true;
+  } catch (error) {
+    if (/(?:manifest unknown|manifest_unknown|name_unknown|: not found|: 404)/i.test(String(error))) return false;
+    throw error;
+  }
+}
+
 /**
  * Push to GHCR, retrying a dropped connection. Already uploaded blobs are
  * skipped on the next attempt, so a retry only resends what was interrupted.

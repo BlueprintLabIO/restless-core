@@ -48,6 +48,21 @@ jobs:
           fi
       - name: Install the pinned Dagger CLI
         run: scripts/release/install-dagger.sh
+      # Publish waits for qualification, and with one runner its job cannot start sooner. So start
+      # its slow builds now, beside qualification: nothing is pushed, and publish finds the Rust
+      # binaries and (when its inputs changed) the runtime tool base already in the engine's cache.
+      - name: Start prebuilding what publish will build
+        if: inputs.publish
+        env:
+          RESTLESS_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          PLATFORM: ${{ inputs.platform }}
+          PREBUILD: ${{ runner.temp }}/core-release-prebuild-${{ github.run_id }}
+        run: |
+          rm -rf "$PREBUILD" && mkdir -p "$PREBUILD"
+          # shellcheck disable=SC2016 # the detached shell expands these, not this one
+          setsid nohup bash -c '"$HOME/.local/bin/dagger" --silent call prebuild --source=. --revision="$GITHUB_SHA" \
+            --username="$GITHUB_ACTOR" --password=env:RESTLESS_REGISTRY_PASSWORD --platform="$PLATFORM" \
+            > "$PREBUILD/output" 2>&1; echo $? > "$PREBUILD/status"' > /dev/null 2>&1 &
       - name: Qualify the exact source through the shared pipeline
         run: |
           result="$("$HOME/.local/bin/dagger" --silent call qualify --source=.)"
@@ -66,6 +81,16 @@ jobs:
           CARGO_INCREMENTAL: "0"
         run: |
           trap 'rm -rf "$EVIDENCE"' EXIT
+          PASSED="$HOME/.cache/restless-runner/connections-passed"
+          # Fast lane. The smoke exercises the daemon, CLI, company image and host tools, never the
+          # cockpit or the docs. When nothing else in the tree changed since a run that passed on this
+          # runner, it would test identical bytes again: skip it, and say so in the summary.
+          inputs="$(git ls-tree HEAD | awk -F'\t' '$2 != "web" && $2 != "docs" && $2 != "experiment"' | sha256sum | cut -c1-64)"
+          if [[ -f "$PASSED/$inputs" ]]; then
+            printf 'Connections smoke skipped: its inputs (%s) passed at %s.\n' "${inputs:0:12}" "$(cat "$PASSED/$inputs")" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           # The runner service does not inherit a login PATH; rustup lives here.
           export PATH="$HOME/.cargo/bin:$PATH"
           export CARGO_TARGET_DIR="$HOME/.cache/restless-runner/release-connections-target"
@@ -84,6 +109,22 @@ jobs:
           fi
           RESTLESSD_BIN="$CARGO_TARGET_DIR/debug/restlessd" RESTLESS_CLI_BIN="$CARGO_TARGET_DIR/debug/restless" \
             RESTLESS_COMPANY_IMAGE="$IMAGE" python3 scripts/connections-smoke --target core --output "$EVIDENCE"
+          mkdir -p "$PASSED" && printf '%s\n' "$GITHUB_SHA" > "$PASSED/$inputs"
+          find "$PASSED" -type f -printf '%T@ %p\n' | sort -rn | tail -n +41 | cut -d' ' -f2- | xargs -r rm -f
+      - name: Finish prebuilding what publish will build
+        if: inputs.publish
+        env:
+          PREBUILD: ${{ runner.temp }}/core-release-prebuild-${{ github.run_id }}
+        run: |
+          # A prebuild that failed or is still running only means publish builds those parts itself.
+          for _ in $(seq 1 1200); do [[ -f "$PREBUILD/status" ]] && break; sleep 1; done
+          if [[ ! -f "$PREBUILD/status" ]]; then
+            echo '::warning::The prebuild is still running; publish will build what it needs.'
+          elif [[ "$(cat "$PREBUILD/status")" != 0 ]]; then
+            echo '::warning::The prebuild failed; publish will build the images itself.'
+          else
+            node scripts/release/timings-summary.mjs prebuild < "$PREBUILD/output" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   publish:
     name: Publish exact platform artifacts

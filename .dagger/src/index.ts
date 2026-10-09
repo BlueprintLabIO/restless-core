@@ -3,7 +3,7 @@ import { availableParallelism } from 'node:os';
 import { dag, Container, Directory, Platform, Secret, argument, object, func } from '@dagger.io/dagger';
 
 import { verifyRuntimeToolsImage, verifyCompanyRuntimeImage, verifyNativeDocumentsImage, verifyAccountPlaneImage } from './verify.js';
-import { assertScanPeriod, publishImage, node, timed, timingsFile, verifyBuildInputs, verifyImageInspection, type Timing } from './publish.js';
+import { assertScanPeriod, hasInputImage, publishImage, node, timed, timingsFile, verifyBuildInputs, verifyImageInspection, type Timing } from './publish.js';
 import { sealRelease } from './release.js';
 import { library, publishLibrary, reuseLibrary, sealLibrary } from './libraries.js';
 
@@ -342,6 +342,25 @@ export class RestlessCore {
     await verifyImageInspection();
     await node(source).withExec(['node', '--test', 'scripts/company-collaboration-contract.test.mjs']).sync();
     return 'Core release contracts passed: real OCI image/config inspection, timestamp-independent inputs, legacy and platform-scoped manifests and signed bundle indexes';
+  }
+
+  /**
+   * Build what publish is about to build, while qualification runs: the release Rust binaries, and the
+   * runtime tool base when the registry has no image from its exact inputs. Nothing is pushed, so no
+   * registry changes before qualification passes; publish's identical builds are then engine cache hits.
+   */
+  @func()
+  async prebuild(
+    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/.env', '**/.env.*'] })
+    source: Directory, revision: string, username: string, password: Secret, platform: string = 'linux/amd64',
+  ): Promise<string> {
+    checkPlatform(platform);
+    const timings: Timing[] = [];
+    const work = [timed(timings, 'rust binaries', () => this.rustBinaries(source, revision, platform).sync())];
+    if (!(await hasInputImage('runtime-tools', platform as Platform, await runtimeToolsContext(source), username, password)))
+      work.push(timed(timings, 'runtime-tools', async () => (await this.runtimeTools(source, platform)).sync()));
+    await Promise.all(work);
+    return `Prebuilt for publish: ${timings.map((timing) => timing.step).join(', ')}\ntimings ${JSON.stringify(timings)}`;
   }
 
   /** Publish and qualify exact platform images, including a reusable tool base. */

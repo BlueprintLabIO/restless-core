@@ -90,11 +90,7 @@ RUN set -eu; \
 
 FROM ubuntu:24.04@sha256:a853f94d226358a79c740cfc7bce0c289748f3fe3488d921d038ccd752c61b60 AS runtime-desktop
 COPY --from=node-runtime /usr/local/ /usr/local/
-COPY --from=browser-runtime /browser/ /opt/restless/browser/
 ENV NODE_OPTIONS=--no-network-family-autoselection
-RUN test -x /opt/restless/browser/chrome/chrome \
-    && ln -s /opt/restless/browser/chrome/chrome /usr/bin/chromium \
-    && chmod -R a=rX /opt/restless/browser
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -211,59 +207,8 @@ RUN test -f /usr/share/themes/Breeze-ob/openbox-3/themerc \
         -e 's/#798085/#9ba7b5/g' \
         /usr/share/themes/Breeze-ob/openbox-3/themerc
 
-# Keep the desktop independently exercisable without downloading agent and
-# authoring runtimes; the full company image consumes this exact same stage.
-FROM runtime-desktop AS runtime-harnesses
-
-# The ACP agent binary: omp (Oh My Pi), which speaks ACP natively and reports
-# per-turn token and dollar usage on the session stream — the fact that moved
-# the spend fuse out of the HTTP proxy and up into the daemon.
-#
-# omp's bundle uses `using` declarations, so it needs bun >= 1.3.14; node 24
-# cannot parse it. BUN_INSTALL is a system path so the unprivileged `company`
-# user can execute what root installed.
-COPY --from=uv-runtime /uv /uvx /usr/local/bin/
-RUN uv --version && uvx --version
-ENV BUN_INSTALL=/usr/local/bun
-RUN npm install -g bun@1.3.14 \
-    && bun install -g @oh-my-pi/pi-coding-agent@18.8.6 \
-    && ln -sf ${BUN_INSTALL}/bin/omp /usr/local/bin/omp \
-    && chmod -R a+rX ${BUN_INSTALL} \
-    && npm cache clean --force
-
-# First-party Codex session runtime. Restless drives this through the documented
-# app-server protocol when a Codex actor backend is selected; OMP remains a
-# separately supported ACP backend. Pinning the CLI makes thread, event,
-# approval and usage semantics part of the company-image contract rather than
-# whatever npm happens to publish on rebuild day.
-ARG CODEX_CLI_VERSION=0.155.1
-RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" \
-    && test "$(codex --version)" = "codex-cli ${CODEX_CLI_VERSION}" \
-    && npm cache clean --force
-
-# Certified Claude Code ACP transport. The adapter pins its Agent SDK and the
-# bundled native Claude Code binary; Runtime sessions still receive only a
-# short-lived Restless model capability, never the host Anthropic API key.
-ARG CLAUDE_AGENT_ACP_VERSION=0.88.0
-ARG CLAUDE_AGENT_ACP_INTEGRITY="sha512-o2bfN6S47wHTV7US/0SrDguCQVs7RhgSwA5CzC37oeDvcXTfHJFTlAquglEybIMQXwSk1zYda5Wxa0F17pOlnA=="
-ARG CLAUDE_AGENT_SDK_VERSION=0.3.293
-ARG CLAUDE_CODE_BUILD_VERSION=2.1.293
-RUN archive="$(npm pack "@agentclientprotocol/claude-agent-acp@${CLAUDE_AGENT_ACP_VERSION}" --silent --pack-destination /tmp)" \
-    && test "$(node -e 'const {createHash}=require("node:crypto"); const {readFileSync}=require("node:fs"); process.stdout.write("sha512-"+createHash("sha512").update(readFileSync(process.argv[1])).digest("base64"))' "/tmp/${archive}")" = "${CLAUDE_AGENT_ACP_INTEGRITY}" \
-    && npm install -g "/tmp/${archive}" \
-    && adapter_root="$(npm root -g)/@agentclientprotocol/claude-agent-acp" \
-    && test "$(node -p 'require(process.argv[1]).version' "${adapter_root}/package.json")" = "${CLAUDE_AGENT_ACP_VERSION}" \
-    && test "$(node -p 'require(process.argv[1]).version' "${adapter_root}/node_modules/@anthropic-ai/claude-agent-sdk/package.json")" = "${CLAUDE_AGENT_SDK_VERSION}" \
-    && test "$(node -p 'require(process.argv[1]).version' "${adapter_root}/node_modules/@anthropic-ai/claude-agent-sdk/manifest.json")" = "${CLAUDE_CODE_BUILD_VERSION}" \
-    && rm -f "/tmp/${archive}" \
-    && npm cache clean --force
-ENV RESTLESS_CLAUDE_AGENT_ACP_BUILD="claude-agent-acp-${CLAUDE_AGENT_ACP_VERSION}" \
-    RESTLESS_CLAUDE_CODE_BUILD="claude-code-${CLAUDE_CODE_BUILD_VERSION}" \
-    RESTLESS_CLAUDE_AGENT_SDK_BUILD="${CLAUDE_AGENT_SDK_VERSION}"
-
-# Named at this boundary so release verification can prove the complete
-# harness toolchain without redownloading unrelated large authoring runtimes.
-FROM runtime-harnesses AS runtime-tools
+# Authoring runtimes and company accounts change rarely; they sit under the often-bumped pins.
+FROM runtime-desktop AS runtime-authoring
 
 # S04-T2. pnpm, pinned, installed system-wide.
 #
@@ -288,8 +233,8 @@ RUN npm install -g resend-cli@2.12.0 \
     && resend --version \
     && npm cache clean --force
 
-# Playwright library for browser-driven acceptance (T11). Uses the Debian
-# chromium installed above — do NOT download Playwright's own browser build.
+# Playwright library for browser-driven acceptance (T11). Uses the company's
+# Chrome (/usr/bin/chromium, the runtime-tools layer) — do NOT download Playwright's own browser build.
 # Scripts must pass `executablePath: '/usr/bin/chromium'` to chromium.launch.
 RUN PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g playwright@1.63.0 \
     && npm cache clean --force
@@ -350,6 +295,63 @@ RUN npm --prefix /tmp/npm-security-fixes install \
     && rm -rf /tmp/npm-security-fixes \
     && npm --version \
     && npm cache clean --force
+
+# Agent harnesses and the browser are bumped often, so they come after everything that rarely
+# changes: a version bump rebuilds only these last layers, not the desktop and authoring tools.
+FROM runtime-authoring AS runtime-harnesses
+
+# The ACP agent binary: omp (Oh My Pi), which speaks ACP natively and reports
+# per-turn token and dollar usage on the session stream — the fact that moved
+# the spend fuse out of the HTTP proxy and up into the daemon.
+#
+# omp's bundle uses `using` declarations, so it needs bun >= 1.3.14; node 24
+# cannot parse it. BUN_INSTALL is a system path so the unprivileged `company`
+# user can execute what root installed.
+COPY --from=uv-runtime /uv /uvx /usr/local/bin/
+RUN uv --version && uvx --version
+ENV BUN_INSTALL=/usr/local/bun
+RUN npm install -g bun@1.3.14 \
+    && bun install -g @oh-my-pi/pi-coding-agent@18.8.6 \
+    && ln -sf ${BUN_INSTALL}/bin/omp /usr/local/bin/omp \
+    && chmod -R a+rX ${BUN_INSTALL} \
+    && npm cache clean --force
+
+# First-party Codex session runtime. Restless drives this through the documented
+# app-server protocol when a Codex actor backend is selected; OMP remains a
+# separately supported ACP backend. Pinning the CLI makes thread, event,
+# approval and usage semantics part of the company-image contract rather than
+# whatever npm happens to publish on rebuild day.
+ARG CODEX_CLI_VERSION=0.155.1
+RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" \
+    && test "$(codex --version)" = "codex-cli ${CODEX_CLI_VERSION}" \
+    && npm cache clean --force
+
+# Certified Claude Code ACP transport. The adapter pins its Agent SDK and the
+# bundled native Claude Code binary; Runtime sessions still receive only a
+# short-lived Restless model capability, never the host Anthropic API key.
+ARG CLAUDE_AGENT_ACP_VERSION=0.88.0
+ARG CLAUDE_AGENT_ACP_INTEGRITY="sha512-o2bfN6S47wHTV7US/0SrDguCQVs7RhgSwA5CzC37oeDvcXTfHJFTlAquglEybIMQXwSk1zYda5Wxa0F17pOlnA=="
+ARG CLAUDE_AGENT_SDK_VERSION=0.3.293
+ARG CLAUDE_CODE_BUILD_VERSION=2.1.293
+RUN archive="$(npm pack "@agentclientprotocol/claude-agent-acp@${CLAUDE_AGENT_ACP_VERSION}" --silent --pack-destination /tmp)" \
+    && test "$(node -e 'const {createHash}=require("node:crypto"); const {readFileSync}=require("node:fs"); process.stdout.write("sha512-"+createHash("sha512").update(readFileSync(process.argv[1])).digest("base64"))' "/tmp/${archive}")" = "${CLAUDE_AGENT_ACP_INTEGRITY}" \
+    && npm install -g "/tmp/${archive}" \
+    && adapter_root="$(npm root -g)/@agentclientprotocol/claude-agent-acp" \
+    && test "$(node -p 'require(process.argv[1]).version' "${adapter_root}/package.json")" = "${CLAUDE_AGENT_ACP_VERSION}" \
+    && test "$(node -p 'require(process.argv[1]).version' "${adapter_root}/node_modules/@anthropic-ai/claude-agent-sdk/package.json")" = "${CLAUDE_AGENT_SDK_VERSION}" \
+    && test "$(node -p 'require(process.argv[1]).version' "${adapter_root}/node_modules/@anthropic-ai/claude-agent-sdk/manifest.json")" = "${CLAUDE_CODE_BUILD_VERSION}" \
+    && rm -f "/tmp/${archive}" \
+    && npm cache clean --force
+ENV RESTLESS_CLAUDE_AGENT_ACP_BUILD="claude-agent-acp-${CLAUDE_AGENT_ACP_VERSION}" \
+    RESTLESS_CLAUDE_CODE_BUILD="claude-code-${CLAUDE_CODE_BUILD_VERSION}" \
+    RESTLESS_CLAUDE_AGENT_SDK_BUILD="${CLAUDE_AGENT_SDK_VERSION}"
+
+# The browser is the most often bumped pin (security releases), so it is the last tool layer.
+FROM runtime-harnesses AS runtime-tools
+COPY --from=browser-runtime /browser/ /opt/restless/browser/
+RUN test -x /opt/restless/browser/chrome/chrome \
+    && ln -s /opt/restless/browser/chrome/chrome /usr/bin/chromium \
+    && chmod -R a=rX /opt/restless/browser
 
 # Record the installed browser through the standard CycloneDX format. Binary
 # signature detection alone misses recent Chrome executables in Syft 1.54.
