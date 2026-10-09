@@ -1,7 +1,7 @@
 <script lang="ts">
 	/* A sidebar area as Linear's is: a quiet section list beside one pane. Every left sidebar has
-	 * the same structure: views at the top, named sections with their rows indented beneath, and
-	 * what is finished (Archived) pinned to the bottom in `foot`. Where the area is too narrow for
+	 * the same structure: views at the top, then sections under small muted labels, every row's icon
+	 * in one column, and what is finished (Archived) pinned to the bottom in `foot`. Where the area is too narrow for
 	 * both, the list steps out; `narrow` is what stands in for it at the top of the pane, such as a
 	 * way back or a row of the same sections. */
 	import type { Snippet } from 'svelte';
@@ -63,14 +63,15 @@
 		min-height: 0;
 	}
 
-	/* Linear's sidebar: 13px rows at 30px; section titles a step larger. */
+	/* Linear's sidebar: 13px rows at 28px, small muted section labels, spacing between sections
+	 * rather than rules. */
 	.sidebar-nav {
 		display: flex;
 		flex: none;
 		flex-direction: column;
-		width: 208px;
+		width: var(--sidebar-width, 220px);
 		min-height: 0;
-		padding: 6px 4px;
+		padding: 6px 6px 8px;
 	}
 	.sidebar-list {
 		display: grid;
@@ -82,20 +83,12 @@
 		overflow-x: hidden;
 		overflow-y: auto;
 	}
-	/* A rule between the top views and the first section, so the two read apart at a glance. */
-	.sidebar-list > :global(.sidebar-row + .sidebar-group) {
-		margin-top: 8px;
-		padding-top: 8px;
-		border-top: 1px solid var(--border-strong);
-	}
 	.sidebar-foot {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr);
 		flex: none;
 		gap: 1px;
 		margin-top: 8px;
-		padding-top: 6px;
-		border-top: 1px solid var(--border-strong);
 	}
 	.sidebar-narrow {
 		display: none;

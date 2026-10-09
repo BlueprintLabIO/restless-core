@@ -83,7 +83,7 @@
 		align-items: center;
 		gap: 8px;
 		width: 100%;
-		height: 30px;
+		height: 28px;
 		padding: 0 8px;
 		border: 0;
 		border-radius: var(--radius-control);
@@ -100,7 +100,7 @@
 			color var(--motion-state) var(--ease-standard);
 	}
 	.sidebar-row.quiet {
-		height: 26px;
+		height: 24px;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
@@ -125,12 +125,9 @@
 		background: var(--wash-hover);
 		color: var(--ink);
 	}
-	/* The current view is raised, not just washed, so it reads at a glance. */
+	/* The current view: a firmer wash than hover, as in Linear; no card, border or shadow. */
 	.sidebar-row.active {
-		background: var(--surface-pane);
-		box-shadow:
-			inset 0 0 0 1px var(--border),
-			var(--shadow-soft);
+		background: var(--wash-press);
 		color: var(--ink);
 		font-weight: 500;
 	}

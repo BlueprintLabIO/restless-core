@@ -819,6 +819,19 @@
 			deciding = false;
 		}
 	}
+
+	/* A company that never had a model and one whose model connection stopped are different
+	 * situations: say which, in a few words, and name the one action that fixes it. */
+	const neverConnected = $derived(!providerLabel.startsWith('Reconnect'));
+	const providerHeading = $derived(
+		neverConnected ? 'Connect a model' : `${participantName} can't reply`
+	);
+	const providerReason = $derived(
+		neverConnected
+			? `${participantName} needs one to think and act. Use an API key or a ChatGPT or Claude sign-in.`
+			: 'Its model connection stopped working.'
+	);
+	const providerAction = $derived(neverConnected ? 'Connect a model' : providerLabel);
 </script>
 
 <aside
@@ -1054,8 +1067,7 @@
 										title="Reply to this message"
 										onclick={() => quote(message.author || participantName, message.text)}
 										><Reply size={12} aria-hidden="true" /></button
-									>{/if}{#if canOperate && messageNumericId(message.id) > 0}<ActionMenu
-										label="More"
+									>{/if}{#if canOperate && messageNumericId(message.id) > 0}<ActionMenu label="More"
 										><button type="button" onclick={() => togglePin(message)}
 											>{reactions.pinned().has(messageNumericId(message.id))
 												? 'Unpin'
@@ -1159,20 +1171,25 @@
 							</div>
 						{:else if needsProvider || !exchanges.exchanges.length}
 							<div class="exr-empty">
+								{#if needsProvider}<span class="exr-empty-mark" aria-hidden="true"
+										><MatrixGlyph rows={GLYPHS.key} size={10} /></span
+									>{/if}
 								<p class="exr-empty-h">
-									{needsProvider ? providerLabel : 'Ask anything.'}
+									{needsProvider ? providerHeading : 'Ask anything.'}
 								</p>
 								<p class="exr-empty-p">
-									{needsProvider
-										? `Restore intelligence access so ${participantName} can reply.`
-										: capabilityHint}
+									{needsProvider ? providerReason : capabilityHint}
 								</p>
 								{#if needsProvider}
 									<a
 										class="btn primary small provider-connect"
 										href={`/${companyId}/company/provider`}
-										><Plus size={14} strokeWidth={2} aria-hidden="true" /><span
-											>{providerLabel}</span
+										>{#if neverConnected}<Plus
+												size={14}
+												strokeWidth={2}
+												aria-hidden="true"
+											/>{:else}<RotateCw size={14} strokeWidth={2} aria-hidden="true" />{/if}<span
+											>{providerAction}</span
 										></a
 									>
 								{/if}
@@ -1223,17 +1240,19 @@
 						<a
 							class="btn primary small provider-connect-slot"
 							href={`/${companyId}/company/provider`}
-							>{#if providerLabel.startsWith('Reconnect')}<RotateCw
+							>{#if neverConnected}<Plus
 									size={14}
 									strokeWidth={2}
 									aria-hidden="true"
-								/>{:else}<Plus size={14} strokeWidth={2} aria-hidden="true" />{/if}<span
-								>{providerLabel}</span
+								/>{:else}<RotateCw size={14} strokeWidth={2} aria-hidden="true" />{/if}<span
+								>{providerAction}</span
 							></a
 						>
 					{/if}
 				{:else}
-					{#if membershipRole === 'owner' && participantId === 'exec'}<WorkInFlight {companyId} />{/if}
+					{#if membershipRole === 'owner' && participantId === 'exec'}<WorkInFlight
+							{companyId}
+						/>{/if}
 					{#if membershipRole === 'owner'}<AppRequestCards {companyId} actor={participantId} />{/if}
 					<form class="exr-composer" onsubmit={submitAsk}>
 						{#if quoting}

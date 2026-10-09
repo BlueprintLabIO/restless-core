@@ -143,22 +143,38 @@
 }
 
 .bridge-root .exr-empty {
-	max-width: 260px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	max-width: 248px;
 	margin: auto;
 	text-align: center;
 }
 
+.bridge-root .exr-empty-mark {
+	display: grid;
+	place-items: center;
+	width: 36px;
+	height: 36px;
+	margin-bottom: 14px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-pane);
+	background: var(--surface-pane);
+	box-shadow: var(--bevel);
+	color: var(--text-tertiary);
+}
+
 .bridge-root .exr-empty-h {
-	margin: 0 0 6px;
-	font-size: var(--t-head);
+	margin: 0 0 4px;
+	font-size: var(--t-body);
 	font-weight: 600;
 }
 
 .bridge-root .exr-empty-p {
 	margin: 0;
 	font-size: var(--t-body);
-	line-height: 1.6;
-	color: var(--text-secondary);
+	line-height: 1.5;
+	color: var(--text-tertiary);
 }
 
 .bridge-root .exr-composer {

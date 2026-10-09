@@ -4,7 +4,6 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import Search from '@lucide/svelte/icons/search';
-	import Users from '@lucide/svelte/icons/users';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
 	import MessageCircleQuestion from '@lucide/svelte/icons/message-circle-question';
@@ -269,8 +268,16 @@
 >
 <div class="conversation-workspace" class:selected={explicitSelection}>
 	<aside class="conversation-index" aria-label="Conversations">
-		<header class="cockpit-pane-head">
-			<h1>People</h1>
+		<h1 class="sr-only">People</h1>
+		<div class="people-top">
+			<label class="search"
+				><Search size={15} /><input
+					aria-label="Search conversations and people"
+					type="search"
+					placeholder="Search"
+					bind:value={search}
+				/></label
+			>
 			<RoomManager
 				{companyId}
 				actorId={principal.view?.actor_id ?? ''}
@@ -279,15 +286,7 @@
 				onperson={owner ? (id) => goto(href(id)) : undefined}
 				contactIds={contacts.map((p) => p.actor_id)}
 			/>
-		</header>
-		<label class="search"
-			><Search size={15} /><input
-				aria-label="Search conversations and people"
-				type="search"
-				placeholder="Search"
-				bind:value={search}
-			/></label
-		>
+		</div>
 		<div class="entries">
 			{#snippet personStatuses(actorId: string, name: string)}
 				{@const status = personStatus(actorId)}
@@ -319,14 +318,11 @@
 					selectedDirectActorId === person.actor_id
 						? 'page'
 						: undefined}
+					title={doing(person.actor_id) || undefined}
 				>
 					<span class="avatar">{initials(person.display)}</span>
 					<span class="directory-person-copy"
-						><span class="person-lines"
-							><span class="name">{personName(person.display)}</span
-							>{#if doing(person.actor_id)}<small class="doing" title={doing(person.actor_id)}
-									>{doing(person.actor_id)}</small
-								>{/if}</span
+						><span class="name">{personName(person.display)}</span
 						>{#if hasNew(person.actor_id) && personId !== person.actor_id}<span
 								class="new-dot"
 								title="Something new since you last looked"
@@ -375,9 +371,7 @@
 					aria-label={teamName(entry.team.name, companyId)}
 				>
 					<header class="team-directory-head" title={entry.team.brief}>
-						<span
-							><Users size={14} aria-hidden="true" /> {teamName(entry.team.name, companyId)}</span
-						>
+						<span>{teamName(entry.team.name, companyId)}</span>
 					</header>
 					{#if entry.lead}{@render directoryPerson(entry.lead, 'lead')}{/if}
 					{#each entry.members.filter((member) => entry.teamMatches || matchesDirectory(member, search
@@ -458,7 +452,7 @@
 <style>
 	.conversation-workspace {
 		display: grid;
-		grid-template-columns: 260px minmax(0, 1fr);
+		grid-template-columns: var(--sidebar-width, 220px) minmax(0, 1fr);
 		gap: var(--pane-gap);
 		width: 100%;
 		height: 100%;
@@ -481,15 +475,20 @@
 	.conversation-main {
 		container: conversation / inline-size;
 	}
-	/* One row, like every other pane head: the title and a quiet "+" whose
-	 * name lives in its tooltip. */
-	.conversation-index > header :global(.room-manage-trigger) {
-		width: 30px;
-		height: 30px;
+	/* Search is the first row, with a quiet "+" beside it whose name lives in its tooltip. */
+	.people-top {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+		padding: 6px 6px 0;
+	}
+	.people-top :global(.room-manage-trigger) {
+		width: 28px;
+		height: 28px;
 		padding: 0;
 		justify-content: center;
 	}
-	.conversation-index > header :global(.room-manage-trigger span) {
+	.people-top :global(.room-manage-trigger span) {
 		position: absolute;
 		width: 1px;
 		height: 1px;
@@ -499,10 +498,18 @@
 	}
 	.search {
 		display: flex;
+		flex: 1 1 auto;
 		gap: 8px;
 		align-items: center;
-		padding: 12px;
+		min-width: 0;
+		height: 28px;
+		padding: 0 8px;
+		border-radius: var(--radius-control);
 		color: var(--text-tertiary);
+	}
+	.search:hover,
+	.search:focus-within {
+		background: var(--wash-hover);
 	}
 	.search input {
 		width: 100%;
@@ -510,42 +517,33 @@
 		background: transparent;
 		border: 0;
 		font: inherit;
-		outline-offset: 3px;
+		outline: none;
 		color: var(--ink);
 	}
 	.entries {
 		overflow-y: auto;
 		overflow-x: hidden;
 		min-height: 0;
-		padding: 6px;
+		padding: 2px 6px 8px;
 	}
-	/* The same structure as every left sidebar: a section title a step larger than its rows, the
-	 * rows indented beneath it, and a rule between sections. */
+	/* The same grammar as every left sidebar (SidebarGroup, SidebarRow): small muted section
+	 * labels, every row's mark in one column, spacing between sections rather than rules. */
 	.directory-section {
 		display: grid;
 		gap: 1px;
 	}
 	.directory-section + .directory-section {
-		margin-top: 8px;
-		padding-top: 8px;
-		border-top: 1px solid var(--border-strong);
+		margin-top: 14px;
 	}
 	.team-directory-head {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
 		gap: 8px;
-		height: 30px;
-		padding: 0 8px;
-		color: var(--ink);
-		font-size: var(--t-head);
-		font-weight: 600;
-	}
-	.team-directory-head :global(svg) {
+		height: 26px;
+		padding: 0 4px 0 8px;
 		color: var(--text-tertiary);
-	}
-	.directory-section:has(> .team-directory-head) .directory-person {
-		padding-left: 26px;
+		font-size: var(--t-label);
+		font-weight: 500;
 	}
 	.team-directory-head > span {
 		display: inline-flex;
@@ -560,32 +558,39 @@
 		display: flex;
 		align-items: center;
 		box-sizing: border-box;
-		height: 38px;
-		gap: 9px;
-		padding: 6px 8px;
+		height: 28px;
+		gap: 8px;
+		padding: 0 8px;
 		overflow: hidden;
 		border-radius: var(--radius-control);
-		color: var(--ink);
+		color: var(--text-secondary);
 		text-decoration: none;
-		transition: background-color var(--motion-state) var(--ease-standard);
+		transition:
+			background-color var(--motion-state) var(--ease-standard),
+			color var(--motion-state) var(--ease-standard);
 	}
 	.directory-person:hover {
-		background: color-mix(in srgb, var(--highlight) 66%, transparent);
+		background: var(--wash-hover);
+		color: var(--ink);
 	}
-	.directory-person:focus-visible,
 	.directory-person[aria-current='page'] {
-		background: var(--intent-conversation-soft);
+		background: var(--wash-press);
+		color: var(--ink);
 	}
 	.directory-person[aria-current='page'] .name {
-		font-weight: 600;
+		font-weight: 500;
 	}
-	.directory-section .directory-person.member {
-		padding-left: 40px;
+	.directory-person:focus-visible {
+		outline: 2px solid var(--intent-conversation);
+		outline-offset: -2px;
 	}
+	/* The avatar sits in the icon column every sidebar row shares. */
 	.directory-person .avatar {
-		width: 22px;
-		height: 22px;
-		border-radius: 6px;
+		width: 18px;
+		height: 18px;
+		border-radius: 5px;
+		font-size: 9px;
+		font-weight: 600;
 	}
 	.directory-person.executive .avatar,
 	.directory-person.lead .avatar {
@@ -603,22 +608,11 @@
 		overflow: hidden;
 	}
 	.new-dot {
-		width: 7px;
-		height: 7px;
+		width: 6px;
+		height: 6px;
 		flex: none;
 		border-radius: 999px;
 		background: var(--intent-conversation);
-	}
-	.person-lines {
-		display: grid;
-		min-width: 0;
-	}
-	.doing {
-		overflow: hidden;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-		text-overflow: ellipsis;
-		white-space: nowrap;
 	}
 	.avatar {
 		width: 30px;

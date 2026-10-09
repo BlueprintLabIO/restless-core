@@ -1,10 +1,10 @@
 <script lang="ts">
-	/* A sidebar section: a title a step larger than its rows, with the rows indented beneath it.
-	 * The title can itself be a view (Documents shows every document), carry a count, and fold.
+	/* A sidebar section: a small muted label over rows that share the views' icon column. The label
+	 * can itself be a view (Documents shows every document), carry a count, and fold.
 	 * An explanation lives in the help mark's tooltip, never as text in the list; an action (add,
 	 * propose) is an icon on the title, shown on hover. */
 	import type { Component, Snippet } from 'svelte';
-	import ChevronRight from '@lucide/svelte/icons/chevron-right';
+	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import InfoTip from '../controls/InfoTip.svelte';
 
 	let {
@@ -53,23 +53,23 @@
 </script>
 
 <div class="sidebar-group" role="group" aria-label={label}>
-	<div class="sidebar-title" class:active>
+	<div class="sidebar-title" class:active class:folded={!open}>
+		{#if href}<a class="sidebar-title-label" {href} aria-current={active ? 'page' : undefined}
+				>{label}</a
+			>{:else if children}<button
+				class="sidebar-title-label"
+				type="button"
+				aria-expanded={open}
+				onclick={toggle}>{label}</button
+			>{:else}<span class="sidebar-title-label">{label}</span>{/if}
 		{#if children}<button
 				class="sidebar-fold"
 				type="button"
 				aria-expanded={open}
 				aria-label={open ? `Fold ${label}` : `Unfold ${label}`}
-				onclick={toggle}
-				><ChevronRight
-					size={14}
-					strokeWidth={2}
-					aria-hidden="true"
-					class={open ? 'open' : ''}
-				/></button
+				onclick={toggle}><ChevronDown size={12} strokeWidth={2.2} aria-hidden="true" /></button
 			>{/if}
-		{#if href}<a class="sidebar-title-label" {href} aria-current={active ? 'page' : undefined}
-				>{label}</a
-			>{:else}<span class="sidebar-title-label">{label}</span>{/if}
+		<span class="sidebar-title-gap"></span>
 		{#if help}<span class="sidebar-help"><InfoTip text={help} /></span>{/if}
 		{#if action}{@const Icon = action.icon}<button
 				class="sidebar-action"
@@ -84,65 +84,76 @@
 </div>
 
 <style>
+	/* Linear's section label: small, muted, the caret after it and only on hover; the rows keep the
+	 * same icon column as the views above them, so nothing is indented. */
 	.sidebar-group {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr);
 		gap: 1px;
-		margin-top: 10px;
+		margin-top: 14px;
 	}
 	.sidebar-title {
 		display: flex;
 		align-items: center;
-		gap: 4px;
-		height: 30px;
-		padding: 0 6px 0 2px;
+		gap: 2px;
+		height: 26px;
+		padding: 0 4px 0 8px;
 		border-radius: var(--radius-control);
-		color: var(--ink);
-		font-size: var(--t-head);
-		font-weight: 600;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		font-weight: 500;
 	}
 	.sidebar-title.active {
-		background: var(--surface-raised, var(--wash-active, var(--wash-hover)));
-		box-shadow: inset 0 0 0 1px var(--border);
+		color: var(--ink);
+	}
+	.sidebar-title-label {
+		min-width: 0;
+		overflow: hidden;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: inherit;
+		font: inherit;
+		text-decoration: none;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		cursor: pointer;
+	}
+	span.sidebar-title-label {
+		cursor: default;
+	}
+	.sidebar-title:hover .sidebar-title-label {
+		color: var(--text-secondary);
+	}
+	.sidebar-title-gap {
+		flex: 1 1 auto;
 	}
 	.sidebar-fold {
 		display: inline-grid;
 		place-items: center;
-		width: 20px;
-		height: 20px;
+		width: 16px;
+		height: 16px;
 		padding: 0;
 		border: 0;
-		border-radius: var(--radius-control);
+		border-radius: 4px;
 		background: transparent;
 		color: var(--text-tertiary);
+		opacity: 0;
 		cursor: pointer;
+		transition:
+			opacity var(--motion-state) var(--ease-standard),
+			transform var(--motion-disclosure) var(--ease-out);
+	}
+	.sidebar-title:hover .sidebar-fold,
+	.sidebar-title.folded .sidebar-fold,
+	.sidebar-fold:focus-visible {
+		opacity: 1;
+	}
+	.sidebar-title.folded .sidebar-fold {
+		transform: rotate(-90deg);
 	}
 	.sidebar-fold:hover {
-		background: var(--wash-hover);
 		color: var(--ink);
-	}
-	.sidebar-fold :global(svg) {
-		transition: transform var(--motion-disclosure) var(--ease-out);
-	}
-	.sidebar-fold :global(svg.open) {
-		transform: rotate(90deg);
-	}
-	.sidebar-title-label {
-		flex: 1 1 auto;
-		min-width: 0;
-		overflow: hidden;
-		color: inherit;
-		text-decoration: none;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	a.sidebar-title-label:hover {
-		text-decoration: underline;
-		text-decoration-color: var(--border-strong);
-		text-underline-offset: 3px;
-	}
-	.sidebar-group:not(:has(.sidebar-fold)) .sidebar-title-label {
-		padding-left: 6px;
 	}
 	.sidebar-help,
 	.sidebar-action {
@@ -152,6 +163,14 @@
 		width: 22px;
 		height: 22px;
 		color: var(--text-tertiary);
+	}
+	.sidebar-help {
+		opacity: 0;
+		transition: opacity var(--motion-state) var(--ease-standard);
+	}
+	.sidebar-title:hover .sidebar-help,
+	.sidebar-help:focus-within {
+		opacity: 1;
 	}
 	.sidebar-action {
 		padding: 0;
@@ -173,7 +192,7 @@
 	.sidebar-title-count {
 		flex: none;
 		min-width: 18px;
-		padding: 0 5px;
+		padding: 0 4px;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 		font-weight: 500;
@@ -185,13 +204,9 @@
 		grid-template-columns: minmax(0, 1fr);
 		gap: 1px;
 	}
-	/* Rows belong to their section: indented past the fold mark. */
-	.sidebar-items :global(.sidebar-row) {
-		padding-left: 26px;
-	}
 	.sidebar-fold:focus-visible,
 	.sidebar-action:focus-visible,
-	a.sidebar-title-label:focus-visible {
+	.sidebar-title-label:focus-visible {
 		outline: 2px solid var(--intent-conversation);
 		outline-offset: -2px;
 	}
