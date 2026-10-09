@@ -2,18 +2,18 @@
 
 This page installs a published Core release as a per-user service, upgrades it,
 and backs it up and restores it. For a development checkout, use the
-[README's source setup](../README.md#getting-started) instead.
+[README's source setup](../README.md#from-source) instead.
 
 ## Install
 
 On a Linux machine with Docker:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/BlueprintLabIO/restless-core/main/scripts/install-core.sh | bash
-restless open
+curl -fsSL https://restless.run/install | bash
 ```
 
-That installs the newest release. To install one exact release instead, pass its
+That installs the newest release and opens the Cockpit (on a server it prints the SSH port
+forward instead). `restless.run/install` redirects to `scripts/install-core.sh` on `main`. To install one exact release instead, pass its
 revision, the 40-character commit of a successful **Immutable Core release** run
 on `main`: `... | bash -s -- <revision>`.
 

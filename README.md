@@ -26,7 +26,7 @@ or [tell us what you want to run with it](https://github.com/BlueprintLabIO/rest
 
 [A day at the studio](#a-day-at-the-studio) · [Attention is the budget](#attention-is-the-budget) ·
 [People and agents](#people-bring-the-taste-agents-carry-the-chores) ·
-[OrgIntel](#orgintel-a-company-not-a-chat-log) · [Why a team](#why-a-team) ·
+[Why a team](#why-a-team) · [OrgIntel](#orgintel-a-company-not-a-chat-log) ·
 [What's inside](#whats-inside) · [Any model](#bring-your-people-bring-any-model) ·
 [Get started](#get-started) · [Product tour](#product-tour) · [Alternatives](#alternatives) ·
 [Architecture](#architecture) · [Contributing](#contributing)
@@ -77,6 +77,29 @@ Your cofounder, artist and reviewer work in the same company as the agents, with
 accounts, rooms and permissions. The same loop fits a consultancy preparing a client proposal,
 a founder researching a market or an operations team fixing a process.
 
+## Why a team
+
+**One chat is fine. Until it isn't.**
+
+1. **One task? A chat is perfect.** Ask, answer, done. For a single change, nothing beats it.
+2. **Then the work grows.** Research, art and a playtest join the same thread. Every tool result
+   lands in one context.
+3. **The thread starts to forget.** It runs out of room, summarises itself, and the first
+   instruction quietly goes.
+4. **A team keeps every goal with an owner.** Each ask lands with a lead who holds its goal, its
+   evidence and its checks. You get one decision.
+
+Restless agents run on Codex, Claude Code or an API model. The difference is the structure
+around them.
+
+Structure has a cost, and we measure it rather than assume it. In
+[EXP-17](experiment/coordination/experiments/EXP-17/RESULTS.md) the same Codex worker ran four
+kinds of work with and without a supervising lead (one valid pair per kind, so a small sample).
+Every result passed its checks and blind review either way; supervision took **2.34× the time
+and 2.53× the spend**. So Restless starts with one capable worker under each lead, keeps the
+lead out of the way until judgement is needed, and adds specialists only when they improve the
+result.
+
 ## OrgIntel: a company, not a chat log
 
 OrgIntel (organisational intelligence) is what lets the company carry work forward after a
@@ -120,29 +143,6 @@ The design covers four kinds of work:
 
 Read the [OrgIntel specification](docs/specs/orgintel.md) and the
 [capability evidence guide](docs/product-capabilities.md) for how it works.
-
-## Why a team
-
-**One chat is fine. Until it isn't.**
-
-1. **One task? A chat is perfect.** Ask, answer, done. For a single change, nothing beats it.
-2. **Then the work grows.** Research, art and a playtest join the same thread. Every tool result
-   lands in one context.
-3. **The thread starts to forget.** It runs out of room, summarises itself, and the first
-   instruction quietly goes.
-4. **A team keeps every goal with an owner.** Each ask lands with a lead who holds its goal, its
-   evidence and its checks. You get one decision.
-
-Restless agents run on Codex, Claude Code or an API model. The difference is the structure
-around them.
-
-Structure has a cost, and we measure it rather than assume it. In
-[EXP-17](experiment/coordination/experiments/EXP-17/RESULTS.md) the same Codex worker ran four
-kinds of work with and without a supervising lead (one valid pair per kind, so a small sample).
-Every result passed its checks and blind review either way; supervision took **2.34× the time
-and 2.53× the spend**. So Restless starts with one capable worker under each lead, keeps the
-lead out of the way until judgement is needed, and adds specialists only when they improve the
-result.
 
 ## What's inside
 
@@ -256,15 +256,17 @@ API credentials can live in the Infisical vault, with only references kept in co
 
 ## Get started
 
-On a Linux machine with Docker, one command installs the newest signed release as a service:
+On a Linux machine with Docker, one command installs the newest signed release as a service
+and opens it:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/BlueprintLabIO/restless-core/main/scripts/install-core.sh | bash
-restless open
+curl -fsSL https://restless.run/install | bash
 ```
 
-It verifies the release's signature, brings its own PostgreSQL if the machine has none, and
-starts Restless at `http://127.0.0.1:7788`. Connect **Codex, Claude or an API provider** under
+It verifies the release's signature, brings its own PostgreSQL if the machine has none, starts
+Restless at `http://127.0.0.1:7788` and opens it in your browser. On a server it prints the SSH
+port forward that reaches it instead. `restless.run/install` redirects to
+[`scripts/install-core.sh`](scripts/install-core.sh) on `main`; read it first if you prefer. Connect **Codex, Claude or an API provider** under
 **Company → Intelligence**. Upgrades, backups and restores are in
 [self-hosting](docs/self-hosting.md).
 
