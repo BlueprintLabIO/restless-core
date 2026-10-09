@@ -24,9 +24,9 @@ moving after everyone goes home.
 [Get setup help](https://github.com/BlueprintLabIO/restless-core/issues/new?template=setup-help.yml)
 or [tell us what you want to run with it](https://github.com/BlueprintLabIO/restless-core/issues/new?template=founder-feedback.yml).
 
-[A day at the studio](#a-day-at-the-studio) · [Attention is the budget](#attention-is-the-budget) ·
+[A day at the studio](#a-day-at-the-studio) · [Why a team](#why-a-team) ·
 [People and agents](#people-bring-the-taste-agents-carry-the-chores) ·
-[Why a team](#why-a-team) · [OrgIntel](#orgintel-a-company-not-a-chat-log) ·
+[OrgIntel](#orgintel-a-company-not-a-chat-log) · [Attention is the budget](#attention-is-the-budget) ·
 [What's inside](#whats-inside) · [Any model](#bring-your-people-bring-any-model) ·
 [Get started](#get-started) · [Product tour](#product-tour) · [Alternatives](#alternatives) ·
 [Architecture](#architecture) · [Contributing](#contributing)
@@ -47,35 +47,6 @@ and preparing its first playtest.
 | **16:20** | **Review the real thing.** Jun moves a ladder in the puzzle. Ines replays it two hundred times on the company computer and shows where players stall. |
 | **17:30** | **Decide together.** One prepared decision reaches you. Rosa and Jun have already said yes. |
 | **18:30** | **Go home. The office stays lit.** The people clock off. The agents keep building, testing and drafting until morning, and anything that needs a person waits for one. |
-
-## Attention is the budget
-
-A busy day at the studio is roughly 143 events: commits, retries, handoffs, test runs, model
-switches. They belong to 9 outcomes, each with an owner. One of them needs a person.
-
-Lead agents absorb the routine. What reaches you is a prepared decision: the context, a
-recommendation, the actual output, what is still uncertain and what happens next. The measure
-of success is useful output and the human attention it took to get there.
-
-## People bring the taste. Agents carry the chores.
-
-The vision, the art and the players stay human. The exports, retries and research go to agents.
-Everyone wears a tag: **NI** for natural intelligence, a person, and **AI** for an agent.
-
-| Teammate | Tag | Brings |
-| --- | :---: | --- |
-| **You**, creative director | NI | What the game feels like, what to cut, and the call on what ships. |
-| **Rosa**, artist | NI | The look of the lighthouse and the warmth of its light. Ines exports every sprite she paints. |
-| **Jun**, puzzle designer | NI | Puzzles that are hard but fair. Ines replays them and shows where players stall. |
-| **Kit**, community and playtests | NI | Reading players in the room. Camille sends the invitations and sorts the feedback. |
-| **Marlow**, production lead | AI | Owns the outcome, briefs the workers and prepares the one decision. |
-| **Ines**, build and QA | AI | Builds, device checks, sprite exports and bug fixes on the company computer. |
-| **Theo**, research | AI | Market sizing, comparable games and store benchmarks. |
-| **Camille**, operations | AI | Store page, press kit, invitations and the books. |
-
-Your cofounder, artist and reviewer work in the same company as the agents, with their own
-accounts, rooms and permissions. The same loop fits a consultancy preparing a client proposal,
-a founder researching a market or an operations team fixing a process.
 
 ## Why a team
 
@@ -99,6 +70,26 @@ Every result passed its checks and blind review either way; supervision took **2
 and 2.53× the spend**. So Restless starts with one capable worker under each lead, keeps the
 lead out of the way until judgement is needed, and adds specialists only when they improve the
 result.
+
+## People bring the taste. Agents carry the chores.
+
+The vision, the art and the players stay human. The exports, retries and research go to agents.
+Everyone wears a tag: **NI** for natural intelligence, a person, and **AI** for an agent.
+
+| Teammate | Tag | Brings |
+| --- | :---: | --- |
+| **You**, creative director | NI | What the game feels like, what to cut, and the call on what ships. |
+| **Rosa**, artist | NI | The look of the lighthouse and the warmth of its light. Ines exports every sprite she paints. |
+| **Jun**, puzzle designer | NI | Puzzles that are hard but fair. Ines replays them and shows where players stall. |
+| **Kit**, community and playtests | NI | Reading players in the room. Camille sends the invitations and sorts the feedback. |
+| **Marlow**, production lead | AI | Owns the outcome, briefs the workers and prepares the one decision. |
+| **Ines**, build and QA | AI | Builds, device checks, sprite exports and bug fixes on the company computer. |
+| **Theo**, research | AI | Market sizing, comparable games and store benchmarks. |
+| **Camille**, operations | AI | Store page, press kit, invitations and the books. |
+
+Your cofounder, artist and reviewer work in the same company as the agents, with their own
+accounts, rooms and permissions. The same loop fits a consultancy preparing a client proposal,
+a founder researching a market or an operations team fixing a process.
 
 ## OrgIntel: a company, not a chat log
 
@@ -143,6 +134,15 @@ The design covers four kinds of work:
 
 Read the [OrgIntel specification](docs/specs/orgintel.md) and the
 [capability evidence guide](docs/product-capabilities.md) for how it works.
+
+## Attention is the budget
+
+A busy day at the studio is roughly 143 events: commits, retries, handoffs, test runs, model
+switches. They belong to 9 outcomes, each with an owner. One of them needs a person.
+
+Lead agents absorb the routine. What reaches you is a prepared decision: the context, a
+recommendation, the actual output, what is still uncertain and what happens next. The measure
+of success is useful output and the human attention it took to get there.
 
 ## What's inside
 
