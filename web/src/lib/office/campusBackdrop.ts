@@ -122,6 +122,23 @@ const C = {
 	shirt: '#3f7fb3',
 	shirtAlt: '#d0644e',
 	hat: '#e9d27a',
+	fern: '#5d9a5b',
+	fernLight: '#7fb873',
+	pine: '#3d6d50',
+	pineMid: '#4c8160',
+	pineLight: '#63996f',
+	birchBark: '#efece2',
+	birchMark: '#5a5650',
+	birchLeaf: '#9cc77a',
+	birchLeafLight: '#bcdb92',
+	birchLeafDark: '#7aab64',
+	berry: '#c8414b',
+	capRed: '#d2533f',
+	capWhite: '#f4eee2',
+	driftwood: '#a89a85',
+	driftwoodDark: '#857865',
+	flowerCentre: '#f8e8a0',
+	wild: ['#b49ad8', '#e3604f', '#f2d24b', '#f5f2e8', '#f0a6c0', '#7fa6e0', '#f29c4c'],
 	pebble: '#bdb59d',
 	shallow: '#8ccfc8',
 	mid: '#79c0bd',
@@ -315,6 +332,115 @@ function paintLily(ctx: Paint, x: number, y: number, seed: number) {
 	px(ctx, x - 1, y - 1, 2, 1, C.lilyLight);
 	px(ctx, x + 1, y, 2, 1, C.deep); // the notch
 	if (rand() < 0.4) px(ctx, x - 1, y - 1, 1, 1, C.lotus);
+}
+
+/** A drift of one or two kinds of wildflower, denser at its heart. */
+function paintWildflowers(ctx: Paint, x: number, y: number, seed: number) {
+	const rand = mulberry(seed);
+	const a = C.wild[Math.floor(rand() * C.wild.length)];
+	const b = rand() < 0.5 ? a : C.wild[Math.floor(rand() * C.wild.length)];
+	const count = 26 + Math.floor(rand() * 26);
+	const rx = 12 + rand() * 14;
+	const ry = 5 + rand() * 5;
+	for (let i = 0; i < count; i += 1) {
+		const r = Math.sqrt(rand());
+		const t = rand() * Math.PI * 2;
+		const fx = x + Math.cos(t) * r * rx;
+		const fy = y + Math.sin(t) * r * ry;
+		px(ctx, fx, fy + 1, 1, 2, C.grassDeep);
+		const big = rand() < 0.45;
+		px(ctx, fx, fy, big ? 2 : 1, big ? 2 : 1, rand() < 0.6 ? a : b);
+		if (big) px(ctx, fx, fy, 1, 1, C.flowerCentre);
+	}
+}
+
+/** A clump of tall grass, a few blades carrying seed heads. */
+function paintTallGrass(ctx: Paint, x: number, y: number, seed: number) {
+	const rand = mulberry(seed);
+	const blades = 8 + Math.floor(rand() * 8);
+	disc(ctx, x + 1, y + 1, 5, 1.5, C.shadowSoft);
+	for (let i = 0; i < blades; i += 1) {
+		const bx = x + Math.round((rand() - 0.5) * 10);
+		const h = 4 + Math.round(rand() * 5);
+		px(ctx, bx, y - h, 1, h, rand() < 0.5 ? C.grassDeep : C.grassDark);
+		if (rand() < 0.3) px(ctx, bx, y - h - 1, 1, 1, C.grassPale);
+	}
+}
+
+/** A fern: fronds fanning from one root. */
+function paintFern(ctx: Paint, x: number, y: number, seed: number) {
+	const rand = mulberry(seed);
+	disc(ctx, x + 1, y + 2, 6, 2, C.shadowSoft);
+	for (let f = 0; f < 5; f += 1) {
+		const a = -Math.PI * (0.15 + f * 0.175);
+		const len = 5 + rand() * 3;
+		for (let k = 1; k <= len; k += 1) {
+			const fx = x + Math.cos(a) * k;
+			const fy = y + Math.sin(a) * k * 0.7;
+			px(ctx, fx, fy, 1, 1, k % 2 ? C.fern : C.fernLight);
+			if (k > 1 && k < len) px(ctx, fx + (Math.cos(a) > 0 ? 1 : -1), fy + 1, 1, 1, C.fern);
+		}
+	}
+}
+
+/** A conifer from above-and-south: stacked tiers, lit from the north-west. */
+function paintConifer(ctx: Paint, x: number, y: number, r: number) {
+	disc(ctx, x + r * 0.4, y + r * 0.9, r * 0.9, r * 0.45, C.shadow);
+	px(ctx, x - 1, y + r * 0.6, 2, r * 0.5, C.trunk);
+	const tiers = 3;
+	for (let t = 0; t < tiers; t += 1) {
+		const ty = y - r * 0.9 + t * r * 0.55;
+		const w = r * (0.45 + t * 0.28);
+		for (let row = 0; row < r * 0.7; row += 1) {
+			const half = Math.round((row / (r * 0.7)) * w);
+			px(ctx, x - half, ty + row, half * 2 + 1, 1, C.pine);
+			px(ctx, x - half, ty + row, Math.max(1, half), 1, C.pineMid);
+		}
+		px(ctx, x - Math.round(w * 0.5), ty + r * 0.45, 2, 1, C.pineLight);
+	}
+}
+
+/** A birch: a pale marked trunk under a light, open crown. */
+function paintBirch(ctx: Paint, x: number, y: number, r: number, seed: number) {
+	const rand = mulberry(seed);
+	disc(ctx, x + r * 0.35, y + r * 0.7, r * 0.9, r * 0.45, C.shadowSoft);
+	px(ctx, x - 1, y, 2, r * 0.9, C.birchBark);
+	for (let k = 1; k < r * 0.9; k += 3) px(ctx, x - (k % 2), y + k, 1, 1, C.birchMark);
+	for (let i = 0; i < 6; i += 1) {
+		const cx = x + (rand() - 0.5) * r * 1.2;
+		const cy = y - r * 0.35 + (rand() - 0.5) * r * 0.8;
+		disc(ctx, cx, cy, r * 0.42, r * 0.36, i < 2 ? C.birchLeafDark : C.birchLeaf);
+	}
+	disc(ctx, x - r * 0.3, y - r * 0.55, r * 0.3, r * 0.22, C.birchLeafLight);
+}
+
+/** A low bush heavy with red berries. */
+function paintBerryBush(ctx: Paint, x: number, y: number, seed: number) {
+	const rand = mulberry(seed);
+	paintShrub(ctx, x, y, 4 + rand() * 2);
+	for (let i = 0; i < 5; i += 1)
+		px(ctx, x + (rand() - 0.5) * 7, y + (rand() - 0.6) * 4, 1, 1, C.berry);
+}
+
+/** Two or three toadstools at the forest's edge. */
+function paintMushrooms(ctx: Paint, x: number, y: number, seed: number) {
+	const rand = mulberry(seed);
+	const n = 2 + Math.floor(rand() * 2);
+	for (let i = 0; i < n; i += 1) {
+		const mx = x + i * 3 + Math.round(rand() * 2);
+		const my = y + Math.round(rand() * 2);
+		px(ctx, mx, my, 1, 2, C.capWhite);
+		px(ctx, mx - 1, my - 1, 3, 1, C.capRed);
+		px(ctx, mx, my - 1, 1, 1, C.capWhite);
+	}
+}
+
+/** A bleached log washed up on the sand. */
+function paintDriftwood(ctx: Paint, x: number, y: number, len: number) {
+	px(ctx, x + 1, y + 2, len, 1, C.duneShade);
+	px(ctx, x, y, len, 2, C.driftwood);
+	px(ctx, x, y + 1, len, 1, C.driftwoodDark);
+	px(ctx, x + len - 2, y - 1, 2, 1, C.driftwood);
 }
 
 /** People and boats are drawn at the office characters' scale: two art pixels per sprite pixel. */
@@ -703,6 +829,9 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 	// Meadow life: trees, rocks and flowers where no plate or water is.
 	const meadowRand = mulberry(47);
 	const meadowTrees: Array<[number, number, number, number]> = [];
+	// Some meadow trees are conifers or birches rather than broadleaf, by seed.
+	const kindOf = (seed: number) =>
+		seed % 6 === 0 ? 'conifer' : seed % 6 === 1 ? 'birch' : 'broadleaf';
 	for (let i = 0; i < 70; i += 1) {
 		const x = left + meadowRand() * (right - left);
 		const y = H * 0.45 + meadowRand() * (bottom - H * 0.45);
@@ -714,6 +843,12 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 		const y = top + meadowRand() * (bottom - top);
 		if (!land(x, y) || onPlate(x, y, 30) || y < forestEdge(x) + 16) continue;
 		meadowTrees.push([x, y, 8 + meadowRand() * 5, Math.floor(meadowRand() * 10_000)]);
+	}
+	for (let i = 0; i < 90; i += 1) {
+		const x = left + meadowRand() * (W * 0.8 - left);
+		const y = top + meadowRand() * (bottom - top);
+		if (!land(x, y) || onPlate(x, y, 30) || y < forestEdge(x) + 20) continue;
+		meadowTrees.push([x, y, 9 + meadowRand() * 6, Math.floor(meadowRand() * 10_000)]);
 	}
 	// The meadow pockets between pavilions: a few trees and flowers, so
 	// nature runs through the campus rather than only around it.
@@ -733,17 +868,35 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 		else paintFlowers(ctx, x, y, i * 13 + 5, 5 + Math.floor(meadowRand() * 5));
 	}
 
-	// A gravel path leaves the south terrace and wanders to the beach.
+	// A gravel path leaves the southernmost paving and wanders to the jetty. It starts under the
+	// plate's south edge, so the floor runs straight onto it.
+	let pathStart = { x: W * 0.44, y: H };
+	for (let row = 0; row < source.rows; row += 1)
+		for (let col = 0; col < source.cols; col += 1) {
+			if (!solid(col, row) || solid(col, row + 1)) continue;
+			const x = col * TILE_SIZE + TILE_SIZE / 2;
+			const y = (row + 1) * TILE_SIZE;
+			if (!land(x, y + 12)) continue;
+			const better =
+				y > pathStart.y + 0.5 ||
+				(Math.abs(y - pathStart.y) < 0.5 &&
+					Math.abs(x - W * 0.44) < Math.abs(pathStart.x - W * 0.44));
+			if (better || pathStart.y === H) pathStart = { x, y };
+		}
 	const path = (t: number): [number, number] => {
-		const x0 = W * 0.44;
-		const y0 = H + 2;
-		const x1 = W * 0.5;
-		const y1 = H * 1.22;
+		const x0 = pathStart.x;
+		const y0 = pathStart.y - 4;
 		const x2 = shore(H * 1.28) - 8;
 		const y2 = H * 1.28;
+		const x1 = x0 + (x2 - x0) * 0.25;
+		const y1 = y2 - 6;
 		const u = 1 - t;
 		return [u * u * x0 + 2 * u * t * x1 + t * t * x2, u * u * y0 + 2 * u * t * y1 + t * t * y2];
 	};
+	const pathPoints: Array<[number, number]> = [];
+	for (let t = 0; t <= 1; t += 0.02) pathPoints.push(path(t));
+	const nearPath = (x: number, y: number, reach: number) =>
+		pathPoints.some(([px0, py0]) => Math.hypot(px0 - x, py0 - y) < reach);
 	for (let t = 0; t <= 1; t += 0.004) {
 		const [x, y] = path(t);
 		disc(ctx, x, y, 5, 4, C.gravelEdge);
@@ -754,8 +907,56 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 		if (hash(Math.round(x), Math.round(y), 7) < 0.3) px(ctx, x + 2, y - 1, 1, 1, C.gravelDot);
 	}
 
+	// Varied ground cover across the whole scene: wildflower drifts, tall grass, berry bushes,
+	// and ferns and toadstools where the forest meets the meadow. Painted before the trees, so
+	// crowns overlap it.
+	const groundRand = mulberry(97);
+	const open = (x: number, y: number, pad: number) =>
+		land(x, y) && !onPlate(x, y, pad) && !nearPath(x, y, pad + 4);
+	for (let i = 0; i < 1400; i += 1) {
+		const x = left + groundRand() * (W * 0.8 - left);
+		const y = top + groundRand() * (bottom - top);
+		const kind = groundRand();
+		const inForest = y < forestEdge(x) - 6;
+		if (inForest || !open(x, y, 12)) continue;
+		if (kind < 0.3) paintWildflowers(ctx, x, y, i * 31 + 7);
+		else if (kind < 0.62) paintTallGrass(ctx, x, y, i * 19 + 3);
+		else if (kind < 0.74) paintBerryBush(ctx, x, y, i * 23 + 11);
+		else if (kind < 0.84) paintShrub(ctx, x, y, 3 + groundRand() * 3);
+		else if (kind < 0.92) paintFlowers(ctx, x, y, i * 13 + 2, 6);
+		else paintRock(ctx, x, y, 2 + groundRand() * 3, groundRand() < 0.5);
+	}
+	for (let x = left; x < W * 0.66; x += 14) {
+		const y = forestEdge(x) + 6 + groundRand() * 16;
+		if (!open(x, y, 8)) continue;
+		const kind = groundRand();
+		if (kind < 0.45) paintFern(ctx, x, y, Math.round(x));
+		else if (kind < 0.6) paintMushrooms(ctx, x, y, Math.round(x) + 5);
+		else if (kind < 0.8) paintTallGrass(ctx, x, y, Math.round(x) + 9);
+	}
+	// Flowers along both verges of the path.
+	for (let i = 0; i < pathPoints.length; i += 3) {
+		const [x, y] = pathPoints[i];
+		const side = i % 2 ? 1 : -1;
+		if (land(x, y + side * 9) && !onPlate(x, y + side * 9, 4))
+			paintFlowers(ctx, x, y + side * 9, i * 7 + 1, 3);
+	}
+	// Driftwood on the sand between the dunes and the water.
+	for (const ry of [0.12, 0.47, 0.83, 1.18, 1.45]) {
+		const y = Math.round(H * ry);
+		const x = shore(y) - 22 + Math.round(hash(y, 3, 77) * 8);
+		if (!onPlate(x, y, 10) && Math.abs(y - H * 1.28) > 20)
+			paintDriftwood(ctx, x, y, 8 + Math.round(hash(y, 4, 77) * 6));
+	}
+
 	meadowTrees.sort((a, b) => a[1] - b[1]);
-	for (const [x, y, r, seed] of meadowTrees) stampTree(ctx, x, y, r, seed, true);
+	for (const [x, y, r, seed] of meadowTrees) {
+		if (nearPath(x, y, r + 6)) continue;
+		const kind = kindOf(seed);
+		if (kind === 'conifer') paintConifer(ctx, x, y, r + 1);
+		else if (kind === 'birch') paintBirch(ctx, x, y, r, seed);
+		else stampTree(ctx, x, y, r, seed, true);
+	}
 
 	// Where the pavilions meet the ground: a soft cast shadow, a light lip,
 	// and garden beds along the land-facing edges so work sits in nature.
@@ -1068,12 +1269,15 @@ function drawWaterActivities(ctx: Paint, world: CampusWorld, view: CampusView, t
 		p(-5, 0, 12, 3, '#f4efe4');
 		p(-5, 2, 12, 1, '#c9c1b0');
 		p(heading > 0 ? 7 : -6, 1, 1, 1, '#f4efe4');
-		p(0, -12, 1, 12, C.trunk);
+		// The mast stands forward of centre; the mainsail trails aft of it to the boom.
+		const mast = heading * 2;
+		p(mast, -12, 1, 12, C.trunk);
 		for (let r = 0; r < 11; r += 1) {
-			const w = Math.max(1, Math.round((11 - r) * 0.7));
-			p(heading > 0 ? 1 : -w, -11 + r, w, 1, r % 4 === 3 ? C.sailShade : C.sail);
+			const w = Math.max(1, Math.round((r + 1) * 0.65));
+			p(heading > 0 ? mast - w : mast + 1, -11 + r, w, 1, r % 4 === 3 ? C.sailShade : C.sail);
 		}
-		p(0, -13, 2, 1, C.buoy);
+		p(heading > 0 ? mast - 7 : mast + 1, -1, 7, 1, C.trunk);
+		p(mast, -13, 2, 1, C.buoy);
 	}
 	// Rowboat: one rower pulls slowly along open water, oars dipping in turn.
 	{
