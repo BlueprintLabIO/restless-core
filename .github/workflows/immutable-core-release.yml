@@ -22,13 +22,17 @@ permissions:
   id-token: write
   packages: write
 
+# linux/amd64 runs on the self-hosted builder; linux/arm64 on GitHub's hosted arm64 runner. Every
+# successful amd64 release dispatches the arm64 release of main, so each release ships both (and
+# macos-core-release.yml follows each one with macOS binaries).
+#
 # Three jobs, so "Re-run failed jobs" repeats only the phase that failed: a dropped signing call no
 # longer costs the qualify and publish work before it. Publish hands its exact records to seal as a
 # short-lived artifact. Each job writes its own phase timings to the run summary.
 jobs:
   qualify:
     name: Qualify exact candidate
-    runs-on: ${{ fromJSON(inputs.platform == 'linux/arm64' && '["self-hosted","linux","arm64","restless-core"]' || '["self-hosted","linux","x64","restless-core"]') }}
+    runs-on: ${{ fromJSON(inputs.platform == 'linux/arm64' && '["ubuntu-24.04-arm"]' || '["self-hosted","linux","x64","restless-core"]') }}
     timeout-minutes: 60
     env:
       DAGGER_NO_NAG: "1"
@@ -52,7 +56,7 @@ jobs:
       # its slow builds now, beside qualification: nothing is pushed, and publish finds the Rust
       # binaries and (when its inputs changed) the runtime tool base already in the engine's cache.
       - name: Start prebuilding what publish will build
-        if: inputs.publish
+        if: inputs.publish && inputs.platform != 'linux/arm64'
         env:
           RESTLESS_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
           PLATFORM: ${{ inputs.platform }}
@@ -93,6 +97,11 @@ jobs:
           fi
           # The runner service does not inherit a login PATH; rustup lives here.
           export PATH="$HOME/.cargo/bin:$PATH"
+          # A hosted arm64 runner may not carry Rust; install the stable toolchain there.
+          command -v cargo >/dev/null 2>&1 || {
+            curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
+            export PATH="$HOME/.cargo/bin:$PATH"
+          }
           export CARGO_TARGET_DIR="$HOME/.cache/restless-runner/release-connections-target"
           # docs/BUILD_STORAGE.md: clean a persistent target above 30 GiB.
           if [[ -d "$CARGO_TARGET_DIR" ]] && (( $(du -s --block-size=1G "$CARGO_TARGET_DIR" | cut -f1) > 30 )); then
@@ -112,7 +121,7 @@ jobs:
           mkdir -p "$PASSED" && printf '%s\n' "$GITHUB_SHA" > "$PASSED/$inputs"
           find "$PASSED" -type f -printf '%T@ %p\n' | sort -rn | tail -n +41 | cut -d' ' -f2- | xargs -r rm -f
       - name: Finish prebuilding what publish will build
-        if: inputs.publish
+        if: inputs.publish && inputs.platform != 'linux/arm64'
         env:
           PREBUILD: ${{ runner.temp }}/core-release-prebuild-${{ github.run_id }}
         run: |
@@ -130,7 +139,7 @@ jobs:
     name: Publish exact platform artifacts
     needs: qualify
     if: inputs.publish
-    runs-on: ${{ fromJSON(inputs.platform == 'linux/arm64' && '["self-hosted","linux","arm64","restless-core"]' || '["self-hosted","linux","x64","restless-core"]') }}
+    runs-on: ${{ fromJSON(inputs.platform == 'linux/arm64' && '["ubuntu-24.04-arm"]' || '["self-hosted","linux","x64","restless-core"]') }}
     timeout-minutes: 75
     env:
       DAGGER_NO_NAG: "1"
@@ -180,7 +189,7 @@ jobs:
     name: Seal and verify the Core contract
     needs: publish
     if: inputs.publish
-    runs-on: ${{ fromJSON(inputs.platform == 'linux/arm64' && '["self-hosted","linux","arm64","restless-core"]' || '["self-hosted","linux","x64","restless-core"]') }}
+    runs-on: ${{ fromJSON(inputs.platform == 'linux/arm64' && '["ubuntu-24.04-arm"]' || '["self-hosted","linux","x64","restless-core"]') }}
     timeout-minutes: 30
     env:
       DAGGER_NO_NAG: "1"
@@ -225,3 +234,18 @@ jobs:
           reference="$(jq -er .bundle "$RUNNER_TEMP/core-release/core-release-handoff.json")"
           printf '### Qualified Core candidate\n\nSource: %s\n\nPlatform: %s\n\nBundle: %s\n' \
             "$GITHUB_SHA" "$PLATFORM" "$reference" >> "$GITHUB_STEP_SUMMARY"
+
+  arm64:
+    name: Release linux/arm64 next
+    needs: seal
+    if: inputs.publish && inputs.platform == 'linux/amd64'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch the arm64 release of main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run immutable-core-release.yml -R "$GITHUB_REPOSITORY" --ref main -f platform=linux/arm64 -f publish=true
+          printf 'Dispatched the linux/arm64 release of main (this run released %s).\n' "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"

@@ -85,27 +85,29 @@ host_platform() {
   esac
 }
 
-# The newest successful release on main: the source commit its workflow run built. A Mac needs that
-# release's macOS build too, which is published some minutes later, so a Mac takes the newest
-# release that already has one.
+# Whether the registry holds <revision>-<suffix> (a Linux bundle or a macOS build).
+published() {
+  curl -fsS -o /dev/null -H "Authorization: Bearer $1" -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+    "https://${REGISTRY}/v2/${REPOSITORY}/manifests/$2-$3"
+}
+
+# The newest successful release on main that this machine can install. Each platform is published
+# by its own run (linux/amd64, then linux/arm64, then macOS a few minutes later), so take the newest
+# release that already has this machine's build.
 latest_revision() {
-  local revisions revision token
+  local revisions revision token wanted
   revisions="$(curl -fsS "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/immutable-core-release.yml/runs?branch=main&status=success&per_page=10" \
     | jq -er 'reduce .workflow_runs[].head_sha as $s ([]; if any(.[]; . == $s) then . else . + [$s] end) | .[]')" \
     || fail "could not find the latest release; pass a revision"
-  if ! is_macos; then
-    printf '%s\n' "$revisions" | head -n 1
-    return 0
-  fi
+  if is_macos; then wanted="darwin-$(uname -m)"; else wanted="$(host_platform)"; fi
   token="$(registry_token)" || fail "could not get registry access for ${REPOSITORY}"
   for revision in $revisions; do
-    if curl -fsS -o /dev/null -H "Authorization: Bearer ${token}" -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
-      "https://${REGISTRY}/v2/${REPOSITORY}/manifests/${revision}-darwin-$(uname -m)"; then
+    if published "$token" "$revision" "$wanted"; then
       printf '%s\n' "$revision"
       return 0
     fi
   done
-  fail "no recent release has a macOS build yet; try again in a few minutes"
+  fail "no recent release is built for ${wanted} yet; try again in a few minutes"
 }
 
 # A fresh install on a host with no database of its own gets one: PostgreSQL in a
@@ -384,9 +386,9 @@ main() {
   [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || usage
   local platform work bundle manifest tools image
   platform="$(host_platform)"
-  # On a Mac the company computers are Linux containers in Docker's VM. Releases publish linux/amd64,
-  # which Docker Desktop and OrbStack run on Apple silicon through Rosetta.
-  if is_macos && [ "$platform" = arm64 ]; then platform=amd64; fi
+  # On a Mac the company computers are Linux containers in Docker's VM. Apple silicon uses this
+  # release's linux/arm64 images when they are published, and otherwise linux/amd64 through Rosetta.
+  if is_macos && [ "$platform" = arm64 ] && ! published "$(registry_token)" "$revision" arm64; then platform=amd64; fi
   work="$(mktemp -d)"
   WORK="$work"
   trap cleanup EXIT
