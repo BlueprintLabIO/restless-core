@@ -256,8 +256,10 @@ API credentials can live in the Infisical vault, with only references kept in co
 
 ## Get started
 
-On a Linux machine with Docker, one command installs the newest signed release as a service
-and opens it:
+On Linux with Docker, one command installs the newest signed release as a service and opens
+it. On Windows, run the same command in an Ubuntu (WSL2) terminal with systemd on. macOS
+builds are not published yet; on a Mac, the [hosted waitlist](https://restless.run/cloud/#waitlist)
+is the way in for now.
 
 ```sh
 curl -fsSL https://restless.run/install | bash
