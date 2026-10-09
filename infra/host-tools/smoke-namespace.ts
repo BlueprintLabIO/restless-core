@@ -17,7 +17,7 @@ import { AssistantMessageEventStream } from "./node_modules/@oh-my-pi/pi-ai/src/
 
 const sourceCli = spawnSync(fileURLToPath(new URL("./omp-source", import.meta.url)), ["--version"], { encoding: "utf8" });
 assert.equal(sourceCli.status, 0, sourceCli.stderr);
-assert.match(sourceCli.stdout, /^omp\/18\.3\.2\s*$/);
+assert.match(sourceCli.stdout, /^omp\/18\.8\.6\s*$/);
 
 const definition = (namespace: string, deferred = false) => ({
 	type: "namespace" as const,

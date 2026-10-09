@@ -149,9 +149,11 @@ fn validate_session_locator(
     actor: &str,
     responsibility: &str,
 ) -> Result<()> {
+    // The harness build is not scope: a session from an older build is stale, and
+    // `session_locator_is_reusable` starts a fresh one. Refusing it here failed every
+    // conversation after a harness upgrade.
     if locator.version != 2
         || locator.harness != profile.harness
-        || locator.harness_build != profile.build()
         || locator.company != company
         || locator.actor != actor
         || locator.responsibility != responsibility
@@ -2647,7 +2649,7 @@ mod tests {
         let locator = SessionLocator {
             version: 2,
             harness: crate::runtime::AgentHarness::RestlessManaged,
-            harness_build: "omp-18.3.2".into(),
+            harness_build: "omp-18.8.6".into(),
             company: "acme_test".into(),
             actor: "account-reply-writer".into(),
             responsibility: "work:abc".into(),
@@ -2684,6 +2686,29 @@ mod tests {
                 true,
             ),
             "a new revision worktree reconstructs rather than crashing or loading stale context"
+        );
+        let older_build = SessionLocator {
+            harness_build: "omp-0.0.1".into(),
+            ..locator.clone()
+        };
+        validate_session_locator(
+            &older_build,
+            profile,
+            "acme_test",
+            "account-reply-writer",
+            "work:abc",
+        )
+        .expect("a harness upgrade is not a scope violation");
+        assert!(
+            !session_locator_is_reusable(
+                &older_build,
+                profile,
+                "/company/worktrees/work-abc-r1",
+                "zai/glm-5.3",
+                DEFAULT_REASONING_EFFORT,
+                true,
+            ),
+            "a session from an older harness build starts fresh"
         );
         assert!(validate_session_locator(
             &locator,
@@ -3116,7 +3141,7 @@ mod tests {
         let locator = SessionLocator {
             version: 2,
             harness: crate::runtime::AgentHarness::RestlessManaged,
-            harness_build: "omp-18.3.2".into(),
+            harness_build: "omp-18.8.6".into(),
             company: "acme_test".into(),
             actor: "lead".into(),
             responsibility: "work:abc".into(),

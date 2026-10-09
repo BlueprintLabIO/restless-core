@@ -109,7 +109,7 @@ RUN npm install -g npm@11.21.0 \
 # a configured company has a model route. Keep that host-side dependency here,
 # not in the credential-free Runtime. Its profile lives below the plane's
 # persistent state mount so OAuth and broker identity survive plane restarts.
-ARG OMP_VERSION=18.3.2
+ARG OMP_VERSION=18.8.6
 ENV BUN_INSTALL=/usr/local/bun \
     HOME=/state/authority-home
 RUN npm install -g bun@1.3.14 \

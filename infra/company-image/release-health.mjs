@@ -30,7 +30,7 @@ const release = Object.freeze({
   assertion_contract_version: integer("RESTLESS_ASSERTION_CONTRACT_VERSION"),
   schema_version: integer("RESTLESS_SCHEMA_VERSION"),
   harnesses: Object.freeze({
-    "restless-managed": "omp-18.3.2",
+    "restless-managed": "omp-18.8.6",
     codex: `codex-cli-${codexVersion}`,
     "claude-agent": `claude-agent-acp-${claudeAdapterVersion}`,
   }),

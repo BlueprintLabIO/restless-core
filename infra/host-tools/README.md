@@ -1,6 +1,6 @@
 # OMP Responses namespace bridge
 
-The pinned `@oh-my-pi/pi-ai` 18.3.2 auth gateway omits Codex Responses
+The pinned `@oh-my-pi/pi-ai` 18.8.6 auth gateway omits Codex Responses
 `type: "namespace"` tools. This patch carries namespace definitions and
 `{ namespace, name }` calls through the gateway, provider request, response,
 and history replay. It also accepts namespace tools in a Responses Lite
@@ -17,7 +17,6 @@ imports the patched gateway through the package exports. The script requires
 the pinned package version and a clean patch context, and is safe to rerun.
 It uses the system `patch` command.
 
-An already installed first revision of this patch is upgraded in place.
 
 The gateway currently does not forward Codex's `tool_search` tool. Namespaced
 children therefore become directly visible: their incoming `defer_loading`
@@ -44,3 +43,5 @@ before claiming deployed use.
 When upgrading OMP, inspect upstream namespace support, remove this patch if
 the gateway and providers preserve the namespace pair natively, and rerun the
 smoke against the new pinned version.
+Stock 18.8.6 still fails the smoke (namespace dropped from calls), so the patch
+was ported forward rather than removed.
