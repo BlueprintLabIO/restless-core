@@ -8,6 +8,8 @@ import {
 	keepCampusWorld,
 	keptCampusWorld,
 	makeShore,
+	landOffsetOf,
+	campusSourceOf,
 	type CampusSource,
 	type CampusWorld,
 	type PaintedCampus
@@ -72,12 +74,20 @@ function run<T>(job: { kind: string; source: unknown }): Promise<T | null> {
 }
 
 /** campusWorldFor, painted off the main thread where the browser can. */
-export async function campusWorldAsync(plan: { layout: CampusSource }): Promise<CampusWorld | null> {
-	const key = campusKey(plan.layout);
+export async function campusWorldAsync(plan: {
+	layout: CampusSource;
+	landOffsetCols?: number;
+}): Promise<CampusWorld | null> {
+	const source = campusSourceOf(plan);
+	const key = campusKey(source);
 	const kept = keptCampusWorld(key);
 	if (kept !== undefined) return kept;
-	const { cols, rows, tiles } = plan.layout;
-	const painted = await run<PaintedCampus>({ kind: 'campus', source: { cols, rows, tiles: [...tiles] } });
+	const { cols, rows, tiles } = source;
+	const landOffsetCols = landOffsetOf(source);
+	const painted = await run<PaintedCampus>({
+		kind: 'campus',
+		source: { cols, rows, tiles: [...tiles], landOffsetCols }
+	});
 	const raced = keptCampusWorld(key);
 	if (raced !== undefined) return raced;
 	if (!painted) return campusWorldFor(plan);

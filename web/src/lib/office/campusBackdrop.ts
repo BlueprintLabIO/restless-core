@@ -145,6 +145,12 @@ const C = {
 	shirtAlt: '#d0644e',
 	hat: '#e9d27a',
 	fern: '#5d9a5b',
+	cliff: '#b3ad9c',
+	highMeadow: '#b2d98f',
+	highMeadowLight: '#cde8a8',
+	highMeadowDark: '#97c47a',
+	cliffLight: '#cdc8b8',
+	cliffDark: '#8f8a7c',
 	fernLight: '#7fb873',
 	pine: '#3d6d50',
 	pineMid: '#4c8160',
@@ -769,6 +775,8 @@ export interface CampusWorld {
 	/** Office-local width and height, for placing things over the campus. */
 	W: number;
 	H: number;
+	/** Art pixels from the plan's west edge to the land's: scenery coordinates start here. */
+	landOffsetX: number;
 }
 
 const MARGIN_X = 640;
@@ -778,19 +786,30 @@ export interface CampusSource {
 	tiles: readonly number[];
 	cols: number;
 	rows: number;
+	/** Columns of overlook ridge west of the land; the scenery is painted from the land's edge. */
+	landOffsetCols?: number;
+}
+
+/** How many plan columns lie west of the land (the overlook ridge). */
+export function landOffsetOf(source: { landOffsetCols?: number }): number {
+	return source.landOffsetCols ?? 0;
 }
 
 /** Paint the static campus once for this layout. */
 export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 	if (typeof document === 'undefined' && typeof OffscreenCanvas === 'undefined') return null;
-	const W = source.cols * TILE_SIZE;
+	// Scenery is painted in land coordinates: x = 0 is the land's west edge, and an overlook
+	// ridge, when the company has one, lies at negative x. Plan columns convert through `ox`.
+	const oxCols = landOffsetOf(source);
+	const ox = oxCols * TILE_SIZE;
+	const W = source.cols * TILE_SIZE - ox;
 	const H = source.rows * TILE_SIZE;
-	const canvas = makeSurface(W + MARGIN_X * 2, H + MARGIN_Y * 2);
+	const canvas = makeSurface(W + ox + MARGIN_X * 2, H + MARGIN_Y * 2);
 	const ctx = paintOn(canvas);
 	if (!ctx) return null;
 	ctx.imageSmoothingEnabled = false;
-	ctx.translate(MARGIN_X, MARGIN_Y);
-	const left = -MARGIN_X;
+	ctx.translate(MARGIN_X + ox, MARGIN_Y);
+	const left = -MARGIN_X - ox;
 	const top = -MARGIN_Y;
 	const right = W + MARGIN_X;
 	const bottom = H + MARGIN_Y;
@@ -830,9 +849,9 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 	const onPlate = (x: number, y: number, pad = 0) => {
 		const reach = -pad + Math.floor((2 * pad) / 8) * 8;
 		return solidIn(
-			Math.floor((x - pad) / TILE_SIZE),
+			Math.floor((x + ox - pad) / TILE_SIZE),
 			Math.floor((y - pad) / TILE_SIZE),
-			Math.floor((x + reach) / TILE_SIZE),
+			Math.floor((x + ox + reach) / TILE_SIZE),
 			Math.floor((y + reach) / TILE_SIZE)
 		);
 	};
@@ -868,7 +887,12 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 	const forestEdge = (x: number) => {
 		const r = x / W;
 		const base = r < 0 ? 0.36 + r * 0.1 : r < 0.62 ? 0.02 - r * 0.2 : -0.14;
-		return base * H + Math.sin(x * 0.045) * 10 + Math.sin(x * 0.013 + 2) * 14;
+		return (
+			base * H +
+			Math.sin(x * 0.045) * 10 +
+			Math.sin(x * 0.013 + 2) * 14 +
+			(field(x, 0, 1 / 140, 61) - 0.5) * 110
+		);
 	};
 	ctx.fillStyle = C.forestFloor;
 	ctx.beginPath();
@@ -877,6 +901,83 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 	ctx.lineTo(W * 0.64, top);
 	ctx.closePath();
 	ctx.fill();
+	// The overlook ridge: a terraced hill rising from the forest, a pale cliff face on its south
+	// and east where it drops away, and the pavilions on its crest (the plates are drawn above).
+	let ridge: { x: number; y: number; rx: number; ry: number } | null = null;
+	if (oxCols > 0) {
+		let minX = Infinity;
+		let maxX = -Infinity;
+		let minY = Infinity;
+		let maxY = -Infinity;
+		for (let row = 0; row < source.rows; row += 1)
+			for (let col = 0; col < oxCols; col += 1) {
+				if (!solid(col, row)) continue;
+				minX = Math.min(minX, col * TILE_SIZE - ox);
+				maxX = Math.max(maxX, (col + 1) * TILE_SIZE - ox);
+				minY = Math.min(minY, row * TILE_SIZE);
+				maxY = Math.max(maxY, (row + 1) * TILE_SIZE);
+			}
+		if (Number.isFinite(minX)) {
+			ridge = {
+				x: (minX + maxX) / 2,
+				y: (minY + maxY) / 2,
+				rx: (maxX - minX) / 2 + 92,
+				ry: (maxY - minY) / 2 + 64
+			};
+			const { x, y, rx, ry } = ridge;
+			// Seen from the south, a raised plateau shows its cliff on the south and east only:
+			// the face is the plateau shape pushed down and right, and the top covers the rest.
+			const drop = 30;
+			disc(ctx, x + 26, y + drop + 22, rx + 6, ry + 4, C.shadow);
+			disc(ctx, x + 8, y + drop, rx, ry, C.cliffDark);
+			const cliffRand = mulberry(71);
+			for (let i = 0; i < 900; i += 1) {
+				// Vertical strata on the face: short strokes between the top's rim and the foot.
+				const a = cliffRand() * Math.PI * 2;
+				const k = 0.86 + cliffRand() * 0.14;
+				const cx = x + 8 + Math.cos(a) * rx * k;
+				const cy = y + drop + Math.sin(a) * ry * k;
+				if (((cx - x) / rx) ** 2 + ((cy - y) / ry) ** 2 < 1) continue;
+				px(ctx, cx, cy - 2, 1, 2 + cliffRand() * 4, cliffRand() < 0.5 ? C.cliff : C.cliffLight);
+			}
+			// The plateau top: one sunlit meadow, brighter towards the north-west.
+			disc(ctx, x, y, rx, ry, C.highMeadowDark);
+			disc(ctx, x - 3, y - 3, rx - 3, ry - 3, C.highMeadow);
+			for (let i = 0; i < 160; i += 1) {
+				const a = cliffRand() * Math.PI * 2;
+				const r = Math.sqrt(cliffRand()) * 0.9;
+				const tx = x + Math.cos(a) * rx * r;
+				const ty = y + Math.sin(a) * ry * r;
+				px(
+					ctx,
+					tx,
+					ty,
+					1,
+					2,
+					Math.cos(a) + Math.sin(a) < -0.4 ? C.highMeadowLight : C.highMeadowDark
+				);
+			}
+			// The rim catches the light: bright along the north-west edge, a turf lip over the cliff.
+			for (let t = 0; t < Math.PI * 2; t += 0.012) {
+				const ex = x + Math.cos(t) * (rx - 1);
+				const ey = y + Math.sin(t) * (ry - 1);
+				const lit = Math.cos(t) + Math.sin(t) < -0.3;
+				px(ctx, ex, ey, 2, 1, lit ? C.highMeadowLight : C.highMeadowDark);
+			}
+			for (let i = 0; i < 9; i += 1) {
+				const a = 0.2 + cliffRand() * 2.4;
+				paintRock(
+					ctx,
+					x + 8 + Math.cos(a) * (rx + 6),
+					y + drop + Math.sin(a) * (ry + 4),
+					3 + cliffRand() * 3,
+					cliffRand() < 0.5
+				);
+			}
+		}
+	}
+	const onRidge = (x: number, y: number) =>
+		ridge !== null && ((x - ridge.x) / ridge.rx) ** 2 + ((y - ridge.y) / ridge.ry) ** 2 < 0.95;
 	const forestRand = mulberry(11);
 	const trees: Array<[number, number, number, number]> = [];
 	for (let y = top - 8; y < H * 0.5; y += 15) {
@@ -886,7 +987,8 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 			const edge = forestEdge(tx);
 			const inside = ty < edge - 4;
 			const fringe = !inside && ty < edge + 18 && forestRand() < 0.35;
-			if (!(inside || fringe) || onPlate(tx, ty, 14) || tx > beachEdge(ty) + 4) continue;
+			if (!(inside || fringe) || onPlate(tx, ty, 14) || tx > beachEdge(ty) + 4 || onRidge(tx, ty))
+				continue;
 			trees.push([tx, ty, 9 + forestRand() * 6, Math.floor(forestRand() * 10_000)]);
 		}
 	}
@@ -956,6 +1058,16 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 	// scrub blurs the line where the meadow ends.
 	trees.sort((a, b) => a[1] - b[1]);
 	for (const [tx, ty, r, seed] of trees) stampTree(ctx, tx, ty, r, seed, false);
+	if (ridge) {
+		const slopeRand = mulberry(73);
+		for (let a = 0; a < Math.PI * 2; a += 0.11 + slopeRand() * 0.12) {
+			const k = 0.97 + slopeRand() * 0.12;
+			const sx = ridge.x + Math.cos(a) * ridge.rx * k;
+			const sy = ridge.y + Math.sin(a) * ridge.ry * k;
+			if (onPlate(sx, sy, 12) || !land(sx, sy) || slopeRand() < 0.35) continue;
+			paintConifer(ctx, sx, sy, 7 + slopeRand() * 4);
+		}
+	}
 	const fringeRand = mulberry(43);
 	for (let y = top; y < bottom; y += 2 + Math.floor(fringeRand() * 6)) {
 		const e = beachEdge(y);
@@ -1170,7 +1282,7 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 				visit(gx + (meadowRand() - 0.5) * step * 0.9, gy + (meadowRand() - 0.5) * step * 0.9);
 	};
 	span(22, (x, y) => {
-		if (!land(x, y) || onPlate(x, y, 28) || y < forestEdge(x) + 16) return;
+		if (!land(x, y) || onPlate(x, y, 28) || y < forestEdge(x) + 16 || onRidge(x, y)) return;
 		const g = grove(x, y);
 		const inGrove = g > 0.6 && meadowRand() < (g - 0.6) * 4;
 		const lone = meadowRand() < 0.012;
@@ -1186,7 +1298,7 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 	for (let row = 0; row < source.rows; row += 1)
 		for (let col = 0; col < source.cols; col += 1) {
 			if (!solid(col, row) || solid(col, row + 1)) continue;
-			const x = col * TILE_SIZE + TILE_SIZE / 2;
+			const x = col * TILE_SIZE + TILE_SIZE / 2 - ox;
 			const y = (row + 1) * TILE_SIZE;
 			if (!land(x, y + 12)) continue;
 			const better =
@@ -1288,7 +1400,7 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 	for (let row = 0; row < source.rows; row += 1) {
 		for (let col = 0; col < source.cols; col += 1) {
 			if (!solid(col, row)) continue;
-			const x = col * TILE_SIZE;
+			const x = col * TILE_SIZE - ox;
 			const y = row * TILE_SIZE;
 			const T = TILE_SIZE;
 			// A soft contact shadow, tinted by the ground it falls on; no outline,
@@ -1347,7 +1459,7 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 	for (let row = 0; row < source.rows; row += 1)
 		for (let col = 0; col < source.cols; col += 1) {
 			if (!solid(col, row) || solid(col + 1, row)) continue;
-			const x = (col + 1) * TILE_SIZE;
+			const x = (col + 1) * TILE_SIZE - ox;
 			if (x <= shore(row * TILE_SIZE) + 40) continue;
 			if (x > deckX) {
 				deckX = x;
@@ -1405,7 +1517,8 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 		W,
 		H,
 		canvas,
-		originX: MARGIN_X,
+		originX: MARGIN_X + ox,
+		landOffsetX: ox,
 		originY: MARGIN_Y,
 		width: canvas.width,
 		height: canvas.height,
@@ -1421,7 +1534,7 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 let lastWorld: { key: string; world: CampusWorld | null } | null = null;
 
 export function campusKey(layout: CampusSource): string {
-	return `${layout.cols}x${layout.rows}:${layout.tiles.join('')}`;
+	return `${layout.cols}x${layout.rows}+${landOffsetOf(layout)}:${layout.tiles.join('')}`;
 }
 
 /** The painted campus for this key, if it is the one kept. */
@@ -1434,10 +1547,22 @@ export function keepCampusWorld(key: string, world: CampusWorld | null): void {
 	lastWorld = { key, world };
 }
 
-export function campusWorldFor(plan: { layout: CampusSource }): CampusWorld | null {
-	const key = campusKey(plan.layout);
+/** The campus source for a plan: its layout and how far west of it the land begins. */
+export function campusSourceOf(plan: {
+	layout: CampusSource;
+	landOffsetCols?: number;
+}): CampusSource {
+	return { ...plan.layout, landOffsetCols: plan.landOffsetCols ?? landOffsetOf(plan.layout) };
+}
+
+export function campusWorldFor(plan: {
+	layout: CampusSource;
+	landOffsetCols?: number;
+}): CampusWorld | null {
+	const source = campusSourceOf(plan);
+	const key = campusKey(source);
 	if (lastWorld?.key === key) return lastWorld.world;
-	lastWorld = { key, world: buildCampusWorld(plan.layout) };
+	lastWorld = { key, world: buildCampusWorld(source) };
 	return lastWorld.world;
 }
 
@@ -1478,7 +1603,15 @@ function screen(
 }
 
 /** Everything beneath the office: the painted world plus living water. */
-export function drawCampusBackground(ctx: Paint, world: CampusWorld, view: CampusView): void {
+/** The view shifted so world positions, which are in land coordinates, land on the plan. */
+function landView(world: CampusWorld, view: CampusView): CampusView {
+	return world.landOffsetX
+		? { ...view, offsetX: view.offsetX + world.landOffsetX * view.zoom }
+		: view;
+}
+
+export function drawCampusBackground(ctx: Paint, world: CampusWorld, planView: CampusView): void {
+	const view = landView(world, planView);
 	const z = view.zoom;
 	const worldLeft = view.offsetX - world.originX * z;
 	const worldTop = view.offsetY - world.originY * z;
@@ -1812,16 +1945,17 @@ function drawWater(ctx: Paint, world: CampusWorld, view: CampusView): void {
 export function drawCampusOverlay(
 	ctx: Paint,
 	world: CampusWorld,
-	view: CampusView,
-	officeCols: number,
-	officeRows: number
+	planView: CampusView,
+	_officeCols: number,
+	_officeRows: number
 ): void {
+	const view = landView(world, planView);
 	if (world.deckFisher)
 		drawFisher(ctx, view, world.deckFisher.x, world.deckFisher.y, 16, view.now / 1000, view.motion);
 	if (!view.motion) return;
 	const t = view.now / 1000;
-	const W = officeCols * TILE_SIZE;
-	const H = officeRows * TILE_SIZE;
+	const W = world.W;
+	const H = world.H;
 	for (const leaf of world.leaves) {
 		const run = (t * leaf.speed + leaf.phase * 900) % (W * 1.4);
 		const x = leaf.x + run;

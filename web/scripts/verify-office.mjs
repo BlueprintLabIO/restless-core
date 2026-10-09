@@ -82,7 +82,7 @@ try {
 					)
 				];
 				if (
-					plan.layout.cols !== 72 ||
+					plan.layout.cols < 72 ||
 					plan.layout.rows !== 52 ||
 					plan.layout.tiles.includes(officeTypes.TileType.WALL) ||
 					tileAt(24, 21) !== officeTypes.TileType.VOID ||
@@ -164,7 +164,48 @@ try {
 
 	const widest = Math.max(...shapes.map((shape) => shape.cols));
 	const tallest = Math.max(...shapes.map((shape) => shape.rows));
-	if (widest > 72 || tallest > 52) throw new Error(`Bounded view exceeded: ${widest}x${tallest}`);
+	if (widest > 72 + 32 + planModule.OVERLOOK_COLS || tallest > 52)
+		throw new Error(`Bounded view exceeded: ${widest}x${tallest}`);
+
+	// Growth: six bays on land, six floating on the lake, four on the overlook ridge. Every bay
+	// is placed and walkable; the overlook moves the whole campus east by exactly its width.
+	for (const teamCount of [6, 7, 12, 13, 16, 18]) {
+		const teams = Array.from({ length: teamCount }, (_, index) => ({
+			id: `grow-${index + 1}`,
+			name: `Grow ${index + 1}`,
+			brief: '',
+			lead_actor_id: `grow-staff-${index + 1}`,
+			created_by: 'exec',
+			created_at: '2026-08-20T00:00:00Z',
+			member_count: 1,
+			in_motion_count: 0,
+			blocked_count: 0
+		}));
+		const members = [
+			{ actorId: 'exec', teamId: null },
+			...teams.map((team, index) => ({ actorId: `grow-staff-${index + 1}`, teamId: team.id }))
+		];
+		const plan = planModule.createCompanyOfficePlan(
+			teams,
+			members,
+			planModule.DEFAULT_OFFICE_PREFERENCES
+		);
+		const result = planModule.validateOfficePlan(plan);
+		const expectedBays = Math.min(teamCount, 16);
+		const overlook = teamCount > 12;
+		const landBays = plan.zones.filter((zone) => zone.col >= (plan.landOffsetCols ?? 0)).length;
+		if (
+			!result.valid ||
+			plan.zones.length !== expectedBays ||
+			plan.zones.some((zone) => !Number.isFinite(zone.col)) ||
+			(plan.landOffsetCols ?? 0) !== (overlook ? planModule.OVERLOOK_COLS : 0) ||
+			landBays !== Math.min(teamCount, 12)
+		)
+			throw new Error(
+				`${teamCount} Teams did not grow the campus outward: ${plan.zones.length} bays, ` +
+					`offset ${plan.landOffsetCols ?? 0}\n${result.errors.join('\n')}`
+			);
+	}
 	if (new Set(shapes.map((shape) => shape.floorTileCount)).size < 4)
 		throw new Error('Real company size no longer changes the generated pavilion footprint.');
 	const unicorn = amenities.AMENITY_DEFINITIONS.find(
@@ -283,15 +324,21 @@ try {
 	}
 	const overflowPlan = planModule.createCompanyOfficePlan(
 		[],
-		Array.from({ length: 31 }, (_, index) => ({
+		Array.from({ length: planModule.MAX_VISIBLE_OFFICE_MEMBERS + 11 }, (_, index) => ({
 			actorId: index === 0 ? 'exec' : `overflow-${index}`,
 			teamId: null
 		})),
 		planModule.DEFAULT_OFFICE_PREFERENCES
 	);
 	const overflowResult = planModule.validateOfficePlan(overflowPlan);
-	if (overflowPlan.visibleMemberCount !== 20 || !overflowResult.valid) {
-		throw new Error('Oversized company did not degrade to the proved 20-person view.');
+	if (
+		overflowPlan.visibleMemberCount !== planModule.MAX_VISIBLE_OFFICE_MEMBERS ||
+		!overflowResult.valid
+	) {
+		throw new Error(
+			`Oversized company did not degrade to the proved ${planModule.MAX_VISIBLE_OFFICE_MEMBERS}-person view.\n` +
+				overflowResult.errors.join('\n')
+		);
 	}
 	const decorationPlan = planModule.createCompanyOfficePlan(
 		[],

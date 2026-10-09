@@ -127,6 +127,8 @@ export interface OfficePlan {
 	garden: { court: TileRect; pond: TileRect };
 	visibleMemberCount: number;
 	signature: string;
+	/** Columns west of the land (the overlook ridge); the shore and scenery start after them. */
+	landOffsetCols?: number;
 }
 
 export interface TileRect {
@@ -169,8 +171,9 @@ const DAYLIGHT = {
 };
 const AREA_COLORS = ['#4e9a7e', '#5d8fc1', '#7b66b2', '#68b6ba', '#669c76', '#8b78ba'];
 const BAY_CAPACITY = 6;
-/** Land holds two rows of four team bays. */
-const LAND_BAY_SLOTS = 8;
+/** Land holds two rows of three team bays, so the core campus never crowds; the company grows
+ * outward from there. */
+const LAND_BAY_SLOTS = 6;
 /** Floating pavilions on the lake, nearest the main deck first: middle, north, south. */
 const FLOATING_BAY_SLOTS: ReadonlyArray<{ col: number; row: number }> = [
 	{ col: 74, row: 21 },
@@ -179,6 +182,15 @@ const FLOATING_BAY_SLOTS: ReadonlyArray<{ col: number; row: number }> = [
 	{ col: 90, row: 21 },
 	{ col: 90, row: 4 },
 	{ col: 90, row: 38 }
+];
+/** Columns the overlook ridge adds to the west of the land. */
+export const OVERLOOK_COLS = 22;
+/** Pavilions on the overlook ridge, nearest its stairs first. */
+const OVERLOOK_BAY_SLOTS: ReadonlyArray<{ col: number; row: number }> = [
+	{ col: 4, row: 16 },
+	{ col: 4, row: 27 },
+	{ col: 4, row: 5 },
+	{ col: 4, row: 38 }
 ];
 const BAY_WIDTH = 12;
 const BAY_HEIGHT = 10;
@@ -300,6 +312,133 @@ interface BaySource {
 	kind: 'team' | 'shared';
 }
 
+/** Desks, screens and chairs for a bay's seats, a whiteboard and a plant. */
+function furnishBay(
+	bay: BaySource,
+	index: number,
+	col: number,
+	row: number,
+	add: (uid: string, type: string, col: number, row: number, color?: ColorValue) => void
+) {
+	const seats = Math.max(1, bay.seatCount);
+	for (let seat = 0; seat < seats; seat += 1) {
+		const column = seat % 3;
+		const band = Math.floor(seat / 3);
+		const deskCol = col + column * 4;
+		const deskRow = row + 1 + band * 4;
+		const uid = `bay-${stableHash(`${bay.id}:${bay.bayIndex}`)}-${seat}`;
+		add(`${uid}-desk`, 'DESK_FRONT', deskCol, deskRow, DAYLIGHT.furniture);
+		add(`${uid}-pc`, 'PC_FRONT_OFF', deskCol + 1, deskRow);
+		add(`${uid}-seat`, 'CUSHIONED_CHAIR_BACK', deskCol + 1, deskRow + 2, DAYLIGHT.furniture);
+	}
+	add(`bay-${index}-board`, 'WHITEBOARD', col + 10, row + 8);
+	add(`bay-${index}-plant`, 'PLANT_2', col + 11, row + 4);
+}
+
+/** The whole campus moved `dx` columns east, so the overlook ridge has room to its west. */
+function shiftPlanEast(plan: OfficePlan, dx: number): OfficePlan {
+	const { layout } = plan;
+	const cols = layout.cols + dx;
+	const remap = <T>(source: readonly T[], empty: T): T[] => {
+		const next = new Array<T>(cols * layout.rows).fill(empty);
+		for (let row = 0; row < layout.rows; row += 1)
+			for (let col = 0; col < layout.cols; col += 1)
+				next[row * cols + col + dx] = source[row * layout.cols + col];
+		return next;
+	};
+	const at = <P extends { col: number }>(point: P): P => ({ ...point, col: point.col + dx });
+	const spot = <P extends { col: number; poseCol?: number }>(point: P): P => ({
+		...at(point),
+		...(point.poseCol === undefined ? {} : { poseCol: point.poseCol + dx })
+	});
+	return {
+		...plan,
+		layout: {
+			...layout,
+			cols,
+			tiles: remap(layout.tiles, TileType.VOID),
+			tileColors: layout.tileColors ? remap(layout.tileColors, null) : layout.tileColors,
+			carpetTiles: layout.carpetTiles ? remap(layout.carpetTiles, null) : layout.carpetTiles,
+			areaTiles: layout.areaTiles ? remap(layout.areaTiles, null) : layout.areaTiles,
+			furniture: layout.furniture.map(at)
+		},
+		zones: plan.zones.map(at),
+		home: at(plan.home),
+		interactionPoints: plan.interactionPoints.map(at),
+		activityScenes: plan.activityScenes.map((scene) => ({
+			...scene,
+			spots: scene.spots.map(spot)
+		})),
+		restingSpots: plan.restingSpots.map(spot),
+		waitingSpots: plan.waitingSpots.map(at),
+		protectedPath: plan.protectedPath.map(at),
+		animatedAmenities: plan.animatedAmenities.map(at),
+		landmark: at(plan.landmark),
+		garden: { court: at(plan.garden.court), pond: at(plan.garden.pond) },
+		landOffsetCols: (plan.landOffsetCols ?? 0) + dx
+	};
+}
+
+/** Pavilions on an overlook ridge west of the campus, joined to the west plaza by stone stairs.
+ * The ridge itself (a terraced hill with a cliff face) is painted by the campus backdrop. */
+function withOverlook(plan: OfficePlan, bays: BaySource[], firstIndex: number): OfficePlan {
+	const shifted = shiftPlanEast(plan, OVERLOOK_COLS);
+	const { layout } = shifted;
+	const { cols } = layout;
+	const tiles = layout.tiles as TileType[];
+	const tileColors = layout.tileColors as Array<ColorValue | null>;
+	const carpetTiles = layout.carpetTiles as Array<CarpetTile | null>;
+	const areaTiles = layout.areaTiles as Array<string | null>;
+	const fill = (left: number, top: number, width: number, height: number) => {
+		for (let row = top; row < top + height; row += 1)
+			for (let col = left; col < left + width; col += 1) {
+				tiles[row * cols + col] = TileType.FLOOR_4;
+				tileColors[row * cols + col] = DAYLIGHT.stone;
+			}
+	};
+	const add = (uid: string, type: string, col: number, row: number, color?: ColorValue) =>
+		layout.furniture.push({ uid, type, col, row, color });
+	const used = OVERLOOK_BAY_SLOTS.slice(0, bays.length);
+	// A ridge path along the pavilions' east faces, and stairs down to the west plaza.
+	const top = Math.min(...used.map((slot) => slot.row)) + 3;
+	const bottom = Math.max(...used.map((slot) => slot.row)) + 7;
+	fill(16, Math.min(top, 24), 2, Math.max(bottom, 28) - Math.min(top, 24));
+	fill(16, 25, OVERLOOK_COLS + 3 - 16, 2);
+	const zones = [...shifted.zones];
+	const areas = [...(layout.areas ?? [])];
+	const areaMappings = { ...shifted.areaMappings };
+	bays.forEach((bay, i) => {
+		const { col, row } = used[i];
+		const index = firstIndex + i;
+		const suffix = bay.bayIndex ? ` ${bay.bayIndex + 1}` : '';
+		const areaLabel = safeLabel(`${bay.label}${suffix}`);
+		areas.push({ label: areaLabel, color: AREA_COLORS[index % AREA_COLORS.length] });
+		zones.push({
+			id: `${bay.id}:${bay.bayIndex}`,
+			label: areaLabel,
+			kind: bay.kind,
+			col,
+			row,
+			width: BAY_WIDTH,
+			height: BAY_HEIGHT
+		});
+		(areaMappings[bay.id] ??= []).push(areaLabel);
+		fill(col, row, BAY_WIDTH, BAY_HEIGHT);
+		for (let dr = 0; dr < BAY_HEIGHT; dr += 1)
+			for (let dc = 0; dc < BAY_WIDTH; dc += 1) {
+				areaTiles[(row + dr) * cols + col + dc] = areaLabel;
+				if (dr > 0 && dc > 0 && dr < BAY_HEIGHT - 1 && dc < BAY_WIDTH - 1)
+					carpetTiles[(row + dr) * cols + col + dc] = {
+						variant: index % 3,
+						color: DAYLIGHT.carpet,
+						accentColor: DAYLIGHT.accent
+					};
+			}
+		furnishBay(bay, index, col, row, add);
+	});
+	return { ...shifted, layout: { ...layout, areas }, zones, areaMappings };
+}
+
 function buildBays(teams: CockpitTeam[], members: OfficeMember[]): BaySource[] {
 	const visibleStaff = members.filter((member) => member.actorId !== 'exec');
 	const bays: BaySource[] = [];
@@ -344,6 +483,8 @@ export function createCompanyOfficePlan(
 	// column first. Only a company that needs them widens the plan.
 	const landBays = allBays.slice(0, LAND_BAY_SLOTS);
 	const floatingBays = allBays.slice(LAND_BAY_SLOTS, LAND_BAY_SLOTS + FLOATING_BAY_SLOTS.length);
+	const overlookFrom = LAND_BAY_SLOTS + FLOATING_BAY_SLOTS.length;
+	const overlookBays = allBays.slice(overlookFrom, overlookFrom + OVERLOOK_BAY_SLOTS.length);
 	const bays = [...landBays, ...floatingBays];
 	const floatingColumns = new Set(floatingBays.map((_, i) => FLOATING_BAY_SLOTS[i].col)).size;
 	const cols = 72 + (floatingColumns === 0 ? 0 : floatingColumns === 1 ? 16 : 32);
@@ -460,11 +601,26 @@ export function createCompanyOfficePlan(
 			TileType.FLOOR_7,
 			DAYLIGHT.deck
 		);
-		for (const slot of used) {
-			// A gangway from the spine, or from the nearer pavilion, to each floating deck.
-			const from =
-				slot.col === FLOATING_BAY_SLOTS[0].col ? 72 : FLOATING_BAY_SLOTS[0].col + BAY_WIDTH;
-			fill(from, slot.row + 4, slot.col - from, 2, TileType.FLOOR_7, DAYLIGHT.deck);
+		const inner = FLOATING_BAY_SLOTS[0].col;
+		// The inner column: a gangway from the spine to each floating deck.
+		for (const slot of used.filter((slot) => slot.col === inner))
+			fill(72, slot.row + 4, slot.col - 72, 2, TileType.FLOOR_7, DAYLIGHT.deck);
+		// The outer column has its own spine along its west faces, reached across the open water
+		// between the inner pavilions; walking through an inner pavilion would meet its furniture.
+		const outer = used.filter((slot) => slot.col !== inner);
+		if (outer.length) {
+			const outerCol = outer[0].col;
+			const from = Math.min(...outer.map((slot) => slot.row));
+			const to = Math.max(...outer.map((slot) => slot.row)) + BAY_HEIGHT;
+			fill(72, 17, outerCol - 2 - 72, 2, TileType.FLOOR_7, DAYLIGHT.deck);
+			fill(
+				outerCol - 2,
+				Math.min(from, 17),
+				2,
+				Math.max(to, 19) - Math.min(from, 17),
+				TileType.FLOOR_7,
+				DAYLIGHT.deck
+			);
 		}
 	}
 	bays.forEach((bay, index) => {
@@ -495,19 +651,7 @@ export function createCompanyOfficePlan(
 			}
 		}
 		rug(col + 1, row + 1, BAY_WIDTH - 2, BAY_HEIGHT - 2, index % 3);
-		const seats = Math.max(1, bay.seatCount);
-		for (let seat = 0; seat < seats; seat += 1) {
-			const column = seat % 3;
-			const band = Math.floor(seat / 3);
-			const deskCol = col + column * 4;
-			const deskRow = row + 1 + band * 4;
-			const uid = `bay-${stableHash(`${bay.id}:${bay.bayIndex}`)}-${seat}`;
-			add(`${uid}-desk`, 'DESK_FRONT', deskCol, deskRow, DAYLIGHT.furniture);
-			add(`${uid}-pc`, 'PC_FRONT_OFF', deskCol + 1, deskRow);
-			add(`${uid}-seat`, 'CUSHIONED_CHAIR_BACK', deskCol + 1, deskRow + 2, DAYLIGHT.furniture);
-		}
-		add(`bay-${index}-board`, 'WHITEBOARD', col + 10, row + 8);
-		add(`bay-${index}-plant`, 'PLANT_2', col + 11, row + 4);
+		furnishBay(bay, index, col, row, add);
 	});
 
 	// The singleton Exec remains a real projected person, but its workstation is
@@ -1011,7 +1155,7 @@ export function createCompanyOfficePlan(
 		members: visibleMembers.map((member) => [member.actorId, member.teamId]),
 		preferences
 	});
-	return {
+	const built: OfficePlan = {
 		layout: baseLayout,
 		zones,
 		home,
@@ -1027,6 +1171,9 @@ export function createCompanyOfficePlan(
 		visibleMemberCount: visibleMembers.length,
 		signature
 	};
+	return overlookBays.length
+		? withOverlook(built, overlookBays, landBays.length + floatingBays.length)
+		: built;
 }
 
 function furnitureBlockedTiles(layout: OfficeLayout): Set<string> {
