@@ -475,6 +475,16 @@
 		modelTouched = false;
 		selectedMakeDefault = false;
 		replaceRequired = false;
+		/* A company with no default takes the first connection it is given as its default. */
+		void fetch(`/api/companies/${encodeURIComponent(companyId)}/intelligence`, {
+			cache: 'no-store'
+		})
+			.then((response) => (response.ok ? response.json() : null))
+			.then((view: { default?: unknown } | null) => {
+				if (view && managingId === item.id && selectedCompany === companyId)
+					selectedMakeDefault = !view.default;
+			})
+			.catch(() => {});
 		requestAnimationFrame(() =>
 			document
 				.querySelector(`[data-connection="${CSS.escape(item.id)}"]`)

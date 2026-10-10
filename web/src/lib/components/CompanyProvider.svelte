@@ -311,7 +311,7 @@
 		delete grantModels[connection.id];
 		grantCustomModels[connection.id] = false;
 		grantSelection = connection.id;
-		grantMakeDefault = false;
+		grantMakeDefault = !intelligence.view?.default;
 		replaceGrantId = '';
 		accountError = '';
 	}
@@ -458,6 +458,7 @@
 			status = result.provider;
 			grantSelection = '';
 			replaceGrantId = '';
+			settle();
 			await Promise.all([refreshReusableConnections(), intelligence.refresh()]);
 			announceIntelligenceChange(companyId);
 		} catch (cause) {
