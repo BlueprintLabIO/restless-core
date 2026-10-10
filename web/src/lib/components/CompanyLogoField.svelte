@@ -134,7 +134,6 @@
 	.logo-tile.logo {
 		overflow: hidden;
 		background: var(--surface);
-		box-shadow: inset 0 0 0 1px var(--border);
 	}
 	.logo-state {
 		min-width: 0;

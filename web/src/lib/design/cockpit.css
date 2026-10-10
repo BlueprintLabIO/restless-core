@@ -305,7 +305,6 @@
 
 .bridge-root .company-switcher-menu .switcher-mark.logo {
 	background: var(--surface);
-	box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .bridge-root .company-switcher-menu .switcher-mark > i {
@@ -326,7 +325,7 @@
 	height: 16px;
 	overflow: hidden;
 	border-radius: 4px;
-	box-shadow: inset 0 0 0 1px var(--border);
+	background: var(--surface);
 }
 
 .bridge-root .company-switcher-static {

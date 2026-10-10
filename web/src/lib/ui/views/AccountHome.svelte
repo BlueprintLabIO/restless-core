@@ -580,7 +580,6 @@
 	.company-mark.logo {
 		overflow: hidden;
 		background: var(--surface);
-		box-shadow: inset 0 0 0 1px var(--border);
 	}
 	.company-body {
 		min-width: 0;

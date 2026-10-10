@@ -16,6 +16,10 @@
 	const view = $derived(page.url.searchParams.get('view') ?? 'portfolio');
 	const now = Date.parse('2026-10-05T12:00:00Z');
 	const minutesAgo = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
+	/* An uploaded logo, as a plane serves it; the other companies show their generated marks. */
+	const lanternLogo = `data:image/svg+xml,${encodeURIComponent(
+		'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#1f2a44"/><circle cx="32" cy="30" r="13" fill="#f5b544"/><rect x="24" y="46" width="16" height="5" rx="2" fill="#f5b544"/></svg>'
+	)}`;
 
 	const lantern: PortfolioCard = {
 		decisionsWaiting: 2,
@@ -43,6 +47,7 @@
 		{
 			id: 'lantern',
 			name: 'Lantern Studio',
+			logoUrl: lanternLogo,
 			status: 'Running',
 			tone: 'presence',
 			card: lantern,

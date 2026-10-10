@@ -216,7 +216,6 @@
 	.portfolio-mark.logo {
 		overflow: hidden;
 		background: var(--surface);
-		box-shadow: inset 0 0 0 1px var(--border);
 	}
 	.portfolio-card[data-tone='presence'] .portfolio-mark {
 		color: var(--state-success);

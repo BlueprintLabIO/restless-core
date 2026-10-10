@@ -33,11 +33,14 @@
 {/if}
 
 <style>
+	/* The hairline sits over the image, so a logo's own edge never bleeds into the page. */
 	.company-logo {
 		display: block;
 		width: 100%;
 		height: 100%;
 		object-fit: contain;
 		border-radius: inherit;
+		outline: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
+		outline-offset: -1px;
 	}
 </style>
