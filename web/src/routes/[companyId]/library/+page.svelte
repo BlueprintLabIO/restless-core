@@ -1,9 +1,12 @@
 <script lang="ts">
 	/* The Library: everything the company has written and made, in one place (S64). Native
 	 * documents and sheets open in their editors; the sites, images, PDFs, decks and recordings Work
-	 * produced on the company computer open in place, a deck as a slideshow. One table, filtered
-	 * from the side. A new document or sheet is made untitled and opens straight into its editor. */
+	 * produced on the company computer open in place, a deck as a slideshow. Files the owner adds or
+	 * sends in a conversation are kept here under From you. One table, filtered from the side,
+	 * sorted from its head. A new document or sheet is made untitled and opens straight into its
+	 * editor; a dropped file is added as it is. */
 	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import { Item, Notice, Empty, Dot } from '$lib/ui/page';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
@@ -17,11 +20,14 @@
 	import { personName } from '$lib/model/initials';
 	import LibraryNew from '$lib/components/LibraryNew.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
+	import Pending from '$lib/ui/feedback/Pending.svelte';
 	import FileText from '@lucide/svelte/icons/file-text';
 	import Sheet from '@lucide/svelte/icons/sheet';
 	import Library from '@lucide/svelte/icons/library';
 	import Plus from '@lucide/svelte/icons/plus';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
+	import ArrowDown from '@lucide/svelte/icons/arrow-down';
+	import ArrowUp from '@lucide/svelte/icons/arrow-up';
 	import Eye from '@lucide/svelte/icons/eye';
 	import Globe from '@lucide/svelte/icons/globe';
 	import ImageIcon from '@lucide/svelte/icons/image';
@@ -30,19 +36,41 @@
 	import Film from '@lucide/svelte/icons/film';
 	import NotebookText from '@lucide/svelte/icons/notebook-text';
 	import FileSpreadsheet from '@lucide/svelte/icons/file-spreadsheet';
+	import Upload from '@lucide/svelte/icons/upload';
 	import Pin from '@lucide/svelte/icons/pin';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import {
 		LIBRARY_KIND_LABEL,
+		LibraryOpenError,
 		libraryFiles,
+		libraryKind,
 		readPins,
 		writePins,
 		type LibraryArtifact,
+		type LibraryFile,
 		type LibraryFileKind
 	} from '$lib/model/library-files';
 	import { documentsQuery } from '$lib/model/document-queries.svelte';
+	import { documentSearch } from '$lib/model/document-search.svelte';
 	import { sheetJson, type SheetRow } from '$lib/model/sheets';
-	import { getDocuments, type DocumentSummary } from '$lib/model/documents';
+	import {
+		deleteArchivedDocument,
+		getArchivedDocuments,
+		getDocument,
+		type DocumentListCursor,
+		type DocumentSummary
+	} from '$lib/model/documents';
+	import {
+		attachmentHref,
+		attachmentObjectUrl,
+		attachmentReadKind,
+		deleteAttachment,
+		fileSize,
+		listRetainedAttachments,
+		type AttachmentInventory,
+		type RetainedAttachment
+	} from '$lib/model/attachments';
+	import { failureSentence, responseFailure } from '$lib/model/failure';
 	import ArchiveIcon from '@lucide/svelte/icons/archive';
 	import {
 		attentionQuery,
@@ -53,6 +81,7 @@
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const root = $derived(`/${encodeURIComponent(companyId)}`);
+	const api = $derived(`/api/companies/${encodeURIComponent(companyId)}`);
 	const principal = $derived(companyPrincipalQuery(companyId));
 	const owner = $derived(principal.view?.membership_role === 'owner');
 	const cockpit = $derived(cockpitQuery(companyId, () => owner));
@@ -89,42 +118,129 @@
 			});
 	});
 
-	/* Archived: out of every list, one view in the sidebar, restorable. */
+	/* Files the owner keeps: added here, or sent in a conversation. The inventory is the owner's;
+	 * the rows shown are the ones this person sent, which are the ones they can open. */
+	let kept = $state<AttachmentInventory | null>(null);
+	let keptFailure = $state('');
+	async function loadKept() {
+		const target = companyId;
+		if (!owner) return;
+		try {
+			const inventory = await listRetainedAttachments(target);
+			if (target !== companyId) return;
+			kept = inventory;
+			keptFailure = '';
+		} catch (cause) {
+			if (target === companyId)
+				keptFailure = failureSentence(cause, 'Your kept files could not be read.');
+		}
+	}
+	$effect(() => {
+		if (owner) void loadKept();
+	});
+	const viewer = $derived(principal.view?.actor_id ?? '');
+	const keptRows = $derived(
+		(kept?.attachments ?? []).filter((row) => !viewer || row.sender_actor_id === viewer)
+	);
+	const keptUsage = $derived.by(() => {
+		if (!kept) return null;
+		const bytes = keptRows.reduce((total, row) => total + row.size_bytes, 0);
+		const { limits, usage } = kept;
+		const share = Math.max(
+			keptRows.length / limits.per_principal_files,
+			bytes / limits.per_principal_bytes,
+			usage.retained_files / limits.retained_files,
+			usage.retained_bytes / limits.retained_bytes
+		);
+		return {
+			label: `${fileSize(bytes)} of ${fileSize(limits.per_principal_bytes)}`,
+			detail: `You keep ${keptRows.length} of ${limits.per_principal_files} files and ${fileSize(bytes)} of ${fileSize(limits.per_principal_bytes)}. The company keeps ${usage.retained_files} of ${limits.retained_files} files and ${fileSize(usage.retained_bytes)} of ${fileSize(limits.retained_bytes)}. Delete files you no longer need to make room.`,
+			full: share >= 0.9
+		};
+	});
+
+	/* Archived: out of every list, one view in the sidebar, restorable, and deletable for good. */
 	let archivedDocs = $state<DocumentSummary[]>([]);
+	let archivedCursor = $state<DocumentListCursor | null>(null);
+	let archivedLoadingMore = $state(false);
 	let archivedSheets = $state<SheetRow[]>([]);
+	let archivedArtifacts = $state<LibraryArtifact[]>([]);
 	let archiveBusy = $state('');
+	let actionFailure = $state('');
 	async function loadArchived() {
 		const target = companyId;
-		const [docs, sheetRows] = await Promise.all([
-			getDocuments(target, null, 50, true).catch(() => null),
-			sheetJson<SheetRow[]>(target, '-archived').catch(() => null)
+		const [docs, sheetRows, artifacts] = await Promise.all([
+			getArchivedDocuments(target, null, 50).catch(() => null),
+			sheetJson<SheetRow[]>(target, '-archived').catch(() => null),
+			owner
+				? fetch(`/api/companies/${encodeURIComponent(target)}/library/archived`, {
+						credentials: 'same-origin',
+						cache: 'no-store'
+					})
+						.then((response) => (response.ok ? response.json() : null))
+						.catch(() => null)
+				: Promise.resolve(null)
 		]);
 		if (target !== companyId) return;
-		if (docs) archivedDocs = docs.items.filter((item) => item.document.status === 'archived');
+		if (docs) {
+			archivedDocs = docs.items;
+			archivedCursor = docs.next_cursor;
+		}
 		if (sheetRows) archivedSheets = sheetRows;
+		if (artifacts) archivedArtifacts = artifacts.artifacts as LibraryArtifact[];
+	}
+	async function loadMoreArchived() {
+		const target = companyId;
+		if (!archivedCursor || archivedLoadingMore) return;
+		archivedLoadingMore = true;
+		try {
+			const next = await getArchivedDocuments(target, archivedCursor, 50);
+			if (target !== companyId) return;
+			const seen = new Set(archivedDocs.map((summary) => summary.document.id));
+			archivedDocs = [
+				...archivedDocs,
+				...next.items.filter((summary) => !seen.has(summary.document.id))
+			];
+			archivedCursor = next.next_cursor;
+		} catch (cause) {
+			actionFailure = failureSentence(cause, 'More archived documents could not be read.');
+		} finally {
+			archivedLoadingMore = false;
+		}
 	}
 	$effect(() => {
 		if (principal.view) void loadArchived();
 	});
-	async function setArchived(entry: { id: string; kind: 'doc' | 'sheet' }, archived: boolean) {
+	async function setArchived(entry: Entry, archived: boolean) {
 		if (archiveBusy) return;
 		archiveBusy = entry.id;
+		actionFailure = '';
 		try {
-			const path =
+			const [path, body] =
 				entry.kind === 'doc'
-					? `/api/companies/${encodeURIComponent(companyId)}/documents/${encodeURIComponent(entry.id)}/archive`
-					: `/api/companies/${encodeURIComponent(companyId)}/sheets/${encodeURIComponent(entry.id)}/archive`;
+					? [`${api}/documents/${encodeURIComponent(entry.id)}/archive`, { archived }]
+					: entry.kind === 'sheet'
+						? [`${api}/sheets/${encodeURIComponent(entry.id)}/archive`, { archived }]
+						: [`${api}/library/archive`, { artifact_id: entry.id, archived }];
 			const response = await fetch(path, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				credentials: 'same-origin',
-				body: JSON.stringify({ archived })
+				body: JSON.stringify(body)
 			});
-			if (!response.ok) return;
+			if (!response.ok) {
+				actionFailure = failureSentence(
+					await responseFailure(response),
+					archived ? 'That could not be archived.' : 'That could not be restored.'
+				);
+				return;
+			}
 			if (entry.kind === 'sheet') {
 				sheets = await sheetJson<SheetRow[]>(companyId).catch(() => sheets);
-			} else {
+			} else if (entry.kind === 'doc') {
 				await documents.refresh();
+			} else {
+				await attention.refresh();
 			}
 			await loadArchived();
 		} finally {
@@ -132,10 +248,13 @@
 		}
 	}
 
-	type Filter = 'all' | 'docs' | 'sheets' | 'review' | 'pinned' | 'archived' | LibraryFileKind;
+	type Filter =
+		'all' | 'docs' | 'sheets' | 'review' | 'pinned' | 'archived' | 'yours' | LibraryFileKind;
 	const filter = $derived((page.url.searchParams.get('show') as Filter) || 'all');
 	const openFileId = $derived(page.url.searchParams.get('file') ?? '');
+	const openUploadId = $derived(page.url.searchParams.get('upload') ?? '');
 	let search = $state('');
+	const query = $derived(search.trim());
 
 	/* What Work produced on the company computer. The owner reads the Work graph; a collaborator's
 	 * projection carries no file locations, so files are the owner's view for now (S64 decision 5). */
@@ -156,6 +275,74 @@
 	);
 	const fileOpen = $derived(files.find((file) => file.id === openFileId) ?? null);
 
+	/* A kept file opens in the same viewer: an image, PDF or recording reads in place from a local
+	 * copy; anything else downloads from its row. */
+	const uploadRow = $derived(keptRows.find((row) => row.attachment_id === openUploadId) ?? null);
+	/* Keyed by value, so refreshing the kept list does not read an open file again. */
+	const uploadKey = $derived(
+		uploadRow && attachmentReadKind(uploadRow.canonical_media_type, uploadRow.canonical_name)
+			? JSON.stringify([
+					companyId,
+					uploadRow.attachment_id,
+					uploadRow.canonical_media_type,
+					uploadRow.canonical_name,
+					uploadRow.sender_actor_id,
+					uploadRow.created_at,
+					uploadRow.size_bytes
+				])
+			: ''
+	);
+	const uploadFile = $derived.by((): LibraryFile | null => {
+		if (!uploadKey) return null;
+		const [, id, mediaType, fileName, sender, createdAt, size] = JSON.parse(uploadKey);
+		const kind = attachmentReadKind(mediaType, fileName)!;
+		/* The viewer picks its reader from the locator's extension, so the locator carries one. */
+		const extension =
+			kind === 'pdf' && !/\.pdf$/i.test(fileName)
+				? '.pdf'
+				: kind === 'media' &&
+					  mediaType.startsWith('video/') &&
+					  !/\.(mp4|m4v|webm|ogv)$/i.test(fileName)
+					? '.mp4'
+					: '';
+		return {
+			id,
+			kind,
+			label: fileName,
+			uri: `${fileName}${extension}`,
+			createdBy: sender,
+			workId: null,
+			createdAt,
+			name: fileSize(size)
+		};
+	});
+	let objectUrl = '';
+	function releaseObjectUrl() {
+		if (objectUrl) URL.revokeObjectURL(objectUrl);
+		objectUrl = '';
+	}
+	$effect(() => releaseObjectUrl);
+	const uploadResolver = $derived.by(() => {
+		if (!uploadKey) return null;
+		const [target, id, mediaType, fileName] = JSON.parse(uploadKey) as string[];
+		return async () => {
+			try {
+				const url = await attachmentObjectUrl(target, id, mediaType, fileName);
+				releaseObjectUrl();
+				objectUrl = url;
+				return url;
+			} catch (cause) {
+				const status = (cause as { status?: number }).status;
+				throw new LibraryOpenError(
+					status === 404
+						? 'This file could not be read from the company computer. If it is asleep, try again in a moment.'
+						: failureSentence(cause, 'This file could not be opened.'),
+					cause instanceof Error ? cause.message : String(cause)
+				);
+			}
+		};
+	});
+
 	let pins = $state<string[]>([]);
 	$effect(() => {
 		pins = readPins(companyId);
@@ -167,8 +354,9 @@
 	let creator: LibraryNew | undefined = $state();
 	$effect(() => {
 		const create = page.url.searchParams.get('create');
-		if (!creator || (create !== 'doc' && create !== 'sheet')) return;
-		creator.open(create);
+		if (!creator || (create !== 'doc' && create !== 'sheet' && create !== 'upload')) return;
+		if (create === 'upload') creator.pick();
+		else creator.open(create);
 		const url = new URL(page.url);
 		url.searchParams.delete('create');
 		history.replaceState(history.state, '', url);
@@ -182,87 +370,129 @@
 				.filter((id): id is string => !!id)
 		)
 	);
+	type EntryKind = 'doc' | 'sheet' | 'upload' | LibraryFileKind;
 	type Entry = {
 		id: string;
-		kind: 'doc' | 'sheet' | LibraryFileKind;
+		kind: EntryKind;
 		title: string;
-		href: string;
+		href?: string;
 		updatedAt: string;
 		owner: string;
 		status: string;
 		review: boolean;
+		/** What the title filter matches besides the title, such as a file's name. */
+		also?: string;
+		/** Quiet second text in place of the owner: a size or a search excerpt. */
+		meta?: string;
+		/** A kept file was sent in a conversation, so deleting it removes it there too. */
+		sent?: boolean;
+		/** Search relevance order; absent outside a search. */
+		rank?: number;
 	};
 	const pinKey = (entry: Pick<Entry, 'kind' | 'id'>) => `${entry.kind}:${entry.id}`;
-	const isFile = (entry: Pick<Entry, 'kind'>) => entry.kind !== 'doc' && entry.kind !== 'sheet';
+	const isNative = (entry: Pick<Entry, 'kind'>) => entry.kind === 'doc' || entry.kind === 'sheet';
+	/** A file Work produced, as opposed to a document, a sheet or a file kept from the owner. */
+	const isFile = (entry: Pick<Entry, 'kind'>) => !isNative(entry) && entry.kind !== 'upload';
 	const fileHref = (id: string) => {
 		const query = new URLSearchParams(page.url.search);
+		query.delete('upload');
 		query.set('file', id);
 		return `${root}/library?${query}`;
 	};
-	const entries = $derived<Entry[]>(
-		[
-			...files.map((file) => ({
-				id: file.id,
-				kind: file.kind,
-				title: file.label,
-				href: fileHref(file.id),
-				updatedAt: file.createdAt,
-				owner: name(file.createdBy),
-				status: '',
-				review: !!file.workId && workWaitingOnOwner.has(file.workId)
-			})),
-			...documents.summaries
-				.filter((summary) => summary.document.status !== 'archived')
-				.map((summary) => ({
-					id: summary.document.id,
-					kind: 'doc' as const,
-					title: summary.document.title || 'Untitled document',
-					href: `${root}/library/documents?document=${encodeURIComponent(summary.document.id)}`,
-					updatedAt: summary.document.updated_at,
-					owner: name(summary.document.owner_actor_id),
-					status: summary.document.status,
-					review: summary.document.status === 'in_review' || requested.has(summary.document.id)
-				})),
-			...sheets.map((sheet) => ({
-				id: sheet.id,
-				kind: 'sheet' as const,
-				title: sheet.title || 'Untitled sheet',
-				href: `${root}/library/sheets?sheet=${encodeURIComponent(sheet.id)}`,
-				updatedAt: sheet.updated_at,
-				owner: name(sheet.owner_actor_id),
-				status: '',
-				review: false
-			}))
-		].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+	const uploadHref = (row: RetainedAttachment) => {
+		if (!attachmentReadKind(row.canonical_media_type, row.canonical_name))
+			return attachmentHref(companyId, row.attachment_id);
+		const query = new URLSearchParams(page.url.search);
+		query.delete('file');
+		query.set('upload', row.attachment_id);
+		return `${root}/library?${query}`;
+	};
+	const docEntry = (summary: DocumentSummary, archived = false): Entry => ({
+		id: summary.document.id,
+		kind: 'doc',
+		title: summary.document.title || 'Untitled document',
+		href: `${root}/library/documents?document=${encodeURIComponent(summary.document.id)}`,
+		updatedAt: summary.document.updated_at,
+		owner: name(summary.document.owner_actor_id),
+		status: archived ? '' : summary.document.status,
+		review:
+			!archived && (summary.document.status === 'in_review' || requested.has(summary.document.id))
+	});
+	const sheetEntry = (sheet: SheetRow): Entry => ({
+		id: sheet.id,
+		kind: 'sheet',
+		title: sheet.title || 'Untitled sheet',
+		href: `${root}/library/sheets?sheet=${encodeURIComponent(sheet.id)}`,
+		updatedAt: sheet.updated_at,
+		owner: name(sheet.owner_actor_id),
+		status: '',
+		review: false
+	});
+	const fileEntry = (file: LibraryFile, archived = false): Entry => ({
+		id: file.id,
+		kind: file.kind,
+		title: file.label,
+		href: archived ? undefined : fileHref(file.id),
+		updatedAt: file.createdAt,
+		owner: name(file.createdBy),
+		status: '',
+		review: !archived && !!file.workId && workWaitingOnOwner.has(file.workId),
+		also: file.name
+	});
+	const keptEntries = $derived<Entry[]>(
+		keptRows.map((row) => ({
+			id: row.attachment_id,
+			kind: 'upload' as const,
+			title: row.canonical_name,
+			href: uploadHref(row),
+			updatedAt: row.created_at,
+			owner: name(row.sender_actor_id),
+			status: '',
+			review: false,
+			meta: fileSize(row.size_bytes),
+			sent: row.message_id !== null
+		}))
 	);
-	const archivedEntries = $derived<Entry[]>(
-		[
-			...archivedDocs.map((summary) => ({
-				id: summary.document.id,
-				kind: 'doc' as const,
-				title: summary.document.title || 'Untitled document',
-				href: `${root}/library/documents?document=${encodeURIComponent(summary.document.id)}`,
-				updatedAt: summary.document.updated_at,
-				owner: name(summary.document.owner_actor_id),
-				status: '',
-				review: false
-			})),
-			...archivedSheets.map((sheet) => ({
-				id: sheet.id,
-				kind: 'sheet' as const,
-				title: sheet.title || 'Untitled sheet',
-				href: `${root}/library/sheets?sheet=${encodeURIComponent(sheet.id)}`,
-				updatedAt: sheet.updated_at,
-				owner: name(sheet.owner_actor_id),
-				status: '',
-				review: false
-			}))
-		].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+	const entries = $derived<Entry[]>([
+		...files.map((file) => fileEntry(file)),
+		...keptEntries,
+		...documents.summaries
+			.filter((summary) => summary.document.status !== 'archived')
+			.map((summary) => docEntry(summary)),
+		...sheets.map(sheetEntry)
+	]);
+	const archivedFiles = $derived(
+		archivedArtifacts.flatMap((artifact) => {
+			const kind = libraryKind(artifact);
+			if (!kind) return [];
+			const name = artifact.uri.split(/[?#]/)[0].split('/').filter(Boolean).at(-1) ?? artifact.uri;
+			return [
+				fileEntry(
+					{
+						id: artifact.id,
+						kind,
+						label: artifact.label.trim() || name,
+						uri: artifact.uri,
+						createdBy: artifact.created_by,
+						workId: artifact.work_id,
+						createdAt: artifact.created_at,
+						name
+					},
+					true
+				)
+			];
+		})
 	);
+	const archivedEntries = $derived<Entry[]>([
+		...archivedDocs.map((summary) => docEntry(summary, true)),
+		...archivedSheets.map(sheetEntry),
+		...archivedFiles
+	]);
 	const FILE_KINDS: LibraryFileKind[] = ['site', 'deck', 'image', 'pdf', 'media', 'text', 'office'];
-	const KIND_ICON: Record<'doc' | 'sheet' | LibraryFileKind, typeof Library> = {
+	const KIND_ICON: Record<EntryKind, typeof Library> = {
 		doc: FileText,
 		sheet: Sheet,
+		upload: Upload,
 		site: Globe,
 		deck: Presentation,
 		image: ImageIcon,
@@ -271,11 +501,20 @@
 		text: NotebookText,
 		office: FileSpreadsheet
 	};
+	const kindLabel = (kind: EntryKind) =>
+		kind === 'doc'
+			? 'Document'
+			: kind === 'sheet'
+				? 'Sheet'
+				: kind === 'upload'
+					? 'From you'
+					: LIBRARY_KIND_LABEL[kind];
 	const count = (kind: Entry['kind']) => entries.filter((entry) => entry.kind === kind).length;
 	const counts = $derived({
 		all: entries.length,
 		docs: count('doc'),
 		sheets: count('sheet'),
+		yours: keptEntries.length,
 		review: entries.filter((entry) => entry.review).length,
 		archived: archivedEntries.length
 	});
@@ -283,24 +522,138 @@
 	const fileKinds = $derived(
 		FILE_KINDS.map((kind) => ({ kind, total: count(kind) })).filter((row) => row.total > 0)
 	);
+
+	/* A pinned document older than the loaded pages is read once by id, so a pin never vanishes. */
+	let pinnedExtra = $state<Record<string, Entry>>({});
+	const pinLookups = new Set<string>();
+	$effect(() => {
+		const target = companyId;
+		for (const key of pins) {
+			if (!key.startsWith('doc:') || pinLookups.has(`${target}|${key}`)) continue;
+			if (documents.status === 'unknown' || entries.some((entry) => pinKey(entry) === key))
+				continue;
+			pinLookups.add(`${target}|${key}`);
+			void getDocument(target, key.slice(4))
+				.then((view) => {
+					if (target !== companyId || view.document.status === 'archived') return;
+					pinnedExtra = { ...pinnedExtra, [key]: docEntry(view) };
+				})
+				.catch(() => {
+					/* A pin to a document this person can no longer read stays out of view. */
+				});
+		}
+	});
 	const pinned = $derived(
 		pins
-			.map((key) => entries.find((entry) => pinKey(entry) === key))
+			.map((key) => entries.find((entry) => pinKey(entry) === key) ?? pinnedExtra[key])
 			.filter((entry): entry is Entry => !!entry)
 	);
-	const shown = $derived(
-		(filter === 'archived' ? archivedEntries : entries).filter(
-			(entry) =>
-				(filter === 'all' ||
-					filter === 'archived' ||
-					(filter === 'docs' && entry.kind === 'doc') ||
-					(filter === 'sheets' && entry.kind === 'sheet') ||
-					(filter === 'review' && entry.review) ||
-					(filter === 'pinned' && pins.includes(pinKey(entry))) ||
-					entry.kind === filter) &&
-				(!search.trim() || entry.title.toLowerCase().includes(search.trim().toLowerCase()))
-		)
+
+	/* Searching reads inside documents on the server, past the loaded pages; sheets and files match
+	 * by title and file name here. Archived and pinned views filter what they already hold. */
+	const searchesDocuments = $derived(!!query && (filter === 'all' || filter === 'docs'));
+	const docSearch = documentSearch({
+		company: () => companyId,
+		partition: () => principal.view?.cache_partition ?? '',
+		authorized: () => !!principal.view
+	});
+	$effect(() => {
+		docSearch.setQuery(searchesDocuments ? query : '');
+	});
+	function excerpt(text: string, phrase: string): string {
+		const flat = text.replace(/\s+/g, ' ').trim();
+		const at = flat.toLowerCase().indexOf(phrase.toLowerCase());
+		if (at <= 40) return flat;
+		return `…${flat.slice(at - 30)}`;
+	}
+	const matches = (entry: Entry) =>
+		!query || `${entry.title} ${entry.also ?? ''}`.toLowerCase().includes(query.toLowerCase());
+	const inView = (entry: Entry) =>
+		filter === 'all' ||
+		filter === 'archived' ||
+		filter === 'pinned' ||
+		(filter === 'docs' && entry.kind === 'doc') ||
+		(filter === 'sheets' && entry.kind === 'sheet') ||
+		(filter === 'yours' && entry.kind === 'upload') ||
+		(filter === 'review' && entry.review) ||
+		entry.kind === filter;
+	const listed = $derived.by(() => {
+		const pool = filter === 'archived' ? archivedEntries : filter === 'pinned' ? pinned : entries;
+		const local = pool.filter((entry) => inView(entry) && matches(entry));
+		if (!searchesDocuments) return local;
+		/* Server hits lead in relevance order; title matches among loaded documents fill in while
+		 * the search is on its way. */
+		const hits = docSearch.hits.map((hit, rank): Entry => {
+			const known = documents.summaries.find((summary) => summary.document.id === hit.document_id);
+			return {
+				...(known
+					? docEntry(known)
+					: {
+							id: hit.document_id,
+							kind: 'doc' as const,
+							title: hit.title || 'Untitled document',
+							href: `${root}/library/documents?document=${encodeURIComponent(hit.document_id)}`,
+							updatedAt: hit.updated_at,
+							owner: '',
+							status: '',
+							review: false
+						}),
+				meta: hit.snippet ? excerpt(hit.snippet, query) : undefined,
+				rank
+			};
+		});
+		const found = new Set(hits.map((hit) => hit.id));
+		return [...hits, ...local.filter((entry) => entry.kind !== 'doc' || !found.has(entry.id))];
+	});
+
+	type Sort = 'updated' | 'oldest' | 'name' | 'name-desc';
+	const sortParam = $derived(page.url.searchParams.get('sort') as Sort | null);
+	const sort = $derived<Sort>(
+		sortParam && ['updated', 'oldest', 'name', 'name-desc'].includes(sortParam)
+			? sortParam
+			: 'updated'
 	);
+	const byName = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
+	const shown = $derived.by(() => {
+		/* A search without a chosen order keeps the best matches first. */
+		if (searchesDocuments && !sortParam)
+			return listed.toSorted(
+				(a, b) =>
+					(a.rank ?? Infinity) - (b.rank ?? Infinity) ||
+					Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
+			);
+		return listed.toSorted((a, b) => {
+			if (sort === 'name') return byName.compare(a.title, b.title);
+			if (sort === 'name-desc') return byName.compare(b.title, a.title);
+			const age = Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
+			return sort === 'oldest' ? -age : age;
+		});
+	});
+	function sortBy(column: 'name' | 'updated') {
+		const next: Sort =
+			column === 'name'
+				? sort === 'name'
+					? 'name-desc'
+					: 'name'
+				: sort === 'updated'
+					? 'oldest'
+					: 'updated';
+		const url = new URL(page.url);
+		if (next === 'updated') url.searchParams.delete('sort');
+		else url.searchParams.set('sort', next);
+		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+	}
+	const sortTitle = (column: 'name' | 'updated') =>
+		column === 'name'
+			? sort === 'name'
+				? 'Sorted A to Z; click for Z to A'
+				: 'Sort by name, A to Z'
+			: sort === 'updated'
+				? 'Newest first; click for oldest first'
+				: sort === 'oldest'
+					? 'Oldest first; click for newest first'
+					: 'Sort by last update, newest first';
+
 	const loading = $derived(documents.status === 'unknown' || !sheetsLoaded);
 	const FILTERS: { key: Filter; label: string }[] = [
 		{ key: 'all', label: 'All files' },
@@ -312,17 +665,24 @@
 	const filterLabel = (key: Filter) =>
 		key === 'pinned'
 			? 'Pinned'
-			: (FILTERS.find((item) => item.key === key)?.label ??
-				(FILE_KINDS.includes(key as LibraryFileKind)
-					? LIBRARY_KIND_LABEL[key as LibraryFileKind]
-					: 'All files'));
+			: key === 'yours'
+				? 'From you'
+				: (FILTERS.find((item) => item.key === key)?.label ??
+					(FILE_KINDS.includes(key as LibraryFileKind)
+						? LIBRARY_KIND_LABEL[key as LibraryFileKind]
+						: 'All files'));
 
-	const filterHref = (key: Filter) =>
-		key === 'all' ? `${root}/library` : `${root}/library?show=${key}`;
+	const filterHref = (key: Filter) => {
+		const url = new URLSearchParams();
+		if (key !== 'all') url.set('show', key);
+		if (sortParam) url.set('sort', sortParam);
+		const query = url.toString();
+		return query ? `${root}/library?${query}` : `${root}/library`;
+	};
 	const backHref = $derived(filterHref(filter));
 
 	function name(actorId: string): string {
-		if (actorId === 'owner') return 'You';
+		if (actorId === 'owner' || (!!actorId && actorId === viewer)) return 'You';
 		return (
 			personName(people.find((person) => person.actor_id === actorId)?.display ?? '') ||
 			actorId.replaceAll('-', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
@@ -332,6 +692,73 @@
 		({ draft: 'Draft', in_review: 'In review', accepted: 'Accepted' })[status] ?? '';
 	const statusTone = (status: string) =>
 		status === 'in_review' ? 'warning' : status === 'accepted' ? 'success' : 'muted';
+
+	/* Adding files: picked from the New menu, or dropped anywhere on the list. */
+	let dropping = $state(false);
+	const carriesFiles = (event: DragEvent) => owner && !!event.dataTransfer?.types.includes('Files');
+	function ondragover(event: DragEvent) {
+		if (!carriesFiles(event) || filter === 'archived') return;
+		event.preventDefault();
+		event.dataTransfer!.dropEffect = 'copy';
+		dropping = true;
+	}
+	function ondragleave(event: DragEvent) {
+		if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node))
+			dropping = false;
+	}
+	function ondrop(event: DragEvent) {
+		dropping = false;
+		if (!carriesFiles(event) || filter === 'archived') return;
+		event.preventDefault();
+		void creator?.upload([...(event.dataTransfer?.files ?? [])]);
+	}
+	async function uploaded() {
+		await loadKept();
+		if (filter !== 'yours') void goto(filterHref('yours'));
+	}
+
+	/* Deleting for good always names what goes, and only from Archived or From you. */
+	let confirmDialog: HTMLDialogElement | undefined = $state();
+	let confirming = $state<Entry | null>(null);
+	let deleting = $state(false);
+	let deleteFailure = $state('');
+	function askDelete(entry: Entry) {
+		confirming = entry;
+		deleteFailure = '';
+		confirmDialog?.showModal();
+	}
+	const deleteConsequence = (entry: Entry) =>
+		entry.kind === 'doc'
+			? 'Its versions, comments and reviews go with it. This cannot be undone.'
+			: entry.kind === 'sheet'
+				? 'Its history and saved versions go with it. This cannot be undone.'
+				: entry.sent
+					? 'It is also removed from the conversation it was sent in. This cannot be undone.'
+					: 'This cannot be undone.';
+	async function confirmDelete() {
+		const entry = confirming;
+		if (!entry || deleting) return;
+		deleting = true;
+		deleteFailure = '';
+		try {
+			if (entry.kind === 'doc') {
+				await deleteArchivedDocument(companyId, entry.id);
+				await loadArchived();
+			} else if (entry.kind === 'sheet') {
+				await sheetJson(companyId, `/${encodeURIComponent(entry.id)}`, { method: 'DELETE' });
+				await loadArchived();
+			} else {
+				await deleteAttachment(companyId, entry.id);
+				await loadKept();
+			}
+			if (pins.includes(pinKey(entry))) togglePin(pinKey(entry));
+			confirmDialog?.close();
+		} catch (cause) {
+			deleteFailure = failureSentence(cause, `“${entry.title}” was not deleted.`);
+		} finally {
+			deleting = false;
+		}
+	}
 </script>
 
 <CompanyTitle title="Library" {companyId} />
@@ -349,14 +776,14 @@
 			href={filterHref('all')}
 			label="All files"
 			icon={Library}
-			active={filter === 'all' && !fileOpen}
+			active={filter === 'all' && !fileOpen && !uploadFile}
 			count={counts.all || null}
 		/>
 		<SidebarRow
 			href={filterHref('review')}
 			label="Needs your review"
 			icon={Eye}
-			active={filter === 'review' && !fileOpen}
+			active={filter === 'review' && !fileOpen && !uploadFile}
 			count={counts.review || null}
 			todo
 			title="Documents and outcomes waiting on your judgement"
@@ -366,14 +793,14 @@
 				href={filterHref('docs')}
 				label="Documents"
 				icon={FileText}
-				active={filter === 'docs' && !fileOpen}
+				active={filter === 'docs' && !fileOpen && !uploadFile}
 				count={counts.docs || null}
 			/>
 			<SidebarRow
 				href={filterHref('sheets')}
 				label="Sheets"
 				icon={Sheet}
-				active={filter === 'sheets' && !fileOpen}
+				active={filter === 'sheets' && !fileOpen && !uploadFile}
 				count={counts.sheets || null}
 			/>
 			{#each fileKinds as row (row.kind)}
@@ -381,10 +808,20 @@
 					href={filterHref(row.kind)}
 					label={LIBRARY_KIND_LABEL[row.kind]}
 					icon={KIND_ICON[row.kind]}
-					active={filter === row.kind && !fileOpen}
+					active={filter === row.kind && !fileOpen && !uploadFile}
 					count={row.total}
 				/>
 			{/each}
+			{#if owner}
+				<SidebarRow
+					href={filterHref('yours')}
+					label="From you"
+					icon={Upload}
+					active={filter === 'yours' && !fileOpen}
+					count={counts.yours || null}
+					title="Files you added here or sent in a conversation"
+				/>
+			{/if}
 		</SidebarGroup>
 		{#if pinned.length}
 			<SidebarGroup label="Pinned" count={pinned.length}>
@@ -393,13 +830,14 @@
 						href={entry.href}
 						label={entry.title}
 						icon={Pin}
-						active={isFile(entry) && entry.id === openFileId}
+						active={(isFile(entry) && entry.id === openFileId) ||
+							(entry.kind === 'upload' && entry.id === openUploadId)}
 						title={`${entry.title} · ${entry.owner}`}
 					/>
 				{/each}
 			</SidebarGroup>
 		{/if}
-		{#if !loading && !entries.length && !search.trim()}
+		{#if !loading && !entries.length && !query}
 			<SidebarEmpty
 				text="Everything the team makes lands here: documents, sheets, sites, decks and images."
 			>
@@ -416,16 +854,16 @@
 			icon={ArchiveIcon}
 			active={filter === 'archived'}
 			count={counts.archived || null}
-			title="Documents and sheets taken out of every list; open one to restore it"
+			title="Taken out of every list. Restore anything here, or delete it for good."
 		/>
 	{/snippet}
 	{#snippet narrow()}
 		<!-- An open file has its own way back; the list's search and views step aside for it. -->
-		{#if !openFileId}<div class="library-narrow-search">
+		{#if !openFileId && !openUploadId}<div class="library-narrow-search">
 				<SidebarSearch bind:value={search} placeholder="Search files" />
 			</div>{/if}
-		<nav class="library-filters" aria-label="Library" hidden={!!openFileId}>
-			{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : []), FILTERS.at(-1)!] as item (item.key)}
+		<nav class="library-filters" aria-label="Library" hidden={!!openFileId || !!openUploadId}>
+			{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(owner && counts.yours ? [{ key: 'yours' as Filter, label: 'From you' }] : []), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : []), FILTERS.at(-1)!] as item (item.key)}
 				<a
 					href={filterHref(item.key)}
 					class:active={filter === item.key}
@@ -436,20 +874,59 @@
 	{/snippet}
 	{#if fileOpen}
 		<LibraryViewer {companyId} file={fileOpen} owner={name(fileOpen.createdBy)} {backHref} />
+	{:else if uploadFile && uploadResolver}
+		<LibraryViewer
+			{companyId}
+			file={uploadFile}
+			owner={name(uploadFile.createdBy)}
+			{backHref}
+			resolve={uploadResolver}
+		/>
 	{:else if openFileId && !loading && attention.view}
 		<Empty
 			title="This file is no longer in the Library"
-			info="A newer version replaced it, or the Work that made it was retired."
+			info="A newer version replaced it, it was archived, or the Work that made it was retired."
+		>
+			{#snippet action()}<a class="btn small" href={backHref}>Back to the Library</a>{/snippet}
+		</Empty>
+	{:else if uploadRow}
+		<Empty
+			title={uploadRow.canonical_name}
+			info="Browsers cannot show this kind of file. Download it to open it on your computer."
+		>
+			{#snippet action()}<a
+					class="btn small primary"
+					href={attachmentHref(companyId, uploadRow.attachment_id)}
+					download={uploadRow.canonical_name}>Download</a
+				><a class="btn small" href={backHref}>Back to the Library</a>{/snippet}
+		</Empty>
+	{:else if openUploadId && kept}
+		<Empty
+			title="This file is no longer kept"
+			info="It was deleted, or it is not one you added or sent."
 		>
 			{#snippet action()}<a class="btn small" href={backHref}>Back to the Library</a>{/snippet}
 		</Empty>
 	{:else}
-		<div class="page">
+		<div
+			class="page"
+			class:dropping
+			role="region"
+			aria-label={filterLabel(filter)}
+			{ondragover}
+			{ondragleave}
+			{ondrop}
+		>
 			<header class="head">
 				<h1>{filterLabel(filter)}</h1>
 				<span class="head-count">{shown.length || ''}</span>
+				{#if filter === 'yours' && keptUsage}<span
+						class="usage"
+						class:full={keptUsage.full}
+						title={keptUsage.detail}>{keptUsage.label}</span
+					>{/if}
 				<span class="spacer"></span>
-				<!-- One action, the one this view is about; All offers both behind one button. -->
+				<!-- One action, the one this view is about; All offers every way to add behind one button. -->
 				{#if filter === 'docs' || filter === 'sheets'}
 					{@const kind = filter === 'docs' ? 'doc' : 'sheet'}
 					<button
@@ -461,7 +938,16 @@
 							>{kind === 'doc' ? 'New document' : 'New sheet'}</span
 						></button
 					>
-				{:else}
+				{:else if filter === 'yours'}
+					<button
+						class="btn small primary new"
+						type="button"
+						title="Add files from this device; you can also drop them here"
+						onclick={() => creator?.pick()}
+						><Upload size={14} strokeWidth={2} aria-hidden="true" /><span>Upload files</span
+						></button
+					>
+				{:else if filter !== 'archived'}
 					<div class="new-menu">
 						<ActionMenu label="New">
 							{#snippet trigger()}<span class="new-trigger"
@@ -477,6 +963,12 @@
 							<button type="button" onclick={() => creator?.open('sheet')}
 								><Sheet size={14} strokeWidth={1.8} aria-hidden="true" />Sheet</button
 							>
+							{#if owner}<button
+									type="button"
+									title="Add files from this device; you can also drop them on the list"
+									onclick={() => creator?.pick()}
+									><Upload size={14} strokeWidth={1.8} aria-hidden="true" />Upload files…</button
+								>{/if}
 						</ActionMenu>
 					</div>
 				{/if}
@@ -497,23 +989,73 @@
 						title="Sheets could not be read"
 						details={sheetsFailure}
 					/>{/if}
+				{#if keptFailure && (filter === 'yours' || filter === 'all')}<Notice
+						tone="warning"
+						title={keptFailure}
+					>
+						{#snippet actions()}<button class="btn small" onclick={() => void loadKept()}
+								>Retry</button
+							>{/snippet}
+					</Notice>{/if}
+				{#if searchesDocuments && docSearch.failure}<Notice
+						tone="warning"
+						title="Only titles are being searched"
+						details={docSearch.failure}
+					/>{/if}
+				{#if actionFailure}<Notice tone="warning" title={actionFailure} role="alert">
+						{#snippet actions()}<button class="btn small" onclick={() => (actionFailure = '')}
+								>Dismiss</button
+							>{/snippet}
+					</Notice>{/if}
 				{#if loading && !entries.length}
 					<Skeleton label="Loading the Library" variant="list" count={5} />
 				{:else if shown.length}
 					<div class="table" role="list">
-						<div class="table-head" aria-hidden="true">
-							<span>Name</span><span>Owner</span><span>Updated</span>
+						<div class="table-head">
+							<button
+								type="button"
+								class="sort"
+								class:sorted={sort === 'name' || sort === 'name-desc'}
+								title={sortTitle('name')}
+								onclick={() => sortBy('name')}
+								>Name{#if sort === 'name'}<ArrowUp
+										size={12}
+										strokeWidth={2}
+										aria-hidden="true"
+									/>{:else if sort === 'name-desc'}<ArrowDown
+										size={12}
+										strokeWidth={2}
+										aria-hidden="true"
+									/>{/if}</button
+							><span aria-hidden="true">Owner</span><button
+								type="button"
+								class="sort"
+								class:sorted={!!sortParam && (sort === 'updated' || sort === 'oldest')}
+								title={sortTitle('updated')}
+								onclick={() => sortBy('updated')}
+								>Updated{#if sortParam === 'updated' || sort === 'oldest'}{#if sort === 'oldest'}<ArrowUp
+											size={12}
+											strokeWidth={2}
+											aria-hidden="true"
+										/>{:else}<ArrowDown
+											size={12}
+											strokeWidth={2}
+											aria-hidden="true"
+										/>{/if}{/if}</button
+							>
 						</div>
 						{#each shown as entry (entry.kind + entry.id)}
-							<Item title={entry.title} meta={entry.owner} href={entry.href} unread={entry.review}>
+							<Item
+								title={entry.title}
+								meta={entry.meta ?? entry.owner}
+								href={entry.href}
+								unread={entry.review}
+								dim={filter === 'archived'}
+							>
 								{#snippet leading()}{@const KindIcon = KIND_ICON[entry.kind]}<KindIcon
 										size={15}
 										strokeWidth={1.8}
-										aria-label={entry.kind === 'doc'
-											? 'Document'
-											: entry.kind === 'sheet'
-												? 'Sheet'
-												: LIBRARY_KIND_LABEL[entry.kind as LibraryFileKind]}
+										aria-label={kindLabel(entry.kind)}
 									/>{/snippet}
 								{#snippet trailing()}
 									{#if entry.review}<span class="review">Needs review</span
@@ -526,57 +1068,142 @@
 								{/snippet}
 								{#snippet actions()}
 									<ActionMenu label={`Actions for ${entry.title}`}>
-										<a href={entry.href}>Open</a>
+										{#if entry.href}<a href={entry.href}>Open</a>{/if}
 										{#if filter !== 'archived'}<button onclick={() => togglePin(pinKey(entry))}
 												>{pins.includes(pinKey(entry)) ? 'Unpin' : 'Pin to the sidebar'}</button
 											>{/if}
-										{#if entry.kind === 'doc' || entry.kind === 'sheet'}
-											{@const native = entry as Entry & { kind: 'doc' | 'sheet' }}
+										{#if isNative(entry) && filter !== 'archived'}<a
+												href={`${entry.href}&rename=1`}
+												title="Open it with the title ready to change">Rename</a
+											>{/if}
+										{#if isNative(entry) || (isFile(entry) && owner)}
 											{#if filter === 'archived'}<button
 													disabled={!!archiveBusy}
-													onclick={() => void setArchived(native, false)}>Restore</button
+													onclick={() => void setArchived(entry, false)}>Restore</button
 												>{:else}<button
 													disabled={!!archiveBusy}
 													title="Out of the Library lists, kept under Archived; restore it any time."
-													onclick={() => void setArchived(native, true)}>Archive</button
+													onclick={() => void setArchived(entry, true)}>Archive</button
 												>{/if}
 										{/if}
+										{#if entry.kind === 'upload'}<a
+												href={attachmentHref(companyId, entry.id)}
+												download={entry.title}>Download</a
+											><button
+												class="danger"
+												title="Frees room for new files"
+												onclick={() => askDelete(entry)}>Delete…</button
+											>{/if}
+										{#if filter === 'archived' && isNative(entry)}<button
+												class="danger"
+												onclick={() => askDelete(entry)}>Delete permanently…</button
+											>{/if}
 									</ActionMenu>
 								{/snippet}
 							</Item>
 						{/each}
-						{#if documents.hasMore && filter !== 'sheets'}<button
+						{#if searchesDocuments && docSearch.hasMore}<button
+								class="more"
+								disabled={docSearch.loadingMore}
+								onclick={() => docSearch.loadMore()}
+								>{docSearch.loadingMore ? 'Loading…' : 'More matching documents'}</button
+							>{:else if !query && filter === 'archived' && archivedCursor}<button
+								class="more"
+								disabled={archivedLoadingMore}
+								onclick={() => void loadMoreArchived()}
+								>{archivedLoadingMore ? 'Loading…' : 'Load more archived documents'}</button
+							>{:else if !searchesDocuments && documents.hasMore && (filter === 'all' || filter === 'docs' || filter === 'review')}<button
 								class="more"
 								disabled={documents.loadingMore}
 								onclick={() => documents.loadMore()}
 								>{documents.loadingMore ? 'Loading…' : 'Load more documents'}</button
 							>{/if}
 					</div>
+				{:else if searchesDocuments && docSearch.loading}
+					<div class="searching"><Pending label="Searching inside documents" /></div>
 				{:else}
 					<Empty
-						title={search
+						title={query
 							? 'Nothing matches that search'
 							: filter === 'review'
 								? 'Nothing is waiting for your review'
 								: filter === 'archived'
 									? 'Nothing is archived'
-									: 'Nothing here yet'}
-						info="Documents, sheets and everything the team makes, such as sites, decks and images, appear here as they work."
+									: filter === 'yours'
+										? 'Nothing from you yet'
+										: 'Nothing here yet'}
+						info={filter === 'yours'
+							? 'Files you add here or send in a conversation are kept here.'
+							: query && !searchesDocuments && filter !== 'archived'
+								? 'This view matches titles and file names. All files also searches inside documents.'
+								: 'Documents, sheets and everything the team makes, such as sites, decks and images, appear here as they work.'}
 					>
-						{#snippet action()}{#if !search && filter !== 'review' && filter !== 'archived'}<button
+						{#snippet action()}{#if query && !searchesDocuments && filter !== 'archived'}<a
+									class="btn small"
+									href={filterHref('all')}>Search all files</a
+								>{:else if !query && filter === 'yours'}<button
+									class="btn small"
+									type="button"
+									onclick={() => creator?.pick()}>Upload files</button
+								>{:else if !query && filter !== 'review' && filter !== 'archived'}<button
 									class="btn small"
 									type="button"
 									onclick={() => creator?.open(filter === 'sheets' ? 'sheet' : 'doc')}
 									>{filter === 'sheets' ? 'New sheet' : 'New document'}</button
+								>{/if}{#if !query && filter === 'archived' && archivedCursor}<button
+									class="btn small"
+									type="button"
+									onclick={() => void loadMoreArchived()}>Load more archived documents</button
+								>{/if}{#if !searchesDocuments && !query && documents.hasMore && (filter === 'all' || filter === 'docs' || filter === 'review')}<button
+									class="btn small"
+									type="button"
+									disabled={documents.loadingMore}
+									onclick={() => documents.loadMore()}>Load more documents</button
 								>{/if}{/snippet}
 					</Empty>
 				{/if}
 			</div>
+			{#if dropping}
+				<div class="drop-veil" aria-hidden="true">
+					<Upload size={20} strokeWidth={1.8} />
+					<span>Drop to add to the Library</span>
+				</div>
+			{/if}
 		</div>
 	{/if}
 </SidebarShell>
 
-<LibraryNew bind:this={creator} {companyId} />
+<LibraryNew bind:this={creator} {companyId} onuploaded={() => void uploaded()} />
+
+<dialog
+	bind:this={confirmDialog}
+	class="confirm"
+	aria-labelledby="library-confirm-title"
+	oncancel={(event) => {
+		if (deleting) event.preventDefault();
+	}}
+	onclose={() => (confirming = null)}
+>
+	{#if confirming}
+		<h2 id="library-confirm-title">Delete “{confirming.title}” permanently?</h2>
+		<p>{deleteConsequence(confirming)}</p>
+		{#if deleteFailure}<p class="confirm-failure" role="alert">{deleteFailure}</p>{/if}
+		<div class="confirm-actions">
+			<button
+				type="button"
+				class="btn small"
+				disabled={deleting}
+				onclick={() => confirmDialog?.close()}>Cancel</button
+			>
+			<button
+				type="button"
+				class="btn small danger"
+				disabled={deleting}
+				onclick={() => void confirmDelete()}>{deleting ? 'Deleting…' : 'Delete'}</button
+			>
+		</div>
+	{/if}
+</dialog>
 
 <style>
 	.library-narrow-search {
@@ -614,6 +1241,7 @@
 	}
 	.page {
 		container: page / inline-size;
+		position: relative;
 		display: grid;
 		grid-template-rows: auto minmax(0, 1fr);
 		width: 100%;
@@ -635,6 +1263,18 @@
 	.head-count {
 		color: var(--text-tertiary);
 		font-variant-numeric: tabular-nums;
+	}
+	.usage {
+		color: var(--text-tertiary);
+		font-variant-numeric: tabular-nums;
+		cursor: help;
+	}
+	.usage::before {
+		content: '·';
+		margin-right: 8px;
+	}
+	.usage.full {
+		color: var(--state-warning, var(--intent-authority));
 	}
 	.spacer {
 		flex: 1;
@@ -690,17 +1330,40 @@
 	}
 	.table-head {
 		display: flex;
+		align-items: center;
 		gap: 10px;
 		border-bottom: 1px solid var(--border);
-		padding: 8px 16px 8px 44px;
+		padding: 6px 16px 6px 44px;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
-	.table-head span:first-child {
-		flex: 1;
+	.table-head > :first-child {
+		margin-right: auto;
 	}
-	.table-head span:nth-child(2) {
+	.table-head span {
 		display: none;
+	}
+	/* The column names sort the list; they stay as quiet as the labels they replace. */
+	.sort {
+		display: inline-flex;
+		align-items: center;
+		justify-content: flex-start;
+		gap: 3px;
+		padding: 2px 4px;
+		margin: 0 -4px;
+		border: 0;
+		border-radius: var(--radius-control);
+		background: transparent;
+		color: inherit;
+		font: inherit;
+		cursor: pointer;
+	}
+	.sort:hover {
+		background: var(--wash-hover);
+		color: var(--text-secondary);
+	}
+	.sort.sorted {
+		color: var(--text-secondary);
 	}
 	.review {
 		color: var(--intent-authority);
@@ -716,6 +1379,59 @@
 	}
 	.more:hover {
 		background: var(--surface-hover);
+	}
+	.searching {
+		display: grid;
+		place-items: center;
+		padding: 40px 0;
+	}
+	:global(.action-menu-panel) .danger {
+		color: var(--state-danger);
+	}
+	/* A file held over the list: the whole list is the target, quietly outlined. */
+	.drop-veil {
+		position: absolute;
+		inset: 6px;
+		z-index: 2;
+		display: grid;
+		place-content: center;
+		justify-items: center;
+		gap: 8px;
+		border: 1.5px dashed color-mix(in srgb, var(--intent-conversation) 55%, var(--border));
+		border-radius: var(--radius-lg);
+		background: color-mix(in srgb, var(--surface) 88%, transparent);
+		color: var(--text-secondary);
+		pointer-events: none;
+	}
+	.confirm {
+		width: min(420px, calc(100vw - 32px));
+		padding: 18px 20px 16px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-lg);
+		background: var(--surface-raised);
+		box-shadow: var(--shadow-float, var(--shadow-soft));
+		color: var(--ink);
+	}
+	.confirm::backdrop {
+		background: rgba(34, 39, 51, 0.18);
+	}
+	.confirm h2 {
+		margin: 0 0 8px;
+		font-size: var(--t-head);
+		font-weight: 600;
+		overflow-wrap: anywhere;
+	}
+	.confirm p {
+		margin: 0 0 14px;
+		color: var(--text-secondary);
+	}
+	.confirm .confirm-failure {
+		color: var(--state-danger);
+	}
+	.confirm-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 8px;
 	}
 	@media (max-width: 760px) {
 		.new span,

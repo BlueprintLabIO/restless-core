@@ -1,0 +1,179 @@
+/* Files the owner keeps in the company: ones sent in a conversation and ones added straight to the
+ * Library (S64). Both are the same retained attachments, under the same per-person and company
+ * limits; the gateway lists them for the owner and serves each one by id. */
+import { responseFailure } from './failure.ts';
+
+/** The most files one upload carries and the largest one file may be (the gateway's own caps). */
+export const MAX_UPLOAD_FILES = 6;
+export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+
+export interface UploadedAttachment {
+	id: string;
+	name: string;
+	media_type: string;
+	size_bytes: number;
+}
+
+export interface RetainedAttachment {
+	attachment_id: string;
+	sender_actor_id: string;
+	target_actor_id: string;
+	canonical_name: string;
+	canonical_media_type: string;
+	size_bytes: number;
+	/** Null for a file added straight to the Library. */
+	message_id: number | null;
+	created_at: string;
+	purge_requested_at: string | null;
+	purged_at: string | null;
+}
+
+export interface AttachmentUsage {
+	retained_files: number;
+	retained_bytes: number;
+	purge_pending_files: number;
+	purge_pending_bytes: number;
+}
+
+export interface AttachmentLimits {
+	retained_files: number;
+	retained_bytes: number;
+	per_principal_files: number;
+	per_principal_bytes: number;
+}
+
+export interface AttachmentInventory {
+	attachments: RetainedAttachment[];
+	usage: AttachmentUsage;
+	limits: AttachmentLimits;
+}
+
+interface InventoryPage extends AttachmentInventory {
+	next_before_created_at: string | null;
+	next_before_attachment_id: string | null;
+	has_more: boolean;
+}
+
+const base = (company: string) => `/api/companies/${encodeURIComponent(company)}/attachments`;
+
+/** Where one kept file is served. */
+export function attachmentHref(company: string, id: string): string {
+	return `${base(company)}/${encodeURIComponent(id)}`;
+}
+
+/** Every file still kept. The company holds at most a few hundred, so this reads them all. */
+export async function listRetainedAttachments(
+	company: string,
+	signal?: AbortSignal
+): Promise<AttachmentInventory> {
+	const attachments: RetainedAttachment[] = [];
+	let cursor: { created: string; id: string } | null = null;
+	let last: InventoryPage | null = null;
+	for (let pages = 0; pages < 12; pages++) {
+		const query = new URLSearchParams({ limit: '100' });
+		if (cursor) {
+			query.set('before_created_at', cursor.created);
+			query.set('before_attachment_id', cursor.id);
+		}
+		const response = await fetch(`${base(company)}?${query}`, {
+			credentials: 'same-origin',
+			cache: 'no-store',
+			signal
+		});
+		if (!response.ok) throw await responseFailure(response);
+		last = (await response.json()) as InventoryPage;
+		attachments.push(...last.attachments);
+		if (!last.has_more || !last.next_before_created_at || !last.next_before_attachment_id) break;
+		cursor = { created: last.next_before_created_at, id: last.next_before_attachment_id };
+	}
+	return {
+		attachments: attachments.filter((row) => !row.purge_requested_at && !row.purged_at),
+		usage: last!.usage,
+		limits: last!.limits
+	};
+}
+
+/** Add files to the company with no conversation message, six at a time. Each batch is whole or
+ * nothing; a failure carries the files earlier batches already added as `added`. */
+export async function uploadAttachments(
+	company: string,
+	files: readonly File[]
+): Promise<UploadedAttachment[]> {
+	const added: UploadedAttachment[] = [];
+	for (let start = 0; start < files.length; start += MAX_UPLOAD_FILES) {
+		const form = new FormData();
+		for (const file of files.slice(start, start + MAX_UPLOAD_FILES))
+			form.append('file', file, file.name);
+		let response: Response;
+		try {
+			response = await fetch(base(company), {
+				method: 'POST',
+				credentials: 'same-origin',
+				body: form
+			});
+		} catch (cause) {
+			throw Object.assign(cause instanceof Error ? cause : new Error(String(cause)), { added });
+		}
+		if (!response.ok) throw Object.assign(await responseFailure(response), { added });
+		added.push(...((await response.json()) as { attachments: UploadedAttachment[] }).attachments);
+	}
+	return added;
+}
+
+/** Delete one kept file for good, wherever it was sent. */
+export async function deleteAttachment(company: string, id: string): Promise<void> {
+	const response = await fetch(attachmentHref(company, id), {
+		method: 'DELETE',
+		credentials: 'same-origin',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ reason: 'The owner deleted this file from the Library.' })
+	});
+	if (!response.ok) throw await responseFailure(response);
+}
+
+const RASTER = /^image\/(png|jpeg|gif|webp|avif)$/i;
+/* No `+` suffix: a browser renders any `…+xml` type as a document. */
+const MEDIA = /^(audio|video)\/[a-z0-9.-]+$/i;
+
+/** How the Library can read a kept file in place, or null when it downloads instead. Only types a
+ * browser shows without running anything qualify: raster images, PDFs, audio and video. */
+export function attachmentReadKind(
+	mediaType: string,
+	name: string
+): 'image' | 'pdf' | 'media' | null {
+	const type = mediaType.split(';')[0].trim().toLowerCase();
+	if (RASTER.test(type)) return 'image';
+	if (type === 'application/pdf' || (type === 'application/octet-stream' && /\.pdf$/i.test(name)))
+		return 'pdf';
+	if (MEDIA.test(type)) return 'media';
+	return null;
+}
+
+/** Read a kept file into this page as a typed local URL, so an image or PDF shows in place while
+ * the gateway keeps serving every file as a download. The type is forced from the readable kinds,
+ * never taken from the file, so nothing active ever runs here. The caller revokes it. */
+export async function attachmentObjectUrl(
+	company: string,
+	id: string,
+	mediaType: string,
+	name: string
+): Promise<string> {
+	const kind = attachmentReadKind(mediaType, name);
+	if (!kind) throw new Error('This kind of file downloads rather than opening here.');
+	const response = await fetch(attachmentHref(company, id), {
+		credentials: 'same-origin',
+		cache: 'no-store'
+	});
+	if (!response.ok) throw await responseFailure(response);
+	const type = kind === 'pdf' ? 'application/pdf' : mediaType.split(';')[0].trim().toLowerCase();
+	return URL.createObjectURL(new Blob([await response.arrayBuffer()], { type }));
+}
+
+/** A size an owner reads: 840 KB, 3.2 MB. */
+export function fileSize(bytes: number): string {
+	if (bytes < 1024) return `${bytes} B`;
+	if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+	if (bytes < 1024 * 1024 * 1024)
+		return `${(bytes / (1024 * 1024)).toFixed(1).replace(/\.0$/, '')} MB`;
+	return `${(bytes / (1024 * 1024 * 1024)).toFixed(1).replace(/\.0$/, '')} GB`;
+}

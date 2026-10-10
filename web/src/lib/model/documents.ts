@@ -385,6 +385,26 @@ export function getDocuments(
 	return documentJson(`${documentsPath(company)}?${query}`, { signal });
 }
 
+/** Only archived documents, newest first, a page at a time. */
+export function getArchivedDocuments(
+	company: string,
+	cursor: DocumentListCursor | null = null,
+	limit = 50,
+	signal?: AbortSignal
+): Promise<DocumentListPage> {
+	const query = new URLSearchParams({ limit: String(limit), archived_only: 'true' });
+	if (cursor) {
+		query.set('before_updated_at', cursor.updated_at);
+		query.set('before_document_id', cursor.id);
+	}
+	return documentJson(`${documentsPath(company)}?${query}`, { signal });
+}
+
+/** Delete an archived document for good. */
+export async function deleteArchivedDocument(company: string, document: string): Promise<void> {
+	await documentJson(documentsPath(company, document), { method: 'DELETE' });
+}
+
 export function createDocument(
 	company: string,
 	input: CreateDocumentInput,

@@ -28,8 +28,16 @@
 		companyId,
 		file,
 		owner,
-		backHref
-	}: { companyId: string; file: LibraryFile; owner: string; backHref: string } = $props();
+		backHref,
+		resolve = null
+	}: {
+		companyId: string;
+		file: LibraryFile;
+		owner: string;
+		backHref: string;
+		/** Where this file is read from, when it is not a Work file the gateway opens by id. */
+		resolve?: (() => Promise<string>) | null;
+	} = $props();
 
 	let url = $state('');
 	let failure = $state('');
@@ -45,7 +53,7 @@
 		loading = true;
 		slide = 1;
 		total = 0;
-		void openLibraryFile(companyId, target)
+		void (resolve ? resolve() : openLibraryFile(companyId, target))
 			.then((next) => {
 				if (target === file.id) url = next;
 			})
