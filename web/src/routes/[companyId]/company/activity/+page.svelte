@@ -31,6 +31,7 @@
 	let historyFailure = $state<unknown>(null);
 	let historyReading = $state(false);
 	let historyCompany = '';
+	let waitingSeen: number | undefined;
 	function mergeHistory(rows: DecisionContinuation[]) {
 		const byId = new Map(history.map((row) => [row.id, row]));
 		for (const row of rows) byId.set(row.id, row);
@@ -57,7 +58,7 @@
 	$effect(() => {
 		const target = companyId;
 		/* An answer leaves the Inbox and lands here; read the newest page again when it does. */
-		void attention.view?.items.length;
+		const waiting = attention.view?.items.length;
 		untrack(() => {
 			if (target !== historyCompany) {
 				historyCompany = target;
@@ -65,8 +66,13 @@
 				historyNext = undefined;
 				historyLoaded = false;
 				historyFailure = null;
+				waitingSeen = waiting;
+				void readHistory();
+				return;
 			}
-			void readHistory();
+			if (waiting !== undefined && waitingSeen !== undefined && waiting !== waitingSeen)
+				void readHistory();
+			if (waiting !== undefined) waitingSeen = waiting;
 		});
 	});
 

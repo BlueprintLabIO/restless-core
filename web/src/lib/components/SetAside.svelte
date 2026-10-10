@@ -11,13 +11,15 @@
 	let items = $state<SetAside[]>([]);
 	let restoring = $state('');
 	let message = $state('');
+	let stale = $state('');
 
 	async function load() {
 		try {
 			items = await fetchSetAside(companyId);
+			stale = '';
 		} catch (cause) {
 			/* Keep what was listed; say it could not be refreshed only when there is a list. */
-			if (items.length) message = failureSentence(cause, 'Set aside could not be refreshed.');
+			stale = items.length ? failureSentence(cause, 'Set aside could not be refreshed.') : '';
 		}
 	}
 	$effect(() => {
@@ -43,11 +45,11 @@
 </script>
 
 {#if items.length || message}
-	<details class="set-aside" open={!!message || undefined}>
+	<details class="set-aside">
 		<summary title="Items you marked not needed. Restore one to bring it back."
 			>Set aside{#if items.length}<span>{items.length}</span>{/if}</summary
 		>
-		{#if message}<p class="set-aside-message" role="status">{message}</p>{/if}
+		{#if message || stale}<p class="set-aside-message" role="status">{message || stale}</p>{/if}
 		{#each items as entry (entry.item_id)}
 			<div class="set-aside-row">
 				<span class="set-aside-title" title={entry.title}>{entry.title}</span>
