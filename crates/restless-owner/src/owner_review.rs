@@ -125,8 +125,106 @@ pub(crate) async fn issue_review_ticket(
             "runtime generation changed; refresh the review",
         );
     }
-    let (source, path_and_query) = if reference.kind == "runtime-file" {
-        let (root, entry) = match runtime::runtime_review_file_root(&reference.uri) {
+    open_review_origin(
+        &state,
+        &company,
+        &reference.generation,
+        &reference.uri,
+        reference.kind == "runtime-file",
+        &item.id,
+    )
+    .await
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct LibraryTicketRequest {
+    pub(crate) artifact_id: Uuid,
+}
+
+/// Open one file Work recorded, from Library, in the same isolated, read-only origin a review
+/// uses (S64-T5). The reference must still be the available version at its locator; the file is
+/// probed before the ticket is issued, exactly as a review's is.
+pub(crate) async fn issue_library_ticket(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<LibraryTicketRequest>,
+) -> impl IntoResponse {
+    if let Err(error) = runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}"));
+    }
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    };
+    let artifact = match org.get_artifact_ref(input.artifact_id).await {
+        Ok(Some(artifact)) if artifact.work_id.is_some() => artifact,
+        Ok(_) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "library",
+                "this file is not one the company's Work recorded",
+            )
+        }
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    };
+    if artifact.state != restless_orgintel::ArtifactRefState::Available {
+        return api_error(
+            StatusCode::CONFLICT,
+            "library",
+            "this file was replaced by a newer version or is missing",
+        );
+    }
+    let Some(generation) = runtime::generation(&company).await.ok().flatten() else {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "runtime",
+            "the company computer is not running",
+        );
+    };
+    let is_file = runtime::runtime_review_file_root(&artifact.uri).is_ok();
+    if !is_file && runtime::runtime_http_target(&artifact.uri).is_err() {
+        return api_error(
+            StatusCode::CONFLICT,
+            "library",
+            "this file cannot be shown in the cockpit",
+        );
+    }
+    open_review_origin(
+        &state,
+        &company,
+        &generation,
+        &artifact.uri,
+        is_file,
+        &format!("artifact:{}", artifact.id),
+    )
+    .await
+}
+
+/// Probe one Runtime target and issue a ticket for its isolated origin. The cockpit never frames
+/// a target it has not just observed.
+async fn open_review_origin(
+    state: &OwnerState,
+    company: &str,
+    generation: &str,
+    uri: &str,
+    is_file: bool,
+    item_id: &str,
+) -> Response<Body> {
+    let company = company.to_string();
+    let (source, path_and_query) = if is_file {
+        let (root, entry) = match runtime::runtime_review_file_root(uri) {
             Ok(value) => value,
             Err(error) => {
                 return api_error(
@@ -138,7 +236,7 @@ pub(crate) async fn issue_review_ticket(
         };
         // Observe the exact file before claiming the outcome opens. The cockpit
         // must never frame a target it has not seen.
-        if let Err(error) = runtime::probe_runtime_review_file(&company, &reference.uri).await {
+        if let Err(error) = runtime::probe_runtime_review_file(&company, uri).await {
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "review",
@@ -148,7 +246,7 @@ pub(crate) async fn issue_review_ticket(
         let path = format!("/{entry}");
         (ReviewSource::Files { root, entry }, path)
     } else {
-        let target = match runtime::runtime_http_target(&reference.uri) {
+        let target = match runtime::runtime_http_target(uri) {
             Ok(target) => target,
             Err(error) => {
                 return api_error(
@@ -158,7 +256,7 @@ pub(crate) async fn issue_review_ticket(
                 )
             }
         };
-        if let Err(error) = runtime::probe_runtime_http(&company, &reference.uri).await {
+        if let Err(error) = runtime::probe_runtime_http(&company, uri).await {
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "review",
@@ -185,8 +283,8 @@ pub(crate) async fn issue_review_ticket(
         ticket,
         ReviewSession {
             company: company.clone(),
-            generation: reference.generation.clone(),
-            item_id: item.id.clone(),
+            generation: generation.to_string(),
+            item_id: item_id.to_string(),
             source,
             expected_host,
             expires_at: SystemTime::now() + REVIEW_TTL,

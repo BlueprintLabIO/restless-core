@@ -62,6 +62,7 @@
 				aria-expanded={open}
 				onclick={toggle}>{label}</button
 			>{:else}<span class="sidebar-title-label">{label}</span>{/if}
+		{#if count != null && count > 0}<b class="sidebar-title-count">{count}</b>{/if}
 		{#if children}<button
 				class="sidebar-fold"
 				type="button"
@@ -78,30 +79,29 @@
 				aria-label={action.label}
 				onclick={action.onclick}><Icon size={14} strokeWidth={2} /></button
 			>{/if}
-		{#if count != null && count > 0}<b class="sidebar-title-count">{count}</b>{/if}
 	</div>
 	{#if children && open}<div class="sidebar-items">{@render children()}</div>{/if}
 </div>
 
 <style>
-	/* Linear's section label: small, muted, the caret after it and only on hover; the rows keep the
-	 * same icon column as the views above them, so nothing is indented. */
+	/* A section label you can read: body size at weight 600 in secondary ink, the caret after it on
+	 * hover; the rows keep the same icon column as the views above them, so nothing is indented. */
 	.sidebar-group {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr);
 		gap: 1px;
-		margin-top: 14px;
+		margin-top: 12px;
 	}
 	.sidebar-title {
 		display: flex;
 		align-items: center;
-		gap: 2px;
-		height: 26px;
+		gap: 4px;
+		height: 30px;
 		padding: 0 4px 0 8px;
 		border-radius: var(--radius-control);
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-		font-weight: 500;
+		color: var(--text-secondary);
+		font-size: var(--t-body);
+		font-weight: 600;
 	}
 	.sidebar-title.active {
 		color: var(--ink);
@@ -191,11 +191,10 @@
 	}
 	.sidebar-title-count {
 		flex: none;
-		min-width: 18px;
-		padding: 0 4px;
+		padding: 0 2px;
 		color: var(--text-tertiary);
-		font-size: var(--t-label);
-		font-weight: 500;
+		font-size: var(--t-body);
+		font-weight: 400;
 		font-variant-numeric: tabular-nums;
 		text-align: center;
 	}

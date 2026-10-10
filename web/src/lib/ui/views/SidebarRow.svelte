@@ -1,8 +1,12 @@
 <script lang="ts">
-	/* One sidebar row: an icon, a label, and what waits there. A count that needs the owner is
-	 * marked; a plain total stays quiet; a problem is a red dot; an item waiting on the owner is an
-	 * amber dot whose tooltip says why. Detail belongs in the tooltip, never a second line. */
+	/* One sidebar row: an icon, a label, and what is true there. Rows are body size at weight 500 so
+	 * they read at a glance. A second line (`sub`) says what the person or goal is doing; a reading
+	 * on the right (`reading`) says a setting's value. Both take a semantic tone: working or live,
+	 * waiting on the owner, blocked or broken, unread. A count that needs the owner is filled; a plain
+	 * total stays quiet. The selected row is raised, like the selected top-navigation item. */
 	import type { Component, Snippet } from 'svelte';
+
+	export type SidebarTone = 'work' | 'wait' | 'block' | 'unread' | '';
 
 	let {
 		href,
@@ -14,6 +18,11 @@
 		todo = false,
 		problem = false,
 		dot,
+		sub,
+		subTone = '',
+		reading,
+		readingTone = '',
+		strong = false,
 		quiet = false,
 		indent = false,
 		leading,
@@ -33,13 +42,21 @@
 		problem?: boolean;
 		/** This item waits on the owner; the text is the dot's tooltip. */
 		dot?: string;
+		/** A second line: what this person or goal is doing. */
+		sub?: string;
+		subTone?: SidebarTone;
+		/** The current value, at the end of the row: "Connected", "4 keys". */
+		reading?: string;
+		readingTone?: SidebarTone;
+		/** Unread: the label is bold. */
+		strong?: boolean;
 		/** A secondary row, such as "12 more". */
 		quiet?: boolean;
 		/** Belongs to the row above it, outside a section (an archived goal under Archived). */
 		indent?: boolean;
-		/** Replaces the icon, for a mark that is the item's state, such as a goal's progress ring. */
+		/** Replaces the icon: an avatar, or a mark that is the item's state. */
 		leading?: Snippet;
-		/** Replaces the count. */
+		/** Replaces the count; extra lines under the label go in `sub`. */
 		trailing?: Snippet;
 		title?: string;
 	} = $props();
@@ -48,9 +65,16 @@
 {#snippet content()}
 	{#if leading}<i class="sidebar-icon">{@render leading()}</i>{:else if Icon}<i
 			class="sidebar-icon"
-			aria-hidden="true"><Icon size={15} strokeWidth={1.8} /></i
-		>{/if}<span>{label}</span
-	>{#if trailing}{@render trailing()}{:else if count != null && count > 0}<b
+			aria-hidden="true"><Icon size={16} strokeWidth={1.75} /></i
+		>{/if}<span class="sidebar-text"
+		><span class="sidebar-label" class:strong>{label}</span>{#if sub}<small
+				class="sidebar-sub {subTone}"
+				title={sub}>{sub}</small
+			>{/if}</span
+	>{#if trailing}{@render trailing()}{:else if reading}<span
+			class="sidebar-reading {readingTone}"
+			title={reading}>{reading}</span
+		>{:else if count != null && count > 0}<b
 			class="sidebar-count"
 			class:todo
 			aria-label={todo ? `${count} to do` : `${count}`}>{count}</b
@@ -63,6 +87,7 @@
 		class:active
 		class:quiet
 		class:indent
+		class:two={!!sub}
 		{href}
 		{title}
 		aria-current={active ? 'page' : undefined}>{@render content()}</a
@@ -71,6 +96,7 @@
 		class:active
 		class:quiet
 		class:indent
+		class:two={!!sub}
 		type="button"
 		{title}
 		aria-pressed={active}
@@ -81,57 +107,82 @@
 	.sidebar-row {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: 10px;
 		width: 100%;
-		height: 28px;
+		min-height: 34px;
 		padding: 0 8px;
 		border: 0;
-		border-radius: var(--radius-control);
+		border-radius: var(--radius-pane);
 		background: transparent;
-		color: var(--text-secondary);
+		color: var(--ink);
 		font: inherit;
 		font-size: var(--t-body);
+		font-weight: 500;
 		text-align: left;
 		text-decoration: none;
-		white-space: nowrap;
 		cursor: pointer;
 		transition:
 			background var(--motion-state) var(--ease-standard),
-			color var(--motion-state) var(--ease-standard);
+			box-shadow var(--motion-state) var(--ease-standard);
+	}
+	.sidebar-row.two {
+		align-items: flex-start;
+		min-height: 48px;
+		padding-top: 6px;
+		padding-bottom: 6px;
 	}
 	.sidebar-row.quiet {
-		height: 24px;
+		min-height: 28px;
 		color: var(--text-tertiary);
-		font-size: var(--t-label);
+		font-weight: 400;
 	}
 	.sidebar-row.indent {
-		padding-left: 26px;
+		padding-left: 34px;
 	}
 	.sidebar-icon {
 		display: inline-flex;
 		flex: none;
+		align-items: center;
+		min-height: 18px;
 	}
-	.sidebar-row > span {
+	.sidebar-row.two .sidebar-icon {
+		margin-top: 1px;
+	}
+	.sidebar-text {
+		display: grid;
 		flex: 1 1 auto;
 		min-width: 0;
+	}
+	.sidebar-label,
+	.sidebar-sub {
 		overflow: hidden;
 		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.sidebar-label.strong {
+		font-weight: 650;
+	}
+	.sidebar-sub {
+		color: var(--text-tertiary);
+		font-size: var(--t-body);
+		font-weight: 400;
 	}
 	.sidebar-row :global(svg) {
 		flex: none;
-		color: var(--text-tertiary);
+		color: var(--text-secondary);
 	}
 	.sidebar-row:hover {
 		background: var(--wash-hover);
-		color: var(--ink);
 	}
-	/* The current view: a firmer wash than hover, as in Linear; no card, border or shadow. */
+	/* The current view: raised, as the selected top-navigation item is. */
 	.sidebar-row.active {
-		background: var(--wash-press);
-		color: var(--ink);
-		font-weight: 500;
+		background: var(--surface-raised);
+		box-shadow:
+			var(--shadow-soft),
+			var(--bevel),
+			0 0 0 1px var(--border);
+		font-weight: 600;
 	}
-	.sidebar-row:hover :global(svg),
 	.sidebar-row.active :global(svg) {
 		color: var(--ink);
 	}
@@ -139,32 +190,70 @@
 		outline: 2px solid var(--intent-conversation);
 		outline-offset: -2px;
 	}
+	/* A reading gives way to the label: it truncates, with the whole value in its tooltip. */
+	.sidebar-reading {
+		flex: 0 1 auto;
+		min-width: 0;
+		max-width: 55%;
+		margin-left: auto;
+		overflow: hidden;
+		color: var(--text-tertiary);
+		font-weight: 400;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.sidebar-row:has(.sidebar-reading) .sidebar-text {
+		flex: 1 0 auto;
+		max-width: 60%;
+	}
 	.sidebar-count {
 		flex: none;
 		min-width: 18px;
-		padding: 0 5px;
+		padding: 0 2px;
 		color: var(--text-tertiary);
-		font-size: var(--t-label);
-		font-weight: 500;
+		font-weight: 400;
 		font-variant-numeric: tabular-nums;
 		line-height: 18px;
-		text-align: center;
+		text-align: right;
+	}
+	.sidebar-row.two .sidebar-count,
+	.sidebar-row.two .sidebar-reading {
+		margin-top: 1px;
 	}
 	.sidebar-count.todo {
+		min-width: 18px;
+		height: 18px;
+		padding: 0 5px;
 		border-radius: 9px;
-		background: color-mix(in srgb, var(--surface-attention) 22%, transparent);
-		color: var(--ink);
+		background: var(--intent-authority);
+		color: var(--on-primary);
+		font-size: var(--t-label);
+		font-weight: 600;
+		text-align: center;
+	}
+	.work {
+		color: var(--intent-feedback);
+	}
+	.wait {
+		color: var(--intent-authority);
+	}
+	.block {
+		color: var(--state-danger);
+	}
+	.unread {
+		color: var(--intent-conversation);
 	}
 	.sidebar-dot,
 	.sidebar-problem {
 		flex: none;
-		width: 6px;
-		height: 6px;
-		margin-right: 6px;
+		align-self: center;
+		width: 7px;
+		height: 7px;
+		margin-right: 4px;
 		border-radius: 50%;
 	}
 	.sidebar-dot {
-		background: var(--surface-attention, var(--state-warning));
+		background: var(--intent-authority);
 	}
 	.sidebar-problem {
 		background: var(--state-danger);

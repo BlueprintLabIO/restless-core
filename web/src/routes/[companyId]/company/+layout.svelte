@@ -1,8 +1,9 @@
 <script lang="ts">
-	/* Company is a settings area, as Linear's is: a quiet section list beside one pane. Each row
-	 * carries what waits on the owner there as a count, so setup reads as a short to-do list in the
-	 * navigation itself. Where the area is too narrow for both, the list steps out and every detail
-	 * page keeps a way back to the overview, which then lists the sections. */
+	/* Company is a settings area: a titled, searchable section list beside one pane. Each row shows
+	 * its area's current value ("Connected", "4 keys"), amber when it waits on the owner and red when
+	 * it cannot be read, so the navigation is also a status summary. Where the area is too narrow for
+	 * both, the list steps out and every detail page keeps a way back to the overview, which then
+	 * lists the sections. */
 	import { page } from '$app/state';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import LayoutGrid from '@lucide/svelte/icons/layout-grid';
@@ -13,8 +14,11 @@
 	import SidebarShell from '$lib/ui/views/SidebarShell.svelte';
 	import SidebarGroup from '$lib/ui/views/SidebarGroup.svelte';
 	import SidebarRow from '$lib/ui/views/SidebarRow.svelte';
+	import SidebarSearch from '$lib/ui/views/SidebarSearch.svelte';
+	import type { SidebarTone } from '$lib/ui/views/SidebarRow.svelte';
 
 	let { children } = $props();
+	let query = $state('');
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const overview = $derived(`/${companyId}/company`);
 	const detail = $derived(page.url.pathname !== overview);
@@ -36,7 +40,11 @@
 		todo?: number;
 		problem?: boolean;
 		tooltip?: string;
+		reading?: string;
+		tone?: SidebarTone;
 	};
+	const tone = (todo: number, unavailable: boolean): SidebarTone =>
+		unavailable ? 'block' : todo ? 'wait' : '';
 	const groups = $derived.by(() => {
 		const byKey = new Map(setup.rows.map((row) => [row.key, row]));
 		const out: { label: string; rows: NavRow[] }[] = [];
@@ -60,23 +68,37 @@
 							href: row.href,
 							icon: row.icon,
 							todo: row.todo,
-							problem: row.unavailable,
-							tooltip: row.value
+							tooltip: row.todo && row.task ? row.task : row.value,
+							reading: row.value,
+							tone: tone(row.todo, row.unavailable)
 						}
 					: {
 							key: target.key,
 							label: target.label,
 							href: companyPageHref(companyId, target),
 							icon: record!.icon,
-							problem: target.key === 'health' && !!setup.health && setup.health !== 'healthy',
 							tooltip:
 								target.key === 'health'
 									? 'Checks on the company computer, model and tools'
-									: 'Decisions, receipts and external actions'
+									: 'Decisions, receipts and external actions',
+							...(target.key === 'health' && setup.health
+								? setup.health === 'healthy'
+									? { reading: 'Healthy', tone: 'work' as const }
+									: { reading: 'Needs a look', tone: 'block' as const }
+								: {})
 						}
 			);
 		}
-		return out;
+		const q = query.trim().toLocaleLowerCase();
+		if (!q) return out;
+		return out
+			.map((group) => ({
+				...group,
+				rows: group.rows.filter((row) =>
+					`${group.label} ${row.label} ${row.reading ?? ''}`.toLocaleLowerCase().includes(q)
+				)
+			}))
+			.filter((group) => group.rows.length);
 	});
 	const active = (href: string) =>
 		href === overview ? page.url.pathname === overview : page.url.pathname.startsWith(href);
@@ -108,17 +130,20 @@
 {#if desktopFocus}
 	<div class="company-focus">{@render children()}</div>
 {:else}
-	<SidebarShell label="Company sections">
+	<SidebarShell label="Company sections" title="Company">
+		{#snippet top()}
+			<SidebarSearch bind:value={query} placeholder="Search settings" />
+		{/snippet}
 		{#snippet nav()}
-			<SidebarRow
-				href={overview}
-				label="Overview"
-				icon={LayoutGrid}
-				active={active(overview)}
-				count={setup.todos.length}
-				todo
-				title={setup.todos.length ? `${setup.todos.length} to finish setting up` : undefined}
-			/>
+			{#if !query.trim()}<SidebarRow
+					href={overview}
+					label="Overview"
+					icon={LayoutGrid}
+					active={active(overview)}
+					reading={setup.todos.length ? `${setup.todos.length} to finish` : 'All set'}
+					readingTone={setup.todos.length ? 'wait' : 'work'}
+					title={setup.todos.length ? `${setup.todos.length} to finish setting up` : undefined}
+				/>{/if}
 			{#each groups as group (group.label)}
 				<SidebarGroup label={group.label}>
 					{#each group.rows as row (row.key)}
@@ -127,13 +152,14 @@
 							label={row.label}
 							icon={row.icon}
 							active={active(row.href)}
-							count={row.todo}
-							todo
-							problem={row.problem}
+							reading={row.reading}
+							readingTone={row.tone}
 							title={row.tooltip}
 						/>
 					{/each}
 				</SidebarGroup>
+			{:else}
+				<p class="company-none">No settings match.</p>
 			{/each}
 		{/snippet}
 		{#snippet narrow()}
@@ -167,6 +193,10 @@
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 		text-decoration: none;
+	}
+	.company-none {
+		margin: 8px;
+		color: var(--text-tertiary);
 	}
 	.company-back:hover {
 		background: var(--wash-hover);

@@ -1324,6 +1324,21 @@ pub struct RecentDirectConversationRow {
     pub person_actor_id: String,
     pub last_message_id: i64,
     pub last_message_at: DateTime<Utc>,
+    /// Who wrote the latest Message, and its opening text (bounded), so a conversation list can
+    /// say what was said without opening it (S64-T3).
+    pub last_message_from: String,
+    pub last_message_preview: String,
+}
+
+/// A group Room the viewing Actor belongs to, by its latest visible Message.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct RecentGroupConversationRow {
+    pub room_id: Uuid,
+    pub title: String,
+    pub last_message_id: i64,
+    pub last_message_at: DateTime<Utc>,
+    pub last_message_from: String,
+    pub last_message_preview: String,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]

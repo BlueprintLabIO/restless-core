@@ -1,7 +1,8 @@
 <script lang="ts">
-	/* The Library: what the company has written and built, in one place. Docs
-	 * and sheets share one table, filtered from the side; each opens in its
-	 * editor. A new item is made untitled and opens straight into its editor. */
+	/* The Library: everything the company has written and made, in one place (S64). Native
+	 * documents and sheets open in their editors; the sites, images, PDFs, decks and recordings Work
+	 * produced on the company computer open in place, a deck as a slideshow. One table, filtered
+	 * from the side. A new document or sheet is made untitled and opens straight into its editor. */
 	import { page } from '$app/state';
 	import { Item, Notice, Empty, Dot } from '$lib/ui/page';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
@@ -9,6 +10,10 @@
 	import SidebarShell from '$lib/ui/views/SidebarShell.svelte';
 	import SidebarRow from '$lib/ui/views/SidebarRow.svelte';
 	import SidebarGroup from '$lib/ui/views/SidebarGroup.svelte';
+	import SidebarSearch from '$lib/ui/views/SidebarSearch.svelte';
+	import SidebarHeadButton from '$lib/ui/views/SidebarHeadButton.svelte';
+	import SidebarEmpty from '$lib/ui/views/SidebarEmpty.svelte';
+	import LibraryViewer from '$lib/components/LibraryViewer.svelte';
 	import { personName } from '$lib/model/initials';
 	import LibraryNew from '$lib/components/LibraryNew.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
@@ -17,7 +22,24 @@
 	import Library from '@lucide/svelte/icons/library';
 	import Plus from '@lucide/svelte/icons/plus';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
+	import Eye from '@lucide/svelte/icons/eye';
+	import Globe from '@lucide/svelte/icons/globe';
+	import ImageIcon from '@lucide/svelte/icons/image';
+	import Presentation from '@lucide/svelte/icons/presentation';
+	import FileType from '@lucide/svelte/icons/file-type';
+	import Film from '@lucide/svelte/icons/film';
+	import NotebookText from '@lucide/svelte/icons/notebook-text';
+	import FileSpreadsheet from '@lucide/svelte/icons/file-spreadsheet';
+	import Pin from '@lucide/svelte/icons/pin';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import {
+		LIBRARY_KIND_LABEL,
+		libraryFiles,
+		readPins,
+		writePins,
+		type LibraryArtifact,
+		type LibraryFileKind
+	} from '$lib/model/library-files';
 	import { documentsQuery } from '$lib/model/document-queries.svelte';
 	import { sheetJson, type SheetRow } from '$lib/model/sheets';
 	import { getDocuments, type DocumentSummary } from '$lib/model/documents';
@@ -110,9 +132,38 @@
 		}
 	}
 
-	type Filter = 'all' | 'docs' | 'sheets' | 'review' | 'archived';
+	type Filter = 'all' | 'docs' | 'sheets' | 'review' | 'pinned' | 'archived' | LibraryFileKind;
 	const filter = $derived((page.url.searchParams.get('show') as Filter) || 'all');
+	const openFileId = $derived(page.url.searchParams.get('file') ?? '');
 	let search = $state('');
+
+	/* What Work produced on the company computer. The owner reads the Work graph; a collaborator's
+	 * projection carries no file locations, so files are the owner's view for now (S64 decision 5). */
+	const files = $derived(
+		owner
+			? libraryFiles(
+					((attention.view?.workGraph?.artifacts ?? []) as unknown as LibraryArtifact[]) ?? []
+				)
+			: []
+	);
+	/* Files from Work that waits on the owner's judgement are waiting on their review too. */
+	const workWaitingOnOwner = $derived(
+		new Set(
+			(attention.view?.workGraph?.handoffs ?? [])
+				.filter((handoff) => handoff.state === 'pending')
+				.map((handoff) => handoff.work_id)
+		)
+	);
+	const fileOpen = $derived(files.find((file) => file.id === openFileId) ?? null);
+
+	let pins = $state<string[]>([]);
+	$effect(() => {
+		pins = readPins(companyId);
+	});
+	function togglePin(key: string) {
+		pins = pins.includes(key) ? pins.filter((pin) => pin !== key) : [key, ...pins];
+		writePins(companyId, pins);
+	}
 	let creator: LibraryNew | undefined = $state();
 	$effect(() => {
 		const create = page.url.searchParams.get('create');
@@ -133,7 +184,7 @@
 	);
 	type Entry = {
 		id: string;
-		kind: 'doc' | 'sheet';
+		kind: 'doc' | 'sheet' | LibraryFileKind;
 		title: string;
 		href: string;
 		updatedAt: string;
@@ -141,8 +192,25 @@
 		status: string;
 		review: boolean;
 	};
+	const pinKey = (entry: Pick<Entry, 'kind' | 'id'>) => `${entry.kind}:${entry.id}`;
+	const isFile = (entry: Pick<Entry, 'kind'>) => entry.kind !== 'doc' && entry.kind !== 'sheet';
+	const fileHref = (id: string) => {
+		const query = new URLSearchParams(page.url.search);
+		query.set('file', id);
+		return `${root}/library?${query}`;
+	};
 	const entries = $derived<Entry[]>(
 		[
+			...files.map((file) => ({
+				id: file.id,
+				kind: file.kind,
+				title: file.label,
+				href: fileHref(file.id),
+				updatedAt: file.createdAt,
+				owner: name(file.createdBy),
+				status: '',
+				review: !!file.workId && workWaitingOnOwner.has(file.workId)
+			})),
 			...documents.summaries
 				.filter((summary) => summary.document.status !== 'archived')
 				.map((summary) => ({
@@ -191,13 +259,35 @@
 			}))
 		].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
 	);
+	const FILE_KINDS: LibraryFileKind[] = ['site', 'deck', 'image', 'pdf', 'media', 'text', 'office'];
+	const KIND_ICON: Record<'doc' | 'sheet' | LibraryFileKind, typeof Library> = {
+		doc: FileText,
+		sheet: Sheet,
+		site: Globe,
+		deck: Presentation,
+		image: ImageIcon,
+		pdf: FileType,
+		media: Film,
+		text: NotebookText,
+		office: FileSpreadsheet
+	};
+	const count = (kind: Entry['kind']) => entries.filter((entry) => entry.kind === kind).length;
 	const counts = $derived({
 		all: entries.length,
-		docs: entries.filter((entry) => entry.kind === 'doc').length,
-		sheets: entries.filter((entry) => entry.kind === 'sheet').length,
+		docs: count('doc'),
+		sheets: count('sheet'),
 		review: entries.filter((entry) => entry.review).length,
 		archived: archivedEntries.length
 	});
+	/* Documents and Sheets are always places; a file kind appears once Work has made one. */
+	const fileKinds = $derived(
+		FILE_KINDS.map((kind) => ({ kind, total: count(kind) })).filter((row) => row.total > 0)
+	);
+	const pinned = $derived(
+		pins
+			.map((key) => entries.find((entry) => pinKey(entry) === key))
+			.filter((entry): entry is Entry => !!entry)
+	);
 	const shown = $derived(
 		(filter === 'archived' ? archivedEntries : entries).filter(
 			(entry) =>
@@ -205,28 +295,31 @@
 					filter === 'archived' ||
 					(filter === 'docs' && entry.kind === 'doc') ||
 					(filter === 'sheets' && entry.kind === 'sheet') ||
-					(filter === 'review' && entry.review)) &&
+					(filter === 'review' && entry.review) ||
+					(filter === 'pinned' && pins.includes(pinKey(entry))) ||
+					entry.kind === filter) &&
 				(!search.trim() || entry.title.toLowerCase().includes(search.trim().toLowerCase()))
 		)
 	);
 	const loading = $derived(documents.status === 'unknown' || !sheetsLoaded);
-	const FILTERS: { key: Filter; label: string; icon: typeof Library }[] = [
-		{ key: 'all', label: 'All files', icon: Library },
-		{ key: 'docs', label: 'Documents', icon: FileText },
-		{ key: 'sheets', label: 'Sheets', icon: Sheet },
-		{ key: 'archived', label: 'Archived', icon: ArchiveIcon }
+	const FILTERS: { key: Filter; label: string }[] = [
+		{ key: 'all', label: 'All files' },
+		{ key: 'review', label: 'Needs your review' },
+		{ key: 'docs', label: 'Documents' },
+		{ key: 'sheets', label: 'Sheets' },
+		{ key: 'archived', label: 'Archived' }
 	];
 	const filterLabel = (key: Filter) =>
-		key === 'review'
-			? 'Needs your review'
-			: (FILTERS.find((item) => item.key === key)?.label ?? 'All files');
-	/* Each type's section shows its three most recent; the title opens the rest. */
-	const RECENT = 3;
-	const recentDocs = $derived(entries.filter((entry) => entry.kind === 'doc').slice(0, RECENT));
-	const recentSheets = $derived(entries.filter((entry) => entry.kind === 'sheet').slice(0, RECENT));
+		key === 'pinned'
+			? 'Pinned'
+			: (FILTERS.find((item) => item.key === key)?.label ??
+				(FILE_KINDS.includes(key as LibraryFileKind)
+					? LIBRARY_KIND_LABEL[key as LibraryFileKind]
+					: 'All files'));
 
 	const filterHref = (key: Filter) =>
 		key === 'all' ? `${root}/library` : `${root}/library?show=${key}`;
+	const backHref = $derived(filterHref(filter));
 
 	function name(actorId: string): string {
 		if (actorId === 'owner') return 'You';
@@ -243,53 +336,78 @@
 
 <CompanyTitle title="Library" {companyId} />
 
-{#snippet typeSection(
-	key: 'docs' | 'sheets',
-	label: string,
-	icon: typeof Library,
-	recent: Entry[],
-	total: number
-)}
-	<SidebarGroup
-		{label}
-		href={filterHref(key)}
-		active={filter === key}
-		count={total || null}
-		action={{
-			label: key === 'docs' ? 'New document' : 'New sheet',
-			icon: Plus,
-			onclick: () => creator?.open(key === 'docs' ? 'doc' : 'sheet')
-		}}
-	>
-		{#each recent as entry (entry.id)}
-			<SidebarRow
-				href={entry.href}
-				label={entry.title}
-				{icon}
-				dot={entry.review ? 'Waiting on your review' : undefined}
-				title={`${entry.title} · ${entry.owner}`}
-			/>
-		{/each}
-		{#if total > recent.length}<SidebarRow
-				href={filterHref(key)}
-				label={`${total - recent.length} more`}
-				quiet
-			/>{/if}
-	</SidebarGroup>
-{/snippet}
-
-<!-- The same sidebar as Company and Apps: one way to move between views of an area. -->
-<SidebarShell label="Library">
+<!-- The same sidebar as every area: a title, search, views, then the kinds of thing kept here. -->
+<SidebarShell label="Library" title="Library">
+	{#snippet action()}
+		<SidebarHeadButton label="New document" icon={Plus} onclick={() => creator?.open('doc')} />
+	{/snippet}
+	{#snippet top()}
+		<SidebarSearch bind:value={search} placeholder="Search files" />
+	{/snippet}
 	{#snippet nav()}
 		<SidebarRow
 			href={filterHref('all')}
 			label="All files"
 			icon={Library}
-			active={filter === 'all'}
+			active={filter === 'all' && !fileOpen}
 			count={counts.all || null}
 		/>
-		{@render typeSection('docs', 'Documents', FileText, recentDocs, counts.docs)}
-		{@render typeSection('sheets', 'Sheets', Sheet, recentSheets, counts.sheets)}
+		<SidebarRow
+			href={filterHref('review')}
+			label="Needs your review"
+			icon={Eye}
+			active={filter === 'review' && !fileOpen}
+			count={counts.review || null}
+			todo
+			title="Documents and outcomes waiting on your judgement"
+		/>
+		<SidebarGroup label="Kinds">
+			<SidebarRow
+				href={filterHref('docs')}
+				label="Documents"
+				icon={FileText}
+				active={filter === 'docs' && !fileOpen}
+				count={counts.docs || null}
+			/>
+			<SidebarRow
+				href={filterHref('sheets')}
+				label="Sheets"
+				icon={Sheet}
+				active={filter === 'sheets' && !fileOpen}
+				count={counts.sheets || null}
+			/>
+			{#each fileKinds as row (row.kind)}
+				<SidebarRow
+					href={filterHref(row.kind)}
+					label={LIBRARY_KIND_LABEL[row.kind]}
+					icon={KIND_ICON[row.kind]}
+					active={filter === row.kind && !fileOpen}
+					count={row.total}
+				/>
+			{/each}
+		</SidebarGroup>
+		{#if pinned.length}
+			<SidebarGroup label="Pinned" count={pinned.length}>
+				{#each pinned as entry (pinKey(entry))}
+					<SidebarRow
+						href={entry.href}
+						label={entry.title}
+						icon={Pin}
+						active={isFile(entry) && entry.id === openFileId}
+						title={`${entry.title} · ${entry.owner}`}
+					/>
+				{/each}
+			</SidebarGroup>
+		{/if}
+		{#if !loading && !entries.length && !search.trim()}
+			<SidebarEmpty
+				text="Everything the team makes lands here: documents, sheets, sites, decks and images."
+			>
+				<button type="button" onclick={() => creator?.open('doc')}
+					><FileText size={15} strokeWidth={1.8} aria-hidden="true" />New document</button
+				>
+			</SidebarEmpty>
+		{/if}
 	{/snippet}
 	{#snippet foot()}
 		<SidebarRow
@@ -302,8 +420,11 @@
 		/>
 	{/snippet}
 	{#snippet narrow()}
+		<div class="library-narrow-search">
+			<SidebarSearch bind:value={search} placeholder="Search files" />
+		</div>
 		<nav class="library-filters" aria-label="Library">
-			{#each FILTERS as item (item.key)}
+			{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : []), FILTERS.at(-1)!] as item (item.key)}
 				<a
 					href={filterHref(item.key)}
 					class:active={filter === item.key}
@@ -312,137 +433,154 @@
 			{/each}
 		</nav>
 	{/snippet}
-	<div class="page">
-		<header class="head">
-			<h1>{filterLabel(filter)}</h1>
-			<span class="head-count">{shown.length || ''}</span>
-			<span class="spacer"></span>
-			<input
-				class="search"
-				type="search"
-				bind:value={search}
-				placeholder="Search"
-				aria-label="Search the Library"
-			/>
-			<!-- One action, the one this view is about; All offers both behind one button. -->
-			{#if filter === 'docs' || filter === 'sheets'}
-				{@const kind = filter === 'docs' ? 'doc' : 'sheet'}
-				<button
-					class="btn small primary new"
-					type="button"
-					title={kind === 'doc' ? 'Start an untitled document' : 'Start an untitled sheet'}
-					onclick={() => creator?.open(kind)}
-					><Plus size={14} strokeWidth={2} aria-hidden="true" /><span
-						>{kind === 'doc' ? 'New document' : 'New sheet'}</span
-					></button
-				>
-			{:else}
-				<div class="new-menu">
-					<ActionMenu label="New">
-						{#snippet trigger()}<span class="new-trigger"
-								><Plus size={14} strokeWidth={2} aria-hidden="true" /><span>New</span><ChevronDown
-									size={13}
-									strokeWidth={2}
-									aria-hidden="true"
-								/></span
-							>{/snippet}
-						<button type="button" onclick={() => creator?.open('doc')}
-							><FileText size={14} strokeWidth={1.8} aria-hidden="true" />Document</button
-						>
-						<button type="button" onclick={() => creator?.open('sheet')}
-							><Sheet size={14} strokeWidth={1.8} aria-hidden="true" />Sheet</button
-						>
-					</ActionMenu>
-				</div>
-			{/if}
-		</header>
-
-		<div class="body">
-			{#if documents.failure}<Notice
-					tone="danger"
-					title="Documents could not be read"
-					details={documents.failure.message}
-				>
-					{#snippet actions()}<button class="btn small" onclick={() => documents.refresh()}
-							>Retry</button
-						>{/snippet}
-				</Notice>{/if}
-			{#if sheetsFailure}<Notice
-					tone="warning"
-					title="Sheets could not be read"
-					details={sheetsFailure}
-				/>{/if}
-			{#if loading && !entries.length}
-				<Skeleton label="Loading the Library" variant="list" count={5} />
-			{:else if shown.length}
-				<div class="table" role="list">
-					<div class="table-head" aria-hidden="true">
-						<span>Name</span><span>Owner</span><span>Updated</span>
+	{#if fileOpen}
+		<LibraryViewer {companyId} file={fileOpen} owner={name(fileOpen.createdBy)} {backHref} />
+	{:else if openFileId && !loading && attention.view}
+		<Empty
+			title="This file is no longer in the Library"
+			info="A newer version replaced it, or the Work that made it was retired."
+		>
+			{#snippet action()}<a class="btn small" href={backHref}>Back to the Library</a>{/snippet}
+		</Empty>
+	{:else}
+		<div class="page">
+			<header class="head">
+				<h1>{filterLabel(filter)}</h1>
+				<span class="head-count">{shown.length || ''}</span>
+				<span class="spacer"></span>
+				<!-- One action, the one this view is about; All offers both behind one button. -->
+				{#if filter === 'docs' || filter === 'sheets'}
+					{@const kind = filter === 'docs' ? 'doc' : 'sheet'}
+					<button
+						class="btn small primary new"
+						type="button"
+						title={kind === 'doc' ? 'Start an untitled document' : 'Start an untitled sheet'}
+						onclick={() => creator?.open(kind)}
+						><Plus size={14} strokeWidth={2} aria-hidden="true" /><span
+							>{kind === 'doc' ? 'New document' : 'New sheet'}</span
+						></button
+					>
+				{:else}
+					<div class="new-menu">
+						<ActionMenu label="New">
+							{#snippet trigger()}<span class="new-trigger"
+									><Plus size={14} strokeWidth={2} aria-hidden="true" /><span>New</span><ChevronDown
+										size={13}
+										strokeWidth={2}
+										aria-hidden="true"
+									/></span
+								>{/snippet}
+							<button type="button" onclick={() => creator?.open('doc')}
+								><FileText size={14} strokeWidth={1.8} aria-hidden="true" />Document</button
+							>
+							<button type="button" onclick={() => creator?.open('sheet')}
+								><Sheet size={14} strokeWidth={1.8} aria-hidden="true" />Sheet</button
+							>
+						</ActionMenu>
 					</div>
-					{#each shown as entry (entry.kind + entry.id)}
-						<Item title={entry.title} meta={entry.owner} href={entry.href} unread={entry.review}>
-							{#snippet leading()}{#if entry.kind === 'doc'}<FileText
+				{/if}
+			</header>
+
+			<div class="body">
+				{#if documents.failure}<Notice
+						tone="danger"
+						title="Documents could not be read"
+						details={documents.failure.message}
+					>
+						{#snippet actions()}<button class="btn small" onclick={() => documents.refresh()}
+								>Retry</button
+							>{/snippet}
+					</Notice>{/if}
+				{#if sheetsFailure}<Notice
+						tone="warning"
+						title="Sheets could not be read"
+						details={sheetsFailure}
+					/>{/if}
+				{#if loading && !entries.length}
+					<Skeleton label="Loading the Library" variant="list" count={5} />
+				{:else if shown.length}
+					<div class="table" role="list">
+						<div class="table-head" aria-hidden="true">
+							<span>Name</span><span>Owner</span><span>Updated</span>
+						</div>
+						{#each shown as entry (entry.kind + entry.id)}
+							<Item title={entry.title} meta={entry.owner} href={entry.href} unread={entry.review}>
+								{#snippet leading()}{@const KindIcon = KIND_ICON[entry.kind]}<KindIcon
 										size={15}
 										strokeWidth={1.8}
-										aria-label="Document"
-									/>{:else}<Sheet size={15} strokeWidth={1.8} aria-label="Sheet" />{/if}{/snippet}
-							{#snippet trailing()}
-								{#if entry.review}<span class="review">Needs review</span
-									>{:else if statusLabel(entry.status)}<Dot
-										show
-										tone={statusTone(entry.status)}
-										label={statusLabel(entry.status)}
-									/>{/if}
-								<RelativeTime value={entry.updatedAt} />
-							{/snippet}
-							{#snippet actions()}
-								<ActionMenu label={`Actions for ${entry.title}`}>
-									<a href={entry.href}>Open</a>
-									{#if filter === 'archived'}<button
-											disabled={!!archiveBusy}
-											onclick={() => void setArchived(entry, false)}>Restore</button
-										>{:else}<button
-											disabled={!!archiveBusy}
-											title="Out of the Library lists, kept under Archived; restore it any time."
-											onclick={() => void setArchived(entry, true)}>Archive</button
-										>{/if}
-								</ActionMenu>
-							{/snippet}
-						</Item>
-					{/each}
-					{#if documents.hasMore && filter !== 'sheets'}<button
-							class="more"
-							disabled={documents.loadingMore}
-							onclick={() => documents.loadMore()}
-							>{documents.loadingMore ? 'Loading…' : 'Load more documents'}</button
-						>{/if}
-				</div>
-			{:else}
-				<Empty
-					title={search
-						? 'Nothing matches that search'
-						: filter === 'review'
-							? 'Nothing is waiting for your review'
-							: filter === 'archived'
-								? 'Nothing is archived'
-								: 'Nothing here yet'}
-					info="Documents and sheets the company writes appear here. Agents add to it as they work."
-				>
-					{#snippet action()}{#if !search && filter !== 'review' && filter !== 'archived'}<button
-								class="btn small"
-								type="button"
-								onclick={() => creator?.open(filter === 'sheets' ? 'sheet' : 'doc')}
-								>{filter === 'sheets' ? 'New sheet' : 'New document'}</button
-							>{/if}{/snippet}
-				</Empty>
-			{/if}
+										aria-label={entry.kind === 'doc'
+											? 'Document'
+											: entry.kind === 'sheet'
+												? 'Sheet'
+												: LIBRARY_KIND_LABEL[entry.kind as LibraryFileKind]}
+									/>{/snippet}
+								{#snippet trailing()}
+									{#if entry.review}<span class="review">Needs review</span
+										>{:else if statusLabel(entry.status)}<Dot
+											show
+											tone={statusTone(entry.status)}
+											label={statusLabel(entry.status)}
+										/>{/if}
+									<RelativeTime value={entry.updatedAt} />
+								{/snippet}
+								{#snippet actions()}
+									<ActionMenu label={`Actions for ${entry.title}`}>
+										<a href={entry.href}>Open</a>
+										{#if filter !== 'archived'}<button onclick={() => togglePin(pinKey(entry))}
+												>{pins.includes(pinKey(entry)) ? 'Unpin' : 'Pin to the sidebar'}</button
+											>{/if}
+										{#if entry.kind === 'doc' || entry.kind === 'sheet'}
+											{@const native = entry as Entry & { kind: 'doc' | 'sheet' }}
+											{#if filter === 'archived'}<button
+													disabled={!!archiveBusy}
+													onclick={() => void setArchived(native, false)}>Restore</button
+												>{:else}<button
+													disabled={!!archiveBusy}
+													title="Out of the Library lists, kept under Archived; restore it any time."
+													onclick={() => void setArchived(native, true)}>Archive</button
+												>{/if}
+										{/if}
+									</ActionMenu>
+								{/snippet}
+							</Item>
+						{/each}
+						{#if documents.hasMore && filter !== 'sheets'}<button
+								class="more"
+								disabled={documents.loadingMore}
+								onclick={() => documents.loadMore()}
+								>{documents.loadingMore ? 'Loading…' : 'Load more documents'}</button
+							>{/if}
+					</div>
+				{:else}
+					<Empty
+						title={search
+							? 'Nothing matches that search'
+							: filter === 'review'
+								? 'Nothing is waiting for your review'
+								: filter === 'archived'
+									? 'Nothing is archived'
+									: 'Nothing here yet'}
+						info="Documents, sheets and everything the team makes, such as sites, decks and images, appear here as they work."
+					>
+						{#snippet action()}{#if !search && filter !== 'review' && filter !== 'archived'}<button
+									class="btn small"
+									type="button"
+									onclick={() => creator?.open(filter === 'sheets' ? 'sheet' : 'doc')}
+									>{filter === 'sheets' ? 'New sheet' : 'New document'}</button
+								>{/if}{/snippet}
+					</Empty>
+				{/if}
+			</div>
 		</div>
-	</div>
+	{/if}
 </SidebarShell>
 
 <LibraryNew bind:this={creator} {companyId} />
 
 <style>
+	.library-narrow-search {
+		padding: 10px 12px 4px;
+	}
 	/* On a narrow pane the sidebar steps out for a row of the same views. */
 	.library-filters {
 		display: flex;
@@ -491,15 +629,6 @@
 	}
 	.spacer {
 		flex: 1;
-	}
-	/* Search stays small until it is used. */
-	.search {
-		width: 160px;
-		transition: width var(--motion-disclosure) var(--ease-standard);
-	}
-	.search:focus,
-	.search:not(:placeholder-shown) {
-		width: 240px;
 	}
 	.new {
 		gap: 6px;
@@ -580,9 +709,6 @@
 		background: var(--surface-hover);
 	}
 	@media (max-width: 760px) {
-		.search {
-			width: 120px;
-		}
 		.new span,
 		.new-trigger > span {
 			display: none;

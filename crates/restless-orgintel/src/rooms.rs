@@ -1416,7 +1416,8 @@ impl OrgIntel {
     ) -> Result<Vec<RecentDirectConversationRow>> {
         Ok(sqlx::query_as(
             "SELECT room.id AS room_id, peer.actor_id AS person_actor_id, \
-                    latest.id AS last_message_id, latest.created_at AS last_message_at \
+                    latest.id AS last_message_id, latest.created_at AS last_message_at, \
+                    latest.from_actor AS last_message_from, latest.preview AS last_message_preview \
              FROM rooms room \
              JOIN room_participants viewer ON viewer.room_id=room.id \
                   AND viewer.actor_id=$1 AND viewer.left_at IS NULL \
@@ -1424,7 +1425,10 @@ impl OrgIntel {
                   AND peer.actor_id<>$1 AND peer.left_at IS NULL \
              JOIN actors actor ON actor.id=peer.actor_id AND actor.retired_at IS NULL \
              JOIN LATERAL ( \
-                 SELECT message.id,message.created_at FROM messages message \
+                 SELECT message.id,message.created_at,message.from_actor, \
+                        LEFT(COALESCE(revision.body,message.body),160) AS preview \
+                 FROM messages message \
+                 LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
                  WHERE message.room_id=room.id AND message.deleted_at IS NULL \
                  ORDER BY message.id DESC LIMIT 1 \
              ) latest ON true \
@@ -1435,6 +1439,37 @@ impl OrgIntel {
                      AND sent.deleted_at IS NULL \
                ) \
              ORDER BY latest.created_at DESC,latest.id DESC,room.id DESC",
+        )
+        .bind(actor_id)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    /// Group Rooms this Actor belongs to that have any Message, newest Message first, with that
+    /// Message's sender and opening text (S64-T3). An empty group Room is still listed by the
+    /// Room page; this index is for what was said.
+    pub async fn recent_group_conversations_for_actor(
+        &self,
+        actor_id: &str,
+    ) -> Result<Vec<RecentGroupConversationRow>> {
+        Ok(sqlx::query_as(
+            "SELECT room.id AS room_id, room.title, \
+                    latest.id AS last_message_id, latest.created_at AS last_message_at, \
+                    latest.from_actor AS last_message_from, latest.preview AS last_message_preview \
+             FROM rooms room \
+             JOIN room_participants viewer ON viewer.room_id=room.id \
+                  AND viewer.actor_id=$1 AND viewer.left_at IS NULL \
+             JOIN LATERAL ( \
+                 SELECT message.id,message.created_at,message.from_actor, \
+                        LEFT(COALESCE(revision.body,message.body),160) AS preview \
+                 FROM messages message \
+                 LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
+                 WHERE message.room_id=room.id AND message.deleted_at IS NULL \
+                 ORDER BY message.id DESC LIMIT 1 \
+             ) latest ON true \
+             WHERE room.kind<>'direct' AND room.archived_at IS NULL \
+             ORDER BY latest.created_at DESC,latest.id DESC,room.id DESC \
+             LIMIT 200",
         )
         .bind(actor_id)
         .fetch_all(&self.pool)

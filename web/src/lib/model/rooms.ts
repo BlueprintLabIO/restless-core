@@ -29,6 +29,19 @@ export interface RecentDirectConversation {
 	person_actor_id: string;
 	last_message_id: number;
 	last_message_at: string;
+	/** Who wrote the latest message, and its opening text (bounded by the server). */
+	last_message_from?: string;
+	last_message_preview?: string;
+}
+
+/** A group room by its latest message. */
+export interface RecentGroupConversation {
+	room_id: string;
+	title: string;
+	last_message_id: number;
+	last_message_at: string;
+	last_message_from: string;
+	last_message_preview: string;
 }
 
 export interface RoomParticipant {
@@ -278,6 +291,20 @@ export function getRooms(
 
 export function getRecentDirectConversations(company: string): Promise<RecentDirectConversation[]> {
 	return roomJson(`/api/companies/${encodeURIComponent(company)}/direct-conversations`);
+}
+
+export function getRecentGroupConversations(company: string): Promise<RecentGroupConversation[]> {
+	return roomJson(`/api/companies/${encodeURIComponent(company)}/group-conversations`);
+}
+
+/** A message's opening text as one plain line: markdown links, emphasis and code marks dropped. */
+export function messagePreview(body: string | undefined): string {
+	return (body ?? '')
+		.replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+		.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+		.replace(/[*_`>#~]+/g, '')
+		.replace(/\s+/g, ' ')
+		.trim();
 }
 
 export function searchRooms(

@@ -537,6 +537,14 @@
 						<a href={reviewUrl} target="_blank" rel="noopener noreferrer">Download file</a>
 						<small>Restless can’t preview or edit Office files in this review.</small>
 					</div>
+				{:else if reviewUrl && /\.pdf$/i.test(focusedReview.reviewTarget?.uri?.split(/[?#]/)[0] ?? '')}
+					<!-- The browser's PDF reader will not run in a sandboxed frame; the PDF is already on
+					     its own read-only review origin and runs no page script (S64). -->
+					<iframe
+						title={focusedReview.reviewTarget?.label ?? focusedReview.title}
+						src={reviewUrl}
+						referrerpolicy="no-referrer"
+					></iframe>
 				{:else if reviewUrl}
 					<iframe
 						title={focusedReview.reviewTarget?.label ?? focusedReview.title}

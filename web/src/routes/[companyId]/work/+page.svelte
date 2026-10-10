@@ -24,6 +24,12 @@
 	import SidebarShell from '$lib/ui/views/SidebarShell.svelte';
 	import SidebarGroup from '$lib/ui/views/SidebarGroup.svelte';
 	import SidebarRow from '$lib/ui/views/SidebarRow.svelte';
+	import SidebarSearch from '$lib/ui/views/SidebarSearch.svelte';
+	import SidebarHeadButton from '$lib/ui/views/SidebarHeadButton.svelte';
+	import SidebarEmpty from '$lib/ui/views/SidebarEmpty.svelte';
+	import type { SidebarTone } from '$lib/ui/views/SidebarRow.svelte';
+	import InboxIcon from '@lucide/svelte/icons/inbox';
+	import Activity from '@lucide/svelte/icons/activity';
 	import {
 		attentionQuery,
 		cockpitQuery,
@@ -108,19 +114,63 @@
 		);
 	const people = $derived(ownerAccess ? (cockpit?.people ?? []) : (collaboration?.people ?? []));
 	const noWorkYet = $derived(!!graph && graph.work.length === 0 && goals.length === 0);
-	/* "other" is the Work that serves no Goal: a peer of the Goals, kept small. */
+	let search = $state('');
+	/* "other" is the Work that serves no Goal: a peer of the Goals, kept small. "waiting" and
+	 * "active" are views across every Goal: what waits on the owner, and what is moving. */
 	const goalWork = $derived(
 		(graph?.work ?? []).filter(
 			(item) =>
 				item.status !== 'abandoned' &&
+				(!search.trim() ||
+					`${item.title} ${item.outcome}`
+						.toLocaleLowerCase()
+						.includes(search.trim().toLocaleLowerCase())) &&
 				(!selectedGoal ||
 					(selectedGoal === 'other'
 						? !item.goal_id
-						: selectedGoal === 'archived'
-							? !!item.goal_id && archivedGoalIds.has(item.goal_id)
-							: item.goal_id === selectedGoal))
+						: selectedGoal === 'waiting'
+							? item.status !== 'completed' && waitingOnOwner.has(item.id)
+							: selectedGoal === 'active'
+								? item.status === 'active'
+								: selectedGoal === 'archived'
+									? !!item.goal_id && archivedGoalIds.has(item.goal_id)
+									: item.goal_id === selectedGoal))
 		)
 	);
+	const waitingCount = $derived(
+		(graph?.work ?? []).filter(
+			(item) =>
+				item.status !== 'completed' && item.status !== 'abandoned' && waitingOnOwner.has(item.id)
+		).length
+	);
+	const activeCount = $derived(
+		(graph?.work ?? []).filter((item) => item.status === 'active').length
+	);
+	/* A goal's second line: how far its Work has gone, and what is stuck, from the Work itself. */
+	function goalReading(goalId: string): { text: string; tone: SidebarTone } {
+		const rows = (graph?.work ?? []).filter(
+			(item) => item.goal_id === goalId && item.status !== 'abandoned'
+		);
+		if (!rows.length) return { text: 'No work yet', tone: '' };
+		const done = rows.filter((item) => item.status === 'completed').length;
+		const blocked = rows.filter((item) => item.status === 'blocked').length;
+		const waiting = rows.filter(
+			(item) => item.status !== 'completed' && waitingOnOwner.has(item.id)
+		).length;
+		const parts = [`${done} of ${rows.length} done`];
+		if (waiting) parts.push(`${waiting} needs you`);
+		if (blocked) parts.push(`${blocked} blocked`);
+		return {
+			text: parts.join(' · '),
+			tone: waiting
+				? 'wait'
+				: blocked
+					? 'block'
+					: rows.some((item) => item.status === 'active')
+						? 'work'
+						: ''
+		};
+	}
 	const otherOpen = $derived(
 		(graph?.work ?? []).filter(
 			(item) => !item.goal_id && item.status !== 'abandoned' && item.status !== 'completed'
@@ -167,9 +217,13 @@
 	const title = $derived(
 		selectedGoal === 'other'
 			? 'Other work'
-			: selectedGoal === 'archived'
-				? 'Archived'
-				: (goals.find((goal) => goal.id === selectedGoal)?.title ?? 'All work')
+			: selectedGoal === 'waiting'
+				? 'Waiting on you'
+				: selectedGoal === 'active'
+					? 'In progress'
+					: selectedGoal === 'archived'
+						? 'Archived'
+						: (goals.find((goal) => goal.id === selectedGoal)?.title ?? 'All work')
 	);
 	/* The quality bar lives on the Goal; a piece of Work shows it only when it
 	 * holds itself to a different one. */
@@ -281,10 +335,13 @@
 	indent = false
 )}
 	{@const progress = goalProgress(goal.id)}
+	{@const reading = goalReading(goal.id)}
 	<SidebarRow
 		onclick={() => chooseGoal(goal.id)}
 		label={goal.title}
 		active={selectedGoal === goal.id}
+		sub={indent ? undefined : reading.text}
+		subTone={reading.tone}
 		{indent}
 		title={[
 			finishLine(goal)
@@ -321,7 +378,17 @@
 	</Item>
 {/snippet}
 
-<SidebarShell label="Goals">
+<SidebarShell label="Goals" title="Work">
+	{#snippet action()}
+		{#if ownerAccess}<SidebarHeadButton
+				label="Tell Exec what you want"
+				icon={Sparkles}
+				onclick={() => askExec()}
+			/>{/if}
+	{/snippet}
+	{#snippet top()}
+		<SidebarSearch bind:value={search} placeholder="Search work" />
+	{/snippet}
 	{#snippet nav()}
 		<SidebarRow
 			href={viewHref('')}
@@ -334,21 +401,43 @@
 					).length
 				: null}
 		/>
+		{#if loaded && graph && graph.work.length}
+			<SidebarRow
+				href={viewHref('waiting')}
+				label="Waiting on you"
+				icon={InboxIcon}
+				active={selectedGoal === 'waiting'}
+				count={waitingCount}
+				todo
+				title="Work with a decision or step only you can take"
+			/>
+			<SidebarRow
+				href={viewHref('active')}
+				label="In progress"
+				icon={Activity}
+				active={selectedGoal === 'active'}
+				count={activeCount}
+				title="Work someone is doing now"
+			/>
+		{/if}
 		{#if loaded && graph}
 			<SidebarGroup
 				label="Goals"
+				count={openGoals.length || null}
 				help="Goals are the outcomes you're working toward, like “3 paying clients by November”. Exec proposes them as you talk and keeps the work under them."
 				action={ownerAccess && openGoals.length
 					? { label: 'Ask Exec to propose goals', icon: Plus, onclick: proposeGoals }
 					: undefined}
 			>
 				{#each openGoals as goal (goal.id)}{@render goalRow(goal)}{:else}
-					{#if ownerAccess}<SidebarRow
-							onclick={proposeGoals}
-							label="Propose goals"
-							icon={Sparkles}
-							title="Ask Exec to suggest two or three goals, each with what done looks like"
-						/>{/if}
+					<SidebarEmpty
+						text="Goals are the outcomes you're working toward, like “3 paying clients by November”. Exec proposes them as you talk and keeps the work under them."
+					>
+						{#if ownerAccess}<button type="button" onclick={proposeGoals}
+								><Sparkles size={15} strokeWidth={1.8} aria-hidden="true" />Ask Exec to propose
+								goals</button
+							>{/if}
+					</SidebarEmpty>
 				{/each}
 				{#if otherOpen}<SidebarRow
 						onclick={() => chooseGoal('other')}

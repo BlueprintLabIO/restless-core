@@ -3,14 +3,14 @@
 	import { initials, personName, teamName } from '$lib/model/initials';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import Search from '@lucide/svelte/icons/search';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
-	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
-	import MessageCircleQuestion from '@lucide/svelte/icons/message-circle-question';
 	import Users from '@lucide/svelte/icons/users';
 	import MessagesSquare from '@lucide/svelte/icons/messages-square';
 	import UserPlus from '@lucide/svelte/icons/user-plus';
-	import SidebarRow from '$lib/ui/views/SidebarRow.svelte';
+	import SidebarSearch from '$lib/ui/views/SidebarSearch.svelte';
+	import SidebarEmpty from '$lib/ui/views/SidebarEmpty.svelte';
+	import type { SidebarTone } from '$lib/ui/views/SidebarRow.svelte';
+	import { getCoreMembers, getIssuerMembers, type IssuerInvitation } from '$lib/model/members';
 	import RoomConversation from '$lib/components/RoomConversation.svelte';
 	import RoomManager from '$lib/components/RoomManager.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
@@ -23,9 +23,10 @@
 	import {
 		roomsQuery,
 		recentDirectConversationsQuery,
+		recentGroupConversationsQuery,
 		roomMessageSearchQuery
 	} from '$lib/model/room-queries.svelte';
-	import { type Room } from '$lib/model/rooms';
+	import { messagePreview, type Room } from '$lib/model/rooms';
 	import { seenThrough, markSeen } from '$lib/model/conversation-seen';
 	import { getContext, type Snippet } from 'svelte';
 
@@ -111,25 +112,64 @@
 			need: need?.source.kind === 'conversation_owner_need' ? 'reply' : need ? 'attention' : null
 		} as const;
 	}
-	/* What someone is producing right now, in a few words: their own active
-	 * Work, or for a lead, their team's. */
-	function doing(actorId: string): string {
-		if (!owner) return '';
-		const work = (attention.view?.workGraph?.work ?? []).filter(
-			(item) => item.status === 'active' || item.status === 'blocked'
-		);
+	/* Each person's second line: what they need from the owner, what is stuck, or what they are
+	 * producing right now (their own Work, or for a lead, their team's), coloured by which. Someone
+	 * with none of these shows their role. */
+	function personLine(actorId: string): { text: string; tone: SidebarTone } {
+		const person = people.find((candidate) => candidate.actor_id === actorId);
+		const fallback = {
+			text:
+				person?.kind === 'exec'
+					? 'Ready when you are'
+					: person?.kind === 'human'
+						? 'Colleague'
+						: (person?.role ?? ''),
+			tone: '' as SidebarTone
+		};
+		if (!owner) return fallback;
+		const status = personStatus(actorId);
+		if (status.need === 'reply') return { text: 'Waiting for your reply', tone: 'wait' };
+		if (status.need === 'attention') return { text: 'Needs your attention', tone: 'wait' };
 		const team = teams.find((candidate) => candidate.lead_actor_id === actorId);
 		const members = new Set(
 			team
-				? people.filter((person) => person.team_id === team.id).map((person) => person.actor_id)
+				? people.filter((member) => member.team_id === team.id).map((member) => member.actor_id)
 				: [actorId]
 		);
-		const current = work
+		const work = (attention.view?.workGraph?.work ?? [])
 			.filter((item) => members.has(item.owner_id))
 			.toSorted((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
-		if (!current.length) return '';
-		return current.length > 1 ? `${current[0].title} · +${current.length - 1}` : current[0].title;
+		const blocked = work.find((item) => item.status === 'blocked');
+		if (blocked) return { text: `Blocked: ${blocked.title}`, tone: 'block' };
+		const active = work.filter((item) => item.status === 'active');
+		if (active.length)
+			return {
+				text: active.length > 1 ? `${active[0].title} · +${active.length - 1}` : active[0].title,
+				tone: 'work'
+			};
+		if (status.working) return { text: 'Working', tone: 'work' };
+		return fallback;
 	}
+
+	/* Invitations still waiting, from the account plane that issues them. A local company has none;
+	 * without an account session there is nothing to show, not an error. */
+	let invitations = $state<IssuerInvitation[]>([]);
+	let invitationsFor = '';
+	$effect(() => {
+		const target = companyId;
+		if (!owner || invitationsFor === target) return;
+		invitationsFor = target;
+		void getCoreMembers(target)
+			.then((core) =>
+				core.issuer && core.company_id ? getIssuerMembers(core.issuer, core.company_id) : null
+			)
+			.then((issuer) => {
+				if (target === companyId) invitations = issuer?.invitations ?? [];
+			})
+			.catch(() => {
+				if (target === companyId) invitations = [];
+			});
+	});
 	let seenVersion = $state(0);
 	$effect(() => {
 		const bump = () => (seenVersion += 1);
@@ -233,7 +273,8 @@
 	$effect(() => {
 		if (explicitSelection || !owner || recent.status === 'unknown') return;
 		if (!window.matchMedia('(min-width: 761px)').matches) return;
-		const latest = rows[0]?.person ?? directoryExec?.actor_id;
+		/* Reopen the latest conversation; with none yet, the welcome invites the first one. */
+		const latest = rows[0]?.person;
 		if (latest) void goto(href(latest), { replaceState: true, noScroll: true, keepFocus: true });
 	});
 	/* A hit in a conversation with the Exec or a lead opens that conversation
@@ -296,8 +337,17 @@
 	}
 	let manager = $state<{ open: () => void } | null>(null);
 
-	/* Every conversation: direct ones by their last message, group rooms by when they began
-	 * (rooms carry no last-message time). Only direct conversations can say what is unread. */
+	const recentGroups = $derived(
+		recentGroupConversationsQuery(companyId, () => !!principal.view?.actor_id)
+	);
+	/* Who wrote a message, as the start of its preview: "You: …", "Ines: …". */
+	function speaker(actorId: string | undefined): string {
+		if (!actorId) return '';
+		if (actorId === principal.view?.actor_id) return 'You';
+		return personName(people.find((person) => person.actor_id === actorId)?.display ?? '') || '';
+	}
+	/* Every conversation by its last message, each with what was said. A group room nobody has
+	 * written in yet sorts by when it began. */
 	const chats = $derived.by(() => {
 		void seenVersion;
 		const query = search.trim().toLocaleLowerCase();
@@ -307,6 +357,7 @@
 			);
 			if (!person) return [];
 			const contact = owner && contacts.some((candidate) => candidate.actor_id === person.actor_id);
+			const from = conversation.last_message_from === principal.view?.actor_id ? 'You: ' : '';
 			return [
 				{
 					key: `room:${conversation.room_id}`,
@@ -317,28 +368,48 @@
 					room: contact ? '' : conversation.room_id,
 					roomId: conversation.room_id,
 					at: conversation.last_message_at,
+					preview: `${from}${messagePreview(conversation.last_message_preview)}`,
 					unread:
 						conversation.last_message_id > seenThrough(companyId, conversation.room_id) &&
 						personId !== person.actor_id
 				}
 			];
 		});
+		const spoken = new Map(recentGroups.conversations.map((group) => [group.room_id, group]));
 		const groups = rooms.rooms
 			.filter((room) => room.kind !== 'direct' && !room.archived_at)
-			.map((room) => ({
-				key: `room:${room.id}`,
-				name: room.title,
-				mark: '#',
-				group: true,
-				person: '',
-				room: room.id,
-				roomId: room.id,
-				at: room.created_at,
-				unread: false
-			}));
+			.map((room) => {
+				const latest = spoken.get(room.id);
+				const who = speaker(latest?.last_message_from);
+				return {
+					key: `room:${room.id}`,
+					name: room.title,
+					mark: '#',
+					group: true,
+					person: '',
+					room: room.id,
+					roomId: room.id,
+					at: latest?.last_message_at ?? room.created_at,
+					preview: latest
+						? `${who ? `${who}: ` : ''}${messagePreview(latest.last_message_preview)}`
+						: 'Nothing said yet',
+					unread:
+						!!latest &&
+						latest.last_message_id > seenThrough(companyId, room.id) &&
+						roomId !== room.id &&
+						latest.last_message_from !== principal.view?.actor_id
+				};
+			});
 		return [...direct, ...groups]
-			.filter((chat) => !query || chat.name.toLocaleLowerCase().includes(query))
+			.filter(
+				(chat) => !query || `${chat.name} ${chat.preview}`.toLocaleLowerCase().includes(query)
+			)
 			.toSorted((a, b) => Date.parse(b.at) - Date.parse(a.at));
+	});
+	/* An open group room is seen through its newest message, as a direct one is. */
+	$effect(() => {
+		const open = recentGroups.conversations.find((group) => group.room_id === roomId);
+		if (open) markSeen(companyId, open.room_id, open.last_message_id);
 	});
 	const unreadChats = $derived(chats.filter((chat) => chat.unread).length);
 	/* "14:05" today, "Tue" this week, "3 Oct" before that. */
@@ -357,8 +428,18 @@
 		!search.trim() &&
 			!directoryTeams.length &&
 			!directoryUnassigned.length &&
-			!directoryHumans.length
+			!directoryHumans.length &&
+			!invitations.length
 	);
+	const shownInvitations = $derived(
+		invitations.filter(
+			(invite) =>
+				!search.trim() ||
+				invite.email.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())
+		)
+	);
+	const inviteExpiry = (iso: string) =>
+		new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 </script>
 
 <svelte:head
@@ -370,16 +451,8 @@
 >
 <div class="conversation-workspace" class:selected={explicitSelection}>
 	<aside class="conversation-index" aria-label="Conversations">
-		<h1 class="sr-only">People</h1>
-		<div class="people-top">
-			<label class="search"
-				><Search size={15} /><input
-					aria-label="Search conversations and people"
-					type="search"
-					placeholder="Search"
-					bind:value={search}
-				/></label
-			>
+		<div class="people-head">
+			<h1>People</h1>
 			<RoomManager
 				bind:this={manager}
 				{companyId}
@@ -388,6 +461,13 @@
 				oncreated={created}
 				onperson={owner ? (id) => goto(href(id)) : undefined}
 				contactIds={contacts.map((p) => p.actor_id)}
+			/>
+		</div>
+		<div class="people-search">
+			<SidebarSearch
+				bind:value={search}
+				placeholder={view === 'chats' ? 'Search conversations' : 'Search people'}
+				label="Search conversations and people"
 			/>
 		</div>
 		<div class="people-views" role="tablist" aria-label="Show">
@@ -408,28 +488,9 @@
 			>
 		</div>
 		<div class="entries">
-			{#snippet personStatuses(actorId: string, name: string)}
-				{@const status = personStatus(actorId)}
-				{#if status.working || status.need}<span class="row-statuses"
-						>{#if status.working}<span
-								class="row-status working"
-								title={`${name} is working`}
-								aria-label={`${name} is working`}
-								><LoaderCircle size={14} aria-hidden="true" /></span
-							>{/if}{#if status.need === 'reply'}<span
-								class="row-status reply"
-								title={`${name} is waiting for your reply`}
-								aria-label={`${name} is waiting for your reply`}
-								><MessageCircleQuestion size={14} aria-hidden="true" /></span
-							>{:else if status.need === 'attention'}<span
-								class="row-status attention"
-								title={`${name} needs your attention`}
-								aria-label={`${name} needs your attention`}
-								><i class="attention-dot" aria-hidden="true"></i></span
-							>{/if}</span
-					>{/if}
-			{/snippet}
 			{#snippet directoryPerson(person: DirectoryPerson, kind: string)}
+				{@const line = personLine(person.actor_id)}
+				{@const isLead = kind === 'lead'}
 				<a
 					class="directory-person {kind}"
 					href={href(person.actor_id)}
@@ -438,24 +499,26 @@
 					selectedDirectActorId === person.actor_id
 						? 'page'
 						: undefined}
-					class:has-doing={!!doing(person.actor_id)}
 				>
-					<span class="avatar">{initials(person.display)}</span>
-					<span class="directory-person-copy"
-						><span class="person-lines"
-							><span class="name">{personName(person.display)}</span
-							>{#if doing(person.actor_id)}<small class="doing" title={doing(person.actor_id)}
-									>{doing(person.actor_id)}</small
-								>{/if}</span
-						>{#if hasNew(person.actor_id) && personId !== person.actor_id}<span
-								class="new-dot"
-								title="Something new since you last looked"
-								aria-label="New messages"
-							></span>{/if}{@render personStatuses(
-							person.actor_id,
-							personName(person.display)
-						)}</span
+					<span class="avatar"
+						>{person.kind === 'exec' ? 'E' : initials(person.display)}{#if line.tone === 'work'}<i
+								class="avatar-working"
+								title={`${personName(person.display)} is working`}
+								aria-label="Working"
+							></i>{/if}</span
 					>
+					<span class="person-lines"
+						><span class="name"
+							>{personName(person.display)}{#if isLead}<span class="role-tag">
+									· Lead</span
+								>{/if}</span
+						>{#if line.text}<small class="doing {line.tone}" title={line.text}>{line.text}</small
+							>{/if}</span
+					>{#if hasNew(person.actor_id) && personId !== person.actor_id}<span
+							class="new-dot"
+							title="Something new since you last looked"
+							aria-label="New messages"
+						></span>{/if}
 				</a>
 			{/snippet}
 			{#if view === 'chats'}
@@ -472,27 +535,34 @@
 							: undefined}
 					>
 						<span class="avatar">{chat.mark}</span>
-						<span class="directory-person-copy"
-							><span class="name">{chat.name}</span>{#if chat.unread}<span
+						<span class="person-lines"
+							><span class="name" class:strong={chat.unread}>{chat.name}</span><small
+								class="doing"
+								title={chat.preview}>{chat.preview}</small
+							></span
+						><span class="chat-meta"
+							><time class="chat-time" datetime={chat.at}>{chatTime(chat.at)}</time
+							>{#if chat.unread}<span
 									class="new-dot"
 									title="New since you last looked"
 									aria-label="Unread"
-								></span>{/if}<time class="chat-time" datetime={chat.at}>{chatTime(chat.at)}</time
-							></span
+								></span>{/if}</span
 						>
 					</a>
 				{:else}
-					<p class="empty">{search.trim() ? 'No conversations match.' : 'No conversations yet.'}</p>
+					{#if search.trim()}<p class="empty">No conversations match.</p>{:else}
+						<SidebarEmpty
+							text="No conversations yet. Talk to the Exec, or start a group with people you choose."
+						>
+							{#if directoryExec}<a class="primary" href={href(directoryExec.actor_id)}
+									>Message the Exec</a
+								>{/if}
+							<button type="button" onclick={() => manager?.open()}
+								><MessagesSquare size={15} strokeWidth={1.8} aria-hidden="true" />New group chat</button
+							>
+						</SidebarEmpty>
+					{/if}
 				{/each}
-				{#if !search.trim()}
-					<div class="people-steps">
-						<SidebarRow
-							label="New group chat"
-							icon={MessagesSquare}
-							onclick={() => manager?.open()}
-						/>
-					</div>
-				{/if}
 			{:else}
 				{#if directoryExec && matchesDirectory(directoryExec, search.trim().toLocaleLowerCase())}
 					<section class="directory-section executive-section" aria-label="Executive">
@@ -505,7 +575,9 @@
 						aria-label={teamName(entry.team.name, companyId)}
 					>
 						<header class="team-directory-head" title={entry.team.brief}>
-							<span>{teamName(entry.team.name, companyId)}</span>
+							<span>{teamName(entry.team.name, companyId)}</span><em
+								>{entry.members.length + (entry.lead ? 1 : 0)}</em
+							>
 						</header>
 						{#if entry.lead}{@render directoryPerson(entry.lead, 'lead')}{/if}
 						{#each entry.members.filter((member) => entry.teamMatches || matchesDirectory(member, search
@@ -518,39 +590,53 @@
 				{#if directoryUnassigned.length}
 					<section class="directory-section" aria-label="Unassigned staff">
 						<header class="team-directory-head">
-							<span>Unassigned</span>
+							<span>Unassigned</span><em>{directoryUnassigned.length}</em>
 						</header>
 						{#each directoryUnassigned as member (member.actor_id)}
 							{@render directoryPerson(member, 'member')}
 						{/each}
 					</section>
 				{/if}
-				{#if directoryHumans.length}
+				{#if directoryHumans.length || shownInvitations.length}
 					<section class="directory-section" aria-label="Human colleagues">
-						<header class="team-directory-head"><span>Colleagues</span></header>
+						<header class="team-directory-head">
+							<span>Colleagues</span><em>{directoryHumans.length + shownInvitations.length}</em>
+						</header>
 						{#each directoryHumans as colleague (colleague.actor_id)}
 							{@render directoryPerson(colleague, 'colleague')}
 						{/each}
+						{#each shownInvitations as invite (invite.id)}
+							<a
+								class="directory-person colleague invited"
+								href={`/${encodeURIComponent(companyId)}/company/members`}
+								title="Manage the invitation in Members"
+							>
+								<span class="avatar">{invite.email.slice(0, 1).toUpperCase()}</span>
+								<span class="person-lines"
+									><span class="name">{invite.email}</span><small class="doing"
+										>Invited · link expires {inviteExpiry(invite.expires_at)}</small
+									></span
+								>
+							</a>
+						{/each}
 					</section>
 				{/if}
-				{#if !directoryExec && !directoryTeams.length && !directoryUnassigned.length && !directoryHumans.length}<p
+				{#if !directoryExec && !directoryTeams.length && !directoryUnassigned.length && !directoryHumans.length && !shownInvitations.length}<p
 						class="empty"
 					>
 						No people match.
 					</p>{/if}
 				{#if sparse}
-					<div class="people-steps">
-						{#if owner}<SidebarRow
-								label="Invite a colleague"
-								icon={UserPlus}
-								href={`/${encodeURIComponent(companyId)}/company/members`}
-							/>{/if}
-						<SidebarRow
-							label="New group chat"
-							icon={MessagesSquare}
-							onclick={() => manager?.open()}
-						/>
-					</div>
+					<SidebarEmpty
+						text="It's just you and the Exec so far. Leads and staff appear here as the Exec builds the team."
+					>
+						{#if owner}<a href={`/${encodeURIComponent(companyId)}/company/members`}
+								><UserPlus size={15} strokeWidth={1.8} aria-hidden="true" />Invite a colleague</a
+							>{/if}
+						<button type="button" onclick={() => manager?.open()}
+							><MessagesSquare size={15} strokeWidth={1.8} aria-hidden="true" />New group chat</button
+						>
+					</SidebarEmpty>
 				{/if}
 			{/if}
 			{#if search.trim()}
@@ -601,7 +687,7 @@
 <style>
 	.conversation-workspace {
 		display: grid;
-		grid-template-columns: var(--sidebar-width, 220px) minmax(0, 1fr);
+		grid-template-columns: var(--sidebar-width, 264px) minmax(0, 1fr);
 		gap: var(--pane-gap);
 		width: 100%;
 		height: 100%;
@@ -624,20 +710,37 @@
 	.conversation-main {
 		container: conversation / inline-size;
 	}
-	/* Search is the first row, with a quiet "+" beside it whose name lives in its tooltip. */
-	.people-top {
+	.conversation-index {
+		padding: 4px 8px 0 6px;
+	}
+	/* The same head as every sidebar: the title, and the main action as a raised button. */
+	.people-head {
 		display: flex;
+		flex: none;
 		align-items: center;
-		gap: 2px;
-		padding: 6px 6px 0;
+		justify-content: space-between;
+		min-height: 40px;
+		padding: 0 2px 0 8px;
 	}
-	.people-top :global(.room-manage-trigger) {
-		width: 28px;
-		height: 28px;
+	.people-head h1 {
+		margin: 0;
+		font-size: var(--t-head);
+		font-weight: 600;
+	}
+	.people-head :global(.room-manage-trigger) {
+		position: relative;
+		display: inline-grid;
+		place-items: center;
+		width: 30px;
+		height: 30px;
 		padding: 0;
-		justify-content: center;
+		border: 1px solid var(--edge-control);
+		border-radius: var(--radius-pane);
+		background: var(--surface-raised);
+		box-shadow: var(--control-depth), var(--bevel);
+		color: var(--ink);
 	}
-	.people-top :global(.room-manage-trigger span) {
+	.people-head :global(.room-manage-trigger span) {
 		position: absolute;
 		width: 1px;
 		height: 1px;
@@ -645,39 +748,22 @@
 		clip-path: inset(50%);
 		white-space: nowrap;
 	}
-	.search {
-		display: flex;
-		flex: 1 1 auto;
-		gap: 8px;
-		align-items: center;
-		min-width: 0;
-		height: 28px;
-		padding: 0 8px;
-		border-radius: var(--radius-control);
-		color: var(--text-tertiary);
+	.people-search {
+		flex: none;
+		padding: 6px 0 10px;
 	}
-	.search:hover,
-	.search:focus-within {
-		background: var(--wash-hover);
-	}
-	.search input {
-		width: 100%;
-		min-width: 0;
-		background: transparent;
-		border: 0;
-		font: inherit;
-		outline: none;
-		color: var(--ink);
-	}
-	/* A switch between two modes of the list, not an item in it: a two-part toggle, so it never
-	 * reads as a second selection beside the open conversation. */
+	/* A switch between two modes of the list, not an item in it: a two-part toggle with a raised
+	 * thumb, so it never reads as a second selection beside the open conversation. */
 	.people-views {
 		display: grid;
+		flex: none;
 		grid-template-columns: 1fr 1fr;
 		gap: 2px;
-		margin: 6px 6px 4px;
-		padding: 2px;
-		border-radius: var(--radius-control);
+		/* The track grows with its buttons, which take a larger tap target on touch screens. */
+		min-height: 34px;
+		margin-bottom: 8px;
+		padding: 3px;
+		border-radius: var(--radius-lg);
 		background: var(--wash-hover);
 	}
 	.people-views button {
@@ -685,14 +771,15 @@
 		align-items: center;
 		justify-content: center;
 		gap: 6px;
-		height: 24px;
+		min-height: 28px;
 		padding: 0 8px;
 		border: 0;
-		border-radius: calc(var(--radius-control) - 2px);
+		border-radius: var(--radius-pane);
 		background: transparent;
-		color: var(--text-tertiary);
+		color: var(--text-secondary);
 		font: inherit;
 		font-size: var(--t-body);
+		font-weight: 500;
 		cursor: pointer;
 		transition:
 			background var(--motion-state) var(--ease-standard),
@@ -702,215 +789,202 @@
 		color: var(--ink);
 	}
 	.people-views button[aria-selected='true'] {
-		background: var(--surface-pane);
-		box-shadow: var(--shadow-soft);
+		background: var(--segment-thumb);
+		box-shadow:
+			var(--shadow-soft),
+			var(--bevel),
+			0 0 0 1px var(--border);
 		color: var(--ink);
-		font-weight: 500;
+		font-weight: 600;
 	}
 	.people-views button:focus-visible {
 		outline: 2px solid var(--intent-conversation);
 		outline-offset: -2px;
 	}
 	.people-views b {
-		min-width: 16px;
-		padding: 0 4px;
-		border-radius: 8px;
-		background: color-mix(in srgb, var(--surface-attention) 22%, transparent);
-		color: var(--ink);
+		min-width: 18px;
+		height: 18px;
+		padding: 0 5px;
+		border-radius: 9px;
+		background: var(--intent-conversation);
+		color: var(--on-primary);
 		font-size: var(--t-label);
-		font-weight: 500;
-		line-height: 16px;
-	}
-	.people-steps {
-		display: grid;
-		gap: 1px;
-		margin-top: 14px;
+		font-weight: 600;
+		line-height: 18px;
 	}
 	.entries {
+		flex: 1 1 auto;
 		overflow-y: auto;
 		overflow-x: hidden;
 		min-height: 0;
-		padding: 2px 6px 8px;
+		padding: 1px 2px 8px;
 	}
-	/* The same grammar as every left sidebar (SidebarGroup, SidebarRow): small muted section
-	 * labels, every row's mark in one column, spacing between sections rather than rules. */
 	.directory-section {
 		display: grid;
 		gap: 1px;
 	}
 	.directory-section + .directory-section {
-		margin-top: 14px;
+		margin-top: 12px;
 	}
+	/* A section label you can read: body size, weight 600, with its count. */
 	.team-directory-head {
 		display: flex;
 		align-items: center;
-		gap: 8px;
-		height: 26px;
+		gap: 6px;
+		height: 30px;
 		padding: 0 4px 0 8px;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-		font-weight: 500;
+		color: var(--text-secondary);
+		font-size: var(--t-body);
+		font-weight: 600;
 	}
 	.team-directory-head > span {
-		display: inline-flex;
-		align-items: center;
-		gap: 5px;
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+	.team-directory-head em {
+		color: var(--text-tertiary);
+		font-style: normal;
+		font-weight: 400;
+	}
+	/* A person: their name, then what they are doing in its colour; the selected one raised. */
 	.directory-person {
 		display: flex;
-		align-items: center;
-		box-sizing: border-box;
-		height: 28px;
-		gap: 8px;
-		padding: 0 8px;
-		overflow: hidden;
-		border-radius: var(--radius-control);
-		color: var(--text-secondary);
+		align-items: flex-start;
+		gap: 10px;
+		min-height: 48px;
+		padding: 6px 8px;
+		border-radius: var(--radius-pane);
+		color: var(--ink);
 		text-decoration: none;
 		transition:
 			background-color var(--motion-state) var(--ease-standard),
-			color var(--motion-state) var(--ease-standard);
+			box-shadow var(--motion-state) var(--ease-standard);
 	}
 	.directory-person:hover {
 		background: var(--wash-hover);
-		color: var(--ink);
 	}
 	.directory-person[aria-current='page'] {
-		background: var(--wash-press);
-		color: var(--ink);
+		background: var(--surface-raised);
+		box-shadow:
+			var(--shadow-soft),
+			var(--bevel),
+			0 0 0 1px var(--border);
 	}
 	.directory-person[aria-current='page'] .name {
-		font-weight: 500;
+		font-weight: 600;
 	}
 	.directory-person:focus-visible {
 		outline: 2px solid var(--intent-conversation);
 		outline-offset: -2px;
 	}
-	/* A person's live work is the point of this list, so it stays visible: their row takes a
-	 * second line rather than hiding it in a tooltip. */
-	.directory-person.has-doing {
-		height: 40px;
-	}
 	.person-lines {
 		display: grid;
-		min-width: 0;
 		flex: 1;
+		min-width: 0;
+	}
+	.name {
+		min-width: 0;
+		overflow: hidden;
+		font-size: var(--t-body);
+		font-weight: 500;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.name.strong {
+		font-weight: 650;
+	}
+	.role-tag {
+		color: var(--text-tertiary);
+		font-weight: 400;
 	}
 	.doing {
 		overflow: hidden;
 		color: var(--text-tertiary);
-		font-size: var(--t-label);
-		line-height: 1.35;
+		font-size: var(--t-body);
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.chat-time {
+	.doing.work {
+		color: var(--intent-feedback);
+	}
+	.doing.wait {
+		color: var(--intent-authority);
+	}
+	.doing.block {
+		color: var(--state-danger);
+	}
+	.chat-meta {
+		display: grid;
 		flex: none;
+		justify-items: end;
+		gap: 4px;
+		padding-top: 2px;
+	}
+	.chat-time {
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 		font-variant-numeric: tabular-nums;
 	}
-	.directory-person.group .avatar {
-		color: var(--text-tertiary);
-	}
-	/* The avatar sits in the icon column every sidebar row shares. */
-	.directory-person .avatar {
-		width: 18px;
-		height: 18px;
-		border-radius: 5px;
-		font-size: 9px;
-		font-weight: 600;
-	}
-	.directory-person.executive .avatar,
-	.directory-person.lead .avatar {
-		border-color: color-mix(in srgb, var(--intent-conversation) 26%, var(--border));
-		background: var(--intent-conversation-soft);
-		color: var(--intent-conversation);
-	}
-	.directory-person-copy {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 4px;
-		min-width: 0;
-		flex: 1;
-		overflow: hidden;
-	}
 	.new-dot {
-		width: 6px;
-		height: 6px;
 		flex: none;
+		align-self: center;
+		width: 8px;
+		height: 8px;
 		border-radius: 999px;
 		background: var(--intent-conversation);
 	}
+	.chat-meta .new-dot {
+		align-self: auto;
+	}
+	/* Avatars are tinted by who they are, so the Exec, the leads and their staff, and human
+	 * colleagues read apart at a glance; a green mark says someone is working. */
 	.avatar {
-		width: 30px;
-		height: 30px;
+		position: relative;
 		display: grid;
-		place-items: center;
 		flex: none;
-		background: var(--surface-alt);
-		border: 1px solid var(--border);
-		border-radius: 8px;
+		place-items: center;
+		width: 26px;
+		height: 26px;
+		margin-top: 1px;
+		border-radius: 7px;
+		background: color-mix(in srgb, var(--intent-conversation) 15%, var(--surface-raised));
+		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--intent-conversation) 18%, transparent);
+		color: var(--intent-conversation);
 		font-size: var(--t-label);
-	}
-	.name {
-		flex: 1;
-		min-width: 4ch;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-size: var(--t-body);
-	}
-	.current .name {
 		font-weight: 600;
 	}
-	.row-statuses {
-		display: inline-flex;
-		align-items: center;
-		gap: 2px;
-		flex: none;
+	.directory-person.executive .avatar {
+		background: color-mix(in srgb, var(--intent-direction) 15%, var(--surface-raised));
+		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--intent-direction) 20%, transparent);
+		color: var(--intent-direction);
 	}
-	.row-status {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 18px;
-		height: 18px;
-		padding: 0;
-		border-radius: 999px;
-		line-height: 1;
-	}
-	.row-status.working {
-		color: var(--intent-conversation);
-		background: var(--intent-conversation-soft);
-	}
-	.row-status.working :global(svg) {
-		animation: status-spin 1.1s linear infinite;
-	}
-	.row-status.reply {
-		color: var(--intent-authority);
-		background: color-mix(in srgb, var(--intent-authority) 12%, transparent);
-	}
-	.attention-dot {
-		width: 6px;
-		height: 6px;
+	.directory-person.colleague .avatar {
 		border-radius: 50%;
-		background: var(--intent-authority);
+		background: var(--surface-raised);
+		box-shadow: inset 0 0 0 1px var(--border-strong);
+		color: var(--text-secondary);
 	}
-	@keyframes status-spin {
-		to {
-			transform: rotate(360deg);
-		}
+	.directory-person.chat.group .avatar {
+		background: transparent;
+		box-shadow: inset 0 0 0 1px var(--border-strong);
+		color: var(--text-tertiary);
 	}
-	@media (prefers-reduced-motion: reduce) {
-		.row-status.working :global(svg) {
-			animation: none;
-		}
+	.directory-person.invited .avatar {
+		box-shadow: inset 0 0 0 1px var(--border-strong);
+		border: 1px dashed var(--border-strong);
+		background: transparent;
+	}
+	.avatar-working {
+		position: absolute;
+		right: -2px;
+		bottom: -2px;
+		width: 9px;
+		height: 9px;
+		border: 2px solid var(--bg-app);
+		border-radius: 50%;
+		background: var(--intent-feedback);
 	}
 	.conversation-empty {
 		flex: 1;
@@ -943,8 +1017,8 @@
 		color: var(--text-secondary);
 	}
 	.empty {
-		padding: 12px;
-		font-size: var(--t-label);
+		padding: 12px 8px;
+		font-size: var(--t-body);
 		color: var(--text-secondary);
 	}
 	.more {

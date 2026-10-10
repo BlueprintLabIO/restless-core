@@ -22,6 +22,7 @@
 	import SidebarShell from '$lib/ui/views/SidebarShell.svelte';
 	import SidebarGroup from '$lib/ui/views/SidebarGroup.svelte';
 	import SidebarRow from '$lib/ui/views/SidebarRow.svelte';
+	import SidebarHeadButton from '$lib/ui/views/SidebarHeadButton.svelte';
 	import {
 		APP_KINDS,
 		BROWSE_CATEGORIES,
@@ -88,7 +89,14 @@
 	]);
 </script>
 
-<SidebarShell label="Apps">
+<SidebarShell label="Apps" title="Apps">
+	{#snippet action()}
+		<SidebarHeadButton
+			href={`${index}?add=link`}
+			label="Add from a link: a service's MCP address, a plugin or skill on GitHub, or a command"
+			icon={Link2}
+		/>
+	{/snippet}
 	{#snippet nav()}
 		<SidebarRow
 			href={href('ask')}
@@ -143,14 +151,6 @@
 					count={row.count}
 				/>
 			{/each}
-		</SidebarGroup>
-		<SidebarGroup label="More">
-			<SidebarRow
-				href={`${index}?add=link`}
-				label="Add from a link"
-				icon={Link2}
-				title="Paste a service's MCP address, a plugin or skill on GitHub, or a command"
-			/>
 		</SidebarGroup>
 	{/snippet}
 	{#snippet narrow()}

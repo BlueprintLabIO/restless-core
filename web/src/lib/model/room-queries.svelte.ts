@@ -9,6 +9,7 @@ import {
 import {
 	editRoomMessagePages,
 	getRecentDirectConversations,
+	getRecentGroupConversations,
 	getRoomEventSnapshot,
 	getRoomMessageRevisions,
 	getRoomMessages,
@@ -40,6 +41,7 @@ const ROOM_REFRESH_MS = 15_000;
 export const roomQueryKeys = {
 	list: (company: string) => ['rooms', company] as const,
 	recentDirect: (company: string) => ['recent-direct-conversations', company] as const,
+	recentGroups: (company: string) => ['recent-group-conversations', company] as const,
 	roomSearch: (company: string, search: string) => ['room-search', company, search] as const,
 	messageSearch: (company: string, search: string) =>
 		['room-message-search', company, search] as const,
@@ -51,6 +53,26 @@ export const roomQueryKeys = {
 	participants: (company: string, room: string) => ['room-participants', company, room] as const,
 	readCursor: (company: string, room: string) => ['room-read-cursor', company, room] as const
 };
+
+/** Group rooms by their latest message, for the Chats list. */
+export function recentGroupConversationsQuery(companyId: string, enabled: () => boolean) {
+	const query = createQuery(() => ({
+		queryKey: roomQueryKeys.recentGroups(companyId),
+		queryFn: () => getRecentGroupConversations(companyId),
+		enabled: enabled(),
+		staleTime: ROOM_STALE_MS,
+		gcTime: ROOM_RETAIN_MS,
+		refetchInterval: pollEvery(ROOM_REFRESH_MS, 60_000)
+	}));
+	return {
+		get conversations() {
+			return query.data ?? [];
+		},
+		get status() {
+			return sourceStatus(query);
+		}
+	};
+}
 
 export function recentDirectConversationsQuery(companyId: string, enabled: () => boolean) {
 	const query = createQuery(() => ({
@@ -596,6 +618,7 @@ export function roomActivityStream(companyId: string, roomId: string) {
 				? client.invalidateQueries({ queryKey: roomQueryKeys.readCursor(companyId, roomId) })
 				: client.invalidateQueries({ queryKey: roomQueryKeys.messages(companyId, roomId) }),
 			client.invalidateQueries({ queryKey: roomQueryKeys.recentDirect(companyId) }),
+			client.invalidateQueries({ queryKey: roomQueryKeys.recentGroups(companyId) }),
 			event?.message_id
 				? client.invalidateQueries({
 						/* A reply event carries the reply id, not its root. Revalidate

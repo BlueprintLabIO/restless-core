@@ -103,7 +103,10 @@ use crate::model_connections::{load_owner_connections, model_connection_referenc
 use crate::owner_config::{materialize_review_url, OwnerConfig};
 use crate::transcript::{split_attachment_block, OwnerAttachment, OwnerIntentReceipt, ATTACHMENT_BLOCK, ATTACHMENT_MARKER, ATTENTION_CONTEXT_BLOCK, ATTENTION_CONTEXT_MARKER, CONTEXT_BLOCK, CONTEXT_MARKER};
 use desktop_api::{ATTACH_COOKIE, ATTACH_TTL, AttachSession, AttachTicket, CONTROL_TTL_SECONDS, DESKTOP_DISPLAY_LEASES, DesktopWebsocketAccess, RfbObserverFilter, TICKET_TTL, TicketResponse, attach_cookie_name, claim_desktop_display_lease, desktop_asset, desktop_websocket, desktop_windows, focus_desktop_window, issue_ticket, open_controlled_desktop, open_desktop, open_observed_desktop, valid_attach_for};
-use review_api::{REVIEW_TTL, ReviewSession, ReviewSource, issue_review_ticket, review_outcome, review_proxy};
+use review_api::{
+    REVIEW_TTL, ReviewSession, ReviewSource, issue_library_ticket, issue_review_ticket,
+    review_outcome, review_proxy,
+};
 
 const SESSION_COOKIE: &str = "restless_session";
 
@@ -1010,6 +1013,10 @@ where
             get(list_direct_conversations),
         )
         .route(
+            "/companies/{company}/group-conversations",
+            get(list_group_conversations),
+        )
+        .route(
             "/companies/{company}/rooms/{room}/participants",
             get(list_room_participants).post(add_room_participant),
         )
@@ -1460,6 +1467,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route(
             "/companies/{company}/reviews/ticket",
             post(issue_review_ticket),
+        )
+        .route(
+            "/companies/{company}/library/open",
+            post(issue_library_ticket),
         )
         .route(
             "/companies/{company}/messages/{message}/reference",
@@ -6578,6 +6589,24 @@ async fn list_direct_conversations(
     };
     match org
         .recent_direct_conversations_for_actor(principal.actor_id())
+        .await
+    {
+        Ok(conversations) => Json(conversations).into_response(),
+        Err(error) => room_error(error),
+    }
+}
+
+async fn list_group_conversations(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .recent_group_conversations_for_actor(principal.actor_id())
         .await
     {
         Ok(conversations) => Json(conversations).into_response(),
