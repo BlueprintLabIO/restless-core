@@ -81,9 +81,18 @@ async function apply(model, commands) {
       continue;
     }
     await flush();
+    // Upstream allocates every inserted row or column at once, so a browser
+    // revision is bounded before each insertion, not only after the whole list.
+    if (command.type === 'ADD_COLUMNS_ROWS' && model.getters.getSheetIds().includes(command.sheetId)) {
+      const size = model.getters.getSheetSize(command.sheetId), quantity = Number(command.quantity);
+      const rows = size.numberOfRows + (command.dimension === 'ROW' ? quantity : 0);
+      const cols = size.numberOfCols + (command.dimension === 'COL' ? quantity : 0);
+      requireValue(Number.isInteger(quantity) && rows <= 100000 && cols <= 1000 && rows * cols <= 5_000_000, 'Worksheet dimensions exceed the supported limit');
+    }
     dispatch(model, command.type, command);
     await Promise.resolve();
     if (command.type === 'DUPLICATE_SHEET') boundWorkbook(model.exportData());
+    else requireValue(model.getters.getSheetIds().length <= 30, 'At most 30 worksheets are supported');
   }
   await flush();
 }

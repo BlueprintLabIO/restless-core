@@ -70,4 +70,8 @@ test('a new workbook imports from CSV or converted XLSX and is the engine\'s own
 test('invalid final cell yields no accepted partial result; structural limits reject', async () => {
   await assert.rejects(execute({...blank,operation:{action:'set_cells',values:[['valid',{content:{bad:true}}]]}}),/Cell value/);
   await assert.rejects(execute({...blank,operation:{action:'insert_rows',before:1,count:1000000}}),/Invalid row/);
+  // A browser revision is bounded before each insertion, so it cannot exhaust the worker first.
+  const base=(await execute(blank)).workbook;
+  const commands=Array.from({length:200},()=>({type:'ADD_COLUMNS_ROWS',sheetId:'Sheet1',dimension:'ROW',position:'after',base:0,quantity:50000}));
+  await assert.rejects(execute({...blank,snapshot:base,revision:{type:'REMOTE_REVISION',version:1,serverRevisionId:base.revisionId,nextRevisionId:randomUUID(),clientId:randomUUID(),commands}}),/dimensions/);
 });
