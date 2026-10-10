@@ -161,3 +161,29 @@ provisioned on this host, so Staff have not produced a site, image or deck thems
 skill reaches companies with the next company image. Run T9 on a `_test` company once a model is
 connected: ask the Exec for a one-page site, a logo and a three-slide deck, then check each appears
 in Library under its kind and that the deck plays.
+
+### Audit and smoke (10 October 2026)
+
+After the owner hit a raw error opening a Library file, every cockpit route and hot path was
+audited on the local `ui_test` company with Playwright: a crawl of 64 page states at 1400px and
+390px, and three interaction smokes (26 shell, People, Work, Library, Company and Apps steps; 10
+editing, conversation and navigation steps; 6 phone and shortcut steps). Bugs found and fixed:
+
+| Bug | Fix | Commit |
+|---|---|---|
+| Opening a Library file while the computer slept showed a raw Docker error | The open wakes a sleeping computer; a stopped one says so in a sentence; failures read as sentences with Try again | ad8ab25 |
+| `restless sleep` always refused as "busy (restore)" | The command no longer holds a lifecycle lease and counts it as activity | ad8ab25 |
+| Work outputs could not be opened; each said "Linked evidence for this Work" | Open (a real button) plays the output in the Library; the line names its kind and file | ad8ab25, 3aaf394 |
+| Work board cut off its Done column beside the wider sidebar | Columns fit four abreast | ad8ab25 |
+| People search for nobody showed a blank list | "No people match" whenever nothing shows | ad8ab25 |
+| A group room opened with no row selected | The room shows in Chats, selected | ad8ab25 |
+| Sidebar search drew a second focus ring | One ring, on the field | ad8ab25 |
+| On a phone an open Library file sat under the list's search and views | They step aside while a file is open | a8a10e1 |
+| Library and Apps phone views marked the selection three different ways | The raised chip everywhere | a8a10e1 |
+| Favicon 404 after a client redirect from a nested route | Root-absolute icon and manifest links | a8a10e1 |
+| Typing straight after Enter in a document title lost characters | Body selected and focused synchronously (10/10 runs keep every character; 3/5 without the fix) | 3aaf394 |
+| Present moved focus into the deck frame, which swallowed Escape | Focus stays in the cockpit; windowed fallback without full screen | 3aaf394 |
+| Ten `_test` document sidecars crash-looped (≈827 restarts each) after their companies were removed, unseen by the reaper, churning the host network | The reaper flags a sidecar whose company has no config and removes it when stopped or crash-looping | this commit |
+
+Final run on main: crawl 64/64 clean (no console, page or HTTP errors, no overflow); smokes 26/26,
+10/10, 6/6 with no errors; document typing 5/5.

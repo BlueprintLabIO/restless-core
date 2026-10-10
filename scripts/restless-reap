@@ -168,11 +168,16 @@ else
   note 'docker unavailable — skipped'
 fi
 
-# --- 2a. Documents sidecars from removed test installations ---------------
+# --- 2a. Documents sidecars from removed test companies -------------------
 # Sidecar names end in a cell UUID, not `_test`, so the ordinary container
 # sections miss them. The installation-root label and company label together
-# identify only our disposable sidecars. A running one is reported, never
-# stopped automatically; an exited one has no live process to preserve.
+# identify only our disposable sidecars. A sidecar is orphaned when its
+# installation is gone, or when the installation remains (a dev profile holds
+# many companies) but its company has no config, live or archived. A healthy
+# running one is reported, never stopped automatically. An exited one, or one
+# stuck restarting because its company is gone, has no live process to keep:
+# left alone it crash-loops forever (seen at 827 restarts) and every restart
+# churns the host's network interfaces.
 printf '\norphaned test Documents sidecars\n'
 if have_docker; then
   ORPHAN_DOCS=0
@@ -183,15 +188,21 @@ if have_docker; then
     case "$company" in *_test) ;; *) continue ;; esac
     root="$(docker inspect -f '{{index .Config.Labels "com.restless.local-documents-root"}}' "$name" 2>/dev/null || true)"
     [ -n "$root" ] && [ "$root" != '<no value>' ] || continue
-    [ -d "$root" ] && continue
-    running="$(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null || true)"
-    ORPHAN_DOCS=$((ORPHAN_DOCS + 1))
-    if [ "$running" = true ]; then
-      note "$name ($company; installation root missing; running — inspect before stopping)"
+    if [ -d "$root" ]; then
+      [ -f "$root/companies/$company.toml" ] && continue
+      [ -f "$root/archived-companies/$company.toml" ] && continue
+      why='company removed'
     else
-      note "$name ($company; installation root missing; stopped)"
+      why='installation root missing'
+    fi
+    state="$(docker inspect -f '{{if .State.Restarting}}restarting{{else if .State.Running}}running{{else}}stopped{{end}}' "$name" 2>/dev/null || true)"
+    ORPHAN_DOCS=$((ORPHAN_DOCS + 1))
+    if [ "$state" = running ]; then
+      note "$name ($company; $why; running — inspect before stopping)"
+    else
+      note "$name ($company; $why; $state)"
       if [ "$MODE" = purge ]; then
-        docker rm "$name" >/dev/null 2>&1 && note "  removed $name"
+        docker rm -f "$name" >/dev/null 2>&1 && note "  removed $name"
       fi
     fi
   done <<EOF
