@@ -1,6 +1,7 @@
 /* The Company area's rows: each area's current value and whether it waits on the owner. The
  * section navigation and the overview read one instance (made by the Company layout), so a count
- * in the navigation and the overview's to-do list can never disagree. */
+ * in the navigation and the overview's to-do list can never disagree, and both list the same
+ * sections in the same groups. */
 import { getContext, setContext, type Component } from 'svelte';
 import { formatRelative } from '$lib/ui/time';
 import {
@@ -21,6 +22,9 @@ import Gauge from '@lucide/svelte/icons/gauge';
 import KeyRound from '@lucide/svelte/icons/key-round';
 import Monitor from '@lucide/svelte/icons/monitor';
 import Users from '@lucide/svelte/icons/users';
+import History from '@lucide/svelte/icons/history';
+import HeartPulse from '@lucide/svelte/icons/heart-pulse';
+import LinkIcon from '@lucide/svelte/icons/link';
 
 /** 'refused': this plane does not keep the area (a hosted plane's vault lives with the account). */
 type Count = number | 'unavailable' | 'refused' | null;
@@ -40,6 +44,29 @@ export interface CompanySetupRow {
 	/** What the owner would do, when `todo` is set: "Write the charter". */
 	task?: string;
 }
+
+/** One row of the Company sections, as the sidebar and the overview both show it. */
+export interface CompanySectionRow {
+	key: string;
+	label: string;
+	href: string;
+	icon: Icon;
+	todo: number;
+	/** The area's current value, in words. */
+	reading?: string;
+	readingTone?: 'work' | 'wait' | 'block' | '';
+	/** The explanation on hover. */
+	tooltip?: string;
+}
+export interface CompanySectionGroup {
+	label: string;
+	rows: CompanySectionRow[];
+}
+
+/* Model sign-ins and API keys are the account's, shared out to companies, so Intelligence is
+ * followed by the way to them. */
+export const MODEL_CONNECTIONS_WHY =
+	'Sign-ins and API keys belong to your account, not to one company, so one sign-in can serve every company. Add or connect them in Account → Connections, then give each company access.';
 
 const KEY = Symbol('company-setup-rows');
 
@@ -194,9 +221,72 @@ export function createCompanySetup(companyIdOf: () => string) {
 		)
 	);
 
+	/* The sections: the setup rows in the registry's groups, the records, and the way to the
+	 * account's model connections after Intelligence. */
+	const sections = $derived.by(() => {
+		const byKey = new Map(rows.map((candidate) => [candidate.key, candidate]));
+		const out: CompanySectionGroup[] = [];
+		for (const target of COMPANY_PAGES) {
+			if (target.key === 'overview') continue;
+			const setupRow = byKey.get(target.key);
+			const record =
+				target.key === 'activity' ? History : target.key === 'health' ? HeartPulse : null;
+			if (!setupRow && !(record && owner)) continue;
+			let group = out.find((candidate) => candidate.label === target.group);
+			if (!group) out.push((group = { label: target.group, rows: [] }));
+			const health = view?.computer.doctor.status;
+			group.rows.push(
+				setupRow
+					? {
+							key: setupRow.key,
+							label: setupRow.label,
+							href: setupRow.href,
+							icon: setupRow.icon,
+							todo: setupRow.todo,
+							tooltip: setupRow.todo && setupRow.task ? setupRow.task : setupRow.value,
+							reading: setupRow.value,
+							readingTone: setupRow.unavailable ? 'block' : setupRow.todo ? 'wait' : ''
+						}
+					: {
+							key: target.key,
+							label: target.label,
+							href: companyPageHref(companyId, target),
+							icon: record!,
+							todo: 0,
+							tooltip:
+								target.key === 'health'
+									? 'Checks on the company computer, model and tools'
+									: 'Decisions, receipts and external actions',
+							...(target.key === 'health' && health
+								? health === 'healthy'
+									? { reading: 'Healthy', readingTone: 'work' as const }
+									: { reading: 'Needs a look', readingTone: 'block' as const }
+								: {})
+						}
+			);
+		}
+		const capabilities = out.find((group) => group.label === 'Capabilities');
+		if (capabilities && owner) {
+			const at = capabilities.rows.findIndex((candidate) => candidate.key === 'provider');
+			capabilities.rows.splice(at + 1, 0, {
+				key: 'account-connections',
+				label: 'Model connections',
+				href: '/account/connections',
+				icon: LinkIcon,
+				todo: 0,
+				reading: 'In your account',
+				tooltip: MODEL_CONNECTIONS_WHY
+			});
+		}
+		return out;
+	});
+
 	return {
 		get companyId() {
 			return companyId;
+		},
+		get sections() {
+			return sections;
 		},
 		get owner() {
 			return owner;

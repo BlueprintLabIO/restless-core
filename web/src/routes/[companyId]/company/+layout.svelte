@@ -7,16 +7,11 @@
 	import { page } from '$app/state';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import LayoutGrid from '@lucide/svelte/icons/layout-grid';
-	import History from '@lucide/svelte/icons/history';
-	import HeartPulse from '@lucide/svelte/icons/heart-pulse';
-	import LinkIcon from '@lucide/svelte/icons/link';
 	import { createCompanySetup, provideCompanySetup } from '$lib/model/company-setup-rows.svelte';
-	import { COMPANY_PAGES, companyPageHref } from '$lib/model/company-pages';
 	import SidebarShell from '$lib/ui/views/SidebarShell.svelte';
 	import SidebarGroup from '$lib/ui/views/SidebarGroup.svelte';
 	import SidebarRow from '$lib/ui/views/SidebarRow.svelte';
 	import SidebarSearch from '$lib/ui/views/SidebarSearch.svelte';
-	import type { SidebarTone } from '$lib/ui/views/SidebarRow.svelte';
 
 	let { children } = $props();
 	let query = $state('');
@@ -32,79 +27,9 @@
 	const setup = createCompanySetup(() => companyId);
 	provideCompanySetup(setup);
 
-	/* The navigation: the overview, the setup rows in the registry's groups, then the records. */
-	type NavRow = {
-		key: string;
-		label: string;
-		href: string;
-		icon: (typeof setup.rows)[number]['icon'];
-		todo?: number;
-		problem?: boolean;
-		tooltip?: string;
-		reading?: string;
-		tone?: SidebarTone;
-	};
-	const tone = (todo: number, unavailable: boolean): SidebarTone =>
-		unavailable ? 'block' : todo ? 'wait' : '';
+	/* The navigation: the overview, then the sections the overview also lists. */
 	const groups = $derived.by(() => {
-		const byKey = new Map(setup.rows.map((row) => [row.key, row]));
-		const out: { label: string; rows: NavRow[] }[] = [];
-		for (const target of COMPANY_PAGES) {
-			if (target.key === 'overview') continue;
-			const row = byKey.get(target.key);
-			const record =
-				target.key === 'activity'
-					? { icon: History }
-					: target.key === 'health'
-						? { icon: HeartPulse }
-						: null;
-			if (!row && !(record && setup.owner)) continue;
-			let group = out.find((candidate) => candidate.label === target.group);
-			if (!group) out.push((group = { label: target.group, rows: [] }));
-			group.rows.push(
-				row
-					? {
-							key: row.key,
-							label: row.label,
-							href: row.href,
-							icon: row.icon,
-							todo: row.todo,
-							tooltip: row.todo && row.task ? row.task : row.value,
-							reading: row.value,
-							tone: tone(row.todo, row.unavailable)
-						}
-					: {
-							key: target.key,
-							label: target.label,
-							href: companyPageHref(companyId, target),
-							icon: record!.icon,
-							tooltip:
-								target.key === 'health'
-									? 'Checks on the company computer, model and tools'
-									: 'Decisions, receipts and external actions',
-							...(target.key === 'health' && setup.health
-								? setup.health === 'healthy'
-									? { reading: 'Healthy', tone: 'work' as const }
-									: { reading: 'Needs a look', tone: 'block' as const }
-								: {})
-						}
-			);
-		}
-		/* Model sign-ins and API keys are the account's, shared out to companies, so Intelligence is
-		 * followed by the way to them. */
-		const capabilities = out.find((group) => group.label === 'Capabilities');
-		if (capabilities && setup.owner) {
-			const at = capabilities.rows.findIndex((row) => row.key === 'provider');
-			capabilities.rows.splice(at + 1, 0, {
-				key: 'account-connections',
-				label: 'Model connections',
-				href: '/account/connections',
-				icon: LinkIcon,
-				reading: 'In your account',
-				tooltip:
-					'Sign-ins and API keys belong to your account, not to one company, so one sign-in can serve every company. Add or connect them in Account → Connections, then give each company access.'
-			});
-		}
+		const out = setup.sections;
 		const q = query.trim().toLocaleLowerCase();
 		if (!q) return out;
 		return out
@@ -169,7 +94,7 @@
 							icon={row.icon}
 							active={active(row.href)}
 							reading={row.reading}
-							readingTone={row.tone}
+							readingTone={row.readingTone}
 							title={row.tooltip}
 						/>
 					{/each}

@@ -75,16 +75,19 @@
 	{/if}
 
 	<div class="setup-all">
-		<Section title="Sections" group>
-			{#each setup.rows as row (row.key)}
-				{@const Icon = row.icon}
-				<Item title={row.label} href={row.href}>
-					{#snippet leading()}<Icon size={15} strokeWidth={1.8} aria-hidden="true" />{/snippet}
-					{#snippet trailing()}<span class="row-value" title={row.value}>{row.value}</span
-						><ChevronRight size={14} strokeWidth={1.8} aria-hidden="true" />{/snippet}
-				</Item>
-			{/each}
-		</Section>
+		{#each setup.sections as group (group.label)}
+			<Section title={group.label} group>
+				{#each group.rows as row (row.key)}
+					{@const Icon = row.icon}
+					<Item title={row.label} href={row.href}>
+						{#snippet leading()}<Icon size={15} strokeWidth={1.8} aria-hidden="true" />{/snippet}
+						{#snippet trailing()}{#if row.reading}<span class="row-value" title={row.tooltip}
+									>{row.reading}</span
+								>{/if}<ChevronRight size={14} strokeWidth={1.8} aria-hidden="true" />{/snippet}
+					</Item>
+				{/each}
+			</Section>
+		{/each}
 	</div>
 </Page>
 
