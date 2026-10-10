@@ -871,7 +871,7 @@ pub async fn run_exec_turn(
     let effective_config = config.for_agent("exec");
     anyhow::ensure!(
         effective_config.has_effective_model_route(effective_config.coordination_harness),
-        "Choose an intelligence provider and model in Company → Intelligence provider before starting the Exec."
+        "Connect a model in Company → Intelligence before starting the Exec."
     );
     // The lease row is FK-bound to the durable Actor. Fresh companies may
     // reach this entry point before `exec::wake` has ever bootstrapped it, so

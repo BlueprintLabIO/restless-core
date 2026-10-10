@@ -5177,7 +5177,7 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert!(wake_error.to_string().contains("Intelligence provider"));
+        assert!(wake_error.to_string().contains("Company → Intelligence"));
         assert!(!daemon.staff.is_actor_running(&company, "exec"));
 
         org.close().await;

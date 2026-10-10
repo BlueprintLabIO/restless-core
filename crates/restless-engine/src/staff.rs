@@ -398,7 +398,7 @@ pub async fn dispatch_claimed_work(
     let config = &effective_config;
     anyhow::ensure!(
         config.has_effective_model_route(config.worker_harness),
-        "Choose an intelligence provider and model in Company → Intelligence provider before starting an agent."
+        "Connect a model in Company → Intelligence before starting an agent."
     );
     if actor == "owner" {
         bail!("{actor} is not a Staff execution actor");

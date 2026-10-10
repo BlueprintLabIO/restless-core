@@ -122,7 +122,11 @@
 					{/snippet}
 				</Item>
 			{:else}
-				<Empty compact title="No tokens yet" info="Create one to connect an AI app." />
+				<Empty
+					compact
+					title="Connect an AI app such as Claude Code or Codex"
+					info={`Name a token for the app and create it, then run the command it shows. The app can read your Inbox, decide approvals and talk to Exec, with exactly your access. Each app gets its own token, so you can revoke one without the others.`}
+				/>
 			{/each}
 		{/if}
 	</Section>

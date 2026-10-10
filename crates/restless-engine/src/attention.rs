@@ -1836,7 +1836,7 @@ fn attempt_status(status: restless_orgintel::WorkAttemptState) -> &'static str {
 
 /// Deterministic substrate signatures only. Free-form model reasons are not
 /// startup health evidence, even when the model chose `blocked` without tools.
-/// The boolean says whether Intelligence provider is the relevant owner page.
+/// The boolean says whether Company → Intelligence is the relevant owner page.
 fn exec_startup_failure(reason: &str) -> Option<bool> {
     match crate::health::block_kind_from_message(reason) {
         Some(

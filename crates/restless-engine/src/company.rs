@@ -547,7 +547,7 @@ pub async fn project(
         0,
         DoctorCheck {
             id: "intelligence",
-            label: "Intelligence provider",
+            label: "Intelligence",
             source: "authority",
             status: if model_issue.is_some() {
                 "degraded"
@@ -665,13 +665,13 @@ fn harness_settings(
         } else {
             (
                 "ready",
-                "Pinned build, model policy and Runtime coordination are ready. Native sign-in is shown separately in Intelligence provider."
+                "Pinned build, model policy and Runtime coordination are ready. Native sign-in is shown separately in Company → Intelligence."
                     .into(),
             )
         };
         let (label, transport, authentication, limitations) = match harness {
             runtime::AgentHarness::CustomAcp => (
-                "Custom harness", "ACP", "Independent credentials configured in Intelligence provider.",
+                "Custom harness", "ACP", "Independent credentials configured in Company → Intelligence.",
                 vec!["Models and capabilities are discovered from the installed harness."],
             ),
             runtime::AgentHarness::RestlessManaged => (
@@ -683,7 +683,7 @@ fn harness_settings(
             runtime::AgentHarness::Codex => (
                 "Codex",
                 "Native App Server",
-                "Independent native Codex OAuth/API key when configured in Intelligence provider; otherwise the host relay.",
+                "Independent native Codex OAuth/API key when configured in Company → Intelligence; otherwise the host relay.",
                 vec![
                     "Optional native events appear only when the App Server reports them.",
                     "Input submitted during a running turn is queued unless native acknowledgement is observed.",
@@ -692,7 +692,7 @@ fn harness_settings(
             runtime::AgentHarness::ClaudeAgent => (
                 "Claude Agent",
                 "ACP",
-                "Independent native Claude subscription login or API key when configured in Intelligence provider; otherwise the host Anthropic relay.",
+                "Independent native Claude subscription login or API key when configured in Company → Intelligence; otherwise the host Anthropic relay.",
                 vec![
                     "Native sign-in is completed in the company desktop; native API calls bypass relay metering.",
                     "Input submitted during a running turn is queued for the next turn.",
@@ -821,7 +821,7 @@ async fn resources(
         .into(),
         observed_at,
         detail: if config.configured_model().is_none() {
-            Some("Choose an intelligence provider and model before starting agents.".into())
+            Some("Connect a model before starting agents.".into())
         } else {
             model_cooldown
                 .map(|cooldown| {
@@ -2429,7 +2429,7 @@ pub async fn observed_company_model_issue(
         }
     } else if exec.configured_model().is_none() {
         Some(
-            "Choose an intelligence provider and model in Company → Intelligence provider."
+            "Connect a model in Company → Intelligence."
                 .to_string(),
         )
     } else {

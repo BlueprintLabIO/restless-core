@@ -558,9 +558,9 @@ async fn session_access_at(
     let registry = load(&root, company)?;
     let harness = registry
         .get(id)
-        .context("Configure this harness in Intelligence provider first")?;
+        .context("Configure this harness in Company → Intelligence first")?;
     if status(company, id).await?["state"] != "installed" {
-        bail!("Install this harness in Intelligence provider first");
+        bail!("Install this harness in Company → Intelligence first");
     }
     Ok(crate::model_gateway::AgentGatewayAuth {
         token_env: "RESTLESS_CUSTOM_CONFIG".into(),

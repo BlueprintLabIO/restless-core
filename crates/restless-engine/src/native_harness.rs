@@ -215,7 +215,7 @@ pub async fn session_access(
         ),
         "oauth" => {
             if command(company, harness, "status").await?["state"] != "connected" {
-                bail!("Sign in to {harness} in Company → Intelligence provider first");
+                bail!("Sign in to {harness} in Company → Intelligence first");
             }
             (
                 "RESTLESS_NATIVE_AUTH",
@@ -223,7 +223,7 @@ pub async fn session_access(
                 crate::model_gateway::ModelBilling::Subscription,
             )
         }
-        _ => bail!("Connect {harness} in Company → Intelligence provider first"),
+        _ => bail!("Connect {harness} in Company → Intelligence first"),
     };
     Ok(crate::model_gateway::AgentGatewayAuth {
         token_env: token_env.into(),

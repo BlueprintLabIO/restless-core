@@ -556,7 +556,7 @@ const LEGACY_UNCONFIGURED_MODEL: &str = "unconfigured/pending";
 
 /// Native harness IDs are internal route markers, not direct provider IDs.
 /// Keep rejecting them at model write boundaries while leaving old config
-/// readable so an owner can repair it through the Intelligence provider UI.
+/// readable so an owner can repair it through Company → Intelligence.
 pub fn validate_company_model_selection(model: &str) -> Result<()> {
     validate_direct_provider(provider_for_model(model)?)
 }
@@ -580,7 +580,7 @@ fn provider_for_model(model: &str) -> Result<&str> {
 /// harness route marker.
 pub fn validate_direct_provider(provider: &str) -> Result<()> {
     if provider.starts_with("native-") {
-        bail!("Native harness models must be selected through Company → Intelligence provider.");
+        bail!("Native harness models must be selected through Company → Intelligence.");
     }
     Ok(())
 }

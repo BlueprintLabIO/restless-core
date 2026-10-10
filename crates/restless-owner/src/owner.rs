@@ -4754,7 +4754,7 @@ fn company_model_issue(config: &runtime::CompanyConfig) -> Option<String> {
         None
     } else if exec.configured_model().is_none() {
         Some(
-            "Choose an intelligence provider and model in Company → Intelligence provider."
+            "Connect a model in Company → Intelligence."
                 .to_string(),
         )
     } else {

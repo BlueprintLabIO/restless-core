@@ -182,8 +182,9 @@
 							{#if check.id === 'intelligence'}<a
 									class="btn small primary"
 									href={`/${companyId}/company/provider`}
-									>{check.summary.startsWith('Choose an intelligence')
-										? 'Choose intelligence'
+									>{check.summary.startsWith('Connect a model') ||
+									check.summary.startsWith('Choose an intelligence')
+										? 'Connect a model'
 										: 'Reconnect'}</a
 								>{:else if check.id === repairCheck}{#each view.computer.doctor.actions as action (action.id)}<button
 										class="btn small primary"

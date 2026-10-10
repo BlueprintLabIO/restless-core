@@ -4070,6 +4070,6 @@ mission = "Configure Exec separately"
         assert!(config.has_configured_model_route());
         assert_eq!(
             company_model_issue(&config).as_deref(),
-            Some("Choose an intelligence provider and model in Company → Intelligence provider.")
+            Some("Connect a model in Company → Intelligence.")
         );
     }

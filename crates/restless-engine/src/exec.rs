@@ -122,7 +122,7 @@ pub async fn wake(
     let config = &effective_config;
     anyhow::ensure!(
         config.has_effective_model_route(config.coordination_harness),
-        "Choose an intelligence provider and model in Company → Intelligence provider before starting the Exec."
+        "Connect a model in Company → Intelligence before starting the Exec."
     );
     let container = runtime::container_name(&config.name);
     let hosted_identity = if runtime_bridges.is_hosted() {

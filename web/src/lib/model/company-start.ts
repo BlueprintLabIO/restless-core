@@ -14,22 +14,20 @@ export function providerName(model: string): string {
 				google: 'Google Gemini',
 				litellm: 'model gateway'
 			} as Record<string, string>
-		)[provider] ?? 'intelligence provider'
+		)[provider] ?? 'model provider'
 	);
 }
 function startAction(reason: string): string {
 	const normalized = reason.toLowerCase();
-	if (reason.startsWith('Choose an intelligence provider'))
-		return 'Choose an intelligence provider and model';
+	if (reason.startsWith('Connect a model') || reason.startsWith('Choose an intelligence provider'))
+		return 'Connect a model';
 	if (normalized.includes('codex')) return 'Reconnect ChatGPT / Codex';
 	if (normalized.includes('claude')) return 'Reconnect Claude Code';
 	if (reason.startsWith('no usable host credential')) {
 		const model = reason.match(/for model ([^ ]+)/)?.[1];
-		return model
-			? `Reconnect ${providerName(model)}`
-			: 'Reconnect the selected intelligence provider';
+		return model ? `Reconnect ${providerName(model)}` : 'Reconnect the selected model';
 	}
-	return 'Check the intelligence setup';
+	return 'Check the model setup';
 }
 
 /** The action and where to take it, for text that does not itself link there.

@@ -445,7 +445,7 @@ fn filter_cooling_candidates(
                 )
             })
             .unwrap_or_else(|| "no configured candidates".into());
-        bail!("This intelligence connection is temporarily unavailable. Retry after {next}, or choose another connection in Intelligence provider.");
+        bail!("This intelligence connection is temporarily unavailable. Retry after {next}, or choose another connection in Company → Intelligence.");
     }
     Ok(ordered)
 }
@@ -469,7 +469,7 @@ pub async fn record_cooldown(
 ) -> Result<()> {
     // The gateway is still loading providers after a start: nothing is wrong with the route, and a
     // cooldown here made the owner's first messages after a restart fail for two minutes.
-    if reason.contains("No direct intelligence provider is active yet") {
+    if reason.contains("No model connection is active yet") {
         return Ok(());
     }
     let duration = match kind {
@@ -3117,7 +3117,7 @@ pub fn client() -> Result<ClientConfig> {
         .read()
         .ok()
         .and_then(|client| client.clone())
-        .context("No direct intelligence provider is active yet. Connect a direct provider in Intelligence provider (Restless loads it within seconds), or assign this agent to a connected harness.")
+        .context("No model connection is active yet. Connect a model in Company → Intelligence (Restless loads it within seconds), or assign this agent to a connected harness.")
 }
 
 pub async fn oauth_is_loaded(provider: &str) -> Result<bool> {
@@ -3461,7 +3461,7 @@ fn admit<P: ProviderSet>(configs: &[CompanyConfig], credentials: &P) -> Result<A
         let Some(model) = effective.configured_model() else {
             unstartable.insert(
                 config.name.clone(),
-                "Choose an intelligence provider and model in Company → Intelligence provider."
+                "Connect a model in Company → Intelligence."
                     .to_string(),
             );
             continue;
@@ -3690,7 +3690,7 @@ mission = "Choose intelligence later"
                 .unstartable
                 .get("unconfigured_test")
                 .map(String::as_str),
-            Some("Choose an intelligence provider and model in Company → Intelligence provider.")
+            Some("Connect a model in Company → Intelligence.")
         );
     }
 
@@ -3713,7 +3713,7 @@ model = "unconfigured/pending"
                 .unstartable
                 .get("legacy_unconfigured_test")
                 .map(String::as_str),
-            Some("Choose an intelligence provider and model in Company → Intelligence provider.")
+            Some("Connect a model in Company → Intelligence.")
         );
     }
 
