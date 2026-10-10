@@ -49,12 +49,20 @@ pub(super) fn registration_refusal(error: restless_orgintel::OrgIntelError) -> R
                 "Other files are still being stored. Try again in a moment.",
             )
         }
-        error => api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "attachment_staging",
-            format!("{error:#}"),
-        ),
+        error => {
+            tracing::warn!(%error, "owner attachment registration failed");
+            files_not_stored()
+        }
     }
+}
+
+/// The owner reads what to do; the internal cause goes to the log.
+fn files_not_stored() -> Response<Body> {
+    api_error(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "attachment_staging",
+        "The files could not be stored on the company computer. Try again in a moment.",
+    )
 }
 
 /// POST /companies/{company}/attachments: one or more parts named `file`, kept in the Library
@@ -217,11 +225,8 @@ pub(super) async fn upload_attachments(
         })
         .collect::<Vec<_>>();
     if let Err(error) = collect_owner_attachments(&org, &company).await {
-        return api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "attachment_staging",
-            format!("{error:#}"),
-        );
+        tracing::warn!(%error, %company, "library upload staging cleanup failed");
+        return files_not_stored();
     }
     let registrations = prepared
         .iter()
@@ -260,12 +265,9 @@ pub(super) async fn upload_attachments(
         if let Err(error) =
             runtime::store_owner_attachment(&company, item.attachment.upload_id, &item.bytes).await
         {
+            tracing::warn!(%error, %company, "library upload could not store a file");
             rollback_attachment_attempt(&org, &company, &staged).await;
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "attachment",
-                format!("{error:#}"),
-            );
+            return files_not_stored();
         }
     }
     let ids = staged
@@ -273,12 +275,9 @@ pub(super) async fn upload_attachments(
         .map(|attachment| attachment.upload_id)
         .collect::<Vec<_>>();
     if let Err(error) = org.keep_owner_attachments(&sender, &command_id, &ids).await {
+        tracing::warn!(%error, %company, "library upload could not keep its files");
         rollback_attachment_attempt(&org, &company, &staged).await;
-        return api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "attachment",
-            format!("{error:#}"),
-        );
+        return files_not_stored();
     }
     Json(serde_json::json!({
         "attachments": staged

@@ -120,7 +120,9 @@
 
 	/* Files the owner keeps: added here, or sent in a conversation. The inventory is the owner's;
 	 * the rows shown are the ones this person sent, which are the ones they can open. */
-	let kept = $state<AttachmentInventory | null>(null);
+	/* Held with the company it was read for, so switching companies never shows another's files. */
+	let keptRead = $state<{ company: string; inventory: AttachmentInventory } | null>(null);
+	const kept = $derived(keptRead?.company === companyId ? keptRead.inventory : null);
 	let keptFailure = $state('');
 	async function loadKept() {
 		const target = companyId;
@@ -128,7 +130,7 @@
 		try {
 			const inventory = await listRetainedAttachments(target);
 			if (target !== companyId) return;
-			kept = inventory;
+			keptRead = { company: target, inventory };
 			keptFailure = '';
 		} catch (cause) {
 			if (target === companyId)
@@ -322,12 +324,23 @@
 		objectUrl = '';
 	}
 	$effect(() => releaseObjectUrl);
+	/* Leaving the viewer lets the local copy go. */
+	$effect(() => {
+		if (!uploadKey) releaseObjectUrl();
+	});
 	const uploadResolver = $derived.by(() => {
-		if (!uploadKey) return null;
-		const [target, id, mediaType, fileName] = JSON.parse(uploadKey) as string[];
+		const key = uploadKey;
+		if (!key) return null;
+		const [target, id, mediaType, fileName] = JSON.parse(key) as string[];
 		return async () => {
 			try {
 				const url = await attachmentObjectUrl(target, id, mediaType, fileName);
+				/* A read that finishes after the owner moved on must not revoke the newer copy on
+				 * screen; the viewer ignores its answer, so it lets its own copy go. */
+				if (key !== uploadKey) {
+					URL.revokeObjectURL(url);
+					return url;
+				}
 				releaseObjectUrl();
 				objectUrl = url;
 				return url;
@@ -817,7 +830,7 @@
 					href={filterHref('yours')}
 					label="From you"
 					icon={Upload}
-					active={filter === 'yours' && !fileOpen}
+					active={filter === 'yours' && !fileOpen && !uploadFile}
 					count={counts.yours || null}
 					title="Files you added here or sent in a conversation"
 				/>

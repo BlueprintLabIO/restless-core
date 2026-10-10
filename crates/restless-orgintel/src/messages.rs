@@ -1335,6 +1335,8 @@ impl OrgIntel {
         if attachment_ids.is_empty() {
             return Ok(());
         }
+        // All or none: a partly kept upload would leave rows the caller's rollback cannot clear.
+        let mut tx = self.pool.begin().await?;
         let kept = sqlx::query(
             "UPDATE owner_attachments SET kept_at=now() \
              WHERE attachment_id=ANY($1) AND sender_actor_id=$2 AND client_command_id=$3 \
@@ -1345,7 +1347,7 @@ impl OrgIntel {
         .bind(attachment_ids)
         .bind(sender_actor_id)
         .bind(client_command_id.trim())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?
         .rows_affected();
         if kept != attachment_ids.len() as u64 {
@@ -1353,6 +1355,7 @@ impl OrgIntel {
                 "attachment staging changed before the files were kept".into(),
             ));
         }
+        tx.commit().await?;
         Ok(())
     }
 
