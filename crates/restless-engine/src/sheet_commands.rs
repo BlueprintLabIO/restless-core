@@ -52,13 +52,24 @@ mod tests {
             }
             elsewhere.ensure_actor("owner","owner","test","owner").await.unwrap();
             let sheet=Uuid::new_v4();
-            let created=execute(&org,"owner",SheetOperation::Create{id:sheet,title:"Deals".into(),visibility:"participants".into()}).await.unwrap();
+            let created=execute(&org,"owner",SheetOperation::Create{id:sheet,title:"Deals".into(),visibility:"participants".into(),from:None}).await.unwrap();
             assert!(org.list_sheets("alice").await.unwrap().is_empty());
             assert!(elsewhere.sheet_state(sheet,"owner",false,0).await.is_err());
             org.share_sheet(sheet,"owner","alice",Some("read")).await.unwrap();
             org.share_sheet(sheet,"owner","exec",Some("edit")).await.unwrap();
             assert_eq!(org.sheet_state(sheet,"alice",false,0).await.unwrap().access,"read");
             assert!(org.sheet_state(sheet,"alice",true,0).await.is_err());
+            // Renaming needs edit access, or the company's owner tidying a sheet they can see.
+            assert!(execute(&org,"alice",SheetOperation::Rename{sheet,title:"Mine".into()}).await.is_err(),"a reader cannot rename");
+            assert!(execute(&org,"exec",SheetOperation::Rename{sheet,title:" ".into()}).await.is_err());
+            assert!(execute(&org,"exec",SheetOperation::Rename{sheet,title:"x".repeat(201)}).await.is_err());
+            assert_eq!(execute(&org,"exec",SheetOperation::Rename{sheet,title:" Deals 2026 ".into()}).await.unwrap()["title"],"Deals 2026");
+            let theirs=Uuid::new_v4();
+            execute(&org,"alice",SheetOperation::Create{id:theirs,title:"Alice's".into(),visibility:"company".into(),from:Some(json!({"csv":"Item,Total\nGFX,=1+1"}))}).await.unwrap();
+            assert!(execute(&org,"bob",SheetOperation::Rename{sheet:theirs,title:"Bob's".into()}).await.is_err(),"a company reader cannot rename");
+            assert_eq!(execute(&org,"owner",SheetOperation::Rename{sheet:theirs,title:"Tidied".into()}).await.unwrap()["title"],"Tidied");
+            let imported=execute(&org,"owner",SheetOperation::Read{sheet:theirs,query:Some(json!({"action":"get_range","range":"B2"}))}).await.unwrap();
+            assert_eq!(imported["result"]["rows"][0][0]["value"],2,"a sheet made from CSV keeps its formulas");
             let base=created["head_revision"].as_str().unwrap().to_string();
             let action=json!({"action":"set_cells","values":[["record_id","Item","Buy","Sell","Fees","Profit"],["gfx","GFX 50S II",2100,3200,100,"=D2-C2-E2"]]});
             let key=Uuid::new_v4();
@@ -118,7 +129,7 @@ mod tests {
             // A long-lived sheet opens from its newest checkpoint and replays a
             // bounded tail that rebuilds exactly what the whole log rebuilds.
             let long=Uuid::new_v4();
-            let mut head=execute(&org,"owner",SheetOperation::Create{id:long,title:"Long".into(),visibility:"company".into()}).await.unwrap()["head_revision"].as_str().unwrap().to_string();
+            let mut head=execute(&org,"owner",SheetOperation::Create{id:long,title:"Long".into(),visibility:"company".into(),from:None}).await.unwrap()["head_revision"].as_str().unwrap().to_string();
             for n in 0..270 {
                 let receipt=execute(&org,"owner",SheetOperation::Edit{sheet:long,expected_revision:head,key:Uuid::new_v4(),action:json!({"action":"set_cells","start":format!("A{}",n%40+1),"values":[[n]]})}).await.unwrap();
                 head=receipt["revision_id"].as_str().unwrap().to_string();
@@ -270,6 +281,15 @@ pub enum SheetOperation {
         title: String,
         #[serde(default = "company_visibility")]
         visibility: String,
+        /// Start from a spreadsheet rather than a blank workbook: {"csv": text} or
+        /// {"workbook": upstream workbook data}. The engine loads it and stores its
+        /// own normalised result; the given data is never stored as is.
+        #[serde(default)]
+        from: Option<Value>,
+    },
+    Rename {
+        sheet: Uuid,
+        title: String,
     },
     Read {
         sheet: Uuid,
@@ -332,12 +352,20 @@ pub async fn execute(
             id,
             title,
             visibility,
+            from,
         } => {
-            let output = model(json!({"engine_version":SHEET_ENGINE_VERSION})).await?;
+            let mut input = json!({"engine_version":SHEET_ENGINE_VERSION});
+            if let Some(from) = from {
+                input["import"] = from;
+            }
+            let output = model(input).await?;
             Ok(json!(
                 org.create_sheet(id, actor, &title, &visibility, &output["workbook"])
                     .await?
             ))
+        }
+        SheetOperation::Rename { sheet, title } => {
+            Ok(json!(org.rename_sheet(sheet, actor, &title).await?))
         }
         SheetOperation::Read { sheet, query } => {
             let state = org.sheet_state(sheet, actor, false, 0).await?;

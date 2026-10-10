@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { execute, ENGINE_VERSION } from '../src/worker.mjs';
+import { Model } from '../src/upstream.mjs';
 const blank = { engine_version: ENGINE_VERSION };
 const seed = [ ['record_id','Item','Buy','Sell','Fees','Profit'], ['gfx','GFX 50S II',2100,3200,100,'=D2-C2-E2'], ['gpu','RTX 3090',800,1150,50,'=D3-C3-E3'] ];
 
@@ -24,6 +26,46 @@ test('CSV uses all populated rows, quoted fields and auto-expands worksheet', as
   const read=await execute({...blank,snapshot:base,messages:write.messages,operation:{action:'export_csv'}});
   assert.match(read.result.csv,/GFX,"line one\nline two, quoted"/);
   assert.equal(read.workbook.sheets[0].rowNumber,102);
+});
+test('a large write is a few revisions that replay to the same workbook and export whole', async () => {
+  const base=(await execute(blank)).workbook;
+  const values=Array.from({length:500},(_,r)=>Array.from({length:50},(_,c)=>r*50+c));
+  const write=await execute({...blank,snapshot:base,operation:{action:'set_cells',values}});
+  assert.ok(write.messages.length<=4,'25,002 commands in revisions of at most 10,000, not one per cell');
+  assert.equal(write.messages[0].serverRevisionId,base.revisionId);
+  assert.equal(write.messages.at(-1).nextRevisionId,write.workbook.revisionId);
+  const replay=await execute({...blank,snapshot:base,messages:write.messages,operation:{action:'export_csv'}});
+  assert.deepEqual(replay.workbook,write.workbook);
+  const lines=replay.result.csv.trimEnd().split('\r\n');
+  assert.equal(lines.length,500);assert.equal(lines.at(-1).split(',').at(-1),'24999');
+});
+test('a browser paste larger than 10,000 cells is accepted as one revision', async () => {
+  const base=(await execute(blank)).workbook;
+  const commands=[];
+  for(let row=0;row<100;row++)for(let col=0;col<26;col++)for(let n=0;n<6;n++)commands.push({type:'UPDATE_CELL',sheetId:'Sheet1',col,row,content:String(row*26+col+n)});
+  const revision={type:'REMOTE_REVISION',version:1,serverRevisionId:base.revisionId,nextRevisionId:randomUUID(),clientId:randomUUID(),commands};
+  const accepted=await execute({...blank,snapshot:base,revision});
+  assert.equal(accepted.workbook.revisionId,revision.nextRevisionId);
+  const read=await execute({...blank,snapshot:base,messages:[revision],operation:{action:'get_range',range:'Z100'}});
+  assert.equal(read.result.rows[0][0].value,2604);
+});
+test('a new workbook imports from CSV or converted XLSX and is the engine\'s own export', async () => {
+  const fromCsv=await execute({...blank,import:{csv:'Item,Total\r\nGFX,=1+1\r\n'}});
+  const csvRead=await execute({...blank,snapshot:fromCsv.workbook,operation:{action:'get_range',range:'A2:B2'}});
+  assert.deepEqual(csvRead.result.rows[0].map(c=>c.value),['GFX',2]);
+  const base=(await execute(blank)).workbook;
+  const write=await execute({...blank,snapshot:base,operation:{action:'set_cells',values:seed}});
+  const source=new Model(write.workbook);
+  source.dispatch('CREATE_SHEET',{sheetId:'Sales',name:'Sales',position:1});
+  source.dispatch('UPDATE_CELL',{sheetId:'Sales',col:0,row:0,content:'=Sheet1!F2'});
+  const files=Object.fromEntries(source.exportXLSX().files.filter(f=>'content' in f).map(f=>[f.path,f.content]));
+  const converted={...new Model(files,{mode:'readonly'}).exportData(),revisionId:'chosen-by-client'};
+  const imported=await execute({...blank,import:{workbook:converted}});
+  assert.notEqual(imported.workbook.revisionId,'chosen-by-client');
+  assert.deepEqual(imported.workbook.sheets.map(s=>s.name),['Sheet1','Sales']);
+  const read=await execute({...blank,snapshot:imported.workbook,operation:{action:'get_range',worksheet:imported.workbook.sheets[1].id,range:'A1'}});
+  assert.equal(read.result.rows[0][0].value,1000);
+  await assert.rejects(execute({...blank,import:{workbook:{'[Content_Types].xml':'<Types/>'}}}),/workbook data/);
 });
 test('invalid final cell yields no accepted partial result; structural limits reject', async () => {
   await assert.rejects(execute({...blank,operation:{action:'set_cells',values:[['valid',{content:{bad:true}}]]}}),/Cell value/);

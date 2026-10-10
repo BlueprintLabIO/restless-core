@@ -4,6 +4,7 @@ import templates from '@odoo/o-spreadsheet/dist/o_spreadsheet.xml?raw';
 import spreadsheetCss from '@odoo/o-spreadsheet/dist/o_spreadsheet.css?inline';
 import bootstrapCss from 'bootstrap/dist/css/bootstrap.min.css?inline';
 import fontCss from 'font-awesome/css/font-awesome.min.css?inline';
+import type { SheetRow } from './sheets';
 
 class Root extends Component {
 	static template = xml`<Spreadsheet model="props.model"/>`;
@@ -20,8 +21,21 @@ export interface EditorStatus {
 	worksheet?: string;
 	message?: string;
 	denied?: boolean;
+	/** The sheet as the server holds it, from the session's bootstrap. */
+	sheet?: SheetRow;
+	/** A change was refused and the sheet reopened at its saved state; say so once. */
+	notice?: { title: string; text: string; details?: string };
 }
 type UpstreamMessage = Record<string, any>;
+
+/* One change is one revision. A paste sends a command per cell, and the server takes up to
+ * 100,000 commands in a message of at most 8 MiB. Past either, it is refused here, before it is
+ * sent, rather than after the server has closed the session. */
+const MAX_REVISION_COMMANDS = 100_000;
+const MAX_MESSAGE_BYTES = 8 * 1024 * 1024 - 4096;
+function messageBytes(text: string) {
+	return text.length * 3 <= MAX_MESSAGE_BYTES ? text.length : new TextEncoder().encode(text).length;
+}
 
 /* Columns fit what they hold the first time an editor opens a sheet, as a real edit everyone
  * shares, then stay as people set them. A column of long links is capped so it cannot swallow
@@ -73,6 +87,7 @@ export function mountSheet(
 		blocked = false,
 		timer: ReturnType<typeof setTimeout>;
 	let access = 'read';
+	let row: SheetRow | undefined;
 	const pending = new Map();
 	const styles = document.createElement('style');
 	// Bootstrap is required by Owl, and scoped to this editor so it cannot reset
@@ -89,8 +104,23 @@ export function mountSheet(
 		},
 		async sendMessage(message: UpstreamMessage) {
 			if (message.type === 'SNAPSHOT') return; // Only server-engine snapshots are authoritative.
+			const text = JSON.stringify(message);
+			if (message.type === 'REMOTE_REVISION') {
+				const cells = message.commands?.length ?? 0;
+				if (cells > MAX_REVISION_COMMANDS || messageBytes(text) > MAX_MESSAGE_BYTES) {
+					// Never sent: reopening drops it locally, with the pending edits queued behind it.
+					queueMicrotask(() =>
+						reload({
+							title: 'That change is too large to save at once',
+							text: 'Paste it in smaller parts, or import the file as a new sheet.',
+							details: `It changes about ${cells.toLocaleString()} cells. One change can hold up to ${MAX_REVISION_COMMANDS.toLocaleString()} cells and 8 MB.`
+						})
+					);
+					return;
+				}
+			}
 			if (message.nextRevisionId) pending.set(message.nextRevisionId, message);
-			if (socket?.readyState === WebSocket.OPEN && !blocked) socket.send(JSON.stringify(message));
+			if (socket?.readyState === WebSocket.OPEN && !blocked) socket.send(text);
 			queueMicrotask(report);
 		},
 		leave() {}
@@ -102,12 +132,13 @@ export function mountSheet(
 		cursor = sequence;
 	}
 	function report() {
-		if (disposed || blocked) return;
+		if (disposed || blocked || !model) return;
 		status({
 			state: pending.size ? 'saving' : 'saved',
 			access,
 			revision: model?.exportData().revisionId,
-			worksheet: model?.getters.getActiveSheetId()
+			worksheet: model?.getters.getActiveSheetId(),
+			sheet: row
 		});
 	}
 	function fail(message: string, denied = false) {
@@ -119,6 +150,24 @@ export function mountSheet(
 		model = undefined;
 		target.replaceChildren();
 		status({ state: 'error', message, access: 'read', denied });
+	}
+	/* A change the server refused, or one too large to send, must not take the editor down with
+	 * it: the sheet reopens as a fresh session at its saved state and the owner is told once. */
+	function reload(notice: NonNullable<EditorStatus['notice']>) {
+		if (disposed || blocked) return;
+		const previous = socket;
+		socket = undefined;
+		previous?.close();
+		clearTimeout(timer);
+		app?.destroy();
+		app = undefined;
+		model = undefined;
+		receive = undefined;
+		pending.clear();
+		cursor = 0;
+		target.replaceChildren();
+		status({ state: 'connecting', access, sheet: row, notice });
+		connect();
 	}
 	async function mount(mounted: App<typeof Root>) {
 		const outsideControl = (candidate: EventTarget | null) =>
@@ -182,13 +231,25 @@ export function mountSheet(
 			url.searchParams.set('client_id', clientId);
 			url.searchParams.set('reconnect_token', reconnectToken);
 		}
-		socket = new WebSocket(url);
-		socket.onmessage = async (event) => {
-			if (disposed || blocked) return;
+		const current = new WebSocket(url);
+		socket = current;
+		// A session replaced by a reload is ignored, including its late close.
+		const stale = () => disposed || blocked || socket !== current;
+		current.onmessage = async (event) => {
+			if (stale()) return;
 			try {
 				const envelope = JSON.parse(event.data);
 				if (envelope.type === 'ERROR') {
-					fail(envelope.message, String(envelope.message).includes('unavailable'));
+					const message = String(envelope.message);
+					if (message.includes('unavailable')) fail(message, true);
+					// Before the sheet has opened there is no change to drop; reopening would only repeat it.
+					else if (!model) fail(message);
+					else
+						reload({
+							title: 'Your last change was not saved',
+							text: 'The sheet reopened at its last saved state.',
+							details: message
+						});
 					return;
 				}
 				// Other people's and agents' cursors: shown, never sequenced or stored.
@@ -205,6 +266,7 @@ export function mountSheet(
 				if (envelope.type === 'BOOTSTRAP') {
 					const state = envelope.state;
 					access = state.access;
+					row = state.sheet;
 					if (state.sheet.engine_version !== '19.0.51')
 						throw new Error('This sheet requires a different editor version.');
 					if (!model) {
@@ -223,7 +285,7 @@ export function mountSheet(
 						const mounted = new App(Root, { props: { model }, templates });
 						app = mounted;
 						await mount(mounted);
-						if (disposed || blocked) {
+						if (stale()) {
 							mounted.destroy();
 							return;
 						}
@@ -240,8 +302,8 @@ export function mountSheet(
 				fail(error instanceof Error ? error.message : 'The sheet could not synchronize.');
 			}
 		};
-		socket.onclose = async () => {
-			if (disposed || blocked) return;
+		current.onclose = async () => {
+			if (stale()) return;
 			model?.updateMode('readonly');
 			status({
 				state: 'offline',
@@ -253,7 +315,7 @@ export function mountSheet(
 					`/api/companies/${encodeURIComponent(company)}/sheets/${encodeURIComponent(sheet)}`,
 					{ cache: 'no-store' }
 				);
-				if (disposed || blocked) return;
+				if (stale()) return;
 				if ([401, 403, 404].includes(response.status)) {
 					fail('Access to this sheet has ended.', true);
 					return;
@@ -261,7 +323,7 @@ export function mountSheet(
 			} catch {
 				/* A transient outage retains pending work for this identity. */
 			}
-			if (disposed || blocked) return;
+			if (stale()) return;
 			timer = setTimeout(connect, 1500);
 		};
 	}

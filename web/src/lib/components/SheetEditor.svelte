@@ -8,13 +8,19 @@
 	}: { company: string; sheet: string; onstatus?: (value: EditorStatus) => void } = $props();
 	let host: HTMLDivElement;
 	let editorState = $state<EditorStatus>({ state: 'connecting', access: 'read' });
+	let notice = $state<EditorStatus['notice']>();
 	let retry = $state(0);
+	let editor: { getModel(): any; destroy(): void } | undefined;
+	/** The live workbook model, for downloading it; undefined until the sheet has opened. */
+	export function getModel(): any {
+		return editor?.getModel();
+	}
 	$effect(() => {
 		const targetCompany = company,
 			targetSheet = sheet;
 		retry;
-		let disposed = false,
-			editor: { destroy(): void } | undefined;
+		let disposed = false;
+		notice = undefined;
 		if (!host) return;
 		void import('$lib/model/sheet-editor')
 			.then((module) => {
@@ -22,6 +28,7 @@
 				editor = module.mountSheet(host, targetCompany, targetSheet, (value: EditorStatus) => {
 					if (!disposed) {
 						editorState = value;
+						if (value.notice) notice = value.notice;
 						onstatus?.(value);
 					}
 				});
@@ -32,6 +39,7 @@
 		return () => {
 			disposed = true;
 			editor?.destroy();
+			editor = undefined;
 		};
 	});
 </script>
@@ -48,6 +56,17 @@
 	{:else if editorState.state === 'offline'}
 		<div class="sheet-notice">
 			<Notice tone="warning" title="Reconnecting" details={editorState.message} />
+		</div>
+	{:else if notice}
+		<div class="sheet-notice">
+			<Notice tone="warning" title={notice.title} details={notice.details}>
+				{notice.text}
+				{#snippet actions()}<button
+						class="btn small"
+						type="button"
+						onclick={() => (notice = undefined)}>Dismiss</button
+					>{/snippet}
+			</Notice>
 		</div>
 	{/if}
 	<div class="native-sheet-surface" bind:this={host} aria-label="Spreadsheet editor"></div>

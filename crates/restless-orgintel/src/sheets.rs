@@ -14,6 +14,14 @@ pub const MAX_SHEET_BYTES: usize = 8 * 1024 * 1024;
 /// Revisions a fresh read replays on top of its checkpoint, at least. Undo of a
 /// revision older than this window is refused rather than replayed.
 pub const SHEET_REPLAY_WINDOW: i64 = 200;
+/// Revision JSON a fresh read replays, at most. A few very large pastes or
+/// imports would otherwise push a sheet past the engine's 32 MiB input and it
+/// could no longer open. Past this, the read starts from the newest checkpoint,
+/// which narrows the undo window instead.
+pub const SHEET_REPLAY_BYTES: usize = 16 * 1024 * 1024;
+/// An accepted batch at least this large is checkpointed at once, so a read
+/// over the replay budget always has a checkpoint just after it.
+const LARGE_BATCH_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SheetError {
@@ -39,6 +47,8 @@ pub struct SheetRow {
     pub sequence: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Set while the sheet is archived out of the Library. It still opens.
+    pub archived_at: Option<DateTime<Utc>>,
 }
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct SheetMessage {
@@ -68,7 +78,7 @@ pub struct SheetClient {
     pub reconnect_token: String,
     pub generation: Uuid,
 }
-const ROW: &str = "id,title,owner_actor_id,visibility,engine_version,head_revision,sequence,created_at,updated_at";
+const ROW: &str = "id,title,owner_actor_id,visibility,engine_version,head_revision,sequence,created_at,updated_at,archived_at";
 
 async fn access(
     tx: &mut Transaction<'_, Postgres>,
@@ -118,15 +128,31 @@ async fn access(
     }
     Ok(grant)
 }
-fn bounded(value: &Value) -> Result<()> {
-    if serde_json::to_vec(value)
-        .map_err(|e| SheetError::Invalid(e.to_string()))?
-        .len()
-        > MAX_SHEET_BYTES
-    {
-        return Err(SheetError::Invalid("workbook exceeds 8 MiB".into()));
+/// Archiving, restoring and renaming: whoever may edit the sheet may, and the
+/// company's owner may tidy any sheet they can see, including one an agent made.
+async fn may_manage(tx: &mut Transaction<'_, Postgres>, id: Uuid, actor: &str) -> Result<()> {
+    if access(tx, id, actor, true).await.is_ok() {
+        return Ok(());
+    }
+    access(tx, id, actor, false).await?;
+    let company_owner: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM human_principal_actor_bindings WHERE actor_id=$1 AND membership_role='owner' AND membership_status='active')")
+        .bind(actor)
+        .fetch_one(&mut **tx)
+        .await?;
+    if !company_owner && actor != "owner" {
+        return Err(SheetError::Unavailable);
     }
     Ok(())
+}
+/// The value's serialized size, refused past the 8 MiB limit.
+fn bounded(value: &Value) -> Result<usize> {
+    let size = serde_json::to_vec(value)
+        .map_err(|e| SheetError::Invalid(e.to_string()))?
+        .len();
+    if size > MAX_SHEET_BYTES {
+        return Err(SheetError::Invalid("workbook exceeds 8 MiB".into()));
+    }
+    Ok(size)
 }
 fn revision(message: &Value, field: &str) -> Result<String> {
     let value = message[field]
@@ -250,17 +276,7 @@ impl OrgIntel {
     /// Archive a sheet out of the Library, or restore it. Whoever may edit it may.
     pub async fn set_sheet_archived(&self, id: Uuid, actor: &str, archived: bool) -> Result<()> {
         let mut tx = self.pool.begin().await?;
-        if access(&mut tx, id, actor, true).await.is_err() {
-            // The company's owner may tidy any sheet they can see, including one an agent made.
-            access(&mut tx, id, actor, false).await?;
-            let company_owner: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM human_principal_actor_bindings WHERE actor_id=$1 AND membership_role='owner' AND membership_status='active')")
-                .bind(actor)
-                .fetch_one(&mut *tx)
-                .await?;
-            if !company_owner && actor != "owner" {
-                return Err(SheetError::Unavailable);
-            }
-        }
+        may_manage(&mut tx, id, actor).await?;
         sqlx::query(
             "UPDATE native_sheets SET archived_at = CASE WHEN $2 THEN now() ELSE NULL END WHERE id=$1",
         )
@@ -270,6 +286,26 @@ impl OrgIntel {
         .await?;
         tx.commit().await?;
         Ok(())
+    }
+    /// Rename a sheet. The same people who may archive it may rename it.
+    pub async fn rename_sheet(&self, id: Uuid, actor: &str, title: &str) -> Result<SheetRow> {
+        let title = title.trim();
+        if title.is_empty() || title.chars().count() > 200 {
+            return Err(SheetError::Invalid(
+                "a sheet title needs 1 to 200 characters".into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        may_manage(&mut tx, id, actor).await?;
+        let row: SheetRow = sqlx::query_as(&format!(
+            "UPDATE native_sheets SET title=$2, updated_at=now() WHERE id=$1 RETURNING {ROW}"
+        ))
+        .bind(id)
+        .bind(title)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(row)
     }
 
     pub async fn list_sheets(&self, actor: &str) -> Result<Vec<SheetRow>> {
@@ -281,19 +317,34 @@ impl OrgIntel {
         self.list_sheets_where(actor, true).await
     }
 
+    /// The 100 most recently changed sheets this actor can see. Access is checked
+    /// before the cap, so sheets shared with others never crowd out this actor's own.
     async fn list_sheets_where(&self, actor: &str, archived: bool) -> Result<Vec<SheetRow>> {
+        const PAGE: i64 = 100;
         let mut tx = self.pool.begin().await?;
-        let rows: Vec<SheetRow> = sqlx::query_as(&format!(
-            "SELECT {ROW} FROM native_sheets WHERE (archived_at IS NOT NULL) = $1 \
-             ORDER BY updated_at DESC LIMIT 100"
-        ))
-        .bind(archived)
-        .fetch_all(&mut *tx)
-        .await?;
         let mut visible = Vec::new();
-        for row in rows {
-            if access(&mut tx, row.id, actor, false).await.is_ok() {
-                visible.push(row);
+        let mut offset = 0;
+        while visible.len() < PAGE as usize {
+            let rows: Vec<SheetRow> = sqlx::query_as(&format!(
+                "SELECT {ROW} FROM native_sheets WHERE (archived_at IS NOT NULL) = $1 \
+                 ORDER BY updated_at DESC, id LIMIT $2 OFFSET $3"
+            ))
+            .bind(archived)
+            .bind(PAGE)
+            .bind(offset)
+            .fetch_all(&mut *tx)
+            .await?;
+            let last = (rows.len() as i64) < PAGE;
+            offset += rows.len() as i64;
+            for row in rows {
+                if visible.len() < PAGE as usize
+                    && access(&mut tx, row.id, actor, false).await.is_ok()
+                {
+                    visible.push(row);
+                }
+            }
+            if last {
+                break;
             }
         }
         tx.commit().await?;
@@ -316,13 +367,14 @@ impl OrgIntel {
         // A catch-up read continues from its cursor. A fresh read starts from the
         // newest checkpoint that still leaves the replay window, so neither the
         // browser nor the model worker replays a long-lived sheet's whole history.
-        let checkpoint: Option<(Value, i64)> = if after == 0 {
+        let checkpoint_read = after == 0;
+        let checkpoint: Option<(Value, i64)> = if checkpoint_read {
             sqlx::query_as("SELECT workbook,sequence FROM native_sheet_checkpoints WHERE sheet_id=$1 AND sequence<=$2 ORDER BY sequence DESC LIMIT 1")
                 .bind(id).bind(sheet.sequence - SHEET_REPLAY_WINDOW).fetch_optional(&mut *tx).await?
         } else {
             None
         };
-        let (snapshot, after) = match checkpoint {
+        let (mut snapshot, after) = match checkpoint {
             Some((workbook, sequence)) => (workbook, sequence),
             None => (
                 sqlx::query_scalar("SELECT replay_base FROM native_sheets WHERE id=$1")
@@ -332,8 +384,24 @@ impl OrgIntel {
                 after,
             ),
         };
-        let messages = sqlx::query_as("SELECT sequence,actor_id,message FROM native_sheet_messages WHERE sheet_id=$1 AND sequence>$2 ORDER BY sequence")
+        let mut messages: Vec<SheetMessage> = sqlx::query_as("SELECT sequence,actor_id,message FROM native_sheet_messages WHERE sheet_id=$1 AND sequence>$2 ORDER BY sequence")
             .bind(id).bind(after).fetch_all(&mut *tx).await?;
+        // Within the replay budget unless a few very large revisions are recent;
+        // then the newest checkpoint, taken just after the latest of them.
+        if checkpoint_read
+            && messages
+                .iter()
+                .map(|m| serde_json::to_vec(&m.message).map_or(0, |v| v.len()))
+                .sum::<usize>()
+                > SHEET_REPLAY_BYTES
+        {
+            let newest: Option<(Value, i64)> = sqlx::query_as("SELECT workbook,sequence FROM native_sheet_checkpoints WHERE sheet_id=$1 AND sequence>$2 ORDER BY sequence DESC LIMIT 1")
+                .bind(id).bind(after).fetch_optional(&mut *tx).await?;
+            if let Some((workbook, sequence)) = newest {
+                snapshot = workbook;
+                messages.retain(|m| m.sequence > sequence);
+            }
+        }
         tx.commit().await?;
         Ok(SheetState {
             sheet,
@@ -426,8 +494,9 @@ impl OrgIntel {
                 "workbook changed; reread its current revision".into(),
             ));
         }
+        let mut batch_bytes = 0;
         for message in messages {
-            bounded(message)?;
+            batch_bytes += bounded(message)?;
             if message["version"] != 1 || revision(message, "serverRevisionId")? != head {
                 return Err(SheetError::Invalid("revision chain is invalid".into()));
             }
@@ -503,7 +572,10 @@ impl OrgIntel {
         .bind(sequence)
         .execute(&mut *tx)
         .await?;
-        if !messages.is_empty() && sequence / 50 > (sequence - messages.len() as i64) / 50 {
+        if !messages.is_empty()
+            && (sequence / 50 > (sequence - messages.len() as i64) / 50
+                || batch_bytes >= LARGE_BATCH_BYTES)
+        {
             sqlx::query("INSERT INTO native_sheet_checkpoints(id,sheet_id,sequence,revision_id,workbook,actor_id) VALUES($1,$2,$3,$4,$5,$6)")
                 .bind(Uuid::new_v4()).bind(id).bind(sequence).bind(&head).bind(workbook).bind(actor).execute(&mut *tx).await?;
         }

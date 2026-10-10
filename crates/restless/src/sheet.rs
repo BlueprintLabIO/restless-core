@@ -12,6 +12,11 @@ pub(crate) enum SheetCommand {
         #[arg(long, default_value = "company")]
         visibility: String,
     },
+    /// Rename a sheet (1-200 characters). Needs edit access.
+    Rename {
+        sheet: String,
+        title: String,
+    },
     #[command(
         long_about = "Read the current workbook, access and head revision. Optional --query JSON (or @file):\n  {\"action\":\"get_range\",\"range\":\"A1:G20\"}\n  {\"action\":\"export_csv\"}\n  {\"action\":\"filter\",\"range\":\"A1:G20\",\"column\":1,\"equals\":\"Sydney\"}\nAdd worksheet: ID to select a worksheet; otherwise the first worksheet is used. Cells include raw content, evaluated value, formatted text and formula errors."
     )]
@@ -85,6 +90,9 @@ impl SheetCommand {
                 visibility,
             } => {
                 json!({"operation":"create","id":id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),"title":title,"visibility":visibility})
+            }
+            Self::Rename { sheet, title } => {
+                json!({"operation":"rename","sheet":sheet,"title":title})
             }
             Self::Read { sheet, query } => {
                 json!({"operation":"read","sheet":sheet,"query":query.map(|s|parse(&s)).transpose()?})

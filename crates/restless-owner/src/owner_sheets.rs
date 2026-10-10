@@ -16,7 +16,7 @@ where
 {
     Router::new()
         .route("/companies/{company}/sheets", get(list).post(create))
-        .route("/companies/{company}/sheets/{sheet}", get(read))
+        .route("/companies/{company}/sheets/{sheet}", get(read).patch(rename))
         .route("/companies/{company}/sheets-archived", get(list_archived))
         .route("/companies/{company}/sheets/{sheet}/archive", axum::routing::post(archive))
         .route(
@@ -121,6 +121,9 @@ struct Create {
     title: String,
     #[serde(default = "visibility")]
     visibility: String,
+    /// An imported spreadsheet to start from; see `SheetOperation::Create`.
+    #[serde(default)]
+    from: Option<Value>,
 }
 fn visibility() -> String {
     "company".into()
@@ -139,9 +142,23 @@ async fn create(
             id: i.id,
             title: i.title,
             visibility: i.visibility,
+            from: i.from,
         },
     )
     .await
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RenameInput {
+    title: String,
+}
+async fn rename(
+    State(s): State<RoomApiState>,
+    RoomPrincipal(p): RoomPrincipal,
+    AxumPath((c, sheet)): AxumPath<(String, Uuid)>,
+    Json(i): Json<RenameInput>,
+) -> Response<Body> {
+    run(s, p, c, SheetOperation::Rename { sheet, title: i.title }).await
 }
 async fn read(
     State(s): State<RoomApiState>,
@@ -501,6 +518,7 @@ mod tests {
                 id: sheet,
                 title: "Private deals".into(),
                 visibility: "participants".into(),
+                from: None,
             },
         )
         .await

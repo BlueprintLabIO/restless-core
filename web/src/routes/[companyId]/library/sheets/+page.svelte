@@ -1,16 +1,30 @@
 <script lang="ts">
 	import { namePageContext } from '$lib/model/page-context.svelte';
 	/* One sheet, full width, opened from the Library. History and sharing open
-	 * in a side panel; everything else lives in the header's More menu. */
+	 * in a side panel; everything else lives in the header's More menu. With
+	 * ?import=1 and no sheet, the page imports an Excel or CSV file as a new sheet. */
+	import { tick } from 'svelte';
 	import { page } from '$app/state';
-	import { goto } from '$app/navigation';
+	import { goto, replaceState } from '$app/navigation';
 	import X from '@lucide/svelte/icons/x';
+	import FileSpreadsheet from '@lucide/svelte/icons/file-spreadsheet';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import { Item, Notice, Empty } from '$lib/ui/page';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import SheetEditor from '$lib/components/SheetEditor.svelte';
 	import LibraryCrumb from '$lib/components/LibraryCrumb.svelte';
-	import { sheetJson, type SheetRow } from '$lib/model/sheets';
+	import type { EditorStatus } from '$lib/model/sheet-editor';
+	import {
+		SPREADSHEET_ACCEPT,
+		importSpreadsheet,
+		renameSheet,
+		saveFile,
+		sheetHref,
+		sheetJson,
+		type SheetRow
+	} from '$lib/model/sheets';
+	import { failureSentence } from '$lib/model/failure';
+	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
 	import { companyPrincipalQuery, collaborationBootstrapQuery } from '$lib/model/queries.svelte';
 
 	interface Version {
@@ -21,6 +35,7 @@
 	}
 	const company = $derived(page.params.companyId ?? '');
 	const sheet = $derived(page.url.searchParams.get('sheet') ?? '');
+	const importing = $derived(!sheet && page.url.searchParams.get('import') === '1');
 	const principal = $derived(companyPrincipalQuery(company));
 	const partition = $derived(principal.view?.cache_partition ?? '');
 	const authorized = $derived(
@@ -28,9 +43,14 @@
 	);
 	const directory = $derived(collaborationBootstrapQuery(company, () => principal.view));
 
+	/* The sheet as the server holds it arrives with the editor's session, so an archived sheet,
+	 * or one older than the Library's most recent, opens like any other. */
 	let row = $state<SheetRow | null>(null);
 	let missing = $state(false);
-	let error = $state('');
+	/* What failed, in a line; why, as a sentence when the owner can act on it, else under Details. */
+	let error = $state<{ title: string; text?: string; details?: string; retry?: boolean } | null>(
+		null
+	);
 	let revision = $state(''),
 		saveState = $state('connecting'),
 		access = $state('read'),
@@ -40,61 +60,139 @@
 	let participant = $state(''),
 		grant = $state('edit'),
 		sharing = $state(false);
-	let fileInput: HTMLInputElement | undefined = $state();
+	let csvInput: HTMLInputElement | undefined = $state();
+	let importInput: HTMLInputElement | undefined = $state();
+	let editor: SheetEditor | undefined = $state();
+	let titleInput: HTMLInputElement | undefined = $state();
+	let titleDraft = $state<string | null>(null);
+	let focusTitleFor = $state('');
+	let flash = $state('');
+	let flashTimer: ReturnType<typeof setTimeout>;
+	let importBusy = $state('');
+	let importId = '';
+	let lastImport = $state<File | null>(null);
 	let epoch = 0;
 	const ready = $derived(saveState === 'saved');
 	const owned = $derived(!!row && row.owner_actor_id === principal.view?.actor_id);
+	/* Renaming, archiving and restoring: the sheet's editors, and the company's owner. */
+	const canManage = $derived(!!row && (access === 'edit' || hasOwnerSurfaceAccess(principal.view)));
 
 	/* Sheets are found in the Library; this address without one goes there. */
 	$effect(() => {
-		if (!sheet)
+		if (!sheet && !importing)
 			void goto(`/${encodeURIComponent(company)}/library?show=sheets`, { replaceState: true });
 	});
 	$effect(() => {
-		const target = company,
-			id = sheet,
-			admitted = authorized;
-		const mine = ++epoch;
+		company;
+		sheet;
+		authorized;
+		++epoch;
 		row = null;
 		missing = false;
-		error = '';
+		error = null;
 		panel = '';
 		versions = null;
-		if (!admitted || !id) return;
-		void sheetJson<SheetRow[]>(target)
-			.then((rows) => {
-				if (mine !== epoch) return;
-				row = rows.find((candidate) => candidate.id === id) ?? null;
-				missing = !row;
-			})
-			.catch((cause) => {
-				if (mine === epoch)
-					error = cause instanceof Error ? cause.message : 'Sheets are unavailable';
-			});
+		titleDraft = null;
 	});
+	/* A sheet made a moment ago, or opened to be renamed, has its title selected, ready to type. */
+	$effect(() => {
+		const url = page.url;
+		if (url.searchParams.get('new') === '1' || url.searchParams.get('rename') === '1')
+			focusTitleFor = url.searchParams.get('sheet') ?? '';
+	});
+	$effect(() => {
+		if (!focusTitleFor || focusTitleFor !== row?.id || !titleInput) return;
+		focusTitleFor = '';
+		const url = new URL(page.url);
+		url.searchParams.delete('new');
+		url.searchParams.delete('rename');
+		replaceState(url, page.state);
+		void tick().then(() => {
+			titleInput?.focus();
+			titleInput?.select();
+		});
+	});
+
+	/* Each session bootstrap brings the sheet once; a rename or archive here is not undone by the
+	 * statuses that follow it. */
+	let bootstrapped: SheetRow | undefined;
+	function onstatus(value: EditorStatus) {
+		saveState = value.state;
+		revision = value.revision ?? '';
+		worksheet = value.worksheet ?? '';
+		access = value.access;
+		if (value.sheet && value.sheet !== bootstrapped) {
+			bootstrapped = value.sheet;
+			if (value.sheet.id === sheet) row = value.sheet;
+		}
+		if (value.denied && !row) missing = true;
+	}
 
 	/* Every action is bound to the sheet it started on; a late answer for a
 	 * sheet the owner has since left is dropped. */
-	async function act<T>(run: () => Promise<T>, done?: (value: T) => void) {
+	async function act<T>(
+		run: () => Promise<T>,
+		done?: (value: T) => void,
+		headline = 'That didn’t work'
+	): Promise<boolean> {
 		const mine = epoch;
 		try {
 			const value = await run();
 			if (mine === epoch) {
-				error = '';
+				error = null;
 				done?.(value);
 			}
+			return true;
 		} catch (cause) {
-			if (mine === epoch) error = cause instanceof Error ? cause.message : String(cause);
+			if (mine === epoch)
+				error = {
+					title: headline,
+					details: cause instanceof Error ? cause.message : String(cause)
+				};
+			return false;
 		}
 	}
-	function download(name: string, body: string, type: string) {
-		const url = URL.createObjectURL(new Blob([body], { type }));
-		const link = document.createElement('a');
-		link.href = url;
-		link.download = name;
-		link.click();
-		URL.revokeObjectURL(url);
+	function say(text: string) {
+		flash = text;
+		clearTimeout(flashTimer);
+		flashTimer = setTimeout(() => (flash = ''), 2000);
 	}
+	const title = $derived(row?.title ?? 'Sheet');
+
+	async function commitTitle() {
+		const draft = titleDraft,
+			before = row;
+		titleDraft = null;
+		if (draft === null || !before) return;
+		const next = draft.trim();
+		if (!next || next === before.title) return;
+		row = { ...before, title: next };
+		const saved = await act(
+			() => renameSheet(company, before.id, next),
+			(value) => (row = { ...value }),
+			'The sheet wasn’t renamed'
+		);
+		if (!saved && row?.id === before.id && row.title === next) row = before;
+	}
+	async function copyLink() {
+		try {
+			await navigator.clipboard.writeText(new URL(sheetHref(company, sheet), location.origin).href);
+			say('Link copied');
+		} catch {
+			say('Could not copy the link');
+		}
+	}
+	const downloadXlsx = () =>
+		act(
+			async () => {
+				const model = editor?.getModel();
+				if (!model) throw new Error('The sheet is still opening.');
+				const { xlsxBlob } = await import('$lib/model/sheet-files');
+				return xlsxBlob(model);
+			},
+			(blob) => saveFile(title, 'xlsx', blob),
+			'The workbook wasn’t downloaded'
+		);
 	const exportCsv = () =>
 		act(
 			() =>
@@ -102,7 +200,8 @@
 					method: 'POST',
 					body: JSON.stringify({ action: { action: 'export_csv', worksheet } })
 				}),
-			(value) => download(`${row?.title ?? 'Sheet'}.csv`, value.result.csv, 'text/csv')
+			(value) => saveFile(title, 'csv', new Blob([value.result.csv], { type: 'text/csv' })),
+			'This tab wasn’t downloaded'
 		);
 	async function importCsv(event: Event) {
 		const input = event.currentTarget as HTMLInputElement,
@@ -112,17 +211,75 @@
 			target = worksheet,
 			csv = await file.text();
 		input.value = '';
-		await act(() =>
-			sheetJson(company, `/${sheet}/operations`, {
-				method: 'POST',
-				body: JSON.stringify({
-					key: crypto.randomUUID(),
-					expected_revision,
-					action: { action: 'import_csv', worksheet: target, csv, start: 'A1' }
-				})
-			})
+		await act(
+			() =>
+				sheetJson(company, `/${sheet}/operations`, {
+					method: 'POST',
+					body: JSON.stringify({
+						key: crypto.randomUUID(),
+						expected_revision,
+						action: { action: 'import_csv', worksheet: target, csv, start: 'A1' }
+					})
+				}),
+			undefined,
+			'The CSV wasn’t imported'
 		);
 	}
+	/* A spreadsheet file becomes a new sheet, named after the file, and opens. A retry of the same
+	 * file keeps its id, so a lost response cannot make a second copy. */
+	async function importFile(file: File | undefined, retry = false) {
+		if (!file || importBusy) return;
+		if (!retry) importId = crypto.randomUUID();
+		const target = company,
+			fromImportPage = importing;
+		importBusy = file.name;
+		error = null;
+		try {
+			const created = await importSpreadsheet(target, file, importId);
+			if (target !== company) return;
+			await goto(`${sheetHref(target, created.id)}`, { replaceState: fromImportPage });
+		} catch (cause) {
+			lastImport = file;
+			if (target === company)
+				error = {
+					title: `${file.name} wasn’t imported`,
+					text: failureSentence(cause, 'The file wasn’t imported.'),
+					retry: true
+				};
+		} finally {
+			importBusy = '';
+		}
+	}
+	function chooseImport(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = '';
+		void importFile(file);
+	}
+	/* Arriving from the Library's Import, the file picker opens at once where the browser allows
+	 * it; the button stays for when it does not. */
+	let pickerOffered = false;
+	$effect(() => {
+		if (!importing || !importInput || pickerOffered) return;
+		pickerOffered = true;
+		try {
+			importInput.showPicker();
+		} catch {
+			/* Without a recent click the browser refuses; the button is there. */
+		}
+	});
+	const setArchived = (archived: boolean) =>
+		act(
+			() =>
+				sheetJson(company, `/${sheet}/archive`, {
+					method: 'POST',
+					body: JSON.stringify({ archived })
+				}),
+			() => {
+				if (row) row = { ...row, archived_at: archived ? new Date().toISOString() : null };
+			},
+			archived ? 'The sheet wasn’t archived' : 'The sheet wasn’t restored'
+		);
 	const saveVersion = () =>
 		act(
 			() =>
@@ -147,15 +304,24 @@
 		panel = panel === next ? '' : next;
 		if (panel === 'history') void loadVersions();
 	}
+	/* A saved version downloads as the workbook it was, every tab, as .xlsx. */
 	const downloadVersion = (version: Version) =>
 		act(
-			() => sheetJson(company, `/${sheet}/versions/${version.id}`),
-			(value) =>
-				download(
-					`${row?.title ?? 'Sheet'}-${version.id}.sheet.json`,
-					JSON.stringify(value, null, 2),
-					'application/json'
-				)
+			async () => {
+				const saved = await sheetJson<{ workbook: unknown }>(
+					company,
+					`/${sheet}/versions/${version.id}`
+				);
+				const { workbookXlsx } = await import('$lib/model/sheet-files');
+				return workbookXlsx(saved.workbook);
+			},
+			(blob) =>
+				saveFile(
+					`${title} (${version.title ?? new Date(version.created_at).toLocaleString()})`,
+					'xlsx',
+					blob
+				),
+			'The version wasn’t downloaded'
 		);
 	const recover = (version: Version) =>
 		act(
@@ -164,13 +330,10 @@
 					method: 'POST',
 					body: JSON.stringify({
 						id: crypto.randomUUID(),
-						title: `${row?.title ?? 'Sheet'} — recovered`
+						title: `${title} — recovered`
 					})
 				}),
-			(copy) =>
-				void goto(
-					`/${encodeURIComponent(company)}/library/sheets?sheet=${encodeURIComponent(copy.id)}`
-				)
+			(copy) => void goto(`${sheetHref(company, copy.id)}&rename=1`)
 		);
 	async function share(event: SubmitEvent) {
 		event.preventDefault();
@@ -202,19 +365,52 @@
 						? 'Opening…'
 						: ''
 	);
-	namePageContext(() => row?.title ?? '');
+	namePageContext(() => (importing ? 'Import a spreadsheet' : (row?.title ?? '')));
 </script>
 
-<svelte:head><title>{row?.title ?? 'Sheet'}</title></svelte:head>
+<svelte:head
+	><title>{importing ? 'Import a spreadsheet' : (row?.title ?? 'Sheet')}</title></svelte:head
+>
 
 <div class="sheet-screen" class:side-open={panel !== ''}>
 	<main class="sheet-stage cockpit-pane">
 		<header class="head">
 			<LibraryCrumb companyId={company} show="sheets" />
-			<h1 title={row?.title}>{row?.title ?? (missing ? 'Sheet unavailable' : '')}</h1>
-			<span class="state state-{saveState}" title="Accepted edits are stored in company history"
-				>{stateLabel}</span
-			>
+			{#if importing}
+				<h1>Import a spreadsheet</h1>
+			{:else if row && canManage}
+				<label class="sr-only" for="sheet-title">Sheet title</label>
+				<input
+					id="sheet-title"
+					class="title-input"
+					bind:this={titleInput}
+					value={titleDraft ?? row.title}
+					size={Math.max(8, Math.min(48, (titleDraft ?? row.title).length + 1))}
+					maxlength="200"
+					title="Rename this sheet"
+					autocomplete="off"
+					spellcheck="false"
+					onfocus={() => (titleDraft = row?.title ?? '')}
+					oninput={(event) => (titleDraft = event.currentTarget.value)}
+					onblur={() => void commitTitle()}
+					onkeydown={(event) => {
+						if (event.key === 'Enter') {
+							event.preventDefault();
+							event.currentTarget.blur();
+						} else if (event.key === 'Escape') {
+							event.preventDefault();
+							titleDraft = null;
+							event.currentTarget.blur();
+						}
+					}}
+				/>
+			{:else}
+				<h1 title={row?.title}>{row?.title ?? (missing ? 'Sheet unavailable' : '')}</h1>
+			{/if}
+			{#if !importing}<span
+					class="state state-{saveState}"
+					title="Accepted edits are stored in company history">{flash || stateLabel}</span
+				>{/if}
 			<span class="spacer"></span>
 			{#if row}
 				{#if owned}<button
@@ -226,16 +422,47 @@
 					>{/if}
 				<ActionMenu label="Sheet actions">
 					<button type="button" onclick={() => openPanel('history')}>History</button>
-					<button type="button" disabled={!ready} onclick={exportCsv}>Export CSV</button>
+					<button type="button" onclick={copyLink}>Copy link</button>
+					<button
+						type="button"
+						disabled={!ready}
+						title="Every tab, as an Excel workbook (.xlsx)"
+						onclick={downloadXlsx}>Download as Excel</button
+					>
+					<button type="button" disabled={!ready} onclick={exportCsv}
+						>Download this tab as CSV</button
+					>
 					{#if access === 'edit'}
-						<button type="button" disabled={!ready} onclick={() => fileInput?.click()}
-							>Import CSV…</button
+						<button
+							type="button"
+							disabled={!ready}
+							title="Replaces this tab's cells from A1"
+							onclick={() => csvInput?.click()}>Import CSV into this tab…</button
 						>
+					{/if}
+					<button
+						type="button"
+						disabled={!!importBusy}
+						title="An Excel workbook (.xlsx) or CSV file opens as a new sheet"
+						onclick={() => importInput?.click()}>Import as a new sheet…</button
+					>
+					{#if access === 'edit'}
 						<button type="button" disabled={!ready} onclick={saveVersion}>Save version</button>
+					{/if}
+					{#if canManage}
+						{#if row.archived_at}
+							<button type="button" onclick={() => setArchived(false)}>Restore</button>
+						{:else}
+							<button
+								type="button"
+								title="Hide it from the Library; it can be restored"
+								onclick={() => setArchived(true)}>Archive</button
+							>
+						{/if}
 					{/if}
 				</ActionMenu>
 				<input
-					bind:this={fileInput}
+					bind:this={csvInput}
 					class="file"
 					type="file"
 					accept=".csv,text/csv"
@@ -244,15 +471,72 @@
 					onchange={importCsv}
 				/>
 			{/if}
+			<input
+				bind:this={importInput}
+				class="file"
+				type="file"
+				accept={SPREADSHEET_ACCEPT}
+				tabindex="-1"
+				aria-hidden="true"
+				onchange={chooseImport}
+			/>
 		</header>
 		{#if error}<div class="notice-slot">
-				<Notice tone="danger" title="That didn’t work" details={error}>
-					{#snippet actions()}<button class="btn small" type="button" onclick={() => (error = '')}
+				<Notice tone="danger" title={error.title} details={error.details}>
+					{error.text ?? ''}
+					{#snippet actions()}{#if error?.retry && lastImport}<button
+								class="btn small"
+								type="button"
+								disabled={!!importBusy}
+								onclick={() => importFile(lastImport ?? undefined, true)}>Try again</button
+							>{/if}<button class="btn small" type="button" onclick={() => (error = null)}
 							>Dismiss</button
 						>{/snippet}
 				</Notice>
 			</div>{/if}
-		{#if missing}
+		{#if importBusy && !importing}<div class="notice-slot">
+				<Notice tone="info" title={`Importing ${importBusy}…`} />
+			</div>{/if}
+		{#if row?.archived_at}<div class="notice-slot">
+				<Notice tone="info" title="This sheet is archived">
+					It is hidden from the Library.
+					{#snippet actions()}{#if canManage}<button
+								class="btn small"
+								type="button"
+								onclick={() => setArchived(false)}>Restore</button
+							>{/if}{/snippet}
+				</Notice>
+			</div>{/if}
+		{#if importing}
+			<div
+				class="import-stage"
+				role="region"
+				aria-label="Drop a spreadsheet here"
+				ondragover={(event) => {
+					event.preventDefault();
+					if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+				}}
+				ondrop={(event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					void importFile(event.dataTransfer?.files?.[0]);
+				}}
+			>
+				<Empty
+					page
+					icon={FileSpreadsheet}
+					title={importBusy ? `Importing ${importBusy}…` : 'Choose a spreadsheet'}
+					info="An Excel workbook (.xlsx) or a CSV file opens as a new sheet, every tab included. You can also drop it here."
+				>
+					{#snippet action()}<button
+							class="btn small primary"
+							type="button"
+							disabled={!!importBusy}
+							onclick={() => importInput?.click()}>Choose a file…</button
+						>{/snippet}
+				</Empty>
+			</div>
+		{:else if missing}
 			<Empty
 				title="Sheet unavailable"
 				info="It may have been removed, or you may no longer have access."
@@ -264,14 +548,10 @@
 			</Empty>
 		{:else if sheet && authorized}
 			{#key `${company}/${sheet}/${partition}`}<SheetEditor
+					bind:this={editor}
 					{company}
 					{sheet}
-					onstatus={(value) => {
-						saveState = value.state;
-						revision = value.revision ?? '';
-						worksheet = value.worksheet ?? '';
-						access = value.access;
-					}}
+					{onstatus}
 				/>{/key}
 		{/if}
 	</main>
@@ -305,8 +585,10 @@
 											<button type="button" onclick={() => recover(version)}
 												>Recover as a copy</button
 											>
-											<button type="button" onclick={() => downloadVersion(version)}
-												>Download</button
+											<button
+												type="button"
+												title="This version, every tab, as an Excel workbook (.xlsx)"
+												onclick={() => downloadVersion(version)}>Download as Excel</button
 											>
 										</ActionMenu>
 									{/snippet}
@@ -385,6 +667,33 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+	/* The title reads as the heading it replaces and is typed over in place. */
+	.title-input {
+		min-width: 0;
+		max-width: min(100%, 48ch);
+		margin: 0 0 0 -6px;
+		padding: 3px 6px;
+		border: 1px solid transparent;
+		border-radius: var(--radius-control);
+		background: transparent;
+		color: var(--ink);
+		font: inherit;
+		font-size: var(--t-head);
+		font-weight: 600;
+		text-overflow: ellipsis;
+		field-sizing: content;
+		transition:
+			background-color var(--motion-state) var(--ease-standard),
+			border-color var(--motion-state) var(--ease-standard);
+	}
+	.title-input:hover {
+		background: var(--wash-hover);
+	}
+	.title-input:focus {
+		outline: none;
+		border-color: var(--border-strong);
+		background: var(--surface-raised);
+	}
 	.state {
 		flex: none;
 		margin-left: 6px;
@@ -405,6 +714,12 @@
 	}
 	.notice-slot {
 		padding: 10px 12px 0;
+	}
+	.import-stage {
+		display: grid;
+		flex: 1;
+		min-height: 0;
+		overflow: auto;
 	}
 	.side {
 		background: var(--surface-rail);

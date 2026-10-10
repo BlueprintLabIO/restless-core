@@ -35,8 +35,9 @@ dispatch; the HTTP/WS surface uses the existing verified company principal and
 session lease. The UI destroys its workbook and clears titles on a principal
 partition change or confirmed access denial.
 
-`restless sheet -c COMPANY --help` exposes create/list/read/edit/share/history
-operations. Reads accept `get_range`, `filter`, `export_csv`, and `snapshot`.
+`restless sheet -c COMPANY --help` exposes create/list/read/edit/rename/share/history
+operations. Renaming takes 1-200 characters and is open to the sheet's editors and
+the company's owner, as archiving is. Reads accept `get_range`, `filter`, `export_csv`, and `snapshot`.
 Edits accept `set_cells`, `insert_rows`, `sort`, `create_worksheet`, `import_csv`,
 and `update_record`. An edit requires the observed revision and an idempotency
 UUID; its entire generated revision batch and receipt commit in one transaction.
@@ -47,7 +48,12 @@ All positional mutations reject stale observed revisions.
 
 The editor supplies upstream formulas, selection, copy/paste, widths and grid
 formatting. Native CSV import begins at A1 of the active worksheet; export uses
-its full populated range. Agent filters return a bounded filtered range without
+its full populated range. The browser downloads the whole workbook, or a saved
+version, as .xlsx through upstream `exportXLSX` and fflate. A new sheet can start
+from a file: CSV text is parsed by the engine, and an .xlsx is read in the browser
+by upstream's own XLSX reader into workbook data. Either way the engine loads the
+submitted data and stores its own export as the replay base, so a file never
+replaces an existing sheet's accepted history. Images inside an .xlsx are dropped. Agent filters return a bounded filtered range without
 changing other participants' view. Named and periodic (every 50 revisions)
 checkpoints can be downloaded under the current sheet ACL. Recovery creates a
 private new workbook from an immutable checkpoint; it cannot erase live pending
@@ -60,9 +66,19 @@ revisions to replay. Opening a sheet and validating an edit therefore replay a
 bounded tail, not the whole history; a sheet with 13,019 revisions took over a
 minute to open before this. Accepted risk: undoing a revision older than that
 window is refused and the editor says so, because its inverse is no
-longer replayed. Limits are 8 MiB workbook JSON,
-30 worksheets, 1,000 columns, 100,000 rows and 5 million rectangular cells.
-Range reads/writes/CSV exports are bounded to 10,000 cells. The serialized model
+longer replayed. A fresh read also replays at most 16 MiB of revision JSON: an
+accepted batch of 1 MiB or more is checkpointed at once, and past the budget the
+read starts from the newest checkpoint, narrowing the undo window, so a few very
+large pastes cannot push a sheet past the engine's 32 MiB input. Limits are 8 MiB
+workbook JSON, 30 worksheets, 1,000 columns, 100,000 rows and 5 million
+rectangular cells. Range reads, filters and sorts are bounded to 10,000 cells.
+One write or CSV import into an existing sheet is bounded to 100,000 cells and is
+stored as revisions of at most 10,000 commands, applied through one upstream root
+dispatch each (a root dispatch per cell cost about 0.7 ms). One browser revision,
+such as a paste, holds up to 100,000 commands in an 8 MiB message; the editor
+refuses a larger one before sending it, and a revision the server rejects reopens
+the sheet at its saved state with a notice rather than stopping the editor. A new
+sheet made from CSV holds up to 500,000 cells. The serialized model
 worker has no credentials, a 512 MiB Node heap cap, bounded input/output and a
 60-second deadline. Its failure restarts
 only the worker. A measured 5,000-cell resale workbook replays in about 2.4 seconds
@@ -75,7 +91,7 @@ and production npm dependencies. Company cell export/restore naturally carries
 the workbook tables with its Postgres dump; cross-release schema identity is 73.
 Upstream LGPL notices and relinking/source instructions live in
 `services/native-sheets/NOTICE`, and browser license text is served at
-`/licenses/o-spreadsheet.txt`.
+`/licenses/o-spreadsheet.txt` (fflate's MIT notice at `/licenses/fflate.txt`).
 
 The surface keeps workbook content prominent, compact controls and fine borders.
 The final visual comparison uses Beautiful UI's calm record-table density,
