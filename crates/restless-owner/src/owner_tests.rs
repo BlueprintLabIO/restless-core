@@ -2612,6 +2612,37 @@
         .expect("desktop guard observes expiry");
     }
 
+    #[test]
+    fn the_base_model_follows_a_direct_or_account_default_route() {
+        let mut config: runtime::CompanyConfig =
+            toml::from_str("name = \"company_test\"
+model = \"anthropic/claude-sonnet-5-5\"
+").unwrap();
+        assert_eq!(base_model_for_default_route(&config), None);
+        config.agent_intelligence.insert(
+            "default".into(),
+            runtime::AgentIntelligence { connection: "direct:litellm".into(), model: "deepseek-v4.1-flash".into() },
+        );
+        assert_eq!(base_model_for_default_route(&config).as_deref(), Some("litellm/deepseek-v4.1-flash"));
+        config.agent_intelligence.insert(
+            "default".into(),
+            runtime::AgentIntelligence {
+                connection: format!("account:openai@{}", "c".repeat(32)),
+                model: "gpt-5".into(),
+            },
+        );
+        assert_eq!(base_model_for_default_route(&config).as_deref(), Some("openai/gpt-5"));
+        // A native agent runtime keeps its own model shape; the base model is left alone.
+        config.agent_intelligence.insert(
+            "default".into(),
+            runtime::AgentIntelligence {
+                connection: format!("account-harness:claude-agent:anthropic@{}", "c".repeat(32)),
+                model: "claude-sonnet-5-5".into(),
+            },
+        );
+        assert_eq!(base_model_for_default_route(&config), None);
+    }
+
     /// A hosted plane is its owner's own account plane, so its provider, Vault and sign-in settings
     /// carry no hosted refusal of their own. The boundary is the membership role: a member or an
     /// administrator still cannot reach them, and the owner can, from a company or the account.

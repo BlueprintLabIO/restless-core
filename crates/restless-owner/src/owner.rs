@@ -3948,6 +3948,20 @@ async fn revoke_owner_connection(
         .into_response()
 }
 
+/// The company's base model follows a direct or account default route, as a grant made default
+/// does, so the gateway stops admitting a provider the company no longer uses. Choosing a new
+/// default in Company → Intelligence is then the one repair, on a hosted plane as well, after a
+/// default's connection was revoked.
+fn base_model_for_default_route(config: &runtime::CompanyConfig) -> Option<String> {
+    let route = config.agent_intelligence.get("default")?;
+    let follows = route.connection.starts_with("direct:")
+        || matches!(
+            runtime::account_intelligence_route(&route.connection),
+            Some((_, _, runtime::AgentHarness::RestlessManaged))
+        );
+    follows.then(|| config.for_agent("default").model)
+}
+
 fn company_has_model_provider(config: &runtime::CompanyConfig, provider: &str) -> bool {
     config
         .credentials
@@ -10322,6 +10336,11 @@ async fn update_agent_intelligence(
                     model: model.into(),
                 },
             );
+            if actor == "default" {
+                if let Some(model) = base_model_for_default_route(&config) {
+                    config.model = model;
+                }
+            }
             config.for_agent(&actor).validate_harness_models()?;
         }
         runtime::CompanyConfig::save(&state.daemon.root, &config)?;
