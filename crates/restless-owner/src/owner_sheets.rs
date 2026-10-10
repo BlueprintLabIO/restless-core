@@ -19,6 +19,7 @@ where
         .route("/companies/{company}/sheets/{sheet}", get(read).patch(rename))
         .route("/companies/{company}/sheets-archived", get(list_archived))
         .route("/companies/{company}/sheets/{sheet}/archive", axum::routing::post(archive))
+        .route("/companies/{company}/sheets/{sheet}", delete(delete_archived))
         .route(
             "/companies/{company}/sheets/{sheet}/operations",
             post(operation),
@@ -113,6 +114,24 @@ async fn archive(
     Json(i): Json<ArchiveInput>,
 ) -> Response<Body> {
     run(s, p, c, SheetOperation::Archive { sheet, archived: i.archived }).await
+}
+/// Deleting for good is the owner's tidying of an archived sheet, never an agent operation, so it
+/// goes straight to OrgIntel rather than through the shared sheet commands.
+async fn delete_archived(
+    State(s): State<RoomApiState>,
+    RoomPrincipal(p): RoomPrincipal,
+    AxumPath((c, sheet)): AxumPath<(String, Uuid)>,
+) -> Response<Body> {
+    match async {
+        let org = org(&s, &p, &c).await?;
+        org.delete_archived_sheet(sheet, p.actor_id()).await?;
+        anyhow::Ok(json!({ "sheet": sheet, "deleted": true }))
+    }
+    .await
+    {
+        Ok(value) => no_store(Json(value).into_response()),
+        Err(e) => failure(e),
+    }
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

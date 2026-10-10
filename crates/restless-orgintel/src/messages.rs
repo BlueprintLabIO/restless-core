@@ -1019,8 +1019,9 @@ impl OrgIntel {
     }
 
     /// Return canonical attachment metadata only while the requesting Actor is
-    /// a current participant in the authoritative Message Room. UUID secrecy
-    /// is never treated as an authorization boundary.
+    /// a current participant in the authoritative Message Room, or is the
+    /// active human who kept the file in the Library without a Message. UUID
+    /// secrecy is never treated as an authorization boundary.
     pub async fn owner_attachment_for_actor(
         &self,
         attachment_id: Uuid,
@@ -1038,7 +1039,18 @@ impl OrgIntel {
                AND attachment.purge_requested_at IS NULL AND attachment.purged_at IS NULL \
                AND message.deleted_at IS NULL \
                AND participant.left_at IS NULL AND actor.retired_at IS NULL \
-               AND actor.actor_class='human'",
+               AND actor.actor_class='human' \
+             UNION ALL \
+             SELECT attachment.attachment_id,attachment.canonical_name, \
+                    attachment.canonical_media_type,attachment.size_bytes, \
+                    attachment.content_sha256,attachment.message_id \
+             FROM owner_attachments attachment \
+             JOIN actors actor ON actor.id=attachment.sender_actor_id \
+             WHERE attachment.attachment_id=$1 AND attachment.sender_actor_id=$2 \
+               AND attachment.kept_at IS NOT NULL AND attachment.message_id IS NULL \
+               AND attachment.purge_requested_at IS NULL AND attachment.purged_at IS NULL \
+               AND actor.retired_at IS NULL AND actor.actor_class='human' \
+             LIMIT 1",
         )
         .bind(attachment_id)
         .bind(requesting_actor)
@@ -1087,7 +1099,7 @@ impl OrgIntel {
                         WHERE purge_requested_at IS NOT NULL \
                     ),0)::BIGINT \
              FROM owner_attachments \
-             WHERE message_id IS NOT NULL AND purged_at IS NULL",
+             WHERE (message_id IS NOT NULL OR kept_at IS NOT NULL) AND purged_at IS NULL",
         )
         .fetch_one(&mut *tx)
         .await?;
@@ -1100,7 +1112,8 @@ impl OrgIntel {
                             staging_finished_at,created_at,purge_requested_at,purge_requested_by, \
                             purge_reason,purged_at \
                      FROM owner_attachments \
-                     WHERE message_id IS NOT NULL AND ($1 OR purged_at IS NULL) \
+                     WHERE (message_id IS NOT NULL OR kept_at IS NOT NULL) \
+                       AND ($1 OR purged_at IS NULL) \
                        AND (created_at,attachment_id)<($2,$3) \
                      ORDER BY created_at DESC,attachment_id DESC LIMIT $4",
                 )
@@ -1118,7 +1131,8 @@ impl OrgIntel {
                             staging_finished_at,created_at,purge_requested_at,purge_requested_by, \
                             purge_reason,purged_at \
                      FROM owner_attachments \
-                     WHERE message_id IS NOT NULL AND ($1 OR purged_at IS NULL) \
+                     WHERE (message_id IS NOT NULL OR kept_at IS NOT NULL) \
+                       AND ($1 OR purged_at IS NULL) \
                      ORDER BY created_at DESC,attachment_id DESC LIMIT $2",
                 )
                 .bind(include_purged)
@@ -1232,9 +1246,10 @@ impl OrgIntel {
             principal_bytes,
         ): (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
             "SELECT COUNT(*),COALESCE(SUM(size_bytes),0)::bigint, \
-                        COUNT(*) FILTER (WHERE message_id IS NULL OR staging_finished_at IS NULL), \
-                        COALESCE(SUM(size_bytes) FILTER \
-                          (WHERE message_id IS NULL OR staging_finished_at IS NULL),0)::bigint \
+                        COUNT(*) FILTER (WHERE kept_at IS NULL \
+                          AND (message_id IS NULL OR staging_finished_at IS NULL)), \
+                        COALESCE(SUM(size_bytes) FILTER (WHERE kept_at IS NULL \
+                          AND (message_id IS NULL OR staging_finished_at IS NULL)),0)::bigint \
                         ,COUNT(*) FILTER (WHERE sender_actor_id=$1), \
                         COALESCE(SUM(size_bytes) FILTER (WHERE sender_actor_id=$1),0)::bigint \
                  FROM owner_attachments WHERE purged_at IS NULL",
@@ -1298,13 +1313,47 @@ impl OrgIntel {
         }
         Ok(sqlx::query(
             "DELETE FROM owner_attachments \
-             WHERE attachment_id=ANY($1) AND message_id IS NULL \
+             WHERE attachment_id=ANY($1) AND message_id IS NULL AND kept_at IS NULL \
                AND gc_claim_token IS NULL",
         )
         .bind(attachment_ids)
         .execute(&self.pool)
         .await?
         .rows_affected())
+    }
+
+    /// Keep staged files in the Library by the sender's own decision, with no
+    /// Message. Only this sender's unclaimed stages from one exact command
+    /// qualify, so a kept file never borrows another command's staging, and a
+    /// stage GC has already fenced stays fenced.
+    pub async fn keep_owner_attachments(
+        &self,
+        sender_actor_id: &str,
+        client_command_id: &str,
+        attachment_ids: &[Uuid],
+    ) -> Result<()> {
+        if attachment_ids.is_empty() {
+            return Ok(());
+        }
+        let kept = sqlx::query(
+            "UPDATE owner_attachments SET kept_at=now() \
+             WHERE attachment_id=ANY($1) AND sender_actor_id=$2 AND client_command_id=$3 \
+               AND message_id IS NULL AND kept_at IS NULL \
+               AND gc_claimed_at IS NULL AND gc_claim_token IS NULL \
+               AND purge_requested_at IS NULL AND purged_at IS NULL",
+        )
+        .bind(attachment_ids)
+        .bind(sender_actor_id)
+        .bind(client_command_id.trim())
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        if kept != attachment_ids.len() as u64 {
+            return Err(OrgIntelError::RoomCommandConflict(
+                "attachment staging changed before the files were kept".into(),
+            ));
+        }
+        Ok(())
     }
 
     /// Clear acknowledged stages only after the filesystem staging receipt is
@@ -1357,7 +1406,8 @@ impl OrgIntel {
         let state: Option<(bool, bool)> = sqlx::query_as(
             "SELECT purge_requested_at IS NOT NULL,purged_at IS NOT NULL \
              FROM owner_attachments \
-             WHERE attachment_id=$1 AND message_id IS NOT NULL FOR UPDATE",
+             WHERE attachment_id=$1 AND (message_id IS NOT NULL OR kept_at IS NOT NULL) \
+             FOR UPDATE",
         )
         .bind(attachment_id)
         .fetch_optional(&mut *tx)
@@ -1416,7 +1466,7 @@ impl OrgIntel {
                SELECT attachment_id FROM owner_attachments \
                WHERE ((purge_requested_at IS NOT NULL AND purged_at IS NULL) \
                   OR (message_id IS NOT NULL AND staging_finished_at IS NULL) \
-                  OR (message_id IS NULL \
+                  OR (message_id IS NULL AND kept_at IS NULL \
                       AND created_at<=now()-make_interval(secs=>$2::double precision))) \
                  AND (gc_claimed_at IS NULL \
                   OR gc_claimed_at<=now()-make_interval(secs=>$3::double precision)) \
@@ -1426,7 +1476,8 @@ impl OrgIntel {
              UPDATE owner_attachments stage \
              SET gc_claimed_at=now(),gc_claim_token=$4 \
              FROM candidates WHERE stage.attachment_id=candidates.attachment_id \
-             RETURNING stage.attachment_id,(stage.message_id IS NOT NULL), \
+             RETURNING stage.attachment_id, \
+                       (stage.message_id IS NOT NULL OR stage.kept_at IS NOT NULL), \
                        (stage.purge_requested_at IS NOT NULL),stage.gc_claim_token",
         )
         .bind(limit)
@@ -1443,8 +1494,10 @@ impl OrgIntel {
         claim_token: Uuid,
     ) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
+        // A file kept in the Library has no Message, so it never records a
+        // staging receipt; it is retained exactly as a linked file is.
         let state: Option<(bool, bool)> = sqlx::query_as(
-            "SELECT message_id IS NOT NULL,purge_requested_at IS NOT NULL \
+            "SELECT message_id IS NOT NULL OR kept_at IS NOT NULL,purge_requested_at IS NOT NULL \
              FROM owner_attachments \
              WHERE attachment_id=$1 AND gc_claim_token=$2 FOR UPDATE",
         )
@@ -1460,7 +1513,8 @@ impl OrgIntel {
             sqlx::query(
                 "UPDATE owner_attachments \
                  SET purged_at=COALESCE(purged_at,now()), \
-                     staging_finished_at=COALESCE(staging_finished_at,now()), \
+                     staging_finished_at=CASE WHEN message_id IS NULL THEN NULL \
+                       ELSE COALESCE(staging_finished_at,now()) END, \
                      gc_claimed_at=NULL,gc_claim_token=NULL \
                  WHERE attachment_id=$1 AND gc_claim_token=$2 \
                    AND purge_requested_at IS NOT NULL",
@@ -1472,7 +1526,8 @@ impl OrgIntel {
         } else if linked {
             sqlx::query(
                 "UPDATE owner_attachments \
-                 SET staging_finished_at=COALESCE(staging_finished_at,now()), \
+                 SET staging_finished_at=CASE WHEN message_id IS NULL THEN NULL \
+                       ELSE COALESCE(staging_finished_at,now()) END, \
                      gc_claimed_at=NULL,gc_claim_token=NULL \
                  WHERE attachment_id=$1 AND gc_claim_token=$2",
             )
@@ -1483,7 +1538,8 @@ impl OrgIntel {
         } else {
             sqlx::query(
                 "DELETE FROM owner_attachments \
-                 WHERE attachment_id=$1 AND gc_claim_token=$2 AND message_id IS NULL",
+                 WHERE attachment_id=$1 AND gc_claim_token=$2 AND message_id IS NULL \
+                   AND kept_at IS NULL",
             )
             .bind(attachment_id)
             .bind(claim_token)
@@ -2945,7 +3001,7 @@ async fn lock_owner_attachments_for_command_in_tx(
         "SELECT attachment_id FROM owner_attachments \
          WHERE attachment_id=ANY($1) AND sender_actor_id=$2 AND target_actor_id=$3 \
            AND client_command_id=$4 AND client_payload_sha256=$5 \
-           AND message_id IS NULL AND gc_claimed_at IS NULL \
+           AND message_id IS NULL AND kept_at IS NULL AND gc_claimed_at IS NULL \
            AND purge_requested_at IS NULL AND purged_at IS NULL \
            AND gc_claim_token IS NULL \
          ORDER BY attachment_id FOR UPDATE",

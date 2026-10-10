@@ -1234,7 +1234,8 @@ pub struct OwnerAttachmentRecord {
     pub canonical_media_type: String,
     pub size_bytes: i64,
     pub content_sha256: String,
-    pub message_id: i64,
+    /// None for a file the owner kept in the Library without a Message.
+    pub message_id: Option<i64>,
 }
 
 /// Owner-facing retention metadata for one attachment. Content remains behind
@@ -1249,8 +1250,9 @@ pub struct OwnerAttachmentRetentionRow {
     pub canonical_media_type: String,
     pub size_bytes: i64,
     pub content_sha256: String,
-    pub message_id: i64,
-    pub linked_at: DateTime<Utc>,
+    /// None for a file the owner kept in the Library without a Message.
+    pub message_id: Option<i64>,
+    pub linked_at: Option<DateTime<Utc>>,
     pub staging_finished_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub purge_requested_at: Option<DateTime<Utc>>,

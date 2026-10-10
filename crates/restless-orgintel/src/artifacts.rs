@@ -20,12 +20,17 @@ impl OrgIntel {
             ));
         }
         let mut tx = self.pool.begin().await?;
+        // The company's owner may also take a file out of the Library, as they may archive a
+        // document or sheet an agent made.
         let permitted: bool = sqlx::query_scalar(
             "SELECT EXISTS(\
                SELECT 1 FROM artifact_refs a \
                LEFT JOIN work w ON w.id=a.work_id \
                WHERE a.id=$1 AND a.state='available' AND (\
-                 $2='exec' OR a.created_by=$2 OR w.owner_id=$2 OR w.commissioned_by=$2\
+                 $2='exec' OR a.created_by=$2 OR w.owner_id=$2 OR w.commissioned_by=$2 \
+                 OR $2='owner' OR EXISTS(SELECT 1 FROM human_principal_actor_bindings b \
+                   WHERE b.actor_id=$2 AND b.membership_role='owner' \
+                     AND b.membership_status='active')\
                )\
              )",
         )
@@ -35,15 +40,16 @@ impl OrgIntel {
         .await?;
         if !permitted {
             return Err(OrgIntelError::InvalidWork(
-                "only Exec, the producer, Work owner, or commissioning lead may retire this artifact"
+                "only Exec, the producer, Work owner, commissioning lead, or the company's owner may retire this artifact"
                     .into(),
             ));
         }
         let changed = sqlx::query(
-            "UPDATE artifact_refs SET state='superseded', superseded_at=now() \
+            "UPDATE artifact_refs SET state='superseded', superseded_at=now(), retired_by=$2 \
              WHERE id=$1 AND state='available'",
         )
         .bind(artifact_id)
+        .bind(retired_by.trim())
         .execute(&mut *tx)
         .await?
         .rows_affected()
@@ -57,6 +63,98 @@ impl OrgIntel {
         }
         tx.commit().await?;
         Ok(changed)
+    }
+
+    /// Put back a Work file the company's owner took out of the Library. Only a reference an
+    /// owner retired qualifies, so a version Work itself replaced never returns, and never while
+    /// another available reference already names the same locator.
+    pub async fn restore_owner_retired_artifact(
+        &self,
+        artifact_id: Uuid,
+        restored_by: &str,
+    ) -> Result<bool> {
+        let restored_by = restored_by.trim();
+        let mut tx = self.pool.begin().await?;
+        let row: Option<(Option<Uuid>, String, String, Option<String>, ArtifactRefState)> =
+            sqlx::query_as(
+                "SELECT work_id,kind,uri,retired_by,state FROM artifact_refs WHERE id=$1 FOR UPDATE",
+            )
+            .bind(artifact_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        let Some((work_id, kind, uri, retired_by, state)) = row else {
+            return Err(OrgIntelError::InvalidWork("the file is not one Work recorded".into()));
+        };
+        if state == ArtifactRefState::Available {
+            tx.commit().await?;
+            return Ok(false);
+        }
+        let owners: Vec<String> = sqlx::query_scalar(
+            "SELECT actor_id FROM human_principal_actor_bindings \
+             WHERE membership_role='owner' AND membership_status='active' AND actor_id=ANY($1)",
+        )
+        .bind(vec![
+            restored_by.to_string(),
+            retired_by.clone().unwrap_or_default(),
+        ])
+        .fetch_all(&mut *tx)
+        .await?;
+        let is_owner = |actor: &str| actor == "owner" || owners.iter().any(|owner| owner == actor);
+        if !is_owner(restored_by) {
+            return Err(OrgIntelError::InvalidWork(
+                "only the company's owner may restore an archived file".into(),
+            ));
+        }
+        if state != ArtifactRefState::Superseded || !retired_by.as_deref().is_some_and(is_owner) {
+            return Err(OrgIntelError::InvalidWork(
+                "only a file the owner archived can be restored; Work replaced this one".into(),
+            ));
+        }
+        let taken: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM artifact_refs \
+             WHERE work_id IS NOT DISTINCT FROM $1 AND kind=$2 AND uri=$3 AND state='available')",
+        )
+        .bind(work_id)
+        .bind(&kind)
+        .bind(&uri)
+        .fetch_one(&mut *tx)
+        .await?;
+        if taken {
+            return Err(OrgIntelError::InvalidWork(
+                "a newer version of this file is already in the Library".into(),
+            ));
+        }
+        sqlx::query(
+            "UPDATE artifact_refs SET state='available', superseded_at=NULL, retired_by=NULL \
+             WHERE id=$1",
+        )
+        .bind(artifact_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("INSERT INTO events(kind,actor_id,body) VALUES ('artifact_restored',$1,$2)")
+            .bind(restored_by)
+            .bind(serde_json::json!({"artifact_ref_id": artifact_id}))
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    /// Work files the company's owner took out of the Library, newest first, for its Archived
+    /// view. A version Work replaced is history, not something the owner archived.
+    pub async fn list_owner_retired_artifacts(&self) -> Result<Vec<ArtifactRefRow>> {
+        Ok(sqlx::query_as(
+            "SELECT id, kind, uri, note, created_by, work_id, attempt_id, digest, source_commit, \
+                    runtime_generation, label, state, created_at, superseded_at \
+             FROM artifact_refs a \
+             WHERE a.state='superseded' AND a.work_id IS NOT NULL AND (a.retired_by='owner' \
+               OR EXISTS(SELECT 1 FROM human_principal_actor_bindings b \
+                 WHERE b.actor_id=a.retired_by AND b.membership_role='owner' \
+                   AND b.membership_status='active')) \
+             ORDER BY superseded_at DESC NULLS LAST, id DESC LIMIT 200",
+        )
+        .fetch_all(&self.pool)
+        .await?)
     }
 
     /// Artifact references point at Runtime truth; digest/commit make the

@@ -64,6 +64,10 @@ where
             post(archive_document),
         )
         .route(
+            "/companies/{company}/documents/{document}",
+            delete(delete_document),
+        )
+        .route(
             "/companies/{company}/documents/{document}/collaboration/token",
             post(issue_document_collaboration_token),
         )
@@ -500,6 +504,9 @@ where
 struct DocumentListQuery {
     #[serde(default)]
     include_archived: bool,
+    /// Only archived documents, paged, for the Library's Archived view.
+    #[serde(default)]
+    archived_only: bool,
     before_updated_at: Option<String>,
     before_document_id: Option<Uuid>,
     limit: Option<i64>,
@@ -1034,16 +1041,42 @@ async fn list_documents(
         Ok(org) => org,
         Err(response) => return response,
     };
-    match org
-        .list_documents_for_actor(
+    let page = if query.archived_only {
+        org.list_archived_documents_for_actor(principal.actor_id(), cursor.as_ref(), limit)
+            .await
+    } else {
+        org.list_documents_for_actor(
             principal.actor_id(),
             query.include_archived,
             cursor.as_ref(),
             limit,
         )
         .await
-    {
+    };
+    match page {
         Ok(page) => document_json(StatusCode::OK, page),
+        Err(error) => document_error(error),
+    }
+}
+
+/// DELETE /companies/{company}/documents/{document}: delete an archived document for good.
+async fn delete_document(
+    State(state): State<RoomApiState>,
+    DocumentPrincipal(principal): DocumentPrincipal,
+    AxumPath((company, document)): AxumPath<(String, Uuid)>,
+) -> Response<Body> {
+    let org = match document_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .delete_archived_document(document, principal.actor_id())
+        .await
+    {
+        Ok(()) => document_json(
+            StatusCode::OK,
+            serde_json::json!({ "document": document, "deleted": true }),
+        ),
         Err(error) => document_error(error),
     }
 }

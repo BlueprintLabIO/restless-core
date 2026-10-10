@@ -308,6 +308,46 @@ impl OrgIntel {
         Ok(row)
     }
 
+    /// Delete an archived sheet for good, with its history, checkpoints and shares. Its owner or
+    /// the company's owner may, once it is archived.
+    pub async fn delete_archived_sheet(&self, id: Uuid, actor: &str) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        access(&mut tx, id, actor, false).await?;
+        let (owner, archived): (String, bool) = sqlx::query_as(
+            "SELECT owner_actor_id,archived_at IS NOT NULL FROM native_sheets WHERE id=$1 FOR UPDATE",
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(SheetError::Unavailable)?;
+        if owner != actor {
+            let company_owner: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM human_principal_actor_bindings WHERE actor_id=$1 AND membership_role='owner' AND membership_status='active')")
+                .bind(actor)
+                .fetch_one(&mut *tx)
+                .await?;
+            if !company_owner && actor != "owner" {
+                return Err(SheetError::Unavailable);
+            }
+        }
+        if !archived {
+            return Err(SheetError::Conflict(
+                "archive the sheet before deleting it permanently".into(),
+            ));
+        }
+        sqlx::query("DELETE FROM native_sheets WHERE id=$1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("INSERT INTO events (kind,actor_id,body) VALUES ($1,$2,$3)")
+            .bind("owner.sheet.deleted.v1")
+            .bind(actor)
+            .bind(serde_json::json!({ "sheet_id": id }))
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn list_sheets(&self, actor: &str) -> Result<Vec<SheetRow>> {
         self.list_sheets_where(actor, false).await
     }

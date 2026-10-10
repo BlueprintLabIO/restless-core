@@ -3461,7 +3461,7 @@ model = \"anthropic/claude-sonnet-5-5\"
             canonical_media_type: "text/html".into(),
             size_bytes: bytes.len() as i64,
             content_sha256: format!("{:x}", Sha256::digest(&bytes)),
-            message_id: 42,
+            message_id: Some(42),
         };
         let response = verified_attachment_response(&record, bytes.clone()).unwrap();
         assert_eq!(
@@ -3737,7 +3737,7 @@ model = \"anthropic/claude-sonnet-5-5\"
             durable.content_sha256,
             format!("{:x}", Sha256::digest(content))
         );
-        assert_eq!(durable.message_id, message_id);
+        assert_eq!(durable.message_id, Some(message_id));
         assert!(
             fixture
                 .org

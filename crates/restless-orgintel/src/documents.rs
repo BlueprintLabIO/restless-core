@@ -4585,10 +4585,131 @@ impl OrgIntel {
         Ok(())
     }
 
+    /// Delete an archived document for good: its named versions, comments, reviews, proposals,
+    /// receipts, live body and search rows go with it. Only its owner or the company's owner may,
+    /// and only once it is archived. Work still waiting on its review keeps it, and so does any
+    /// company record that cites one of its comment mentions; both refuse as a conflict.
+    pub async fn delete_archived_document(
+        &self,
+        document_id: Uuid,
+        actor_id: &str,
+    ) -> DocumentResult<()> {
+        fn refusal(error: sqlx::Error) -> DocumentError {
+            match &error {
+                sqlx::Error::Database(database) if database.code().as_deref() == Some("23503") => {
+                    DocumentError::Conflict(
+                        "the team's working history still cites this document, so it stays archived"
+                            .into(),
+                    )
+                }
+                _ => DocumentError::Database(error),
+            }
+        }
+        let mut tx = self.pool.begin().await?;
+        access_in_transaction(&mut tx, document_id, actor_id)
+            .await?
+            .ok_or(DocumentError::Unavailable)?;
+        let (owner_actor_id, status): (String, DocumentStatus) = sqlx::query_as(
+            "SELECT owner_actor_id,status FROM native_documents WHERE id=$1 FOR UPDATE",
+        )
+        .bind(document_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DocumentError::Unavailable)?;
+        if owner_actor_id != actor_id {
+            let company_owner: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM human_principal_actor_bindings WHERE actor_id=$1 AND membership_role='owner' AND membership_status='active')")
+                .bind(actor_id)
+                .fetch_one(&mut *tx)
+                .await?;
+            if !company_owner && actor_id != "owner" {
+                return Err(DocumentError::Unavailable);
+            }
+        }
+        if status != DocumentStatus::Archived {
+            return Err(DocumentError::Conflict(
+                "archive the document before deleting it permanently".into(),
+            ));
+        }
+        let awaited: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM native_document_work_review_dependencies \
+             WHERE document_id=$1 AND status='pending')",
+        )
+        .bind(document_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if awaited {
+            return Err(DocumentError::Conflict(
+                "Work is still waiting on a review of this document, so it stays archived".into(),
+            ));
+        }
+        // The immutability triggers admit deletes only for the document this transaction names.
+        sqlx::query("SELECT set_config('restless.native_document_purge', $1, true)")
+            .bind(document_id.to_string())
+            .execute(&mut *tx)
+            .await?;
+        // Children that cite named versions go first; the document's own pointer to its current
+        // version is deferred, so the versions and then the document row can follow.
+        for statement in [
+            "DELETE FROM native_document_runtime_imports WHERE document_id=$1",
+            "DELETE FROM native_document_prepared_edits WHERE document_id=$1",
+            "DELETE FROM native_document_collaboration_requests WHERE document_id=$1",
+            "DELETE FROM native_document_comment_threads WHERE document_id=$1",
+            "DELETE FROM native_document_reviews WHERE document_id=$1",
+            "DELETE FROM native_document_revision_proposals WHERE document_id=$1",
+            "DELETE FROM native_document_command_receipts WHERE document_id=$1",
+            "DELETE FROM native_document_search_projection WHERE document_id=$1",
+            "DELETE FROM native_document_reference_projection WHERE source_document_id=$1",
+            "DELETE FROM native_document_yjs_state WHERE document_id=$1",
+            "DELETE FROM native_document_collaboration_sessions WHERE document_id=$1",
+            "DELETE FROM native_document_participants WHERE document_id=$1",
+            "DELETE FROM native_document_versions WHERE document_id=$1",
+            "DELETE FROM native_documents WHERE id=$1",
+        ] {
+            sqlx::query(statement)
+                .bind(document_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(refusal)?;
+        }
+        sqlx::query("INSERT INTO events (kind,actor_id,body) VALUES ($1,$2,$3)")
+            .bind("owner.document.deleted.v1")
+            .bind(actor_id)
+            .bind(serde_json::json!({ "document_id": document_id }))
+            .execute(&mut *tx)
+            .await?;
+        // Deferred foreign keys are checked here.
+        tx.commit().await.map_err(refusal)?;
+        Ok(())
+    }
+
     pub async fn list_documents_for_actor(
         &self,
         actor_id: &str,
         include_archived: bool,
+        cursor: Option<&DocumentListCursor>,
+        limit: i64,
+    ) -> DocumentResult<DocumentSummaryPage> {
+        self.list_documents_where(actor_id, include_archived, false, cursor, limit)
+            .await
+    }
+
+    /// Only the archived documents an actor can see, paged like the Library list, so the
+    /// Archived view reaches every one of them rather than those among the newest edits.
+    pub async fn list_archived_documents_for_actor(
+        &self,
+        actor_id: &str,
+        cursor: Option<&DocumentListCursor>,
+        limit: i64,
+    ) -> DocumentResult<DocumentSummaryPage> {
+        self.list_documents_where(actor_id, true, true, cursor, limit)
+            .await
+    }
+
+    async fn list_documents_where(
+        &self,
+        actor_id: &str,
+        include_archived: bool,
+        archived_only: bool,
         cursor: Option<&DocumentListCursor>,
         limit: i64,
     ) -> DocumentResult<DocumentSummaryPage> {
@@ -4628,6 +4749,7 @@ impl OrgIntel {
              LEFT JOIN native_document_participants p \
                ON p.document_id=d.id AND p.actor_id=$1 AND p.removed_at IS NULL \
              WHERE ($2 OR d.status<>'archived') \
+               AND (NOT $6 OR d.status='archived') \
                AND ($3::timestamptz IS NULL OR (d.updated_at,d.id)<($3,$4)) \
                AND (d.owner_actor_id=$1 OR p.actor_id IS NOT NULL \
                     OR (d.visibility='company' AND a.actor_class='human') \
@@ -4645,6 +4767,7 @@ impl OrgIntel {
         .bind(cursor_time)
         .bind(cursor_id)
         .bind(limit + 1)
+        .bind(archived_only)
         .fetch_all(&self.pool)
         .await?;
         let next_cursor = if rows.len() > limit as usize {

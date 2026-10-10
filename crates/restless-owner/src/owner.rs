@@ -17,6 +17,8 @@ mod company_settings_api;
 mod desktop_api;
 #[path = "owner_review.rs"]
 mod review_api;
+#[path = "owner_library.rs"]
+mod library_api;
 #[path = "owner_custom_harnesses.rs"]
 mod custom_harnesses;
 #[path = "owner_documents.rs"]
@@ -1512,6 +1514,20 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route(
             "/companies/{company}/library/open",
             post(issue_library_ticket),
+        )
+        .route(
+            "/companies/{company}/library/archive",
+            post(library_api::archive_work_file),
+        )
+        .route(
+            "/companies/{company}/library/archived",
+            get(library_api::archived_work_files),
+        )
+        // Listing, reading and purging kept files stay on the Room routes below; this adds a
+        // file with no message, under the owner API's attachment-sized body ceiling.
+        .route(
+            "/companies/{company}/attachments",
+            post(library_api::upload_attachments),
         )
         .route(
             "/companies/{company}/messages/{message}/reference",
@@ -8267,24 +8283,8 @@ async fn send_actor_message(
             )
             .await
         {
-            // A full quota is a definitive answer the owner can act on; only a
-            // busy staging fence is worth retrying with the same command.
-            if let restless_orgintel::OrgIntelError::InvalidRoom(message) = &error {
-                if message.starts_with("retained attachment storage is full")
-                    || message.starts_with("this principal's retained attachment quota is full")
-                {
-                    return api_error(
-                        StatusCode::CONFLICT,
-                        "attachment_quota",
-                        "The files you have sent fill this company's file space, so this file was not sent. The message can still go without it.",
-                    );
-                }
-            }
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "attachment_staging",
-                format!("{error:#}"),
-            );
+            // A full quota is a definite refusal the owner can act on, not a retry.
+            return library_api::registration_refusal(error);
         }
     }
     let staged_attachments = prepared
