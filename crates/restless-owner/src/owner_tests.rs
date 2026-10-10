@@ -3490,7 +3490,7 @@ model = \"anthropic/claude-sonnet-5-5\"
                 canonical_media_type: media_type.into(),
                 size_bytes: bytes.len() as i64,
                 content_sha256: format!("{:x}", Sha256::digest(bytes)),
-                message_id: 42,
+                message_id: Some(42),
             }
         };
         let header = |response: &Response<Body>, name: &str| {
