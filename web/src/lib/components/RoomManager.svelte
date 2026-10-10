@@ -573,8 +573,8 @@
 		color: var(--text-secondary);
 	}
 	.room-exit .danger {
-		border-color: color-mix(in srgb, var(--intent-danger, #a22) 40%, var(--border));
-		color: var(--intent-danger, #a22);
+		border-color: color-mix(in srgb, var(--state-danger) 40%, var(--border));
+		color: var(--state-danger);
 	}
 	.history-note {
 		margin: 12px 0;

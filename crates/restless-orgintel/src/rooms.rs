@@ -1749,6 +1749,12 @@ impl OrgIntel {
                 "the Room owner cannot remove itself; archive the Room instead".into(),
             ));
         }
+        // The company Room is everyone's; only a group can be left.
+        if leaving && kind != RoomKind::Group {
+            return Err(OrgIntelError::InvalidRoom(
+                "only a group Room can be left".into(),
+            ));
+        }
         let removed = sqlx::query_as(
             "UPDATE room_participants SET left_at=now() \
              WHERE room_id=$1 AND actor_id=$2 AND role='member' AND left_at IS NULL \

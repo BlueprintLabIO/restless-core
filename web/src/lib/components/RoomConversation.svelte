@@ -879,7 +879,10 @@
 	/* Only people in the room can be asked here; the server refuses anyone else. */
 	function knownMentions(body: string): NewRoomMention[] {
 		const tokens = mentionTokens(body);
-		const known = new Set(participants.map((participant) => participant.actor_id));
+		const known = new Set([
+			...participants.map((participant) => participant.actor_id),
+			...addedForSend
+		]);
 		// A direct chat addresses its agent counterpart without requiring an @ token.
 		if (directPartner && actorIsAgent(directPartner)) tokens.add(directPartner);
 		return [...tokens].filter((actorId) => known.has(actorId)).map((actor_id) => ({ actor_id }));
@@ -888,7 +891,10 @@
 	/* People named with @ who are not in this room: they would not be asked, so the sender is
 	 * told before sending, and a room owner can add them. */
 	function mentionedOutsiders(body: string): string[] {
-		const members = new Set(participants.map((participant) => participant.actor_id));
+		const members = new Set([
+			...participants.map((participant) => participant.actor_id),
+			...addedForSend
+		]);
 		return [...mentionTokens(body)].filter(
 			(actorId) =>
 				actorId !== currentActorId &&
@@ -908,10 +914,15 @@
 	let mentionGapAccepted = $state('');
 	let composerForm = $state<HTMLFormElement | undefined>();
 	let addingOutsiders = $state(false);
+	/* People just added by "Add and send". The refetched participant list reaches this
+	 * component a tick after the request settles, so the send that follows at once must not
+	 * read the old list and drop their mention. Read only at submit time; never rendered. */
+	let addedForSend: string[] = [];
 	$effect(() => {
 		void selectedRoomId;
 		mentionGap = null;
 		mentionGapAccepted = '';
+		addedForSend = [];
 	});
 	/* Editing the message retires a notice about the words it no longer has. */
 	$effect(() => {
@@ -932,7 +943,10 @@
 		addingOutsiders = true;
 		sendError = '';
 		try {
-			for (const actorId of gap.missing) await addRoomParticipant(company, room, actorId);
+			for (const actorId of gap.missing) {
+				await addRoomParticipant(company, room, actorId);
+				if (company === companyId && room === selectedRoomId) addedForSend.push(actorId);
+			}
 			await queryClient.invalidateQueries({
 				queryKey: roomQueryKeys.participants(company, room)
 			});
