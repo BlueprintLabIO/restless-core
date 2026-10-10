@@ -4764,25 +4764,47 @@ impl OrgIntel {
             return Ok(result);
         }
         let row = sqlx::query(
-            "SELECT owner_actor_id,version FROM native_documents WHERE id=$1 FOR UPDATE",
+            "SELECT owner_actor_id,version,kind,visibility,linked_room_id,inherit_room_visibility \
+             FROM native_documents WHERE id=$1 FOR UPDATE",
         )
         .bind(input.document_id)
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(DocumentError::Unavailable)?;
-        require_access(
-            &mut tx,
-            input.document_id,
-            input.actor_id,
-            DocumentAccess::Edit,
-        )
-        .await?;
-        if row.get::<String, _>("owner_actor_id") != input.actor_id {
-            return Err(DocumentError::Unavailable);
-        }
-        if let Some(room_id) = input.linked_room_id {
-            if !active_room_participant(&mut tx, room_id, input.actor_id).await? {
+        // The company's owner may retitle any document they can see, as they may archive it.
+        // Only the title: kind, visibility and room links stay with the document's owner.
+        let title_only = row.get::<DocumentKind, _>("kind") == input.kind
+            && row.get::<DocumentVisibility, _>("visibility") == input.visibility
+            && row.get::<Option<Uuid>, _>("linked_room_id") == input.linked_room_id
+            && row.get::<bool, _>("inherit_room_visibility") == input.inherit_room_visibility;
+        let owner_retitle = title_only
+            && row.get::<String, _>("owner_actor_id") != input.actor_id
+            && access_in_transaction(&mut tx, input.document_id, input.actor_id)
+                .await?
+                .is_some()
+            && (input.actor_id == "owner"
+                || sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS(SELECT 1 FROM human_principal_actor_bindings \
+                     WHERE actor_id=$1 AND membership_role='owner' AND membership_status='active')",
+                )
+                .bind(input.actor_id)
+                .fetch_one(&mut *tx)
+                .await?);
+        if !owner_retitle {
+            require_access(
+                &mut tx,
+                input.document_id,
+                input.actor_id,
+                DocumentAccess::Edit,
+            )
+            .await?;
+            if row.get::<String, _>("owner_actor_id") != input.actor_id {
                 return Err(DocumentError::Unavailable);
+            }
+            if let Some(room_id) = input.linked_room_id {
+                if !active_room_participant(&mut tx, room_id, input.actor_id).await? {
+                    return Err(DocumentError::Unavailable);
+                }
             }
         }
         let actual = row.get::<i64, _>("version");

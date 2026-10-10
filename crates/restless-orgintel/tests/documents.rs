@@ -820,6 +820,89 @@ async fn company_visibility_is_human_readable_not_agent_global() {
 }
 
 #[tokio::test]
+async fn the_company_owner_may_retitle_a_staff_document_but_nothing_else() {
+    let Some(org) = company("ownerretitle").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping owner retitle scenario");
+        return;
+    };
+    let body = content("staff-note", "Written by Staff");
+    let created = org
+        .create_document(NewDocument {
+            command_id: Uuid::new_v4(),
+            title: "draft v2 FINAL",
+            kind: DocumentKind::Report,
+            visibility: DocumentVisibility::Company,
+            linked_room_id: None,
+            inherit_room_visibility: false,
+            owner_actor_id: "research-analyst",
+            created_by_actor_id: "research-analyst",
+            content_json: &body,
+            reason: "Staff report",
+        })
+        .await
+        .unwrap();
+    let document_id = created.document_id;
+    fn metadata<'a>(
+        document_id: Uuid,
+        actor_id: &'a str,
+        title: &'a str,
+        visibility: DocumentVisibility,
+    ) -> UpdateDocumentMetadata<'a> {
+        UpdateDocumentMetadata {
+            command_id: Uuid::new_v4(),
+            document_id,
+            actor_id,
+            expected_version: 1,
+            title,
+            kind: DocumentKind::Report,
+            visibility,
+            linked_room_id: None,
+            inherit_room_visibility: false,
+        }
+    }
+
+    // A member who can only read it may not, even for the title alone.
+    assert!(matches!(
+        org.update_document_metadata(metadata(
+            document_id,
+            "alex",
+            "Alex's title",
+            DocumentVisibility::Company
+        ))
+        .await,
+        Err(DocumentError::Unavailable)
+    ));
+    // The owner may not use a retitle to change who can see it.
+    assert!(matches!(
+        org.update_document_metadata(metadata(
+            document_id,
+            "owner",
+            "Quarterly report",
+            DocumentVisibility::Participants
+        ))
+        .await,
+        Err(DocumentError::Unavailable)
+    ));
+    org.update_document_metadata(metadata(
+        document_id,
+        "owner",
+        "Quarterly report",
+        DocumentVisibility::Company,
+    ))
+    .await
+    .unwrap();
+    let renamed = org
+        .get_document_for_actor(document_id, "owner")
+        .await
+        .unwrap();
+    assert_eq!(renamed.document.title, "Quarterly report");
+    assert_eq!(renamed.document.owner_actor_id, "research-analyst");
+    assert_eq!(renamed.document.visibility, DocumentVisibility::Company);
+    // The body stays the Staff member's: the owner's access is unchanged.
+    assert_eq!(renamed.access, DocumentAccess::Read);
+}
+
+#[tokio::test]
 async fn explicit_revocation_cannot_split_authorization_from_current_version_read() {
     let Some(org) = company("documentaccessrace").await else {
         eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping document access race scenario");
