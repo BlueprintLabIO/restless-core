@@ -10,6 +10,7 @@
 	 * at open in the Library. Context and the rest of the evidence are folded
 	 * away until asked for. */
 	import { failureSentence } from '$lib/model/failure';
+	import { untrack } from 'svelte';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import type { AttentionItem } from '$lib/model/view';
 	import {
@@ -156,9 +157,15 @@
 	let approvalNote = $state<'' | 'decline' | 'changes'>('');
 	let fieldValues = $state<Record<string, string>>({});
 	let attempt = $state(0);
+	/* Only the arrival opens straight into a decline: a poll that refreshes the item must not
+	 * reopen a closed box, or turn a request for changes back into a plain decline. */
 	$effect(() => {
-		declining = startDeclining && !!(record || humanStep);
-		if (startDeclining && grant && decline) approvalNote = 'decline';
+		const start = startDeclining;
+		void item.id;
+		untrack(() => {
+			declining = start && !!(record || humanStep);
+			if (start && grant && decline) approvalNote = 'decline';
+		});
 	});
 
 	const replyReady = $derived(
@@ -390,7 +397,7 @@
 				{/each}
 				{#if files.length}
 					<div class="attach-list files">
-						{#each files.slice(0, 6) as file (file.href)}
+						{#each item.workId ? files.slice(0, 6) : files as file (file.href)}
 							<a class="attach-file" href={file.href} title={`Open in the Library · ${file.path}`}>
 								<span class="a-kind">{file.ext}</span>
 								<span class="af-main"><span class="a-name">{file.label}</span></span>
@@ -484,6 +491,7 @@
 				bind:value={reason}
 				{@attach (input) => input.focus()}
 				aria-label={approvalNote === 'changes' ? 'What should change' : 'Why not'}
+				maxlength={4000}
 				placeholder={approvalNote === 'changes'
 					? 'What should change? A new draft comes back here for you.'
 					: 'Why not? Optional. Exec is told either way.'}
