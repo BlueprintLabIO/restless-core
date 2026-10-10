@@ -328,7 +328,9 @@ pub(super) async fn start_claude_login(
         .current_dir(&state.daemon.root)
         .env("OMP_PROFILE", profile)
         .args(["auth-broker", "login", "anthropic"])
-        .stdin(Stdio::null())
+        // OMP 18.8 also reads a pasted code from stdin and cancels the login ("stdin closed") the
+        // moment stdin ends, so it stays open, unused, until the sign-in finishes.
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .kill_on_drop(true)
@@ -340,10 +342,12 @@ pub(super) async fn start_claude_login(
     let Some(stdout) = child.stdout.take() else {
         return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "Could not read Claude sign-in instructions.");
     };
+    let stdin = child.stdin.take();
     let id = Uuid::new_v4();
     jobs.insert(id, LoginJob { state: "starting", url: None, code: None, message: None, callback: None });
     drop(jobs);
     tokio::spawn(async move {
+        let _stdin = stdin;
         let mut lines = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             let line = line.trim();
