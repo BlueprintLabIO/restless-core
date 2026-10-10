@@ -1,3 +1,31 @@
+<script lang="ts" module>
+	/** Scroll the live document to one block and mark it for a moment. False when it is not on
+	 * screen (moved, deleted, or the document is not showing). */
+	export function revealDocumentBlock(blockId: string): boolean {
+		const element = window.document.querySelector<HTMLElement>(
+			`.native-document-body [data-block-id="${CSS.escape(blockId)}"]`
+		);
+		if (!element || !element.offsetParent) return false;
+		element.scrollIntoView({ block: 'center', behavior: 'smooth' });
+		/* The mark sits over the block, outside the editor's own DOM, which it must not touch. */
+		const page = element.closest<HTMLElement>('.document-print');
+		if (page) {
+			const box = element.getBoundingClientRect();
+			const frame = page.getBoundingClientRect();
+			const mark = window.document.createElement('div');
+			mark.className = 'block-flash';
+			mark.setAttribute('aria-hidden', 'true');
+			mark.style.top = `${box.top - frame.top + page.scrollTop - 4}px`;
+			mark.style.left = `${box.left - frame.left + page.scrollLeft - 8}px`;
+			mark.style.width = `${box.width + 16}px`;
+			mark.style.height = `${box.height + 8}px`;
+			page.append(mark);
+			setTimeout(() => mark.remove(), 1_800);
+		}
+		return true;
+	}
+</script>
+
 <script lang="ts">
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
@@ -11,6 +39,7 @@
 	import Scale from '@lucide/svelte/icons/scale';
 	import Sparkles from '@lucide/svelte/icons/sparkles';
 	import X from '@lucide/svelte/icons/x';
+	import { tick } from 'svelte';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import {
 		failClosedDocumentRead,
@@ -34,27 +63,33 @@
 		acceptDocumentRevisionProposal,
 		commentContent,
 		createDocumentCommentThread,
+		documentBlockText,
 		getDocument,
 		isRetryableDocumentFailure,
 		pendingDocumentCommand,
 		pendingDocumentMutation,
+		quoteExcerpt,
 		rejectDocumentRevisionProposal,
 		replyToDocumentComment,
 		requestDocumentReview,
+		requestDocumentReviewChanges,
 		resolveDocumentCommentThread,
 		restoreDocumentVersion,
+		type CommentMention,
 		type DocumentReadView,
 		type DocumentContent,
 		type DocumentRevisionProposalSummary,
 		type PendingDocumentCommand,
 		type PendingDocumentMutation
 	} from '$lib/model/documents';
+	import { composerTrigger } from '$lib/primitives/composer-menu';
 
 	export type DocumentInspectorPanel = 'comments' | 'review' | 'versions';
 
 	interface PersonReference {
 		actor_id: string;
 		display: string;
+		kind?: string;
 	}
 
 	interface Props {
@@ -63,12 +98,16 @@
 		panel: DocumentInspectorPanel;
 		requestedReviewId?: string;
 		people?: PersonReference[];
+		/** Who is looking: a Work-bound review can be sent back only by the person it asks. */
+		viewerActorId?: string;
 		online?: boolean;
 		editing?: boolean;
 		commentBlockId?: string | null;
 		onpanelchange?: (panel: DocumentInspectorPanel) => void;
 		oncommenttargetchange?: (blockId: string | null) => void;
 		onaccept?: (target: DocumentTarget, view: DocumentReadView) => void;
+		/** Show a block in the document; without it the inspector scrolls the document itself. */
+		onshowblock?: (blockId: string) => void;
 		ondismiss?: () => void;
 	}
 
@@ -78,12 +117,14 @@
 		panel,
 		requestedReviewId = '',
 		people = [],
+		viewerActorId = '',
 		online = true,
 		editing = false,
 		commentBlockId = null,
 		onpanelchange = () => {},
 		oncommenttargetchange = () => {},
 		onaccept = () => {},
+		onshowblock,
 		ondismiss
 	}: Props = $props();
 
@@ -114,9 +155,11 @@
 	let commentFailure = $state('');
 	let reviewSummary = $state('');
 	let reviewName = $state('Accepted review');
+	let reviewNote = $state('');
 	let reviewBusy = $state(false);
 	let reviewFailure = $state('');
 	let reviewNotice = $state('');
+	let reviewChangesAttempt = $state<PendingDocumentMutation<ReviewChangesInput> | null>(null);
 	let resolutionSummary = $state('');
 	let proposalVersionName = $state('Accepted agent revision');
 	let proposalBusy = $state(false);
@@ -161,6 +204,14 @@
 		expectedDocumentVersion: number;
 		expectedReviewVersion: number;
 		acceptedVersionName: string;
+		feedback: string;
+	}
+	interface ReviewChangesInput {
+		target: DocumentTarget;
+		reviewId: string;
+		expectedDocumentVersion: number;
+		expectedReviewVersion: number;
+		feedback: string;
 	}
 	interface ProposalMutationInput {
 		target: DocumentTarget;
@@ -205,6 +256,106 @@
 	const canComment = $derived(view.access === 'comment' || view.access === 'edit');
 	const canJudge = $derived(view.access === 'edit');
 	const canResolveDocument = $derived(canJudge && !editing);
+	/* A review a piece of Work asked for can go back to it with what should change. */
+	const requestedDependency = $derived(
+		requestedReview ? reviews.dependencyOf(requestedReview.id) : null
+	);
+	const canRequestChanges = $derived(
+		requestedDependency?.status === 'pending' &&
+			(!viewerActorId || requestedDependency.reviewer_actor_id === viewerActorId)
+	);
+	const canCommentChanges = $derived(
+		Boolean(requestedReview) &&
+			!requestedDependency &&
+			canComment &&
+			requestedReview?.requested_by_actor_id !== viewerActorId
+	);
+	const mayRequestChanges = $derived(canRequestChanges || canCommentChanges);
+
+	/* What a block comment is about, quoted: the live page first (newest), then the saved version. */
+	function blockQuote(blockId: string | null): string | null {
+		if (!blockId) return null;
+		const live =
+			typeof window === 'undefined'
+				? null
+				: window.document.querySelector(
+						`.native-document-body [data-block-id="${CSS.escape(blockId)}"]`
+					)?.textContent;
+		const text = live ?? documentBlockText(view.current_version.version.content_json, blockId);
+		const quote = text === null || text === undefined ? '' : quoteExcerpt(text);
+		return quote || null;
+	}
+
+	function showBlock(blockId: string): void {
+		if (onshowblock) onshowblock(blockId);
+		else revealDocumentBlock(blockId);
+	}
+
+	/* Mentions: typing @ offers people by name. The name goes into the text, the person is
+	 * remembered, and the comment carries a mention of them, not the letters of their name. */
+	let mentionQuery = $state<{ query: string; start: number; end: number } | null>(null);
+	let mentionIndex = $state(0);
+	let mentioned = $state<CommentMention[]>([]);
+	let commentInput = $state<HTMLTextAreaElement>();
+	const mentionOptions = $derived.by(() => {
+		if (!mentionQuery) return [];
+		const query = mentionQuery.query.toLowerCase();
+		return people
+			.filter((person) => person.kind !== 'system')
+			.filter(
+				(person) =>
+					!query ||
+					person.display.toLowerCase().includes(query) ||
+					person.actor_id.toLowerCase().includes(query)
+			)
+			.toSorted(
+				(left, right) =>
+					Number(!left.display.toLowerCase().startsWith(query)) -
+						Number(!right.display.toLowerCase().startsWith(query)) ||
+					left.display.localeCompare(right.display)
+			)
+			.slice(0, 6);
+	});
+
+	function readMentionQuery(input: HTMLTextAreaElement): void {
+		const trigger = composerTrigger(input.value, input.selectionStart ?? input.value.length);
+		mentionQuery =
+			trigger?.trigger === '@'
+				? { query: trigger.query, start: trigger.start, end: trigger.end }
+				: null;
+		mentionIndex = 0;
+	}
+
+	function pickMention(person: PersonReference): void {
+		const at = mentionQuery;
+		if (!at) return;
+		const inserted = `@${person.display} `;
+		commentText = `${commentText.slice(0, at.start)}${inserted}${commentText.slice(at.end)}`;
+		if (!mentioned.some((mention) => mention.actor_id === person.actor_id))
+			mentioned = [...mentioned, { actor_id: person.actor_id, label: person.display }];
+		mentionQuery = null;
+		commentAttempt = null;
+		const caret = at.start + inserted.length;
+		void tick().then(() => {
+			commentInput?.focus();
+			commentInput?.setSelectionRange(caret, caret);
+		});
+	}
+
+	function mentionKeys(event: KeyboardEvent): void {
+		if (!mentionQuery || !mentionOptions.length) return;
+		if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+			event.preventDefault();
+			const step = event.key === 'ArrowDown' ? 1 : -1;
+			mentionIndex = (mentionIndex + step + mentionOptions.length) % mentionOptions.length;
+		} else if (event.key === 'Enter' || event.key === 'Tab') {
+			event.preventDefault();
+			pickMention(mentionOptions[mentionIndex] ?? mentionOptions[0]);
+		} else if (event.key === 'Escape') {
+			event.preventDefault();
+			mentionQuery = null;
+		}
+	}
 
 	$effect(() => {
 		if (selectionDocumentId === documentId) return;
@@ -217,6 +368,10 @@
 		resolveAttempt = null;
 		reviewRequestAttempt = null;
 		reviewAcceptAttempt = null;
+		reviewChangesAttempt = null;
+		reviewNote = '';
+		mentioned = [];
+		mentionQuery = null;
 		proposalAttempt = null;
 		commentBusy = false;
 		reviewBusy = false;
@@ -295,15 +450,17 @@
 		if (!body || !online || !canComment || commentBusy) return;
 		const target = { companyId, documentId };
 		const mode = composingThread ? 'thread' : 'reply';
+		const picked = mentioned.filter((mention) => body.includes(`@${mention.label}`));
 		const semanticFingerprint = JSON.stringify({
 			target,
 			mode,
 			blockId: mode === 'thread' ? commentBlockId : null,
 			threadId: mode === 'reply' ? selectedThreadId : null,
-			body
+			body,
+			picked
 		});
 		const attempt = pendingDocumentMutation(commentAttempt, semanticFingerprint, () => {
-			const contentJson = commentContent(body, knownActorIds);
+			const contentJson = commentContent(body, knownActorIds, picked);
 			return mode === 'thread'
 				? { mode: 'thread' as const, target, blockId: commentBlockId, contentJson }
 				: {
@@ -347,6 +504,8 @@
 			if (!isCurrentTarget(target)) return;
 			commentAttempt = null;
 			commentText = '';
+			mentioned = [];
+			mentionQuery = null;
 		} catch (cause) {
 			failClosedDocumentRead(client, cause, target.companyId, target.documentId);
 			if (!isCurrentTarget(target)) return;
@@ -456,7 +615,8 @@
 			reviewId: requestedReview.id,
 			expectedDocumentVersion: view.document.version,
 			expectedReviewVersion: requestedReview.version,
-			acceptedVersionName: reviewName.trim()
+			acceptedVersionName: reviewName.trim(),
+			feedback: canRequestChanges ? reviewNote.trim() : ''
 		};
 		const attempt = pendingDocumentMutation(
 			reviewAcceptAttempt,
@@ -469,6 +629,9 @@
 		reviewNotice = '';
 		let mutationSucceeded = false;
 		try {
+			/* Not bound to Work, a note has nowhere to go with the decision: it is posted first,
+			 * and the version is not accepted if the note could not be. */
+			if (canCommentChanges && reviewNote.trim() && !(await postReviewNote(''))) return;
 			const result = await acceptDocumentReview(
 				attempt.input.target.companyId,
 				attempt.input.target.documentId,
@@ -476,11 +639,15 @@
 				attempt.input.expectedDocumentVersion,
 				attempt.input.expectedReviewVersion,
 				attempt.input.acceptedVersionName,
-				attempt.command.id
+				attempt.command.id,
+				attempt.input.feedback
 			);
 			mutationSucceeded = true;
 			reviews.acceptResolution(attempt.input.target, result);
-			if (isCurrentTarget(target)) reviewAcceptAttempt = null;
+			if (isCurrentTarget(target)) {
+				reviewAcceptAttempt = null;
+				reviewNote = '';
+			}
 			await refreshDocument(attempt.input.target);
 		} catch (cause) {
 			failClosedDocumentRead(client, cause, target.companyId, target.documentId);
@@ -494,6 +661,128 @@
 			}
 		} finally {
 			if (isCurrentTarget(target)) reviewBusy = false;
+		}
+	}
+
+	/* Sending the version back: the Work that asked resumes with the note, and the review leaves
+	 * the Inbox. It refreshes the document as accepting does, so the Inbox closes it the same way. */
+	async function requestChanges(): Promise<void> {
+		const feedback = reviewNote.trim();
+		if (!requestedReview || !feedback || !online || !canRequestChanges || reviewBusy) return;
+		const target = { companyId, documentId };
+		const input = {
+			target,
+			reviewId: requestedReview.id,
+			expectedDocumentVersion: view.document.version,
+			expectedReviewVersion: requestedReview.version,
+			feedback
+		};
+		const attempt = pendingDocumentMutation(
+			reviewChangesAttempt,
+			JSON.stringify(input),
+			() => input
+		);
+		reviewChangesAttempt = attempt;
+		reviewBusy = true;
+		reviewFailure = '';
+		reviewNotice = '';
+		let mutationSucceeded = false;
+		try {
+			const result = await requestDocumentReviewChanges(
+				attempt.input.target.companyId,
+				attempt.input.target.documentId,
+				attempt.input.reviewId,
+				attempt.input.expectedDocumentVersion,
+				attempt.input.expectedReviewVersion,
+				attempt.input.feedback,
+				attempt.command.id
+			);
+			mutationSucceeded = true;
+			reviews.acceptResolution(attempt.input.target, result);
+			if (isCurrentTarget(target)) {
+				reviewChangesAttempt = null;
+				reviewNote = '';
+				reviewNotice =
+					result.review.status === 'stale'
+						? 'A newer version replaced the one under review, so it went back to be checked again.'
+						: `Sent back to ${actorName(result.review.requested_by_actor_id)} with your note.`;
+			}
+			await refreshDocument(attempt.input.target);
+		} catch (cause) {
+			failClosedDocumentRead(client, cause, target.companyId, target.documentId);
+			if (!isCurrentTarget(target)) return;
+			if (mutationSucceeded) {
+				reviewNotice =
+					'Changes requested, but this view could not fully refresh. Reload to see the latest state.';
+			} else {
+				reviewFailure = failureSentence(cause, 'Changes were not requested.');
+				if (!isRetryableDocumentFailure(cause)) reviewChangesAttempt = null;
+			}
+		} finally {
+			if (isCurrentTarget(target)) reviewBusy = false;
+		}
+	}
+
+	/* A review nobody's Work is waiting on has nothing to send back to: the note goes to whoever
+	 * asked, as a comment that mentions them, and the review stays open for their next version. */
+	let reviewCommentAttempt = $state<PendingDocumentMutation<{
+		target: DocumentTarget;
+		contentJson: DocumentContent;
+	}> | null>(null);
+	async function commentChanges(): Promise<void> {
+		if (!reviewNote.trim() || !online || !canCommentChanges || reviewBusy) return;
+		reviewBusy = true;
+		reviewFailure = '';
+		reviewNotice = '';
+		try {
+			const name = await postReviewNote('Changes requested: ');
+			if (name)
+				reviewNotice = `Your note is in the comments for ${name}. The review stays open for their next version.`;
+		} finally {
+			reviewBusy = false;
+		}
+	}
+
+	/** Posts the review note as a comment to whoever asked; their name once it is saved. */
+	async function postReviewNote(prefix: string): Promise<string | null> {
+		const feedback = reviewNote.trim();
+		if (!requestedReview || !feedback) return null;
+		const target = { companyId, documentId };
+		const requester = requestedReview.requested_by_actor_id;
+		const name = actorName(requester);
+		const attempt = pendingDocumentMutation(
+			reviewCommentAttempt,
+			JSON.stringify({ target, requester, prefix, feedback }),
+			() => ({
+				target,
+				contentJson: commentContent(`@${name} ${prefix}${feedback}`, new Set([requester]), [
+					{ actor_id: requester, label: name }
+				])
+			})
+		);
+		reviewCommentAttempt = attempt;
+		try {
+			const created = await createDocumentCommentThread(
+				attempt.input.target.companyId,
+				attempt.input.target.documentId,
+				null,
+				attempt.input.contentJson,
+				attempt.command.id
+			);
+			threads.acceptCreated(attempt.input.target, created);
+			await client.invalidateQueries({
+				queryKey: documentQueryKeys.commentThreads(target.companyId, target.documentId)
+			});
+			if (!isCurrentTarget(target)) return null;
+			reviewCommentAttempt = null;
+			reviewNote = '';
+			return name;
+		} catch (cause) {
+			failClosedDocumentRead(client, cause, target.companyId, target.documentId);
+			if (!isCurrentTarget(target)) return null;
+			reviewFailure = failureSentence(cause, 'Your note was not posted.');
+			if (!isRetryableDocumentFailure(cause)) reviewCommentAttempt = null;
+			return null;
 		}
 	}
 
@@ -628,9 +917,9 @@
 	}
 
 	function proposalLabel(proposal: DocumentRevisionProposalSummary): string {
-		return proposal.scope === 'block' && proposal.block_id
-			? `Block ${proposal.block_id}`
-			: 'Whole document';
+		if (proposal.scope !== 'block' || !proposal.block_id) return 'Whole document';
+		const quote = blockQuote(proposal.block_id);
+		return quote ? `“${quote}”` : 'A block that has since moved';
 	}
 </script>
 
@@ -700,8 +989,12 @@
 			{/if}
 
 			{#if composingThread}
+				{@const quote = blockQuote(commentBlockId)}
 				<div class="comment-target">
-					<span>{commentBlockId ? 'Commenting on a block' : 'Commenting on the document'}</span>
+					<span
+						>{#if commentBlockId && quote}<q>{quote}</q>{:else if commentBlockId}Commenting on a
+							block{:else}Commenting on the document{/if}</span
+					>
 					<button
 						type="button"
 						aria-label="Cancel new comment"
@@ -718,6 +1011,8 @@
 			{#if !composingThread}
 				<div class="thread-index" aria-label="Comment threads">
 					{#each threads.threads as item (item.thread.id)}
+						{@const quote =
+							item.anchor_state === 'orphaned' ? null : blockQuote(item.thread.block_id)}
 						<button
 							type="button"
 							class:selected={selectedThreadId === item.thread.id}
@@ -730,7 +1025,10 @@
 						>
 							<span class="thread-state state-{item.thread.status}"></span>
 							<span>
-								<strong>{item.thread.block_id ? 'Block comment' : 'Document comment'}</strong>
+								<strong
+									>{#if item.thread.block_id && quote}<q>{quote}</q
+										>{:else if item.thread.block_id}Block comment{:else}Document comment{/if}</strong
+								>
 								<small
 									>{actorName(item.thread.created_by_actor_id)} · {shortDate(
 										item.thread.created_at
@@ -755,25 +1053,36 @@
 			{/if}
 
 			{#if !composingThread && selectedThread}
+				{@const blockId = selectedThread.thread.block_id}
+				{@const quote = selectedThread.anchor_state === 'orphaned' ? null : blockQuote(blockId)}
 				<div class="comment-thread">
 					<header>
 						<div>
 							<strong
-								>{selectedThread.thread.block_id
-									? `Block ${selectedThread.thread.block_id}`
-									: 'Whole document'}</strong
+								>{#if blockId && quote}<q>{quote}</q>{:else if blockId}A block that has since moved{:else}Whole
+									document{/if}</strong
 							>
 							<span>{statusLabel(selectedThread.thread.status)}</span>
 						</div>
-						{#if selectedThread.thread.status === 'open' && canComment}
-							<button
-								type="button"
-								class="flat-action"
-								disabled={!online || commentBusy}
-								onclick={() => void resolveThread()}
-								><Check size={14} strokeWidth={2} /> Resolve</button
-							>
-						{/if}
+						<div class="thread-actions">
+							{#if blockId && quote}
+								<button
+									type="button"
+									class="flat-action"
+									title="Scroll the document to this passage"
+									onclick={() => showBlock(blockId)}>Show</button
+								>
+							{/if}
+							{#if selectedThread.thread.status === 'open' && canComment}
+								<button
+									type="button"
+									class="flat-action"
+									disabled={!online || commentBusy}
+									onclick={() => void resolveThread()}
+									><Check size={14} strokeWidth={2} /> Resolve</button
+								>
+							{/if}
+						</div>
 					</header>
 					{#if threadMessages?.hasMore}
 						<button
@@ -811,13 +1120,47 @@
 			{#if canComment && (composingThread || (selectedThread && selectedThread.thread.status === 'open'))}
 				<form class="comment-composer" onsubmit={(event) => void submitComment(event)}>
 					<label for="document-comment">{composingThread ? 'Comment' : 'Reply'}</label>
-					<textarea
-						id="document-comment"
-						bind:value={commentText}
-						rows="3"
-						placeholder="Write a clear question or observation. Use @actor-id to mention someone."
-						disabled={!online || commentBusy}
-						oninput={() => (commentAttempt = null)}></textarea>
+					<div class="mention-field">
+						<textarea
+							id="document-comment"
+							bind:this={commentInput}
+							bind:value={commentText}
+							rows="3"
+							placeholder="Write a clear question or observation. Type @ to mention someone."
+							disabled={!online || commentBusy}
+							role="combobox"
+							aria-autocomplete="list"
+							aria-expanded={Boolean(mentionQuery && mentionOptions.length)}
+							aria-controls="document-comment-mentions"
+							aria-activedescendant={mentionQuery && mentionOptions.length
+								? `document-comment-mention-${mentionIndex}`
+								: undefined}
+							oninput={(event) => {
+								commentAttempt = null;
+								readMentionQuery(event.currentTarget);
+							}}
+							onkeydown={mentionKeys}
+							onblur={() => setTimeout(() => (mentionQuery = null), 120)}></textarea>
+						{#if mentionQuery && mentionOptions.length}
+							<ul class="mention-menu" id="document-comment-mentions" role="listbox">
+								{#each mentionOptions as person, index (person.actor_id)}
+									<li
+										id={`document-comment-mention-${index}`}
+										role="option"
+										aria-selected={index === mentionIndex}
+										class:active={index === mentionIndex}
+									>
+										<button
+											type="button"
+											tabindex="-1"
+											onmousedown={(event) => event.preventDefault()}
+											onclick={() => pickMention(person)}>{person.display}</button
+										>
+									</li>
+								{/each}
+							</ul>
+						{/if}
+					</div>
 					{#if commentFailure}<p class="inline-error" role="alert">{commentFailure}</p>{/if}
 					<button
 						type="submit"
@@ -867,13 +1210,49 @@
 								oninput={() => (reviewAcceptAttempt = null)}
 							/></label
 						>
-						<button
-							type="button"
-							class="btn primary"
-							disabled={!online || editing || reviewBusy || !reviewName.trim()}
-							onclick={() => void acceptReview()}
-							>{reviewBusy ? 'Accepting…' : 'Accept this version'}</button
-						>
+						{#if mayRequestChanges}
+							<label class="field"
+								><span
+									title={canRequestChanges
+										? `Goes back to ${actorName(requestedReview.requested_by_actor_id)} with your decision. Needed to request changes.`
+										: `Posted as a comment to ${actorName(requestedReview.requested_by_actor_id)} with your decision. Needed to request changes.`}
+									>Note</span
+								><textarea
+									bind:value={reviewNote}
+									rows="3"
+									maxlength="4000"
+									placeholder="What should change, or anything to carry forward"
+									disabled={!online || editing || reviewBusy}
+									oninput={() => {
+										reviewAcceptAttempt = null;
+										reviewChangesAttempt = null;
+										reviewCommentAttempt = null;
+									}}></textarea></label
+							>
+						{/if}
+						<div class="review-actions">
+							{#if mayRequestChanges}
+								<button
+									type="button"
+									class="btn"
+									title={!reviewNote.trim()
+										? 'Write what should change first'
+										: canRequestChanges
+											? 'Send this version back with your note'
+											: 'Post your note as a comment to whoever asked'}
+									disabled={!online || editing || reviewBusy || !reviewNote.trim()}
+									onclick={() => void (canRequestChanges ? requestChanges() : commentChanges())}
+									>Request changes</button
+								>
+							{/if}
+							<button
+								type="button"
+								class="btn primary"
+								disabled={!online || editing || reviewBusy || !reviewName.trim()}
+								onclick={() => void acceptReview()}
+								>{reviewBusy ? 'Saving…' : 'Accept this version'}</button
+							>
+						</div>
 					{/if}
 				</section>
 			{:else if canJudge}
@@ -1322,6 +1701,69 @@
 	.comment-composer .btn,
 	.review-request .btn {
 		justify-self: end;
+	}
+	/* A quoted passage reads as the passage: the document's own type, quieter. */
+	q {
+		display: -webkit-box;
+		overflow: hidden;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		font-weight: 500;
+		font-style: italic;
+		quotes: '“' '”';
+	}
+	.thread-index q {
+		-webkit-line-clamp: 1;
+		line-clamp: 1;
+	}
+	.thread-actions {
+		display: flex;
+		flex: none;
+		gap: 6px;
+	}
+	.mention-field {
+		position: relative;
+	}
+	.mention-menu {
+		position: absolute;
+		bottom: calc(100% + 4px);
+		left: 0;
+		z-index: 4;
+		min-width: 200px;
+		max-width: 100%;
+		margin: 0;
+		padding: 4px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-control);
+		background: var(--surface-raised);
+		box-shadow: 0 8px 24px #15243b20;
+		list-style: none;
+	}
+	.mention-menu button {
+		display: block;
+		width: 100%;
+		padding: 7px 9px;
+		border: 0;
+		border-radius: var(--radius-control);
+		background: transparent;
+		color: var(--ink);
+		font: var(--t-body) var(--font-ui);
+		text-align: left;
+		cursor: pointer;
+	}
+	.mention-menu li.active button,
+	.mention-menu button:hover {
+		background: var(--surface-alt);
+	}
+	.review-actions {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+		gap: var(--space-2);
+	}
+	.review-request .review-actions .btn {
+		justify-self: auto;
 	}
 	.inline-error {
 		margin: 0;

@@ -8,9 +8,16 @@
 	import { documentQuery, documentVersionQuery } from '$lib/model/document-queries.svelte';
 	import { collaborationBootstrapQuery, companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import { sameDocumentTarget, type DocumentTarget } from '$lib/model/document-cache';
-	import { resolveDocumentCollaboration, type DocumentReadView } from '$lib/model/documents';
+	import {
+		documentFileName,
+		documentMarkdownDownload,
+		getDocument,
+		resolveDocumentCollaboration,
+		type DocumentReadView
+	} from '$lib/model/documents';
 	import type { NativeDocumentAttention } from '$lib/model/view';
 	import { resizePane } from '$lib/actions/resize-pane';
+	import './document-print.css';
 
 	let {
 		companyId,
@@ -57,6 +64,32 @@
 		if (!sameDocumentTarget(target, companyId, request.document_id)) return;
 		detail.accept(target, view);
 		onresolved();
+	}
+	/* What is on screen is what downloads: the version under review, or the latest saved one. */
+	async function downloadMarkdown() {
+		const target = { companyId, documentId: request.document_id };
+		try {
+			const reviewing = request.kind === 'review' && !editLive && requestedVersion.version;
+			const latest = reviewing ? null : await getDocument(target.companyId, target.documentId);
+			if (latest && sameDocumentTarget(target, companyId, request.document_id))
+				detail.accept(target, latest);
+			const title = (latest ?? detail.view)?.document.title ?? request.title;
+			const markdown = reviewing
+				? (requestedVersion.version?.markdown ?? '')
+				: (latest?.current_version.markdown ?? '');
+			const url = URL.createObjectURL(
+				new Blob([documentMarkdownDownload(title, markdown)], {
+					type: 'text/markdown;charset=utf-8'
+				})
+			);
+			const link = window.document.createElement('a');
+			link.href = url;
+			link.download = documentFileName(title, 'md');
+			link.click();
+			setTimeout(() => URL.revokeObjectURL(url), 1_000);
+		} catch (error) {
+			failure = failureSentence(error, 'The document could not be downloaded.');
+		}
 	}
 	async function done() {
 		if (busy || !online || !detail.view || !readyToLeave) return;
@@ -106,6 +139,10 @@
 			href={`/${encodeURIComponent(companyId)}/library/documents?document=${encodeURIComponent(request.document_id)}`}
 			>Open in Documents</a
 		>
+		<button type="button" onclick={() => void downloadMarkdown()}>Download as Markdown</button>
+		<button type="button" onclick={() => requestAnimationFrame(() => window.print())}
+			>Print or save as PDF</button
+		>
 		{#if request.kind === 'review'}
 			<button
 				type="button"
@@ -145,9 +182,12 @@
 		>
 			<div class="document-body">
 				{#if request.kind === 'review' && !editLive}
-					<article class="requested-version" aria-label="Requested document version">
+					<article class="requested-version document-print" aria-label="Requested document version">
+						<h1 class="print-title">{detail.view?.document.title ?? request.title}</h1>
 						{#if requestedVersion.version}
-							<h2>Version {requestedVersion.version.version.version_number} under review</h2>
+							<h2 class="print-hide">
+								Version {requestedVersion.version.version.version_number} under review
+							</h2>
 							<Markdown text={requestedVersion.version.markdown} />
 						{:else}<p>
 								{requestedVersion.failure
@@ -167,6 +207,8 @@
 								: undefined}
 						view={detail.view}
 						principalActorId={shell.view?.actor_id ?? ''}
+						mayRename={shell.view?.membership_role === 'owner' ||
+							detail.view.document.owner_actor_id === shell.view?.actor_id}
 						{online}
 						onaccept={accept}
 						onleavechange={(value) => (readyToLeave = value)}
@@ -188,6 +230,7 @@
 						ondismiss={() => (inspectorOpen = false)}
 						requestedReviewId={request.kind === 'review' ? request.id : ''}
 						people={collaboration.view?.people ?? []}
+						viewerActorId={shell.view?.actor_id ?? ''}
 						{online}
 						editing={dirty}
 						{commentBlockId}
@@ -297,6 +340,9 @@
 	}
 	.requested-version h2 {
 		font-size: var(--t-head);
+	}
+	.print-title {
+		display: none;
 	}
 	.document-unavailable {
 		padding: 24px;

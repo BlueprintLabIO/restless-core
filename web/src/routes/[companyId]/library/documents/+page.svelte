@@ -9,13 +9,27 @@
 	import BookOpen from '@lucide/svelte/icons/book-open';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
 	import DocumentEditor from '$lib/components/DocumentEditor.svelte';
+	import DocumentShare from '$lib/components/DocumentShare.svelte';
 	import LibraryCrumb from '$lib/components/LibraryCrumb.svelte';
 	import DocumentInspector, {
+		revealDocumentBlock,
 		type DocumentInspectorPanel
 	} from '$lib/components/DocumentInspector.svelte';
+	import { tick } from 'svelte';
+	import { Notice } from '$lib/ui/page';
+	import { askExec } from '$lib/model/ask-exec';
+	import { failureSentence } from '$lib/model/failure';
 	import { documentQuery } from '$lib/model/document-queries.svelte';
 	import { sameDocumentTarget, type DocumentTarget } from '$lib/model/document-cache';
-	import type { DocumentReadView } from '$lib/model/documents';
+	import {
+		documentFileName,
+		documentMarkdownDownload,
+		getDocument,
+		getDocumentParticipants,
+		setDocumentArchived,
+		setDocumentParticipant,
+		type DocumentReadView
+	} from '$lib/model/documents';
 	import {
 		collaborationBootstrapQuery,
 		companyPrincipalQuery,
@@ -42,6 +56,119 @@
 	let commentBlockId = $state<string | null>(null);
 	let documentDirty = $state(false);
 	const failure = $derived(shellPrincipal.failure ?? detail.failure ?? null);
+	const principalId = $derived(shellPrincipal.view?.actor_id ?? '');
+	const people = $derived((ownerAccess ? cockpit.view?.people : collaboration.view?.people) ?? []);
+	/* Sharing belongs to the document's owner; the company's owner may retitle, archive and
+	 * restore anything they can read (the body stays its writer's). */
+	const ownsDocument = $derived(
+		Boolean(documentView && principalId && documentView.document.owner_actor_id === principalId)
+	);
+	const sharing = $derived(inspectorValue === 'share' && ownsDocument);
+	const mayRename = $derived(ownerAccess || ownsDocument);
+	const mayArchive = $derived(ownerAccess || documentView?.access === 'edit');
+	const archived = $derived(documentView?.document.status === 'archived');
+
+	/* One quiet line at the foot of the page answers a menu action, then goes. */
+	let notice = $state('');
+	let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+	function say(message: string): void {
+		notice = message;
+		clearTimeout(noticeTimer);
+		noticeTimer = setTimeout(() => (notice = ''), 2_600);
+	}
+	$effect(() => () => clearTimeout(noticeTimer));
+
+	function currentTarget(): DocumentTarget {
+		return { companyId, documentId };
+	}
+
+	async function copyLink(): Promise<void> {
+		try {
+			await navigator.clipboard.writeText(
+				new URL(
+					`/${encodeURIComponent(companyId)}/library/documents?document=${encodeURIComponent(documentId)}`,
+					location.origin
+				).href
+			);
+			say('Link copied');
+		} catch {
+			say('Could not copy the link');
+		}
+	}
+
+	/* The latest saved version, read fresh: edits save as versions within seconds of a pause. */
+	async function downloadMarkdown(): Promise<void> {
+		const target = currentTarget();
+		try {
+			const latest = await getDocument(target.companyId, target.documentId);
+			if (sameDocumentTarget(target, companyId, documentId)) detail.accept(target, latest);
+			const url = URL.createObjectURL(
+				new Blob(
+					[documentMarkdownDownload(latest.document.title, latest.current_version.markdown)],
+					{ type: 'text/markdown;charset=utf-8' }
+				)
+			);
+			const link = window.document.createElement('a');
+			link.href = url;
+			link.download = documentFileName(latest.document.title, 'md');
+			link.click();
+			setTimeout(() => URL.revokeObjectURL(url), 1_000);
+		} catch (cause) {
+			say(failureSentence(cause, 'The document could not be downloaded.'));
+		}
+	}
+
+	function printDocument(): void {
+		/* Let the menu close first, so the page prints as it reads. */
+		requestAnimationFrame(() => window.print());
+	}
+
+	async function setArchived(next: boolean): Promise<void> {
+		const target = currentTarget();
+		try {
+			await setDocumentArchived(target.companyId, target.documentId, next);
+			const latest = await getDocument(target.companyId, target.documentId);
+			if (sameDocumentTarget(target, companyId, documentId)) detail.accept(target, latest);
+			say(next ? 'Archived' : 'Restored to the Library');
+		} catch (cause) {
+			say(failureSentence(cause, next ? 'It was not archived.' : 'It was not restored.'));
+		}
+	}
+
+	/* Talking a document through with Exec happens beside it, in the Exec rail, with the document
+	 * linked to the message. Exec sees a document only once it is shared with it, so a document
+	 * of the owner's own is shared with Exec to comment on first, and the owner is told. */
+	async function discuss(): Promise<void> {
+		const view = documentView;
+		const exec = people.find((person) => person.kind === 'exec');
+		const target = currentTarget();
+		if (view && exec && ownsDocument) {
+			try {
+				const listed = await getDocumentParticipants(target.companyId, target.documentId);
+				if (!listed.items.some((row) => row.actor_id === exec.actor_id)) {
+					await setDocumentParticipant(
+						target.companyId,
+						target.documentId,
+						exec.actor_id,
+						view.document.version,
+						'comment',
+						crypto.randomUUID()
+					);
+					const latest = await getDocument(target.companyId, target.documentId);
+					if (sameDocumentTarget(target, companyId, documentId)) detail.accept(target, latest);
+					say(`${exec.display} can now read and comment on this document`);
+				}
+			} catch (cause) {
+				say(failureSentence(cause, `${exec.display} could not be given access to this document.`));
+			}
+		}
+		/* The draft carries the document as the composer's own @ reference does. */
+		askExec(
+			view
+				? `[${view.document.title.replace(/[[\]]/gu, '')}](/${encodeURIComponent(target.companyId)}/library/documents?document=${encodeURIComponent(target.documentId)}) `
+				: undefined
+		);
+	}
 
 	/* Documents are found in the Library; this address without one goes there. */
 	$effect(() => {
@@ -53,8 +180,16 @@
 		const search = new URLSearchParams({ document: documentId, ...query });
 		return `/${encodeURIComponent(companyId)}/library/documents?${search}`;
 	}
-	function changePanel(panel: DocumentInspectorPanel): void {
+	function changePanel(panel: DocumentInspectorPanel | 'share'): void {
 		void goto(documentHref({ inspect: panel }), { keepFocus: true, noScroll: true });
+	}
+	/* Below the width that fits both, the discussion covers the document; close it first. */
+	async function showBlock(blockId: string): Promise<void> {
+		if (window.matchMedia('(max-width: 1180px)').matches) {
+			await goto(documentHref(), { keepFocus: true, noScroll: true });
+			await tick();
+		}
+		revealDocumentBlock(blockId);
 	}
 	function closeInspector(): void {
 		void goto(documentHref(), { keepFocus: true, noScroll: true });
@@ -99,36 +234,100 @@
 						? null
 						: undefined}
 				view={documentView}
-				principalActorId={shellPrincipal.view?.actor_id ?? ''}
+				principalActorId={principalId}
 				nameOf={(actorId) =>
-					(ownerAccess ? cockpit.view?.people : collaboration.view?.people)?.find(
-						(person) => person.actor_id === actorId
-					)?.display ?? 'Someone'}
+					people.find((person) => person.actor_id === actorId)?.display ?? 'Someone'}
 				{online}
+				{mayRename}
 				onaccept={acceptDocument}
 				oncomment={openBlockComment}
 				ondirtychange={(value) => (documentDirty = value)}
 			>
 				{#snippet leading()}<LibraryCrumb {companyId} show="docs" />{/snippet}
 				{#snippet actions()}
-					<a
-						class="btn small discuss"
-						href={`/${encodeURIComponent(companyId)}/people?${documentView.document.linked_room_id ? `room=${encodeURIComponent(documentView.document.linked_room_id)}` : 'person=exec'}&document=${encodeURIComponent(documentView.document.id)}`}
-						title="Talk it through with Exec, with this document alongside">Discuss</a
-					>
+					{#if ownerAccess && !documentView.document.linked_room_id}
+						<button
+							type="button"
+							class="btn small discuss"
+							title={ownsDocument
+								? 'Talk it through with Exec beside this document. Exec can then read and comment on it.'
+								: 'Talk it through with Exec beside this document'}
+							onclick={() => void discuss()}>Discuss</button
+						>
+					{:else}
+						<a
+							class="btn small discuss"
+							href={`/${encodeURIComponent(companyId)}/people?${documentView.document.linked_room_id ? `room=${encodeURIComponent(documentView.document.linked_room_id)}` : 'person=exec'}&document=${encodeURIComponent(documentView.document.id)}`}
+							title="Talk it through with Exec, with this document alongside">Discuss</a
+						>
+					{/if}
+					{#if ownsDocument}
+						<button
+							type="button"
+							class="btn small share"
+							class:active={sharing}
+							aria-expanded={sharing}
+							title="Choose who can read, comment on or edit it, Exec and Staff included"
+							onclick={() => (sharing ? closeInspector() : changePanel('share'))}>Share</button
+						>
+					{/if}
 					<button
 						type="button"
 						class="btn small icon"
 						aria-label="Comments and history"
 						title="Comments and history"
-						aria-expanded={inspectorOpen}
-						onclick={() => (inspectorOpen ? closeInspector() : changePanel('comments'))}
+						aria-expanded={inspectorOpen && !sharing}
+						onclick={() => (inspectorOpen && !sharing ? closeInspector() : changePanel('comments'))}
 					>
 						<MessageSquare size={15} aria-hidden="true" />
 					</button>
 				{/snippet}
 				{#snippet moreActions()}
+					<button
+						type="button"
+						title="The latest saved version, as a Markdown file"
+						onclick={() => void downloadMarkdown()}>Download as Markdown</button
+					>
+					<button type="button" onclick={printDocument}>Print or save as PDF</button>
+					<button type="button" onclick={() => void copyLink()}>Copy link</button>
+					{#if ownerAccess && !documentView.document.linked_room_id}
+						<button type="button" class="narrow-only" onclick={() => void discuss()}
+							>Discuss with Exec</button
+						>
+					{/if}
+					{#if ownsDocument}
+						<button type="button" class="narrow-only" onclick={() => changePanel('share')}
+							>Share…</button
+						>
+					{/if}
 					<button type="button" onclick={() => changePanel('review')}>Request review…</button>
+					{#if mayArchive}
+						<button
+							type="button"
+							title={archived
+								? 'Return it to the Library as a draft'
+								: 'Take it out of the Library lists; restore it any time'}
+							onclick={() => void setArchived(!archived)}>{archived ? 'Restore' : 'Archive'}</button
+						>
+					{/if}
+				{/snippet}
+				{#snippet banner()}
+					{#if archived}
+						<div class="document-banner">
+							<Notice title="Archived">
+								{#snippet actions()}
+									{#if mayArchive}
+										<button
+											type="button"
+											class="btn small"
+											title="Return it to the Library as a draft"
+											onclick={() => void setArchived(false)}>Restore</button
+										>
+									{/if}
+								{/snippet}
+							</Notice>
+						</div>
+					{/if}
 				{/snippet}
 			</DocumentEditor>
 		{:else if documentId && detail.status === 'unknown'}
@@ -163,30 +362,69 @@
 				>
 				<strong>{documentView.document.title}</strong>
 			</header>
-			<DocumentInspector
-				{companyId}
-				view={documentView}
-				panel={inspectorPanel}
-				people={ownerAccess ? (cockpit.view?.people ?? []) : (collaboration.view?.people ?? [])}
-				{online}
-				editing={documentDirty}
-				{commentBlockId}
-				ondismiss={closeInspector}
-				onpanelchange={changePanel}
-				oncommenttargetchange={(value: string | null) => (commentBlockId = value)}
-				onaccept={acceptDocument}
-			/>
+			{#if sharing}
+				<DocumentShare
+					{companyId}
+					view={documentView}
+					{people}
+					onchanged={acceptDocument}
+					onclose={closeInspector}
+				/>
+			{:else}
+				<DocumentInspector
+					{companyId}
+					view={documentView}
+					panel={inspectorPanel}
+					{people}
+					viewerActorId={principalId}
+					{online}
+					editing={documentDirty}
+					{commentBlockId}
+					ondismiss={closeInspector}
+					onpanelchange={changePanel}
+					oncommenttargetchange={(value: string | null) => (commentBlockId = value)}
+					onaccept={acceptDocument}
+					onshowblock={showBlock}
+				/>
+			{/if}
 		</section>
 	{/if}
+	{#if notice}<p class="page-notice" role="status">{notice}</p>{/if}
 </div>
 
 <style>
 	.documents-screen {
+		position: relative;
 		display: grid;
 		grid-template-columns: minmax(0, 1fr);
 		gap: var(--pane-gap);
 		width: 100%;
 		min-height: 0;
+	}
+	.btn.active {
+		background: var(--surface-hover);
+	}
+	:global(.document-actions) .narrow-only {
+		display: none;
+	}
+	.document-banner {
+		padding: 10px var(--space-4) 0;
+	}
+	.page-notice {
+		position: absolute;
+		bottom: 18px;
+		left: 50%;
+		z-index: 5;
+		max-width: min(420px, calc(100% - 32px));
+		margin: 0;
+		padding: 7px 14px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-lg);
+		background: var(--surface-raised);
+		box-shadow: var(--shadow-soft);
+		color: var(--ink);
+		transform: translateX(-50%);
+		animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
 	}
 	.documents-screen.inspector-open {
 		grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
@@ -304,8 +542,12 @@
 		}
 	}
 	@media (max-width: 560px) {
-		.discuss {
+		.discuss,
+		.share {
 			display: none;
+		}
+		:global(.document-actions) .narrow-only {
+			display: block;
 		}
 	}
 </style>

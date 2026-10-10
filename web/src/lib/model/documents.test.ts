@@ -233,13 +233,33 @@ test('comments only create mention nodes for known, exact actor ids', () => {
 	const inline = output.content[0]?.content ?? [];
 	assert.deepEqual(inline[1], {
 		type: 'mention',
-		attrs: { actor_id: 'lead-one', label: '@lead-one' }
+		attrs: { actor_id: 'lead-one', label: 'lead-one' }
 	});
 	assert.equal(
 		inline.some((node) => node.type === 'mention' && node.attrs?.actor_id === 'unknown'),
 		false
 	);
 	assert.equal(documentText(output), 'Please ask  and leave @unknown as text.');
+});
+
+test('people picked by name become mentions of their actor, never of a look-alike name', () => {
+	const output = commentContent(
+		'@Ann Lee and @Ann, not @Annabel or @Bo Diaz.',
+		new Set(['human-ann-lee', 'human-ann']),
+		[
+			{ actor_id: 'human-ann', label: 'Ann' },
+			{ actor_id: 'human-ann-lee', label: 'Ann Lee' },
+			{ actor_id: 'human-bo', label: 'Bo Diaz' }
+		]
+	);
+	const mentions = (output.content[0]?.content ?? []).filter((node) => node.type === 'mention');
+	assert.deepEqual(
+		mentions.map((node) => node.attrs),
+		[
+			{ actor_id: 'human-ann-lee', label: 'Ann Lee' },
+			{ actor_id: 'human-ann', label: 'Ann' }
+		]
+	);
 });
 
 test('HTTP 409 responses are surfaced as explicit document conflicts', async () => {

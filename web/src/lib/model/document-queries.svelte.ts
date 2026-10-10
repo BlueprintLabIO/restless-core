@@ -474,6 +474,14 @@ export function documentReviewsQuery(companyId: QueryId, documentId: QueryId) {
 				? uniqueById(data.pages.flatMap((page) => page.items).map((item) => item.review))
 				: [];
 		},
+		/** The Work a review is bound to, if any: only that review can be sent back for changes. */
+		dependencyOf(reviewId: string) {
+			const data = readableData(query);
+			return (
+				data?.pages.flatMap((page) => page.items).find((item) => item.review.id === reviewId)
+					?.work_dependency ?? null
+			);
+		},
 		get status() {
 			return sourceStatus(query);
 		},

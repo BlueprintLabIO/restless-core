@@ -14,7 +14,7 @@ export type DocumentVisibility = 'company' | 'participants';
 export type DocumentAccess = 'read' | 'comment' | 'edit';
 export type DocumentCommentStatus = 'open' | 'resolved';
 export type DocumentCommentAnchorState = 'document' | 'active' | 'orphaned';
-export type DocumentReviewStatus = 'requested' | 'accepted' | 'stale';
+export type DocumentReviewStatus = 'requested' | 'accepted' | 'changes_requested' | 'stale';
 export type DocumentRevisionScope = 'whole_document' | 'block';
 export type DocumentRevisionStatus = 'proposed' | 'accepted' | 'rejected' | 'stale';
 
@@ -638,7 +638,8 @@ export function acceptDocumentReview(
 	expectedDocumentVersion: number,
 	expectedReviewVersion: number,
 	acceptedVersionName: string,
-	commandId: string
+	commandId: string,
+	feedback = ''
 ): Promise<DocumentReviewResolution> {
 	return documentJson(
 		`${documentsPath(company, document)}/reviews/${encodeURIComponent(review)}/accept`,
@@ -646,11 +647,48 @@ export function acceptDocumentReview(
 			{
 				expected_document_version: expectedDocumentVersion,
 				expected_review_version: expectedReviewVersion,
-				accepted_version_name: acceptedVersionName
+				accepted_version_name: acceptedVersionName,
+				...(feedback.trim() ? { feedback: feedback.trim() } : {})
 			},
 			commandId
 		)
 	);
+}
+
+/** Send a Work-bound review back to the Work that asked for it, with what should change. */
+export function requestDocumentReviewChanges(
+	company: string,
+	document: string,
+	review: string,
+	expectedDocumentVersion: number,
+	expectedReviewVersion: number,
+	feedback: string,
+	commandId: string
+): Promise<DocumentReviewResolution> {
+	return documentJson(
+		`${documentsPath(company, document)}/reviews/${encodeURIComponent(review)}/request-changes`,
+		mutation(
+			{
+				expected_document_version: expectedDocumentVersion,
+				expected_review_version: expectedReviewVersion,
+				feedback
+			},
+			commandId
+		)
+	);
+}
+
+/** Archive a document out of the Library, or restore it (as a draft). */
+export function setDocumentArchived(
+	company: string,
+	document: string,
+	archived: boolean
+): Promise<{ document: string; archived: boolean }> {
+	return documentJson(`${documentsPath(company, document)}/archive`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ archived })
+	});
 }
 
 export function getDocumentRevisionProposals(
@@ -920,14 +958,45 @@ export function emptyDocument(): DocumentContent {
 	return editorContent([newEditableBlock('paragraph')]);
 }
 
-export function commentContent(text: string, knownActorIds: ReadonlySet<string>): DocumentContent {
+/** Someone picked from the mention menu: shown in the text as `@label`. */
+export interface CommentMention {
+	actor_id: string;
+	label: string;
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
+export function commentContent(
+	text: string,
+	knownActorIds: ReadonlySet<string>,
+	mentions: readonly CommentMention[] = []
+): DocumentContent {
 	const content: DocumentNode[] = [];
-	const pieces = text.split(/(@[A-Za-z0-9_.:-]+)/gu);
+	/* People picked by name first (longest name first, so "@Ann Lee" wins over "@Ann"), then any
+	 * `@actor-id` typed by hand. The label is the name alone; the `@` is how it is shown. */
+	const picked = mentions
+		.filter((mention) => mention.label.trim() && knownActorIds.has(mention.actor_id))
+		.toSorted((left, right) => right.label.length - left.label.length);
+	const byLabel = new Map(picked.map((mention) => [`@${mention.label}`, mention]));
+	const pattern = new RegExp(
+		[
+			...picked.map((mention) => `${escapeRegExp(`@${mention.label}`)}(?![\\p{L}\\p{N}])`),
+			'@[A-Za-z0-9_.:-]+'
+		].join('|'),
+		'gu'
+	);
+	const pieces = text.split(new RegExp(`(${pattern.source})`, 'gu'));
 	for (const piece of pieces) {
 		if (!piece) continue;
-		const actorId = piece.startsWith('@') ? piece.slice(1) : '';
+		const named = byLabel.get(piece);
+		const actorId = named?.actor_id ?? (piece.startsWith('@') ? piece.slice(1) : '');
 		if (actorId && knownActorIds.has(actorId)) {
-			content.push({ type: 'mention', attrs: { actor_id: actorId, label: piece } });
+			content.push({
+				type: 'mention',
+				attrs: { actor_id: actorId, label: named?.label ?? actorId }
+			});
 		} else {
 			content.push({ type: 'text', text: piece });
 		}
@@ -1006,6 +1075,50 @@ export function isRetryableDocumentFailure(error: unknown): boolean {
 			: undefined;
 	if (typeof status !== 'number') return true;
 	return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+/** The text of one block in a saved version, for quoting what a comment is about. */
+export function documentBlockText(
+	content: DocumentNode | null | undefined,
+	blockId: string
+): string | null {
+	if (!content || !blockId) return null;
+	if (content.attrs?.block_id === blockId) return documentText(content);
+	for (const child of content.content ?? []) {
+		const found = documentBlockText(child, blockId);
+		if (found !== null) return found;
+	}
+	return null;
+}
+
+/** A short, single-line quotation of a block's text. */
+export function quoteExcerpt(text: string, maximum = 90): string {
+	const line = text.replace(/\s+/gu, ' ').trim();
+	return line.length > maximum ? `${line.slice(0, maximum - 1).trimEnd()}…` : line;
+}
+
+/** A file name a document can be saved under on any system. */
+export function documentFileName(title: string, extension: string): string {
+	const base = title
+		.normalize('NFKC')
+		.replace(/[\\/:*?"<>|\p{Cc}]+/gu, ' ')
+		.replace(/\s+/gu, ' ')
+		.replace(/^[.\s]+|[.\s]+$/gu, '')
+		.slice(0, 120)
+		.trim();
+	return `${base || 'Document'}.${extension}`;
+}
+
+/** The Markdown a person downloads: the title as its heading, then the saved body. */
+export function documentMarkdownDownload(title: string, markdown: string): string {
+	const body = markdown.replace(/^\s+/u, '');
+	const heading = title.trim();
+	const first = body
+		.split('\n', 1)[0]
+		?.replace(/^#+\s*/u, '')
+		.trim();
+	if (!heading || (body.startsWith('#') && first === heading)) return `${body.trimEnd()}\n`;
+	return `# ${heading}\n\n${body.trimEnd()}\n`;
 }
 
 export function resolveDocumentCollaboration(
