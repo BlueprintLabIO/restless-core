@@ -1556,6 +1556,7 @@ impl OrgIntel {
 
     /// Owner changes share the scheduler's row lock. A stale screen cannot
     /// overwrite a newer firing; resuming never replays the paused backlog.
+    /// `local_time` moves a weekday schedule to a new time in its own zone.
     pub async fn update_recurring_schedule(
         &self,
         schedule_id: Uuid,
@@ -1563,6 +1564,7 @@ impl OrgIntel {
         expected_paused: bool,
         paused: bool,
         interval_seconds: Option<i32>,
+        local_time: Option<NaiveTime>,
     ) -> Result<Option<ScheduleRow>> {
         let mut tx = self.pool.begin().await?;
         let Some(row) = sqlx::query_as::<_, ScheduleRow>(&format!(
@@ -1585,10 +1587,27 @@ impl OrgIntel {
                 return Err(OrgIntelError::InvalidWork("Choose a cadence between five minutes and thirty days for an interval schedule".into()));
             }
         }
+        if local_time.is_some()
+            && (interval_seconds.is_some() || row.recurrence.as_deref() != Some("weekdays"))
+        {
+            return Err(OrgIntelError::InvalidWork(
+                "Only a weekday schedule runs at a time of day".into(),
+            ));
+        }
         let now = Utc::now();
         let interval = interval_seconds.or(row.interval_seconds);
+        let retimed = local_time;
+        let local_time = local_time.or(row.local_time);
         let fire_at = if interval_seconds.is_some() {
             now + chrono::Duration::seconds(i64::from(interval.expect("validated interval")))
+        } else if let Some(time) = retimed {
+            next_weekday_fire(
+                now,
+                time,
+                row.timezone
+                    .as_deref()
+                    .ok_or_else(|| OrgIntelError::InvalidWork("Missing timezone".into()))?,
+            )?
         } else if !paused && row.paused_at.is_some() && row.fire_at <= now {
             match row.recurrence.as_deref() {
                 Some("interval") => next_interval_fire(row.fire_at, now, interval)?,
@@ -1611,8 +1630,8 @@ impl OrgIntel {
         };
         let updated = sqlx::query_as::<_, ScheduleRow>(&format!(
             "UPDATE schedules SET paused_at=CASE WHEN $2 THEN COALESCE(paused_at,now()) ELSE NULL END, \
-             interval_seconds=$3, fire_at=$4 WHERE id=$1 RETURNING {SCHEDULE_COLUMNS}"
-        )).bind(schedule_id).bind(paused).bind(interval).bind(fire_at).fetch_one(&mut *tx).await?;
+             interval_seconds=$3, fire_at=$4, local_time=$5 WHERE id=$1 RETURNING {SCHEDULE_COLUMNS}"
+        )).bind(schedule_id).bind(paused).bind(interval).bind(fire_at).bind(local_time).fetch_one(&mut *tx).await?;
         tx.commit().await?;
         Ok(Some(updated))
     }

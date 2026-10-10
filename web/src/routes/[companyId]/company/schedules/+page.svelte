@@ -11,6 +11,9 @@
 		monitorSchedules,
 		testScheduleTrigger,
 		addLoop,
+		addWeekdaySchedule,
+		browserTimeZone,
+		cancelLoop,
 		updateSchedule,
 		type MonitoredSchedule,
 		type ScheduleTestReport
@@ -31,10 +34,15 @@
 	let report = $state<ScheduleTestReport | null>(null);
 	let creating = $state(false),
 		every = $state('1h'),
+		atLocal = $state('09:00'),
 		prompt = $state('');
 	let open = $state('');
 	let editing = $state(''),
-		editEvery = $state('');
+		editEvery = $state(''),
+		editTime = $state('');
+	/* A weekday schedule runs in the zone of the browser that made it. */
+	const timeZone = browserTimeZone();
+	const weekdays = (item: MonitoredSchedule) => item.schedule.recurrence === 'weekdays';
 	async function act(key: string, operation: () => Promise<unknown>, message: string) {
 		if (busy) return;
 		busy = key;
@@ -55,7 +63,8 @@
 		await act(
 			'create',
 			async () => {
-				await addLoop(companyId, every, prompt);
+				if (every === 'weekdays') await addWeekdaySchedule(companyId, atLocal, timeZone, prompt);
+				else await addLoop(companyId, every, prompt);
 				creating = false;
 				prompt = '';
 			},
@@ -64,14 +73,21 @@
 	}
 	async function cadence(event: SubmitEvent, item: MonitoredSchedule) {
 		event.preventDefault();
+		const paused = !!item.schedule.paused_at;
 		await act(
 			item.schedule.id,
 			async () => {
-				await updateSchedule(companyId, item.schedule, !!item.schedule.paused_at, editEvery);
+				if (weekdays(item))
+					await updateSchedule(companyId, item.schedule, paused, undefined, editTime);
+				else await updateSchedule(companyId, item.schedule, paused, editEvery);
 				editing = '';
 			},
-			'Cadence saved'
+			weekdays(item) ? 'Time saved' : 'Cadence saved'
 		);
+	}
+	function remove(item: MonitoredSchedule) {
+		if (!window.confirm(`Delete “${item.schedule.reason}”? Exec will stop running it.`)) return;
+		void act(item.schedule.id, () => cancelLoop(companyId, item.schedule.id), 'Schedule deleted');
 	}
 	function outcomeText(outcome: unknown, reason: string | null): string {
 		const reasons: Record<string, string> = {
@@ -160,12 +176,23 @@
 						required
 						maxlength="2000"></textarea>
 				</Row>
-				<Row label="Repeat every">
-					<select bind:value={every} aria-label="Repeat every"
-						><option value="30m">30 minutes</option><option value="1h">Hour</option><option
-							value="4h">4 hours</option
-						><option value="1d">Day</option><option value="7d">Week</option></select
+				<Row
+					label="Repeat"
+					info={`An interval counts from when the schedule is made. A weekday time runs Monday to Friday in your time zone (${timeZone}); a run missed by more than two hours is skipped.`}
+				>
+					<select bind:value={every} aria-label="Repeat"
+						><option value="30m">Every 30 minutes</option><option value="1h">Every hour</option
+						><option value="4h">Every 4 hours</option><option value="1d">Every day</option><option
+							value="7d">Every week</option
+						><option value="weekdays">Every weekday at…</option></select
 					>
+					{#if every === 'weekdays'}<input
+							type="time"
+							bind:value={atLocal}
+							aria-label="Time of day"
+							title={`In your time zone, ${timeZone}`}
+							required
+						/>{/if}
 				</Row>
 				<div class="form-bar">
 					<button class="btn primary small" disabled={!!busy}
@@ -231,6 +258,12 @@
 										editing = item.schedule.id;
 										editEvery = `${(item.schedule.interval_seconds ?? 3600) / 60}m`;
 									}}>Change cadence</button
+								>{:else if weekdays(item) && item.schedule.local_time}<button
+									onclick={() => {
+										open = item.schedule.id;
+										editing = item.schedule.id;
+										editTime = item.schedule.local_time?.slice(0, 5) ?? '09:00';
+									}}>Change time</button
 								>{/if}
 							<button
 								disabled={!item.testable || !!busy}
@@ -247,6 +280,7 @@
 									)}>Test trigger</button
 							>
 							<a href={`/${companyId}/people?person=exec&view=people`}>Discuss with Exec</a>
+							<button disabled={!!busy} onclick={() => remove(item)}>Delete schedule</button>
 						</ActionMenu>
 					{/snippet}
 					{#if open === item.schedule.id}
@@ -266,13 +300,24 @@
 							{/if}
 							{#if editing === item.schedule.id}
 								<form class="cadence" onsubmit={(event) => cadence(event, item)}>
-									<label for={`cadence-${item.schedule.id}`}>Repeat every</label>
-									<input
-										id={`cadence-${item.schedule.id}`}
-										bind:value={editEvery}
-										required
-										placeholder="30m, 2h or 1d"
-									/>
+									{#if weekdays(item)}
+										<label for={`cadence-${item.schedule.id}`}>Every weekday at</label>
+										<input
+											id={`cadence-${item.schedule.id}`}
+											type="time"
+											bind:value={editTime}
+											title={item.schedule.timezone ? `In ${item.schedule.timezone}` : undefined}
+											required
+										/>
+									{:else}
+										<label for={`cadence-${item.schedule.id}`}>Repeat every</label>
+										<input
+											id={`cadence-${item.schedule.id}`}
+											bind:value={editEvery}
+											required
+											placeholder="30m, 2h or 1d"
+										/>
+									{/if}
 									<button class="btn primary small" disabled={!!busy}
 										>{busy ? 'Saving…' : 'Save'}</button
 									>

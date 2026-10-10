@@ -17,21 +17,35 @@ async fn paused_schedules_do_not_dispatch_or_replay_backlog_and_stale_edits_fail
         responsibility, 1, "Check test records", serde_json::json!({"window_seconds": 7200}),
     ).await.unwrap();
     let fire_at = org.get_schedule(id).await.unwrap().unwrap().fire_at;
-    let paused = org.update_recurring_schedule(id, fire_at, false, true, None).await.unwrap().unwrap();
+    let paused = org.update_recurring_schedule(id, fire_at, false, true, None, None).await.unwrap().unwrap();
     assert!(paused.paused_at.is_some());
     assert!(org.next_schedule_due_at().await.unwrap().is_none());
     assert!(org.claim_due_schedules_at(Utc::now()).await.unwrap().is_empty());
-    assert!(org.update_recurring_schedule(id, fire_at, false, false, None).await.unwrap().is_none());
-    let resumed = org.update_recurring_schedule(id, fire_at, true, false, None).await.unwrap().unwrap();
+    assert!(org.update_recurring_schedule(id, fire_at, false, false, None, None).await.unwrap().is_none());
+    let resumed = org.update_recurring_schedule(id, fire_at, true, false, None, None).await.unwrap().unwrap();
     assert!(resumed.fire_at > Utc::now());
     assert!(org.claim_due_schedules_at(Utc::now()).await.unwrap().is_empty());
     assert_eq!(resumed.responsibility_id, Some(responsibility));
-    let edited = org.update_recurring_schedule(id, resumed.fire_at, false, false, Some(900)).await.unwrap().unwrap();
+    let edited = org.update_recurring_schedule(id, resumed.fire_at, false, false, Some(900), None).await.unwrap().unwrap();
     assert_eq!(edited.interval_seconds, Some(900));
     assert_eq!(edited.responsibility_id, Some(responsibility));
-    assert!(org.update_recurring_schedule(id, resumed.fire_at, false, true, None).await.unwrap().is_none());
-    assert!(org.update_recurring_schedule(id, edited.fire_at, false, false, Some(30)).await.is_err());
+    assert!(org.update_recurring_schedule(id, resumed.fire_at, false, true, None, None).await.unwrap().is_none());
+    assert!(org.update_recurring_schedule(id, edited.fire_at, false, false, Some(30), None).await.is_err());
+    // Only a weekday schedule takes a time of day; moving it keeps its zone and responsibility.
+    let nine = chrono::NaiveTime::from_hms_opt(9, 0, 0).unwrap();
+    let half_five = chrono::NaiveTime::from_hms_opt(17, 30, 0).unwrap();
+    assert!(org.update_recurring_schedule(id, edited.fire_at, false, false, None, Some(nine)).await.is_err());
+    let weekday_responsibility = uuid::Uuid::new_v4();
+    let (weekday, first_fire, _) = org.create_weekday_schedule_with_responsibility(
+        "exec", "Morning check", nine, "Europe/London", Utc::now(), "skip_if_late", Some(7200),
+        "local_mac", weekday_responsibility, 1, "Morning check", serde_json::json!({"window_seconds": 86400}),
+    ).await.unwrap();
+    let retimed = org.update_recurring_schedule(weekday, first_fire, false, false, None, Some(half_five)).await.unwrap().unwrap();
+    assert_eq!(retimed.local_time, Some(half_five));
+    assert_eq!(retimed.timezone.as_deref(), Some("Europe/London"));
+    assert_eq!(retimed.responsibility_id, Some(weekday_responsibility));
+    assert!(retimed.fire_at > Utc::now());
     org.cancel_schedule(id, "exec", "Finished test").await.unwrap();
-    assert!(org.update_recurring_schedule(id, edited.fire_at, false, false, None).await.unwrap().is_none());
+    assert!(org.update_recurring_schedule(id, edited.fire_at, false, false, None, None).await.unwrap().is_none());
     org.drop_schema().await.unwrap();
 }

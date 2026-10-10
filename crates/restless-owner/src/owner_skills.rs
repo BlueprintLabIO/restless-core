@@ -320,12 +320,81 @@ pub(super) async fn set_work_standard(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct LoopInput {
-    every: String,
+    /// An interval such as `30m`; or a weekday time with `at_local` and `timezone`.
+    every: Option<String>,
+    /// `HH:MM` on weekdays, in `timezone` (IANA, e.g. `Europe/London`).
+    at_local: Option<String>,
+    timezone: Option<String>,
     prompt: String,
+}
+
+/// A missed weekday run still happens when the plane comes back within two
+/// hours (a laptop opened at 9:20 for a 9:00 check-in); a later one is skipped.
+const WEEKDAY_MISSED_POLICY: &str = "skip_if_late";
+const WEEKDAY_CATCH_UP_SECONDS: i64 = 2 * 60 * 60;
+
+/// The responsibility a repeated schedule already carries, or a new one for
+/// the prompt. Repeating the same schedule keeps its binding.
+async fn loop_binding(
+    org: &restless_orgintel::OrgIntel,
+    matching: Option<restless_orgintel::ScheduleRow>,
+    prompt: &str,
+) -> std::result::Result<(Uuid, i32, String, serde_json::Value), Response<Body>> {
+    let Some(row) = matching else {
+        return Ok((
+            Uuid::new_v4(),
+            1,
+            prompt.to_string(),
+            json!({ "window_seconds": 86_400 }),
+        ));
+    };
+    let (Some(responsibility_id), Some(version)) =
+        (row.responsibility_id, row.responsibility_version)
+    else {
+        return Err(api_error(
+            StatusCode::CONFLICT,
+            "loop",
+            "this existing schedule has no responsibility binding; cancel it before recreating it",
+        ));
+    };
+    match org
+        .get_responsibility_version(responsibility_id, version)
+        .await
+    {
+        Ok(Some(version_row)) => Ok((
+            responsibility_id,
+            version,
+            version_row.objective,
+            version_row.policy,
+        )),
+        Ok(None) => Err(api_error(
+            StatusCode::CONFLICT,
+            "loop",
+            "this schedule's responsibility version is missing",
+        )),
+        Err(error) => Err(orgintel_error(error)),
+    }
+}
+
+/// A time of day the owner typed, as `HH:MM`.
+fn parse_local_time(value: &str) -> Option<chrono::NaiveTime> {
+    chrono::NaiveTime::parse_from_str(value.trim(), "%H:%M").ok()
+}
+
+/// The shape of an IANA zone name. OrgIntel resolves the zone itself and
+/// refuses one it does not know before anything is written.
+fn plausible_timezone(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'_' | b'-' | b'+'))
 }
 
 /// `/loop <interval> <prompt>`: an interval schedule that wakes Exec with the
 /// prompt as its reason. Repeating the same loop returns the live schedule.
+/// With `at_local` and `timezone` instead of `every`, Exec is woken on
+/// weekdays at that local time.
 pub(super) async fn add_loop(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,
@@ -335,13 +404,6 @@ pub(super) async fn add_loop(
     if let Some(refusal) = owner_only(&principal) {
         return refusal;
     }
-    let Some(interval_seconds) = restless_contracts::skill_package::parse_interval(&input.every) else {
-        return api_error(
-            StatusCode::BAD_REQUEST,
-            "loop",
-            "use an interval such as 30m, 2h or 1d",
-        );
-    };
     let prompt = input.prompt.trim();
     if prompt.is_empty() || prompt.chars().count() > 2_000 {
         return api_error(
@@ -350,6 +412,45 @@ pub(super) async fn add_loop(
             "a loop needs a prompt of at most 2,000 characters",
         );
     }
+    let every = match (&input.every, &input.at_local, &input.timezone) {
+        (Some(every), None, None) => every,
+        (None, Some(at_local), Some(timezone)) => {
+            let Some(local_time) = parse_local_time(at_local) else {
+                return api_error(
+                    StatusCode::BAD_REQUEST,
+                    "loop",
+                    "use a time of day such as 09:00",
+                );
+            };
+            let timezone = timezone.trim();
+            if !plausible_timezone(timezone) {
+                return api_error(
+                    StatusCode::BAD_REQUEST,
+                    "loop",
+                    "use an IANA time zone such as Europe/London",
+                );
+            }
+            let org = match org_for(&state, &company).await {
+                Ok(org) => org,
+                Err(response) => return response,
+            };
+            return add_weekday_loop(&org, prompt, local_time, timezone).await;
+        }
+        _ => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "loop",
+                "choose either an interval, or a weekday time with its time zone",
+            )
+        }
+    };
+    let Some(interval_seconds) = restless_contracts::skill_package::parse_interval(every) else {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "loop",
+            "use an interval such as 30m, 2h or 1d",
+        );
+    };
     let org = match org_for(&state, &company).await {
         Ok(org) => org,
         Err(response) => return response,
@@ -362,45 +463,11 @@ pub(super) async fn add_loop(
         }),
         Err(error) => return orgintel_error(error),
     };
-    let (responsibility_id, version, objective, policy) = match matching {
-        Some(row) => {
-            let (Some(responsibility_id), Some(version)) =
-                (row.responsibility_id, row.responsibility_version)
-            else {
-                return api_error(
-                    StatusCode::CONFLICT,
-                    "loop",
-                    "this existing interval has no responsibility binding; cancel it before recreating it",
-                );
-            };
-            let version_row = match org
-                .get_responsibility_version(responsibility_id, version)
-                .await
-            {
-                Ok(Some(row)) => row,
-                Ok(None) => {
-                    return api_error(
-                        StatusCode::CONFLICT,
-                        "loop",
-                        "this interval's responsibility version is missing",
-                    )
-                }
-                Err(error) => return orgintel_error(error),
-            };
-            (
-                responsibility_id,
-                version,
-                version_row.objective,
-                version_row.policy,
-            )
-        }
-        None => (
-            Uuid::new_v4(),
-            1,
-            prompt.to_string(),
-            json!({ "window_seconds": 86_400 }),
-        ),
-    };
+    let (responsibility_id, version, objective, policy) =
+        match loop_binding(&org, matching, prompt).await {
+            Ok(binding) => binding,
+            Err(response) => return response,
+        };
     match org
         .create_interval_schedule_with_responsibility(
             "exec",
@@ -423,6 +490,65 @@ pub(super) async fn add_loop(
             Json(json!({
                 "schedule_id": schedule_id,
                 "interval_seconds": interval_seconds,
+                "next_fire_at": next_fire_at,
+                "created": created,
+            })),
+        )
+            .into_response(),
+        Err(error) => orgintel_error(error),
+    }
+}
+
+/// The weekday cadence the CLI's `schedule create-responsibility --weekdays`
+/// creates, for Exec. The plane's own timer claims it (`local_mac` is what
+/// that timer claims on every plane; nothing claims `always_on` yet).
+async fn add_weekday_loop(
+    org: &restless_orgintel::OrgIntel,
+    prompt: &str,
+    local_time: chrono::NaiveTime,
+    timezone: &str,
+) -> Response<Body> {
+    let matching = match org.list_schedules(Some("exec"), false).await {
+        Ok(rows) => rows.into_iter().find(|row| {
+            row.recurrence.as_deref() == Some("weekdays")
+                && row.local_time == Some(local_time)
+                && row.timezone.as_deref() == Some(timezone)
+                && row.reason == prompt
+        }),
+        Err(error) => return orgintel_error(error),
+    };
+    let (responsibility_id, version, objective, policy) =
+        match loop_binding(org, matching, prompt).await {
+            Ok(binding) => binding,
+            Err(response) => return response,
+        };
+    match org
+        .create_weekday_schedule_with_responsibility(
+            "exec",
+            prompt,
+            local_time,
+            timezone,
+            chrono::Utc::now(),
+            WEEKDAY_MISSED_POLICY,
+            Some(WEEKDAY_CATCH_UP_SECONDS),
+            "local_mac",
+            responsibility_id,
+            version,
+            &objective,
+            policy,
+        )
+        .await
+    {
+        Ok((schedule_id, next_fire_at, created)) => (
+            if created {
+                StatusCode::CREATED
+            } else {
+                StatusCode::OK
+            },
+            Json(json!({
+                "schedule_id": schedule_id,
+                "local_time": local_time.format("%H:%M").to_string(),
+                "timezone": timezone,
                 "next_fire_at": next_fire_at,
                 "created": created,
             })),
@@ -482,6 +608,8 @@ pub(super) struct ScheduleUpdateInput {
     expected_paused: bool,
     paused: bool,
     every: Option<String>,
+    /// A new `HH:MM` for a weekday schedule; its time zone is kept.
+    at_local: Option<String>,
 }
 
 pub(super) async fn update_schedule(
@@ -493,6 +621,13 @@ pub(super) async fn update_schedule(
     if let Some(refusal) = owner_only(&principal) {
         return refusal;
     }
+    if input.every.is_some() && input.at_local.is_some() {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "schedule",
+            "Change either the interval or the time of day, not both.",
+        );
+    }
     let interval = match input.every.as_deref() {
         Some(value) => match restless_contracts::skill_package::parse_interval(value) {
             Some(seconds) => Some(seconds),
@@ -501,6 +636,19 @@ pub(super) async fn update_schedule(
                     StatusCode::BAD_REQUEST,
                     "schedule",
                     "Choose a cadence such as 30m, 2h or 1d.",
+                )
+            }
+        },
+        None => None,
+    };
+    let local_time = match input.at_local.as_deref() {
+        Some(value) => match parse_local_time(value) {
+            Some(time) => Some(time),
+            None => {
+                return api_error(
+                    StatusCode::BAD_REQUEST,
+                    "schedule",
+                    "Choose a time of day such as 09:00.",
                 )
             }
         },
@@ -517,6 +665,7 @@ pub(super) async fn update_schedule(
             input.expected_paused,
             input.paused,
             interval,
+            local_time,
         )
         .await
     {

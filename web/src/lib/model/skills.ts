@@ -50,11 +50,13 @@ async function call<T>(company: string, path: string, init?: RequestInit): Promi
 	return response.json() as Promise<T>;
 }
 
+/** Pause, resume, or change an interval (`every`) or a weekday time (`atLocal`, HH:MM). */
 export function updateSchedule(
 	company: string,
 	schedule: ScheduleRow,
 	paused: boolean,
-	every?: string
+	every?: string,
+	atLocal?: string
 ): Promise<{ schedule: ScheduleRow }> {
 	return call(company, `/schedules/${encodeURIComponent(schedule.id)}`, {
 		method: 'PUT',
@@ -62,7 +64,8 @@ export function updateSchedule(
 			expected_fire_at: schedule.fire_at,
 			expected_paused: !!schedule.paused_at,
 			paused,
-			every
+			every,
+			at_local: atLocal
 		})
 	});
 }
@@ -259,6 +262,28 @@ export function addLoop(
 	created: boolean;
 }> {
 	return call(company, '/loops', { method: 'POST', body: JSON.stringify({ every, prompt }) });
+}
+
+/** Wake Exec Monday to Friday at `atLocal` (HH:MM) in an IANA time zone. */
+export function addWeekdaySchedule(
+	company: string,
+	atLocal: string,
+	timezone: string,
+	prompt: string
+): Promise<{ schedule_id: string; next_fire_at: string; created: boolean }> {
+	return call(company, '/loops', {
+		method: 'POST',
+		body: JSON.stringify({ at_local: atLocal, timezone, prompt })
+	});
+}
+
+/** The browser's IANA time zone, which a weekday schedule runs in. */
+export function browserTimeZone(): string {
+	try {
+		return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+	} catch {
+		return 'UTC';
+	}
 }
 
 export function cancelLoop(company: string, schedule: string): Promise<{ cancelled: boolean }> {
