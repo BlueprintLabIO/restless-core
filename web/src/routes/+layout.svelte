@@ -113,17 +113,29 @@
 	onMount(observeSessionEnd);
 
 	/* On Cloud's one address, Home, Profile, Security, Plan and Support are the account service's
-	 * pages: a link to one leaves this app with a full load instead of being routed here. */
-	let accountService: string | null = null;
-	onMount(() => {
-		void accountServiceOrigin().then((origin) => (accountService = origin));
-	});
+	 * pages: a link to one leaves this app with a full load instead of being routed here. Whether
+	 * this plane is under that address is asked only when such a link is followed, so no other page
+	 * pays a request for it. */
+	let accountService: string | null | undefined;
 	beforeNavigate((navigation) => {
 		const to = navigation.to?.url;
-		if (!accountService || !to || to.origin !== accountService || !accountServicePath(to.pathname))
+		if (
+			!to ||
+			to.origin !== window.location.origin ||
+			!accountServicePath(to.pathname) ||
+			accountService === null
+		)
 			return;
 		navigation.cancel();
-		window.location.assign(to.href);
+		if (accountService) {
+			window.location.assign(to.href);
+			return;
+		}
+		void accountServiceOrigin().then((origin) => {
+			accountService = origin;
+			if (origin) window.location.assign(to.href);
+			else void goto(`${to.pathname}${to.search}${to.hash}`);
+		});
 	});
 	onMount(() => {
 		if (!dev) void registerServiceWorkerWhereLocal().catch(() => {});
