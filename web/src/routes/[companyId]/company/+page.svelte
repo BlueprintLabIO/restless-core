@@ -17,10 +17,15 @@
 	const spendLine = $derived.by(() => {
 		const spend = setup.spend;
 		if (!spend) return '';
-		return spend.status === 'metering_unknown'
-			? 'Spend not metered'
-			: `${money(spend.accounted_usd)} of ${money(spend.ceiling_usd)} this month`;
+		/* The budget is a running total across all work, never reset monthly (Limits says so too). */
+		const floor = spend.status === 'metering_unknown' ? 'At least ' : '';
+		return `${floor}${money(spend.accounted_usd)} of ${money(spend.ceiling_usd)} model budget`;
 	});
+	const spendWhy = $derived(
+		setup.spend?.status === 'metering_unknown'
+			? "Model spend so far against the company's total budget. Some use could not be metered, so the real figure may be higher."
+			: "Model spend so far against the company's total budget. It is a running total, not a monthly one."
+	);
 	const working = $derived(setup.working);
 </script>
 
@@ -45,7 +50,7 @@
 			>
 			{#if spendLine}<span aria-hidden="true">·</span><a
 					href={setup.href('limits')}
-					title="Model spend this month against the company's ceiling">{spendLine}</a
+					title={spendWhy}>{spendLine}</a
 				>{/if}
 			{#if working != null}<span aria-hidden="true">·</span><a
 					href={`/${companyId}/people`}

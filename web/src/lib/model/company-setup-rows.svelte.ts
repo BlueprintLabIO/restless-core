@@ -120,8 +120,11 @@ export function createCompanySetup(companyIdOf: () => string) {
 				});
 				if (response.status === 403) return -1;
 				if (!response.ok) throw new Error('vault');
-				const body: { references?: unknown[] } = await response.json();
-				return body.references?.length ?? 0;
+				/* Count stored secrets, as the Vault page does. References also name model grants and
+				 * harness sign-ins kept elsewhere; no inventory means the vault could not be read. */
+				const body: { secrets?: unknown[] | null } = await response.json();
+				if (!Array.isArray(body.secrets)) throw new Error('vault');
+				return body.secrets.length;
 			},
 			(value) => (secrets = value === -1 ? 'refused' : value)
 		);
