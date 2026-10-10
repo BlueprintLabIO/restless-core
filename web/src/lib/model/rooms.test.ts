@@ -366,3 +366,27 @@ test('a confirmed edit updates live bodies but never resurrects a tombstone', ()
 		false
 	);
 });
+
+test('unread follows the server read cursor and never counts the reader’s own message', () => {
+	const { conversationUnread } = roomsModel;
+	const row = (from: string, read: number | null) => ({
+		last_message_id: 9,
+		last_message_from: from,
+		last_read_message_id: read
+	});
+	assert.equal(conversationUnread(row('exec', 7), 'owner'), true);
+	assert.equal(conversationUnread(row('exec', null), 'owner'), true);
+	assert.equal(conversationUnread(row('exec', 9), 'owner'), false);
+	// Sent from another device: the reader wrote it, so there is nothing to read.
+	assert.equal(conversationUnread(row('owner', null), 'owner'), false);
+});
+
+test('a list preview stops before stored machine blocks, so file paths never show', () => {
+	assert.equal(
+		roomsModel.messagePreview(
+			'Attached: invoice.pdf\n\n[Restless attachments]\n- invoice.pdf: /var/lib/restless-owner-attachments/x/invoice.pdf\n<!--restless-attachments:[]-->'
+		),
+		'Attached: invoice.pdf'
+	);
+	assert.equal(roomsModel.messagePreview('Done. <!--restless-intent:{}-->'), 'Done.');
+});

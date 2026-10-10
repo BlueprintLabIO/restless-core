@@ -13,8 +13,11 @@ export function sendState(input: {
 	disabled: boolean;
 	value: string;
 	minlength: number;
+	/** Attached files: a file on its own is something to send. */
+	files?: number;
 }): SendState {
 	if (input.disabled) return 'disabled';
+	if ((input.files ?? 0) > 0) return 'ready';
 	return input.value.trim().length >= input.minlength ? 'ready' : 'empty';
 }
 

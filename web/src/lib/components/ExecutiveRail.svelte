@@ -42,8 +42,8 @@
 	import { workDraftFrom, askExec } from '$lib/model/ask-exec';
 	import Pin from '@lucide/svelte/icons/pin';
 	import { recentDirectConversationsQuery } from '$lib/model/room-queries.svelte';
-	import { deleteRoomMessage } from '$lib/model/rooms';
-	import { markSeen, seenThrough as roomSeenThrough } from '$lib/model/conversation-seen';
+	import { conversationUnread, deleteRoomMessage, markRoomRead } from '$lib/model/rooms';
+	import { goto } from '$app/navigation';
 	import { composerOptions, readDraft, writeDraft } from '$lib/model/composer-options.svelte';
 	import { agentExchangesQuery, type AgentExchange } from '$lib/model/exchanges.svelte';
 	import HandoffGroup from '$lib/primitives/HandoffGroup.svelte';
@@ -161,7 +161,18 @@
 	$effect(() => {
 		if (!focusMessage || focusMessage === focusedFor) return;
 		const target = messages.find((message) => messageNumericId(message.id) === focusMessage);
-		if (!target) return;
+		if (!target) {
+			/* Older than the recent end this conversation holds: the room view pages back through
+			 * the whole history to it, so a link or search hit never lands on nothing. */
+			if (conversationStatus === 'live' && directRoom) {
+				focusedFor = focusMessage;
+				void goto(
+					`/${encodeURIComponent(companyId)}/people?room=${encodeURIComponent(directRoom)}&focus=${focusMessage}`,
+					{ replaceState: true, noScroll: true, keepFocus: true }
+				);
+			}
+			return;
+		}
 		focusedFor = focusMessage;
 		requestAnimationFrame(() => jumpToMessage(target.id));
 	});
@@ -466,30 +477,44 @@
 	 * consumed it without replying. While it works, the turn dock says so;
 	 * once it replies, the reply is the receipt. */
 	const directRooms = $derived(recentDirectConversationsQuery(companyId, () => open && canOperate));
-	const directRoom = $derived(
-		directRooms.conversations.find((entry) => entry.person_actor_id === participantId)?.room_id ??
-			''
+	const directRow = $derived(
+		directRooms.conversations.find((entry) => entry.person_actor_id === participantId) ?? null
 	);
+	const directRoom = $derived(directRow?.room_id ?? '');
+	/* Reading here is reading on every device: an open rail on the direct conversation advances
+	 * the server read cursor through the room's latest message. A reply newer than the list row
+	 * first refreshes the row, so the cursor only ever names a message the server listed. */
+	const isDirectTopic = $derived(
+		!review &&
+			!workContext &&
+			(!currentTopicKey.includes(':') || currentTopicKey.endsWith(':'))
+	);
+	let readMarking = '';
 	$effect(() => {
+		const row = directRow;
 		const latest = messages.reduce((max, m) => Math.max(max, messageNumericId(m.id)), 0);
-		if (open && directRoom && latest) markSeen(companyId, directRoom, latest);
+		if (!open || !row || !isDirectTopic || !viewerActorId) return;
+		if (latest > row.last_message_id) {
+			void directRooms.refresh();
+			return;
+		}
+		if (!conversationUnread(row, viewerActorId)) return;
+		const key = `${companyId}:${row.room_id}:${row.last_message_id}`;
+		if (readMarking === key) return;
+		readMarking = key;
+		void markRoomRead(companyId, row.room_id, row.last_message_id)
+			.then(() => directRooms.refresh())
+			.catch(() => {
+				/* Read state is recoverable; the next change tries again. */
+				if (readMarking === key) readMarking = '';
+			});
 	});
-	let seenVersion = $state(0);
-	$effect(() => {
-		const bump = () => (seenVersion += 1);
-		window.addEventListener('restless:seen', bump);
-		return () => window.removeEventListener('restless:seen', bump);
-	});
-	/* Another conversation in the switcher with something new since you looked. */
+	/* Another conversation in the switcher with something new since you read it. */
 	function topicHasNew(entry: { key: string; topic: { actorId: string; workId?: string } | null }) {
-		void seenVersion;
 		if (entry.key === currentTopicKey || entry.topic?.workId) return false;
 		const actor = entry.topic?.actorId ?? 'exec';
 		const conversation = directRooms.conversations.find((c) => c.person_actor_id === actor);
-		return (
-			!!conversation &&
-			conversation.last_message_id > roomSeenThrough(companyId, conversation.room_id)
-		);
+		return !!conversation && conversationUnread(conversation, viewerActorId);
 	}
 	const anyTopicNew = $derived(topics.some((entry) => topicHasNew(entry)));
 	/* Until the agent picks it up, your last message can be taken back: retract
@@ -755,7 +780,11 @@
 	}
 
 	async function deliver() {
-		const text = composer.trim();
+		const typed = composer.trim();
+		const files = composerFiles;
+		/* A file on its own is a message: it says what it carries, so Exec reads a sentence. */
+		const text =
+			typed || (files.length ? `Attached: ${files.map((file) => file.name).join(', ')}` : '');
 		if (!text || sending || deciding || !onask || needsProvider || connectionStatus !== 'available')
 			return;
 		scrollReset += 1;
@@ -765,11 +794,12 @@
 		const sent = composer;
 		const quoted = quoting;
 		const outgoing = quoted ? `> ${quoted.author}: ${quoted.excerpt}\n\n${text}` : text;
-		const files = composerFiles;
 		const skills = composerSkills;
 		composer = '';
 		try {
-			const command = await runCommand(text);
+			const command: Awaited<ReturnType<typeof runCommand>> = typed
+				? await runCommand(typed)
+				: { send: true };
 			if (!command.send) {
 				if (command.error) {
 					composer = sent;

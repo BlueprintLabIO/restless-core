@@ -10,7 +10,9 @@
 		writeRoomDraft,
 		roomDraftKey,
 		addRoomParticipant,
+		archiveRoom,
 		removeRoomParticipant,
+		renameRoom,
 		type Room,
 		type RoomParticipant
 	} from '$lib/model/rooms';
@@ -22,6 +24,7 @@
 		room = null,
 		participants = [],
 		oncreated = () => {},
+		onclosed = () => {},
 		onperson,
 		contactIds = [],
 		initialParticipants = [],
@@ -34,6 +37,8 @@
 		room?: Room | null;
 		participants?: RoomParticipant[];
 		oncreated?: (room: Room) => void;
+		/** The viewer left or archived this room; it is no longer theirs to show. */
+		onclosed?: () => void;
 		onperson?: (id: string) => void;
 		contactIds?: string[];
 		initialParticipants?: string[];
@@ -56,6 +61,13 @@
 			participants.some((p) => p.actor_id === actorId && p.role === 'owner' && !p.left_at)
 	);
 	const active = $derived(participants.filter((p) => !p.left_at));
+	/* A member may leave a group; its owner renames or archives it instead. */
+	const canLeave = $derived(
+		room?.kind === 'group' &&
+			participants.some((p) => p.actor_id === actorId && p.role === 'member' && !p.left_at)
+	);
+	let renaming = $state('');
+	let confirmArchive = $state(false);
 	const initialParticipantSet = $derived(new Set(initialParticipants));
 	const availablePeople = $derived.by(() => {
 		const candidates = new Map(
@@ -95,8 +107,54 @@
 			title = '';
 			selected = uniqueParticipantIds(initialParticipants);
 			context = initialContext;
+		} else {
+			renaming = room.title;
+			confirmArchive = false;
 		}
 		dialog.showModal();
+	}
+	/* Rename, leave and archive change the room for everyone in it, so the lists that show it
+	 * refresh at once; the room's own event stream refreshes everyone else's. */
+	async function refreshRoomLists(company: string, roomId: string) {
+		await Promise.all([
+			client.invalidateQueries({ queryKey: roomQueryKeys.list(company) }),
+			client.invalidateQueries({ queryKey: roomQueryKeys.recentGroups(company) }),
+			client.invalidateQueries({ queryKey: roomQueryKeys.participants(company, roomId) })
+		]);
+	}
+	async function lifecycle(action: 'rename' | 'leave' | 'archive') {
+		if (!room || busy) return;
+		const requestedCompanyId = companyId;
+		const requestedActorId = actorId;
+		const requestedRoomId = room.id;
+		const requestedScope = scopeKey;
+		const nextTitle = renaming.trim();
+		if (action === 'rename' && (!nextTitle || nextTitle === room.title)) return;
+		busyFor = requestedScope;
+		failure = '';
+		try {
+			if (action === 'rename') await renameRoom(requestedCompanyId, requestedRoomId, nextTitle);
+			else if (action === 'archive') await archiveRoom(requestedCompanyId, requestedRoomId);
+			else await removeRoomParticipant(requestedCompanyId, requestedRoomId, requestedActorId);
+			await refreshRoomLists(requestedCompanyId, requestedRoomId);
+			if (action !== 'rename' && isCurrentScope(requestedScope)) {
+				dialog.close();
+				onclosed();
+			}
+		} catch (error) {
+			if (isCurrentScope(requestedScope) && actorId === requestedActorId) {
+				failure = failureSentence(
+					error,
+					action === 'rename'
+						? 'The name could not be changed.'
+						: action === 'archive'
+							? 'The conversation could not be archived.'
+							: 'You could not leave the conversation.'
+				);
+			}
+		} finally {
+			if (busyFor === requestedScope) busyFor = '';
+		}
 	}
 	async function create(event: SubmitEvent) {
 		event.preventDefault();
@@ -226,6 +284,29 @@
 		>
 	</header>
 	{#if room}
+		{#if canManage}
+			<form
+				class="rename"
+				onsubmit={(event) => {
+					event.preventDefault();
+					void lifecycle('rename');
+				}}
+			>
+				<label
+					>Name<input
+						bind:value={renaming}
+						maxlength={160}
+						autocomplete="off"
+						disabled={busy}
+						aria-label="Conversation name"
+					/></label
+				>
+				{#if renaming.trim() && renaming.trim() !== room.title}<button
+						type="submit"
+						disabled={busy}>Rename</button
+					>{/if}
+			</form>
+		{/if}
 		<div class="member-list">
 			{#each active as member (member.actor_id)}
 				<div class="member">
@@ -261,6 +342,35 @@
 						>{/each}</select
 				></label
 			>
+		{/if}
+		{#if canLeave}
+			<div class="room-exit">
+				<button
+					type="button"
+					disabled={busy}
+					title="You stop receiving this conversation. What you said stays in it."
+					onclick={() => void lifecycle('leave')}>Leave conversation</button
+				>
+			</div>
+		{:else if canManage && room.kind === 'group'}
+			<div class="room-exit">
+				{#if confirmArchive}
+					<span>Archive for everyone? Messages are kept.</span>
+					<button type="button" disabled={busy} onclick={() => (confirmArchive = false)}
+						>Cancel</button
+					>
+					<button type="button" class="danger" disabled={busy} onclick={() => void lifecycle('archive')}
+						>Archive</button
+					>
+				{:else}
+					<button
+						type="button"
+						disabled={busy}
+						title="Closes the conversation for everyone in it and removes it from Chats. Its messages are kept."
+						onclick={() => (confirmArchive = true)}>Archive conversation</button
+					>
+				{/if}
+			</div>
 		{/if}
 	{:else}
 		<form onsubmit={create}>
@@ -425,6 +535,46 @@
 	.muted {
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
+	}
+	.rename {
+		display: flex;
+		align-items: flex-end;
+		gap: 8px;
+		margin-bottom: 8px;
+	}
+	.rename label {
+		flex: 1;
+		margin-block: 0;
+	}
+	.rename button,
+	.room-exit button {
+		flex: none;
+		border: 1px solid var(--border);
+		border-radius: 5px;
+		padding: 7px 10px;
+		background: var(--surface);
+		color: inherit;
+		cursor: pointer;
+	}
+	.room-exit {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 8px;
+		margin-top: 16px;
+		padding-top: 12px;
+		border-top: 1px solid var(--border);
+		font-size: var(--t-body);
+	}
+	.room-exit span {
+		flex: 1;
+		min-width: 0;
+		color: var(--text-secondary);
+	}
+	.room-exit .danger {
+		border-color: color-mix(in srgb, var(--intent-danger, #a22) 40%, var(--border));
+		color: var(--intent-danger, #a22);
 	}
 	.history-note {
 		margin: 12px 0;

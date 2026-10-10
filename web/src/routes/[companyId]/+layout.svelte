@@ -50,6 +50,11 @@
 	import { provideReferencePreview } from '$lib/model/reference-preview';
 	import { documentsQuery } from '$lib/model/document-queries.svelte';
 	import { fetchConnections } from '$lib/model/connections';
+	import {
+		recentDirectConversationsQuery,
+		recentGroupConversationsQuery
+	} from '$lib/model/room-queries.svelte';
+	import { conversationUnread, messagePreview } from '$lib/model/rooms';
 	import { fetchAppRequests } from '$lib/model/app-requests';
 	import { CATALOGUE, buildApps } from '$lib/model/apps';
 
@@ -566,7 +571,16 @@
 			// A message sent mid-reply says "Queued" on itself, not under the composer.
 			return {};
 		} catch (cause) {
-			const status = (cause as { status?: unknown } | null)?.status;
+			const failure = cause as { status?: unknown; code?: unknown; serverMessage?: unknown } | null;
+			const status = failure?.status;
+			// A file the company computer could not take is a definite answer, written for the
+			// owner by the daemon: say it rather than an uncertain "try again".
+			if (
+				['runtime', 'attachment', 'attachment_quota'].includes(String(failure?.code)) &&
+				typeof failure?.serverMessage === 'string'
+			) {
+				return { error: failure.serverMessage };
+			}
 			// The conversation query retains this exact send's command ID for a safe retry.
 			if (typeof status !== 'number' || status >= 500 || [408, 425, 429].includes(status)) {
 				return {
@@ -656,6 +670,59 @@
 		return { kind: 'inbox', label: title || 'Inbox' };
 	});
 
+	/* Conversations with something the viewer has not read, from the server read cursor, so
+	 * People says a colleague or lead wrote wherever the owner is. The one open in People is
+	 * being read, so it does not count. */
+	const directChats = $derived(
+		recentDirectConversationsQuery(companyId, () => !!principal?.actor_id)
+	);
+	const groupChats = $derived(recentGroupConversationsQuery(companyId, () => !!principal?.actor_id));
+	const unreadChats = $derived.by(() => {
+		const viewer = principal?.actor_id ?? '';
+		const inPeople = page.url.pathname === `/${companyId}/people`;
+		const openRoom = inPeople ? (page.url.searchParams.get('room') ?? '') : '';
+		const openPerson = inPeople && !openRoom ? (page.url.searchParams.get('person') ?? '') : '';
+		return [
+			...directChats.conversations
+				.filter((row) => row.room_id !== openRoom && row.person_actor_id !== openPerson)
+				.map((row) => ({
+					...row,
+					title: personName(row.person_actor_id),
+					href: `/${encodeURIComponent(companyId)}/people?person=${encodeURIComponent(row.person_actor_id)}`
+				})),
+			...groupChats.conversations
+				.filter((row) => row.room_id !== openRoom)
+				.map((row) => ({
+					...row,
+					href: `/${encodeURIComponent(companyId)}/people?room=${encodeURIComponent(row.room_id)}`
+				}))
+		].filter((row) => conversationUnread(row, viewer));
+	});
+	/* A new unread message taps the owner on the shoulder when the cockpit is in the background,
+	 * as a new Inbox item does. The first reading only primes what is already known. */
+	let knownUnread: Set<string> | null = null;
+	let knownUnreadFor = '';
+	$effect(() => {
+		if (knownUnreadFor !== companyId) {
+			knownUnreadFor = companyId;
+			knownUnread = null;
+		}
+		if (directChats.status === 'unknown' || groupChats.status === 'unknown') return;
+		const rows = unreadChats;
+		const keys = new Set(rows.map((row) => `${row.room_id}:${row.last_message_id}`));
+		if (knownUnread) {
+			for (const row of rows) {
+				if (knownUnread.has(`${row.room_id}:${row.last_message_id}`)) continue;
+				desktopNotify.show(
+					row.title,
+					messagePreview(row.last_message_preview),
+					() => void goto(row.href)
+				);
+			}
+		}
+		knownUnread = keys;
+	});
+
 	const tabs = $derived.by((): ShellTab[] => {
 		const routes = companyShellTabs(
 			companyId,
@@ -668,7 +735,9 @@
 				? { ...tab, badge: 1 }
 				: tab.key === 'apps' && appsAttention
 					? { ...tab, dot: appsAttention }
-					: tab
+					: tab.key === 'people' && unreadChats.length
+						? { ...tab, badge: unreadChats.length }
+						: tab
 		);
 	});
 

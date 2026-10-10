@@ -1,8 +1,7 @@
 <script lang="ts">
-	/* The composer's attach control: a 📎 button backed by a real file input
-	 * (the form posts multipart, so attaching works without JS), plus chips for
-	 * the chosen files when JS is on. Files travel with the message form — no
-	 * separate upload step, no orphans. */
+	/* The composer's attach control: a 📎 button backed by a real file input,
+	 * plus chips for the chosen files. Files travel with the message when it is
+	 * sent — no separate upload step, no orphans. */
 
 	let {
 		files = $bindable<File[]>([]),
@@ -14,18 +13,16 @@
 
 	let inputEl = $state<HTMLInputElement | undefined>();
 
+	/* The bound list is the truth, not the input: dropped and pasted files live only there, and
+	 * each pick adds to them. The input is cleared so the same file can be picked again. */
 	function sync() {
-		files = inputEl ? Array.from(inputEl.files ?? []) : [];
+		const picked = Array.from(inputEl?.files ?? []);
+		if (picked.length) files = [...files, ...picked];
+		if (inputEl) inputEl.value = '';
 	}
 
 	function removeAt(index: number) {
-		if (!inputEl) return;
-		const dt = new DataTransfer();
-		files.forEach((file, i) => {
-			if (i !== index) dt.items.add(file);
-		});
-		inputEl.files = dt.files;
-		sync();
+		files = files.filter((_, i) => i !== index);
 	}
 
 	function fmtSize(bytes: number): string {

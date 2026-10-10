@@ -43,11 +43,14 @@
 		roomMessageSearchQuery,
 		roomMessagesQuery,
 		roomParticipantsQuery,
+		roomQueryKeys,
 		roomReadCursorQuery,
 		roomsQuery,
 		roomThreadQuery
 	} from '$lib/model/room-queries.svelte';
+	import { useQueryClient } from '@tanstack/svelte-query';
 	import {
+		addRoomParticipant,
 		deleteRoomMessage,
 		editRoomMessage,
 		markRoomRead,
@@ -67,6 +70,7 @@
 
 	const SEARCH_DEBOUNCE_MS = 250;
 
+	const queryClient = useQueryClient();
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
 	const cockpitProjection = $derived(
@@ -525,6 +529,15 @@
 	const participants = $derived(
 		(participantProjection?.participants ?? []).filter((p) => !p.left_at)
 	);
+	/* Who `@` can ask here: the room's other members, not the whole company. */
+	const roomPeople = $derived(
+		participants
+			.filter((participant) => participant.actor_id !== currentActorId)
+			.map((participant) => roster.find((person) => person.actor_id === participant.actor_id))
+			.filter(
+				(person): person is (typeof roster)[number] => !!person && person.kind !== 'system'
+			)
+	);
 	const directPartner = $derived(
 		selectedRoom?.kind === 'direct' &&
 			(!requestedPersonId ||
@@ -853,46 +866,123 @@
 		threadScrollEl.scrollTop += threadScrollEl.scrollHeight - before;
 	}
 
-	function knownMentions(body: string): NewRoomMention[] {
-		const tokens = new Set(
+	function mentionTokens(body: string): Set<string> {
+		return new Set(
 			body
 				.split(/\s+/)
 				.filter((token) => token.startsWith('@'))
-				.map((token) => token.slice(1).replace(/[.,!?;]+$/u, ''))
+				.map((token) => token.slice(1).replace(/[.,!?;:)]+$/u, ''))
 				.filter(Boolean)
 		);
+	}
+
+	/* Only people in the room can be asked here; the server refuses anyone else. */
+	function knownMentions(body: string): NewRoomMention[] {
+		const tokens = mentionTokens(body);
 		const known = new Set(participants.map((participant) => participant.actor_id));
-		if (tokens.has('exec')) known.add('exec');
 		// A direct chat addresses its agent counterpart without requiring an @ token.
 		if (directPartner && actorIsAgent(directPartner)) tokens.add(directPartner);
 		return [...tokens].filter((actorId) => known.has(actorId)).map((actor_id) => ({ actor_id }));
 	}
 
+	/* People named with @ who are not in this room: they would not be asked, so the sender is
+	 * told before sending, and a room owner can add them. */
+	function mentionedOutsiders(body: string): string[] {
+		const members = new Set(participants.map((participant) => participant.actor_id));
+		return [...mentionTokens(body)].filter(
+			(actorId) =>
+				actorId !== currentActorId &&
+				!members.has(actorId) &&
+				people.some((person) => person.actor_id === actorId)
+		);
+	}
+	const canManageRoom = $derived(
+		selectedRoom !== null &&
+			selectedRoom.kind !== 'direct' &&
+			participants.some(
+				(participant) => participant.actor_id === currentActorId && participant.role === 'owner'
+			)
+	);
+	let mentionGap = $state<{ body: string; missing: string[] } | null>(null);
+	/* The body the sender chose to send anyway, without the people outside the room. */
+	let mentionGapAccepted = $state('');
+	let composerForm = $state<HTMLFormElement | undefined>();
+	let addingOutsiders = $state(false);
+	$effect(() => {
+		void selectedRoomId;
+		mentionGap = null;
+		mentionGapAccepted = '';
+	});
+	/* Editing the message retires a notice about the words it no longer has. */
+	$effect(() => {
+		const draft = composer.trim();
+		if (untrack(() => mentionGap && mentionGap.body !== draft)) mentionGap = null;
+	});
+	function sendWithoutOutsiders() {
+		if (!mentionGap) return;
+		mentionGapAccepted = mentionGap.body;
+		mentionGap = null;
+		composerForm?.requestSubmit();
+	}
+	async function addOutsidersAndSend() {
+		const gap = mentionGap;
+		const room = selectedRoomId;
+		const company = companyId;
+		if (!gap || !room || addingOutsiders) return;
+		addingOutsiders = true;
+		sendError = '';
+		try {
+			for (const actorId of gap.missing) await addRoomParticipant(company, room, actorId);
+			await queryClient.invalidateQueries({
+				queryKey: roomQueryKeys.participants(company, room)
+			});
+			if (company !== companyId || room !== selectedRoomId) return;
+			mentionGap = null;
+			composerForm?.requestSubmit();
+		} catch (cause) {
+			sendError = failureSentence(cause, 'They could not be added to this conversation.');
+		} finally {
+			addingOutsiders = false;
+		}
+	}
+
 	async function submitMessage(event: SubmitEvent) {
 		event.preventDefault();
-		const body = composer.trim();
+		const typed = composer.trim();
+		const parent = threadRootId;
+		const sendAsAccountableLead = accountableDirect && parent === null;
+		/* A file on its own is a message where files can be sent: it says what it carries. */
+		const files = sendAsAccountableLead ? [...composerFiles] : [];
+		const body =
+			typed || (files.length ? `Attached: ${files.map((file) => file.name).join(', ')}` : '');
 		if (
 			!body ||
 			!selectedRoomId ||
 			!currentActorId ||
 			sending ||
+			addingOutsiders ||
 			!online ||
 			(selectedRoom?.kind === 'direct' && !canExtendDirect)
 		)
 			return;
+		if (!sendAsAccountableLead) {
+			const missing = mentionedOutsiders(body);
+			if (missing.length && mentionGapAccepted !== body) {
+				mentionGap = { body, missing };
+				return;
+			}
+		}
+		mentionGap = null;
 
 		const commandId = retryCommandId && retryBody === body ? retryCommandId : crypto.randomUUID();
-		const parent = threadRootId;
 		const targetCompany = companyId,
 			targetRoom = selectedRoomId,
 			targetActor = currentActorId,
 			targetDraft = activeDraftKey;
 		const recipientActor = directPartner;
-		const sendAsAccountableLead = accountableDirect && parent === null;
 		const targetConversation = actorConversation;
-		const files = [...composerFiles];
 		const skills = [...composerSkills];
-		if (sendAsAccountableLead && recipientActor === 'exec' && ownerAccess) {
+		if (typed && sendAsAccountableLead && recipientActor === 'exec' && ownerAccess) {
 			const command = await runExecCommand(targetCompany, body).catch((cause) => ({
 				error: failureSentence(cause, 'That command did not run.'),
 				send: false,
@@ -984,6 +1074,7 @@
 			if (!stillCurrent()) return;
 			composer = '';
 			composerFiles = [];
+			mentionGapAccepted = '';
 			retryCommandId = null;
 			retryBody = '';
 			pendingMessage = null;
@@ -1137,6 +1228,7 @@
 						{people}
 						room={selectedRoom}
 						{participants}
+						onclosed={() => goto(`/${encodeURIComponent(companyId)}/people?view=chats`)}
 					/>
 				{/if}
 				<!-- Quiet while live: the stream only earns a chip when it is not. -->
@@ -1535,7 +1627,7 @@
 </div>
 
 {#snippet messageComposer()}
-	<form class="room-composer" onsubmit={submitMessage}>
+	<form class="room-composer" onsubmit={submitMessage} bind:this={composerForm}>
 		<Composer
 			bind:value={composer}
 			bind:files={composerFiles}
@@ -1547,7 +1639,7 @@
 							companyId,
 							attention.view?.workGraph?.work ?? [],
 							cockpitProjection.view?.goals ?? [],
-							people,
+							roomPeople,
 							libraryDocuments.documents
 						)
 					: [])
@@ -1558,6 +1650,9 @@
 			disabled={sending || !online || (selectedRoom?.kind === 'direct' && !canExtendDirect)}
 			minlength={1}
 			allowAttachments={accountableDirect && threadRootId === null}
+			attachmentsOffNotice={accountableDirect
+				? 'Attach files in the main conversation, not a thread.'
+				: 'Files can’t be attached in this conversation yet. Send them to the Exec instead.'}
 			placeholder={threadRootId
 				? 'Reply in this Thread…'
 				: directPartner && actorIsAgent(directPartner)
@@ -1586,6 +1681,25 @@
 				Answers the request
 			</label>
 		{/if}
+		{#if mentionGap}
+			{@const names = mentionGap.missing.map((actorId) => displayName(actorId)).join(', ')}
+			<div class="mention-gap" role="status">
+				<span
+					>{names}
+					{mentionGap.missing.length === 1 ? 'isn’t' : 'aren’t'} in this conversation, so they won’t
+					be asked.{selectedRoom?.kind === 'direct' ? ' Add people starts a group with them.' : ''}</span
+				>
+				{#if canManageRoom}<button
+						type="button"
+						disabled={addingOutsiders}
+						onclick={() => void addOutsidersAndSend()}
+						>{addingOutsiders ? 'Adding…' : `Add and send`}</button
+					>{/if}
+				<button type="button" disabled={addingOutsiders} onclick={sendWithoutOutsiders}
+					>Send anyway</button
+				>
+			</div>
+		{/if}
 		{#if sendError}<p class="room-send-error" role="alert">{sendError}</p>{/if}
 		{#if sendNotice}<p class="room-send-notice" role="status">{sendNotice}</p>{/if}
 		{#if accountableDirect && composerFiles.length}<p class="room-draft-state">
@@ -1596,6 +1710,34 @@
 {/snippet}
 
 <style>
+	.mention-gap {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 6px 10px;
+		padding: 6px 4px 0;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+	}
+	.mention-gap span {
+		flex: 1 1 220px;
+		min-width: 0;
+	}
+	.mention-gap button {
+		flex: none;
+		padding: 3px 8px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		background: var(--surface);
+		color: var(--ink);
+		font: inherit;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.mention-gap button:disabled {
+		opacity: 0.6;
+		cursor: default;
+	}
 	.room-pinned {
 		flex: none;
 		border-bottom: 1px solid var(--border-soft);

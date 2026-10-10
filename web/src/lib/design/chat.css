@@ -395,7 +395,8 @@
 }
 
 .bridge-root .hc-voice-preview,
-.bridge-root .hc-voice-state.error > span:first-child {
+.bridge-root .hc-voice-state.error > span:first-child,
+.bridge-root .hc-voice-state.notice > span:first-child {
 	min-width: 0;
 	flex: 1 1 auto;
 	overflow: hidden;

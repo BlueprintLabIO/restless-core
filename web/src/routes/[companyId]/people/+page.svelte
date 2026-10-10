@@ -26,8 +26,7 @@
 		recentGroupConversationsQuery,
 		roomMessageSearchQuery
 	} from '$lib/model/room-queries.svelte';
-	import { messagePreview, type Room } from '$lib/model/rooms';
-	import { seenThrough, markSeen } from '$lib/model/conversation-seen';
+	import { conversationUnread, messagePreview, type Room } from '$lib/model/rooms';
 	import { getContext, type Snippet } from 'svelte';
 
 	/* The Exec and team leads open in the same conversation as the rail, at
@@ -114,16 +113,19 @@
 	}
 	/* Each person's second line: what they need from the owner, what is stuck, or what they are
 	 * producing right now (their own Work, or for a lead, their team's), coloured by which. Someone
-	 * with none of these shows their role. */
+	 * with none of these shows their role; a lead shows what its team is for. */
 	function personLine(actorId: string): { text: string; tone: SidebarTone } {
 		const person = people.find((candidate) => candidate.actor_id === actorId);
+		const ledTeam = teams.find((candidate) => candidate.lead_actor_id === actorId);
 		const fallback = {
 			text:
 				person?.kind === 'exec'
 					? 'Ready when you are'
 					: person?.kind === 'human'
 						? 'Colleague'
-						: (person?.role ?? ''),
+						: ledTeam
+							? ledTeam.brief.trim() || `Leads ${teamName(ledTeam.name, companyId)}`
+							: (person?.role ?? ''),
 			tone: '' as SidebarTone
 		};
 		if (!owner) return fallback;
@@ -170,26 +172,13 @@
 				if (target === companyId) invitations = [];
 			});
 	});
-	let seenVersion = $state(0);
-	$effect(() => {
-		const bump = () => (seenVersion += 1);
-		window.addEventListener('restless:seen', bump);
-		return () => window.removeEventListener('restless:seen', bump);
-	});
-	/* The conversation in view is seen through its newest message. */
-	$effect(() => {
-		const open = recent.conversations.find(
-			(conversation) =>
-				conversation.room_id === roomId || (!roomId && conversation.person_actor_id === personId)
-		);
-		if (open) markSeen(companyId, open.room_id, open.last_message_id);
-	});
+	/* Unread comes from the server read cursor, so it is the same on every device. The open
+	 * conversation advances that cursor itself (RoomConversation, or the rail for the Exec and
+	 * leads). */
+	const viewerId = $derived(principal.view?.actor_id ?? '');
 	function hasNew(actorId: string): boolean {
-		void seenVersion;
 		const conversation = recent.conversations.find((entry) => entry.person_actor_id === actorId);
-		return (
-			!!conversation && conversation.last_message_id > seenThrough(companyId, conversation.room_id)
-		);
+		return !!conversation && conversationUnread(conversation, viewerId);
 	}
 	function openPerson(event: MouseEvent | null, id: string) {
 		event?.preventDefault();
@@ -282,21 +271,19 @@
 		const latest = rows[0]?.person;
 		if (latest) void goto(href(latest), { replaceState: true, noScroll: true, keepFocus: true });
 	});
-	/* A hit in a conversation with the Exec or a lead opens that conversation
-	 * (the full-width rail) at the message; anything else opens its room. */
+	/* A hit opens its room at the message, the Exec's and leads' included: the room view pages
+	 * back through the whole history to find it, where the rail holds only the recent end. */
 	function searchHref(message: {
 		id: number;
 		room_id: string;
 		thread_root_message_id: number | null;
 	}): string {
-		const contact = recent.conversations.find(
-			(conversation) =>
-				conversation.room_id === message.room_id &&
-				contacts.some((person) => person.actor_id === conversation.person_actor_id)
-		);
-		if (owner && contact && !message.thread_root_message_id)
-			return `${href(contact.person_actor_id)}&focus=${message.id}`;
 		return `${href('', message.room_id)}${message.thread_root_message_id ? `&thread=${message.thread_root_message_id}` : ''}&focus=${message.id}`;
+	}
+	/* Where a hit was said, when the name alone does not say: a group's title. */
+	function searchPlace(roomId: string): string {
+		const room = rooms.rooms.find((candidate) => candidate.id === roomId);
+		return room && room.kind !== 'direct' ? room.title : '';
 	}
 	function created(room: Room) {
 		void goto(href('', room.id));
@@ -356,7 +343,6 @@
 	/* Every conversation by its last message, each with what was said. A group room nobody has
 	 * written in yet sorts by when it began. */
 	const chats = $derived.by(() => {
-		void seenVersion;
 		const query = search.trim().toLocaleLowerCase();
 		const direct = recent.conversations.flatMap((conversation) => {
 			const person = people.find(
@@ -376,9 +362,7 @@
 					roomId: conversation.room_id,
 					at: conversation.last_message_at,
 					preview: `${from}${messagePreview(conversation.last_message_preview)}`,
-					unread:
-						conversation.last_message_id > seenThrough(companyId, conversation.room_id) &&
-						personId !== person.actor_id
+					unread: conversationUnread(conversation, viewerId) && personId !== person.actor_id
 				}
 			];
 		});
@@ -390,7 +374,7 @@
 				const who = speaker(latest?.last_message_from);
 				return {
 					key: `room:${room.id}`,
-					name: room.title,
+					name: latest?.title || room.title,
 					mark: '#',
 					group: true,
 					person: '',
@@ -400,11 +384,7 @@
 					preview: latest
 						? `${who ? `${who}: ` : ''}${messagePreview(latest.last_message_preview)}`
 						: 'Nothing said yet',
-					unread:
-						!!latest &&
-						latest.last_message_id > seenThrough(companyId, room.id) &&
-						roomId !== room.id &&
-						latest.last_message_from !== principal.view?.actor_id
+					unread: !!latest && conversationUnread(latest, viewerId) && roomId !== room.id
 				};
 			});
 		return [...direct, ...groups]
@@ -412,11 +392,6 @@
 				(chat) => !query || `${chat.name} ${chat.preview}`.toLocaleLowerCase().includes(query)
 			)
 			.toSorted((a, b) => Date.parse(b.at) - Date.parse(a.at));
-	});
-	/* An open group room is seen through its newest message, as a direct one is. */
-	$effect(() => {
-		const open = recentGroups.conversations.find((group) => group.room_id === roomId);
-		if (open) markSeen(companyId, open.room_id, open.last_message_id);
 	});
 	const unreadChats = $derived(chats.filter((chat) => chat.unread).length);
 	/* "14:05" today, "Tue" this week, "3 Oct" before that. */
@@ -516,8 +491,7 @@
 					>
 					<span class="person-lines"
 						><span class="name"
-							>{personName(person.display)}{#if isLead}<span class="role-tag">
-									· Lead</span
+							>{personName(person.display)}{#if isLead}<span class="role-tag">{' · Lead'}</span
 								>{/if}</span
 						>{#if line.text}<small class="doing {line.tone}" title={line.text}>{line.text}</small
 							>{/if}</span
@@ -647,11 +621,15 @@
 				{/if}
 			{/if}
 			{#if search.trim()}
-				{#each messageSearch.messages.filter( (message) => recent.conversations.some((conversation) => conversation.room_id === message.room_id) ) as message (message.id)}
+				<!-- The server already limits hits to conversations this person can read, groups
+				     included. -->
+				{#each messageSearch.messages as message (message.id)}
+					{@const place = searchPlace(message.room_id)}
 					<a class="search-result" href={searchHref(message)}
 						><strong
-							>{personName(people.find((p) => p.actor_id === message.from_actor)?.display ?? '') ||
-								message.from_actor}</strong
+							>{speaker(message.from_actor) || message.from_actor}{#if place}<span
+									class="search-place">{` · ${place}`}</span
+								>{/if}</strong
 						><span>{message.snippet}</span></a
 					>
 				{/each}
@@ -1045,7 +1023,12 @@
 		border-top: 1px solid var(--border);
 		font-size: var(--t-label);
 	}
-	.search-result span {
+	.search-result .search-place {
+		display: inline;
+		color: var(--text-tertiary);
+		font-weight: 400;
+	}
+	.search-result > span {
 		display: -webkit-box;
 		-webkit-line-clamp: 2;
 		line-clamp: 2;

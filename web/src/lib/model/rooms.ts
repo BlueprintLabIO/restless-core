@@ -32,6 +32,8 @@ export interface RecentDirectConversation {
 	/** Who wrote the latest message, and its opening text (bounded by the server). */
 	last_message_from?: string;
 	last_message_preview?: string;
+	/** The viewer's own server read cursor, the same on every device. */
+	last_read_message_id?: number | null;
 }
 
 /** A group room by its latest message. */
@@ -42,6 +44,19 @@ export interface RecentGroupConversation {
 	last_message_at: string;
 	last_message_from: string;
 	last_message_preview: string;
+	last_read_message_id?: number | null;
+}
+
+/**
+ * Whether a conversation row has something the viewer has not read: a newer message than their
+ * server read cursor, written by someone else. Your own message sent from another device is read.
+ */
+export function conversationUnread(
+	row: { last_message_id: number; last_message_from?: string; last_read_message_id?: number | null },
+	viewerActorId: string
+): boolean {
+	if (!viewerActorId || row.last_message_from === viewerActorId) return false;
+	return row.last_message_id > (row.last_read_message_id ?? 0);
 }
 
 export interface RoomParticipant {
@@ -297,9 +312,15 @@ export function getRecentGroupConversations(company: string): Promise<RecentGrou
 	return roomJson(`/api/companies/${encodeURIComponent(company)}/group-conversations`);
 }
 
+/* The machine blocks a stored body carries after its visible text: attachment paths, the cockpit
+ * link, Attention context and agent receipts. A preview stops at the first of them. */
+const MACHINE_BLOCK = /\n\n\[(?:Restless |Owner cockpit context\])|<!--restless-/;
+
 /** A message's opening text as one plain line: markdown links, emphasis and code marks dropped. */
 export function messagePreview(body: string | undefined): string {
-	return (body ?? '')
+	const text = body ?? '';
+	const machine = text.search(MACHINE_BLOCK);
+	return (machine >= 0 ? text.slice(0, machine) : text)
 		.replace(/!\[[^\]]*\]\([^)]*\)/g, '')
 		.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
 		.replace(/[*_`>#~]+/g, '')
@@ -586,4 +607,18 @@ export function removeRoomParticipant(
 	return roomJson(`${roomPath(company, room)}/participants/${encodeURIComponent(actor)}`, {
 		method: 'DELETE'
 	});
+}
+
+/** The Room owner renames a group; everyone sees the new name. */
+export function renameRoom(company: string, room: string, title: string): Promise<Room> {
+	return roomJson(roomPath(company, room), {
+		method: 'PATCH',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ title })
+	});
+}
+
+/** The Room owner closes a group: it leaves every list, and its messages are kept. */
+export function archiveRoom(company: string, room: string): Promise<Room> {
+	return roomJson(`${roomPath(company, room)}/archive`, { method: 'POST' });
 }

@@ -463,12 +463,14 @@
 
 	async function sendMessage(event: SubmitEvent) {
 		event.preventDefault();
-		const body = messageDraft.trim();
+		const files = messageFiles;
+		const body =
+			messageDraft.trim() ||
+			(files.length ? `Attached: ${files.map((file) => file.name).join(', ')}` : '');
 		if (!body || sendingMessage || !leadConversation) return;
 		sendingMessage = true;
 		conversationError = '';
 		const sent = messageDraft;
-		const files = messageFiles;
 		messageDraft = '';
 		try {
 			await leadConversation.send(body, files, undefined, false, !!conversationTurn);

@@ -33,6 +33,7 @@
 		disabled = false,
 		minlength = 2,
 		allowAttachments = true,
+		attachmentsOffNotice = 'Files can’t be attached here yet.',
 		actionLabel = '',
 		flareKey = 0,
 		focusKey = 0,
@@ -51,6 +52,8 @@
 		minlength?: number;
 		/** Hide file affordances when the owning API accepts text only. */
 		allowAttachments?: boolean;
+		/** Said when a file is dropped or pasted where files cannot go. */
+		attachmentsOffNotice?: string;
 		/** Visible on hover and assistive tech when a send has a special effect. */
 		actionLabel?: string;
 		/** Increment to play the one-shot semantic-light acknowledgement. */
@@ -188,7 +191,23 @@
 	/* Keep the explicit send boundary closed until the transcript is editable.
 	 * Otherwise a pre-existing draft could be sent while recognition is still
 	 * running, then receive the transcript after the caller clears the field. */
-	const sendability = $derived(sendState({ disabled: disabled || voiceActive, value, minlength }));
+	const sendability = $derived(
+		sendState({
+			disabled: disabled || voiceActive,
+			value,
+			minlength,
+			files: allowAttachments ? files.length : 0
+		})
+	);
+	/* A file dropped or pasted where files cannot go is said, never silently lost. */
+	let attachmentNotice = $state('');
+	let attachmentNoticeTimer: ReturnType<typeof setTimeout> | undefined;
+	function refuseFiles() {
+		attachmentNotice = attachmentsOffNotice;
+		clearTimeout(attachmentNoticeTimer);
+		attachmentNoticeTimer = setTimeout(() => (attachmentNotice = ''), 6_000);
+	}
+	$effect(() => () => clearTimeout(attachmentNoticeTimer));
 	const sendable = $derived(sendability === 'ready');
 	const sendLabel = $derived(
 		voiceActive ? 'Finish dictation before sending' : actionLabel || sendButtonLabel(sendability)
@@ -356,9 +375,11 @@
 	class:dropping
 	role="group"
 	ondragover={(event) => {
-		if (!allowAttachments || disabled || !event.dataTransfer?.types.includes('Files')) return;
+		if (disabled || !event.dataTransfer?.types.includes('Files')) return;
+		/* Claim the drop even where files cannot go, so it is answered here rather than the
+		 * browser opening the file in place of the cockpit. */
 		event.preventDefault();
-		dropping = true;
+		if (allowAttachments) dropping = true;
 	}}
 	ondragleave={(event) => {
 		if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node))
@@ -367,9 +388,10 @@
 	ondrop={(event) => {
 		dropping = false;
 		const dropped = [...(event.dataTransfer?.files ?? [])];
-		if (!allowAttachments || disabled || !dropped.length) return;
+		if (disabled || !dropped.length) return;
 		event.preventDefault();
-		files = [...files, ...dropped];
+		if (allowAttachments) files = [...files, ...dropped];
+		else refuseFiles();
 	}}
 >
 	{#if menu && menuItems.length > 0}
@@ -428,6 +450,11 @@
 				<span>{voiceError}</span>
 				<button type="button" onclick={() => (voiceState = 'idle')}>Dismiss</button>
 			</div>
+		{:else if attachmentNotice}
+			<div class="hc-voice-state notice" role="status">
+				<span title={attachmentNotice}>{attachmentNotice}</span>
+				<button type="button" onclick={() => (attachmentNotice = '')}>Dismiss</button>
+			</div>
 		{/if}
 		{#if selectedSkills.length > 0}
 			<div class="hc-skills" aria-label="Selected skills">
@@ -471,7 +498,15 @@
 			onpaste={(event) => {
 				// A pasted screenshot attaches; pasted text stays text.
 				const pasted = [...(event.clipboardData?.files ?? [])];
-				if (!allowAttachments || disabled || !pasted.length) return;
+				if (disabled || !pasted.length) return;
+				if (!allowAttachments) {
+					// Pasted text that came with a file (a copied cell, say) still pastes.
+					if (!event.clipboardData?.getData('text/plain')) {
+						event.preventDefault();
+						refuseFiles();
+					}
+					return;
+				}
 				event.preventDefault();
 				files = [...files, ...pasted];
 			}}></textarea>

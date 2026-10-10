@@ -613,7 +613,21 @@ export function roomActivityStream(companyId: string, roomId: string) {
 	const invalidate = async (event?: RoomEvent): Promise<void> => {
 		// Someone reading changes unread counts, not the messages themselves.
 		const readOnly = event?.kind === 'room.read_cursor.advanced.v1';
+		// A rename, archive, join or leave changes the Room itself and who is in it.
+		const roomChanged =
+			event?.kind === 'room.renamed.v1' ||
+			event?.kind === 'room.archived.v1' ||
+			event?.kind === 'room.participant.joined.v1' ||
+			event?.kind === 'room.participant.left.v1';
 		await Promise.all([
+			roomChanged
+				? Promise.all([
+						client.invalidateQueries({ queryKey: roomQueryKeys.list(companyId) }),
+						client.invalidateQueries({
+							queryKey: roomQueryKeys.participants(companyId, roomId)
+						})
+					])
+				: undefined,
 			readOnly
 				? client.invalidateQueries({ queryKey: roomQueryKeys.readCursor(companyId, roomId) })
 				: client.invalidateQueries({ queryKey: roomQueryKeys.messages(companyId, roomId) }),
