@@ -954,65 +954,11 @@ pub(crate) async fn archive_group_rooms_owned_by_retiring_actor(
     }
 
     for room_id in &room_ids {
-        let pending: Vec<(Uuid, String, i64)> = sqlx::query_as(
-            "SELECT id,mentioned_actor_id,message_id FROM message_mentions \
-             WHERE room_id=$1 AND resolution_message_id IS NULL \
-               AND cancelled_event_id IS NULL \
-             ORDER BY created_event_id FOR UPDATE",
-        )
-        .bind(room_id)
-        .fetch_all(&mut **tx)
-        .await?;
-        let mention_ids = pending
-            .iter()
-            .map(|(mention_id, _, _)| *mention_id)
-            .collect::<Vec<_>>();
-        if !mention_ids.is_empty() {
-            sqlx::query(
-                "UPDATE actor_cognitive_leases \
-                 SET revoked_at=COALESCE(revoked_at,now()),revoked_by=$2,revocation_reason=$3 \
-                 WHERE focused_mention_id=ANY($1) AND claimed_until>now()",
-            )
-            .bind(&mention_ids)
-            .bind(archived_by)
-            .bind("the focused Room was archived when its owner retired")
-            .execute(&mut **tx)
-            .await?;
-        }
-        for (mention_id, mentioned_actor_id, message_id) in pending {
-            let cancelled_event_id = append_room_event(
-                tx,
-                "room.mention.cancelled.v1",
-                *room_id,
-                archived_by,
-                Some(message_id),
-                serde_json::json!({
-                    "mention_id": mention_id,
-                    "mentioned_actor_id": mentioned_actor_id,
-                    "reason": "the Room was archived when its owner retired",
-                }),
-            )
-            .await?;
-            sqlx::query(
-                "UPDATE message_mentions SET cancelled_event_id=$2,cancelled_by=$3, \
-                        cancellation_reason=$4,cancelled_at=now(),claim_token=NULL, \
-                        claimed_at=NULL,claimed_until=NULL \
-                 WHERE id=$1 AND resolution_message_id IS NULL AND cancelled_event_id IS NULL",
-            )
-            .bind(mention_id)
-            .bind(cancelled_event_id)
-            .bind(archived_by)
-            .bind("the Room was archived when its owner retired")
-            .execute(&mut **tx)
-            .await?;
-        }
-
-        append_room_event(
+        archive_locked_room_in_tx(
             tx,
-            "room.archived.v1",
             *room_id,
             archived_by,
-            None,
+            "the Room was archived when its owner retired",
             serde_json::json!({
                 "room_id": room_id,
                 "former_owner_actor_id": actor_id,
@@ -1020,12 +966,79 @@ pub(crate) async fn archive_group_rooms_owned_by_retiring_actor(
             }),
         )
         .await?;
-        sqlx::query("UPDATE rooms SET archived_at=now() WHERE id=$1 AND archived_at IS NULL")
-            .bind(room_id)
-            .execute(&mut **tx)
-            .await?;
     }
     Ok(room_ids.len() as u64)
+}
+
+/// Archive one Room the caller has already locked: every still-pending
+/// mention gets an explicit terminal receipt (and its focused lease is
+/// revoked), then the Room leaves every active list. The transcript stays.
+async fn archive_locked_room_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    room_id: Uuid,
+    archived_by: &str,
+    mention_reason: &str,
+    event_body: serde_json::Value,
+) -> Result<()> {
+    let pending: Vec<(Uuid, String, i64)> = sqlx::query_as(
+        "SELECT id,mentioned_actor_id,message_id FROM message_mentions \
+         WHERE room_id=$1 AND resolution_message_id IS NULL \
+           AND cancelled_event_id IS NULL \
+         ORDER BY created_event_id FOR UPDATE",
+    )
+    .bind(room_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    let mention_ids = pending
+        .iter()
+        .map(|(mention_id, _, _)| *mention_id)
+        .collect::<Vec<_>>();
+    if !mention_ids.is_empty() {
+        sqlx::query(
+            "UPDATE actor_cognitive_leases \
+             SET revoked_at=COALESCE(revoked_at,now()),revoked_by=$2,revocation_reason=$3 \
+             WHERE focused_mention_id=ANY($1) AND claimed_until>now()",
+        )
+        .bind(&mention_ids)
+        .bind(archived_by)
+        .bind(mention_reason)
+        .execute(&mut **tx)
+        .await?;
+    }
+    for (mention_id, mentioned_actor_id, message_id) in pending {
+        let cancelled_event_id = append_room_event(
+            tx,
+            "room.mention.cancelled.v1",
+            room_id,
+            archived_by,
+            Some(message_id),
+            serde_json::json!({
+                "mention_id": mention_id,
+                "mentioned_actor_id": mentioned_actor_id,
+                "reason": mention_reason,
+            }),
+        )
+        .await?;
+        sqlx::query(
+            "UPDATE message_mentions SET cancelled_event_id=$2,cancelled_by=$3, \
+                    cancellation_reason=$4,cancelled_at=now(),claim_token=NULL, \
+                    claimed_at=NULL,claimed_until=NULL \
+             WHERE id=$1 AND resolution_message_id IS NULL AND cancelled_event_id IS NULL",
+        )
+        .bind(mention_id)
+        .bind(cancelled_event_id)
+        .bind(archived_by)
+        .bind(mention_reason)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    append_room_event(tx, "room.archived.v1", room_id, archived_by, None, event_body).await?;
+    sqlx::query("UPDATE rooms SET archived_at=now() WHERE id=$1 AND archived_at IS NULL")
+        .bind(room_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
 }
 
 impl OrgIntel {
@@ -1409,7 +1422,9 @@ impl OrgIntel {
 
     /// The conversation index is based on Message history, not room creation.
     /// An incoming-only or empty Room does not imply that this Actor has
-    /// started a conversation. Direct Rooms have exactly one other participant.
+    /// started a conversation, except that a human colleague writing first is
+    /// a conversation: it is listed so the viewer can see it arrived. Direct
+    /// Rooms have exactly one other participant.
     pub async fn recent_direct_conversations_for_actor(
         &self,
         actor_id: &str,
@@ -1417,7 +1432,8 @@ impl OrgIntel {
         Ok(sqlx::query_as(
             "SELECT room.id AS room_id, peer.actor_id AS person_actor_id, \
                     latest.id AS last_message_id, latest.created_at AS last_message_at, \
-                    latest.from_actor AS last_message_from, latest.preview AS last_message_preview \
+                    latest.from_actor AS last_message_from, latest.preview AS last_message_preview, \
+                    cursor.last_read_message_id \
              FROM rooms room \
              JOIN room_participants viewer ON viewer.room_id=room.id \
                   AND viewer.actor_id=$1 AND viewer.left_at IS NULL \
@@ -1432,12 +1448,13 @@ impl OrgIntel {
                  WHERE message.room_id=room.id AND message.deleted_at IS NULL \
                  ORDER BY message.id DESC LIMIT 1 \
              ) latest ON true \
+             LEFT JOIN room_read_cursors cursor ON cursor.room_id=room.id AND cursor.actor_id=$1 \
              WHERE room.kind='direct' AND room.archived_at IS NULL \
-               AND EXISTS ( \
+               AND (actor.actor_class='human' OR EXISTS ( \
                    SELECT 1 FROM messages sent \
                    WHERE sent.room_id=room.id AND sent.from_actor=$1 \
                      AND sent.deleted_at IS NULL \
-               ) \
+               )) \
              ORDER BY latest.created_at DESC,latest.id DESC,room.id DESC",
         )
         .bind(actor_id)
@@ -1455,7 +1472,8 @@ impl OrgIntel {
         Ok(sqlx::query_as(
             "SELECT room.id AS room_id, room.title, \
                     latest.id AS last_message_id, latest.created_at AS last_message_at, \
-                    latest.from_actor AS last_message_from, latest.preview AS last_message_preview \
+                    latest.from_actor AS last_message_from, latest.preview AS last_message_preview, \
+                    cursor.last_read_message_id \
              FROM rooms room \
              JOIN room_participants viewer ON viewer.room_id=room.id \
                   AND viewer.actor_id=$1 AND viewer.left_at IS NULL \
@@ -1467,6 +1485,7 @@ impl OrgIntel {
                  WHERE message.room_id=room.id AND message.deleted_at IS NULL \
                  ORDER BY message.id DESC LIMIT 1 \
              ) latest ON true \
+             LEFT JOIN room_read_cursors cursor ON cursor.room_id=room.id AND cursor.actor_id=$1 \
              WHERE room.kind<>'direct' AND room.archived_at IS NULL \
              ORDER BY latest.created_at DESC,latest.id DESC,room.id DESC \
              LIMIT 200",
@@ -1680,8 +1699,10 @@ impl OrgIntel {
     }
 
     /// Remove one ordinary participant without deleting their attributable
-    /// history. A Room owner cannot remove itself through this primitive and a
-    /// direct pair cannot be mutated into a one-sided pseudo-conversation.
+    /// history. The Room owner removes others; any member may remove itself,
+    /// which is leaving. A Room owner cannot remove itself through this
+    /// primitive (it archives the Room instead) and a direct pair cannot be
+    /// mutated into a one-sided pseudo-conversation.
     pub async fn remove_room_participant(
         &self,
         requesting_actor: &str,
@@ -1717,14 +1738,15 @@ impl OrgIntel {
                 "a direct Room audience is immutable".into(),
             ));
         }
-        if requester_role != RoomParticipantRole::Owner {
+        let leaving = actor_id == requesting_actor;
+        if !leaving && requester_role != RoomParticipantRole::Owner {
             return Err(OrgIntelError::RoomAccessDenied(
                 "only the Room owner may remove participants".into(),
             ));
         }
-        if actor_id == requesting_actor {
+        if leaving && requester_role == RoomParticipantRole::Owner {
             return Err(OrgIntelError::InvalidRoom(
-                "the Room owner cannot remove itself".into(),
+                "the Room owner cannot remove itself; archive the Room instead".into(),
             ));
         }
         let removed = sqlx::query_as(
@@ -1763,6 +1785,111 @@ impl OrgIntel {
         .await?;
         tx.commit().await?;
         Ok(removed)
+    }
+
+    /// Lock the requesting Actor, then the Room, and prove the requester owns
+    /// an active group or company Room. Shared by rename and archive.
+    async fn lock_owned_shared_room(
+        tx: &mut Transaction<'_, Postgres>,
+        requesting_actor: &str,
+        room_id: Uuid,
+        operation: &str,
+    ) -> Result<RoomKind> {
+        let active: Option<String> = sqlx::query_scalar(
+            "SELECT id FROM actors WHERE id=$1 AND retired_at IS NULL FOR SHARE",
+        )
+        .bind(requesting_actor)
+        .fetch_optional(&mut **tx)
+        .await?;
+        if active.is_none() {
+            return Err(OrgIntelError::RoomAccessDenied(
+                "the requesting Actor is not active".into(),
+            ));
+        }
+        sqlx::query("SELECT id FROM rooms WHERE id=$1 FOR UPDATE")
+            .bind(room_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+        let (kind, role) = active_room_access(tx, room_id, requesting_actor).await?;
+        if kind == RoomKind::Direct {
+            return Err(OrgIntelError::InvalidRoom(format!(
+                "a direct Room cannot be {operation}d"
+            )));
+        }
+        if role != RoomParticipantRole::Owner {
+            return Err(OrgIntelError::RoomAccessDenied(format!(
+                "only the Room owner may {operation} it"
+            )));
+        }
+        Ok(kind)
+    }
+
+    /// Rename a group or company Room. Only its owner may; the title follows
+    /// the same 1 to 160 character rule as creation.
+    pub async fn rename_room(
+        &self,
+        requesting_actor: &str,
+        room_id: Uuid,
+        title: &str,
+    ) -> Result<RoomRow> {
+        let title = title.trim();
+        if title.is_empty() || title.chars().count() > 160 {
+            return Err(OrgIntelError::InvalidRoom(
+                "a Room title must contain between 1 and 160 characters".into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        Self::lock_owned_shared_room(&mut tx, requesting_actor, room_id, "rename").await?;
+        let room: RoomRow = sqlx::query_as(
+            "UPDATE rooms SET title=$2 WHERE id=$1 \
+             RETURNING id,kind,title,created_by,canonical_key,created_at,archived_at",
+        )
+        .bind(room_id)
+        .bind(title)
+        .fetch_one(&mut *tx)
+        .await?;
+        append_room_event(
+            &mut tx,
+            "room.renamed.v1",
+            room_id,
+            requesting_actor,
+            None,
+            serde_json::json!({ "room_id": room_id, "title": title }),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(room)
+    }
+
+    /// Archive a group Room its owner no longer needs. Pending mentions get
+    /// terminal receipts, the Room leaves every list, and the transcript stays.
+    /// The company Room is the company's own and is never archived here.
+    pub async fn archive_room(&self, requesting_actor: &str, room_id: Uuid) -> Result<RoomRow> {
+        let mut tx = self.pool.begin().await?;
+        let kind =
+            Self::lock_owned_shared_room(&mut tx, requesting_actor, room_id, "archive").await?;
+        if kind != RoomKind::Group {
+            return Err(OrgIntelError::InvalidRoom(
+                "only a group Room can be archived".into(),
+            ));
+        }
+        archive_locked_room_in_tx(
+            &mut tx,
+            room_id,
+            requesting_actor,
+            "the Room was archived by its owner",
+            serde_json::json!({ "room_id": room_id, "archived_by": requesting_actor }),
+        )
+        .await?;
+        let room: RoomRow = sqlx::query_as(
+            "SELECT id,kind,title,created_by,canonical_key,created_at,archived_at \
+             FROM rooms WHERE id=$1",
+        )
+        .bind(room_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(room)
     }
 
     /// Send one idempotent Room message. The Actor id is an authorization

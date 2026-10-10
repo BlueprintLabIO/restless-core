@@ -3869,3 +3869,78 @@ async fn cognitive_finalization_links_owner_reply_to_work_once() {
     );
     org.release_actor_cognitive_session(&lease).await.unwrap();
 }
+
+#[tokio::test]
+async fn a_group_owner_renames_or_archives_and_a_member_can_only_leave() {
+    let Some(org) = company("roomlifecycle").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Room lifecycle scenario");
+        return;
+    };
+    let room = org
+        .create_room(
+            "owner",
+            RoomKind::Group,
+            "Launch",
+            &["exec", "delivery-build"],
+            "lifecycle-room",
+        )
+        .await
+        .unwrap();
+    let said = org
+        .send_room_message(room.id, "owner", "Kick-off", None, "lifecycle-said")
+        .await
+        .unwrap();
+
+    // Unread state is the viewer's own server cursor, the same on every device.
+    let cursor = |rows: Vec<restless_orgintel::RecentGroupConversationRow>| {
+        rows.into_iter()
+            .find(|row| row.room_id == room.id)
+            .map(|row| row.last_read_message_id)
+    };
+    let before = org.recent_group_conversations_for_actor("exec").await.unwrap();
+    assert_eq!(cursor(before), Some(None));
+    org.mark_room_read_through(room.id, "exec", said.message.id)
+        .await
+        .unwrap();
+    let after = org.recent_group_conversations_for_actor("exec").await.unwrap();
+    assert_eq!(cursor(after), Some(Some(said.message.id)));
+
+    // A member cannot change the Room for everyone...
+    let denied = [
+        org.rename_room("exec", room.id, "Mine now").await.map(|_| ()),
+        org.archive_room("exec", room.id).await.map(|_| ()),
+        org.remove_room_participant("exec", room.id, "delivery-build")
+            .await
+            .map(|_| ()),
+    ];
+    for refusal in denied {
+        assert!(refusal
+            .unwrap_err()
+            .to_string()
+            .contains("only the Room owner"));
+    }
+    // ...but may leave, after which the Room is closed to it.
+    org.remove_room_participant("delivery-build", room.id, "delivery-build")
+        .await
+        .unwrap();
+    assert!(org.room_participants("delivery-build", room.id).await.is_err());
+
+    // The owner renames and archives; it cannot leave its own Room.
+    assert!(org
+        .remove_room_participant("owner", room.id, "owner")
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("archive"));
+    assert!(org.rename_room("owner", room.id, "  ").await.is_err());
+    let renamed = org.rename_room("owner", room.id, " Launch week ").await.unwrap();
+    assert_eq!(renamed.title, "Launch week");
+    let archived = org.archive_room("owner", room.id).await.unwrap();
+    assert!(archived.archived_at.is_some());
+    let listed = org.recent_group_conversations_for_actor("exec").await.unwrap();
+    assert_eq!(cursor(listed), None);
+    assert!(org
+        .send_room_message(room.id, "exec", "Too late", None, "lifecycle-late")
+        .await
+        .is_err());
+}

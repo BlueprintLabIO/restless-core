@@ -1328,6 +1328,9 @@ pub struct RecentDirectConversationRow {
     /// say what was said without opening it (S64-T3).
     pub last_message_from: String,
     pub last_message_preview: String,
+    /// The viewer's own read cursor in this Room, so unread state is the
+    /// same on every device the viewer uses.
+    pub last_read_message_id: Option<i64>,
 }
 
 /// A group Room the viewing Actor belongs to, by its latest visible Message.
@@ -1339,6 +1342,7 @@ pub struct RecentGroupConversationRow {
     pub last_message_at: DateTime<Utc>,
     pub last_message_from: String,
     pub last_message_preview: String,
+    pub last_read_message_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
