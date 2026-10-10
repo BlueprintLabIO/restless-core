@@ -4574,9 +4574,13 @@ struct CompanySetupInput {
 }
 
 fn company_setup_view(config: &runtime::CompanyConfig) -> serde_json::Value {
+    // The logo has its own route; changing it must not make an open setup,
+    // name or provider edit stale. Without a logo the digest is unchanged.
+    let mut revisioned = config.clone();
+    revisioned.logo = None;
     let revision = format!(
         "{:x}",
-        Sha256::digest(serde_json::to_vec(config).expect("company config serializes"))
+        Sha256::digest(serde_json::to_vec(&revisioned).expect("company config serializes"))
     );
     serde_json::json!({
         "display_name": config.display_name.clone().unwrap_or_else(|| company_display_name(&config.name)),

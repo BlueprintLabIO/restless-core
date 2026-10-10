@@ -579,4 +579,15 @@ mod logo_tests {
         let owner = RequestPrincipal::from_verified(&identity("owner")).unwrap();
         assert!(membership_boundary_violation(&Method::PUT, path, &owner).is_none());
     }
+
+    /// A logo change never makes an open name, mission or provider edit stale.
+    #[test]
+    fn a_logo_change_keeps_the_setup_revision() {
+        let mut config: runtime::CompanyConfig = toml::from_str("name = \"aris\"").unwrap();
+        let before = company_setup_view(&config)["revision"].clone();
+        config.logo = Some("aris.logo-0123456789abcdef.png".into());
+        assert_eq!(company_setup_view(&config)["revision"], before);
+        config.mission = "Changed".into();
+        assert_ne!(company_setup_view(&config)["revision"], before);
+    }
 }
