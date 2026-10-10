@@ -94,7 +94,9 @@ async function boundedNavigationFetch(request: Request): Promise<Response> {
 		// A previous shell response can remain in the browser's HTTP cache even
 		// after the server begins sending no-store. Ask the network on every
 		// navigation so a deployed cockpit is visible on the next reload.
-		const response = await fetch(new Request(request, { signal: controller.signal, cache: 'no-store' }));
+		const response = await fetch(
+			new Request(request, { signal: controller.signal, cache: 'no-store' })
+		);
 		// Fetch resolves at the headers. Read a clone so a response whose body stalls is
 		// bounded too, while leaving the original available to the browser and cache.
 		if (response.body) await response.clone().arrayBuffer();
@@ -128,7 +130,14 @@ worker.addEventListener('fetch', (event) => {
 	const { request } = event;
 	if (request.method !== 'GET') return;
 	const url = new URL(request.url);
-	if (url.origin !== worker.location.origin || url.pathname.startsWith('/api/')) return;
+	/* Review tickets are company content on this host (sandboxed into an opaque origin); they must
+	 * never be cached, nor become the navigation fallback. */
+	if (
+		url.origin !== worker.location.origin ||
+		url.pathname.startsWith('/api/') ||
+		url.pathname.startsWith('/review/')
+	)
+		return;
 
 	if (request.mode === 'navigate') {
 		const network = boundedNavigationFetch(request);

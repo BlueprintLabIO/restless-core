@@ -183,6 +183,7 @@ editing, conversation and navigation steps; 6 phone and shortcut steps). Bugs fo
 | Favicon 404 after a client redirect from a nested route | Root-absolute icon and manifest links | a8a10e1 |
 | Typing straight after Enter in a document title lost characters | Body selected and focused synchronously (10/10 runs keep every character; 3/5 without the fix) | 3aaf394 |
 | Present moved focus into the deck frame, which swallowed Escape | Focus stays in the cockpit; windowed fallback without full screen | 3aaf394 |
+| On Cloud every Library file and review opened blank: the plane issued its loopback review origin (`http://<ticket>.localhost:7794`), which a remote browser cannot reach and an https cockpit blocks (found by the hosted smoke) | A plane reached over the network serves tickets on its own host under `/review/<ticket>/`, sandboxed into an opaque origin (PDFs excepted); local planes keep their separate origin; `RESTLESS_REVIEW_ON_PLANE_HOST=1` opts a local plane in. Boundary checked: tickets refused when wrong, malformed, traversing, writing, or presented in the other mode; the sandboxed page reads neither storage nor the owner API | this commit |
 | Ten `_test` document sidecars crash-looped (≈827 restarts each) after their companies were removed, unseen by the reaper, churning the host network | The reaper flags a sidecar whose company has no config and removes it when stopped or crash-looping | this commit |
 
 Final run on main: crawl 64/64 clean (no console, page or HTTP errors, no overflow); smokes 26/26,

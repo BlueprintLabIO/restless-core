@@ -72,15 +72,19 @@
 	let presenting = $state(false);
 	let slide = $state(1);
 	let total = $state(0);
-	const origin = $derived(url ? new URL(url).origin : '');
+	/* The file is on its own review origin, or on this host under /review/ in an opaque (sandboxed)
+	 * origin, whose messages arrive from origin "null". Trust the sending frame, not the origin;
+	 * an opaque origin can only be addressed as "*", and these messages carry nothing private. */
+	const origin = $derived(url ? new URL(url, location.href).origin : '');
+	const target = $derived(!origin || origin === location.origin ? '*' : origin);
 	const pdfSrc = $derived(url && isPdf ? `${url.split('#')[0]}#view=FitH` : '');
 
 	function step(action: 'next' | 'prev' | 'first') {
 		if (isPdf) return;
-		frame?.contentWindow?.postMessage({ type: 'restless:deck', action }, origin || '*');
+		frame?.contentWindow?.postMessage({ type: 'restless:deck', action }, target);
 	}
 	function onmessage(event: MessageEvent) {
-		if (!origin || event.origin !== origin) return;
+		if (!frame || event.source !== frame.contentWindow) return;
 		const data = event.data as { type?: string; slide?: number; total?: number } | null;
 		if (data?.type !== 'restless:deck') return;
 		if (typeof data.slide === 'number') slide = data.slide;

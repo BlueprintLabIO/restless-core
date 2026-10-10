@@ -23,7 +23,9 @@ export default defineConfig({
 		proxy: {
 			// Live documents open a WebSocket under /api.
 			'/api': { target: ownerGateway, ws: true },
-			'/desktop': { target: ownerGateway, ws: true }
+			'/desktop': { target: ownerGateway, ws: true },
+			// Review tickets a plane serves on its own host (RESTLESS_REVIEW_ON_PLANE_HOST, Cloud).
+			'/review': { target: ownerGateway }
 		}
 	}
 });

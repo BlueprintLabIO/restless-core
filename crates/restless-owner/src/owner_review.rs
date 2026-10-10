@@ -4,6 +4,51 @@ use super::*;
 
 pub(crate) const REVIEW_TTL: Duration = Duration::from_secs(30 * 60);
 
+/// Where a plane serves review tickets on its own host: `/review/{ticket}/{path}`.
+pub(crate) const REVIEW_PATH_PREFIX: &str = "/review/";
+
+/// A request for a ticket served on the plane's own host. The ticket is its whole authority, as
+/// on the separate review origin, so it bypasses browser sessions.
+pub(crate) fn is_review_path(path: &str) -> bool {
+    path.starts_with(REVIEW_PATH_PREFIX)
+}
+
+/// Where a review ticket is served, and the Host it must arrive on (empty: the plane-host path).
+///
+/// A plane reached over the network cannot hand a remote browser its loopback review origin
+/// (`http://{ticket}.localhost:<port>`): that URL resolves on the owner's own machine, and an https
+/// cockpit refuses it as mixed content, so every review and Library file opened blank on Cloud.
+/// Such a plane serves the ticket on its own host under `/review/{ticket}/`, with a sandbox policy
+/// that gives the content an opaque origin: company code still never shares the cockpit's origin,
+/// cookies or storage. A plane whose browser is on the same machine keeps its separate origin,
+/// which also serves root-relative assets and live services intact. `RESTLESS_REVIEW_ON_PLANE_HOST=1`
+/// opts a local plane into the plane-host path when it is reached from another device.
+pub(crate) fn review_location(
+    state: &OwnerState,
+    ticket: &str,
+    path_and_query: &str,
+) -> Result<(String, String)> {
+    if review_on_plane_host(state) {
+        let path = path_and_query.trim_start_matches('/');
+        return Ok((format!("{REVIEW_PATH_PREFIX}{ticket}/{path}"), String::new()));
+    }
+    materialize_review_url(&state.review_public_url, ticket, path_and_query)
+}
+
+fn review_on_plane_host(state: &OwnerState) -> bool {
+    if std::env::var("RESTLESS_REVIEW_ON_PLANE_HOST").as_deref() == Ok("1") {
+        return true;
+    }
+    let loopback = url::Url::parse(&state.review_public_url.replace("{ticket}", "ticket"))
+        .ok()
+        .and_then(|url| {
+            url.host_str()
+                .map(|host| host == "localhost" || host.ends_with(".localhost"))
+        })
+        .unwrap_or(true);
+    state.entry.network().is_some() && loopback
+}
+
 #[derive(Clone)]
 pub(crate) struct ReviewSession {
     pub(crate) company: String,
@@ -284,7 +329,7 @@ async fn open_review_origin(
 
     let ticket = Uuid::new_v4().simple().to_string();
     let (review_url, expected_host) =
-        match materialize_review_url(&state.review_public_url, &ticket, &path_and_query) {
+        match review_location(state, &ticket, &path_and_query) {
             Ok(value) => value,
             Err(error) => {
                 return api_error(
@@ -357,6 +402,64 @@ pub(crate) async fn review_proxy(
             "review ticket is absent or expired",
         );
     };
+    let path = uri
+        .path_and_query()
+        .map(|value| value.as_str())
+        .unwrap_or("/");
+    serve_review(session, method, path, &headers, false).await
+}
+
+/// A ticket served on the plane's own host: `/review/{ticket}/{path}`. The ticket in the path is the
+/// whole authority, exactly as the ticket in the separate origin's hostname is; the response is
+/// sandboxed into an opaque origin (see [`finish_review_response`]).
+pub(crate) async fn review_path_proxy(
+    State(state): State<OwnerState>,
+    method: Method,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+) -> Response<Body> {
+    if !matches!(method, Method::GET | Method::HEAD) {
+        return api_error(
+            StatusCode::METHOD_NOT_ALLOWED,
+            "review",
+            "review previews are read-only",
+        );
+    }
+    let rest = uri.path().strip_prefix(REVIEW_PATH_PREFIX).unwrap_or_default();
+    let (token, file) = rest.split_once('/').unwrap_or((rest, ""));
+    if token.len() != 32 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return api_error(StatusCode::UNAUTHORIZED, "review", "review ticket is invalid");
+    }
+    let session = {
+        let mut reviews = state.reviews.lock().expect("review registry");
+        reviews.retain(|_, review| review.expires_at > SystemTime::now());
+        reviews
+            .get(token)
+            .filter(|review| review.expected_host.is_empty())
+            .cloned()
+    };
+    let Some(session) = session else {
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            "review",
+            "review ticket is absent or expired",
+        );
+    };
+    let path = match uri.query() {
+        Some(query) => format!("/{file}?{query}"),
+        None => format!("/{file}"),
+    };
+    serve_review(session, method, &path, &headers, true).await
+}
+
+/// Read one request's target for a resolved ticket, wherever the ticket was presented.
+async fn serve_review(
+    session: ReviewSession,
+    method: Method,
+    path: &str,
+    headers: &HeaderMap,
+    on_plane_host: bool,
+) -> Response<Body> {
     let current = runtime::generation(&session.company).await.ok().flatten();
     if current.as_deref() != Some(session.generation.as_str()) {
         return api_error(
@@ -365,13 +468,9 @@ pub(crate) async fn review_proxy(
             "review points at a replaced company computer",
         );
     }
-    let path = uri
-        .path_and_query()
-        .map(|value| value.as_str())
-        .unwrap_or("/");
     let upstream = match &session.source {
         ReviewSource::Service { port } => {
-            match runtime::runtime_http_request(&session.company, *port, method, path, &headers)
+            match runtime::runtime_http_request(&session.company, *port, method, path, headers)
                 .await
             {
                 Ok(response) => response,
@@ -422,7 +521,7 @@ pub(crate) async fn review_proxy(
                             HeaderValue::from_static("nosniff"),
                         );
                     }
-                    return finish_review_response(response, &session, path);
+                    return finish_review_response(response, &session, path, on_plane_host);
                 }
                 Err(error) => {
                     return api_error(StatusCode::NOT_FOUND, "review", format!("{error:#}"))
@@ -432,14 +531,21 @@ pub(crate) async fn review_proxy(
     };
     let (parts, body) = upstream.into_parts();
     let response = Response::from_parts(parts, Body::new(body));
-    finish_review_response(response, &session, path)
+    finish_review_response(response, &session, path, on_plane_host)
 }
 
 /// One header policy for every isolated review origin, whatever it read from.
+///
+/// On the plane's own host the content would otherwise share the cockpit's origin, so it is
+/// sandboxed: without `allow-same-origin` the browser gives it an opaque origin, in the cockpit's
+/// frame or opened on its own, so it cannot read the cockpit's cookies, storage or DOM, and its
+/// requests to the plane are cross-site (the `SameSite=Lax` session is not sent). A PDF is the one
+/// exception: the browser's reader refuses a sandboxed response, and a PDF runs no page script.
 pub(crate) fn finish_review_response(
     mut response: Response<Body>,
     session: &ReviewSession,
     path: &str,
+    on_plane_host: bool,
 ) -> Response<Body> {
     for name in [
         "connection",
@@ -469,6 +575,21 @@ pub(crate) fn finish_review_response(
         "x-content-type-options",
         HeaderValue::from_static("nosniff"),
     );
+    if on_plane_host {
+        let pdf = response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.starts_with("application/pdf"));
+        response.headers_mut().insert(
+            "content-security-policy",
+            HeaderValue::from_static(if pdf {
+                "frame-ancestors 'self'"
+            } else {
+                "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads; frame-ancestors 'self'"
+            }),
+        );
+    }
     tracing::debug!(
         company = %session.company,
         item = %session.item_id,
@@ -476,4 +597,69 @@ pub(crate) fn finish_review_response(
         "served isolated live review"
     );
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session() -> ReviewSession {
+        ReviewSession {
+            company: "acme_test".into(),
+            generation: "g1".into(),
+            item_id: "artifact:1".into(),
+            source: ReviewSource::Files {
+                root: PathBuf::from("/company/outputs/site"),
+                entry: "index.html".into(),
+            },
+            expected_host: String::new(),
+            expires_at: SystemTime::now() + REVIEW_TTL,
+        }
+    }
+
+    fn served(content_type: &'static str, upstream_csp: Option<&'static str>, on_plane_host: bool) -> String {
+        let mut response = Response::new(Body::empty());
+        response
+            .headers_mut()
+            .insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
+        if let Some(csp) = upstream_csp {
+            response
+                .headers_mut()
+                .insert("content-security-policy", HeaderValue::from_static(csp));
+        }
+        let response = finish_review_response(response, &session(), "/index.html", on_plane_host);
+        response
+            .headers()
+            .get_all("content-security-policy")
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .collect::<Vec<_>>()
+            .join(" | ")
+    }
+
+    /// Company content served on the plane's own host must never share the cockpit's origin: it is
+    /// sandboxed without `allow-same-origin`, whatever policy the company's own service sent.
+    #[test]
+    fn plane_host_content_is_sandboxed_into_an_opaque_origin() {
+        for content_type in ["text/html; charset=utf-8", "image/svg+xml", "text/plain; charset=utf-8"] {
+            let csp = served(content_type, Some("sandbox allow-same-origin allow-scripts"), true);
+            assert!(csp.starts_with("sandbox "), "{content_type}: {csp}");
+            assert!(!csp.contains("allow-same-origin"), "{content_type}: {csp}");
+            assert!(csp.contains("frame-ancestors 'self'"), "{content_type}: {csp}");
+        }
+    }
+
+    /// The browser's PDF reader refuses a sandboxed response; a PDF runs no page script, and
+    /// `nosniff` keeps anything else from being read as one.
+    #[test]
+    fn plane_host_pdf_is_framed_only_by_the_cockpit() {
+        assert_eq!(served("application/pdf", None, true), "frame-ancestors 'self'");
+    }
+
+    /// On the separate review origin the origin itself isolates the content; no policy is added
+    /// and upstream anti-framing is dropped, as before.
+    #[test]
+    fn separate_origin_adds_no_policy() {
+        assert_eq!(served("text/html; charset=utf-8", Some("frame-ancestors 'none'"), false), "");
+    }
 }
