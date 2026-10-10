@@ -194,9 +194,12 @@
 		font-size: var(--t-body);
 		text-decoration: none;
 	}
+	/* The selected view is raised, as it is in the sidebar and the top navigation. */
 	.view[aria-current='page'] {
-		background: var(--accent-strong);
-		border-color: var(--accent-strong);
-		color: var(--text-inverse);
+		border-color: var(--border-strong);
+		background: var(--surface-raised);
+		box-shadow: var(--shadow-soft), var(--bevel);
+		color: var(--ink);
+		font-weight: 600;
 	}
 </style>

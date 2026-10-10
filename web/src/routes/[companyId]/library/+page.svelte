@@ -420,10 +420,11 @@
 		/>
 	{/snippet}
 	{#snippet narrow()}
-		<div class="library-narrow-search">
-			<SidebarSearch bind:value={search} placeholder="Search files" />
-		</div>
-		<nav class="library-filters" aria-label="Library">
+		<!-- An open file has its own way back; the list's search and views step aside for it. -->
+		{#if !openFileId}<div class="library-narrow-search">
+				<SidebarSearch bind:value={search} placeholder="Search files" />
+			</div>{/if}
+		<nav class="library-filters" aria-label="Library" hidden={!!openFileId}>
 			{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : []), FILTERS.at(-1)!] as item (item.key)}
 				<a
 					href={filterHref(item.key)}
@@ -598,10 +599,18 @@
 		font-size: var(--t-body);
 		text-decoration: none;
 	}
+	/* The selected view is raised, as it is in the sidebar and the top navigation. */
 	.library-filters a.active {
-		background: var(--wash-active, var(--wash-hover));
+		background: var(--surface-raised);
+		box-shadow:
+			var(--shadow-soft),
+			var(--bevel),
+			0 0 0 1px var(--border);
 		color: var(--ink);
-		font-weight: 500;
+		font-weight: 600;
+	}
+	.library-filters[hidden] {
+		display: none;
 	}
 	.page {
 		container: page / inline-size;
