@@ -1685,8 +1685,9 @@ enum WorkCommand {
         digest: Option<String>,
         #[arg(long)]
         source_commit: Option<String>,
-        #[arg(long, default_value = "output")]
-        label: String,
+        /// What the owner would call it in the Library; the file's name when omitted.
+        #[arg(long)]
+        label: Option<String>,
         #[arg(long, default_value = "")]
         note: String,
     },

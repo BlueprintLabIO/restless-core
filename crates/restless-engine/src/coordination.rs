@@ -2451,6 +2451,16 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                             .await
                             .ok()
                             .flatten();
+                        // The owner reads this label in the Library. Without one, name the file
+                        // rather than calling every output "output" (older CLIs sent that).
+                        let default_label = artifact_label_from_uri(uri);
+                        let label = request
+                            .orgintel
+                            .label
+                            .as_deref()
+                            .map(str::trim)
+                            .filter(|label| !label.is_empty() && *label != "output")
+                            .unwrap_or(&default_label);
                         match org.link_work_artifact(restless_orgintel::NewArtifactRef {
                             kind,
                             uri,
@@ -2461,7 +2471,7 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                             digest: request.orgintel.digest.as_deref(),
                             source_commit: request.orgintel.source_commit.as_deref(),
                             runtime_generation: runtime_generation.as_deref(),
-                            label: request.orgintel.label.as_deref().unwrap_or("output"),
+                            label,
                         })
                         .await
                         {
@@ -4603,6 +4613,39 @@ pub async fn resolve_team(
             "{reference:?} matches more than one live team; use the team id"
         )),
         _ => Err(format!("no live team named {reference:?}")),
+    }
+}
+
+/// What an output is called when its recorder gave it no name: the file it is,
+/// or for a page's `index.html` the folder it sits in, or a URL's host and path.
+pub fn artifact_label_from_uri(uri: &str) -> String {
+    let path = uri.split(['?', '#']).next().unwrap_or(uri);
+    if let Some(rest) = path.split_once("://").map(|(_, rest)| rest) {
+        return rest.trim_end_matches('/').chars().take(200).collect();
+    }
+    let mut segments = path.rsplit('/').filter(|segment| !segment.is_empty());
+    let name = segments.next().unwrap_or(path);
+    let name = if name.eq_ignore_ascii_case("index.html") || name.eq_ignore_ascii_case("index.htm") {
+        // `…/q4-review/deck/index.html` is the Q4 review, not "deck".
+        let mut folder = segments.next().unwrap_or(name);
+        while matches!(
+            folder.to_ascii_lowercase().as_str(),
+            "deck" | "slides" | "presentation" | "site" | "dist" | "build" | "public" | "out" | "www"
+        ) {
+            match segments.next() {
+                Some(parent) if !matches!(parent, "outputs" | "company") => folder = parent,
+                _ => break,
+            }
+        }
+        folder
+    } else {
+        name
+    };
+    let label: String = name.chars().take(200).collect();
+    if label.trim().is_empty() {
+        "file".into()
+    } else {
+        label
     }
 }
 
