@@ -226,8 +226,8 @@
 			editorOpen = false;
 			choose(selected);
 			notice = disconnect
-				? 'Disconnected. Restart Restless to unload this route.'
-				: 'Connection saved. Restart Restless to activate this provider.';
+				? 'Disconnected. The route unloads within a few seconds.'
+				: 'Connection saved. It loads within a few seconds.';
 		} catch (cause) {
 			secret = '';
 			error = failureSentence(cause, 'Could not save this connection.');

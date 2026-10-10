@@ -186,8 +186,21 @@ static LOADED_PROVIDERS: RwLock<BTreeSet<String>> = RwLock::new(BTreeSet::new())
 /// into the launch contract. Company names and routes are not in it, so a
 /// new company that uses an already-loaded provider does not restart the
 /// relay that every company's model and tool calls go through.
+/// Bumped when a stored key is replaced at the same reference. References alone do not change
+/// then, so without this the gateway kept serving the old key until a restart.
+static CREDENTIAL_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// A key behind an existing reference changed: the next fingerprint check reloads the gateway.
+pub fn note_credential_replaced() {
+    CREDENTIAL_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
 pub fn gateway_fingerprint(configs: &[CompanyConfig]) -> String {
     let mut loaded = BTreeSet::new();
+    loaded.insert(format!(
+        "credential-generation:{}",
+        CREDENTIAL_GENERATION.load(std::sync::atomic::Ordering::SeqCst)
+    ));
     for config in configs {
         let primary = config
             .for_agent("exec")
@@ -3852,6 +3865,19 @@ mission = "Choose native intelligence"
         let mut headers = HeaderMap::new();
         headers.insert(AUTHORIZATION, format!("Bearer {token}").parse().unwrap());
         headers
+    }
+
+    #[test]
+    fn replacing_a_key_at_the_same_reference_changes_the_gateway_fingerprint() {
+        let config: CompanyConfig = serde_json::from_value(serde_json::json!({
+            "name": "key_replace_test", "mission": "Test key replacement", "model": "anthropic/claude-sonnet-5-5",
+            "credentials": {"model.inference.anthropic": "infisical:/companies/key_replace_test/ANTHROPIC_API_KEY"}
+        }))
+        .unwrap();
+        let before = gateway_fingerprint(std::slice::from_ref(&config));
+        assert_eq!(before, gateway_fingerprint(std::slice::from_ref(&config)));
+        note_credential_replaced();
+        assert_ne!(before, gateway_fingerprint(std::slice::from_ref(&config)));
     }
 
     #[test]

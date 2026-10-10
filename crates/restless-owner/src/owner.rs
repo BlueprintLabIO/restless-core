@@ -3229,6 +3229,7 @@ async fn update_company_provider(
         {
             return api_error(StatusCode::SERVICE_UNAVAILABLE, "provider", "Could not store the API key in Infisical. Check the host's Infisical configuration and access.");
         }
+        model_gateway::note_credential_replaced();
     }
     let probe = credential::probe_reference(reference).await;
     if probe.status != credential::ProbeStatus::Present {
