@@ -22,6 +22,7 @@
 	import { STANDARDS, setWorkStandard, standardLabel } from '$lib/model/standards';
 	import type { OutcomeStandard } from '$lib/model/company';
 	import { failureSentence } from '$lib/model/failure';
+	import { LIBRARY_KIND_LABEL, libraryKind } from '$lib/model/library-files';
 
 	/* The authoring contract deliberately separates a human opening from the
 	 * exact actor contract with one blank line. Respect that declared boundary;
@@ -273,9 +274,23 @@
 			: artifact.label || artifact.kind;
 	}
 
+	/* An output the Library can show opens there, in place: a site live, a deck as a slideshow. */
+	function libraryHref(artifact: Artifact): string | null {
+		if (!ownerAccess || artifact.state !== 'available' || !('uri' in artifact)) return null;
+		return libraryKind(artifact)
+			? `/${encodeURIComponent(companyId)}/library?file=${encodeURIComponent(artifact.id)}`
+			: null;
+	}
+
 	function artifactNote(artifact: Artifact): string {
 		if (!isLegacyAutomaticArtifact(artifact)) {
-			return artifact.note || 'Linked evidence for this Work';
+			if (artifact.note) return artifact.note;
+			const kind = 'uri' in artifact ? libraryKind(artifact) : null;
+			const locator = artifactLocator(artifact);
+			const name = locator?.split(/[?#]/)[0].split('/').filter(Boolean).at(-1) ?? '';
+			return kind
+				? `${LIBRARY_KIND_LABEL[kind].replace(/s$/, '')}${name ? ` · ${name}` : ''}`
+				: name || 'Linked evidence for this Work';
 		}
 		return artifact.kind === 'file'
 			? 'The exact file produced by this work and observed in the company runtime.'
@@ -487,7 +502,9 @@
 													<em class:available={artifact.state === 'available'}
 														>{artifactState(artifact)}</em
 													>
-													{#if artifactLocator(artifact) && canOpenOutsideCompany(artifactLocator(artifact)!)}
+													{#if libraryHref(artifact)}
+														<a href={libraryHref(artifact)}>Open</a>
+													{:else if artifactLocator(artifact) && canOpenOutsideCompany(artifactLocator(artifact)!)}
 														<a href={artifactLocator(artifact)!} target="_blank" rel="noreferrer"
 															>Open ↗</a
 														>

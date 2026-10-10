@@ -246,6 +246,11 @@
 			.filter((entry) => entry.matches);
 	});
 	const directoryExec = $derived(people.find((person) => person.kind === 'exec') ?? null);
+	/* One test for whether the Exec row shows, so "No people match" appears exactly when nothing
+	 * does, including when the Exec exists but does not match the search. */
+	const execShown = $derived(
+		!!directoryExec && matchesDirectory(directoryExec, search.trim().toLocaleLowerCase())
+	);
 	const directoryUnassigned = $derived.by(() => {
 		const query = search.trim().toLocaleLowerCase();
 		return people.filter(
@@ -315,6 +320,8 @@
 			const requested = page.url.searchParams.get('view');
 			if (requested === 'chats' || requested === 'conversations') return 'chats';
 			if (requested === 'people') return 'people';
+			/* A group room lives in Chats; show it there so its row reads as the open one. */
+			if (selectedRoom && selectedRoom.kind !== 'direct') return 'chats';
 			return preferredView;
 		})()
 	);
@@ -564,9 +571,9 @@
 					{/if}
 				{/each}
 			{:else}
-				{#if directoryExec && matchesDirectory(directoryExec, search.trim().toLocaleLowerCase())}
+				{#if execShown}
 					<section class="directory-section executive-section" aria-label="Executive">
-						{@render directoryPerson(directoryExec, 'executive')}
+						{@render directoryPerson(directoryExec!, 'executive')}
 					</section>
 				{/if}
 				{#each directoryTeams as entry (entry.team.id)}
@@ -621,7 +628,7 @@
 						{/each}
 					</section>
 				{/if}
-				{#if !directoryExec && !directoryTeams.length && !directoryUnassigned.length && !directoryHumans.length && !shownInvitations.length}<p
+				{#if !execShown && !directoryTeams.length && !directoryUnassigned.length && !directoryHumans.length && !shownInvitations.length}<p
 						class="empty"
 					>
 						No people match.

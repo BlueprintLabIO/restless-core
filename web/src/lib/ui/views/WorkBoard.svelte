@@ -57,7 +57,8 @@
 				</a>
 			{:else}
 				<p class="column-empty">
-					{#if column.emptyNote}{column.emptyNote}{:else}<span class="sr-only">No work here</span>{/if}
+					{#if column.emptyNote}{column.emptyNote}{:else}<span class="sr-only">No work here</span
+						>{/if}
 				</p>
 			{/each}
 			{@render footer?.(column)}
@@ -70,7 +71,8 @@
 		min-width: 0;
 		min-height: 0;
 		display: grid;
-		grid-template-columns: repeat(4, minmax(190px, 1fr));
+		/* Four columns fit beside the full-width sidebar and the Exec rail; a narrower pane scrolls. */
+		grid-template-columns: repeat(4, minmax(150px, 1fr));
 		overflow: auto;
 	}
 

@@ -67,9 +67,12 @@ where
         }
         // Read-only status must not hold a work lease: it would report its
         // own request as lifecycle activity and be refused during recovery.
+        // Nor may `sleep`: it asks whether any lifecycle work is active, and
+        // would always find its own lease and refuse as "busy (restore)". A
+        // drain or recovery still refuses it, as owed demand.
         let _lifecycle_lease = if matches!(
             request.cmd.as_str(),
-            "appliance-drain" | "appliance-resume" | "status"
+            "appliance-drain" | "appliance-resume" | "status" | "sleep"
         ) {
             None
         } else {

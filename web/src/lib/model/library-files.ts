@@ -107,14 +107,44 @@ export function libraryFiles(artifacts: readonly LibraryArtifact[]): LibraryFile
 }
 
 /** Ask the owner gateway for a read-only origin serving this file, probed just now. */
+/** Why a file did not open, in a sentence, with the gateway's own words kept as detail. */
+export class LibraryOpenError extends Error {
+	constructor(
+		readonly sentence: string,
+		readonly detail: string
+	) {
+		super(sentence);
+	}
+}
+
 export async function openLibraryFile(company: string, artifactId: string): Promise<string> {
-	const response = await fetch(`/api/companies/${encodeURIComponent(company)}/library/open`, {
-		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ artifact_id: artifactId }),
-		credentials: 'same-origin'
-	});
-	if (!response.ok) throw await responseFailure(response);
+	let response: Response;
+	try {
+		response = await fetch(`/api/companies/${encodeURIComponent(company)}/library/open`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ artifact_id: artifactId }),
+			credentials: 'same-origin'
+		});
+	} catch (cause) {
+		throw new LibraryOpenError(
+			'The cockpit could not reach the company. Try again in a moment.',
+			cause instanceof Error ? cause.message : String(cause)
+		);
+	}
+	if (!response.ok) {
+		const failure = await responseFailure(response);
+		const said = failure.serverMessage ?? failure.message;
+		/* The gateway's runtime and Library refusals are already written for the owner; a failed
+		 * read of the file itself is not. */
+		const sentence =
+			response.status === 404
+				? 'This file is no longer one the company’s Work recorded.'
+				: response.status === 409 || (response.status === 503 && /company computer/i.test(said))
+					? said
+					: 'The file could not be read from the company computer. It may have been moved or deleted.';
+		throw new LibraryOpenError(sentence, said);
+	}
 	return (await response.json()).review_url;
 }
 

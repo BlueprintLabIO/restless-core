@@ -15,7 +15,12 @@
 	import Download from '@lucide/svelte/icons/download';
 	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import X from '@lucide/svelte/icons/x';
-	import { downloads, openLibraryFile, type LibraryFile } from '$lib/model/library-files';
+	import {
+		downloads,
+		LibraryOpenError,
+		openLibraryFile,
+		type LibraryFile
+	} from '$lib/model/library-files';
 	import { failureSentence } from '$lib/model/failure';
 	import Pending from '$lib/ui/feedback/Pending.svelte';
 
@@ -28,11 +33,15 @@
 
 	let url = $state('');
 	let failure = $state('');
+	let failureDetail = $state('');
 	let loading = $state(true);
+	let attempt = $state(0);
 	$effect(() => {
 		const target = file.id;
+		void attempt;
 		url = '';
 		failure = '';
+		failureDetail = '';
 		loading = true;
 		slide = 1;
 		total = 0;
@@ -41,7 +50,11 @@
 				if (target === file.id) url = next;
 			})
 			.catch((cause) => {
-				if (target === file.id) failure = failureSentence(cause, 'This file could not be opened.');
+				if (target !== file.id) return;
+				if (cause instanceof LibraryOpenError) {
+					failure = cause.sentence;
+					failureDetail = cause.detail === cause.sentence ? '' : cause.detail;
+				} else failure = failureSentence(cause, 'This file could not be opened.');
 			})
 			.finally(() => {
 				if (target === file.id) loading = false;
@@ -144,7 +157,16 @@
 		{:else if failure}
 			<div class="center">
 				<p class="failure">{failure}</p>
-				<a class="btn small" href={backHref}>Back to the Library</a>
+				<div class="failure-actions">
+					<button class="btn small primary" type="button" onclick={() => (attempt += 1)}
+						>Try again</button
+					>
+					<a class="btn small" href={backHref}>Back to the Library</a>
+				</div>
+				{#if failureDetail}<details class="failure-detail">
+						<summary>Details</summary>
+						<code>{failureDetail}</code>
+					</details>{/if}
 			</div>
 		{:else if isDownload}
 			<div class="center">
@@ -291,7 +313,27 @@
 		margin: 0;
 	}
 	.failure {
-		color: var(--state-danger);
+		color: var(--ink);
+		font-weight: 500;
+	}
+	.failure-actions {
+		display: flex;
+		gap: 8px;
+	}
+	.failure-detail {
+		max-width: 480px;
+		color: var(--text-tertiary);
+		text-align: left;
+	}
+	.failure-detail summary {
+		cursor: pointer;
+		text-align: center;
+	}
+	.failure-detail code {
+		display: block;
+		margin-top: 6px;
+		font-size: var(--t-label);
+		overflow-wrap: anywhere;
 	}
 	.center video {
 		max-width: 100%;

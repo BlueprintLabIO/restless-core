@@ -186,11 +186,26 @@ pub(crate) async fn issue_library_ticket(
             "this file was replaced by a newer version or is missing",
         );
     }
+    // The owner asking to see a file is real demand: a computer that went to sleep while idle
+    // wakes for it, as it does for a message to the Exec. One the owner stopped stays stopped.
+    if !restless_engine::runtime_sleep::wake_for(
+        &state.daemon,
+        &company,
+        "the owner opened a Library file",
+    )
+    .await
+    {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "runtime",
+            "The company computer is stopped, so this file cannot be opened. Start it from Company → Computer.",
+        );
+    }
     let Some(generation) = runtime::generation(&company).await.ok().flatten() else {
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "runtime",
-            "the company computer is not running",
+            "The company computer is still starting. Try again in a moment.",
         );
     };
     let is_file = runtime::runtime_review_file_root(&artifact.uri).is_ok();

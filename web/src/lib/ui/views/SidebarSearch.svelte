@@ -82,6 +82,12 @@
 		font: inherit;
 		font-size: var(--t-body);
 	}
+	/* The field's own border shows focus; the global ring on the input would draw a second box. */
+	input:focus,
+	input:focus-visible {
+		outline: none;
+		box-shadow: none;
+	}
 	input::placeholder {
 		color: var(--text-tertiary);
 	}
