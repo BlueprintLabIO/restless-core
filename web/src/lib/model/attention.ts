@@ -100,7 +100,8 @@ type WireItem = {
 		company: string;
 		generation: string;
 		uri: string;
-		status: 'available' | 'unavailable';
+		/** `asleep`: the company computer is asleep; asking for a ticket wakes it. */
+		status: 'available' | 'unavailable' | 'asleep';
 		kind: 'runtime-web' | 'runtime-text' | 'runtime-file';
 		label: string;
 		content?: string;
@@ -491,7 +492,9 @@ export async function issueDesktopTicket(
 	return (await response.json()).desktop_url;
 }
 
-export async function issueReviewTicket(company: string, itemId: string): Promise<string> {
+/** A ticket for the review's isolated origin. Asking wakes a computer that fell asleep; a text
+ * outcome has no origin, so it answers null and the next projection carries the text. */
+export async function issueReviewTicket(company: string, itemId: string): Promise<string | null> {
 	const response = await fetch(`/api/companies/${encodeURIComponent(company)}/reviews/ticket`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
@@ -499,7 +502,7 @@ export async function issueReviewTicket(company: string, itemId: string): Promis
 		credentials: 'same-origin'
 	});
 	if (!response.ok) throw await ownerError(response);
-	return (await response.json()).review_url;
+	return (await response.json()).review_url ?? null;
 }
 
 export async function browserControl(

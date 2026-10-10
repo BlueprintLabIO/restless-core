@@ -187,7 +187,14 @@
 			<!-- One disclosure: the evidence stays folded under the message until asked for. -->
 			<details class="work-details">
 				<summary>Work details</summary>
-				<div class="work-details-body"><Markdown text={details} /></div>
+				<div class="work-details-body">
+					<Markdown
+						text={details}
+						onreference={referable
+							? (path, name) => void preview?.open(messageId, path, name)
+							: undefined}
+					/>
+				</div>
 			</details>
 		{/if}
 	</div>

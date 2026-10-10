@@ -56,7 +56,10 @@
 		"@tiptap/extension-unique-id": "^3.31.3",
 		"@tiptap/pm": "^3.31.3",
 		"@tiptap/starter-kit": "^3.31.3",
+		"dompurify": "^3.4.16",
 		"fflate": "^0.8.2",
+		"jszip": "^3.10.2",
+		"mammoth": "^1.13.0",
 		"svelte-streamdown": "4.2.0",
 		"yjs": "^13.6.32"
 	}

@@ -24,6 +24,7 @@
 	import UserRound from '@lucide/svelte/icons/user-round';
 	import File from '@lucide/svelte/icons/file';
 	import Target from '@lucide/svelte/icons/target';
+	import { page } from '$app/state';
 	import { referencePreview } from '$lib/model/reference-preview';
 
 	let {
@@ -55,7 +56,42 @@
 	type Reference = {
 		kind: 'file' | 'doc' | 'sheet' | 'work' | 'goal' | 'person';
 		path?: string;
+		/** Where the chip goes in this cockpit, when that differs from the written link. */
+		href?: string;
 	};
+	const company = $derived(page.params?.companyId ?? '');
+	const companyRoot = $derived(company ? `/${encodeURIComponent(company)}` : '');
+	/* A native document's exported references, `/__restless/reference/{kind}/{id}` and
+	 * `/__restless/actor/{id}`, name things in this company; they open where those things live. */
+	function nativeReference(pathname: string): Reference | null {
+		if (!companyRoot) return null;
+		const [, kind, rawId] =
+			/^\/__restless\/reference\/([^/]+)\/([^/]+)$/.exec(pathname) ??
+			/^\/__restless\/(actor)\/([^/]+)$/.exec(pathname) ??
+			[];
+		if (!kind || !rawId) return null;
+		let id: string;
+		try {
+			id = decodeURIComponent(rawId);
+		} catch {
+			return null;
+		}
+		const value = encodeURIComponent(id);
+		switch (decodeURIComponent(kind)) {
+			case 'document':
+				return { kind: 'doc', href: `${companyRoot}/library/documents?document=${value}` };
+			case 'artifact':
+				return { kind: 'file', href: `${companyRoot}/library?file=${value}` };
+			case 'work':
+				return { kind: 'work', href: `${companyRoot}/work/${value}` };
+			case 'actor':
+				return { kind: 'person', href: `${companyRoot}/people?person=${value}` };
+			case 'attention':
+				return { kind: 'work', href: `${companyRoot}?item=${value}` };
+			default:
+				return null;
+		}
+	}
 	function referenceOf(href: string | undefined): Reference | null {
 		if (!href) return null;
 		let url: URL;
@@ -65,8 +101,22 @@
 			return null;
 		}
 		if (origin && url.origin !== origin) return null;
-		if (url.pathname.startsWith('/company/'))
-			return { kind: 'file', path: decodeURIComponent(url.pathname).replace(/:\d+$/, '') };
+		if (url.pathname.startsWith('/__restless/')) return nativeReference(url.pathname);
+		if (url.pathname.startsWith('/company/')) {
+			let path = url.pathname;
+			try {
+				path = decodeURIComponent(path);
+			} catch {
+				/* Keep the link as written. */
+			}
+			path = path.replace(/:\d+$/, '');
+			/* Without a preview to open it in, a company file opens in the Library viewer. */
+			return {
+				kind: 'file',
+				path,
+				href: companyRoot ? `${companyRoot}/library?path=${encodeURIComponent(path)}` : undefined
+			};
+		}
 		if (/\/library\/documents$/.test(url.pathname)) return { kind: 'doc' };
 		if (/\/library\/sheets$/.test(url.pathname)) return { kind: 'sheet' };
 		if (/\/work\/[^/]+$/.test(url.pathname)) return { kind: 'work' };
@@ -117,13 +167,22 @@
 				onreference(reference.path!, reference.path!.split('/').pop() ?? reference.path!)}
 			><Icon size={13} strokeWidth={1.9} aria-hidden="true" />{@render children()}</button
 		>
+	{:else if reference && reference.kind === 'file' && reference.href}
+		{@const Icon = File}
+		<a
+			class="md-ref file"
+			href={reference.href}
+			title={reference.path ? `Open ${reference.path}` : (token.title ?? undefined)}
+			><Icon size={13} strokeWidth={1.9} aria-hidden="true" />{@render children()}</a
+		>
 	{:else if reference && reference.kind !== 'file'}
 		{@const Icon = ICONS[reference.kind]}
-		{@const card = preview?.(token.href) ?? null}
+		{@const target = reference.href ?? token.href}
+		{@const card = preview?.(target) ?? null}
 		<span class="md-ref-wrap"
 			><a
 				class="md-ref {reference.kind}"
-				href={token.href}
+				href={target}
 				title={card ? undefined : (token.title ?? undefined)}
 				><Icon size={13} strokeWidth={1.9} aria-hidden="true" />{@render children()}</a
 			>{#if card}<span class="md-ref-card" role="tooltip"
@@ -131,6 +190,9 @@
 						>{/each}</span
 				>{/if}</span
 		>
+	{:else if (token.href ?? href)?.startsWith('/__restless/')}
+		<!-- A reference to something this cockpit has no page for (a decision) reads as its name. -->
+		<span class="md-ref-plain">{@render children()}</span>
 	{:else}
 		<a
 			href={href ?? token.href}

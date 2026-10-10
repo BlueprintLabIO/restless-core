@@ -7,22 +7,37 @@
 	 * (`presentation-deck` skill): one <section> per slide, and it answers {type:'restless:deck',
 	 * action:'next'|'prev'|'first'} messages and reports {type:'restless:deck', slide, total}. A PDF
 	 * deck reads in the browser's own reader, page after page; its reader ignores a changed #page
-	 * once loaded, so the cockpit does not pretend to step it. */
+	 * once loaded, so the cockpit does not pretend to step it.
+	 *
+	 * A Markdown note reads formatted and a CSV as a table; a Word document or Excel workbook is
+	 * read in the cockpit; anything else a browser cannot show downloads. Every file can be
+	 * downloaded, opened on its own, linked, and discussed with Exec. */
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import Play from '@lucide/svelte/icons/play';
 	import Download from '@lucide/svelte/icons/download';
 	import ExternalLink from '@lucide/svelte/icons/external-link';
+	import Link from '@lucide/svelte/icons/link';
+	import Check from '@lucide/svelte/icons/check';
 	import X from '@lucide/svelte/icons/x';
 	import {
+		downloadHref,
 		downloads,
 		LibraryOpenError,
+		libraryFileBytes,
+		libraryFileHref,
+		officeFormat,
 		openLibraryFile,
-		type LibraryFile
+		type LibraryFile,
+		type OpenedFile
 	} from '$lib/model/library-files';
 	import { failureSentence } from '$lib/model/failure';
+	import { askExec } from '$lib/model/ask-exec';
+	import { namePageContext } from '$lib/model/page-context.svelte';
 	import Pending from '$lib/ui/feedback/Pending.svelte';
+	import TextPreview from '$lib/primitives/TextPreview.svelte';
+	import OfficePreview from './OfficePreview.svelte';
 
 	let {
 		companyId,
@@ -39,40 +54,81 @@
 		resolve?: (() => Promise<string>) | null;
 	} = $props();
 
-	let url = $state('');
+	/* The rail's context chip names this file, so "send this to Sam" is visibly about it. */
+	namePageContext(() => file.label);
+
+	let opened = $state<OpenedFile | null>(null);
+	const url = $derived(opened?.url ?? '');
 	let failure = $state('');
 	let failureDetail = $state('');
 	let loading = $state(true);
 	let attempt = $state(0);
+	/* One file at a time: a recorded output by its id, any other company file by its path. */
+	const fileKey = $derived(file.id || file.uri);
 	$effect(() => {
-		const target = file.id;
+		const target = fileKey;
+		const which = { id: file.id, uri: file.uri };
 		void attempt;
-		url = '';
+		opened = null;
 		failure = '';
 		failureDetail = '';
 		loading = true;
 		slide = 1;
 		total = 0;
-		void (resolve ? resolve() : openLibraryFile(companyId, target))
+		void (
+			resolve
+				? resolve().then((url): OpenedFile => ({ url }))
+				: openLibraryFile(companyId, which)
+		)
 			.then((next) => {
-				if (target === file.id) url = next;
+				if (target === fileKey) opened = next;
 			})
 			.catch((cause) => {
-				if (target !== file.id) return;
+				if (target !== fileKey) return;
 				if (cause instanceof LibraryOpenError) {
 					failure = cause.sentence;
 					failureDetail = cause.detail === cause.sentence ? '' : cause.detail;
 				} else failure = failureSentence(cause, 'This file could not be opened.');
 			})
 			.finally(() => {
-				if (target === file.id) loading = false;
+				if (target === fileKey) loading = false;
 			});
 	});
 
 	const isMedia = $derived(file.kind === 'media');
 	const isVideo = $derived(/\.(mp4|m4v|webm|ogv)$/i.test(file.uri));
 	const isPdf = $derived(/\.pdf$/i.test(file.uri.split(/[?#]/)[0]));
+	const office = $derived(officeFormat(file.uri));
+	const isPowerPoint = $derived(/\.pptx?$/i.test(file.uri.split(/[?#]/)[0]));
+	/* Shown by the browser itself, so it can open on its own in a tab. */
 	const isDownload = $derived(downloads(file));
+	/* A kept file is read from a local copy, which downloads as it is; a ticket asks for its file. */
+	const savedHref = $derived(url ? (resolve ? url : downloadHref(url)) : '');
+	/* A phone's browser frames a PDF badly or not at all; it opens on its own instead. */
+	let phone = $state(false);
+	$effect(() => {
+		const query = window.matchMedia('(max-width: 760px) and (pointer: coarse)');
+		phone = query.matches;
+		const change = () => (phone = query.matches);
+		query.addEventListener('change', change);
+		return () => query.removeEventListener('change', change);
+	});
+
+	let linkCopied = $state<'idle' | 'copied' | 'failed'>('idle');
+	let linkTimer: ReturnType<typeof setTimeout> | undefined;
+	async function copyLink() {
+		try {
+			await navigator.clipboard.writeText(
+				/* A kept file has no Work id or company path; the page it is open on is its link. */
+				resolve ? location.href : new URL(libraryFileHref(companyId, file), location.origin).href
+			);
+			linkCopied = 'copied';
+		} catch {
+			linkCopied = 'failed';
+		}
+		clearTimeout(linkTimer);
+		linkTimer = setTimeout(() => (linkCopied = 'idle'), 1600);
+	}
 
 	/* ---------- the slideshow ---------- */
 	let stage = $state<HTMLElement | null>(null);
@@ -149,7 +205,7 @@
 		>
 		<div class="viewer-title">
 			<h1 title={file.label}>{file.label}</h1>
-			<small title={file.uri}>{owner} · {file.name}</small>
+			<small title={file.uri}>{owner ? `${owner} · ` : ''}{file.name}</small>
 		</div>
 		<span class="spacer"></span>
 		{#if file.kind === 'deck' && url && !isDownload}
@@ -157,16 +213,47 @@
 				><Play size={14} strokeWidth={2} aria-hidden="true" />Present</button
 			>
 		{/if}
-		{#if url}
-			<a class="btn small" href={url} target="_blank" rel="noopener noreferrer"
-				>{#if isDownload}<Download
-						size={14}
-						strokeWidth={1.9}
-						aria-hidden="true"
-					/>Download{:else}<ExternalLink size={14} strokeWidth={1.9} aria-hidden="true" />Open in a
-					tab{/if}</a
+		<button
+			class="btn small discuss"
+			type="button"
+			title="Talk it through with Exec, with this file alongside"
+			onclick={() => askExec()}>Discuss</button
+		>
+		{#if url && !isDownload}
+			<a
+				class="btn small icon"
+				href={url}
+				target="_blank"
+				rel="noopener noreferrer"
+				title="Open in a new tab"
+				aria-label="Open in a new tab"><ExternalLink size={15} strokeWidth={1.9} /></a
 			>
 		{/if}
+		{#if savedHref}
+			<a
+				class="btn small icon"
+				href={savedHref}
+				download={resolve ? file.label : undefined}
+				title={`Download ${file.name}`}
+				aria-label={`Download ${file.name}`}><Download size={15} strokeWidth={1.9} /></a
+			>
+		{/if}
+		<button
+			class="btn small icon"
+			type="button"
+			title={linkCopied === 'copied'
+				? 'Link copied'
+				: linkCopied === 'failed'
+					? 'Could not copy the link'
+					: 'Copy link'}
+			aria-label={linkCopied === 'copied' ? 'Link copied' : 'Copy link'}
+			onclick={() => void copyLink()}
+			>{#if linkCopied === 'copied'}<Check size={15} strokeWidth={2.2} />{:else}<Link
+					size={15}
+					strokeWidth={1.9}
+				/>{/if}</button
+		>
+		<span class="sr-only" aria-live="polite">{linkCopied === 'copied' ? 'Link copied' : ''}</span>
 	</header>
 
 	<div class="viewer-body" class:deck={file.kind === 'deck'}>
@@ -186,12 +273,40 @@
 						<code>{failureDetail}</code>
 					</details>{/if}
 			</div>
+		{:else if opened?.text !== undefined && opened.format}
+			<div class="text-scroll"><TextPreview text={opened.text} format={opened.format} /></div>
+		{:else if office}
+			<OfficePreview
+				format={office}
+				name={file.name}
+				source={file.uri}
+				load={() => libraryFileBytes(companyId, file.uri)}
+				downloadHref={savedHref}
+			/>
 		{:else if isDownload}
 			<div class="center">
-				<p>Browsers cannot show this kind of file. Download it to open it on your computer.</p>
-				<a class="btn small primary" href={url}
+				<p>
+					{isPowerPoint
+						? 'Browsers cannot show PowerPoint files. Download it to present it in PowerPoint or Keynote.'
+						: 'Browsers cannot show this kind of file. Download it to open it on your computer.'}
+				</p>
+				<a class="btn small primary" href={savedHref}
+				download={resolve ? file.label : undefined}
 					><Download size={14} strokeWidth={1.9} aria-hidden="true" />Download {file.name}</a
 				>
+			</div>
+		{:else if isPdf && phone}
+			<div class="center">
+				<p>This PDF reads best on its own on a phone.</p>
+				<div class="failure-actions">
+					<a class="btn small primary" href={url} target="_blank" rel="noopener noreferrer"
+						><ExternalLink size={14} strokeWidth={1.9} aria-hidden="true" />Open the PDF</a
+					>
+					<a class="btn small" href={savedHref}
+				download={resolve ? file.label : undefined}
+						><Download size={14} strokeWidth={1.9} aria-hidden="true" />Download</a
+					>
+				</div>
 			</div>
 		{:else if file.kind === 'image'}
 			<div class="image"><img src={url} alt={file.label} /></div>
@@ -244,7 +359,7 @@
 			<iframe
 				title={file.label}
 				src={url}
-				sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+				sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
 				referrerpolicy="no-referrer"
 			></iframe>
 		{/if}
@@ -303,6 +418,28 @@
 	.viewer-head .btn {
 		gap: 6px;
 		text-decoration: none;
+	}
+	.viewer-head .btn.icon {
+		width: 30px;
+		padding: 0;
+		border-color: transparent;
+		background: transparent;
+		color: var(--text-secondary);
+	}
+	.viewer-head .btn.icon:hover {
+		background: var(--wash-hover);
+		color: var(--ink);
+	}
+	.text-scroll {
+		height: 100%;
+		overflow: auto;
+		background: var(--surface-pane, var(--surface));
+	}
+	@media (max-width: 760px) {
+		.viewer-head {
+			gap: 4px;
+			padding-inline: 8px;
+		}
 	}
 	.viewer-body {
 		position: relative;

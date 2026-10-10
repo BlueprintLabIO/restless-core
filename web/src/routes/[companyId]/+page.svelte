@@ -31,8 +31,17 @@
 	import { browserControl, issueDesktopTicket, issueReviewTicket } from '$lib/model/attention';
 	import { takeInboxOutcome } from '$lib/model/inbox-outcome.svelte';
 	import { companyFileLinks, workFileLinks } from '$lib/model/inbox-files';
-	import type { LibraryArtifact } from '$lib/model/library-files';
+	import {
+		downloadHref,
+		downloads,
+		libraryFileBytes,
+		officeFormat,
+		type LibraryArtifact
+	} from '$lib/model/library-files';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import OfficePreview from '$lib/components/OfficePreview.svelte';
+	import Download from '@lucide/svelte/icons/download';
+	import ExternalLink from '@lucide/svelte/icons/external-link';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 
@@ -62,10 +71,6 @@
 	let reviewError = $state('');
 	let reviewRequestKey = $state('');
 	let focusAttachKey = $state('');
-
-	function officeReviewExtension(uri: string | undefined): string | undefined {
-		return uri?.split(/[?#]/, 1)[0]?.match(/\.(doc|docx|xls|xlsx|ppt|pptx)$/i)?.[1];
-	}
 
 	const items = $derived(view?.items ?? []);
 	let visibleItems = $state<AttentionItem[] | null>(null);
@@ -280,10 +285,27 @@
 			reviewRequestKey = '';
 			return;
 		}
-		const key = `${item.id}:${item.reviewTarget?.generation ?? 'none'}:${item.reviewTarget?.status ?? 'none'}`;
+		/* A computer that fell asleep is not a broken outcome: asking for the ticket wakes it. The
+		 * open frame then survives the projection catching up from asleep to available. */
+		const status = item.reviewTarget?.status ?? 'none';
+		const key = `${item.id}:${item.reviewTarget?.generation ?? 'none'}:${status === 'asleep' ? 'available' : status}:${item.reviewTarget?.kind === 'runtime-text' ? status : ''}`;
 		if (reviewRequestKey === key) return;
 		reviewRequestKey = key;
 		reviewUrl = '';
+		if (item.reviewTarget?.status === 'asleep') {
+			reviewError = '';
+			void issueReviewTicket(companyId, item.id)
+				.then((url) => {
+					if (reviewRequestKey !== key) return;
+					if (url) reviewUrl = url;
+					else void source.refresh();
+				})
+				.catch((cause) => {
+					if (reviewRequestKey === key)
+						reviewError = failureSentence(cause, 'The company computer could not be woken.');
+				});
+			return;
+		}
 		if (!item.reviewTarget) {
 			/* The accountable actor did not link a target this cockpit can open.
 			 * Say what is actually true and show the evidence it did prepare —
@@ -303,7 +325,7 @@
 		if (item.reviewTarget.kind === 'runtime-text') return;
 		void issueReviewTicket(companyId, item.id)
 			.then((url) => {
-				if (reviewRequestKey === key) reviewUrl = url;
+				if (reviewRequestKey === key) reviewUrl = url ?? '';
 			})
 			.catch((cause) => {
 				if (reviewRequestKey === key) {
@@ -311,6 +333,14 @@
 				}
 			});
 	});
+	const reviewPath = $derived(focusedReview?.reviewTarget?.uri?.split(/[?#]/)[0] ?? '');
+	const reviewIsFile = $derived(focusedReview?.reviewTarget?.kind === 'runtime-file');
+	const reviewIsPdf = $derived(reviewIsFile && /\.pdf$/i.test(reviewPath));
+	const reviewOffice = $derived(reviewIsFile ? officeFormat(reviewPath) : null);
+	const reviewIsPowerPoint = $derived(/\.pptx?$/i.test(reviewPath));
+	/* A file the browser cannot show (another Office format, an archive) is offered to download. */
+	const reviewDownloadOnly = $derived(reviewIsFile && !reviewOffice && downloads({ uri: reviewPath }));
+	const reviewSaveHref = $derived(reviewUrl && reviewIsFile ? downloadHref(reviewUrl) : '');
 
 	onMount(() => {
 		void browserTabClientId(companyId).then((id) => (clientId = id));
@@ -555,26 +585,76 @@
 				<InfoTip
 					text="The exact candidate selected by Staff and inspected by the accountable lead."
 				/>
+				<span class="review-outcome-spacer"></span>
+				{#if reviewUrl && reviewIsFile && !reviewDownloadOnly && !reviewOffice}
+					<a
+						class="review-outcome-action"
+						href={reviewUrl}
+						target="_blank"
+						rel="noopener noreferrer"
+						title="Open in a new tab"
+						aria-label="Open in a new tab"><ExternalLink size={15} strokeWidth={1.9} /></a
+					>
+				{:else if reviewUrl && !reviewIsFile}
+					<a
+						class="review-outcome-action"
+						href={reviewUrl}
+						target="_blank"
+						rel="noopener noreferrer"
+						title="Open the site in a new tab"
+						aria-label="Open the site in a new tab"><ExternalLink size={15} strokeWidth={1.9} /></a
+					>
+				{/if}
+				{#if reviewSaveHref}
+					<a
+						class="review-outcome-action"
+						href={reviewSaveHref}
+						title="Download the file"
+						aria-label="Download the file"><Download size={15} strokeWidth={1.9} /></a
+					>
+				{:else if focusedReview.reviewTarget?.kind === 'runtime-text' && reviewPath}
+					<a
+						class="review-outcome-action"
+						href={`/${encodeURIComponent(companyId)}/library?path=${encodeURIComponent(reviewPath)}`}
+						title="Open in the Library to download or link it"
+						aria-label="Open in the Library"><ExternalLink size={15} strokeWidth={1.9} /></a
+					>
+				{/if}
 			</header>
 			<div class="review-outcome-stage">
 				{#if focusedReview.reviewTarget?.kind === 'runtime-text' && focusedReview.reviewTarget.content}
 					<article class="review-document">
 						<Markdown text={focusedReview.reviewTarget.content} />
 					</article>
-				{:else if officeReviewExtension(focusedReview.reviewTarget?.uri) && reviewUrl}
+				{:else if reviewOffice && reviewUrl}
+					<OfficePreview
+						format={reviewOffice}
+						name={reviewPath.split('/').pop() ?? reviewPath}
+						source={reviewPath}
+						load={() => libraryFileBytes(companyId, reviewPath)}
+						downloadHref={reviewSaveHref}
+					/>
+				{:else if reviewDownloadOnly && reviewUrl}
 					<div class="review-download">
 						<div class="review-download-kind">
-							{officeReviewExtension(focusedReview.reviewTarget?.uri)?.toUpperCase()}
+							{reviewPath.match(/\.([a-z0-9]+)$/i)?.[1]?.toUpperCase() ?? 'FILE'}
 						</div>
 						<h1>{focusedReview.reviewTarget?.label ?? focusedReview.title}</h1>
 						<p>
-							This Office file is ready to download. Open it in Word, Excel or PowerPoint to review
-							it.
+							{reviewIsPowerPoint
+								? 'Browsers cannot show PowerPoint files. Download it to review it in PowerPoint or Keynote.'
+								: 'Browsers cannot show this kind of file. Download it to review it on your computer.'}
 						</p>
-						<a href={reviewUrl} target="_blank" rel="noopener noreferrer">Download file</a>
-						<small>Restless can’t preview or edit Office files in this review.</small>
+						<a href={reviewSaveHref}>Download file</a>
 					</div>
-				{:else if reviewUrl && /\.pdf$/i.test(focusedReview.reviewTarget?.uri?.split(/[?#]/)[0] ?? '')}
+				{:else if reviewUrl && reviewIsPdf && compactScreen}
+					<div class="review-download">
+						<div class="review-download-kind">PDF</div>
+						<h1>{focusedReview.reviewTarget?.label ?? focusedReview.title}</h1>
+						<p>This PDF reads best on its own on a phone.</p>
+						<a href={reviewUrl} target="_blank" rel="noopener noreferrer">Open the PDF</a>
+					</div>
+				{:else if reviewUrl && reviewIsPdf}
 					<!-- The browser's PDF reader will not run in a sandboxed frame; the PDF is already on
 					     its own read-only review origin and runs no page script (S64). -->
 					<iframe
@@ -724,6 +804,8 @@
 							intent={message.intent}
 							attachments={message.attachments}
 							hrefFor={attachmentHref}
+							messageId={message.id}
+							{companyId}
 						/>
 					{/each}
 				</div>
@@ -1187,9 +1269,21 @@
 		color: var(--surface);
 		text-decoration: none;
 	}
-	.review-download small {
-		display: block;
-		color: var(--text-tertiary);
+	.review-outcome-spacer {
+		flex: 1;
+	}
+	.review-outcome-action {
+		display: inline-grid;
+		flex: none;
+		place-items: center;
+		width: 30px;
+		height: 30px;
+		border-radius: var(--radius-control);
+		color: var(--text-secondary);
+	}
+	.review-outcome-action:hover {
+		background: var(--wash-hover);
+		color: var(--ink);
 	}
 	.review-unavailable h1,
 	.review-unavailable p {

@@ -22,7 +22,7 @@
 	import { STANDARDS, setWorkStandard, standardLabel } from '$lib/model/standards';
 	import type { OutcomeStandard } from '$lib/model/company';
 	import { failureSentence } from '$lib/model/failure';
-	import { LIBRARY_KIND_LABEL, libraryKind } from '$lib/model/library-files';
+	import { fileLabel, LIBRARY_KIND_LABEL, libraryKind } from '$lib/model/library-files';
 
 	/* The authoring contract deliberately separates a human opening from the
 	 * exact actor contract with one blank line. Respect that declared boundary;
@@ -271,7 +271,9 @@
 	function artifactLabel(artifact: Artifact): string {
 		return isLegacyAutomaticArtifact(artifact)
 			? `Output from: ${work?.title ?? 'this work'}`
-			: artifact.label || artifact.kind;
+			: 'uri' in artifact
+				? fileLabel(artifact.label, artifact.uri, work?.title)
+				: artifact.label || artifact.kind;
 	}
 
 	/* An output the Library can show opens there, in place: a site live, a deck as a slideshow. */

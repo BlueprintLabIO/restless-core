@@ -38,12 +38,18 @@
 	import FileSpreadsheet from '@lucide/svelte/icons/file-spreadsheet';
 	import Upload from '@lucide/svelte/icons/upload';
 	import Pin from '@lucide/svelte/icons/pin';
+	import FileIcon from '@lucide/svelte/icons/file';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import {
 		LIBRARY_KIND_LABEL,
 		LibraryOpenError,
+		downloadHref,
+		fileAtPath,
+		libraryFileHref,
+		libraryFileById,
 		libraryFiles,
 		libraryKind,
+		openLibraryFile,
 		readPins,
 		writePins,
 		type LibraryArtifact,
@@ -255,6 +261,8 @@
 	const filter = $derived((page.url.searchParams.get('show') as Filter) || 'all');
 	const openFileId = $derived(page.url.searchParams.get('file') ?? '');
 	const openUploadId = $derived(page.url.searchParams.get('upload') ?? '');
+	/* A link to a company file by its path (from a message, a note or a document) opens here too. */
+	const openPath = $derived(page.url.searchParams.get('path') ?? '');
 	let search = $state('');
 	const query = $derived(search.trim());
 
@@ -263,7 +271,8 @@
 	const files = $derived(
 		owner
 			? libraryFiles(
-					((attention.view?.workGraph?.artifacts ?? []) as unknown as LibraryArtifact[]) ?? []
+					((attention.view?.workGraph?.artifacts ?? []) as unknown as LibraryArtifact[]) ?? [],
+					attention.view?.workGraph?.work ?? []
 				)
 			: []
 	);
@@ -275,7 +284,36 @@
 				.map((handoff) => handoff.work_id)
 		)
 	);
-	const fileOpen = $derived(files.find((file) => file.id === openFileId) ?? null);
+	const fileOpen = $derived(
+		openFileId
+			? libraryFileById(files, openFileId)
+			: openPath && owner
+				? (files.find((file) => file.uri === openPath) ?? fileAtPath(openPath))
+				: null
+	);
+	let fileActionFailure = $state('');
+	/* Save a file without opening it: a fresh ticket, asked for as a download. */
+	async function downloadFile(id: string) {
+		const file = files.find((candidate) => candidate.id === id);
+		if (!file) return;
+		fileActionFailure = '';
+		try {
+			window.location.assign(downloadHref((await openLibraryFile(companyId, file)).url));
+		} catch (cause) {
+			fileActionFailure = cause instanceof Error ? cause.message : 'The file could not be downloaded.';
+		}
+	}
+	async function copyFileLink(id: string) {
+		const file = files.find((candidate) => candidate.id === id);
+		if (!file) return;
+		try {
+			await navigator.clipboard.writeText(
+				new URL(libraryFileHref(companyId, file), location.origin).href
+			);
+		} catch {
+			fileActionFailure = 'The link could not be copied.';
+		}
+	}
 
 	/* A kept file opens in the same viewer: an image, PDF or recording reads in place from a local
 	 * copy; anything else downloads from its row. */
@@ -501,7 +539,16 @@
 		...archivedSheets.map(sheetEntry),
 		...archivedFiles
 	]);
-	const FILE_KINDS: LibraryFileKind[] = ['site', 'deck', 'image', 'pdf', 'media', 'text', 'office'];
+	const FILE_KINDS: LibraryFileKind[] = [
+		'site',
+		'deck',
+		'image',
+		'pdf',
+		'media',
+		'text',
+		'office',
+		'other'
+	];
 	const KIND_ICON: Record<EntryKind, typeof Library> = {
 		doc: FileText,
 		sheet: Sheet,
@@ -512,7 +559,8 @@
 		pdf: FileType,
 		media: Film,
 		text: NotebookText,
-		office: FileSpreadsheet
+		office: FileSpreadsheet,
+		other: FileIcon
 	};
 	const kindLabel = (kind: EntryKind) =>
 		kind === 'doc'
@@ -843,7 +891,7 @@
 						href={entry.href}
 						label={entry.title}
 						icon={Pin}
-						active={(isFile(entry) && entry.id === openFileId) ||
+						active={(isFile(entry) && entry.id === fileOpen?.id) ||
 							(entry.kind === 'upload' && entry.id === openUploadId)}
 						title={`${entry.title} · ${entry.owner}`}
 					/>
@@ -872,10 +920,10 @@
 	{/snippet}
 	{#snippet narrow()}
 		<!-- An open file has its own way back; the list's search and views step aside for it. -->
-		{#if !openFileId && !openUploadId}<div class="library-narrow-search">
+		{#if !openFileId && !openUploadId && !openPath}<div class="library-narrow-search">
 				<SidebarSearch bind:value={search} placeholder="Search files" />
 			</div>{/if}
-		<nav class="library-filters" aria-label="Library" hidden={!!openFileId || !!openUploadId}>
+		<nav class="library-filters" aria-label="Library" hidden={!!(openFileId || openUploadId || openPath)}>
 			{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(owner && counts.yours ? [{ key: 'yours' as Filter, label: 'From you' }] : []), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : []), FILTERS.at(-1)!] as item (item.key)}
 				<a
 					href={filterHref(item.key)}
@@ -886,7 +934,12 @@
 		</nav>
 	{/snippet}
 	{#if fileOpen}
-		<LibraryViewer {companyId} file={fileOpen} owner={name(fileOpen.createdBy)} {backHref} />
+		<LibraryViewer
+			{companyId}
+			file={fileOpen}
+			owner={fileOpen.createdBy ? name(fileOpen.createdBy) : ''}
+			{backHref}
+		/>
 	{:else if uploadFile && uploadResolver}
 		<LibraryViewer
 			{companyId}
@@ -917,6 +970,13 @@
 		<Empty
 			title="This file is no longer kept"
 			info="It was deleted, or it is not one you added or sent."
+		>
+			{#snippet action()}<a class="btn small" href={backHref}>Back to the Library</a>{/snippet}
+		</Empty>
+	{:else if openPath && owner}
+		<Empty
+			title="This is not a file the cockpit can open"
+			info={`${openPath} is not a file in the company's home folder.`}
 		>
 			{#snippet action()}<a class="btn small" href={backHref}>Back to the Library</a>{/snippet}
 		</Empty>
@@ -1020,6 +1080,7 @@
 								>Dismiss</button
 							>{/snippet}
 					</Notice>{/if}
+				{#if fileActionFailure}<Notice tone="warning" title={fileActionFailure} />{/if}
 				{#if loading && !entries.length}
 					<Skeleton label="Loading the Library" variant="list" count={5} />
 				{:else if shown.length}
@@ -1085,6 +1146,9 @@
 										{#if filter !== 'archived'}<button onclick={() => togglePin(pinKey(entry))}
 												>{pins.includes(pinKey(entry)) ? 'Unpin' : 'Pin to the sidebar'}</button
 											>{/if}
+										{#if isFile(entry) && filter !== 'archived'}<button
+												onclick={() => void downloadFile(entry.id)}>Download</button
+											><button onclick={() => void copyFileLink(entry.id)}>Copy link</button>{/if}
 										{#if isNative(entry) && filter !== 'archived'}<a
 												href={`${entry.href}&rename=1`}
 												title="Open it with the title ready to change">Rename</a
