@@ -3463,22 +3463,75 @@ model = \"anthropic/claude-sonnet-5-5\"
             content_sha256: format!("{:x}", Sha256::digest(&bytes)),
             message_id: Some(42),
         };
-        let response = verified_attachment_response(&record, bytes.clone()).unwrap();
-        assert_eq!(
-            response.headers().get(CONTENT_TYPE).unwrap(),
-            "application/octet-stream"
-        );
-        assert_eq!(
-            response.headers().get("x-content-type-options").unwrap(),
-            "nosniff"
-        );
-        assert_eq!(
-            response.headers().get(CONTENT_DISPOSITION).unwrap(),
-            "attachment; filename=\"proof.html\""
-        );
-        let mut mutated = bytes;
+        // Asking to view it in place changes nothing for active content.
+        for inline in [false, true] {
+            let response = verified_attachment_response(&record, bytes.clone(), inline).unwrap();
+            assert_eq!(
+                response.headers().get(CONTENT_TYPE).unwrap(),
+                "application/octet-stream"
+            );
+            assert_eq!(
+                response.headers().get("x-content-type-options").unwrap(),
+                "nosniff"
+            );
+            assert_eq!(
+                response.headers().get(CONTENT_DISPOSITION).unwrap(),
+                "attachment; filename=\"proof.html\""
+            );
+        }
+        let mut mutated = bytes.clone();
         mutated[0] ^= 1;
-        assert!(verified_attachment_response(&record, mutated).is_err());
+        assert!(verified_attachment_response(&record, mutated, false).is_err());
+
+        let attachment = |name: &str, media_type: &str, bytes: &[u8]| {
+            restless_orgintel::OwnerAttachmentRecord {
+                attachment_id,
+                canonical_name: name.into(),
+                canonical_media_type: media_type.into(),
+                size_bytes: bytes.len() as i64,
+                content_sha256: format!("{:x}", Sha256::digest(bytes)),
+                message_id: 42,
+            }
+        };
+        let header = |response: &Response<Body>, name: &str| {
+            response
+                .headers()
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string()
+        };
+        // SVG is script, and a claimed image whose bytes are HTML is HTML: both download.
+        let svg = b"<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>";
+        let forged_png = b"<html><script>fetch('/api')</script></html>";
+        for (name, media_type, body) in [
+            ("logo.svg", "image/svg+xml", &svg[..]),
+            ("photo.png", "image/png", &forged_png[..]),
+            ("report.pdf", "application/pdf", &forged_png[..]),
+        ] {
+            let response =
+                verified_attachment_response(&attachment(name, media_type, body), body.to_vec(), true)
+                    .unwrap();
+            assert_eq!(header(&response, "content-type"), "application/octet-stream", "{name}");
+            assert!(header(&response, "content-disposition").starts_with("attachment;"), "{name}");
+        }
+        // A real raster image is shown in place, sandboxed, and only when asked for.
+        let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
+        let record = attachment("photo.png", "image/png", png);
+        let shown = verified_attachment_response(&record, png.to_vec(), true).unwrap();
+        assert_eq!(header(&shown, "content-type"), "image/png");
+        assert!(header(&shown, "content-disposition").starts_with("inline;"));
+        assert_eq!(header(&shown, "x-content-type-options"), "nosniff");
+        assert!(header(&shown, "content-security-policy").contains("sandbox"));
+        let saved = verified_attachment_response(&record, png.to_vec(), false).unwrap();
+        assert_eq!(header(&saved, "content-type"), "application/octet-stream");
+        // A real PDF is shown in place, framed only by the cockpit.
+        let pdf = b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n";
+        let shown = verified_attachment_response(&attachment("q4.pdf", "application/pdf", pdf), pdf.to_vec(), true)
+            .unwrap();
+        assert_eq!(header(&shown, "content-type"), "application/pdf");
+        assert!(header(&shown, "content-disposition").starts_with("inline;"));
+        assert_eq!(header(&shown, "content-security-policy"), "frame-ancestors 'self'");
 
         assert!(ATTACHMENT_STAGE_STALE_AFTER >= ChronoDuration::minutes(5));
         assert!(ATTACHMENT_GC_CLAIM_FOR >= ChronoDuration::minutes(1));

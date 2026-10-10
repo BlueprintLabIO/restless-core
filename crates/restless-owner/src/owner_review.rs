@@ -128,6 +128,24 @@ pub(crate) async fn review_outcome(
     }
 }
 
+/// The owner opening a file is real demand: a computer that went to sleep while idle wakes for
+/// it, as it does for a message to the Exec. One the owner stopped stays stopped, and says so in
+/// a sentence rather than as Docker's error.
+pub(crate) async fn wake_for_owner_read(
+    state: &OwnerState,
+    company: &str,
+    reason: &str,
+) -> std::result::Result<(), Response<Body>> {
+    if restless_engine::runtime_sleep::wake_for(&state.daemon, company, reason).await {
+        return Ok(());
+    }
+    Err(api_error(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "runtime",
+        "The company computer is stopped, so this file cannot be opened. Start it from Company → Computer.",
+    ))
+}
+
 pub(crate) async fn issue_review_ticket(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
@@ -137,6 +155,12 @@ pub(crate) async fn issue_review_ticket(
         Ok(config) => config,
         Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
     };
+    // Wake before projecting, so the projection observes the file on a running computer.
+    if let Err(refusal) =
+        wake_for_owner_read(&state, &company, "the owner opened a review").await
+    {
+        return refusal;
+    }
     let org = state.daemon.orgintel.get(&company).await.ok();
     let view = match attention::project(&config, &state.daemon.authority, org.as_ref()).await {
         Ok(view) => view,
@@ -162,6 +186,11 @@ pub(crate) async fn issue_review_ticket(
             "this item has no prepared outcome the cockpit can open",
         );
     };
+    // A Markdown or text outcome has no origin to open: the projection carries it, and now that
+    // the computer is awake the next projection reads it.
+    if reference.kind == "runtime-text" {
+        return Json(serde_json::json!({ "review_url": null, "refresh": true })).into_response();
+    }
     let current = runtime::generation(&company).await.ok().flatten();
     if current.as_deref() != Some(reference.generation.as_str()) {
         return api_error(
@@ -170,7 +199,7 @@ pub(crate) async fn issue_review_ticket(
             "runtime generation changed; refresh the review",
         );
     }
-    open_review_origin(
+    match open_review_origin(
         &state,
         &company,
         &reference.generation,
@@ -179,16 +208,34 @@ pub(crate) async fn issue_review_ticket(
         &item.id,
     )
     .await
+    {
+        Ok(review_url) => Json(ReviewTicketResponse {
+            review_url,
+            expires_in_seconds: REVIEW_TTL.as_secs(),
+        })
+        .into_response(),
+        Err(refusal) => refusal,
+    }
 }
 
+/// One Library file to open: a reference Work recorded (`artifact_id`), or any file in the
+/// company home by its exact path (`path`), as a link in a message or document names it.
 #[derive(Debug, Deserialize)]
 pub(crate) struct LibraryTicketRequest {
-    pub(crate) artifact_id: Uuid,
+    #[serde(default)]
+    pub(crate) artifact_id: Option<Uuid>,
+    #[serde(default)]
+    pub(crate) path: Option<String>,
 }
 
-/// Open one file Work recorded, from Library, in the same isolated, read-only origin a review
-/// uses (S64-T5). The reference must still be the available version at its locator; the file is
-/// probed before the ticket is issued, exactly as a review's is.
+/// Open one file, from Library, in the same isolated, read-only origin a review uses (S64-T5).
+/// A recorded reference must still be the available version at its locator; a path must name a
+/// file beneath `/company` that resolves, through any symlink, inside it. Either way the file is
+/// probed before the ticket is issued, exactly as a review's is. Owner only: this route is not
+/// among the collaboration families a member may reach.
+///
+/// A small text file also comes back as text, so the cockpit reads Markdown formatted and a CSV
+/// as a table; the ticket still serves Download and Open in a tab.
 pub(crate) async fn issue_library_ticket(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
@@ -197,54 +244,34 @@ pub(crate) async fn issue_library_ticket(
     if let Err(error) = runtime::CompanyConfig::load(&state.daemon.root, &company) {
         return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}"));
     }
-    let org = match state.daemon.orgintel.get(&company).await {
-        Ok(org) => org,
-        Err(error) => {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "orgintel",
-                format!("{error:#}"),
-            )
+    let (uri, item_id) = match (input.artifact_id, input.path.as_deref().map(str::trim)) {
+        (Some(artifact_id), None) => match recorded_library_file(&state, &company, artifact_id).await
+        {
+            Ok(uri) => (uri, format!("artifact:{artifact_id}")),
+            Err(refusal) => return refusal,
+        },
+        (None, Some(path)) => {
+            if !path.starts_with("/company/") || runtime::runtime_review_file_root(path).is_err() {
+                return api_error(
+                    StatusCode::BAD_REQUEST,
+                    "library",
+                    "this is not a file in the company home",
+                );
+            }
+            (path.to_string(), format!("path:{path}"))
         }
-    };
-    let artifact = match org.get_artifact_ref(input.artifact_id).await {
-        Ok(Some(artifact)) if artifact.work_id.is_some() => artifact,
-        Ok(_) => {
+        _ => {
             return api_error(
-                StatusCode::NOT_FOUND,
+                StatusCode::BAD_REQUEST,
                 "library",
-                "this file is not one the company's Work recorded",
-            )
-        }
-        Err(error) => {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "orgintel",
-                format!("{error:#}"),
+                "name one file: an artifact_id or a path",
             )
         }
     };
-    if artifact.state != restless_orgintel::ArtifactRefState::Available {
-        return api_error(
-            StatusCode::CONFLICT,
-            "library",
-            "this file was replaced by a newer version or is missing",
-        );
-    }
-    // The owner asking to see a file is real demand: a computer that went to sleep while idle
-    // wakes for it, as it does for a message to the Exec. One the owner stopped stays stopped.
-    if !restless_engine::runtime_sleep::wake_for(
-        &state.daemon,
-        &company,
-        "the owner opened a Library file",
-    )
-    .await
+    if let Err(refusal) =
+        wake_for_owner_read(&state, &company, "the owner opened a Library file").await
     {
-        return api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "runtime",
-            "The company computer is stopped, so this file cannot be opened. Start it from Company → Computer.",
-        );
+        return refusal;
     }
     let Some(generation) = runtime::generation(&company).await.ok().flatten() else {
         return api_error(
@@ -253,27 +280,150 @@ pub(crate) async fn issue_library_ticket(
             "The company computer is still starting. Try again in a moment.",
         );
     };
-    let is_file = runtime::runtime_review_file_root(&artifact.uri).is_ok();
-    if !is_file && runtime::runtime_http_target(&artifact.uri).is_err() {
+    let is_file = runtime::runtime_review_file_root(&uri).is_ok();
+    if !is_file && runtime::runtime_http_target(&uri).is_err() {
         return api_error(
             StatusCode::CONFLICT,
             "library",
             "this file cannot be shown in the cockpit",
         );
     }
-    open_review_origin(
-        &state,
-        &company,
-        &generation,
-        &artifact.uri,
-        is_file,
-        &format!("artifact:{}", artifact.id),
-    )
-    .await
+    let review_url = match open_review_origin(&state, &company, &generation, &uri, is_file, &item_id)
+        .await
+    {
+        Ok(review_url) => review_url,
+        Err(refusal) => return refusal,
+    };
+    let mut body = serde_json::json!({
+        "review_url": review_url,
+        "expires_in_seconds": REVIEW_TTL.as_secs(),
+    });
+    if let Some(format) = is_file.then(|| runtime::runtime_text_format(&uri)).flatten() {
+        // Too large or not UTF-8 still opens: on the review origin, as before.
+        if let Ok(text) = runtime::read_runtime_text_file(&company, &uri).await {
+            body["text"] = text.into();
+            body["format"] = format.into();
+        }
+    }
+    Json(body).into_response()
 }
 
-/// Probe one Runtime target and issue a ticket for its isolated origin. The cockpit never frames
-/// a target it has not just observed.
+/// The locator of a file Work recorded, if it is still the available version.
+async fn recorded_library_file(
+    state: &OwnerState,
+    company: &str,
+    artifact_id: Uuid,
+) -> std::result::Result<String, Response<Body>> {
+    let org = match state.daemon.orgintel.get(company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return Err(api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            ))
+        }
+    };
+    let artifact = match org.get_artifact_ref(artifact_id).await {
+        Ok(Some(artifact)) if artifact.work_id.is_some() => artifact,
+        Ok(_) => {
+            return Err(api_error(
+                StatusCode::NOT_FOUND,
+                "library",
+                "this file is not one the company's Work recorded",
+            ))
+        }
+        Err(error) => {
+            return Err(api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            ))
+        }
+    };
+    if artifact.state != restless_orgintel::ArtifactRefState::Available {
+        return Err(api_error(
+            StatusCode::CONFLICT,
+            "library",
+            "this file was replaced by a newer version or is missing",
+        ));
+    }
+    Ok(artifact.uri)
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct LibraryContentQuery {
+    pub(crate) path: String,
+}
+
+/// The bytes of one Word or Excel file in the company home, for the cockpit to render in place
+/// (browsers render neither). Owner only, like opening it; bounded like a review read, served
+/// as an inert download with no-sniff so the cockpit origin never renders it.
+pub(crate) async fn library_file_content(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    Query(query): Query<LibraryContentQuery>,
+) -> Response<Body> {
+    let path = query.path.trim();
+    let office = std::path::Path::new(path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| matches!(extension.to_ascii_lowercase().as_str(), "docx" | "xlsx"));
+    if !office || !path.starts_with("/company/") || runtime::runtime_review_file_root(path).is_err()
+    {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "library",
+            "only a Word or Excel file in the company home is read here",
+        );
+    }
+    if let Err(error) = runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}"));
+    }
+    if let Err(refusal) =
+        wake_for_owner_read(&state, &company, "the owner opened a Library file").await
+    {
+        return refusal;
+    }
+    if let Err(error) = runtime::probe_runtime_review_file(&company, path).await {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "library",
+            format!("the file could not be read: {error:#}"),
+        );
+    }
+    let bytes = match runtime::read_runtime_review_file(&company, std::path::Path::new(path)).await
+    {
+        Ok((_, bytes)) => bytes,
+        Err(error) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "library",
+                format!("the file could not be read: {error:#}"),
+            )
+        }
+    };
+    let mut response = Response::new(Body::from(bytes));
+    let headers = response.headers_mut();
+    headers.insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
+    headers.insert(
+        HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(CONTENT_DISPOSITION, HeaderValue::from_static("attachment"));
+    headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(
+        "content-security-policy",
+        HeaderValue::from_static("sandbox; default-src 'none'"),
+    );
+    response
+}
+
+/// Probe one Runtime target and issue a ticket for its isolated origin, returning its URL. The
+/// cockpit never frames a target it has not just observed.
 async fn open_review_origin(
     state: &OwnerState,
     company: &str,
@@ -281,47 +431,47 @@ async fn open_review_origin(
     uri: &str,
     is_file: bool,
     item_id: &str,
-) -> Response<Body> {
+) -> std::result::Result<String, Response<Body>> {
     let company = company.to_string();
     let (source, path_and_query) = if is_file {
         let (root, entry) = match runtime::runtime_review_file_root(uri) {
             Ok(value) => value,
             Err(error) => {
-                return api_error(
+                return Err(api_error(
                     StatusCode::BAD_REQUEST,
                     "review",
                     format!("invalid review target: {error:#}"),
-                )
+                ))
             }
         };
         // Observe the exact file before claiming the outcome opens. The cockpit
         // must never frame a target it has not seen.
         if let Err(error) = runtime::probe_runtime_review_file(&company, uri).await {
-            return api_error(
+            return Err(api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "review",
                 format!("prepared outcome is unavailable: {error:#}"),
-            );
+            ));
         }
-        let path = format!("/{entry}");
+        let path = format!("/{}", percent_encode_segment(&entry));
         (ReviewSource::Files { root, entry }, path)
     } else {
         let target = match runtime::runtime_http_target(uri) {
             Ok(target) => target,
             Err(error) => {
-                return api_error(
+                return Err(api_error(
                     StatusCode::BAD_REQUEST,
                     "review",
                     format!("invalid review target: {error:#}"),
-                )
+                ))
             }
         };
         if let Err(error) = runtime::probe_runtime_http(&company, uri).await {
-            return api_error(
+            return Err(api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "review",
                 format!("live outcome is unavailable: {error:#}"),
-            );
+            ));
         }
         let path = target.path_and_query.clone();
         (ReviewSource::Service { port: target.port }, path)
@@ -332,11 +482,11 @@ async fn open_review_origin(
         match review_location(state, &ticket, &path_and_query) {
             Ok(value) => value,
             Err(error) => {
-                return api_error(
+                return Err(api_error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "review",
                     format!("review origin is invalid: {error:#}"),
-                )
+                ))
             }
         };
     state.reviews.lock().expect("review registry").insert(
@@ -350,11 +500,7 @@ async fn open_review_origin(
             expires_at: SystemTime::now() + REVIEW_TTL,
         },
     );
-    Json(ReviewTicketResponse {
-        review_url,
-        expires_in_seconds: REVIEW_TTL.as_secs(),
-    })
-    .into_response()
+    Ok(review_url)
 }
 
 pub(crate) async fn review_proxy(
@@ -492,18 +638,46 @@ async fn serve_review(
                     return api_error(StatusCode::NOT_FOUND, "review", format!("{error:#}"))
                 }
             };
-            match runtime::read_runtime_review_file(&session.company, &resolved).await {
-                Ok((media_type, bytes)) => {
-                    let body = if method == Method::HEAD {
-                        Body::empty()
-                    } else {
-                        Body::from(bytes)
-                    };
+            // The ticket's own file, unless it is a page, streams: a recording or a long PDF
+            // may be far larger than a page and the assets it loads, which are read whole.
+            let streamed = resolved == root.join(entry)
+                && runtime::review_file_media_type(&resolved) != Some("text/html; charset=utf-8");
+            let read = if streamed {
+                runtime::stream_runtime_review_file(&session.company, &resolved)
+                    .await
+                    .map(|(media_type, size, stream)| {
+                        let body = if method == Method::HEAD {
+                            Body::empty()
+                        } else {
+                            Body::from_stream(stream)
+                        };
+                        (media_type, body, Some(size))
+                    })
+            } else {
+                runtime::read_runtime_review_file(&session.company, &resolved)
+                    .await
+                    .map(|(media_type, bytes)| {
+                        let body = if method == Method::HEAD {
+                            Body::empty()
+                        } else {
+                            Body::from(bytes)
+                        };
+                        (media_type, body, None)
+                    })
+            };
+            match read {
+                Ok((media_type, body, size)) => {
                     let mut response = Response::new(body);
+                    if let Some(size) = size {
+                        response.headers_mut().insert(
+                            axum::http::header::CONTENT_LENGTH,
+                            HeaderValue::from(size),
+                        );
+                    }
                     response
                         .headers_mut()
                         .insert(CONTENT_TYPE, HeaderValue::from_static(media_type));
-                    if runtime::is_runtime_review_download(&resolved) {
+                    if runtime::is_runtime_review_download(&resolved) || wants_download(path) {
                         let filename = resolved
                             .file_name()
                             .and_then(|name| name.to_str())
@@ -532,6 +706,28 @@ async fn serve_review(
     let (parts, body) = upstream.into_parts();
     let response = Response::from_parts(parts, Body::new(body));
     finish_review_response(response, &session, path, on_plane_host)
+}
+
+/// `download=1` in a ticket URL's query asks for the file itself, saved under its own name,
+/// rather than shown.
+fn wants_download(path_and_query: &str) -> bool {
+    path_and_query
+        .split_once('?')
+        .is_some_and(|(_, query)| query.split('&').any(|pair| pair == "download=1"))
+}
+
+/// A file name as one URL path segment. The review read decodes it again, so a name with a
+/// space, `#` or `?` still reaches exactly that file.
+pub(crate) fn percent_encode_segment(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for byte in name.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
 }
 
 /// One header policy for every isolated review origin, whatever it read from.

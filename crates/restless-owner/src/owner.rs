@@ -1530,6 +1530,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(library_api::upload_attachments),
         )
         .route(
+            "/companies/{company}/library/content",
+            get(review_api::library_file_content),
+        )
+        .route(
             "/companies/{company}/messages/{message}/reference",
             get(message_reference),
         )
@@ -9164,10 +9168,19 @@ async fn attachment_runtime_ready(
 
 
 
+#[derive(Debug, Default, Deserialize)]
+struct AttachmentReadQuery {
+    /// `inline=1` asks to view the file in place. Only a verified raster
+    /// image or PDF is ever served inline; everything else still downloads.
+    #[serde(default)]
+    inline: Option<String>,
+}
+
 async fn download_attachment(
     State(state): State<RoomApiState>,
     RoomPrincipal(principal): RoomPrincipal,
     AxumPath((company, attachment)): AxumPath<(String, Uuid)>,
+    Query(query): Query<AttachmentReadQuery>,
 ) -> Response<Body> {
     let org = match room_orgintel(&state, &principal, &company).await {
         Ok(org) => org,
@@ -9193,13 +9206,29 @@ async fn download_attachment(
             );
         }
     };
+    // The bytes live on the company computer. Reading them is the person's own
+    // demand: a computer that fell asleep wakes for it; a stopped one says so.
+    // (Only test routers hold a fixed store with no computer behind it.)
+    #[allow(irrefutable_let_patterns)]
+    if let RoomOrgIntelSource::Daemon(daemon) = &state.source {
+        if !restless_engine::runtime_sleep::wake_for(daemon, &company, "someone opened an attachment")
+            .await
+        {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "runtime",
+                "The company computer is stopped, so this file cannot be opened. Start it from Company → Computer.",
+            );
+        }
+    }
     let bytes = match runtime::read_owner_attachment(&company, attachment).await {
         Ok(value) => value,
         Err(error) => {
             return api_error(StatusCode::NOT_FOUND, "attachment", format!("{error:#}"));
         }
     };
-    match verified_attachment_response(&record, bytes) {
+    let inline = query.inline.as_deref() == Some("1");
+    match verified_attachment_response(&record, bytes, inline) {
         Ok(response) => response,
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -9311,33 +9340,70 @@ async fn request_attachment_purge(
         .into_response()
 }
 
+/// The one attachment type that may be shown in place, when asked for and only
+/// when the bytes really are that type. A raster image or PDF runs no script on
+/// this origin; SVG, HTML and every other type are only ever downloads.
+fn inline_attachment_type(media_type: &str, bytes: &[u8]) -> Option<&'static str> {
+    match media_type.trim().to_ascii_lowercase().as_str() {
+        "image/png" if bytes.starts_with(b"\x89PNG\r\n\x1a\n") => Some("image/png"),
+        "image/jpeg" if bytes.starts_with(&[0xff, 0xd8, 0xff]) => Some("image/jpeg"),
+        "image/gif" if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") => {
+            Some("image/gif")
+        }
+        "image/webp" if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" => {
+            Some("image/webp")
+        }
+        "application/pdf" if bytes.starts_with(b"%PDF-") => Some("application/pdf"),
+        _ => None,
+    }
+}
+
 fn verified_attachment_response(
     record: &restless_orgintel::OwnerAttachmentRecord,
     bytes: Vec<u8>,
+    inline: bool,
 ) -> Result<Response<Body>> {
     if i64::try_from(bytes.len()).ok() != Some(record.size_bytes)
         || format!("{:x}", Sha256::digest(&bytes)) != record.content_sha256
     {
         bail!("attachment bytes do not match their durable integrity record");
     }
+    let shown = inline
+        .then(|| inline_attachment_type(&record.canonical_media_type, &bytes))
+        .flatten();
     let mut response = Response::new(Body::from(bytes));
     response.headers_mut().insert(
         CONTENT_TYPE,
-        HeaderValue::from_static("application/octet-stream"),
+        HeaderValue::from_static(shown.unwrap_or("application/octet-stream")),
     );
     response.headers_mut().insert(
         HeaderName::from_static("x-content-type-options"),
         HeaderValue::from_static("nosniff"),
     );
+    // An image document gets an opaque, script-less origin and no subresources.
+    // The browser's PDF reader refuses a sandboxed response, so a PDF may only
+    // be framed by the cockpit itself; it runs no page script.
+    if let Some(media_type) = shown {
+        response.headers_mut().insert(
+            "content-security-policy",
+            HeaderValue::from_static(if media_type == "application/pdf" {
+                "frame-ancestors 'self'"
+            } else {
+                "default-src 'none'; style-src 'unsafe-inline'; sandbox; frame-ancestors 'self'"
+            }),
+        );
+    }
     let name = safe_attachment_name(&record.canonical_name);
     let disposition = format!(
-        "attachment; filename=\"{}\"",
+        "{}; filename=\"{}\"",
+        if shown.is_some() { "inline" } else { "attachment" },
         name.replace(['\\', '"'], "_")
     );
     response.headers_mut().insert(
         CONTENT_DISPOSITION,
-        HeaderValue::from_str(&disposition)
-            .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
+        HeaderValue::from_str(&disposition).unwrap_or_else(|_| {
+            HeaderValue::from_static(if shown.is_some() { "inline" } else { "attachment" })
+        }),
     );
     Ok(response)
 }
@@ -9642,8 +9708,10 @@ async fn revoke(
 /// Open a company file that an agent pointed the owner to in a message. This
 /// is not general file serving: the path must appear in that exact message,
 /// sit beneath /company, and pass the same bounded reads a prepared review
-/// uses. Markdown and plain text come back as text; other presentable files
-/// get a short-lived ticket on the isolated review origin.
+/// uses. A small text file (Markdown, plain text, CSV, JSON) comes back as
+/// text; every file also gets a short-lived ticket on the isolated review
+/// origin, which serves Download and Open in a tab. Opening one wakes a
+/// computer that fell asleep, as opening it from the Library does.
 async fn message_reference(
     State(state): State<OwnerState>,
     AxumPath((company, message_id)): AxumPath<(String, i64)>,
@@ -9677,21 +9745,6 @@ async fn message_reference(
             )
         }
     }
-    if runtime::is_runtime_review_text_target(&path) {
-        return match runtime::read_runtime_review_text(&company, &path).await {
-            Ok(markdown) => Json(serde_json::json!({
-                "kind": "text",
-                "path": path,
-                "markdown": markdown,
-            }))
-            .into_response(),
-            Err(error) => api_error(
-                StatusCode::NOT_FOUND,
-                "reference",
-                format!("the file could not be read: {error:#}"),
-            ),
-        };
-    }
     let (root, entry) = match runtime::runtime_review_file_root(&path) {
         Ok(value) => value,
         Err(error) => {
@@ -9702,11 +9755,17 @@ async fn message_reference(
             )
         }
     };
+    if let Err(refusal) =
+        review_api::wake_for_owner_read(&state, &company, "the owner opened a file in a message")
+            .await
+    {
+        return refusal;
+    }
     let Some(generation) = runtime::generation(&company).await.ok().flatten() else {
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "runtime",
-            "the company computer is not running",
+            "The company computer is still starting. Try again in a moment.",
         );
     };
     if let Err(error) = runtime::probe_runtime_review_file(&company, &path).await {
@@ -9716,9 +9775,17 @@ async fn message_reference(
             format!("the file is unavailable: {error:#}"),
         );
     }
+    let text = match runtime::runtime_text_format(&path) {
+        Some(format) => runtime::read_runtime_text_file(&company, &path)
+            .await
+            .ok()
+            .map(|text| (format, text)),
+        None => None,
+    };
     let ticket = Uuid::new_v4().simple().to_string();
+    let entry_path = format!("/{}", review_api::percent_encode_segment(&entry));
     let (review_url, expected_host) =
-        match review_location(&state, &ticket, &format!("/{entry}")) {
+        match review_location(&state, &ticket, &entry_path) {
             Ok(value) => value,
             Err(error) => {
                 return api_error(
@@ -9739,11 +9806,20 @@ async fn message_reference(
             expires_at: SystemTime::now() + REVIEW_TTL,
         },
     );
-    Json(serde_json::json!({
-        "kind": "frame",
-        "path": path,
-        "url": review_url,
-    }))
+    match text {
+        Some((format, markdown)) => Json(serde_json::json!({
+            "kind": "text",
+            "path": path,
+            "url": review_url,
+            "format": format,
+            "markdown": markdown,
+        })),
+        None => Json(serde_json::json!({
+            "kind": "frame",
+            "path": path,
+            "url": review_url,
+        })),
+    }
     .into_response()
 }
 

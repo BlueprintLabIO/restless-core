@@ -2597,16 +2597,92 @@ pub async fn probe_runtime_http(company: &str, value: &str) -> Result<()> {
 
 const MAX_REVIEW_TEXT_BYTES: usize = 256 * 1024;
 
-fn runtime_review_text_path(value: &str) -> Result<&Path> {
+/// One exact path beneath `/company`, spelled with ordinary names only: no `..`, `.`, re-rooting
+/// or control characters, so nothing in the spelling itself can leave the company home.
+fn company_file_path(value: &str) -> Result<&Path> {
     let path = Path::new(value);
     let mut components = path.components();
-    if components.next() != Some(Component::RootDir)
+    if value.len() > 4096
+        || value.chars().any(char::is_control)
+        || components.next() != Some(Component::RootDir)
         || components.next() != Some(Component::Normal("company".as_ref()))
         || components.clone().next().is_none()
         || components.any(|component| !matches!(component, Component::Normal(_)))
     {
-        bail!("text ReviewTarget must be a file beneath /company");
+        bail!("the file must be beneath /company");
     }
+    Ok(path)
+}
+
+/// Resolve the path in `$1` the way every owner read does: through each symlink to an existing
+/// regular file that is still inside the company home. A link Work left pointing elsewhere on the
+/// computer is refused, not followed. Leaves the canonical path in `$p`.
+const CANONICAL_COMPANY_FILE: &str = r#"root=$(realpath -e /company) || exit 66
+p=$(realpath -e -- "$1") || exit 66
+case "$p" in "$root"/*) ;; *) echo "the file links outside the company home" >&2; exit 67;; esac
+[ -f "$p" ] || { echo "the path is not a regular file" >&2; exit 68; }
+"#;
+
+/// Read at most `limit` bytes of one canonical company file.
+async fn read_company_file(company: &str, path: &Path, limit: u64) -> Result<std::process::Output> {
+    let script = format!("{CANONICAL_COMPANY_FILE}exec head -c \"$2\" -- \"$p\"");
+    docker_observe(&[
+        "exec",
+        "-u",
+        "company",
+        &container_name(company),
+        "sh",
+        "-c",
+        &script,
+        "sh",
+        path.to_str().context("the file path must be UTF-8")?,
+        &limit.to_string(),
+    ])
+    .await
+}
+
+/// How the cockpit reads a small text file in place: Markdown formatted, a table as a table,
+/// anything else as plain text. Other files open on a review origin instead.
+pub fn runtime_text_format(value: &str) -> Option<&'static str> {
+    let extension = Path::new(value)
+        .extension()
+        .and_then(|value| value.to_str())?
+        .to_ascii_lowercase();
+    Some(match extension.as_str() {
+        "md" | "markdown" => "markdown",
+        "csv" => "csv",
+        "tsv" => "tsv",
+        "json" => "json",
+        "txt" | "log" => "text",
+        _ => return None,
+    })
+}
+
+/// Read one small text file beneath `/company` for the owner to read in place. Bounded,
+/// canonical and UTF-8; a file too large for this returns an error and opens on a review origin.
+pub async fn read_runtime_text_file(company: &str, value: &str) -> Result<String> {
+    validate_company_name(company)?;
+    let path = company_file_path(value)?;
+    if runtime_text_format(value).is_none() {
+        bail!("the file is not one the cockpit reads as text");
+    }
+    let output = read_company_file(company, path, MAX_REVIEW_TEXT_BYTES as u64 + 1).await?;
+    if !output.status.success() {
+        bail!(
+            "the file is unavailable: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    if output.stdout.len() > MAX_REVIEW_TEXT_BYTES {
+        bail!("the file is larger than {MAX_REVIEW_TEXT_BYTES} bytes");
+    }
+    String::from_utf8(output.stdout).context("the file is not UTF-8 text")
+}
+
+fn runtime_review_text_path(value: &str) -> Result<&Path> {
+    let Ok(path) = company_file_path(value) else {
+        bail!("text ReviewTarget must be a file beneath /company");
+    };
     let extension = path
         .extension()
         .and_then(|value| value.to_str())
@@ -2683,30 +2759,30 @@ pub fn review_file_media_type(path: &Path) -> Option<&'static str> {
 
 /// Office formats are valid read-only review targets, but browsers do not
 /// render them. Serve them as downloads instead of presenting a blank frame.
+/// A format with no listed type (an archive, a recording in another container,
+/// a data file) is still the owner's file: it downloads, never renders.
 pub fn is_runtime_review_download(path: &Path) -> bool {
-    path.extension()
-        .and_then(|value| value.to_str())
-        .is_some_and(|extension| {
-            matches!(
-                extension.to_ascii_lowercase().as_str(),
-                "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx"
-            )
-        })
+    review_file_media_type(path).is_none()
+        || path
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|extension| {
+                matches!(
+                    extension.to_ascii_lowercase().as_str(),
+                    "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx"
+                )
+            })
 }
 
-/// The exact file a displayable ReviewTarget names, beneath `/company`.
+/// The exact file a ReviewTarget names, beneath `/company`. It must name a file
+/// (with an extension, so a repository or output directory is not mistaken for
+/// one); a format the cockpit cannot present is served only as a download.
 fn runtime_review_file_path(value: &str) -> Result<&Path> {
-    let path = Path::new(value);
-    let mut components = path.components();
-    if components.next() != Some(Component::RootDir)
-        || components.next() != Some(Component::Normal("company".as_ref()))
-        || components.clone().next().is_none()
-        || components.any(|component| !matches!(component, Component::Normal(_)))
-    {
+    let Ok(path) = company_file_path(value) else {
         bail!("file ReviewTarget must be a file beneath /company");
-    }
-    if review_file_media_type(path).is_none() {
-        bail!("file ReviewTarget is not a format the cockpit can present");
+    };
+    if path.extension().is_none() {
+        bail!("file ReviewTarget must name a file, not a directory");
     }
     Ok(path)
 }
@@ -2738,18 +2814,39 @@ pub fn runtime_review_file_root(value: &str) -> Result<(PathBuf, String)> {
 /// gateway will carry. This is the file equivalent of the live HTTP probe: the
 /// cockpit must never claim an outcome is ready without observing it.
 pub async fn probe_runtime_review_file(company: &str, value: &str) -> Result<()> {
+    let size = runtime_review_file_size(company, value).await?;
+    // A page is read whole with the assets it loads; a single file (a recording,
+    // a long PDF, an archive) is streamed, so only a page keeps the buffered cap.
+    let page = review_file_media_type(Path::new(value)) == Some("text/html; charset=utf-8");
+    let limit = if page {
+        MAX_REVIEW_FILE_BYTES
+    } else {
+        MAX_STREAMED_REVIEW_FILE_BYTES
+    };
+    if size > limit {
+        bail!("file ReviewTarget is larger than the {limit}-byte review limit");
+    }
+    Ok(())
+}
+
+/// The largest single file the cockpit streams from the company computer.
+pub const MAX_STREAMED_REVIEW_FILE_BYTES: u64 = 16 * 1024 * 1024 * 1024;
+
+/// The size of one company file, observed through its canonical path.
+async fn runtime_review_file_size(company: &str, value: &str) -> Result<u64> {
     validate_company_name(company)?;
     let path = runtime_review_file_path(value)?;
     let container = container_name(company);
+    let script = format!("{CANONICAL_COMPANY_FILE}exec stat -c %s -- \"$p\"");
     let output = docker_observe(&[
         "exec",
         "-u",
         "company",
         &container,
-        "stat",
+        "sh",
         "-c",
-        "%s",
-        "--",
+        &script,
+        "sh",
         path.to_str().context("ReviewTarget path must be UTF-8")?,
     ])
     .await?;
@@ -2763,18 +2860,68 @@ pub async fn probe_runtime_review_file(company: &str, value: &str) -> Result<()>
         .trim()
         .parse()
         .context("could not observe the ReviewTarget's size")?;
-    if size > MAX_REVIEW_FILE_BYTES {
-        bail!("file ReviewTarget is larger than the {MAX_REVIEW_FILE_BYTES}-byte review limit");
+    Ok(size)
+}
+
+/// One company file streamed rather than buffered: its type, its size, and its bytes as they
+/// come off the company computer. Resolved through its symlinks to a regular file inside the
+/// company home, exactly as a buffered read is. The stream owns the `docker exec`; dropping it
+/// (the owner closed the tab) kills that process. A file that changes while it streams may end
+/// short; accepted, since the owner can open it again.
+pub async fn stream_runtime_review_file(
+    company: &str,
+    path: &Path,
+) -> Result<(
+    &'static str,
+    u64,
+    futures_util::stream::BoxStream<'static, std::io::Result<Bytes>>,
+)> {
+    use futures_util::StreamExt;
+    use tokio::io::AsyncReadExt;
+    let value = path.to_str().context("review file path must be UTF-8")?;
+    let path = company_file_path(value)?;
+    let media_type = review_file_media_type(path).unwrap_or("application/octet-stream");
+    let size = runtime_review_file_size(company, value).await?;
+    if size > MAX_STREAMED_REVIEW_FILE_BYTES {
+        bail!("review file exceeds the {MAX_STREAMED_REVIEW_FILE_BYTES}-byte limit");
     }
-    Ok(())
+    let script = format!("{CANONICAL_COMPANY_FILE}exec cat -- \"$p\"");
+    let mut child = tokio::process::Command::new("docker")
+        .args([
+            "exec",
+            "-u",
+            "company",
+            &container_name(company),
+            "sh",
+            "-c",
+            &script,
+            "sh",
+            value,
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .context("spawn docker")?;
+    let stdout = child.stdout.take().context("docker exec has no output")?;
+    let stream = tokio_util::io::ReaderStream::new(stdout.take(size))
+        .map(move |chunk| {
+            let _owned = &child;
+            chunk
+        })
+        .boxed();
+    Ok((media_type, size, stream))
 }
 
 /// Resolve one requested path against a file review's confined root.
 ///
 /// The request comes from a page the company itself authored, so this is the
 /// exact place a traversal would be attempted. Only ordinary named components
-/// survive: no `..`, no absolute re-root, no symlink chase, and the resolved
-/// path must still be a displayable format.
+/// survive: no `..`, no absolute re-root, and the resolved path must still be a
+/// displayable format. Only the exact entry the ticket names may be a format
+/// with no listed type (it downloads). The read itself refuses a symlink that
+/// leads outside the company home.
 pub fn resolve_review_file(root: &Path, entry: &str, request_path: &str) -> Result<PathBuf> {
     let requested = request_path.split(['?', '#']).next().unwrap_or("");
     let decoded = percent_decode(requested);
@@ -2787,7 +2934,9 @@ pub fn resolve_review_file(root: &Path, entry: &str, request_path: &str) -> Resu
             _ => bail!("review file path must not leave the prepared outcome"),
         }
     }
-    if !resolved.starts_with(root) || review_file_media_type(&resolved).is_none() {
+    if !resolved.starts_with(root)
+        || (review_file_media_type(&resolved).is_none() && resolved != root.join(entry))
+    {
         bail!("review file path must not leave the prepared outcome");
     }
     Ok(resolved)
@@ -2820,22 +2969,9 @@ pub async fn read_runtime_review_file(
     path: &Path,
 ) -> Result<(&'static str, Vec<u8>)> {
     validate_company_name(company)?;
-    let media_type =
-        review_file_media_type(path).context("review file is not a displayable format")?;
-    let container = container_name(company);
-    let limit = (MAX_REVIEW_FILE_BYTES + 1).to_string();
-    let output = docker_observe(&[
-        "exec",
-        "-u",
-        "company",
-        &container,
-        "head",
-        "-c",
-        &limit,
-        "--",
-        path.to_str().context("review file path must be UTF-8")?,
-    ])
-    .await?;
+    let path = company_file_path(path.to_str().context("review file path must be UTF-8")?)?;
+    let media_type = review_file_media_type(path).unwrap_or("application/octet-stream");
+    let output = read_company_file(company, path, MAX_REVIEW_FILE_BYTES + 1).await?;
     if !output.status.success() {
         bail!(
             "review file is unavailable: {}",
@@ -2854,20 +2990,7 @@ pub async fn read_runtime_review_file(
 pub async fn read_runtime_review_text(company: &str, value: &str) -> Result<String> {
     validate_company_name(company)?;
     let path = runtime_review_text_path(value)?;
-    let container = container_name(company);
-    let limit = (MAX_REVIEW_TEXT_BYTES + 1).to_string();
-    let output = docker_observe(&[
-        "exec",
-        "-u",
-        "company",
-        &container,
-        "head",
-        "-c",
-        &limit,
-        "--",
-        path.to_str().context("ReviewTarget path must be UTF-8")?,
-    ])
-    .await?;
+    let output = read_company_file(company, path, MAX_REVIEW_TEXT_BYTES as u64 + 1).await?;
     if !output.status.success() {
         bail!(
             "text ReviewTarget is unavailable: {}",
@@ -4172,6 +4295,7 @@ mission = "Choose intelligence"
         move_archived_config_to_active, normalize_expired_browser_control, resolve_review_file,
         review_file_media_type, runtime_http_target, runtime_review_file_root,
         runtime_review_text_path, AgentHarness, CompanyConfig, SpendCeiling,
+        CANONICAL_COMPANY_FILE,
     };
 
     #[test]
@@ -4618,16 +4742,28 @@ worker_harness = "claude_agent"
         // Markdown keeps its own richer path: the cockpit renders it rather
         // than framing it, so this must not claim it.
         assert!(!is_runtime_review_file_target("/company/outputs/plan.md"));
-        // Nothing outside the company computer, and nothing the cockpit cannot
-        // render or offer as a safe download.
+        // Nothing outside the company computer, and no directory mistaken for a file.
         assert!(!is_runtime_review_file_target("/etc/passwd"));
         assert!(!is_runtime_review_file_target(
             "/company/../etc/shadow.html"
         ));
-        assert!(!is_runtime_review_file_target(
-            "/company/outputs/build.tar.gz"
-        ));
-        assert!(!is_runtime_review_file_target("/company/outputs/run.sh"));
+        assert!(!is_runtime_review_file_target("/company/outputs/site"));
+        assert!(!is_runtime_review_file_target("/company/outputs/a\nb.pdf"));
+        // A format the cockpit cannot render is still the owner's file: it is
+        // offered only as a download, and only as the exact entry.
+        for download in ["/company/outputs/build.tar.gz", "/company/outputs/run.sh"] {
+            assert!(is_runtime_review_file_target(download), "{download}");
+            let (root, entry) = runtime_review_file_root(download).unwrap();
+            let resolved = resolve_review_file(&root, &entry, "/").unwrap();
+            assert!(is_runtime_review_download(&resolved));
+            assert_eq!(
+                resolve_review_file(&root, &entry, &format!("/{entry}?download=1")).unwrap(),
+                resolved
+            );
+        }
+        let (root, entry) = runtime_review_file_root("/company/outputs/build.tar.gz").unwrap();
+        assert!(resolve_review_file(&root, &entry, "/other.tar.gz").is_err());
+        assert!(resolve_review_file(&root, &entry, "/run.sh").is_err());
 
         let (root, entry) = runtime_review_file_root(page).expect("a page has a root");
         assert_eq!(
@@ -4708,5 +4844,45 @@ worker_harness = "claude_agent"
         );
         assert_eq!(review_file_media_type(Path::new("archive.zip")), None);
         assert_eq!(review_file_media_type(Path::new("Makefile")), None);
+        assert!(is_runtime_review_download(Path::new("archive.zip")));
+        assert!(!is_runtime_review_download(Path::new("plan.pdf")));
+    }
+
+    /// Every owner read of a company file resolves it through its symlinks first. A link Work
+    /// left inside the company home that leads elsewhere on the computer is refused; a link
+    /// between two places inside the home (a stable review alias) still reads.
+    #[cfg(unix)]
+    #[test]
+    fn owner_reads_refuse_a_symlink_that_leaves_the_company_home() {
+        use std::os::unix::fs::symlink;
+        let base = std::env::temp_dir().join(format!("restless-canonical_test-{}", Uuid::new_v4()));
+        let home = base.join("company");
+        std::fs::create_dir_all(home.join("outputs/run")).unwrap();
+        std::fs::write(home.join("outputs/run/plan.md"), "# Plan").unwrap();
+        std::fs::write(base.join("secret.txt"), "outside").unwrap();
+        symlink(home.join("outputs/run/plan.md"), home.join("outputs/alias.md")).unwrap();
+        symlink(base.join("secret.txt"), home.join("outputs/escape.md")).unwrap();
+        symlink(&base, home.join("outputs/up")).unwrap();
+        let script = format!(
+            "{}exec head -c 64 -- \"$p\"",
+            CANONICAL_COMPANY_FILE.replace("/company", home.to_str().unwrap())
+        );
+        let read = |path: &str| {
+            std::process::Command::new("sh")
+                .args(["-c", &script, "sh", home.join(path).to_str().unwrap()])
+                .output()
+                .unwrap()
+        };
+        let ok = read("outputs/run/plan.md");
+        assert!(ok.status.success());
+        assert_eq!(ok.stdout, b"# Plan");
+        assert_eq!(read("outputs/alias.md").stdout, b"# Plan");
+        for escape in ["outputs/escape.md", "outputs/up/secret.txt"] {
+            let refused = read(escape);
+            assert!(!refused.status.success(), "{escape} was read");
+            assert!(refused.stdout.is_empty(), "{escape} leaked bytes");
+        }
+        assert!(!read("outputs/run").status.success(), "a directory is not a file");
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

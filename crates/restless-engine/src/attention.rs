@@ -195,6 +195,35 @@ pub struct ReviewTargetRef {
     pub unavailable_reason: Option<String>,
 }
 
+/// Whether a Runtime review target can be read now, and if not, why in the owner's words. A
+/// computer that went to sleep is not a broken outcome: the cockpit asks for the target, which
+/// wakes it (`asleep`). A stopped computer is said plainly rather than as Docker's own error.
+fn review_target_availability(
+    company: &str,
+    observed: Result<()>,
+) -> (&'static str, Option<String>) {
+    let Err(error) = observed else {
+        return ("available", None);
+    };
+    if runtime::is_sleeping(company) {
+        return (
+            "asleep",
+            Some("The company computer is asleep. Opening the review wakes it.".into()),
+        );
+    }
+    let detail = format!("{error:#}");
+    if detail.contains("is not running") || detail.contains("No such container") {
+        return (
+            "unavailable",
+            Some(
+                "The company computer is stopped, so this outcome cannot be opened. Start it from Company → Computer."
+                    .into(),
+            ),
+        );
+    }
+    ("unavailable", Some(detail))
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AttentionAction {
     pub id: String,
@@ -905,19 +934,17 @@ pub async fn project(
                 {
                     let availability =
                         runtime::probe_runtime_http(&config.name, &artifact.uri).await;
+                    let (status, unavailable_reason) =
+                        review_target_availability(&config.name, availability);
                     Some(ReviewTargetRef {
                         company: config.name.clone(),
                         generation: generation.clone(),
                         uri: artifact.uri,
-                        status: if availability.is_ok() {
-                            "available"
-                        } else {
-                            "unavailable"
-                        },
+                        status,
                         kind: "runtime-web",
                         label: artifact.label,
                         content: None,
-                        unavailable_reason: availability.err().map(|error| format!("{error:#}")),
+                        unavailable_reason,
                     })
                 }
                 // A rendered page, document, image or recording produced into
@@ -931,19 +958,17 @@ pub async fn project(
                 {
                     let availability =
                         runtime::probe_runtime_review_file(&config.name, &artifact.uri).await;
+                    let (status, unavailable_reason) =
+                        review_target_availability(&config.name, availability);
                     Some(ReviewTargetRef {
                         company: config.name.clone(),
                         generation: generation.clone(),
                         uri: artifact.uri,
-                        status: if availability.is_ok() {
-                            "available"
-                        } else {
-                            "unavailable"
-                        },
+                        status,
                         kind: "runtime-file",
                         label: artifact.label,
                         content: None,
-                        unavailable_reason: availability.err().map(|error| format!("{error:#}")),
+                        unavailable_reason,
                     })
                 }
                 (Some(generation), Some(artifact))
@@ -951,10 +976,12 @@ pub async fn project(
                 {
                     let materialized =
                         runtime::read_runtime_review_text(&config.name, &artifact.uri).await;
-                    let (status, content, unavailable_reason) = match materialized {
-                        Ok(content) => ("available", Some(content), None),
-                        Err(error) => ("unavailable", None, Some(format!("{error:#}"))),
+                    let (content, availability) = match materialized {
+                        Ok(content) => (Some(content), Ok(())),
+                        Err(error) => (None, Err(error)),
                     };
+                    let (status, unavailable_reason) =
+                        review_target_availability(&config.name, availability);
                     Some(ReviewTargetRef {
                         company: config.name.clone(),
                         generation: generation.clone(),
