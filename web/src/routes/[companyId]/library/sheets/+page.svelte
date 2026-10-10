@@ -260,6 +260,8 @@
 	 * it; the button stays for when it does not. */
 	let pickerOffered = false;
 	$effect(() => {
+		// Offered once per visit: coming back from the Library's Import offers it again.
+		if (!importing) pickerOffered = false;
 		if (!importing || !importInput || pickerOffered) return;
 		pickerOffered = true;
 		try {
@@ -409,6 +411,7 @@
 			{/if}
 			{#if !importing}<span
 					class="state state-{saveState}"
+					class:flash={!!flash}
 					title="Accepted edits are stored in company history">{flash || stateLabel}</span
 				>{/if}
 			<span class="spacer"></span>
@@ -785,7 +788,8 @@
 		}
 	}
 	@container (max-width: 520px) {
-		.state {
+		/* A brief confirmation such as "Link copied" still shows on a phone. */
+		.state:not(.flash) {
 			display: none;
 		}
 	}
