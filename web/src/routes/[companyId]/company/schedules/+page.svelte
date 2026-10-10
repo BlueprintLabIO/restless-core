@@ -87,7 +87,17 @@
 	}
 	function remove(item: MonitoredSchedule) {
 		if (!window.confirm(`Delete “${item.schedule.reason}”? Exec will stop running it.`)) return;
-		void act(item.schedule.id, () => cancelLoop(companyId, item.schedule.id), 'Schedule deleted');
+		void act(
+			item.schedule.id,
+			async () => {
+				const { cancelled } = await cancelLoop(companyId, item.schedule.id);
+				if (!cancelled) {
+					await query.refetch();
+					throw new Error('This schedule had already ended, so there was nothing to delete.');
+				}
+			},
+			'Schedule deleted'
+		);
 	}
 	function outcomeText(outcome: unknown, reason: string | null): string {
 		const reasons: Record<string, string> = {

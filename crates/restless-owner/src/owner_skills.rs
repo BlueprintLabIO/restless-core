@@ -376,9 +376,12 @@ async fn loop_binding(
     }
 }
 
-/// A time of day the owner typed, as `HH:MM`.
+/// A time of day the owner typed, as `HH:MM` (a browser time field may add `:SS`).
 fn parse_local_time(value: &str) -> Option<chrono::NaiveTime> {
-    chrono::NaiveTime::parse_from_str(value.trim(), "%H:%M").ok()
+    let value = value.trim();
+    chrono::NaiveTime::parse_from_str(value, "%H:%M")
+        .or_else(|_| chrono::NaiveTime::parse_from_str(value, "%H:%M:%S"))
+        .ok()
 }
 
 /// The shape of an IANA zone name. OrgIntel resolves the zone itself and
