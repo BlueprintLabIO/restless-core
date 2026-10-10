@@ -5,7 +5,7 @@ import { Pool, type PoolConfig } from 'pg';
 import * as Y from 'yjs';
 
 import { MAX_YJS_STATE_BYTES } from './constants.js';
-import { projectionFromState, stateFromProjection } from './document-codec.js';
+import { DocumentCodecError, projectionFromState, stateFromProjection } from './document-codec.js';
 import type { DocumentStore, StoredDocumentInput } from './server.js';
 import {
   DocumentCheckpointChangedError,
@@ -388,7 +388,8 @@ export class PostgresDocumentStore implements DocumentStore {
       throw new DocumentPersistenceError();
     } catch (error) {
       this.failures.add(key);
-      if (error instanceof DocumentCheckpointChangedError) throw error;
+      // Both carry no database detail. The server tells editors which one it was.
+      if (error instanceof DocumentCheckpointChangedError || error instanceof DocumentCodecError) throw error;
       throw new DocumentPersistenceError();
     }
   }

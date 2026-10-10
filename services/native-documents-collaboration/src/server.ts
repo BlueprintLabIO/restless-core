@@ -8,6 +8,7 @@ import * as Y from 'yjs';
 import { bodyView, prepareBodyEdit, checkedBodyUpdate, BodyEditConflict, InvalidBodyEdit } from './body-edits.js';
 
 import type { CollaborationConfig } from './config.js';
+import { DocumentCodecError } from './document-codec.js';
 import { DocumentCheckpointChangedError } from './store-errors.js';
 import {
   AUTHENTICATION_CLOSE_CODE,
@@ -62,6 +63,16 @@ interface CollaborationContext {
 }
 
 const MAX_CURSOR_JSON_BYTES = 1024;
+
+/** The stateless message editors read to learn whether their edits are being kept. Hocuspocus
+ * acknowledges an update once it is applied in memory, not once it is stored, so without this an
+ * editor keeps reading "Saved" while every store fails. It never carries content or detail. */
+export const SAVE_STATUS_MESSAGE = 'restless.save';
+export type SaveStatus = 'invalid' | 'unavailable' | 'saved';
+
+function saveStatus(status: SaveStatus): string {
+  return JSON.stringify({ type: SAVE_STATUS_MESSAGE, status });
+}
 
 export interface CollaborationServerDependencies {
   readonly store: DocumentStore;
@@ -178,6 +189,8 @@ export class NativeDocumentsCollaborationServer {
   private destroyed = false;
   private lastReadinessStatus: string | undefined;
   private readinessProbeSequence = 0;
+  /** Loaded documents whose latest store failed, until one succeeds or the document unloads. */
+  private readonly unsaved = new Map<string, Exclude<SaveStatus, 'saved'>>();
 
   constructor(
     private readonly config: CollaborationConfig,
@@ -292,12 +305,14 @@ export class NativeDocumentsCollaborationServer {
           throw new SocketAuthorizationError();
         }
       },
-      connected: async ({ connection, context }) => {
+      connected: async ({ connection, context, documentName }) => {
         if (!context.session) {
           connection.close({ code: AUTHENTICATION_CLOSE_CODE, reason: 'Unauthorized' });
           return;
         }
         this.scheduleLease(context.session.lease, connection);
+        const unsaved = this.unsaved.get(documentName);
+        if (unsaved) connection.sendStateless(saveStatus(unsaved));
       },
       beforeHandleMessage: async ({ context, documentName, update }) => {
         if (!context.session || collaborationDocumentName(context.session.target) !== documentName) {
@@ -382,7 +397,15 @@ export class NativeDocumentsCollaborationServer {
         if (state.byteLength > MAX_YJS_STATE_BYTES) throw new Error('native Documents durable state exceeds the released limit');
         try {
           await this.store.store({ ...target, state });
+          if (this.unsaved.delete(documentName)) document.broadcastStateless(saveStatus('saved'));
         } catch (error) {
+          if (!(error instanceof DocumentCheckpointChangedError)) {
+            // The body stays in memory and every later store retries it. Say so plainly: content
+            // the company schema refuses needs the editor to undo it; anything else is ours.
+            const status = error instanceof DocumentCodecError ? 'invalid' : 'unavailable';
+            this.unsaved.set(documentName, status);
+            document.broadcastStateless(saveStatus(status));
+          }
           if (error instanceof DocumentCheckpointChangedError) {
             // Core moved the immutable checkpoint while this Y.Doc was live.
             // Disconnect and unload this deliberately stale body after the
@@ -400,6 +423,7 @@ export class NativeDocumentsCollaborationServer {
         }
       },
       afterUnloadDocument: async ({ documentName }) => {
+        this.unsaved.delete(documentName);
         const target = documentTarget(this.config.companyId, documentName);
         await this.store.release?.(target);
       },

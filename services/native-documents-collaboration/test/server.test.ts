@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { stateFromProjection, projectionFromState } from '../src/document-codec.js';
+import { DocumentCodecError, stateFromProjection, projectionFromState } from '../src/document-codec.js';
 import test from 'node:test';
 
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider';
@@ -12,6 +12,7 @@ import { LIVE_PATH, READY_PATH } from '../src/constants.js';
 import { DocumentCheckpointChangedError } from '../src/store-errors.js';
 import {
   NativeDocumentsCollaborationServer,
+  SAVE_STATUS_MESSAGE,
   type DocumentStore,
   type StoredDocumentInput,
 } from '../src/server.js';
@@ -375,6 +376,85 @@ test('an immutable checkpoint move evicts the stale live document before the nex
   await eventually(() => second.isAuthenticated && second.isSynced, 'replacement checkpoint sync');
   assert.equal(replacementDocument.getText('content').toString(), 'replacement');
   assert.equal(store.loadCount, 2);
+});
+
+class RefusingStore extends MemoryDocumentStore {
+  refuse = true;
+
+  override async store(input: StoredDocumentInput): Promise<void> {
+    if (!this.refuse) return super.store(input);
+    this.storeCount += 1;
+    throw new DocumentCodecError();
+  }
+}
+
+test('editors are told when their edits stop being stored, and again when storing resumes', async (context) => {
+  const nowSeconds = Math.floor(Date.now() / 1_000);
+  const signer = await signingFixture(nowSeconds);
+  const seed = new Y.Doc();
+  seed.getText('content').insert(0, 'seed');
+  const store = new RefusingStore(Y.encodeStateAsUpdate(seed));
+  const verifier = new CoreTokenVerifier({
+    issuer: ISSUER,
+    jwksUrl: new URL(JWKS_URL),
+    fetch: (async () => jwksResponse(signer.jwks)) as typeof fetch,
+  });
+  const config: CollaborationConfig = {
+    address: '127.0.0.1',
+    port: 0,
+    companyId: COMPANY_ID,
+    expectedIssuer: ISSUER,
+    jwksUrl: new URL(JWKS_URL),
+    databaseUrl: 'postgresql://unused:unused@127.0.0.1/unused',
+    debounceMs: 10,
+    maxDebounceMs: 25,
+  };
+  const server = new NativeDocumentsCollaborationServer(config, { store, tokenVerifier: verifier });
+  await server.listen();
+  const providers: HocuspocusProvider[] = [];
+  context.after(async () => {
+    for (const provider of providers) provider.destroy();
+    await server.destroy();
+  });
+
+  const target = { companyId: COMPANY_ID, documentId: DOCUMENT_ID } as const;
+  const url = `${server.webSocketUrl}/api/companies/${COMPANY_ID}/documents/${DOCUMENT_ID}/collaboration`;
+  const heard = (into: string[]) => ({ payload }: { payload: string }) => {
+    const message = JSON.parse(payload) as { type?: string; status?: string };
+    if (message.type === SAVE_STATUS_MESSAGE && message.status) into.push(message.status);
+  };
+  const firstHeard: string[] = [];
+  const firstDocument = new Y.Doc();
+  const first = new HocuspocusProvider({
+    url,
+    name: collaborationDocumentName(target),
+    token: await signer.sign(),
+    document: firstDocument,
+    onStateless: heard(firstHeard),
+  });
+  providers.push(first);
+  await eventually(() => first.isAuthenticated && first.isSynced, 'initial sync');
+
+  firstDocument.getText('content').insert(4, '-refused');
+  await eventually(() => firstHeard.includes('invalid'), 'refused store notice');
+  assert.ok(store.storeCount >= 1);
+
+  // Someone opening it meanwhile hears the same thing on arrival.
+  const laterHeard: string[] = [];
+  const later = new HocuspocusProvider({
+    url,
+    name: collaborationDocumentName(target),
+    token: await signer.sign({ jti: 'b8888888-8888-4888-8888-888888888888' }),
+    document: new Y.Doc(),
+    onStateless: heard(laterHeard),
+  });
+  providers.push(later);
+  await eventually(() => laterHeard.includes('invalid'), 'notice for a later editor');
+
+  store.refuse = false;
+  firstDocument.getText('content').insert(0, 'kept-');
+  await eventually(() => firstHeard.includes('saved'), 'resumed store notice');
+  assert.match(documentText(store.state), /^kept-seed-refused$/u);
 });
 
 test('one socket cannot fan out across multiple pending document sessions', async (context) => {
