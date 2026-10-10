@@ -30,6 +30,7 @@ tools=(
   codex omp claude-agent-acp
   node npm pnpm bun
   python3 git curl jq rg
+  pdftotext pdftoppm pdfinfo docx2txt xlsx2csv
   resend playwright godot chromium socat
   company-supervisorctl supervisorctl
   wmctrl xdotool scrot
@@ -48,6 +49,10 @@ purpose_for() {
     python3) echo "Python runtime" ;;
     git) echo "source control" ;;
     curl|jq|rg) echo "network, JSON, or text utility" ;;
+    pdftotext|pdfinfo) echo "PDF text and metadata reader" ;;
+    pdftoppm) echo "PDF page to image renderer" ;;
+    docx2txt) echo "Word document text reader" ;;
+    xlsx2csv) echo "Excel workbook to CSV reader" ;;
     resend) echo "Resend email CLI" ;;
     playwright) echo "browser automation library CLI" ;;
     godot) echo "game editor and exporter" ;;

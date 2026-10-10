@@ -425,6 +425,12 @@ struct RoomParticipantInput {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RenameRoomInput {
+    title: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct AttachmentPurgeInput {
     reason: String,
 }
@@ -1043,6 +1049,14 @@ where
         .route(
             "/companies/{company}/rooms/{room}/participants/{actor}",
             delete(remove_room_participant),
+        )
+        .route(
+            "/companies/{company}/rooms/{room}",
+            axum::routing::patch(rename_room),
+        )
+        .route(
+            "/companies/{company}/rooms/{room}/archive",
+            post(archive_room),
         )
         .route(
             "/companies/{company}/rooms/{room}/messages",
@@ -6926,6 +6940,37 @@ async fn remove_room_participant(
     }
 }
 
+async fn rename_room(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath((company, room)): AxumPath<(String, Uuid)>,
+    Json(input): Json<RenameRoomInput>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org.rename_room(principal.actor_id(), room, &input.title).await {
+        Ok(room) => Json(room).into_response(),
+        Err(error) => room_error(error),
+    }
+}
+
+async fn archive_room(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath((company, room)): AxumPath<(String, Uuid)>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org.archive_room(principal.actor_id(), room).await {
+        Ok(room) => Json(room).into_response(),
+        Err(error) => room_error(error),
+    }
+}
+
 async fn list_room_messages(
     State(state): State<RoomApiState>,
     RoomPrincipal(principal): RoomPrincipal,
@@ -8185,6 +8230,9 @@ async fn send_actor_message(
         });
     }
     if !prepared.is_empty() {
+        if let Err(response) = attachment_runtime_ready(&state, &company).await {
+            return response;
+        }
         if let Err(error) = collect_owner_attachments(&org, &company).await {
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -8219,6 +8267,19 @@ async fn send_actor_message(
             )
             .await
         {
+            // A full quota is a definitive answer the owner can act on; only a
+            // busy staging fence is worth retrying with the same command.
+            if let restless_orgintel::OrgIntelError::InvalidRoom(message) = &error {
+                if message.starts_with("retained attachment storage is full")
+                    || message.starts_with("this principal's retained attachment quota is full")
+                {
+                    return api_error(
+                        StatusCode::CONFLICT,
+                        "attachment_quota",
+                        "The files you have sent fill this company's file space, so this file was not sent. The message can still go without it.",
+                    );
+                }
+            }
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "attachment_staging",
@@ -8231,27 +8292,46 @@ async fn send_actor_message(
         .map(|item| item.attachment.clone())
         .collect::<Vec<_>>();
     let mut stored = Vec::with_capacity(prepared.len());
+    let mut readable_paths = HashMap::new();
     for item in prepared {
         match runtime::store_owner_attachment(&company, item.attachment.upload_id, &item.bytes)
             .await
         {
             Ok(path) => {
                 debug_assert_eq!(path, item.attachment.path);
+                // Exec and Staff read the file by a name that keeps its
+                // extension; the canonical path stays in the manifest.
+                match runtime::link_owner_attachment_name(
+                    &company,
+                    item.attachment.upload_id,
+                    &item.attachment.name,
+                )
+                .await
+                {
+                    Ok(Some(alias)) => {
+                        readable_paths.insert(item.attachment.upload_id, alias);
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        tracing::warn!(%error, %company, attachment = %item.attachment.upload_id, "attachment keeps only its canonical path");
+                    }
+                }
                 stored.push(item.attachment);
             }
             Err(error) => {
+                tracing::warn!(%error, %company, "owner attachment could not be stored");
                 rollback_attachment_attempt(&org, &company, &staged_attachments).await;
                 return api_error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "attachment",
-                    format!("{error:#}"),
+                    "The file could not be saved on the company computer, so the message was not sent. Send it again in a moment.",
                 );
             }
         }
     }
 
     let recorded_body = message_with_context(body, context_path.as_deref());
-    let recorded_body = message_with_attachments(&recorded_body, &stored);
+    let recorded_body = message_with_attachments(&recorded_body, &stored, &readable_paths);
     let recorded_body = match attention_context.as_ref() {
         Some((item, _)) => message_with_attention_context(&recorded_body, item),
         None => recorded_body,
@@ -8778,13 +8858,24 @@ fn safe_attachment_name(value: &str) -> String {
     }
 }
 
-fn message_with_attachments(body: &str, attachments: &[OwnerAttachment]) -> String {
+/// The visible lines name each file at its readable path when it has one; the
+/// trailing manifest keeps the canonical path every reader verifies against.
+fn message_with_attachments(
+    body: &str,
+    attachments: &[OwnerAttachment],
+    readable_paths: &HashMap<Uuid, String>,
+) -> String {
     if attachments.is_empty() {
         return body.to_string();
     }
     let paths = attachments
         .iter()
-        .map(|attachment| format!("- {}: {}", attachment.name, attachment.path))
+        .map(|attachment| {
+            let path = readable_paths
+                .get(&attachment.upload_id)
+                .unwrap_or(&attachment.path);
+            format!("- {}: {path}", attachment.name)
+        })
         .collect::<Vec<_>>()
         .join("\n");
     let manifest = serde_json::to_string(attachments).unwrap_or_else(|_| "[]".into());
@@ -9016,6 +9107,58 @@ async fn rollback_attachment_attempt(
     if let Err(error) = org.discard_unlinked_owner_attachments(&removed).await {
         tracing::warn!(%error, %company, "failed to clear unlinked owner attachment records");
     }
+}
+
+/// Files are written onto the company computer, so a message that carries one
+/// is owner demand that needs it running now. A computer that went to sleep
+/// wakes, as it does for a Library file; one the owner stopped stays stopped
+/// and the owner is told so plainly. Core cannot wake a hosted cell (Fleet
+/// does, from owed demand), so there the answer is an honest sentence, not a
+/// request held open on a computer that may never start.
+async fn attachment_runtime_ready(
+    state: &OwnerState,
+    company: &str,
+) -> std::result::Result<(), Response<Body>> {
+    if restless_engine::runtime_sleep::wake_for(&state.daemon, company, "the owner sent a file")
+        .await
+    {
+        // A local wake returns once the computer runs. A hosted cell may be
+        // coming up on Fleet's side, so give it a short, bounded moment.
+        let attempts = if state.daemon.runtime_bridges.is_hosted() { 15 } else { 1 };
+        for attempt in 0..attempts {
+            if matches!(
+                runtime::status(company).await,
+                Ok(runtime::ContainerStatus::Running)
+            ) {
+                return Ok(());
+            }
+            if attempt + 1 < attempts {
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+        }
+        return Err(api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "runtime",
+            "The company computer is not awake, so the file was not sent. Send the message without the file, or attach it again once Company → Computer shows it running.",
+        ));
+    }
+    Err(match runtime::status(company).await {
+        Ok(runtime::ContainerStatus::Stopped) if !runtime::is_sleeping(company) => api_error(
+            StatusCode::CONFLICT,
+            "runtime",
+            "The company computer is stopped, so files cannot be sent. Start it from Company → Computer, or send the message without the file.",
+        ),
+        Ok(runtime::ContainerStatus::Absent) => api_error(
+            StatusCode::CONFLICT,
+            "runtime",
+            "This company has no computer yet, so files cannot be sent. Start it from Company → Computer, or send the message without the file.",
+        ),
+        _ => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "runtime",
+            "The company computer could not wake, so the file was not sent. Company → Computer shows why.",
+        ),
+    })
 }
 
 

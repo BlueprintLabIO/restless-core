@@ -139,8 +139,10 @@ RUN apt-get update \
         make \
         arc-theme \
         adwaita-icon-theme \
+        docx2txt \
         openbox \
 		pcmanfm \
+        poppler-utils \
         python3 \
 		ripgrep \
 		scrot \
@@ -155,6 +157,7 @@ RUN apt-get update \
         websockify \
         xdotool \
         x11-utils \
+        xlsx2csv \
         xterm \
 		x11-xserver-utils \
     && rm -rf /var/lib/apt/lists/*

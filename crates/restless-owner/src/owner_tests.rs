@@ -3377,7 +3377,16 @@ model = \"anthropic/claude-sonnet-5-5\"
                     .into(),
         };
         let with_context = message_with_context("Please read this.", Some("/aris/work"));
-        let recorded = message_with_attachments(&with_context, std::slice::from_ref(&attachment));
+        let readable = "/var/lib/restless-owner-attachments/00000000-0000-0000-0000-000000000000/brief.pdf";
+        let recorded = message_with_attachments(
+            &with_context,
+            std::slice::from_ref(&attachment),
+            &HashMap::from([(attachment.upload_id, readable.to_string())]),
+        );
+        // Agents read the extension-bearing name; the manifest keeps the
+        // canonical path that OrgIntel and receipt replay verify.
+        assert!(recorded.contains(&format!("- brief.pdf: {readable}\n")));
+        assert_eq!(receipt_attachment_ids(&recorded), vec![attachment.upload_id]);
         let attention_item = attention::AttentionItem {
             id: "orgintel:handoff:00000000-0000-0000-0000-000000000001".into(),
             work_id: Some(Uuid::nil()),
@@ -3644,8 +3653,11 @@ model = \"anthropic/claude-sonnet-5-5\"
             size_bytes: 5,
             path: canonical_attachment_path(attachment_id),
         };
-        let body =
-            message_with_attachments("Evidence attached.", std::slice::from_ref(&attachment));
+        let body = message_with_attachments(
+            "Evidence attached.",
+            std::slice::from_ref(&attachment),
+            &HashMap::new(),
+        );
         let command_id = format!("lost-commit-{}", Uuid::new_v4());
         let digest = "b".repeat(64);
         let content = b"proof";
@@ -3856,8 +3868,11 @@ model = \"anthropic/claude-sonnet-5-5\"
             size_bytes: 7,
             path: canonical_attachment_path(reclaimed_id),
         };
-        let reclaimed_body =
-            message_with_attachments("Stale stage.", std::slice::from_ref(&reclaimed_attachment));
+        let reclaimed_body = message_with_attachments(
+            "Stale stage.",
+            std::slice::from_ref(&reclaimed_attachment),
+            &HashMap::new(),
+        );
         let reclaimed_command = format!("gc-first-{}", Uuid::new_v4());
         let reclaimed_digest = "c".repeat(64);
         fixture

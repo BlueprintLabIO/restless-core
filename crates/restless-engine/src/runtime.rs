@@ -3629,6 +3629,86 @@ pub async fn store_owner_attachment(
     Ok(content_path)
 }
 
+/// One safe file name for an owner attachment's readable alias: the original
+/// name reduced to `[A-Za-z0-9_-]` plus one `.` before its extension, which is
+/// kept (lowercased) so tools that choose a reader by extension work. `None`
+/// when nothing usable remains; never the canonical `content` file's name.
+pub fn owner_attachment_alias(name: &str) -> Option<String> {
+    let name = name.rsplit(['/', '\\']).next().unwrap_or_default().trim();
+    let (stem, extension) = match name.rsplit_once('.') {
+        Some((stem, extension)) if !stem.is_empty() => (stem, Some(extension)),
+        _ => (name, None),
+    };
+    let clean = |value: &str, limit: usize| {
+        let mut cleaned = String::new();
+        for character in value.chars() {
+            let next = if character.is_ascii_alphanumeric() || character == '_' {
+                character
+            } else {
+                '-'
+            };
+            if next == '-' && (cleaned.is_empty() || cleaned.ends_with('-')) {
+                continue;
+            }
+            cleaned.push(next);
+            if cleaned.len() >= limit {
+                break;
+            }
+        }
+        cleaned.trim_end_matches('-').to_string()
+    };
+    let stem = clean(stem, 80);
+    let extension = extension
+        .map(|extension| clean(extension, 8).to_ascii_lowercase())
+        .filter(|extension| !extension.is_empty());
+    let alias = match (stem.is_empty(), extension) {
+        (true, None) => return None,
+        (true, Some(extension)) => format!("file.{extension}"),
+        (false, None) => stem,
+        (false, Some(extension)) => format!("{stem}.{extension}"),
+    };
+    if alias == "content" || alias.starts_with("content.") {
+        return Some(format!("file-{alias}"));
+    }
+    Some(alias)
+}
+
+/// Give a stored attachment a second, readable name beside its canonical
+/// `content` file: a hard link in the same sealed directory, so it moves and
+/// disappears with the attachment. Returns the alias path, or `None` when the
+/// name has no safe alias. The canonical path stays the authority.
+pub async fn link_owner_attachment_name(
+    company: &str,
+    attachment_id: Uuid,
+    name: &str,
+) -> Result<Option<String>> {
+    validate_company_name(company)?;
+    let Some(alias) = owner_attachment_alias(name) else {
+        return Ok(None);
+    };
+    let container = container_name(company);
+    let directory = format!("/var/lib/restless-owner-attachments/{attachment_id}");
+    let alias_path = format!("{directory}/{alias}");
+    let output = docker(&[
+        "exec",
+        &container,
+        "sh",
+        "-c",
+        "set -eu; test ! -L \"$1\"; test -f \"$1/content\"; ln -f \"$1/content\" \"$2\"",
+        "sh",
+        &directory,
+        &alias_path,
+    ])
+    .await?;
+    if !output.status.success() {
+        bail!(
+            "link owner attachment name failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(Some(alias_path))
+}
+
 async fn write_sealed_container_file(
     container: &str,
     root: &str,
@@ -3763,8 +3843,9 @@ pub fn state_root() -> PathBuf {
 mod tests {
     use super::{
         bound_docker_call, company_statuses, container_name, docker_observe,
-        is_immutable_image_digest, is_runtime_review_download, read_owner_attachment,
-        remove_owner_attachment, resolve_company_image, resolve_resource_bound,
+        is_immutable_image_digest, is_runtime_review_download, owner_attachment_alias,
+        read_owner_attachment, remove_owner_attachment, resolve_company_image,
+        resolve_resource_bound,
         running_company_names, sort_source_files, store_owner_attachment, AgentIntelligence,
         ContainerStatus, NativeHarnessConfig, COMPANY_IMAGE, DEFAULT_CPUS, DEFAULT_MEMORY,
         DEFAULT_PIDS_LIMIT,
@@ -3985,6 +4066,42 @@ mission = "Choose intelligence"
                 !is_immutable_image_digest(mutable_or_malformed),
                 "accepted {mutable_or_malformed:?} as immutable"
             );
+        }
+    }
+
+    #[test]
+    fn owner_attachment_alias_is_one_safe_name_beside_content() {
+        assert_eq!(
+            owner_attachment_alias("Invoice March (final).PDF").as_deref(),
+            Some("Invoice-March-final.pdf")
+        );
+        assert_eq!(owner_attachment_alias("q3.report.xlsx").as_deref(), Some("q3-report.xlsx"));
+        assert_eq!(owner_attachment_alias("合同.docx").as_deref(), Some("file.docx"));
+        assert_eq!(owner_attachment_alias("content").as_deref(), Some("file-content"));
+        assert_eq!(owner_attachment_alias("content.tmp").as_deref(), Some("file-content.tmp"));
+        assert_eq!(owner_attachment_alias("..."), None);
+        assert_eq!(owner_attachment_alias(""), None);
+        for hostile in [
+            "../../etc/passwd",
+            "..\\..\\boot.ini",
+            "/var/lib/restless-owner-attachments/x/content",
+            ".hidden",
+            "a\nb.pdf",
+            "$(reboot).sh",
+            "-rf .txt",
+        ] {
+            let alias = owner_attachment_alias(hostile);
+            if let Some(alias) = alias.as_deref() {
+                assert!(
+                    !alias.starts_with(['.', '-'])
+                        && alias != "content"
+                        && alias.matches('.').count() <= 1
+                        && alias
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')),
+                    "{hostile:?} produced unsafe alias {alias:?}"
+                );
+            }
         }
     }
 

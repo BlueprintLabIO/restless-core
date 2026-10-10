@@ -109,6 +109,11 @@ and resolved paths and purposes before choosing a tool. It
 includes the normal Runtime CLIs and harnesses; probe
 the selected command's help before relying on it.
 
+A file the owner sends arrives as a read-only path under `/var/lib/restless-owner-attachments/`,
+named after the original file. Read it in place: `pdftotext -layout file.pdf -` for a PDF (and
+`pdftoppm -png` to look at a scanned page), `docx2txt file.docx -` for Word, `xlsx2csv file.xlsx` for
+Excel, and the ordinary image reader for a photo. Copy it beneath `/company` before changing it.
+
 An interactive or stateful session belongs in the shared company desktop/browser. A ReviewTarget is
 different: its loopback HTTP preview is a read-only delivery surface at a concrete URL such as
 `http://127.0.0.1:<port>/`. It permits only GET/HEAD, carries no owner cookies or browser-control
