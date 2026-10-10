@@ -157,3 +157,139 @@ pub struct OwnerModelConnection {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_key: Option<String>,
 }
+
+/// What a provider said when shown an API key, before the key is saved. Probe, never guess: a key
+/// the provider explicitly refuses is not stored as if it worked.
+#[derive(Debug, PartialEq, Eq)]
+pub enum KeyCheck {
+    Accepted,
+    /// The provider answered 401 or 403; the text is its own short reason.
+    Rejected(String),
+    /// No answer this check can rely on (unknown provider, network, an unexpected status).
+    Unverified,
+}
+
+/// The cheapest authenticated read each known provider offers, and how the key is presented.
+fn key_check_request(provider: &str) -> Option<(&'static str, &'static str)> {
+    Some(match provider {
+        "anthropic" => ("https://api.anthropic.com/v1/models?limit=1", "x-api-key"),
+        "openai" => ("https://api.openai.com/v1/models", "bearer"),
+        "openrouter" => ("https://openrouter.ai/api/v1/key", "bearer"),
+        "google" => ("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1", "x-goog-api-key"),
+        "groq" => ("https://api.groq.com/openai/v1/models", "bearer"),
+        "mistral" => ("https://api.mistral.ai/v1/models", "bearer"),
+        "xai" => ("https://api.x.ai/v1/models", "bearer"),
+        "deepseek" => ("https://api.deepseek.com/models", "bearer"),
+        _ => return None,
+    })
+}
+
+/// Ask the provider whether it accepts this key. Spends no tokens.
+pub async fn check_api_key(provider: &str, key: &str) -> KeyCheck {
+    match key_check_request(provider) {
+        Some((url, style)) => check_api_key_at(url, style, key).await,
+        None => KeyCheck::Unverified,
+    }
+}
+
+pub async fn check_api_key_at(url: &str, style: &str, key: &str) -> KeyCheck {
+    let Ok(client) = reqwest::Client::builder().timeout(std::time::Duration::from_secs(10)).build() else {
+        return KeyCheck::Unverified;
+    };
+    let request = match style {
+        "bearer" => client.get(url).bearer_auth(key),
+        header => client.get(url).header(header, key).header("anthropic-version", "2023-06-01"),
+    };
+    let Ok(response) = request.send().await else {
+        return KeyCheck::Unverified;
+    };
+    let status = response.status();
+    if status.is_success() {
+        return KeyCheck::Accepted;
+    }
+    let body = response.text().await.unwrap_or_default();
+    let message = serde_json::from_str::<serde_json::Value>(&body)
+        .ok()
+        .and_then(|value| {
+            value["error"]["message"]
+                .as_str()
+                .or_else(|| value["error"].as_str())
+                .or_else(|| value["message"].as_str())
+                .or_else(|| value["detail"].as_str())
+                .map(str::to_owned)
+        })
+        .unwrap_or_default();
+    let lower = message.to_lowercase();
+    // Most providers refuse with 401 or 403; Google and xAI answer 400 naming the key.
+    let refused = status == reqwest::StatusCode::UNAUTHORIZED
+        || status == reqwest::StatusCode::FORBIDDEN
+        || (status == reqwest::StatusCode::BAD_REQUEST
+            && lower.contains("api key")
+            && ["not valid", "invalid", "incorrect"].iter().any(|word| lower.contains(word)));
+    if !refused {
+        return KeyCheck::Unverified;
+    }
+    let reason = if message.is_empty() || lower.contains("missing authentication") {
+        "the key was not recognised".to_owned()
+    } else {
+        // The provider's words, bounded and on one line; never the key.
+        let message = if key.len() >= 8 { message.replace(key, "…") } else { message };
+        message.split_whitespace().collect::<Vec<_>>().join(" ")
+    };
+    KeyCheck::Rejected(reason.chars().take(160).collect())
+}
+
+#[cfg(test)]
+mod key_check_tests {
+    use super::*;
+
+    async fn fake_provider() -> String {
+        use axum::{http::HeaderMap, routing::get, Json, Router};
+        let app = Router::new()
+            .route(
+                "/v1beta/models",
+                get(|| async {
+                    (
+                        axum::http::StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({"error":{"code":400,"message":"API key not valid. Please pass a valid API key."}})),
+                    )
+                }),
+            )
+            .route(
+            "/v1/models",
+            get(|headers: HeaderMap| async move {
+                if headers.get("x-api-key").and_then(|value| value.to_str().ok()) == Some("good-key") {
+                    (axum::http::StatusCode::OK, Json(serde_json::json!({"data": []})))
+                } else {
+                    (
+                        axum::http::StatusCode::UNAUTHORIZED,
+                        Json(serde_json::json!({"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}})),
+                    )
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        format!("http://{address}/v1/models")
+    }
+
+    #[tokio::test]
+    async fn a_refused_key_is_rejected_with_the_providers_reason_and_a_good_one_accepted() {
+        let url = fake_provider().await;
+        assert_eq!(check_api_key_at(&url, "x-api-key", "good-key").await, KeyCheck::Accepted);
+        assert_eq!(
+            check_api_key_at(&url, "x-api-key", "sk-ant-wrong").await,
+            KeyCheck::Rejected("invalid x-api-key".into())
+        );
+        // Nothing answers: unverified, so a network blip never blocks saving a key.
+        assert_eq!(check_api_key_at("http://127.0.0.1:9/v1/models", "x-api-key", "k").await, KeyCheck::Unverified);
+        assert_eq!(check_api_key("some-new-provider", "k").await, KeyCheck::Unverified);
+        // Google refuses with 400 naming the key.
+        let google = url.replace("/v1/models", "/v1beta/models");
+        assert_eq!(
+            check_api_key_at(&google, "x-goog-api-key", "k").await,
+            KeyCheck::Rejected("API key not valid. Please pass a valid API key.".into())
+        );
+    }
+}

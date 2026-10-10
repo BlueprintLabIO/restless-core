@@ -3029,7 +3029,7 @@ async fn create_company(
     (
         StatusCode::CREATED,
         Json(
-            company_catalog_entry(config, "active", Some(runtime::ContainerStatus::Absent), None)
+            company_catalog_entry(config, &[], "active", Some(runtime::ContainerStatus::Absent), None)
                 .await,
         ),
     )
@@ -3348,8 +3348,10 @@ async fn list_owner_connections(State(state): State<OwnerState>, Extension(princ
     };
     let account_owner = principal.is_account_owner();
     let allowed_company = principal.scoped_company().map(str::to_owned);
+    let rejections = provider_rejections(&state).await;
     let connections =
         futures_util::future::join_all(registry.connections.iter().filter_map(|connection| {
+            let rejection = rejections.get(&connection.id).cloned();
             let mut companies = companies_using_owner_connection(&state.daemon.root, connection);
             if let Some(allowed) = allowed_company.as_deref() {
                 companies.retain(|company| company["id"].as_str() == Some(allowed));
@@ -3362,6 +3364,10 @@ async fn list_owner_connections(State(state): State<OwnerState>, Extension(princ
             );
             let probe = credential::probe_reference(&owner_connection_reference(connection)).await;
             summary["status"] = serde_json::Value::String(probe.status.as_str().to_string());
+            if let Some(reason) = rejection.filter(|_| probe.status == credential::ProbeStatus::Present) {
+                summary["status"] = serde_json::Value::String("invalid".into());
+                summary["detail"] = serde_json::Value::String(reason);
+            }
             if connection.kind == "oauth" && probe.status == credential::ProbeStatus::Present {
                 match (&connection.account_key, model_gateway::oauth_account_key(&connection.provider).await) {
                     (Some(expected), Ok(Some(actual))) if expected == &actual => {},
@@ -3499,8 +3505,23 @@ async fn create_owner_connection(
             _ => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The host broker did not provide a verifiable provider account identity."),
         };
     } else {
+        let secret = input.secret.as_deref().unwrap_or_default();
+        if let crate::model_connections::KeyCheck::Rejected(reason) =
+            crate::model_connections::check_api_key(provider, secret.trim()).await
+        {
+            let hint = if provider == "anthropic" {
+                " Paste an API key from console.anthropic.com; a Claude Pro or Max plan connects with Sign in with Claude instead."
+            } else {
+                " Check that you pasted the whole API key."
+            };
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "connections",
+                format!("The provider refused this key ({reason}).{hint}"),
+            );
+        }
         let reference = model_connection_reference(&connection.id);
-        if credential::store_reference(&reference, input.secret.as_deref().unwrap_or_default())
+        if credential::store_reference(&reference, secret)
             .await
             .is_err()
         {
@@ -3517,6 +3538,31 @@ async fn create_owner_connection(
     }
     Json(serde_json::json!({"connection": safe_connection_summary(&connection, vec![])}))
         .into_response()
+}
+
+/// Connections a provider refused while a company used them, by connection ID: the provider's
+/// last word from that company's credential cooldown.
+async fn provider_rejections(state: &OwnerState) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    for company in crate::configured_companies(&state.daemon.root).unwrap_or_default() {
+        let Ok(config) = runtime::CompanyConfig::load(&state.daemon.root, &company) else { continue };
+        let Ok(cooldowns) = state.daemon.authority.active_model_cooldowns(&company).await else { continue };
+        for (actor, route) in &config.agent_intelligence {
+            let Some((_, id, _)) = runtime::account_intelligence_route(&route.connection) else { continue };
+            let Some(model) = config.for_agent(actor).configured_model().map(str::to_owned) else { continue };
+            if let Some(cooldown) = cooldowns
+                .iter()
+                .find(|cooldown| cooldown.model == model && cooldown.kind == "credential")
+            {
+                let name = config.display_name.clone().unwrap_or_else(|| company.clone());
+                out.entry(id.to_owned()).or_insert_with(|| {
+                    format!("The provider refused this key when {name} used it. Replace the key.")
+                        + if cooldown.reason.contains("invalid x-api-key") { " (invalid x-api-key)" } else { "" }
+                });
+            }
+        }
+    }
+    out
 }
 
 #[derive(Deserialize)]
@@ -4691,7 +4737,13 @@ async fn company_catalog(
         let status = runtime_statuses
             .as_ref()
             .and_then(|statuses| statuses.get(&config.name).copied());
-        catalog.push(company_catalog_entry(config, lifecycle, status, card).await);
+        let cooldowns = state
+            .daemon
+            .authority
+            .active_model_cooldowns(&config.name)
+            .await
+            .unwrap_or_default();
+        catalog.push(company_catalog_entry(config, &cooldowns, lifecycle, status, card).await);
     }
     Json(catalog).into_response()
 }
@@ -4720,6 +4772,7 @@ async fn company_principal(
 
 async fn company_catalog_entry(
     config: runtime::CompanyConfig,
+    cooldowns: &[crate::authority::ModelCooldown],
     lifecycle_status: &'static str,
     status: Option<runtime::ContainerStatus>,
     card: Option<crate::company_projection::Summary>,
@@ -4731,7 +4784,10 @@ async fn company_catalog_entry(
         Some(runtime::ContainerStatus::Absent) => "absent",
         None => "unavailable",
     };
-    let unstartable_reason = crate::company::observed_company_model_issue(&config).await;
+    let unstartable_reason = match crate::company::observed_company_model_issue(&config).await {
+        Some(issue) => Some(issue),
+        None => crate::company::credential_cooldown_issue(&config, cooldowns),
+    };
     CompanyCatalogEntry {
         id: config.name.clone(),
         name: config

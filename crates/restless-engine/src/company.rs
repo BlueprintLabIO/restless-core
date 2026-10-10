@@ -542,7 +542,13 @@ pub async fn project(
         runtime_doctor.as_ref(),
         observed_at,
     );
-    let model_issue = observed_company_model_issue(config).await;
+    let model_issue = match observed_company_model_issue(config).await {
+        Some(issue) => Some(issue),
+        None => credential_cooldown_issue(
+            config,
+            authority.as_ref().map(|value| value.cooldowns.as_slice()).unwrap_or(&[]),
+        ),
+    };
     company_doctor.checks.insert(
         0,
         DoctorCheck {
@@ -801,7 +807,10 @@ async fn resources(
         value
             .cooldowns
             .iter()
-            .find(|cooldown| cooldown.model == config.model)
+            .find(|cooldown| {
+                cooldown.model == config.model
+                    || Some(cooldown.model.as_str()) == config.for_agent("exec").configured_model()
+            })
     });
     items.push(ResourceRow {
         id: "model:primary".into(),
@@ -2213,6 +2222,37 @@ mod tests {
     }
 
     #[test]
+    fn a_rejected_key_behind_execs_model_is_a_setup_problem() {
+        let mut config: runtime::CompanyConfig = toml::from_str(
+            r#"name = "company_test"
+model = "litellm/deepseek-v4.1-flash"
+"#,
+        )
+        .unwrap();
+        config.agent_intelligence.insert(
+            "default".into(),
+            runtime::AgentIntelligence {
+                connection: format!("account:anthropic@{}", "b".repeat(32)),
+                model: "claude-sonnet-5-5".into(),
+            },
+        );
+        let cooldown = |model: &str, kind: &str| crate::authority::ModelCooldown {
+            model: model.into(),
+            kind: kind.into(),
+            reason: "[credential] provider rejected the credential: 401 invalid x-api-key".into(),
+            retry_at: chrono::Utc::now() + chrono::Duration::hours(24),
+        };
+        let issue = credential_cooldown_issue(&config, &[cooldown("anthropic/claude-sonnet-5-5", "credential")])
+            .expect("a rejected key on Exec's model is reported");
+        assert!(issue.starts_with("Anthropic rejected the key for anthropic/claude-sonnet-5-5."));
+        assert!(issue.contains("Account → Connections"));
+        // A rate limit is a retry, and a cooldown on a model Exec does not use is not its problem.
+        assert!(credential_cooldown_issue(&config, &[cooldown("anthropic/claude-sonnet-5-5", "quota")]).is_none());
+        assert!(credential_cooldown_issue(&config, &[cooldown("litellm/deepseek-v4.1-flash", "credential")]).is_none());
+        assert!(credential_cooldown_issue(&config, &[]).is_none());
+    }
+
+    #[test]
     fn harness_settings_report_observed_builds_and_model_compatibility() {
         let config: runtime::CompanyConfig = toml::from_str(
             r#"name = "company_test"
@@ -2401,6 +2441,30 @@ model = "moonshot/kimi-k3"
         assert_eq!(reconciled.state, "failed");
         assert_eq!(reconciled.evidence, "reconciled");
     }
+}
+
+/// The provider refused the key behind Exec's model, so the company cannot run until the key is
+/// replaced or another model chosen. Said as a setup problem rather than left as a quiet retry.
+pub fn credential_cooldown_issue(
+    config: &runtime::CompanyConfig,
+    cooldowns: &[crate::authority::ModelCooldown],
+) -> Option<String> {
+    let exec = config.for_agent("exec");
+    let model = exec.configured_model()?;
+    cooldowns
+        .iter()
+        .find(|cooldown| cooldown.model == model && cooldown.kind == "credential")?;
+    let provider = match model.split('/').next().unwrap_or(model) {
+        "anthropic" => "Anthropic",
+        "openai" | "openai-codex" => "OpenAI",
+        "google" => "Google",
+        "openrouter" => "OpenRouter",
+        "litellm" => "The model gateway",
+        other => other,
+    };
+    Some(format!(
+        "{provider} rejected the key for {model}. Replace it in Account → Connections, or choose another model in Company → Intelligence."
+    ))
 }
 
 pub async fn observed_company_model_issue(
