@@ -77,7 +77,7 @@
 			return null;
 		}
 		const value = encodeURIComponent(id);
-		switch (decodeURIComponent(kind)) {
+		switch (kind) {
 			case 'document':
 				return { kind: 'doc', href: `${companyRoot}/library/documents?document=${value}` };
 			case 'artifact':

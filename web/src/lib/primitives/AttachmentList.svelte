@@ -60,8 +60,8 @@
 	type Preview = 'image' | 'pdf' | 'office' | 'text';
 	function previewOf(attachment: MessageAttachment): Preview | null {
 		if (INLINE_IMAGE_TYPES.has(attachment.mediaType)) return 'image';
-		if (attachment.mediaType === 'application/pdf' || extOf(attachment.name) === 'pdf')
-			return 'pdf';
+		/* The gateway shows a PDF in place only when it was stored as one. */
+		if (attachment.mediaType === 'application/pdf') return 'pdf';
 		if (officeFormat(attachment.name)) return 'office';
 		if (textFormat(attachment.name) && attachment.sizeBytes <= MAX_TEXT_PREVIEW_BYTES) return 'text';
 		return null;

@@ -292,10 +292,13 @@
 				: null
 	);
 	let fileActionFailure = $state('');
+	/* A live site has nothing to save; only a file in the company home downloads. */
+	const savable = (id: string) =>
+		files.find((candidate) => candidate.id === id)?.uri.startsWith('/company/') ?? false;
 	/* Save a file without opening it: a fresh ticket, asked for as a download. */
 	async function downloadFile(id: string) {
 		const file = files.find((candidate) => candidate.id === id);
-		if (!file) return;
+		if (!file?.uri.startsWith('/company/')) return;
 		fileActionFailure = '';
 		try {
 			window.location.assign(downloadHref((await openLibraryFile(companyId, file)).url));
@@ -1146,9 +1149,12 @@
 										{#if filter !== 'archived'}<button onclick={() => togglePin(pinKey(entry))}
 												>{pins.includes(pinKey(entry)) ? 'Unpin' : 'Pin to the sidebar'}</button
 											>{/if}
-										{#if isFile(entry) && filter !== 'archived'}<button
+										{#if isFile(entry) && filter !== 'archived' && savable(entry.id)}<button
 												onclick={() => void downloadFile(entry.id)}>Download</button
-											><button onclick={() => void copyFileLink(entry.id)}>Copy link</button>{/if}
+											>{/if}
+										{#if isFile(entry) && filter !== 'archived'}<button
+												onclick={() => void copyFileLink(entry.id)}>Copy link</button
+											>{/if}
 										{#if isNative(entry) && filter !== 'archived'}<a
 												href={`${entry.href}&rename=1`}
 												title="Open it with the title ready to change">Rename</a

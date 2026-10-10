@@ -102,8 +102,11 @@
 	const isPowerPoint = $derived(/\.pptx?$/i.test(file.uri.split(/[?#]/)[0]));
 	/* Shown by the browser itself, so it can open on its own in a tab. */
 	const isDownload = $derived(downloads(file));
-	/* A kept file is read from a local copy, which downloads as it is; a ticket asks for its file. */
-	const savedHref = $derived(url ? (resolve ? url : downloadHref(url)) : '');
+	/* A kept file is read from a local copy, which downloads as it is; a ticket asks for its file.
+	 * Only a file saves; a live site's ticket would just navigate the cockpit to the site. */
+	const savedHref = $derived(
+		!url ? '' : resolve ? url : file.uri.startsWith('/company/') ? downloadHref(url) : ''
+	);
 	/* A phone's browser frames a PDF badly or not at all; it opens on its own instead. */
 	let phone = $state(false);
 	$effect(() => {
