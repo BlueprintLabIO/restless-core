@@ -1,0 +1,105 @@
+/* Printing a document, or saving it as a PDF, prints the page and nothing around it.
+ *
+ * The cockpit is a set of fixed-height panes that scroll inside themselves, so a plain print
+ * would show the navigation, the toolbar, the Exec rail and only the part of the document in view.
+ * While an element marked .document-print is on screen, every box that contains it grows to fit
+ * and stops clipping, and everything beside it along the way is left off the page. Nothing here
+ * names the shell, so it holds wherever a document is shown. */
+@media print {
+	@page {
+		margin: 18mm 16mm;
+	}
+
+	:has(.document-print) {
+		display: block !important;
+		position: static !important;
+		width: auto !important;
+		height: auto !important;
+		min-height: 0 !important;
+		max-height: none !important;
+		margin: 0 !important;
+		padding: 0 !important;
+		overflow: visible !important;
+		border: 0 !important;
+		box-shadow: none !important;
+		background: #fff !important;
+		container-type: normal !important;
+		transform: none !important;
+	}
+
+	:has(.document-print) > :not(.document-print):not(:has(.document-print)) {
+		display: none !important;
+	}
+
+	.document-print {
+		display: block !important;
+		position: static !important;
+		height: auto !important;
+		max-height: none !important;
+		margin: 0 !important;
+		padding: 0 !important;
+		overflow: visible !important;
+		background: #fff !important;
+		color: #111 !important;
+	}
+
+	.document-print .paper-rule,
+	.document-print .paper-title,
+	.document-print .projection-note,
+	.document-print .collaboration-carets__caret,
+	.document-print .print-hide {
+		display: none !important;
+	}
+
+	.document-print .print-title {
+		display: block !important;
+		margin: 0 0 0.8em;
+		color: #111;
+		font-weight: 700;
+		line-height: 1.2;
+	}
+
+	.document-print .native-document-body,
+	.document-print .rendered-document,
+	.document-print .editor-mount,
+	.document-print .named-version-projection {
+		max-width: none !important;
+		min-height: 0 !important;
+		margin: 0 !important;
+		padding: 0 !important;
+		color: #111 !important;
+	}
+
+	.document-print .collaboration-carets__selection {
+		background: none !important;
+	}
+
+	.document-print pre {
+		border: 1px solid #ccc;
+		background: #f5f5f5 !important;
+		color: #111 !important;
+	}
+
+	.document-print table,
+	.document-print pre,
+	.document-print blockquote,
+	.document-print img {
+		break-inside: avoid;
+	}
+
+	.document-print h1,
+	.document-print h2,
+	.document-print h3,
+	.document-print h4 {
+		break-after: avoid;
+	}
+
+	.document-print th,
+	.document-print td {
+		border-color: #999 !important;
+	}
+
+	.document-print a {
+		color: #111 !important;
+	}
+}

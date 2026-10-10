@@ -2,19 +2,26 @@
 	import { failureSentence } from '$lib/model/failure';
 	import { browser } from '$app/environment';
 	import { tick, untrack, type Snippet } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import DocumentActions from './DocumentActions.svelte';
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import './document-print.css';
 	import { Editor } from '@tiptap/core';
 	import { Selection } from '@tiptap/pm/state';
 	import { HocuspocusProvider } from '@hocuspocus/provider';
 	import * as Y from 'yjs';
 	import AlignLeft from '@lucide/svelte/icons/align-left';
+	import BetweenHorizontalEnd from '@lucide/svelte/icons/between-horizontal-end';
+	import BetweenVerticalEnd from '@lucide/svelte/icons/between-vertical-end';
 	import BoldIcon from '@lucide/svelte/icons/bold';
 	import Braces from '@lucide/svelte/icons/braces';
 	import Check from '@lucide/svelte/icons/check';
 	import CodeIcon from '@lucide/svelte/icons/code';
+	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import Heading2 from '@lucide/svelte/icons/heading-2';
 	import ItalicIcon from '@lucide/svelte/icons/italic';
+	import LinkIcon from '@lucide/svelte/icons/link';
 	import List from '@lucide/svelte/icons/list';
 	import ListChecks from '@lucide/svelte/icons/list-checks';
 	import ListOrdered from '@lucide/svelte/icons/list-ordered';
@@ -38,6 +45,10 @@
 	} from '$lib/model/document-collaboration';
 	import {
 		createDocumentEditorExtensions,
+		inDocumentTable,
+		linkFromInput,
+		runDocumentTableAction,
+		safeHref,
 		selectedDocumentBlockId
 	} from '$lib/model/document-editor-schema';
 	import {
@@ -70,6 +81,11 @@
 		leading?: Snippet;
 		actions?: Snippet;
 		moreActions?: Snippet;
+		/** A notice about the document itself (archived, say), shown above the page. */
+		banner?: Snippet;
+		/** Whether this person may retitle it. Defaults to its owner only; the company's owner
+		 * may retitle any document they can read (the body stays read-only to them). */
+		mayRename?: boolean;
 		onaccept?: (target: DocumentTarget, view: DocumentReadView) => void;
 		oncomment?: (blockId: string | null) => void;
 		ondirtychange?: (dirty: boolean) => void;
@@ -86,6 +102,8 @@
 		leading,
 		actions,
 		moreActions,
+		banner,
+		mayRename,
 		onaccept = () => {},
 		oncomment = () => {},
 		ondirtychange = () => {},
@@ -116,6 +134,9 @@
 	let metadataCommand = $state<PendingDocumentCommand | null>(null);
 	let lastReportedDirty = false;
 	let unsyncedChanges = $state(0);
+	/* What the documents service says about keeping this body: nothing while it stores it,
+	 * "invalid" while it refuses something in it, "unavailable" while its storage is down. */
+	let saveProblem = $state<'' | 'invalid' | 'unavailable'>('');
 
 	const editor = $derived(editorState.editor);
 	// Metadata refreshes replace view without changing the live editing session.
@@ -125,11 +146,18 @@
 	const canWriteLive = $derived(
 		collaborationState === 'synced' && collaborationAccess === 'write' && view.access === 'edit'
 	);
+	/* The title is metadata, not live body: it saves through Core and needs no live session. */
+	const titleEditable = $derived(
+		(mayRename ?? view.document.owner_actor_id === principalActorId) &&
+			Boolean(principalActorId) &&
+			online
+	);
 	const dirty = $derived(
 		titleDirty ||
 			kindDirty ||
 			saving ||
 			unsyncedChanges > 0 ||
+			saveProblem !== '' ||
 			(collaborationState !== 'synced' && collaborationState !== 'read-only')
 	);
 	$effect(() => {
@@ -138,6 +166,7 @@
 				!kindDirty &&
 				!saving &&
 				unsyncedChanges === 0 &&
+				saveProblem === '' &&
 				(collaborationState === 'synced' || collaborationState === 'read-only')
 		);
 	});
@@ -247,6 +276,7 @@
 			collaborationFailure = '';
 			documentRestored = false;
 			unsyncedChanges = 0;
+			saveProblem = '';
 			// Not known yet is not "missing": keep saying Connecting.
 			if (companyUuid === undefined) {
 				collaborationState = 'connecting';
@@ -350,6 +380,21 @@
 				onUnsyncedChanges: ({ number }) => {
 					if (!disposed) unsyncedChanges = number;
 				},
+				/* The service acknowledges an edit once it holds it, not once it is stored;
+				 * it says separately when storing stops and starts again. */
+				onStateless: ({ payload }) => {
+					if (disposed) return;
+					try {
+						const message = JSON.parse(payload) as { type?: unknown; status?: unknown };
+						if (message.type !== 'restless.save') return;
+						saveProblem =
+							message.status === 'invalid' || message.status === 'unavailable'
+								? message.status
+								: '';
+					} catch {
+						/* Not a message for this page. */
+					}
+				},
 				onSynced: ({ state: synced }) => {
 					if (disposed || !synced) return;
 					const writable = collaborationAccess === 'write' && readAccess === 'edit';
@@ -362,10 +407,13 @@
 						if (disposed || mountedEditor || !editorElement) return;
 						mountedEditor = new Editor({
 							element: editorElement,
-							extensions: createDocumentEditorExtensions(yDocument, provider, writable, {
-								actorId,
-								nameOf: (id) => nameOf(id)
-							}),
+							extensions: createDocumentEditorExtensions(
+								yDocument,
+								provider,
+								writable,
+								{ actorId, nameOf: (id) => nameOf(id) },
+								{ companyId: routeCompany, requestLink: () => openLinkBar() }
+							),
 							editable: writable,
 							editorProps: {
 								attributes: {
@@ -468,16 +516,116 @@
 		oncomment(instance ? selectedDocumentBlockId(instance) : null);
 	}
 
-	async function saveTitle(retryHistoryAdvance = true): Promise<void> {
-		if (
-			!titleDirty ||
-			!canWriteLive ||
-			view.document.owner_actor_id !== principalActorId ||
-			saving ||
-			conflict ||
-			!serverView
-		)
+	/* Links: the toolbar button or Mod-K opens one field under the toolbar. It edits the link
+	 * under the caret, links the selected text, or inserts the address as a new link. */
+	let linkEditing = $state(false);
+	let linkDraft = $state('');
+	let linkProblem = $state('');
+	let linkInput = $state<HTMLInputElement>();
+	const linkActive = $derived(Boolean(editor?.isActive('link')));
+
+	function openLinkBar(): void {
+		const instance = editorState.editor;
+		if (!instance || !canWriteLive) return;
+		linkDraft = String(instance.getAttributes('link').href ?? '');
+		linkProblem = '';
+		linkEditing = true;
+		void tick().then(() => {
+			linkInput?.focus();
+			linkInput?.select();
+		});
+	}
+
+	function closeLinkBar(): void {
+		linkEditing = false;
+		linkProblem = '';
+		editorState.editor?.commands.focus();
+	}
+
+	/* A link to this cockpit is kept as its path, so it still opens if the address changes. */
+	function companyRelative(href: string): string {
+		try {
+			const parsed = new URL(href);
+			if (parsed.origin === window.location.origin) {
+				const path = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+				if (safeHref(path)) return path;
+			}
+		} catch {
+			/* Not an absolute address. */
+		}
+		return href;
+	}
+
+	function applyLink(event: SubmitEvent): void {
+		event.preventDefault();
+		const instance = editorState.editor;
+		if (!instance || !canWriteLive) return;
+		if (!linkDraft.trim()) {
+			removeLink();
 			return;
+		}
+		const parsed = linkFromInput(linkDraft);
+		if (!parsed) {
+			linkProblem = 'Use a web address, an email address or a link that starts with /.';
+			return;
+		}
+		const href = companyRelative(parsed);
+		const { empty } = instance.state.selection;
+		if (empty && !instance.isActive('link')) {
+			instance
+				.chain()
+				.focus()
+				.insertContent({ type: 'text', text: href, marks: [{ type: 'link', attrs: { href } }] })
+				.run();
+		} else {
+			instance.chain().focus().extendMarkRange('link').setMark('link', { href }).run();
+		}
+		linkEditing = false;
+		linkProblem = '';
+	}
+
+	function removeLink(): void {
+		const instance = editorState.editor;
+		if (!instance || !canWriteLive) return;
+		instance.chain().focus().extendMarkRange('link').unsetMark('link').run();
+		linkEditing = false;
+		linkProblem = '';
+	}
+
+	/* Opening a link never leaves the document in place: an outside address opens in a new tab
+	 * with no access back to this page; a company link opens here, or in a new tab when asked. */
+	function openHref(href: string, newTab: boolean): void {
+		if (href.startsWith('/') && !href.startsWith('//')) {
+			if (newTab) window.open(href, '_blank', 'noopener');
+			else void goto(href);
+			return;
+		}
+		if (href.startsWith('#') || !safeHref(href)) return;
+		window.open(href, '_blank', 'noopener,noreferrer');
+	}
+
+	/* While editing, a click on a link places the caret (Ctrl or Cmd-click opens it); reading,
+	 * a click opens it. A reference always opens the thing it names. */
+	function followLink(event: MouseEvent): void {
+		if (event.button !== 0 || !editorElement) return;
+		const anchor = (event.target as Element | null)?.closest('a[href]');
+		if (!anchor || !editorElement.contains(anchor)) return;
+		event.preventDefault();
+		const reference = anchor.hasAttribute('data-native-reference');
+		const modified = event.metaKey || event.ctrlKey;
+		if (editorState.editor?.isEditable && !reference && !modified) return;
+		openHref(anchor.getAttribute('href') ?? '', modified);
+	}
+
+	function openCurrentLink(): void {
+		const href = String(editorState.editor?.getAttributes('link').href ?? '');
+		if (href) openHref(href, true);
+	}
+
+	const inTable = $derived(editor ? inDocumentTable(editor) : false);
+
+	async function saveTitle(retryHistoryAdvance = true): Promise<void> {
+		if (!titleDirty || !titleEditable || saving || conflict || !serverView) return;
 		if (!title.trim()) {
 			saveFailure = 'Give the document a title.';
 			return;
@@ -564,21 +712,33 @@
 		metadataCommand = null;
 		void saveTitle();
 	}
-	/* A document made a moment ago opens with its untitled name selected, ready to type over. */
+	/* A document made a moment ago, or opened to be renamed (?rename=1, from the Library's row
+	 * menu), opens with its name selected, ready to type over. */
 	let titleInput: HTMLTextAreaElement | undefined = $state();
-	let focusTitlePending = $state(
-		browser && untrack(() => page.url.searchParams.get('new') === '1')
-	);
+	let focusTitlePending = $state(false);
 	$effect(() => {
-		if (!focusTitlePending || !titleInput || !canWriteLive) return;
+		const params = page.url.searchParams;
+		if (browser && (params.get('new') === '1' || params.get('rename') === '1'))
+			untrack(() => (focusTitlePending = true));
+	});
+	$effect(() => {
+		if (!focusTitlePending || !titleInput || !titleEditable || !serverView) return;
 		focusTitlePending = false;
 		const url = new URL(page.url);
 		url.searchParams.delete('new');
+		url.searchParams.delete('rename');
 		history.replaceState(history.state, '', url);
 		void tick().then(() => {
 			titleInput?.focus();
 			titleInput?.select();
 		});
+	});
+
+	$effect(() => {
+		const element = editorElement;
+		if (!element) return;
+		element.addEventListener('click', followLink);
+		return () => element.removeEventListener('click', followLink);
 	});
 </script>
 
@@ -589,23 +749,29 @@
 			<span class="head-title" {title}>{title.trim() || 'Untitled'}</span>
 		</div>
 		<div
-			class="collaboration-state state-{collaborationState}"
+			class="collaboration-state state-{saveProblem ? 'degraded' : collaborationState}"
 			aria-live="polite"
-			title={canWriteLive ? 'Edits and version history save automatically.' : statusLabel}
+			title={saveProblem
+				? 'Recent edits are not being saved.'
+				: canWriteLive
+					? 'Edits and version history save automatically.'
+					: statusLabel}
 		>
-			{#if collaborationState === 'synced'}
+			{#if collaborationState === 'synced' && !saveProblem}
 				<Check size={14} strokeWidth={2} aria-hidden="true" />
 			{:else if collaborationState === 'connecting' || collaborationState === 'reconnecting'}
 				<RefreshCw class="spinning" size={14} strokeWidth={1.8} aria-hidden="true" />
 			{/if}
 			<span
-				>{savingShown
-					? 'Saving…'
-					: titleDirty
-						? 'Unsaved title'
-						: canWriteLive
-							? 'Saved'
-							: statusLabel}</span
+				>{saveProblem
+					? 'Not saved'
+					: savingShown
+						? 'Saving…'
+						: titleDirty
+							? 'Unsaved title'
+							: canWriteLive
+								? 'Saved'
+								: statusLabel}</span
 			>
 		</div>
 		<div class="editor-actions">
@@ -674,6 +840,16 @@
 				onclick={() => run((instance) => instance.chain().focus().toggleCode().run())}
 				><CodeIcon size={15} strokeWidth={1.8} /></button
 			>
+			<button
+				type="button"
+				class:active={linkActive || linkEditing}
+				disabled={!canWriteLive}
+				aria-label="Link"
+				aria-expanded={linkEditing}
+				title={linkActive ? 'Edit link (Ctrl+K)' : 'Add a link (Ctrl+K)'}
+				onclick={() => (linkEditing ? closeLinkBar() : openLinkBar())}
+				><LinkIcon size={15} strokeWidth={1.8} /></button
+			>
 			<span class="toolbar-rule"></span>
 			<button
 				type="button"
@@ -735,6 +911,41 @@
 				title="Insert a two-column table"
 				onclick={addTable}><Table2 size={15} strokeWidth={1.8} /></button
 			>
+			{#if inTable && canWriteLive}
+				<span class="table-tools" role="group" aria-label="Table">
+					<button
+						type="button"
+						aria-label="Add a row below"
+						title="Add a row below (Tab in the last cell)"
+						onclick={() => run((instance) => runDocumentTableAction(instance, 'rowAfter'))}
+						><BetweenHorizontalEnd size={15} strokeWidth={1.8} /></button
+					>
+					<button
+						type="button"
+						aria-label="Add a column to the right"
+						title="Add a column to the right"
+						onclick={() => run((instance) => runDocumentTableAction(instance, 'columnAfter'))}
+						><BetweenVerticalEnd size={15} strokeWidth={1.8} /></button
+					>
+					<ActionMenu label="More table actions">
+						<button
+							type="button"
+							onclick={() => run((instance) => runDocumentTableAction(instance, 'deleteRow'))}
+							>Delete row</button
+						>
+						<button
+							type="button"
+							onclick={() => run((instance) => runDocumentTableAction(instance, 'deleteColumn'))}
+							>Delete column</button
+						>
+						<button
+							type="button"
+							onclick={() => run((instance) => runDocumentTableAction(instance, 'deleteTable'))}
+							>Delete table</button
+						>
+					</ActionMenu>
+				</span>
+			{/if}
 			<span class="toolbar-rule"></span>
 			<button
 				type="button"
@@ -761,7 +972,58 @@
 				><MessageSquarePlus size={15} strokeWidth={1.8} /> Comment</button
 			>
 		</div>
+		{#if linkEditing && canWriteLive}
+			<form class="link-bar" onsubmit={applyLink}>
+				<input
+					bind:this={linkInput}
+					bind:value={linkDraft}
+					type="text"
+					inputmode="url"
+					autocomplete="off"
+					spellcheck="false"
+					maxlength="2048"
+					placeholder="Paste or type a link"
+					aria-label="Link address"
+					aria-invalid={linkProblem ? 'true' : undefined}
+					oninput={() => (linkProblem = '')}
+					onkeydown={(event) => {
+						if (event.key === 'Escape') {
+							event.preventDefault();
+							closeLinkBar();
+						}
+					}}
+				/>
+				{#if linkActive}
+					<button
+						type="button"
+						class="link-icon"
+						aria-label="Open link"
+						title="Open link in a new tab"
+						onclick={openCurrentLink}><ExternalLink size={14} strokeWidth={1.8} /></button
+					>
+					<button type="button" class="btn small" onclick={removeLink}>Remove</button>
+				{/if}
+				<button type="submit" class="btn small primary">{linkActive ? 'Update' : 'Link'}</button>
+				{#if linkProblem}<p class="link-problem" role="alert">{linkProblem}</p>{/if}
+			</form>
+		{/if}
 	{/if}
+
+	{#if saveProblem}
+		<div class="editor-error" role="alert">
+			<span
+				>{saveProblem === 'invalid'
+					? 'Your latest change can’t be saved: it holds something documents can’t keep. Undo it to keep saving.'
+					: 'Recent edits aren’t being saved right now. Keep this page open; they’ll save when storage is back.'}</span
+			>{#if saveProblem === 'invalid' && canWriteLive}<button
+					type="button"
+					class="btn small"
+					onclick={() => run((instance) => instance.chain().focus().undo().run())}>Undo</button
+				>{/if}
+		</div>
+	{/if}
+
+	{@render banner?.()}
 
 	{#if conflict}
 		<section class="conflict-band" aria-labelledby="document-conflict-title">
@@ -806,14 +1068,16 @@
 			<span>{saveFailure}</span>{#if titleDirty}<button
 					type="button"
 					class="btn small"
-					disabled={!canWriteLive || saving}
+					disabled={!titleEditable || saving}
 					onclick={() => void saveTitle()}>Retry title</button
 				>{/if}
 		</div>
 	{/if}
 
-	<div class="paper" class:read-only={!canWriteLive}>
+	<!-- The page is what prints: Print or save as PDF, or the browser's own print. -->
+	<div class="paper document-print" class:read-only={!canWriteLive}>
 		<div class="paper-rule" aria-hidden="true"></div>
+		<h1 class="print-title">{title.trim() || 'Untitled'}</h1>
 		<!-- The title is the page's first line, as Notion's is: large, borderless, typed in place. -->
 		<div class="paper-title">
 			<label for="document-title">Document title</label>
@@ -839,7 +1103,12 @@
 				}}
 				value={title}
 				placeholder="Untitled"
-				disabled={!canWriteLive || view.document.owner_actor_id !== principalActorId}
+				disabled={!titleEditable}
+				title={titleEditable
+					? undefined
+					: online
+						? 'Only its owner can rename this document'
+						: 'You are offline'}
 				oninput={(event) => {
 					title = event.currentTarget.value.replace(/\s*\n\s*/g, ' ');
 					updateMetadataDirty();
@@ -1008,6 +1277,65 @@
 		background: var(--border);
 		flex: none;
 	}
+	.table-tools {
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+		margin-left: 2px;
+		padding-left: 4px;
+		border-left: 1px solid var(--border);
+	}
+	.table-tools :global(.action-menu > summary) {
+		width: 28px;
+		height: 28px;
+	}
+	.link-bar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 6px;
+		padding: 6px var(--space-4);
+		border-bottom: 1px solid var(--border);
+		background: var(--surface);
+	}
+	.link-bar input {
+		flex: 1 1 240px;
+		min-width: 0;
+		height: 30px;
+		padding: 0 9px;
+		border: 1px solid var(--control-edge);
+		border-radius: var(--radius-control);
+		background: var(--surface-raised);
+		color: var(--ink);
+		font: var(--t-body) var(--font-ui);
+	}
+	.link-bar input[aria-invalid='true'] {
+		border-color: var(--state-danger);
+	}
+	.link-icon {
+		display: grid;
+		place-items: center;
+		width: 30px;
+		height: 30px;
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-control);
+		background: transparent;
+		color: var(--text-secondary);
+		cursor: pointer;
+	}
+	.link-icon:hover {
+		background: var(--wash-hover);
+		color: var(--ink);
+	}
+	.link-problem {
+		flex-basis: 100%;
+		margin: 0;
+		color: var(--state-danger);
+	}
+	.print-title {
+		display: none;
+	}
 	.conflict-actions {
 		display: flex;
 		gap: var(--space-2);
@@ -1095,6 +1423,11 @@
 	.named-version-projection {
 		max-width: 840px;
 		margin: 0 auto;
+	}
+	/* Above the brief "Show in document" mark, which sits behind the text. */
+	.editor-mount {
+		position: relative;
+		z-index: 1;
 	}
 	.projection-note {
 		display: flex;
@@ -1200,6 +1533,31 @@
 		background: var(--accent-soft);
 		color: var(--ink);
 		font-weight: 600;
+		text-decoration: none;
+	}
+	:global(.native-document-body a.native-reference) {
+		cursor: pointer;
+	}
+	:global(.native-document-body a.native-reference:hover) {
+		background: color-mix(in srgb, var(--intent-conversation) 14%, transparent);
+	}
+	/* "Show in document" from a comment: the block it is about, briefly marked. */
+	:global(.block-flash) {
+		position: absolute;
+		z-index: 0;
+		border-radius: var(--radius-control);
+		background: color-mix(in srgb, var(--highlight) 55%, transparent);
+		pointer-events: none;
+		animation: block-flash 1.8s var(--ease-standard) forwards;
+	}
+	@keyframes -global-block-flash {
+		0%,
+		55% {
+			opacity: 1;
+		}
+		100% {
+			opacity: 0;
+		}
 	}
 	:global(.native-document-body.ProseMirror-focused > [data-block-id]) {
 		transition: background-color var(--motion-state) var(--ease-standard);
