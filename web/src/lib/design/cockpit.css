@@ -1591,22 +1591,35 @@
 	color: var(--text-tertiary);
 }
 
+/* The state, then the one thing to do with the output: open it, as a real button. */
 .bridge-root .artifact-actions {
-	display: grid;
-	justify-items: end;
-	gap: 4px;
+	display: flex;
+	align-items: center;
+	gap: 10px;
 }
 
 .bridge-root .artifact-actions a {
-	font-size: var(--t-label);
-	font-weight: 600;
+	display: inline-flex;
+	align-items: center;
+	height: 26px;
+	padding: 0 10px;
+	border: 1px solid var(--edge-control);
+	border-radius: var(--radius-pane);
+	background: var(--surface-raised);
+	box-shadow: var(--control-depth), var(--bevel);
+	color: var(--ink);
+	font-size: var(--t-body);
+	font-weight: 500;
 	text-decoration: none;
-	color: var(--intent-feedback);
 }
 
-.bridge-root .artifact-actions a:hover,
+.bridge-root .artifact-actions a:hover {
+	border-color: var(--edge-control-hover);
+}
+
 .bridge-root .artifact-actions a:focus-visible {
-	text-decoration: underline;
+	outline: 2px solid var(--intent-conversation);
+	outline-offset: 1px;
 }
 
 .bridge-root .detail-artifact em {

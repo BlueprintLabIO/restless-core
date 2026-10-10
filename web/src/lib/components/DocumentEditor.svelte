@@ -5,6 +5,7 @@
 	import { page } from '$app/state';
 	import DocumentActions from './DocumentActions.svelte';
 	import { Editor } from '@tiptap/core';
+	import { Selection } from '@tiptap/pm/state';
 	import { HocuspocusProvider } from '@hocuspocus/provider';
 	import * as Y from 'yjs';
 	import AlignLeft from '@lucide/svelte/icons/align-left';
@@ -825,8 +826,15 @@
 				onkeydown={(event) => {
 					if (event.key === 'Enter') {
 						event.preventDefault();
-						event.currentTarget.blur();
-						editor?.commands.focus('start');
+						/* Move into the body now, not on the next frame: Tiptap's focus command
+						 * waits a frame, and keys typed in that gap were lost ("Opening" became
+						 * "ening"). Focusing the body blurs the title, which saves it. */
+						if (editor) {
+							editor.view.dispatch(
+								editor.state.tr.setSelection(Selection.atStart(editor.state.doc))
+							);
+							editor.view.focus();
+						} else event.currentTarget.blur();
 					}
 				}}
 				value={title}

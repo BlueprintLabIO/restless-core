@@ -86,17 +86,23 @@
 		if (typeof data.slide === 'number') slide = data.slide;
 		if (typeof data.total === 'number') total = data.total;
 	}
+	/* Focus stays with the cockpit, which steps the deck by message: a focused cross-origin frame
+	 * would swallow Escape. Where the browser cannot go full screen (iPhone Safari), the stage
+	 * fills the window instead. */
+	let windowed = $state(false);
 	async function present() {
 		presenting = true;
 		try {
-			await stage?.requestFullscreen?.();
+			if (!stage?.requestFullscreen) throw new Error('no fullscreen');
+			await stage.requestFullscreen();
+			windowed = false;
 		} catch {
-			/* The stage still fills the pane. */
+			windowed = true;
 		}
-		frame?.focus();
 	}
 	async function stop() {
 		presenting = false;
+		windowed = false;
 		if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
 	}
 	function onkeydown(event: KeyboardEvent) {
@@ -186,7 +192,7 @@
 					></video>{:else}<audio src={url} controls preload="metadata"></audio>{/if}
 			</div>
 		{:else if file.kind === 'deck'}
-			<div class="stage" class:presenting bind:this={stage}>
+			<div class="stage" class:presenting class:windowed={presenting && windowed} bind:this={stage}>
 				{#if isPdf}
 					<!-- The browser's PDF reader will not run in a sandboxed frame. The file is already on
 					     its own read-only origin, apart from the cockpit, and a PDF runs no page script. -->
@@ -367,6 +373,11 @@
 		height: 100%;
 		border: 0;
 		background: #fff;
+	}
+	.stage.windowed {
+		position: fixed;
+		inset: 0;
+		z-index: var(--z-overlay);
 	}
 	.stage.presenting {
 		background: #000;
