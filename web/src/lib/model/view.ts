@@ -99,7 +99,8 @@ export interface AttentionItem {
 
 export interface DecisionContinuation {
 	id: string;
-	workId: string;
+	/** Absent for an Authority approval, which answers a prepared effect, not Work. */
+	workId?: string;
 	title: string;
 	recordedDecision: string;
 	whatItUnlocked: string;

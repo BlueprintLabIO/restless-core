@@ -22,6 +22,7 @@
 	import { desktopNotify } from '$lib/model/desktop-notify.svelte';
 	import { ASK_EXEC_EVENT } from '$lib/model/ask-exec';
 	import { cockpitContextPath, reviewAction } from '$lib/model/attention';
+	import { handInboxOutcome } from '$lib/model/inbox-outcome.svelte';
 	import { prepareCompanyBrowser } from '$lib/model/company-browser';
 	import {
 		collaboratorHome,
@@ -584,10 +585,18 @@
 		feedback: string
 	): Promise<string | null> {
 		if (!focusedReview) return 'This review is no longer outstanding.';
+		const lead = focusedReview.responsibleActor;
 		try {
 			await reviewAction(companyId, focusedReview.source.reference, decision, feedback);
 			await attention.refresh();
 			await goto(`/${companyId}`);
+			/* The Inbox confirms it, as it does an answer given in its own pane. */
+			handInboxOutcome({
+				text: decision === 'accept' ? 'Accepted' : `Changes sent to ${lead?.display ?? 'the lead'}`,
+				href: lead
+					? `/${encodeURIComponent(companyId)}/people?person=${encodeURIComponent(lead.id)}&view=people`
+					: undefined
+			});
 			return null;
 		} catch (cause) {
 			return failureSentence(cause, 'The review decision was not recorded.');
@@ -938,6 +947,7 @@
 			onask={askRail}
 			review={focusedReview && !wide
 				? {
+						id: focusedReview.id,
 						onback: closeFocusedContext,
 						ondecide: decideFocusedReview
 					}

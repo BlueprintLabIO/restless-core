@@ -11,6 +11,7 @@
 	import DesktopViewport from '$lib/components/DesktopViewport.svelte';
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
+	import Paperclip from '@lucide/svelte/icons/paperclip';
 	import Composer from '$lib/primitives/Composer.svelte';
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
 	import InboxList from '$lib/components/InboxList.svelte';
@@ -28,6 +29,10 @@
 	import { browserTabClientId } from '$lib/model/browserTab';
 	import { getBrowserStatus } from '$lib/model/company';
 	import { browserControl, issueDesktopTicket, issueReviewTicket } from '$lib/model/attention';
+	import { takeInboxOutcome } from '$lib/model/inbox-outcome.svelte';
+	import { companyFileLinks, workFileLinks } from '$lib/model/inbox-files';
+	import type { LibraryArtifact } from '$lib/model/library-files';
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 
@@ -65,6 +70,8 @@
 	const items = $derived(view?.items ?? []);
 	let visibleItems = $state<AttentionItem[] | null>(null);
 	const graph = $derived(view?.workGraph ?? null);
+	/* The Work graph's file references, so files named by an item open in the Library viewer. */
+	const artifacts = $derived((graph?.artifacts ?? []) as unknown as LibraryArtifact[]);
 	const selectedItemId = $derived(page.url.searchParams.get('item'));
 	const companyCatalog = companiesQuery();
 	/* A company that cannot start is not clear, whatever the queue says: say
@@ -120,6 +127,11 @@
 		const timer = setTimeout(() => (sent = null), 6000);
 		return () => clearTimeout(timer);
 	});
+	/* A review decided from the rail lands here: confirm it like any other answer. */
+	$effect(() => {
+		const outcome = takeInboxOutcome();
+		if (outcome) sent = outcome;
+	});
 	let previousItemOrder: string[] = [];
 	$effect(() => {
 		if (
@@ -151,6 +163,13 @@
 		items.find((item) => item.id === focusedReviewId && item.category === 'review') ?? null
 	);
 	const reviewEvidence = $derived(focusedReview?.evidence ?? []);
+	const reviewFileLink = $derived(companyFileLinks(companyId, artifacts));
+	/* The Work's other files, one click from the outcome under review. */
+	const reviewOtherFiles = $derived(
+		workFileLinks(companyId, artifacts, focusedReview?.workId).filter(
+			(file) => file.path !== focusedReview?.reviewTarget?.uri
+		)
+	);
 	const DOCUMENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 	function sameCompanyDocumentHref(content: string, company: string): string {
 		const canonicalPath = `/${encodeURIComponent(company)}/library/documents`;
@@ -515,6 +534,22 @@
 				<strong title={focusedReview.reviewTarget?.uri}
 					>{focusedReview.reviewTarget?.label ?? focusedReview.title}</strong
 				>
+				{#if reviewOtherFiles.length}
+					<span class="review-other-files">
+						<ActionMenu
+							label={`${reviewOtherFiles.length} other ${reviewOtherFiles.length === 1 ? 'file' : 'files'} from this work`}
+						>
+							{#snippet trigger()}<Paperclip
+									size={15}
+									strokeWidth={1.8}
+									aria-hidden="true"
+								/>{/snippet}
+							{#each reviewOtherFiles as file (file.href)}
+								<a href={file.href} title={file.path}>{file.label}</a>
+							{/each}
+						</ActionMenu>
+					</span>
+				{/if}
 				<InfoTip
 					text="The exact candidate selected by Staff and inspected by the accountable lead."
 				/>
@@ -563,10 +598,18 @@
 							{#if reviewEvidence.length}
 								<ul class="review-unavailable-evidence">
 									{#each reviewEvidence as evidence (evidence.label)}
+										{@const file =
+											evidence.kind === 'artifact' && evidence.content
+												? reviewFileLink(evidence.content, evidence.label)
+												: null}
 										<li>
 											{#if evidence.uri}
 												<a href={evidence.uri} target="_blank" rel="noreferrer"
 													>{evidence.label} <span aria-hidden="true">↗</span></a
+												>
+											{:else if file}
+												<a href={file.href} title={`Open in the Library · ${file.path}`}
+													>{file.label}</a
 												>
 											{:else}
 												<strong>{evidence.label}</strong>
@@ -891,6 +934,7 @@
 	<InboxDetail
 		{companyId}
 		{item}
+		{artifacts}
 		declining={page.url.searchParams.get('decline') === '1'}
 		onopenDocument={async () => {
 			const result = await source.reload();
@@ -1003,6 +1047,9 @@
 		line-height: 1.35;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.review-other-files {
+		margin-left: auto;
 	}
 	.review-source-scroll,
 	.review-outcome-stage {

@@ -28,7 +28,6 @@ export interface AttentionView {
 	};
 	workGraph: WorkGraphSnapshot | null;
 	items: AttentionItem[];
-	continuations: DecisionContinuation[];
 	refreshedAt: string;
 }
 
@@ -122,7 +121,7 @@ type WireItem = {
 
 type WireContinuation = {
 	id: string;
-	work_id: string;
+	work_id?: string;
 	title: string;
 	recorded_decision: string;
 	what_it_unlocked: string;
@@ -220,20 +219,45 @@ export async function getAttention(company: string): Promise<AttentionView> {
 				createdAt: item.created_at
 			}))
 		),
-		continuations: ((wire.continuations as WireContinuation[] | undefined) ?? []).map(
-			(continuation) => ({
-				id: continuation.id,
-				workId: continuation.work_id,
-				title: continuation.title,
-				recordedDecision: continuation.recorded_decision,
-				whatItUnlocked: continuation.what_it_unlocked,
-				currentState: continuation.current_state,
-				observedOutcome: continuation.observed_outcome,
-				responsibleActor: continuation.responsible_actor,
-				observedAt: continuation.observed_at
-			})
-		),
 		refreshedAt: wire.refreshed_at
+	};
+}
+
+export interface DecisionHistoryPage {
+	decisions: DecisionContinuation[];
+	/** Pass back as `before` for the next older page; absent on the last one. */
+	nextBefore?: string;
+}
+
+/** What the owner decided, newest first: answered Inbox items and Authority
+ * approvals and declines. Read on demand, never carried by the Inbox poll. */
+export async function fetchDecisionHistory(
+	company: string,
+	before?: string
+): Promise<DecisionHistoryPage> {
+	const query = before ? `?before=${encodeURIComponent(before)}` : '';
+	const response = await fetch(
+		`/api/companies/${encodeURIComponent(company)}/attention/history${query}`,
+		{ credentials: 'same-origin', cache: 'no-store' }
+	);
+	if (!response.ok) throw await ownerError(response);
+	const wire = (await response.json()) as {
+		decisions: WireContinuation[];
+		next_before?: string;
+	};
+	return {
+		decisions: wire.decisions.map((continuation) => ({
+			id: continuation.id,
+			workId: continuation.work_id,
+			title: continuation.title,
+			recordedDecision: continuation.recorded_decision,
+			whatItUnlocked: continuation.what_it_unlocked,
+			currentState: continuation.current_state,
+			observedOutcome: continuation.observed_outcome,
+			responsibleActor: continuation.responsible_actor,
+			observedAt: continuation.observed_at
+		})),
+		nextBefore: wire.next_before
 	};
 }
 
@@ -426,17 +450,26 @@ export function cockpitContextPath(
 	return context.length <= 512 ? context : undefined;
 }
 
+/** Answer an approval. A decline may carry the owner's note, which reaches the
+ * company with the decision; `changesRequested` declines this draft so the
+ * company prepares a changed one, which asks again (it needs a note). */
 export async function approvalAction(
 	company: string,
 	action: 'grant' | 'decline' | 'revoke',
-	target: string | { call_key: string; always?: boolean }
+	target: string | { call_key: string; always?: boolean },
+	answer: { note?: string; changesRequested?: boolean } = {}
 ): Promise<void> {
+	const note = answer.note?.trim();
 	const response = await fetch(
 		`/api/companies/${encodeURIComponent(company)}/approvals/${action}`,
 		{
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(typeof target === 'string' ? { party: target } : target),
+			body: JSON.stringify({
+				...(typeof target === 'string' ? { party: target } : target),
+				...(note ? { owner_note: note } : {}),
+				...(answer.changesRequested ? { changes_requested: true } : {})
+			}),
 			credentials: 'same-origin'
 		}
 	);
@@ -504,8 +537,13 @@ export async function fetchSetAside(companyId: string): Promise<SetAside[]> {
 	return ((await response.json()) as { items: SetAside[] }).items;
 }
 
-/** Bring a set-aside item back to the Inbox. */
-export async function restoreAttention(companyId: string, itemId: string): Promise<void> {
+/** Bring a set-aside item back to the Inbox. `waiting` is false when its
+ * request resolved while it was set aside (nothing came back), and null when
+ * the gateway could not tell. */
+export async function restoreAttention(
+	companyId: string,
+	itemId: string
+): Promise<{ restored: boolean; waiting: boolean | null }> {
 	const response = await fetch(`/api/companies/${encodeURIComponent(companyId)}/attention/restore`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
@@ -513,6 +551,11 @@ export async function restoreAttention(companyId: string, itemId: string): Promi
 		body: JSON.stringify({ item_id: itemId })
 	});
 	if (!response.ok) throw await ownerError(response);
+	const body = (await response.json().catch(() => ({}))) as {
+		restored?: boolean;
+		waiting?: boolean | null;
+	};
+	return { restored: body.restored ?? false, waiting: body.waiting ?? null };
 }
 
 /** Set an Inbox item aside as not needed. No message is sent: the agent that asked reads it in

@@ -1,15 +1,24 @@
 <script lang="ts">
-	/* What the owner set aside as not needed: one quiet fold, out of the way, each item restorable. */
+	/* What the owner set aside as not needed: one quiet fold, out of the way, each item restorable.
+	 * The gateway drops items whose request has gone away, so what is listed can come back. */
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { fetchSetAside, restoreAttention, type SetAside } from '$lib/model/attention';
+	import { failureSentence } from '$lib/model/failure';
 	import { refreshAttention } from '$lib/model/queries.svelte';
 
 	let { companyId, version = 0 }: { companyId: string; version?: number } = $props();
 	const client = useQueryClient();
 	let items = $state<SetAside[]>([]);
+	let restoring = $state('');
+	let message = $state('');
 
 	async function load() {
-		items = await fetchSetAside(companyId).catch(() => items);
+		try {
+			items = await fetchSetAside(companyId);
+		} catch (cause) {
+			/* Keep what was listed; say it could not be refreshed only when there is a list. */
+			if (items.length) message = failureSentence(cause, 'Set aside could not be refreshed.');
+		}
 	}
 	$effect(() => {
 		void companyId;
@@ -17,22 +26,37 @@
 		void load();
 	});
 	async function restore(entry: SetAside) {
-		await restoreAttention(companyId, entry.item_id).catch(() => null);
-		await refreshAttention(client, companyId);
-		await load();
+		if (restoring) return;
+		restoring = entry.item_id;
+		message = '';
+		try {
+			const { waiting } = await restoreAttention(companyId, entry.item_id);
+			await refreshAttention(client, companyId);
+			if (waiting === false) message = 'Already resolved. There was nothing to bring back.';
+			await load();
+		} catch (cause) {
+			message = failureSentence(cause, 'That was not restored.');
+		} finally {
+			restoring = '';
+		}
 	}
 </script>
 
-{#if items.length}
-	<details class="set-aside">
+{#if items.length || message}
+	<details class="set-aside" open={!!message || undefined}>
 		<summary title="Items you marked not needed. Restore one to bring it back."
-			>Set aside <span>{items.length}</span></summary
+			>Set aside{#if items.length}<span>{items.length}</span>{/if}</summary
 		>
+		{#if message}<p class="set-aside-message" role="status">{message}</p>{/if}
 		{#each items as entry (entry.item_id)}
 			<div class="set-aside-row">
 				<span class="set-aside-title" title={entry.title}>{entry.title}</span>
-				<button type="button" class="btn small ghost" onclick={() => void restore(entry)}
-					>Restore</button
+				<button
+					type="button"
+					class="btn small ghost"
+					disabled={!!restoring}
+					onclick={() => void restore(entry)}
+					>{restoring === entry.item_id ? 'Restoring…' : 'Restore'}</button
 				>
 			</div>
 		{/each}
@@ -59,6 +83,12 @@
 	.set-aside summary span {
 		margin-left: 4px;
 		font-variant-numeric: tabular-nums;
+	}
+	.set-aside-message {
+		max-width: 360px;
+		margin: 2px 0 4px;
+		padding: 0 8px;
+		color: var(--text-secondary);
 	}
 	.set-aside-row {
 		display: flex;

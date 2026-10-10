@@ -7,7 +7,11 @@
 	import { Page, Section, Item, Notice, Empty, Segmented, Dot } from '$lib/ui/page';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { page } from '$app/state';
+	import { untrack } from 'svelte';
 	import { attentionQuery, companyQuery } from '$lib/model/queries.svelte';
+	import { fetchDecisionHistory } from '$lib/model/attention';
+	import { failureSentence } from '$lib/model/failure';
+	import type { DecisionContinuation } from '$lib/model/view';
 	import CircleCheck from '@lucide/svelte/icons/circle-check';
 	import Send from '@lucide/svelte/icons/send';
 
@@ -18,6 +22,53 @@
 	const graph = $derived(attention.view?.workGraph ?? null);
 	let filter = $state<'all' | 'decisions' | 'external'>('all');
 	let open = $state('');
+
+	/* Decision history is read a page at a time, apart from the Inbox poll: every answered
+	 * item and every approval or decline, however old, one "Show earlier" away. */
+	let history = $state<DecisionContinuation[]>([]);
+	let historyNext = $state<string | undefined>(undefined);
+	let historyLoaded = $state(false);
+	let historyFailure = $state<unknown>(null);
+	let historyReading = $state(false);
+	let historyCompany = '';
+	function mergeHistory(rows: DecisionContinuation[]) {
+		const byId = new Map(history.map((row) => [row.id, row]));
+		for (const row of rows) byId.set(row.id, row);
+		history = [...byId.values()].sort(
+			(a, b) => Date.parse(String(b.observedAt)) - Date.parse(String(a.observedAt))
+		);
+	}
+	async function readHistory(before?: string) {
+		const target = companyId;
+		historyReading = true;
+		try {
+			const result = await fetchDecisionHistory(target, before);
+			if (target !== companyId) return;
+			if (!historyLoaded || before) historyNext = result.nextBefore;
+			mergeHistory(result.decisions);
+			historyFailure = null;
+			historyLoaded = true;
+		} catch (cause) {
+			if (target === companyId) historyFailure = cause;
+		} finally {
+			historyReading = false;
+		}
+	}
+	$effect(() => {
+		const target = companyId;
+		/* An answer leaves the Inbox and lands here; read the newest page again when it does. */
+		void attention.view?.items.length;
+		untrack(() => {
+			if (target !== historyCompany) {
+				historyCompany = target;
+				history = [];
+				historyNext = undefined;
+				historyLoaded = false;
+				historyFailure = null;
+			}
+			void readHistory();
+		});
+	});
 
 	type Entry =
 		| {
@@ -31,7 +82,8 @@
 					state: string;
 					outcome: string;
 					responsible: string;
-					workId: string;
+					responsibleLabel: string;
+					workId?: string;
 				};
 		  }
 		| {
@@ -47,17 +99,22 @@
 		  };
 
 	const decisions = $derived<Entry[]>(
-		(attention.view?.continuations ?? []).map((decision) => ({
+		history.map((decision) => ({
 			kind: 'decision',
 			id: decision.id,
-			title: graph?.work.find((work) => work.id === decision.workId)?.title ?? decision.title,
+			title:
+				(decision.workId && graph?.work.find((work) => work.id === decision.workId)?.title) ||
+				decision.title,
 			summary: decision.recordedDecision,
 			at: String(decision.observedAt),
 			detail: {
 				unlocked: decision.whatItUnlocked,
 				state: decision.currentState,
 				outcome: decision.observedOutcome,
-				responsible: decision.responsibleActor?.display ?? 'No further owner',
+				/* An approval names who prepared the draft; answered Work names who holds it now. */
+				responsible:
+					decision.responsibleActor?.display ?? (decision.workId ? 'No further owner' : ''),
+				responsibleLabel: decision.workId ? 'Responsible now' : 'Prepared by',
 				workId: decision.workId
 			}
 		}))
@@ -83,7 +140,7 @@
 			(a, b) => Date.parse(b.at) - Date.parse(a.at)
 		)
 	);
-	const loaded = $derived(!!attention.view && !!company.view);
+	const loaded = $derived(!!company.view && (historyLoaded || !!historyFailure));
 
 	function words(value: string): string {
 		return value.replaceAll('_', ' ');
@@ -134,16 +191,16 @@
 	{/snippet}
 
 	{#if !loaded}
-		{#if attention.failure || company.failure}<Notice
+		{#if company.failure}<Notice
 				tone="danger"
 				title="Activity could not be read"
-				details={String((attention.failure ?? company.failure)?.message ?? '')}
+				details={String(company.failure?.message ?? '')}
 			>
 				{#snippet actions()}<button
 						class="btn small"
 						onclick={() => {
-							void attention.refresh();
 							void company.refresh();
+							void readHistory();
 						}}>Retry</button
 					>{/snippet}
 			</Notice>
@@ -154,6 +211,17 @@
 				title="External activity is unavailable right now"
 				details="Authority is not answering, so external history is not being shown as empty."
 			/>{/if}
+		{#if historyFailure && filter !== 'external'}<Notice
+				tone="warning"
+				title="Decisions could not be read"
+				details={failureSentence(historyFailure, 'Your decision history was not read.')}
+			>
+				{#snippet actions()}<button
+						class="btn small"
+						disabled={historyReading}
+						onclick={() => void readHistory()}>Retry</button
+					>{/snippet}
+			</Notice>{/if}
 		<Section count={entries.length || null}>
 			{#each entries as entry (entry.kind + entry.id)}
 				<Item
@@ -183,24 +251,26 @@
 									<dt>Your decision</dt>
 									<dd>{entry.summary}</dd>
 								</div>
-								<div>
-									<dt>What it unlocked</dt>
-									<dd>{entry.detail.unlocked}</dd>
-								</div>
-								<div>
-									<dt>Where it stands</dt>
-									<dd>{entry.detail.state}</dd>
-								</div>
-								<div>
-									<dt>What happened</dt>
-									<dd>{entry.detail.outcome}</dd>
-								</div>
-								<div>
-									<dt>Responsible now</dt>
-									<dd>{entry.detail.responsible}</dd>
-								</div>
-								<a class="btn small" href={`/${companyId}/work/${entry.detail.workId}`}>Open work</a
-								>
+								{#if entry.detail.unlocked}<div>
+										<dt>What it unlocked</dt>
+										<dd>{entry.detail.unlocked}</dd>
+									</div>{/if}
+								{#if entry.detail.state}<div>
+										<dt>Where it stands</dt>
+										<dd>{entry.detail.state}</dd>
+									</div>{/if}
+								{#if entry.detail.outcome}<div>
+										<dt>What happened</dt>
+										<dd>{entry.detail.outcome}</dd>
+									</div>{/if}
+								{#if entry.detail.responsible}<div>
+										<dt>{entry.detail.responsibleLabel}</dt>
+										<dd>{entry.detail.responsible}</dd>
+									</div>{/if}
+								{#if entry.detail.workId}<a
+										class="btn small"
+										href={`/${companyId}/work/${entry.detail.workId}`}>Open work</a
+									>{/if}
 							{:else}
 								<div>
 									<dt>Evidence</dt>
@@ -232,6 +302,17 @@
 				/>
 			{/each}
 		</Section>
+		{#if historyNext && filter !== 'external'}
+			<div class="earlier">
+				<button
+					class="btn small"
+					disabled={historyReading}
+					title="Older answers and approvals, a page at a time"
+					onclick={() => void readHistory(historyNext)}
+					>{historyReading ? 'Reading…' : 'Show earlier decisions'}</button
+				>
+			</div>
+		{/if}
 	{/if}
 </Page>
 
@@ -260,6 +341,11 @@
 	}
 	.facts .btn {
 		justify-self: start;
+	}
+	.earlier {
+		display: flex;
+		justify-content: center;
+		padding: var(--space-3) 0;
 	}
 	@container page (max-width: 560px) {
 		.facts div {

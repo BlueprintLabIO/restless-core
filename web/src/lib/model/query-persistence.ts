@@ -220,9 +220,6 @@ function safeAttention(value: unknown, company: string): unknown | null {
 			.slice(0, QUERY_CACHE_MAX_ATTENTION_ITEMS)
 			.map(safeAttentionItem)
 			.filter((item): item is Record<string, unknown> => item !== null),
-		/* Decision history and possible Authority continuations are not part of
-		 * the personal Attention read cache. */
-		continuations: [],
 		refreshedAt
 	};
 }

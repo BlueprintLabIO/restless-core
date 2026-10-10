@@ -124,6 +124,8 @@
 			  ) => Promise<{ error?: string; notice?: string }>)
 			| null;
 		review?: {
+			/** The Inbox item under review; a change clears the previous review's note. */
+			id: string;
 			onback: () => void;
 			ondecide: (
 				decision: 'accept' | 'request_changes',
@@ -346,6 +348,21 @@
 	let reviewError = $state('');
 	let reviewFeedback = $state('');
 	let deciding = $state(false);
+	/* A note belongs to one review: opening a different one starts blank, and
+	 * an error never outlives the review it was about. Leaving and coming back
+	 * to the same review keeps an unsent note. */
+	let noteFor = '';
+	let reviewShown = '';
+	$effect(() => {
+		const id = review?.id ?? '';
+		if (id === reviewShown) return;
+		reviewShown = id;
+		reviewError = '';
+		if (id && id !== noteFor) {
+			noteFor = id;
+			reviewFeedback = '';
+		}
+	});
 	let scrollEl = $state<HTMLDivElement | undefined>();
 	let scrollReset = $state(0);
 	/* How many messages there were when the reader scrolled up; null while
@@ -802,6 +819,7 @@
 		try {
 			const failure = await review.ondecide('request_changes', feedback);
 			if (failure) reviewError = failure;
+			else reviewFeedback = '';
 		} finally {
 			deciding = false;
 		}
@@ -814,7 +832,7 @@
 		try {
 			const failure = await review.ondecide('accept', '');
 			if (failure) reviewError = failure;
-			else composer = '';
+			else reviewFeedback = '';
 		} finally {
 			deciding = false;
 		}

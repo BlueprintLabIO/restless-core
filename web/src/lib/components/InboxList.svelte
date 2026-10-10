@@ -19,6 +19,7 @@
 	import { completeHandoffHumanStep, dismissAttention } from '$lib/model/attention';
 	import SetAsideList from './SetAside.svelte';
 	import { refreshAttention } from '$lib/model/queries.svelte';
+	import { failureSentence } from '$lib/model/failure';
 	import {
 		attentionAsker,
 		attentionKindLabel,
@@ -56,7 +57,13 @@
 	let completing = $state('');
 	let clock = $state(Date.now());
 	async function notNeeded(item: AttentionItem) {
-		await dismissAttention(companyId, item.id).catch(() => null);
+		undoId = '';
+		try {
+			await dismissAttention(companyId, item.id);
+			notice = 'Set aside. It is under Set aside if you want it back.';
+		} catch (cause) {
+			notice = failureSentence(cause, 'That was not set aside.');
+		}
 		await refreshAttention(client, companyId);
 	}
 
@@ -72,7 +79,12 @@
 	const stamp = (item: AttentionItem) => String(item.briefedAt ?? item.createdAt);
 	const href = (id: string) => `/${encodeURIComponent(companyId)}?item=${encodeURIComponent(id)}`;
 	const canDecline = (item: AttentionItem) =>
-		item.actions.some((action) => action.id === 'record-decision' || action.id === 'complete-human-step');
+		item.actions.some(
+			(action) =>
+				action.id === 'record-decision' ||
+				action.id === 'complete-human-step' ||
+				(action.id === 'decline' && item.category === 'approval')
+		);
 	const canDiscuss = (item: AttentionItem) => item.actions.some((action) => action.id === 'chat-lead');
 	const canComplete = (item: AttentionItem) =>
 		item.actions.some((action) => action.id === 'complete-human-step');
@@ -145,8 +157,8 @@
 			await refreshAttention(client, companyId);
 			notice = 'Marked done';
 			undoId = '';
-		} catch {
-			notice = 'That was not recorded. Try again.';
+		} catch (cause) {
+			notice = failureSentence(cause, 'That was not recorded.');
 		} finally {
 			completing = '';
 		}

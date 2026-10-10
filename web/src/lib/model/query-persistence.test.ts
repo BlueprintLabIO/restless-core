@@ -115,7 +115,6 @@ function attentionView() {
 				createdAt: '2026-09-09T01:00:00Z'
 			}
 		],
-		continuations: [],
 		refreshedAt: '2026-09-09T01:00:00Z'
 	};
 }

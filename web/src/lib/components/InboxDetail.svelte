@@ -4,8 +4,11 @@
 	 *
 	 * A reply or a "Not doing this" goes to the responsible lead as a message in
 	 * their conversation (the handoff decision endpoint posts it), so the owner
-	 * is told where it went. Approvals keep hold-to-confirm. Context and
-	 * evidence are folded away until asked for. */
+	 * is told where it went. Approvals keep hold-to-confirm, with the exact
+	 * draft shown under the ask; declining one, or asking for changes, can carry
+	 * a note that reaches the company with the decision. Files the item points
+	 * at open in the Library. Context and the rest of the evidence are folded
+	 * away until asked for. */
 	import { failureSentence } from '$lib/model/failure';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import type { AttentionItem } from '$lib/model/view';
@@ -29,16 +32,21 @@
 	import { fetchAppRequests, type AppRequest } from '$lib/model/app-requests';
 	import { dismissAttention } from '$lib/model/attention';
 	import { initials } from '$lib/model/initials';
+	import { companyFileLinks, type CompanyFileLink } from '$lib/model/inbox-files';
+	import type { LibraryArtifact } from '$lib/model/library-files';
 
 	let {
 		companyId,
 		item,
+		artifacts = [],
 		declining: startDeclining = false,
 		onopenDocument,
 		onresolved
 	}: {
 		companyId: string;
 		item: AttentionItem;
+		/** The Work graph's artifact references, so a file the item names opens in the Library. */
+		artifacts?: readonly LibraryArtifact[];
 		/** Open straight into "Not doing this", as the list's quick action does. */
 		declining?: boolean;
 		onopenDocument?: () => Promise<unknown>;
@@ -51,6 +59,32 @@
 	const askerId = $derived(item.responsibleActor?.id ?? item.briefAuthor?.id ?? 'exec');
 	const conversationHref = $derived(
 		`/${encodeURIComponent(companyId)}/people?person=${encodeURIComponent(askerId)}&view=people`
+	);
+	/* An approval answer is announced to Exec, whoever prepared the draft. */
+	const execHref = $derived(`/${encodeURIComponent(companyId)}/people?person=exec&view=people`);
+	const approval = $derived(item.category === 'approval');
+	/* The exact draft an approval asks about, shown under the ask rather than folded away. */
+	const drafts = $derived(
+		approval ? item.evidence.filter((entry) => entry.kind === 'command' && entry.content) : []
+	);
+	/* Files the item points at (a receipt, an invoice, a draft's attachment), each opening in the
+	 * Library viewer. Other evidence stays in the fold. */
+	const fileLink = $derived(companyFileLinks(companyId, artifacts));
+	const files = $derived(
+		item.evidence
+			.filter((entry) => entry.kind === 'artifact' && entry.content)
+			.map((entry) => fileLink(entry.content ?? '', entry.label))
+			.filter(
+				(link, index, all): link is CompanyFileLink =>
+					!!link && all.findIndex((other) => other?.href === link.href) === index
+			)
+	);
+	const folded = $derived(
+		item.evidence.filter(
+			(entry) =>
+				!drafts.includes(entry) &&
+				!(entry.kind === 'artifact' && entry.content && fileLink(entry.content))
+		)
 	);
 	const base = $derived(`/${encodeURIComponent(companyId)}?item=${encodeURIComponent(item.id)}`);
 	const action = (id: string) => item.actions.find((candidate) => candidate.id === id);
@@ -117,10 +151,14 @@
 	let reply = $state('');
 	let reason = $state('');
 	let declining = $state(false);
+	/* An approval answered with words: a plain decline (the note is optional) or a request for a
+	 * changed draft (the note says what should change). */
+	let approvalNote = $state<'' | 'decline' | 'changes'>('');
 	let fieldValues = $state<Record<string, string>>({});
 	let attempt = $state(0);
 	$effect(() => {
 		declining = startDeclining && !!(record || humanStep);
+		if (startDeclining && grant && decline) approvalNote = 'decline';
 	});
 
 	const replyReady = $derived(
@@ -136,13 +174,18 @@
 				].join('\n')
 			: reply.trim();
 
-	async function run(work: () => Promise<unknown>, sent: string, fallback: string) {
+	async function run(
+		work: () => Promise<unknown>,
+		sent: string,
+		fallback: string,
+		href = conversationHref
+	) {
 		if (acting) return;
 		acting = true;
 		error = '';
 		try {
 			await work();
-			onresolved?.({ text: sent, href: conversationHref });
+			onresolved?.({ text: sent, href });
 		} catch (cause) {
 			error = failureSentence(cause, fallback);
 		} finally {
@@ -191,19 +234,45 @@
 			'Marked done',
 			'That was not recorded. Try again.'
 		);
-	const approve = (kind: 'grant' | 'decline', always = false) =>
+	const approvalTarget = (always = false) => {
+		const target = item.source.call_key
+			? { call_key: item.source.call_key, ...(always ? { always: true } : {}) }
+			: item.source.party;
+		if (!target) throw new Error('This request has no approval target. Refresh and try again.');
+		return target;
+	};
+	const approve = (always = false) =>
 		run(
 			async () => {
-				const target = item.source.call_key
-					? { call_key: item.source.call_key, ...(always ? { always: true } : {}) }
-					: item.source.party;
-				if (!target) throw new Error('This request has no approval target. Refresh and try again.');
-				await approvalAction(companyId, kind, target);
+				await approvalAction(companyId, 'grant', approvalTarget(always));
 				await removeConfirmedAttention(client, companyId, item.id);
 			},
-			kind === 'grant' ? (always ? 'Approved. It won’t ask again.' : 'Approved') : 'Declined',
-			'The approval was not recorded. Try again.'
+			always ? 'Approved. It won’t ask again.' : 'Approved',
+			'The approval was not recorded. Try again.',
+			execHref
 		);
+	/* Declined either way: a request for changes tells the company to prepare a changed draft,
+	 * which comes back here; a plain decline tells it not to go ahead. */
+	const sendApprovalNote = () => {
+		const changes = approvalNote === 'changes';
+		if (changes && !reason.trim()) return;
+		return run(
+			async () => {
+				await approvalAction(companyId, 'decline', approvalTarget(), {
+					note: reason,
+					changesRequested: changes
+				});
+				await removeConfirmedAttention(client, companyId, item.id);
+			},
+			changes
+				? 'Changes sent to Exec'
+				: reason.trim()
+					? 'Declined. Exec has your note.'
+					: 'Declined',
+			'That was not recorded. Try again.',
+			execHref
+		);
+	};
 	const decideMandate = (decision: 'approve' | 'decline') =>
 		run(
 			async () => {
@@ -313,6 +382,27 @@
 				{:else}
 					<div class="ask"><Markdown text={item.requestedAction} /></div>
 				{/if}
+				{#each drafts as draft, index (index)}
+					<pre
+						class="draft"
+						aria-label={draft.label}
+						title="The exact draft. Allowing it lets exactly this run.">{draft.content}</pre>
+				{/each}
+				{#if files.length}
+					<div class="attach-list files">
+						{#each files.slice(0, 6) as file (file.href)}
+							<a class="attach-file" href={file.href} title={`Open in the Library · ${file.path}`}>
+								<span class="a-kind">{file.ext}</span>
+								<span class="af-main"><span class="a-name">{file.label}</span></span>
+							</a>
+						{/each}
+						{#if files.length > 6 && item.workId}<a
+								class="link"
+								href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(item.workId)}`}
+								>All {files.length} files</a
+							>{/if}
+					</div>
+				{/if}
 				{#if item.uncertainty}<p class="uncertain" title="What the team is not sure about">
 						<span>Not certain</span>{item.uncertainty}
 					</p>{/if}
@@ -334,7 +424,7 @@
 					</div>
 				</Fold>
 			{/if}
-			<Fold label="Evidence" count={item.evidence.length || null}>
+			<Fold label="Evidence" count={folded.length || null}>
 				<div class="prose evidence">
 					<p class="credit">
 						Prepared by <strong>{item.briefAuthor?.display ?? asker}</strong>{#if item.briefedAt}
@@ -342,7 +432,7 @@
 								><RelativeTime value={item.briefedAt} /></time
 							>{/if}
 					</p>
-					{#each item.evidence as evidence, index (`${evidence.kind}:${evidence.label}:${index}`)}
+					{#each folded as evidence, index (`${evidence.kind}:${evidence.label}:${index}`)}
 						{#if evidence.content}
 							<div class="quote">
 								<span>{evidence.label}</span>
@@ -388,6 +478,35 @@
 					>Back</button
 				>
 				<span class="hint">⌘ ↵</span>
+			</div>
+		{:else if approvalNote}
+			<textarea
+				bind:value={reason}
+				{@attach (input) => input.focus()}
+				aria-label={approvalNote === 'changes' ? 'What should change' : 'Why not'}
+				placeholder={approvalNote === 'changes'
+					? 'What should change? A new draft comes back here for you.'
+					: 'Why not? Optional. Exec is told either way.'}
+				disabled={acting}
+				onkeydown={(event) => keys(event, sendApprovalNote)}></textarea>
+			<div class="bar">
+				<button
+					class="btn primary small"
+					disabled={acting || (approvalNote === 'changes' && !reason.trim())}
+					title={approvalNote === 'changes'
+						? 'Declines this draft. The company prepares a changed one, which asks you again.'
+						: `${decline?.consequence ?? ''} ${decline?.nextState ?? ''}`.trim()}
+					onclick={sendApprovalNote}
+					>{acting
+						? 'Sending…'
+						: approvalNote === 'changes'
+							? 'Ask for changes'
+							: 'Decline'}</button
+				>
+				<button class="btn small ghost" disabled={acting} onclick={() => (approvalNote = '')}
+					>Back</button
+				>
+				<span class="hint" title="Goes to Exec with your decision">To Exec · ⌘ ↵</span>
 			</div>
 		{:else if record}
 			{#if fields.length}
@@ -453,20 +572,25 @@
 							label={`Hold to ${grant.label.toLowerCase()}`}
 							disabled={acting}
 							title={`${grant.consequence} ${grant.nextState}`}
-							onapprove={() => void approve('grant')}
+							onapprove={() => void approve()}
 						/>
 					{/key}
 					{#if grantAlways}<button
 							class="btn small"
 							disabled={acting}
 							title={`${grantAlways.consequence} ${grantAlways.nextState}`}
-							onclick={() => approve('grant', true)}>{grantAlways.label}</button
+							onclick={() => approve(true)}>{grantAlways.label}</button
 						>{/if}
 					{#if decline}<button
 							class="btn small"
 							disabled={acting}
+							title="Not like this: say what should change, and a new draft comes back for you."
+							onclick={() => (approvalNote = 'changes')}>Ask for changes</button
+						><button
+							class="btn small"
+							disabled={acting}
 							title={`${decline.consequence} ${decline.nextState}`}
-							onclick={() => approve('decline')}>{decline.label}</button
+							onclick={() => (approvalNote = 'decline')}>{decline.label}</button
 						>{/if}
 				{:else if approveMandate}
 					{#key `${item.id}:${attempt}`}
@@ -655,6 +779,22 @@
 	.waiting {
 		margin: 0;
 		color: var(--text-secondary);
+	}
+	.draft {
+		max-height: min(46vh, 420px);
+		margin: 12px 0 0;
+		overflow: auto;
+		padding: 10px 12px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		background: var(--surface-alt);
+		color: var(--ink);
+		font: var(--t-body) / 1.6 var(--font-ui);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+	.files {
+		margin-top: 12px;
 	}
 	.uncertain {
 		display: grid;
