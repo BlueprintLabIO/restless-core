@@ -394,7 +394,12 @@ export class NativeDocumentsCollaborationServer {
       onStoreDocument: async ({ document, documentName }) => {
         const target = documentTarget(this.config.companyId, documentName);
         const state = Y.encodeStateAsUpdate(document);
-        if (state.byteLength > MAX_YJS_STATE_BYTES) throw new Error('native Documents durable state exceeds the released limit');
+        if (state.byteLength > MAX_YJS_STATE_BYTES) {
+          // Too large to keep: the editor must undo, as for content the schema refuses.
+          this.unsaved.set(documentName, 'invalid');
+          document.broadcastStateless(saveStatus('invalid'));
+          throw new Error('native Documents durable state exceeds the released limit');
+        }
         try {
           await this.store.store({ ...target, state });
           if (this.unsaved.delete(documentName)) document.broadcastStateless(saveStatus('saved'));

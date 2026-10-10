@@ -136,7 +136,7 @@
 	let unsyncedChanges = $state(0);
 	/* What the documents service says about keeping this body: nothing while it stores it,
 	 * "invalid" while it refuses something in it, "unavailable" while its storage is down. */
-	let saveProblem = $state<'' | 'invalid' | 'unavailable'>('');
+	let storeProblem = $state<'' | 'invalid' | 'unavailable'>('');
 
 	const editor = $derived(editorState.editor);
 	// Metadata refreshes replace view without changing the live editing session.
@@ -145,6 +145,10 @@
 	const liveReadAccess = $derived(view.access);
 	const canWriteLive = $derived(
 		collaborationState === 'synced' && collaborationAccess === 'write' && view.access === 'edit'
+	);
+	/* Only a writer has edits to lose or undo; a reader is not told, or held on the page. */
+	const saveProblem = $derived(
+		collaborationAccess === 'write' && view.access === 'edit' ? storeProblem : ''
 	);
 	/* The title is metadata, not live body: it saves through Core and needs no live session. */
 	const titleEditable = $derived(
@@ -276,7 +280,7 @@
 			collaborationFailure = '';
 			documentRestored = false;
 			unsyncedChanges = 0;
-			saveProblem = '';
+			storeProblem = '';
 			// Not known yet is not "missing": keep saying Connecting.
 			if (companyUuid === undefined) {
 				collaborationState = 'connecting';
@@ -387,7 +391,7 @@
 					try {
 						const message = JSON.parse(payload) as { type?: unknown; status?: unknown };
 						if (message.type !== 'restless.save') return;
-						saveProblem =
+						storeProblem =
 							message.status === 'invalid' || message.status === 'unavailable'
 								? message.status
 								: '';
@@ -595,12 +599,13 @@
 	/* Opening a link never leaves the document in place: an outside address opens in a new tab
 	 * with no access back to this page; a company link opens here, or in a new tab when asked. */
 	function openHref(href: string, newTab: boolean): void {
-		if (href.startsWith('/') && !href.startsWith('//')) {
+		/* A live peer's body is not yet checked by the store: open only what it would keep. */
+		if (!safeHref(href) || href.startsWith('#')) return;
+		if (href.startsWith('/')) {
 			if (newTab) window.open(href, '_blank', 'noopener');
 			else void goto(href);
 			return;
 		}
-		if (href.startsWith('#') || !safeHref(href)) return;
 		window.open(href, '_blank', 'noopener,noreferrer');
 	}
 
@@ -1014,7 +1019,7 @@
 			<span
 				>{saveProblem === 'invalid'
 					? 'Your latest change can’t be saved: it holds something documents can’t keep. Undo it to keep saving.'
-					: 'Recent edits aren’t being saved right now. Keep this page open; they’ll save when storage is back.'}</span
+					: 'Recent edits aren’t being saved right now. Keep this page open; your next edit saves them once storage is back.'}</span
 			>{#if saveProblem === 'invalid' && canWriteLive}<button
 					type="button"
 					class="btn small"

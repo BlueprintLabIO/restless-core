@@ -424,10 +424,12 @@ function linkExtension(requestLink: (() => void) | undefined) {
 					storableHref(element.getAttribute('href')) ? {} : false
 			}
 		],
+		/* A live peer's edit reaches this page before the store checks it: an unsafe address is
+		 * never put in the page, so no click, middle-click or "open in new tab" can follow it. */
 		renderHTML: ({ HTMLAttributes }) => [
 			'a',
 			{
-				href: HTMLAttributes.href,
+				href: storableHref(typeof HTMLAttributes.href === 'string' ? HTMLAttributes.href : null),
 				title: HTMLAttributes.title,
 				rel: 'noopener noreferrer'
 			},
