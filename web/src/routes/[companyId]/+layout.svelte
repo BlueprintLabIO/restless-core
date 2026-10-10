@@ -57,6 +57,16 @@
 	import { conversationUnread, messagePreview } from '$lib/model/rooms';
 	import { fetchAppRequests } from '$lib/model/app-requests';
 	import { CATALOGUE, buildApps } from '$lib/model/apps';
+	import type { CommandSearch } from '$lib/components/CommandMenu.svelte';
+	import { searchDocuments } from '$lib/model/documents';
+	import { sheetJson, type SheetRow } from '$lib/model/sheets';
+	import { LIBRARY_KIND_LABEL, libraryFiles, type LibraryArtifact } from '$lib/model/library-files';
+	import {
+		attachmentHref,
+		attachmentReadKind,
+		listRetainedAttachments,
+		type RetainedAttachment
+	} from '$lib/model/attachments';
 
 	let { children } = $props();
 
@@ -850,6 +860,13 @@
 				href: `${root}/library?create=sheet`
 			},
 			{
+				id: 'action:upload-files',
+				group: 'Actions',
+				label: 'Upload files',
+				keywords: 'add file attach import pdf image contract invoice',
+				href: `${root}/library?show=yours&create=upload`
+			},
+			{
 				id: 'action:ask-exec',
 				group: 'Actions',
 				label: 'Ask the Exec…',
@@ -883,6 +900,18 @@
 					chooseTopic({ actorId: lead.actor_id });
 					execRailOpen = true;
 				}
+			})),
+			/* Files Work produced are already in hand; documents, sheets and kept files are found by
+			 * the menu's search as the owner types. */
+			...libraryFiles(
+				(attention.view?.workGraph?.artifacts ?? []) as unknown as LibraryArtifact[]
+			).map((file) => ({
+				id: `library:file:${file.id}`,
+				group: 'Library',
+				label: file.label,
+				hint: LIBRARY_KIND_LABEL[file.kind],
+				keywords: file.name,
+				href: `${root}/library?file=${encodeURIComponent(file.id)}`
 			})),
 			...(attention.view?.items ?? []).map((item) => ({
 				id: `attention:${item.id}`,
@@ -940,6 +969,94 @@
 			{ id: 'portfolio', group: 'Switch company', label: 'All companies', href: '/' }
 		];
 	});
+
+	/* ⌘K reaches the Library too: text inside documents on the server, and sheet titles and kept
+	 * file names from lists read at most every half minute while the menu is in use. */
+	let libraryLists: {
+		company: string;
+		at: number;
+		sheets: SheetRow[];
+		kept: RetainedAttachment[];
+	} | null = null;
+	/* The lists are small and shared by every keystroke, so a newer query does not cancel them; a
+	 * failed read is not remembered. */
+	async function libraryListsFor(company: string, owner: boolean) {
+		if (libraryLists?.company === company && Date.now() - libraryLists.at < 30_000)
+			return libraryLists;
+		let failed = false;
+		const [sheets, kept] = await Promise.all([
+			sheetJson<SheetRow[]>(company).catch(() => {
+				failed = true;
+				return [] as SheetRow[];
+			}),
+			owner
+				? listRetainedAttachments(company)
+						.then((inventory) => inventory.attachments)
+						.catch(() => {
+							failed = true;
+							return [] as RetainedAttachment[];
+						})
+				: Promise.resolve([] as RetainedAttachment[])
+		]);
+		const lists = { company, at: Date.now(), sheets, kept };
+		if (!failed) libraryLists = lists;
+		return lists;
+	}
+	const searchLibrary: CommandSearch = async (text, signal) => {
+		const company = companyId;
+		const owner = ownerAccess;
+		const viewer = principal?.actor_id ?? '';
+		const root = `/${encodeURIComponent(company)}`;
+		const words = text.toLocaleLowerCase().split(/\s+/).filter(Boolean);
+		const named = (value: string) =>
+			words.every((word) => value.toLocaleLowerCase().includes(word));
+		const [documents, lists] = await Promise.all([
+			searchDocuments(company, text, 0, signal).catch(() => null),
+			libraryListsFor(company, owner)
+		]);
+		if (signal.aborted || company !== companyId) return [];
+		return [
+			...(documents?.items ?? []).map((hit) => {
+				const flat = hit.snippet.replace(/\s+/g, ' ').trim();
+				const at = flat.toLocaleLowerCase().indexOf(text.toLocaleLowerCase());
+				return {
+					id: `library:document:${hit.document_id}`,
+					group: 'Library',
+					label: hit.title || 'Untitled document',
+					hint: at > 40 ? `…${flat.slice(at - 30)}` : flat || 'Document',
+					href: `${root}/library/documents?document=${encodeURIComponent(hit.document_id)}`
+				};
+			}),
+			...lists.sheets
+				.filter((sheet) => named(sheet.title))
+				.map((sheet) => ({
+					id: `library:sheet:${sheet.id}`,
+					group: 'Library',
+					label: sheet.title || 'Untitled sheet',
+					hint: 'Sheet',
+					href: `${root}/library/sheets?sheet=${encodeURIComponent(sheet.id)}`
+				})),
+			...lists.kept
+				.filter((row) => (!viewer || row.sender_actor_id === viewer) && named(row.canonical_name))
+				.map((row) =>
+					attachmentReadKind(row.canonical_media_type, row.canonical_name)
+						? {
+								id: `library:kept:${row.attachment_id}`,
+								group: 'Library',
+								label: row.canonical_name,
+								hint: 'From you',
+								href: `${root}/library?show=yours&upload=${encodeURIComponent(row.attachment_id)}`
+							}
+						: {
+								id: `library:kept:${row.attachment_id}`,
+								group: 'Library',
+								label: row.canonical_name,
+								hint: 'From you · downloads',
+								run: () => window.location.assign(attachmentHref(company, row.attachment_id))
+							}
+				)
+		];
+	};
 
 	const childAllowed = $derived(mayOpenCompanyRoute(companyId, page.url.pathname, principal));
 
@@ -1041,6 +1158,7 @@
 			{companies}
 			{tabs}
 			{commands}
+			search={principal ? searchLibrary : null}
 			{viewerName}
 			{viewerRole}
 			present={others.present}

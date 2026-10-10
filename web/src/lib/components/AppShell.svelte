@@ -30,7 +30,10 @@
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
 	import SearchIcon from '@lucide/svelte/icons/search';
-	import CommandMenu, { type Command } from '$lib/components/CommandMenu.svelte';
+	import CommandMenu, {
+		type Command,
+		type CommandSearch
+	} from '$lib/components/CommandMenu.svelte';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import type { CompanyCatalogEntry } from '$lib/model/cockpit';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
@@ -53,6 +56,7 @@
 		immersive = false,
 		onexectoggle = null,
 		commands = [],
+		search = null,
 		rail = null,
 		viewerName = '',
 		viewerRole = '',
@@ -81,6 +85,8 @@
 		onexectoggle?: (() => void) | null;
 		/** Destinations and actions for the command menu (⌘K). */
 		commands?: Command[];
+		/** What the command menu finds beyond its commands, such as text inside documents. */
+		search?: CommandSearch | null;
 		/** The signed-in person, for the profile circle. */
 		viewerName?: string;
 		viewerRole?: string;
@@ -443,7 +449,7 @@
 		</a>
 	{/snippet}
 
-	<CommandMenu bind:open={commandMenuOpen} commands={menuCommands} />
+	<CommandMenu bind:open={commandMenuOpen} commands={menuCommands} {search} />
 
 	{#if !immersive}
 		<nav class="bridge-dock" aria-label="Company navigation">

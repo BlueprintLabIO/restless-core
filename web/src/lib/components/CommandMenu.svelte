@@ -11,6 +11,9 @@
 		/** The hint is a keyboard shortcut, so touch screens leave it out. */
 		shortcut?: boolean;
 	};
+	/** Results found elsewhere for what was typed, such as text inside documents. They are already
+	 * matched, so they are shown as found rather than filtered again. */
+	export type CommandSearch = (query: string, signal: AbortSignal) => Promise<Command[]>;
 </script>
 
 <script lang="ts">
@@ -25,10 +28,12 @@
 
 	let {
 		open = $bindable(false),
-		commands
+		commands,
+		search = null
 	}: {
 		open?: boolean;
 		commands: Command[];
+		search?: CommandSearch | null;
 	} = $props();
 
 	let dialog: HTMLDialogElement | undefined = $state();
@@ -41,6 +46,38 @@
 	const PER_GROUP = 8;
 	/* The exit plays before the dialog closes. */
 	let leaving = $state(false);
+
+	/* A short pause after typing, then one search; a newer query cancels the older one. Earlier
+	 * results stay until newer ones arrive, so the list does not flicker while typing. */
+	let found = $state<Command[]>([]);
+	let searching = $state(false);
+	$effect(() => {
+		const text = query.trim();
+		if (!open || !search || !text) {
+			found = [];
+			searching = false;
+			return;
+		}
+		const run = search;
+		const abort = new AbortController();
+		searching = true;
+		const timer = setTimeout(() => {
+			run(text, abort.signal)
+				.then((rows) => {
+					if (!abort.signal.aborted) found = rows;
+				})
+				.catch(() => {
+					if (!abort.signal.aborted) found = [];
+				})
+				.finally(() => {
+					if (!abort.signal.aborted) searching = false;
+				});
+		}, 180);
+		return () => {
+			clearTimeout(timer);
+			abort.abort();
+		};
+	});
 
 	const results = $derived.by(() => {
 		const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
@@ -59,8 +96,19 @@
 						Number(!b.label.toLocaleLowerCase().startsWith(first))
 				)
 			: matches;
+		/* Found results follow the label-prefix matches and lead everything else, so a phrase from
+		 * inside a document surfaces that document near the top. */
+		const listed = new Set(ranked.map((command) => command.id));
+		const prefixed = first
+			? ranked.findIndex((command) => !command.label.toLocaleLowerCase().startsWith(first))
+			: 0;
+		const split = prefixed < 0 ? ranked.length : prefixed;
 		const groups = new Map<string, { items: Command[]; total: number }>();
-		for (const command of ranked) {
+		for (const command of [
+			...ranked.slice(0, split),
+			...found.filter((command) => !listed.has(command.id)),
+			...ranked.slice(split)
+		]) {
 			const group = groups.get(command.group) ?? { items: [], total: 0 };
 			if (group.items.length < PER_GROUP) group.items.push(command);
 			group.total += 1;
@@ -167,7 +215,7 @@
 				bind:value={query}
 				{onkeydown}
 				type="text"
-				placeholder="Jump to a surface, Work, person or setting…"
+				placeholder="Jump to Work, a document, file, person or setting…"
 				aria-label="Search"
 				role="combobox"
 				aria-expanded="true"
@@ -215,7 +263,9 @@
 					{/if}
 				</div>
 			{:else}
-				<p class="command-empty">No match for “{query.trim()}”.</p>
+				<p class="command-empty">
+					{searching ? 'Searching the Library…' : `No match for “${query.trim()}”.`}
+				</p>
 			{/each}
 		</div>
 		<footer class="command-foot" aria-hidden="true">

@@ -175,9 +175,23 @@
 			window.removeEventListener('pageshow', onPageShow);
 		};
 	});
+
+	/* A file dropped where nothing takes it would make the browser open it in place of the
+	 * cockpit. Drop targets (the composer, the Library) claim their own drops first; anything left
+	 * over is refused here, so a stray drop does nothing. */
+	const carriesFiles = (event: DragEvent) =>
+		!event.defaultPrevented && !!event.dataTransfer?.types.includes('Files');
+	function refuseStrayDragOver(event: DragEvent) {
+		if (!carriesFiles(event)) return;
+		event.preventDefault();
+		event.dataTransfer!.dropEffect = 'none';
+	}
+	function refuseStrayDrop(event: DragEvent) {
+		if (carriesFiles(event)) event.preventDefault();
+	}
 </script>
 
-<svelte:window bind:online />
+<svelte:window bind:online ondragover={refuseStrayDragOver} ondrop={refuseStrayDrop} />
 
 {#if isLoading}
 	<div class="app-loading-bar" role="status" aria-live="polite" aria-label="Working">
