@@ -631,8 +631,16 @@ async fn decide_inner(
             crate::approval::grant(root, &company, party, authority, org.as_ref(), &principal).await
         }
         Binding::Party { party, .. } => {
-            crate::approval::decline(root, &company, party, authority, org.as_ref(), &principal)
-                .await
+            crate::approval::decline(
+                root,
+                &company,
+                party,
+                authority,
+                org.as_ref(),
+                &principal,
+                crate::approval::OwnerNote::default(),
+            )
+            .await
         }
         Binding::ToolCall { call_key, .. } => {
             crate::effect::decide_tool_call(
@@ -642,6 +650,7 @@ async fn decide_inner(
                 call_key,
                 approve,
                 &principal,
+                crate::approval::OwnerNote::default(),
             )
             .await
         }

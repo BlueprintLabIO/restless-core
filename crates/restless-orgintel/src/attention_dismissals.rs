@@ -46,6 +46,19 @@ impl OrgIntel {
             == 1)
     }
 
+    /// Forget set-aside rows whose request has gone away (resolved, withdrawn,
+    /// or raised again and back in the Inbox). There is nothing left to restore.
+    pub async fn forget_attention_dismissals(&self, item_ids: &[String]) -> Result<u64> {
+        if item_ids.is_empty() {
+            return Ok(0);
+        }
+        Ok(sqlx::query("DELETE FROM attention_dismissals WHERE item_id = ANY($1)")
+            .bind(item_ids)
+            .execute(&self.pool)
+            .await?
+            .rows_affected())
+    }
+
     /// When each dismissed item was set aside.
     pub async fn attention_dismissals(&self) -> Result<HashMap<String, DateTime<Utc>>> {
         Ok(

@@ -266,6 +266,23 @@ struct PartyAction {
     /// With an approved `call_key`: let that tool act from now on (permission at first use).
     #[serde(default)]
     always: bool,
+    /// The owner's words with a decline (or a tool-call allow). They reach the
+    /// company with the decision and stay in its Authority record.
+    #[serde(default, alias = "note")]
+    owner_note: Option<String>,
+    /// Decline this draft so the company prepares a changed one, which asks
+    /// again. Needs an `owner_note` saying what should change.
+    #[serde(default)]
+    changes_requested: bool,
+}
+
+impl PartyAction {
+    fn note(&self) -> approval::OwnerNote<'_> {
+        approval::OwnerNote {
+            text: self.owner_note.as_deref(),
+            changes_requested: self.changes_requested,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -1308,6 +1325,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/companies/{company}/attention/dismiss", post(dismiss_attention))
         .route("/companies/{company}/attention/dismissed", get(dismissed_attention))
         .route("/companies/{company}/attention/restore", post(restore_attention))
+        .route("/companies/{company}/attention/history", get(attention_history))
         .route("/companies/{company}/changes", get(company_changes))
         .route(
             "/companies/{company}/sharing/setup",
@@ -5039,32 +5057,130 @@ async fn dismiss_attention(
     Json(serde_json::json!({ "dismissed": input.item_id })).into_response()
 }
 
-/// The set-aside list, newest first, for restoring.
+/// Item ids whose source still raises them, as (shown now, set aside). A
+/// pending app request counts in both: it waits in Apps whether or not it has
+/// an Inbox row. `None` when a source did not answer, so nothing is judged
+/// gone from a partial view.
+async fn raised_attention(
+    state: &OwnerState,
+    company: &str,
+    org: &restless_orgintel::OrgIntel,
+) -> Option<(std::collections::HashSet<String>, std::collections::HashSet<String>)> {
+    let config = runtime::CompanyConfig::load(&state.daemon.root, company).ok()?;
+    let view = attention::project(&config, &state.daemon.authority, Some(org))
+        .await
+        .ok()?;
+    if view.source_health.orgintel != "available" {
+        return None;
+    }
+    let apps = org
+        .app_requests()
+        .await
+        .ok()?
+        .into_iter()
+        .map(|request| format!("orgintel:handoff:{}", request.handoff_id))
+        .collect::<std::collections::HashSet<_>>();
+    let shown = view.items.into_iter().map(|item| item.id).chain(apps.iter().cloned()).collect();
+    let set_aside = view.set_aside.into_iter().chain(apps).collect();
+    Some((shown, set_aside))
+}
+
+/// The set-aside list, newest first, for restoring. A row whose request has
+/// since gone away (resolved, withdrawn, or raised again and back in the
+/// Inbox) has nothing to bring back, so it is forgotten rather than offered.
 async fn dismissed_attention(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
 ) -> impl IntoResponse {
-    match state.daemon.orgintel.get(&company).await {
-        Ok(org) => match org.recent_attention_dismissals(50).await {
-            Ok(items) => Json(serde_json::json!({ "items": items })).into_response(),
-            Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
-        },
-        Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
-    }
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}"))
+        }
+    };
+    let items = match org.recent_attention_dismissals(50).await {
+        Ok(items) => items,
+        Err(error) => {
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}"))
+        }
+    };
+    let items = match raised_attention(&state, &company, &org).await {
+        Some((_, set_aside)) => {
+            let (live, gone): (Vec<_>, Vec<_>) =
+                items.into_iter().partition(|item| set_aside.contains(&item.item_id));
+            let gone = gone.into_iter().map(|item| item.item_id).collect::<Vec<_>>();
+            if let Err(error) = org.forget_attention_dismissals(&gone).await {
+                tracing::warn!(%company, "could not forget set-aside items that resolved: {error:#}");
+            }
+            live
+        }
+        None => items,
+    };
+    Json(serde_json::json!({ "items": items })).into_response()
 }
 
-/// Bring a set-aside item back to the Inbox.
+/// Bring a set-aside item back to the Inbox. `waiting` says whether its request
+/// is still there to answer (false: it resolved while set aside), or is null
+/// when that could not be read.
 async fn restore_attention(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
     Json(input): Json<DismissAttentionInput>,
 ) -> impl IntoResponse {
-    match state.daemon.orgintel.get(&company).await {
-        Ok(org) => match org.restore_attention(&input.item_id).await {
-            Ok(restored) => Json(serde_json::json!({ "restored": restored })).into_response(),
-            Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
-        },
-        Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}"))
+        }
+    };
+    let restored = match org.restore_attention(&input.item_id).await {
+        Ok(restored) => restored,
+        Err(error) => {
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}"))
+        }
+    };
+    let waiting = raised_attention(&state, &company, &org)
+        .await
+        .map(|(shown, _)| shown.contains(&input.item_id));
+    Json(serde_json::json!({ "restored": restored, "waiting": waiting })).into_response()
+}
+
+#[derive(Deserialize)]
+struct DecisionHistoryQuery {
+    #[serde(default)]
+    before: Option<DateTime<Utc>>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+/// What the owner decided, newest first, one page at a time: answered Inbox
+/// items and Authority approvals and declines. Older pages follow `next_before`.
+async fn attention_history(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    Query(query): Query<DecisionHistoryQuery>,
+) -> impl IntoResponse {
+    let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+    };
+    let org = state.daemon.orgintel.get(&company).await.ok();
+    let limit = query.limit.unwrap_or(50).clamp(1, 200);
+    match attention::decision_history(
+        &config,
+        &state.daemon.authority,
+        org.as_ref(),
+        query.before,
+        limit,
+    )
+    .await
+    {
+        Ok(history) => Json(history).into_response(),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "projection",
+            format!("{error:#}"),
+        ),
     }
 }
 
@@ -9229,6 +9345,13 @@ async fn grant(
     if let Err(refusal) = require_authority_owner(&state, &company, &principal).await {
         return refusal;
     }
+    if input.changes_requested {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "approval",
+            "asking for changes declines the draft; it cannot also allow it",
+        );
+    }
     let org = state.daemon.orgintel.get(&company).await.ok();
     if let Some(key) = input.call_key.as_deref() {
         let message = match crate::effect::decide_tool_call(
@@ -9238,6 +9361,7 @@ async fn grant(
             key,
             true,
             principal.actor_id(),
+            input.note(),
         )
         .await
         {
@@ -9322,6 +9446,7 @@ async fn decline(
             key,
             false,
             principal.actor_id(),
+            input.note(),
         )
         .await
         {
@@ -9336,6 +9461,7 @@ async fn decline(
         &state.daemon.authority,
         org.as_ref(),
         principal.actor_id(),
+        input.note(),
     )
     .await
     {

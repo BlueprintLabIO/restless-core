@@ -1245,9 +1245,17 @@ mod tests {
             .items
             .iter()
             .any(|item| item.source.call_key.as_deref() == Some("delete-m1")));
-        crate::effect::decide_tool_call(&authority, None, &company, "delete-m1", true, "owner")
-            .await
-            .unwrap();
+        crate::effect::decide_tool_call(
+            &authority,
+            None,
+            &company,
+            "delete-m1",
+            true,
+            "owner",
+            crate::approval::OwnerNote::default(),
+        )
+        .await
+        .unwrap();
         let view = crate::attention::project(&config, &authority, None)
             .await
             .unwrap();

@@ -1075,7 +1075,8 @@ pub async fn tool_call_decision(
 }
 
 /// The owner answers one prepared `reserved` call. The answer binds the exact
-/// command digest, so a changed call under the same key asks again.
+/// command digest, so a changed call under the same key asks again; that is
+/// what a request for changes relies on.
 pub async fn decide_tool_call(
     authority: &crate::authority::AuthorityStore,
     org: Option<&restless_orgintel::OrgIntel>,
@@ -1083,7 +1084,11 @@ pub async fn decide_tool_call(
     key: &str,
     approve: bool,
     principal: &str,
+    note: crate::approval::OwnerNote<'_>,
 ) -> Result<String> {
+    if approve && note.changes_requested {
+        bail!("asking for changes declines this call; it cannot also allow it");
+    }
     let request = authority
         .find_body(company, "approval_required", "call_key", key)
         .await?
@@ -1096,23 +1101,27 @@ pub async fn decide_tool_call(
         bail!("this prepared call was already answered");
     }
     let tool = request.get("tool").and_then(serde_json::Value::as_str).unwrap_or("tool");
+    let mut body = serde_json::json!({
+        "call_key": key,
+        "command_digest": digest,
+        "effect_class": request.get("effect_class"),
+        "tool": tool,
+        "principal": principal,
+    });
+    note.record_into(&mut body)?;
     authority
         .emit(
             company,
             if approve { "tool_call_approved" } else { "tool_call_declined" },
             Some(principal),
-            serde_json::json!({
-                "call_key": key,
-                "command_digest": digest,
-                "effect_class": request.get("effect_class"),
-                "tool": tool,
-                "principal": principal,
-            }),
+            body,
         )
         .await?;
     crate::approval::announce_decisions(company, authority, org).await;
     Ok(if approve {
         format!("approved this {tool} call")
+    } else if note.changes_requested {
+        format!("asked for changes to this {tool} call")
     } else {
         format!("declined this {tool} call")
     })

@@ -27,11 +27,23 @@ pub struct AttentionView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub work_graph: Option<restless_orgintel::WorkGraphSnapshot>,
     pub items: Vec<AttentionItem>,
-    /// Recently resolved owner steps remain visible long enough to show the
-    /// source-observed consequence. This is a projection, not another state
-    /// machine: the handoff, Work graph and Authority payment remain owners.
-    pub continuations: Vec<DecisionContinuation>,
+    /// Items still raised by their source that the owner set aside. Not sent to
+    /// the cockpit (they are off the Inbox); the set-aside list uses it to tell a
+    /// restorable item from one whose request has since gone away.
+    #[serde(skip)]
+    pub set_aside: Vec<String>,
     pub refreshed_at: DateTime<Utc>,
+}
+
+/// One page of what the owner decided, newest first: answered handoffs with
+/// what each unlocked, and Authority approvals and declines. Company decision
+/// history reads this; the Inbox poll does not carry it (owner-cockpit §5.7).
+#[derive(Debug, Clone, Serialize)]
+pub struct DecisionHistory {
+    pub decisions: Vec<DecisionContinuation>,
+    /// Pass as `before` to read the next older page; absent on the last page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_before: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -93,7 +105,10 @@ pub struct AttentionItem {
 #[derive(Debug, Clone, Serialize)]
 pub struct DecisionContinuation {
     pub id: String,
-    pub work_id: uuid::Uuid,
+    /// Absent for an Authority approval, which answers a prepared effect
+    /// rather than a piece of Work.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub work_id: Option<uuid::Uuid>,
     pub title: String,
     pub recorded_decision: String,
     pub what_it_unlocked: String,
@@ -396,56 +411,7 @@ pub async fn project(
         calls.insert(key.to_string(), event);
     }
 
-    let (actors, accountable_actors, conversation_actors) = match org {
-        Some(org) => {
-            let rows = org.list_actors().await.unwrap_or_default();
-            let team_leads = org
-                .list_teams()
-                .await
-                .unwrap_or_default()
-                .into_iter()
-                .map(|team| (team.id, team.lead_actor_id))
-                .collect::<HashMap<_, _>>();
-            let accountable = rows
-                .iter()
-                .map(|actor| {
-                    let responsible = actor
-                        .team_id
-                        .and_then(|team| team_leads.get(&team).cloned())
-                        .unwrap_or_else(|| actor.id.clone());
-                    (actor.id.clone(), responsible)
-                })
-                .collect::<HashMap<_, _>>();
-            let conversation_actors = rows
-                .iter()
-                .filter(|actor| {
-                    actor.actor_class == "agent"
-                        && actor.retired_at.is_none()
-                        && (actor.id == "exec" || team_leads.values().any(|lead| lead == &actor.id))
-                })
-                .map(|actor| actor.id.clone())
-                .collect::<std::collections::HashSet<_>>();
-            let refs = rows
-                .into_iter()
-                .map(|actor| {
-                    (
-                        actor.id.clone(),
-                        AttentionActorRef {
-                            id: actor.id,
-                            display: actor.display,
-                            role: actor.role,
-                        },
-                    )
-                })
-                .collect::<HashMap<_, _>>();
-            (refs, accountable, conversation_actors)
-        }
-        None => (
-            HashMap::new(),
-            HashMap::new(),
-            std::collections::HashSet::new(),
-        ),
-    };
+    let (actors, accountable_actors, conversation_actors) = actor_directory(org).await;
     let generation = runtime::generation(&config.name).await.ok().flatten();
     let attach_for = |
         actor: Option<&str>,
@@ -473,12 +439,13 @@ pub async fn project(
             .get("prepared_command")
             .cloned()
             .unwrap_or_default();
-        let evidence = vec![AttentionEvidence {
-            label: "Prepared command".into(),
+        let mut evidence = vec![AttentionEvidence {
+            label: "The draft".into(),
             uri: None,
-            content: Some(command.to_string()),
+            content: Some(readable_draft(&command)),
             kind: "command",
         }];
+        evidence.extend(draft_attachments(&command));
         items.push(AttentionItem {
             id: format!("authority:approval:{}:{}", capability, party),
             work_id: None,
@@ -546,11 +513,7 @@ pub async fn project(
         let purpose = event.body.get("purpose").and_then(serde_json::Value::as_str).unwrap_or("");
         let command = event.body.get("prepared_command").cloned().unwrap_or_default();
         // The draft the owner judges: the call's own arguments, readable, not the whole envelope.
-        let draft = command
-            .get("arguments")
-            .filter(|arguments| !arguments.is_null())
-            .unwrap_or(&command);
-        let draft = serde_json::to_string_pretty(draft).unwrap_or_else(|_| draft.to_string());
+        let draft = readable_draft(&command);
         let doing = tool_words(tool);
         let who = event
             .actor_id
@@ -1507,133 +1470,6 @@ pub async fn project(
         (priority, Reverse(item.created_at))
     });
 
-    let mut continuations = work_graph
-        .as_ref()
-        .into_iter()
-        .flat_map(|graph| &graph.handoffs)
-        .filter(|handoff| {
-            handoff.state != restless_orgintel::OwnerHandoffState::Pending
-                && handoff.assigned_to.is_none()
-                && handoff.resolved_at.is_some()
-        })
-        .filter_map(|handoff| {
-            let item = work.get(&handoff.work_id)?;
-            let payment = payments.get(&handoff.id);
-            let successor = work_graph.as_ref().and_then(|graph| {
-                graph
-                    .edges
-                    .iter()
-                    .filter(|edge| {
-                        edge.kind == restless_orgintel::WorkEdgeKind::Requires
-                            && edge.from_work_id == handoff.work_id
-                    })
-                    .filter_map(|edge| work.get(&edge.to_work_id))
-                    .max_by_key(|successor| successor.updated_at)
-            });
-            // A dependency edge names what may run after this Work completes;
-            // owner resolution alone must not be narrated as completing it.
-            let released_successor = (item.status == restless_orgintel::WorkStatus::Completed)
-                .then_some(successor)
-                .flatten();
-            let state_work = released_successor.unwrap_or(item);
-            let attempt = work_graph.as_ref().and_then(|graph| {
-                graph
-                    .attempts
-                    .iter()
-                    .filter(|attempt| {
-                        attempt.work_id == state_work.id && attempt.revision == state_work.revision
-                    })
-                    .max_by_key(|attempt| (attempt.attempt_no, attempt.started_at))
-            });
-            let accountable = accountable_actors
-                .get(&state_work.owner_id)
-                .map(String::as_str)
-                .unwrap_or(&state_work.owner_id);
-            let responsible_actor = actors.get(accountable).cloned().or_else(|| {
-                Some(AttentionActorRef {
-                    id: accountable.to_string(),
-                    display: title_case(accountable),
-                    role: "work lead".into(),
-                })
-            });
-            let work_state = format!(
-                "{} is {}.",
-                state_work.title,
-                reader_work_status(state_work.status)
-            );
-            let attempt_state = attempt
-                .map(|attempt| format!("The latest run is {}.", attempt_status(attempt.state)))
-                .unwrap_or_else(|| "No run has started yet.".into());
-            let provider_state = payment.map(|payment| {
-                format!(
-                    "Airwallex reports {}{}",
-                    payment.state.as_str(),
-                    payment
-                        .raw_provider_status
-                        .as_deref()
-                        .map(|raw| format!(" ({raw})"))
-                        .unwrap_or_default()
-                )
-            });
-            let what_it_unlocked = if let Some(successor) = released_successor {
-                format!(
-                    "Started the next work: “{}”. It is {}.",
-                    successor.title,
-                    reader_work_status(successor.status)
-                )
-            } else if item.status == restless_orgintel::WorkStatus::Completed {
-                format!("Finished “{}”. No further action is scheduled.", item.title)
-            } else {
-                format!(
-                    "Returned “{}” to its accountable owner. It is {}.",
-                    item.title,
-                    reader_work_status(item.status)
-                )
-            };
-            let title = payment.map_or_else(
-                || {
-                    handoff.owner_brief.as_ref().map_or_else(
-                        || human_step_title(handoff.category).to_string(),
-                        |brief| brief.headline.clone(),
-                    )
-                },
-                |payment| {
-                    format!(
-                        "{} {} to {}",
-                        format_minor(payment.request.amount_minor),
-                        payment.request.currency,
-                        payment.request.provider_beneficiary_ref
-                    )
-                },
-            );
-            Some(DecisionContinuation {
-                id: format!("orgintel:handoff:{}", handoff.id),
-                work_id: handoff.work_id,
-                title,
-                recorded_decision: if handoff.resolution.trim().is_empty() {
-                    format!("Handoff recorded as {:?}.", handoff.state)
-                } else {
-                    handoff.resolution.clone()
-                },
-                what_it_unlocked,
-                current_state: provider_state
-                    .unwrap_or_else(|| format!("{work_state}; {attempt_state}")),
-                observed_outcome: payment.map_or_else(
-                    || work_state,
-                    |payment| {
-                        format!(
-                            "Authenticated provider observation at {}.",
-                            payment.updated_at.to_rfc3339()
-                        )
-                    },
-                ),
-                responsible_actor,
-                observed_at: handoff.resolved_at.expect("filtered above"),
-            })
-        })
-        .collect::<Vec<_>>();
-    continuations.sort_by_key(|continuation| Reverse(continuation.observed_at));
-    continuations.truncate(5);
     let health = runtime::cockpit_browser_health(&config.name).await.ok();
     let (runtime_health, browser_health) = match health.as_ref() {
         Some((ContainerStatus::Running, browser)) => (
@@ -1760,12 +1596,17 @@ pub async fn project(
         items.retain(|item| item.source.kind != "overdue_dispatch_blocked");
     }
     // Set aside by the owner as not needed, until it is raised again.
+    let mut set_aside = Vec::new();
     if let Some(org) = org {
         if let Ok(dismissed) = org.attention_dismissals().await {
             items.retain(|item| {
-                dismissed
+                let shown = dismissed
                     .get(&item.id)
-                    .is_none_or(|at| item.created_at > *at)
+                    .is_none_or(|at| item.created_at > *at);
+                if !shown {
+                    set_aside.push(item.id.clone());
+                }
+                shown
             });
         }
     }
@@ -1787,9 +1628,581 @@ pub async fn project(
         },
         work_graph,
         items,
-        continuations,
+        set_aside,
         refreshed_at: Utc::now(),
     })
+}
+
+/// Up to `limit` of the owner's decisions older than `before`, newest first.
+/// Read on demand by decision history, so the Inbox poll stays light.
+pub async fn decision_history(
+    config: &CompanyConfig,
+    authority: &crate::authority::AuthorityStore,
+    org: Option<&OrgIntel>,
+    before: Option<DateTime<Utc>>,
+    limit: usize,
+) -> Result<DecisionHistory> {
+    let (actors, accountable_actors, _) = actor_directory(org).await;
+    let mut decisions = authority_decisions(authority, &config.name, &actors).await?;
+    if let Some(org) = org {
+        let graph = org.work_graph_snapshot().await?;
+        let payments = crate::finance::payments(authority, &config.name)
+            .await?
+            .into_iter()
+            .map(|payment| (payment.request.owner_handoff_id, payment))
+            .collect::<HashMap<_, _>>();
+        decisions.extend(handoff_decisions(
+            &graph,
+            &payments,
+            &accountable_actors,
+            &actors,
+        ));
+    }
+    decisions.retain(|decision| before.is_none_or(|before| decision.observed_at < before));
+    decisions.sort_by_key(|decision| Reverse(decision.observed_at));
+    let more = decisions.len() > limit;
+    decisions.truncate(limit);
+    let next_before = if more {
+        decisions.last().map(|decision| decision.observed_at)
+    } else {
+        None
+    };
+    Ok(DecisionHistory {
+        decisions,
+        next_before,
+    })
+}
+
+type ActorDirectory = (
+    HashMap<String, AttentionActorRef>,
+    HashMap<String, String>,
+    HashSet<String>,
+);
+
+/// Who is who: each actor's reference, the lead accountable for it, and the
+/// agents the owner holds a direct conversation with.
+async fn actor_directory(org: Option<&OrgIntel>) -> ActorDirectory {
+    let Some(org) = org else {
+        return (HashMap::new(), HashMap::new(), HashSet::new());
+    };
+    let rows = org.list_actors().await.unwrap_or_default();
+    let team_leads = org
+        .list_teams()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|team| (team.id, team.lead_actor_id))
+        .collect::<HashMap<_, _>>();
+    let accountable = rows
+        .iter()
+        .map(|actor| {
+            let responsible = actor
+                .team_id
+                .and_then(|team| team_leads.get(&team).cloned())
+                .unwrap_or_else(|| actor.id.clone());
+            (actor.id.clone(), responsible)
+        })
+        .collect::<HashMap<_, _>>();
+    let conversation_actors = rows
+        .iter()
+        .filter(|actor| {
+            actor.actor_class == "agent"
+                && actor.retired_at.is_none()
+                && (actor.id == "exec" || team_leads.values().any(|lead| lead == &actor.id))
+        })
+        .map(|actor| actor.id.clone())
+        .collect::<HashSet<_>>();
+    let refs = rows
+        .into_iter()
+        .map(|actor| {
+            (
+                actor.id.clone(),
+                AttentionActorRef {
+                    id: actor.id,
+                    display: actor.display,
+                    role: actor.role,
+                },
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    (refs, accountable, conversation_actors)
+}
+
+/// Owner handoffs the owner answered, each with what it unlocked and where its
+/// Work stands now. This is a read-only projection of the handoff, Work graph
+/// and Authority payment, which remain the owners.
+fn handoff_decisions(
+    graph: &restless_orgintel::WorkGraphSnapshot,
+    payments: &HashMap<uuid::Uuid, crate::finance::PaymentIntent>,
+    accountable_actors: &HashMap<String, String>,
+    actors: &HashMap<String, AttentionActorRef>,
+) -> Vec<DecisionContinuation> {
+    let work = graph
+        .work
+        .iter()
+        .map(|item| (item.id, item))
+        .collect::<HashMap<_, _>>();
+    graph
+        .handoffs
+        .iter()
+        .filter(|handoff| {
+            handoff.state != restless_orgintel::OwnerHandoffState::Pending
+                && handoff.assigned_to.is_none()
+                && handoff.resolved_at.is_some()
+        })
+        .filter_map(|handoff| {
+            let item = *work.get(&handoff.work_id)?;
+            let payment = payments.get(&handoff.id);
+            let successor = graph
+                .edges
+                .iter()
+                .filter(|edge| {
+                    edge.kind == restless_orgintel::WorkEdgeKind::Requires
+                        && edge.from_work_id == handoff.work_id
+                })
+                .filter_map(|edge| work.get(&edge.to_work_id).copied())
+                .max_by_key(|successor| successor.updated_at);
+            // A dependency edge names what may run after this Work completes;
+            // owner resolution alone must not be narrated as completing it.
+            let released_successor = (item.status == restless_orgintel::WorkStatus::Completed)
+                .then_some(successor)
+                .flatten();
+            let state_work = released_successor.unwrap_or(item);
+            let attempt = graph
+                .attempts
+                .iter()
+                .filter(|attempt| {
+                    attempt.work_id == state_work.id && attempt.revision == state_work.revision
+                })
+                .max_by_key(|attempt| (attempt.attempt_no, attempt.started_at));
+            let accountable = accountable_actors
+                .get(&state_work.owner_id)
+                .map(String::as_str)
+                .unwrap_or(&state_work.owner_id);
+            let responsible_actor = actors.get(accountable).cloned().or_else(|| {
+                Some(AttentionActorRef {
+                    id: accountable.to_string(),
+                    display: title_case(accountable),
+                    role: "work lead".into(),
+                })
+            });
+            let work_state = format!(
+                "{} is {}.",
+                state_work.title,
+                reader_work_status(state_work.status)
+            );
+            let attempt_state = attempt
+                .map(|attempt| format!("The latest run is {}.", attempt_status(attempt.state)))
+                .unwrap_or_else(|| "No run has started yet.".into());
+            let provider_state = payment.map(|payment| {
+                format!(
+                    "Airwallex reports {}{}",
+                    payment.state.as_str(),
+                    payment
+                        .raw_provider_status
+                        .as_deref()
+                        .map(|raw| format!(" ({raw})"))
+                        .unwrap_or_default()
+                )
+            });
+            let what_it_unlocked = if let Some(successor) = released_successor {
+                format!(
+                    "Started the next work: “{}”. It is {}.",
+                    successor.title,
+                    reader_work_status(successor.status)
+                )
+            } else if item.status == restless_orgintel::WorkStatus::Completed {
+                format!("Finished “{}”. No further action is scheduled.", item.title)
+            } else {
+                format!(
+                    "Returned “{}” to its accountable owner. It is {}.",
+                    item.title,
+                    reader_work_status(item.status)
+                )
+            };
+            let title = payment.map_or_else(
+                || {
+                    handoff.owner_brief.as_ref().map_or_else(
+                        || human_step_title(handoff.category).to_string(),
+                        |brief| brief.headline.clone(),
+                    )
+                },
+                |payment| {
+                    format!(
+                        "{} {} to {}",
+                        format_minor(payment.request.amount_minor),
+                        payment.request.currency,
+                        payment.request.provider_beneficiary_ref
+                    )
+                },
+            );
+            Some(DecisionContinuation {
+                id: format!("orgintel:handoff:{}", handoff.id),
+                work_id: Some(handoff.work_id),
+                title,
+                recorded_decision: if handoff.resolution.trim().is_empty() {
+                    format!("Handoff recorded as {:?}.", handoff.state)
+                } else {
+                    handoff.resolution.clone()
+                },
+                what_it_unlocked,
+                current_state: provider_state
+                    .unwrap_or_else(|| format!("{work_state}; {attempt_state}")),
+                observed_outcome: payment.map_or_else(
+                    || work_state,
+                    |payment| {
+                        format!(
+                            "Authenticated provider observation at {}.",
+                            payment.updated_at.to_rfc3339()
+                        )
+                    },
+                ),
+                responsible_actor,
+                observed_at: handoff.resolved_at.expect("filtered above"),
+            })
+        })
+        .collect()
+}
+
+/// The owner's answers to Authority approvals and email mandate proposals.
+/// Authority stays their only writer; this reads its decision records.
+async fn authority_decisions(
+    authority: &crate::authority::AuthorityStore,
+    company: &str,
+    actors: &HashMap<String, AttentionActorRef>,
+) -> Result<Vec<DecisionContinuation>> {
+    use serde_json::Value;
+    let requests = authority
+        .records_of_kind(company, "approval_required")
+        .await?;
+    let approved = approval::approved_parties(authority, company)
+        .await?
+        .into_iter()
+        .collect::<HashSet<_>>();
+    let prepared_by = |request: Option<&crate::authority::AuthorityRecord>| {
+        request
+            .and_then(|request| request.actor_id.as_deref())
+            .and_then(|actor| actors.get(actor))
+            .cloned()
+    };
+    let mut rows = Vec::new();
+    for kind in approval::DECISION_KINDS {
+        for record in authority.records_of_kind(company, kind).await? {
+            let Some(party) = record.body.get("party").and_then(Value::as_str) else {
+                continue;
+            };
+            let party = normalize_party(party);
+            let (note, changes) = approval::recorded_note(&record.body);
+            // The request this answered: the latest one for this party before it.
+            let request = requests.iter().rev().find(|request| {
+                request.id < record.id
+                    && request
+                        .body
+                        .get("party")
+                        .and_then(Value::as_str)
+                        .is_some_and(|candidate| normalize_party(candidate) == party)
+            });
+            let (decision, unlocked) = match kind {
+                "approval_granted" => (
+                    "Allowed first contact.",
+                    format!("The company may contact {party}."),
+                ),
+                "approval_declined" if changes => (
+                    "Asked for changes.",
+                    format!("The company prepares a new draft for {party}; it asks you again."),
+                ),
+                "approval_declined" => (
+                    "Declined first contact.",
+                    format!("Nothing is sent to {party} unless you allow a later request."),
+                ),
+                _ => (
+                    "Revoked approval.",
+                    format!("The company stops contacting {party} until you allow it again."),
+                ),
+            };
+            rows.push(DecisionContinuation {
+                id: format!("authority:{}", record.id),
+                work_id: None,
+                title: format!("First contact with {party}"),
+                recorded_decision: with_owner_note(decision, note.as_deref()),
+                what_it_unlocked: unlocked,
+                current_state: if approved.contains(&party) {
+                    format!("{party} is approved.")
+                } else {
+                    format!("{party} is not approved.")
+                },
+                observed_outcome: String::new(),
+                responsible_actor: prepared_by(request),
+                observed_at: record.created_at,
+            });
+        }
+    }
+    for kind in approval::TOOL_CALL_DECISION_KINDS {
+        for record in authority.records_of_kind(company, kind).await? {
+            let Some(key) = record.body.get("call_key").and_then(Value::as_str) else {
+                continue;
+            };
+            let request = requests.iter().rev().find(|request| {
+                request.body.get("call_key").and_then(Value::as_str) == Some(key)
+                    && request.body.get("command_digest") == record.body.get("command_digest")
+            });
+            let field = |name: &str| {
+                request
+                    .and_then(|request| request.body.get(name))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+            };
+            let tool = record.body.get("tool").and_then(Value::as_str).unwrap_or("tool");
+            let title = field("purpose").map(str::to_owned).unwrap_or_else(|| {
+                field("connection").map_or_else(|| tool.to_owned(), |connection| {
+                    format!("{tool} on {connection}")
+                })
+            });
+            let (note, changes) = approval::recorded_note(&record.body);
+            let allowed = kind == "tool_call_approved";
+            let receipt = if allowed {
+                authority
+                    .find_body(company, "effect", "idempotency_key", key)
+                    .await?
+            } else {
+                None
+            };
+            rows.push(DecisionContinuation {
+                id: format!("authority:{}", record.id),
+                work_id: None,
+                title,
+                recorded_decision: with_owner_note(
+                    if allowed {
+                        "Allowed this call once."
+                    } else if changes {
+                        "Asked for changes."
+                    } else {
+                        "Declined this call."
+                    },
+                    note.as_deref(),
+                ),
+                what_it_unlocked: if allowed {
+                    format!("{tool} may run exactly this call once.")
+                } else if changes {
+                    "The company prepares a changed call; it asks you again.".into()
+                } else {
+                    "This call never runs.".into()
+                },
+                current_state: match &receipt {
+                    Some(receipt) if receipt.get("success") == Some(&Value::Bool(true)) => {
+                        "It ran.".into()
+                    }
+                    Some(_) => "It ran and failed.".into(),
+                    None if allowed => "It has not run yet.".into(),
+                    None => String::new(),
+                },
+                observed_outcome: String::new(),
+                responsible_actor: prepared_by(request),
+                observed_at: record.created_at,
+            });
+        }
+    }
+    for record in authority
+        .records_of_kind(company, approval::EMAIL_MANDATE_DECISION_KIND)
+        .await?
+    {
+        let approve = record.body.get("decision").and_then(Value::as_str) == Some("approve");
+        let (note, _) = approval::recorded_note(&record.body);
+        rows.push(DecisionContinuation {
+            id: format!("authority:{}", record.id),
+            work_id: None,
+            title: "Email mandate".into(),
+            recorded_decision: with_owner_note(
+                if approve {
+                    "Approved the mandate."
+                } else {
+                    "Declined the mandate."
+                },
+                note.as_deref(),
+            ),
+            what_it_unlocked: if approve {
+                "Exec may send email within the mandate's limits.".into()
+            } else {
+                "No email authority was granted.".into()
+            },
+            current_state: String::new(),
+            observed_outcome: String::new(),
+            responsible_actor: actors.get("exec").cloned(),
+            observed_at: record.created_at,
+        });
+    }
+    Ok(rows)
+}
+
+fn with_owner_note(decision: &str, note: Option<&str>) -> String {
+    match note {
+        Some(note) => format!("{decision} Your note: “{note}”"),
+        None => decision.to_string(),
+    }
+}
+
+/// The draft an approval asks about, as a person reads it: who it reaches, why,
+/// what it carries, and its exact content. Every argument that would run is
+/// shown; only the envelope around it is left to Authority.
+fn readable_draft(command: &serde_json::Value) -> String {
+    use serde_json::Value;
+    let mut lines = Vec::new();
+    let recipients = match command.get("parties").and_then(Value::as_array) {
+        Some(parties) => parties
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join(", "),
+        None => command
+            .get("party")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+    };
+    if !recipients.trim().is_empty() {
+        lines.push(format!("To: {recipients}"));
+    }
+    if let Some(purpose) = command
+        .get("purpose")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|purpose| !purpose.is_empty())
+    {
+        lines.push(format!("Why: {purpose}"));
+    }
+    let attachments = command
+        .get("artifacts")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(Value::as_str).collect::<Vec<_>>())
+        .unwrap_or_default();
+    if !attachments.is_empty() {
+        lines.push(format!("Attachments: {}", attachments.join(", ")));
+    }
+    let content = if let Some(arguments) = command
+        .get("arguments")
+        .filter(|arguments| !arguments.is_null())
+    {
+        readable_fields(arguments)
+    } else if let Some(argv) = command.get("argv").and_then(Value::as_array) {
+        command_line(argv)
+    } else if lines.is_empty() {
+        serde_json::to_string_pretty(command).unwrap_or_else(|_| command.to_string())
+    } else {
+        String::new()
+    };
+    if !content.is_empty() {
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
+        lines.push(content);
+    }
+    lines.join("\n")
+}
+
+/// Tool arguments as `Label: value` lines, short values first and long text
+/// verbatim beneath its label. Anything nested stays exact, as indented JSON.
+fn readable_fields(value: &serde_json::Value) -> String {
+    use serde_json::Value;
+    let pretty = |value: &Value| serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string());
+    let Some(fields) = value.as_object() else {
+        return match value {
+            Value::String(text) => text.clone(),
+            other => pretty(other),
+        };
+    };
+    let mut short = Vec::new();
+    let mut long = Vec::new();
+    for (key, field) in fields {
+        let label = field_label(key);
+        match field {
+            Value::Null => {}
+            Value::String(text) if !text.contains('\n') && text.chars().count() <= 120 => {
+                short.push(format!("{label}: {text}"))
+            }
+            Value::String(text) => long.push(format!("{label}:\n{text}")),
+            Value::Bool(_) | Value::Number(_) => short.push(format!("{label}: {field}")),
+            Value::Array(items)
+                if items.iter().all(Value::is_string)
+                    && field.to_string().chars().count() <= 120 =>
+            {
+                let joined = items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                short.push(format!("{label}: {joined}"))
+            }
+            other => long.push(format!("{label}:\n{}", pretty(other))),
+        }
+    }
+    let mut out = short.join("\n");
+    for block in long {
+        if !out.is_empty() {
+            out.push_str("\n\n");
+        }
+        out.push_str(&block);
+    }
+    out
+}
+
+fn field_label(key: &str) -> String {
+    let words = key.replace(['_', '-'], " ");
+    let mut chars = words.trim().chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => key.to_string(),
+    }
+}
+
+/// A prepared command line, one option per line, each word quoted only where a
+/// shell would need it, so the exact words that run stay visible.
+fn command_line(argv: &[serde_json::Value]) -> String {
+    let mut out = String::new();
+    for (index, arg) in argv.iter().enumerate() {
+        let arg = arg
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| arg.to_string());
+        if index > 0 {
+            out.push_str(if arg.starts_with('-') { "\n  " } else { " " });
+        }
+        if !arg.is_empty()
+            && arg
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-_./:=@,+%".contains(c))
+        {
+            out.push_str(&arg);
+        } else {
+            out.push('\'');
+            out.push_str(&arg.replace('\'', "'\\''"));
+            out.push('\'');
+        }
+    }
+    out
+}
+
+/// Company files a prepared draft carries, as evidence the owner can open.
+fn draft_attachments(command: &serde_json::Value) -> Vec<AttentionEvidence> {
+    command
+        .get("artifacts")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .filter(|path| path.starts_with("/company/"))
+        .map(|path| AttentionEvidence {
+            label: path
+                .rsplit('/')
+                .next()
+                .filter(|name| !name.is_empty())
+                .unwrap_or(path)
+                .to_string(),
+            uri: None,
+            content: Some(path.to_string()),
+            kind: "artifact",
+        })
+        .collect()
 }
 
 fn select_review_artifact(
@@ -2526,6 +2939,53 @@ mod tests {
         assert!(!has_reviewable_prepared_command(&serde_json::json!({
             "party": "old@example.com"
         })));
+    }
+
+    /// The owner approves what they read, so the readable draft must carry
+    /// every word that would run, quoted faithfully, not a summary of it.
+    #[test]
+    fn an_approval_draft_shows_every_word_that_would_run() {
+        let argv = [
+            "resend",
+            "emails",
+            "send",
+            "--to",
+            "ana@example.com",
+            "--subject",
+            "Your quote",
+            "--text",
+            "Hi Ana,\nIt's attached.",
+        ];
+        let draft = readable_draft(&serde_json::json!({
+            "class": "customer-contact.email",
+            "party": "ana@example.com",
+            "purpose": "Send the requested quote",
+            "artifacts": ["/company/work/quote.pdf"],
+            "cwd": "/company",
+            "argv": argv,
+            "secret_bindings": {},
+        }));
+        assert!(draft.starts_with(
+            "To: ana@example.com\nWhy: Send the requested quote\nAttachments: /company/work/quote.pdf\n\n"
+        ));
+        for word in argv {
+            let shown = if word.chars().all(|c| c.is_ascii_alphanumeric() || "-_./:=@,+%".contains(c)) {
+                word.to_string()
+            } else {
+                format!("'{}'", word.replace('\'', "'\\''"))
+            };
+            assert!(draft.contains(&shown), "{word:?} is missing from {draft}");
+        }
+
+        let draft = readable_draft(&serde_json::json!({
+            "kind": "tool_call",
+            "arguments": {"body": "Line one\nLine two", "subject": "Quote", "to": ["ana@example.com"]},
+            "parties": ["ana@example.com"],
+        }));
+        assert_eq!(
+            draft,
+            "To: ana@example.com\n\nSubject: Quote\nTo: ana@example.com\n\nBody:\nLine one\nLine two"
+        );
     }
 
     #[test]

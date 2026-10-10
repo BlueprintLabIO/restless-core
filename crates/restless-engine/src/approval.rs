@@ -127,6 +127,55 @@ pub async fn revoke(
     Ok(format!("{party} approval revoked for {company}"))
 }
 
+/// What the owner wrote with an answer: a reason, or the change a new draft
+/// needs. It travels in the Authority record, so the announcement to the
+/// company and the decision history both read the owner's own words.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct OwnerNote<'a> {
+    pub text: Option<&'a str>,
+    /// Not "no", but "not like this": the company prepares a changed draft,
+    /// which asks the owner again.
+    pub changes_requested: bool,
+}
+
+/// Longest note the owner may attach to an approval answer.
+pub const OWNER_NOTE_MAX_CHARS: usize = 4_000;
+
+impl OwnerNote<'_> {
+    /// Add the note to a decision record body. A request for changes without
+    /// words says nothing the company can act on, so it is refused.
+    pub fn record_into(&self, body: &mut serde_json::Value) -> Result<()> {
+        let text = self.text.map(str::trim).filter(|text| !text.is_empty());
+        if text.is_some_and(|text| text.chars().count() > OWNER_NOTE_MAX_CHARS) {
+            bail!("a note can be at most {OWNER_NOTE_MAX_CHARS} characters");
+        }
+        if self.changes_requested && text.is_none() {
+            bail!("say what should change");
+        }
+        if let Some(fields) = body.as_object_mut() {
+            if let Some(text) = text {
+                fields.insert("owner_note".into(), text.into());
+            }
+            if self.changes_requested {
+                fields.insert("changes_requested".into(), true.into());
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The owner's note and whether they asked for changes, as recorded.
+pub fn recorded_note(body: &serde_json::Value) -> (Option<String>, bool) {
+    (
+        body.get("owner_note")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|note| !note.is_empty())
+            .map(str::to_owned),
+        body.get("changes_requested") == Some(&serde_json::Value::Bool(true)),
+    )
+}
+
 /// Declining closes the currently presented request without granting standing
 /// authority. A later materially different request may ask again; there is no
 /// deny-policy language hiding in this operation.
@@ -137,32 +186,35 @@ pub async fn decline(
     authority: &crate::authority::AuthorityStore,
     org: Option<&restless_orgintel::OrgIntel>,
     principal: &str,
+    note: OwnerNote<'_>,
 ) -> Result<String> {
     CompanyConfig::load(root, company)?;
     let party = normalize_party(party);
     if party.is_empty() {
         bail!("approval party cannot be empty");
     }
+    let mut body = serde_json::json!({ "party": party, "principal": principal });
+    note.record_into(&mut body)?;
     authority
-        .emit(
-            company,
-            "approval_declined",
-            Some(principal),
-            serde_json::json!({ "party": party, "principal": principal }),
-        )
+        .emit(company, "approval_declined", Some(principal), body)
         .await?;
     announce_decisions(company, authority, org).await;
-    Ok(format!("first contact with {party} declined"))
+    Ok(if note.changes_requested {
+        format!("asked for changes before first contact with {party}")
+    } else {
+        format!("first contact with {party} declined")
+    })
 }
 
 /// The exact Authority records that are an answer to the company, oldest first.
-const DECISION_KINDS: [&str; 3] = ["approval_granted", "approval_declined", "approval_revoked"];
-const TOOL_CALL_DECISION_KINDS: [&str; 2] = ["tool_call_approved", "tool_call_declined"];
-const EMAIL_MANDATE_DECISION_KIND: &str = "email_mandate_proposal_decision";
+pub(crate) const DECISION_KINDS: [&str; 3] =
+    ["approval_granted", "approval_declined", "approval_revoked"];
+pub(crate) const TOOL_CALL_DECISION_KINDS: [&str; 2] = ["tool_call_approved", "tool_call_declined"];
+pub(crate) const EMAIL_MANDATE_DECISION_KIND: &str = "email_mandate_proposal_decision";
 
 enum DecisionSubject {
-    Party(String),
-    ToolCall { key: String, tool: String },
+    Party { party: String, note: Option<String>, changes: bool },
+    ToolCall { key: String, tool: String, note: Option<String>, changes: bool },
     EmailMandate {
         proposal_id: String,
         mandate_id: Option<String>,
@@ -216,7 +268,12 @@ pub async fn announce_decisions(
             let Some(party) = record.body.get("party").and_then(|value| value.as_str()) else {
                 continue;
             };
-            pending.push((record.id, kind, DecisionSubject::Party(normalize_party(party))));
+            let (note, changes) = recorded_note(&record.body);
+            pending.push((
+                record.id,
+                kind,
+                DecisionSubject::Party { party: normalize_party(party), note, changes },
+            ));
         }
     }
     for kind in TOOL_CALL_DECISION_KINDS {
@@ -228,10 +285,11 @@ pub async fn announce_decisions(
                 continue;
             };
             let tool = record.body.get("tool").and_then(|value| value.as_str()).unwrap_or("tool");
+            let (note, changes) = recorded_note(&record.body);
             pending.push((
                 record.id,
                 kind,
-                DecisionSubject::ToolCall { key: key.to_owned(), tool: tool.to_owned() },
+                DecisionSubject::ToolCall { key: key.to_owned(), tool: tool.to_owned(), note, changes },
             ));
         }
     }
@@ -278,19 +336,22 @@ pub async fn announce_decisions(
             }
         }
         let (body, event_subject) = match subject {
-            DecisionSubject::Party(party) => {
+            DecisionSubject::Party { party, note, changes } => {
                 let body = match kind {
                     "approval_granted" => format!("The owner approved real external effects to {party}. You may proceed with the work that was waiting on it."),
-                    "approval_declined" => format!("The owner declined first contact with {party}. Do not contact them. Work that was waiting on this needs a different route or an explicit decision to stop."),
+                    "approval_declined" if changes => format!("The owner asked for changes before first contact with {party}: “{}” Do not send the draft as prepared. Prepare a revised draft that addresses this; the new attempt asks the owner again.", note.as_deref().unwrap_or_default()),
+                    "approval_declined" => format!("The owner declined first contact with {party}. Do not contact them. Work that was waiting on this needs a different route or an explicit decision to stop.{}", owner_note_sentence(note.as_deref())),
                     _ => format!("The owner revoked approval for real external effects to {party}. Stop any work that depends on reaching them."),
                 };
                 (body, serde_json::json!({ "party": party }))
             }
-            DecisionSubject::ToolCall { key, tool } => {
+            DecisionSubject::ToolCall { key, tool, note, changes } => {
                 let body = if kind == "tool_call_approved" {
-                    format!("The owner allowed the prepared {tool} call with key {key}. Retry exactly that call with the same arguments, purpose and key; it runs once.")
+                    format!("The owner allowed the prepared {tool} call with key {key}. Retry exactly that call with the same arguments, purpose and key; it runs once.{}", owner_note_sentence(note.as_deref()))
+                } else if changes {
+                    format!("The owner asked for changes to the prepared {tool} call with key {key}: “{}” Do not run it as prepared. Prepare a changed call that addresses this; it asks the owner again.", note.as_deref().unwrap_or_default())
                 } else {
-                    format!("The owner declined the prepared {tool} call with key {key}. Do not run it. Work that was waiting on it needs a different route or an explicit decision to stop.")
+                    format!("The owner declined the prepared {tool} call with key {key}. Do not run it. Work that was waiting on it needs a different route or an explicit decision to stop.{}", owner_note_sentence(note.as_deref()))
                 };
                 (body, serde_json::json!({ "call_key": key, "tool": tool }))
             }
@@ -336,6 +397,11 @@ pub async fn announce_decisions(
         announced += 1;
     }
     announced
+}
+
+fn owner_note_sentence(note: Option<&str>) -> String {
+    note.map(|note| format!(" The owner's note: “{note}”"))
+        .unwrap_or_default()
 }
 
 fn normalize_party(value: &str) -> String {
