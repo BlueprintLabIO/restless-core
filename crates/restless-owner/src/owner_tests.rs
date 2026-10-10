@@ -2612,6 +2612,52 @@
         .expect("desktop guard observes expiry");
     }
 
+    /// A hosted plane is its owner's own account plane, so its provider, Vault and sign-in settings
+    /// carry no hosted refusal of their own. The boundary is the membership role: a member or an
+    /// administrator still cannot reach them, and the owner can, from a company or the account.
+    #[test]
+    fn hosted_provider_vault_and_sign_in_settings_stay_owner_only() {
+        let settings = [
+            (Method::GET, "/api/companies/aris/provider"),
+            (Method::PUT, "/api/companies/aris/provider"),
+            (Method::GET, "/api/companies/aris/vault"),
+            (Method::POST, "/api/companies/aris/vault/secret"),
+            (Method::GET, "/api/companies/aris/harness-auth"),
+            (Method::GET, "/api/companies/aris/custom-harnesses"),
+            (Method::POST, "/api/companies/aris/connections/connection-1"),
+            (Method::DELETE, "/api/companies/aris/connections/connection-1"),
+        ];
+        let identity = |scope, role: &str| crate::entry::VerifiedIdentity {
+            user: "user-1".into(),
+            issuer: Some("https://cloud.restless.test".into()),
+            owner: "owner-1".into(),
+            scope,
+            role: role.into(),
+            actor: Some(if role == "owner" { "owner".into() } else { "human-1".into() }),
+            company_id: Some(Uuid::new_v4()),
+            cell_id: Some(Uuid::new_v4()),
+            membership_id: Some("membership-1".into()),
+            membership_version: Some(1),
+            display_name: None,
+        };
+        let company = || crate::entry::CompanyScope::Company { company: "aris".into() };
+        for role in ["member", "admin"] {
+            let principal = RequestPrincipal::from_verified(&identity(company(), role)).unwrap();
+            for (method, path) in &settings {
+                assert!(
+                    membership_boundary_violation(method, path, &principal).is_some(),
+                    "{role} reached {method} {path}"
+                );
+            }
+        }
+        for scope in [company(), crate::entry::CompanyScope::Owner] {
+            let owner = RequestPrincipal::from_verified(&identity(scope, "owner")).unwrap();
+            for (method, path) in &settings {
+                assert!(membership_boundary_violation(method, path, &owner).is_none(), "owner refused {method} {path}");
+            }
+        }
+    }
+
     #[test]
     fn non_owner_members_may_collaborate_but_not_call_owner_mutations() {
         let identity = crate::entry::VerifiedIdentity {

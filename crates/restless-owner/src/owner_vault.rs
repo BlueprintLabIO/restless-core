@@ -26,11 +26,11 @@ pub(super) async fn store_secret(
     AxumPath(company): AxumPath<String>,
     Json(input): Json<StoreSecretInput>,
 ) -> Response {
-    if !principal.is_account_owner() || state.entry.network().is_some() {
+    if principal.membership_role() != "owner" {
         return api_error(
             StatusCode::FORBIDDEN,
             "vault",
-            "Manage the vault on the account host.",
+            "Only the owner can change the vault.",
         );
     }
     if input.secret.trim().is_empty() || input.secret.len() > 32_768 {

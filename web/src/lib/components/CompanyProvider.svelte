@@ -600,7 +600,7 @@
 
 	<Section
 		title="Connections"
-		info="Sign-ins and API keys saved in your account. A company can only use one after you give it access here."
+		info="Sign-ins and API keys belong to your account, not to one company, so one sign-in can serve every company. Add or connect them in Account → Connections, then give each company access. A company uses only the connections you give it."
 		count={reusableConnections.length || null}
 	>
 		{#snippet actions()}
@@ -609,6 +609,11 @@
 					disabled={accountBusy}
 					aria-expanded={addConnectionOpen}
 					onclick={toggleAddConnection}>{addConnectionOpen ? 'Cancel' : 'Add API key'}</button
+				>{:else}<a
+					class="btn small"
+					href="/account/connections"
+					title="Sign-ins and API keys belong to your account, not to one company, so one sign-in can serve every company. Add or connect them in Account → Connections, then give each company access."
+					>Account connections</a
 				>{/if}
 		{/snippet}
 		{#if accountLoading}

@@ -9,6 +9,7 @@
 	import LayoutGrid from '@lucide/svelte/icons/layout-grid';
 	import History from '@lucide/svelte/icons/history';
 	import HeartPulse from '@lucide/svelte/icons/heart-pulse';
+	import LinkIcon from '@lucide/svelte/icons/link';
 	import { createCompanySetup, provideCompanySetup } from '$lib/model/company-setup-rows.svelte';
 	import { COMPANY_PAGES, companyPageHref } from '$lib/model/company-pages';
 	import SidebarShell from '$lib/ui/views/SidebarShell.svelte';
@@ -88,6 +89,21 @@
 								: {})
 						}
 			);
+		}
+		/* Model sign-ins and API keys are the account's, shared out to companies, so Intelligence is
+		 * followed by the way to them. */
+		const capabilities = out.find((group) => group.label === 'Capabilities');
+		if (capabilities && setup.owner) {
+			const at = capabilities.rows.findIndex((row) => row.key === 'provider');
+			capabilities.rows.splice(at + 1, 0, {
+				key: 'account-connections',
+				label: 'Model connections',
+				href: '/account/connections',
+				icon: LinkIcon,
+				reading: 'In your account',
+				tooltip:
+					'Sign-ins and API keys belong to your account, not to one company, so one sign-in can serve every company. Add or connect them in Account → Connections, then give each company access.'
+			});
 		}
 		const q = query.trim().toLocaleLowerCase();
 		if (!q) return out;

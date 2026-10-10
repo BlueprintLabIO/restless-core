@@ -14,7 +14,7 @@ fn authorize(state: &OwnerState, principal: &RequestPrincipal) -> Option<Respons
         Some(api_error(
             StatusCode::FORBIDDEN,
             "harness",
-            "Manage intelligence on the account host.",
+            "Custom harnesses are not offered on hosted plans.",
         ))
     } else {
         None
@@ -26,6 +26,14 @@ pub(super) async fn list(
     Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
 ) -> Response<Body> {
+    // Custom harnesses run owner commands on a local appliance; a hosted plane offers none, and
+    // says so as an empty list rather than an error.
+    if principal.membership_role() == "owner" && state.entry.network().is_some() {
+        return Json(
+            json!({"revision": "hosted", "harnesses": [], "presets": [], "offered": false}),
+        )
+        .into_response();
+    }
     if let Some(error) = authorize(&state, &principal) {
         return error;
     }

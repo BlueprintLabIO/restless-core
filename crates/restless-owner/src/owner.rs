@@ -3109,13 +3109,6 @@ async fn company_provider(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
 ) -> Response<Body> {
-    if state.entry.network().is_some() {
-        return api_error(
-            StatusCode::FORBIDDEN,
-            "provider",
-            "Provider credentials are managed by your account host.",
-        );
-    }
     match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => Json(provider_view(&config).await).into_response(),
         Err(_) => api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
@@ -3127,13 +3120,6 @@ async fn update_company_provider(
     AxumPath(company): AxumPath<String>,
     Json(input): Json<CompanyProviderInput>,
 ) -> Response<Body> {
-    if state.entry.network().is_some() {
-        return api_error(
-            StatusCode::FORBIDDEN,
-            "provider",
-            "Provider credentials are managed by your account host.",
-        );
-    }
     let _write = state.charter_writes.lock().await;
     let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
@@ -3417,7 +3403,7 @@ async fn list_owner_connections(State(state): State<OwnerState>, Extension(princ
     Json(serde_json::json!({
         "connections": connections,
         "scope": if account_owner { "account" } else { "company" },
-        "manage_url": state.entry.network().map(|network| network.account_portfolio_url()),
+        "manage_url": "/account/connections",
     })).into_response()
 }
 
@@ -4396,11 +4382,7 @@ async fn native_harness_status(
     AxumPath(company): AxumPath<String>,
 ) -> Response<Body> {
     if state.entry.network().is_some() {
-        return api_error(
-            StatusCode::FORBIDDEN,
-            "harness",
-            "Manage native authentication on the account host.",
-        );
+        return Json(serde_json::json!({"connections": [], "offered": false})).into_response();
     }
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(c) => c,
@@ -4417,7 +4399,7 @@ async fn native_harness_update(
         return api_error(
             StatusCode::FORBIDDEN,
             "harness",
-            "Manage native authentication on the account host.",
+            "Company-only sign-ins are not offered on hosted plans. Connect in Account → Connections, then give this company access.",
         );
     }
     if crate::native_harness::validate(&harness).is_err()
@@ -10307,13 +10289,6 @@ async fn company_vault(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
 ) -> Response<Body> {
-    if state.entry.network().is_some() {
-        return api_error(
-            StatusCode::FORBIDDEN,
-            "vault",
-            "Manage the vault on the account host.",
-        );
-    }
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
         Err(_) => return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
