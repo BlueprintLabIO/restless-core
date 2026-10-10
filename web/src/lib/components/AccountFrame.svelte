@@ -44,6 +44,40 @@
 		return () => controller.abort();
 	});
 
+	/* The account pages the issuer returns to after entry (Cloud's accountReturn). */
+	const ACCOUNT_RETURNS = new Set([
+		'/account/connections',
+		'/account/ai-apps',
+		'/account/appearance'
+	]);
+	$effect(() => {
+		const accountHome = status?.home_url;
+		const path = page.url.pathname;
+		if (!status?.hosted || !accountHome || !ACCOUNT_RETURNS.has(path)) return;
+		const controller = new AbortController();
+		void fetch('/api/connections', { credentials: 'same-origin', signal: controller.signal })
+			.then((response) => (response.ok ? response.json() : null))
+			.then((body: { scope?: string } | null) => {
+				if (body?.scope !== 'company') return;
+				// Once per page and minute, so a failed entry cannot loop.
+				const key = `account-reentry:${path}`;
+				try {
+					const last = Number(sessionStorage.getItem(key) ?? 0);
+					if (Date.now() - last < 60_000) return;
+					sessionStorage.setItem(key, String(Date.now()));
+				} catch {
+					return;
+				}
+				const target = new URL(accountHome);
+				target.searchParams.set('return', path);
+				location.replace(target);
+			})
+			.catch(() => {
+				// The page still works as the company's view.
+			});
+		return () => controller.abort();
+	});
+
 	const catalog = companiesQuery();
 	const path = $derived(page.url.pathname);
 	const settings = $derived(path.startsWith('/account'));

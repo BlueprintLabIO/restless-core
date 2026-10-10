@@ -36,6 +36,7 @@
 							{@const Icon = item.icon}
 							<a
 								href={item.href}
+								data-sveltekit-reload={/^https?:\/\//.test(item.href ?? '') || undefined}
 								class:active={item.active}
 								aria-current={item.active ? 'page' : undefined}
 								title={item.tooltip}
