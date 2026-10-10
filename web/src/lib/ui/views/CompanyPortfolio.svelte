@@ -1,9 +1,9 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import MatrixGlyph, { GLYPHS } from '../glyph/MatrixGlyph.svelte';
+	import CompanyMark from '../glyph/CompanyMark.svelte';
 	import Skeleton from '../feedback/Skeleton.svelte';
 	import {
-		companyMarkRows,
 		orderPortfolio,
 		portfolioPrimary,
 		portfolioSignal,
@@ -89,8 +89,8 @@
 								<button class="portfolio-entry" aria-label={entryLabel(company)}></button>
 							</form>
 						{/if}
-						<span class="portfolio-mark" aria-hidden="true">
-							<MatrixGlyph rows={companyMarkRows(company.id)} size={16} />
+						<span class="portfolio-mark" class:logo={!!company.logoUrl} aria-hidden="true">
+							<CompanyMark id={company.id} logoUrl={company.logoUrl} size={16} />
 						</span>
 						<span class="portfolio-copy">
 							<span class="portfolio-title">
@@ -211,6 +211,12 @@
 		border-radius: var(--radius-control);
 		background: var(--surface-alt);
 		color: var(--text-secondary);
+	}
+	/* An uploaded logo sits on a neutral tile, so its own colours read true. */
+	.portfolio-mark.logo {
+		overflow: hidden;
+		background: var(--surface);
+		box-shadow: inset 0 0 0 1px var(--border);
 	}
 	.portfolio-card[data-tone='presence'] .portfolio-mark {
 		color: var(--state-success);

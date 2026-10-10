@@ -603,6 +603,7 @@ mod tests {
                 agent_intelligence: Default::default(),
                 native_harnesses: Default::default(),
                 display_name: None,
+                logo: None,
                 name: name.to_string(),
                 internal_network: false,
                 mission: "isolated inbound test".into(),

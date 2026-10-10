@@ -9,6 +9,7 @@
 	import { page } from '$app/state';
 	import { tick } from 'svelte';
 	import CompanyNameField from '$lib/components/CompanyNameField.svelte';
+	import CompanyLogoField from '$lib/components/CompanyLogoField.svelte';
 	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
 	import { reviseCompanyCharter } from '$lib/model/company';
 	import Markdown from '$lib/primitives/Markdown.svelte';
@@ -168,6 +169,12 @@
 						await source.refresh();
 					}}
 				/>
+			</Row>
+			<Row
+				label="Logo"
+				info="Shown beside the company name across the cockpit, and kept in /company/brand for Exec and Staff to use in sites, decks and email. PNG, JPEG, WebP or SVG."
+			>
+				<CompanyLogoField {companyId} />
 			</Row>
 		</Section>
 

@@ -1245,6 +1245,7 @@ mod tests {
             agent_intelligence: Default::default(),
             native_harnesses: Default::default(),
             display_name: None,
+            logo: None,
             name: company_name.to_string(),
             internal_network: false,
             mission: "Sprint 26 integrated fixture".into(),

@@ -22,7 +22,7 @@
 	import type { Snippet } from 'svelte';
 	import ArrowRight from '@lucide/svelte/icons/arrow-right';
 	import Check from '@lucide/svelte/icons/check';
-	import MatrixGlyph from '../glyph/MatrixGlyph.svelte';
+	import CompanyMark from '../glyph/CompanyMark.svelte';
 	import MatrixField from '../glyph/MatrixField.svelte';
 	import CountUp from '../data/CountUp.svelte';
 	import LiveDot from '../data/LiveDot.svelte';
@@ -30,7 +30,6 @@
 	import UsageChart from '../data/UsageChart.svelte';
 	import InfoTip from '../controls/InfoTip.svelte';
 	import {
-		companyMarkRows,
 		orderPortfolio,
 		portfolioPrimary,
 		portfolioSignal,
@@ -167,8 +166,8 @@
 											aria-label={company.entry.label ?? `Open ${company.name}`}
 										></a>{/if}
 								{/if}
-								<span class="company-mark"
-									><MatrixGlyph rows={companyMarkRows(company.id)} size={20} /></span
+								<span class="company-mark" class:logo={!!company.logoUrl}
+									><CompanyMark id={company.id} logoUrl={company.logoUrl} size={20} /></span
 								>
 								<div class="company-body">
 									<h3>
@@ -576,6 +575,12 @@
 		border-radius: 10px;
 		background: var(--accent-soft);
 		color: var(--accent-strong);
+	}
+	/* An uploaded logo sits on a neutral tile, so its own colours read true. */
+	.company-mark.logo {
+		overflow: hidden;
+		background: var(--surface);
+		box-shadow: inset 0 0 0 1px var(--border);
 	}
 	.company-body {
 		min-width: 0;

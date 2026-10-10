@@ -1045,6 +1045,7 @@ fn desired_company_config(
         agent_intelligence: Default::default(),
         native_harnesses: Default::default(),
         display_name: None,
+        logo: None,
         name: company_handle.to_string(),
         internal_network: false,
         mission: String::new(),

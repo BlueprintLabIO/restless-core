@@ -25,6 +25,8 @@ export interface PortfolioCard {
 export interface CompanyPortfolioEntry {
 	id: string;
 	name: string;
+	/** The owner's uploaded logo, when the host can serve it; otherwise the generated mark shows. */
+	logoUrl?: string | null;
 	/** Run state in the owner's words: Running, Asleep, Setting up, Can't start, Archived. */
 	status: string;
 	tone?: 'presence' | 'waiting' | 'unavailable';

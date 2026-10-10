@@ -486,6 +486,7 @@ mod tests {
             agent_intelligence: Default::default(),
             native_harnesses: Default::default(),
             display_name: None,
+            logo: None,
             name: "aris".to_string(),
             internal_network: false,
             mission: String::new(),

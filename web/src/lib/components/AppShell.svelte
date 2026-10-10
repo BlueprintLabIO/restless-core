@@ -34,6 +34,7 @@
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import type { CompanyCatalogEntry } from '$lib/model/cockpit';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
+	import CompanyMark from '$lib/ui/glyph/CompanyMark.svelte';
 
 	let {
 		companyId,
@@ -97,6 +98,10 @@
 
 	const activeCompanies = $derived(
 		companies.filter((company) => company.lifecycle_status === 'active')
+	);
+	/* The bar names the company; an uploaded logo sits beside the name, a generated mark does not. */
+	const currentLogo = $derived(
+		companies.find((company) => company.id === companyId)?.logo_url ?? null
 	);
 	const tabGlyphs: Record<string, readonly string[]> = {
 		attention: GLYPHS.alert,
@@ -281,6 +286,9 @@
 			{#if canSwitchCompanies}
 				<details class="company-switcher" use:dismissable>
 					<summary aria-label={`Switch company. Current company: ${companyName}`}>
+						{#if currentLogo}<span class="tb-co-mark" aria-hidden="true"
+								><CompanyMark id={companyId} logoUrl={currentLogo} size={8} /></span
+							>{/if}
 						<span class="tb-co">{companyName}</span>
 						<ChevronDown class="company-chevron" size={14} strokeWidth={2} aria-hidden="true" />
 					</summary>
@@ -296,10 +304,11 @@
 								href={`/${company.id}`}
 								aria-current={company.id === companyId ? 'page' : undefined}
 							>
-								<i
-									class="runtime-{company.unstartable_reason ? 'blocked' : company.runtime_status}"
-									aria-hidden="true"
-								></i>
+								<span class="switcher-mark" class:logo={!!company.logo_url} aria-hidden="true"
+									><CompanyMark id={company.id} logoUrl={company.logo_url} size={8} /><i
+										class="runtime-{company.unstartable_reason ? 'blocked' : company.runtime_status}"
+									></i></span
+								>
 								<span
 									><strong>{company.name}</strong><small
 										>{company.unstartable_reason
@@ -332,6 +341,9 @@
 					class="company-switcher company-switcher-static"
 					aria-label={`Current company: ${companyName}`}
 				>
+					{#if currentLogo}<span class="tb-co-mark" aria-hidden="true"
+							><CompanyMark id={companyId} logoUrl={currentLogo} size={8} /></span
+						>{/if}
 					<span class="tb-co">{companyName}</span>
 				</span>
 			{/if}

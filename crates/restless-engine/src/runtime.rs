@@ -472,6 +472,10 @@ pub struct CompanyConfig {
     /// Owner-facing name; the durable company handle remains unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
+    /// Owner-uploaded logo: the name of a file beside this config, read only
+    /// through [`company_logo`], and seeded to `/company/brand/logo.<ext>` on `up`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logo: Option<String>,
     /// Company name; also the container/volume suffix and schema name.
     pub name: String,
     /// Place this company's Runtime on an isolated Docker network with no
@@ -870,6 +874,231 @@ impl CompanyConfig {
             }
         }
         Ok(())
+    }
+}
+
+/// A company logo is small: the cockpit draws it at 40px and agents copy it.
+pub const COMPANY_LOGO_MAX_BYTES: usize = 1024 * 1024;
+
+/// A logo's type from its leading bytes, never from a file name or a header,
+/// as `(extension, media type)`. Only raster images: SVG can carry script.
+pub fn sniff_company_logo(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some(("png", "image/png"))
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some(("jpg", "image/jpeg"))
+    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some(("webp", "image/webp"))
+    } else {
+        None
+    }
+}
+
+/// The owner's logo as the host keeps it, beside the company config.
+pub struct CompanyLogo {
+    pub path: PathBuf,
+    /// The content digest in the file name; changes whenever the logo does.
+    pub version: String,
+    pub extension: &'static str,
+    pub media_type: &'static str,
+}
+
+fn company_logo_prefix(company: &str) -> String {
+    format!("{company}.logo-")
+}
+
+/// The recorded logo, when the config names one in the exact shape
+/// `<company>.logo-<16 hex>.<png|jpg|webp>`. Any other value is ignored,
+/// never joined to a path.
+pub fn company_logo(root: &Path, config: &CompanyConfig) -> Option<CompanyLogo> {
+    let name = config.logo.as_deref()?;
+    let rest = name.strip_prefix(&company_logo_prefix(&config.name))?;
+    let (version, extension) = rest.split_once('.')?;
+    if version.len() != 16
+        || !version
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    {
+        return None;
+    }
+    let (extension, media_type) = match extension {
+        "png" => ("png", "image/png"),
+        "jpg" => ("jpg", "image/jpeg"),
+        "webp" => ("webp", "image/webp"),
+        _ => return None,
+    };
+    Some(CompanyLogo {
+        path: root.join("companies").join(name),
+        version: version.to_string(),
+        extension,
+        media_type,
+    })
+}
+
+/// Write a logo beside the company config and return the file name to record
+/// in [`CompanyConfig::logo`]. The name carries the content digest, so a new
+/// logo never reuses an old name a browser may have cached.
+pub fn store_company_logo(root: &Path, company: &str, bytes: &[u8]) -> Result<String> {
+    validate_company_name(company)?;
+    if bytes.is_empty() || bytes.len() > COMPANY_LOGO_MAX_BYTES {
+        bail!("a company logo must be at most 1 MB");
+    }
+    let Some((extension, _)) = sniff_company_logo(bytes) else {
+        bail!("a company logo must be a PNG, JPEG or WebP image");
+    };
+    let digest = format!("{:x}", Sha256::digest(bytes));
+    let name = format!("{}{}.{extension}", company_logo_prefix(company), &digest[..16]);
+    let dir = root.join("companies");
+    let temporary = dir.join(format!(".{company}.logo.tmp"));
+    std::fs::write(&temporary, bytes).with_context(|| format!("write {}", temporary.display()))?;
+    std::fs::rename(&temporary, dir.join(&name))
+        .with_context(|| format!("store logo for {company}"))?;
+    Ok(name)
+}
+
+/// Remove this company's logo files other than `keep`, including any a
+/// crashed replacement left behind.
+pub fn remove_company_logos(root: &Path, company: &str, keep: Option<&str>) -> Result<()> {
+    validate_company_name(company)?;
+    let prefix = company_logo_prefix(company);
+    let dir = root.join("companies");
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error).with_context(|| format!("read {}", dir.display())),
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if name.starts_with(&prefix) && Some(name) != keep {
+            std::fs::remove_file(entry.path())
+                .with_context(|| format!("remove old logo {name}"))?;
+        }
+    }
+    Ok(())
+}
+
+/// Mirror the owner's logo to `/company/brand/logo.<ext>` for agents, as the
+/// mission is mirrored: an earlier copy is replaced, or removed with the logo.
+/// It runs as the company account, so a link planted under `/company` cannot
+/// turn this write into one outside the company's own files.
+async fn seed_brand(config: &CompanyConfig) -> Result<()> {
+    let logo = company_logo(&state_root(), config);
+    let bytes = match &logo {
+        Some(logo) => match std::fs::read(&logo.path) {
+            Ok(bytes) => Some(bytes),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error).context("read company logo"),
+        },
+        None => None,
+    };
+    let extension = match (&logo, &bytes) {
+        (Some(logo), Some(_)) => logo.extension,
+        _ => "",
+    };
+    let name = container_name(&config.name);
+    let mut child = tokio::process::Command::new("docker")
+        .args([
+            "exec",
+            "-i",
+            "-u",
+            "company",
+            &name,
+            "sh",
+            "-c",
+            "set -e; rm -f /company/brand/logo.png /company/brand/logo.jpg /company/brand/logo.webp; \
+             if [ -n \"$1\" ]; then mkdir -p /company/brand; cat > \"/company/brand/logo.$1\"; fi",
+            "restless-brand",
+            extension,
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("spawn docker exec for logo seed")?;
+    let mut stdin = child.stdin.take().expect("piped");
+    if let Some(bytes) = &bytes {
+        stdin.write_all(bytes).await?;
+    }
+    drop(stdin);
+    let out = child.wait_with_output().await?;
+    if !out.status.success() {
+        bail!("logo seed failed: {}", String::from_utf8_lossy(&out.stderr));
+    }
+    Ok(())
+}
+
+/// Refresh the agents' copy of the logo now when the computer is running; a
+/// sleeping one receives it on its next `up`, without being woken for it.
+pub async fn sync_brand_projection(config: &CompanyConfig) -> Result<&'static str> {
+    match status(&config.name).await? {
+        ContainerStatus::Running => {
+            seed_brand(config).await?;
+            Ok("updated")
+        }
+        ContainerStatus::Stopped | ContainerStatus::Absent => Ok("deferred"),
+    }
+}
+
+#[cfg(test)]
+mod company_logo_tests {
+    use super::*;
+
+    /// The logo is served under the type its bytes show, so markup or script
+    /// dressed up as an image is never stored as a logo.
+    #[test]
+    fn only_raster_images_are_accepted_as_logos() {
+        assert_eq!(
+            sniff_company_logo(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR"),
+            Some(("png", "image/png"))
+        );
+        assert_eq!(
+            sniff_company_logo(&[0xFF, 0xD8, 0xFF, 0xE0]),
+            Some(("jpg", "image/jpeg"))
+        );
+        assert_eq!(
+            sniff_company_logo(b"RIFF\x24\0\0\0WEBPVP8 "),
+            Some(("webp", "image/webp"))
+        );
+        for refused in [
+            &b"<svg xmlns=\"http://www.w3.org/2000/svg\"><script/></svg>"[..],
+            b"<html><script>alert(1)</script>",
+            b"GIF89a",
+            b"RIFF\x24\0\0\0WAVE",
+            b"",
+        ] {
+            assert_eq!(sniff_company_logo(refused), None);
+        }
+        let root = std::env::temp_dir().join(format!("logo-{}", Uuid::new_v4().simple()));
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        assert!(store_company_logo(&root, "aris", b"<svg/>").is_err());
+        assert!(store_company_logo(&root, "aris", &vec![0xFF; COMPANY_LOGO_MAX_BYTES + 1]).is_err());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// A config value is read back only in the exact shape this module writes,
+    /// so an edited config cannot point the logo route at another file.
+    #[test]
+    fn a_recorded_logo_never_names_a_file_outside_its_own() {
+        let root = Path::new("/plane");
+        let mut config: CompanyConfig = toml::from_str("name = \"aris\"").unwrap();
+        config.logo = Some("aris.logo-0123456789abcdef.png".into());
+        let logo = company_logo(root, &config).unwrap();
+        assert_eq!(logo.path, root.join("companies/aris.logo-0123456789abcdef.png"));
+        assert_eq!((logo.version.as_str(), logo.media_type), ("0123456789abcdef", "image/png"));
+        for refused in [
+            "../../etc/passwd",
+            "aris.logo-0123456789abcdef.png/../../secret.toml",
+            "aris.logo-../../../../etc/x.png",
+            "bob.logo-0123456789abcdef.png",
+            "aris.logo-0123456789ABCDEF.png",
+            "aris.logo-0123456789abcdef.svg",
+            "aris.logo-0123456789abcdef.png.png",
+            "aris.toml",
+        ] {
+            config.logo = Some(refused.into());
+            assert!(company_logo(root, &config).is_none(), "{refused}");
+        }
     }
 }
 
@@ -1515,6 +1744,10 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
         }
     }
     seed_mission(config).await?;
+    // A logo agents cannot copy is a lesser company, not a broken one.
+    if let Err(error) = seed_brand(config).await {
+        tracing::warn!(company = %config.name, error = %format!("{error:#}"), "logo seed failed");
+    }
     let suffix = match (fetched, replaced) {
         (true, true) => " (image fetched; container replaced; volume kept)",
         (true, false) => " (image fetched)",
@@ -3275,6 +3508,8 @@ pub async fn destroy(
         .context("clearing the destroyed company's spend")?;
     removed.push("spend");
 
+    remove_company_logos(root, company, None).context("remove the company logo")?;
+
     // The config last: while it exists, the company is nameable and the earlier
     // steps are re-runnable if one of them failed.
     let config = root.join("companies").join(format!("{company}.toml"));
@@ -3317,6 +3552,7 @@ pub fn clone_config(root: &Path, from: &str, to: &str) -> Result<CompanyConfig> 
         agent_intelligence: Default::default(),
         native_harnesses: Default::default(),
         display_name: None,
+        logo: None,
         name: to.to_string(),
         internal_network: false,
         // A scenario gets no live secret bindings.
@@ -4173,6 +4409,7 @@ worker_harness = "claude_agent"
             agent_intelligence: Default::default(),
             native_harnesses: Default::default(),
             display_name: None,
+            logo: None,
             name: "archive_contract_test".into(),
             internal_network: false,
             mission: "Preserve me".into(),

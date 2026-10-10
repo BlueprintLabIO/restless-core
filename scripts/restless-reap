@@ -141,6 +141,7 @@ else
   if [ "$MODE" = purge ]; then
     for name in "${ORPHANED[@]}"; do
       rm -f "${COMPANY_DIR}/${name}.toml" && note "  removed config ${name}"
+      rm -f "${COMPANY_DIR}/${name}".logo-*
       docker volume rm "restless-vol-${name}" >/dev/null 2>&1 \
         && note "  removed volume ${name}" || true
       docker rm "restless-co-${name}" >/dev/null 2>&1 \

@@ -131,6 +131,7 @@
 			? archivedCompanies.map((company): CompanyPortfolioEntry => ({
 					id: company.id,
 					name: company.name,
+					logoUrl: company.logo_url,
 					status: 'Archived',
 					tone: 'waiting',
 					entry: null,
@@ -146,6 +147,7 @@
 			return {
 				id: company.id,
 				name: company.name,
+				logoUrl: company.logo_url,
 				status: reason ? 'Can’t start' : RUN_STATE[company.runtime_status],
 				tone:
 					reason || company.runtime_status === 'unavailable'

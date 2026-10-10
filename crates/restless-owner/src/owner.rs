@@ -619,6 +619,9 @@ struct CompanyCatalogEntry {
     /// company's state could not be read in time; never a guessed zero.
     #[serde(skip_serializing_if = "Option::is_none")]
     card: Option<crate::company_projection::Summary>,
+    /// The owner's logo, read from the host; absent shows the generated mark.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    logo_url: Option<String>,
 }
 
 /// How long the companies list waits for any one company's card.
@@ -1343,6 +1346,12 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(company_identity_view).put(company_settings_api::save_identity),
         )
         .route(
+            "/companies/{company}/company/logo",
+            get(company_settings_api::logo)
+                .put(company_settings_api::save_logo)
+                .delete(company_settings_api::remove_logo),
+        )
+        .route(
             "/companies/{company}/company/identity/proposals/{proposal}/promote",
             post(promote_company_identity),
         )
@@ -1884,6 +1893,7 @@ fn membership_boundary_violation(
         || is_company_route_family(path, "members")
         || is_company_collaboration_bootstrap_route(method, path)
         || is_attachment_download_route(method, path)
+        || company_settings_api::is_company_logo_read(method, path)
     {
         return None;
     }
@@ -4813,6 +4823,7 @@ async fn company_catalog_entry(
         Some(issue) => Some(issue),
         None => crate::company::credential_cooldown_issue(&config, cooldowns),
     };
+    let logo_url = company_settings_api::company_logo_url(&config);
     CompanyCatalogEntry {
         id: config.name.clone(),
         name: config
@@ -4826,6 +4837,7 @@ async fn company_catalog_entry(
         lifecycle_status,
         unstartable_reason,
         card,
+        logo_url,
     }
 }
 
