@@ -45,3 +45,11 @@ export async function getApplianceStatus(signal?: AbortSignal): Promise<Applianc
 	if (!response.ok) throw new Error(`Could not read appliance status (${response.status}).`);
 	return (await response.json()) as ApplianceStatus;
 }
+
+/** The account service's origin when this plane is served under it, else null. */
+export async function accountServiceOrigin(): Promise<string | null> {
+	const status = await getApplianceStatus().catch(() => null);
+	if (!status?.hosted || !status.home_url) return null;
+	const origin = new URL(status.home_url).origin;
+	return origin === window.location.origin ? origin : null;
+}

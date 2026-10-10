@@ -6,7 +6,7 @@
 
 	import '$lib/design/index.css';
 	import { navigating } from '$app/state';
-	import { goto, onNavigate } from '$app/navigation';
+	import { beforeNavigate, goto, onNavigate } from '$app/navigation';
 	import {
 		MutationCache,
 		QueryCache,
@@ -18,6 +18,8 @@
 	import { connection, observeFailure, observeSuccess } from '$lib/model/connection.svelte';
 	import { isRetryable } from '$lib/model/failure';
 	import { observeSessionEnd } from '$lib/model/session-reentry';
+	import { accountServicePath } from '$lib/model/account-service';
+	import { accountServiceOrigin } from '$lib/model/appliance';
 	import { registerServiceWorkerWhereLocal } from '$lib/model/service-worker-registration';
 	import { dev } from '$app/environment';
 
@@ -109,6 +111,20 @@
 
 	/* A hosted session that ends mid-use re-enters through the account issuer. */
 	onMount(observeSessionEnd);
+
+	/* On Cloud's one address, Home, Profile, Security, Plan and Support are the account service's
+	 * pages: a link to one leaves this app with a full load instead of being routed here. */
+	let accountService: string | null = null;
+	onMount(() => {
+		void accountServiceOrigin().then((origin) => (accountService = origin));
+	});
+	beforeNavigate((navigation) => {
+		const to = navigation.to?.url;
+		if (!accountService || !to || to.origin !== accountService || !accountServicePath(to.pathname))
+			return;
+		navigation.cancel();
+		window.location.assign(to.href);
+	});
 	onMount(() => {
 		if (!dev) void registerServiceWorkerWhereLocal().catch(() => {});
 	});
