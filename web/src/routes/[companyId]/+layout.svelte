@@ -6,7 +6,7 @@
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import { page } from '$app/state';
-	import { setContext } from 'svelte';
+	import { setContext, tick } from 'svelte';
 	const setupDraft = $state<{ name: string | null }>({ name: null });
 	setContext('company-setup-draft', setupDraft);
 	import { goto } from '$app/navigation';
@@ -790,17 +790,32 @@
 	const others = presence(() => companyId);
 	let railFocusRequest = $state(0);
 	let railDraft = $state<{ text: string; key: number } | null>(null);
-	$effect(() => {
-		const ask = (event: Event) => {
-			chooseTopic(null);
-			execRailOpen = true;
+	/* Asking someone opens their conversation with the composer ready. Where the page has no side
+	 * rail, they open on People at full width. An Inbox item's focus gives the rail to its lead, so
+	 * asking anyone else leaves that focus and keeps the item selected. A draft lands once the
+	 * conversation it is meant for is the one on screen. */
+	function askPerson(actorId: string, draft = '') {
+		const root = `/${encodeURIComponent(companyId)}`;
+		let arrival: Promise<void> | null = null;
+		if (!railVisible) {
+			if (wideActor !== actorId)
+				arrival = goto(`${root}/people?person=${encodeURIComponent(actorId)}`);
+		} else {
+			chooseTopic(actorId === 'exec' ? null : { actorId });
+			if (focusedAttention && focusedAttention.responsibleActor?.id !== actorId)
+				arrival = goto(`${root}?item=${encodeURIComponent(focusedAttention.id)}`).then(tick);
+		}
+		const offer = () => {
+			if (railVisible) execRailOpen = true;
 			railFocusRequest += 1;
-			const draft = (event as CustomEvent<{ draft?: string }>).detail?.draft;
 			if (draft) railDraft = { text: draft, key: railFocusRequest };
-			/* People has no side rail; the Exec opens there at full width. */
-			if (page.url.pathname.startsWith(`/${companyId}/people`) && wideActor !== 'exec')
-				void goto(`/${encodeURIComponent(companyId)}/people?person=exec`);
 		};
+		if (arrival) void arrival.then(offer);
+		else offer();
+	}
+	$effect(() => {
+		const ask = (event: Event) =>
+			askPerson('exec', (event as CustomEvent<{ draft?: string }>).detail?.draft ?? '');
 		window.addEventListener(ASK_EXEC_EVENT, ask);
 		return () => window.removeEventListener(ASK_EXEC_EVENT, ask);
 	});
@@ -879,10 +894,7 @@
 				group: 'Actions',
 				label: 'Ask the Exec…',
 				keywords: 'talk message chat',
-				run: () => {
-					chooseTopic(null);
-					execRailOpen = true;
-				}
+				run: () => askPerson('exec')
 			},
 			{
 				id: 'action:add-app',
@@ -904,10 +916,7 @@
 				group: 'Actions',
 				label: `Ask ${lead.display}…`,
 				keywords: `talk message lead ${lead.role}`,
-				run: () => {
-					chooseTopic({ actorId: lead.actor_id });
-					execRailOpen = true;
-				}
+				run: () => askPerson(lead.actor_id)
 			})),
 			/* Files Work produced are already in hand; documents, sheets and kept files are found by
 			 * the menu's search as the owner types. */
