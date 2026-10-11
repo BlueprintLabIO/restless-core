@@ -47,114 +47,114 @@ pub async fn run(
         .await?
         .context("source responsibility version is missing")?;
 
-    let test_name = format!(
+    let test_company = format!(
         "schedule_test_{}_test",
         &Uuid::new_v4().simple().to_string()[..8]
     );
-    let mut config = runtime::CompanyConfig::load(&daemon.root, source_company)?;
-    config.name = test_name;
-    config.display_name = None;
-    // Even an admission-only clone can be started later, so never carry the
-    // source company's mission into a retained probe company.
-    config.mission = "Synthetic schedule admission probe. No production work is authorized.".into();
-    // A retained test company must stay isolated if someone starts its Runtime
-    // after this scheduler-only probe.
-    config.internal_network = true;
-    config.model.clear();
-    config.agent_intelligence.clear();
-    config.native_harnesses.clear();
-    config.credentials.clear();
-    config.approved_parties.clear();
-    config.model_failover.clear();
-    config.spend_ceiling_usd = runtime::SpendCeiling::from_micro_usd(1_000_000);
-    runtime::CompanyConfig::save(&daemon.root, &config)?;
-
-    let test_company = config.name.clone();
-    let test_org = daemon.orgintel.get(&test_company).await?;
-    test_org
-        .ensure_actor("owner", "owner", "owner", "The Owner")
-        .await?;
-    test_org
-        .ensure_actor("exec", "exec", "exec", "The Exec")
-        .await?;
-    test_org
-        .ensure_actor("daemon", "system", "system-sender", "The daemon")
-        .await?;
-
-    let scheduled_for = Utc::now();
-    let (test_schedule_id, _) = test_org
-        .create_exact_schedule_with_responsibility(
-            "exec",
-            &source_schedule.reason,
-            scheduled_for,
-            "local_mac",
-            responsibility_id,
-            responsibility_version,
-            &version.objective,
-            version.policy,
-        )
-        .await?;
-
-    // Claim the disposable occurrence directly without starting Runtime.
-    let claimed = test_org.claim_due_schedules_at(scheduled_for).await?;
-    if !claimed.iter().any(|row| row.id == test_schedule_id) {
-        bail!("manual scheduler trigger did not claim the disposable occurrence");
-    }
-
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout_seconds);
-    loop {
-        let opportunities = test_org
-            .list_opportunities(Some(responsibility_id), 50)
+    // Admission is OrgIntel state alone, so it runs in a disposable cell that
+    // is never configured as a company: nothing lists, schedules or routes it,
+    // and the cell is dropped before this returns, whatever the outcome.
+    let admin_url = &daemon.orgintel.database_url;
+    let mut opened = None;
+    let probe: Result<serde_json::Value> = async {
+        let test_org = crate::ensure_cell_orgintel(&daemon.root, admin_url, &test_company).await?;
+        opened = Some(test_org.clone());
+        test_org
+            .ensure_actor("owner", "owner", "owner", "The Owner")
             .await?;
-        for opportunity in opportunities {
-            let occurrences = test_org
-                .list_opportunity_occurrences(opportunity.id)
+        test_org
+            .ensure_actor("exec", "exec", "exec", "The Exec")
+            .await?;
+        test_org
+            .ensure_actor("daemon", "system", "system-sender", "The daemon")
+            .await?;
+
+        let scheduled_for = Utc::now();
+        let (test_schedule_id, _) = test_org
+            .create_exact_schedule_with_responsibility(
+                "exec",
+                &source_schedule.reason,
+                scheduled_for,
+                "local_mac",
+                responsibility_id,
+                responsibility_version,
+                &version.objective,
+                version.policy,
+            )
+            .await?;
+
+        // Claim the disposable occurrence directly without starting Runtime.
+        let claimed = test_org.claim_due_schedules_at(scheduled_for).await?;
+        if !claimed.iter().any(|row| row.id == test_schedule_id) {
+            bail!("manual scheduler trigger did not claim the disposable occurrence");
+        }
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout_seconds);
+        loop {
+            let opportunities = test_org
+                .list_opportunities(Some(responsibility_id), 50)
                 .await?;
-            if let Some(occurrence) = occurrences
-                .into_iter()
-                .find(|row| row.schedule_id == test_schedule_id)
-            {
-                let linked_work = test_org.list_opportunity_work(opportunity.id).await?;
-                let mut work_outcomes = Vec::new();
-                for link in &linked_work {
-                    let work = test_org.get_work(link.work_id).await?;
-                    let attempts = test_org.list_work_attempts(Some(link.work_id)).await?;
-                    work_outcomes.push(json!({"work": work, "attempts": attempts}));
+            for opportunity in opportunities {
+                let occurrences = test_org
+                    .list_opportunity_occurrences(opportunity.id)
+                    .await?;
+                if let Some(occurrence) = occurrences
+                    .into_iter()
+                    .find(|row| row.schedule_id == test_schedule_id)
+                {
+                    let linked_work = test_org.list_opportunity_work(opportunity.id).await?;
+                    let mut work_outcomes = Vec::new();
+                    for link in &linked_work {
+                        let work = test_org.get_work(link.work_id).await?;
+                        let attempts = test_org.list_work_attempts(Some(link.work_id)).await?;
+                        work_outcomes.push(json!({"work": work, "attempts": attempts}));
+                    }
+                    return Ok(json!({
+                        "status": "admitted",
+                        "scope": "scheduler_only",
+                        "actor_run": "not_started",
+                        "source_files_copied": false,
+                        "effect_boundary": "no Runtime or actor starts; this mode only records schedule admission",
+                        "source_company": source_company,
+                        "source_schedule_id": source_schedule_id,
+                        "test_schedule_id": test_schedule_id,
+                        "occurrence": occurrence,
+                        "opportunity": opportunity,
+                        "linked_work": linked_work,
+                        "work_outcomes": work_outcomes,
+                    }));
                 }
+            }
+            if tokio::time::Instant::now() >= deadline {
                 return Ok(json!({
-                    "status": "admitted",
+                    "status": "timed_out_before_admission",
                     "scope": "scheduler_only",
                     "actor_run": "not_started",
                     "source_files_copied": false,
-                    "effect_boundary": "no Runtime or actor starts; this mode only records schedule admission",
                     "source_company": source_company,
                     "source_schedule_id": source_schedule_id,
-                    "test_company": test_company,
                     "test_schedule_id": test_schedule_id,
-                    "occurrence": occurrence,
-                    "opportunity": opportunity,
-                    "linked_work": linked_work,
-                    "work_outcomes": work_outcomes,
-                    "clone_retained": true,
+                    "scheduled_for": scheduled_for,
+                    "observation": null,
                 }));
             }
+            tokio::time::sleep(Duration::from_millis(250)).await;
         }
-        if tokio::time::Instant::now() >= deadline {
-            return Ok(json!({
-                "status": "timed_out_before_admission",
-                "scope": "scheduler_only",
-                "actor_run": "not_started",
-                "source_files_copied": false,
-                "source_company": source_company,
-                "source_schedule_id": source_schedule_id,
-                "test_company": test_company,
-                "test_schedule_id": test_schedule_id,
-                "scheduled_for": scheduled_for,
-                "observation": null,
-                "clone_retained": true,
-            }));
-        }
-        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    .await;
+
+    if let Some(test_org) = opened {
+        test_org.close().await;
+    }
+    let cleanup = crate::cell::destroy_database(&daemon.root, admin_url, &test_company).await;
+    match (probe, cleanup) {
+        (probe, Ok(_)) => probe,
+        (Ok(_), Err(error)) => Err(error).context(
+            "schedule admission probe finished but its disposable cell could not be removed",
+        ),
+        (Err(error), Err(cleanup)) => Err(error).context(format!(
+            "schedule admission probe cleanup failed: {cleanup:#}"
+        )),
     }
 }
 

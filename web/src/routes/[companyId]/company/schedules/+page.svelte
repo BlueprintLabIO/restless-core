@@ -167,10 +167,8 @@
 			title={`Trigger test: ${report.status.replaceAll('_', ' ')}`}
 			details="Scheduler admission was checked. No agent or external action ran."
 		>
-			{#snippet actions()}{#if report?.test_company}<a
-						class="btn small"
-						href={`/${report.test_company}`}>Inspect</a
-					>{/if}<button class="btn small ghost" onclick={() => (report = null)}>Dismiss</button
+			{#snippet actions()}<button class="btn small ghost" onclick={() => (report = null)}
+					>Dismiss</button
 				>{/snippet}
 		</Notice>{/if}
 

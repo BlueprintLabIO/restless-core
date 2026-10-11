@@ -1516,7 +1516,7 @@ pub async fn project(
         None => ("unknown".into(), "unknown".into()),
     };
 
-    // The schedule test generator uses this isolated-company name pattern.
+    // Older schedule admission probes retained a company under this name.
     let test_company = config.name.starts_with("schedule_test_") && config.name.ends_with("_test");
     let network_entry = std::env::var("RESTLESS_ENTRY_MODE").as_deref() == Ok("network");
     let local_runtime = matches!(

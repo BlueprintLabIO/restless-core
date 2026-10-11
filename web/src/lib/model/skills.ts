@@ -225,11 +225,9 @@ export type ScheduleTestReport = {
 	effect_boundary?: string;
 	source_company: string;
 	source_schedule_id: string;
-	test_company?: string;
 	test_schedule_id?: string;
 	occurrence?: unknown;
 	opportunity?: { state: string; outcome?: unknown; outcome_reason?: string | null };
-	clone_retained: boolean;
 	work_outcomes?: Array<{
 		work: { id: string; title: string; status: string; outcome: string } | null;
 		attempts: Array<{ state: string; summary?: string | null }>;
