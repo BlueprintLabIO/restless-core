@@ -403,7 +403,7 @@
 				await takeControl(true);
 			}
 		} catch (cause) {
-			error = failureSentence(cause, 'Browser control state is unavailable.');
+			if (focusItem) error = failureSentence(cause, 'Browser control state is unavailable.');
 		}
 	}
 
@@ -420,10 +420,14 @@
 			return;
 		}
 		try {
-			desktopUrl = await issueDesktopTicket(companyId, item.id, clientId);
+			const url = await issueDesktopTicket(companyId, item.id, clientId);
+			/* The owner may have left the computer view while the ticket was in flight. */
+			if (focusItem?.id !== item.id) return;
+			desktopUrl = url;
 			autoClaimPending = true;
 		} catch (cause) {
-			error = failureSentence(cause, 'The live browser is unavailable.');
+			if (focusItem?.id === item.id)
+				error = failureSentence(cause, 'The live browser is unavailable.');
 		}
 	}
 
@@ -468,6 +472,7 @@
 		lastLeaseRenewal = now;
 		void browserControl(companyId, 'heartbeat', clientId, controlLeaseId)
 			.catch((cause) => {
+				if (!focusItem) return;
 				controller = 'observer';
 				desktopUrl = observedDesktopUrl();
 				error = failureSentence(cause, 'Desktop control expired.');
