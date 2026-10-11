@@ -24,7 +24,7 @@
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
 	import CompanyOffice, { preloadOffice } from '$lib/office/LazyCompanyOffice.svelte';
 	import type { AttentionItem } from '$lib/model/view';
-	import { attentionQuery, companiesQuery, conversationQuery } from '$lib/model/queries.svelte';
+	import { attentionQuery, companiesQuery, conversationQuery, turnWorking } from '$lib/model/queries.svelte';
 	import { startFixHref, startLinkLabel } from '$lib/model/company-start';
 	import { browserTabClientId } from '$lib/model/browserTab';
 	import { getBrowserStatus } from '$lib/model/company';
@@ -231,6 +231,8 @@
 	);
 	const visibleConversationMessages = $derived(leadConversation?.messages ?? []);
 	const conversationTurn = $derived(leadConversation?.activeTurn ?? null);
+	/* A finished reply stays on the dock; only a turn still running is interrupted. */
+	const conversationWorking = $derived(turnWorking(conversationTurn));
 	const attachmentHref = (attachment: { uploadId: string }) =>
 		`/api/companies/${encodeURIComponent(companyId)}/attachments/${encodeURIComponent(attachment.uploadId)}`;
 
@@ -818,12 +820,12 @@
 							<Composer
 								bind:value={messageDraft}
 								bind:files={messageFiles}
-								actionLabel={conversationTurn ? 'Queue direction' : 'Send'}
+								actionLabel={conversationWorking ? 'Queue direction' : 'Send'}
 								disabled={sendingMessage}
-								placeholder={conversationTurn
+								placeholder={conversationWorking
 									? `Interrupt ${requestingActorName} with new direction…`
 									: `Ask or tell ${requestingActorName} anything…`}
-								ariaLabel={conversationTurn
+								ariaLabel={conversationWorking
 									? `Interrupt and message ${requestingActorName}`
 									: `Message ${requestingActorName}`}
 								minlength={1}
