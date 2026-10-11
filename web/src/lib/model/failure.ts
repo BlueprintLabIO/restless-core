@@ -213,7 +213,7 @@ export function describeFailure(error: unknown, subject?: string): FailureView {
 			return {
 				kind,
 				title: what ?? 'Something went wrong',
-				detail: 'Try again. If it keeps failing, open Doctor.',
+				detail: 'Try again. If it keeps failing, open Company → Health.',
 				technical: said ?? (failure?.status ? `HTTP ${failure.status}` : null),
 				retryable: true
 			};

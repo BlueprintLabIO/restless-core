@@ -1962,15 +1962,15 @@ fn sign_in_state(url: &str) -> Result<String> {
         .context("authorization URL has no state")
 }
 
-/// The company a pending sign-in belongs to, so the callback can check the
-/// signed-in owner before completing it.
-pub async fn pending_sign_in_company(state: &str) -> Option<String> {
+/// The company and connection of a pending sign-in, so the callback knows the
+/// sign-in is live and can lead the owner back to that app if it fails.
+pub async fn pending_sign_in(state: &str) -> Option<(String, String)> {
     PENDING_SIGN_INS
         .lock()
         .await
         .get(state)
         .filter(|sign_in| sign_in.started.elapsed() < OAUTH_SESSION_TTL)
-        .map(|sign_in| sign_in.company.clone())
+        .map(|sign_in| (sign_in.company.clone(), sign_in.connection.clone()))
 }
 
 /// Complete a sign-in from the provider's redirect. Returns the company and

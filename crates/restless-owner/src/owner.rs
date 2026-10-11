@@ -9351,12 +9351,12 @@ async fn attachment_runtime_ready(
         Ok(runtime::ContainerStatus::Stopped) if !runtime::is_sleeping(company) => api_error(
             StatusCode::CONFLICT,
             "runtime",
-            "The company computer is stopped, so files cannot be sent. Start it from Company → Computer, or send the message without the file.",
+            "The company computer is stopped, so files cannot be sent. Start it from Company → Health, or send the message without the file.",
         ),
         Ok(runtime::ContainerStatus::Absent) => api_error(
             StatusCode::CONFLICT,
             "runtime",
-            "This company has no computer yet, so files cannot be sent. Start it from Company → Computer, or send the message without the file.",
+            "This company has no computer yet, so files cannot be sent. Company → Health can build it, or send the message without the file.",
         ),
         _ => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -9418,7 +9418,7 @@ async fn download_attachment(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "runtime",
-                "The company computer is stopped, so this file cannot be opened. Start it from Company → Computer.",
+                "The company computer is stopped, so this file cannot be opened. Start it from Company → Health.",
             );
         }
     }

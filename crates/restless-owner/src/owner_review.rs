@@ -147,7 +147,7 @@ pub(crate) async fn wake_for_owner_read(
     Err(api_error(
         StatusCode::SERVICE_UNAVAILABLE,
         "runtime",
-        "The company computer is stopped, so this file cannot be opened. Start it from Company → Computer.",
+        "The company computer is stopped, so this file cannot be opened. Start it from Company → Health.",
     ))
 }
 

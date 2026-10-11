@@ -206,13 +206,23 @@ pub(super) struct OauthCallback {
     error: Option<String>,
 }
 
-fn callback_page(status: StatusCode, message: &str) -> Response<Body> {
+/// A sign-in that did not complete says so, with a way back to start it again:
+/// the app's own page while the sign-in is still known, otherwise home.
+fn callback_page(
+    status: StatusCode,
+    message: &str,
+    sign_in: Option<&(String, String)>,
+) -> Response<Body> {
     let escaped = message
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;");
+    let (href, label) = match sign_in {
+        Some((company, name)) => (app_path(company, name), "Back to Apps"),
+        None => ("/".to_string(), "Back to your companies"),
+    };
     let mut response = Response::new(Body::from(format!(
-        "<!doctype html><meta charset=utf-8><title>Sign-in</title><p style=\"font:16px system-ui;margin:3rem\">{escaped}</p>"
+        "<!doctype html><meta charset=utf-8><title>Sign-in</title><body style=\"font:16px system-ui;margin:3rem\"><p>{escaped}</p><p><a href=\"{href}\">{label}</a></p>"
     )));
     *response.status_mut() = status;
     response.headers_mut().insert(
@@ -226,27 +236,32 @@ pub(super) async fn oauth_callback(
     State(state): State<OwnerState>,
     axum::extract::Query(query): axum::extract::Query<OauthCallback>,
 ) -> Response<Body> {
+    // The company and app of a sign-in still pending, so a failed one leads
+    // back to that app.
+    let sign_in = match query.state.as_deref() {
+        Some(oauth_state) => connections::pending_sign_in(oauth_state).await,
+        None => None,
+    };
     if let Some(error) = query.error.as_deref() {
         let error = error
             .chars()
             .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
             .take(64)
             .collect::<String>();
-        return callback_page(StatusCode::BAD_REQUEST, &format!("The provider did not complete the sign-in ({error}). Start it again from Apps."));
+        return callback_page(StatusCode::BAD_REQUEST, &format!("The provider did not complete the sign-in ({error}). Start it again from Apps."), sign_in.as_ref());
     }
     let (Some(code), Some(oauth_state)) = (query.code.as_deref(), query.state.as_deref()) else {
         return callback_page(
             StatusCode::BAD_REQUEST,
             "This sign-in link is incomplete. Start it again from Apps.",
+            sign_in.as_ref(),
         );
     };
-    if connections::pending_sign_in_company(oauth_state)
-        .await
-        .is_none()
-    {
+    if sign_in.is_none() {
         return callback_page(
             StatusCode::BAD_REQUEST,
             "This sign-in link expired or was already used. Start it again from Apps.",
+            None,
         );
     }
     match connections::complete_sign_in(
@@ -269,15 +284,27 @@ pub(super) async fn oauth_callback(
                 None
             };
             Redirect::to(&format!(
-                "/{}/apps/c-{}{}",
-                urlencoding_path(&company),
-                urlencoding_path(&name),
+                "{}{}",
+                app_path(&company, &name),
                 request.map(|id| format!("?request={id}")).unwrap_or_default()
             ))
             .into_response()
         }
-        Err(error) => callback_page(StatusCode::BAD_REQUEST, &format!("{error:#}")),
+        Err(error) => callback_page(
+            StatusCode::BAD_REQUEST,
+            &format!("{error:#}"),
+            sign_in.as_ref(),
+        ),
     }
+}
+
+/// The cockpit page of one company's app, where the owner signs in and allows it.
+fn app_path(company: &str, name: &str) -> String {
+    format!(
+        "/{}/apps/c-{}",
+        urlencoding_path(company),
+        urlencoding_path(name)
+    )
 }
 
 fn urlencoding_path(value: &str) -> String {

@@ -216,7 +216,7 @@ fn review_target_availability(
         return (
             "unavailable",
             Some(
-                "The company computer is stopped, so this outcome cannot be opened. Start it from Company → Computer."
+                "The company computer is stopped, so this outcome cannot be opened. Start it from Company → Health."
                     .into(),
             ),
         );
@@ -1551,7 +1551,7 @@ pub async fn project(
                 let reason = if route_missing {
                     "the company has no configured model route"
                 } else {
-                    "the local Runtime is stopped"
+                    "the company computer is not running"
                 };
                 items.push(AttentionItem {
                     id: "orgintel:overdue-dispatch-blocked".into(),
@@ -1573,12 +1573,12 @@ pub async fn project(
                     recommendation: if route_missing {
                         "Configure a model route in company settings, then review the schedule.".into()
                     } else {
-                        "Start the local Runtime, then review the schedule.".into()
+                        "Start the company computer from Company → Health, then review the schedule.".into()
                     },
                     requested_action: if route_missing {
                         "Configure a company model route."
                     } else {
-                        "Start the local Runtime."
+                        "Start the company computer."
                     }
                     .into(),
                     if_no_action: "The overdue work remains undispatched.".into(),
@@ -1599,13 +1599,13 @@ pub async fn project(
                     review_target: None,
                     native_document: None,
                     actions: vec![AttentionAction {
-                        id: if route_missing { "open-intelligence-provider".into() } else { "open-company-computer".into() },
-                        label: if route_missing { "Choose intelligence".into() } else { "Open computer".into() },
+                        id: if route_missing { "open-intelligence-provider".into() } else { "open-company-health".into() },
+                        label: if route_missing { "Choose intelligence".into() } else { "Open Health".into() },
                         role: "inspect",
                         consequence: "Opens the company setting that is preventing scheduled work from running.".into(),
                         next_state: "The projection clears after dispatch or when no active due work remains."
                             .into(),
-                        href: Some(format!("/{}/company/{}", config.name, if route_missing { "provider" } else { "computer" })),
+                        href: Some(format!("/{}/company/{}", config.name, if route_missing { "provider" } else { "doctor" })),
                     }],
                     can_continue: false,
                     preparing: false,

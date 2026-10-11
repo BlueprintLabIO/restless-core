@@ -103,7 +103,7 @@ try {
 	check(!RAW.test(await text(cold)), 'a proxy 502 never shows its status or body');
 	await coldContext.close();
 
-	// 5. A daemon 500 keeps internals out of the copy and points to Doctor.
+	// 5. A daemon 500 keeps internals out of the copy and points to Health.
 	const brokenContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 	const broken = await brokenContext.newPage();
 	broken.on('pageerror', (error) => errors.push(error.message));
@@ -118,7 +118,7 @@ try {
 	await broken.getByRole('alertdialog').waitFor({ timeout: 60_000 });
 	check(!RAW.test(await text(broken)), 'a daemon 500 keeps internals out of the copy');
 	check(
-		(await broken.getByRole('alertdialog').innerText()).includes('open Doctor'),
+		(await broken.getByRole('alertdialog').innerText()).includes('open Company → Health'),
 		'a daemon 500 says what to do next'
 	);
 	check(

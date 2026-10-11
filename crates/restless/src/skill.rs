@@ -261,7 +261,7 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
 /// whether the name is free before any existing candidate is replaced.
 fn add(company: &str, source: &str, git_ref: Option<&str>) -> Result<()> {
     if !crate::is_runtime() {
-        bail!("run `restless skill add` inside the company computer; the owner accepts candidates in Company → Skills");
+        bail!("run `restless skill add` inside the company computer; the owner accepts candidates in Apps");
     }
     let candidates = PathBuf::from(skill_package::CANDIDATE_ROOT);
     std::fs::create_dir_all(&candidates).context("create the candidate skill directory")?;

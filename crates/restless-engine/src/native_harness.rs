@@ -282,7 +282,7 @@ pub async fn startup_doctor(
             json!({"ran_at":chrono::Utc::now(),"setup_failed":setup_failed,"documents":documents,"report":report})
         }
         Err(_) => {
-            json!({"ran_at":chrono::Utc::now(),"documents":documents,"error":"Automatic computer setup or Doctor failed. Open Company Doctor for current diagnostics."})
+            json!({"ran_at":chrono::Utc::now(),"documents":documents,"error":"Automatic computer setup or its startup check failed. The checks below are current."})
         }
     };
     let dir = root.join("diagnostics");

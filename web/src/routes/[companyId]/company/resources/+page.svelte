@@ -84,7 +84,7 @@
 		<Section
 			id="tools"
 			title="Tools"
-			info="Apps the company computer can open for you. Connected services and their tools live in Connections."
+			info="Applications the company computer can open for you. Connected services and their tools live in Apps."
 			count={launchable.length || null}
 		>
 			{#if view.resources.status === 'unavailable'}

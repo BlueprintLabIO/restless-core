@@ -84,7 +84,7 @@ try {
 	);
 	assert.equal(await p.getByRole('combobox', { name: 'Company outcome standard' }).count(), 0);
 	await p.goto(base + '/authority');
-	await p.waitForURL(base + '/resources#limits');
+	await p.waitForURL(base + '/resources#authority');
 	await p.route('**/startup-doctor', (r) => r.fulfill({ status: 503, body: 'unavailable' }));
 	await p.goto(base + '/doctor');
 	await p.getByRole('button', { name: 'Retry startup check', exact: true }).waitFor();
