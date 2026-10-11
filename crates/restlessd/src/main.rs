@@ -715,8 +715,10 @@ async fn run() -> Result<()> {
         }
     });
 
-    // `restless-dev` stops the daemon with SIGTERM. Observe it inside the
-    // runtime so owned model-broker/gateway child handles are dropped and
+    // Supervisors stop the daemon with SIGTERM: Docker Compose when a hosted
+    // plane moves to a new release, systemd or launchd on an appliance, and
+    // `restless-dev`. Observe it inside the runtime so in-flight work drains
+    // first and owned model-broker/gateway child handles are dropped and
     // killed before the process exits; an abrupt default signal exit leaves
     // those children holding 7789/7790 and the next daemon half-attached to
     // stale supervision.
@@ -736,6 +738,7 @@ async fn run() -> Result<()> {
                 });
             }
             () = &mut shutdown => {
+                drain_before_exit(&daemon).await;
                 tracing::info!("shutdown requested; stopping supervised daemon children");
                 break;
             }
@@ -749,6 +752,56 @@ async fn run() -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// How long a stop waits for in-flight work: the window `restless appliance
+/// upgrade` gives its drain. A hosted plane's Compose `stop_grace_period` must
+/// be longer, or Docker kills the daemon mid-drain.
+const STOP_DRAIN_WINDOW: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Close work admission as an appliance drain does and give in-flight Exec
+/// turns, Staff and governed effects up to [`STOP_DRAIN_WINDOW`] to finish,
+/// so a release that replaces the plane does not cut off an external effect
+/// mid-flight. An appliance operation that already drained, or chose to
+/// force, exits at once, and so does a second signal. Nothing is persisted:
+/// the next daemon opens admission as usual.
+async fn drain_before_exit(daemon: &Daemon) {
+    if daemon.lifecycle.is_draining()
+        || restless_contracts::appliance::drain_marker_exists(&daemon.root)
+    {
+        return;
+    }
+    daemon.lifecycle.begin_drain();
+    tracing::info!("stop requested; draining in-flight work before exit");
+    let started = std::time::Instant::now();
+    let again = shutdown_signal();
+    tokio::pin!(again);
+    loop {
+        let status = coordination::appliance_drain_status(daemon);
+        // Recovery admits no work, so unlike a replacement it does not hold
+        // the exit.
+        if status.active_requests == 0
+            && status.exec_wakes.is_empty()
+            && status.staff.is_empty()
+            && status.native_clients.is_empty()
+        {
+            return;
+        }
+        if started.elapsed() >= STOP_DRAIN_WINDOW {
+            tracing::warn!(
+                active_requests = status.active_requests,
+                exec_wakes = ?status.exec_wakes,
+                staff = ?status.staff,
+                native_clients = ?status.native_clients,
+                "stopping with work still in flight after the drain window"
+            );
+            return;
+        }
+        tokio::select! {
+            () = tokio::time::sleep(std::time::Duration::from_millis(100)) => {}
+            () = &mut again => return,
+        }
+    }
 }
 
 async fn shutdown_signal() {
