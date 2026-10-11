@@ -2,9 +2,9 @@
 	/* One Inbox item, read as a message from whoever is asking and answered
 	 * from one action bar at the bottom.
 	 *
-	 * A reply or a "Not doing this" goes to the responsible lead as a message in
-	 * their conversation (the handoff decision endpoint posts it), so the owner
-	 * is told where it went. Approvals keep hold-to-confirm, with the exact
+	 * A reply or a "Not doing this" goes to the Work's owner as a message in
+	 * the owner's conversation with them (the handoff decision endpoint posts
+	 * it), so the owner is told where it went, even when a lead asked. Approvals keep hold-to-confirm, with the exact
 	 * draft shown under the ask; declining one, or asking for changes, can carry
 	 * a note that reaches the company with the decision. Files the item points
 	 * at open in the Library. Context and the rest of the evidence are folded
@@ -18,7 +18,11 @@
 		completeHandoffHumanStep,
 		resolveHandoffDecision
 	} from '$lib/model/attention';
-	import { refreshAttention, removeConfirmedAttention } from '$lib/model/queries.svelte';
+	import {
+		cockpitQuery,
+		refreshAttention,
+		removeConfirmedAttention
+	} from '$lib/model/queries.svelte';
 	import {
 		attentionAsker,
 		attentionKindLabel,
@@ -41,6 +45,7 @@
 		item,
 		artifacts = [],
 		declining: startDeclining = false,
+		workOwnerId,
 		onopenDocument,
 		onresolved
 	}: {
@@ -50,6 +55,8 @@
 		artifacts?: readonly LibraryArtifact[];
 		/** Open straight into "Not doing this", as the list's quick action does. */
 		declining?: boolean;
+		/** Who owns the item's Work: a reply or decline is delivered to them. */
+		workOwnerId?: string;
 		onopenDocument?: () => Promise<unknown>;
 		/** Where the answer went, for the page to confirm after the item leaves. */
 		onresolved?: (sent: { text: string; href?: string }) => void;
@@ -60,6 +67,18 @@
 	const askerId = $derived(item.responsibleActor?.id ?? item.briefAuthor?.id ?? 'exec');
 	const conversationHref = $derived(
 		`/${encodeURIComponent(companyId)}/people?person=${encodeURIComponent(askerId)}&view=people`
+	);
+	/* A decision answer reaches the Work's owner, who may not be whoever wrote the brief. */
+	const cockpit = cockpitQuery(() => companyId);
+	const recipientId = $derived(workOwnerId || askerId);
+	const recipient = $derived(
+		recipientId === askerId
+			? asker
+			: (cockpit.view?.people.find((person) => person.actor_id === recipientId)?.display ??
+					recipientId.replaceAll('-', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()))
+	);
+	const recipientHref = $derived(
+		`/${encodeURIComponent(companyId)}/people?person=${encodeURIComponent(recipientId)}&view=people`
 	);
 	/* An approval answer is announced to Exec, whoever prepared the draft. */
 	const execHref = $derived(`/${encodeURIComponent(companyId)}/people?person=exec&view=people`);
@@ -219,8 +238,9 @@
 				await resolveHandoffDecision(companyId, item.source.reference, answer());
 				await refreshAttention(client, companyId);
 			},
-			`Sent to ${asker}`,
-			'Your answer was not sent. Try again.'
+			`Sent to ${recipient}`,
+			'Your answer was not sent. Try again.',
+			recipientHref
 		);
 	const sendDecline = () =>
 		reason.trim() &&
@@ -229,8 +249,9 @@
 				await resolveHandoffDecision(companyId, item.source.reference, reason.trim(), true);
 				await refreshAttention(client, companyId);
 			},
-			`Declined. ${asker} has your reason.`,
-			'That was not recorded. Try again.'
+			`Declined. ${recipient} has your reason.`,
+			'That was not recorded. Try again.',
+			recipientHref
 		);
 	const markDone = () =>
 		run(
@@ -566,8 +587,8 @@
 						class="btn small ghost"
 						href={`${base}&conversation=${encodeURIComponent(item.id)}`}>Discuss</a
 					>{/if}
-				<span class="hint" title={`Goes to ${asker} as a message in your conversation`}
-					>To {asker} · ⌘ ↵</span
+				<span class="hint" title={`Goes to ${recipient} as a message in your conversation`}
+					>To {recipient} · ⌘ ↵</span
 				>
 			</div>
 		{:else}

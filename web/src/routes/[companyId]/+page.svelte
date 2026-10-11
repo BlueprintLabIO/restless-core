@@ -17,7 +17,7 @@
 	import InboxList from '$lib/components/InboxList.svelte';
 	import InboxDetail from '$lib/components/InboxDetail.svelte';
 	import SetAsideList from '$lib/components/SetAside.svelte';
-	import { attentionTitle } from '$lib/model/attention-presentation';
+	import { attentionTitle, coordinationFailure } from '$lib/model/attention-presentation';
 	import { formatRelative, formatMoment } from '$lib/ui/time';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
@@ -87,7 +87,9 @@
 		)?.unstartable_reason;
 		return reason ? startLinkLabel(reason) : '';
 	});
-	const queueClear = $derived(loaded && items.length === 0);
+	/* Coordination down is not a clear queue: what it holds may be missing. */
+	const coordination = $derived(coordinationFailure(view));
+	const queueClear = $derived(loaded && items.length === 0 && !coordination);
 	/* Phones never mount the office canvas (see the clear state below). */
 	let compactScreen = $state(false);
 	$effect(() => {
@@ -211,7 +213,6 @@
 		return '';
 	});
 	const focusedComputerId = $derived(page.url.searchParams.get('computer'));
-	const focusedConversationId = $derived(page.url.searchParams.get('conversation'));
 	const baseHref = $derived(`/${companyId}`);
 	const requestingActor = $derived(
 		focusItem?.responsibleActor?.id ?? focusItem?.runtimeAttach?.requestingActor ?? ''
@@ -234,12 +235,15 @@
 		`/api/companies/${encodeURIComponent(companyId)}/attachments/${encodeURIComponent(attachment.uploadId)}`;
 
 	$effect(() => {
-		const focusId = focusedComputerId ?? focusedConversationId;
+		/* A discussion (?conversation) keeps the Inbox detail; the rail carries that conversation. */
+		const focusId = focusedComputerId;
 		if (!focusId) {
 			focusAttachKey = '';
 			focusItem = null;
 			desktopUrl = '';
 			controller = 'observer';
+			/* A handover failure belongs to the computer view, not to the Inbox left behind. */
+			error = '';
 			return;
 		}
 		const item = items.find((candidate) => candidate.id === focusId) ?? null;
@@ -252,28 +256,16 @@
 			}
 			return;
 		}
-		const discussionOnly = !focusedComputerId;
-		if (!discussionOnly && !item.runtimeAttach) {
+		if (!item.runtimeAttach) {
 			// The source can withdraw a prepared step while this URL is open.
 			// Return to its current card rather than showing an unrelated desktop.
 			void closePreparedComputer(item);
 			return;
 		}
-		if (!discussionOnly && !clientId) return;
-		const key = discussionOnly
-			? `conversation:${item.id}`
-			: `computer:${item.id}:${item.runtimeAttach?.generation ?? 'none'}`;
+		if (!clientId) return;
+		const key = `computer:${item.id}:${item.runtimeAttach.generation}`;
 		if (focusAttachKey === key) return;
 		focusAttachKey = key;
-		if (discussionOnly) {
-			focusItem = item;
-			controller = 'observer';
-			conversationError = '';
-			messageDraft = '';
-			messageFiles = [];
-			desktopUrl = '';
-			return;
-		}
 		void attachPreparedComputer(item);
 	});
 
@@ -488,6 +480,7 @@
 		focusItem = null;
 		desktopUrl = '';
 		focusAttachKey = '';
+		error = '';
 		await goto(item ? itemHref(item.id) : baseHref, { replaceState: true });
 	}
 
@@ -754,7 +747,7 @@
 					type="button"
 					title="Leaves this work-through view without resolving the handoff."
 					onclick={() => closePreparedComputer()}
-					>Leave {focusedComputerId ? 'computer' : 'discussion'}</button
+					>Leave computer</button
 				>
 			</div>
 		</header>
@@ -920,6 +913,7 @@
 				blocker={startBlocker}
 				{loaded}
 				failure={source.failure}
+				{coordination}
 				onretry={source.reload}
 			/>
 		</aside>
@@ -983,6 +977,8 @@
 				<!-- Deliberately nothing until the source answers. An empty pane for
 				     one round trip reads as loading; the zero-state hero reads as a
 				     verdict, and it was the wrong one about half a second later. -->
+			{:else if coordination && compactScreen}
+				<!-- No verdict while coordination is down: the list says why. -->
 			{:else if compactScreen}
 				<!-- A phone gets the verdict, not the company floor: the pixel
 				     campus is a large canvas that costs battery for little use at
@@ -1020,6 +1016,7 @@
 		{companyId}
 		{item}
 		{artifacts}
+		workOwnerId={graph?.work.find((work) => work.id === item.workId)?.owner_id}
 		declining={page.url.searchParams.get('decline') === '1'}
 		onopenDocument={async () => {
 			const result = await source.reload();
