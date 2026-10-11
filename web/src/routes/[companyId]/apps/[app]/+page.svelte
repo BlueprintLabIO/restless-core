@@ -87,6 +87,10 @@
 	const app = $derived<App | undefined>(
 		apps?.mine.find((candidate) => candidate.key === key) ??
 			apps?.mine.find((candidate) => candidate.catalogue?.key === key) ??
+			/* A connection's own address, also when a plugin bundle holds it. */
+			apps?.mine.find((candidate) =>
+				candidate.connections.some((connection) => `c-${connection.name}` === key)
+			) ??
 			apps?.browse.find((candidate) => candidate.key === key)
 	);
 	const pendingLink = $derived(key.startsWith('link:') ? key.slice('link:'.length) : '');

@@ -4,7 +4,8 @@
 	 * leaves the chat, and then straight to the sign-in or its app page. */
 	import { fetchAppRequests, type AppRequest } from '$lib/model/app-requests';
 	import { CATALOGUE, nameForLink } from '$lib/model/apps';
-	import { addAndAllow, signIn } from '$lib/model/connections';
+	import { goto } from '$app/navigation';
+	import { addAndAllow, fetchConnections, signIn } from '$lib/model/connections';
 	import { dismissAttention } from '$lib/model/attention';
 	import { failureSentence } from '$lib/model/failure';
 
@@ -47,16 +48,27 @@
 			return;
 		}
 		void act(request, async () => {
+			/* Added already, say before a sign-in that was left unfinished: open it to finish there. */
+			const name = entry ? entry.key : nameForLink(request.app);
+			const added = (await fetchConnections(companyId)).find(
+				(connection) => connection.name === name && connection.status !== 'disconnected'
+			);
+			if (added) {
+				await goto(
+					`/${encodeURIComponent(companyId)}/apps/${encodeURIComponent(`c-${added.name}`)}?request=${encodeURIComponent(request.handoff_id)}`
+				);
+				return;
+			}
 			const connection = await addAndAllow(
 				companyId,
 				entry
 					? {
 							kind: 'remote',
-							name: entry.key,
+							name,
 							endpoint: entry.endpoint,
 							source: `catalogue:${entry.key}`
 						}
-					: { kind: 'remote', name: nameForLink(request.app), endpoint: request.app }
+					: { kind: 'remote', name, endpoint: request.app }
 			);
 			if (connection.status === 'awaiting_sign_in')
 				window.location.assign(await signIn(companyId, connection.name));

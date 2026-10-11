@@ -232,12 +232,12 @@ pub(super) async fn oauth_callback(
             .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
             .take(64)
             .collect::<String>();
-        return callback_page(StatusCode::BAD_REQUEST, &format!("The provider did not complete the sign-in ({error}). Start it again from Connections."));
+        return callback_page(StatusCode::BAD_REQUEST, &format!("The provider did not complete the sign-in ({error}). Start it again from Apps."));
     }
     let (Some(code), Some(oauth_state)) = (query.code.as_deref(), query.state.as_deref()) else {
         return callback_page(
             StatusCode::BAD_REQUEST,
-            "This sign-in link is incomplete. Start it again from Connections.",
+            "This sign-in link is incomplete. Start it again from Apps.",
         );
     };
     if connections::pending_sign_in_company(oauth_state)
@@ -246,7 +246,7 @@ pub(super) async fn oauth_callback(
     {
         return callback_page(
             StatusCode::BAD_REQUEST,
-            "This sign-in link expired or was already used. Start it again from Connections.",
+            "This sign-in link expired or was already used. Start it again from Apps.",
         );
     }
     match connections::complete_sign_in(
@@ -259,8 +259,22 @@ pub(super) async fn oauth_callback(
     )
     .await
     {
-        Ok((company, _connection)) => {
-            Redirect::to(&format!("/{}/company", urlencoding_path(&company))).into_response()
+        Ok((company, name)) => {
+            // Signing in to an app the company may already use resumes the Work
+            // waiting on it. A new app lands where the owner allows it, beside
+            // the request it answers, since only then can that Work resume.
+            let request = if resolve_app_requests(&state, &company, &name).await == 0 {
+                pending_app_request(&state, &company, &name).await
+            } else {
+                None
+            };
+            Redirect::to(&format!(
+                "/{}/apps/c-{}{}",
+                urlencoding_path(&company),
+                urlencoding_path(&name),
+                request.map(|id| format!("?request={id}")).unwrap_or_default()
+            ))
+            .into_response()
         }
         Err(error) => callback_page(StatusCode::BAD_REQUEST, &format!("{error:#}")),
     }
@@ -314,18 +328,9 @@ pub(super) async fn grant(
     }
 }
 
-/// Allowing an app is the observable resume condition of every pending app
-/// request it satisfies: resolve them as an observation, so the Work resumes
-/// and the owner never reports that the sign-in is done. A failure here never
-/// undoes the grant; the request stays visible in Apps.
-async fn resolve_app_requests(state: &OwnerState, company: &str, name: &str) -> usize {
-    let Ok(connection) = connections::require(state.daemon.authority.pool(), company, name).await
-    else {
-        return 0;
-    };
-    if connection.status != "working" {
-        return 0;
-    }
+/// The names an app request may give this app: its own, its address or its
+/// catalogue key.
+fn requested_names(connection: &connections::Connection) -> Vec<String> {
     let mut names = vec![connection.name.clone()];
     if let Some(endpoint) = connection.endpoint.as_deref() {
         names.push(endpoint.to_string());
@@ -338,10 +343,29 @@ async fn resolve_app_requests(state: &OwnerState, company: &str, name: &str) -> 
     {
         names.push(key.to_string());
     }
+    names
+}
+
+/// A working, allowed app is the observable resume condition of every pending
+/// app request it satisfies, whether a grant or a later sign-in completed it:
+/// resolve them as an observation, so the Work resumes and the owner never
+/// reports that the sign-in is done. A failure here never undoes the grant;
+/// the request stays visible in Apps.
+async fn resolve_app_requests(state: &OwnerState, company: &str, name: &str) -> usize {
+    let pool = state.daemon.authority.pool();
+    let Ok(connection) = connections::require(pool, company, name).await else {
+        return 0;
+    };
+    let allowed = connections::grants(pool, company, Some(name))
+        .await
+        .is_ok_and(|grants| !grants.is_empty());
+    if connection.status != "working" || !allowed {
+        return 0;
+    }
     let Ok(org) = state.daemon.orgintel.get(company).await else {
         return 0;
     };
-    let Ok(requests) = org.app_requests_for(&names).await else {
+    let Ok(requests) = org.app_requests_for(&requested_names(&connection)).await else {
         return 0;
     };
     let mut resolved = 0;
@@ -351,7 +375,7 @@ async fn resolve_app_requests(state: &OwnerState, company: &str, name: &str) -> 
                 id,
                 "daemon",
                 &format!(
-                    "The owner added {} and allowed what the company may do with it. New sessions receive its tools.",
+                    "The owner connected {} and allowed what the company may do with it. New sessions receive its tools.",
                     connection.name
                 ),
             )
@@ -365,6 +389,19 @@ async fn resolve_app_requests(state: &OwnerState, company: &str, name: &str) -> 
         }
     }
     resolved
+}
+
+/// The oldest pending app request this app satisfies once it is allowed.
+async fn pending_app_request(state: &OwnerState, company: &str, name: &str) -> Option<Uuid> {
+    let connection = connections::require(state.daemon.authority.pool(), company, name)
+        .await
+        .ok()?;
+    let org = state.daemon.orgintel.get(company).await.ok()?;
+    org.app_requests_for(&requested_names(&connection))
+        .await
+        .ok()?
+        .into_iter()
+        .next()
 }
 
 /// Pending sign-in handoffs that name an app: Exec's requests in Apps.
