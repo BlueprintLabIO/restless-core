@@ -14,7 +14,13 @@
 		code_expires_at: string | null;
 		paired_at: string | null;
 	};
-	type Channel = { configured: boolean; paired: boolean; link?: Link; pair_url?: string };
+	type Channel = {
+		configured: boolean;
+		paired: boolean;
+		local_links: boolean;
+		link?: Link;
+		pair_url?: string;
+	};
 
 	let view = $state<Channel | null>(null);
 	let hidden = $state(false);
@@ -23,13 +29,16 @@
 	let error = $state('');
 	const endpoint = $derived(`/api/companies/${encodeURIComponent(companyId)}/telegram`);
 	const waiting = $derived(!!view?.pair_url && !view.paired);
-	/* Pairing stores this page's address for the links Telegram sends. */
+	/* Pairing stores this page's address for the links Telegram sends; once a
+	 * code is out or a chat is paired, the stored address decides. */
 	const hostname = location.hostname;
-	const local =
+	const pageLocal =
 		hostname === 'localhost' ||
 		hostname.endsWith('.localhost') ||
 		hostname === '[::1]' ||
 		/^127\.\d+\.\d+\.\d+$/.test(hostname);
+	const stored = $derived(!!view?.paired || waiting);
+	const localLinks = $derived(stored ? !!view?.local_links : pageLocal);
 
 	async function call(method: string, body?: unknown) {
 		const response = await fetch(endpoint, {
@@ -80,8 +89,8 @@
 	<Section
 		id="telegram"
 		title="Telegram"
-		info={local
-			? 'Each new Attention item arrives in Telegram, and approvals can be answered there. Its link opens only on this computer; pair from an address your phone can reach to open it there. Only the paired chat can decide.'
+		info={localLinks
+			? `Each new Attention item arrives in Telegram, and approvals can be answered there. Each item's link opens only on ${stored ? 'the computer you paired from' : 'this computer'}; pair from an address your phone can reach to open it there. Only the paired chat can decide.`
 			: 'Each new Attention item arrives in Telegram with a link back here, and approvals can be answered there. Only the paired chat can decide.'}
 	>
 		{#snippet actions()}

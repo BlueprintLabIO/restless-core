@@ -462,7 +462,8 @@ fn encode(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
 }
 
-fn loopback_origin(origin: &str) -> bool {
+/// Whether deep links to this origin open only on the computer that paired.
+pub fn loopback_origin(origin: &str) -> bool {
     match url::Url::parse(origin)
         .ok()
         .as_ref()

@@ -20,6 +20,9 @@ pub(super) struct PairInput {
 struct ChannelView {
     configured: bool,
     paired: bool,
+    /// The stored cockpit origin is a local address, so a phone cannot open
+    /// the links Telegram sends.
+    local_links: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     link: Option<telegram::Link>,
     /// One tap opens the bot with the code prefilled.
@@ -36,6 +39,9 @@ fn view(link: Option<telegram::Link>) -> ChannelView {
     ChannelView {
         configured: link.is_some(),
         paired: link.as_ref().is_some_and(|link| link.paired_at.is_some()),
+        local_links: link
+            .as_ref()
+            .is_some_and(|link| telegram::loopback_origin(&link.cockpit_origin)),
         pair_url: live_code,
         link,
     }
