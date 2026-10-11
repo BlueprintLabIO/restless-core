@@ -59,7 +59,9 @@ pub(super) async fn serve(state: OwnerState, api: Api, request: Request) -> Resp
         }
     };
     let holder = Holder { state, api, access };
-    if let Err(message) = holder.principal(&Method::GET, "/api/companies").await {
+    // Every request, initialize included, needs a token that is still valid;
+    // each tool call then checks its own route.
+    if let Err(message) = holder.token_principal().await {
         return api_error(StatusCode::FORBIDDEN, "mcp", message);
     }
     let mut config = StreamableHttpServerConfig::default();
@@ -93,13 +95,11 @@ fn unauthorized() -> Response<Body> {
 
 /// The browser boundary's decision, made for a token instead of a cookie:
 /// a local-owner token works only in local mode, a member token only while
-/// that membership is current and only on the routes a member may use.
+/// that membership is current.
 fn token_principal(
     network: bool,
     identity: Option<&VerifiedIdentity>,
     membership_current: bool,
-    method: &Method,
-    path: &str,
 ) -> Result<RequestPrincipal, String> {
     match (network, identity) {
         (false, None) => Ok(RequestPrincipal::local_owner()),
@@ -107,15 +107,20 @@ fn token_principal(
             if !membership_current {
                 return Err("this membership changed; issue a new token".into());
             }
-            let principal = RequestPrincipal::from_verified(identity)
-                .ok_or("this token has no company identity")?;
-            if let Some(refusal) = membership_boundary_violation(method, path, &principal) {
-                return Err(refusal.message.into());
-            }
-            Ok(principal)
+            RequestPrincipal::from_verified(identity)
+                .ok_or_else(|| "this token has no company identity".into())
         }
         _ => Err("this token was issued under a different entry mode; issue a new one".into()),
     }
+}
+
+/// What one call may reach: only the token's own company, and for a member
+/// only the routes a member may use.
+fn route_refusal(principal: &RequestPrincipal, method: &Method, path: &str) -> Option<String> {
+    if company_in_path(path).is_some_and(|company| !principal.permits_company(company)) {
+        return Some("this token is not for that company".into());
+    }
+    membership_boundary_violation(method, path, principal).map(|refusal| refusal.message.into())
 }
 
 #[derive(Clone)]
@@ -135,6 +140,15 @@ impl Holder {
     /// The token holder's principal for this exact request, decided the way
     /// the browser boundary decides it.
     async fn principal(&self, method: &Method, path: &str) -> Result<RequestPrincipal, String> {
+        let principal = self.token_principal().await?;
+        match route_refusal(&principal, method, path) {
+            Some(refusal) => Err(refusal),
+            None => Ok(principal),
+        }
+    }
+
+    /// The token holder's principal, while the token is still valid.
+    async fn token_principal(&self) -> Result<RequestPrincipal, String> {
         let current = match (&self.state.entry, &self.access.identity) {
             (EntryMode::Network(_), Some(identity)) => {
                 match network_session_is_current(&self.state, identity).await {
@@ -151,8 +165,6 @@ impl Holder {
             self.state.entry.network().is_some(),
             self.access.identity.as_ref(),
             current,
-            method,
-            path,
         )
     }
 
@@ -231,10 +243,19 @@ impl Holder {
         };
         match name {
             "list_companies" => {
-                let value = self
-                    .call_api(Method::GET, "/companies", ApiBody::Empty)
-                    .await?;
-                Ok(value)
+                let principal = self.token_principal().await?;
+                match principal.scoped_company() {
+                    // The catalog carries the owner's models and spend; a
+                    // member reaches only the company of their membership.
+                    Some(company) if principal.membership_role() != "owner" => {
+                        let name = runtime::CompanyConfig::load(&self.state.daemon.root, company)
+                            .ok()
+                            .and_then(|config| config.display_name)
+                            .unwrap_or_else(|| company_display_name(company));
+                        Ok(serde_json::json!([{ "id": company, "name": name }]))
+                    }
+                    _ => self.call_api(Method::GET, "/companies", ApiBody::Empty).await,
+                }
             }
             "inbox" => {
                 let view = self
@@ -552,45 +573,49 @@ mod tests {
     #[test]
     fn a_member_token_reaches_only_what_the_member_may_do() {
         let ann = member();
-        let talk = token_principal(
-            true,
-            Some(&ann),
-            true,
-            &Method::POST,
-            "/api/companies/acme/actors/exec/conversation",
-        )
-        .expect("a member may talk to Exec");
-        assert_eq!(talk.actor_id(), "ann");
-        assert!(!talk.permits_company("other"));
-
+        // serve() admits every request, initialize included, on this alone.
+        let principal =
+            token_principal(true, Some(&ann), true).expect("a current member's token is valid");
+        assert_eq!(principal.actor_id(), "ann");
+        assert!(
+            route_refusal(
+                &principal,
+                &Method::POST,
+                "/api/companies/acme/actors/exec/conversation"
+            )
+            .is_none(),
+            "a member may talk to Exec"
+        );
         for (method, path) in [
+            (Method::GET, "/api/companies"),
             (Method::GET, "/api/companies/acme/attention"),
             (Method::POST, "/api/companies/acme/approvals/grant"),
+            (Method::POST, "/api/companies/other/actors/exec/conversation"),
         ] {
             assert!(
-                token_principal(true, Some(&ann), true, &method, path).is_err(),
-                "{method} {path} is an owner operation"
+                route_refusal(&principal, &method, path).is_some(),
+                "{method} {path} is beyond a member of acme"
             );
         }
         assert!(
-            token_principal(
-                true,
-                Some(&ann),
-                false,
-                &Method::GET,
-                "/api/companies/acme/actors/exec/conversation"
-            )
-            .is_err(),
+            token_principal(true, Some(&ann), false).is_err(),
             "a removed or changed membership stops the token"
         );
     }
 
     #[test]
+    fn a_company_owner_token_stays_in_its_company() {
+        let mut owner = member();
+        owner.role = "owner".into();
+        let principal = token_principal(true, Some(&owner), true).unwrap();
+        assert!(route_refusal(&principal, &Method::GET, "/api/companies/acme/attention").is_none());
+        assert!(route_refusal(&principal, &Method::GET, "/api/companies/other/attention").is_some());
+    }
+
+    #[test]
     fn a_token_works_only_in_the_entry_mode_it_was_issued_in() {
-        assert!(token_principal(false, None, false, &Method::GET, "/api/companies").is_ok());
-        assert!(token_principal(true, None, true, &Method::GET, "/api/companies").is_err());
-        assert!(
-            token_principal(false, Some(&member()), true, &Method::GET, "/api/companies").is_err()
-        );
+        assert!(token_principal(false, None, false).is_ok());
+        assert!(token_principal(true, None, true).is_err());
+        assert!(token_principal(false, Some(&member()), true).is_err());
     }
 }

@@ -13,9 +13,11 @@ A token speaks for exactly the person who made it:
 - Only a SHA-256 of the token is stored, in the Authority store (`mcp_access_tokens`).
 - Every call rebuilds that person's principal. In network mode the membership is re-checked with the
   same `network_session_is_current` the browser session uses, and the request passes the same
-  `membership_boundary_violation` rule. A removed or changed member's token stops at once.
+  company scope and `membership_boundary_violation` rule. A removed or changed member's token stops
+  at once. Opening the endpoint needs only a current token; each tool call is checked on its route.
 - Each tool is served by the existing owner API handler through the API router, so role checks live
-  in one place. A member can talk to Exec but cannot read the Inbox or decide approvals.
+  in one place. A member can talk to Exec but cannot read the Inbox or decide approvals, and
+  `list_companies` answers a member with their own company rather than the owner's catalog.
 - A local-owner token works only in local mode, and a member token only in network mode.
 - Requests carrying `Origin` are refused, so a browser page cannot spend a token.
 
