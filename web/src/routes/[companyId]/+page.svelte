@@ -609,6 +609,7 @@
 					<a
 						class="review-outcome-action"
 						href={reviewSaveHref}
+						download
 						title="Download the file"
 						aria-label="Download the file"><Download size={15} strokeWidth={1.9} /></a
 					>
@@ -645,7 +646,7 @@
 								? 'Browsers cannot show PowerPoint files. Download it to review it in PowerPoint or Keynote.'
 								: 'Browsers cannot show this kind of file. Download it to review it on your computer.'}
 						</p>
-						<a href={reviewSaveHref}>Download file</a>
+						<a href={reviewSaveHref} download>Download file</a>
 					</div>
 				{:else if reviewUrl && reviewIsPdf && compactScreen}
 					<div class="review-download">

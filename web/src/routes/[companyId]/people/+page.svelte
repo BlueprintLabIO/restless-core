@@ -269,7 +269,10 @@
 		if (!window.matchMedia('(min-width: 761px)').matches) return;
 		/* Reopen the latest conversation; with none yet, the welcome invites the first one. */
 		const latest = rows[0]?.person;
-		if (latest) void goto(href(latest), { replaceState: true, noScroll: true, keepFocus: true });
+		if (latest)
+			goto(href(latest), { replaceState: true, noScroll: true, keepFocus: true }).catch(() => {
+				/* A navigation the owner started meanwhile wins. */
+			});
 	});
 	/* A hit opens its room at the message, the Exec's and leads' included: the room view pages
 	 * back through the whole history to find it, where the rail holds only the recent end. */

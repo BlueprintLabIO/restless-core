@@ -293,8 +293,11 @@
 	);
 	let fileActionFailure = $state('');
 	/* A live site has nothing to save; only a file in the company home downloads. */
-	const savable = (id: string) =>
-		files.find((candidate) => candidate.id === id)?.uri.startsWith('/company/') ?? false;
+	const savable = (id: string) => {
+		const file = files.find((candidate) => candidate.id === id);
+		/* A live site is opened, not saved: its ticket names only the entry page. */
+		return !!file && file.uri.startsWith('/company/') && file.kind !== 'site';
+	};
 	/* Save a file without opening it: a fresh ticket, asked for as a download. */
 	async function downloadFile(id: string) {
 		const file = files.find((candidate) => candidate.id === id);

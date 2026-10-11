@@ -105,7 +105,13 @@
 	/* A kept file is read from a local copy, which downloads as it is; a ticket asks for its file.
 	 * Only a file saves; a live site's ticket would just navigate the cockpit to the site. */
 	const savedHref = $derived(
-		!url ? '' : resolve ? url : file.uri.startsWith('/company/') ? downloadHref(url) : ''
+		!url
+			? ''
+			: resolve
+				? url
+				: file.uri.startsWith('/company/') && file.kind !== 'site'
+					? downloadHref(url)
+					: ''
 	);
 	/* A phone's browser frames a PDF badly or not at all; it opens on its own instead. */
 	let phone = $state(false);
@@ -236,7 +242,7 @@
 			<a
 				class="btn small icon"
 				href={savedHref}
-				download={resolve ? file.label : undefined}
+				download={resolve ? file.label : ''}
 				title={`Download ${file.name}`}
 				aria-label={`Download ${file.name}`}><Download size={15} strokeWidth={1.9} /></a
 			>
@@ -294,7 +300,7 @@
 						: 'Browsers cannot show this kind of file. Download it to open it on your computer.'}
 				</p>
 				<a class="btn small primary" href={savedHref}
-				download={resolve ? file.label : undefined}
+				download={resolve ? file.label : ''}
 					><Download size={14} strokeWidth={1.9} aria-hidden="true" />Download {file.name}</a
 				>
 			</div>
@@ -306,7 +312,7 @@
 						><ExternalLink size={14} strokeWidth={1.9} aria-hidden="true" />Open the PDF</a
 					>
 					<a class="btn small" href={savedHref}
-				download={resolve ? file.label : undefined}
+				download={resolve ? file.label : ''}
 						><Download size={14} strokeWidth={1.9} aria-hidden="true" />Download</a
 					>
 				</div>

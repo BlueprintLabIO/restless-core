@@ -1,5 +1,7 @@
 import type { Action } from 'svelte/action';
 
+const REVIEW_TICKET_HOST = /^[0-9a-f]{32}\.localhost$/;
+
 type CompanyBrowserLinksOptions = {
 	open: (url: string) => void;
 };
@@ -20,6 +22,9 @@ export const companyBrowserLinks: Action<HTMLElement, CompanyBrowserLinksOptions
 			return;
 		}
 		if (!/^https?:$/.test(destination.protocol) || destination.origin === window.location.origin) return;
+		/* A file the cockpit opened for the owner lives on its own read-only ticket origin on this
+		 * host (`<ticket>.localhost`); the company computer cannot reach it, so it opens here. */
+		if (REVIEW_TICKET_HOST.test(destination.hostname)) return;
 		event.preventDefault();
 		options.open(destination.href);
 	}

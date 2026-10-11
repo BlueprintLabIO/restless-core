@@ -77,7 +77,7 @@
 			<p class="office-failure">{failure}</p>
 			<div class="office-actions">
 				<button class="btn small" type="button" onclick={() => (attempt += 1)}>Try again</button>
-				{#if downloadHref}<a class="btn small primary" href={downloadHref}>Download {name}</a>{/if}
+				{#if downloadHref}<a class="btn small primary" href={downloadHref} download>Download {name}</a>{/if}
 			</div>
 		</div>
 	{:else if loading && format === 'docx'}
