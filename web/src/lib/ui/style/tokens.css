@@ -35,6 +35,7 @@
 	--t-hero: clamp(26px, 2.6vw, 34px); /* zero states, the door, the portfolio */
 	--t-calm: clamp(34px, 4.8vw, 66px); /* one question at a time: meeting a new owner */
 	--t-mark: 16px; /* the wordmark: a brand asset, not a ramp step */
+	--t-field-touch: 16px; /* the least a field may be on touch: iOS zooms the page into smaller */
 	--track-label: 0.07em;
 }
 

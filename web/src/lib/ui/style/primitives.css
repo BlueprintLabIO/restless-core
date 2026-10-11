@@ -596,6 +596,18 @@
 :where(:is(.bridge-root, .bridge-tokens)) :where(input, textarea, select)::placeholder {
 	color: var(--text-tertiary);
 }
+/* On touch, iOS zooms the whole page into any field set under 16px and leaves it zoomed. This
+ * floor is the one place a field's own size is overruled; no field is set larger than it. */
+@media (pointer: coarse) {
+	:is(.bridge-root, .bridge-tokens)
+		:is(
+			input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']),
+			textarea,
+			select
+		) {
+		font-size: var(--t-field-touch) !important;
+	}
+}
 
 /* A quiet action beside a primary one: Cancel, Not now. Same size, no frame. */
 :is(.bridge-root, .bridge-tokens) .btn.ghost {
