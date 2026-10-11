@@ -1,4 +1,5 @@
 import type { MoneyEnvelope } from './cockpit';
+import { getApplianceStatus } from './appliance';
 import { ownerJson } from './failure.ts';
 
 export type CompanySourceStatus = 'available' | 'unavailable' | 'stale' | 'absent';
@@ -322,6 +323,21 @@ export async function reviseCompanyCharter(
 			credentials: 'same-origin'
 		})
 	);
+}
+
+/** On Cloud the account owns a company's name, so a rename is made there first; the caller then
+ * saves the plane's copy, which the cockpit shows. Locally the plane's copy is the name. */
+export async function renameInAccount(company: string, name: string): Promise<void> {
+	if (!(await getApplianceStatus()).hosted) return;
+	const response = await fetch('/account/company-name', {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		credentials: 'same-origin',
+		body: JSON.stringify({ company, name })
+	});
+	if (response.ok) return;
+	const body = await response.json().catch(() => null);
+	throw new Error(body?.error ?? 'The name was not saved. Try again.');
 }
 
 export async function setCompanyHarnesses(

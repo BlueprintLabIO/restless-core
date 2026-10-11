@@ -4831,13 +4831,6 @@ async fn update_company_setup(
     AxumPath(company): AxumPath<String>,
     Json(input): Json<CompanySetupInput>,
 ) -> Response<Body> {
-    if state.entry.network().is_some() {
-        return api_error(
-            StatusCode::FORBIDDEN,
-            "company_setup",
-            "Hosted model configuration is managed by your account provider.",
-        );
-    }
     let _write = state.charter_writes.lock().await;
     let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
@@ -4856,6 +4849,27 @@ async fn update_company_setup(
         || input.mission.len() > 4000
     {
         return api_error(StatusCode::BAD_REQUEST, "company_setup", "Enter a company name (up to 120 characters), purpose (up to 4,000), and model (up to 200).");
+    }
+    if state.entry.network().is_some() {
+        // On Cloud the account owns the name and the model setup. The cockpit renames the company
+        // in the account first, then saves the same name here as the plane's shown copy, which
+        // the next entry would otherwise bring; nothing else changes here.
+        if input.mission != config.mission || input.model != config.model {
+            return api_error(
+                StatusCode::FORBIDDEN,
+                "company_setup",
+                "Hosted model configuration is managed by your account provider.",
+            );
+        }
+        config.display_name = Some(input.display_name.trim().to_string());
+        return match runtime::CompanyConfig::save(&state.daemon.root, &config) {
+            Ok(()) => Json(company_setup_view(&config)).into_response(),
+            Err(error) => api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "company_setup",
+                format!("Settings could not be saved: {error:#}"),
+            ),
+        };
     }
     if input.mission != config.mission {
         if let Err(error) = authority::validate_mandate(&input.mission) {

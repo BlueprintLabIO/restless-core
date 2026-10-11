@@ -15,8 +15,7 @@
 		conversationQuery
 	} from '$lib/model/queries.svelte';
 	import { excerptOf } from '$lib/model/open-question';
-	import { reviseCompanyCharter } from '$lib/model/company';
-	import { getApplianceStatus } from '$lib/model/appliance';
+	import { renameInAccount, reviseCompanyCharter } from '$lib/model/company';
 	import { failureSentence } from '$lib/model/failure';
 	import type { ReadbackLine } from '$lib/model/generated/conversation';
 
@@ -167,17 +166,13 @@
 		}
 	}
 
-	/* The name: Fleet owns it on Cloud; locally it is part of the company's setup. A name that
-	 * cannot be saved yet is not worth stopping for: the charter carries it. */
+	/* The name: Fleet owns it on Cloud and is renamed first; the company's setup keeps the copy
+	 * the cockpit shows. A name that cannot be saved yet is not worth stopping for: the charter
+	 * carries it. */
 	async function rename(name: string) {
-		const appliance = await getApplianceStatus().catch(() => null);
-		if (appliance?.hosted) {
-			await fetch('/account/company-name', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				credentials: 'same-origin',
-				body: JSON.stringify({ company: companyId, name })
-			}).catch(() => null);
+		try {
+			await renameInAccount(companyId, name);
+		} catch {
 			return;
 		}
 		const endpoint = `/api/companies/${encodeURIComponent(companyId)}/setup`;

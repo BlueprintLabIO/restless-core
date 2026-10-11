@@ -3,6 +3,7 @@
 	import { failureSentence } from '$lib/model/failure';
 	import { onMount } from 'svelte';
 	import { getCompanies, type CompanyCatalogEntry } from '$lib/model/cockpit';
+	import { renameInAccount } from '$lib/model/company';
 
 	type Change = {
 		label?: string;
@@ -92,6 +93,9 @@
 		busy = true;
 		error = '';
 		try {
+			// On Cloud the account owns the name, so the copied name is given to it first.
+			if (kind === 'apply' && setting === 'name')
+				await renameInAccount(companyId, String(preview?.sections[0]?.changes[0]?.to ?? ''));
 			const response = await fetch(
 				`/api/companies/${encodeURIComponent(companyId)}/copy-setup${kind === 'preview' ? '/preview' : ''}`,
 				{
