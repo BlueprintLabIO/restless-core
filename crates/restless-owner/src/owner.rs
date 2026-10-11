@@ -9942,6 +9942,16 @@ async fn open_browser_link(
             "client_id must be a UUID",
         );
     }
+    // A sign-in link the owner opens is demand: a computer that slept while waiting wakes for it.
+    if !restless_engine::runtime_sleep::wake_for(&state.daemon, &company, "the owner opened a link")
+        .await
+    {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "runtime",
+            "The company computer is stopped, so this link cannot be opened. Start it from Company → Computer.",
+        );
+    }
     let current = match runtime::generation(&company).await {
         Ok(Some(generation)) => generation,
         _ => {
