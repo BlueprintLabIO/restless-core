@@ -103,6 +103,21 @@ pub(crate) async fn issue_ticket(
             "client_id must be a UUID",
         );
     }
+    // Opening the computer is the owner's own demand: one that fell asleep wakes for it, before
+    // its generation is read. One the owner stopped stays stopped, and says so in a sentence.
+    if !restless_engine::runtime_sleep::wake_for(
+        &state.daemon,
+        &company,
+        "the owner opened the computer",
+    )
+    .await
+    {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "runtime",
+            "The company computer is not running, so it cannot be opened. Company → Health shows how to start it.",
+        );
+    }
     let current = match runtime::generation(&company).await {
         Ok(Some(generation)) => generation,
         _ => {

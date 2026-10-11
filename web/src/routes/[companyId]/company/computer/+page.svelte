@@ -65,6 +65,12 @@
 
 	const runtimeBrowser = $derived(view?.computer.runtime?.browser ?? null);
 	const canAttach = $derived(runtimeBrowser?.status === 'available');
+	/* Asleep is designed, not broken: asking to enter wakes it. */
+	const asleep = $derived(!canAttach && view?.limits.runtime.asleep === true);
+	const enterLabel = $derived.by(() => {
+		if (working === 'attach') return asleep ? 'Waking…' : 'Connecting…';
+		return asleep ? 'Wake and enter' : 'Enter computer';
+	});
 	const controllerLabel = $derived.by(() => {
 		if (working === 'control') return 'Taking control…';
 		if (controller === 'owner') return 'You control';
@@ -308,6 +314,8 @@
 
 	async function closeFocus() {
 		if (controller === 'owner') await returnControl();
+		// Entering may have woken the computer: read it again so the entrance does not say asleep.
+		void source.refresh();
 		await morphTo(`/${companyId}/company/computer`);
 	}
 
@@ -467,19 +475,24 @@
 						<Monitor size={28} strokeWidth={1.45} />
 					</div>
 					<h1>Computer</h1>
-					<div class="computer-portal-controller">
+					<div
+						class="computer-portal-controller"
+						title={asleep
+							? 'It sleeps when nothing needs it, and wakes for messages, ready work and due schedules.'
+							: undefined}
+					>
 						<span class="source-lamp status-{canAttach ? 'live' : 'stale'}" aria-hidden="true"
 						></span>
-						{controllerLabel}
+						{asleep ? 'Asleep' : controllerLabel}
 					</div>
-					{#if canAttach}
+					{#if canAttach || asleep}
 						<button
 							class="computer-enter"
 							type="button"
 							disabled={!!working || !clientId}
 							onclick={() => attachDesktop()}
 						>
-							<span>{working === 'attach' ? 'Connecting…' : 'Enter computer'}</span>
+							<span>{enterLabel}</span>
 							<ArrowUpRight size={16} strokeWidth={2} aria-hidden="true" />
 						</button>
 						<p>

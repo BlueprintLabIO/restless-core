@@ -1539,22 +1539,30 @@ fn company_doctor(
             .into(),
             detail: None,
         });
-        checks.push(service_check(doctor));
-        checks.push(browser_check(doctor));
-        checks.push(coordination_check(doctor));
-        for (id, label, tool) in [
-            ("document_tools", "Document commands", "document"),
-            ("room_tools", "Room commands", "room"),
-        ] {
-            let installed = doctor
-                .collaboration_tools
-                .iter()
-                .any(|probe| probe.tool == tool && probe.installed);
-            checks.push(DoctorCheck {
-                id, label, source: "runtime", status: if installed { "available" } else { "unavailable" },
-                summary: if installed { "Installed." } else { "Could not be checked." }.into(),
-                detail: Some("Checks the installation only, not agent permissions, editing, delivery or model replies.".into()),
-            });
+        // These probes run only on a running computer. One that is asleep, stopped or not created
+        // yet is described once, by the Company computer check, not as five checks that failed.
+        if let (Some(supervisor), Some(browser), Some(coordination)) = (
+            doctor.supervisor.as_ref(),
+            doctor.browser.as_ref(),
+            doctor.coordination.as_ref(),
+        ) {
+            checks.push(service_check(supervisor));
+            checks.push(browser_check(browser));
+            checks.push(coordination_check(coordination));
+            for (id, label, tool) in [
+                ("document_tools", "Document commands", "document"),
+                ("room_tools", "Room commands", "room"),
+            ] {
+                let installed = doctor
+                    .collaboration_tools
+                    .iter()
+                    .any(|probe| probe.tool == tool && probe.installed);
+                checks.push(DoctorCheck {
+                    id, label, source: "runtime", status: if installed { "available" } else { "unavailable" },
+                    summary: if installed { "Installed." } else { "Could not be checked." }.into(),
+                    detail: Some("Checks the installation only, not agent permissions, editing, delivery or model replies.".into()),
+                });
+            }
         }
     } else {
         checks.push(DoctorCheck {
@@ -1581,99 +1589,69 @@ fn company_doctor(
     }
 }
 
-fn service_check(doctor: &runtime::RuntimeDoctor) -> DoctorCheck {
-    match doctor.supervisor.as_ref() {
-        Some(supervisor) => DoctorCheck {
-            id: "supervisor",
-            label: "Company services",
-            source: "runtime",
-            status: if supervisor.status == "available" {
-                "healthy"
-            } else {
-                "degraded"
-            },
-            summary: if supervisor.status == "available" {
-                format!(
-                    "{} supervised services are running.",
-                    supervisor.services.len()
-                )
-            } else {
-                "One or more supervised services are not healthy.".into()
-            },
-            detail: None,
+fn service_check(supervisor: &runtime::SupervisorDoctor) -> DoctorCheck {
+    DoctorCheck {
+        id: "supervisor",
+        label: "Company services",
+        source: "runtime",
+        status: if supervisor.status == "available" {
+            "healthy"
+        } else {
+            "degraded"
         },
-        None => DoctorCheck {
-            id: "supervisor",
-            label: "Company services",
-            source: "runtime",
-            status: "unavailable",
-            summary: "Cannot be checked while the company computer is stopped.".into(),
-            detail: None,
+        summary: if supervisor.status == "available" {
+            format!(
+                "{} supervised services are running.",
+                supervisor.services.len()
+            )
+        } else {
+            "One or more supervised services are not healthy.".into()
         },
+        detail: None,
     }
 }
 
-fn browser_check(doctor: &runtime::RuntimeDoctor) -> DoctorCheck {
-    match doctor.browser.as_ref() {
-        Some(browser) => DoctorCheck {
-            id: "browser",
-            label: "Browser and desktop",
-            source: "runtime",
-            status: if browser.status == "available" {
-                "healthy"
-            } else {
-                "degraded"
-            },
-            summary: if browser.status == "available" {
-                format!(
-                    "Persistent browser and desktop are available; controller is {}.",
-                    browser.controller
-                )
-            } else {
-                "The persistent browser or desktop transport is degraded.".into()
-            },
-            detail: Some(format!(
-                "desktop {}, browser {}, automation {}, transport {}",
-                browser.desktop, browser.chromium, browser.automation, browser.web_transport
-            )),
+fn browser_check(browser: &runtime::BrowserDoctor) -> DoctorCheck {
+    DoctorCheck {
+        id: "browser",
+        label: "Browser and desktop",
+        source: "runtime",
+        status: if browser.status == "available" {
+            "healthy"
+        } else {
+            "degraded"
         },
-        None => DoctorCheck {
-            id: "browser",
-            label: "Browser and desktop",
-            source: "runtime",
-            status: "unavailable",
-            summary: "Cannot be checked while the company computer is stopped.".into(),
-            detail: None,
+        summary: if browser.status == "available" {
+            format!(
+                "Persistent browser and desktop are available; controller is {}.",
+                browser.controller
+            )
+        } else {
+            "The persistent browser or desktop transport is degraded.".into()
         },
+        detail: Some(format!(
+            "desktop {}, browser {}, automation {}, transport {}",
+            browser.desktop, browser.chromium, browser.automation, browser.web_transport
+        )),
     }
 }
 
-fn coordination_check(doctor: &runtime::RuntimeDoctor) -> DoctorCheck {
-    match doctor.coordination.as_ref() {
-        Some(coordination) => DoctorCheck {
-            id: "coordination",
-            label: "Agent connection",
-            source: "runtime",
-            status: if coordination.status == "available" {
-                "healthy"
-            } else {
-                "degraded"
-            },
-            summary: if coordination.status == "available" {
-                "Agents can reach company coordination.".into()
-            } else {
-                "Agents can't reach company coordination right now. Files and work already running are unaffected.".into()
-            },
-            detail: coordination.detail.clone(),
+fn coordination_check(coordination: &runtime::CoordinationDoctor) -> DoctorCheck {
+    DoctorCheck {
+        id: "coordination",
+        label: "Agent connection",
+        source: "runtime",
+        status: if coordination.status == "available" {
+            "healthy"
+        } else {
+            "degraded"
         },
-        None => DoctorCheck {
-            id: "coordination",
-            label: "Agent connection",
-            source: "runtime",
-            status: "unavailable",
-            summary: "Cannot be checked while the company computer is stopped.".into(),
-            detail: None,
+        summary: if coordination.status == "available" {
+            "Agents can reach company coordination.".into()
+        } else {
+            "Agents can't reach company coordination right now. Files and work already running are unaffected.".into()
         },
+        detail: coordination.detail.clone(),
     }
 }
 
