@@ -167,6 +167,7 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
             .acquire_metered_turn(
                 &run.company,
                 crate::spend::MeteredTurnHolder::Staff,
+                &auth.session_id,
                 billing,
                 run.spend_ceiling,
             )
@@ -1029,6 +1030,7 @@ impl StaffDrive {
             .acquire_metered_turn(
                 &self.company,
                 crate::spend::MeteredTurnHolder::Staff,
+                &repair_auth.session_id,
                 repair_auth.billing,
                 self.spend_ceiling,
             )

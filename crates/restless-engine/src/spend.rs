@@ -58,7 +58,9 @@ type Path2 = std::path::PathBuf;
 const METERED_STAFF_CONCURRENCY: usize = 4;
 
 /// Charged sessions that may share one company envelope at once: the Staff
-/// slots plus the singleton Exec's own slot.
+/// slots plus the singleton Exec's own slot. Every session's spend cap is one
+/// fifth of the remaining balance, even when it runs alone, so Exec's share is
+/// always left for the owner's conversation.
 const METERED_TURN_SLOTS: u64 = METERED_STAFF_CONCURRENCY as u64 + 1;
 
 /// Whose charged session asks for admission. Exec answers the owner, so it
@@ -73,7 +75,17 @@ pub enum MeteredTurnHolder {
 struct MeteredTurnLane {
     staff_permits: Arc<tokio::sync::Semaphore>,
     exec_permit: Arc<tokio::sync::Semaphore>,
-    reserved_micro_usd: Mutex<u64>,
+    reservations: Mutex<Vec<Reservation>>,
+}
+
+/// What one live permit may still spend. The relay's charges against its
+/// model session shrink it as they land, so money already accounted is never
+/// also held back from other sessions.
+struct Reservation {
+    id: Uuid,
+    holder: MeteredTurnHolder,
+    session_id: String,
+    unspent_micro_usd: u64,
 }
 
 impl MeteredTurnLane {
@@ -81,18 +93,19 @@ impl MeteredTurnLane {
         Self {
             staff_permits: Arc::new(tokio::sync::Semaphore::new(METERED_STAFF_CONCURRENCY)),
             exec_permit: Arc::new(tokio::sync::Semaphore::new(1)),
-            reserved_micro_usd: Mutex::new(0),
+            reservations: Mutex::new(Vec::new()),
         }
     }
 }
 
 /// An ephemeral share of the company's currently uncommitted model envelope.
-/// Dropping it returns unused headroom and releases one concurrency slot. The
-/// provider's exact terminal charge is recorded separately before callers
+/// Dropping it returns the unspent part and releases one concurrency slot.
+/// The provider's exact terminal charge is recorded separately before callers
 /// drop this guard.
 pub struct MeteredTurnPermit {
     _permit: tokio::sync::OwnedSemaphorePermit,
     lane: Arc<MeteredTurnLane>,
+    id: Uuid,
     reserved_micro_usd: u64,
 }
 
@@ -110,12 +123,11 @@ impl MeteredTurnPermit {
 
 impl Drop for MeteredTurnPermit {
     fn drop(&mut self) {
-        let mut reserved = self
-            .lane
-            .reserved_micro_usd
+        self.lane
+            .reservations
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        *reserved = reserved.saturating_sub(self.reserved_micro_usd);
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .retain(|reservation| reservation.id != self.id);
     }
 }
 
@@ -243,7 +255,9 @@ impl TurnMeter {
                 request_id = %record.request_id,
                 "turn spend record failed; company poisoned fail-closed"
             );
+            return;
         }
+        self.ledger.settle_reservation(&record);
     }
 
     /// Preserve one exact request-local uncertainty. It stops later charged
@@ -448,13 +462,16 @@ impl SpendLedger {
     /// Admit one of at most four same-company Staff sessions, or the
     /// company's one Exec session, and reserve it an equal share of the
     /// uncommitted envelope. A fifth Staff session waits for a Staff slot;
-    /// Exec never waits behind Staff. Concurrent callers cannot each inherit
-    /// the same full remaining balance. Subscription routes have no
+    /// Exec never waits behind Staff, and Staff never take Exec's share.
+    /// Concurrent callers cannot each inherit the same full remaining
+    /// balance. `session_id` is the model session the relay charges, so its
+    /// spend shrinks this reservation. Subscription routes have no
     /// authoritative charged cost and deliberately bypass this pool.
     pub async fn acquire_metered_turn(
         &self,
         company: &str,
         holder: MeteredTurnHolder,
+        session_id: &str,
         billing: ModelBilling,
         ceiling: SpendCeiling,
     ) -> Option<MeteredTurnPermit> {
@@ -480,31 +497,85 @@ impl SpendLedger {
             .acquire_owned()
             .await
             .expect("metered turn lane is never closed");
-        let remaining = self
-            .budget_state_for(company, ceiling)
-            .remaining_micro_usd()
-            .unwrap_or_default();
+        let id = Uuid::new_v4();
         let reserved_micro_usd = {
-            let mut reserved = lane
-                .reserved_micro_usd
+            let mut reservations = lane
+                .reservations
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let uncommitted = remaining.saturating_sub(*reserved);
+            // Read the balance under the lock. A relay charge lowers it before
+            // shrinking its session's reservation, so a charge is never seen
+            // as both spent and still free.
+            let remaining = self
+                .budget_state_for(company, ceiling)
+                .remaining_micro_usd()
+                .unwrap_or_default();
+            let unspent = reservations
+                .iter()
+                .map(|reservation| reservation.unspent_micro_usd)
+                .sum::<u64>();
+            let uncommitted = remaining.saturating_sub(unspent);
             // Each slot may hold at most one fifth of the currently
             // remaining envelope. Cap again by uncommitted headroom so races
             // between concurrent acquirers cannot duplicate a share (for
             // example 10 -> 2+2+2+2+2 regardless of lock acquisition order).
             let slots = METERED_TURN_SLOTS;
             let fair_share = remaining.saturating_add(slots.saturating_sub(1)) / slots;
-            let share = fair_share.min(uncommitted);
-            *reserved = reserved.saturating_add(share);
+            // While Exec is idle, Staff leave its share uncommitted, so Staff
+            // turns that replace one another cannot spend what the owner's
+            // next conversation needs.
+            let exec_running = reservations
+                .iter()
+                .any(|reservation| reservation.holder == MeteredTurnHolder::Exec);
+            let held_for_exec = if holder == MeteredTurnHolder::Staff && !exec_running {
+                fair_share
+            } else {
+                0
+            };
+            let share = fair_share.min(uncommitted.saturating_sub(held_for_exec));
+            reservations.push(Reservation {
+                id,
+                holder,
+                session_id: session_id.to_string(),
+                unspent_micro_usd: share,
+            });
             share
         };
         Some(MeteredTurnPermit {
             _permit: permit,
             lane,
+            id,
             reserved_micro_usd,
         })
+    }
+
+    /// The relay has accounted this charge, so the live permit that admitted
+    /// its session no longer holds that money back from other sessions.
+    fn settle_reservation(&self, record: &SpendRecord) {
+        if record.cost_micro_usd == 0 {
+            return;
+        }
+        let Some(lane) = self
+            .metered_turn_lanes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(&record.company_id)
+            .cloned()
+        else {
+            return;
+        };
+        let mut reservations = lane
+            .reservations
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(reservation) = reservations
+            .iter_mut()
+            .find(|reservation| reservation.session_id == record.session_id)
+        {
+            reservation.unspent_micro_usd = reservation
+                .unspent_micro_usd
+                .saturating_sub(record.cost_micro_usd);
+        }
     }
 
     /// What this company has spent so far, in USD. Shown to the agent so it can
@@ -903,6 +974,28 @@ mod tests {
         std::fs::remove_dir_all(&root).unwrap();
     }
 
+    /// The relay's exact charge for one supervised model session.
+    fn relay_charge(company: &str, session: &str, cost_micro_usd: u64) -> SpendRecord {
+        SpendRecord {
+            request_id: Uuid::new_v4(),
+            company_id: company.into(),
+            model: "openai/test".into(),
+            input_tokens: 0,
+            output_tokens: 0,
+            total_tokens: 10,
+            cached_input_tokens: None,
+            cost_micro_usd,
+            actor_id: "worker".into(),
+            session_id: session.into(),
+            responsibility: "work".into(),
+            work_id: None,
+            attempt_id: None,
+            settlement: SpendSettlement::Accounted,
+            native: None,
+            occurred_at: Utc::now(),
+        }
+    }
+
     #[tokio::test]
     async fn charged_turns_reserve_one_envelope_across_staff_slots_and_exec() {
         use MeteredTurnHolder::{Exec, Staff};
@@ -912,16 +1005,24 @@ mod tests {
         ));
         assert!(!root.exists(), "test spend root must be fresh");
         let ledger = Arc::new(SpendLedger::open(&root).unwrap());
+        let meter = ledger.meter();
         let ceiling = SpendCeiling::from_micro_usd(10_000_000);
+        let metered = ModelBilling::MeteredApi;
 
         let first = ledger
-            .acquire_metered_turn("same-company", Staff, ModelBilling::MeteredApi, ceiling)
+            .acquire_metered_turn("same-company", Staff, "staff-1", metered, ceiling)
             .await
             .expect("metered routes acquire a lane");
         assert_eq!(first.allowance_micro_usd(), 2_000_000);
         assert!(
             ledger
-                .acquire_metered_turn("same-company", Staff, ModelBilling::Subscription, ceiling)
+                .acquire_metered_turn(
+                    "same-company",
+                    Staff,
+                    "staff-subscription",
+                    ModelBilling::Subscription,
+                    ceiling,
+                )
                 .await
                 .is_none(),
             "subscription routes do not take the charged lane"
@@ -929,29 +1030,29 @@ mod tests {
 
         let another_company = tokio::time::timeout(
             Duration::from_millis(100),
-            ledger.acquire_metered_turn("other-company", Staff, ModelBilling::MeteredApi, ceiling),
+            ledger.acquire_metered_turn("other-company", Staff, "other-1", metered, ceiling),
         )
         .await
         .expect("a different company is not blocked")
         .expect("metered routes acquire a lane");
 
         let second = ledger
-            .acquire_metered_turn("same-company", Staff, ModelBilling::MeteredApi, ceiling)
+            .acquire_metered_turn("same-company", Staff, "staff-2", metered, ceiling)
             .await
             .expect("second metered route acquires a lane");
         let third = ledger
-            .acquire_metered_turn("same-company", Staff, ModelBilling::MeteredApi, ceiling)
+            .acquire_metered_turn("same-company", Staff, "staff-3", metered, ceiling)
             .await
             .expect("third metered route acquires a lane");
         let fourth = ledger
-            .acquire_metered_turn("same-company", Staff, ModelBilling::MeteredApi, ceiling)
+            .acquire_metered_turn("same-company", Staff, "staff-4", metered, ceiling)
             .await
             .expect("fourth metered route acquires a lane");
         // Four long Staff sessions once held every slot, and the owner's
         // Exec turn queued behind them with no bound.
         let exec = tokio::time::timeout(
             Duration::from_millis(100),
-            ledger.acquire_metered_turn("same-company", Exec, ModelBilling::MeteredApi, ceiling),
+            ledger.acquire_metered_turn("same-company", Exec, "exec-1", metered, ceiling),
         )
         .await
         .expect("Exec is not queued behind four Staff sessions")
@@ -973,7 +1074,7 @@ mod tests {
         let waiting_ledger = Arc::clone(&ledger);
         let mut waiting_turn = tokio::spawn(async move {
             waiting_ledger
-                .acquire_metered_turn("same-company", Staff, ModelBilling::MeteredApi, ceiling)
+                .acquire_metered_turn("same-company", Staff, "staff-5", metered, ceiling)
                 .await
                 .expect("metered routes acquire a lane")
         });
@@ -984,6 +1085,29 @@ mod tests {
             "a fifth Staff turn waits for an active Staff slot"
         );
 
+        // The four Staff keep running and the relay charges each session.
+        // Money already accounted must not also stay reserved, or the
+        // owner's next Exec turn is refused while the company has budget.
+        drop(exec);
+        for session in ["staff-1", "staff-2", "staff-3", "staff-4"] {
+            meter.record_exact(relay_charge("same-company", session, 500_000));
+        }
+        assert_eq!(
+            ledger
+                .budget_state_for("same-company", ceiling)
+                .remaining_micro_usd(),
+            Some(8_000_000)
+        );
+        let exec = ledger
+            .acquire_metered_turn("same-company", Exec, "exec-2", metered, ceiling)
+            .await
+            .expect("metered routes acquire a lane");
+        assert_eq!(
+            exec.allowance_micro_usd(),
+            1_600_000,
+            "Exec gets a full fifth of the remaining $8.00 while four Staff spend"
+        );
+
         drop(first);
         let replacement = tokio::time::timeout(Duration::from_millis(100), waiting_turn)
             .await
@@ -991,16 +1115,37 @@ mod tests {
             .expect("the waiting task did not fail");
         assert_eq!(
             replacement.allowance_micro_usd(),
-            2_000_000,
-            "an unused reservation returns to the next admitted turn"
+            1_600_000,
+            "an unspent reservation returns to the next admitted turn"
+        );
+
+        // While Exec is idle, a Staff session spends its whole share and the
+        // next Staff turn replaces it. Exec's share is still there.
+        drop(exec);
+        meter.record_exact(relay_charge("same-company", "staff-5", 1_600_000));
+        drop(replacement);
+        let next_staff = ledger
+            .acquire_metered_turn("same-company", Staff, "staff-6", metered, ceiling)
+            .await
+            .expect("metered routes acquire a lane");
+        assert!(next_staff.allowance_micro_usd() > 0);
+        let exec = ledger
+            .acquire_metered_turn("same-company", Exec, "exec-3", metered, ceiling)
+            .await
+            .expect("metered routes acquire a lane");
+        assert_eq!(
+            exec.allowance_micro_usd(),
+            1_280_000,
+            "Staff turns admitted while Exec is idle leave a fifth of the remaining $6.40"
         );
 
         drop(second);
         drop(third);
         drop(fourth);
         drop(exec);
-        drop(replacement);
+        drop(next_staff);
         drop(another_company);
+        drop(meter);
         drop(ledger);
         std::fs::remove_dir_all(&root).unwrap();
     }
