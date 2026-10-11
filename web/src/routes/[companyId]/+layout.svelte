@@ -9,7 +9,7 @@
 	import { setContext, tick } from 'svelte';
 	const setupDraft = $state<{ name: string | null }>({ name: null });
 	setContext('company-setup-draft', setupDraft);
-	import { goto } from '$app/navigation';
+	import { afterNavigate, goto } from '$app/navigation';
 	import AppShell, { type ShellTab } from '$lib/components/AppShell.svelte';
 	import type { Command } from '$lib/components/CommandMenu.svelte';
 	import { COMPANY_PAGES, companyPageHref } from '$lib/model/company-pages';
@@ -545,6 +545,16 @@
 		) {
 			execRailOpen = false;
 		}
+	});
+	/* On a small screen the open rail covers the page, so a link or dock tab tapped while it is
+	 * open must reveal where it went. Navigations meant for the rail itself keep it: an Inbox
+	 * focus, ?talk=, the tour, and the rail's own address tidying on the same page. */
+	afterNavigate(({ from, to, type }) => {
+		if (type === 'enter' || !to || !window.matchMedia('(max-width: 980px)').matches) return;
+		const params = to.url.searchParams;
+		if (['review', 'conversation', 'talk', 'tour'].some((key) => params.has(key))) return;
+		if (type === 'goto' && from?.url.pathname === to.url.pathname) return;
+		execRailOpen = false;
 	});
 
 	async function askRail(
