@@ -2940,12 +2940,15 @@ model = \"anthropic/claude-sonnet-5-5\"
             headers.insert(COOKIE, HeaderValue::from_str(&format!("{name}={value}")).unwrap());
             headers
         };
-        let decided = |value: &str, path: &str| {
-            let sessions = session_tokens(&cookie(value), name)
+        let leases = |value: &str| {
+            session_tokens(&cookie(value), name)
                 .into_iter()
                 .filter_map(|token| store.resolve_lease(&token).map(|lease| (token, lease)))
-                .collect::<Vec<_>>();
-            let (_, lease) = request_session(&sessions, path).expect("a session decides");
+                .collect::<Vec<_>>()
+        };
+        let decided = |value: &str, path: &str| {
+            let sessions = leases(value);
+            let (_, lease) = request_session(&sessions, path, None).expect("a session decides");
             network_boundary_violation(
                 &Method::GET,
                 &network_headers(PLANE_HOST),
@@ -2954,6 +2957,19 @@ model = \"anthropic/claude-sonnet-5-5\"
                 Some(&lease.identity),
             )
             .map(|refusal| refusal.code)
+        };
+        // The company catalog names no company: the page that asked for it decides.
+        let catalog_for = |value: &str, referer: &str| {
+            let mut headers = cookie(value);
+            headers.insert(axum::http::header::REFERER, HeaderValue::from_str(referer).unwrap());
+            let page = referring_page(
+                &headers,
+                PlaneHosts { own: PLANE_HOST, public: Some("app.restless.test") },
+            );
+            let sessions = leases(value);
+            let (_, lease) = request_session(&sessions, "/api/companies", page.as_deref())
+                .expect("a session decides");
+            lease.identity.scope.clone()
         };
 
         let enter = |headers: &HeaderMap, identity: &crate::entry::VerifiedIdentity, token: &str| {
@@ -2970,6 +2986,17 @@ model = \"anthropic/claude-sonnet-5-5\"
             decided(&both, "/api/companies/third/cockpit"),
             Some("company_out_of_scope"),
             "a company no session covers is still refused"
+        );
+        assert_eq!(
+            catalog_for(&both, "https://app.restless.test/aris/inbox"),
+            scoped("aris").scope,
+            "the first company's open tab reads as that company, not the one entered last"
+        );
+        assert_eq!(catalog_for(&both, &format!("https://{PLANE_HOST}/other")), scoped("other").scope);
+        assert_eq!(
+            catalog_for(&both, "https://elsewhere.test/aris/inbox"),
+            scoped("other").scope,
+            "another site's page chooses nothing"
         );
 
         // Entering a company again replaces only that company's session.

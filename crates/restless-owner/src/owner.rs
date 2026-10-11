@@ -1795,6 +1795,7 @@ async fn enforce_owner_boundary(
         }
         EntryMode::Network(network) => {
             let path = request.uri().path().to_string();
+            let hosts = PlaneHosts { own: network.host(), public: network.public_host() };
             let sessions = session_tokens(request.headers(), &session_cookie_name(&network))
                 .into_iter()
                 .filter_map(|token| {
@@ -1802,14 +1803,15 @@ async fn enforce_owner_boundary(
                     Some((token, lease))
                 })
                 .collect::<Vec<_>>();
+            let page = referring_page(request.headers(), hosts);
             let (session_token, session_lease) =
-                request_session(&sessions, &path).cloned().unzip();
+                request_session(&sessions, &path, page.as_deref()).cloned().unzip();
             let identity = session_lease.as_ref().map(|lease| &lease.identity);
             if let Some(refusal) = network_boundary_violation(
                 request.method(),
                 request.headers(),
                 &path,
-                PlaneHosts { own: network.host(), public: network.public_host() },
+                hosts,
                 identity,
             ) {
                 return api_error(refusal.status, refusal.code, refusal.message);
@@ -2326,13 +2328,27 @@ fn request_company(path: &str) -> Option<&str> {
     })
 }
 
+/// The path of the page on this plane that made a request. A same-origin fetch names its page in
+/// full in its Referer; the plane sets no Referrer-Policy that trims it.
+fn referring_page(headers: &HeaderMap, hosts: PlaneHosts<'_>) -> Option<String> {
+    let page = url::Url::parse(headers.get(axum::http::header::REFERER)?.to_str().ok()?).ok()?;
+    let host = page.host_str()?;
+    (host.eq_ignore_ascii_case(hosts.own)
+        || hosts.public.is_some_and(|public| host.eq_ignore_ascii_case(public)))
+    .then(|| page.path().to_owned())
+}
+
 /// The session a request is decided by (sessions newest first): the newest that covers the
-/// request's company, else the newest, whose own scope then refuses that company.
+/// request's company, else the newest, whose own scope then refuses that company. A request that
+/// names no company (the company catalog, connections) is for the company of `page`, the page that
+/// made it, so a company's open tab reads as that company and not as the one entered last.
 fn request_session<'a>(
     sessions: &'a [(String, SessionLease)],
     path: &str,
+    page: Option<&str>,
 ) -> Option<&'a (String, SessionLease)> {
     request_company(path)
+        .or_else(|| page.and_then(request_company))
         .and_then(|company| {
             sessions
                 .iter()
