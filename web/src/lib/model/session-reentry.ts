@@ -1,7 +1,9 @@
 /* A hosted plane signs the owner in through the account issuer. When the session ends mid-use, its
  * APIs answer 401 `no_session` or `stale_membership`; reloading lets the plane send the page Home
- * on the issuer, which signs the owner in again. One observer covers every read, so no section ever
- * shows the refusal itself. Locally there is no session and these codes never occur.
+ * on the issuer, which signs the owner in again. A company page whose company the browser's
+ * sessions on that plane no longer cover gets 403 `company_out_of_scope`, and its reload goes Home
+ * to enter that company the same way. One observer covers every read, so no section ever shows the
+ * refusal itself. Locally there is no session and these codes never occur.
  *
  * A Cloud update restarts the plane for about a minute, and its sessions with it. Reloading during
  * that minute lands on the account's "Updating" page, which reads as being thrown out. So the page
@@ -13,6 +15,8 @@
  * plane, whose session is not this page's (a member who also owns a plane). */
 
 const CODES = new Set(['no_session', 'stale_membership']);
+/* Only a company page's reload is sent Home to enter its company; elsewhere it would just reload. */
+const COMPANY_CODE = 'company_out_of_scope';
 const GUARD_KEY = 'restless:reentry-at';
 const GUARD_MS = 15_000;
 const WAIT_MS = 3 * 60_000;
@@ -66,18 +70,21 @@ export function observeSessionEnd(pageCompany: () => string | undefined): () => 
 	const original = window.fetch;
 	window.fetch = async (input, init) => {
 		const response = await original(input, init);
-		if (response.status === 401) {
+		if (response.status === 401 || response.status === 403) {
 			const url = new URL(
 				typeof input === 'string' || input instanceof URL ? input : input.url,
 				window.location.href
 			);
-			if (url.origin === window.location.origin && servedPagePlane(url.pathname, pageCompany())) {
+			const company = pageCompany();
+			if (url.origin === window.location.origin && servedPagePlane(url.pathname, company)) {
+				const lapsed = (code: string) =>
+					response.status === 401 ? CODES.has(code) : Boolean(company) && code === COMPANY_CODE;
 				void response
 					.clone()
 					.json()
 					.then((body: { error?: unknown; code?: unknown }) => {
 						const code = typeof body.code === 'string' ? body.code : body.error;
-						if (typeof code === 'string' && CODES.has(code)) void reenter(original);
+						if (typeof code === 'string' && lapsed(code)) void reenter(original);
 					})
 					.catch(() => {});
 			}

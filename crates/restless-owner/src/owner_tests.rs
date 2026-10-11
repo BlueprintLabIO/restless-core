@@ -2922,6 +2922,68 @@ model = \"anthropic/claude-sonnet-5-5\"
         }
     }
 
+    /// Opening a second company on one plane keeps the first: the plane's one session cookie
+    /// carries this person's session for each company, and every request is still decided by a
+    /// session whose own scope covers its company.
+    #[test]
+    fn a_second_company_keeps_the_first_and_each_request_uses_its_own_session() {
+        let store = crate::entry::SessionStore::default();
+        let ttl = Duration::from_secs(60);
+        let name = "restless_session_plane";
+        let scoped = |company: &str| {
+            identity(crate::entry::CompanyScope::Company {
+                company: company.into(),
+            })
+        };
+        let cookie = |value: &str| {
+            let mut headers = HeaderMap::new();
+            headers.insert(COOKIE, HeaderValue::from_str(&format!("{name}={value}")).unwrap());
+            headers
+        };
+        let decided = |value: &str, path: &str| {
+            let sessions = session_tokens(&cookie(value), name)
+                .into_iter()
+                .filter_map(|token| store.resolve_lease(&token).map(|lease| (token, lease)))
+                .collect::<Vec<_>>();
+            let (_, lease) = request_session(&sessions, path).expect("a session decides");
+            network_boundary_violation(
+                &Method::GET,
+                &network_headers(PLANE_HOST),
+                path,
+                PLANE_HOST,
+                Some(&lease.identity),
+            )
+            .map(|refusal| refusal.code)
+        };
+
+        let enter = |headers: &HeaderMap, identity: &crate::entry::VerifiedIdentity, token: &str| {
+            entered_session_cookie_value(&store, headers, name, identity, token)
+        };
+
+        let aris = store.establish(scoped("aris"), ttl);
+        let first = enter(&HeaderMap::new(), &scoped("aris"), &aris);
+        let other = store.establish(scoped("other"), ttl);
+        let both = enter(&cookie(&first), &scoped("other"), &other);
+        assert_eq!(decided(&both, "/api/companies/aris/cockpit"), None);
+        assert_eq!(decided(&both, "/desktop/other/observe"), None);
+        assert_eq!(
+            decided(&both, "/api/companies/third/cockpit"),
+            Some("company_out_of_scope"),
+            "a company no session covers is still refused"
+        );
+
+        // Entering a company again replaces only that company's session.
+        let again = store.establish(scoped("aris"), ttl);
+        let replaced = enter(&cookie(&both), &scoped("aris"), &again);
+        assert_eq!(session_tokens(&cookie(&replaced), name), vec![again, other]);
+
+        // Another person entering in this browser does not inherit these sessions.
+        let mut someone_else = scoped("third");
+        someone_else.user = "user-2".into();
+        let theirs = store.establish(someone_else.clone(), ttl);
+        assert_eq!(enter(&cookie(&replaced), &someone_else, &theirs), theirs);
+    }
+
     #[test]
     fn network_entry_refuses_a_host_that_is_not_this_plane() {
         let refusal = network_boundary_violation(

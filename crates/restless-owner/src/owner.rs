@@ -119,6 +119,9 @@ fn session_cookie_name(network: &crate::entry::NetworkEntry) -> String {
     format!("{SESSION_COOKIE}_{}", network.plane_id().simple())
 }
 
+/// The most sessions one browser keeps on one plane: one per company its person entered there.
+const SESSIONS_PER_BROWSER: usize = 16;
+
 /// The hostnames a plane answers browser requests for: its own, and the one public address an
 /// edge router serves it under. A plain `&str` is a plane with no public address.
 #[derive(Clone, Copy)]
@@ -1792,10 +1795,15 @@ async fn enforce_owner_boundary(
         }
         EntryMode::Network(network) => {
             let path = request.uri().path().to_string();
-            let session_token = cookie_value(request.headers(), &session_cookie_name(&network));
-            let session_lease = session_token
-                .as_deref()
-                .and_then(|token| state.sessions.resolve_lease(token));
+            let sessions = session_tokens(request.headers(), &session_cookie_name(&network))
+                .into_iter()
+                .filter_map(|token| {
+                    let lease = state.sessions.resolve_lease(&token)?;
+                    Some((token, lease))
+                })
+                .collect::<Vec<_>>();
+            let (session_token, session_lease) =
+                request_session(&sessions, &path).cloned().unzip();
             let identity = session_lease.as_ref().map(|lease| &lease.identity);
             if let Some(refusal) = network_boundary_violation(
                 request.method(),
@@ -1808,8 +1816,13 @@ async fn enforce_owner_boundary(
             }
             // The shell is inert without a session, so a page load without one goes Home on
             // the account issuer, which signs the owner in again, instead of drawing a page
-            // whose every section is refused.
-            if identity.is_none() && is_signed_out_page_load(request.method(), request.headers(), &path) {
+            // whose every section is refused. A page of a company none of this browser's
+            // sessions covers is signed out for that company, and goes Home the same way.
+            if is_signed_out_page_load(request.method(), request.headers(), &path)
+                && identity.is_none_or(|identity| {
+                    is_uncovered_company_page(&state.daemon.root, identity, &path)
+                })
+            {
                 // Carry where the owner was going, so Home can sign them straight back in there
                 // (an emailed deep link, a bookmark, a lapsed session).
                 let wanted = request
@@ -2255,6 +2268,92 @@ fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
         .map(|(_, value)| value.to_string())
 }
 
+/// The plane's one session cookie holds each session its person entered on this plane, newest
+/// last, so opening a second company keeps the first one's tabs, bookmarks and links working.
+/// Returned newest first.
+fn session_tokens(headers: &HeaderMap, name: &str) -> Vec<String> {
+    cookie_value(headers, name)
+        .map(|value| {
+            value
+                .rsplit('.')
+                .filter(|token| !token.is_empty())
+                .take(SESSIONS_PER_BROWSER)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The cookie value once `identity` has entered as `token`: this person's other live sessions on
+/// the plane stay beside it, one per company. Another person's sessions are not carried over.
+fn entered_session_cookie_value(
+    sessions: &SessionStore,
+    headers: &HeaderMap,
+    name: &str,
+    identity: &VerifiedIdentity,
+    token: &str,
+) -> String {
+    let mut kept = session_tokens(headers, name)
+        .into_iter()
+        .filter(|kept| {
+            sessions.resolve_lease(kept).is_some_and(|lease| {
+                lease.identity.user == identity.user
+                    && lease.identity.issuer == identity.issuer
+                    && lease.identity.scope != identity.scope
+            })
+        })
+        .take(SESSIONS_PER_BROWSER - 1)
+        .collect::<Vec<_>>();
+    kept.reverse();
+    kept.push(token.to_owned());
+    kept.join(".")
+}
+
+/// Whether a session may serve a request for `company`: a slug its scope permits, or the company
+/// id a Documents collaboration route names. Each session keeps its own scope; this only chooses.
+fn session_covers(identity: &VerifiedIdentity, company: &str) -> bool {
+    identity.scope.permits(company)
+        || Uuid::parse_str(company).is_ok_and(|id| identity.company_id == Some(id))
+}
+
+/// The company a request is for: the one an API or desktop path names, or a page's first segment.
+fn request_company(path: &str) -> Option<&str> {
+    company_in_path(path).or_else(|| {
+        (!is_owner_data_surface(path))
+            .then(|| path.trim_start_matches('/').split('/').next())
+            .flatten()
+            .filter(|segment| !segment.is_empty())
+    })
+}
+
+/// The session a request is decided by (sessions newest first): the newest that covers the
+/// request's company, else the newest, whose own scope then refuses that company.
+fn request_session<'a>(
+    sessions: &'a [(String, SessionLease)],
+    path: &str,
+) -> Option<&'a (String, SessionLease)> {
+    request_company(path)
+        .and_then(|company| {
+            sessions
+                .iter()
+                .find(|(_, lease)| session_covers(&lease.identity, company))
+        })
+        .or_else(|| sessions.first())
+}
+
+/// A page of a company on this plane that the request's session does not cover.
+fn is_uncovered_company_page(
+    root: &std::path::Path,
+    identity: &VerifiedIdentity,
+    path: &str,
+) -> bool {
+    request_company(path).is_some_and(|company| {
+        !session_covers(identity, company)
+            && crate::configured_companies(root)
+                .is_ok_and(|companies| companies.iter().any(|configured| configured == company))
+    })
+}
+
 /// Which release this plane is actually running (S27-T4).
 async fn release_health() -> Response<Body> {
     Json(serde_json::json!({
@@ -2275,7 +2374,7 @@ async fn end_entry_session(State(state): State<OwnerState>, headers: HeaderMap) 
         .network()
         .map(|network| session_cookie_name(&network))
         .unwrap_or_else(|| SESSION_COOKIE.to_string());
-    if let Some(token) = cookie_value(&headers, &cookie_name) {
+    for token in session_tokens(&headers, &cookie_name) {
         state.sessions.revoke(&token);
     }
     let mut response = Json(serde_json::json!({ "ended": true })).into_response();
@@ -2698,9 +2797,10 @@ async fn consume_entry_assertion(
         }
     } else { false };
 
+    let cookie_name = session_cookie_name(&network);
     let cookie = format!(
-        "{}={token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}",
-        session_cookie_name(&network),
+        "{cookie_name}={}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}",
+        entered_session_cookie_value(&state.sessions, &headers, &cookie_name, &identity, &token),
         network.session_ttl().as_secs()
     );
     let mut response = if form_post {
@@ -2810,8 +2910,10 @@ async fn consume_account_entry_assertion(
     };
     tracing::info!(owner = %access.owner_id, plane_id = %access.plane_id, "admitted a verified account-owner entry assertion");
     let ttl = network.session_ttl();
-    let token = state.sessions.establish(identity, ttl);
-    let cookie = format!("{}={token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}", session_cookie_name(&network), ttl.as_secs());
+    let token = state.sessions.establish(identity.clone(), ttl);
+    let cookie_name = session_cookie_name(&network);
+    let value = entered_session_cookie_value(&state.sessions, &headers, &cookie_name, &identity, &token);
+    let cookie = format!("{cookie_name}={value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}", ttl.as_secs());
     // An account page the owner was opening is where they land; only these exact pages are
     // accepted, so a return can never point anywhere else.
     let account_return = request
