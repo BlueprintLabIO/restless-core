@@ -287,7 +287,11 @@
 	const workTitle = (id: string) => workRows.find((work) => work.id === id)?.title ?? 'Work';
 	function personName(actorId: string): string {
 		if (actorId === 'exec') return 'Exec';
-		return cockpit?.people.find((person) => person.actor_id === actorId)?.display ?? actorId;
+		return (
+			(ownerAccess ? cockpit?.people : collaboration.view?.people)?.find(
+				(person) => person.actor_id === actorId
+			)?.display ?? actorId
+		);
 	}
 	/* The lead accountable for a piece of Work: its team's lead, or its owner. */
 	function leadFor(workId: string): string {
@@ -695,11 +699,23 @@
 
 	/* Conversations with something the viewer has not read, from the server read cursor, so
 	 * People says a colleague or lead wrote wherever the owner is. The one open in People is
-	 * being read, so it does not count. */
+	 * being read, so it does not count. With desktop notifications on, the lists keep polling
+	 * while the cockpit is hidden: a member has no change stream to refresh them, and the
+	 * notifier below speaks only then. */
 	const directChats = $derived(
-		recentDirectConversationsQuery(companyId, () => !!principal?.actor_id)
+		recentDirectConversationsQuery(
+			companyId,
+			() => !!principal?.actor_id,
+			() => desktopNotify.active
+		)
 	);
-	const groupChats = $derived(recentGroupConversationsQuery(companyId, () => !!principal?.actor_id));
+	const groupChats = $derived(
+		recentGroupConversationsQuery(
+			companyId,
+			() => !!principal?.actor_id,
+			() => desktopNotify.active
+		)
+	);
 	const unreadChats = $derived.by(() => {
 		const viewer = principal?.actor_id ?? '';
 		const inPeople = page.url.pathname === `/${companyId}/people`;

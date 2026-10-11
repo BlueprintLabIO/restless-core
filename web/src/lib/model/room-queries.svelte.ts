@@ -54,15 +54,21 @@ export const roomQueryKeys = {
 	readCursor: (company: string, room: string) => ['room-read-cursor', company, room] as const
 };
 
-/** Group rooms by their latest message, for the Chats list. */
-export function recentGroupConversationsQuery(companyId: string, enabled: () => boolean) {
+/** Group rooms by their latest message, for the Chats list. `background` keeps the list
+ * polling while the cockpit is hidden, which is when a desktop notification speaks. */
+export function recentGroupConversationsQuery(
+	companyId: string,
+	enabled: () => boolean,
+	background: () => boolean = () => false
+) {
 	const query = createQuery(() => ({
 		queryKey: roomQueryKeys.recentGroups(companyId),
 		queryFn: () => getRecentGroupConversations(companyId),
 		enabled: enabled(),
 		staleTime: ROOM_STALE_MS,
 		gcTime: ROOM_RETAIN_MS,
-		refetchInterval: pollEvery(ROOM_REFRESH_MS, 60_000)
+		refetchInterval: pollEvery(ROOM_REFRESH_MS, 60_000),
+		refetchIntervalInBackground: background()
 	}));
 	return {
 		get conversations() {
@@ -74,14 +80,19 @@ export function recentGroupConversationsQuery(companyId: string, enabled: () => 
 	};
 }
 
-export function recentDirectConversationsQuery(companyId: string, enabled: () => boolean) {
+export function recentDirectConversationsQuery(
+	companyId: string,
+	enabled: () => boolean,
+	background: () => boolean = () => false
+) {
 	const query = createQuery(() => ({
 		queryKey: roomQueryKeys.recentDirect(companyId),
 		queryFn: () => getRecentDirectConversations(companyId),
 		enabled: enabled(),
 		staleTime: ROOM_STALE_MS,
 		gcTime: ROOM_RETAIN_MS,
-		refetchInterval: pollEvery(ROOM_REFRESH_MS, 60_000)
+		refetchInterval: pollEvery(ROOM_REFRESH_MS, 60_000),
+		refetchIntervalInBackground: background()
 	}));
 	return {
 		get conversations() {
