@@ -2815,22 +2815,27 @@ pub fn runtime_review_file_root(value: &str) -> Result<(PathBuf, String)> {
 /// cockpit must never claim an outcome is ready without observing it.
 pub async fn probe_runtime_review_file(company: &str, value: &str) -> Result<()> {
     let size = runtime_review_file_size(company, value).await?;
-    // A page is read whole with the assets it loads; a single file (a recording,
-    // a long PDF, an archive) is streamed, so only a page keeps the buffered cap.
-    let page = review_file_media_type(Path::new(value)) == Some("text/html; charset=utf-8");
-    let limit = if page {
-        MAX_REVIEW_FILE_BYTES
-    } else {
-        MAX_STREAMED_REVIEW_FILE_BYTES
-    };
-    if size > limit {
-        bail!("file ReviewTarget is larger than the {limit}-byte review limit");
+    // The ticket's own file streams, a page as much as a recording or a long PDF;
+    // only the assets a page loads are read whole.
+    if size > MAX_STREAMED_REVIEW_FILE_BYTES {
+        return Err(ReviewFileTooLarge.into());
     }
     Ok(())
 }
 
 /// The largest single file the cockpit streams from the company computer.
 pub const MAX_STREAMED_REVIEW_FILE_BYTES: u64 = 16 * 1024 * 1024 * 1024;
+
+/// A file past what the cockpit opens or downloads. Its own refusal, so the owner is told the
+/// size is the reason rather than that the file may be gone.
+#[derive(Debug)]
+pub struct ReviewFileTooLarge;
+impl std::fmt::Display for ReviewFileTooLarge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the file is larger than the 16 GiB the cockpit can open or download")
+    }
+}
+impl std::error::Error for ReviewFileTooLarge {}
 
 /// The size of one company file, observed through its canonical path.
 async fn runtime_review_file_size(company: &str, value: &str) -> Result<u64> {
@@ -2868,14 +2873,14 @@ async fn runtime_review_file_size(company: &str, value: &str) -> Result<u64> {
 /// company home, exactly as a buffered read is. The stream owns the `docker exec`; dropping it
 /// (the owner closed the tab) kills that process. A file that changes while it streams may end
 /// short; accepted, since the owner can open it again.
+///
+/// A browser's single `Range` request (Safari and iPhone will not play a recording without one)
+/// reads only that slice; any other range asks for the whole file.
 pub async fn stream_runtime_review_file(
     company: &str,
     path: &Path,
-) -> Result<(
-    &'static str,
-    u64,
-    futures_util::stream::BoxStream<'static, std::io::Result<Bytes>>,
-)> {
+    range: Option<&str>,
+) -> Result<StreamedReviewFile> {
     use futures_util::StreamExt;
     use tokio::io::AsyncReadExt;
     let value = path.to_str().context("review file path must be UTF-8")?;
@@ -2883,9 +2888,12 @@ pub async fn stream_runtime_review_file(
     let media_type = review_file_media_type(path).unwrap_or("application/octet-stream");
     let size = runtime_review_file_size(company, value).await?;
     if size > MAX_STREAMED_REVIEW_FILE_BYTES {
-        bail!("review file exceeds the {MAX_STREAMED_REVIEW_FILE_BYTES}-byte limit");
+        return Err(ReviewFileTooLarge.into());
     }
-    let script = format!("{CANONICAL_COMPANY_FILE}exec cat -- \"$p\"");
+    let range = range.and_then(|header| review_byte_range(header, size));
+    let (start, length) = range.map_or((0, size), |(first, last)| (first, last - first + 1));
+    let script = format!("{CANONICAL_COMPANY_FILE}tail -c +\"$2\" -- \"$p\" | head -c \"$3\"");
+    let (offset, length_arg) = ((start + 1).to_string(), length.to_string());
     let mut child = tokio::process::Command::new("docker")
         .args([
             "exec",
@@ -2897,6 +2905,8 @@ pub async fn stream_runtime_review_file(
             &script,
             "sh",
             value,
+            &offset,
+            &length_arg,
         ])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -2905,13 +2915,52 @@ pub async fn stream_runtime_review_file(
         .spawn()
         .context("spawn docker")?;
     let stdout = child.stdout.take().context("docker exec has no output")?;
-    let stream = tokio_util::io::ReaderStream::new(stdout.take(size))
+    let body = tokio_util::io::ReaderStream::new(stdout.take(length))
         .map(move |chunk| {
             let _owned = &child;
             chunk
         })
         .boxed();
-    Ok((media_type, size, stream))
+    Ok(StreamedReviewFile {
+        media_type,
+        size,
+        range,
+        body,
+    })
+}
+
+/// One streamed company file: its type, its whole size, the inclusive byte range served when a
+/// single range was asked for, and the bytes of that range (or of the whole file).
+pub struct StreamedReviewFile {
+    pub media_type: &'static str,
+    pub size: u64,
+    pub range: Option<(u64, u64)>,
+    pub body: futures_util::stream::BoxStream<'static, std::io::Result<Bytes>>,
+}
+
+/// The inclusive byte range one `Range` header asks of a file of `size` bytes: a single
+/// `bytes=first-last`, `bytes=first-` or `bytes=-suffix`. Several ranges, another unit or a range
+/// past the end yield None, and the whole file is served instead, as HTTP allows.
+pub fn review_byte_range(header: &str, size: u64) -> Option<(u64, u64)> {
+    let spec = header.trim().strip_prefix("bytes=")?.trim();
+    if size == 0 || spec.contains(',') {
+        return None;
+    }
+    let (first, last) = spec.split_once('-')?;
+    let (first, last) = (first.trim(), last.trim());
+    let (first, last) = if first.is_empty() {
+        let suffix: u64 = last.parse().ok().filter(|suffix| *suffix > 0)?;
+        (size.saturating_sub(suffix), size - 1)
+    } else {
+        let first: u64 = first.parse().ok()?;
+        let last = if last.is_empty() {
+            size - 1
+        } else {
+            last.parse::<u64>().ok()?.min(size - 1)
+        };
+        (first, last)
+    };
+    (first <= last && first < size).then_some((first, last))
 }
 
 /// Resolve one requested path against a file review's confined root.
@@ -4814,6 +4863,22 @@ worker_harness = "claude_agent"
             root.join("notes.docx")
         );
         assert!(is_runtime_review_download(Path::new("notes.docx")));
+    }
+
+    #[test]
+    fn review_byte_range_serves_one_slice_inside_the_file() {
+        use super::review_byte_range as range;
+        // What Safari asks of a recording before it plays, and as it seeks.
+        assert_eq!(range("bytes=0-1", 1000), Some((0, 1)));
+        assert_eq!(range("bytes=500-", 1000), Some((500, 999)));
+        assert_eq!(range("bytes=-100", 1000), Some((900, 999)));
+        assert_eq!(range("bytes=900-5000", 1000), Some((900, 999)));
+        assert_eq!(range("bytes=-5000", 1000), Some((0, 999)));
+        // Anything else is answered with the whole file, never a slice past its end.
+        for refused in ["bytes=1000-", "bytes=5-2", "bytes=0-1,4-5", "items=0-1", "bytes=-0", "bytes=x-"] {
+            assert_eq!(range(refused, 1000), None, "{refused}");
+        }
+        assert_eq!(range("bytes=0-", 0), None);
     }
 
     #[test]

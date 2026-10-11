@@ -385,16 +385,22 @@ pub(crate) async fn library_file_content(
     {
         return refusal;
     }
-    if let Err(error) = runtime::probe_runtime_review_file(&company, path).await {
-        return api_error(
-            StatusCode::NOT_FOUND,
-            "library",
-            format!("the file could not be read: {error:#}"),
-        );
-    }
-    let bytes = match runtime::read_runtime_review_file(&company, std::path::Path::new(path)).await
+    // Streamed, so a large workbook reads as a small one does.
+    let file = match runtime::stream_runtime_review_file(
+        &company,
+        std::path::Path::new(path),
+        None,
+    )
+    .await
     {
-        Ok((_, bytes)) => bytes,
+        Ok(file) => file,
+        Err(error) if error.is::<runtime::ReviewFileTooLarge>() => {
+            return api_error(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "library",
+                "This file is larger than the 16 GiB the cockpit can open or download.",
+            )
+        }
         Err(error) => {
             return api_error(
                 StatusCode::NOT_FOUND,
@@ -403,7 +409,7 @@ pub(crate) async fn library_file_content(
             )
         }
     };
-    let mut response = Response::new(Body::from(bytes));
+    let mut response = Response::new(Body::from_stream(file.body));
     let headers = response.headers_mut();
     headers.insert(
         CONTENT_TYPE,
@@ -447,6 +453,13 @@ async fn open_review_origin(
         // Observe the exact file before claiming the outcome opens. The cockpit
         // must never frame a target it has not seen.
         if let Err(error) = runtime::probe_runtime_review_file(&company, uri).await {
+            if error.is::<runtime::ReviewFileTooLarge>() {
+                return Err(api_error(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "review",
+                    "This file is larger than the 16 GiB the cockpit can open or download.",
+                ));
+            }
             return Err(api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "review",
@@ -638,20 +651,23 @@ async fn serve_review(
                     return api_error(StatusCode::NOT_FOUND, "review", format!("{error:#}"))
                 }
             };
-            // The ticket's own file, unless it is a page, streams: a recording or a long PDF
-            // may be far larger than a page and the assets it loads, which are read whole.
-            let streamed = resolved == root.join(entry)
-                && runtime::review_file_media_type(&resolved) != Some("text/html; charset=utf-8");
+            // The ticket's own file streams, a page as much as a recording or a long PDF, and
+            // answers a single Range request with just that slice (Safari and iPhone play no
+            // video without one). The assets a page loads are read whole.
+            let streamed = resolved == root.join(entry);
+            let range = headers
+                .get(axum::http::header::RANGE)
+                .and_then(|value| value.to_str().ok());
             let read = if streamed {
-                runtime::stream_runtime_review_file(&session.company, &resolved)
+                runtime::stream_runtime_review_file(&session.company, &resolved, range)
                     .await
-                    .map(|(media_type, size, stream)| {
+                    .map(|file| {
                         let body = if method == Method::HEAD {
                             Body::empty()
                         } else {
-                            Body::from_stream(stream)
+                            Body::from_stream(file.body)
                         };
-                        (media_type, body, Some(size))
+                        (file.media_type, body, Some((file.size, file.range)))
                     })
             } else {
                 runtime::read_runtime_review_file(&session.company, &resolved)
@@ -666,13 +682,32 @@ async fn serve_review(
                     })
             };
             match read {
-                Ok((media_type, body, size)) => {
+                Ok((media_type, body, streamed)) => {
                     let mut response = Response::new(body);
-                    if let Some(size) = size {
-                        response.headers_mut().insert(
-                            axum::http::header::CONTENT_LENGTH,
-                            HeaderValue::from(size),
+                    if let Some((size, range)) = streamed {
+                        let headers = response.headers_mut();
+                        headers.insert(
+                            axum::http::header::ACCEPT_RANGES,
+                            HeaderValue::from_static("bytes"),
                         );
+                        let length = match range {
+                            Some((first, last)) => {
+                                headers.insert(
+                                    axum::http::header::CONTENT_RANGE,
+                                    HeaderValue::from_str(&format!("bytes {first}-{last}/{size}"))
+                                        .expect("a byte range is a valid header"),
+                                );
+                                last - first + 1
+                            }
+                            None => size,
+                        };
+                        headers.insert(
+                            axum::http::header::CONTENT_LENGTH,
+                            HeaderValue::from(length),
+                        );
+                        if range.is_some() {
+                            *response.status_mut() = StatusCode::PARTIAL_CONTENT;
+                        }
                     }
                     response
                         .headers_mut()

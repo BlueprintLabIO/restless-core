@@ -279,7 +279,9 @@ export async function openLibraryFile(
 		const sentence =
 			response.status === 404 && file.id
 				? 'This file is no longer one the company’s Work recorded.'
-				: response.status === 409 || (response.status === 503 && /company computer/i.test(said))
+				: response.status === 409 ||
+					  response.status === 413 ||
+					  (response.status === 503 && /company computer/i.test(said))
 					? said
 					: response.status === 400
 						? 'This is not a file in the company’s home folder.'
@@ -302,7 +304,8 @@ export async function libraryFileBytes(company: string, path: string): Promise<A
 	if (!response.ok) {
 		const failure = await responseFailure(response);
 		throw new LibraryOpenError(
-			response.status === 503 && /company computer/i.test(failure.serverMessage ?? '')
+			response.status === 413 ||
+				(response.status === 503 && /company computer/i.test(failure.serverMessage ?? ''))
 				? (failure.serverMessage ?? failure.message)
 				: 'The file could not be read from the company computer.',
 			failure.serverMessage ?? failure.message
