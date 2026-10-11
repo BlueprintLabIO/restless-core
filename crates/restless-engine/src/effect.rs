@@ -8,6 +8,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::{Arc, LazyLock};
 
 use anyhow::{bail, Context as _, Result};
 use chrono::{DateTime, Utc};
@@ -19,11 +20,65 @@ use uuid::Uuid;
 use crate::runtime::CompanyConfig;
 
 /// Effect children are the only runtime processes that receive live secret
-/// values. Serialising them prevents one actor-selected effect command from
-/// inspecting a concurrent effect child's `/proc/<pid>/environ` under the
-/// shared effect UID. Material effects are low volume; measured demand, not a
+/// values. Serialising them within one company computer prevents one
+/// actor-selected effect command from inspecting a concurrent effect child's
+/// `/proc/<pid>/environ` under the shared effect UID. Each company computer
+/// has its own PID namespace, so one company's effects never wait behind
+/// another's. Material effects are low volume; measured demand, not a
 /// speculative pool, should justify a more elaborate isolation scheme.
-static EFFECT_CHILD_SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+static EFFECT_CHILD_SERIAL: LazyLock<
+    tokio::sync::Mutex<BTreeMap<String, Arc<tokio::sync::Mutex<()>>>>,
+> = LazyLock::new(Default::default);
+
+/// A governed command still running after this long is stopped, so a hung CLI
+/// cannot hold its company's effect slot for good. Long deploys fit well
+/// inside it. Stopping a command does not settle what it did outside.
+const EFFECT_CHILD_BOUND: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+async fn effect_child_slot(container: &str) -> Arc<tokio::sync::Mutex<()>> {
+    EFFECT_CHILD_SERIAL
+        .lock()
+        .await
+        .entry(container.to_string())
+        .or_default()
+        .clone()
+}
+
+/// Stop every process under the shared effect UID in one company computer.
+/// Returns whether TERM found one. Callers either hold that computer's effect
+/// slot or run before any new effect child can start.
+async fn stop_effect_children(container: &str) -> bool {
+    let mut stopped = false;
+    for signal in ["-TERM", "-KILL"] {
+        let result = crate::runtime::docker_bounded(
+            &[
+                "exec", "-u", "0:0", container, "pkill", signal, "-u", "2001",
+            ],
+            std::time::Duration::from_secs(5),
+        )
+        .await;
+        match result {
+            Ok(output) if output.status.success() || output.status.code() == Some(1) => {
+                if signal == "-TERM" && output.status.success() {
+                    stopped = true;
+                }
+            }
+            Ok(output) => tracing::warn!(
+                container,
+                signal,
+                stderr = %String::from_utf8_lossy(&output.stderr).trim(),
+                "failed to stop governed-effect child"
+            ),
+            Err(error) => {
+                tracing::warn!(container, signal, %error, "failed to inspect governed-effect children")
+            }
+        }
+        if signal == "-TERM" {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    }
+    stopped
+}
 
 /// Reap only governed-effect children left by a previous daemon lifetime,
 /// then clean only UUID-shaped staging directories. This runs before the
@@ -34,36 +89,7 @@ static EFFECT_CHILD_SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_n
 pub async fn sweep_orphans(running_companies: &[String]) {
     for company in running_companies {
         let container = crate::runtime::container_name(company);
-        let mut reaped = false;
-        for signal in ["-TERM", "-KILL"] {
-            let result = crate::runtime::docker_bounded(
-                &[
-                    "exec", "-u", "0:0", &container, "pkill", signal, "-u", "2001",
-                ],
-                std::time::Duration::from_secs(5),
-            )
-            .await;
-            match result {
-                Ok(output) if output.status.success() || output.status.code() == Some(1) => {
-                    if signal == "-TERM" && output.status.success() {
-                        reaped = true;
-                    }
-                }
-                Ok(output) => tracing::warn!(
-                    company,
-                    signal,
-                    stderr = %String::from_utf8_lossy(&output.stderr).trim(),
-                    "failed to reap orphaned governed-effect child"
-                ),
-                Err(error) => {
-                    tracing::warn!(company, signal, %error, "failed to inspect governed-effect children")
-                }
-            }
-            if signal == "-TERM" {
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            }
-        }
-        if reaped {
+        if stop_effect_children(&container).await {
             tracing::warn!(
                 company,
                 "reaped orphaned governed-effect process after daemon restart"
@@ -330,6 +356,11 @@ pub async fn request_effect(
     // before the durable intent. A bad or unreadable attachment therefore
     // fails cleanly instead of manufacturing an "unknown external outcome".
     let container = crate::runtime::container_name(&config.name);
+    // Wait for this company computer's effect slot before the durable intent:
+    // a request still queued behind another command has claimed nothing that
+    // a daemon restart could strand as an unknown outcome.
+    let slot = effect_child_slot(&container).await;
+    let _slot = slot.lock().await;
     let (child_argv, staging_dir) = stage_declared_artifacts(&container, &argv, &artifacts).await?;
     let intent = serde_json::json!({
         "idempotency_key": key,
@@ -488,8 +519,8 @@ async fn run_child(
     staging_dir: Option<String>,
     secrets: &BTreeMap<String, String>,
 ) -> Result<std::process::Output> {
-    let _serial = EFFECT_CHILD_SERIAL.lock().await;
-    let output = async {
+    // The caller holds this company computer's effect slot.
+    let run = async {
         ensure_effect_workspace_access(container).await?;
         let mut child = tokio::process::Command::new("docker")
             .args([
@@ -506,6 +537,7 @@ async fn run_child(
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
+            .kill_on_drop(true)
             .spawn()
             .context("start governed runtime command")?;
         let envelope =
@@ -521,8 +553,19 @@ async fn run_child(
             .wait_with_output()
             .await
             .context("wait for governed runtime command")
-    }
-    .await;
+    };
+    let output = match tokio::time::timeout(EFFECT_CHILD_BOUND, run).await {
+        Ok(output) => output,
+        Err(_) => {
+            // Stopping the docker client leaves the child running inside the
+            // company computer, so stop it there before releasing the slot.
+            stop_effect_children(container).await;
+            Err(anyhow::anyhow!(
+                "governed command was still running after {} minutes and was stopped; its external outcome is unknown, so reconcile it against external evidence before retrying",
+                EFFECT_CHILD_BOUND.as_secs() / 60
+            ))
+        }
+    };
     if let Some(staging_dir) = staging_dir {
         if let Err(error) = cleanup_staging(container, &staging_dir).await {
             if output.is_ok() {
@@ -1361,6 +1404,18 @@ mod tests {
         assert!(is_finance_identifier("finance.payment"));
         assert!(is_finance_identifier("finance/airwallex/submit"));
         assert!(!is_finance_identifier("customer-contact.email"));
+    }
+
+    #[tokio::test]
+    async fn effect_children_wait_only_behind_their_own_company_computer() {
+        let running = effect_child_slot("restless-co-slot-test-a").await;
+        let held = running.lock().await;
+        let same = effect_child_slot("restless-co-slot-test-a").await;
+        let other = effect_child_slot("restless-co-slot-test-b").await;
+        assert!(same.try_lock().is_err());
+        assert!(other.try_lock().is_ok());
+        drop(held);
+        assert!(same.try_lock().is_ok());
     }
 
     #[test]
