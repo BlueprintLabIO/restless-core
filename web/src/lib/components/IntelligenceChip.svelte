@@ -82,9 +82,7 @@
 				>
 			{/each}
 			{#if failure}<p class="failure" role="alert">{failure}</p>{/if}
-			<a href={`/${encodeURIComponent(companyId)}/company/intelligence`}
-				>All intelligence settings</a
-			>
+			<a href={`/${encodeURIComponent(companyId)}/company/provider`}>All intelligence settings</a>
 		</ActionMenu>
 	</div>
 {/if}
