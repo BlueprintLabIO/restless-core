@@ -615,6 +615,10 @@ async fn decide_inner(
     else {
         return Ok(Answer::AlreadyDecided);
     };
+    // Check before claiming: a failed check must leave the button usable.
+    if !still_pending(authority, &company, &binding).await? {
+        return Ok(Answer::AlreadyDecided);
+    }
     let claimed = sqlx::query(
         "UPDATE restless_authority.telegram_deliveries SET decided_at=now(), decision=$2 \
          WHERE id=$1 AND decided_at IS NULL",
@@ -625,7 +629,7 @@ async fn decide_inner(
     .await?
     .rows_affected()
         == 1;
-    if !claimed || !still_pending(authority, &company, &binding).await? {
+    if !claimed {
         return Ok(Answer::AlreadyDecided);
     }
     let org = companies.orgintel(&company).await;
