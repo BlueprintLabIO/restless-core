@@ -325,8 +325,9 @@ export async function reviseCompanyCharter(
 	);
 }
 
-/** On Cloud the account owns a company's name, so a rename is made there first; the caller then
- * saves the plane's copy, which the cockpit shows. Locally the plane's copy is the name. */
+/** On Cloud the account owns a company's name, and the plane keeps the copy the cockpit shows: a
+ * typed rename is made here before that copy is saved, a name copy after it is made. Locally the
+ * plane's copy is the name. */
 export async function renameInAccount(company: string, name: string): Promise<void> {
 	if (!(await getApplianceStatus()).hosted) return;
 	const response = await fetch('/account/company-name', {

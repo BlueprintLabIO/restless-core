@@ -93,9 +93,6 @@
 		busy = true;
 		error = '';
 		try {
-			// On Cloud the account owns the name, so the copied name is given to it first.
-			if (kind === 'apply' && setting === 'name')
-				await renameInAccount(companyId, String(preview?.sections[0]?.changes[0]?.to ?? ''));
 			const response = await fetch(
 				`/api/companies/${encodeURIComponent(companyId)}/copy-setup${kind === 'preview' ? '/preview' : ''}`,
 				{
@@ -120,6 +117,12 @@
 				);
 			if (kind === 'preview') preview = body;
 			else {
+				// On Cloud the account owns the name, so it takes the name the copy actually made.
+				if (setting === 'name' && body.copied)
+					await renameInAccount(
+						companyId,
+						String(body.setup?.sections?.[0]?.changes?.[0]?.to ?? '')
+					);
 				open = false;
 				preview = null;
 				notice = `${label} copied from ${companies.find((row) => row.id === source)?.name ?? source}.`;

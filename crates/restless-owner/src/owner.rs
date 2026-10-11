@@ -4843,8 +4843,9 @@ async fn update_company_setup(
             "Settings changed in another tab. Reload the saved settings before trying again.",
         );
     }
+    // A name is counted as the field and the account count it, in UTF-16 units after trimming.
     if input.display_name.trim().is_empty()
-        || input.display_name.len() > 120
+        || input.display_name.trim().encode_utf16().count() > 120
         || input.model.len() > 200
         || input.mission.len() > 4000
     {
