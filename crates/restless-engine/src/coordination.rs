@@ -1837,7 +1837,7 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                     "status": status,
                     "note": if status == "metering_unknown" {
                         serde_json::json!(
-                            "fail-closed: a provider stream could not be exactly accounted, so charged work is paused until model metering is reconciled. `accounted_usd` remains the real known spend."
+                            "Some model responses reported no price, so `accounted_usd` is a lower bound and actual spend may be higher. Charged work continues until known spend reaches the ceiling."
                         )
                     } else { serde_json::Value::Null },
                     "by_actor": rows,

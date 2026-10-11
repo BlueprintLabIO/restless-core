@@ -386,8 +386,8 @@ enum Command {
         #[arg(long)]
         remove: bool,
     },
-    /// Clear a fail-closed spend poison after inspecting why it happened.
-    /// A poison stops a company dead; without this it stops it forever.
+    /// Clear a spend poison after inspecting why it happened. Charged work
+    /// continues while poisoned, but recorded spend stays a lower bound.
     ClearPoison {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
