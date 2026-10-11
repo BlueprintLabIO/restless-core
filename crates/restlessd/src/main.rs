@@ -641,35 +641,25 @@ async fn run() -> Result<()> {
     // S03-T2: the world's front door, on its OWN listener and its own task.
     // The failure boundary is the point (AC6): a slow, malformed or flooded
     // inbound request must not be able to stall the scheduler — F12's lesson,
-    // where one company's hung Docker took down all three. Absent secret means
-    // absent rail: we do not open an unauthenticated public port, ever, and a
-    // company that cannot receive is honest about it rather than silently open.
-    let webhook_reference = std::env::var("RESTLESS_RESEND_WEBHOOK_CREDENTIAL")
-        .unwrap_or_else(|_| "env:RESEND_WEBHOOK_SECRET".to_string());
-    match credential::resolve_reference(&webhook_reference).await {
-        Ok(secret) => {
-            let sink = std::sync::Arc::new(inbound::AuthoritySink {
-                daemon: std::sync::Arc::clone(&daemon),
-            });
-            tokio::spawn(async move {
-                let port = match port_with_offset(ingress::INGRESS_PORT) {
-                    Ok(port) => port,
-                    Err(error) => {
-                        tracing::error!("event ingress port is invalid: {error:#}");
-                        return;
-                    }
-                };
-                if let Err(error) = ingress::serve(port, secret, sink).await {
-                    tracing::error!("event ingress stopped: {error:#}");
-                }
-            });
+    // where one company's hung Docker took down all three. The port is never
+    // unauthenticated: each request is verified with its own company's signing
+    // secret, and a company without one refuses every event rather than
+    // accepting it unsigned.
+    let sink = std::sync::Arc::new(inbound::AuthoritySink {
+        daemon: std::sync::Arc::clone(&daemon),
+    });
+    tokio::spawn(async move {
+        let port = match port_with_offset(ingress::INGRESS_PORT) {
+            Ok(port) => port,
+            Err(error) => {
+                tracing::error!("event ingress port is invalid: {error:#}");
+                return;
+            }
+        };
+        if let Err(error) = ingress::serve(port, sink).await {
+            tracing::error!("event ingress stopped: {error:#}");
         }
-        Err(error) => tracing::warn!(
-            reference = %webhook_reference,
-            "event ingress is NOT listening because its credential did not resolve: {error:#}. \
-             The company can send but cannot receive; inbound replies will not wake it"
-        ),
-    }
+    });
     // Repair the only durable seam after Authority custody. The immediate
     // projection is event-driven; this bounded cursor scan exists solely for
     // restart/crash recovery and is idempotent at the OrgIntel source ref.

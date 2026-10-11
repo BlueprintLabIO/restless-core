@@ -96,12 +96,19 @@ pub struct Probe {
     pub detail: Option<String>,
 }
 
+/// The company binding for its own Resend webhook signing secret.
+pub const RESEND_WEBHOOK_BINDING: &str = "resend.webhook";
+
 /// Resolve one named binding for one governed child process.
 pub async fn resolve(config: &CompanyConfig, binding: &str) -> Result<String> {
     if finance_binding(binding) {
         bail!(
             "finance credential bindings may only be resolved by the host-side Authority adapter"
         );
+    }
+    if binding == RESEND_WEBHOOK_BINDING {
+        // Whoever holds it can sign inbound events as the outside world.
+        bail!("{RESEND_WEBHOOK_BINDING} may only be resolved by the event ingress");
     }
     let reference = config.credentials.get(binding).with_context(|| {
         format!(
@@ -144,6 +151,23 @@ pub async fn resolve_finance(
         bail!("{binding} must use the canonical Infisical finance path {expected}");
     }
     resolve_reference(reference).await
+}
+
+/// Resolve the secret one company's Resend webhook is signed with. A company
+/// without its own binding uses the daemon-wide reference.
+pub async fn resolve_resend_webhook(config: &CompanyConfig) -> Result<String> {
+    if let Some(reference) = config.credentials.get(RESEND_WEBHOOK_BINDING) {
+        return resolve_reference(reference).await;
+    }
+    let reference = std::env::var("RESTLESS_RESEND_WEBHOOK_CREDENTIAL")
+        .unwrap_or_else(|_| "env:RESEND_WEBHOOK_SECRET".to_string());
+    resolve_reference(&reference).await.with_context(|| {
+        format!(
+            "company {} has no {RESEND_WEBHOOK_BINDING} binding and the daemon-wide \
+             webhook secret did not resolve",
+            config.name
+        )
+    })
 }
 
 fn finance_binding(value: &str) -> bool {
@@ -872,6 +896,22 @@ mod tests {
             !error.contains("FINANCE_SECRET_MUST_NOT_ENTER_RUNTIME"),
             "{error}"
         );
+    }
+
+    /// A child process holding the webhook secret could sign forged inbound
+    /// events, so no generic effect or connection may resolve it.
+    #[tokio::test]
+    async fn generic_resolution_cannot_reach_the_webhook_signing_secret() {
+        let config = config_with(&[(RESEND_WEBHOOK_BINDING, "env:WEBHOOK_SECRET_STAYS_HOST")]);
+        let error = format!(
+            "{:#}",
+            resolve(&config, RESEND_WEBHOOK_BINDING).await.unwrap_err()
+        );
+        assert!(
+            error.contains("only be resolved by the event ingress"),
+            "{error}"
+        );
+        assert!(!error.contains("WEBHOOK_SECRET_STAYS_HOST"), "{error}");
     }
 
     #[tokio::test]

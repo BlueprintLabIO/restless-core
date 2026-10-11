@@ -36,6 +36,22 @@ pub struct AuthoritySink {
 }
 
 impl Sink for AuthoritySink {
+    fn signing_secret<'a>(
+        &'a self,
+        company: &'a str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<String>>> + Send + 'a>>
+    {
+        Box::pin(async move {
+            if !has_live_company_config(&self.daemon.root, company) {
+                return Ok(None);
+            }
+            let config = crate::runtime::CompanyConfig::load(&self.daemon.root, company)?;
+            crate::credential::resolve_resend_webhook(&config)
+                .await
+                .map(Some)
+        })
+    }
+
     fn accept(
         &self,
         event: InboundEvent,
@@ -473,33 +489,31 @@ pub async fn reconcile_pending(daemon: &crate::Daemon) -> Result<usize> {
         .inbound_companies()
         .await?
         .into_iter()
-        .filter_map(
-            |company| match has_live_company_config(&daemon.root, &company) {
-                Ok(true) => Some(Ok(company)),
-                Ok(false) => {
-                    // Authority history outlives a throwaway company's Runtime.
-                    // It is not pending work until that company exists again, so
-                    // do not turn preserved evidence into a five-second warning
-                    // and filesystem retry loop.
-                    tracing::debug!(
-                        company = %company,
-                        "preserved inbound Authority history has no live company projection target"
-                    );
-                    None
-                }
-                Err(error) => Some(Err(error)),
-            },
-        )
-        .collect::<Result<Vec<_>>>()?;
+        .filter(|company| {
+            let live = has_live_company_config(&daemon.root, company);
+            if !live {
+                // Authority history outlives a throwaway company's Runtime, and
+                // a name that was never a company has no target at all. Neither
+                // is pending work, so neither may stall every other company's
+                // pass or become a five-second warning and retry loop.
+                tracing::debug!(
+                    company = %company,
+                    "preserved inbound Authority history has no live company projection target"
+                );
+            }
+            live
+        })
+        .collect::<Vec<_>>();
     Ok(reconcile_companies(daemon, &companies).await)
 }
 
-fn has_live_company_config(root: &std::path::Path, company: &str) -> Result<bool> {
-    crate::runtime::validate_company_name(company)?;
-    Ok(root
-        .join("companies")
-        .join(format!("{company}.toml"))
-        .is_file())
+/// A name that is not a valid company name never has a live config.
+fn has_live_company_config(root: &std::path::Path, company: &str) -> bool {
+    crate::runtime::validate_company_name(company).is_ok()
+        && root
+            .join("companies")
+            .join(format!("{company}.toml"))
+            .is_file()
 }
 
 async fn reconcile_companies(daemon: &crate::Daemon, companies: &[String]) -> usize {
@@ -627,11 +641,25 @@ mod tests {
 
     struct ExpectedAuthoritySink {
         inner: AuthoritySink,
+        company: String,
+        signing_secret: String,
         expected_recipient: String,
         observed: tokio::sync::mpsc::UnboundedSender<InboundEvent>,
     }
 
     impl Sink for ExpectedAuthoritySink {
+        fn signing_secret<'a>(
+            &'a self,
+            company: &'a str,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = anyhow::Result<Option<String>>> + Send + 'a>,
+        > {
+            // The temporary webhook's one-time secret, for the probe company only.
+            Box::pin(
+                async move { Ok((company == self.company).then(|| self.signing_secret.clone())) },
+            )
+        }
+
         fn accept(
             &self,
             event: InboundEvent,
@@ -670,10 +698,12 @@ mod tests {
             uuid::Uuid::new_v4()
         ));
         std::fs::create_dir_all(root.join("companies")).unwrap();
-        assert!(!has_live_company_config(&root, "retired_test").unwrap());
+        assert!(!has_live_company_config(&root, "retired_test"));
         std::fs::write(root.join("companies/live_test.toml"), "not parsed here\n").unwrap();
-        assert!(has_live_company_config(&root, "live_test").unwrap());
-        assert!(has_live_company_config(&root, "../escape").is_err());
+        assert!(has_live_company_config(&root, "live_test"));
+        // A path that was never a company name is skipped, not a pass failure.
+        assert!(!has_live_company_config(&root, "../escape"));
+        assert!(!has_live_company_config(&root, "Live_test"));
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -886,14 +916,12 @@ mod tests {
             inner: AuthoritySink {
                 daemon: Arc::clone(&daemon),
             },
+            company: company.clone(),
+            signing_secret,
             expected_recipient: expected_recipient.clone(),
             observed: observed_tx,
         });
-        let ingress_task = tokio::spawn(crate::ingress::serve_listener(
-            listener,
-            signing_secret,
-            sink,
-        ));
+        let ingress_task = tokio::spawn(crate::ingress::serve_listener(listener, sink));
         println!(
             "{}",
             serde_json::json!({

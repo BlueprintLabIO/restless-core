@@ -72,6 +72,12 @@ pub struct InboundEvent {
 /// future: 202 means Authority durably accepted the event, not merely that a
 /// task was spawned and might disappear with the process.
 pub trait Sink: Send + Sync + 'static {
+    /// The named company's own webhook signing secret. `Ok(None)` means there
+    /// is no such company, so nothing may be recorded under that name.
+    fn signing_secret<'a>(
+        &'a self,
+        company: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<String>>> + Send + 'a>>;
     fn accept(&self, event: InboundEvent) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
 }
 
@@ -149,23 +155,19 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 /// Serve the ingress until the process ends. Spawned on its own task; a failure
 /// here is logged and the listener continues, because one bad request must not
 /// end the rail.
-pub async fn serve<S: Sink>(port: u16, secret: String, sink: Arc<S>) -> Result<()> {
+pub async fn serve<S: Sink>(port: u16, sink: Arc<S>) -> Result<()> {
     let addr = format!("0.0.0.0:{port}");
     let listener = TcpListener::bind(&addr)
         .await
         .with_context(|| format!("bind ingress {addr}"))?;
-    serve_listener(listener, secret, sink).await
+    serve_listener(listener, sink).await
 }
 
 /// Serve an already-bound ingress listener. Production normally uses
 /// [`serve`]; accepting a listener lets live-provider probes establish local
 /// readiness before registering a temporary public webhook, with no bind
 /// race or readiness polling.
-pub async fn serve_listener<S: Sink>(
-    listener: TcpListener,
-    secret: String,
-    sink: Arc<S>,
-) -> Result<()> {
+pub async fn serve_listener<S: Sink>(listener: TcpListener, sink: Arc<S>) -> Result<()> {
     let addr = listener
         .local_addr()
         .context("read ingress listener address")?;
@@ -178,12 +180,9 @@ pub async fn serve_listener<S: Sink>(
                 continue;
             }
         };
-        let secret = secret.clone();
         let sink = Arc::clone(&sink);
         tokio::spawn(async move {
-            match tokio::time::timeout(CONNECTION_DEADLINE, handle(stream, &secret, sink.as_ref()))
-                .await
-            {
+            match tokio::time::timeout(CONNECTION_DEADLINE, handle(stream, sink.as_ref())).await {
                 Ok(Ok(())) => {}
                 Ok(Err(error)) => {
                     tracing::warn!(%peer, error = %format!("{error:#}"), "ingress request rejected")
@@ -201,7 +200,7 @@ pub async fn serve_listener<S: Sink>(
 /// and three jobs, and a framework would be more surface than the thing it
 /// serves. When the owner API needs HTTP (S03-T8 defers it), that is the moment
 /// to reconsider — not now.
-async fn handle<S: Sink>(stream: tokio::net::TcpStream, secret: &str, sink: &S) -> Result<()> {
+async fn handle<S: Sink>(stream: tokio::net::TcpStream, sink: &S) -> Result<()> {
     let (read, mut write) = tokio::io::split(stream);
     let mut reader = BufReader::new(read);
 
@@ -267,6 +266,9 @@ async fn handle<S: Sink>(stream: tokio::net::TcpStream, secret: &str, sink: &S) 
     // keeps one listener serving every company without a header convention a
     // provider may not let us set.
     let company = path
+        .split('?')
+        .next()
+        .unwrap_or("")
         .trim_start_matches('/')
         .split('/')
         .nth(1)
@@ -276,6 +278,20 @@ async fn handle<S: Sink>(stream: tokio::net::TcpStream, secret: &str, sink: &S) 
         respond(&mut write, 404, r#"{"error":"POST /inbound/<company>"}"#).await?;
         bail!("no company in path {path:?}");
     }
+    // Each company verifies with its own secret, and nothing is recorded under
+    // a name that is not a company: a 202 tells the provider never to redeliver,
+    // so a mistyped webhook URL must be refused rather than reach no one.
+    let secret = match sink.signing_secret(&company).await {
+        Ok(Some(secret)) => secret,
+        Ok(None) => {
+            respond(&mut write, 404, r#"{"error":"company not found"}"#).await?;
+            bail!("no company {company:?} receives inbound events");
+        }
+        Err(error) => {
+            respond(&mut write, 503, r#"{"error":"event not recorded"}"#).await?;
+            return Err(error.context(format!("resolve the webhook signing secret for {company}")));
+        }
+    };
 
     let (svix_id, svix_timestamp, svix_signature) = (
         headers.get("svix-id").cloned().unwrap_or_default(),
@@ -284,7 +300,7 @@ async fn handle<S: Sink>(stream: tokio::net::TcpStream, secret: &str, sink: &S) 
     );
     let now = chrono::Utc::now().timestamp();
     if let Err(error) = verify_signature(
-        secret,
+        &secret,
         &svix_id,
         &svix_timestamp,
         &svix_signature,
@@ -475,6 +491,83 @@ mod tests {
             error.contains("replay") || error.contains("tolerance"),
             "{error}"
         );
+    }
+
+    fn other_secret() -> String {
+        let key = base64::engine::general_purpose::STANDARD.encode(b"another-company-secret");
+        format!("whsec_{key}")
+    }
+
+    /// Two companies, each with its own signing secret.
+    #[derive(Default)]
+    struct TwoCompanies {
+        recorded: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl Sink for TwoCompanies {
+        fn signing_secret<'a>(
+            &'a self,
+            company: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<Option<String>>> + Send + 'a>> {
+            Box::pin(async move {
+                Ok(match company {
+                    "alpha" => Some(SECRET.to_string()),
+                    "beta" => Some(other_secret()),
+                    _ => None,
+                })
+            })
+        }
+
+        fn accept(
+            &self,
+            event: InboundEvent,
+        ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
+            self.recorded.lock().unwrap().push(event.company);
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    async fn post_signed(addr: std::net::SocketAddr, path: &str, secret: &str) -> String {
+        let body = br#"{"type":"email.received","data":{"email_id":"abc"}}"#;
+        let now = chrono::Utc::now().timestamp();
+        let signature = sign(secret, "msg_1", now, body);
+        let head = format!(
+            "POST {path} HTTP/1.1\r\nContent-Length: {}\r\nsvix-id: msg_1\r\n\
+             svix-timestamp: {now}\r\nsvix-signature: {signature}\r\n\r\n",
+            body.len()
+        );
+        let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        stream.write_all(head.as_bytes()).await.unwrap();
+        stream.write_all(body).await.unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).await.unwrap();
+        response
+            .split_whitespace()
+            .nth(1)
+            .unwrap_or_default()
+            .to_string()
+    }
+
+    /// A 202 tells the provider never to redeliver. So an event is recorded
+    /// only under a company that exists, verified with that company's own
+    /// secret: a mistyped URL is refused, and one company's signature never
+    /// files an event under another.
+    #[tokio::test]
+    async fn an_event_is_recorded_only_under_its_own_existing_company() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let sink = Arc::new(TwoCompanies::default());
+        let server = tokio::spawn(serve_listener(listener, Arc::clone(&sink)));
+
+        assert_eq!(post_signed(addr, "/inbound/alhpa", SECRET).await, "404");
+        assert_eq!(post_signed(addr, "/inbound/beta", SECRET).await, "401");
+        assert_eq!(
+            post_signed(addr, "/inbound/beta", &other_secret()).await,
+            "202"
+        );
+        assert_eq!(post_signed(addr, "/inbound/alpha", SECRET).await, "202");
+        server.abort();
+        assert_eq!(*sink.recorded.lock().unwrap(), ["beta", "alpha"]);
     }
 
     /// Rotation delivers two signatures in one header. Rejecting the second
