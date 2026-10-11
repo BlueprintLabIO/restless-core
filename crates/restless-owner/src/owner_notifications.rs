@@ -493,6 +493,12 @@ async fn projected_intents(
         .collect::<HashMap<_, _>>();
 
     for item in attention.items {
+        // An item still being prepared has nothing for the owner to do yet.
+        // Its handoff revision changes again when it is ready, and that is the
+        // one the owner hears about, as on Telegram and the desktop.
+        if item.preparing {
+            continue;
+        }
         let mut occurred_at = item.created_at;
         let (kind, source_epoch, source_actor_id, source_user_id, source_display, query) =
             match (item.source.plane, item.source.kind.as_str()) {
