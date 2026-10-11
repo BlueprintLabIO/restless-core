@@ -493,6 +493,7 @@ async fn projected_intents(
         .collect::<HashMap<_, _>>();
 
     for item in attention.items {
+        let mut occurred_at = item.created_at;
         let (kind, source_epoch, source_actor_id, source_user_id, source_display, query) =
             match (item.source.plane, item.source.kind.as_str()) {
                 ("orgintel", "owner_handoff") => {
@@ -528,9 +529,13 @@ async fn projected_intents(
                     )
                 }
                 ("authority", "approval_required") => {
+                    // The record that first asked. A blocked retry keeps this
+                    // intent and its time unchanged: Cloud treats changed
+                    // content under one intent id as a collision.
                     let Some(record) = approval_records.get(&item.source.reference) else {
                         continue;
                     };
+                    occurred_at = record.created_at;
                     let actor_id = record.actor_id.clone().unwrap_or_else(|| "exec".into());
                     (
                         "authority_approval",
@@ -597,7 +602,7 @@ async fn projected_intents(
                 source_display.clone(),
                 item.title.clone(),
                 format!("/{}?{}={}", encode(company), query, encode(&item.id)),
-                item.created_at,
+                occurred_at,
             ));
         }
     }

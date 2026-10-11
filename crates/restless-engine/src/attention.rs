@@ -389,9 +389,13 @@ pub async fn project(
     }
 
     // One outstanding request per exact effect class+party. Repeated blocked
-    // effect attempts refresh the evidence without multiplying owner work.
-    let mut latest: BTreeMap<(String, String), &crate::authority::AuthorityRecord> =
-        BTreeMap::new();
+    // effect attempts refresh the evidence without multiplying owner work:
+    // the record that first asked names the request, so Telegram and email
+    // tell the owner once, and the newest carries the draft.
+    let mut latest: BTreeMap<
+        (String, String),
+        (&crate::authority::AuthorityRecord, &crate::authority::AuthorityRecord),
+    > = BTreeMap::new();
     for event in &approvals {
         // Pre-Sprint-5 approval rows did not preserve an executable prepared
         // command. They remain Authority history, but projecting `null` as an
@@ -417,22 +421,44 @@ pub async fn project(
         {
             continue;
         }
-        latest.insert((capability.to_string(), party), event);
+        latest
+            .entry((capability.to_string(), party))
+            .and_modify(|(_, newest)| *newest = event)
+            .or_insert((event, event));
     }
 
     // Reserved tool calls ask about one prepared call each, keyed by the
     // call's idempotency key. An answer, or the call running after its tool
-    // stopped asking, closes it.
-    let mut held: BTreeMap<String, &crate::authority::AuthorityRecord> = BTreeMap::new();
+    // stopped asking, closes it. A retry of the same prepared call repeats its
+    // question, named by the hold that first asked it since the last close; a
+    // changed call under the key asks a new one.
+    let mut held: BTreeMap<
+        String,
+        (&crate::authority::AuthorityRecord, &crate::authority::AuthorityRecord),
+    > = BTreeMap::new();
     for event in &approvals {
-        if let Some(key) = event.body.get("call_key").and_then(serde_json::Value::as_str) {
-            held.insert(key.to_string(), event);
+        let Some(key) = event.body.get("call_key").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let continues = match held.get(key) {
+            Some((asked, newest))
+                if asked.body.get("command_digest") == event.body.get("command_digest") =>
+            {
+                crate::effect::held_call_waiting(authority, &config.name, key, newest).await?
+            }
+            _ => false,
+        };
+        match held.get_mut(key) {
+            Some((_, newest)) if continues => *newest = event,
+            _ => {
+                held.insert(key.to_string(), (event, event));
+            }
         }
     }
     let mut calls = Vec::new();
-    for (key, event) in held {
+    for (key, (asked, event)) in held {
         if crate::effect::held_call_waiting(authority, &config.name, &key, event).await? {
-            calls.push((key, event));
+            calls.push((key, (asked, event)));
         }
     }
 
@@ -457,7 +483,7 @@ pub async fn project(
     };
 
     let mut items = Vec::new();
-    for ((capability, party), event) in latest {
+    for ((capability, party), (asked, event)) in latest {
         let prepared_by = event.actor_id.as_deref().unwrap_or("a company actor");
         let command = event
             .body
@@ -477,7 +503,7 @@ pub async fn project(
             source: AttentionSource {
                 plane: "authority",
                 kind: "approval_required".into(),
-                reference: event.id.to_string(),
+                reference: asked.id.to_string(),
                 party: Some(party.clone()),
                 call_key: None,
             },
@@ -527,7 +553,7 @@ pub async fn project(
         });
     }
 
-    for (key, event) in calls {
+    for (key, (asked, event)) in calls {
         let prepared_by = event.actor_id.as_deref().unwrap_or("a company actor");
         let tool = event.body.get("tool").and_then(serde_json::Value::as_str).unwrap_or("a tool");
         let connection = event
@@ -552,7 +578,7 @@ pub async fn project(
             source: AttentionSource {
                 plane: "authority",
                 kind: "approval_required".into(),
-                reference: event.id.to_string(),
+                reference: asked.id.to_string(),
                 party: None,
                 call_key: Some(key.clone()),
             },

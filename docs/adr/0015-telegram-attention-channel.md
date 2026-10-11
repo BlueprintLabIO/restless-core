@@ -20,8 +20,9 @@ container.
   its deliveries; unpairing deletes both.
 - **Notify.** Attention stays the only definition of owner-worthy work. Each delivery pass sends at
   most ten items, each with its title, what happened and a deep link. An item is identified by its
-  id, source kind and source reference, so a newer Authority record or handoff is a new message and
-  the same one never is. Items still being briefed wait.
+  id, source kind and source reference, so a new Authority question or handoff is a new message and
+  the same one never is. An approval's reference is the record that first asked it, so a blocked
+  retry of the same effect is not a new message. Items still being briefed wait.
 - **Approve.** A first-contact party, a reserved tool call or an email mandate proposal gets Approve
   and Decline buttons. A button carries only a delivery id. The delivery row binds it to the exact
   question: the record id and party, the call key and command digest, or the proposal id. A press is

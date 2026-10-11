@@ -373,9 +373,10 @@ pub struct Outgoing {
     pub binding: Option<Binding>,
 }
 
-/// Compose an Attention item for Telegram. A new source reference (a newer
-/// Authority record, a later handoff) is a new delivery; the same one never
-/// is. Items still being briefed wait for their brief.
+/// Compose an Attention item for Telegram. A new source reference (a new
+/// Authority question, a later handoff) is a new delivery; the same one never
+/// is, and a blocked retry keeps its question's reference. Items still being
+/// briefed wait for their brief.
 pub async fn outgoing(
     authority: &AuthorityStore,
     company: &str,
