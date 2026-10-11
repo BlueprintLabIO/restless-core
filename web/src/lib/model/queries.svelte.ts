@@ -377,6 +377,14 @@ export interface ActiveAgentTurn {
 	transport: ActivityTransport;
 }
 
+/* A turn stays on screen after it ends so the dock can say "Replied" or why it failed; only a
+ * turn still in progress is something a new message can interrupt or queue behind. */
+export function turnWorking(turn: ActiveAgentTurn | null | undefined): boolean {
+	if (!turn) return false;
+	const phase = turn.live?.phase ?? 'queued';
+	return phase !== 'complete' && phase !== 'failed' && turn.transport !== 'idle';
+}
+
 /**
  * One conversation query plus, only while needed, one SSE subscription. There
  * is no client Map, second transcript cache, timer or synthetic completion
@@ -527,6 +535,9 @@ export function conversationQuery(
 				live: current,
 				transport
 			};
+		},
+		get working() {
+			return turnWorking(this.activeTurn);
 		},
 		refresh: () => refresh(query),
 		attach(): () => void {

@@ -1059,7 +1059,7 @@
 					files,
 					contextPath,
 					false,
-					!!leadTurn && interruptNext,
+					!!actorConversation?.working && accountableDirect && interruptNext,
 					undefined,
 					skills
 				);
@@ -1658,7 +1658,7 @@
 						)
 					: [])
 			]}
-			interruptible={!!leadTurn && accountableDirect && threadRootId === null}
+			interruptible={!!actorConversation?.working && accountableDirect && threadRootId === null}
 			bind:interrupt={interruptNext}
 			actionLabel={retryCommandId && retryBody === composer.trim() ? 'Retry send' : 'Send'}
 			disabled={sending || !online || (selectedRoom?.kind === 'direct' && !canExtendDirect)}

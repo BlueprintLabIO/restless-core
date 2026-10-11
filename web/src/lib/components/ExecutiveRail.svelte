@@ -34,7 +34,7 @@
 	import HoldApprove from '$lib/ui/controls/HoldApprove.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
-	import type { ActiveAgentTurn, QuerySourceStatus } from '$lib/model/queries.svelte';
+	import { turnWorking, type ActiveAgentTurn, type QuerySourceStatus } from '$lib/model/queries.svelte';
 	import type { OutcomeStandard } from '$lib/model/company';
 	import type { ThreadMessage } from '$lib/model/view';
 	import { runExecCommand } from '$lib/model/skills';
@@ -231,6 +231,8 @@
 		() => participantId,
 		() => open && membershipRole === 'owner'
 	);
+	/* A finished turn stays for its dock; only one still in progress can be interrupted. */
+	const working = $derived(turnWorking(turn));
 	let lastTurn: unknown = null;
 	$effect(() => {
 		const current = turn?.triggerMessageId ?? null;
@@ -524,7 +526,7 @@
 		return !!last &&
 			last.from === 'you' &&
 			!last.readAt &&
-			!turn &&
+			!working &&
 			!!directRoom &&
 			messageNumericId(last.id) > 0
 			? last
@@ -558,7 +560,7 @@
 	}
 	const receipt = $derived.by(() => {
 		const last = visibleMessages.at(-1);
-		if (!last || last.from !== 'you' || turn || last.id.startsWith('optimistic:')) return '';
+		if (!last || last.from !== 'you' || working || last.id.startsWith('optimistic:')) return '';
 		return last.readAt ? `Seen by ${participantName}` : 'Sent';
 	});
 	const openReplies = $derived.by(() =>
@@ -607,7 +609,7 @@
 				[],
 				includeContext,
 				newFocusPending,
-				!!turn && interruptNext,
+				working && interruptNext,
 				undefined,
 				[]
 			);
@@ -753,7 +755,7 @@
 	}
 
 	function beginNewFocus() {
-		if (!newFocusAvailable || !connected || turn || sending || review || workContext) return;
+		if (!newFocusAvailable || !connected || working || sending || review || workContext) return;
 		pendingFocusAfterMessageId = messages.reduce(
 			(maximum, message) => Math.max(maximum, messageNumericId(message.id)),
 			0
@@ -814,7 +816,7 @@
 				files,
 				includeContext,
 				newFocusPending,
-				!!turn && interruptNext,
+				working && interruptNext,
 				undefined,
 				skills
 			);
@@ -948,7 +950,7 @@
 							class="exr-tool"
 							aria-label="New conversation"
 							title="New conversation · fresh working context, company memory kept"
-							disabled={!connected || !!turn || sending}
+							disabled={!connected || working || sending}
 							onclick={beginNewFocus}><SquarePen size={15} strokeWidth={1.9} /></button
 						>
 					{/if}
@@ -1181,7 +1183,7 @@
 								{/if}
 							</div>
 						{/if}
-						{#if message.from === 'you' && turn && !message.readAt && messageNumericId(message.id) > (turn.triggerMessageId ?? 0)}<p
+						{#if message.from === 'you' && working && turn && !message.readAt && messageNumericId(message.id) > turn.triggerMessageId}<p
 								class="queued"
 								title={`${participantName} reads it after the current reply`}
 							>
@@ -1248,7 +1250,7 @@
 						<div class="conversation-focus-boundary" role={newFocusPending ? 'status' : undefined}>
 							<span>New focus</span><i aria-hidden="true"></i><span>Company memory retained</span>
 						</div>
-						{#if !composer.trim() && !turn}
+						{#if !composer.trim() && !working}
 							<p class="conversation-capability-hint">{capabilityHint}</p>
 						{/if}
 					{/if}
@@ -1323,7 +1325,7 @@
 							bind:files={composerFiles}
 							bind:selectedSkills={composerSkills}
 							options={[...options.value, ...references]}
-							interruptible={!!turn}
+							interruptible={working}
 							bind:interrupt={interruptNext}
 							disabled={!canOperate ||
 								sending ||

@@ -501,7 +501,7 @@
 		const sent = messageDraft;
 		messageDraft = '';
 		try {
-			await leadConversation.send(body, files, undefined, false, !!conversationTurn);
+			await leadConversation.send(body, files, undefined, false, leadConversation.working);
 			messageFiles = [];
 		} catch (cause) {
 			messageDraft = sent;
