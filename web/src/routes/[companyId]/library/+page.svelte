@@ -441,7 +441,8 @@
 		also?: string;
 		/** Quiet second text in place of the owner: a size or a search excerpt. */
 		meta?: string;
-		/** Whether the viewer may archive, restore and rename it (a document or a sheet). */
+		/** Whether the viewer may archive, restore, rename and delete it (a document or a sheet). The
+		 * server still decides; a read-only member is simply not offered what it would refuse. */
 		manage?: boolean;
 		/** A kept file was sent in a conversation, so deleting it removes it there too. */
 		sent?: boolean;
@@ -1185,7 +1186,7 @@
 												title="Frees room for new files"
 												onclick={() => askDelete(entry)}>Delete…</button
 											>{/if}
-										{#if filter === 'archived' && isNative(entry)}<button
+										{#if filter === 'archived' && isNative(entry) && entry.manage}<button
 												class="danger"
 												onclick={() => askDelete(entry)}>Delete permanently…</button
 											>{/if}
