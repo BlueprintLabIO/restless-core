@@ -299,12 +299,16 @@ pub async fn wake(
             },
         );
         // Acquire after provider authentication but before opening the ACP
-        // session. A waiting charged turn consumes no model session; after
-        // the prior holder records usage, it sees the current envelope.
-        // Subscription sessions do not take this lane because their charged
-        // cost is authoritatively zero.
+        // session. Exec holds its own slot, so the owner's turn never queues
+        // behind long Staff Attempts. Subscription sessions do not take this
+        // lane because their charged cost is authoritatively zero.
         let metered_turn = spend
-            .acquire_metered_turn(&config.name, auth.billing, config.spend_ceiling_usd)
+            .acquire_metered_turn(
+                &config.name,
+                crate::spend::MeteredTurnHolder::Exec,
+                auth.billing,
+                config.spend_ceiling_usd,
+            )
             .await;
         let budget = spend.budget_state(config);
         let reserved_budget_available = metered_turn

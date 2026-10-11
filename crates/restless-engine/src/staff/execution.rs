@@ -164,7 +164,12 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
         // reservation is introduced here.
         let metered_turn = run
             .spend
-            .acquire_metered_turn(&run.company, billing, run.spend_ceiling)
+            .acquire_metered_turn(
+                &run.company,
+                crate::spend::MeteredTurnHolder::Staff,
+                billing,
+                run.spend_ceiling,
+            )
             .await;
         let budget = run.spend.budget_state_for(&run.company, run.spend_ceiling);
         let reserved_budget_available = metered_turn
@@ -1021,7 +1026,12 @@ impl StaffDrive {
 
         let metered_turn = self
             .spend
-            .acquire_metered_turn(&self.company, repair_auth.billing, self.spend_ceiling)
+            .acquire_metered_turn(
+                &self.company,
+                crate::spend::MeteredTurnHolder::Staff,
+                repair_auth.billing,
+                self.spend_ceiling,
+            )
             .await;
         if repair_auth.billing == crate::model_gateway::ModelBilling::MeteredApi
             && metered_turn

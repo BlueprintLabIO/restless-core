@@ -55,17 +55,32 @@ type Path2 = std::path::PathBuf;
 /// The first product workload that needed same-company parallel model work
 /// was EXP-05's four independently closing Staff units. Keep the outer limit
 /// small and explicit; provider capacity above this is still unproved.
-const METERED_TURN_CONCURRENCY: usize = 4;
+const METERED_STAFF_CONCURRENCY: usize = 4;
+
+/// Charged sessions that may share one company envelope at once: the Staff
+/// slots plus the singleton Exec's own slot.
+const METERED_TURN_SLOTS: u64 = METERED_STAFF_CONCURRENCY as u64 + 1;
+
+/// Whose charged session asks for admission. Exec answers the owner, so it
+/// keeps its own slot instead of queueing behind long Staff Attempts; its
+/// reservation still comes out of the same company envelope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeteredTurnHolder {
+    Exec,
+    Staff,
+}
 
 struct MeteredTurnLane {
-    permits: Arc<tokio::sync::Semaphore>,
+    staff_permits: Arc<tokio::sync::Semaphore>,
+    exec_permit: Arc<tokio::sync::Semaphore>,
     reserved_micro_usd: Mutex<u64>,
 }
 
 impl MeteredTurnLane {
     fn new() -> Self {
         Self {
-            permits: Arc::new(tokio::sync::Semaphore::new(METERED_TURN_CONCURRENCY)),
+            staff_permits: Arc::new(tokio::sync::Semaphore::new(METERED_STAFF_CONCURRENCY)),
+            exec_permit: Arc::new(tokio::sync::Semaphore::new(1)),
             reserved_micro_usd: Mutex::new(0),
         }
     }
@@ -430,14 +445,16 @@ impl SpendLedger {
         Ok(store)
     }
 
-    /// Admit one of at most four same-company charged sessions and reserve it
-    /// an equal share of the uncommitted envelope. Sequential callers retain
-    /// all four slots over time; concurrent callers cannot each inherit the
-    /// same full remaining balance. Subscription routes have no authoritative
-    /// charged cost and deliberately bypass this pool.
+    /// Admit one of at most four same-company Staff sessions, or the
+    /// company's one Exec session, and reserve it an equal share of the
+    /// uncommitted envelope. A fifth Staff session waits for a Staff slot;
+    /// Exec never waits behind Staff. Concurrent callers cannot each inherit
+    /// the same full remaining balance. Subscription routes have no
+    /// authoritative charged cost and deliberately bypass this pool.
     pub async fn acquire_metered_turn(
         &self,
         company: &str,
+        holder: MeteredTurnHolder,
         billing: ModelBilling,
         ceiling: SpendCeiling,
     ) -> Option<MeteredTurnPermit> {
@@ -455,9 +472,11 @@ impl SpendLedger {
                     .or_insert_with(|| Arc::new(MeteredTurnLane::new())),
             )
         };
-        let permit = Arc::clone(&lane)
-            .permits
-            .clone()
+        let permits = match holder {
+            MeteredTurnHolder::Exec => &lane.exec_permit,
+            MeteredTurnHolder::Staff => &lane.staff_permits,
+        };
+        let permit = Arc::clone(permits)
             .acquire_owned()
             .await
             .expect("metered turn lane is never closed");
@@ -471,11 +490,11 @@ impl SpendLedger {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             let uncommitted = remaining.saturating_sub(*reserved);
-            // Each slot may hold at most one quarter of the currently
+            // Each slot may hold at most one fifth of the currently
             // remaining envelope. Cap again by uncommitted headroom so races
             // between concurrent acquirers cannot duplicate a share (for
-            // example 8 -> 2+2+2+2 regardless of lock acquisition order).
-            let slots = METERED_TURN_CONCURRENCY as u64;
+            // example 10 -> 2+2+2+2+2 regardless of lock acquisition order).
+            let slots = METERED_TURN_SLOTS;
             let fair_share = remaining.saturating_add(slots.saturating_sub(1)) / slots;
             let share = fair_share.min(uncommitted);
             *reserved = reserved.saturating_add(share);
@@ -885,23 +904,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn charged_turns_reserve_one_envelope_across_four_company_slots() {
+    async fn charged_turns_reserve_one_envelope_across_staff_slots_and_exec() {
+        use MeteredTurnHolder::{Exec, Staff};
         let root = std::env::temp_dir().join(format!(
             "restless-metered-turn-lane-test-{}",
             uuid::Uuid::new_v4()
         ));
         assert!(!root.exists(), "test spend root must be fresh");
         let ledger = Arc::new(SpendLedger::open(&root).unwrap());
-        let ceiling = SpendCeiling::from_micro_usd(8_000_000);
+        let ceiling = SpendCeiling::from_micro_usd(10_000_000);
 
         let first = ledger
-            .acquire_metered_turn("same-company", ModelBilling::MeteredApi, ceiling)
+            .acquire_metered_turn("same-company", Staff, ModelBilling::MeteredApi, ceiling)
             .await
             .expect("metered routes acquire a lane");
         assert_eq!(first.allowance_micro_usd(), 2_000_000);
         assert!(
             ledger
-                .acquire_metered_turn("same-company", ModelBilling::Subscription, ceiling)
+                .acquire_metered_turn("same-company", Staff, ModelBilling::Subscription, ceiling)
                 .await
                 .is_none(),
             "subscription routes do not take the charged lane"
@@ -909,30 +929,40 @@ mod tests {
 
         let another_company = tokio::time::timeout(
             Duration::from_millis(100),
-            ledger.acquire_metered_turn("other-company", ModelBilling::MeteredApi, ceiling),
+            ledger.acquire_metered_turn("other-company", Staff, ModelBilling::MeteredApi, ceiling),
         )
         .await
         .expect("a different company is not blocked")
         .expect("metered routes acquire a lane");
 
         let second = ledger
-            .acquire_metered_turn("same-company", ModelBilling::MeteredApi, ceiling)
+            .acquire_metered_turn("same-company", Staff, ModelBilling::MeteredApi, ceiling)
             .await
             .expect("second metered route acquires a lane");
         let third = ledger
-            .acquire_metered_turn("same-company", ModelBilling::MeteredApi, ceiling)
+            .acquire_metered_turn("same-company", Staff, ModelBilling::MeteredApi, ceiling)
             .await
             .expect("third metered route acquires a lane");
         let fourth = ledger
-            .acquire_metered_turn("same-company", ModelBilling::MeteredApi, ceiling)
+            .acquire_metered_turn("same-company", Staff, ModelBilling::MeteredApi, ceiling)
             .await
             .expect("fourth metered route acquires a lane");
+        // Four long Staff sessions once held every slot, and the owner's
+        // Exec turn queued behind them with no bound.
+        let exec = tokio::time::timeout(
+            Duration::from_millis(100),
+            ledger.acquire_metered_turn("same-company", Exec, ModelBilling::MeteredApi, ceiling),
+        )
+        .await
+        .expect("Exec is not queued behind four Staff sessions")
+        .expect("metered routes acquire a lane");
         assert_eq!(
             [
                 first.allowance_micro_usd(),
                 second.allowance_micro_usd(),
                 third.allowance_micro_usd(),
                 fourth.allowance_micro_usd(),
+                exec.allowance_micro_usd(),
             ]
             .into_iter()
             .sum::<u64>(),
@@ -943,7 +973,7 @@ mod tests {
         let waiting_ledger = Arc::clone(&ledger);
         let mut waiting_turn = tokio::spawn(async move {
             waiting_ledger
-                .acquire_metered_turn("same-company", ModelBilling::MeteredApi, ceiling)
+                .acquire_metered_turn("same-company", Staff, ModelBilling::MeteredApi, ceiling)
                 .await
                 .expect("metered routes acquire a lane")
         });
@@ -951,7 +981,7 @@ mod tests {
             tokio::time::timeout(Duration::from_millis(50), &mut waiting_turn)
                 .await
                 .is_err(),
-            "a fifth charged turn waits for an active company slot"
+            "a fifth Staff turn waits for an active Staff slot"
         );
 
         drop(first);
@@ -968,6 +998,7 @@ mod tests {
         drop(second);
         drop(third);
         drop(fourth);
+        drop(exec);
         drop(replacement);
         drop(another_company);
         drop(ledger);
