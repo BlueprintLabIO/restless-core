@@ -59,13 +59,14 @@ const METERED_STAFF_CONCURRENCY: usize = 4;
 
 /// Charged sessions that may share one company envelope at once: the Staff
 /// slots plus the singleton Exec's own slot. Every session's spend cap is one
-/// fifth of the remaining balance, even when it runs alone, so Exec's share is
-/// always left for the owner's conversation.
+/// fifth of the remaining balance, even when it runs alone. Concurrent Staff
+/// get equal shares; the cost is that a lone session stops at a fifth rather
+/// than a quarter.
 const METERED_TURN_SLOTS: u64 = METERED_STAFF_CONCURRENCY as u64 + 1;
 
-/// Whose charged session asks for admission. Exec answers the owner, so it
-/// keeps its own slot instead of queueing behind long Staff Attempts; its
-/// reservation still comes out of the same company envelope.
+/// Whose charged session asks for admission. Exec answers the owner, so its
+/// wakes and its own Work keep one slot instead of queueing behind long Staff
+/// Attempts; its reservation still comes out of the same company envelope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MeteredTurnHolder {
     Exec,
@@ -76,6 +77,10 @@ struct MeteredTurnLane {
     staff_permits: Arc<tokio::sync::Semaphore>,
     exec_permit: Arc<tokio::sync::Semaphore>,
     reservations: Mutex<Vec<Reservation>>,
+    /// Whether Exec last asked for admission on a metered route. Only then
+    /// do Staff hold its share back: Exec on any other route never spends
+    /// from this envelope.
+    exec_metered: std::sync::atomic::AtomicBool,
 }
 
 /// What one live permit may still spend. The relay's charges against its
@@ -94,6 +99,7 @@ impl MeteredTurnLane {
             staff_permits: Arc::new(tokio::sync::Semaphore::new(METERED_STAFF_CONCURRENCY)),
             exec_permit: Arc::new(tokio::sync::Semaphore::new(1)),
             reservations: Mutex::new(Vec::new()),
+            exec_metered: std::sync::atomic::AtomicBool::new(false),
         }
     }
 }
@@ -462,11 +468,12 @@ impl SpendLedger {
     /// Admit one of at most four same-company Staff sessions, or the
     /// company's one Exec session, and reserve it an equal share of the
     /// uncommitted envelope. A fifth Staff session waits for a Staff slot;
-    /// Exec never waits behind Staff, and Staff never take Exec's share.
-    /// Concurrent callers cannot each inherit the same full remaining
-    /// balance. `session_id` is the model session the relay charges, so its
-    /// spend shrinks this reservation. Subscription routes have no
-    /// authoritative charged cost and deliberately bypass this pool.
+    /// Exec never waits behind Staff, and while Exec's route is metered,
+    /// Staff never take its share. Concurrent callers cannot each inherit the
+    /// same full remaining balance. `session_id` is the model session the
+    /// relay charges, so its spend shrinks this reservation. Subscription
+    /// routes have no authoritative charged cost and deliberately bypass this
+    /// pool.
     pub async fn acquire_metered_turn(
         &self,
         company: &str,
@@ -475,9 +482,6 @@ impl SpendLedger {
         billing: ModelBilling,
         ceiling: SpendCeiling,
     ) -> Option<MeteredTurnPermit> {
-        if billing == ModelBilling::Subscription {
-            return None;
-        }
         let lane = {
             let mut lanes = self
                 .metered_turn_lanes
@@ -489,6 +493,15 @@ impl SpendLedger {
                     .or_insert_with(|| Arc::new(MeteredTurnLane::new())),
             )
         };
+        if holder == MeteredTurnHolder::Exec {
+            lane.exec_metered.store(
+                billing == ModelBilling::MeteredApi,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+        }
+        if billing == ModelBilling::Subscription {
+            return None;
+        }
         let permits = match holder {
             MeteredTurnHolder::Exec => &lane.exec_permit,
             MeteredTurnHolder::Staff => &lane.staff_permits,
@@ -521,13 +534,17 @@ impl SpendLedger {
             // example 10 -> 2+2+2+2+2 regardless of lock acquisition order).
             let slots = METERED_TURN_SLOTS;
             let fair_share = remaining.saturating_add(slots.saturating_sub(1)) / slots;
-            // While Exec is idle, Staff leave its share uncommitted, so Staff
-            // turns that replace one another cannot spend what the owner's
-            // next conversation needs.
+            // While a metered Exec is idle, Staff leave its share
+            // uncommitted, so Staff turns that replace one another cannot
+            // spend what the owner's next conversation needs. Holding it for
+            // an Exec on another route would starve Staff for nothing.
             let exec_running = reservations
                 .iter()
                 .any(|reservation| reservation.holder == MeteredTurnHolder::Exec);
-            let held_for_exec = if holder == MeteredTurnHolder::Staff && !exec_running {
+            let held_for_exec = if holder == MeteredTurnHolder::Staff
+                && !exec_running
+                && lane.exec_metered.load(std::sync::atomic::Ordering::Relaxed)
+            {
                 fair_share
             } else {
                 0
@@ -1139,11 +1156,37 @@ mod tests {
             "Staff turns admitted while Exec is idle leave a fifth of the remaining $6.40"
         );
 
+        // Exec moves to a subscription route, which never spends from this
+        // envelope, so Staff stop holding its share back.
+        drop(exec);
+        assert!(
+            ledger
+                .acquire_metered_turn(
+                    "same-company",
+                    Exec,
+                    "exec-4",
+                    ModelBilling::Subscription,
+                    ceiling,
+                )
+                .await
+                .is_none(),
+            "a subscription Exec does not take the charged lane"
+        );
+        drop(next_staff);
+        let unheld_staff = ledger
+            .acquire_metered_turn("same-company", Staff, "staff-7", metered, ceiling)
+            .await
+            .expect("metered routes acquire a lane");
+        assert_eq!(
+            unheld_staff.allowance_micro_usd(),
+            1_280_000,
+            "Staff hold no share for an Exec that is not metered"
+        );
+
         drop(second);
         drop(third);
         drop(fourth);
-        drop(exec);
-        drop(next_staff);
+        drop(unheld_staff);
         drop(another_company);
         drop(meter);
         drop(ledger);

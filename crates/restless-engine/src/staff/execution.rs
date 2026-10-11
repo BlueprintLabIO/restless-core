@@ -161,12 +161,19 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
         let billing = auth.billing;
         // The shared ledger gate is acquired before opening the ACP session.
         // It is only charged-turn admission: no Work state, queue, or durable
-        // reservation is introduced here.
+        // reservation is introduced here. Exec's own Work takes Exec's slot:
+        // while it waits, owner messages wait too, so it must not queue
+        // behind four Staff Attempts.
+        let holder = if run.actor == "exec" {
+            crate::spend::MeteredTurnHolder::Exec
+        } else {
+            crate::spend::MeteredTurnHolder::Staff
+        };
         let metered_turn = run
             .spend
             .acquire_metered_turn(
                 &run.company,
-                crate::spend::MeteredTurnHolder::Staff,
+                holder,
                 &auth.session_id,
                 billing,
                 run.spend_ceiling,
@@ -1025,6 +1032,9 @@ impl StaffDrive {
             }
         };
 
+        // The repair runs while this Attempt still holds its own permit, so
+        // it takes a Staff slot even for Exec's Work: Exec's one slot is
+        // already held, and waiting on it here would never return.
         let metered_turn = self
             .spend
             .acquire_metered_turn(
