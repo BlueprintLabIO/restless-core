@@ -63,11 +63,15 @@
 	let failureDetail = $state('');
 	let loading = $state(true);
 	let attempt = $state(0);
-	/* One file at a time: a recorded output by its id, any other company file by its path. */
-	const fileKey = $derived(file.id || file.uri);
+	/* One file at a time: a recorded output by its id, any other company file by its path. The
+	 * effect reads these values, never the file object: an attention poll rebuilds every Library
+	 * row, and reopening the same file would restart a deck, a recording or a live site. */
+	const fileId = $derived(file.id);
+	const fileUri = $derived(file.uri);
+	const fileKey = $derived(fileId || fileUri);
 	$effect(() => {
 		const target = fileKey;
-		const which = { id: file.id, uri: file.uri };
+		const which = { id: fileId, uri: fileUri };
 		void attempt;
 		opened = null;
 		failure = '';
