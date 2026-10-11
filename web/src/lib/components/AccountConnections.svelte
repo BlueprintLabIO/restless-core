@@ -485,9 +485,9 @@
 			cache: 'no-store'
 		})
 			.then((response) => (response.ok ? response.json() : null))
-			.then((view: { default?: unknown } | null) => {
+			.then((view: { default?: unknown; base_default?: unknown } | null) => {
 				if (view && managingId === item.id && selectedCompany === companyId)
-					selectedMakeDefault = !view.default;
+					selectedMakeDefault = !(view.default ?? view.base_default);
 			})
 			.catch(() => {});
 		requestAnimationFrame(() =>

@@ -25,6 +25,8 @@ export type IntelligenceAgent = {
 export type IntelligenceView = {
 	revision: string;
 	default: { connection: string; model: string } | null;
+	/** With no default chosen, the connection serving the company's base model. */
+	base_default?: { connection: string; model: string } | null;
 	has_connections: boolean | null;
 	connections: IntelligenceConnection[];
 	agents: IntelligenceAgent[];
@@ -39,7 +41,7 @@ export function agentRouteState(view: IntelligenceView | null, actorId: string):
 	if (!view || view.has_connections === null) return 'checking';
 	const agent = view.agents.find((row) => row.id === actorId);
 	if (!agent) return 'checking';
-	const selected = agent.assignment ?? view.default;
+	const selected = agent.assignment ?? view.default ?? view.base_default ?? null;
 	let connection = selected
 		? view.connections.find((row) => row.id === selected.connection)
 		: undefined;

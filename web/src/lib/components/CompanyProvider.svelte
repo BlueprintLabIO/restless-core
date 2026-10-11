@@ -316,7 +316,7 @@
 		delete grantModels[connection.id];
 		grantCustomModels[connection.id] = false;
 		grantSelection = connection.id;
-		grantMakeDefault = !intelligence.view?.default;
+		grantMakeDefault = !(intelligence.view?.default ?? intelligence.view?.base_default);
 		replaceGrantId = '';
 		accountError = '';
 	}

@@ -14,7 +14,7 @@
 	const catalog = modelCatalog();
 	const source = $derived(intelligenceQuery(companyId));
 	const agent = $derived(source.view?.agents.find((row) => row.id === actorId) ?? null);
-	const assignment = $derived(agent?.assignment ?? source.view?.default ?? null);
+	const assignment = $derived(agent?.assignment ?? source.view?.default ?? source.view?.base_default ?? null);
 	const connection = $derived(
 		source.view?.connections.find((row) => row.id === assignment?.connection) ?? null
 	);

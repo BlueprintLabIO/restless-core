@@ -58,9 +58,9 @@
 						id: 'default',
 						name: 'Company default',
 						role: 'Used by agents without an override',
-						assignment: source.view.default,
+						assignment: source.view.default ?? source.view.base_default ?? null,
 						effective_model:
-							source.view.default?.model ??
+							(source.view.default ?? source.view.base_default)?.model ??
 							(source.view.connections.length ? 'Choose a connection' : 'Connect a provider below'),
 						harness: ''
 					},

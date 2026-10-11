@@ -10846,8 +10846,14 @@ async fn intelligence_view(
             let model=effective.native_model(harness).unwrap_or_else(||effective.agent_preference(&a.id,a.model.as_deref()).unwrap_or(&effective.model).to_string());
             serde_json::json!({"id":a.id,"name":a.display,"role":a.role,"assignment":config.agent_intelligence.get(&a.id),"effective_model":model,"harness":harness,"thinking_effort":effective.reasoning_effort})
         }).collect::<Vec<_>>();
+        // With no default chosen, agents run on the company's base model; name the connection that serves it.
+        let base_default=if config.agent_intelligence.contains_key("default") {None} else {
+            let model=config.for_agent("default").model;
+            let provider=model.split('/').next().unwrap_or_default().to_string();
+            connections.iter().any(|row|row["id"]==format!("direct:{provider}")).then(||serde_json::json!({"connection":format!("direct:{provider}"),"model":model}))
+        };
         let known=natives.iter().all(|row|!matches!(row["auth"]["state"].as_str(),Some("unavailable"|"checking"))) && providers["connections"].as_array().into_iter().flatten().all(|row|row["credential_status"]!="invalid");
-        Ok(serde_json::json!({"revision":company_setup_view(&config)["revision"],"default":config.agent_intelligence.get("default"),"has_connections": if connections.is_empty() && !known {serde_json::Value::Null} else {serde_json::Value::Bool(!connections.is_empty())},"connections":connections,"agents":agents}))
+        Ok(serde_json::json!({"revision":company_setup_view(&config)["revision"],"default":config.agent_intelligence.get("default"),"base_default":base_default,"has_connections": if connections.is_empty() && !known {serde_json::Value::Null} else {serde_json::Value::Bool(!connections.is_empty())},"connections":connections,"agents":agents}))
     }.await;
     match result {
         Ok(value) => Json(value).into_response(),
