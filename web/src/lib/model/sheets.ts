@@ -3,6 +3,8 @@ export interface SheetRow {
 	engine_version: string; head_revision: string; sequence: number; updated_at: string;
 	/** Set while the sheet is archived out of the Library. It still opens. */
 	archived_at?: string | null;
+	/** In a listing: whether the viewer may archive, restore and rename it. */
+	may_manage?: boolean;
 }
 export async function sheetJson<T>(company: string, suffix = '', init?: RequestInit): Promise<T> {
 	const response = await fetch(`/api/companies/${encodeURIComponent(company)}/sheets${suffix}`, {

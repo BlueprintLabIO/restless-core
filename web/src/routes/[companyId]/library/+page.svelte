@@ -441,6 +441,8 @@
 		also?: string;
 		/** Quiet second text in place of the owner: a size or a search excerpt. */
 		meta?: string;
+		/** Whether the viewer may archive, restore and rename it (a document or a sheet). */
+		manage?: boolean;
 		/** A kept file was sent in a conversation, so deleting it removes it there too. */
 		sent?: boolean;
 		/** Search relevance order; absent outside a search. */
@@ -471,6 +473,7 @@
 		href: `${root}/library/documents?document=${encodeURIComponent(summary.document.id)}`,
 		updatedAt: summary.document.updated_at,
 		owner: name(summary.document.owner_actor_id),
+		manage: owner || summary.access === 'edit',
 		status: archived ? '' : summary.document.status,
 		review:
 			!archived && (summary.document.status === 'in_review' || requested.has(summary.document.id))
@@ -482,6 +485,7 @@
 		href: `${root}/library/sheets?sheet=${encodeURIComponent(sheet.id)}`,
 		updatedAt: sheet.updated_at,
 		owner: name(sheet.owner_actor_id),
+		manage: owner || !!sheet.may_manage,
 		status: '',
 		review: false
 	});
@@ -662,6 +666,7 @@
 							href: `${root}/library/documents?document=${encodeURIComponent(hit.document_id)}`,
 							updatedAt: hit.updated_at,
 							owner: '',
+							manage: owner,
 							status: '',
 							review: false
 						}),
@@ -1158,11 +1163,11 @@
 										{#if isFile(entry) && filter !== 'archived'}<button
 												onclick={() => void copyFileLink(entry.id)}>Copy link</button
 											>{/if}
-										{#if isNative(entry) && filter !== 'archived'}<a
+										{#if isNative(entry) && entry.manage && filter !== 'archived'}<a
 												href={`${entry.href}&rename=1`}
 												title="Open it with the title ready to change">Rename</a
 											>{/if}
-										{#if isNative(entry) || (isFile(entry) && owner)}
+										{#if (isNative(entry) && entry.manage) || (isFile(entry) && owner)}
 											{#if filter === 'archived'}<button
 													disabled={!!archiveBusy}
 													onclick={() => void setArchived(entry, false)}>Restore</button

@@ -49,6 +49,10 @@ pub struct SheetRow {
     pub updated_at: DateTime<Utc>,
     /// Set while the sheet is archived out of the Library. It still opens.
     pub archived_at: Option<DateTime<Utc>>,
+    /// In a listing: whether this actor may archive, restore and rename the sheet.
+    #[sqlx(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub may_manage: Option<bool>,
 }
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct SheetMessage {
@@ -135,14 +139,19 @@ async fn may_manage(tx: &mut Transaction<'_, Postgres>, id: Uuid, actor: &str) -
         return Ok(());
     }
     access(tx, id, actor, false).await?;
-    let company_owner: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM human_principal_actor_bindings WHERE actor_id=$1 AND membership_role='owner' AND membership_status='active')")
-        .bind(actor)
-        .fetch_one(&mut **tx)
-        .await?;
-    if !company_owner && actor != "owner" {
+    if !company_owner(tx, actor).await? {
         return Err(SheetError::Unavailable);
     }
     Ok(())
+}
+async fn company_owner(tx: &mut Transaction<'_, Postgres>, actor: &str) -> Result<bool> {
+    if actor == "owner" {
+        return Ok(true);
+    }
+    Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM human_principal_actor_bindings WHERE actor_id=$1 AND membership_role='owner' AND membership_status='active')")
+        .bind(actor)
+        .fetch_one(&mut **tx)
+        .await?)
 }
 /// The value's serialized size, refused past the 8 MiB limit.
 fn bounded(value: &Value) -> Result<usize> {
@@ -362,6 +371,7 @@ impl OrgIntel {
     async fn list_sheets_where(&self, actor: &str, archived: bool) -> Result<Vec<SheetRow>> {
         const PAGE: i64 = 100;
         let mut tx = self.pool.begin().await?;
+        let manages_all = company_owner(&mut tx, actor).await?;
         let mut visible = Vec::new();
         let mut offset = 0;
         while visible.len() < PAGE as usize {
@@ -376,10 +386,12 @@ impl OrgIntel {
             .await?;
             let last = (rows.len() as i64) < PAGE;
             offset += rows.len() as i64;
-            for row in rows {
-                if visible.len() < PAGE as usize
-                    && access(&mut tx, row.id, actor, false).await.is_ok()
-                {
+            for mut row in rows {
+                if visible.len() >= PAGE as usize {
+                    continue;
+                }
+                if let Ok(grant) = access(&mut tx, row.id, actor, false).await {
+                    row.may_manage = Some(manages_all || grant == "edit");
                     visible.push(row);
                 }
             }
