@@ -261,13 +261,23 @@ fn remember_loaded(providers: BTreeSet<String>, served: Option<BTreeSet<String>>
     }
 }
 
+/// Everything admission judges per company, so any change to it re-admits in
+/// place. An Exec-only model assignment changes nothing the gateway loads, so
+/// without it a hold the owner answered stayed until an unrelated restart.
 pub fn provider_fingerprint(configs: &[CompanyConfig]) -> String {
     let mut routes = configs
         .iter()
         .map(|config| {
             format!(
-                "{}|{}|{:?}|{:?}",
-                config.name, config.model, config.model_failover, config.credentials
+                "{}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+                config.name,
+                config.model,
+                config.model_failover,
+                config.credentials,
+                config.agent_intelligence,
+                config.native_harnesses,
+                config.coordination_harness,
+                config.worker_harness
             )
         })
         .collect::<Vec<_>>();
@@ -4317,6 +4327,39 @@ mission = "Choose native intelligence"
             admission.unstartable["unserved_test"],
             "gpt-5.6-luna is not available on this connection. Choose another model in Company → Intelligence."
         );
+    }
+
+    /// The owner answers that hold by choosing another model, possibly only
+    /// for Exec. Nothing the gateway loads changes then, so the change must
+    /// re-admit in place or the company stays held after it was fixed.
+    #[test]
+    fn changing_only_execs_model_re_admits_an_unserved_hold() {
+        let mut config: CompanyConfig = toml::from_str(
+            "name = \"exec_model_test\"\nmission = \"\"\nmodel = \"litellm/gpt-5.6-terra\"\n",
+        )
+        .unwrap();
+        config.agent_intelligence.insert(
+            "exec".into(),
+            crate::runtime::AgentIntelligence {
+                connection: "direct:litellm".into(),
+                model: "gpt-5.6-luna".into(),
+            },
+        );
+        let loaded = BTreeSet::from(["litellm".to_string()]);
+        let served = BTreeSet::from(["litellm/gpt-5.6-terra".to_string()]);
+        let held = |config: &CompanyConfig| {
+            let configs = std::slice::from_ref(config);
+            let mut admission = admit(configs, &loaded).unwrap();
+            admission.hold_unserved(configs, &served);
+            admission.unstartable.contains_key(&config.name)
+        };
+        assert!(held(&config));
+        let before = provider_fingerprint(std::slice::from_ref(&config));
+
+        config.agent_intelligence.get_mut("exec").unwrap().model = "gpt-5.6-terra".into();
+
+        assert_ne!(before, provider_fingerprint(std::slice::from_ref(&config)));
+        assert!(!held(&config));
     }
 
     #[test]
