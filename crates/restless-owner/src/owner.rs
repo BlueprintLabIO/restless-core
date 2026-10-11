@@ -136,6 +136,7 @@ impl<'a> From<&'a str> for PlaneHosts<'a> {
     }
 }
 const MEMBERSHIP_CONTROL_PATH: &str = "/internal/v1/membership-controls";
+const SESSION_CONTROL_PATH: &str = "/internal/v1/session-controls";
 const ROOM_EVENT_REPLAY_LIMIT: i64 = 100;
 const ROOM_EVENT_FALLBACK_INITIAL: Duration = Duration::from_secs(2);
 const ROOM_EVENT_FALLBACK_MAX: Duration = Duration::from_secs(15);
@@ -1608,6 +1609,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/internal/v1/membership-controls",
             post(apply_membership_control),
         )
+        .route(SESSION_CONTROL_PATH, post(apply_session_control))
         .layer(DefaultBodyLimit::max(32 * 1024));
     let notification_delivery = notification_delivery_api::routes::<OwnerState>()?;
     let mcp_api_router: mcp_api::Api = api.clone().with_state(state.clone());
@@ -1776,7 +1778,9 @@ async fn enforce_owner_boundary(
         // cannot issue a browser assertion until this observation is ready.
         return next.run(request).await;
     }
-    if request.uri().path() == MEMBERSHIP_CONTROL_PATH && state.entry.network().is_none() {
+    if matches!(request.uri().path(), MEMBERSHIP_CONTROL_PATH | SESSION_CONTROL_PATH)
+        && state.entry.network().is_none()
+    {
         // The handler returns a stable 404. Do not reinterpret this internal
         // signed-control route as a local browser mutation first.
         return next.run(request).await;
@@ -2134,7 +2138,11 @@ fn network_boundary_violation<'a>(
     // Fleet reaches the door with a cross-site auto-submitted form. The
     // single-use signed credential is the CSRF defence here; the destination
     // Host must still be this exact account plane.
-    if path == "/entry" || path == "/entry/account" || path == MEMBERSHIP_CONTROL_PATH {
+    if path == "/entry"
+        || path == "/entry/account"
+        || path == MEMBERSHIP_CONTROL_PATH
+        || path == SESSION_CONTROL_PATH
+    {
         if !network_host_matches(headers, hosts.own) {
             return Some(BoundaryRefusal {
                 status: StatusCode::FORBIDDEN,
@@ -2441,6 +2449,39 @@ fn entry_return_path_belongs(path: &str, company: &str) -> bool {
 #[serde(deny_unknown_fields)]
 struct MembershipControlRequest {
     control: String,
+}
+
+/// Fleet ends one person's sessions on this plane: after "sign out other browsers" or a password
+/// reset. Like membership controls, the signed control and this plane's exact Host are the
+/// authority; no browser cookie is involved.
+async fn apply_session_control(
+    State(state): State<OwnerState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response<Body> {
+    let Some(network) = state.entry.network().cloned() else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "local_session_control",
+            "this plane is in local mode and has no hosted session-control endpoint",
+        );
+    };
+    let request = match parse_membership_control_request(&headers, &body) {
+        Ok(request) => request,
+        Err(message) => {
+            return api_error(StatusCode::BAD_REQUEST, "session_control_request", message);
+        }
+    };
+    let control = match network.verify_session_control(&request.control).await {
+        Ok(control) => control,
+        Err(refusal) => {
+            tracing::warn!(reason = refusal.code(), "refused session control");
+            return api_error(StatusCode::UNAUTHORIZED, refusal.code(), refusal.message());
+        }
+    };
+    let ended = state.sessions.revoke_subject(&control.issuer, &control.subject);
+    tracing::info!(ended, "session control ended a person's plane sessions");
+    Json(serde_json::json!({ "ended": ended })).into_response()
 }
 
 /// Fleet's authenticated terminal-membership control plane. This endpoint is
