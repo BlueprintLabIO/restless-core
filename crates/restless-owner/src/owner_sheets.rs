@@ -648,13 +648,16 @@ mod tests {
             input["operation"] =
                 json!({"action":"set_cells","values":[["Shared member",2100,3100,"=C1-B1"]]});
             let output = sheet_commands::model(input).await.unwrap();
-            for message in output["messages"].as_array().unwrap() {
+            let sent = output["messages"].as_array().unwrap();
+            assert!(!sent.is_empty());
+            for message in sent {
                 socket
                     .send(Message::Text(message.to_string().into()))
                     .await
                     .unwrap();
             }
-            for _ in 0..4 {
+            // One accepted revision per message sent (the model may batch an edit's commands).
+            for _ in 0..sent.len() {
                 let accepted = tokio::time::timeout(Duration::from_secs(3), socket.next())
                     .await
                     .unwrap()

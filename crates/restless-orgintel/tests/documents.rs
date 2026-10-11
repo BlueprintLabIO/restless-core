@@ -1530,30 +1530,29 @@ async fn runtime_checkpoint_round_trip_is_authorized_deterministic_and_idempoten
     assert_eq!(provenance.imported_content_hash, edited.content_hash);
     assert_eq!(provenance.imported_by_actor_id, "owner");
     let imported_version_id = imported.imported_version.version.id;
-    for error in [
-        sqlx::query(
-            "UPDATE native_document_runtime_imports SET envelope_checksum=repeat('a',64) \
-             WHERE document_id=$1 AND imported_version_id=$2",
-        )
-        .bind(document_id)
-        .bind(imported_version_id)
-        .execute(&mut connection)
-        .await
-        .unwrap_err(),
-        sqlx::query(
-            "DELETE FROM native_document_runtime_imports \
-             WHERE document_id=$1 AND imported_version_id=$2",
-        )
-        .bind(document_id)
-        .bind(imported_version_id)
-        .execute(&mut connection)
-        .await
-        .unwrap_err(),
-    ] {
-        assert!(error
-            .to_string()
-            .contains("native document Runtime import receipts are immutable"));
-    }
+    let update = sqlx::query(
+        "UPDATE native_document_runtime_imports SET envelope_checksum=repeat('a',64)          WHERE document_id=$1 AND imported_version_id=$2",
+    )
+    .bind(document_id)
+    .bind(imported_version_id)
+    .execute(&mut connection)
+    .await
+    .unwrap_err();
+    assert!(update
+        .to_string()
+        .contains("native document Runtime import receipts are immutable"));
+    // A receipt leaves only with its whole document (the owner's permanent delete), never alone.
+    let delete = sqlx::query(
+        "DELETE FROM native_document_runtime_imports          WHERE document_id=$1 AND imported_version_id=$2",
+    )
+    .bind(document_id)
+    .bind(imported_version_id)
+    .execute(&mut connection)
+    .await
+    .unwrap_err();
+    assert!(delete
+        .to_string()
+        .contains("native document history is deleted only with its whole document"));
     assert!(matches!(
         org.get_document_runtime_import_provenance_for_actor(
             document_id,

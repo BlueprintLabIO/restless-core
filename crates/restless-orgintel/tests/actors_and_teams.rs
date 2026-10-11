@@ -985,7 +985,7 @@ async fn unknown_attempt_recovery_is_one_capsule_addressed_to_the_accountable_le
         .await
         .unwrap();
     assert_eq!(commission.len(), 1);
-    assert!(commission[0].body.contains(&team.to_string()));
+    assert!(commission[0].body.contains("You now lead Product."));
     // Reading the charter is inspection; complete its cognitive turn before
     // measuring later recovery/feedback obligations.
     let lease = org
@@ -1237,7 +1237,7 @@ async fn material_member_message_wakes_the_lead_and_late_direct_feedback_gets_a_
         .await
         .unwrap();
     assert_eq!(commission.len(), 1);
-    assert!(commission[0].body.contains(&team.to_string()));
+    assert!(commission[0].body.contains("You now lead Game product."));
     // Reading the charter is inspection; complete its cognitive turn before
     // measuring later recovery/feedback obligations.
     let lease = org
