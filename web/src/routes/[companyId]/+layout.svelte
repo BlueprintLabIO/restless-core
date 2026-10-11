@@ -549,12 +549,13 @@
 	});
 	/* On a small screen the open rail covers the page, so a link or dock tab tapped while it is
 	 * open must reveal where it went. Navigations meant for the rail itself keep it: an Inbox
-	 * focus, ?talk=, the tour, and the rail's own address tidying on the same page. */
+	 * focus, ?talk=, the tour, and the layout dropping ?talk= or ?tour= from the same page. */
 	afterNavigate(({ from, to, type }) => {
 		if (type === 'enter' || !to || !window.matchMedia('(max-width: 980px)').matches) return;
 		const params = to.url.searchParams;
 		if (['review', 'conversation', 'talk', 'tour'].some((key) => params.has(key))) return;
-		if (type === 'goto' && from?.url.pathname === to.url.pathname) return;
+		const tidied = from?.url.searchParams.has('talk') || from?.url.searchParams.has('tour');
+		if (tidied && from?.url.pathname === to.url.pathname) return;
 		execRailOpen = false;
 	});
 
