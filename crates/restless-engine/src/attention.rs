@@ -228,7 +228,9 @@ fn review_target_availability(
 pub struct AttentionAction {
     pub id: String,
     pub label: String,
-    /// `decision`, `inspect`, `conversation`, or `human_step`. This is
+    /// `decision`, `inspect`, `conversation`, `human_step`, or
+    /// `owner_browser`: a human step whose link opens only in the owner's own
+    /// browser, never the company browser agents drive (ADR 0002). This is
     /// presentation-safe source meaning, not another action lifecycle.
     pub role: &'static str,
     pub consequence: String,
@@ -1137,24 +1139,8 @@ pub async fn project(
                     kind: "authority-payment",
                 },
             );
-            if payment.state == crate::finance::PaymentState::InApproval {
-                if let Some(href) = payment.provider_approval_url.clone() {
-                    actions.insert(
-                        0,
-                        AttentionAction {
-                            id: "open-provider-approval".into(),
-                            label: "Review and approve in Airwallex".into(),
-                            role: "human_step",
-                            consequence: format!(
-                                "Opens Airwallex for this exact {} {} payment; Restless cannot approve it.",
-                                format_minor(payment.request.amount_minor),
-                                payment.request.currency
-                            ),
-                            next_state: "Restless waits for Airwallex to report the provider decision, then reconciles the linked Work.".into(),
-                            href: Some(href),
-                        },
-                    );
-                }
+            if let Some(approval) = provider_approval_action(payment) {
+                actions.insert(0, approval);
             }
         }
         let fallback_kind = match handoff.category {
@@ -2420,6 +2406,28 @@ fn normal_browser_action(href: String) -> AttentionAction {
     }
 }
 
+/// The provider's own approval for a payment in approval. It opens in the
+/// owner's own browser: an approver session in the company browser would let
+/// agents approve the company's own spend (ADR 0002, Sprint 8).
+fn provider_approval_action(payment: &crate::finance::PaymentIntent) -> Option<AttentionAction> {
+    if payment.state != crate::finance::PaymentState::InApproval {
+        return None;
+    }
+    let href = payment.provider_approval_url.clone()?;
+    Some(AttentionAction {
+        id: "open-provider-approval".into(),
+        label: "Review and approve in Airwallex".into(),
+        role: "owner_browser",
+        consequence: format!(
+            "Opens Airwallex in your own browser for this exact {} {} payment; Restless cannot approve it.",
+            format_minor(payment.request.amount_minor),
+            payment.request.currency
+        ),
+        next_state: "Restless waits for Airwallex to report the provider decision, then reconciles the linked Work.".into(),
+        href: Some(href),
+    })
+}
+
 fn evidence_label(uri: &str) -> String {
     if uri.contains("compare") {
         "Review code change".into()
@@ -2857,6 +2865,46 @@ mod tests {
         assert!(wire["next_state"]
             .as_str()
             .is_some_and(|text| !text.is_empty()));
+    }
+
+    #[test]
+    fn provider_payment_approval_opens_only_in_the_owner_browser() {
+        let mut payment = crate::finance::PaymentIntent {
+            request: crate::finance::PaymentIntentInput {
+                work_id: uuid::Uuid::from_u128(1),
+                owner_handoff_id: uuid::Uuid::from_u128(2),
+                source_account_ref: "acct_fixture".into(),
+                provider_beneficiary_ref: "beneficiary_fixture".into(),
+                amount_minor: 12_34,
+                currency: "AUD".into(),
+                purpose: "fixture payment".into(),
+                evidence_refs: Vec::new(),
+                idempotency_key: "fixture-payment-1".into(),
+                requesting_actor: "exec".into(),
+            },
+            state: crate::finance::PaymentState::InApproval,
+            provider: "airwallex".into(),
+            provider_transfer_id: Some("transfer_fixture".into()),
+            raw_provider_status: Some("IN_APPROVAL".into()),
+            provider_approval_url: Some("https://www.airwallex.com/app/transfers/fixture".into()),
+            settled_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        let action = provider_approval_action(&payment).expect("approval in progress");
+        assert_eq!(action.id, "open-provider-approval");
+        assert_eq!(
+            action.role, "owner_browser",
+            "an approver session must never open in the agent-driven company browser"
+        );
+        assert_eq!(
+            action.href.as_deref(),
+            Some("https://www.airwallex.com/app/transfers/fixture")
+        );
+        let wire = serde_json::to_value(&action).expect("serialize presentation-safe action");
+        assert_eq!(wire["role"], "owner_browser");
+        payment.state = crate::finance::PaymentState::Settled;
+        assert!(provider_approval_action(&payment).is_none());
     }
 
     #[test]

@@ -125,6 +125,10 @@
 	const navigation = $derived(
 		item.actions.filter((candidate) => candidate.href && candidate.role !== 'conversation')
 	);
+	/* A provider approval opens in the owner's own browser: the company browser would leave
+	 * its approver session with the agents that drive it. */
+	const ownBrowser = (candidate: { role: string }) =>
+		candidate.role === 'owner_browser' ? '' : undefined;
 	/* An app request (Sprint 63): a sign-in handoff that names the app to add.
 	 * Adding and allowing it is the resume condition, so there is no "Mark done". */
 	let appRequest = $state<AppRequest | null>(null);
@@ -388,6 +392,7 @@
 					href={extra.href}
 					target={extra.href?.startsWith('/') ? undefined : '_blank'}
 					rel="noreferrer"
+					data-open-externally={ownBrowser(extra)}
 					title={`${extra.consequence} ${extra.nextState}`}>{extra.label}</a
 				>{/each}
 			<button onclick={copyReference}>Copy reference</button>
@@ -665,7 +670,8 @@
 							class="btn primary small"
 							href={navigation[0].href}
 							target={navigation[0].href?.startsWith('/') ? undefined : '_blank'}
-							rel="noreferrer">{navigation[0].label}</a
+							rel="noreferrer"
+							data-open-externally={ownBrowser(navigation[0])}>{navigation[0].label}</a
 						>{/if}
 					<button
 						class="btn small"
@@ -693,6 +699,7 @@
 						href={navigation[0].href}
 						target={navigation[0].href?.startsWith('/') ? undefined : '_blank'}
 						rel="noreferrer"
+						data-open-externally={ownBrowser(navigation[0])}
 						title={`${navigation[0].consequence} ${navigation[0].nextState}`}
 						>{navigation[0].label}</a
 					>

@@ -89,7 +89,9 @@ export interface AttentionItem {
 	actions: Array<{
 		id: string;
 		label: string;
-		role: 'decision' | 'inspect' | 'conversation' | 'human_step' | string;
+		/** `owner_browser`: a human step that opens only in the owner's own browser, never the
+		 * company browser agents drive (a provider's payment approval). */
+		role: 'decision' | 'inspect' | 'conversation' | 'human_step' | 'owner_browser' | string;
 		consequence: string;
 		nextState: string;
 		href?: string;
