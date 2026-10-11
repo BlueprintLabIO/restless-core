@@ -44,7 +44,10 @@ publish 9, seal 3). Where the time went on 9 October, and what now keeps it shor
   `dagger-engine-v0.21.10` container and to `~/.config/dagger/engine.json`, which the CLI
   mounts when it provisions a new engine version. Restart the engine only while both runners
   are idle (`gh api repos/BlueprintLabIO/restless-core/actions/runners`). Pruning to that
-  policy took 11 s and left 162 GB.
+  policy took 11 s and left 162 GB. On 12 October the cap was lowered to `"maxUsedSpace":
+  "40GB", "reservedSpace": "10GB"` after the Windows host lost ~800 GB to WSL growth
+  (`docs/BUILD_STORAGE.md`); GC brought the engine from 164 GB to under 50 GB within 30 s. The
+  accepted risk is a cold tool base: if two consecutive prebuilds rebuild it, raise the cap.
 - **The cockpit still ships through a Core release.** Cloud serves it from the account-plane
   image (`COPY web/build`), so a UI change needs that image, and with the fast lane, the reused
   tool base and cached Rust its release is the short one.

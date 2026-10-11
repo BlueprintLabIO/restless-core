@@ -22,7 +22,7 @@
 #      nobody is attached to, and it burns cores until the container dies.
 #      Nothing outside that list is ever killed.
 #
-# Debt is not only disk. Sections 1-2 and 7-12 bound what accumulates on disk;
+# Debt is not only disk. Sections 1-2 and 7-16 bound what accumulates on disk;
 # sections 3-6 bound what accumulates on the CPU. The second kind was invisible
 # here until one abandoned Godot demo held ~6 of 12 cores for 23 hours while
 # every disk check reported clean — a busy container is not a leaked one, and
@@ -42,8 +42,12 @@ done
 export PATH
 
 REAP_STALE_HOURS="${RESTLESS_REAP_STALE_HOURS:-24}"
-REAP_CACHE_BUDGET_GB="${RESTLESS_REAP_CACHE_BUDGET_GB:-8}"
+REAP_CACHE_BUDGET_GB="${RESTLESS_REAP_CACHE_BUDGET_GB:-20}"
 REAP_DISK_MIN_GIB="${RESTLESS_REAP_DISK_MIN_GIB:-30}"
+REAP_SLOT_POOL="${RESTLESS_WORKTREE_POOL_SIZE:-4}"
+REAP_SLOT_BUDGET_GB="${RESTLESS_REAP_SLOT_BUDGET_GB:-60}"
+REAP_WSL_SLACK_GB="${RESTLESS_REAP_WSL_SLACK_GB:-100}"
+REPO_ROOT="${STACK_REPO_ROOT:-$(cd -- "$(dirname -- "$0")/.." && pwd)}"
 # A company doing real work is bursty; sustained load is the signal. This is a
 # single instantaneous sample, so it flags a suspect for the process check
 # below to explain rather than proving a runaway on its own.
@@ -514,7 +518,71 @@ else
   debt "$MISSING_MARKERS"
 fi
 
-# --- 13. Disk headroom ------------------------------------------------------
+# --- 13. Worktree slot build caches -----------------------------------------
+# `restless-dev worktree new` keeps a pool of warm slots, but nothing removed
+# the targets of slots beyond it: on 12 October 2026 nine slots and a scratch
+# worktree held ~100 GB of Cargo targets, the largest item on the host. A slot
+# target is a cache. --purge empties the targets of the least recently built
+# slots beyond the pool and never touches a worktree's source or branch.
+printf '\nworktree slot build caches (pool %s, budget %sGB)\n' "$REAP_SLOT_POOL" "$REAP_SLOT_BUDGET_GB"
+MAIN_ROOT="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+SLOT_PARENT="${RESTLESS_WORKTREE_ROOT:-$(dirname "$(dirname "${MAIN_ROOT:-/nonexistent/.git}")")/work}"
+SLOT_TOTAL_KIB=0
+COLD_KIB=0
+rank=0
+# Newest build first: Cargo writes into target/debug/deps on every build that
+# produces an artifact, so its mtime is the slot's last real use.
+for deps in $(ls -1dt "$SLOT_PARENT"/*/target/debug/deps 2>/dev/null || true); do
+  target="${deps%/debug/deps}"
+  kib="$(du -sk "$target" 2>/dev/null | cut -f1)"
+  SLOT_TOTAL_KIB=$((SLOT_TOTAL_KIB + ${kib:-0}))
+  rank=$((rank + 1))
+  if [ "$rank" -le "$REAP_SLOT_POOL" ]; then
+    note "$(printf '%-52s %4s GiB  warm' "$target" "$(( ${kib:-0} / 1048576 ))")"
+    continue
+  fi
+  note "$(printf '%-52s %4s GiB  beyond pool' "$target" "$(( ${kib:-0} / 1048576 ))")"
+  COLD_KIB=$((COLD_KIB + ${kib:-0}))
+  if [ "$MODE" = purge ]; then
+    if pgrep -x cargo >/dev/null 2>&1 || pgrep -x rustc >/dev/null 2>&1; then
+      note '  a build is running — left in place'
+    else
+      rm -rf -- "$target" && mkdir -p "$target" && touch "$target/.metadata_never_index" \
+        && note '  emptied'
+    fi
+  fi
+done
+note "total $((SLOT_TOTAL_KIB / 1048576)) GiB"
+if [ $((COLD_KIB / 1048576)) -ge 1 ] || [ $((SLOT_TOTAL_KIB / 1048576)) -gt "$REAP_SLOT_BUDGET_GB" ]; then
+  debt 1
+  [ "$MODE" = check ] && note 'slots beyond the pool hold regenerable targets; --purge empties them'
+fi
+
+# --- 14. Dagger engine cache -----------------------------------------------
+# Unconfigured, Dagger lets its engine cache take 75% of the disk; it reached
+# 400 GB once and 164 GB again under a 150 GB cap. The cap lives in the
+# engine's /etc/dagger/engine.json (docs/operations/local-release-runner.md).
+printf '\ndagger engine cache\n'
+if have_docker; then
+  ENGINE="$(docker ps --format '{{.Names}}' 2>/dev/null | grep '^dagger-engine' | head -n 1 || true)"
+  if [ -z "$ENGINE" ]; then
+    note 'no engine running'
+  else
+    CAP="$(docker exec "$ENGINE" cat /etc/dagger/engine.json 2>/dev/null \
+      | sed -n 's/.*"maxUsedSpace"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)"
+    USED="$(docker exec "$ENGINE" du -sh /var/lib/dagger 2>/dev/null | cut -f1 || true)"
+    if [ -n "$CAP" ]; then
+      note "$ENGINE  ${USED:-?} used, GC cap ${CAP}"
+    else
+      note "$ENGINE  ${USED:-?} used, NO GC cap — the engine may take 75% of the disk"
+      debt 1
+    fi
+  fi
+else
+  note 'docker unavailable — skipped'
+fi
+
+# --- 15. Disk headroom ------------------------------------------------------
 printf '\ndisk headroom\n'
 DISK_PATH="${RESTLESS_REAP_DISK_PATH:-${STACK_REPO_ROOT:-$(cd -- "$(dirname -- "$0")/.." && pwd)}}"
 if AVAIL_KIB="$(df -Pk "$DISK_PATH" 2>/dev/null | awk 'NR == 2 { print $4 }')" \
@@ -529,6 +597,38 @@ if AVAIL_KIB="$(df -Pk "$DISK_PATH" 2>/dev/null | awk 'NR == 2 { print $4 }')" \
 else
   note "unknown free space at ${DISK_PATH} — cannot verify the ${REAP_DISK_MIN_GIB} GiB build floor"
   debt 1
+fi
+
+# --- 16. WSL host drive ------------------------------------------------------
+# Under WSL, section 15 measures the distro's virtual disk, which reported
+# 481 GiB free while the Windows drive holding it was filling. The ext4.vhdx
+# grows to its peak and never shrinks on its own (sparse mode is disabled
+# upstream), so slack — file size minus what the distro uses — is disk the
+# host lost. Only an elevated Windows step reclaims it: infra/windows/wsl-compact.ps1.
+if [ -n "${WSL_DISTRO_NAME:-}" ] && [ -d /mnt/c ]; then
+  printf '\nWSL host drive\n'
+  HOST_KIB="$(df -Pk /mnt/c 2>/dev/null | awk 'NR == 2 { print $4 }')"
+  if [[ "${HOST_KIB:-}" =~ ^[0-9]+$ ]]; then
+    if [ $((HOST_KIB / 1048576)) -ge "$REAP_DISK_MIN_GIB" ]; then
+      note "C: $((HOST_KIB / 1048576)) GiB free"
+    else
+      note "C: $((HOST_KIB / 1048576)) GiB free — BELOW the ${REAP_DISK_MIN_GIB} GiB floor"
+      debt 1
+    fi
+  fi
+  # The largest distro disk is taken as this one; the GUID-to-distro mapping
+  # lives in the Windows registry, which a Linux check cannot read reliably.
+  VHDX="$(ls -1S /mnt/c/Users/*/AppData/Local/wsl/*/ext4.vhdx 2>/dev/null | head -n 1 || true)"
+  USED_KIB="$(df -Pk / 2>/dev/null | awk 'NR == 2 { print $3 }')"
+  if [ -n "$VHDX" ] && [[ "${USED_KIB:-}" =~ ^[0-9]+$ ]]; then
+    FILE_GIB=$(( $(stat -c %s "$VHDX") / 1073741824 ))
+    SLACK_GIB=$(( FILE_GIB - USED_KIB / 1048576 ))
+    note "virtual disk ${FILE_GIB} GiB, distro uses $((USED_KIB / 1048576)) GiB, slack ${SLACK_GIB} GiB"
+    if [ "$SLACK_GIB" -gt "$REAP_WSL_SLACK_GB" ]; then
+      note 'compact it from an elevated Windows shell: infra/windows/wsl-compact.ps1'
+      debt 1
+    fi
+  fi
 fi
 
 printf '\n'

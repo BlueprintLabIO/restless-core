@@ -50,6 +50,37 @@ report so it surfaces at the moment an operator is already looking at host healt
 touch any company without the `_test` suffix, removes volumes only by exact name, and reports
 running containers rather than killing them.
 
+### Fourth incident — 12 October 2026, the Windows host
+
+On the WSL development host the Windows drive lost ~800 GB to one file: the distro's `ext4.vhdx`.
+Inside the distro `df /` reported 481 GiB free, so the reaper's headroom check passed while the
+real disk filled. Usage inside the distro had peaked near 506 GiB; the file stays at its peak because
+WSL disables sparse mode upstream for data-corruption risk. Every cache below was unbounded in
+practice because each sized its limit from the 1 TB *virtual* disk:
+
+| Cache | Size | Why it grew |
+| --- | --- | --- |
+| Worktree slot targets | ~100 GB | 9 slots and a scratch worktree; the pool keeps 4 warm but nothing emptied the rest |
+| Dagger engine cache | 164 GB | GC cap 150 GB (see `docs/operations/local-release-runner.md`) |
+| Docker build cache | 53 GB, 18 GB again within hours | No `daemon.json`; BuildKit's default cap here was 750 GiB |
+| Unused Docker images | 57 GB | Successive company-image builds |
+
+Removing the slot targets, capping Dagger at 40 GB and pruning Docker took the distro from 506 to
+272 GiB. Compacting the file took it from 803 to 281 GB. sccache was not reconsidered: "Compile
+time" below records that it gives zero hits across worktrees.
+
+The countermeasures are bounds the tools enforce themselves, and reports for the rest:
+
+- **Docker build cache** is capped by the daemon (policy 4), so it no longer waits for a purge.
+- **Dagger** keeps a 40 GB GC cap. The accepted risk is a cold release prebuild (tool base 309 s
+  cold, 43 s warm); if two consecutive prebuilds rebuild the tool base, raise the cap.
+- **`restless-reap`** now reports slot targets beyond the pool (`--purge` empties them; source and
+  branches are never touched), the Dagger cache against its cap, and under WSL the real Windows
+  drive and the virtual disk's slack.
+- **The virtual disk** is compacted by [`infra/windows/wsl-compact.ps1`](../infra/windows/wsl-compact.ps1),
+  installed as a weekly Windows task. It skips when the slack is under 50 GB or a CI job or Cargo
+  build is running, because stopping WSL stops everything inside it.
+
 ## The second dimension: CPU and memory
 
 The reaper above bounds what accumulates on *disk*. A later incident showed that was half the
@@ -115,12 +146,15 @@ already dangerous host; it is not a storage-retention policy.
 3. Give throwaway clones and experiments a dedicated `CARGO_TARGET_DIR`. Remove that exact target
    with `cargo clean --target-dir ...` when the experiment ends. Do not leave comparison targets in
    persistent scratch directories.
-4. Keep Docker build cache bounded rather than periodically deleting runtime data:
+4. Keep Docker build cache bounded rather than periodically deleting runtime data. Let the daemon
+   enforce the bound in `/etc/docker/daemon.json` (Docker 28+; restart `docker` to apply):
 
-   ```sh
-   docker builder prune --force --max-used-space 8GB
+   ```json
+   { "builder": { "gc": { "enabled": true, "defaultReservedSpace": "8GB",
+                          "defaultMaxUsedSpace": "20GB" } } }
    ```
 
+   `restless-reap --purge` prunes to the same 20 GB budget where the daemon is not configured.
    Never automatically prune Docker volumes; an unused volume may still contain company data.
 5. A weekly machine-local check should report filesystem free space, every workspace `target` size,
    and `docker system df`. It may clean only the exact regenerable locations above after confirming
@@ -129,6 +163,8 @@ already dangerous host; it is not a storage-retention policy.
    -cache`, `pnpm store prune`, `bun pm cache rm`) rather than broad deletion of user cache trees.
 7. Never include Codex sessions, browser profiles, credentials, company state, Git worktrees,
    source, or untracked project files in automatic cleanup.
+8. On a WSL host, measure the Windows drive, not `df /`. Install the weekly compaction once from an
+   elevated PowerShell: `infra\windows\wsl-compact.ps1 -Install`.
 
 ## Health integration
 
