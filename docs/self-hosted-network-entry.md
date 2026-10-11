@@ -63,8 +63,9 @@ this machine through Tailscale sharing.
    ```
 
 2. In **Company → Members → Enable sharing**, choose **Private network** and
-   enter those two addresses, then run the account installer from the
-   [account service guide](../services/identity/README.md) on the download.
+   enter those two addresses, then run `restless appliance prepare-sharing` on
+   the download, as the [account service guide](../services/identity/README.md)
+   describes.
 3. Start the prepared account service, then activate:
 
    ```sh

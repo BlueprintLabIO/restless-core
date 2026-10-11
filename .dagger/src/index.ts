@@ -13,7 +13,8 @@ const EXCLUDES = ['**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/
 const ACCOUNT_INPUTS = ['infra/account-plane/Dockerfile', 'Cargo.toml', 'Cargo.lock', 'crates/**',
   'tools/codex-runner/**', 'tools/custom-harness/**', 'tools/harness-auth/**', 'tools/schedule-test-proxy.py',
   'docs/COMPANY_OPERATING_RULES.md', 'services/native-sheets/package.json', 'services/native-sheets/package-lock.json',
-  'services/native-sheets/src/**', 'services/native-sheets/NOTICE'];
+  'services/native-sheets/src/**', 'services/native-sheets/NOTICE', 'services/identity/package.json',
+  'services/identity/package-lock.json', 'services/identity/src/**', 'services/identity/public/**', 'services/identity/scripts/**'];
 const RUNTIME_INPUTS = ['infra/company-image/**', 'Cargo.toml', 'Cargo.lock', 'crates/**',
   'tools/scenario/restless-scenario.mjs', 'tools/web-review/restless-web-review.mjs', 'tools/codex-runner/**'];
 const RUST_INPUTS = ['infra/rust-binaries/Dockerfile', 'Cargo.toml', 'Cargo.lock', 'crates/**',
@@ -509,6 +510,8 @@ export class RestlessCore {
       '!tools/custom-harness/**', '!tools/harness-auth/**', '!tools/schedule-test-proxy.py',
       '!docs/COMPANY_OPERATING_RULES.md', '!infra/account-plane/Dockerfile', '!services/native-sheets/package.json',
       '!services/native-sheets/package-lock.json', '!services/native-sheets/src/**', '!services/native-sheets/NOTICE',
+      '!services/identity/package.json', '!services/identity/package-lock.json', '!services/identity/src/**',
+      '!services/identity/public/**', '!services/identity/scripts/**',
       '!web/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
     source: Directory, revision: string, platform: string = 'linux/amd64', binaries?: Directory,
   ): Container {
@@ -531,6 +534,8 @@ export class RestlessCore {
       '!tools/custom-harness/**', '!tools/harness-auth/**', '!tools/schedule-test-proxy.py',
       '!docs/COMPANY_OPERATING_RULES.md', '!infra/account-plane/Dockerfile', '!services/native-sheets/package.json',
       '!services/native-sheets/package-lock.json', '!services/native-sheets/src/**', '!services/native-sheets/NOTICE',
+      '!services/identity/package.json', '!services/identity/package-lock.json', '!services/identity/src/**',
+      '!services/identity/public/**', '!services/identity/scripts/**',
       '!web/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
     source: Directory, revision: string, platform: string = 'linux/amd64', binaries?: Directory,
   ): Promise<string> {

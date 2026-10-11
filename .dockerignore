@@ -60,3 +60,14 @@ services/native-sheets/*
 !services/native-sheets/NOTICE
 !services/native-sheets/src/
 !services/native-sheets/src/**
+# The account service and installer the account plane ships for `prepare-sharing`.
+!services/identity/
+services/identity/*
+!services/identity/package.json
+!services/identity/package-lock.json
+!services/identity/src/
+!services/identity/src/**
+!services/identity/public/
+!services/identity/public/**
+!services/identity/scripts/
+!services/identity/scripts/**

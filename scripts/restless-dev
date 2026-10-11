@@ -461,6 +461,11 @@ promote() {
   tools="$(dev_install_host_tools "$source" "$tools_root")"
   local sheets
   sheets="$(dev_install_sheets "$source" "$tools_root")"
+  # The account installer; a commit from before it shipped would refuse its release.env key.
+  local identity=""
+  if grep -q '"RESTLESS_SHARING_SETUP"' "${source}/crates/restless-contracts/src/appliance.rs"; then
+    identity="$(dev_install_identity "$source" "$tools_root")"
+  fi
   printf '\nBuilding the company computer and document service…\n'
   dev_build_company_image "$source" "restless-company-image:${short}" "$commit"
   docker build --tag "restless-native-documents:${short}" \
@@ -493,6 +498,7 @@ RESTLESS_OMP_BIN=${tools}/omp-source
 RESTLESS_SHEETS_WORKER=${sheets}/src/worker.mjs
 RESTLESS_NODE_BIN=${sheets}/bin/node
 EOF_RELEASE
+  [ -z "$identity" ] || printf 'RESTLESS_SHARING_SETUP=%s/scripts/setup.mjs\n' "$identity" >>"$release_env"
 
   if [ "$build_only" = true ]; then
     printf '\nBuilt %s; not activated (--build-only).\n' "$short"

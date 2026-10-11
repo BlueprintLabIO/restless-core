@@ -63,17 +63,19 @@ without changing anyone's membership.
    }
    ```
 
-2. Prepare the host installation from the downloaded setup:
+2. Prepare the host installation from the downloaded setup with the installed
+   release's account installer:
 
    ```sh
-   cd services/identity
-   npm ci --ignore-scripts
-   node scripts/setup.mjs \
+   restless appliance prepare-sharing \
      --plan /srv/restless/restless-sharing-my_company.json \
      --database-url-file /srv/restless/accounts-database.url \
      --smtp-file /srv/restless/accounts-smtp.json \
      --output /srv/restless/accounts
    ```
+
+   From a source checkout, run `npm ci --ignore-scripts` here, then
+   `node scripts/setup.mjs` with the same options.
 
    If the local release does not supply a digest, also pass
    `--company-image 'registry.example.com/restless@sha256:YOUR_IMAGE_DIGEST'`.

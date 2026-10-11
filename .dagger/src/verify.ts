@@ -97,6 +97,8 @@ export async function verifyAccountPlaneImage(image: Container): Promise<string>
       '/usr/local/bin/restlessd --help; /usr/local/bin/restless appliance --help; test -s /opt/restless/cockpit/index.html; '
       + 'node --input-type=module -e \'const { Model } = await import("/opt/restless/native-sheets/src/upstream.mjs"); '
       + 'if (typeof Model !== "function") throw new Error("Native Sheets engine is unavailable"); '
-      + 'console.log("Account-plane binary links; bundled cockpit and native Sheets engine are usable")\'',
+      + 'const { setup } = await import("/opt/restless/identity/scripts/setup.mjs"); '
+      + 'if (typeof setup !== "function") throw new Error("The account installer is unavailable"); '
+      + 'console.log("Account-plane binary links; bundled cockpit, native Sheets engine and account installer are usable")\'',
     ], { useEntrypoint: false }).stdout();
 }

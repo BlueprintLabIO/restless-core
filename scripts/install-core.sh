@@ -214,6 +214,14 @@ verify_release() {
   printf '%s\n' "$bundle/$manifest"
 }
 
+# The account service and its installer, run by `restless appliance prepare-sharing`. Its
+# dependencies are plain JavaScript, so one copy serves Linux and macOS. A release built before
+# it was shipped has none, and installs as before.
+stage_account_installer() {
+  local container="$1" tools="$2"
+  docker cp "$container:/opt/restless/identity" "$tools/identity" 2>/dev/null || rm -rf "$tools/identity"
+}
+
 # Copy the appliance's files out of the account-plane image.
 stage_account_plane() {
   local image="$1" stage="$2" tools="$3" container omp bun
@@ -226,6 +234,7 @@ stage_account_plane() {
     || fail "this release's account-plane image has no restless CLI; install a newer release"
   docker cp "$container:/opt/restless/cockpit" "$stage/cockpit"
   docker cp "$container:/opt/restless/native-sheets" "$tools.partial/native-sheets"
+  stage_account_installer "$container" "$tools.partial"
   docker cp -L "$container:/usr/local/bin/node" "$tools.partial/bin/node"
   # The model broker: Bun plus the globally installed OMP package.
   read -r omp bun < <(docker run --rm --entrypoint /bin/sh "$image" -c \
@@ -311,6 +320,7 @@ stage_macos_host_tools() {
   for part in package.json package-lock.json src NOTICE; do
     docker cp "$container:/opt/restless/native-sheets/$part" "$tools.partial/native-sheets/$part"
   done
+  stage_account_installer "$container" "$tools.partial"
   docker rm -f "$container" >/dev/null
   STAGING_CONTAINER=""
 
@@ -362,6 +372,7 @@ write_release_environment() {
     printf 'RESTLESS_BUN_BIN=%s\n' "$tools/bin/bun"
     printf 'RESTLESS_SHEETS_WORKER=%s\n' "$tools/native-sheets/src/worker.mjs"
     printf 'RESTLESS_NODE_BIN=%s\n' "$tools/bin/node"
+    [ ! -d "$tools/identity" ] || printf 'RESTLESS_SHARING_SETUP=%s\n' "$tools/identity/scripts/setup.mjs"
   } >"$output"
 }
 

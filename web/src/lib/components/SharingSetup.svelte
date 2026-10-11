@@ -78,13 +78,13 @@
 			<details class="sharing-install">
 				<summary>Host installation</summary>
 				<p>
-					The account service needs a separate accounts database and an email service. Keep their
-					credentials in private files on the host.
+					The account service needs Node 24 or later, a separate accounts database and an email
+					service. Keep their credentials in private files on the host, then run:
 				</p>
 				<code
-					>cd services/identity<br />npm ci --ignore-scripts<br />node scripts/setup.mjs --plan
-					/path/to/restless-sharing-{setup.company}.json --database-url-file /path/to/accounts.url
-					--smtp-file /path/to/smtp.json --output /path/to/accounts{setup.company_image
+					>restless appliance prepare-sharing --plan /path/to/restless-sharing-{setup.company}.json
+					--database-url-file /path/to/accounts.url --smtp-file /path/to/smtp.json --output
+					/path/to/accounts{setup.company_image
 						? ''
 						: ' --company-image repository@sha256:digest'}</code
 				>
@@ -95,9 +95,13 @@
 				</p>
 				<p>
 					For private access, Tailscale is recommended: run
-					<code>restless appliance tailscale-addresses</code> for the two addresses, then activate with
-					<code>enable-sharing --tailscale</code>. Without Tailscale, SSH can carry browser traffic
-					through a SOCKS tunnel while preserving the configured addresses and individual sign-in.
+					<code>restless appliance tailscale-addresses</code> for the two addresses, then activate
+					with
+					<code
+						>restless appliance enable-sharing --tailscale --environment
+						/path/to/accounts/core-entry.env</code
+					>. Without Tailscale, SSH can carry browser traffic through a SOCKS tunnel while
+					preserving the configured addresses and individual sign-in.
 				</p>
 			</details>
 			<div class="sharing-actions">

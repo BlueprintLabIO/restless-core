@@ -785,6 +785,25 @@ fn sharing_environment(source: &Path) -> Result<BTreeMap<String, String>> {
     Ok(values)
 }
 
+/// Run the installed release's account installer on a setup downloaded from
+/// Members → Enable sharing. It only writes a new folder; activation is
+/// `enable_sharing`, so a host without a source checkout can share too.
+pub fn prepare_sharing(options: Vec<String>) -> Result<std::process::ExitStatus> {
+    ensure_stable_profile()?;
+    let layout = Layout::discover()?;
+    read_link_name(&layout.current)
+        .context("install the local appliance before preparing sharing")?;
+    let installer = release_setting(&layout.current, "RESTLESS_SHARING_SETUP")
+        .context("this release has no account installer; install the latest release, then retry")?;
+    let node =
+        release_setting(&layout.current, "RESTLESS_NODE_BIN").unwrap_or_else(|| "node".into());
+    Command::new(&node)
+        .arg(&installer)
+        .args(options)
+        .status()
+        .with_context(|| format!("start the account installer with {node}"))
+}
+
 /// The installed appliance owns this last step. It preserves existing credentials,
 /// checks the candidate, drains useful work and restores entry settings on failure.
 pub fn enable_sharing(environment: PathBuf) -> Result<serde_json::Value> {

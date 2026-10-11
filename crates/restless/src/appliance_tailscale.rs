@@ -26,7 +26,7 @@ impl TailnetAddresses {
             "company_address": self.company_origin,
             "account_address": self.account_origin,
             "next": "Enter these exact addresses in Company → Members → Enable sharing (Private network), \
-                     run the account installer, then `restless appliance enable-sharing --tailscale --environment <core-entry.env>`.",
+                     run `restless appliance prepare-sharing` on the download, then `restless appliance enable-sharing --tailscale --environment <core-entry.env>`.",
         })
     }
 }
@@ -103,7 +103,7 @@ pub(super) fn ensure_prepared_for(
         || host.map(str::to_ascii_lowercase).as_deref() != Some(addresses.host.as_str())
     {
         bail!(
-            "This sharing setup was prepared for other addresses. In Company → Members → Enable sharing, choose Private network with company address {} and account address {}, run the account installer again into a new folder, then retry.",
+            "This sharing setup was prepared for other addresses. In Company → Members → Enable sharing, choose Private network with company address {} and account address {}, run `restless appliance prepare-sharing` again into a new folder, then retry.",
             addresses.company_origin,
             addresses.account_origin
         );

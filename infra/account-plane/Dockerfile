@@ -126,6 +126,14 @@ COPY services/native-sheets/src /opt/restless/native-sheets/src
 COPY services/native-sheets/NOTICE /opt/restless/native-sheets/NOTICE
 ENV RESTLESS_SHEETS_WORKER=/opt/restless/native-sheets/src/worker.mjs
 
+# The self-hosted account service and its installer. scripts/install-core.sh copies it to the host,
+# where `restless appliance prepare-sharing` runs scripts/setup.mjs on a Members → Enable sharing setup.
+COPY services/identity/package.json services/identity/package-lock.json /opt/restless/identity/
+RUN npm --prefix /opt/restless/identity ci --omit=dev --ignore-scripts --no-audit --no-fund && npm cache clean --force
+COPY services/identity/src /opt/restless/identity/src
+COPY services/identity/public /opt/restless/identity/public
+COPY services/identity/scripts /opt/restless/identity/scripts
+
 # Apply compatible security fixes that npm 11.21.0 has not bundled yet.
 RUN npm --prefix /tmp/npm-security-fixes install \
         --ignore-scripts --omit=dev --no-audit --no-fund --save-exact \

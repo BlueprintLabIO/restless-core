@@ -66,6 +66,25 @@ dev_install_sheets() {
   printf '%s\n' "$target"
 }
 
+# Install <root>'s account service and its installer with production dependencies, keyed by its
+# inputs like the sheets worker. `restless appliance prepare-sharing` runs it. Prints the directory.
+dev_install_identity() {
+  local root="$1" tools_root="$2" source key target
+  source="$root/services/identity"
+  key="$( { cd "$source" && find package.json package-lock.json src public scripts -type f -print | LC_ALL=C sort | while IFS= read -r input; do printf '%s\0' "$input"; command cat "$input"; done; } | dev_sha256 | cut -c1-16)"
+  target="${tools_root}/identity-${key}"
+  if [ ! -f "$target/.installed" ]; then
+    mkdir -p "$tools_root"
+    rm -rf "${target}.partial"
+    mkdir -p "${target}.partial"
+    (cd "$source" && tar -cf - package.json package-lock.json src public scripts) | (cd "${target}.partial" && tar -xf -)
+    npm --prefix "${target}.partial" ci --omit=dev --ignore-scripts --no-audit --no-fund >&2
+    touch "${target}.partial/.installed"
+    mv "${target}.partial" "$target"
+  fi
+  printf '%s\n' "$target"
+}
+
 dev_install_host_tools() {
   local root="$1" tools_root="$2"
   local source="${root}/infra/host-tools" key target

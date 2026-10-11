@@ -324,6 +324,8 @@ pub const RELEASE_ENVIRONMENT_KEYS: &[&str] = &[
     "RESTLESS_SHEETS_WORKER",
     "RESTLESS_NODE_BIN",
     "RESTLESS_BUN_BIN",
+    // The account installer that `restless appliance prepare-sharing` runs.
+    "RESTLESS_SHARING_SETUP",
 ];
 
 /// Parse and validate a release environment: only the allow-listed keys, no
