@@ -328,6 +328,10 @@ struct RecoveryState {
     state: String,
     failed_release: String,
     detail: String,
+    /// The previous release cannot open company data, so rolling back is no
+    /// repair. The owner cockpit reads this field too.
+    #[serde(default)]
+    rollback_refused: bool,
     recorded_at_unix_seconds: u64,
 }
 
@@ -413,8 +417,16 @@ pub fn install(
 
     // Run the exact staged daemon's read-only preflight before changing the
     // activation pointer. A bad candidate cannot take the active service down.
-    if let Err(error) = run_candidate_preflight(&release_dir, &layout.state_root) {
-        write_recovery_state(&layout, "upgrade_blocked", &release, &format!("{error:#}"))?;
+    if let Err(error) = run_candidate_preflight(&release_dir, &layout.state_root)
+        .context("the new release was not activated")
+    {
+        write_recovery_state(
+            &layout,
+            "upgrade_blocked",
+            &release,
+            &format!("{error:#}"),
+            false,
+        )?;
         return Err(error);
     }
 
@@ -433,7 +445,23 @@ pub fn install(
     }
 
     restart_services(&layout)?;
-    let ready = wait_ready(&layout, Duration::from_secs(30));
+    let mut ready = wait_ready(&layout, Duration::from_secs(30));
+    // A slow candidate may already have upgraded company data past what the
+    // previous release can open. Restoring that release would report a
+    // recovery while every company fails to open, so the candidate is the only
+    // release that can take over: keep waiting for it instead.
+    let rollback_refused = !ready
+        && upgrading
+        && previous_target.as_ref().is_some_and(|previous| {
+            run_candidate_preflight(previous, &layout.state_root).is_err()
+        });
+    if rollback_refused {
+        eprintln!(
+            "the new release is still starting, and it is the only release that can open company data; waiting up to {} minutes for it",
+            SOLE_RELEASE_READY_BOUND.as_secs() / 60
+        );
+        ready = wait_ready_while_running(&layout, SOLE_RELEASE_READY_BOUND);
+    }
     if ready {
         clear_recovery_state(&layout)?;
         prune_releases(&layout)?;
@@ -451,14 +479,7 @@ pub fn install(
         return Ok(report);
     }
 
-    // A slow candidate may already have upgraded company data past what the
-    // previous release can open. Restoring it then would report a recovery
-    // while every company fails to open, so the candidate stays active.
-    let fallback_refused = match (upgrading, &previous_target) {
-        (true, Some(previous)) => run_candidate_preflight(previous, &layout.state_root).err(),
-        _ => None,
-    };
-    if upgrading && fallback_refused.is_none() {
+    if upgrading && !rollback_refused {
         if let Some(previous) = previous_target {
             atomic_symlink(&previous, &layout.current)?;
             write_service_definitions(&layout, &previous)?;
@@ -469,6 +490,7 @@ pub fn install(
                     "crash_loop",
                     &release,
                     "candidate and last-known-good release both failed readiness",
+                    false,
                 )?;
                 let _ = drain.resume();
                 bail!("new release failed readiness and the previous release did not recover; inspect ~/.restless/logs/restlessd.log");
@@ -478,6 +500,7 @@ pub fn install(
                 "upgrade_blocked",
                 &release,
                 "candidate failed readiness; last-known-good release was restored",
+                false,
             )?;
             let report = InstallReport {
                 release,
@@ -494,14 +517,12 @@ pub fn install(
             return Ok(report);
         }
     }
-    let detail = match fallback_refused {
-        Some(error) => format!(
-            "new release did not become ready within 30 seconds and stays active, because the previous release cannot take over: {error:#}"
-        ),
-        None => "installed service did not become ready and no last-known-good release was available"
-            .to_string(),
+    let detail = if rollback_refused {
+        "new release did not become ready and is still the active one: it is the only release that can open company data"
+    } else {
+        "installed service did not become ready and no last-known-good release was available"
     };
-    write_recovery_state(&layout, "crash_loop", &release, &detail)?;
+    write_recovery_state(&layout, "crash_loop", &release, detail, rollback_refused)?;
     let _ = drain.resume();
     bail!("{detail}; inspect ~/.restless/logs/restlessd.log")
 }
@@ -888,6 +909,7 @@ pub fn enable_sharing(environment: PathBuf) -> Result<serde_json::Value> {
     };
     if let Err(error) =
         run_candidate_preflight_with_environment(&release, &layout.state_root, &merged)
+            .context("sharing was not enabled")
     {
         restore()?;
         return Err(error);
@@ -1110,8 +1132,13 @@ pub fn status() -> Result<StatusReport> {
         (
             state,
             Some(format!(
-                "{}; inspect the service log, then retry or run `restless appliance rollback`{}",
+                "{}; inspect the service log, then {}{}",
                 recovery.detail,
+                if recovery.rollback_refused {
+                    "retry the upgrade"
+                } else {
+                    "retry or run `restless appliance rollback`"
+                },
                 if draining {
                     "; the work gate is still closed, so run `restless appliance resume` after recovery"
                 } else {
@@ -1328,7 +1355,7 @@ fn run_candidate_preflight_with_environment(
         .with_context(|| format!("run staged appliance preflight {}", daemon.display()))?;
     if !output.status.success() {
         bail!(
-            "release failed its read-only preflight, so it was not activated: {}",
+            "release failed its read-only preflight: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
@@ -1523,11 +1550,13 @@ fn write_recovery_state(
     state: &str,
     failed_release: &str,
     detail: &str,
+    rollback_refused: bool,
 ) -> Result<()> {
     let recovery = RecoveryState {
         state: state.to_string(),
         failed_release: failed_release.to_string(),
         detail: detail.to_string(),
+        rollback_refused,
         recorded_at_unix_seconds: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -1685,6 +1714,22 @@ fn wait_ready(layout: &Layout, bound: Duration) -> bool {
             return true;
         }
         std::thread::sleep(Duration::from_millis(250));
+    }
+    false
+}
+
+/// How long an upgrade waits for a new release the previous one cannot
+/// replace. Boot migrates every company before it reports ready.
+const SOLE_RELEASE_READY_BOUND: Duration = Duration::from_secs(10 * 60);
+
+/// `wait_ready` for as long as the plane service keeps running: a release
+/// still migrating company data is slow, while one that exits is failing.
+fn wait_ready_while_running(layout: &Layout, bound: Duration) -> bool {
+    let started = Instant::now();
+    while started.elapsed() < bound && layout.service_loaded(layout.supervisor.plane_name()) {
+        if wait_ready(layout, Duration::from_secs(5)) {
+            return true;
+        }
     }
     false
 }

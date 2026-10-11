@@ -5655,7 +5655,13 @@ async fn appliance_status(
                 .get("detail")
                 .and_then(serde_json::Value::as_str)
                 .map(|_| {
-                    "The last appliance upgrade was blocked. Inspect the service log, then retry or roll back."
+                    if recovery.get("rollback_refused").and_then(serde_json::Value::as_bool)
+                        == Some(true)
+                    {
+                        "The new release did not become ready, and it is the only release that can open company data. Inspect the service log, then retry the upgrade."
+                    } else {
+                        "The last appliance upgrade was blocked. Inspect the service log, then retry or roll back."
+                    }
                 }),
         )
     } else if draining {

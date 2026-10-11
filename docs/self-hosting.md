@@ -76,7 +76,8 @@ which:
 - activates the new release and waits up to 30 seconds for it to become ready.
 - puts the previous release back if the new one does not become ready, unless
   the new one has already upgraded company data the previous one cannot open.
-  Then the new release stays active.
+  Then the new release stays active, and the upgrade waits up to 10 more
+  minutes for it while its service keeps running.
 
 After an upgrade, each company computer still on the previous release's image is
 rebuilt on the new one when the service starts. Company files live on the
