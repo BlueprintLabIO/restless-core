@@ -7,6 +7,7 @@
 	import { Section, Row, Item, Notice, Fold } from '$lib/ui/page';
 	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
 	import { companyQuery } from '$lib/model/queries.svelte';
+	import { approvalAction } from '$lib/model/attention';
 
 	let { section = 'spend' }: { section?: 'spend' | 'authority' | 'computer' } = $props();
 	const companyId = $derived(page.params.companyId ?? 'aris');
@@ -127,6 +128,30 @@
 			limitError = failureSentence(e, 'The limit could not be saved.');
 		} finally {
 			limitSaving = false;
+		}
+	}
+	let revoking = $state(''),
+		revokeError = $state(''),
+		revokeNotice = $state('');
+	async function revokeContact(party: string) {
+		if (revoking) return;
+		if (
+			!window.confirm(
+				`Revoke approval for ${party}? The company will ask you again before contacting them.`
+			)
+		)
+			return;
+		revoking = party;
+		revokeError = '';
+		revokeNotice = '';
+		try {
+			await approvalAction(companyId, 'revoke', party);
+			await source.refresh();
+			revokeNotice = `${party} is no longer approved.`;
+		} catch (error) {
+			revokeError = failureSentence(error, 'The approval could not be revoked.');
+		} finally {
+			revoking = '';
 		}
 	}
 	function money(value: number): string {
@@ -341,11 +366,25 @@
 						meta={item.explanation}
 					/>{/each}
 			</Fold>
-			<Row label="Approved contacts" info="Added when you approve a first contact in the Inbox.">
-				{#if view.limits.approved_parties.length}{view.limits.approved_parties.join(
-						', '
-					)}{:else}<span class="none">None</span>{/if}
+			<Row
+				label="Approved contacts"
+				info="Added when you approve a first contact in the Inbox. Revoke one to be asked again before the company contacts them."
+			>
+				{#if !view.limits.approved_parties.length}<span class="none">None</span>{/if}
 			</Row>
+			{#each view.limits.approved_parties as party (party)}<Item title={party}>
+					{#snippet actions()}<button
+							class="btn small"
+							type="button"
+							disabled={revoking !== ''}
+							onclick={() => void revokeContact(party)}
+							>{revoking === party ? 'Revoking…' : 'Revoke'}</button
+						>{/snippet}
+				</Item>{/each}
+			{#if revokeError}<Notice tone="danger" title="The approval was not revoked"
+					>{revokeError}</Notice
+				>{/if}
+			{#if revokeNotice}<Notice tone="success" title={revokeNotice} />{/if}
 			<Row
 				label="Payment allowances"
 				info="Payments you have authorised. Separate from the model budget."
