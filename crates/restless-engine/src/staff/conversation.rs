@@ -876,6 +876,7 @@ pub async fn dispatch_actor_conversation(
             owner_focus_after_message_id,
         )
     };
+    let interruption = cancellation.clone();
     tokio::spawn(async move {
         let outcome = run_staff_with_failover(StaffRun {
             container,
@@ -1047,6 +1048,13 @@ pub async fn dispatch_actor_conversation(
                         )
                         .await;
                 }
+            }
+            // An owner interruption is not a failed turn. Its inputs and
+            // judgements stay owed to this actor, and the owner's new message
+            // is dispatched at once instead of after a failure backoff.
+            Ok(_) if interruption.is_cancelled() => {
+                usable = true;
+                live_turn.fail("Interrupted by owner.");
             }
             Ok(outcome) => {
                 live_turn.fail(&outcome.summary);

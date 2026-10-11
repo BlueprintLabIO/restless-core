@@ -1069,11 +1069,19 @@ async fn run_turn(
 
     match verdict {
         // Recoverable: the work is on the volume and a fresh session
-        // rehydrates from it, so this costs the owner nothing.
+        // rehydrates from it, so this costs the owner nothing. An owner
+        // interruption schedules no continuation: their new message, if any,
+        // is the next wake, and a Stop stays stopped.
         health::Verdict::Resume(reason) => {
-            tracing::warn!(company, %reason, "turn stopped early; resuming next wake");
+            let interrupted = cancellation.is_cancelled();
+            tracing::warn!(company, %reason, interrupted, "turn stopped early");
             Ok((
-                report(Termination::Continue, reason, Some(60), false),
+                report(
+                    Termination::Continue,
+                    reason,
+                    (!interrupted).then_some(CONTINUE_WAKE_DELAY_SECONDS),
+                    false,
+                ),
                 usage,
             ))
         }
@@ -1183,7 +1191,7 @@ async fn termination_decision(
     let prompted = tokio::select! {
         () = cancellation.cancelled() => {
             let _ = session.cancel().await;
-            return retry_termination("the owner interrupted the turn to send new direction");
+            return owner_interruption();
         }
         prompted = tokio::time::timeout(
             TERMINATION_TIMEOUT,
@@ -1303,11 +1311,13 @@ pub fn parse_termination(text: &str) -> Option<TerminationDecision> {
     recognized
 }
 
-fn retry_termination(reason: impl Into<String>) -> TerminationDecision {
+/// The owner ended this turn on purpose. Their new message, if any, is the
+/// next wake; a scheduled continuation would resume what they stopped.
+fn owner_interruption() -> TerminationDecision {
     TerminationDecision {
         termination: Termination::Continue,
-        reason: reason.into(),
-        retry_after_seconds: Some(CONTINUE_WAKE_DELAY_SECONDS),
+        reason: "the owner interrupted the turn".into(),
+        retry_after_seconds: None,
     }
 }
 
@@ -1738,14 +1748,98 @@ mod tests {
         .is_none());
     }
 
-    #[test]
-    fn owner_interruption_preserves_work_and_retries() {
-        let decision = retry_termination("the owner interrupted the turn to send new direction");
+    /// Follows the harness contract: a cancelled turn ends `Interrupted`,
+    /// and one nobody cancelled can still wedge.
+    struct StoppableSession;
+
+    impl ExecutiveSession for StoppableSession {
+        fn readiness_observation(&self) -> serde_json::Value {
+            serde_json::Value::Null
+        }
+
+        fn set_live_observer_enabled(&self, _enabled: bool) {}
+
+        fn prompt_exec<'a>(
+            &'a self,
+            _text: &'a str,
+            _enforce_spend_budget: bool,
+            _remaining_budget_usd: f64,
+            cancellation: &'a CancellationToken,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = acp::TurnEnd> + Send + 'a>> {
+            Box::pin(async move {
+                let transcript = acp::TurnTranscript::default();
+                if cancellation.is_cancelled() {
+                    acp::TurnEnd::Interrupted { transcript }
+                } else {
+                    acp::TurnEnd::Wedged {
+                        idle: std::time::Duration::from_secs(8 * 60),
+                        transcript,
+                    }
+                }
+            })
+        }
+
+        fn prompt_once<'a>(
+            &'a self,
+            _text: &'a str,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<acp::TurnTranscript>> + Send + 'a>>
+        {
+            Box::pin(std::future::pending())
+        }
+
+        fn cancel<'a>(
+            &'a self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    /// Stop must stay stopped and Interrupt must not cost an extra turn: an
+    /// owner interruption keeps the work but schedules no continuation,
+    /// whether it lands in the work turn or in the termination ask.
+    #[tokio::test]
+    async fn owner_interruption_preserves_work_without_a_continuation() {
+        let stopped = CancellationToken::new();
+        stopped.cancel();
+        let (report, _) = run_turn(
+            &StoppableSession,
+            "work",
+            "company_test",
+            "model",
+            1.0,
+            false,
+            false,
+            None,
+            &stopped,
+        )
+        .await
+        .unwrap();
+        assert_eq!(report.termination, Termination::Continue);
+        assert_eq!(report.retry_after_seconds, None);
+        assert!(!report.reply_complete);
+
+        let decision = termination_decision(&StoppableSession, &stopped).await;
         assert_eq!(decision.termination, Termination::Continue);
-        assert_eq!(decision.retry_after_seconds, Some(60));
+        assert_eq!(decision.retry_after_seconds, None);
+
+        // A wedge nobody interrupted still continues on its own.
+        let (report, _) = run_turn(
+            &StoppableSession,
+            "work",
+            "company_test",
+            "model",
+            1.0,
+            false,
+            false,
+            None,
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(report.termination, Termination::Continue);
         assert_eq!(
-            decision.reason,
-            "the owner interrupted the turn to send new direction"
+            report.retry_after_seconds,
+            Some(CONTINUE_WAKE_DELAY_SECONDS)
         );
     }
 }
