@@ -118,8 +118,15 @@ working arrangement.
 - [x] **S64-T8 Staff make playable decks** (engine prompts). When asked for a presentation, Staff
   produce an HTML deck (one section per slide, `<meta name="restless:deck">`) or a PDF, record it
   with kind `deck`, and never hand back only a `.pptx`.
-- [ ] **S64-T9 Dogfood** (evaluation). On a `_test` company, Staff produce a site, an image and a deck;
+- [x] **S64-T9 Dogfood** (evaluation). On a `_test` company, Staff produce a site, an image and a deck;
   each appears in Library under the right kind and opens; the deck plays.
+- [x] **S64-T10 Everyday files and decisions** (all layers). Anything a person does with files and
+  decisions every day works without a dead end: open and read any company file from any surface
+  (PDF, Markdown, CSV, Word, Excel; everything else downloads), even after the computer slept;
+  upload files into the Library and find what you sent; download, copy a link, discuss; search inside
+  documents and from ⌘K; rename, archive, restore and delete; export documents (Markdown, print to
+  PDF) and sheets (Excel); share a document; decline or ask for changes with a note; see every past
+  decision; and Exec can read the PDF, Word or Excel file you hand it.
 
 ## What this makes deletable
 
@@ -156,11 +163,60 @@ change).
 - `svelte-check` 0 errors, 0 warnings; `check:type` passes; `cargo check -p restless-orgintel -p
   restless-owner` passes.
 
-**Not yet run (T9).** No model is connected in the dev profile and the local GPT route is not
-provisioned on this host, so Staff have not produced a site, image or deck themselves. The bundled
-skill reaches companies with the next company image. Run T9 on a `_test` company once a model is
-connected: ask the Exec for a one-page site, a logo and a three-slide deck, then check each appears
-in Library under its kind and that the deck plays.
+**T9 dogfood (10 October 2026).** On a fresh local `dogfood_test` company with a capped Anthropic
+key, the owner asked for a launch kit. Exec commissioned lead Ada, whose workers produced a one-page
+site, an SVG logo, a three-slide HTML deck and its PDF export for $4.24; the goal closed. Each opened
+in Library under its kind, the deck played, and the PDF read in the browser's reader. The run also
+exposed what T10 fixes: every output was recorded twice (once labelled "output"), the HTML deck was
+listed as a Site, and the PDF chip in the Exec's reply opened a frame Chromium blocks.
+
+On Cloud (app.restless.run, Core e1e3e79) a throwaway company's Exec and Staff made a one-page PDF
+for $0.13. `POST /library/open` issued `/review/<ticket>/coffee-cart-price-list.pdf` on the plane's
+own host (`application/pdf`, `frame-ancestors 'self'`, `no-store`, 25,519 bytes), and the Library
+viewer read it in Chromium's reader. The chat chip for the same file opened blank (sandboxed), and a
+link to its duplicate record said the file was no longer in the Library; both are fixed in T10.
+
+### Everyday workflows (T10, 11 October 2026)
+
+An audit walked eight everyday owner workflows (files in, files read, files out, organising,
+writing, conversing, deciding, setup) against the code and adversarially verified 67 gaps. Seven
+packages fixed them; the main changes:
+
+- **Open anything, anywhere.** Inbox review files, chat file references and attachments wake a
+  sleeping computer instead of showing Docker errors. Chat chips read PDFs (unframed), Markdown,
+  CSV and JSON as text, and Word and Excel in place (mammoth with DOMPurify; o-spreadsheet read-only);
+  PowerPoint and unknown types download. `/company/...` links in replies, briefs and Work details open
+  the Library viewer by path (`POST /library/open {path}`, owner only, canonicalised, symlink escapes
+  refused). Large files stream. Attachments open in place: raster images and PDFs inline only when
+  their bytes match, never SVG or HTML.
+- **Library.** Upload and drop files ("From you", with usage and Delete); one row per Work file
+  (duplicate records collapse, any of their ids opens it), decks recognised from the record or path;
+  Download, Copy link and Discuss everywhere; search inside documents; ⌘K finds documents, sheets and
+  files; sort; pins that survive paging; archive and restore Work files; delete archived items for
+  good (migration 0084).
+- **Documents and sheets.** Download as Markdown, print or save as PDF, copy link, share with Exec or
+  a colleague, owner rename of any document's title, archived notice with Restore, links (Ctrl+K)
+  and clickable references, table rows and columns, comment mentions by name with quoted text,
+  Request changes on a review; sheets rename, open when archived or old, export and import Excel,
+  import as a new sheet, and survive very large pastes.
+- **Conversations.** The paperclip adds files rather than replacing them; a file sends without text;
+  sending wakes the computer; staged files keep their names, and the company image has pdftotext,
+  docx2txt and xlsx2csv; unread state from the server cursor with a People badge; group rename, leave
+  and archive; mentions limited to members.
+- **Decisions.** Files attached to an Inbox item open; the exact draft shows inline and readable;
+  decline with a note or ask for changes; a confirmation after a review; full, paged decision history
+  including approvals and declines; set-aside failures said and stale rows dropped.
+- **Setup.** Spend reads as a running model budget, the Vault counts stored secrets, schedules can be
+  deleted and run every weekday at a time, and a company logo renders while the computer sleeps.
+
+Checked on the local `dogfood_test` company after a full image rebuild: an everyday smoke of 15 flows
+passed with no console, page or HTTP errors; a route crawl at 1400px and 375px was clean; and the
+owner sent Exec `invoice-1042.pdf` and asked for the total, and Exec answered "$280.00, from Bean
+Brothers Roasters". `npm run check` 0 errors; `cargo check --workspace --all-targets` clean; the
+review-boundary, symlink-escape, attachment-inline and approval-draft tests pass.
+
+Not done: images inside documents, attachments in group rooms (Composer now says so), notifying
+mentioned humans, and installing sharing on a local plane without a terminal.
 
 ### Audit and smoke (10 October 2026)
 
