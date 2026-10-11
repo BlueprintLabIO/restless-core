@@ -770,8 +770,11 @@ pub(crate) fn percent_encode_segment(name: &str) -> String {
 /// On the plane's own host the content would otherwise share the cockpit's origin, so it is
 /// sandboxed: without `allow-same-origin` the browser gives it an opaque origin, in the cockpit's
 /// frame or opened on its own, so it cannot read the cockpit's cookies, storage or DOM, and its
-/// requests to the plane are cross-site (the `SameSite=Lax` session is not sent). A PDF is the one
-/// exception: the browser's reader refuses a sandboxed response, and a PDF runs no page script.
+/// requests to the plane are cross-site (the `SameSite=Lax` session is not sent). A PDF file is the
+/// one exception: the browser's reader refuses a sandboxed response, and a PDF runs no page script.
+/// Only a file's type is Core's own, chosen from its extension; a service names its own, and a
+/// browser reads `application/pdf, text/html` or `application/pdf+xml` as a page, so a service is
+/// always sandboxed.
 pub(crate) fn finish_review_response(
     mut response: Response<Body>,
     session: &ReviewSession,
@@ -807,11 +810,11 @@ pub(crate) fn finish_review_response(
         HeaderValue::from_static("nosniff"),
     );
     if on_plane_host {
-        let pdf = response
-            .headers()
-            .get(CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .is_some_and(|value| value.starts_with("application/pdf"));
+        let pdf = matches!(session.source, ReviewSource::Files { .. })
+            && response
+                .headers()
+                .get(CONTENT_TYPE)
+                .is_some_and(|value| value == "application/pdf");
         response.headers_mut().insert(
             "content-security-policy",
             HeaderValue::from_static(if pdf {
@@ -849,6 +852,15 @@ mod tests {
     }
 
     fn served(content_type: &'static str, upstream_csp: Option<&'static str>, on_plane_host: bool) -> String {
+        served_from(&session(), content_type, upstream_csp, on_plane_host)
+    }
+
+    fn served_from(
+        session: &ReviewSession,
+        content_type: &'static str,
+        upstream_csp: Option<&'static str>,
+        on_plane_host: bool,
+    ) -> String {
         let mut response = Response::new(Body::empty());
         response
             .headers_mut()
@@ -858,7 +870,7 @@ mod tests {
                 .headers_mut()
                 .insert("content-security-policy", HeaderValue::from_static(csp));
         }
-        let response = finish_review_response(response, &session(), "/index.html", on_plane_host);
+        let response = finish_review_response(response, session, "/index.html", on_plane_host);
         response
             .headers()
             .get_all("content-security-policy")
@@ -885,6 +897,23 @@ mod tests {
     #[test]
     fn plane_host_pdf_is_framed_only_by_the_cockpit() {
         assert_eq!(served("application/pdf", None, true), "frame-ancestors 'self'");
+    }
+
+    /// A service names its own type, and a browser renders `application/pdf, text/html` or
+    /// `application/pdf+xml` as a page that would run on the cockpit's origin. Only the exact PDF
+    /// type Core chose for a file is left unsandboxed.
+    #[test]
+    fn plane_host_service_is_sandboxed_whatever_type_it_claims() {
+        let service = ReviewSession {
+            source: ReviewSource::Service { port: 8080 },
+            ..session()
+        };
+        for content_type in ["application/pdf", "application/pdf, text/html", "application/pdf+xml"] {
+            let csp = served_from(&service, content_type, None, true);
+            assert!(csp.starts_with("sandbox "), "{content_type}: {csp}");
+            assert!(!csp.contains("allow-same-origin"), "{content_type}: {csp}");
+        }
+        assert!(served("application/pdf+xml", None, true).starts_with("sandbox "));
     }
 
     /// On the separate review origin the origin itself isolates the content; no policy is added
