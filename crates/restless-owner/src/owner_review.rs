@@ -11,6 +11,39 @@ pub(crate) const REVIEW_PATH_PREFIX: &str = "/review/";
 /// (`http://127.0.0.1:<port>/`) becomes `/review/{ticket}/`, which `/review/{ticket}/{*path}` never
 /// matched (a wildcard needs one character), so the root fell through to the cockpit's own 404.
 pub(crate) const REVIEW_PATH_ROUTE: &str = "/review/{*rest}";
+/// Set by the one-address edge when it forwards a review subdomain to the plane. A browser cannot
+/// add it to a navigation, and the plane grants no cross-origin request that carries it.
+pub(crate) const REVIEW_HOST_HEADER: &str = "x-restless-review-host";
+
+/// Where the browser sees a review served from, which decides how it is isolated.
+pub(crate) enum Isolation {
+    /// Its own origin, such as a local `<ticket>.localhost` host: nothing else lives there.
+    OwnOrigin,
+    /// The plane's own host, shared with the cockpit: sandboxed into an opaque origin.
+    PlaneHost,
+    /// Its own `<ticket>-<plane>-review` subdomain through the edge: its own origin, so a site's
+    /// root-relative assets load, framed only by the cockpit's public origin.
+    ReviewHost { cockpit: String },
+}
+
+/// A hosted plane `owner-<hex>.<domain>` gives each review ticket its own subdomain
+/// `<ticket>-<hex>-review.<domain>`, one label deep so the zone's wildcard certificate covers it.
+pub(crate) fn review_subdomain(plane_host: &str, ticket: &str) -> Option<String> {
+    let (label, domain) = plane_host.split_once('.')?;
+    let plane = label.strip_prefix("owner-")?;
+    let hex = |value: &str| !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_hexdigit());
+    (hex(plane) && hex(ticket) && !domain.is_empty()).then(|| format!("{ticket}-{plane}-review.{domain}"))
+}
+
+/// The review subdomain for this ticket, when this plane sits behind the one-address edge.
+fn review_host_for(state: &OwnerState, ticket: &str) -> Option<String> {
+    if std::env::var("RESTLESS_REVIEW_ON_PLANE_HOST").as_deref() == Ok("1") {
+        return None;
+    }
+    let network = state.entry.network()?;
+    network.public_host()?;
+    review_subdomain(network.host(), ticket)
+}
 
 /// A request for a ticket served on the plane's own host. The ticket is its whole authority, as
 /// on the separate review origin, so it bypasses browser sessions.
@@ -35,6 +68,9 @@ pub(crate) fn review_location(
 ) -> Result<(String, String)> {
     if review_on_plane_host(state) {
         let path = path_and_query.trim_start_matches('/');
+        if let Some(host) = review_host_for(state, ticket) {
+            return Ok((format!("https://{host}/{path}"), String::new()));
+        }
         return Ok((format!("{REVIEW_PATH_PREFIX}{ticket}/{path}"), String::new()));
     }
     materialize_review_url(&state.review_public_url, ticket, path_and_query)
@@ -570,7 +606,7 @@ pub(crate) async fn review_proxy(
         .path_and_query()
         .map(|value| value.as_str())
         .unwrap_or("/");
-    serve_review(session, method, path, &headers, false).await
+    serve_review(session, method, path, &headers, Isolation::OwnOrigin).await
 }
 
 /// A ticket served on the plane's own host: `/review/{ticket}/{path}`. The ticket in the path is the
@@ -613,7 +649,18 @@ pub(crate) async fn review_path_proxy(
         Some(query) => format!("/{file}?{query}"),
         None => format!("/{file}"),
     };
-    serve_review(session, method, &path, &headers, true).await
+    let isolation = match headers.get(REVIEW_HOST_HEADER).and_then(|value| value.to_str().ok()) {
+        Some(host) if review_host_for(&state, token).as_deref() == Some(host) => Isolation::ReviewHost {
+            cockpit: state
+                .entry
+                .network()
+                .and_then(|network| network.public_host())
+                .map(|public| format!("https://{public}"))
+                .unwrap_or_else(|| "'self'".into()),
+        },
+        _ => Isolation::PlaneHost,
+    };
+    serve_review(session, method, &path, &headers, isolation).await
 }
 
 /// Read one request's target for a resolved ticket, wherever the ticket was presented.
@@ -622,7 +669,7 @@ async fn serve_review(
     method: Method,
     path: &str,
     headers: &HeaderMap,
-    on_plane_host: bool,
+    isolation: Isolation,
 ) -> Response<Body> {
     let current = runtime::generation(&session.company).await.ok().flatten();
     if current.as_deref() != Some(session.generation.as_str()) {
@@ -735,7 +782,7 @@ async fn serve_review(
                             HeaderValue::from_static("nosniff"),
                         );
                     }
-                    return finish_review_response(response, &session, path, on_plane_host);
+                    return finish_review_response(response, &session, path, &isolation);
                 }
                 Err(error) => {
                     return api_error(StatusCode::NOT_FOUND, "review", format!("{error:#}"))
@@ -745,7 +792,7 @@ async fn serve_review(
     };
     let (parts, body) = upstream.into_parts();
     let response = Response::from_parts(parts, Body::new(body));
-    finish_review_response(response, &session, path, on_plane_host)
+    finish_review_response(response, &session, path, &isolation)
 }
 
 /// `download=1` in a ticket URL's query asks for the file itself, saved under its own name,
@@ -784,7 +831,7 @@ pub(crate) fn finish_review_response(
     mut response: Response<Body>,
     session: &ReviewSession,
     path: &str,
-    on_plane_host: bool,
+    isolation: &Isolation,
 ) -> Response<Body> {
     for name in [
         "connection",
@@ -814,7 +861,12 @@ pub(crate) fn finish_review_response(
         "x-content-type-options",
         HeaderValue::from_static("nosniff"),
     );
-    if on_plane_host {
+    if let Isolation::ReviewHost { cockpit } = isolation {
+        if let Ok(value) = HeaderValue::from_str(&format!("frame-ancestors {cockpit}")) {
+            response.headers_mut().insert("content-security-policy", value);
+        }
+    }
+    if matches!(isolation, Isolation::PlaneHost) {
         let pdf = matches!(session.source, ReviewSource::Files { .. })
             && response
                 .headers()
@@ -841,6 +893,37 @@ pub(crate) fn finish_review_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_review_subdomain_is_its_own_origin_framed_only_by_the_cockpit() {
+        let ticket = "0123456789abcdef0123456789abcdef";
+        assert_eq!(
+            review_subdomain("owner-ee54fb58bcde23cf.restless.run", ticket).as_deref(),
+            Some("0123456789abcdef0123456789abcdef-ee54fb58bcde23cf-review.restless.run")
+        );
+        assert_eq!(review_subdomain("app.restless.run", ticket), None);
+        assert_eq!(review_subdomain("owner-zz.restless.run", ticket), None);
+        assert_eq!(review_subdomain("owner-ab.restless.run", "../x"), None);
+
+        let mut response = Response::new(Body::empty());
+        response
+            .headers_mut()
+            .insert(CONTENT_TYPE, HeaderValue::from_static("text/html"));
+        response
+            .headers_mut()
+            .insert("set-cookie", HeaderValue::from_static("a=b; Domain=restless.run"));
+        let response = finish_review_response(
+            response,
+            &session(),
+            "/",
+            &Isolation::ReviewHost { cockpit: "https://app.restless.run".into() },
+        );
+        assert_eq!(
+            response.headers().get("content-security-policy").unwrap(),
+            "frame-ancestors https://app.restless.run"
+        );
+        assert!(response.headers().get("set-cookie").is_none());
+    }
 
     fn session() -> ReviewSession {
         ReviewSession {
@@ -875,7 +958,8 @@ mod tests {
                 .headers_mut()
                 .insert("content-security-policy", HeaderValue::from_static(csp));
         }
-        let response = finish_review_response(response, session, "/index.html", on_plane_host);
+        let isolation = if on_plane_host { Isolation::PlaneHost } else { Isolation::OwnOrigin };
+        let response = finish_review_response(response, session, "/index.html", &isolation);
         response
             .headers()
             .get_all("content-security-policy")
