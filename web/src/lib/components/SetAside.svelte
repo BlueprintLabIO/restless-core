@@ -13,11 +13,23 @@
 	let message = $state('');
 	let stale = $state('');
 
+	/* The company whose items are listed; the fold is reused across a company switch. */
+	let listedFor = '';
 	async function load() {
+		const company = companyId;
+		if (company !== listedFor) {
+			items = [];
+			message = '';
+			stale = '';
+			listedFor = company;
+		}
 		try {
-			items = await fetchSetAside(companyId);
+			const fresh = await fetchSetAside(company);
+			if (company !== companyId) return;
+			items = fresh;
 			stale = '';
 		} catch (cause) {
+			if (company !== companyId) return;
 			/* Keep what was listed; say it could not be refreshed only when there is a list. */
 			stale = items.length ? failureSentence(cause, 'Set aside could not be refreshed.') : '';
 		}

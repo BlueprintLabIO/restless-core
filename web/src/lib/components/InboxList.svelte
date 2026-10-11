@@ -35,6 +35,7 @@
 		blocker = '',
 		loaded = false,
 		failure = null,
+		coordination = null,
 		onretry,
 		onvisible
 	}: {
@@ -44,6 +45,8 @@
 		blocker?: string;
 		loaded?: boolean;
 		failure?: Error | null;
+		/** The company's coordination is unavailable, so the list may be incomplete. */
+		coordination?: Error | null;
 		onretry?: () => unknown;
 		onvisible?: (items: AttentionItem[]) => void;
 	} = $props();
@@ -101,25 +104,39 @@
 							? MessageCircle
 							: GitPullRequest;
 
+	/* Snooze and seen state belong to one company; the list is reused across a company switch. */
+	let stateFor = $state('');
 	function persist() {
+		if (stateFor !== companyId) return;
 		try {
 			localStorage.setItem(`restless:attention:${companyId}`, JSON.stringify({ seen, deferred: snoozed }));
 		} catch {
 			/* Browsing still works without storage. */
 		}
 	}
-	onMount(() => {
-		try {
-			const saved = JSON.parse(localStorage.getItem(`restless:attention:${companyId}`) ?? '{}');
+	$effect(() => {
+		const company = companyId;
+		untrack(() => {
+			let saved: { seen?: Record<string, string>; deferred?: Record<string, number> } = {};
+			try {
+				saved = JSON.parse(localStorage.getItem(`restless:attention:${company}`) ?? '{}');
+			} catch {
+				/* Ignore an obsolete preference. */
+			}
 			seen = saved.seen ?? {};
 			snoozed = saved.deferred ?? {};
-		} catch {
-			/* Ignore an obsolete preference. */
-		}
+			showSnoozed = false;
+			notice = '';
+			undoId = '';
+			stateFor = company;
+		});
+	});
+	onMount(() => {
 		const timer = setInterval(() => (clock = Date.now()), 30_000);
 		return () => clearInterval(timer);
 	});
 	$effect(() => {
+		if (stateFor !== companyId) return;
 		const item = items.find((row) => row.id === selectedId);
 		if (item && seen[item.id] !== stamp(item)) {
 			seen = { ...seen, [item.id]: stamp(item) };
@@ -249,6 +266,10 @@
 			<div class="inbox-failure">
 				<FailureNotice error={failure} subject="the Inbox" variant="block" {onretry} />
 			</div>
+		{:else if coordination && loaded}
+			<div class="inbox-failure">
+				<FailureNotice error={coordination} {onretry} />
+			</div>
 		{/if}
 		{#if blocker && !items.some((item) => item.actions.some((action) => action.id === 'open-intelligence-provider'))}
 			<a class="setup" href={`/${companyId}/company/provider`}
@@ -290,7 +311,7 @@
 				{/snippet}
 			</Item>
 		{/each}
-		{#if loaded && !visible.length}
+		{#if loaded && !visible.length && !(coordination && !items.length)}
 			<p class="empty">{items.length ? 'Everything here is snoozed.' : 'Nothing needs you.'}</p>
 		{:else if !loaded && !failure}
 			<div class="waiting" aria-label="Loading the Inbox"><i></i><i></i><i></i></div>
