@@ -22,6 +22,7 @@
 	import { desktopNotify } from '$lib/model/desktop-notify.svelte';
 	import { ASK_EXEC_EVENT } from '$lib/model/ask-exec';
 	import { cockpitContextPath, reviewAction } from '$lib/model/attention';
+	import { isOutcomeReview } from '$lib/model/attention-presentation';
 	import { handInboxOutcome } from '$lib/model/inbox-outcome.svelte';
 	import { prepareCompanyBrowser } from '$lib/model/company-browser';
 	import {
@@ -229,7 +230,7 @@
 	const liveNeedsYou = $derived(attention.view?.items ?? []);
 	const focusedReviewId = $derived(page.url.searchParams.get('review'));
 	const focusedReview = $derived(
-		liveNeedsYou.find((item) => item.id === focusedReviewId && item.category === 'review') ?? null
+		liveNeedsYou.find((item) => item.id === focusedReviewId && isOutcomeReview(item)) ?? null
 	);
 	const focusedConversationId = $derived(page.url.searchParams.get('conversation'));
 	const focusedConversation = $derived(

@@ -17,7 +17,7 @@
 	import InboxList from '$lib/components/InboxList.svelte';
 	import InboxDetail from '$lib/components/InboxDetail.svelte';
 	import SetAsideList from '$lib/components/SetAside.svelte';
-	import { attentionTitle, coordinationFailure } from '$lib/model/attention-presentation';
+	import { attentionTitle, coordinationFailure, isOutcomeReview } from '$lib/model/attention-presentation';
 	import { formatRelative, formatMoment } from '$lib/ui/time';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
@@ -167,8 +167,14 @@
 	});
 	const focusedReviewId = $derived(page.url.searchParams.get('review'));
 	const focusedReview = $derived(
-		items.find((item) => item.id === focusedReviewId && item.category === 'review') ?? null
+		items.find((item) => item.id === focusedReviewId && isOutcomeReview(item)) ?? null
 	);
+	/* An older Telegram link names a document request with `?review=`: open it as its item. */
+	$effect(() => {
+		const named = items.find((item) => item.id === focusedReviewId);
+		if (named && !isOutcomeReview(named))
+			void goto(itemHref(named.id), { replaceState: true, noScroll: true });
+	});
 	const reviewEvidence = $derived(focusedReview?.evidence ?? []);
 	const reviewFileLink = $derived(companyFileLinks(companyId, artifacts));
 	/* The Work's other files, one click from the outcome under review. */

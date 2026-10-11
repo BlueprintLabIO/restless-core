@@ -19,6 +19,13 @@ export function attentionTitle(item: AttentionItem): string {
 	return item.title.replace(/^(Blocked|Decision|Approval|Outcome review):\s*/i, '');
 }
 
+/** An owner handoff awaiting outcome review: the only item `?review=` opens,
+ * and the only review the rail's Accept and Request changes can answer. A
+ * document review request opens as its item. */
+export function isOutcomeReview(item: AttentionItem): boolean {
+	return item.category === 'review' && item.source.kind === 'owner_handoff';
+}
+
 /** What kind of ask this is, in a word, for a tooltip. The Inbox does not
  * file items into categories; the owner reads one list. */
 export function attentionKindLabel(item: AttentionItem): string {

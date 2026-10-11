@@ -426,7 +426,9 @@ pub async fn outgoing(
         }),
         _ => None,
     };
-    let query = if item.category == "review" {
+    // `?review=` opens an owner handoff's outcome, whose controls answer that
+    // handoff. Every other item, a document review included, opens as itself.
+    let query = if item.category == "review" && item.source.kind == "owner_handoff" {
         "review"
     } else {
         "item"
