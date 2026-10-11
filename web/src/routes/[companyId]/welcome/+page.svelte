@@ -60,6 +60,25 @@
 	);
 	const waiting = $derived(lastOwner >= 0 && !reply);
 	/* Exec cannot answer without a model; say so gently instead of thinking forever. */
+	/* A turn that failed for any other reason says why, once, and the answer comes back to send
+	 * again: a failed turn writes no reply, so waiting alone would think forever. */
+	const stalled = $derived(
+		waiting && !cannotStart && conversation.activeTurn?.live?.phase === 'failed'
+	);
+	const stallReason = $derived(conversation.activeTurn?.live?.error?.trim() ?? '');
+	const stallLine = $derived.by(() => {
+		const first = stallReason.split(/(?<=[.!?])\s/)[0]?.trim() ?? '';
+		if (!first) return '';
+		if (first.length > 90) return `${first.slice(0, 90)}…`;
+		return /[.!?]$/.test(first) ? first : `${first}.`;
+	});
+	const lastWords = $derived(lastOwner >= 0 ? messages[lastOwner].text : '');
+	let refilledFor = '';
+	$effect(() => {
+		if (!stalled || refilledFor === lastWords) return;
+		refilledFor = lastWords;
+		if (!answer.trim()) answer = visible(lastWords);
+	});
 
 	/* What a message says on screen: no metadata, and an answer without the question it quotes. */
 	function visible(text: string) {
@@ -97,6 +116,7 @@
 	});
 	$effect(() => {
 		void question;
+		void stalled;
 		void tick().then(() => input?.focus());
 	});
 
@@ -105,8 +125,10 @@
 		if (!words || sending) return;
 		sending = true;
 		error = '';
+		/* Sending the same words again resends them as first written, quote included. */
+		const body = stalled && words === visible(lastWords) ? lastWords : asAnswer(words);
 		try {
-			await conversation.send(asAnswer(words), [], `/${companyId}/welcome`);
+			await conversation.send(body, [], `/${companyId}/welcome`);
 			answer = '';
 		} catch (cause) {
 			error = failureSentence(cause, 'That didn’t reach Exec. Try again.');
@@ -216,6 +238,10 @@
 					<span>Or just tell me what I got wrong.</span>
 				</div>
 			</section>
+		{:else if stalled}
+			<p class="stalled" role="alert" title={stallReason}>
+				I couldn’t reply{stallLine ? `: ${stallLine}` : '.'} Send it again and I’ll try once more.
+			</p>
 		{:else if waiting}
 			<div class="thinking" role="status">
 				<i aria-hidden="true"></i>{#if cannotStart}<span
@@ -233,7 +259,7 @@
 			</div>
 		{/if}
 
-		{#if !waiting && !starting}
+		{#if (!waiting || stalled) && !starting}
 			<form
 				class="answer"
 				onsubmit={(event) => {
@@ -412,6 +438,14 @@
 		color: var(--text-tertiary);
 		font-size: var(--t-head);
 		font-weight: 300;
+	}
+	.stalled {
+		margin: 0;
+		min-height: 30vh;
+		color: var(--text-secondary);
+		font-size: var(--t-head);
+		font-weight: 300;
+		line-height: 1.5;
 	}
 	.thinking a {
 		color: var(--ink);
