@@ -1049,10 +1049,12 @@ pub async fn dispatch_actor_conversation(
                         .await;
                 }
             }
-            // An owner interruption is not a failed turn. Its inputs and
+            // An owner interruption is not a failed turn, whether the model
+            // saw it (a Blocked outcome) or it landed before admission and the
+            // revoked cognitive lease surfaced as an error. Its inputs and
             // judgements stay owed to this actor, and the owner's new message
             // is dispatched at once instead of after a failure backoff.
-            Ok(_) if interruption.is_cancelled() => {
+            _ if interruption.is_cancelled() => {
                 usable = true;
                 live_turn.fail("Interrupted by owner.");
             }
