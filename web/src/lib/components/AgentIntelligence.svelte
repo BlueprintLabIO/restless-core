@@ -146,6 +146,7 @@
 </script>
 
 <Section
+	id="models"
 	title="Models"
 	info="What powers each agent. Agents without their own choice use the company default. Changes apply to the next session."
 >

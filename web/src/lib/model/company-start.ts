@@ -17,12 +17,17 @@ export function providerName(model: string): string {
 		)[provider] ?? 'model provider'
 	);
 }
+/** The connection works but does not serve the chosen model, so the fix is a
+ * model choice in Company → Intelligence, not the connection. */
+export function needsAnotherModel(reason: string): boolean {
+	return reason.toLowerCase().includes('not available on this connection');
+}
 function startAction(reason: string): string {
 	const normalized = reason.toLowerCase();
 	if (reason.startsWith('Connect a model') || reason.startsWith('Choose an intelligence provider'))
 		return 'Connect a model';
 	if (normalized.includes('rejected the key')) return 'Replace the rejected key';
-	if (normalized.includes('not available on this connection')) return 'Choose another model';
+	if (needsAnotherModel(reason)) return 'Choose another model';
 	if (normalized.includes('codex')) return 'Reconnect ChatGPT / Codex';
 	if (normalized.includes('claude')) return 'Reconnect Claude Code';
 	if (reason.startsWith('no usable host credential')) {
@@ -72,6 +77,7 @@ export function accountGrantFix(
 	companyId: string,
 	connections: AccountConnectionSummary[]
 ): { label: string; href: string; connection: AccountConnectionSummary } | null {
+	if (needsAnotherModel(reason)) return null;
 	const normalized = reason.toLowerCase();
 	const harness = normalized.includes('codex')
 		? 'codex'

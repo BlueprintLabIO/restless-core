@@ -13,7 +13,7 @@
 	import AgentIntelligence from './AgentIntelligence.svelte';
 	import CopyCompanySetting from './CopyCompanySetting.svelte';
 	import { companiesQuery } from '$lib/model/queries.svelte';
-	import { startLinkLabel } from '$lib/model/company-start';
+	import { needsAnotherModel, startLinkLabel } from '$lib/model/company-start';
 	import { modelLabel } from '$lib/model/intelligence-labels';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import {
@@ -36,6 +36,8 @@
 	const setupIssue = $derived(
 		catalogProjection.view.find((company) => company.id === companyId)?.unstartable_reason
 	);
+	/* A model the connection does not serve is fixed in Models; the connection itself is fine. */
+	const connectionIssue = $derived(setupIssue && !needsAnotherModel(setupIssue) ? setupIssue : '');
 	const intelligence = $derived(intelligenceQuery(companyId));
 	let editorOpen = $state(false);
 	type Connection = {
@@ -379,7 +381,8 @@
 			await Promise.all([refreshReusableConnections(), catalogProjection.refresh?.()]).catch(
 				() => {}
 			);
-			const ready = !setupIssue && reusableConnections.every((item) => item.status === 'present');
+			const ready =
+				!connectionIssue && reusableConnections.every((item) => item.status === 'present');
 			if (ready || Date.now() > until) settling = false;
 			else settleTimer = setTimeout(() => void tick(), 2_000);
 		};
@@ -591,7 +594,10 @@
 
 	{#if setupIssue}
 		<Notice tone="warning" title={startLinkLabel(setupIssue)} details={setupIssue}>
-			{#snippet actions()}<a class="btn small primary" href={manageUrl}>Fix</a>{/snippet}
+			{#snippet actions()}<a
+					class="btn small primary"
+					href={connectionIssue ? manageUrl : '#models'}>Fix</a
+				>{/snippet}
 		</Notice>
 	{/if}
 	{#if error}<Notice tone="danger" title="That change was not saved" details={error} />{/if}
@@ -624,9 +630,9 @@
 				{@const companyGrant = item.companies.find((company) => company.id === companyId)}
 				{@const pending =
 					item.status === 'checking' ||
-					(settling && (item.status !== 'present' || (companyGrant?.in_use && !!setupIssue)))}
+					(settling && (item.status !== 'present' || (companyGrant?.in_use && !!connectionIssue)))}
 				{@const broken =
-					!pending && (item.status !== 'present' || (companyGrant?.in_use && !!setupIssue))}
+					!pending && (item.status !== 'present' || (companyGrant?.in_use && !!connectionIssue))}
 				{@const name = labels[item.provider] ?? item.provider}
 				<Item
 					title={item.label}
