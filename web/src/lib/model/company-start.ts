@@ -30,10 +30,8 @@ function startAction(reason: string): string {
 	if (needsAnotherModel(reason)) return 'Choose another model';
 	if (normalized.includes('codex')) return 'Reconnect ChatGPT / Codex';
 	if (normalized.includes('claude')) return 'Reconnect Claude Code';
-	if (reason.startsWith('no usable host credential')) {
-		const model = reason.match(/for model ([^ ]+)/)?.[1];
-		return model ? `Reconnect ${providerName(model)}` : 'Reconnect the selected model';
-	}
+	const unavailable = reason.match(/^The connection for (\S+) is unavailable\./)?.[1];
+	if (unavailable) return `Reconnect ${providerName(unavailable)}`;
 	return 'Check the model setup';
 }
 

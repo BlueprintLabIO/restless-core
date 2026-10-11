@@ -3542,11 +3542,18 @@ fn admit<P: ProviderSet>(configs: &[CompanyConfig], credentials: &P) -> Result<A
         };
         let (primary_provider, _) = split_model(model)?;
         if !credentials.has(primary_provider) {
+            // The configuration key is for whoever reads the host log. The
+            // owner reconnects from Intelligence, so the reason says that,
+            // and keeps the exact model the cockpit names the fix from.
+            tracing::warn!(
+                company = %config.name,
+                model,
+                "no usable host credential for model {model}; set credentials.model.inference.{primary_provider}"
+            );
             unstartable.insert(
                 config.name.clone(),
                 format!(
-                    "no usable host credential for model {}; set credentials.model.inference.{primary_provider}",
-                    model
+                    "The connection for {model} is unavailable. Reconnect it or choose another model in Company → Intelligence."
                 ),
             );
             continue;
@@ -4270,16 +4277,15 @@ mission = "Choose native intelligence"
         let admission = admit(&configs, &credentials).unwrap();
 
         // Only the company whose primary route is unusable is held back, and
-        // the reason names the exact missing configuration key.
+        // the reason is the owner's fix: it names the exact model and where
+        // to reconnect it, never a configuration key the owner cannot set.
         assert_eq!(
             admission.unstartable.keys().collect::<Vec<_>>(),
             vec!["broken_test"]
         );
-        assert!(
-            admission.unstartable["broken_test"]
-                .contains("credentials.model.inference.openai-codex"),
-            "reason must name the exact key to set, got {:?}",
-            admission.unstartable["broken_test"]
+        assert_eq!(
+            admission.unstartable["broken_test"],
+            "The connection for openai-codex/gpt-5.6-sol is unavailable. Reconnect it or choose another model in Company → Intelligence."
         );
         // A dead failover candidate is not fatal: the chain is a fallback, not
         // a requirement, so the company still starts on the route it has.
