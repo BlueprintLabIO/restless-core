@@ -24,6 +24,8 @@
 	import { failureSentence } from '$lib/model/failure';
 	import { coordinationFailure } from '$lib/model/attention-presentation';
 	import { fileLabel, LIBRARY_KIND_LABEL, libraryKind } from '$lib/model/library-files';
+	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
+	import { goalAbout } from '$lib/work/goal';
 
 	/* The authoring contract deliberately separates a human opening from the
 	 * exact actor contract with one blank line. Respect that declared boundary;
@@ -90,6 +92,7 @@
 		ownerAccess ? (cockpit?.company.name ?? companyId) : (collaboration?.company.name ?? companyId)
 	);
 	const goal = $derived(goals.find((item) => item.id === work?.goal_id) ?? null);
+	const goalInfo = $derived(goal ? goalAbout(goal) : '');
 	/* The bar this Work is held to: its own, else its Goal's. */
 	const ownStandard = $derived(
 		((graph && 'standards' in graph ? graph.standards : undefined) ?? []).find(
@@ -354,7 +357,8 @@
 			<nav class="work-crumbs" aria-label="Breadcrumb">
 				<a href={backHref()}>Work</a>
 				<i aria-hidden="true">/</i>
-				<span title={goal?.body || undefined}>{goal?.title ?? 'Unassigned'}</span>
+				<span>{goal?.title ?? 'Unassigned'}</span>
+				{#if goalInfo}<InfoTip text={goalInfo} />{/if}
 			</nav>
 			<div class="work-title-row">
 				<h1 style:view-transition-name={`work-title-${work.id}`}>{work.title}</h1>

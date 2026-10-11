@@ -50,6 +50,8 @@
 		judgementHolders,
 		workWaitingOnOwner
 	} from '$lib/model/attention-presentation';
+	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
+	import { dueLabel, finishLine, goalAbout, type Goal } from '$lib/work/goal';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
@@ -191,15 +193,20 @@
 			(item) => !item.goal_id && item.status !== 'abandoned' && item.status !== 'completed'
 		).length
 	);
-	const finishLine = (goal: object) =>
-		'done_when' in goal && typeof goal.done_when === 'string' ? goal.done_when.trim() : '';
-	const dueLabel = (goal: object) =>
-		'due_on' in goal && typeof goal.due_on === 'string' && goal.due_on
-			? new Date(`${goal.due_on}T00:00:00`).toLocaleDateString(undefined, {
-					day: 'numeric',
-					month: 'short'
-				})
-			: '';
+	/* Too narrow for the sidebar: the same places as one row, in the same order. */
+	const narrowViews = $derived([
+		{ goal: '', label: 'All work' },
+		...(graph?.work.length
+			? [
+					{ goal: 'waiting', label: 'Waiting on you' },
+					{ goal: 'active', label: 'In progress' }
+				]
+			: []),
+		...openGoals.map((goal) => ({ goal: goal.id, label: goal.title })),
+		...(otherOpen ? [{ goal: 'other', label: 'Other work' }] : []),
+		{ goal: 'archived', label: 'Archived' },
+		...(archivedOpen ? closedGoals.map((goal) => ({ goal: goal.id, label: goal.title })) : [])
+	]);
 	/* Work with a decision or step waiting on the owner: what the Inbox shows for it. */
 	const waitingOnOwner = $derived(workWaitingOnOwner(ownerAccess ? (attention?.items ?? []) : []));
 	/* Judgement a lead or Exec still holds before it reaches the owner. */
@@ -247,6 +254,7 @@
 			? (goal as { outcome_standard: OutcomeStandard }).outcome_standard
 			: undefined;
 	const selectedGoalRow = $derived(goals.find((goal) => goal.id === selectedGoal));
+	const selectedGoalAbout = $derived(selectedGoalRow ? goalAbout(selectedGoalRow) : '');
 	const overrides = $derived(
 		new Map(
 			((graph && 'standards' in graph ? graph.standards : undefined) ?? []).map((row) => [
@@ -342,14 +350,7 @@
 
 <CompanyTitle title="Work" {companyId} />
 
-{#snippet goalRow(
-	goal: {
-		id: string;
-		title: string;
-		closed_at?: string | null;
-	},
-	indent = false
-)}
+{#snippet goalRow(goal: Goal, indent = false)}
 	{@const progress = goalProgress(goal.id)}
 	{@const reading = goalReading(goal.id)}
 	<SidebarRow
@@ -481,19 +482,35 @@
 		/>
 		{#if archivedOpen}{#each closedGoals as goal (goal.id)}{@render goalRow(goal, true)}{/each}{/if}
 	{/snippet}
+	{#snippet narrow()}
+		<div class="narrow-search"><SidebarSearch bind:value={search} placeholder="Search work" /></div>
+		{#if loaded && graph && !noWorkYet}
+			<nav class="views" aria-label="Goals">
+				{#each narrowViews as item (item.goal)}
+					<a
+						href={viewHref(item.goal)}
+						aria-current={selectedGoal === item.goal ? 'page' : undefined}>{item.label}</a
+					>
+				{/each}
+			</nav>
+		{/if}
+	{/snippet}
 
 	<div class="page">
 		<header class="head">
-			{#if selectedGoal}<Target size={15} strokeWidth={1.8} aria-hidden="true" />{/if}
-			<h1>{title}</h1>
-			<span class="count" title="Open work">{loaded ? openCount : ''}</span>
-			{#if selectedGoal}<button
-					class="clear"
-					type="button"
-					aria-label="Show all work"
-					title="Show all work"
-					onclick={() => setQuery('goal', '')}><X size={14} strokeWidth={2} /></button
-				>{/if}
+			<div class="title">
+				{#if selectedGoal}<Target size={15} strokeWidth={1.8} aria-hidden="true" />{/if}
+				<h1>{title}</h1>
+				<span class="count" title="Open work">{loaded ? openCount : ''}</span>
+				{#if selectedGoalAbout}<InfoTip text={selectedGoalAbout} />{/if}
+				{#if selectedGoal}<button
+						class="clear"
+						type="button"
+						aria-label="Show all work"
+						title="Show all work"
+						onclick={() => setQuery('goal', '')}><X size={14} strokeWidth={2} /></button
+					>{/if}
+			</div>
 			{#if selectedGoalRow && ownerAccess}
 				<div
 					class="goal-standard-picker"
@@ -520,26 +537,17 @@
 				{#if standardFailure}<span class="standard-failure" role="alert">{standardFailure}</span
 					>{/if}
 			{/if}
-			<span class="spacer"></span>
-			<!-- With no goals there is nothing to pick, and "All work" is already the title. -->
-			{#if goals.length}<select
-					class="goal-picker"
-					aria-label="Goal"
-					value={selectedGoal}
-					onchange={(event) => setQuery('goal', event.currentTarget.value)}
-				>
-					<option value="">All work</option>
-					{#each goals as goal (goal.id)}<option value={goal.id}>{goal.title}</option>{/each}
-				</select>{/if}
-			<Segmented
-				label="View"
-				value={view}
-				options={[
-					{ value: 'list', label: 'List' },
-					{ value: 'board', label: 'Board' }
-				]}
-				onchange={(value) => setQuery('view', value === 'board' ? 'board' : '')}
-			/>
+			<div class="view-switch">
+				<Segmented
+					label="View"
+					value={view}
+					options={[
+						{ value: 'list', label: 'List' },
+						{ value: 'board', label: 'Board' }
+					]}
+					onchange={(value) => setQuery('view', value === 'board' ? 'board' : '')}
+				/>
+			</div>
 		</header>
 
 		<!-- Board padding only for the board itself: empty, loading and failure sit where List puts them. -->
@@ -617,22 +625,66 @@
 		color: var(--state-danger);
 		font-size: var(--t-label);
 	}
+	/* Too narrow for the sidebar: its search, then its places as one row that scrolls sideways. */
+	.narrow-search {
+		padding: 10px 12px 4px;
+	}
+	.views {
+		display: flex;
+		gap: 2px;
+		padding: 6px 8px;
+		overflow-x: auto;
+		border-bottom: 1px solid var(--border);
+		scrollbar-width: none;
+	}
+	.views a {
+		flex: none;
+		max-width: 16em;
+		padding: 5px 10px;
+		overflow: hidden;
+		border-radius: var(--radius-control);
+		color: var(--text-secondary);
+		font-size: var(--t-body);
+		text-decoration: none;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	/* The selected place is raised, as it is in the sidebar and the top navigation. */
+	.views a[aria-current='page'] {
+		background: var(--surface-raised);
+		box-shadow:
+			var(--shadow-soft),
+			var(--bevel),
+			0 0 0 1px var(--border);
+		color: var(--ink);
+		font-weight: 600;
+	}
+	/* One column the width of the pane: a long goal title is cut, never widening every row. */
 	.page {
 		container: page / inline-size;
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		grid-template-rows: auto minmax(0, 1fr);
 		width: 100%;
 		min-height: 0;
 	}
+	/* On a narrow pane the controls wrap under the title rather than off the edge. */
 	.head {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
 		gap: 8px;
 		min-height: 52px;
 		padding: 8px 12px 8px 20px;
 		border-bottom: 1px solid var(--border);
 	}
-	.head :global(svg) {
+	.title {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		min-width: 0;
+	}
+	.title > :global(svg) {
 		flex: none;
 		color: var(--text-tertiary);
 	}
@@ -651,6 +703,7 @@
 	}
 	.clear {
 		display: grid;
+		flex: none;
 		place-items: center;
 		width: 24px;
 		height: 24px;
@@ -665,12 +718,9 @@
 		background: var(--wash-hover);
 		color: var(--ink);
 	}
-	.spacer {
-		flex: 1;
-	}
-	.head .goal-picker {
-		display: none;
-		max-width: 160px;
+	.view-switch {
+		display: flex;
+		margin-left: auto;
 	}
 	.body {
 		min-height: 0;
@@ -705,11 +755,6 @@
 	}
 	.rows > :global(* + *) {
 		border-top: 1px solid var(--border);
-	}
-	@container sidebar (max-width: 760px) {
-		.head .goal-picker {
-			display: block;
-		}
 	}
 	/* A goal's progress: a small ring, filled as its work completes. */
 	.ring {
