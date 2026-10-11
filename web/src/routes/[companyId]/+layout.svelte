@@ -476,7 +476,8 @@
 	 * owner around. */
 	const touring = $derived(page.url.searchParams.get('tour') === '1');
 	$effect(() => {
-		if (touring) execRailOpen = true;
+		// Where the rail floats over the page it would hide what the tour shows; it stays closed.
+		if (touring && !window.matchMedia('(max-width: 980px)').matches) execRailOpen = true;
 	});
 	$effect(() => railConversation.attach());
 	$effect(() => {

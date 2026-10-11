@@ -151,6 +151,21 @@
 	:global(html[data-tour='exec'] #bridge-exrail) {
 		box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--intent-conversation) 45%, transparent);
 	}
+	/* Where the chat floats over the page it stays closed for the tour, so the last step lights the
+	 * button that opens it, and the card sits above the dock rather than over the tabs it names. */
+	@media (max-width: 980px) {
+		:global(html[data-tour='exec'] .tb-exec) {
+			box-shadow: 0 0 0 2px color-mix(in srgb, var(--intent-conversation) 55%, transparent);
+			transition: box-shadow 400ms var(--ease-out, ease-out);
+		}
+	}
+	@media (max-width: 760px) {
+		.tour {
+			bottom: calc(var(--dock-h) + env(safe-area-inset-bottom) + 12px);
+			left: 12px;
+			width: calc(100vw - 24px);
+		}
+	}
 	@keyframes tour-in {
 		from {
 			opacity: 0;
