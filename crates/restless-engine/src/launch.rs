@@ -228,7 +228,7 @@ impl LaunchBroker {
         resource_id: &str,
     ) -> Result<OpenOutcome> {
         let _lifecycle_lease = daemon.lifecycle.try_enter().context(
-            "the stable appliance is draining for replacement; retry Open after activation",
+            "new work is paused for a restart or update; retry Open once it is back",
         )?;
         self.prune_expired();
         if resource_id == "company-computer" {

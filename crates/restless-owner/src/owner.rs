@@ -5558,8 +5558,10 @@ async fn appliance_status(
     let recovery = std::fs::read(state.daemon.root.join("machine/appliance-recovery.json"))
         .ok()
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
-    let draining = state.daemon.lifecycle.is_draining()
-        || restless_contracts::appliance::drain_marker_exists(&state.daemon.root);
+    // The marker is an appliance operation's barrier. Without it the daemon
+    // is draining only because it was told to stop, on any deployment.
+    let operation = restless_contracts::appliance::drain_marker_exists(&state.daemon.root);
+    let draining = state.daemon.lifecycle.is_draining() || operation;
     let recovering = state.daemon.lifecycle.is_recovering();
     let hosted = state.entry.network().is_some();
     let (state_name, schedule_transport, repair) = match profile.kind {
@@ -5667,7 +5669,11 @@ async fn appliance_status(
     } else if draining {
         (
             "draining",
-            Some("Work admission is paused for a lifecycle operation. Run `restless appliance resume` if no upgrade is active."),
+            Some(if operation {
+                "Work admission is paused for a lifecycle operation. Run `restless appliance resume` if no upgrade is active."
+            } else {
+                "Running work is finishing before a restart; new work starts once it is back."
+            }),
         )
     } else if recovering {
         (

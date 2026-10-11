@@ -87,7 +87,7 @@ where
                     } else {
                         (
                             "draining",
-                            "the stable appliance is draining for replacement; retry after activation or resume it explicitly",
+                            "new work is paused for a restart or update; retry once it is back",
                         )
                     };
                     let response = Response::err_kind(kind, message);

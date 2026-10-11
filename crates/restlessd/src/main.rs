@@ -721,9 +721,14 @@ async fn run() -> Result<()> {
     // first and owned model-broker/gateway child handles are dropped and
     // killed before the process exits; an abrupt default signal exit leaves
     // those children holding 7789/7790 and the next daemon half-attached to
-    // stale supervision.
-    let shutdown = shutdown_signal();
-    tokio::pin!(shutdown);
+    // stale supervision. The socket keeps accepting during the drain, so an
+    // owner or `restless appliance` call gets the clean `draining` answer
+    // instead of hanging until exit.
+    let stop = async {
+        shutdown_signal().await;
+        drain_before_exit(&daemon).await;
+    };
+    tokio::pin!(stop);
     loop {
         tokio::select! {
             accepted = listener.accept() => {
@@ -737,8 +742,7 @@ async fn run() -> Result<()> {
                     }
                 });
             }
-            () = &mut shutdown => {
-                drain_before_exit(&daemon).await;
+            () = &mut stop => {
                 tracing::info!("shutdown requested; stopping supervised daemon children");
                 break;
             }
