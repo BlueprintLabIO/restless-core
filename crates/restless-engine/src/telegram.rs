@@ -440,6 +440,12 @@ pub async fn outgoing(
         encode(company),
         encode(&item.id)
     );
+    // Pairing from a local address stores it, and a phone cannot open it.
+    let link = if loopback_origin(cockpit_origin) {
+        format!("Opens only on the computer you paired from:\n{link}")
+    } else {
+        link
+    };
     let happened: String = item.what_happened.chars().take(MAX_TEXT_CHARS).collect();
     Ok(Some(Outgoing {
         key: format!("{:x}", digest.finalize()),
@@ -454,6 +460,19 @@ pub async fn outgoing(
 
 fn encode(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+
+fn loopback_origin(origin: &str) -> bool {
+    match url::Url::parse(origin)
+        .ok()
+        .as_ref()
+        .and_then(url::Url::host)
+    {
+        Some(url::Host::Domain(name)) => name == "localhost" || name.ends_with(".localhost"),
+        Some(url::Host::Ipv4(address)) => address.is_loopback(),
+        Some(url::Host::Ipv6(address)) => address.is_loopback(),
+        None => false,
+    }
 }
 
 /// Send what this chat has not been sent. Returns how many were sent.

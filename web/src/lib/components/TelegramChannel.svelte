@@ -23,6 +23,13 @@
 	let error = $state('');
 	const endpoint = $derived(`/api/companies/${encodeURIComponent(companyId)}/telegram`);
 	const waiting = $derived(!!view?.pair_url && !view.paired);
+	/* Pairing stores this page's address for the links Telegram sends. */
+	const hostname = location.hostname;
+	const local =
+		hostname === 'localhost' ||
+		hostname.endsWith('.localhost') ||
+		hostname === '[::1]' ||
+		/^127\.\d+\.\d+\.\d+$/.test(hostname);
 
 	async function call(method: string, body?: unknown) {
 		const response = await fetch(endpoint, {
@@ -73,7 +80,9 @@
 	<Section
 		id="telegram"
 		title="Telegram"
-		info="Each new Attention item arrives in Telegram with a link back here, and approvals can be answered there. Only the paired chat can decide."
+		info={local
+			? 'Each new Attention item arrives in Telegram, and approvals can be answered there. Its link opens only on this computer; pair from an address your phone can reach to open it there. Only the paired chat can decide.'
+			: 'Each new Attention item arrives in Telegram with a link back here, and approvals can be answered there. Only the paired chat can decide.'}
 	>
 		{#snippet actions()}
 			{#if view?.paired}<Dot show tone="success" label="Paired" />
