@@ -1199,6 +1199,12 @@
 	.paper-title textarea:disabled {
 		opacity: 1;
 	}
+	/* Already above the touch floor in primitives.css, which would otherwise shrink it. */
+	@media (pointer: coarse) {
+		.paper-title textarea {
+			font-size: var(--t-hero) !important;
+		}
+	}
 	.editor-actions {
 		display: flex;
 		align-items: center;

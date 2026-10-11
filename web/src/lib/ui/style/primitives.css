@@ -597,7 +597,8 @@
 	color: var(--text-tertiary);
 }
 /* On touch, iOS zooms the whole page into any field set under 16px and leaves it zoomed. This
- * floor is the one place a field's own size is overruled; no field is set larger than it. */
+ * floor overrules a field's own size, so a field set larger (the document title) restates its
+ * size under the same query. */
 @media (pointer: coarse) {
 	:is(.bridge-root, .bridge-tokens)
 		:is(
