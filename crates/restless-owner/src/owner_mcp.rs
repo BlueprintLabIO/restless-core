@@ -272,18 +272,9 @@ impl Holder {
                     .get("allow")
                     .and_then(|value| value.as_bool())
                     .ok_or("allow must be true or false")?;
-                let body = match (text("call_key"), text("party")) {
-                    (Some(call_key), _) => serde_json::json!({"call_key": call_key}),
-                    (None, Some(party)) => serde_json::json!({"party": party}),
-                    (None, None) => return Err("give the item's party or call_key".into()),
-                };
-                let verb = if allow { "grant" } else { "decline" };
-                self.call_api(
-                    Method::POST,
-                    &format!("/companies/{}/approvals/{verb}", company()?),
-                    ApiBody::Json(body),
-                )
-                .await
+                let (path, body) = decision(company()?, allow, text)?;
+                self.call_api(Method::POST, &path, ApiBody::Json(body))
+                    .await
             }
             "message" => {
                 let body = text("body").ok_or("body is required")?;
@@ -326,6 +317,32 @@ fn is_segment(value: &str) -> bool {
         && value != ".."
 }
 
+/// Where an Inbox answer goes. A held tool call and a first contact are
+/// approvals; an email mandate proposal has its own decision, so its id is
+/// never mistaken for a party to approve.
+fn decision<'a>(
+    company: &str,
+    allow: bool,
+    text: impl Fn(&str) -> Option<&'a str>,
+) -> Result<(String, serde_json::Value), String> {
+    let verb = if allow { "grant" } else { "decline" };
+    let approvals = format!("/companies/{company}/approvals/{verb}");
+    match (text("call_key"), text("mandate_proposal"), text("party")) {
+        (Some(call_key), _, _) => Ok((approvals, serde_json::json!({"call_key": call_key}))),
+        (None, Some(proposal), _) => {
+            let proposal = Uuid::parse_str(proposal)
+                .map_err(|_| "mandate_proposal must be the item's mandate_proposal".to_string())?;
+            let answer = if allow { "approve" } else { "decline" };
+            Ok((
+                format!("/companies/{company}/email-mandates/proposals/{proposal}/decision"),
+                serde_json::json!({"decision": answer}),
+            ))
+        }
+        (None, None, Some(party)) => Ok((approvals, serde_json::json!({"party": party}))),
+        (None, None, None) => Err("give the item's call_key, mandate_proposal or party".into()),
+    }
+}
+
 /// The Inbox as a model needs it: what each item asks and how to answer.
 fn inbox_summary(view: &serde_json::Value) -> serde_json::Value {
     let items = view
@@ -345,6 +362,10 @@ fn inbox_summary(view: &serde_json::Value) -> serde_json::Value {
                         "if_no_action": item.get("if_no_action"),
                         "party": item.pointer("/source/party"),
                         "call_key": item.pointer("/source/call_key"),
+                        "mandate_proposal": item
+                            .pointer("/source/kind")
+                            .filter(|kind| *kind == "email_mandate_proposal")
+                            .and_then(|_| item.pointer("/source/reference")),
                         "actions": item.get("actions"),
                     })
                 })
@@ -400,11 +421,12 @@ fn tools() -> Vec<Tool> {
         ),
         tool(
             "decide",
-            "Allow or decline an Inbox approval. Pass the item's call_key for a held tool call, otherwise its party.",
+            "Allow or decline an Inbox approval. Pass the item's call_key for a held tool call, its mandate_proposal for an email mandate, otherwise its party.",
             serde_json::json!({"type": "object", "properties": {
                 "company": company,
                 "party": {"type": "string"},
                 "call_key": {"type": "string"},
+                "mandate_proposal": {"type": "string"},
                 "allow": {"type": "boolean"}
             }, "required": ["company", "allow"]}),
         ),
@@ -610,6 +632,52 @@ mod tests {
         let principal = token_principal(true, Some(&owner), true).unwrap();
         assert!(route_refusal(&principal, &Method::GET, "/api/companies/acme/attention").is_none());
         assert!(route_refusal(&principal, &Method::GET, "/api/companies/other/attention").is_some());
+    }
+
+    #[test]
+    fn each_inbox_approval_names_the_answer_that_reaches_it() {
+        let proposal = Uuid::new_v4();
+        let view = serde_json::json!({"items": [
+            {"id": format!("authority:email_mandate_proposal:{proposal}"),
+             "source": {"kind": "email_mandate_proposal", "reference": proposal.to_string()}},
+            {"id": "authority:approval_required:1",
+             "source": {"kind": "approval_required", "reference": "1", "party": "ann@example.com"}},
+            {"id": "authority:approval_required:2",
+             "source": {"kind": "approval_required", "reference": "2", "call_key": "k2"}},
+        ]});
+        let summary = inbox_summary(&view);
+        let answer = |index: usize, allow: bool| {
+            let item = &summary["items"][index];
+            decision("acme", allow, |key: &str| {
+                item.get(key).and_then(|value| value.as_str())
+            })
+            .expect("the item names how to answer it")
+        };
+        assert_eq!(
+            answer(0, true),
+            (
+                format!("/companies/acme/email-mandates/proposals/{proposal}/decision"),
+                serde_json::json!({"decision": "approve"}),
+            )
+        );
+        assert_eq!(
+            answer(0, false).1,
+            serde_json::json!({"decision": "decline"})
+        );
+        assert_eq!(
+            answer(1, true),
+            (
+                "/companies/acme/approvals/grant".into(),
+                serde_json::json!({"party": "ann@example.com"})
+            )
+        );
+        assert_eq!(
+            answer(2, false),
+            (
+                "/companies/acme/approvals/decline".into(),
+                serde_json::json!({"call_key": "k2"})
+            )
+        );
     }
 
     #[test]
