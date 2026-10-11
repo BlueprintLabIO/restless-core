@@ -802,8 +802,14 @@ pub async fn dispatch_claimed_work(
 /// when the daemon starts is an orphan of the last daemon's lifetime —
 /// unsupervised, its transcript unreachable. Reap only those Linux sessions,
 /// preserve their Runtime evidence, and leave the productive outcome unknown
-/// for the accountable lead to review.
-pub async fn sweep_orphans(orgintel: &crate::OrgIntelRegistry, running_companies: &[String]) {
+/// for the accountable lead to review. A host reboot leaves computers stopped
+/// with their Attempts still running, so every company's Attempts are closed.
+pub async fn sweep_orphans(
+    orgintel: &crate::OrgIntelRegistry,
+    registry: &StaffRegistry,
+    companies: &[String],
+    running_companies: &[String],
+) {
     for name in running_companies {
         let container = runtime::container_name(name);
         match reap_orphan_gate_processes(&container).await {
@@ -826,44 +832,85 @@ pub async fn sweep_orphans(orgintel: &crate::OrgIntelRegistry, running_companies
                 "reaped marked agent processes from before restart"
             );
         }
+    }
+    for name in companies {
         let Ok(org) = orgintel.get(name).await else {
             continue;
         };
-        let Ok(attempts) = org.list_running_work_attempts().await else {
+        let container = running_companies
+            .contains(name)
+            .then(|| runtime::container_name(name));
+        recover_unsupervised_attempts(
+            &org,
+            registry,
+            name,
+            container.as_deref(),
+            "supervisor restarted; cognitive process was lost before trustworthy semantic completion",
+        )
+        .await;
+    }
+}
+
+/// Close every running Attempt that no process in this daemon supervises. Its
+/// supervisor failed to record an outcome or did not survive a restart, so it
+/// can never finish by itself; until closed, its actor cannot be claimed and
+/// its Work can be neither abandoned nor reviewed. `container` names a running
+/// local Runtime to observe and clean; without one the end state is unobserved.
+///
+/// Only the scheduler scan claims Work, and dispatch reserves the actor before
+/// that scan continues, so this snapshot never misses a just-claimed Attempt.
+pub async fn recover_unsupervised_attempts(
+    org: &restless_orgintel::OrgIntel,
+    registry: &StaffRegistry,
+    company: &str,
+    container: Option<&str>,
+    reason: &str,
+) {
+    // Read supervision before the rows: a supervisor records its outcome
+    // before it releases its actor, so a released actor's Attempt that is
+    // still running has no outcome coming.
+    let supervised = registry.running_actors(company);
+    let Ok(attempts) = org.list_running_work_attempts().await else {
+        return;
+    };
+    for attempt in attempts
+        .iter()
+        .filter(|attempt| !supervised.contains(&attempt.actor_id))
+    {
+        let Some(work) = org.get_work(attempt.work_id).await.ok().flatten() else {
+            tracing::warn!(attempt = %attempt.id, "orphaned Attempt lost its Work row");
             continue;
         };
-        for attempt in &attempts {
-            let Some(work) = org.get_work(attempt.work_id).await.ok().flatten() else {
-                tracing::warn!(attempt = %attempt.id, "orphaned Attempt lost its Work row");
-                continue;
-            };
-            let Ok(workdir) = workdir_for(&work) else {
-                tracing::warn!(attempt = %attempt.id, "orphaned Attempt has invalid workspace coordinates");
-                continue;
-            };
-            let start = recorded_start_observation(&org, attempt.id, &workdir).await;
-            let end = observe_workspace(&container, &workdir).await;
-            let note = "supervisor restarted; cognitive process was lost before trustworthy semantic completion";
-            match record_unknown_recovery(&org, attempt.id, note, &start, &end).await {
-                Ok(()) => {
-                    if let Err(error) = org
-                        .release_attempt_resources(
-                            attempt.id,
-                            "daemon restart closed orphaned Attempt",
-                        )
-                        .await
-                    {
-                        tracing::warn!(attempt = %attempt.id, "failed to release orphaned Attempt resources: {error:#}");
-                    }
+        let Ok(workdir) = workdir_for(&work) else {
+            tracing::warn!(attempt = %attempt.id, "orphaned Attempt has invalid workspace coordinates");
+            continue;
+        };
+        let start = recorded_start_observation(org, attempt.id, &workdir).await;
+        let end = match container {
+            Some(container) => observe_workspace(container, &workdir).await,
+            None => WorkspaceObservation {
+                workdir: workdir.clone(),
+                ..WorkspaceObservation::default()
+            },
+        };
+        match record_unknown_recovery(org, attempt.id, reason, &start, &end).await {
+            Ok(()) => {
+                if let Err(error) = org
+                    .release_attempt_resources(attempt.id, "closed an unsupervised Attempt")
+                    .await
+                {
+                    tracing::warn!(attempt = %attempt.id, "failed to release orphaned Attempt resources: {error:#}");
+                }
+                if let Some(container) = container {
                     if let Err(error) =
-                        cleanup_attempt_runtime(&container, &workdir, attempt.id).await
+                        cleanup_attempt_runtime(container, &workdir, attempt.id).await
                     {
                         tracing::warn!(attempt = %attempt.id, "failed to clean orphaned Attempt runtime: {error:#}");
                     }
                 }
-                Err(error) => {
-                    tracing::warn!(attempt = %attempt.id, "failed to preserve orphan recovery capsule: {error:#}");
-                }
+            }
+            Err(error) => {
+                tracing::warn!(attempt = %attempt.id, "failed to preserve orphan recovery capsule: {error:#}");
             }
         }
     }
@@ -1377,5 +1424,77 @@ mod tests {
 
         assert_eq!(usage.used, 64_814, "context usage is the final snapshot");
         assert_eq!(reported, Some(2.38));
+    }
+
+    #[tokio::test]
+    async fn only_an_unsupervised_running_attempt_returns_to_judgement() {
+        let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping unsupervised Attempt recovery");
+            return;
+        };
+        let company = format!("unsupervised{}", uuid::Uuid::new_v4().simple());
+        let org = restless_orgintel::OrgIntel::ensure(&url, &company)
+            .await
+            .expect("ensure scratch company schema");
+        org.ensure_actor("exec", "exec", "exec", "The Exec")
+            .await
+            .unwrap();
+        let mut claimed = Vec::new();
+        for actor in ["dossier-research", "dossier-writing"] {
+            org.create_actor(actor, "producer", actor, None, "exec", "owns production")
+                .await
+                .unwrap();
+            let work_id = org
+                .add_work(restless_orgintel::NewWork {
+                    owner_id: actor,
+                    title: "Prepare the dossier",
+                    outcome: "produce one grounded dossier",
+                    goal_id: None,
+                    priority: 0,
+                    expected_artifact: "",
+                    workspace: restless_orgintel::WorkspaceSpec::default(),
+                    attempt_limit: None,
+                })
+                .await
+                .unwrap();
+            let attempt = org.claim_ready_work("test runtime").await.unwrap().unwrap();
+            assert_eq!(attempt.work.id, work_id);
+            claimed.push((work_id, attempt.attempt_id));
+        }
+        let (live_work, live_attempt) = claimed[0];
+        let (lost_work, lost_attempt) = claimed[1];
+        // The researcher's process is still supervised; the writer's outcome
+        // write failed after its supervisor released the actor.
+        let registry = StaffRegistry::default();
+        registry
+            .try_claim(&company, "dossier-research", Some(live_work))
+            .unwrap();
+
+        super::recover_unsupervised_attempts(&org, &registry, &company, None, "lost in test")
+            .await;
+
+        let attempts = org.list_work_attempts(None).await.unwrap();
+        let state = |id| attempts.iter().find(|attempt| attempt.id == id).unwrap().state;
+        assert_eq!(state(live_attempt), WorkAttemptState::Running);
+        assert_eq!(state(lost_attempt), WorkAttemptState::Failed);
+        assert_eq!(
+            org.get_work(lost_work).await.unwrap().unwrap().status,
+            WorkStatus::Blocked
+        );
+        let inbox = org.inbox(Some("exec")).await.unwrap();
+        let notice = inbox
+            .iter()
+            .find(|message| message.body.contains(&lost_attempt.to_string()))
+            .expect("recovery evidence reaches the accountable coordinator");
+        assert_eq!(notice.from_actor, "daemon");
+        assert!(notice.body.contains("productive outcome is UNKNOWN"));
+        assert!(!inbox
+            .iter()
+            .any(|message| message.body.contains(&live_attempt.to_string())));
+        org.abandon_work(lost_work, "exec", "superseded")
+            .await
+            .expect("an unsupervised Attempt no longer blocks abandonment");
+        assert!(org.abandon_work(live_work, "exec", "superseded").await.is_err());
+        org.drop_schema().await.expect("drop scratch schema");
     }
 }

@@ -470,9 +470,18 @@ async fn run() -> Result<()> {
         // Docker round trips across the appliance readiness path.
         let sweep_started = std::time::Instant::now();
         if !hosted_runtime {
+            let companies = recovery_configs
+                .iter()
+                .map(|config| config.name.clone())
+                .collect::<Vec<_>>();
             tokio::join!(
                 effect::sweep_orphans(&running_companies),
-                staff::sweep_orphans(&recovery_daemon.orgintel, &running_companies)
+                staff::sweep_orphans(
+                    &recovery_daemon.orgintel,
+                    &recovery_daemon.staff,
+                    &companies,
+                    &running_companies,
+                )
             );
         }
         tracing::info!(

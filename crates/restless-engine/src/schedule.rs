@@ -506,6 +506,20 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
         }
     }
 
+    // An Attempt no live process supervises would otherwise stay running
+    // forever. Close it as unknown for its lead, after promotion replay above
+    // and before this scan claims new Work.
+    let container =
+        (!daemon.runtime_bridges.is_hosted()).then(|| runtime::container_name(company));
+    crate::staff::recover_unsupervised_attempts(
+        &org,
+        &daemon.staff,
+        company,
+        container.as_deref(),
+        "its supervising process ended without recording an outcome",
+    )
+    .await;
+
     // Live Attempt completion flushes this outbox immediately. A daemon crash
     // between terminal state and delivery leaves the owed bit set;
     // reconciliation recreates the same durable Exec result or lead exception
