@@ -914,6 +914,41 @@ mod tests {
         assert!(!error.contains("WEBHOOK_SECRET_STAYS_HOST"), "{error}");
     }
 
+    /// Each company's inbound events are verified with its own secret. A
+    /// broken company binding must refuse, never fall back to the secret
+    /// other companies share.
+    #[tokio::test]
+    async fn a_company_webhook_binding_wins_and_never_falls_back_to_the_shared_secret() {
+        // SAFETY: only resolve_resend_webhook reads these variables, and no
+        // other test names them.
+        unsafe {
+            std::env::set_var(
+                "RESTLESS_RESEND_WEBHOOK_CREDENTIAL",
+                "env:RESTLESS_TEST_RESEND_WEBHOOK_SHARED",
+            );
+            std::env::set_var("RESTLESS_TEST_RESEND_WEBHOOK_SHARED", "whsec-shared");
+            std::env::set_var("RESTLESS_TEST_RESEND_WEBHOOK_OWN", "whsec-own");
+        }
+        let own = config_with(&[(
+            RESEND_WEBHOOK_BINDING,
+            "env:RESTLESS_TEST_RESEND_WEBHOOK_OWN",
+        )]);
+        assert_eq!(resolve_resend_webhook(&own).await.unwrap(), "whsec-own");
+
+        unsafe { std::env::remove_var("RESTLESS_TEST_RESEND_WEBHOOK_OWN") };
+        let broken = resolve_resend_webhook(&own).await;
+        assert!(broken.is_err(), "a broken binding resolved: {broken:?}");
+
+        assert_eq!(
+            resolve_resend_webhook(&config_with(&[])).await.unwrap(),
+            "whsec-shared"
+        );
+        unsafe {
+            std::env::remove_var("RESTLESS_RESEND_WEBHOOK_CREDENTIAL");
+            std::env::remove_var("RESTLESS_TEST_RESEND_WEBHOOK_SHARED");
+        }
+    }
+
     #[tokio::test]
     async fn finance_resolution_requires_the_exact_company_provider_path() {
         let config = config_with(&[(
