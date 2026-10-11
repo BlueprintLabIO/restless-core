@@ -1107,6 +1107,47 @@ async fn bad_schema_names_are_rejected() {
     }
 }
 
+/// The appliance refuses to activate a release over a cell it cannot open.
+/// That check must name exactly the migrations `ensure` refuses.
+#[tokio::test]
+async fn a_migration_from_a_newer_release_is_named_before_it_blocks_opening() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping newer-schema scenario");
+        return;
+    };
+    let company = format!("newer{}", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    assert!(OrgIntel::unknown_applied_migrations(&url, &company)
+        .await
+        .unwrap()
+        .is_empty());
+
+    // What a newer release leaves behind: one applied migration this build lacks.
+    let admin = sqlx::PgPool::connect(&url).await.unwrap();
+    sqlx::query(&format!(
+        "INSERT INTO {company}._sqlx_migrations \
+         (version, description, success, checksum, execution_time) \
+         VALUES (99999999, 'from a newer release', TRUE, decode('00', 'hex'), 0)"
+    ))
+    .execute(&admin)
+    .await
+    .unwrap();
+    admin.close().await;
+
+    assert_eq!(
+        OrgIntel::unknown_applied_migrations(&url, &company)
+            .await
+            .unwrap(),
+        vec![99999999]
+    );
+    let refused = OrgIntel::ensure(&url, &company)
+        .await
+        .err()
+        .expect("a build must not open a schema carrying a migration it lacks");
+    assert!(refused.to_string().contains("99999999"));
+    org.drop_schema().await.unwrap();
+}
+
 #[tokio::test]
 async fn one_durable_actor_has_one_live_attempt() {
     let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {

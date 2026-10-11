@@ -451,7 +451,14 @@ pub fn install(
         return Ok(report);
     }
 
-    if upgrading {
+    // A slow candidate may already have upgraded company data past what the
+    // previous release can open. Restoring it then would report a recovery
+    // while every company fails to open, so the candidate stays active.
+    let fallback_refused = match (upgrading, &previous_target) {
+        (true, Some(previous)) => run_candidate_preflight(previous, &layout.state_root).err(),
+        _ => None,
+    };
+    if upgrading && fallback_refused.is_none() {
         if let Some(previous) = previous_target {
             atomic_symlink(&previous, &layout.current)?;
             write_service_definitions(&layout, &previous)?;
@@ -487,14 +494,16 @@ pub fn install(
             return Ok(report);
         }
     }
-    write_recovery_state(
-        &layout,
-        "crash_loop",
-        &release,
-        "installed service did not become ready and no last-known-good release was available",
-    )?;
+    let detail = match fallback_refused {
+        Some(error) => format!(
+            "new release did not become ready within 30 seconds and stays active, because the previous release cannot take over: {error:#}"
+        ),
+        None => "installed service did not become ready and no last-known-good release was available"
+            .to_string(),
+    };
+    write_recovery_state(&layout, "crash_loop", &release, &detail)?;
     let _ = drain.resume();
-    bail!("installed service did not become ready within 30 seconds; inspect ~/.restless/logs/restlessd.log")
+    bail!("{detail}; inspect ~/.restless/logs/restlessd.log")
 }
 
 fn begin_appliance_drain(layout: &Layout, force: bool) -> Result<DrainGuard> {
@@ -1002,6 +1011,11 @@ pub fn rollback(force: bool) -> Result<InstallReport> {
         .context("no previous Restless release is available")?;
     let current = read_link_name(&layout.current);
     layout.definitions(&previous)?;
+    // The current release may have upgraded company data past what the
+    // previous one can open. Its own read-only preflight decides, before
+    // anything changes.
+    run_candidate_preflight(&previous, &layout.state_root)
+        .context("cannot roll back; the current release stays active")?;
     let drain = begin_appliance_drain(&layout, force)?;
     atomic_symlink(&previous, &layout.current)?;
     if let Some(ref current) = current {
@@ -1314,7 +1328,7 @@ fn run_candidate_preflight_with_environment(
         .with_context(|| format!("run staged appliance preflight {}", daemon.display()))?;
     if !output.status.success() {
         bail!(
-            "staged release failed read-only preflight; active release was not changed: {}",
+            "release failed its read-only preflight, so it was not activated: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }

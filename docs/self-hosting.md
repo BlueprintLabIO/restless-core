@@ -74,19 +74,25 @@ which:
   If work is still running, it stops without interrupting anything. `--force`
   accepts the interruption.
 - activates the new release and waits up to 30 seconds for it to become ready.
-- puts the previous release back if the new one does not become ready.
+- puts the previous release back if the new one does not become ready, unless
+  the new one has already upgraded company data the previous one cannot open.
+  Then the new release stays active.
 
 After an upgrade, each company computer still on the previous release's image is
 rebuilt on the new one when the service starts. Company files live on the
 company's volume and are kept.
 
 Company data is never stored in the release directory, so an upgrade does not
-copy or migrate files. To return to the previous release at any time:
+copy or migrate files. To return to the previous release:
 
 ```sh
 restless appliance rollback
 restless appliance status
 ```
+
+Rollback refuses, and changes nothing, when the current release has upgraded
+company data that the previous one cannot open. Stay on the current release or
+a newer one, or restore a backup taken before the upgrade.
 
 ## Back up
 

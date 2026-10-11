@@ -253,6 +253,40 @@ impl OrgIntel {
         Ok(())
     }
 
+    /// Migrations this company's schema has applied that this build does not
+    /// carry, read without changing anything. `ensure` cannot open such a
+    /// schema (sqlx refuses an applied migration it does not know), so a
+    /// release must not be activated over it: an older build cannot open data
+    /// a newer one has already migrated.
+    pub async fn unknown_applied_migrations(database_url: &str, company: &str) -> Result<Vec<i64>> {
+        if !valid_schema_name(company) {
+            return Err(OrgIntelError::BadSchemaName(company.to_string()));
+        }
+        let options: PgConnectOptions = database_url.parse().map_err(OrgIntelError::Db)?;
+        let mut connection = sqlx::ConnectOptions::connect(&options).await?;
+        let recorded: Option<String> =
+            sqlx::query_scalar("SELECT to_regclass(format('%I._sqlx_migrations', $1))::text")
+                .bind(company)
+                .fetch_one(&mut connection)
+                .await?;
+        if recorded.is_none() {
+            return Ok(Vec::new());
+        }
+        let applied: Vec<i64> = sqlx::query_scalar(&format!(
+            "SELECT version FROM {company}._sqlx_migrations ORDER BY version"
+        ))
+        .fetch_all(&mut connection)
+        .await?;
+        Ok(applied
+            .into_iter()
+            .filter(|version| {
+                !MIGRATOR
+                    .iter()
+                    .any(|migration| migration.version == *version)
+            })
+            .collect())
+    }
+
     /// Table names in this company's schema (observability probe).
     pub async fn table_names(&self) -> Result<Vec<String>> {
         let rows =

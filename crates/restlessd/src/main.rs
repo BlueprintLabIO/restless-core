@@ -126,6 +126,31 @@ async fn run() -> Result<()> {
         OrgIntel::probe(&orgintel.database_url)
             .await
             .context("preflight could not reach OrgIntel")?;
+        // An older build cannot open a cell a newer one has migrated: boot
+        // would quarantine it while the plane still reports ready. Refuse
+        // activation (a rollback, or an install of an older build) instead. A
+        // cell this preflight cannot read is left to boot, which reports it.
+        for company in configured_companies(&machine_profile.state_root)? {
+            let Some(cell_url) = cell::recorded_database_url(&machine_profile.state_root, &company)
+            else {
+                continue;
+            };
+            match OrgIntel::unknown_applied_migrations(&cell_url, &company).await {
+                Ok(unknown) => {
+                    if let Some(newest) = unknown.iter().max() {
+                        anyhow::bail!(
+                            "{company} holds data a newer release has upgraded (OrgIntel migration {newest}), and this release cannot open it; keep a release that carries that migration, or restore a backup taken before the upgrade"
+                        );
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        company,
+                        "preflight could not read company migrations: {error:#}"
+                    )
+                }
+            }
+        }
         println!(
             "{}",
             serde_json::json!({

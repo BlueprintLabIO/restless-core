@@ -60,6 +60,14 @@ fn cell_url_path(root: &std::path::Path, company: &str) -> std::path::PathBuf {
     root.join("cells").join(company).join("database.url")
 }
 
+/// This cell's recorded connection string, read without provisioning
+/// anything. `None` when the company has no cell yet.
+pub fn recorded_database_url(root: &std::path::Path, company: &str) -> Option<String> {
+    let url = std::fs::read_to_string(cell_url_path(root, company)).ok()?;
+    let url = url.trim();
+    (!url.is_empty()).then(|| url.to_string())
+}
+
 /// The collaboration sidecar receives this credential as one read-only secret
 /// file. It is deliberately separate from `database.url`: the latter is the
 /// cell owner used by Core migrations and may read every OrgIntel table.
