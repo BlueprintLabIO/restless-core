@@ -82,7 +82,7 @@ FROM scratch AS binaries-prebuilt
 COPY prebuilt-rust/restlessd prebuilt-rust/restless /out/
 FROM binaries-${RUST_BINARIES} AS binaries
 
-FROM docker:29.8.2-cli@sha256:b1805116a6a86cc591b5d5f60a910a0715cdcc9d18d866ad68b1457ead25c35c AS docker-cli
+FROM docker:29.9.0-cli@sha256:1a4c7cb63513f349bdad01fcc6e0f3f2f67d37b9da86f14dc0d4a0942eecda00 AS docker-cli
 FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS node-runtime
 FROM ubuntu:24.04@sha256:a853f94d226358a79c740cfc7bce0c289748f3fe3488d921d038ccd752c61b60
 COPY --from=node-runtime /usr/local/ /usr/local/
