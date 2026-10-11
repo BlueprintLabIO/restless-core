@@ -1938,8 +1938,16 @@ fn membership_boundary_violation(
         || is_company_principal_route(path)
         || is_actor_conversation_route(path)
         || is_company_route_family(path, "rooms")
+        // Chat lists, message search and reactions answer only from the
+        // Rooms the caller takes part in.
+        || is_company_route_family(path, "direct-conversations")
+        || is_company_route_family(path, "group-conversations")
+        || is_company_route_family(path, "room-messages")
+        || is_company_route_family(path, "message-reactions")
+        || is_message_reaction_route(path)
         || is_company_route_family(path, "documents")
         || is_company_route_family(path, "sheets")
+        || is_company_route_family(path, "sheets-archived")
         // Presence names only people already in the company directory.
         || is_company_route_family(path, "presence")
         // The members handler admits owners and administrators itself.
@@ -2034,6 +2042,18 @@ fn is_actor_conversation_route(path: &str) -> bool {
         && segments.next() == Some("actors")
         && segments.next().is_some_and(|actor| !actor.is_empty())
         && segments.next() == Some("conversation")
+        && segments.next().is_none()
+}
+
+fn is_message_reaction_route(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/companies/") else {
+        return false;
+    };
+    let mut segments = rest.split('/');
+    segments.next().is_some_and(|company| !company.is_empty())
+        && segments.next() == Some("messages")
+        && segments.next().is_some_and(|message| message.parse::<i64>().is_ok())
+        && segments.next() == Some("reactions")
         && segments.next().is_none()
 }
 
@@ -9861,6 +9881,27 @@ async fn set_message_reaction(
             )
         }
     };
+    // A person reacts only to what they can read.
+    match org
+        .room_messages_visible_to(principal.actor_id(), &[message_id])
+        .await
+    {
+        Ok(visible) if visible.is_empty() => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "reaction",
+                "that message is not in a conversation you are part of",
+            )
+        }
+        Ok(_) => {}
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    }
     match org
         .set_message_reaction(message_id, principal.actor_id(), &input.emoji, input.on)
         .await
@@ -9886,6 +9927,7 @@ async fn set_message_reaction(
 
 async fn list_message_reactions(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
     Query(query): Query<MessageReactionsQuery>,
 ) -> impl IntoResponse {
@@ -9897,6 +9939,17 @@ async fn list_message_reactions(
         .collect();
     let org = match state.daemon.orgintel.get(&company).await {
         Ok(org) => org,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    };
+    // Only reactions on messages this person can read.
+    let ids = match org.room_messages_visible_to(principal.actor_id(), &ids).await {
+        Ok(ids) => ids,
         Err(error) => {
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,

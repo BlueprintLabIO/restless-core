@@ -2715,8 +2715,20 @@ model = \"anthropic/claude-sonnet-5-5\"
                 (Method::POST, "/api/companies/aris/sheets/sheet-id/operations"),
                 (Method::GET, "/api/companies/aris/sheets/sheet-id/collaboration"),
                 (Method::GET, "/api/companies/aris/sheets/sheet-id/versions"),
-            ] { assert!(membership_boundary_violation(&method,path,&participant).is_none()); }
+                (Method::GET, "/api/companies/aris/sheets-archived"),
+                (Method::GET, "/api/companies/aris/direct-conversations"),
+                (Method::GET, "/api/companies/aris/group-conversations"),
+                (Method::GET, "/api/companies/aris/room-messages/search"),
+                (Method::GET, "/api/companies/aris/message-reactions"),
+                (Method::POST, "/api/companies/aris/messages/42/reactions"),
+            ] { assert!(membership_boundary_violation(&method,path,&participant).is_none(), "{role} refused {method} {path}"); }
             assert!(membership_boundary_violation(&Method::POST,"/api/companies/aris/up",&participant).is_some());
+            // Only a message's reactions open, not the file previews beside them.
+            for path in [
+                "/api/companies/aris/messages/42/reference",
+                "/api/companies/aris/messages/not-a-number/reactions",
+                "/api/companies/aris/messages/42/reactions/extra",
+            ] { assert!(membership_boundary_violation(&Method::GET,path,&participant).is_some(), "{role} reached {path}"); }
         }
         assert!(
             membership_boundary_violation(

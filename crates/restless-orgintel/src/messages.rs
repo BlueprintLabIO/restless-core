@@ -2159,6 +2159,28 @@ impl OrgIntel {
         .await?)
     }
 
+    /// Those of these messages a person can read: live messages in an active
+    /// Room they still take part in.
+    pub async fn room_messages_visible_to(
+        &self,
+        actor: &str,
+        message_ids: &[i64],
+    ) -> Result<Vec<i64>> {
+        Ok(sqlx::query_scalar(
+            "SELECT message.id FROM messages message \
+             JOIN rooms room ON room.id=message.room_id \
+             WHERE message.id = ANY($1) AND message.deleted_at IS NULL \
+               AND room.archived_at IS NULL \
+               AND EXISTS (SELECT 1 FROM room_participants viewer \
+                           WHERE viewer.room_id=room.id AND viewer.actor_id=$2 \
+                             AND viewer.left_at IS NULL)",
+        )
+        .bind(message_ids)
+        .bind(actor)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     /// The current text of one live message, including any edit. The owner
     /// cockpit uses it to confirm that a file an agent pointed to really is in
     /// that message before showing the file.
