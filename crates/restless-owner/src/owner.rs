@@ -106,8 +106,9 @@ use crate::owner_config::{materialize_review_url, OwnerConfig};
 use crate::transcript::{split_attachment_block, OwnerAttachment, OwnerIntentReceipt, ATTACHMENT_BLOCK, ATTACHMENT_MARKER, ATTENTION_CONTEXT_BLOCK, ATTENTION_CONTEXT_MARKER, CONTEXT_BLOCK, CONTEXT_MARKER};
 use desktop_api::{ATTACH_COOKIE, ATTACH_TTL, AttachSession, AttachTicket, CONTROL_TTL_SECONDS, DESKTOP_DISPLAY_LEASES, DesktopWebsocketAccess, RfbObserverFilter, TICKET_TTL, TicketResponse, attach_cookie_name, claim_desktop_display_lease, desktop_asset, desktop_websocket, desktop_windows, focus_desktop_window, issue_ticket, open_controlled_desktop, open_desktop, open_observed_desktop, valid_attach_for};
 use review_api::{
-    REVIEW_TTL, ReviewSession, ReviewSource, is_review_path, issue_library_ticket,
-    issue_review_ticket, review_location, review_outcome, review_path_proxy, review_proxy,
+    REVIEW_PATH_ROUTE, REVIEW_TTL, ReviewSession, ReviewSource, is_review_path,
+    issue_library_ticket, issue_review_ticket, review_location, review_outcome, review_path_proxy,
+    review_proxy,
 };
 
 const SESSION_COOKIE: &str = "restless_session";
@@ -1655,7 +1656,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/desktop/{company}/{*asset}", get(desktop_asset))
         // A plane reached over the network serves review tickets on its own host; the
         // response is sandboxed into an opaque origin (owner_review::review_location).
-        .route("/review/{ticket}/{*path}", any(review_path_proxy))
+        .route(REVIEW_PATH_ROUTE, any(review_path_proxy))
         .fallback_service(static_files)
         .layer(middleware::from_fn_with_state(
             state.clone(),

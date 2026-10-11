@@ -7,6 +7,11 @@ pub(crate) const REVIEW_TTL: Duration = Duration::from_secs(30 * 60);
 /// Where a plane serves review tickets on its own host: `/review/{ticket}/{path}`.
 pub(crate) const REVIEW_PATH_PREFIX: &str = "/review/";
 
+/// The route for every ticket path, the empty `{path}` included. A site recorded at its root
+/// (`http://127.0.0.1:<port>/`) becomes `/review/{ticket}/`, which `/review/{ticket}/{*path}` never
+/// matched (a wildcard needs one character), so the root fell through to the cockpit's own 404.
+pub(crate) const REVIEW_PATH_ROUTE: &str = "/review/{*rest}";
+
 /// A request for a ticket served on the plane's own host. The ticket is its whole authority, as
 /// on the separate review origin, so it bypasses browser sessions.
 pub(crate) fn is_review_path(path: &str) -> bool {
@@ -921,5 +926,26 @@ mod tests {
     #[test]
     fn separate_origin_adds_no_policy() {
         assert_eq!(served("text/html; charset=utf-8", Some("frame-ancestors 'none'"), false), "");
+    }
+
+    /// A site recorded at its root URL is issued as `/review/{ticket}/`. That page, like every file
+    /// beneath it, must reach the ticket rather than the cockpit's own "page does not exist".
+    #[tokio::test]
+    async fn plane_host_route_reaches_the_ticket_for_a_root_target() {
+        use tower::ServiceExt as _;
+        let app = Router::new()
+            .route(REVIEW_PATH_ROUTE, any(|| async { "ticket" }))
+            .fallback(|| async { "cockpit" });
+        let ticket = "a".repeat(32);
+        for path in [
+            format!("/review/{ticket}/"),
+            format!("/review/{ticket}/?tab=2"),
+            format!("/review/{ticket}/assets/site.css"),
+        ] {
+            let request = Request::builder().uri(&path).body(Body::empty()).unwrap();
+            let response = app.clone().oneshot(request).await.unwrap();
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            assert_eq!(&body[..], b"ticket", "{path}");
+        }
     }
 }
