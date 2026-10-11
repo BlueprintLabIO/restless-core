@@ -249,6 +249,7 @@ impl ToolScope {
         Ok(ToolCaller {
             authority: &self.daemon.authority,
             root: &self.daemon.root,
+            lifecycle: &self.daemon.lifecycle,
             org: self.daemon.orgintel.get(&self.grant.company).await.ok(),
             config,
             grant: &self.grant,
@@ -260,6 +261,7 @@ impl ToolScope {
 pub struct ToolCaller<'a> {
     pub authority: &'a crate::authority::AuthorityStore,
     pub root: &'a std::path::Path,
+    pub lifecycle: &'a restless_contracts::appliance::LifecycleGate,
     pub org: Option<restless_orgintel::OrgIntel>,
     pub config: crate::runtime::CompanyConfig,
     pub grant: &'a ToolGrant,
@@ -843,7 +845,17 @@ impl ToolCaller<'_> {
         };
         Ok(match tool.grant.class {
             ToolClass::Reads => self.call_read(&tool, arguments).await,
-            ToolClass::Acts | ToolClass::Reserved => self.call_effect(&tool, arguments).await,
+            ToolClass::Acts | ToolClass::Reserved => {
+                // An update or restart drains counted work before it replaces the plane, so an
+                // effect holds a lease until its outcome is recorded, and none starts once the
+                // drain has closed admission.
+                let Some(_lease) = self.lifecycle.try_enter() else {
+                    return Ok(text_error(
+                        "Nothing was sent: new work is paused for a restart or update; retry once it is back.",
+                    ));
+                };
+                self.call_effect(&tool, arguments).await
+            }
         })
     }
 }
@@ -1057,9 +1069,11 @@ mod tests {
             work_id: None,
             attempt_id: None,
         };
+        let lifecycle = restless_contracts::appliance::LifecycleGate::default();
         let caller = ToolCaller {
             authority: &authority,
             root: &root,
+            lifecycle: &lifecycle,
             org: None,
             config: config.clone(),
             grant: &exec_grant,
@@ -1073,6 +1087,7 @@ mod tests {
         let other = ToolCaller {
             authority: &authority,
             root: &root,
+            lifecycle: &lifecycle,
             org: None,
             config: config.clone(),
             grant: &other_grant,
@@ -1296,6 +1311,25 @@ mod tests {
         connections::set_frozen(&pool, &authority, &company, "mail", false, "owner")
             .await
             .unwrap();
+        assert_eq!(fake.sends.load(Ordering::SeqCst), 2);
+
+        // A drain for an update or restart refuses acts with nothing sent; reads still work.
+        // Every act that ran gave its lease back, or no drain could ever finish.
+        assert_eq!(lifecycle.active(), 0);
+        lifecycle.begin_drain();
+        let paused = caller.call("mail__send", args(fresh)).await.unwrap();
+        assert!(
+            is_error(&paused) && text_of(&paused).contains("Nothing was sent"),
+            "{}",
+            text_of(&paused)
+        );
+        assert!(!is_error(
+            &caller
+                .call("mail__search", args(serde_json::json!({"query": "x"})))
+                .await
+                .unwrap()
+        ));
+        lifecycle.resume();
         assert_eq!(fake.sends.load(Ordering::SeqCst), 2);
 
         // Reserved: each call waits for the owner, who answers that exact call.
