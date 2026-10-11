@@ -1379,12 +1379,7 @@ fn action_from_receipt(
         .get("id")
         .and_then(serde_json::Value::as_str)
         .map(str::to_string);
-    let reconciled = row
-        .body
-        .get("outcome")
-        .and_then(|outcome| outcome.get("reconciled"))
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
+    let reconciled = row.body.get("outcome").is_some_and(reconcile::is_reconciled)
         || receipt_ref
             .as_ref()
             .is_some_and(|id| reconciled_receipts.contains(id));
@@ -2440,6 +2435,27 @@ model = "moonshot/kimi-k3"
         );
         assert_eq!(reconciled.state, "failed");
         assert_eq!(reconciled.evidence, "reconciled");
+
+        // A tool call settled by a later read is closed, not still unknown.
+        for (executed, status, state) in [
+            (true, reconcile::RECONCILED_EXECUTED, "succeeded"),
+            (false, reconcile::RECONCILED_NOT_EXECUTED, "failed"),
+        ] {
+            let settled = action_from_receipt(
+                &record(serde_json::json!({
+                    "id": "00000000-0000-0000-0000-000000000009",
+                    "effect_class": "tool.mail",
+                    "command_digest": "digest",
+                    "tool": "send",
+                    "success": executed,
+                    "execution_no": 1,
+                    "outcome": {"status": status, "read_receipt": "00000000-0000-0000-0000-00000000000a"}
+                })),
+                &BTreeSet::new(),
+            );
+            assert_eq!(settled.state, state);
+            assert_eq!(settled.evidence, "reconciled");
+        }
     }
 }
 

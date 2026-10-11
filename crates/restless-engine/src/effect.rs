@@ -1203,7 +1203,11 @@ pub async fn settle_tool_effect(
         artifacts: Vec::new(),
         party: parties.first().cloned(),
         outcome: serde_json::json!({
-            "status": if executed { "reconciled_executed" } else { "reconciled_not_executed" },
+            "status": if executed {
+                crate::reconcile::RECONCILED_EXECUTED
+            } else {
+                crate::reconcile::RECONCILED_NOT_EXECUTED
+            },
             "read_receipt": read_receipt,
             "external_ref": external_ref,
         }),

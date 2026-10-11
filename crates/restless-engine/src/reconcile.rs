@@ -290,6 +290,25 @@ pub enum Outcome {
     Unknown,
 }
 
+/// The status words `effect::settle_tool_effect` writes when a later read
+/// settles an unknown tool-call outcome. They live beside `outcome_of` so the
+/// writer cannot coin a word the ledger and Activity do not read; when it did,
+/// every settled call stayed "needing reconciliation" and could not be settled.
+pub const RECONCILED_EXECUTED: &str = "reconciled_executed";
+pub const RECONCILED_NOT_EXECUTED: &str = "reconciled_not_executed";
+
+/// Whether a later check, not the original call, recorded this outcome.
+/// Older generic reconciliation marked it `reconciled: true`; a governed read
+/// writes one of the settle words above.
+#[must_use]
+pub fn is_reconciled(outcome: &serde_json::Value) -> bool {
+    outcome.get("reconciled").and_then(serde_json::Value::as_bool) == Some(true)
+        || matches!(
+            outcome.get("status").and_then(serde_json::Value::as_str),
+            Some(RECONCILED_EXECUTED | RECONCILED_NOT_EXECUTED)
+        )
+}
+
 /// One definition, shared with the organisational health signals: two notions
 /// of "failed" in one codebase drift apart the moment a provider invents a
 /// status word.
@@ -314,12 +333,14 @@ pub fn outcome_of(outcome: &serde_json::Value) -> Outcome {
             | "deployed"
             | "refunded"
             | "accepted"
+            | RECONCILED_EXECUTED
     ) {
         return Outcome::Succeeded;
     }
     if matches!(
         status.as_str(),
         "failed" | "declined" | "bounced" | "error" | "cancelled" | "canceled" | "rejected"
+            | RECONCILED_NOT_EXECUTED
     ) || status.ends_with("_failed")
         || status.starts_with("rejected")
         || status.starts_with("error")
