@@ -295,22 +295,27 @@ export function openAgentActivityStream(
 	const source = new EventSource(
 		`/api/companies/${encodeURIComponent(company)}/actors/${encodeURIComponent(actor)}/activity${query ? `?${query}` : ''}`
 	);
+	let phase: AgentActivityState['phase'] | null = null;
 	const receive = (event: MessageEvent<string>) => {
-		let state: AgentActivityState;
 		try {
-			state = JSON.parse(event.data) as AgentActivityState;
+			const state = JSON.parse(event.data) as AgentActivityState;
+			phase = state.phase;
+			onstate(state);
 		} catch {
 			onerror?.();
-			return;
 		}
-		onstate(state);
-		/* A message's turn ends once; reconnecting would only replay its last word. A Work stream
-		 * stays open for the next Attempt. */
-		if (scope.messageId !== undefined && (state.phase === 'complete' || state.phase === 'failed'))
-			source.close();
 	};
 	source.addEventListener('activity', receive as EventListener);
-	source.onerror = () => onerror?.();
+	source.onerror = () => {
+		/* A failed turn that is retried streams on the open connection. Once the server ends a
+		 * message's stream after its last word, reconnecting would only replay that word. A Work
+		 * stream stays open for the next Attempt. */
+		if (scope.messageId !== undefined && (phase === 'complete' || phase === 'failed')) {
+			source.close();
+			return;
+		}
+		onerror?.();
+	};
 	return () => source.close();
 }
 
