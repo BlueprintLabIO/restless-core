@@ -238,6 +238,12 @@
 	animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
 }
 
+/* The menu's z-index only ranks inside the topbar's layer, so on a narrow screen the floating
+ * rail would cover it. While the switcher is open the whole topbar rises above the rail. */
+.bridge-root .bridge-topbar:has(.company-switcher:is([open], [data-closing])) {
+	z-index: calc(var(--z-rail) + 1);
+}
+
 .bridge-root .company-switcher[data-closing] .company-switcher-menu {
 	animation: bridge-popover-out var(--motion-state) var(--ease-standard) both;
 	pointer-events: none;
