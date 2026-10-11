@@ -1184,6 +1184,88 @@ pub async fn tool_call_decision(
     })
 }
 
+/// Whether this held call still waits on the owner: not answered, and not
+/// run since it was held. A held call can run without an answer once the
+/// owner lets its tool act without asking; then nothing is left to answer.
+pub async fn held_call_waiting(
+    authority: &crate::authority::AuthorityStore,
+    company: &str,
+    key: &str,
+    request: &crate::authority::AuthorityRecord,
+) -> Result<bool> {
+    let digest = request
+        .body
+        .get("command_digest")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    Ok(tool_call_decision(authority, company, key, digest).await?.is_none()
+        && !ran_since(authority, company, key, request.id).await?)
+}
+
+/// Whether the call under `key` started after Authority record `since`. Its
+/// intent is claimed before it runs, so an unknown outcome counts as run.
+async fn ran_since(
+    authority: &crate::authority::AuthorityStore,
+    company: &str,
+    key: &str,
+    since: i64,
+) -> Result<bool> {
+    Ok(authority
+        .find_record(company, "effect_intent", "idempotency_key", key)
+        .await?
+        .is_some_and(|intent| intent.id > since))
+}
+
+/// "Don't ask again" covers the calls already held for that tool: it acts
+/// without asking now, so each would run unasked on its next retry. Allowing
+/// them closes their Inbox items and tells the company it may retry them,
+/// rather than asking the owner about calls that no longer wait.
+pub async fn allow_held_calls(
+    authority: &crate::authority::AuthorityStore,
+    org: Option<&restless_orgintel::OrgIntel>,
+    company: &str,
+    connection: &str,
+    tool: &str,
+    principal: &str,
+) -> Result<usize> {
+    let mut latest = std::collections::BTreeMap::new();
+    for request in authority.records_of_kind(company, "approval_required").await? {
+        if let Some(key) = request.body.get("call_key").and_then(serde_json::Value::as_str) {
+            latest.insert(key.to_owned(), request);
+        }
+    }
+    let mut allowed = 0;
+    for (key, request) in latest {
+        let field = |name: &str| request.body.get(name).and_then(serde_json::Value::as_str);
+        if field("connection") != Some(connection)
+            || field("tool") != Some(tool)
+            || !held_call_waiting(authority, company, &key, &request).await?
+        {
+            continue;
+        }
+        authority
+            .emit(
+                company,
+                "tool_call_approved",
+                Some(principal),
+                serde_json::json!({
+                    "call_key": key,
+                    "command_digest": field("command_digest"),
+                    "effect_class": request.body.get("effect_class"),
+                    "tool": tool,
+                    "principal": principal,
+                    "tool_acts": true,
+                }),
+            )
+            .await?;
+        allowed += 1;
+    }
+    if allowed > 0 {
+        crate::approval::announce_decisions(company, authority, org).await;
+    }
+    Ok(allowed)
+}
+
 /// The owner answers one prepared `reserved` call. The answer binds the exact
 /// command digest, so a changed call under the same key asks again; that is
 /// what a request for changes relies on.
@@ -1200,21 +1282,27 @@ pub async fn decide_tool_call(
         bail!("asking for changes declines this call; it cannot also allow it");
     }
     let request = authority
-        .find_body(company, "approval_required", "call_key", key)
+        .find_record(company, "approval_required", "call_key", key)
         .await?
         .context("no prepared tool call is waiting under that key")?;
     let digest = request
+        .body
         .get("command_digest")
         .and_then(serde_json::Value::as_str)
         .context("prepared tool call has no command digest")?;
     if tool_call_decision(authority, company, key, digest).await?.is_some() {
         bail!("this prepared call was already answered");
     }
-    let tool = request.get("tool").and_then(serde_json::Value::as_str).unwrap_or("tool");
+    // An answer to a call that already ran would tell the company to run,
+    // or not to run, something that has happened.
+    if ran_since(authority, company, key, request.id).await? {
+        bail!("this call already ran, so there is nothing left to allow or decline");
+    }
+    let tool = request.body.get("tool").and_then(serde_json::Value::as_str).unwrap_or("tool");
     let mut body = serde_json::json!({
         "call_key": key,
         "command_digest": digest,
-        "effect_class": request.get("effect_class"),
+        "effect_class": request.body.get("effect_class"),
         "tool": tool,
         "principal": principal,
     });

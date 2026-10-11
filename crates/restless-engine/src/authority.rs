@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 use restless_orgintel::OrgIntel;
 use sha2::{Digest as _, Sha256};
 use sqlx::postgres::PgPoolOptions;
-use sqlx::{PgPool, Postgres, Row as _, Transaction};
+use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 #[path = "mandate.rs"]
@@ -928,8 +928,23 @@ impl AuthorityStore {
         json_field: &str,
         value: &str,
     ) -> Result<Option<serde_json::Value>> {
-        let row = sqlx::query(
-            "SELECT body FROM restless_authority.records \
+        Ok(self
+            .find_record(company, kind, json_field, value)
+            .await?
+            .map(|record| record.body))
+    }
+
+    /// The latest record of `kind` whose body field equals `value`, with its
+    /// id, so a caller can tell which of two facts came first.
+    pub async fn find_record(
+        &self,
+        company: &str,
+        kind: &str,
+        json_field: &str,
+        value: &str,
+    ) -> Result<Option<AuthorityRecord>> {
+        sqlx::query_as(
+            "SELECT id, actor_id, body, created_at FROM restless_authority.records \
              WHERE company = $1 AND kind = $2 AND body->>$3 = $4 \
              ORDER BY id DESC LIMIT 1",
         )
@@ -939,8 +954,7 @@ impl AuthorityStore {
         .bind(value)
         .fetch_optional(&self.pool)
         .await
-        .with_context(|| format!("find Authority {kind} record for {company}"))?;
-        Ok(row.map(|row| row.get(0)))
+        .with_context(|| format!("find Authority {kind} record for {company}"))
     }
 
     /// Atomically record one provider event. Webhook deliveries can race; a

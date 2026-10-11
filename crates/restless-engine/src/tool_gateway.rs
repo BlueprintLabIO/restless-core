@@ -1343,7 +1343,15 @@ mod tests {
         let other_delete = serde_json::json!({"id": "m2", "_restless": {"purpose": "Remove another", "key": "delete-m2"}});
         assert!(text_of(
             &caller
-                .call("mail__delete", args(other_delete))
+                .call("mail__delete", args(other_delete.clone()))
+                .await
+                .unwrap()
+        )
+        .contains("asks the owner first"));
+        let fourth_delete = serde_json::json!({"id": "m4", "_restless": {"purpose": "Remove a fourth", "key": "delete-m4"}});
+        assert!(text_of(
+            &caller
+                .call("mail__delete", args(fourth_delete.clone()))
                 .await
                 .unwrap()
         )
@@ -1372,6 +1380,74 @@ mod tests {
         let ran = caller.call("mail__delete", args(third_delete)).await.unwrap();
         assert!(!is_error(&ran), "{}", text_of(&ran));
         assert_eq!(fake.deletes.load(Ordering::SeqCst), 2);
+        // A call held before the promotion runs unasked when retried. Its
+        // Inbox item closes, and an answer to it is refused rather than
+        // telling the company not to run what already ran.
+        let ran = caller.call("mail__delete", args(fourth_delete)).await.unwrap();
+        assert!(!is_error(&ran), "{}", text_of(&ran));
+        assert_eq!(fake.deletes.load(Ordering::SeqCst), 3);
+        let view = crate::attention::project(&config, &authority, None)
+            .await
+            .unwrap();
+        assert!(!view
+            .items
+            .iter()
+            .any(|item| item.source.call_key.as_deref() == Some("delete-m4")));
+        let refused = crate::effect::decide_tool_call(
+            &authority,
+            None,
+            &company,
+            "delete-m4",
+            false,
+            "owner",
+            crate::approval::OwnerNote::default(),
+        )
+        .await
+        .unwrap_err();
+        assert!(format!("{refused:#}").contains("already ran"), "{refused:#}");
+        assert!(authority
+            .find_body(&company, "tool_call_declined", "call_key", "delete-m4")
+            .await
+            .unwrap()
+            .is_none());
+        // The promotion also allows the calls still held for that tool, and
+        // only those: delete-m1 was answered and delete-m4 ran.
+        assert!(view
+            .items
+            .iter()
+            .any(|item| item.source.call_key.as_deref() == Some("delete-m2")));
+        assert_eq!(
+            crate::effect::allow_held_calls(&authority, None, &company, "mail", "delete", "owner")
+                .await
+                .unwrap(),
+            1
+        );
+        let view = crate::attention::project(&config, &authority, None)
+            .await
+            .unwrap();
+        assert!(!view
+            .items
+            .iter()
+            .any(|item| item.source.call_key.as_deref() == Some("delete-m2")));
+        let held = authority
+            .find_body(&company, "approval_required", "call_key", "delete-m2")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            crate::effect::tool_call_decision(
+                &authority,
+                &company,
+                "delete-m2",
+                held["command_digest"].as_str().unwrap()
+            )
+            .await
+            .unwrap(),
+            Some(true)
+        );
+        let ran = caller.call("mail__delete", args(other_delete)).await.unwrap();
+        assert!(!is_error(&ran), "{}", text_of(&ran));
+        assert_eq!(fake.deletes.load(Ordering::SeqCst), 4);
         // Promoting again changes nothing.
         assert_eq!(
             connections::promote_tool(&pool, &authority, &company, "mail", "delete", "owner")

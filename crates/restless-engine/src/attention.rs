@@ -421,25 +421,19 @@ pub async fn project(
     }
 
     // Reserved tool calls ask about one prepared call each, keyed by the
-    // call's idempotency key. An answer or a later receipt closes it.
-    let mut calls: BTreeMap<String, &crate::authority::AuthorityRecord> = BTreeMap::new();
+    // call's idempotency key. An answer, or the call running after its tool
+    // stopped asking, closes it.
+    let mut held: BTreeMap<String, &crate::authority::AuthorityRecord> = BTreeMap::new();
     for event in &approvals {
-        let Some(key) = event.body.get("call_key").and_then(serde_json::Value::as_str) else {
-            continue;
-        };
-        let digest = event
-            .body
-            .get("command_digest")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default();
-        if crate::effect::tool_call_decision(authority, &config.name, key, digest)
-            .await?
-            .is_some()
-        {
-            calls.remove(key);
-            continue;
+        if let Some(key) = event.body.get("call_key").and_then(serde_json::Value::as_str) {
+            held.insert(key.to_string(), event);
         }
-        calls.insert(key.to_string(), event);
+    }
+    let mut calls = Vec::new();
+    for (key, event) in held {
+        if crate::effect::held_call_waiting(authority, &config.name, &key, event).await? {
+            calls.push((key, event));
+        }
     }
 
     let (actors, accountable_actors, conversation_actors) = actor_directory(org).await;
@@ -605,7 +599,7 @@ pub async fn project(
                     label: "Allow, and don't ask again".into(),
                     role: "decision",
                     consequence: format!(
-                        "Runs this call, and lets {tool} on {connection} run without asking from now on."
+                        "Runs this call and any other waiting {tool} calls, and lets {tool} on {connection} run without asking from now on."
                     ),
                     next_state: "You can make it ask again in Apps at any time.".into(),
                     href: None,
@@ -1974,6 +1968,8 @@ async fn authority_decisions(
             });
             let (note, changes) = approval::recorded_note(&record.body);
             let allowed = kind == "tool_call_approved";
+            // Allowed by "don't ask again" on another call, not on its own.
+            let with_tool = format!("Allowed when you let {tool} run without asking.");
             let receipt = if allowed {
                 authority
                     .find_body(company, "effect", "idempotency_key", key)
@@ -1986,7 +1982,9 @@ async fn authority_decisions(
                 work_id: None,
                 title,
                 recorded_decision: with_owner_note(
-                    if allowed {
+                    if record.body.get("tool_acts") == Some(&Value::Bool(true)) {
+                        with_tool.as_str()
+                    } else if allowed {
                         "Allowed this call once."
                     } else if changes {
                         "Asked for changes."

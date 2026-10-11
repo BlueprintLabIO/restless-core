@@ -9774,11 +9774,29 @@ async fn grant(
         )
         .await
         {
-            Ok(_) => Json(serde_json::json!({
-                "message": format!("{message}; {tool} on {connection} acts without asking from now on"),
-                "always": true,
-            }))
-            .into_response(),
+            // The calls already held for this tool would now run unasked, so
+            // they are allowed too rather than left asking in the Inbox.
+            Ok(_) => match crate::effect::allow_held_calls(
+                &state.daemon.authority,
+                org.as_ref(),
+                &company,
+                &connection,
+                &tool,
+                principal.actor_id(),
+            )
+            .await
+            {
+                Ok(_) => Json(serde_json::json!({
+                    "message": format!("{message}; {tool} on {connection} acts without asking from now on"),
+                    "always": true,
+                }))
+                .into_response(),
+                Err(error) => api_error(
+                    StatusCode::BAD_REQUEST,
+                    "approval",
+                    format!("{message}, and {tool} acts without asking from now on, but its other waiting calls still wait: {error:#}"),
+                ),
+            },
             Err(error) => api_error(
                 StatusCode::BAD_REQUEST,
                 "approval",
