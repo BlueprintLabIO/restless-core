@@ -335,8 +335,16 @@
 		if (key === loadedDraftKey) return;
 		loadedDraftKey = key;
 		composer = readDraft(key);
-		/* Only the text draft is saved per recipient. Files, a quote, a chosen skill, a pending
-		 * new conversation or a tapped answer were meant for the previous one and never travel. */
+	});
+	/* Only the text draft is saved per recipient. Files, a quote, a chosen skill, a pending new
+	 * conversation or a tapped answer were meant for the previous recipient, or for the
+	 * conversation before an Inbox focus opened or closed, and never travel. */
+	const carryKey = $derived(`${draftKey}:${review || workContext ? 'focus' : ''}`);
+	let carriedFor = '';
+	$effect(() => {
+		const key = carryKey;
+		if (key === carriedFor) return;
+		carriedFor = key;
 		untrack(() => {
 			if (pendingAnswer) window.clearTimeout(pendingAnswer.timer);
 			pendingAnswer = null;
