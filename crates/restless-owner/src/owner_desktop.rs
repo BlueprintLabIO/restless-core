@@ -118,6 +118,16 @@ pub(crate) async fn issue_ticket(
             "The company computer is not running, so it cannot be opened. Company → Health shows how to start it.",
         );
     }
+    // A computer that just woke, here or for other demand, runs before its desktop does: a ticket
+    // is one-use, and one spent on a refused connection strands the viewer. Issue it only once the
+    // desktop answers, waiting a bounded moment for one that is still starting.
+    if !desktop_answers(&company).await {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "runtime",
+            "The company computer's desktop is not ready yet. Try again in a moment.",
+        );
+    }
     let current = match runtime::generation(&company).await {
         Ok(Some(generation)) => generation,
         _ => {
@@ -191,6 +201,21 @@ pub(crate) async fn issue_ticket(
         expires_in_seconds: TICKET_TTL.as_secs(),
     })
     .into_response()
+}
+
+/// Whether the desktop's web client answers inside the company computer, waiting up to 20
+/// seconds for one that is still starting after a wake.
+async fn desktop_answers(company: &str) -> bool {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        if runtime::desktop_asset(company, "vnc.html").await.is_ok() {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
 }
 
 pub(crate) async fn open_desktop(
