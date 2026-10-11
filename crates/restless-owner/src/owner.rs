@@ -3362,6 +3362,9 @@ async fn update_company_provider(
             "Use a provider ID containing letters, numbers, hyphens, dots or underscores.",
         );
     }
+    if included_model_providers(&state.daemon.root).contains(provider) {
+        return api_error(StatusCode::CONFLICT, "included_model", INCLUDED_MODEL_PROVIDER);
+    }
     if input.disconnect {
         config
             .credentials
@@ -3626,6 +3629,7 @@ async fn list_owner_connections(State(state): State<OwnerState>, Extension(princ
         .await;
     Json(serde_json::json!({
         "connections": connections,
+        "included_providers": included_model_providers(&state.daemon.root),
         "scope": if account_owner { "account" } else { "company" },
         "manage_url": "/account/connections",
     })).into_response()
@@ -3677,6 +3681,9 @@ async fn create_owner_connection(
             "connections",
             "Enter a label and valid provider ID; API-key connections need a key, while OAuth connections must not include one.",
         );
+    }
+    if included_model_providers(&state.daemon.root).contains(provider) {
+        return api_error(StatusCode::CONFLICT, "included_model", INCLUDED_MODEL_PROVIDER);
     }
     let _write = state.charter_writes.lock().await;
     let mut registry = match load_owner_connections(&state.daemon.root) {
@@ -3812,6 +3819,9 @@ async fn import_owner_connection(
             "Enter a valid provider ID and a label up to 80 characters.",
         );
     }
+    if included_model_providers(&state.daemon.root).contains(provider) {
+        return api_error(StatusCode::CONFLICT, "included_model", INCLUDED_MODEL_PROVIDER);
+    }
     let source = match runtime::CompanyConfig::load(&state.daemon.root, input.source_company.trim())
     {
         Ok(config) => config,
@@ -3917,6 +3927,24 @@ fn constant_time_secret_match(left: &str, right: &str) -> bool {
     candidate.verify_slice(&expected).is_ok()
 }
 
+const INCLUDED_MODEL_PROVIDER: &str =
+    "The included AI uses this provider, so it cannot take your own key. Choose another provider.";
+
+/// Providers this plane's companies reach through the included Cloud model relay, which Fleet
+/// binds at bootstrap. The gateway carries one credential per provider for every company, so an
+/// owner's own key for one of these would replace the relay, be sent to it, be refused there, and
+/// leave the company without AI. No owner connection may be saved, granted or written for them.
+fn included_model_providers(root: &std::path::Path) -> std::collections::BTreeSet<String> {
+    crate::configured_companies(root)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|name| runtime::CompanyConfig::load(root, &name).ok())
+        .flat_map(|config| config.credentials)
+        .filter(|(_, reference)| reference == credential::HOSTED_MODEL_RELAY_REFERENCE)
+        .filter_map(|(binding, _)| binding.strip_prefix("model.inference.").map(str::to_owned))
+        .collect()
+}
+
 async fn provider_credential_conflicts_with_other_companies(
     root: &std::path::Path,
     company: &str,
@@ -4002,6 +4030,9 @@ async fn grant_owner_connection(
             "provider_revision",
             "Company settings changed. Refresh and try again.",
         );
+    }
+    if included_model_providers(&state.daemon.root).contains(&connection.provider) {
+        return api_error(StatusCode::CONFLICT, "included_model", INCLUDED_MODEL_PROVIDER);
     }
     let has_configured_default =
         config.configured_model().is_some() || config.agent_intelligence.contains_key("default");
@@ -10764,7 +10795,8 @@ async fn intelligence_view(
                     }
                 }
             } else {
-                connections.push(serde_json::json!({"id":format!("direct:{provider}"),"provider":provider,"kind":"direct","loaded":row["gateway_loaded"]}));
+                let included = reference.is_some_and(|value| value == credential::HOSTED_MODEL_RELAY_REFERENCE);
+                connections.push(serde_json::json!({"id":format!("direct:{provider}"),"provider":provider,"kind":"direct","included":included,"loaded":row["gateway_loaded"]}));
             }
         }
         for row in &natives {

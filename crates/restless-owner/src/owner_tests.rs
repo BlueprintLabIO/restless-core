@@ -2643,6 +2643,28 @@ model = \"anthropic/claude-sonnet-5-5\"
         assert_eq!(base_model_for_default_route(&config), None);
     }
 
+    /// The included Cloud model relay serves its provider for every company on the plane, so an
+    /// owner key is refused for that provider (it would replace the relay and be sent to it), and
+    /// only for that provider.
+    #[test]
+    fn only_the_included_model_relay_provider_refuses_owner_keys() {
+        let root = std::env::temp_dir().join(format!("restless-included-model-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        for (name, model, binding, reference) in [
+            ("relay_test", "litellm/deepseek-v4.1-flash", "litellm", "hosted-model-relay:v1"),
+            ("own_key_test", "anthropic/claude-sonnet-5-5", "anthropic", "infisical:/owner/model-connections/k"),
+        ] {
+            std::fs::write(
+                root.join(format!("companies/{name}.toml")),
+                format!("name = \"{name}\"\nmodel = \"{model}\"\n\n[credentials]\n\"model.inference.{binding}\" = \"{reference}\"\n"),
+            )
+            .unwrap();
+        }
+        let included = included_model_providers(&root);
+        std::fs::remove_dir_all(&root).unwrap();
+        assert_eq!(included, std::collections::BTreeSet::from(["litellm".to_string()]));
+    }
+
     /// A hosted plane is its owner's own account plane, so its provider, Vault and sign-in settings
     /// carry no hosted refusal of their own. The boundary is the membership role: a member or an
     /// administrator still cannot reach them, and the owner can, from a company or the account.

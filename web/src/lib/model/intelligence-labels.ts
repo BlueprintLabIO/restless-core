@@ -11,6 +11,8 @@ export interface LabelledConnection {
 	kind?: string;
 	label?: string | null;
 	account_provider?: string | null;
+	/** The plan's included AI (a Cloud plane's model relay), not a key the owner added. */
+	included?: boolean;
 }
 
 const HARNESS_NAMES: Record<string, string> = {
@@ -54,7 +56,8 @@ export function connectionLabel(
 	if (id.startsWith('harness:custom:'))
 		return known?.provider ?? id.slice('harness:custom:'.length);
 	if (id.startsWith('harness:')) return providerName(id.slice('harness:'.length));
-	if (id.startsWith('direct:')) return providerName(id.slice('direct:'.length));
+	if (id.startsWith('direct:'))
+		return known?.included ? 'Included AI' : providerName(id.slice('direct:'.length));
 	return providerName(id);
 }
 

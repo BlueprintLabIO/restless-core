@@ -48,6 +48,8 @@
 		['litellm', 'OpenAI-compatible gateway']
 	];
 	let connections = $state<AccountConnection[]>([]);
+	/* Providers the plan's included AI serves; they take no key of the owner's own. */
+	let includedProviders = $state<string[]>([]);
 	let codexSaved = $derived(
 		connections.some(
 			(connection) => connection.kind === 'oauth' && connection.provider === 'openai-codex'
@@ -142,6 +144,7 @@
 					.map((item) => item.provider)
 			);
 			connections = body.connections ?? [];
+			includedProviders = body.included_providers ?? [];
 			if (
 				connections.some(
 					(item) =>
@@ -747,7 +750,9 @@
 			<div class="form-grid">
 				<label
 					>Provider<select bind:value={provider}
-						>{#each providerOptions as [id, name]}<option value={id}>{name}</option>{/each}</select
+						>{#each providerOptions.filter(([id]) => !includedProviders.includes(id)) as [id, name]}<option
+								value={id}>{name}</option
+							>{/each}</select
 					></label
 				><label
 					>Name<input

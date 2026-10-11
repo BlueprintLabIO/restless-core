@@ -96,6 +96,8 @@
 		companies: { id: string; name: string; in_use?: boolean }[];
 	};
 	let reusableConnections = $state<ReusableConnection[]>([]);
+	/* Providers the plan's included AI serves; they take no key of the owner's own. */
+	let includedProviders = $state<string[]>([]);
 	let accountScope = $state<'account' | 'company'>('account');
 	let manageUrl = $state('/account/connections');
 	let accountError = $state('');
@@ -265,6 +267,7 @@
 			if (!connectionResponse.ok)
 				throw new Error(body.message ?? 'Could not load reusable connections.');
 			reusableConnections = body.connections ?? [];
+			includedProviders = body.included_providers ?? [];
 			accountScope = body.scope === 'company' ? 'company' : 'account';
 			manageUrl =
 				accountScope === 'company'
@@ -786,7 +789,7 @@
 								connectionCustomModel = false;
 								connectionModelTouched = false;
 							}}
-							>{#each Object.entries(labels).filter(([id]) => id !== 'openai-codex') as [id, label]}<option
+							>{#each Object.entries(labels).filter(([id]) => id !== 'openai-codex' && !includedProviders.includes(id)) as [id, label]}<option
 									value={id}>{label}</option
 								>{/each}</select
 						>
