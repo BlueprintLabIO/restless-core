@@ -51,26 +51,30 @@
 	let firstInput = $state<HTMLTextAreaElement>();
 	const changed = $derived(editing && JSON.stringify(draft) !== baseline);
 
-	/* What the owner wrote in the current release, pillar by pillar. */
-	const written = $derived.by(() => {
+	/* Every statement in the current release. */
+	const released = $derived.by(() => {
 		const ids = new Set(
 			view.release_evidence
 				.filter((link) => link.release_id === view.current_release?.id)
 				.map((link) => link.evidence_id)
 		);
-		return Object.fromEntries(
+		return view.evidence.filter((item) => ids.has(item.id));
+	});
+	/* What the owner wrote in the current release, pillar by pillar. */
+	const written = $derived(
+		Object.fromEntries(
 			pillars.map((pillar) => [
 				pillar.key,
-				view.evidence.find(
-					(item) =>
-						ids.has(item.id) &&
-						item.source === 'owner_identity_editor' &&
-						item.pillar === pillar.key
+				released.find(
+					(item) => item.source === 'owner_identity_editor' && item.pillar === pillar.key
 				)?.statement ?? ''
 			])
-		) as Record<Pillar, string>;
-	});
+		) as Record<Pillar, string>
+	);
 	const anyWritten = $derived(pillars.some((pillar) => written[pillar.key].trim()));
+	/* Released statements the owner did not write here, such as a promoted Exec draft. */
+	const others = (pillar: Pillar) =>
+		released.filter((item) => item.source !== 'owner_identity_editor' && item.pillar === pillar);
 
 	async function askExec() {
 		if (drafting) return;
@@ -143,8 +147,8 @@
 
 <Section
 	title="Direction"
-	info="Your own words for what the company is and how it shows up. Saving creates a new version; earlier work keeps the version it started with."
-	group={editing || anyWritten}
+	info="Your own words for what the company is and how it shows up. Until you write a pillar, it shows the released statements, such as an Exec draft you promoted. Saving keeps those statements and creates a new version; earlier work keeps the version it started with."
+	group={editing || Boolean(view.current_release)}
 >
 	{#snippet actions()}
 		{#if editing}
@@ -164,8 +168,10 @@
 				title="Save (⌘/Ctrl + Enter)"
 				onclick={save}>{saving ? 'Saving…' : 'Save'}</button
 			>
-		{:else if anyWritten}
-			<button class="btn small" type="button" onclick={open}>Edit</button>
+		{:else if view.current_release}
+			<button class="btn small" type="button" onclick={open}
+				>{anyWritten ? 'Edit' : 'Write your own'}</button
+			>
 		{/if}
 	{/snippet}
 	{#if error}<Notice tone="danger" title="Identity was not saved">{error}</Notice>{/if}
@@ -192,12 +198,20 @@
 						onkeydown={keys}></textarea>{/if}
 			</Row>
 		{/each}
-	{:else if anyWritten}
+	{:else if view.current_release}
 		{#each pillars as pillar (pillar.key)}
+			{@const statements = others(pillar.key)}
 			<Row label={pillar.label} info={pillar.hint} stack>
 				{#if written[pillar.key].trim()}<div class="pillar-text">
 						<Markdown text={written[pillar.key]} />
-					</div>{:else}<span class="pillar-empty">Not written</span>{/if}
+					</div>{:else if statements.length}<ul class="pillar-released">
+						{#each statements as item (item.id)}
+							<li title={`${item.author_id} · ${item.evidence_locator}`}>
+								{#if item.polarity === 'negative'}<span class="pillar-avoid">{'Avoid: '}</span
+									>{/if}{item.statement}
+							</li>
+						{/each}
+					</ul>{:else}<span class="pillar-empty">Not written</span>{/if}
 			</Row>
 		{/each}
 	{:else}
@@ -235,7 +249,22 @@
 	.pillar-text :global(.md > :last-child) {
 		margin-bottom: 0;
 	}
-	.pillar-empty {
+	.pillar-released {
+		display: grid;
+		gap: 6px;
+		width: 100%;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+		color: var(--ink);
+		line-height: 1.6;
+	}
+	.pillar-released li {
+		overflow-wrap: anywhere;
+		white-space: pre-wrap;
+	}
+	.pillar-empty,
+	.pillar-avoid {
 		color: var(--text-tertiary);
 	}
 	.identity-start {
