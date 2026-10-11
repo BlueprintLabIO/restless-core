@@ -22,6 +22,7 @@ function startAction(reason: string): string {
 	if (reason.startsWith('Connect a model') || reason.startsWith('Choose an intelligence provider'))
 		return 'Connect a model';
 	if (normalized.includes('rejected the key')) return 'Replace the rejected key';
+	if (normalized.includes('not available on this connection')) return 'Choose another model';
 	if (normalized.includes('codex')) return 'Reconnect ChatGPT / Codex';
 	if (normalized.includes('claude')) return 'Reconnect Claude Code';
 	if (reason.startsWith('no usable host credential')) {

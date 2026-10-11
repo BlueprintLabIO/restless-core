@@ -180,6 +180,10 @@ fn set_unstartable(unstartable: BTreeMap<String, String>) {
 /// The providers the running gateway loaded, for re-admitting companies
 /// without restarting it.
 static LOADED_PROVIDERS: RwLock<BTreeSet<String>> = RwLock::new(BTreeSet::new());
+/// The exact catalogue the running gateway served when it became ready, so a
+/// re-admission judges a pinned model as the start did. `None` while no
+/// gateway has answered.
+static SERVED_MODELS: RwLock<Option<BTreeSet<String>>> = RwLock::new(None);
 
 /// What the running broker, gateway and Runtime relay actually load: each
 /// provider with its credential reference, and the catalogue models pinned
@@ -236,13 +240,24 @@ pub fn readmit(configs: &[CompanyConfig]) -> Result<()> {
         .read()
         .map_err(|_| anyhow::anyhow!("loaded provider state lock is poisoned"))?
         .clone();
-    set_unstartable(admit(configs, &loaded)?.unstartable);
+    let mut admission = admit(configs, &loaded)?;
+    if let Some(served) = SERVED_MODELS
+        .read()
+        .map_err(|_| anyhow::anyhow!("served model state lock is poisoned"))?
+        .as_ref()
+    {
+        admission.hold_unserved(configs, served);
+    }
+    set_unstartable(admission.unstartable);
     Ok(())
 }
 
-fn remember_loaded_providers(providers: BTreeSet<String>) {
+fn remember_loaded(providers: BTreeSet<String>, served: Option<BTreeSet<String>>) {
     if let Ok(mut loaded) = LOADED_PROVIDERS.write() {
         *loaded = providers;
+    }
+    if let Ok(mut slot) = SERVED_MODELS.write() {
+        *slot = served;
     }
 }
 
@@ -710,7 +725,7 @@ pub async fn start(
         // Refusing to boot here would make a freshly provisioned hosted plane
         // unstartable until its first company existed, which inverts Cloud's
         // provisioning order: Fleet creates the plane, then the cell.
-        remember_loaded_providers(provider_credentials.keys().cloned().collect());
+        remember_loaded(provider_credentials.keys().cloned().collect(), None);
         let admission = admit(configs, &provider_credentials)?;
         for (company, reason) in &admission.unstartable {
             tracing::warn!(company, reason, "company cannot start: {reason}");
@@ -824,7 +839,7 @@ pub async fn start(
     .await?;
     provider_credentials.retain(|provider, _| !unadmitted.contains(provider));
     if provider_credentials.is_empty() {
-        remember_loaded_providers(provider_credentials.keys().cloned().collect());
+        remember_loaded(provider_credentials.keys().cloned().collect(), None);
         let admission = admit(configs, &provider_credentials)?;
         set_unstartable(admission.unstartable);
         uninstall();
@@ -841,13 +856,12 @@ pub async fn start(
             marker: model_children_path(root),
         }));
     }
-    remember_loaded_providers(provider_credentials.keys().cloned().collect());
-    let admission = admit(configs, &provider_credentials)?;
+    let mut admission = admit(configs, &provider_credentials)?;
     for (company, reason) in &admission.unstartable {
         tracing::warn!(company, reason, "company cannot start: {reason}");
     }
     let startable = admission.startable(configs);
-    set_unstartable(admission.unstartable);
+    set_unstartable(admission.unstartable.clone());
 
     let gateway_token = token(
         root,
@@ -897,7 +911,7 @@ pub async fn start(
         .cloned()
         .collect::<BTreeSet<_>>();
     let required_models = runtime_pinned_models(&startable)?;
-    wait_for_gateway(
+    let served = wait_for_gateway(
         &mut gateway,
         &gateway_token,
         &endpoints.gateway_host_url,
@@ -905,6 +919,11 @@ pub async fn start(
         &required_models,
     )
     .await?;
+    // A pinned model the gateway turned out not to serve is one company's
+    // fact: hold back only the companies whose Exec needs it.
+    admission.hold_unserved(configs, &served);
+    set_unstartable(admission.unstartable);
+    remember_loaded(required_providers, Some(served));
     let responses_routes = direct_responses_routes(
         &provider_credentials,
         &endpoints.gateway_host_url,
@@ -3339,6 +3358,38 @@ impl Admission {
             .filter(|config| !self.unstartable.contains_key(&config.name))
             .collect()
     }
+
+    /// Hold back each company whose Exec needs a pinned model the running
+    /// gateway does not serve. The gateway and every other company keep
+    /// running; the owner sees which model to change.
+    fn hold_unserved(&mut self, configs: &[CompanyConfig], served: &BTreeSet<String>) {
+        for config in configs {
+            if self.unstartable.contains_key(&config.name) {
+                continue;
+            }
+            let effective = config.for_agent("exec");
+            if effective
+                .native_model(effective.coordination_harness)
+                .is_some()
+            {
+                continue;
+            }
+            let Some(model) = effective.configured_model() else {
+                continue;
+            };
+            let Ok((provider, id)) = split_model(model) else {
+                continue;
+            };
+            if pins_runtime_catalogue(provider) && !served.contains(model) {
+                self.unstartable.insert(
+                    config.name.clone(),
+                    format!(
+                        "{id} is not available on this connection. Choose another model in Company → Intelligence."
+                    ),
+                );
+            }
+        }
+    }
 }
 
 fn configured_provider_ids(config: &CompanyConfig) -> Result<BTreeSet<String>> {
@@ -3606,16 +3657,20 @@ fn missing_required_models(
     required.difference(observed).cloned().collect()
 }
 
+/// OpenAI-compatible catalogues are provider-discovered. They are also the
+/// models Restless must pin into the credential-free Runtime config, so seeing
+/// some other model from the same provider is not readiness for this exact
+/// launch contract.
+fn pins_runtime_catalogue(provider: &str) -> bool {
+    matches!(provider, "litellm" | "zhipu-coding-plan")
+}
+
 fn runtime_pinned_models(configs: &[&CompanyConfig]) -> Result<BTreeSet<String>> {
     let mut required = BTreeSet::new();
     for config in configs {
         for model in config.model_candidates()? {
             let (provider, _) = split_model(model)?;
-            // OpenAI-compatible catalogues are provider-discovered. They are
-            // also the models Restless must pin into the credential-free
-            // Runtime config, so seeing some other model from the same
-            // provider is not readiness for this exact launch contract.
-            if matches!(provider, "litellm" | "zhipu-coding-plan") {
+            if pins_runtime_catalogue(provider) {
                 required.insert(model.to_string());
             }
         }
@@ -3629,7 +3684,7 @@ async fn wait_for_gateway(
     gateway_host_url: &str,
     required_providers: &BTreeSet<String>,
     required_models: &BTreeSet<String>,
-) -> Result<()> {
+) -> Result<BTreeSet<String>> {
     let http = reqwest::Client::builder()
         .timeout(Duration::from_millis(500))
         .build()?;
@@ -3656,7 +3711,7 @@ async fn wait_for_gateway(
                     if required_providers.is_subset(&observed_providers)
                         && missing_required_models(required_models, &observed).is_empty()
                     {
-                        return Ok(());
+                        return Ok(observed);
                     }
                 }
             }
@@ -3673,6 +3728,16 @@ async fn wait_for_gateway(
         .cloned()
         .collect::<Vec<_>>();
     let missing = missing_required_models(required_models, &observed);
+    if missing_providers.is_empty() {
+        // Every provider answered, so its catalogue is what it serves. A
+        // pinned model missing from it holds back only the companies that
+        // chose it; the caller admits them against this catalogue.
+        tracing::warn!(
+            ?missing,
+            "model gateway does not serve these pinned models; only the companies that need them are held back"
+        );
+        return Ok(observed);
+    }
     bail!(
         "OMP model auth gateway did not expose configured providers {:?} or pinned models {:?} (observed {:?})",
         missing_providers,
@@ -4216,6 +4281,41 @@ mission = "Choose native intelligence"
                 .map(|config| config.name.as_str())
                 .collect::<Vec<_>>(),
             vec!["healthy_test"]
+        );
+    }
+
+    /// The same contract for an exact model: a pinned model the running
+    /// gateway does not serve holds back only the company that chose it.
+    #[test]
+    fn an_unserved_pinned_model_holds_back_only_its_company() {
+        let company = |name: &str, model: &str| -> CompanyConfig {
+            toml::from_str(&format!(
+                "name = \"{name}\"\nmission = \"\"\nmodel = \"{model}\"\n"
+            ))
+            .unwrap()
+        };
+        let configs = vec![
+            company("served_test", "litellm/gpt-5.6-terra"),
+            company("unserved_test", "litellm/gpt-5.6-luna"),
+            // Not a pinned catalogue, so the served list does not judge it.
+            company("other_provider_test", "zai/glm-5.3"),
+        ];
+        let credentials = BTreeMap::from([
+            ("litellm".to_string(), ProviderCredential::ApiKey("k".into())),
+            ("zai".to_string(), ProviderCredential::ApiKey("k".into())),
+        ]);
+        let served = BTreeSet::from(["litellm/gpt-5.6-terra".to_string()]);
+
+        let mut admission = admit(&configs, &credentials).unwrap();
+        admission.hold_unserved(&configs, &served);
+
+        assert_eq!(
+            admission.unstartable.keys().collect::<Vec<_>>(),
+            vec!["unserved_test"]
+        );
+        assert_eq!(
+            admission.unstartable["unserved_test"],
+            "gpt-5.6-luna is not available on this connection. Choose another model in Company → Intelligence."
         );
     }
 
