@@ -2382,6 +2382,14 @@ async fn release_health() -> Response<Body> {
     .into_response()
 }
 
+/// Signing out ends every session this browser holds on the plane, one per company it entered,
+/// so a copied cookie value opens none of them afterwards.
+fn revoke_browser_sessions(sessions: &SessionStore, headers: &HeaderMap, cookie_name: &str) {
+    for token in session_tokens(headers, cookie_name) {
+        sessions.revoke(&token);
+    }
+}
+
 /// Ordinary session revocation. ADR 0007 requires that a removed membership
 /// ends by revoking the session, not by waiting for an assertion to expire.
 async fn end_entry_session(State(state): State<OwnerState>, headers: HeaderMap) -> Response<Body> {
@@ -2390,9 +2398,7 @@ async fn end_entry_session(State(state): State<OwnerState>, headers: HeaderMap) 
         .network()
         .map(|network| session_cookie_name(&network))
         .unwrap_or_else(|| SESSION_COOKIE.to_string());
-    for token in session_tokens(&headers, &cookie_name) {
-        state.sessions.revoke(&token);
-    }
+    revoke_browser_sessions(&state.sessions, &headers, &cookie_name);
     let mut response = Json(serde_json::json!({ "ended": true })).into_response();
     if let Ok(value) = HeaderValue::from_str(&format!(
         "{cookie_name}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0"

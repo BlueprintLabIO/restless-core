@@ -3011,6 +3011,36 @@ model = \"anthropic/claude-sonnet-5-5\"
         assert_eq!(enter(&cookie(&replaced), &someone_else, &theirs), theirs);
     }
 
+    /// The plane's cookie carries a session for each company the person entered, so signing out
+    /// must end all of them on the server, not only the newest; clearing the cookie is not enough.
+    #[test]
+    fn signing_out_revokes_every_session_the_browser_holds() {
+        let store = crate::entry::SessionStore::default();
+        let ttl = Duration::from_secs(60);
+        let scoped = |company: &str| {
+            identity(crate::entry::CompanyScope::Company {
+                company: company.into(),
+            })
+        };
+        let first = store.establish(scoped("aris"), ttl);
+        let newest = store.establish(scoped("other"), ttl);
+        let elsewhere = store.establish(scoped("third"), ttl);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            COOKIE,
+            HeaderValue::from_str(&format!("restless_session_plane={first}.{newest}")).unwrap(),
+        );
+
+        revoke_browser_sessions(&store, &headers, "restless_session_plane");
+
+        assert!(store.resolve_lease(&first).is_none());
+        assert!(store.resolve_lease(&newest).is_none());
+        assert!(
+            store.resolve_lease(&elsewhere).is_some(),
+            "another browser's session is not this sign-out's"
+        );
+    }
+
     #[test]
     fn network_entry_refuses_a_host_that_is_not_this_plane() {
         let refusal = network_boundary_violation(
