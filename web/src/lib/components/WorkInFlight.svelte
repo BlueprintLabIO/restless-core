@@ -5,6 +5,7 @@
 	import { attentionQuery, cockpitQuery } from '$lib/model/queries.svelte';
 	import { personName } from '$lib/model/initials';
 	import { formatMoment } from '$lib/ui/time';
+	import { judgementHolders, workWaitingOnOwner } from '$lib/model/attention-presentation';
 
 	let { companyId }: { companyId: string } = $props();
 	const attention = $derived(attentionQuery(companyId));
@@ -32,21 +33,23 @@
 		if (!graph) return [];
 		const name = (actor: string) =>
 			personName(cockpit.view?.people.find((person) => person.actor_id === actor)?.display ?? actor);
+		/* Waiting on the owner means what the Inbox shows; a lead or Exec may still hold the judgement. */
+		const waitingOnOwner = workWaitingOnOwner(attention.view?.items ?? []);
+		const heldBy = judgementHolders(graph.handoffs ?? []);
 		const out: Line[] = [];
 		for (const work of graph.work) {
 			const updated = new Date(work.updated_at).getTime();
 			const running = graph.attempts.find(
 				(attempt) => attempt.work_id === work.id && attempt.state === 'running'
 			);
-			const waiting = graph.handoffs?.some(
-				(handoff) =>
-					handoff.work_id === work.id && (handoff.state === 'pending' || handoff.state === 'preparing')
-			);
+			const waiting = waitingOnOwner.has(work.id);
+			const holder = heldBy.get(work.id);
 			let state = '';
 			let tone = '';
 			if (work.status === 'completed' && now - updated < RECENT_MS) [state, tone] = ['Done', 'done'];
 			else if (work.status === 'blocked') [state, tone] = ['Blocked', 'blocked'];
 			else if (work.status === 'active' && waiting) [state, tone] = ['Waiting on you', 'waiting'];
+			else if (work.status === 'active' && holder) [state, tone] = [`With ${name(holder)}`, ''];
 			else if (work.status === 'active' && running)
 				[state, tone] = [`On it since ${formatMoment(running.started_at)}`, 'moving'];
 			else if (work.status === 'active' && now - updated > QUIET_MS)

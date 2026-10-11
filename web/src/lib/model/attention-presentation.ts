@@ -1,4 +1,5 @@
 import type { AttentionItem } from './view';
+import type { OwnerFailure } from './failure.ts';
 
 /** Projection only: resolution always uses the original source reference. */
 export function ownerAttention(items: AttentionItem[]): AttentionItem[] {
@@ -41,4 +42,38 @@ export function inboxOrder(items: AttentionItem[]): AttentionItem[] {
 	return [...items].sort(
 		(a, b) => blocking(a) - blocking(b) || +new Date(a.createdAt) - +new Date(b.createdAt)
 	);
+}
+
+/** The Work waiting on the owner is the Work the Inbox asks about once its step is prepared.
+ * Judgement a lead or Exec still holds, and what the owner set aside, never reach the Inbox. */
+export function workWaitingOnOwner(items: readonly AttentionItem[]): Set<string> {
+	return new Set(items.flatMap((item) => (item.workId && !item.preparing ? [item.workId] : [])));
+}
+
+/** Who still holds a pending judgement before it reaches the owner, by Work. */
+export function judgementHolders(
+	handoffs: readonly { work_id: string; state?: string; assigned_to?: string | null }[]
+): Map<string, string> {
+	return new Map(
+		handoffs.flatMap((handoff) =>
+			handoff.state === 'pending' && handoff.assigned_to
+				? [[handoff.work_id, handoff.assigned_to] as const]
+				: []
+		)
+	);
+}
+
+/** OrgIntel holds the Work and most of what needs the owner. When a company's coordination is
+ * unavailable the projection still answers, so an empty list is not a verdict: say so instead. */
+export function coordinationFailure(
+	view: { sourceHealth: { orgintel: string } } | null | undefined
+): OwnerFailure | null {
+	if (!view || view.sourceHealth.orgintel === 'available') return null;
+	const message =
+		'Company coordination is unavailable, so Work and what it needs from you may be missing. This refreshes on its own.';
+	return Object.assign(new Error(message), {
+		status: 503,
+		code: 'orgintel',
+		serverMessage: message
+	});
 }

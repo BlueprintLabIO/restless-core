@@ -817,9 +817,17 @@
 	 * the owner while the cockpit is in the background. The first projection
 	 * only primes what is already known. */
 	let knownNeeds: Set<string> | null = null;
+	let knownCompany = '';
 	$effect(() => {
 		if (!ownerAccess || attention.status !== 'live') return;
-		const items = attention.view?.items ?? [];
+		/* While coordination is down the list is partial: what returns on recovery is not new. */
+		if (!attention.view || attention.view.sourceHealth.orgintel !== 'available') return;
+		/* Another company's list primes afresh rather than reading as new. */
+		if (attention.view.company.id !== knownCompany) {
+			knownCompany = attention.view.company.id;
+			knownNeeds = null;
+		}
+		const items = attention.view.items;
 		const ids = new Set(items.map((item) => item.id));
 		if (knownNeeds) {
 			for (const item of items) {

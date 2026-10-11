@@ -22,6 +22,7 @@
 	import { STANDARDS, setWorkStandard, standardLabel } from '$lib/model/standards';
 	import type { OutcomeStandard } from '$lib/model/company';
 	import { failureSentence } from '$lib/model/failure';
+	import { coordinationFailure } from '$lib/model/attention-presentation';
 	import { fileLabel, LIBRARY_KIND_LABEL, libraryKind } from '$lib/model/library-files';
 
 	/* The authoring contract deliberately separates a human opening from the
@@ -58,6 +59,16 @@
 			null
 	);
 	const error = $derived(Boolean(failure));
+	/* Coordination down is not missing Work: it may simply not be readable right now. */
+	const coordination = $derived(
+		coordinationFailure(
+			ownerAccess
+				? attention
+				: collaboration
+					? { sourceHealth: collaboration.source_health }
+					: null
+		)
+	);
 	function retryWork() {
 		void principalProjection.refresh();
 		if (ownerAccess) {
@@ -725,6 +736,8 @@
 				</div>
 			</div>
 		</div>
+	{:else if loaded && !error && coordination}
+		<FailureNotice error={coordination} subject="this Work" variant="page" onretry={retryWork} />
 	{:else if loaded && !error}
 		<div class="work-detail-missing">
 			<MatrixGlyph rows={GLYPHS.ring} size={14} />

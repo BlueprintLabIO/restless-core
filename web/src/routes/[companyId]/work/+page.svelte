@@ -45,6 +45,11 @@
 	import { STANDARDS, setGoalStandard, standardLabel } from '$lib/model/standards';
 	import type { OutcomeStandard } from '$lib/model/company';
 	import { failureSentence } from '$lib/model/failure';
+	import {
+		coordinationFailure,
+		judgementHolders,
+		workWaitingOnOwner
+	} from '$lib/model/attention-presentation';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
@@ -71,6 +76,16 @@
 			void cockpitProjection.refresh();
 		} else void collaborationProjection.refresh();
 	}
+	/* Coordination down is not an empty company: its Work may be missing. */
+	const coordination = $derived(
+		coordinationFailure(
+			ownerAccess
+				? attention
+				: collaboration
+					? { sourceHealth: collaboration.source_health }
+					: null
+		)
+	);
 	const loaded = $derived(
 		principalProjection.status !== 'unknown' &&
 			(ownerAccess
@@ -185,14 +200,14 @@
 					month: 'short'
 				})
 			: '';
-	/* Work with a decision or step waiting on the owner. */
-	const waitingOnOwner = $derived(
-		new Set(
-			(graph && 'handoffs' in graph ? graph.handoffs : [])
-				.filter((handoff) => handoff.state === 'pending')
-				.map((handoff) => handoff.work_id)
-		)
-	);
+	/* Work with a decision or step waiting on the owner: what the Inbox shows for it. */
+	const waitingOnOwner = $derived(workWaitingOnOwner(ownerAccess ? (attention?.items ?? []) : []));
+	/* Judgement a lead or Exec still holds before it reaches the owner. */
+	const heldBy = $derived(judgementHolders(graph && 'handoffs' in graph ? graph.handoffs : []));
+	const holder = (work: WorkItem) =>
+		work.status !== 'completed' && heldBy.has(work.id)
+			? `With ${ownerName(heldBy.get(work.id) ?? '')}`
+			: '';
 	const byRecent = (a: WorkItem, b: WorkItem) =>
 		Date.parse(b.updated_at) - Date.parse(a.updated_at);
 	const groups = $derived([
@@ -297,6 +312,7 @@
 		const own = overrides.get(work.id);
 		return [
 			withOwner ? ownerName(work.owner_id) : '',
+			waitingOnOwner.has(work.id) ? '' : holder(work),
 			own ? `${standardLabel(own)} bar` : '',
 			run && run !== 'running' ? run : '',
 			count ? `${count} ${count === 1 ? 'output' : 'outputs'}` : ''
@@ -372,7 +388,9 @@
 	>
 		{#snippet leading()}<Dot
 				{tone}
-				label={waitingOnOwner.has(work.id) ? 'Needs you' : WORK_STATUS_LABEL[work.status]}
+				label={waitingOnOwner.has(work.id)
+					? 'Needs you'
+					: holder(work) || WORK_STATUS_LABEL[work.status]}
 			/>{/snippet}
 		{#snippet trailing()}<RelativeTime value={work.updated_at} />{/snippet}
 	</Item>
@@ -531,9 +549,14 @@
 					subject="Work"
 					stale
 					onretry={retryWork}
+				/>{:else if coordination && graph}<FailureNotice
+					error={coordination}
+					onretry={retryWork}
 				/>{/if}
 			{#if !graph && failure}
 				<FailureNotice error={failure} subject="Work" variant="page" onretry={retryWork} />
+			{:else if !graph && coordination && loaded}
+				<FailureNotice error={coordination} subject="Work" variant="page" onretry={retryWork} />
 			{:else if !loaded}
 				<Skeleton label="Loading work" variant="list" count={6} />
 			{:else if noWorkYet}

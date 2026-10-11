@@ -77,6 +77,7 @@
 		type RetainedAttachment
 	} from '$lib/model/attachments';
 	import { failureSentence, responseFailure } from '$lib/model/failure';
+	import { workWaitingOnOwner as waitingOnOwner } from '$lib/model/attention-presentation';
 	import ArchiveIcon from '@lucide/svelte/icons/archive';
 	import {
 		attentionQuery,
@@ -277,13 +278,7 @@
 			: []
 	);
 	/* Files from Work that waits on the owner's judgement are waiting on their review too. */
-	const workWaitingOnOwner = $derived(
-		new Set(
-			(attention.view?.workGraph?.handoffs ?? [])
-				.filter((handoff) => handoff.state === 'pending')
-				.map((handoff) => handoff.work_id)
-		)
-	);
+	const workWaitingOnOwner = $derived(waitingOnOwner(attention.view?.items ?? []));
 	const fileOpen = $derived(
 		openFileId
 			? libraryFileById(files, openFileId)
