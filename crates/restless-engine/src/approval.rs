@@ -7,7 +7,8 @@
 //!
 //! > **A real provider, a party we have never successfully reached before, and
 //! > no standing approval → ask the owner. An explicit revocation re-arms that
-//! > gate until the owner grants again.**
+//! > gate until the owner grants again. A command the owner declined is
+//! > refused, not asked again; a changed one asks.**
 //!
 //! What that deliberately is *not*: thresholds, spend tiers, per-capability
 //! policy, a DSL, or an approvals table with a lifecycle. Those are the
@@ -46,6 +47,9 @@ pub enum Decision {
     /// A real, materially external first contact. Carries the sentence the
     /// owner sees.
     NeedsOwner(String),
+    /// The owner already declined this exact prepared command. Carries the
+    /// sentence the requesting actor sees; the owner is not asked again.
+    Declined(String),
 }
 
 /// Config approvals are accepted only as one-time migration input. Authority
@@ -177,8 +181,9 @@ pub fn recorded_note(body: &serde_json::Value) -> (Option<String>, bool) {
 }
 
 /// Declining closes the currently presented request without granting standing
-/// authority. A later materially different request may ask again; there is no
-/// deny-policy language hiding in this operation.
+/// authority. An identical retry is refused by `check`; a later materially
+/// different request may ask again. There is no deny-policy language hiding in
+/// this operation.
 pub async fn decline(
     root: &Path,
     company: &str,
@@ -411,12 +416,14 @@ fn normalize_party(value: &str) -> String {
 /// Decide whether this effect may proceed.
 ///
 /// `party` is already derived from the args by `effect::party_of`, so this
-/// never re-parses arguments — one derivation, one meaning.
+/// never re-parses arguments — one derivation, one meaning. `command_digest`
+/// identifies the prepared command, so the one the owner declined is refused.
 pub async fn check(
     config: &CompanyConfig,
     authority: &crate::authority::AuthorityStore,
     effect_class: &str,
     party: Option<&str>,
+    command_digest: &str,
     test_mode: bool,
 ) -> Result<Decision> {
     // Test companies cannot receive live secrets and exercise fake CLIs, so
@@ -434,14 +441,32 @@ pub async fn check(
     if is_approved(authority, &config.name, &party_lower).await? {
         return Ok(Decision::Proceed);
     }
+    let latest_grant =
+        latest_party_event(authority, &config.name, "approval_granted", &party_lower).await?;
+
+    // The owner already answered this exact command. Asking again would put
+    // the same question back in the Inbox and tell the actor to seek an
+    // approval it was refused. A changed draft is a new question and asks.
+    let latest_decline = authority
+        .records_of_kind(&config.name, "approval_declined")
+        .await?
+        .into_iter()
+        .filter(|decline| names_party(&decline.body, &party_lower))
+        .max_by_key(|decline| decline.id);
+    if let Some(decline) = latest_decline {
+        let requests = authority
+            .records_of_kind(&config.name, "approval_required")
+            .await?;
+        if decline_answers(&requests, &party_lower, command_digest, latest_grant, decline.id) {
+            return Ok(Decision::Declined(declined_reason(party, &decline.body)));
+        }
+    }
 
     // Revocation is an authority act. Without this check, any earlier receipt
     // would immediately bypass
     // the gate below and `restless approve --revoke` would have no effect on a
     // party the company had already contacted. The latest grant/revoke event
     // is enough; no approval state machine or second writer is introduced.
-    let latest_grant =
-        latest_party_event(authority, &config.name, "approval_granted", &party_lower).await?;
     let latest_revoke =
         latest_party_event(authority, &config.name, "approval_revoked", &party_lower).await?;
     if revocation_is_unresolved(latest_revoke, latest_grant) {
@@ -472,6 +497,47 @@ fn revocation_is_unresolved(latest_revoke: Option<i64>, latest_grant: Option<i64
     latest_revoke.is_some_and(|revoked| latest_grant.is_none_or(|granted| revoked > granted))
 }
 
+/// Whether the owner's latest decline for `party` answered a request for
+/// exactly this command: one waiting after the last grant and before the
+/// decline. A grant after the decline supersedes it.
+fn decline_answers(
+    requests: &[crate::authority::AuthorityRecord],
+    party: &str,
+    command_digest: &str,
+    latest_grant: Option<i64>,
+    declined: i64,
+) -> bool {
+    latest_grant.is_none_or(|granted| granted < declined)
+        && requests.iter().any(|request| {
+            request.id < declined
+                && latest_grant.is_none_or(|granted| request.id > granted)
+                && names_party(&request.body, party)
+                && request.body.get("command_digest").and_then(|value| value.as_str())
+                    == Some(command_digest)
+        })
+}
+
+fn declined_reason(party: &str, decline: &serde_json::Value) -> String {
+    let (note, changes) = recorded_note(decline);
+    if changes {
+        format!(
+            "The owner asked for changes before first contact with {party}: “{}” This is the unchanged draft, so it was not sent and the owner was not asked again. Prepare a revised draft that addresses this; the revised draft asks the owner.",
+            note.as_deref().unwrap_or_default()
+        )
+    } else {
+        format!(
+            "The owner declined first contact with {party} for this exact command, so it was not sent and the owner was not asked again. Do not contact them; work that needs this contact needs a different route or an explicit decision to stop.{}",
+            owner_note_sentence(note.as_deref())
+        )
+    }
+}
+
+fn names_party(body: &serde_json::Value, party: &str) -> bool {
+    body.get("party")
+        .and_then(|value| value.as_str())
+        .is_some_and(|candidate| normalize_party(candidate) == party)
+}
+
 async fn latest_party_event(
     authority: &crate::authority::AuthorityStore,
     company: &str,
@@ -482,13 +548,7 @@ async fn latest_party_event(
         .records_of_kind(company, kind)
         .await?
         .into_iter()
-        .filter(|event| {
-            event
-                .body
-                .get("party")
-                .and_then(|value| value.as_str())
-                .is_some_and(|candidate| normalize_party(candidate) == party)
-        })
+        .filter(|event| names_party(&event.body, party))
         .map(|event| event.id)
         .max())
 }
@@ -545,6 +605,34 @@ mod tests {
         assert!(revocation_is_unresolved(Some(8), None));
         assert!(!revocation_is_unresolved(Some(8), Some(9)));
         assert!(!revocation_is_unresolved(None, Some(9)));
+    }
+
+    /// A decline answers the exact commands it closed, so an identical retry
+    /// is refused instead of asking the owner again. A changed draft, another
+    /// party, or a grant after the decline does not inherit it.
+    #[test]
+    fn a_decline_refuses_only_the_commands_it_answered() {
+        let request = |id: i64, party: &str, digest: &str| crate::authority::AuthorityRecord {
+            id,
+            actor_id: Some("staff".into()),
+            body: serde_json::json!({ "party": party, "command_digest": digest }),
+            created_at: chrono::Utc::now(),
+        };
+        let party = "lead@acme.com";
+        // Asked about draft "a" (id 1), declined at 2.
+        let asked = [request(1, "Lead@Acme.com", "a"), request(1, "other@acme.com", "b")];
+        assert!(decline_answers(&asked, party, "a", None, 2));
+        assert!(!decline_answers(&asked, party, "changed", None, 2));
+        assert!(!decline_answers(&asked, party, "b", None, 2));
+        // A grant after the decline supersedes it.
+        assert!(!decline_answers(&asked, party, "a", Some(3), 2));
+        // A request the owner granted (id 1, grant 2) is not answered by a later
+        // decline (5) of a different request (id 4) after a revocation.
+        let regranted = [request(1, party, "a"), request(4, party, "c")];
+        assert!(!decline_answers(&regranted, party, "a", Some(2), 5));
+        assert!(decline_answers(&regranted, party, "c", Some(2), 5));
+        // A request raised after the decline is a new, unanswered question.
+        assert!(!decline_answers(&[request(3, party, "a")], party, "a", None, 2));
     }
 
     fn config(approved: &[&str]) -> CompanyConfig {

@@ -311,15 +311,19 @@ pub async fn request_effect(
         Some(party) => prior_effect_on(authority, &config.name, effect_class, party, key).await?,
         None => None,
     };
-    if let crate::approval::Decision::NeedsOwner(reason) = crate::approval::check(
+    let decision = crate::approval::check(
         config,
         authority,
         effect_class,
         party.as_deref(),
+        &command_digest,
         crate::runtime::is_test_company(&config.name),
     )
-    .await?
-    {
+    .await?;
+    if let crate::approval::Decision::Declined(refusal) = &decision {
+        bail!("{refusal}");
+    }
+    if let crate::approval::Decision::NeedsOwner(reason) = decision {
         authority
             .emit(
                 &config.name,
@@ -328,6 +332,7 @@ pub async fn request_effect(
                 serde_json::json!({
                     "effect_class": effect_class,
                     "party": party,
+                    "command_digest": command_digest,
                     "reason": reason,
                     "prepared_command": command_document,
                 }),
@@ -976,32 +981,47 @@ where
     } else {
         // Tool credentials stay host-side, so test companies are governed like
         // live ones: their dedicated test accounts still reach real parties.
+        // A party that declined this exact call refuses it before any other
+        // party is asked about a call that cannot run.
         let mut waiting = Vec::new();
         for party in &parties {
-            if let crate::approval::Decision::NeedsOwner(reason) =
-                crate::approval::check(config, authority, &effect_class, Some(party), false).await?
+            match crate::approval::check(
+                config,
+                authority,
+                &effect_class,
+                Some(party),
+                &command_digest,
+                false,
+            )
+            .await?
             {
-                authority
-                    .emit(
-                        &config.name,
-                        "approval_required",
-                        Some(actor),
-                        serde_json::json!({
-                            "effect_class": effect_class,
-                            "party": party,
-                            "reason": reason,
-                            "prepared_command": command_document,
-                        }),
-                    )
-                    .await?;
-                waiting.push(reason);
+                crate::approval::Decision::Proceed => {}
+                crate::approval::Decision::Declined(refusal) => bail!("{refusal}"),
+                crate::approval::Decision::NeedsOwner(reason) => waiting.push((party, reason)),
             }
+        }
+        for (party, reason) in &waiting {
+            authority
+                .emit(
+                    &config.name,
+                    "approval_required",
+                    Some(actor),
+                    serde_json::json!({
+                        "effect_class": effect_class,
+                        "party": party,
+                        "command_digest": command_digest,
+                        "reason": reason,
+                        "prepared_command": command_document,
+                    }),
+                )
+                .await?;
         }
         if !waiting.is_empty() {
             if let Some(org) = org {
                 let _ = org.ensure_actor("exec", "exec", "exec", "The Exec").await;
             }
-            bail!("{}", waiting.join("; "));
+            let reasons = waiting.into_iter().map(|(_, reason)| reason).collect::<Vec<_>>();
+            bail!("{}", reasons.join("; "));
         }
     }
 
