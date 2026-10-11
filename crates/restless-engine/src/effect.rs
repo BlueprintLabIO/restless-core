@@ -311,19 +311,23 @@ pub async fn request_effect(
         Some(party) => prior_effect_on(authority, &config.name, effect_class, party, key).await?,
         None => None,
     };
-    let decision = crate::approval::check(
+    if let crate::approval::Decision::NeedsOwner(reason) = crate::approval::check(
         config,
         authority,
         effect_class,
         party.as_deref(),
-        &command_digest,
         crate::runtime::is_test_company(&config.name),
     )
-    .await?;
-    if let crate::approval::Decision::Declined(refusal) = &decision {
-        bail!("{refusal}");
-    }
-    if let crate::approval::Decision::NeedsOwner(reason) = decision {
+    .await?
+    {
+        let container = crate::runtime::container_name(&config.name);
+        let draft = draft_digest(&container, &command_digest, &argv, &artifacts).await?;
+        if let Some(refusal) =
+            crate::approval::declined_draft(authority, &config.name, party.as_deref(), &draft)
+                .await?
+        {
+            bail!("{refusal}");
+        }
         authority
             .emit(
                 &config.name,
@@ -332,7 +336,7 @@ pub async fn request_effect(
                 serde_json::json!({
                     "effect_class": effect_class,
                     "party": party,
-                    "command_digest": command_digest,
+                    "draft_digest": draft,
                     "reason": reason,
                     "prepared_command": command_document,
                 }),
@@ -670,6 +674,50 @@ async fn ensure_effect_workspace_access(container: &str) -> Result<()> {
     Ok(())
 }
 
+/// Declared local artifacts that appear as exact argv values: the files the
+/// effect child receives. URLs and descriptive artifact references are not.
+fn passed_artifacts<'a>(argv: &[String], artifacts: &'a [String]) -> Vec<&'a String> {
+    artifacts
+        .iter()
+        .filter(|artifact| argv.contains(artifact) && valid_company_path(artifact))
+        .collect()
+}
+
+/// The draft the owner answers about first contact: the prepared command and
+/// the current content of every artifact it passes. The command digest names
+/// artifact paths only, so an attachment regenerated at the same path after
+/// "ask for changes" would otherwise look like the draft the owner answered.
+/// A file the command reads without declaring it stays outside (accepted; the
+/// refusal tells the actor how to make it count). Read as the agent UID that
+/// staging copies from, so an unreadable attachment fails before the owner is
+/// asked about a send that could not run.
+async fn draft_digest(
+    container: &str,
+    command_digest: &str,
+    argv: &[String],
+    artifacts: &[String],
+) -> Result<String> {
+    let passed = passed_artifacts(argv, artifacts);
+    if passed.is_empty() {
+        return Ok(command_digest.to_string());
+    }
+    let mut args = vec!["exec", "-u", "2000:2000", container, "sha256sum", "--"];
+    args.extend(passed.iter().map(|path| path.as_str()));
+    let output = crate::runtime::docker_bounded(&args, std::time::Duration::from_secs(30))
+        .await
+        .context("read declared artifacts")?;
+    if !output.status.success() {
+        bail!(
+            "cannot read declared artifacts: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let mut draft = Sha256::new();
+    draft.update(command_digest.as_bytes());
+    draft.update(&output.stdout);
+    Ok(format!("{:x}", draft.finalize()))
+}
+
 /// Copy only declared local artifacts that appear as exact argv values into a
 /// private directory readable by the isolated effect UID. The governance
 /// receipt retains the original paths; only the child envelope sees staging
@@ -679,10 +727,7 @@ async fn stage_declared_artifacts(
     argv: &[String],
     artifacts: &[String],
 ) -> Result<(Vec<String>, Option<String>)> {
-    let local = artifacts
-        .iter()
-        .filter(|artifact| argv.contains(artifact) && valid_company_path(artifact))
-        .collect::<Vec<_>>();
+    let local = passed_artifacts(argv, artifacts);
     if local.is_empty() {
         return Ok((argv.to_vec(), None));
     }
@@ -982,22 +1027,24 @@ where
         // Tool credentials stay host-side, so test companies are governed like
         // live ones: their dedicated test accounts still reach real parties.
         // A party that declined this exact call refuses it before any other
-        // party is asked about a call that cannot run.
+        // party is asked about a call that cannot run. The arguments are the
+        // whole draft, so the command digest is the draft digest.
         let mut waiting = Vec::new();
         for party in &parties {
-            match crate::approval::check(
-                config,
-                authority,
-                &effect_class,
-                Some(party),
-                &command_digest,
-                false,
-            )
-            .await?
+            if let crate::approval::Decision::NeedsOwner(reason) =
+                crate::approval::check(config, authority, &effect_class, Some(party), false).await?
             {
-                crate::approval::Decision::Proceed => {}
-                crate::approval::Decision::Declined(refusal) => bail!("{refusal}"),
-                crate::approval::Decision::NeedsOwner(reason) => waiting.push((party, reason)),
+                if let Some(refusal) = crate::approval::declined_draft(
+                    authority,
+                    &config.name,
+                    Some(party),
+                    &command_digest,
+                )
+                .await?
+                {
+                    bail!("{refusal}");
+                }
+                waiting.push((party, reason));
             }
         }
         for (party, reason) in &waiting {
@@ -1009,7 +1056,7 @@ where
                     serde_json::json!({
                         "effect_class": effect_class,
                         "party": party,
-                        "command_digest": command_digest,
+                        "draft_digest": command_digest,
                         "reason": reason,
                         "prepared_command": command_document,
                     }),

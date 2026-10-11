@@ -1153,6 +1153,50 @@ mod tests {
             .unwrap();
         assert_eq!(asks.last().unwrap().body["party"], "ann@example.com");
 
+        // The owner asks for changes. The same call is refused with the owner's
+        // note and does not ask again; a changed call is a new question.
+        authority
+            .emit(
+                &company,
+                "approval_declined",
+                Some("owner"),
+                serde_json::json!({
+                    "party": "ann@example.com",
+                    "principal": "owner",
+                    "owner_note": "Say when it can be delivered",
+                    "changes_requested": true,
+                }),
+            )
+            .await
+            .unwrap();
+        let refused = caller.call("mail__send", args(send.clone())).await.unwrap();
+        assert!(
+            is_error(&refused)
+                && text_of(&refused).contains("Say when it can be delivered")
+                && text_of(&refused).contains("not asked again"),
+            "{}",
+            text_of(&refused)
+        );
+        let asked = authority
+            .records_of_kind(&company, "approval_required")
+            .await
+            .unwrap();
+        assert_eq!(asked.len(), asks.len());
+        let mut revised = send.clone();
+        revised["body"] = serde_json::json!("hi, it can be delivered on Friday");
+        let waiting = caller.call("mail__send", args(revised)).await.unwrap();
+        assert!(
+            is_error(&waiting) && text_of(&waiting).contains("owner approval"),
+            "{}",
+            text_of(&waiting)
+        );
+        let asked = authority
+            .records_of_kind(&company, "approval_required")
+            .await
+            .unwrap();
+        assert_eq!(asked.len(), asks.len() + 1);
+        assert_eq!(fake.sends.load(Ordering::SeqCst), 0);
+
         // After the owner approves the party, it runs once and replays after.
         authority
             .emit(
@@ -1202,6 +1246,34 @@ mod tests {
             "{}",
             text_of(&refused)
         );
+        assert_eq!(fake.sends.load(Ordering::SeqCst), 2);
+
+        // Ann was reached, but a revocation asks again; a decline of that
+        // question refuses the identical retry instead of letting the earlier
+        // receipt or the revocation decide it.
+        let ann = serde_json::json!({"party": "ann@example.com", "principal": "owner"});
+        authority
+            .emit(&company, "approval_revoked", Some("owner"), ann.clone())
+            .await
+            .unwrap();
+        let mut follow_up = send.clone();
+        follow_up["body"] = serde_json::json!("one more thing");
+        let waiting = caller.call("mail__send", args(follow_up.clone())).await.unwrap();
+        assert!(text_of(&waiting).contains("owner approval"), "{}", text_of(&waiting));
+        authority
+            .emit(&company, "approval_declined", Some("owner"), ann.clone())
+            .await
+            .unwrap();
+        let refused = caller.call("mail__send", args(follow_up)).await.unwrap();
+        assert!(
+            text_of(&refused).contains("declined first contact"),
+            "{}",
+            text_of(&refused)
+        );
+        authority
+            .emit(&company, "approval_granted", Some("owner"), ann)
+            .await
+            .unwrap();
         assert_eq!(fake.sends.load(Ordering::SeqCst), 2);
 
         // Freeze refuses acts immediately; reads still work.
