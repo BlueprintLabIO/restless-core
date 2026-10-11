@@ -6,7 +6,11 @@
  * A Cloud update restarts the plane for about a minute, and its sessions with it. Reloading during
  * that minute lands on the account's "Updating" page, which reads as being thrown out. So the page
  * stays put (the rail says it is reconnecting) and reloads only once the plane answers again, when
- * signing back in is immediate. A page whose code changed with the update waits the same way. */
+ * signing back in is immediate. A page whose code changed with the update waits the same way.
+ *
+ * Only a refusal from the plane that served this page is its own lapse. On Cloud's one address a
+ * company page's plane answers that company's paths; every other API call goes to the viewer's own
+ * plane, whose session is not this page's (a member who also owns a plane). */
 
 const CODES = new Set(['no_session', 'stale_membership']);
 const GUARD_KEY = 'restless:reentry-at';
@@ -50,7 +54,15 @@ async function reenter(fetcher: typeof fetch) {
 	window.location.reload();
 }
 
-export function observeSessionEnd(): () => void {
+/** Whether an API path reaches the plane that served a page of `company` (none off company pages). */
+function servedPagePlane(pathname: string, company: string | undefined): boolean {
+	if (!company) return pathname.startsWith('/api/');
+	const scope = `/api/companies/${encodeURIComponent(company)}`;
+	return pathname === scope || pathname.startsWith(`${scope}/`);
+}
+
+/** `pageCompany` names the company of the page on screen, if it is a company page. */
+export function observeSessionEnd(pageCompany: () => string | undefined): () => void {
 	const original = window.fetch;
 	window.fetch = async (input, init) => {
 		const response = await original(input, init);
@@ -59,7 +71,7 @@ export function observeSessionEnd(): () => void {
 				typeof input === 'string' || input instanceof URL ? input : input.url,
 				window.location.href
 			);
-			if (url.origin === window.location.origin && url.pathname.startsWith('/api/')) {
+			if (url.origin === window.location.origin && servedPagePlane(url.pathname, pageCompany())) {
 				void response
 					.clone()
 					.json()

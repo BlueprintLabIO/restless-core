@@ -46,10 +46,12 @@ export async function getApplianceStatus(signal?: AbortSignal): Promise<Applianc
 	return (await response.json()) as ApplianceStatus;
 }
 
-/** The account service's origin when this plane is served under it, else null. */
-export async function accountServiceOrigin(): Promise<string | null> {
+/** Whether this plane answers its account pages for this viewer: locally, or for the owner of a
+ * plane whose account issuer has an origin of its own. Not on Cloud's one address, where the
+ * account service does, nor when the check is refused (a member, a lapsed session). */
+export async function planeAnswersAccountPaths(): Promise<boolean> {
 	const status = await getApplianceStatus().catch(() => null);
-	if (!status?.hosted || !status.home_url) return null;
-	const origin = new URL(status.home_url).origin;
-	return origin === window.location.origin ? origin : null;
+	if (!status) return false;
+	if (!status.hosted || !status.home_url) return true;
+	return new URL(status.home_url).origin !== window.location.origin;
 }

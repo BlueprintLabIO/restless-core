@@ -5,7 +5,7 @@
 	 * that positions them is defined on :root (see design/base.css). */
 
 	import '$lib/design/index.css';
-	import { navigating } from '$app/state';
+	import { navigating, page } from '$app/state';
 	import { beforeNavigate, goto, onNavigate } from '$app/navigation';
 	import {
 		MutationCache,
@@ -19,7 +19,7 @@
 	import { isRetryable } from '$lib/model/failure';
 	import { observeSessionEnd } from '$lib/model/session-reentry';
 	import { accountServicePath } from '$lib/model/account-service';
-	import { accountServiceOrigin } from '$lib/model/appliance';
+	import { planeAnswersAccountPaths } from '$lib/model/appliance';
 	import { registerServiceWorkerWhereLocal } from '$lib/model/service-worker-registration';
 	import { dev } from '$app/environment';
 
@@ -110,31 +110,28 @@
 	}
 
 	/* A hosted session that ends mid-use re-enters through the account issuer. */
-	onMount(observeSessionEnd);
+	onMount(() => observeSessionEnd(() => page.params.companyId));
 
 	/* On Cloud's one address, Home, Profile, Security, Plan and Support are the account service's
 	 * pages: a link to one leaves this app with a full load instead of being routed here. Whether
-	 * this plane is under that address is asked only when such a link is followed, so no other page
-	 * pays a request for it. */
-	let accountService: string | null | undefined;
+	 * this plane answers them is asked only when such a link is followed, so no other page pays a
+	 * request for it. Only a plane that answered keeps the link here; a refused check (a member, a
+	 * lapsed session) leaves with a full load too, so the address, not this app, decides. */
+	let accountHere = false;
 	beforeNavigate((navigation) => {
 		const to = navigation.to?.url;
 		if (
 			!to ||
 			to.origin !== window.location.origin ||
 			!accountServicePath(to.pathname) ||
-			accountService === null
+			accountHere
 		)
 			return;
 		navigation.cancel();
-		if (accountService) {
-			window.location.assign(to.href);
-			return;
-		}
-		void accountServiceOrigin().then((origin) => {
-			accountService = origin;
-			if (origin) window.location.assign(to.href);
-			else void goto(`${to.pathname}${to.search}${to.hash}`);
+		void planeAnswersAccountPaths().then((here) => {
+			accountHere = here;
+			if (here) void goto(`${to.pathname}${to.search}${to.hash}`);
+			else window.location.assign(to.href);
 		});
 	});
 	onMount(() => {
