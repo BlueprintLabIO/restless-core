@@ -16,6 +16,7 @@
 	} from '$lib/model/intelligence-events';
 	let plane = $state<ApplianceStatus | null>(null);
 	void planeStatus().then((value) => (plane = value));
+	const callbackId = $props.id();
 	const catalog = modelCatalog();
 	type CompanyUse = { id: string; name: string; in_use?: boolean };
 	type AccountConnection = {
@@ -682,18 +683,28 @@
 			{#if provider === 'codex' && oauthCode}<span
 					>Enter code <strong class="code">{oauthCode}</strong></span
 				>{/if}
-			{#if provider === 'claude' && oauthUrl && oauthState === 'waiting'}<label
+			{#if provider === 'claude' && oauthUrl && oauthState === 'waiting'}<div
 					class="callback-label"
-					title={plane?.hosted
-						? 'Sign-in finishes on a localhost address your browser cannot open from here. After you approve, copy that address from the browser bar and paste it here.'
-						: 'If your browser cannot reach the callback on this computer, copy its final localhost URL and paste it here.'}
-					><span>Callback URL</span><input
+				>
+					<span class="callback-head"
+						><label for={callbackId}
+							>{plane?.hosted
+								? 'After you approve, copy the address of the page that won’t load and paste it here'
+								: 'Callback URL'}</label
+						><InfoTip
+							text={plane?.hosted
+								? 'Claude finishes sign-in on a localhost address your browser cannot open from here. That address carries the code that completes it.'
+								: 'If your browser cannot reach the callback on this computer, copy its final localhost URL and paste it here.'}
+						/></span
+					><input
+						id={callbackId}
 						type="url"
 						bind:value={oauthCallback}
 						placeholder="http://localhost:54545/callback?code=…"
 						autocomplete="off"
-					/></label
-				><button
+					/>
+				</div>
+				<button
 					class="btn primary small"
 					disabled={!oauthCallback.trim() || callbackBusy}
 					onclick={() => void completeClaudeSignIn()}
@@ -1104,6 +1115,11 @@
 		gap: 4px;
 		flex: 1 1 320px;
 		color: var(--text-tertiary);
+	}
+	.callback-head {
+		display: flex;
+		align-items: center;
+		gap: 4px;
 	}
 	.callback-label input,
 	.model-picker select,
