@@ -335,6 +335,17 @@
 		if (key === loadedDraftKey) return;
 		loadedDraftKey = key;
 		composer = readDraft(key);
+		/* Only the text draft is saved per recipient. Files, a quote, a chosen skill, a pending
+		 * new conversation or a tapped answer were meant for the previous one and never travel. */
+		untrack(() => {
+			if (pendingAnswer) window.clearTimeout(pendingAnswer.timer);
+			pendingAnswer = null;
+			composerFiles = [];
+			composerSkills = [];
+			quoting = null;
+			newFocusPending = false;
+			fieldValues = {};
+		});
 	});
 	/* After the saved draft loads, so a requested draft is not overwritten by it. */
 	let appliedDraft = 0;
