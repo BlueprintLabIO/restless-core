@@ -436,6 +436,18 @@ impl AgentActivityStreams {
         }
     }
 
+    /// Whether this process holds a live projection for one message, in any phase.
+    pub fn knows_message(&self, company: &str, actor: &str, message_id: i64) -> bool {
+        let key = (
+            company.to_string(),
+            actor.to_string(),
+            ActivityScope::Message(message_id),
+        );
+        self.streams
+            .lock()
+            .is_ok_and(|streams| streams.contains_key(&key))
+    }
+
     pub fn start_messages(
         &self,
         company: &str,

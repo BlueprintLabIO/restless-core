@@ -296,11 +296,18 @@ export function openAgentActivityStream(
 		`/api/companies/${encodeURIComponent(company)}/actors/${encodeURIComponent(actor)}/activity${query ? `?${query}` : ''}`
 	);
 	const receive = (event: MessageEvent<string>) => {
+		let state: AgentActivityState;
 		try {
-			onstate(JSON.parse(event.data) as AgentActivityState);
+			state = JSON.parse(event.data) as AgentActivityState;
 		} catch {
 			onerror?.();
+			return;
 		}
+		onstate(state);
+		/* A message's turn ends once; reconnecting would only replay its last word. A Work stream
+		 * stays open for the next Attempt. */
+		if (scope.messageId !== undefined && (state.phase === 'complete' || state.phase === 'failed'))
+			source.close();
 	};
 	source.addEventListener('activity', receive as EventListener);
 	source.onerror = () => onerror?.();

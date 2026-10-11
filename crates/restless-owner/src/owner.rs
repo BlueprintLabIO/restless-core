@@ -7860,6 +7860,25 @@ async fn agent_activity_live(
         }
     }
 
+    // The registry lives in memory, so after a restart it no longer knows a message that is still
+    // waiting for its reply. That message is queued, not failed: register it so the stream stays
+    // open and the next turn that reads it streams here.
+    if let Some(message_id) = query.message_id {
+        if !state
+            .daemon
+            .activities
+            .knows_message(&company, &actor, message_id)
+            && org
+                .inbox(Some(&actor))
+                .await
+                .is_ok_and(|unread| unread.iter().any(|message| message.id == message_id))
+        {
+            state
+                .daemon
+                .activities
+                .expect_message(&company, &actor, message_id, None);
+        }
+    }
     let receiver =
         state
             .daemon
