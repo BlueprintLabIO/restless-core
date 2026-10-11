@@ -64,6 +64,7 @@ async fn invalidate_cockpit_health(company: &str) {
     COCKPIT_DOCTOR_CACHE.lock().await.remove(company);
     BROWSER_HEALTH_CACHE.lock().await.remove(company);
     COMPANY_STATUSES_CACHE.lock().await.clear();
+    crate::native_harness::forget_status(company).await;
 }
 
 async fn company_start_guard(company: &str) -> tokio::sync::OwnedMutexGuard<()> {

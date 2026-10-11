@@ -108,6 +108,7 @@
 					failed: 'Sign-in failed',
 					expired: 'Sign-in expired',
 					cancelled: 'Sign-in cancelled',
+					asleep: 'Asleep',
 					unavailable: 'Unable to check'
 				} as Record<string, string>
 			)[state] ?? state

@@ -10805,8 +10805,9 @@ async fn intelligence_view(
                 connections.push(serde_json::json!({"id":format!("direct:{provider}"),"provider":provider,"kind":"direct","included":included,"loaded":row["gateway_loaded"]}));
             }
         }
+        // An asleep computer's sign-in keeps its route: a message wakes the computer, which reads it again.
         for row in &natives {
-            if matches!(row["auth"]["state"].as_str(),Some("connected"|"key_saved")) {connections.push(serde_json::json!({"id":format!("harness:{}",row["harness"].as_str().unwrap_or_default()),"provider":row["harness"],"kind":"harness","model":row["model"],"models":row["auth"]["models"],"loaded":true}));}
+            if matches!(row["auth"]["state"].as_str(),Some("connected"|"key_saved"|"asleep")) {connections.push(serde_json::json!({"id":format!("harness:{}",row["harness"].as_str().unwrap_or_default()),"provider":row["harness"],"kind":"harness","model":row["model"],"models":row["auth"]["models"],"loaded":true}));}
         }
         for (id,harness) in if hosted {std::collections::BTreeMap::new()} else {crate::custom_harness::load(&state.daemon.root,&company)?} {
             let installed=crate::custom_harness::status(&company,&id).await.ok().is_some_and(|status|status["state"]=="installed");
@@ -10954,7 +10955,7 @@ async fn update_agent_intelligence(
                 let status = crate::native_harness::view(&config, harness).await;
                 if !matches!(
                     status["auth"]["state"].as_str(),
-                    Some("connected" | "key_saved")
+                    Some("connected" | "key_saved" | "asleep")
                 ) {
                     bail!("Sign in to this harness first");
                 }

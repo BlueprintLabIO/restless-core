@@ -110,6 +110,16 @@ async fn status_for_view(company: &str, harness: &str) -> Value {
     value
 }
 
+/// A sign-in read describes one run of the company computer. When it starts,
+/// sleeps or stops, a read from before (often "unavailable" from a computer
+/// that was not running) must not stand in for the next one.
+pub(crate) async fn forget_status(company: &str) {
+    STATUS_VIEW_CACHE
+        .lock()
+        .await
+        .retain(|(name, _), _| name != company);
+}
+
 /// Intelligence summaries must not wait for a company CLI to start. A cached
 /// observation is useful immediately; an absent or old one is refreshed in
 /// the background and surfaced by the normal foreground status poll.
@@ -153,7 +163,12 @@ async fn view_inner(config: &runtime::CompanyConfig, harness: &str, cached: bool
             _ => json!({"state":"disconnected"}),
         }
     } else if mode == "oauth" {
-        if cached {
+        // The sign-in lives on the company computer, which cannot be asked while
+        // it sleeps. Asleep is not a failed sign-in: demand wakes the computer,
+        // and the first read after the wake observes the sign-in again.
+        if runtime::is_sleeping(&config.name) {
+            json!({"state":"asleep","message":"Checked again when the company computer wakes."})
+        } else if cached {
             cached_status_for_view(&config.name, harness).await
         } else {
             status_for_view(&config.name, harness).await

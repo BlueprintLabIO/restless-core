@@ -207,6 +207,7 @@
 				{
 					connected: 'Signed in',
 					expired: 'Expired',
+					asleep: 'Asleep',
 					unavailable: 'Unable to check',
 					failed: 'Sign-in failed',
 					waiting: 'Waiting for sign-in',
@@ -551,7 +552,7 @@
 			.map((item) => ({ key: item.id, title: providerName(item.provider), connection: item }))
 	]);
 	const legacyProblems = $derived(
-		nativeSignIns.filter((signIn) => signIn.state !== 'connected').length
+		nativeSignIns.filter((signIn) => !['connected', 'asleep'].includes(signIn.state)).length
 	);
 
 	onMount(() => {

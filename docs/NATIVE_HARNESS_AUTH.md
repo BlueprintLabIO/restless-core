@@ -26,7 +26,10 @@ agent assignments across direct and native connections. New direct credentials
 still require a daemon restart to load the gateway; the UI reports this pending
 state. With no configured direct or native connection, Exec's message entry links
 to Intelligence provider. An unavailable credential observation does not count as
-an authoritative empty state.
+an authoritative empty state. While the company computer sleeps, a native sign-in
+reads as asleep, not unavailable or failing: it keeps its route, so a message can
+wake the computer, and the first read after the computer starts, sleeps or stops
+observes the sign-in afresh.
 
 Company → Vault is a read-only inventory of the company's Infisical directory,
 including nested folders (up to Infisical's 20-level recursive limit). Requests
