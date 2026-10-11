@@ -728,6 +728,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
             &daemon.staff,
             &daemon.activities,
             &daemon.runtime_bridges,
+            &daemon.schedule_wake,
             claimed,
         )
         .await

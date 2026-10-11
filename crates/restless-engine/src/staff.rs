@@ -391,6 +391,7 @@ pub async fn dispatch_claimed_work(
     registry: &StaffRegistry,
     activities: &crate::activity::AgentActivityStreams,
     runtime_bridges: &crate::runtime_bridge::RuntimeBridgeRegistry,
+    schedule_wake: &std::sync::Arc<tokio::sync::Notify>,
     claimed: ClaimedWork,
 ) -> Result<()> {
     let actor = claimed.work.owner_id.clone();
@@ -707,6 +708,7 @@ pub async fn dispatch_claimed_work(
     };
     let org = org.clone();
     let registry = registry.clone();
+    let schedule_wake = std::sync::Arc::clone(schedule_wake);
     let spend = spend.clone();
     let spend_ceiling = config.spend_ceiling_usd;
     let worker_harness = config.worker_harness;
@@ -794,6 +796,11 @@ pub async fn dispatch_claimed_work(
             .await;
         }
         registry.release(&company, &actor);
+        // The outcome write's work_changed scan can run while this actor
+        // still holds its slot, and then skips the actor's next ready Work or
+        // follow-up revision. Rescan now that the slot is free, rather than
+        // leaving that Work to the five-minute repair sweep.
+        schedule_wake.notify_one();
     });
     Ok(())
 }
