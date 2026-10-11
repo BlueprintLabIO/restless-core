@@ -158,6 +158,11 @@
 			box-shadow: 0 0 0 2px color-mix(in srgb, var(--intent-conversation) 55%, transparent);
 			transition: box-shadow 400ms var(--ease-out, ease-out);
 		}
+		/* Opened from that step, the chat takes the screen; the card waits until it closes rather
+		 * than sitting over the composer. */
+		:global(html:has(#bridge-exrail.open:not(.wide))) .tour {
+			display: none;
+		}
 	}
 	@media (max-width: 760px) {
 		.tour {
