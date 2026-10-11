@@ -1933,11 +1933,7 @@ pub async fn begin_sign_in(
         .await
         .map_err(|(_, error)| anyhow::anyhow!("authorization could not start: {error}"))?;
     let url = session.get_authorization_url().to_string();
-    let state = url::Url::parse(&url)?
-        .query_pairs()
-        .find(|(key, _)| key == "state")
-        .map(|(_, value)| value.to_string())
-        .context("authorization URL has no state")?;
+    let state = sign_in_state(&url)?;
     let mut pending = PENDING_SIGN_INS.lock().await;
     pending.retain(|_, sign_in| sign_in.started.elapsed() < OAUTH_SESSION_TTL);
     pending.insert(
@@ -1950,6 +1946,20 @@ pub async fn begin_sign_in(
         },
     );
     Ok(url)
+}
+
+/// The state that keys a pending sign-in, read from the address the owner's
+/// browser will open. The app's server chose that address, so only a web page
+/// passes: a `javascript:` or `data:` address would run in the cockpit as the owner.
+fn sign_in_state(url: &str) -> Result<String> {
+    validate_endpoint(url).map_err(|_| {
+        anyhow::anyhow!("this app's sign-in page is not a secure web address, so it was not opened")
+    })?;
+    url::Url::parse(url)?
+        .query_pairs()
+        .find(|(key, _)| key == "state")
+        .map(|(_, value)| value.to_string())
+        .context("authorization URL has no state")
 }
 
 /// The company a pending sign-in belongs to, so the callback can check the
@@ -2648,5 +2658,42 @@ mod tests {
         assert!(validate_endpoint("http://localhost:9000/mcp").is_ok());
         assert!(validate_endpoint("http://example.com/mcp").is_err());
         assert!(validate_endpoint("https://user:pw@example.com/mcp").is_err());
+    }
+
+    /// An app's server advertises its own sign-in page, and the owner's browser
+    /// opens it from the cockpit. Only a web page may start a sign-in.
+    #[tokio::test]
+    async fn sign_in_opens_only_a_web_page() {
+        async fn advertised(authorization_endpoint: &str) -> String {
+            let mut manager = AuthorizationManager::new("https://app.example.com/mcp")
+                .await
+                .unwrap();
+            manager.set_metadata(
+                serde_json::from_value(serde_json::json!({
+                    "authorization_endpoint": authorization_endpoint,
+                    "token_endpoint": "https://app.example.com/token",
+                }))
+                .unwrap(),
+            );
+            let request = AuthorizationRequest::new("https://cockpit.example.com/callback")
+                .with_preregistered_client("restless");
+            AuthorizationSession::new(manager, request)
+                .await
+                .map_err(|(_, error)| error)
+                .unwrap()
+                .get_authorization_url()
+                .to_string()
+        }
+        assert!(sign_in_state(&advertised("https://app.example.com/authorize").await).is_ok());
+        assert!(sign_in_state(&advertised("http://localhost:9000/authorize").await).is_ok());
+        for refused in [
+            "javascript:alert(document.domain)//",
+            "data:text/html,hello",
+            "http://app.example.com/authorize",
+        ] {
+            let url = advertised(refused).await;
+            assert!(url.starts_with(refused), "{url}");
+            assert!(sign_in_state(&url).is_err(), "{url}");
+        }
     }
 }

@@ -162,9 +162,13 @@ const named = (company: string, name: string, action: string) =>
 export const probeConnection = (company: string, name: string) =>
 	post<{ connection: ToolConnection }>(named(company, name, 'probe'));
 
+/** The app's sign-in page. Its server chose the address, so only a web page is returned. */
 export async function signIn(company: string, name: string): Promise<string> {
-	return (await post<{ authorization_url: string }>(named(company, name, 'sign-in')))
+	const url = (await post<{ authorization_url: string }>(named(company, name, 'sign-in')))
 		.authorization_url;
+	if (!/^https?:$/.test(new URL(url).protocol))
+		throw new Error('This app’s sign-in page is not a web address, so it was not opened.');
+	return url;
 }
 
 export const grantTools = (company: string, name: string, tools: ToolDecision[]) =>
