@@ -5,7 +5,7 @@
 	import Check from '@lucide/svelte/icons/check';
 	import { initials } from '$lib/model/initials';
 	import { theme } from '$lib/theme.svelte';
-	import { desktopNotify } from '$lib/model/desktop-notify.svelte';
+	import { BLOCKED_HINT, desktopNotify } from '$lib/model/desktop-notify.svelte';
 	import type { PresentPerson } from '$lib/model/presence.svelte';
 	import { onMount } from 'svelte';
 
@@ -59,12 +59,14 @@
 		{#if desktopNotify.permission !== 'unsupported'}
 			<button
 				type="button"
-				title="Notify this device when something needs you while the cockpit is in the background. Quiet 10pm–7am."
+				title={desktopNotify.blocked
+					? BLOCKED_HINT
+					: 'Notify this device when something needs you while the cockpit is in the background'}
 				onclick={() => void desktopNotify.toggle()}
 				><span>Desktop notifications</span>{#if desktopNotify.active}<Check
 						size={14}
 						aria-label="On"
-					/>{/if}</button
+					/>{:else if desktopNotify.blocked}<small class="blocked">Blocked</small>{/if}</button
 			>
 		{/if}
 		<button type="button" onclick={onshortcuts}><span>Keyboard shortcuts</span><kbd>?</kbd></button>
@@ -125,7 +127,8 @@
 	.profile :global(.action-menu-panel :is(button, a)) {
 		justify-content: space-between;
 	}
-	kbd {
+	kbd,
+	.blocked {
 		color: var(--text-tertiary);
 		font: inherit;
 		font-size: var(--t-label);
