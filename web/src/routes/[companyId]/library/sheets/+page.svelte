@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { namePageContext } from '$lib/model/page-context.svelte';
 	/* One sheet, full width, opened from the Library. History and sharing open
-	 * in a side panel; everything else lives in the header's More menu. With
-	 * ?import=1 and no sheet, the page imports an Excel or CSV file as a new sheet. */
-	import { tick } from 'svelte';
+	 * in a side panel named in the address (?inspect=history|share), so a link or
+	 * Back reopens them; everything else lives in the header's More menu. Follow
+	 * says whether its changes reach this person in For you. With ?import=1 and no
+	 * sheet, the page imports an Excel or CSV file as a new sheet. */
+	import { tick, untrack } from 'svelte';
 	import { page } from '$app/state';
 	import { goto, replaceState } from '$app/navigation';
 	import X from '@lucide/svelte/icons/x';
@@ -32,6 +34,9 @@
 	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
 	import { companyPrincipalQuery, collaborationBootstrapQuery } from '$lib/model/queries.svelte';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
+	import { sheetFollow } from '$lib/model/for-you';
+	import { useForYou } from '$lib/model/for-you.svelte';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
 
 	interface Version {
 		id: string;
@@ -61,7 +66,10 @@
 		saveState = $state('connecting'),
 		access = $state('read'),
 		worksheet = $state('');
-	let panel = $state<'history' | 'sharing' | ''>('');
+	const panel = $derived.by<'history' | 'sharing' | ''>(() => {
+		const inspect = page.url.searchParams.get('inspect');
+		return inspect === 'history' ? 'history' : inspect === 'share' ? 'sharing' : '';
+	});
 	let versions = $state<Version[] | null>(null);
 	let csvInput: HTMLInputElement | undefined = $state();
 	let importInput: HTMLInputElement | undefined = $state();
@@ -93,7 +101,6 @@
 		row = null;
 		missing = false;
 		error = null;
-		panel = '';
 		versions = null;
 		titleDraft = null;
 	});
@@ -206,14 +213,36 @@
 			(value) => saveFile(title, 'csv', new Blob([value.result.csv], { type: 'text/csv' })),
 			'This tab wasn’t downloaded'
 		);
+	/* Importing into a tab replaces its cells, so it asks first and saves a version before it
+	 * starts: History can always recover what was there. */
 	async function importCsv(event: Event) {
 		const input = event.currentTarget as HTMLInputElement,
 			file = input.files?.[0];
+		input.value = '';
 		if (!file) return;
+		if (
+			!window.confirm(
+				`Replace this tab’s cells from A1 with ${file.name}? A version is saved first, so History can recover them.`
+			)
+		)
+			return;
 		const expected_revision = revision,
 			target = worksheet,
 			csv = await file.text();
-		input.value = '';
+		const kept = await act(
+			() =>
+				sheetJson(company, `/${sheet}/versions`, {
+					method: 'POST',
+					body: JSON.stringify({
+						key: crypto.randomUUID(),
+						expected_revision,
+						title: `Before importing ${file.name}`.slice(0, 200)
+					})
+				}),
+			undefined,
+			'The CSV wasn’t imported'
+		);
+		if (!kept) return;
 		await act(
 			() =>
 				sheetJson(company, `/${sheet}/operations`, {
@@ -224,7 +253,10 @@
 						action: { action: 'import_csv', worksheet: target, csv, start: 'A1' }
 					})
 				}),
-			undefined,
+			() => {
+				toast(`Imported ${file.name}`);
+				if (panel === 'history') void loadVersions();
+			},
 			'The CSV wasn’t imported'
 		);
 	}
@@ -305,9 +337,60 @@
 			() => sheetJson<Version[]>(company, `/${sheet}/versions`),
 			(value) => (versions = value)
 		);
-	function openPanel(next: 'history' | 'sharing') {
-		panel = panel === next ? '' : next;
-		if (panel === 'history') void loadVersions();
+	function showPanel(next: 'history' | 'sharing' | '') {
+		const url = new URL(page.url);
+		if (next) url.searchParams.set('inspect', next === 'sharing' ? 'share' : 'history');
+		else url.searchParams.delete('inspect');
+		void goto(url, { keepFocus: true, noScroll: true });
+	}
+	const openPanel = (next: 'history' | 'sharing') => showPanel(panel === next ? '' : next);
+	$effect(() => {
+		if (panel === 'history' && sheet && authorized) untrack(() => void loadVersions());
+	});
+
+	/* Following: whether others' changes to this sheet reach this person in For you. Opening the
+	 * sheet, and leaving it while following, reads them, and reads that it was shared with them. */
+	const forYou = useForYou();
+	let follow = $state<{ id: string; following: boolean } | null>(null);
+	$effect(() => {
+		const id = sheet,
+			target = company;
+		if (!id || !authorized) return;
+		untrack(() => (follow = null));
+		sheetFollow(target, id)
+			.then((following) => {
+				if (sheet === id) follow = { id, following };
+			})
+			.catch(() => undefined);
+	});
+	function readNews(id: string) {
+		const keys = [`sheet-changes:${id}`, `sheet-share:${id}`];
+		const unread = forYou?.items.filter((item) => item.unread && keys.includes(item.key)) ?? [];
+		if (unread.length) void forYou?.read(unread.map((item) => item.key)).catch(() => undefined);
+	}
+	$effect(() => {
+		const id = row?.id;
+		if (!id) return;
+		untrack(() => readNews(id));
+		return () => {
+			untrack(() => {
+				if (follow?.id === id && follow.following) readNews(id);
+			});
+		};
+	});
+	async function toggleFollow() {
+		if (!follow) return;
+		const { id, following } = follow,
+			target = company;
+		follow = { id, following: !following };
+		try {
+			const now = await sheetFollow(target, id, !following);
+			if (follow?.id === id) follow = { id, following: now };
+			toast(now ? 'Following. Changes reach you in For you.' : 'Unfollowed');
+		} catch (cause) {
+			if (follow?.id === id) follow = { id, following };
+			toast(failureSentence(cause, 'That did not change. Try again.'), { tone: 'failure' });
+		}
 	}
 	/* A saved version downloads as the workbook it was, every tab, as .xlsx. */
 	const downloadVersion = (version: Version) =>
@@ -407,6 +490,17 @@
 			<span class="spacer"></span>
 			<PageFaces {faces} />
 			{#if row}
+				{#if follow?.id === row.id}
+					<button
+						class="btn small follow"
+						type="button"
+						aria-pressed={follow.following}
+						title={follow.following
+							? 'Changes reach you in For you. Select to stop.'
+							: 'Hear about changes in For you'}
+						onclick={() => void toggleFollow()}>{follow.following ? 'Following' : 'Follow'}</button
+					>
+				{/if}
 				<button
 					class="btn small"
 					class:active={panel === 'sharing'}
@@ -416,6 +510,11 @@
 				>
 				<ActionMenu label="Sheet actions">
 					<button type="button" onclick={() => openPanel('history')}>History</button>
+					{#if follow?.id === row.id}
+						<button type="button" class="narrow-only" onclick={() => void toggleFollow()}
+							>{follow.following ? 'Unfollow' : 'Follow'}</button
+						>
+					{/if}
 					<button type="button" onclick={copyLink}>Copy link</button>
 					<button
 						type="button"
@@ -560,7 +659,7 @@
 					class="close"
 					aria-label="Close"
 					title="Close"
-					onclick={() => (panel = '')}><X size={16} strokeWidth={2} /></button
+					onclick={() => showPanel('')}><X size={16} strokeWidth={2} /></button
 				>
 			</header>
 			{#if panel === 'history'}
@@ -764,6 +863,17 @@
 		/* A brief confirmation such as "Link copied" still shows on a phone. */
 		.state:not(.flash) {
 			display: none;
+		}
+	}
+	.narrow-only {
+		display: none;
+	}
+	@media (max-width: 560px) {
+		.follow {
+			display: none;
+		}
+		.narrow-only {
+			display: block;
 		}
 	}
 </style>
