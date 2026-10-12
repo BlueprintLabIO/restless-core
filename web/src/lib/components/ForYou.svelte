@@ -80,12 +80,12 @@
 			event.preventDefault();
 			if (index + step < 0) onexit?.();
 			else rows[Math.min(rows.length - 1, index + step)]?.focus();
-		} else if (item && event.key === 'e' && item.unread) {
+		} else if (item && event.key === 'e') {
 			event.preventDefault();
-			void setRead(item, true);
-		} else if (item && event.key === 'U' && event.shiftKey && !item.unread) {
+			if (item.unread) void setRead(item, true);
+		} else if (item && event.key === 'U' && event.shiftKey) {
 			event.preventDefault();
-			void setRead(item, false);
+			if (!item.unread) void setRead(item, false);
 		}
 	}
 	const filters: { value: ForYouFilter; label: string; title: string }[] = [

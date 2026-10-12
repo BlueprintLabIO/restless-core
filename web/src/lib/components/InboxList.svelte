@@ -162,12 +162,17 @@
 		const timer = setInterval(() => (clock = Date.now()), 30_000);
 		return () => clearInterval(timer);
 	});
-	/* Opening an item reads this brief of it; a later brief reads as new again. */
+	/* Opening an item reads this brief of it; a later brief reads as new again. Each brief is
+	 * sent once: a refused write must not loop through the refetch that follows it. */
+	const sentSeen = new Set<string>();
 	$effect(() => {
 		if (!marksQuery.data) return;
 		const item = items.find((row) => row.id === selectedId);
-		if (item && marks.get(item.id)?.seen_stamp !== stamp(item))
-			void mark([{ item_id: item.id, seen_stamp: stamp(item) }], true);
+		if (!item || marks.get(item.id)?.seen_stamp === stamp(item)) return;
+		const sent = `${companyId} ${item.id} ${stamp(item)}`;
+		if (sentSeen.has(sent)) return;
+		sentSeen.add(sent);
+		void mark([{ item_id: item.id, seen_stamp: stamp(item) }], true);
 	});
 
 	function next(after: AttentionItem): string {
@@ -218,7 +223,9 @@
 	function keyboard(event: KeyboardEvent) {
 		if (
 			event.defaultPrevented ||
-			(event.target as HTMLElement)?.closest('input, textarea, select, [contenteditable], dialog, #bridge-exrail') ||
+			(event.target as HTMLElement)?.closest(
+				'input, textarea, select, [contenteditable], dialog, #bridge-exrail, .for-you'
+			) ||
 			document.querySelector('dialog[open]')
 		)
 			return;
