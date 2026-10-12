@@ -391,6 +391,46 @@ async fn changes_by_others_coalesce_per_document_and_say_who_changed_it() {
         "Alex is never told about his own edit"
     );
 
+    // Bianca anchors a comment while Alex's next live edit is unsaved. Her comment saves the live
+    // body first, but the change is still Alex's: commenting is not changing the document.
+    org.mark_for_you_read("owner", &[key.clone()]).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    let (revision, checkpoint): (i64, Uuid) = sqlx::query_as(
+        "SELECT state_revision,checkpoint_named_version_id FROM orgintel_native_document_yjs_load($1,$2)",
+    )
+    .bind(company_id)
+    .bind(pricing)
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    let stored: String = sqlx::query_scalar(
+        "SELECT outcome FROM orgintel_native_document_yjs_store($1,$2,$3,$4,$5,$6,$7)",
+    )
+    .bind(company_id)
+    .bind(pricing)
+    .bind(revision)
+    .bind(checkpoint)
+    .bind(Uuid::new_v4())
+    .bind(vec![1_u8, 2, 3, 4])
+    .bind(body("Alex typed more"))
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    assert_eq!(stored, "stored");
+    org.create_document_comment_thread(NewDocumentCommentThread {
+        document_id: pricing,
+        actor_id: "bianca",
+        command_id: Uuid::new_v4(),
+        block_id: Some("opening"),
+        content_json: &comment("Is this final?", None),
+    })
+    .await
+    .unwrap();
+    let (owner, _) = items(&org, "owner").await;
+    let changed = find(&owner, &key).unwrap();
+    assert!(changed.unread);
+    assert_eq!(changed.actor_ids, ["alex"], "Bianca commented; Alex changed it");
+
     // Pages walk back by cursor without repeating an item.
     let first = org.for_you_page("owner", None, 1).await.unwrap();
     assert_eq!(first.items.len(), 1);

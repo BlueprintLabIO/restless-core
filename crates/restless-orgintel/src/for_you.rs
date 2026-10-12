@@ -46,7 +46,9 @@ const FOLLOWED: &str = "followed AS ( \
 
 /// One row per item. `$1` viewer, `$2`/`$3` the (at,key) page cursor, `$4` page size, `$5` unread
 /// only, `$6` one document. Activity by the viewer never counts; neither does an automatic save
-/// they were editing in, since they saw it happen.
+/// they were editing in, since they saw it happen. A save of the live body (by the daemon, or
+/// first thing when someone comments, restores or asks for review) is the editors' change, not
+/// the change of whoever happened to trigger the save.
 const ITEMS: &str = "viewer AS ( \
    SELECT COALESCE((SELECT read_through FROM for_you_read_cursors WHERE actor_id=$1), \
                    '-infinity'::timestamptz) AS through \
@@ -118,11 +120,12 @@ const ITEMS: &str = "viewer AS ( \
    FROM native_document_versions v JOIN follows fo ON fo.document_id=v.document_id \
    WHERE v.version_number>1 AND v.created_at>fo.since \
      AND v.created_by_actor_id<>$1 AND v.created_by_actor_id<>'daemon' \
+     AND NOT EXISTS(SELECT 1 FROM native_document_version_editors e WHERE e.version_id=v.id) \
    UNION ALL \
    SELECT v.document_id,v.created_at,e.actor_id \
    FROM native_document_versions v JOIN follows fo ON fo.document_id=v.document_id \
    JOIN native_document_version_editors e ON e.version_id=v.id \
-   WHERE v.created_by_actor_id='daemon' AND v.created_at>fo.since AND e.actor_id<>$1 \
+   WHERE v.created_at>fo.since AND e.actor_id<>$1 \
      AND NOT EXISTS(SELECT 1 FROM native_document_version_editors own \
        WHERE own.version_id=v.id AND own.actor_id=$1) \
  ), \
