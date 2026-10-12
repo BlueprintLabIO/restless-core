@@ -454,9 +454,9 @@ fn sheet_presence(id: Uuid) -> tokio::sync::broadcast::Sender<(Uuid, Value)> {
         .clone()
 }
 
-/// Who has each sheet open: session client to actor. Ephemeral like cursors, and
-/// what a sheet's faces are made from.
-static SHEET_HERE: std::sync::LazyLock<Mutex<HashMap<Uuid, HashMap<Uuid, String>>>> =
+/// Who has each sheet open: session client to its live generation and actor.
+/// Ephemeral like cursors, and what a sheet's faces are made from.
+static SHEET_HERE: std::sync::LazyLock<Mutex<HashMap<Uuid, HashMap<Uuid, (Uuid, String)>>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// A change this recent shows its author as editing. Exec and Staff change a
@@ -464,54 +464,73 @@ static SHEET_HERE: std::sync::LazyLock<Mutex<HashMap<Uuid, HashMap<Uuid, String>
 const EDITING_FOR: Duration = Duration::from_secs(30);
 
 /// Keeps one session in its sheet's roster, and takes it out however the session ends.
+/// A reconnect resumes the same client under a new generation, often before the old
+/// session notices it is stale, so only the generation still in the roster takes it out.
 struct SheetHere {
     sheet: Uuid,
     client: Uuid,
+    generation: Uuid,
     hub: tokio::sync::broadcast::Sender<(Uuid, Value)>,
 }
 
 impl SheetHere {
-    fn join(sheet: Uuid, client: Uuid, actor: &str, hub: tokio::sync::broadcast::Sender<(Uuid, Value)>) -> Self {
+    fn join(
+        sheet: Uuid,
+        client: Uuid,
+        generation: Uuid,
+        actor: &str,
+        hub: tokio::sync::broadcast::Sender<(Uuid, Value)>,
+    ) -> Self {
         SHEET_HERE
             .lock()
             .expect("sheet roster")
             .entry(sheet)
             .or_default()
-            .insert(client, actor.to_string());
+            .insert(client, (generation, actor.to_string()));
         let _ = hub.send((client, json!({"type":"FACES"})));
-        Self { sheet, client, hub }
+        Self { sheet, client, generation, hub }
     }
 }
 
 impl Drop for SheetHere {
     fn drop(&mut self) {
-        {
+        let left = {
             let mut here = SHEET_HERE.lock().expect("sheet roster");
-            if let Some(clients) = here.get_mut(&self.sheet) {
-                clients.remove(&self.client);
-                if clients.is_empty() {
-                    here.remove(&self.sheet);
+            let left = here.get_mut(&self.sheet).is_some_and(|clients| {
+                let current = clients.get(&self.client).is_some_and(|(g, _)| *g == self.generation);
+                if current {
+                    clients.remove(&self.client);
                 }
+                current
+            });
+            if here.get(&self.sheet).is_some_and(|clients| clients.is_empty()) {
+                here.remove(&self.sheet);
             }
+            left
+        };
+        if left {
+            // The face and the grid cursor leave together, however the session ended.
+            let _ = self.hub.send((self.client, json!({"type":"CLIENT_LEFT","version":1,"clientId":self.client.to_string()})));
+            let _ = self.hub.send((self.client, json!({"type":"FACES"})));
         }
-        let _ = self.hub.send((self.client, json!({"type":"FACES"})));
     }
 }
 
 /// The people and agents on a sheet besides `actor`, one per actor in a stable
 /// order: everyone with it open, and anyone whose change landed within
-/// [`EDITING_FOR`], who is editing.
+/// [`EDITING_FOR`], who is editing. A sessionless editor (Exec, Staff) carries the
+/// clients its changes came from, so its face takes that cursor's colour.
 fn sheet_faces(
     sheet: Uuid,
     actor: &str,
-    editing: &HashMap<String, std::time::Instant>,
+    editing: &HashMap<String, (std::time::Instant, Vec<String>)>,
     display: impl Fn(&str) -> String,
 ) -> Vec<Value> {
     let mut sessions: Vec<(Uuid, String)> = SHEET_HERE
         .lock()
         .expect("sheet roster")
         .get(&sheet)
-        .map(|clients| clients.iter().map(|(c, a)| (*c, a.clone())).collect())
+        .map(|clients| clients.iter().map(|(c, (_, a))| (*c, a.clone())).collect())
         .unwrap_or_default();
     sessions.sort();
     let mut faces: Vec<(String, Vec<String>)> = Vec::new();
@@ -526,7 +545,7 @@ fn sheet_faces(
     }
     let mut agents: Vec<&String> = editing.keys().filter(|a| *a != actor && !faces.iter().any(|(f, _)| f == *a)).collect();
     agents.sort();
-    faces.extend(agents.into_iter().map(|a| (a.clone(), Vec::new())));
+    faces.extend(agents.into_iter().map(|a| (a.clone(), editing[a].1.clone())));
     faces
         .into_iter()
         .map(|(a, clients)| json!({"actor_id":a,"name":display(&a),"client_ids":clients,"editing":editing.contains_key(&a)}))
@@ -573,8 +592,8 @@ async fn session(
     let display = |actor_id: &str| names.get(actor_id).cloned().unwrap_or_else(|| actor_id.to_string());
     let hub = sheet_presence(id);
     let mut presence = hub.subscribe();
-    let _here = SheetHere::join(id, client.client_id, &actor, hub.clone());
-    let mut editing: HashMap<String, std::time::Instant> = HashMap::new();
+    let _here = SheetHere::join(id, client.client_id, client.generation, &actor, hub.clone());
+    let mut editing: HashMap<String, (std::time::Instant, Vec<String>)> = HashMap::new();
     let mut faces: Vec<Value> = Vec::new();
     let mut interval = tokio::time::interval(Duration::from_millis(200));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -585,12 +604,20 @@ async fn session(
                 if !org.sheet_client_active(id,&actor,client.client_id,client.generation).await? {break;}
                 let state=match org.sheet_state(id,&actor,false,cursor).await {Ok(s)=>s,Err(_)=>break};
                 let before=editing.len();
-                editing.retain(|_, at| at.elapsed() < EDITING_FOR);
+                editing.retain(|_, (at, _)| at.elapsed() < EDITING_FOR);
                 let mut changed=editing.len()!=before;
                 for m in state.messages {
                     cursor=m.sequence;
                     if m.actor_id != actor && m.message["type"] == "REMOTE_REVISION" {
-                        changed |= editing.insert(m.actor_id.clone(), std::time::Instant::now()).is_none();
+                        let (at, clients) = editing.entry(m.actor_id.clone()).or_insert_with(|| {
+                            changed = true;
+                            (std::time::Instant::now(), Vec::new())
+                        });
+                        *at = std::time::Instant::now();
+                        if let Some(c) = m.message["clientId"].as_str().filter(|c| !clients.iter().any(|k| k == c)) {
+                            clients.push(c.to_string());
+                            changed = true;
+                        }
                     }
                     socket.send(AxumMessage::Text(json!({"type":"MESSAGE","sequence":cursor,"message":m.message}).to_string().into())).await?;
                     // Someone else's edit moves their cursor to where it landed;
@@ -614,7 +641,11 @@ async fn session(
                     Ok((from, message)) if from != client.client_id => {
                         socket.send(AxumMessage::Text(json!({"type":"PRESENCE","message":message}).to_string().into())).await?;
                     }
-                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    // Missed messages may include someone coming or going.
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        send_faces(&mut socket, &mut faces, sheet_faces(id, &actor, &editing, display)).await?;
+                    }
+                    Ok(_) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }
             }
@@ -645,7 +676,6 @@ async fn session(
             }
         }
     }
-    let _ = hub.send((client.client_id, json!({"type":"CLIENT_LEFT","version":1,"clientId":client.client_id.to_string()})));
     let _ = socket.close().await;
     Ok(())
 }
@@ -656,6 +686,26 @@ mod tests {
     use futures_util::{FutureExt, SinkExt, StreamExt};
     use std::panic::AssertUnwindSafe;
     use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
+
+    #[test]
+    fn a_stale_session_does_not_take_a_reconnected_face_away() {
+        let (hub, mut heard) = tokio::sync::broadcast::channel(8);
+        let (sheet, client) = (Uuid::new_v4(), Uuid::new_v4());
+        let names = |a: &str| a.to_string();
+        let first = SheetHere::join(sheet, client, Uuid::new_v4(), "bea", hub.clone());
+        // The same client resumes under a new generation before the old session ends.
+        let second = SheetHere::join(sheet, client, Uuid::new_v4(), "bea", hub.clone());
+        drop(first);
+        let faces = sheet_faces(sheet, "alice", &HashMap::new(), names);
+        assert_eq!(faces, vec![json!({"actor_id":"bea","name":"bea","client_ids":[client.to_string()],"editing":false})]);
+        while let Ok((_, message)) = heard.try_recv() {
+            assert_ne!(message["type"], "CLIENT_LEFT", "a stale session never says the client left");
+        }
+        drop(second);
+        assert!(sheet_faces(sheet, "alice", &HashMap::new(), names).is_empty());
+        let said: Vec<Value> = std::iter::from_fn(|| heard.try_recv().ok().map(|(_, m)| m["type"].clone())).collect();
+        assert_eq!(said, vec![json!("CLIENT_LEFT"), json!("FACES")]);
+    }
 
     #[tokio::test]
     async fn native_sheets_verified_member_http_ws_and_revocation() {
@@ -898,10 +948,11 @@ mod tests {
             assert_eq!(cursor["type"], "CLIENT_MOVED");
             assert_eq!(cursor["client"]["name"], "Owner");
             assert_eq!(cursor["client"]["position"], json!({"sheetId":"Sheet1","col":4,"row":6}));
-            // An edit with no session (how Exec and Staff work) still puts a face on the sheet.
+            // An edit with no session (how Exec and Staff work) still puts a face on the
+            // sheet, carrying the client of the cursor it drew so the colours match.
             assert_eq!(
                 next_faces(&mut socket).await,
-                json!([{"actor_id":"owner","name":"Owner","client_ids":[],"editing":true}])
+                json!([{"actor_id":"owner","name":"Owner","client_ids":[cursor["client"]["id"]],"editing":true}])
             );
             let read = client
                 .post(format!("{origin}{path}/operations"))
