@@ -13,6 +13,12 @@
 	import { FORMER_MEMBER, invitedFromShare, shareRows } from '$lib/model/share-people';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import {
+		cancelPendingShare,
+		getPendingShares,
+		shareWithInvitee,
+		type PendingShare
+	} from '$lib/model/pending-shares';
+	import {
 		getSheetSharing,
 		setSheetGeneralAccess,
 		setSheetParticipant,
@@ -46,6 +52,7 @@
 	] as const;
 
 	let sharing = $state<SheetSharing | null>(null);
+	let pending = $state<PendingShare[]>([]);
 	let busy = $state(false);
 	let failure = $state('');
 
@@ -67,13 +74,19 @@
 
 	async function load(target: { company: string; sheet: string }): Promise<void> {
 		const value = await getSheetSharing(target.company, target.sheet);
-		if (target.company === company && target.sheet === sheet) sharing = value;
+		const waiting = value.may_manage
+			? await getPendingShares(target.company, { sheet: target.sheet })
+			: [];
+		if (target.company !== company || target.sheet !== sheet) return;
+		sharing = value;
+		pending = waiting;
 	}
 
 	$effect(() => {
 		const target = { company, sheet };
 		untrack(() => {
 			sharing = null;
+			pending = [];
 			failure = '';
 			void load(target).catch((cause) => {
 				failure = failureSentence(cause, 'Sharing could not be loaded.');
@@ -134,7 +147,9 @@
 		failure = '';
 		try {
 			await inviteToCompany(company, email);
-			toast(invitedFromShare(email, sharing?.general_access ?? 'private'));
+			await shareWithInvitee(company, { sheet }, email, access);
+			toast(invitedFromShare(email));
+			void load({ company, sheet }).catch(() => undefined);
 			return true;
 		} catch (cause) {
 			if (cause instanceof AlreadyMember)
@@ -151,6 +166,29 @@
 			? sharing.people.map((row) => (row.actor_id === actorId ? { ...row, access } : row))
 			: sharing.people.filter((row) => row.actor_id !== actorId);
 		sharing = { ...sharing, people };
+	}
+
+	/* Invitees: changing the level they will get, or stopping, works as for colleagues. */
+	function setPendingAccess(email: string, access: string): void {
+		void change(
+			() => shareWithInvitee(company, { sheet }, email, access),
+			`What ${email} gets was not changed.`
+		);
+	}
+	function removePending(email: string): void {
+		const before = pending.find((row) => row.email === email);
+		void change(() => cancelPendingShare(company, { sheet }, email), 'It is still shared.').then(
+			(done) => {
+				if (!done || !before) return;
+				toast(`No longer shared with ${email}.`, {
+					undo: () =>
+						change(
+							() => shareWithInvitee(company, { sheet }, email, before.access),
+							`${email} was not added back.`
+						)
+				});
+			}
+		);
 	}
 
 	function setGeneral(value: GeneralAccess): void {
@@ -178,6 +216,9 @@
 		ongeneral={setGeneral}
 		onadd={(actorId, access) => void add(actorId, access as 'read' | 'edit')}
 		oninvite={canInvite ? invite : undefined}
+		{pending}
+		onpendingaccess={setPendingAccess}
+		onpendingremove={removePending}
 		onaccess={(actorId, access) => {
 			if (busy) return;
 			optimistic(actorId, access as 'read' | 'edit');

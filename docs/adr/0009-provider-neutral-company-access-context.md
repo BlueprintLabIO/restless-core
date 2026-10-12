@@ -31,6 +31,11 @@ replayed or stale assertions cannot. Issuers that omit it retain the current
 name. Deploy name-emitting issuers with a Core release that accepts this optional
 field; older strict verifiers refuse unknown fields.
 
+The handoff may also include an optional `email`: the person's verified address, which Core reads
+lower-cased. Core uses it only to give someone what was shared with that address while they were
+invited but not yet a member (S66). It never identifies, merges or authorizes anyone. Deploy
+email-emitting issuers after a Core release that accepts it.
+
 The handoff establishes a short-lived, revocable account-plane session. Every company command,
 query, SSE stream, desktop connection and document collaboration session derives its principal from
 that verified session. Membership answers entry only; organisational role and Authority capability

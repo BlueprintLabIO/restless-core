@@ -131,6 +131,10 @@ pub struct AssertionClaims {
     /// Optional presentation metadata; never used for identity or authority.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
+    /// The person's verified email, lower-cased. Used only to give them what was shared with that
+    /// address before they joined; never for identity or authority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
     /// The company's name as the account issuer holds it, for display only. On Cloud the issuer
     /// owns a company's name; the plane shows what the latest entry carried.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -262,6 +266,7 @@ struct Jwk {
 #[derive(Debug, Clone)]
 pub struct VerifiedAccessContext {
     pub display_name: Option<String>,
+    pub email: Option<String>,
     pub company_name: Option<String>,
     pub issuer: String,
     pub subject: String,
@@ -981,6 +986,13 @@ fn validate_claims(
             "display name must contain 1–256 bytes of plain text",
         ));
     }
+    if claims.email.as_ref().is_some_and(|email| {
+        email.len() > 320
+            || !email.contains('@')
+            || email.chars().any(|c| c.is_whitespace() || c.is_control())
+    }) {
+        return Err(Refusal::Malformed("email must be one plain address"));
+    }
     if claims.company_name.as_ref().is_some_and(|name| {
         name.trim().is_empty() || name.len() > 512 || name.chars().any(char::is_control)
     }) {
@@ -1005,6 +1017,7 @@ fn validate_claims(
         .ok_or(Refusal::Malformed("expiry is out of range"))?;
     Ok(VerifiedAccessContext {
         display_name: claims.display_name,
+        email: claims.email.map(|email| email.to_lowercase()),
         company_name: claims.company_name.map(|name| name.trim().to_owned()),
         issuer: claims.iss.trim_end_matches('/').to_string(),
         subject: claims.sub,
@@ -1690,6 +1703,7 @@ pub fn mint_from_env() -> anyhow::Result<String> {
     }
     let claims = AssertionClaims {
         display_name: None,
+        email: None,
         company_name: None,
         iss: required("RESTLESS_ENTRY_ISSUER")?
             .trim_end_matches('/')
@@ -1740,6 +1754,7 @@ mod tests {
     fn claims() -> AssertionClaims {
         AssertionClaims {
             display_name: None,
+            email: None,
             company_name: None,
             iss: "https://cloud.restless.test".into(),
             aud: HANDOFF_AUDIENCE.into(),

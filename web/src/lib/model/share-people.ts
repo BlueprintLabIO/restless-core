@@ -43,10 +43,7 @@ export function shareRows(
 		});
 }
 
-/** What inviting someone from Share says. Nothing is shared ahead of their joining: a document
- * open to the company reaches them when they join, and a private one is shared here after. */
-export function invitedFromShare(email: string, general: string): string {
-	return general === 'private'
-		? `Invited ${email}. Share this with them here once they join.`
-		: `Invited ${email}. They can open this once they join.`;
+/** What inviting someone from Share says: the share waits for them and is theirs once they join. */
+export function invitedFromShare(email: string): string {
+	return `Invited ${email}. It is shared with them when they join.`;
 }

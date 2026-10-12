@@ -28,13 +28,19 @@ test('the share list names everyone, marks the viewer and says who added each pe
 });
 
 test('inviting from Share says when they will see it', () => {
-	assert.match(invitedFromShare('a@example.com', 'private'), /Share this with them here/);
-	assert.match(invitedFromShare('a@example.com', 'view'), /can open this once they join/);
+	assert.match(invitedFromShare('a@example.com'), /shared with them when they join/);
 });
 
 test('a sheet or document that kept when someone was added says when', () => {
 	const [row] = shareRows(
-		[{ actor_id: 'blair', access: 'edit', added_by_actor_id: 'alex', added_at: '2026-10-03T09:00:00Z' }],
+		[
+			{
+				actor_id: 'blair',
+				access: 'edit',
+				added_by_actor_id: 'alex',
+				added_at: '2026-10-03T09:00:00Z'
+			}
+		],
 		{ owner: 'owner', viewer: 'alex', nameOf: (id) => names[id] }
 	);
 	assert.match(row.granted, /^Added by you, \S/);

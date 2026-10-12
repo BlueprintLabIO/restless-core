@@ -3447,7 +3447,7 @@ async fn active_room_participant(
 /// Who may decide who else sees or edits a document: whoever made it, and the company's owner.
 /// The Exec acts for that owner, so it may too, except on a person's own private drafts. Nobody
 /// else learns that the document exists.
-async fn may_manage_participants(
+pub(crate) async fn may_manage_participants(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     document_id: Uuid,
     owner: &str,

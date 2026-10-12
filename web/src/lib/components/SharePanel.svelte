@@ -35,7 +35,10 @@
 		onadd,
 		onaccess,
 		onremove,
-		oninvite
+		oninvite,
+		pending = [],
+		onpendingaccess,
+		onpendingremove
 	}: {
 		general: GeneralAccess;
 		generalOptions: ReadonlyArray<{ value: GeneralAccess; label: string }>;
@@ -65,6 +68,10 @@
 		onremove: (actorId: string) => void;
 		/** Invite someone who is not in the company yet, by email. Given only to people who may. */
 		oninvite?: (email: string, access: string) => Promise<boolean>;
+		/** Invited people this waits for, with the level they get when they join. */
+		pending?: ReadonlyArray<{ email: string; access: string }>;
+		onpendingaccess?: (email: string, access: string) => void;
+		onpendingremove?: (email: string) => void;
 	} = $props();
 
 	let query = $state('');
@@ -233,7 +240,7 @@
 								tabindex="-1"
 								disabled={busy || inviting}
 								title={option.kind === 'invite'
-									? 'Adds them if they are in the company; otherwise invites them to join.'
+									? 'Adds them if they are in the company; otherwise invites them, and shares this when they join.'
 									: undefined}
 								onmousedown={(event) => event.preventDefault()}
 								onmouseenter={() => (active = index)}
@@ -285,6 +292,35 @@
 						title="Remove access"
 						disabled={busy}
 						onclick={() => onremove(row.actor_id)}><X size={14} strokeWidth={2} /></button
+					>
+				{:else}
+					<span class="fixed">{levelLabel(row.access)}</span>
+				{/if}
+			</li>
+		{/each}
+		{#each pending as row (row.email)}
+			<li class:managed={canManage}>
+				<span class="name" title={`Invited to the company; gets this when they join`}
+					>{row.email}{' '}<span class="you">(invited)</span></span
+				>
+				{#if canManage && onpendingaccess && onpendingremove}
+					<select
+						value={row.access}
+						aria-label={`Level for ${row.email}`}
+						disabled={busy}
+						onchange={(event) => onpendingaccess(row.email, event.currentTarget.value)}
+					>
+						{#each levels as level (level.value)}
+							<option value={level.value}>{level.label}</option>
+						{/each}
+					</select>
+					<button
+						type="button"
+						class="remove"
+						aria-label={`Stop sharing with ${row.email}`}
+						title="Stop sharing; the invitation to the company stays"
+						disabled={busy}
+						onclick={() => onpendingremove(row.email)}><X size={14} strokeWidth={2} /></button
 					>
 				{:else}
 					<span class="fixed">{levelLabel(row.access)}</span>

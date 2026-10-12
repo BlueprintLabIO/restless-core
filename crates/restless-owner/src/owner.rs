@@ -25,6 +25,8 @@ mod library_api;
 mod custom_harnesses;
 #[path = "owner_documents.rs"]
 mod documents_api;
+#[path = "owner_pending_shares.rs"]
+mod pending_shares_api;
 #[path = "owner_for_you.rs"]
 mod for_you_api;
 #[path = "owner_member_collaboration.rs"]
@@ -1619,6 +1621,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .merge(rooms_lifecycle_api::routes::<OwnerState>())
         .merge(documents_api::routes::<OwnerState>())
         .merge(for_you_api::routes::<OwnerState>())
+        .merge(pending_shares_api::routes::<OwnerState>())
         .merge(shell_api::routes::<OwnerState>())
         .merge(sheets_api::routes::<OwnerState>())
         .merge(member_collaboration_api::routes::<OwnerState>())
@@ -2955,6 +2958,12 @@ async fn consume_entry_assertion(
     // On Cloud the account issuer owns the company's name; an entry carries the current one.
     if let Some(name) = access.company_name.as_deref() {
         adopt_issued_company_name(&state, &company, name).await;
+    }
+    // What was shared with this address while they were only invited is theirs from now on.
+    if let Some(email) = access.email.as_deref() {
+        if let Err(error) = org.apply_pending_shares(email, &binding.actor_id).await {
+            tracing::warn!(%error, "pending shares were not given on entry");
+        }
     }
     if binding.owner_claimed {
         // The bootstrap binding of membership owner to the existing owner

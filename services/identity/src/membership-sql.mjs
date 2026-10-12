@@ -257,6 +257,10 @@ export async function createSqlMembershipStore({
           membership_role: member.role,
           membership_version: member.version,
           ...(user.name ? { display_name: user.name } : {}),
+          // Only a verified address enters; Core gives it what was shared with it while invited.
+          ...(user.email && user.emailVerified
+            ? { email: user.email.trim().toLowerCase() }
+            : {}),
           // The company's name as the account holds it; the plane shows it (display only).
           ...(member.company_name?.trim()
             ? { company_name: member.company_name.trim().slice(0, 120) }
