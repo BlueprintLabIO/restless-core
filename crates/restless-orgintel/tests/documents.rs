@@ -767,7 +767,7 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
 }
 
 #[tokio::test]
-async fn company_visibility_is_human_readable_not_agent_global() {
+async fn company_visibility_is_human_editable_not_agent_global() {
     let Some(org) = company("companydocs").await else {
         eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Documents access scenario");
         return;
@@ -789,12 +789,13 @@ async fn company_visibility_is_human_readable_not_agent_global() {
         .await
         .unwrap();
 
+    // People in the company are teammates: a company document is theirs to edit.
     assert_eq!(
         org.get_document_for_actor(created.document_id, "alex")
             .await
             .unwrap()
             .access,
-        DocumentAccess::Read
+        DocumentAccess::Edit
     );
     assert!(matches!(
         org.get_document_for_actor(created.document_id, "research-analyst")
@@ -898,8 +899,8 @@ async fn the_company_owner_may_retitle_a_staff_document_but_nothing_else() {
     assert_eq!(renamed.document.title, "Quarterly report");
     assert_eq!(renamed.document.owner_actor_id, "research-analyst");
     assert_eq!(renamed.document.visibility, DocumentVisibility::Company);
-    // The body stays the Staff member's: the owner's access is unchanged.
-    assert_eq!(renamed.access, DocumentAccess::Read);
+    // The Staff member still owns it; as a person in the company, the owner edits it.
+    assert_eq!(renamed.access, DocumentAccess::Edit);
 }
 
 #[tokio::test]
@@ -1375,10 +1376,10 @@ async fn runtime_checkpoint_round_trip_is_authorized_deterministic_and_idempoten
     assert!(matches!(
         org.import_runtime_document_as_named_version(ImportRuntimeDocument {
             target_document_id: document_id,
-            actor_id: "alex",
+            actor_id: "research-analyst",
             expected_current_version_id: source_version_id,
             envelope: &edited,
-            reason: "Readers cannot import",
+            reason: "Without edit access, nothing is imported",
         })
         .await,
         Err(DocumentError::Unavailable)

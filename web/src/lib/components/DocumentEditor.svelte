@@ -83,8 +83,8 @@
 		moreActions?: Snippet;
 		/** A notice about the document itself (archived, say), shown above the page. */
 		banner?: Snippet;
-		/** Whether this person may retitle it. Defaults to its owner only; the company's owner
-		 * may retitle any document they can read (the body stays read-only to them). */
+		/** Whether this person may retitle it. Defaults to its owner only; anyone who may edit it,
+		 * and the company's owner, may retitle it. */
 		mayRename?: boolean;
 		onaccept?: (target: DocumentTarget, view: DocumentReadView) => void;
 		oncomment?: (blockId: string | null) => void;

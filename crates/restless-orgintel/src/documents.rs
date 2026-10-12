@@ -3267,8 +3267,10 @@ async fn access_in_transaction(
         return Ok(explicit_access);
     }
 
+    // People in the company are teammates: a company document is theirs to edit. An explicit
+    // participant grant above (for example read-only) still wins.
     if visibility == DocumentVisibility::Company && actor_class == "human" {
-        return Ok(Some(DocumentAccess::Read));
+        return Ok(Some(DocumentAccess::Edit));
     }
 
     if visibility == DocumentVisibility::Participants && inherit_room_visibility {
@@ -4894,18 +4896,19 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(DocumentError::Unavailable)?;
-        // The company's owner may retitle any document they can see, as they may archive it.
-        // Only the title: kind, visibility and room links stay with the document's owner.
+        // Anyone who may edit a document may retitle it, and the company's owner may retitle any
+        // document they can see, as they may archive it. Only the title: kind, visibility and
+        // room links stay with the document's owner.
         let title_only = row.get::<DocumentKind, _>("kind") == input.kind
             && row.get::<DocumentVisibility, _>("visibility") == input.visibility
             && row.get::<Option<Uuid>, _>("linked_room_id") == input.linked_room_id
             && row.get::<bool, _>("inherit_room_visibility") == input.inherit_room_visibility;
+        let caller_access = access_in_transaction(&mut tx, input.document_id, input.actor_id).await?;
         let owner_retitle = title_only
             && row.get::<String, _>("owner_actor_id") != input.actor_id
-            && access_in_transaction(&mut tx, input.document_id, input.actor_id)
-                .await?
-                .is_some()
-            && (input.actor_id == "owner"
+            && caller_access.is_some()
+            && (caller_access == Some(DocumentAccess::Edit)
+                || input.actor_id == "owner"
                 || sqlx::query_scalar::<_, bool>(
                     "SELECT EXISTS(SELECT 1 FROM human_principal_actor_bindings \
                      WHERE actor_id=$1 AND membership_role='owner' AND membership_status='active')",

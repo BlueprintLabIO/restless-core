@@ -66,7 +66,8 @@ mod tests {
             assert_eq!(execute(&org,"exec",SheetOperation::Rename{sheet,title:" Deals 2026 ".into()}).await.unwrap()["title"],"Deals 2026");
             let theirs=Uuid::new_v4();
             execute(&org,"alice",SheetOperation::Create{id:theirs,title:"Alice's".into(),visibility:"company".into(),from:Some(json!({"csv":"Item,Total\nGFX,=1+1"}))}).await.unwrap();
-            assert!(execute(&org,"bob",SheetOperation::Rename{sheet:theirs,title:"Bob's".into()}).await.is_err(),"a company reader cannot rename");
+            // People in the company edit company sheets, so a teammate may retitle one.
+            assert_eq!(execute(&org,"bob",SheetOperation::Rename{sheet:theirs,title:"Bob's".into()}).await.unwrap()["title"],"Bob's");
             assert_eq!(execute(&org,"owner",SheetOperation::Rename{sheet:theirs,title:"Tidied".into()}).await.unwrap()["title"],"Tidied");
             let imported=execute(&org,"owner",SheetOperation::Read{sheet:theirs,query:Some(json!({"action":"get_range","range":"B2"}))}).await.unwrap();
             assert_eq!(imported["result"]["rows"][0][0]["value"],2,"a sheet made from CSV keeps its formulas");

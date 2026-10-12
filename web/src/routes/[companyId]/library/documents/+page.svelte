@@ -58,13 +58,13 @@
 	const failure = $derived(shellPrincipal.failure ?? detail.failure ?? null);
 	const principalId = $derived(shellPrincipal.view?.actor_id ?? '');
 	const people = $derived((ownerAccess ? cockpit.view?.people : collaboration.view?.people) ?? []);
-	/* Sharing belongs to the document's owner; the company's owner may retitle, archive and
-	 * restore anything they can read (the body stays its writer's). */
+	/* Sharing belongs to the document's owner. Anyone who may edit it retitles, archives and
+	 * restores it; the company's owner may do that to anything they can read. */
 	const ownsDocument = $derived(
 		Boolean(documentView && principalId && documentView.document.owner_actor_id === principalId)
 	);
 	const sharing = $derived(inspectorValue === 'share' && ownsDocument);
-	const mayRename = $derived(ownerAccess || ownsDocument);
+	const mayRename = $derived(ownerAccess || ownsDocument || documentView?.access === 'edit');
 	const mayArchive = $derived(ownerAccess || documentView?.access === 'edit');
 	const archived = $derived(documentView?.document.status === 'archived');
 

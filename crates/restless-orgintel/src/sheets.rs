@@ -124,7 +124,8 @@ async fn access(
     let grant = if owner == actor {
         Some("edit".to_string())
     } else {
-        explicit.or_else(|| (visibility == "company" && class == "human").then(|| "read".into()))
+        // People in the company edit company sheets; an explicit grant still wins.
+        explicit.or_else(|| (visibility == "company" && class == "human").then(|| "edit".into()))
     };
     let grant = grant.ok_or(SheetError::Unavailable)?;
     if edit && grant != "edit" {
