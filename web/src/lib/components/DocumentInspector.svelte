@@ -28,6 +28,9 @@
 
 <script lang="ts">
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import MessageReactions from '$lib/primitives/MessageReactions.svelte';
+	import ReactionAdd from '$lib/primitives/ReactionAdd.svelte';
+	import { documentCommentReactionsQuery } from '$lib/model/document-comment-reactions.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import Check from '@lucide/svelte/icons/check';
@@ -138,6 +141,22 @@
 		() => companyId,
 		() => documentId
 	);
+	/* Reactions on comments, as on chat messages: a signal kept with the comment, never a reply. */
+	const commentReactions = documentCommentReactionsQuery(
+		() => companyId,
+		() => documentId,
+		() => viewerActorId
+	);
+	let reactionFailure = $state('');
+	async function reactTo(commentId: string, emoji: string, on: boolean): Promise<void> {
+		if (!canComment || !online) return;
+		reactionFailure = '';
+		try {
+			await commentReactions.react(commentId, emoji, on);
+		} catch (cause) {
+			reactionFailure = failureSentence(cause, 'The reaction was not saved.');
+		}
+	}
 	const proposals = documentProposalsQuery(
 		() => companyId,
 		() => documentId
@@ -1094,10 +1113,15 @@
 						>
 					{/if}
 					{#each threadMessages?.comments ?? [] as comment (comment.id)}
+						{@const reactions = commentReactions.summaryFor(comment.id)}
 						<article class="comment-row">
 							<header>
-								<strong>{actorName(comment.author_actor_id)}</strong><time
-									datetime={comment.created_at}>{shortDate(comment.created_at)}</time
+								<strong>{actorName(comment.author_actor_id)}</strong><span class="comment-meta"
+									><time datetime={comment.created_at}>{shortDate(comment.created_at)}</time
+									>{#if canComment && online}<ReactionAdd
+											{reactions}
+											onreact={(emoji, on) => void reactTo(comment.id, emoji, on)}
+										/>{/if}</span
 								>
 							</header>
 							<p>{comment.plain_text}</p>
@@ -1108,12 +1132,17 @@
 										>{/each}
 								</div>
 							{/if}
+							<MessageReactions
+								{reactions}
+								onreact={(emoji, on) => void reactTo(comment.id, emoji, on)}
+							/>
 						</article>
 					{:else}
 						{#if threadMessages?.status === 'unknown'}
 							<Skeleton label="Loading the thread" variant="messages" count={2} />
 						{/if}
 					{/each}
+					{#if reactionFailure}<p class="inline-error" role="alert">{reactionFailure}</p>{/if}
 				</div>
 			{/if}
 
@@ -1650,6 +1679,31 @@
 		align-items: baseline;
 		justify-content: space-between;
 		gap: var(--space-2);
+	}
+	.comment-meta {
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+	}
+	/* The React control waits beside the time until the comment is reached for. */
+	.comment-meta :global(.reaction-add summary) {
+		width: 24px;
+		height: 24px;
+		margin-block: -4px;
+	}
+	.comment-meta :global(.reaction-add) {
+		opacity: 0;
+		transition: opacity var(--motion-state) var(--ease-standard);
+	}
+	.comment-row:hover .comment-meta :global(.reaction-add),
+	.comment-row:focus-within .comment-meta :global(.reaction-add),
+	.comment-meta :global(.reaction-add:has(details[open])) {
+		opacity: 1;
+	}
+	@media (hover: none) {
+		.comment-meta :global(.reaction-add) {
+			opacity: 1;
+		}
 	}
 	.comment-row time {
 		color: var(--text-tertiary);
