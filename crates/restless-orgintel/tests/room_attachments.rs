@@ -265,15 +265,32 @@ async fn the_exec_reads_a_direct_messages_files_as_paths() {
         .await
         .unwrap();
     let file = kept_file(&org, "alex", "brief.pdf").await;
-    org.send_room_message_with_attachments(
+    // A body that already names the file's path is not given the path twice.
+    let named = format!("Read /var/lib/restless-owner-attachments/{file}/content");
+    let sent = org
+        .send_room_message_with_attachments(
+            room.id,
+            "alex",
+            &named,
+            None,
+            "room-files-direct-send",
+            &[],
+            None,
+            &[file],
+        )
+        .await
+        .unwrap();
+    let inbox = org.conversation_inbox("exec").await.unwrap();
+    assert_eq!(inbox.len(), 1);
+    assert_eq!(inbox[0].body, named);
+    // Once an edit drops the path, the Exec is given it again.
+    org.edit_room_message(
         room.id,
         "alex",
+        sent.message.id,
+        0,
         "Please read this",
-        None,
-        "room-files-direct-send",
-        &[],
-        None,
-        &[file],
+        "room-files-direct-edit",
     )
     .await
     .unwrap();

@@ -2415,7 +2415,8 @@ impl OrgIntel {
                           ORDER BY file.created_at,file.canonical_name) AS manifest \
                  FROM owner_attachments file \
                  WHERE file.message_id=message.id AND file.purge_requested_at IS NULL \
-                   AND strpos(message.body,file.attachment_id::text)=0\
+                   AND file.purged_at IS NULL \
+                   AND strpos(COALESCE(revision.body,message.body),file.attachment_id::text)=0\
                ) files ON TRUE \
                WHERE message.read_at IS NULL AND message.deleted_at IS NULL \
                  AND message.from_actor<>$1 \
