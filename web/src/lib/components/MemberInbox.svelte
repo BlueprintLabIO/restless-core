@@ -3,7 +3,8 @@
 	 * replies and changes to what they follow). People own teams and agents run them, so a team's
 	 * judgement calls and finished outcomes come here for its person; the server checks every
 	 * answer against the team. */
-	import { Page, Section, Item, Notice, Empty } from '$lib/ui/page';
+	import { Page, Section, Item, Empty } from '$lib/ui/page';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import ForYou from './ForYou.svelte';
 	import type { ForYouSource } from '$lib/model/for-you.svelte';
 	import { formatRelative, formatMoment } from '$lib/ui/time';
@@ -39,8 +40,9 @@
 	let open = $state('');
 	let answer = $state('');
 	let busy = $state('');
+	/* A refusal shows under the row it is about; what was done is said once in the toast. */
 	let failure = $state('');
-	let notice = $state('');
+	let stopping = $state('');
 
 	const me = $derived(view?.principal.actor_id ?? '');
 	const handoffs = $derived(view?.attention.handoffs ?? []);
@@ -65,7 +67,6 @@
 	async function send(path: string, body: object, done: string) {
 		busy = path;
 		failure = '';
-		notice = '';
 		try {
 			const response = await fetch(`/api/companies/${encodeURIComponent(companyId)}/${path}`, {
 				method: 'POST',
@@ -76,9 +77,10 @@
 				const detail = (await response.json().catch(() => null)) as { message?: string } | null;
 				throw new Error(detail?.message ?? 'That was not recorded. Try again.');
 			}
-			notice = done;
+			toast(done);
 			open = '';
 			answer = '';
+			stopping = '';
 			onchanged();
 		} catch (cause) {
 			failure = failureSentence(cause, 'That was not recorded.');
@@ -94,16 +96,17 @@
 	function toggle(key: string) {
 		open = open === key ? '' : key;
 		answer = '';
+		failure = '';
+		stopping = '';
 	}
 </script>
+
+{#snippet refusal()}{#if failure}<p class="refusal" role="alert">{failure}</p>{/if}{/snippet}
 
 <Page
 	title="Inbox"
 	info="What your teams need you to decide, the teams you own, and where people or agents mentioned you, replied to you or changed what you follow."
 >
-	{#if failure}<Notice tone="danger" title="Not recorded" details={failure} />{/if}
-	{#if notice}<Notice tone="success" title={notice} />{/if}
-
 	{#if !view}
 		<Empty compact title="Reading your Inbox…" />
 	{:else if !handoffs.length && !myTeams.length && !forYou.items.length && forYou.status === 'live'}
@@ -249,6 +252,7 @@
 										>
 									</div>
 								{/if}
+								{@render refusal()}
 							</div>
 						{/if}
 					</Item>
@@ -287,18 +291,32 @@
 											send(workPath(work, 'resume'), { reason: answer.trim() }, 'Resumed.')}
 										>Resume</button
 									>
-									<button
-										class="btn small"
-										type="button"
-										disabled={!!busy || !answer.trim()}
-										onclick={() =>
-											send(
-												workPath(work, 'abandon'),
-												{ reason: answer.trim() },
-												'Stopped. The team will not pick it up again.'
-											)}>Stop this Work</button
-									>
+									{#if stopping === work.id}
+										<span class="ask">Stop for good? The team won’t pick it up again.</span>
+										<button
+											class="btn small danger"
+											type="button"
+											disabled={!!busy || !answer.trim()}
+											onclick={() =>
+												send(
+													workPath(work, 'abandon'),
+													{ reason: answer.trim() },
+													'Stopped. The team will not pick it up again.'
+												)}>Stop</button
+										>
+										<button class="btn small ghost" type="button" onclick={() => (stopping = '')}
+											>Keep it</button
+										>
+									{:else}
+										<button
+											class="btn small"
+											type="button"
+											disabled={!!busy || !answer.trim()}
+											onclick={() => (stopping = work.id)}>Stop this Work…</button
+										>
+									{/if}
 								</div>
+								{@render refusal()}
 							</div>
 						{/if}
 					</Item>
@@ -350,6 +368,15 @@
 	.bar {
 		display: flex;
 		flex-wrap: wrap;
+		align-items: center;
 		gap: 8px;
+	}
+	.ask {
+		color: var(--text-secondary);
+	}
+	.refusal {
+		margin: 0;
+		color: var(--state-danger);
+		font-size: var(--t-label);
 	}
 </style>
