@@ -665,6 +665,13 @@ async fn marks_are_per_person_unread_wins_over_all_read_and_archive_lasts_until_
     assert!(find(&items(&org, "alex").await.0, &key).is_none(), "mark all read keeps it archived");
     org.archive_for_you("alex", &[key.clone()], false).await.unwrap();
     assert!(find(&items(&org, "alex").await.0, &key).is_some_and(|item| !item.unread));
+    // Undo puts back exactly what was archived: an unread item comes back unread.
+    org.mark_for_you_unread("alex", &[key.clone()]).await.unwrap();
+    org.archive_for_you("alex", &[key.clone()], true).await.unwrap();
+    assert_eq!(items(&org, "alex").await.1, 0, "an archived item is not counted");
+    org.archive_for_you("alex", &[key.clone()], false).await.unwrap();
+    assert!(find(&items(&org, "alex").await.0, &key).is_some_and(|item| item.unread));
+    org.mark_for_you_read("alex", &[key.clone()]).await.unwrap();
     org.archive_for_you("alex", &[key.clone()], true).await.unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
     reply(&org, pricing, started, "bianca").await;
@@ -779,5 +786,8 @@ async fn a_document_mention_still_unread_after_a_while_is_owed_an_email_until_it
         .is_empty());
     // Opened in the cockpit, it is withdrawn.
     org.mark_for_you_read(member, &[owed[0].item.key.clone()]).await.unwrap();
+    assert!(org.pending_human_for_you_notifications(later).await.unwrap().is_empty());
+    // Marking it unread again is a reminder to themselves, never an email.
+    org.mark_for_you_unread(member, &[owed[0].item.key.clone()]).await.unwrap();
     assert!(org.pending_human_for_you_notifications(later).await.unwrap().is_empty());
 }

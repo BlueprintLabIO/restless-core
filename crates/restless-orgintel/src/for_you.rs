@@ -632,8 +632,9 @@ impl OrgIntel {
         Ok(())
     }
 
-    /// Archives items for this person: each is read and leaves their list until something new
-    /// happens there. Unarchiving puts them back as they were read.
+    /// Archives items for this person: each leaves their list, and their unread count, until
+    /// something new happens there. Read state is left alone, so unarchiving (Undo) puts each
+    /// back exactly as it was.
     pub async fn archive_for_you(
         &self,
         viewer: &str,
@@ -644,9 +645,8 @@ impl OrgIntel {
         if archived {
             sqlx::query(
                 "INSERT INTO for_you_reads (actor_id,item_key,read_at,archived_at) \
-                 SELECT $1,key,now(),now() FROM unnest($2::text[]) AS key \
-                 ON CONFLICT (actor_id,item_key) DO UPDATE \
-                 SET read_at=EXCLUDED.read_at,archived_at=EXCLUDED.archived_at,marked_unread=false",
+                 SELECT $1,key,'-infinity',now() FROM unnest($2::text[]) AS key \
+                 ON CONFLICT (actor_id,item_key) DO UPDATE SET archived_at=EXCLUDED.archived_at",
             )
         } else {
             sqlx::query(

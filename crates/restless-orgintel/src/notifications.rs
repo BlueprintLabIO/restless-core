@@ -172,8 +172,15 @@ impl OrgIntel {
                 membership_id: row.get("membership_id"),
                 actor_id: row.get("actor_id"),
             };
+            // Marking something unread is a note to oneself, not news; it is never emailed.
+            let reminders: Vec<String> = sqlx::query_scalar(
+                "SELECT item_key FROM for_you_reads WHERE actor_id=$1 AND marked_unread",
+            )
+            .bind(&recipient.actor_id)
+            .fetch_all(&self.pool)
+            .await?;
             for item in self.unread_for_you_items(&recipient.actor_id).await? {
-                if for_you_item_is_emailed(&item, now) {
+                if for_you_item_is_emailed(&item, now) && !reminders.contains(&item.key) {
                     pending.push(PendingForYouNotification {
                         item,
                         recipient: recipient.clone(),
