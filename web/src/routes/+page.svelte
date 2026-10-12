@@ -2,6 +2,7 @@
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import { archiveCompany, restoreCompany } from '$lib/model/cockpit';
 	import { failureSentence } from '$lib/model/failure';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import CompanyPortfolio from '$lib/ui/views/CompanyPortfolio.svelte';
 	import type { CompanyPortfolioEntry } from '$lib/ui/portfolio';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
@@ -77,35 +78,17 @@
 		return value?.startsWith('/') && !value.startsWith('//') ? value : '';
 	}
 
-	let notice = $state(''),
-		actionError = $state(''),
-		archivedId = $state(''),
-		busy = $state('');
+	/* Archiving says so on the shared toast, with Undo; restoring and failures say so there too. */
+	let busy = $state('');
 	async function archive(id: string) {
 		if (busy) return;
 		busy = id;
-		actionError = '';
 		try {
 			await archiveCompany(id);
 			await companyCatalog.refresh();
-			archivedId = id;
-			notice = 'Company archived';
+			toast('Company archived', { undo: () => restore(id) });
 		} catch (cause) {
-			actionError = failureSentence(cause, 'Company could not be archived.');
-		} finally {
-			busy = '';
-		}
-	}
-	async function undoArchive() {
-		if (busy || !archivedId) return;
-		busy = archivedId;
-		try {
-			await restoreCompany(archivedId);
-			await companyCatalog.refresh();
-			notice = 'Company restored';
-			archivedId = '';
-		} catch (cause) {
-			actionError = failureSentence(cause, 'Company could not be restored.');
+			toast(failureSentence(cause, 'Company could not be archived.'), { tone: 'failure' });
 		} finally {
 			busy = '';
 		}
@@ -114,14 +97,12 @@
 	async function restore(id: string) {
 		if (busy) return;
 		busy = id;
-		actionError = '';
 		try {
 			await restoreCompany(id);
 			await companyCatalog.refresh();
-			notice = 'Company restored';
-			archivedId = '';
+			toast('Company restored');
 		} catch (cause) {
-			actionError = failureSentence(cause, 'Company could not be restored.');
+			toast(failureSentence(cause, 'Company could not be restored.'), { tone: 'failure' });
 		} finally {
 			busy = '';
 		}
@@ -192,23 +173,11 @@
 			onretry={companyCatalog.refresh}
 		/>
 	{/if}
-	{#if actionError}<p class="portfolio-toast failure" role="alert">{actionError}</p>{/if}
-	{#if notice}<p class="portfolio-toast" role="status">
-			<span>{notice}</span>{#if archivedId}<button
-					class="btn small"
-					disabled={!!busy}
-					onclick={undoArchive}>Undo</button
-				>{/if}
-		</p>{/if}
 {/snippet}
 
 <div use:tooltips use:selectMenu>
 	<AccountFrame {appliance}>
-		<CompanyPortfolio
-			companies={rows}
-			{loaded}
-			feedback={companyCatalog.failure || actionError || notice ? feedback : null}
-		>
+		<CompanyPortfolio companies={rows} {loaded} feedback={companyCatalog.failure ? feedback : null}>
 			{#snippet actions()}
 				{#if loaded}<CreateCompany />{/if}
 			{/snippet}
@@ -269,23 +238,6 @@
 </div>
 
 <style>
-	.portfolio-toast {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-3);
-		margin: 0;
-		padding: 6px 6px 6px 12px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
-		background: var(--surface-raised);
-		box-shadow: var(--shadow-soft);
-		font-size: var(--t-body);
-		animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
-	}
-	.portfolio-toast.failure {
-		color: var(--state-danger);
-		padding-right: 12px;
-	}
 	.portfolio-archived-toggle {
 		padding: 4px 6px;
 		border: 0;
