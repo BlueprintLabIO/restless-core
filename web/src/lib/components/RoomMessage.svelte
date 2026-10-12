@@ -94,6 +94,16 @@
 		onwork?: (() => void) | null;
 	} = $props();
 
+	/* Files the author attached in this room; an Exec-rail message names its own in `presentation`. */
+	const files = $derived<MessageAttachment[]>(
+		(message.attachments ?? []).map((file) => ({
+			uploadId: file.attachment_id,
+			name: file.name,
+			mediaType: file.media_type,
+			sizeBytes: file.size_bytes
+		}))
+	);
+
 	/* `@actor-id` in a body becomes the person's name, linked to their page. */
 	function withNames(text: string): string {
 		if (!nameFor) return text;
@@ -296,7 +306,9 @@
 			text={withNames(message.edited_at ? message.body : (presentation?.text ?? message.body))}
 			createdAt={message.created_at}
 			details={message.edited_at ? null : presentation?.details}
-			attachments={message.edited_at ? [] : (presentation?.attachments ?? [])}
+			attachments={!message.edited_at && presentation?.attachments?.length
+				? presentation.attachments
+				: files}
 			intent={message.edited_at ? null : (presentation?.intent ?? null)}
 			{hrefFor}
 			{continued}

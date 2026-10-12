@@ -197,6 +197,17 @@ test('Thread sends preserve the caller command id and exact current write shape'
 			command_id: 'command-7',
 			mentions: [{ actor_id: 'exec' }]
 		});
+		// Files travel by id only: their bytes were uploaded on their own.
+		await sendRoomMessage('acme', 'room', 'Attached: plan.pdf', 'command-8', null, [], null, [
+			'file-1'
+		]);
+		assert.equal(observedUrl, '/api/companies/acme/rooms/room/messages');
+		assert.deepEqual(JSON.parse(String(observedInit?.body)), {
+			body: 'Attached: plan.pdf',
+			command_id: 'command-8',
+			mentions: [],
+			attachment_ids: ['file-1']
+		});
 	} finally {
 		globalThis.fetch = original;
 	}

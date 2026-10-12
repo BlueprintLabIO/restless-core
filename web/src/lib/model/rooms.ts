@@ -82,6 +82,16 @@ export interface RoomMessage {
 	edited_at: string | null;
 	deleted_at: string | null;
 	legacy_read_at: string | null;
+	/** Files the author attached; absent when there are none. */
+	attachments?: RoomMessageAttachment[];
+}
+
+/** A file on a Room message. Its bytes are served by the company attachment route. */
+export interface RoomMessageAttachment {
+	attachment_id: string;
+	name: string;
+	media_type: string;
+	size_bytes: number;
 }
 
 export interface RoomMention {
@@ -466,7 +476,9 @@ export function sendRoomMessage(
 	parentMessageId: number | null,
 	mentions: NewRoomMention[] = [],
 	/** A mention of the sender this Thread reply answers. */
-	resolvesMentionId: string | null = null
+	resolvesMentionId: string | null = null,
+	/** Files the sender already uploaded and kept. */
+	attachmentIds: readonly string[] = []
 ): Promise<RoomMessageSendResult> {
 	const endpoint = parentMessageId
 		? `${roomPath(company, room)}/messages/${encodeURIComponent(parentMessageId)}/replies`
@@ -478,7 +490,8 @@ export function sendRoomMessage(
 			body,
 			command_id: commandId,
 			mentions,
-			...(resolvesMentionId ? { resolves_mention_id: resolvesMentionId } : {})
+			...(resolvesMentionId ? { resolves_mention_id: resolvesMentionId } : {}),
+			...(attachmentIds.length ? { attachment_ids: attachmentIds } : {})
 		})
 	});
 }

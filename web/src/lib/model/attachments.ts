@@ -93,29 +93,62 @@ export async function listRetainedAttachments(
 	};
 }
 
+/* fetch cannot report how much of an upload has gone, so the bytes go through XMLHttpRequest. A
+ * lost connection rejects as fetch would, so failures read the same everywhere. */
+function postFiles(
+	url: string,
+	form: FormData,
+	onSent: (bytes: number) => void
+): Promise<Response> {
+	return new Promise((resolve, reject) => {
+		const request = new XMLHttpRequest();
+		request.open('POST', url);
+		request.withCredentials = true;
+		request.upload.onprogress = (event) => onSent(event.loaded);
+		request.onload = () =>
+			request.status >= 200 && request.status <= 599
+				? resolve(
+						new Response(request.status === 204 ? null : request.responseText, {
+							status: request.status,
+							statusText: request.statusText,
+							headers: { 'content-type': request.getResponseHeader('content-type') ?? '' }
+						})
+					)
+				: reject(new TypeError('Failed to fetch'));
+		request.onerror = () => reject(new TypeError('Failed to fetch'));
+		request.onabort = () => reject(new DOMException('The upload was cancelled.', 'AbortError'));
+		request.send(form);
+	});
+}
+
 /** Add files to the company with no conversation message, six at a time. Each batch is whole or
- * nothing; a failure carries the files earlier batches already added as `added`. */
+ * nothing; a failure carries the files earlier batches already added as `added`. `onProgress`
+ * hears the share of all the bytes sent so far, from 0 to 1. */
 export async function uploadAttachments(
 	company: string,
-	files: readonly File[]
+	files: readonly File[],
+	onProgress?: (fraction: number) => void
 ): Promise<UploadedAttachment[]> {
 	const added: UploadedAttachment[] = [];
+	const bytes = (list: readonly File[]) => list.reduce((sum, file) => sum + file.size, 0);
+	const total = Math.max(1, bytes(files));
+	let done = 0;
 	for (let start = 0; start < files.length; start += MAX_UPLOAD_FILES) {
+		const batch = files.slice(start, start + MAX_UPLOAD_FILES);
 		const form = new FormData();
-		for (const file of files.slice(start, start + MAX_UPLOAD_FILES))
-			form.append('file', file, file.name);
+		for (const file of batch) form.append('file', file, file.name);
 		let response: Response;
 		try {
-			response = await fetch(base(company), {
-				method: 'POST',
-				credentials: 'same-origin',
-				body: form
-			});
+			response = await postFiles(base(company), form, (sent) =>
+				onProgress?.(Math.min(1, (done + sent) / total))
+			);
 		} catch (cause) {
 			throw Object.assign(cause instanceof Error ? cause : new Error(String(cause)), { added });
 		}
 		if (!response.ok) throw Object.assign(await responseFailure(response), { added });
 		added.push(...((await response.json()) as { attachments: UploadedAttachment[] }).attachments);
+		done += bytes(batch);
+		onProgress?.(Math.min(1, done / total));
 	}
 	return added;
 }

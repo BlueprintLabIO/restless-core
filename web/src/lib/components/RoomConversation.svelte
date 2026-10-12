@@ -49,6 +49,7 @@
 		roomThreadQuery
 	} from '$lib/model/room-queries.svelte';
 	import { useQueryClient } from '@tanstack/svelte-query';
+	import { MAX_UPLOAD_BYTES, MAX_UPLOAD_FILES, uploadAttachments } from '$lib/model/attachments';
 	import {
 		addRoomParticipant,
 		deleteRoomMessage,
@@ -173,6 +174,11 @@
 	let sendError = $state('');
 	let sendNotice = $state('');
 	let pendingMessage = $state<RoomMessageRecord | null>(null);
+	/* How much of the sending message's files has gone up, 0 to 1; null when nothing is uploading. */
+	let uploadProgress = $state<number | null>(null);
+	/* Files an earlier attempt already uploaded, so a retry attaches the same ones. Not reactive. */
+	const uploadedFiles = new WeakMap<File, string>();
+	let retryFiles: File[] = [];
 	let lastMarkedRoom = $state('');
 	let lastMarkedMessage = $state(0);
 	// Not reactive: only paces retries of a failed read marker.
@@ -966,8 +972,8 @@
 		const typed = composer.trim();
 		const parent = threadRootId;
 		const sendAsAccountableLead = accountableDirect && parent === null;
-		/* A file on its own is a message where files can be sent: it says what it carries. */
-		const files = sendAsAccountableLead ? [...composerFiles] : [];
+		/* A file on its own is a message: it says what it carries. */
+		const files = [...composerFiles];
 		const body =
 			typed || (files.length ? `Attached: ${files.map((file) => file.name).join(', ')}` : '');
 		if (
@@ -980,6 +986,13 @@
 			(selectedRoom?.kind === 'direct' && !canExtendDirect)
 		)
 			return;
+		const tooLarge = files.find((file) => file.size > MAX_UPLOAD_BYTES);
+		if (tooLarge || files.length > MAX_UPLOAD_FILES) {
+			sendError = tooLarge
+				? `${tooLarge.name} is larger than ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB, the most one file can be.`
+				: `Attach at most ${MAX_UPLOAD_FILES} files to one message.`;
+			return;
+		}
 		if (!sendAsAccountableLead) {
 			const missing = mentionedOutsiders(body);
 			if (missing.length && mentionGapAccepted !== body) {
@@ -989,7 +1002,11 @@
 		}
 		mentionGap = null;
 
-		const commandId = retryCommandId && retryBody === body ? retryCommandId : crypto.randomUUID();
+		const sameFiles =
+			retryFiles.length === files.length &&
+			retryFiles.every((file, index) => file === files[index]);
+		const commandId =
+			retryCommandId && retryBody === body && sameFiles ? retryCommandId : crypto.randomUUID();
 		const targetCompany = companyId,
 			targetRoom = selectedRoomId,
 			targetActor = currentActorId,
@@ -1026,6 +1043,7 @@
 		writeRoomDraft(targetDraft, { body, commandId, updatedAt: new Date().toISOString() });
 		retryCommandId = commandId;
 		retryBody = body;
+		retryFiles = files;
 		sending = true;
 		sendError = '';
 		pendingMessage = {
@@ -1068,6 +1086,7 @@
 					sendNotice = `${actorName(recipientActor)} was interrupted and your new direction is queued.`;
 				void targetProjection?.refresh().catch(() => {});
 			} else {
+				const attachmentIds = await uploadFiles(targetCompany, files, stillCurrent);
 				const result = await sendRoomMessage(
 					targetCompany,
 					targetRoom,
@@ -1075,7 +1094,8 @@
 					commandId,
 					parent,
 					mentions,
-					resolvesMentionId
+					resolvesMentionId,
+					attachmentIds
 				);
 				sentMessageId = result.message.id;
 				targetProjection?.accept(result);
@@ -1092,6 +1112,7 @@
 			mentionGapAccepted = '';
 			retryCommandId = null;
 			retryBody = '';
+			retryFiles = [];
 			pendingMessage = null;
 			if (activeDraftKey) {
 				writeRoomDraft(activeDraftKey, { body: '', commandId: null, updatedAt: '' });
@@ -1130,6 +1151,27 @@
 		} finally {
 			sending = false;
 		}
+	}
+
+	/* Files go up on their own first, each kept by its sender; the message then names them. */
+	async function uploadFiles(
+		company: string,
+		files: File[],
+		current: () => boolean
+	): Promise<string[]> {
+		const missing = files.filter((file) => !uploadedFiles.has(file));
+		if (missing.length) {
+			uploadProgress = 0;
+			try {
+				const added = await uploadAttachments(company, missing, (fraction) => {
+					if (current()) uploadProgress = fraction;
+				});
+				added.forEach((file, index) => uploadedFiles.set(missing[index], file.id));
+			} finally {
+				uploadProgress = null;
+			}
+		}
+		return files.map((file) => uploadedFiles.get(file) ?? '');
 	}
 
 	function dayLabel(value: string): string {
@@ -1679,10 +1721,6 @@
 			actionLabel={retryCommandId && retryBody === composer.trim() ? 'Retry send' : 'Send'}
 			disabled={sending || !online || (selectedRoom?.kind === 'direct' && !canExtendDirect)}
 			minlength={1}
-			allowAttachments={accountableDirect && threadRootId === null}
-			attachmentsOffNotice={accountableDirect
-				? 'Attach files in the main conversation, not a thread.'
-				: 'Files can’t be attached in this conversation yet. Send them to the Exec instead.'}
 			placeholder={threadRootId
 				? 'Reply in this Thread…'
 				: directPartner && actorIsAgent(directPartner)
@@ -1732,8 +1770,13 @@
 		{/if}
 		{#if sendError}<p class="room-send-error" role="alert">{sendError}</p>{/if}
 		{#if sendNotice}<p class="room-send-notice" role="status">{sendNotice}</p>{/if}
-		{#if accountableDirect && composerFiles.length}<p class="room-draft-state">
-				{composerFiles.length} attachment{composerFiles.length === 1 ? '' : 's'} ready to send.
+		{#if uploadProgress !== null}<p class="room-draft-state" role="status">
+				Uploading… {Math.round(uploadProgress * 100)}%
+			</p>{:else if composerFiles.length}<p
+				class="room-draft-state"
+				title={`Up to ${MAX_UPLOAD_FILES} files, ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB each`}
+			>
+				{composerFiles.length} file{composerFiles.length === 1 ? '' : 's'} ready to send.
 			</p>{/if}
 		{#if !online}<p class="room-draft-state">Draft kept locally until you reconnect.</p>{/if}
 	</form>

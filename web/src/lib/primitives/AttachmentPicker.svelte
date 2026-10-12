@@ -1,7 +1,6 @@
 <script lang="ts">
 	/* The composer's attach control: a 📎 button backed by a real file input,
-	 * plus chips for the chosen files. Files travel with the message when it is
-	 * sent — no separate upload step, no orphans. */
+	 * plus chips for the chosen files. Nothing leaves the browser until Send. */
 
 	let {
 		files = $bindable<File[]>([]),
