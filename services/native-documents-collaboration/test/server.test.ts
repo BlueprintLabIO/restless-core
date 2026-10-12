@@ -13,6 +13,7 @@ import { DocumentCheckpointChangedError } from '../src/store-errors.js';
 import {
   NativeDocumentsCollaborationServer,
   SAVE_STATUS_MESSAGE,
+  visitClientId,
   type DocumentStore,
   type StoredDocumentInput,
 } from '../src/server.js';
@@ -667,4 +668,74 @@ test('body HTTP commands share the browser Y.Doc, enforce capabilities and ackno
   assert.equal((await command({ action: 'apply', checkpoint_id: delta.checkpoint_id, update_base64: delta.update_base64 })).status, 200);
   assert.match(JSON.stringify(projectionFromState(store.state)), /Edited with no browser connected/);
 
+});
+
+test('everyone on a document is a face: readers view, a writer with a caret edits, an agent visit edits', async (context) => {
+  const paragraph = (text: string) => ({ type: 'paragraph', attrs: { block_id: 'opening' }, content: [{ type: 'text', text }] });
+  const store = new MemoryDocumentStore(stateFromProjection({ type: 'doc', content: [paragraph('Opening')] }));
+  const signer = await signingFixture(Math.floor(Date.now() / 1000));
+  const verifier = new CoreTokenVerifier({ issuer: ISSUER, jwksUrl: new URL(JWKS_URL), fetch: (async () => jwksResponse(signer.jwks)) as typeof fetch });
+  const server = new NativeDocumentsCollaborationServer({ address: '127.0.0.1', port: 0, companyId: COMPANY_ID, expectedIssuer: ISSUER, jwksUrl: new URL(JWKS_URL), databaseUrl: 'postgresql://unused', debounceMs: 25, maxDebounceMs: 100 }, { store, tokenVerifier: verifier });
+  await server.listen();
+  const url = `${server.webSocketUrl}/api/companies/${COMPANY_ID}/documents/${DOCUMENT_ID}/collaboration`;
+  const name = collaborationDocumentName({ companyId: COMPANY_ID, documentId: DOCUMENT_ID });
+  const providers: HocuspocusProvider[] = [];
+  context.after(async () => {
+    for (const provider of providers) provider.destroy();
+    await server.destroy();
+  });
+  const open = async (claims: Record<string, unknown>) => {
+    const document = new Y.Doc();
+    const provider = new HocuspocusProvider({ url, name, document, token: await signer.sign({ jti: randomUUID(), ...claims }) });
+    // What every page does on open: say it is here. A clock-0 state is never relayed.
+    provider.awareness?.setLocalStateField('user', {});
+    providers.push(provider);
+    await eventually(() => provider.isSynced, `${String(claims.actor_id)} sync`);
+    return { provider, document };
+  };
+  const faces = (provider: HocuspocusProvider) =>
+    [...(provider.awareness?.getStates() ?? new Map()).entries()]
+      .filter(([clientId]) => clientId !== provider.document.clientID)
+      .map(([, state]) => state as { user?: { actor_id?: string }; editing?: boolean })
+      .filter((state) => state.user?.actor_id)
+      .map((state) => `${state.user!.actor_id}:${state.editing ? 'editing' : 'viewing'}`)
+      .sort();
+
+  // A reader is seen as soon as their page says it is here.
+  const writer = await open({ actor_id: 'human-writer', access: 'write' });
+  const reader = await open({ actor_id: 'human-reader', access: 'read' });
+  await eventually(() => faces(writer.provider).includes('human-reader:viewing'), 'reader face');
+  await eventually(() => faces(reader.provider).includes('human-writer:viewing'), 'writer face before a caret');
+
+  // A writer's caret makes them editing; a reader's caret never does.
+  writer.provider.awareness?.setLocalStateField('cursor', { anchor: 1, head: 1 });
+  reader.provider.awareness?.setLocalStateField('cursor', { anchor: 2, head: 2 });
+  reader.provider.awareness?.setLocalStateField('editing', true);
+  await eventually(() => faces(reader.provider).includes('human-writer:editing'), 'writer editing');
+  await new Promise((resolve) => setTimeout(resolve, 75));
+  assert.ok(faces(writer.provider).includes('human-reader:viewing'), 'a reader cannot claim to be editing');
+
+  // An agent's body edit shows as its own face to the people on the page, under its verified actor.
+  const command = async (body: unknown, claims: Record<string, unknown>) =>
+    fetch(`${server.httpUrl}/api/companies/${COMPANY_ID}/documents/${DOCUMENT_ID}/collaboration/body`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${await signer.sign({ jti: randomUUID(), ...claims })}` },
+      body: JSON.stringify(body),
+    });
+  const read = await command({ action: 'read' }, { actor_id: 'staff-writer' });
+  assert.equal(read.status, 200);
+  await eventually(() => faces(reader.provider).includes('staff-writer:viewing'), 'agent read face');
+  const view = await read.json() as { blocks: { hash: string }[] };
+  const prepared = await (await command({ action: 'prepare', operations: [{ op: 'replace', block_id: 'opening', expected_hash: view.blocks[0]!.hash, block: paragraph('Agent opening') }] }, { actor_id: 'staff-writer' })).json() as { checkpoint_id: string; update_base64: string };
+  assert.equal((await command({ action: 'apply', checkpoint_id: prepared.checkpoint_id, update_base64: prepared.update_base64 }, { actor_id: 'staff-writer' })).status, 200);
+  await eventually(() => faces(reader.provider).includes('staff-writer:editing'), 'agent editing face');
+  assert.equal(
+    [...(reader.provider.awareness?.getStates().keys() ?? [])].filter((id) => id === visitClientId('staff-writer')).length,
+    1,
+    'a second visit renews the same face',
+  );
+
+  // Leaving takes the face away at once.
+  reader.provider.destroy();
+  await eventually(() => !faces(writer.provider).some((face) => face.startsWith('human-reader:')), 'reader leaves');
 });

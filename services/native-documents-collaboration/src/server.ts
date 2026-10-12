@@ -3,8 +3,10 @@ import {
   MessageType,
   Server,
   type Connection,
+  type Document,
 } from '@hocuspocus/server';
 import * as Y from 'yjs';
+import { applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness';
 import { bodyView, prepareBodyEdit, checkedBodyUpdate, BodyEditConflict, InvalidBodyEdit } from './body-edits.js';
 
 import type { CollaborationConfig } from './config.js';
@@ -158,6 +160,31 @@ function boundedCursor(state: unknown): unknown {
   if (keys.length !== 2 || keys[0] !== 'anchor' || keys[1] !== 'head') return undefined;
   const json = JSON.stringify(cursor);
   return Buffer.byteLength(json) <= MAX_CURSOR_JSON_BYTES ? JSON.parse(json) : undefined;
+}
+
+/** The awareness client that stands for one actor's body-route visit. Deterministic, so a
+ * second visit renews the first rather than adding a face. */
+export function visitClientId(actorId: string): number {
+  let hash = 2166136261;
+  for (const character of actorId) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619) >>> 0;
+  return hash;
+}
+
+/** Exec and Staff read and change a document through the body route, not a socket, so the
+ * people on it would never see them. A visit is shown as one awareness client stamped with the
+ * verified actor. y-protocols forgets a remote client that is not renewed within 30 s, here and in
+ * every browser, so the face leaves on its own. Nothing is stored. */
+function showVisit(document: Document, actorId: string, editing: boolean): void {
+  if (document.getConnections().length === 0) return;
+  const clientId = visitClientId(actorId);
+  const clock = (document.awareness.meta.get(clientId)?.clock ?? 0) + 1;
+  const state = { user: { actor_id: actorId }, ...(editing ? { editing: true } : {}) };
+  const update = encodeAwarenessUpdate(
+    { meta: new Map([[clientId, { clock, lastUpdated: 0 }]]) } as unknown as Document['awareness'],
+    [clientId],
+    new Map([[clientId, state]]),
+  );
+  applyAwarenessUpdate(document.awareness, update, 'restless.visit');
 }
 
 function clearLease(lease: CollaborationLease): void {
@@ -336,8 +363,10 @@ export class NativeDocumentsCollaborationServer {
         }
         // Presence carries only what Core verified: this connection's actor and
         // a bounded caret. Names are resolved by each viewer from Core, so no
-        // client-supplied identity ever crosses this boundary.
+        // client-supplied identity ever crosses this boundary. A writer with a
+        // caret in the body is editing; everyone else on the page is viewing.
         const document = connection.document;
+        const writes = context.session.lease.claims.access === 'write';
         const claimedElsewhere = (clientId: number) =>
           document
             .getConnections()
@@ -354,6 +383,7 @@ export class NativeDocumentsCollaborationServer {
           states.set(clientId, {
             user: { actor_id: context.session.lease.claims.actor_id },
             ...(cursor === undefined ? {} : { cursor }),
+            ...(writes && cursor !== undefined ? { editing: true } : {}),
           });
         }
       },
@@ -495,6 +525,7 @@ export class NativeDocumentsCollaborationServer {
           // This also stabilizes a freshly seeded Yjs body before returning a delta.
           await this.store.store({ ...target, state: Y.encodeStateAsUpdate(document) });
         });
+        showVisit(document, claims.actor_id, value.action === 'apply');
         writeJson(response, request.method, 200, result);
       } finally {
         await connection.disconnect();
