@@ -250,6 +250,13 @@ try {
   })).data.invitation;
   assert.match(invited.link, /\?invite=/);
   assert(messages.some((m) => m.to === "colleague@issuer.test" && m.text.includes(invited.link)));
+  // Resending mails the same pending invitation again rather than refusing a duplicate.
+  const resent = (await cockpit("invitations", {
+    cookie: owner.cookie,
+    body: { email: "colleague@issuer.test", role: "member", resend: true },
+  })).data.invitation;
+  assert.equal(resent.id, invited.id);
+  assert.equal(messages.filter((m) => m.to === "colleague@issuer.test" && m.text.includes(invited.link)).length, 2);
   const colleague = await signup("Colleague", "colleague@issuer.test");
   await call("/api/company/bootstrap", { body: { companyId: secondCompany.companyId }, cookie: colleague.cookie, expected: 403 });
   await call("/api/invitations/accept", { body: { id: invited.id }, cookie: colleague.cookie });
@@ -260,8 +267,11 @@ try {
   assert.equal(entry.membership_role, "member");
   assert.equal(entry.membership_version, 1);
   const membershipId = entry.membership_id;
-  await cockpit("members", { cookie: colleague.cookie, expected: 403 });
-  console.log("PASS invitation link and email; members cannot manage members");
+  const seenByMember = (await cockpit("members", { cookie: colleague.cookie })).data;
+  assert.equal(seenByMember.viewer.role, "member");
+  assert.deepEqual(seenByMember.invitations, []);
+  await cockpit("invitations", { cookie: colleague.cookie, body: { email: "x2@issuer.test", role: "member" }, expected: 403 });
+  console.log("PASS invitation link and email; members see who is in it but cannot manage members");
 
   // Role changes advance the version so Core accepts the new role.
   await cockpit(`members/${membershipId}/role`, { cookie: owner.cookie, body: { role: "admin" } });
@@ -320,6 +330,27 @@ try {
     await call("/api/enter", { body: {}, cookie: colleague.cookie, expected: 403 });
     await cockpit(`members/${ownerEntry.membership_id}/remove`, { cookie: owner.cookie, body: {}, expected: 403 });
     console.log("PASS removal during a Core outage completes from the outbox across an issuer restart");
+
+    // Leaving is a person's own removal: entry closes and Core gets the control. The owner
+    // cannot leave, and nobody leaves on another's behalf or from another origin.
+    const leaver = (await cockpit("invitations", {
+      cookie: owner.cookie,
+      body: { email: "leaver@issuer.test", role: "member" },
+    })).data.invitation;
+    const leaving = await signup("Leaver", "leaver@issuer.test");
+    await call("/api/invitations/accept", { body: { id: leaver.id }, cookie: leaving.cookie });
+    const leaverEntry = decode((await call("/api/enter", { body: {}, cookie: leaving.cookie })).data.assertion);
+    await call(adminPath("members/self/leave"), { requestOrigin: origin, cookie: leaving.cookie, body: {}, expected: 403 });
+    await cockpit("members/self/leave", { cookie: owner.cookie, body: {}, expected: 403 });
+    result = await cockpit("members/self/leave", { cookie: leaving.cookie, body: {} });
+    assert.equal(result.data.ending, false);
+    assert.equal(coreState.get(leaverEntry.membership_id)?.status, "removed");
+    await call("/api/enter", { body: {}, cookie: leaving.cookie, expected: 403 });
+    await cockpit("members/self/leave", { cookie: leaving.cookie, body: {}, expected: 403 });
+    assert(!(await cockpit("members", { cookie: owner.cookie })).data.members.some(
+      (m) => m.membership_id === leaverEntry.membership_id,
+    ));
+    console.log("PASS a member leaves on their own; the owner cannot leave");
   } finally {
     await new Promise((resolve) => restartedServer.close(resolve));
     await restarted.close();

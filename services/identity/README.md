@@ -142,7 +142,9 @@ still apply. Never forward the unauthenticated local-owner listener to teammates
 Members collaborate. Administrators can also invite and remove members. Only
 the owner invites, promotes, demotes or removes an administrator. Company
 Authority is managed separately inside Core. The owner and the person making the
-change cannot be changed from **Members**.
+change cannot be changed from **Members**. Anyone but the owner may leave the
+company from their own row (`POST members/self/leave`); leaving is the same
+versioned removal an administrator would make.
 
 Each role change, suspension, reinstatement and removal advances the
 membership's version, so Core accepts the newest state and refuses an older
@@ -153,8 +155,8 @@ person's sessions and document connections, retrying with backoff while Core is
 unavailable. Nobody needs to retry by hand. Past contributions keep their
 attribution.
 
-Invitations are emailed. The company can also copy an invitation link; the
-invitee still has to sign up with, and verify, the invited address.
+Invitations are emailed. The company can also copy an invitation link or resend
+the email; the invitee still has to sign up with, and verify, the invited address.
 
 **Sign out of account** ends the account-service session. Use Core's own sign-out
 control to end an already-open company session. Verification and password-reset

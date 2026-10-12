@@ -184,6 +184,24 @@ export function createIssuer({ auth, origin, placement, store, invitationLink })
     // Everyone in the company sees who is in it; owners and admins change it.
     if (request.method === "GET" && rest === "members")
       return adminView(request, companyId, viewer);
+    // Anyone but the owner may leave. It is their own removal: the same versioned change and
+    // Core control as an admin removing them, so entry closes the same way.
+    if (request.method === "POST" && rest === "members/self/leave") {
+      if (!/^application\/json\b/i.test(request.headers.get("content-type") ?? ""))
+        refuse(415, "Membership changes must be JSON.");
+      const change = { verb: "remove" };
+      return store.change(companyId, viewer.membership_id, change, {
+        actorUserId: user.id,
+        headers: sessionHeaders(request),
+        authorize: (target) => {
+          if (target.membership_id !== viewer.membership_id)
+            refuse(409, "Your membership changed. Reload and try again.");
+          if (target.role === "owner")
+            refuse(403, "The owner cannot leave the company.");
+          return true;
+        },
+      });
+    }
     if (!["owner", "admin"].includes(viewer.role))
       refuse(403, "Only the company owner or an admin can manage members.");
     if (request.method !== "POST") refuse(404, "Membership action not found.");
