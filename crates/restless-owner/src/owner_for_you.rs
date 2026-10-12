@@ -171,14 +171,14 @@ pub(super) fn href(company: &str, item: &ForYouItem) -> String {
             message_id,
             mention_id,
             ..
-        } => {
-            let mention = mention_id
-                .map(|mention| format!("&mention={mention}"))
-                .unwrap_or_default();
-            format!(
-                "/{company}/people?room={room_id}&thread={thread_root_message_id}&message={message_id}{mention}"
-            )
-        }
+        } => match mention_id {
+            Some(mention) => format!(
+                "/{company}/people?room={room_id}&thread={thread_root_message_id}&message={message_id}&mention={mention}"
+            ),
+            // A reply in a thread the person is in opens the thread itself. An exact-message
+            // link needs its mention; without one the Room calls the address invalid.
+            None => format!("/{company}/people?room={room_id}&thread={thread_root_message_id}"),
+        },
     }
 }
 
@@ -502,6 +502,39 @@ mod tests {
         assert_eq!(names(&["Bianca", "Exec"]), "Bianca and Exec");
         assert_eq!(names(&["Alex", "Bianca", "Exec"]), "Alex, Bianca and Exec");
         assert_eq!(names(&["Alex", "Bianca", "Carol", "Exec"]), "Alex, Bianca and 2 others");
+    }
+
+    /// A Room mention opens its exact message; a reply in a thread the person is in opens the
+    /// thread, since the Room refuses an exact-message address that names no mention.
+    #[test]
+    fn room_items_link_to_an_address_the_room_accepts() {
+        let room_id = Uuid::from_u128(7);
+        let item = |mention_id| ForYouItem {
+            key: "k".into(),
+            kind: "reply".into(),
+            title: "Launch".into(),
+            excerpt: String::new(),
+            target: ForYouTarget::Room {
+                room_id,
+                room_kind: "group".into(),
+                thread_root_message_id: 4,
+                message_id: 9,
+                mention_id,
+            },
+            actor_ids: vec![],
+            actor_names: vec![],
+            at: Utc::now(),
+            unread: true,
+        };
+        assert_eq!(
+            href("company_ab", &item(None)),
+            format!("/company_ab/people?room={room_id}&thread=4")
+        );
+        let mention = Uuid::from_u128(8);
+        assert_eq!(
+            href("company_ab", &item(Some(mention))),
+            format!("/company_ab/people?room={room_id}&thread=4&message=9&mention={mention}")
+        );
     }
 
     async fn request(
