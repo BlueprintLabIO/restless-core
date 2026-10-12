@@ -476,7 +476,7 @@
 
 <svelte:head
 	><title
-		>Conversations — {cockpit.view?.company.name ??
+		>People — {cockpit.view?.company.name ??
 			collaboration.view?.company.name ??
 			companyId}</title
 	></svelte:head
@@ -582,16 +582,8 @@
 					</a>
 				{:else}
 					{#if search.trim()}<p class="empty">No conversations match.</p>{:else}
-						<SidebarEmpty
-							text="No conversations yet. Talk to the Exec, or start a group with people you choose."
-						>
-							{#if directoryExec}<a class="primary" href={href(directoryExec.actor_id)}
-									>Message the Exec</a
-								>{/if}
-							<button type="button" onclick={() => manager?.open()}
-								><MessagesSquare size={15} strokeWidth={1.8} aria-hidden="true" />New group chat</button
-							>
-						</SidebarEmpty>
+						<!-- Message Exec is beside it and a new group is the + above; this only says why it is empty. -->
+						<SidebarEmpty text="No conversations yet." />
 					{/if}
 				{/each}
 			{:else}
