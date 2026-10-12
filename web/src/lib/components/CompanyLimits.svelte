@@ -8,6 +8,8 @@
 	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
 	import { companyQuery } from '$lib/model/queries.svelte';
 	import { approvalAction } from '$lib/model/attention';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	let { section = 'spend' }: { section?: 'spend' | 'authority' | 'computer' } = $props();
@@ -19,8 +21,7 @@
 		limitSaving = $state(false),
 		limit = $state(''),
 		baseLimit = $state(''),
-		limitError = $state(''),
-		limitNotice = $state('');
+		limitError = $state('');
 	let editingRuntime = $state(false),
 		runtimeSaving = $state(false),
 		autoSleepMinutes = $state(''),
@@ -113,7 +114,6 @@
 		if (limitSaving) return;
 		limitSaving = true;
 		limitError = '';
-		limitNotice = '';
 		try {
 			const r = await fetch(`/api/companies/${encodeURIComponent(companyId)}/company/spend-limit`, {
 				method: 'POST',
@@ -124,7 +124,7 @@
 			if (!r.ok) throw new Error(result.message ?? 'The limit could not be saved.');
 			source.accept(result);
 			editingLimit = false;
-			limitNotice = 'Spend limit saved.';
+			toast('Spend limit saved');
 		} catch (e) {
 			limitError = failureSentence(e, 'The limit could not be saved.');
 		} finally {
@@ -132,23 +132,22 @@
 		}
 	}
 	let revoking = $state(''),
-		revokeError = $state(''),
-		revokeNotice = $state('');
+		revokeError = $state('');
 	async function revokeContact(party: string) {
 		if (revoking) return;
-		if (
-			!window.confirm(
-				`Revoke approval for ${party}? The company will ask you again before contacting them.`
-			)
-		)
-			return;
+		const yes = await confirmAction({
+			title: `Revoke approval for ${party}?`,
+			body: 'The company will ask you again before contacting them.',
+			action: 'Revoke',
+			danger: true
+		});
+		if (!yes) return;
 		revoking = party;
 		revokeError = '';
-		revokeNotice = '';
 		try {
 			await approvalAction(companyId, 'revoke', party);
 			await source.refresh();
-			revokeNotice = `${party} is no longer approved.`;
+			toast(`${party} is no longer approved`);
 		} catch (error) {
 			revokeError = failureSentence(error, 'The approval could not be revoked.');
 		} finally {
@@ -191,7 +190,6 @@
 							limit = String(spend.ceiling_usd);
 							baseLimit = limit;
 							limitError = '';
-							limitNotice = '';
 							editingLimit = true;
 						}}>Edit limit</button
 					>{/if}
@@ -259,7 +257,6 @@
 			{/if}
 			{#if limitError}<Notice tone="danger" title="The limit was not saved">{limitError}</Notice
 				>{/if}
-			{#if limitNotice}<Notice tone="success" title={limitNotice} />{/if}
 			{@const native = view.limits.native}
 			<form
 				onsubmit={(event) => {
@@ -386,7 +383,6 @@
 			{#if revokeError}<Notice tone="danger" title="The approval was not revoked"
 					>{revokeError}</Notice
 				>{/if}
-			{#if revokeNotice}<Notice tone="success" title={revokeNotice} />{/if}
 			<Row
 				label="Payment allowances"
 				info="Payments you have authorised. Separate from the model budget."

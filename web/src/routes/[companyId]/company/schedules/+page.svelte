@@ -5,6 +5,8 @@
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { failureSentence } from '$lib/model/failure';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { page } from '$app/state';
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import { mayManageCompanySetup } from '$lib/model/company-access';
@@ -36,7 +38,6 @@
 			(query.error ? failureSentence(query.error, 'Schedules could not be read.') : '')
 	);
 	let busy = $state('');
-	let notice = $state('');
 	let report = $state<ScheduleTestReport | null>(null);
 	let creating = $state(false),
 		every = $state('1h'),
@@ -53,11 +54,10 @@
 		if (busy) return;
 		busy = key;
 		actionFailure = '';
-		notice = '';
 		try {
 			await operation();
 			await query.refetch();
-			notice = message;
+			toast(message);
 		} catch (cause) {
 			actionFailure = failureSentence(cause, 'The schedule could not be updated.');
 		} finally {
@@ -91,8 +91,14 @@
 			weekdays(item) ? 'Time saved' : 'Cadence saved'
 		);
 	}
-	function remove(item: MonitoredSchedule) {
-		if (!window.confirm(`Delete “${item.schedule.reason}”? Exec will stop running it.`)) return;
+	async function remove(item: MonitoredSchedule) {
+		const yes = await confirmAction({
+			title: `Delete “${item.schedule.reason}”?`,
+			body: 'Exec stops running it. Pause it instead to keep it for later.',
+			action: 'Delete',
+			danger: true
+		});
+		if (!yes) return;
 		void act(
 			item.schedule.id,
 			async () => {
@@ -169,7 +175,6 @@
 			{#snippet actions()}<button class="btn small" onclick={() => query.refetch()}>Retry</button
 				>{/snippet}
 		</Notice>{/if}
-	{#if notice}<Notice tone="success" title={notice} />{/if}
 	{#if report}<Notice
 			tone="info"
 			title={`Trigger test: ${report.status.replaceAll('_', ' ')}`}

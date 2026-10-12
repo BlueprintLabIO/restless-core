@@ -6,6 +6,7 @@
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { page } from '$app/state';
 	import Monitor from '@lucide/svelte/icons/monitor';
 	import { recoverCompany, type RecoveryAction } from '$lib/model/company';
@@ -51,7 +52,8 @@
 	let error = $state('');
 
 	async function recover(action: RecoveryAction, confirmation: string) {
-		if (working || !window.confirm(confirmation)) return;
+		if (working) return;
+		if (!(await confirmAction({ title: confirmation, action: 'Go ahead', danger: true }))) return;
 		working = action;
 		error = '';
 		notice = '';

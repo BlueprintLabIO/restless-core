@@ -57,6 +57,28 @@ function walk(dir) {
 
 walk(ROOT);
 
+/* One way to ask before an irreversible act: confirmAction() and its dialog, never the browser's
+ * own prompt. Anything that can be undone asks nothing and offers Undo on the toast. */
+const nativeConfirms = [];
+function scanConfirms(dir) {
+	for (const entry of readdirSync(dir, { withFileTypes: true })) {
+		const path = join(dir, entry.name);
+		if (entry.isDirectory()) scanConfirms(path);
+		else if (/\.(svelte|ts)$/.test(entry.name) && !/\.test\.ts$/.test(entry.name)) {
+			const source = readFileSync(path, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+			if (/\b(window\.)?confirm\s*\(/.test(source.replace(/\bconfirmAction\s*\(/g, '')))
+				nativeConfirms.push(relative(process.cwd(), path));
+		}
+	}
+}
+scanConfirms(resolve('src'));
+if (nativeConfirms.length) {
+	console.error('\nThe browser confirm() prompt is used where confirmAction() belongs:\n');
+	for (const file of nativeConfirms) console.error('  ' + file);
+	console.error('\nAsk with confirmAction() from $lib/ui/feedback/confirm.svelte, or act and offer Undo.\n');
+	process.exit(1);
+}
+
 if (offences.length) {
 	console.error(`\n${offences.length} import(s) cross the src/lib/ui boundary.\n`);
 	for (const offence of offences) console.error('  ' + offence);

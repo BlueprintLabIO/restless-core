@@ -3,6 +3,8 @@
 	import { Section, Row, Item, Notice, Empty } from '$lib/ui/page';
 	import { describeFailure, failureSentence, responseFailure } from '$lib/model/failure';
 	import { refreshAttention } from '$lib/model/queries.svelte';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 
 	let { companyId }: { companyId: string } = $props();
 	const queryClient = useQueryClient();
@@ -58,7 +60,6 @@
 	let saving = $state(false);
 	let revoking = $state<string | null>(null);
 	let error = $state('');
-	let notice = $state('');
 	let editing = $state(false);
 	let draft = $state<Draft>(emptyDraft());
 
@@ -127,14 +128,12 @@
 	function beginCreate() {
 		draft = emptyDraft();
 		error = '';
-		notice = '';
 		editing = true;
 	}
 
 	async function save() {
 		if (saving) return;
 		error = '';
-		notice = '';
 		const daily = Number(draft.max_per_day);
 		const total = Number(draft.max_total);
 		if (daily > total) {
@@ -164,8 +163,7 @@
 				throw new Error(messageFrom(body, 'The email mandate proposal could not be submitted.'));
 			await refreshAttention(queryClient, companyId);
 			editing = false;
-			notice =
-				'Mandate proposal sent to your Inbox. It will not authorize sends until you approve it there.';
+			toast('Sent to your Inbox. It authorizes nothing until you approve it there');
 		} catch (cause) {
 			error =
 				cause instanceof Error
@@ -178,9 +176,14 @@
 
 	async function revoke(mandate: EmailMandate) {
 		if (revoking) return;
-		if (!window.confirm(`Revoke the email mandate for “${mandate.purpose}”?`)) return;
+		const yes = await confirmAction({
+			title: `Revoke the email mandate for “${mandate.purpose}”?`,
+			body: 'New email sends under it stop at once. A new mandate needs your approval again.',
+			action: 'Revoke',
+			danger: true
+		});
+		if (!yes) return;
 		error = '';
-		notice = '';
 		revoking = mandate.id;
 		try {
 			const response = await fetch(`${endpoint()}/${encodeURIComponent(mandate.id)}/revoke`, {
@@ -192,7 +195,7 @@
 			if (!response.ok)
 				throw new Error(messageFrom(body, 'The email mandate could not be revoked.'));
 			mandates = mandates.filter((item) => item.id !== mandate.id);
-			notice = 'Email mandate revoked. New email sends under it are no longer permitted.';
+			toast('Email mandate revoked');
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'The email mandate could not be revoked.';
 		} finally {
@@ -241,7 +244,6 @@
 			>{/if}
 	{/snippet}
 	{#if error}<Notice tone="danger" title="That change was not made">{error}</Notice>{/if}
-	{#if notice}<Notice tone="success" title={notice} />{/if}
 	{#if loadError}
 		<Notice tone="danger" title="Email mandates could not be read" details={loadError}>
 			{#snippet actions()}{#if loadRetryable}<button

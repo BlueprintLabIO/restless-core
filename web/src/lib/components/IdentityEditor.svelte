@@ -3,7 +3,8 @@
 	 * edited in place. Saving creates a new attributed release; earlier Work keeps
 	 * the release it started with. */
 	import { failureSentence } from '$lib/model/failure';
-	import { beforeNavigate } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { tick } from 'svelte';
 	import type { CompanyIdentitySnapshot } from '$lib/model/identity';
 	import { saveCompanyIdentity } from '$lib/model/identity';
@@ -129,13 +130,20 @@
 		}
 	}
 
+	let discarding = false;
 	beforeNavigate((navigation) => {
-		if (
-			changed &&
-			!navigation.willUnload &&
-			!window.confirm('Discard your unsaved identity changes?')
-		)
-			navigation.cancel();
+		if (!changed || discarding || navigation.willUnload || !navigation.to) return;
+		navigation.cancel();
+		const target = navigation.to.url;
+		void confirmAction({
+			title: 'Discard your unsaved identity changes?',
+			action: 'Discard',
+			danger: true
+		}).then((yes) => {
+			if (!yes) return;
+			discarding = true;
+			void goto(target).finally(() => (discarding = false));
+		});
 	});
 	$effect(() => {
 		if (!changed) return;

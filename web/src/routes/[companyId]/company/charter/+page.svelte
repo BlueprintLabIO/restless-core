@@ -5,7 +5,8 @@
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
-	import { beforeNavigate } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { page } from '$app/state';
 	import { tick } from 'svelte';
 	import CompanyNameField from '$lib/components/CompanyNameField.svelte';
@@ -69,13 +70,20 @@
 		}
 	}
 
+	let discarding = false;
 	beforeNavigate((navigation) => {
-		if (
-			changed &&
-			!navigation.willUnload &&
-			!window.confirm('Discard your unsaved charter changes?')
-		)
-			navigation.cancel();
+		if (!changed || discarding || navigation.willUnload || !navigation.to) return;
+		navigation.cancel();
+		const target = navigation.to.url;
+		void confirmAction({
+			title: 'Discard your unsaved charter changes?',
+			action: 'Discard',
+			danger: true
+		}).then((yes) => {
+			if (!yes) return;
+			discarding = true;
+			void goto(target).finally(() => (discarding = false));
+		});
 	});
 
 	function beginEditing() {

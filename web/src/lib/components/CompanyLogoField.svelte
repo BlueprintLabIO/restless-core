@@ -11,6 +11,8 @@
 		type LogoChange
 	} from '$lib/model/company-logo';
 	import CompanyMark from '$lib/ui/glyph/CompanyMark.svelte';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 
 	let { companyId }: { companyId: string } = $props();
 	const catalog = companiesQuery();
@@ -54,9 +56,34 @@
 			void change('upload', async () => uploadCompanyLogo(companyId, await prepareLogo(file)));
 	}
 
-	function remove() {
-		if (!window.confirm('Remove the company logo? The generated mark shows in its place.')) return;
-		void change('remove', () => removeCompanyLogo(companyId));
+	/* Removing keeps a copy of the image, so Undo puts the same logo back. Only when the image
+	 * cannot be read first does it ask, since nothing could then bring it back. */
+	async function remove() {
+		if (busy) return;
+		const company = companyId;
+		const previous = logoUrl
+			? await fetch(logoUrl, { credentials: 'same-origin' })
+					.then((response) => (response.ok ? response.blob() : null))
+					.catch(() => null)
+			: null;
+		if (
+			!previous &&
+			!(await confirmAction({
+				title: 'Remove the company logo?',
+				body: 'The generated mark shows in its place.',
+				action: 'Remove',
+				danger: true
+			}))
+		)
+			return;
+		await change('remove', () => removeCompanyLogo(company));
+		if (error || company !== companyId) return;
+		saved = '';
+		toast('Logo removed', {
+			undo: previous
+				? () => change('upload', () => uploadCompanyLogo(company, previous))
+				: undefined
+		});
 	}
 
 	const carriesFiles = (event: DragEvent) => !!event.dataTransfer?.types.includes('Files');
@@ -87,8 +114,11 @@
 	<button class="btn small" type="button" disabled={!!busy} onclick={() => input?.click()}
 		>{busy === 'upload' ? 'Uploading…' : logoUrl ? 'Replace' : 'Upload'}</button
 	>
-	{#if logoUrl}<button class="btn small ghost" type="button" disabled={!!busy} onclick={remove}
-			>{busy === 'remove' ? 'Removing…' : 'Remove'}</button
+	{#if logoUrl}<button
+			class="btn small ghost"
+			type="button"
+			disabled={!!busy}
+			onclick={() => void remove()}>{busy === 'remove' ? 'Removing…' : 'Remove'}</button
 		>{/if}
 	<span
 		class="logo-state"
