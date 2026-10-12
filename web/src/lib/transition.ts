@@ -5,6 +5,17 @@
  * change simply applies. */
 import { tick } from 'svelte';
 
+/* A transition the browser skips, because another navigation or transition started first,
+ * rejects its promises with InvalidStateError. That is ordinary, not a failure: the change
+ * still applies, only without the crossfade, so its promises settle quietly. */
+export function settleQuietly(transition: ViewTransition): ViewTransition {
+	const ignore = () => {};
+	transition.ready.catch(ignore);
+	transition.finished.catch(ignore);
+	transition.updateCallbackDone.catch(ignore);
+	return transition;
+}
+
 export function inPlace(update: () => void) {
 	const supported =
 		typeof document !== 'undefined' &&
@@ -15,11 +26,13 @@ export function inPlace(update: () => void) {
 		update();
 		return;
 	}
-	document.startViewTransition({
-		update: async () => {
-			update();
-			await tick();
-		},
-		types: ['in-place']
-	});
+	settleQuietly(
+		document.startViewTransition({
+			update: async () => {
+				update();
+				await tick();
+			},
+			types: ['in-place']
+		})
+	);
 }

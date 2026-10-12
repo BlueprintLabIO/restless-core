@@ -2248,17 +2248,6 @@ impl OrgIntel {
             .await
     }
 
-    /// Lease-fenced form used by a live accountable-lead conversation.
-    pub async fn send_work_message_to_owner_with_cognitive_lease(
-        &self,
-        lease: &ActorCognitiveLease,
-        work_id: Uuid,
-        body: &str,
-    ) -> Result<i64> {
-        self.send_work_message_to_owner_internal(&lease.actor_id, work_id, body, Some(lease))
-            .await
-    }
-
     async fn send_work_message_to_owner_internal(
         &self,
         from: &str,
@@ -2850,25 +2839,6 @@ impl OrgIntel {
     /// This is the owner-specific direct-Room view.
     pub async fn owner_conversation(&self, actor: &str, limit: i64) -> Result<Vec<MessageRow>> {
         self.human_conversation("owner", actor, limit).await
-    }
-
-    /// Current working-context boundary for the owner's conversation with one
-    /// actor. A zero cursor with no timestamp is the original uninterrupted
-    /// conversation; it is not an unknown state.
-    pub async fn owner_conversation_focus(&self, actor: &str) -> Result<ConversationFocusRow> {
-        sqlx::query_as(
-            "SELECT conversation_focus_after_message_id AS after_message_id, \
-                    conversation_focus_started_at AS started_at \
-             FROM actors WHERE id=$1 AND retired_at IS NULL",
-        )
-        .bind(actor)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| {
-            OrgIntelError::InvalidWork(format!(
-                "active conversation actor {actor:?} does not exist"
-            ))
-        })
     }
 
     /// Consume one unread human conversation message because its exact sender

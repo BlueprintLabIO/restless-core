@@ -474,15 +474,6 @@ export function getDocumentVersion(
 	);
 }
 
-export function createDocumentVersion(
-	company: string,
-	document: string,
-	input: CreateDocumentVersionInput,
-	commandId: string
-): Promise<DocumentCommandResult> {
-	return documentJson(`${documentsPath(company, document)}/versions`, mutation(input, commandId));
-}
-
 export function restoreDocumentVersion(
 	company: string,
 	document: string,
@@ -617,17 +608,6 @@ export function getDocumentReviews(
 	const query = new URLSearchParams({ limit: String(limit) });
 	appendPageCursor(query, cursor);
 	return documentJson(`${documentsPath(company, document)}/reviews?${query}`, { signal });
-}
-
-export function getDocumentReview(
-	company: string,
-	document: string,
-	review: string,
-	signal?: AbortSignal
-): Promise<DocumentReviewView> {
-	return documentJson(`${documentsPath(company, document)}/reviews/${encodeURIComponent(review)}`, {
-		signal
-	});
 }
 
 export function requestDocumentReview(
@@ -776,24 +756,6 @@ export function rejectDocumentRevisionProposal(
 		)
 	);
 }
-
-export const DOCUMENT_KINDS: ReadonlyArray<{ value: DocumentKind; label: string }> = [
-	{ value: 'brief', label: 'Brief' },
-	{ value: 'plan', label: 'Plan' },
-	{ value: 'decision_note', label: 'Decision note' },
-	{ value: 'report', label: 'Report' },
-	{ value: 'review', label: 'Review' },
-	{ value: 'handbook', label: 'Handbook' },
-	{ value: 'operating_note', label: 'Operating note' },
-	{ value: 'freeform', label: 'Freeform' }
-];
-
-export const DOCUMENT_STATUSES: ReadonlyArray<{ value: DocumentStatus; label: string }> = [
-	{ value: 'draft', label: 'Draft' },
-	{ value: 'in_review', label: 'In review' },
-	{ value: 'accepted', label: 'Accepted' },
-	{ value: 'archived', label: 'Archived' }
-];
 
 export type EditableBlockKind =
 	| 'paragraph'

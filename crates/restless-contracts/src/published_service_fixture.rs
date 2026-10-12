@@ -23,7 +23,7 @@ use hyper_util::service::TowerToHyperService;
 use rcgen::generate_simple_self_signed;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::process::Command;
@@ -854,16 +854,12 @@ pub fn load_marker(path: &Path) -> Result<LocalFixtureMarker> {
     serde_json::from_slice(&raw).with_context(|| format!("decode {}", path.display()))
 }
 
-pub fn observation_value(path: &Path) -> Result<Value> {
-    let raw = std::fs::read(path).with_context(|| format!("read {}", path.display()))?;
-    serde_json::from_slice(&raw).with_context(|| format!("decode {}", path.display()))
-}
-
 #[cfg(test)]
 mod tests {
     use std::io::BufReader;
 
-    use futures_util::{SinkExt as _, StreamExt as _};
+    use futures_util::SinkExt as _;
+    use serde_json::Value;
     use rustls::pki_types::ServerName;
     use tokio::time::{Duration, Instant};
     use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;

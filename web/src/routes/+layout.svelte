@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { settleQuietly } from '$lib/transition';
 	/* The app frame that sits OUTSIDE the design scope: the offline banner and the
 	 * loading bar. They live here rather than inside `.bridge-root` because they
 	 * report on the app itself, not on the company — which is also why the z-ladder
@@ -36,10 +37,12 @@
 		)
 			return;
 		return new Promise((resolve) => {
-			document.startViewTransition(async () => {
-				resolve();
-				await navigation.complete;
-			});
+			settleQuietly(
+				document.startViewTransition(async () => {
+					resolve();
+					await navigation.complete;
+				})
+			);
 		});
 	});
 

@@ -27,7 +27,6 @@ const MAX_CHECKPOINT_SOURCES: usize = 64;
 const MAX_SOURCE_STATEMENT_BYTES: usize = 4_000;
 const MAX_SOURCE_SCOPE_BYTES: usize = 1_000;
 const MAX_SOURCE_PAGE: i64 = 64;
-const MAX_CHECKPOINT_PAGE: i64 = 50;
 const MAX_BOOTSTRAP_SOURCES: i64 = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
@@ -1489,32 +1488,6 @@ impl OrgIntel {
         };
         tx.commit().await?;
         Ok(checkpoint)
-    }
-
-    pub async fn actor_checkpoints_before(
-        &self,
-        actor_id: &str,
-        before_version: Option<i64>,
-        limit: i64,
-    ) -> Result<Vec<ActorCheckpointRow>> {
-        if before_version.is_some_and(|value| value < 1)
-            || !(1..=MAX_CHECKPOINT_PAGE).contains(&limit)
-        {
-            return Err(OrgIntelError::InvalidContext(format!(
-                "checkpoint cursor must be positive and limit must be between 1 and {MAX_CHECKPOINT_PAGE}"
-            )));
-        }
-        let rows: Vec<CheckpointDbRow> = sqlx::query_as(&format!(
-            "SELECT {CHECKPOINT_SELECT} FROM actor_context_checkpoints \
-             WHERE actor_id=$1 AND ($2::bigint IS NULL OR checkpoint_version<$2) \
-             ORDER BY checkpoint_version DESC LIMIT $3"
-        ))
-        .bind(actor_id)
-        .bind(before_version)
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await?;
-        rows.into_iter().map(checkpoint_row).collect()
     }
 
     pub async fn actor_checkpoint_sources_after(

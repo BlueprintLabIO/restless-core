@@ -26,10 +26,6 @@ export function renameSheet(company: string, id: string, title: string): Promise
 export function sheetHref(company: string, id: string): string {
 	return `/${encodeURIComponent(company)}/library/sheets?sheet=${encodeURIComponent(id)}`;
 }
-/** The page that imports an Excel or CSV file as a new sheet. */
-export function sheetImportHref(company: string): string {
-	return `/${encodeURIComponent(company)}/library/sheets?import=1`;
-}
 /** Hand the browser a file to save, named from a title without characters file systems refuse. */
 export function saveFile(title: string, extension: string, body: Blob) {
 	const url = URL.createObjectURL(body);

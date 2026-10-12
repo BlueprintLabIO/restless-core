@@ -168,34 +168,6 @@ export function documentsQuery(companyId: QueryId) {
 	};
 }
 
-export function documentPrincipalQuery(companyId: QueryId) {
-	const client = useQueryClient();
-	const query = createQuery(() => ({
-		queryKey: documentQueryKeys.principal(queryId(companyId)),
-		queryFn: ({ queryKey, signal }) => {
-			const company = keyPart(queryKey, 1);
-			return guardedDocumentRead(client, company, null, () => getCompanyPrincipal(company, signal));
-		},
-		enabled: Boolean(queryId(companyId)),
-		staleTime: DOCUMENT_STALE_MS,
-		gcTime: DOCUMENT_RETAIN_MS,
-		refetchInterval: DOCUMENT_REFRESH_MS,
-		retry: retryDocumentRead
-	}));
-	return {
-		get principal() {
-			return (readableData(query) as CompanyPrincipal | undefined) ?? null;
-		},
-		get status() {
-			return sourceStatus(query);
-		},
-		get failure() {
-			return (query.error as (Error & { status?: number }) | null) ?? null;
-		},
-		refresh: () => query.refetch()
-	};
-}
-
 /* Shared by the page and by hover prefetch (see prefetch.ts). */
 export function documentDetailOptions(client: QueryClient, companyId: string, documentId: string) {
 	return {

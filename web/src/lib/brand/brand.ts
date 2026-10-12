@@ -10,6 +10,3 @@
  */
 
 export const PRODUCT_NAME = 'Restless';
-
-/** The Chief of Staff's default display name, used before a company names its own. */
-export const EXEC_FALLBACK_NAME = 'Chief of Staff';

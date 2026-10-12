@@ -341,24 +341,6 @@ export async function renameInAccount(company: string, name: string): Promise<vo
 	throw new Error(body?.error ?? 'The name was not saved. Try again.');
 }
 
-export async function setCompanyHarnesses(
-	company: string,
-	coordinationHarness: AgentHarness,
-	workerHarness: AgentHarness
-): Promise<CompanyView> {
-	return ownerResponse<CompanyView>(
-		await fetch(`/api/companies/${encodeURIComponent(company)}/company/harnesses`, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({
-				coordination_harness: coordinationHarness,
-				worker_harness: workerHarness
-			}),
-			credentials: 'same-origin'
-		})
-	);
-}
-
 export async function getBrowserStatus(company: string): Promise<BrowserStatus> {
 	return ownerResponse<BrowserStatus>(
 		await fetch(`/api/companies/${encodeURIComponent(company)}/browser/status`, {

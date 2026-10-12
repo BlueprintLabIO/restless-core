@@ -531,11 +531,6 @@ export function appLevel(app: App): { label: string; info: string } {
 	return { label: 'Reads only', info: 'Can read, never change anything.' };
 }
 
-/** Whether anything in Apps needs the owner: the tab's dot. */
-export function appsNeedingOwner(apps: App[]): number {
-	return apps.filter((app) => app.state === 'needs_you').length;
-}
-
 /** Two letters for an app's tile, from its name. */
 export function monogram(name: string): string {
 	const words = name

@@ -198,15 +198,6 @@ impl OrgIntel {
         Ok(changed)
     }
 
-    /// Work that states its own bar rather than inheriting its Goal's.
-    pub async fn work_standard_overrides(&self) -> Result<Vec<(Uuid, OutcomeStandard)>> {
-        Ok(sqlx::query_as(
-            "SELECT id, outcome_standard FROM work WHERE outcome_standard IS NOT NULL",
-        )
-        .fetch_all(&self.pool)
-        .await?)
-    }
-
     /// The bar a piece of Work is held to: its own, else its Goal's, else the
     /// default for Work that serves no Goal.
     pub async fn effective_work_standard(&self, work_id: Uuid) -> Result<OutcomeStandard> {

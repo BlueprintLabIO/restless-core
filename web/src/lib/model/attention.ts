@@ -419,30 +419,6 @@ export async function sendActorMessage(
 	};
 }
 
-/** Interrupt one still-unread ordinary conversation request without inserting
- * a second owner message. The terminal client uses the same endpoint for its
- * first Ctrl-C; browser surfaces can opt into the identical semantics. */
-export async function interruptActorMessage(
-	company: string,
-	actor: string,
-	messageId: number
-): Promise<MessageInterruptResult> {
-	const response = await fetch(
-		`/api/companies/${encodeURIComponent(company)}/actors/${encodeURIComponent(actor)}/conversation/${encodeURIComponent(messageId)}/interrupt`,
-		{
-			method: 'POST',
-			credentials: 'same-origin'
-		}
-	);
-	if (!response.ok) throw await ownerError(response);
-	const result = (await response.json()) as ConversationInterruptResponse;
-	return {
-		messageId: result.message_id,
-		cancelled: result.cancelled,
-		interrupted: result.interrupted
-	};
-}
-
 /** The exact local cockpit location to associate with a message. Route parsing
  * belongs here rather than in each composer, and the server remains the final
  * company-scope authority. */

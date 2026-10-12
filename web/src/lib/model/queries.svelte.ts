@@ -672,15 +672,6 @@ export function workActivityStream(companyId: string, actorId: string, workId: s
 	};
 }
 
-export function invalidateCompany(client: QueryClient, companyId: string): Promise<void> {
-	return Promise.all([
-		client.invalidateQueries({ queryKey: queryKeys.attention(companyId) }),
-		client.invalidateQueries({ queryKey: queryKeys.cockpit(companyId) }),
-		client.invalidateQueries({ queryKey: ['company-collaboration', companyId] }),
-		client.invalidateQueries({ queryKey: queryKeys.company(companyId, false) })
-	]).then(() => undefined);
-}
-
 /* An open Room has its own exact event stream (room-queries.svelte.ts) with
  * snapshot and replay; refetching its messages here as well only doubles the
  * same request and cancels one of them. */

@@ -3772,29 +3772,6 @@ impl OrgIntel {
         }))
     }
 
-    /// Runtime bridge convenience for the one-at-a-time mention path. The
-    /// stable command id makes a lost in-process receipt safe to retry; the
-    /// ordinary send invariant still rechecks current participation and exact
-    /// recipient/Room/Thread resolution inside one transaction.
-    pub async fn reply_to_message_mention(
-        &self,
-        actor_id: &str,
-        mention: &MessageMentionContext,
-        body: &str,
-    ) -> Result<RoomMessageSendResult> {
-        self.send_room_message_with_mentions(
-            mention.mention.room_id,
-            actor_id,
-            body,
-            Some(mention.message.id),
-            &format!("runtime-mention-reply:{}", mention.mention.id),
-            None,
-            &[],
-            Some(mention.mention.id),
-        )
-        .await
-    }
-
     /// Runtime-only exact reply path. The Actor-wide lease token is checked in
     /// the same transaction that creates the Message and resolves its mention.
     pub async fn reply_to_claimed_message_mention(

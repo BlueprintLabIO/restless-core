@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { settleQuietly } from '$lib/transition';
 	/* Meeting a new owner. The company exists already (its computer starts while you talk), but
 	 * it has no charter: Exec gets to know the owner one question at a time, large and calm,
 	 * then reads back how it understands the company. "Let's do it" saves that read-back as the
@@ -192,10 +193,12 @@
 	onNavigate((navigation) => {
 		if (!document.startViewTransition || !navigation.to?.url.searchParams.has('tour')) return;
 		return new Promise((resolve) => {
-			document.startViewTransition(async () => {
-				resolve();
-				await navigation.complete;
-			});
+			settleQuietly(
+				document.startViewTransition(async () => {
+					resolve();
+					await navigation.complete;
+				})
+			);
 		});
 	});
 

@@ -106,11 +106,6 @@ export async function getCockpit(company: string, probeCredentials = false): Pro
 	return response.json();
 }
 
-/** The runtime truth used by the Exec rail. Presence in config is not enough. */
-export function execCanReceive(view: CockpitView | null): boolean {
-	return actorCanReceive(view, 'exec');
-}
-
 /** Conversation route availability follows durable OrgIntel identity. This is
  * not a probe of ACP session health or whether a turn is running. */
 export function actorCanReceive(view: CockpitView | null, actorId: string): boolean {
@@ -123,12 +118,4 @@ export function actorCanReceive(view: CockpitView | null, actorId: string): bool
 				view.people.some((person) => person.actor_id === actorId && person.kind === 'staff')
 		)
 	);
-}
-
-/** Stable identity tile derived from the actor id, independent of display order. */
-export function personTone(actor: { id?: string; actor_id?: string }): number {
-	const id = actor.id ?? actor.actor_id ?? '';
-	let hash = 0;
-	for (const character of id) hash = (hash * 31 + character.charCodeAt(0)) | 0;
-	return Math.abs(hash) % 5;
 }

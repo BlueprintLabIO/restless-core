@@ -24,20 +24,6 @@ fn scope_digest(input: &SetWorkCollaborationScope<'_>) -> String {
 }
 
 impl OrgIntel {
-    pub async fn work_collaboration_scope(
-        &self,
-        work_id: Uuid,
-    ) -> Result<Option<WorkCollaborationScopeRow>> {
-        Ok(sqlx::query_as(
-            "SELECT id AS work_id, collaboration_visibility AS visibility, \
-                    collaboration_room_id AS room_id, \
-                    collaboration_revision AS revision \
-             FROM work WHERE id=$1",
-        )
-        .bind(work_id)
-        .fetch_optional(&self.pool)
-        .await?)
-    }
 
     /// Idempotently change one Work audience. Authentication membership and
     /// organisational authority are checked by the caller; this transaction
@@ -197,30 +183,6 @@ impl OrgIntel {
             },
             created: true,
         })
-    }
-
-    pub async fn work_is_visible_to_actor(&self, work_id: Uuid, actor_id: &str) -> Result<bool> {
-        Ok(sqlx::query_scalar(
-            "SELECT EXISTS(\
-               SELECT 1 FROM work item \
-               JOIN actors actor ON actor.id=$2 AND actor.retired_at IS NULL \
-               WHERE item.id=$1 AND (\
-                 item.collaboration_visibility='company' \
-                 OR EXISTS(\
-                   SELECT 1 FROM rooms room \
-                   JOIN room_participants participant ON participant.room_id=room.id \
-                   WHERE room.id=item.collaboration_room_id \
-                     AND room.archived_at IS NULL \
-                     AND participant.actor_id=actor.id \
-                     AND participant.left_at IS NULL\
-                 )\
-               )\
-             )",
-        )
-        .bind(work_id)
-        .bind(actor_id)
-        .fetch_one(&self.pool)
-        .await?)
     }
 
     /// A Room message may reference company-visible Work or Work explicitly

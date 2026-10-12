@@ -157,38 +157,6 @@ export function roomsQuery(companyId: string) {
 	};
 }
 
-export function roomTitleSearchQuery(companyId: string, search: string) {
-	const normalized = search.trim();
-	const query = createInfiniteQuery(() => ({
-		queryKey: roomQueryKeys.roomSearch(companyId, normalized),
-		queryFn: ({ pageParam, signal }: { pageParam: RoomListCursor | null; signal: AbortSignal }) =>
-			searchRooms(companyId, normalized, pageParam, 30, signal),
-		initialPageParam: null as RoomListCursor | null,
-		getNextPageParam: roomListCursor,
-		enabled: normalized.length > 0,
-		staleTime: ROOM_STALE_MS,
-		gcTime: ROOM_RETAIN_MS
-	}));
-	return {
-		get rooms() {
-			return query.data?.pages.flatMap((page) => page.rooms) ?? [];
-		},
-		get status() {
-			return normalized ? sourceStatus(query) : 'live';
-		},
-		get failure() {
-			return (query.error as (Error & { status?: number }) | null) ?? null;
-		},
-		get hasMore() {
-			return query.hasNextPage;
-		},
-		get loadingMore() {
-			return query.isFetchingNextPage;
-		},
-		loadMore: () => query.fetchNextPage()
-	};
-}
-
 function olderSearchCursor(page: RoomMessageSearchPage): number | undefined {
 	return page.has_more && page.next_before_message_id !== null
 		? page.next_before_message_id

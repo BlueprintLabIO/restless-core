@@ -61,15 +61,6 @@ export async function openCompanyBrowser(company: string, url: string): Promise<
 	return body.desktop_url;
 }
 
-export function companyBrowserLabel(url: string): string {
-	try {
-		const parsed = new URL(url);
-		return `${parsed.hostname}${parsed.pathname === '/' ? '' : parsed.pathname}`;
-	} catch {
-		return 'External page';
-	}
-}
-
 async function browserOpenError(response: Response): Promise<Error & { status: number }> {
 	const failure = await responseFailure(response);
 	if (response.status === 409) {

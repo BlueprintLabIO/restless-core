@@ -15,12 +15,6 @@ function dayPart(date: Date): Intl.DateTimeFormatOptions {
 		: { day: 'numeric', month: 'short', year: 'numeric' };
 }
 
-/** "27 Sept" or "27 Sept 2025". */
-export function formatDay(value: Date | string | number | null | undefined, fallback = ''): string {
-	const date = asDate(value);
-	return date ? new Intl.DateTimeFormat(undefined, dayPart(date)).format(date) : fallback;
-}
-
 /** "27 Sept, 23:24" or "27 Sept 2025, 23:24". */
 export function formatMoment(
 	value: Date | string | number | null | undefined,
