@@ -114,16 +114,35 @@ export async function changeMembership<T = { ending: boolean }>(
 }
 
 /** Leave the company: your own removal at the issuer. The owner cannot. */
-export function leaveCompany(issuer: IssuerMetadata, companyId: string): Promise<{ ending: boolean }> {
+export function leaveCompany(
+	issuer: IssuerMetadata,
+	companyId: string
+): Promise<{ ending: boolean }> {
 	return changeMembership(issuer, companyId, 'members/self/leave');
 }
 
+/** Inviting found someone already in the company: share with them by name instead. */
+export class AlreadyMember extends Error {
+	constructor(readonly member: CoreMember) {
+		super(`${member.display} is already in the company.`);
+	}
+}
+
 /** Invite someone by email from anywhere in the company, Share included: Core names the issuer
- * and the issuer decides whether this person may invite. */
+ * and the issuer decides whether this person may invite. An email that belongs to an active member
+ * throws AlreadyMember with their Actor, so Share adds them rather than inviting them again. */
 export async function inviteToCompany(company: string, email: string): Promise<IssuerInvitation> {
 	const core = await getCoreMembers(company);
 	if (core.mode !== 'network' || !core.issuer || !core.company_id)
 		throw new Error('Turn on sharing under Company, Members before inviting people.');
+	const known = await getIssuerMembers(core.issuer, core.company_id).catch(() => null);
+	const wanted = email.trim().toLowerCase();
+	const found = known?.members.find(
+		(member) => member.status === 'active' && member.email.toLowerCase() === wanted
+	);
+	const actor =
+		found && core.members.find((member) => member.membership_id === found.membership_id);
+	if (actor) throw new AlreadyMember(actor);
 	const result = await changeMembership<{ invitation: IssuerInvitation }>(
 		core.issuer,
 		core.company_id,

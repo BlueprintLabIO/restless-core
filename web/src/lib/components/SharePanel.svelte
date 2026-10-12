@@ -64,7 +64,7 @@
 		onaccess: (actorId: string, access: string) => void;
 		onremove: (actorId: string) => void;
 		/** Invite someone who is not in the company yet, by email. Given only to people who may. */
-		oninvite?: (email: string) => Promise<boolean>;
+		oninvite?: (email: string, access: string) => Promise<boolean>;
 	} = $props();
 
 	let query = $state('');
@@ -92,7 +92,8 @@
 	const inviteEmail = $derived(
 		oninvite && !matches.length && looksLikeEmail(query) ? query.trim() : ''
 	);
-	type Option = { kind: 'person'; actor_id: string; display: string } | { kind: 'invite'; email: string };
+	type Option =
+		{ kind: 'person'; actor_id: string; display: string } | { kind: 'invite'; email: string };
 	const options = $derived<Option[]>([
 		...matches.map((match) => ({
 			kind: 'person' as const,
@@ -123,7 +124,7 @@
 		if (!oninvite || inviting) return;
 		inviting = true;
 		try {
-			if (await oninvite(email)) query = '';
+			if (await oninvite(email, grant)) query = '';
 		} finally {
 			inviting = false;
 		}
@@ -170,7 +171,10 @@
 		title={`${general === 'private' ? PRIVATE_HINT : 'Everyone in the company can open it without being added'}. Exec and Staff see it only once added.`}
 	>
 		<span class="general-icon" aria-hidden="true">
-			{#if general === 'private'}<Lock size={15} strokeWidth={1.8} />{:else}<Users size={15} strokeWidth={1.8} />{/if}
+			{#if general === 'private'}<Lock size={15} strokeWidth={1.8} />{:else}<Users
+					size={15}
+					strokeWidth={1.8}
+				/>{/if}
 		</span>
 		{#if canManage}
 			<select
@@ -229,7 +233,7 @@
 								tabindex="-1"
 								disabled={busy || inviting}
 								title={option.kind === 'invite'
-									? 'Sends an invitation to join the company. Share this with them here once they accept.'
+									? 'Adds them if they are in the company; otherwise invites them to join.'
 									: undefined}
 								onmousedown={(event) => event.preventDefault()}
 								onmouseenter={() => (active = index)}
@@ -237,8 +241,8 @@
 								>{option.kind === 'person'
 									? option.display
 									: inviting
-										? `Inviting ${option.email}…`
-										: `Invite ${option.email} to the company`}</button
+										? `Sharing with ${option.email}…`
+										: `Share with ${option.email}`}</button
 							>
 						</li>
 					{:else}
@@ -253,13 +257,15 @@
 
 	<ul class="people" aria-label="People with access" aria-busy={!loaded}>
 		<li>
-			<span class="name">{ownerName}{#if ownerIsYou}<span class="you"> (you)</span>{/if}</span>
+			<span class="name"
+				>{ownerName}{#if ownerIsYou}{' '}<span class="you">(you)</span>{/if}</span
+			>
 			<span class="fixed" title="The owner can always edit and share it">Owner</span>
 		</li>
 		{#each people as row (row.actor_id)}
 			<li class:managed={canManage}>
 				<span class="name" title={row.granted}
-					>{row.name}{#if row.you}<span class="you"> (you)</span>{/if}</span
+					>{row.name}{#if row.you}{' '}<span class="you">(you)</span>{/if}</span
 				>
 				{#if canManage}
 					<select
@@ -290,7 +296,9 @@
 	<button
 		type="button"
 		class="btn small copy"
-		title={general === 'private' ? 'Only people added can open the link' : 'Anyone in the company can open the link'}
+		title={general === 'private'
+			? 'Only people added can open the link'
+			: 'Anyone in the company can open the link'}
 		onclick={() => void copyLink()}
 		>{copied === 'copied'
 			? 'Link copied'

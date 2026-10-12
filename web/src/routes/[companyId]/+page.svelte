@@ -531,7 +531,7 @@
 	holdQueries(() => [leadConversation]);
 </script>
 
-<svelte:head><title>Attention — {view?.company.name ?? companyId}</title></svelte:head>
+<svelte:head><title>Inbox — {view?.company.name ?? companyId}</title></svelte:head>
 
 {#if focusedReview}
 	<section

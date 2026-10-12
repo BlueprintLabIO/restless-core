@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import { mayManageCompanySetup } from '$lib/model/company-access';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
@@ -185,7 +186,9 @@
 		busy = '';
 		inviteEmail = [...refused, ...invalid].join(', ');
 		if (sent.length)
-			toast(sent.length === 1 ? `Invitation sent to ${sent[0]}.` : `${sent.length} invitations sent.`);
+			toast(
+				sent.length === 1 ? `Invitation sent to ${sent[0]}.` : `${sent.length} invitations sent.`
+			);
 		if (refused.length || invalid.length)
 			failure = [
 				refused.length ? `Not sent to ${refused.join(', ')}: ${reason}` : '',
@@ -216,13 +219,22 @@
 	}
 
 	/* Leaving is your own removal. You lose access at once; what you made stays with the company. */
-	let leaving = $state(false);
 	let leaveBusy = $state(false);
 	const mayLeave = $derived(
-		core?.mode === 'network' && !!core.issuer && !!core.company_id && principal?.membership_role !== 'owner'
+		core?.mode === 'network' &&
+			!!core.issuer &&
+			!!core.company_id &&
+			principal?.membership_role !== 'owner'
 	);
 	async function leave() {
 		if (!core?.issuer || !core.company_id || leaveBusy) return;
+		const yes = await confirmAction({
+			title: 'Leave the company?',
+			body: 'You lose access at once. Your documents and messages stay with the company, and an admin can invite you back.',
+			action: 'Leave',
+			danger: true
+		});
+		if (!yes) return;
 		leaveBusy = true;
 		failure = '';
 		try {
@@ -262,24 +274,11 @@
 	>{/snippet}
 
 {#snippet leaveActions()}
-	{#if leaving}
-		<button
-			class="btn small danger"
-			type="button"
-			disabled={leaveBusy}
-			title="You lose access at once. Your documents and messages stay with the company, and an admin can invite you back."
-			onclick={() => void leave()}>{leaveBusy ? 'Leaving…' : 'Leave company'}</button
-		><button
-			class="btn small ghost"
-			type="button"
-			disabled={leaveBusy}
-			onclick={() => (leaving = false)}>Stay</button
-		>
-	{:else}
-		<ActionMenu label="Your access"
-			><button onclick={() => (leaving = true)}>Leave company…</button></ActionMenu
-		>
-	{/if}
+	<ActionMenu label="Your access"
+		><button disabled={leaveBusy} onclick={() => void leave()}
+			>{leaveBusy ? 'Leaving…' : 'Leave company…'}</button
+		></ActionMenu
+	>
 {/snippet}
 
 <Page

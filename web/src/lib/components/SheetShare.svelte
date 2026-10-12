@@ -9,7 +9,7 @@
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import { mayManageCompanySetup } from '$lib/model/company-access';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
-	import { inviteToCompany } from '$lib/model/members';
+	import { AlreadyMember, inviteToCompany } from '$lib/model/members';
 	import { FORMER_MEMBER, invitedFromShare, shareRows } from '$lib/model/share-people';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import {
@@ -130,13 +130,15 @@
 		});
 	}
 
-	async function invite(email: string): Promise<boolean> {
+	async function invite(email: string, access: string): Promise<boolean> {
 		failure = '';
 		try {
 			await inviteToCompany(company, email);
 			toast(invitedFromShare(email, sharing?.general_access ?? 'private'));
 			return true;
 		} catch (cause) {
+			if (cause instanceof AlreadyMember)
+				return add(cause.member.actor_id, access as 'read' | 'edit');
 			failure = failureSentence(cause, `${email} was not invited.`);
 			return false;
 		}
@@ -152,7 +154,8 @@
 	}
 
 	function setGeneral(value: GeneralAccess): void {
-		void change(async () => onchanged(await setSheetGeneralAccess(company, sheet, value)),
+		void change(
+			async () => onchanged(await setSheetGeneralAccess(company, sheet, value)),
 			'General access was not changed.'
 		);
 	}
@@ -161,30 +164,30 @@
 {#if !sharing}
 	<p class="quiet" role={failure ? 'alert' : undefined}>{failure || 'Loading…'}</p>
 {:else}<SharePanel
-	general={sharing.general_access}
-	generalOptions={generalAccessOptions('sheet')}
-	levels={LEVELS}
-	ownerName={nameOf(owner)}
-	ownerIsYou={!!viewerId && owner === viewerId}
-	people={shared}
-	{directory}
-	canManage={sharing.may_manage}
-	{busy}
-	{failure}
-	{link}
-	ongeneral={setGeneral}
-	onadd={(actorId, access) => void add(actorId, access as 'read' | 'edit')}
-	oninvite={canInvite ? invite : undefined}
-	onaccess={(actorId, access) => {
-		if (busy) return;
-		optimistic(actorId, access as 'read' | 'edit');
-		void change(
-			() => setSheetParticipant(company, sheet, actorId, access as 'read' | 'edit'),
-			'Access was not changed.'
-		);
-	}}
-	onremove={remove}
-/>{/if}
+		general={sharing.general_access}
+		generalOptions={generalAccessOptions('sheet')}
+		levels={LEVELS}
+		ownerName={nameOf(owner)}
+		ownerIsYou={!!viewerId && owner === viewerId}
+		people={shared}
+		{directory}
+		canManage={sharing.may_manage}
+		{busy}
+		{failure}
+		{link}
+		ongeneral={setGeneral}
+		onadd={(actorId, access) => void add(actorId, access as 'read' | 'edit')}
+		oninvite={canInvite ? invite : undefined}
+		onaccess={(actorId, access) => {
+			if (busy) return;
+			optimistic(actorId, access as 'read' | 'edit');
+			void change(
+				() => setSheetParticipant(company, sheet, actorId, access as 'read' | 'edit'),
+				'Access was not changed.'
+			);
+		}}
+		onremove={remove}
+	/>{/if}
 
 <style>
 	.quiet {

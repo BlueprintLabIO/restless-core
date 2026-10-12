@@ -11,7 +11,7 @@
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import { mayManageCompanySetup } from '$lib/model/company-access';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
-	import { inviteToCompany } from '$lib/model/members';
+	import { AlreadyMember, inviteToCompany } from '$lib/model/members';
 	import { FORMER_MEMBER, invitedFromShare, shareRows } from '$lib/model/share-people';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import type { DocumentTarget } from '$lib/model/document-cache';
@@ -202,13 +202,14 @@
 		});
 	}
 
-	async function invite(email: string): Promise<boolean> {
+	async function invite(email: string, access: string): Promise<boolean> {
 		failure = '';
 		try {
 			await inviteToCompany(companyId, email);
 			toast(invitedFromShare(email, view.document.general_access));
 			return true;
 		} catch (cause) {
+			if (cause instanceof AlreadyMember) return add(cause.member.actor_id, access);
 			failure = failureSentence(cause, `${email} was not invited.`);
 			return false;
 		}
