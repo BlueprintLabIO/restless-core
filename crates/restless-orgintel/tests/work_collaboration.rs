@@ -118,7 +118,8 @@ async fn company_and_room_work_are_visible_without_cross_room_leakage() {
     let alex_ids = alex.work.iter().map(|item| item.id).collect::<Vec<_>>();
     assert!(alex_ids.contains(&company_work));
     assert!(alex_ids.contains(&alex_work));
-    assert!(!alex_ids.contains(&blair_work));
+    // Every person sees all Work; a Room scopes the conversation about it, not who may see it.
+    assert!(alex_ids.contains(&blair_work));
     assert!(org
         .work_is_visible_in_room_to_actor(company_work, alex_room.id, "alex")
         .await
@@ -220,7 +221,7 @@ async fn company_and_room_work_are_visible_without_cross_room_leakage() {
     let blair = org.collaborator_work_graph_snapshot("blair").await.unwrap();
     let blair_ids = blair.work.iter().map(|item| item.id).collect::<Vec<_>>();
     assert!(blair_ids.contains(&company_work));
-    assert!(!blair_ids.contains(&alex_work));
+    assert!(blair_ids.contains(&alex_work));
     assert!(blair_ids.contains(&blair_work));
 
     let collision = org

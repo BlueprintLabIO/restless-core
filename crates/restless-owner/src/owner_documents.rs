@@ -2680,7 +2680,8 @@ mod tests {
         let (status, alice_token) =
             request_json(&alice, Method::POST, &token_path, None, None).await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(alice_token["access"], "read");
+        // People edit company documents.
+        assert_eq!(alice_token["access"], "write");
 
         let (status, body) = request_json(
             &alice,

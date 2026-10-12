@@ -975,7 +975,8 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(titles.contains(&"Company-visible work"));
         assert!(titles.contains(&"Shared Room work"));
-        assert!(!titles.contains(&"Private Room work"));
+        // Every person sees all Work; Rooms scope the conversation, not visibility.
+        assert!(titles.contains(&"Private Room work"));
         assert!(body["attention"]["handoffs"].as_array().unwrap().is_empty());
         assert_eq!(
             body["attention"]["mentions"][0]["body"],
