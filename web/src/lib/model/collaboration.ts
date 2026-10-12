@@ -121,28 +121,6 @@ export interface CollaborationHandoff {
 	owner_brief: OwnerBrief | null;
 }
 
-export interface CollaborationMention {
-	id: string;
-	room_id: string;
-	room_title: string;
-	message_id: number;
-	thread_root_message_id: number;
-	from_actor: string;
-	body: string;
-	work_id: string | null;
-	why_this_actor: string | null;
-	expected_response: string | null;
-	recommendation: string | null;
-	alternatives: string[];
-	evidence: string[];
-	uncertainty: string | null;
-	affected_scope: string | null;
-	deadline_at: string | null;
-	fallback: string | null;
-	independent_work_can_continue: boolean;
-	created_at: string;
-}
-
 export interface CollaborationBootstrap {
 	schema_version: typeof COLLABORATION_SCHEMA_VERSION;
 	principal: CollaborationPrincipal;
@@ -158,7 +136,6 @@ export interface CollaborationBootstrap {
 	};
 	attention: {
 		handoffs: CollaborationHandoff[];
-		mentions: CollaborationMention[];
 	};
 	source_health: { orgintel: string };
 	refreshed_at: string;
@@ -204,10 +181,6 @@ function boolean(value: unknown): boolean {
 function list(value: unknown): unknown[] {
 	if (!Array.isArray(value)) invalid();
 	return value;
-}
-
-function stringList(value: unknown): string[] {
-	return list(value).map(text);
 }
 
 function oneOf<T extends string>(value: unknown, values: readonly T[]): T {
@@ -387,31 +360,6 @@ function parseBrief(value: unknown): OwnerBrief | null {
 	};
 }
 
-function parseMention(value: unknown): CollaborationMention {
-	const row = object(value);
-	return {
-		id: text(row.id),
-		room_id: text(row.room_id),
-		room_title: text(row.room_title),
-		message_id: integer(row.message_id),
-		thread_root_message_id: integer(row.thread_root_message_id),
-		from_actor: text(row.from_actor),
-		body: text(row.body),
-		work_id: nullableText(row.work_id),
-		why_this_actor: nullableText(row.why_this_actor),
-		expected_response: nullableText(row.expected_response),
-		recommendation: nullableText(row.recommendation),
-		alternatives: stringList(row.alternatives),
-		evidence: stringList(row.evidence),
-		uncertainty: nullableText(row.uncertainty),
-		affected_scope: nullableText(row.affected_scope),
-		deadline_at: nullableText(row.deadline_at),
-		fallback: nullableText(row.fallback),
-		independent_work_can_continue: boolean(row.independent_work_can_continue),
-		created_at: text(row.created_at)
-	};
-}
-
 export function parseCollaborationBootstrap(value: unknown): CollaborationBootstrap {
 	const root = object(value);
 	if (root.schema_version !== COLLABORATION_SCHEMA_VERSION) invalid();
@@ -438,8 +386,7 @@ export function parseCollaborationBootstrap(value: unknown): CollaborationBootst
 			artifacts: list(workGraph.artifacts).map(parseArtifact)
 		},
 		attention: {
-			handoffs: list(attention.handoffs).map(parseHandoff),
-			mentions: list(attention.mentions).map(parseMention)
+			handoffs: list(attention.handoffs).map(parseHandoff)
 		},
 		source_health: { orgintel: text(sourceHealth.orgintel) },
 		refreshed_at: text(root.refreshed_at)

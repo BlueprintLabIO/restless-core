@@ -36,6 +36,9 @@
 		cockpitQuery
 	} from '$lib/model/queries.svelte';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
+	import { markForYouRead, setDocumentFollow } from '$lib/model/for-you';
+	import { useForYou } from '$lib/model/for-you.svelte';
+	import { formatMoment, formatRelative } from '$lib/ui/time';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const shellPrincipal = $derived(companyPrincipalQuery(companyId));
@@ -171,6 +174,58 @@
 		);
 	}
 
+	/* Following, and what others changed since this person last opened it. The notice says what
+	 * was true on arrival; opening the document, and leaving it, reads its changes. */
+	const forYou = useForYou();
+	let follow = $state<{ id: string; following: boolean } | null>(null);
+	let changed = $state<{ id: string; actor_name: string; at: string } | null>(null);
+	let arrivedAt = '';
+	function readChanges(target: DocumentTarget): void {
+		const keys = [`changes:${target.documentId}`];
+		void (forYou ? forYou.read(keys) : markForYouRead(target.companyId, keys)).catch(
+			() => undefined
+		);
+	}
+	$effect(() => {
+		const view = documentView;
+		if (!view || view.document.id !== documentId || typeof view.following !== 'boolean') return;
+		if (follow?.id !== documentId) follow = { id: documentId, following: view.following };
+		if (arrivedAt === documentId) return;
+		arrivedAt = documentId;
+		const change = view.changed_since_you_looked;
+		changed = change ? { id: documentId, actor_name: change.actor_name, at: change.at } : null;
+		if (change) readChanges(currentTarget());
+	});
+	$effect(() => {
+		const target = currentTarget();
+		return () => {
+			if (target.documentId && follow?.id === target.documentId && follow.following)
+				readChanges(target);
+		};
+	});
+	async function toggleFollow(): Promise<void> {
+		if (!follow) return;
+		const target = currentTarget();
+		const next = !follow.following;
+		follow = { id: target.documentId, following: next };
+		try {
+			const now = await setDocumentFollow(target.companyId, target.documentId, next);
+			if (follow?.id === target.documentId) follow = { id: target.documentId, following: now };
+			say(now ? 'Following. Comments and changes reach you in For you.' : 'Unfollowed');
+		} catch (cause) {
+			if (follow?.id === target.documentId) follow = { id: target.documentId, following: !next };
+			say(failureSentence(cause, 'That did not change. Try again.'));
+		}
+	}
+	function seeChanges(): void {
+		changed = null;
+		changePanel('versions');
+	}
+	const changedWhen = (at: string) => {
+		const relative = formatRelative(at, '');
+		return relative === 'Just now' ? 'just now' : `${relative} ago`;
+	};
+
 	/* Documents are found in the Library; this address without one goes there. */
 	$effect(() => {
 		if (!documentId)
@@ -273,6 +328,18 @@
 							onclick={() => (sharing ? closeInspector() : changePanel('share'))}>Share</button
 						>
 					{/if}
+					{#if follow?.id === documentView.document.id}
+						<button
+							type="button"
+							class="btn small follow"
+							aria-pressed={follow.following}
+							title={follow.following
+								? 'Comments and changes reach you in For you. Select to stop.'
+								: 'Hear about comments and changes in For you'}
+							onclick={() => void toggleFollow()}
+							>{follow.following ? 'Following' : 'Follow'}</button
+						>
+					{/if}
 					<button
 						type="button"
 						class="btn small icon"
@@ -302,6 +369,11 @@
 							>Share…</button
 						>
 					{/if}
+					{#if follow?.id === documentView.document.id}
+						<button type="button" class="narrow-only" onclick={() => void toggleFollow()}
+							>{follow.following ? 'Unfollow' : 'Follow'}</button
+						>
+					{/if}
 					<button type="button" onclick={() => changePanel('review')}>Request review…</button>
 					{#if mayArchive}
 						<button
@@ -314,6 +386,25 @@
 					{/if}
 				{/snippet}
 				{#snippet banner()}
+					{#if changed?.id === documentView.document.id && !archived}
+						<div class="document-banner">
+							<Notice title={`${changed.actor_name} changed this since you looked`}>
+								<time datetime={changed.at} title={formatMoment(changed.at)}
+									>{changedWhen(changed.at)}</time
+								>
+								{#snippet actions()}
+									<button type="button" class="btn small" onclick={seeChanges}>See changes</button>
+									<button
+										type="button"
+										class="btn small ghost"
+										aria-label="Dismiss"
+										title="Dismiss"
+										onclick={() => (changed = null)}>×</button
+									>
+								{/snippet}
+							</Notice>
+						</div>
+					{/if}
 					{#if archived}
 						<div class="document-banner">
 							<Notice title="Archived">
@@ -545,7 +636,8 @@
 	}
 	@media (max-width: 560px) {
 		.discuss,
-		.share {
+		.share,
+		.follow {
 			display: none;
 		}
 		:global(.document-actions) .narrow-only {

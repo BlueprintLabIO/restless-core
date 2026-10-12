@@ -15,6 +15,7 @@
 	import Composer from '$lib/primitives/Composer.svelte';
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
 	import InboxList from '$lib/components/InboxList.svelte';
+	import { useForYou } from '$lib/model/for-you.svelte';
 	import InboxDetail from '$lib/components/InboxDetail.svelte';
 	import SetAsideList from '$lib/components/SetAside.svelte';
 	import { attentionTitle, coordinationFailure, isOutcomeReview } from '$lib/model/attention-presentation';
@@ -88,9 +89,13 @@
 		)?.unstartable_reason;
 		return reason ? startLinkLabel(reason) : '';
 	});
-	/* Coordination down is not a clear queue: what it holds may be missing. */
+	/* Coordination down is not a clear queue: what it holds may be missing. Something unread in
+	 * For you keeps the list open beside the floor. */
 	const coordination = $derived(coordinationFailure(view));
-	const queueClear = $derived(loaded && items.length === 0 && !coordination);
+	const forYou = useForYou();
+	const queueClear = $derived(
+		loaded && items.length === 0 && !coordination && !forYou?.unreadCount
+	);
 	/* Phones never mount the office canvas (see the clear state below). */
 	let compactScreen = $state(false);
 	$effect(() => {

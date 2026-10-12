@@ -51,7 +51,7 @@ function fixture(companyId = 'acme') {
 			attempts: [],
 			artifacts: []
 		},
-		attention: { handoffs: [], mentions: [] },
+		attention: { handoffs: [] },
 		source_health: { orgintel: 'available' },
 		refreshed_at: '2026-09-09T00:00:00Z'
 	};

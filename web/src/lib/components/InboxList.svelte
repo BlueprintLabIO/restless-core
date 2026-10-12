@@ -18,6 +18,8 @@
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { completeHandoffHumanStep, dismissAttention } from '$lib/model/attention';
 	import SetAsideList from './SetAside.svelte';
+	import ForYou from './ForYou.svelte';
+	import { useForYou } from '$lib/model/for-you.svelte';
 	import { refreshAttention } from '$lib/model/queries.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import {
@@ -52,6 +54,8 @@
 	} = $props();
 
 	const client = useQueryClient();
+	/* Beside the decisions: mentions, replies and changes to what the owner follows. */
+	const forYou = useForYou();
 	let seen = $state<Record<string, string>>({});
 	let snoozed = $state<Record<string, number>>({});
 	let showSnoozed = $state(false);
@@ -316,6 +320,9 @@
 		{:else if !loaded && !failure}
 			<div class="waiting" aria-label="Loading the Inbox"><i></i><i></i><i></i></div>
 		{/if}
+		{#if forYou && forYou.items.length}
+			<div class="for-you-slot"><ForYou source={forYou} /></div>
+		{/if}
 		<div class="set-aside-slot"><SetAsideList {companyId} version={items.length} /></div>
 	</div>
 </div>
@@ -323,6 +330,11 @@
 <style>
 	.set-aside-slot {
 		margin: 12px 8px 8px;
+	}
+	.for-you-slot {
+		margin-top: 8px;
+		padding-top: 4px;
+		border-top: 1px solid var(--border);
 	}
 	.inbox {
 		display: grid;

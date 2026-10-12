@@ -70,6 +70,8 @@
 		type RetainedAttachment
 	} from '$lib/model/attachments';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
+	import { forYouSentence, newlyUnread, unreadMarks } from '$lib/model/for-you';
+	import { forYouSource, provideForYou } from '$lib/model/for-you.svelte';
 
 	let { children } = $props();
 
@@ -77,6 +79,14 @@
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
 	const principal = $derived(principalProjection.view);
 	const ownerAccess = $derived(hasOwnerSurfaceAccess(principal));
+	/* For you, for the owner and every member: the Inbox lists it, the Inbox tab counts what is
+	 * unread, and with desktop notifications on it keeps reading while the cockpit is hidden. */
+	const forYou = forYouSource(
+		() => companyId,
+		() => principal?.actor_id ?? '',
+		() => desktopNotify.active
+	);
+	provideForYou(forYou);
 	/* The rail's conversation, composer and Markdown are a large share of a
 	 * company page's code. Phones start with the rail closed, so it loads when
 	 * first opened, or as soon as the owner starts interacting. */
@@ -779,9 +789,8 @@
 			ownerAccess
 				? attention.status === 'unknown'
 					? undefined
-					: liveNeedsYou.length
-				: (collaboration.view?.attention.handoffs.length ?? 0) +
-						(collaboration.view?.attention.mentions.length ?? 0)
+					: liveNeedsYou.length + forYou.unreadCount
+				: (collaboration.view?.attention.handoffs.length ?? 0) + forYou.unreadCount
 		);
 		return routes.map((tab) =>
 			tab.key === 'company' && providerIssue
@@ -898,6 +907,27 @@
 			}
 		}
 		knownNeeds = ids;
+	});
+
+	/* Something new in For you taps the person on the shoulder the same way. The first reading
+	 * only primes what is already unread. */
+	let knownForYou: Set<string> | null = null;
+	let knownForYouFor = '';
+	$effect(() => {
+		const key = `${companyId}:${principal?.actor_id ?? ''}`;
+		if (knownForYouFor !== key) {
+			knownForYouFor = key;
+			knownForYou = null;
+		}
+		if (forYou.status !== 'live') return;
+		const snapshot = { items: forYou.items, unread_count: forYou.unreadCount, next_before: null };
+		for (const item of newlyUnread(knownForYou, snapshot).slice(0, 3)) {
+			desktopNotify.show(forYouSentence(item), item.excerpt, () => {
+				void forYou.read([item.key]).catch(() => undefined);
+				void goto(item.href);
+			});
+		}
+		knownForYou = unreadMarks(snapshot);
 	});
 
 	const commands = $derived.by((): Command[] => {
@@ -1257,6 +1287,7 @@
 			{#if childAllowed && !ownerAccess && principal && page.url.pathname === `/${companyId}`}
 				<MemberInbox
 					{companyId}
+					{forYou}
 					view={collaboration.view}
 					onchanged={() => void collaboration.refresh()}
 				/>

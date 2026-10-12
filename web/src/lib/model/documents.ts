@@ -90,6 +90,10 @@ export interface DocumentReadView {
 	document: DocumentRow;
 	access: DocumentAccess;
 	current_version: DocumentVersionView;
+	/** This person's follow state; only the document read itself carries it. */
+	following?: boolean;
+	/** Others changed it since this person last opened it. */
+	changed_since_you_looked?: { actor_ids: string[]; actor_name: string; at: string } | null;
 }
 
 export interface DocumentSummary {

@@ -1,8 +1,11 @@
 <script lang="ts">
-	/* A person's Inbox: what the team handed them, the teams they own, and where they were
-	 * mentioned. People own teams and agents run them, so a team's judgement calls and finished
-	 * outcomes come here for its person; the server checks every answer against the team. */
+	/* A person's Inbox: what the team handed them, the teams they own, and For you (mentions,
+	 * replies and changes to what they follow). People own teams and agents run them, so a team's
+	 * judgement calls and finished outcomes come here for its person; the server checks every
+	 * answer against the team. */
 	import { Page, Section, Item, Notice, Empty } from '$lib/ui/page';
+	import ForYou from './ForYou.svelte';
+	import type { ForYouSource } from '$lib/model/for-you.svelte';
 	import { formatRelative, formatMoment } from '$lib/ui/time';
 	import { failureSentence } from '$lib/model/failure';
 	import { personName } from '$lib/model/initials';
@@ -14,10 +17,12 @@
 
 	let {
 		companyId,
+		forYou,
 		view,
 		onchanged
 	}: {
 		companyId: string;
+		forYou: ForYouSource;
 		view: CollaborationBootstrap | null;
 		onchanged: () => void;
 	} = $props();
@@ -39,7 +44,6 @@
 
 	const me = $derived(view?.principal.actor_id ?? '');
 	const handoffs = $derived(view?.attention.handoffs ?? []);
-	const mentions = $derived(view?.attention.mentions ?? []);
 	const myTeams = $derived((view?.teams ?? []).filter((team) => team.owner_person === me));
 	const name = (actorId: string) =>
 		actorId === 'exec'
@@ -91,31 +95,21 @@
 		open = open === key ? '' : key;
 		answer = '';
 	}
-
-	function mentionHref(mention: CollaborationBootstrap['attention']['mentions'][number]): string {
-		const query = new URLSearchParams({
-			room: mention.room_id,
-			thread: String(mention.thread_root_message_id),
-			message: String(mention.message_id),
-			mention: mention.id
-		});
-		return `/${encodeURIComponent(companyId)}/people/rooms?${query}`;
-	}
 </script>
 
 <Page
 	title="Inbox"
-	info="What your teams need you to decide, the teams you own, and where people or agents mentioned you."
+	info="What your teams need you to decide, the teams you own, and where people or agents mentioned you, replied to you or changed what you follow."
 >
 	{#if failure}<Notice tone="danger" title="Not recorded" details={failure} />{/if}
 	{#if notice}<Notice tone="success" title={notice} />{/if}
 
 	{#if !view}
 		<Empty compact title="Reading your Inbox…" />
-	{:else if !handoffs.length && !mentions.length && !myTeams.length}
+	{:else if !handoffs.length && !myTeams.length && !forYou.items.length && forYou.status === 'live'}
 		<Empty
 			title="Nothing waiting for you"
-			info="When a team you own needs a decision, someone hands you a step, or someone mentions you, it shows here."
+			info="When a team you own needs a decision, someone hands you a step, mentions you or replies to you, or changes a document you follow, it shows here."
 		/>
 	{:else}
 		{#if handoffs.length}
@@ -316,23 +310,9 @@
 				{/each}
 			</Section>
 		{/each}
-		{#if mentions.length}
-			<Section title="Mentions" count={mentions.length}>
-				{#each mentions as mention (mention.id)}
-					<Item
-						title={mention.body}
-						meta={[
-							`${name(mention.from_actor)} in ${mention.room_title}`,
-							workTitle(mention.work_id)
-						]
-							.filter(Boolean)
-							.join(' · ')}
-						href={mentionHref(mention)}
-						unread
-					/>
-				{/each}
-			</Section>
-		{/if}
+		<Section group>
+			<ForYou source={forYou} />
+		</Section>
 	{/if}
 </Page>
 
