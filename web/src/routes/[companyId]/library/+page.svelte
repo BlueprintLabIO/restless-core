@@ -436,7 +436,8 @@
 		void (async () => {
 			let server = await fetchPins(target);
 			const local = takeLocalPins(target).filter((key) => !server.includes(key));
-			for (const key of local.toReversed()) server = await setPin(target, key, true);
+			for (const key of local.toReversed())
+				server = await setPin(target, key, true).catch(() => server);
 			forgetLocalPins(target);
 			if (target === companyId) pins = server;
 		})().catch(() => {
@@ -814,9 +815,11 @@
 	const backHref = $derived(filterHref(filter));
 
 	const editedBy = (editor: string | null | undefined, ownerId: string) =>
-		editor && editor !== ownerId ? name(editor) : undefined;
+		editor && editor !== ownerId
+			? name(editor).replace(/^You$/, 'you')
+			: undefined;
 	function name(actorId: string): string {
-		if (actorId === 'owner' || (!!actorId && actorId === viewer)) return 'You';
+		if ((owner && actorId === 'owner') || (!!actorId && actorId === viewer)) return 'You';
 		return (
 			personName(people.find((person) => person.actor_id === actorId)?.display ?? '') ||
 			actorId.replaceAll('-', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())

@@ -221,15 +221,14 @@
 		requestAnimationFrame(() => window.print());
 	}
 
-	async function setArchived(next: boolean): Promise<void> {
-		const target = currentTarget();
+	async function setArchived(next: boolean, target = currentTarget()): Promise<void> {
 		try {
 			await setDocumentArchived(target.companyId, target.documentId, next);
 			const latest = await getDocument(target.companyId, target.documentId);
 			if (sameDocumentTarget(target, companyId, documentId)) detail.accept(target, latest);
 			/* Archiving can be taken back from the toast, as from a Library row. */
 			toast(next ? 'Archived' : 'Restored to the Library', {
-				undo: next ? () => setArchived(false) : undefined
+				undo: next ? () => setArchived(false, target) : undefined
 			});
 		} catch (cause) {
 			sayFailure(failureSentence(cause, next ? 'It was not archived.' : 'It was not restored.'));
