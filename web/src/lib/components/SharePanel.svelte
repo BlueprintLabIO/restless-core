@@ -101,10 +101,6 @@
 		})),
 		...(inviteEmail ? [{ kind: 'invite' as const, email: inviteEmail }] : [])
 	]);
-	$effect(() => {
-		void query;
-		active = 0;
-	});
 	const generalLabel = $derived(
 		generalOptions.find((option) => option.value === general)?.label ?? 'Private'
 	);
@@ -197,15 +193,16 @@
 			<input
 				type="search"
 				bind:value={query}
+				oninput={() => (active = 0)}
 				placeholder={oninvite ? 'Add people by name or email' : 'Add people by name'}
-				aria-label="Add people by name"
+				aria-label={oninvite ? 'Add people by name or email' : 'Add people by name'}
 				autocomplete="off"
 				spellcheck="false"
 				role="combobox"
 				aria-autocomplete="list"
 				aria-expanded={!!query.trim()}
 				aria-controls={`${listId}-matches`}
-				aria-activedescendant={options.length ? `${listId}-option-${active}` : undefined}
+				aria-activedescendant={options[active] ? `${listId}-option-${active}` : undefined}
 				{onkeydown}
 			/>
 			<select bind:value={grant} aria-label="Level for people you add" disabled={busy}>

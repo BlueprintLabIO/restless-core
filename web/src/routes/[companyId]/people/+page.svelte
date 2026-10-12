@@ -99,7 +99,10 @@
 		restoring = room.id;
 		try {
 			await restoreRoom(companyId, room.id);
-			await roomClient.invalidateQueries({ queryKey: roomQueryKeys.list(companyId) });
+			await Promise.all([
+				roomClient.invalidateQueries({ queryKey: roomQueryKeys.list(companyId) }),
+				roomClient.invalidateQueries({ queryKey: roomQueryKeys.recentGroups(companyId) })
+			]);
 			toast(`${room.title} is back in Chats.`);
 			void goto(href('', room.id));
 		} catch (error) {

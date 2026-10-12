@@ -193,7 +193,12 @@
 		).then((done) => {
 			if (!done || !before) return;
 			const who = actorId === viewerId ? 'You no longer have' : `${nameOf(actorId)} no longer has`;
-			toast(`${who} access.`, { undo: () => add(actorId, before.access) });
+			toast(`${who} access.`, {
+				undo: async () => {
+					if (!(await add(actorId, before.access)))
+						toast(failure || `${nameOf(actorId)} was not added back.`, { tone: 'failure' });
+				}
+			});
 		});
 	}
 
