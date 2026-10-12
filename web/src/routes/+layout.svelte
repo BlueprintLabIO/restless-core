@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { settleQuietly } from '$lib/transition';
+	import Toasts from '$lib/ui/feedback/Toasts.svelte';
 	/* The app frame that sits OUTSIDE the design scope: the offline banner and the
 	 * loading bar. They live here rather than inside `.bridge-root` because they
 	 * report on the app itself, not on the company — which is also why the z-ladder
@@ -239,6 +240,7 @@
 
 <QueryClientProvider client={queryClient}>
 	{@render children()}
+	<Toasts />
 </QueryClientProvider>
 
 <style>
