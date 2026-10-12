@@ -615,20 +615,7 @@
 		list-style: none;
 	}
 
-	.work-details summary::-webkit-details-marker {
-		display: none;
-	}
-
-	.work-details summary::before {
-		content: '›';
-		display: inline-block;
-		width: 13px;
-		transition: transform var(--motion-state) var(--ease-out);
-	}
-
-	.work-details[open] summary::before {
-		transform: rotate(90deg);
-	}
+	/* The shared disclosure chevron (primitives.css) marks it, as on every other fold. */
 
 	.work-details[open] .work-details-body {
 		animation: bridge-disclosure-in var(--motion-disclosure) var(--ease-out) both;

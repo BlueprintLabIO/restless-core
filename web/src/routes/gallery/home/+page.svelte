@@ -154,6 +154,14 @@
 				{ label: 'Passkey or authenticator', done: false, href: '#security', action: 'Add' }
 			]}
 		>
+			{#snippet companyMenu(company)}<details class="gallery-row-menu"
+					><summary aria-label={`${company.name} options`}>⋯</summary
+					><div class="gallery-row-menu-panel">
+						<a href="#rename">Rename</a><a href="#settings">Company settings</a><a href="#service"
+							>Service</a
+						>
+					</div></details
+				>{/snippet}
 			{#snippet heroActions()}<a class="button" href="#new">New company</a>{/snippet}
 			{#snippet usageAction()}<a href="#top-up">Top up</a>{/snippet}
 			{#snippet planAction()}<a class="button primary" href="#upgrade">Upgrade to Founder · $49</a
@@ -188,5 +196,32 @@
 		font: var(--t-label) var(--font-mono);
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.gallery-row-menu {
+		position: relative;
+	}
+	.gallery-row-menu summary {
+		padding: 2px 8px;
+		border-radius: 6px;
+		cursor: pointer;
+		list-style: none;
+	}
+	.gallery-row-menu-panel {
+		position: absolute;
+		top: calc(100% + 6px);
+		right: 0;
+		z-index: 20;
+		display: grid;
+		min-width: 180px;
+		padding: 6px;
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		background: var(--surface-raised);
+		box-shadow: var(--shadow-soft);
+	}
+	.gallery-row-menu-panel a {
+		padding: 8px 10px;
+		color: var(--ink);
 	}
 </style>

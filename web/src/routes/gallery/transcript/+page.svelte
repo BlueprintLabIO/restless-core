@@ -30,6 +30,7 @@ First results should land within the hour.`;
 		sender: 'owner' | 'agent';
 		author: string;
 		text: string;
+		details?: string;
 		createdAt: string;
 	};
 	let lines = $state<Line[]>([
@@ -48,7 +49,14 @@ First results should land within the hour.`;
 			createdAt: at(-1170)
 		},
 		{ id: 3, sender: 'owner', author: 'You', text: 'Both are right', createdAt: at(17) },
-		{ id: 4, sender: 'agent', author: 'The Exec', text: long, createdAt: at(17) }
+		{
+			id: 4,
+			sender: 'agent',
+			author: 'The Exec',
+			text: long,
+			details: '- Landing page draft at `/company/outputs/storefront/index.html`\n- Checked at 375px and 1400px',
+			createdAt: at(17)
+		}
 	]);
 	let reactions = $state<Record<number, ReactionSummary[]>>({
 		4: [{ emoji: '👍', count: 1, mine: true }]
@@ -100,6 +108,7 @@ First results should land within the hour.`;
 					sender={line.sender}
 					author={line.author}
 					text={line.text || '…'}
+					details={line.details}
 					createdAt={line.createdAt}
 					messageId={String(line.id)}
 					reactions={reactions[line.id] ?? []}

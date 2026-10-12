@@ -648,6 +648,15 @@
 		align-items: center;
 		gap: 6px;
 	}
+	/* An open row menu sits above the rows after it, and its section above the sections after
+	 * it: each section's entrance animation makes it a layer of its own. */
+	.company-actions:has(:global(details[open])) {
+		z-index: 3;
+	}
+	.band:has(:global(details[open])) {
+		position: relative;
+		z-index: 5;
+	}
 	.company-cta {
 		color: var(--intent-direction);
 		font-size: var(--t-label);
