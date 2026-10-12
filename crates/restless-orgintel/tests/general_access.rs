@@ -281,6 +281,19 @@ async fn sheets_mirror_general_access() {
     let sharing = org.sheet_sharing(sheet, "blair").await.unwrap();
     assert!(sharing.may_manage);
     assert_eq!(sharing.general_access, "view");
+    // The panel says who granted each person access, and a level change keeps who did.
+    let granted_by = |sharing: &restless_orgintel::SheetSharing, actor: &str| {
+        sharing
+            .people
+            .iter()
+            .find(|row| row.actor_id == actor)
+            .and_then(|row| row.added_by_actor_id.clone())
+    };
+    assert_eq!(granted_by(&sharing, "alex").as_deref(), Some("blair"));
+    assert_eq!(granted_by(&sharing, "research-analyst").as_deref(), Some("owner"));
+    org.share_sheet(sheet, "exec", "research-analyst", Some("read")).await.unwrap();
+    let sharing = org.sheet_sharing(sheet, "blair").await.unwrap();
+    assert_eq!(granted_by(&sharing, "research-analyst").as_deref(), Some("owner"));
     org.share_sheet(sheet, "blair", "alex", None).await.unwrap();
     let seen = org.sheet_sharing(sheet, "alex").await.unwrap();
     assert!(!seen.may_manage);

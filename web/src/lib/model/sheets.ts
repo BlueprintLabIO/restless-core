@@ -30,7 +30,8 @@ export function renameSheet(company: string, id: string, title: string): Promise
 export interface SheetSharing {
 	general_access: GeneralAccess;
 	owner_actor_id: string;
-	people: { actor_id: string; access: 'read' | 'edit' }[];
+	/** Who added each person; null when that was before it was kept. */
+	people: { actor_id: string; access: 'read' | 'edit'; added_by_actor_id: string | null }[];
 	/** Whether the reader may change any of it: its owner, the company's owner, or the Exec. */
 	may_manage: boolean;
 }

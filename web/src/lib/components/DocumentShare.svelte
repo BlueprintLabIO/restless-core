@@ -8,6 +8,12 @@
 	import SharePanel from '$lib/components/SharePanel.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { generalAccessOptions, type GeneralAccess } from '$lib/model/general-access';
+	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
+	import { mayManageCompanySetup } from '$lib/model/company-access';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
+	import { inviteToCompany } from '$lib/model/members';
+	import { FORMER_MEMBER, invitedFromShare, shareRows } from '$lib/model/share-people';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import type { DocumentTarget } from '$lib/model/document-cache';
 	import {
 		getDocument,
@@ -57,12 +63,19 @@
 
 	const documentId = $derived(view.document.id);
 	const ownerId = $derived(view.document.owner_actor_id);
+	const principalSource = $derived(companyPrincipalQuery(companyId));
+	holdQueries(() => [principalSource]);
+	const viewerId = $derived(principalSource.view?.actor_id ?? '');
+	/* Whoever may share it and may invite to the company can invite by email from here. */
+	const canInvite = $derived(mayManage && mayManageCompanySetup(principalSource.view));
 	const nameOf = (actorId: string) =>
-		people.find((candidate) => candidate.actor_id === actorId)?.display ?? actorId;
+		people.find((candidate) => candidate.actor_id === actorId)?.display ?? FORMER_MEMBER;
 	const shared = $derived(
-		participants
-			.filter((row) => row.actor_id !== ownerId)
-			.map((row) => ({ actor_id: row.actor_id, name: nameOf(row.actor_id), access: row.access }))
+		shareRows(participants, {
+			owner: ownerId,
+			viewer: viewerId,
+			nameOf: (actorId) => people.find((candidate) => candidate.actor_id === actorId)?.display
+		})
 	);
 	const directory = $derived(people.filter((person) => person.actor_id !== ownerId));
 	const link = $derived(
@@ -109,14 +122,16 @@
 	async function change(
 		run: (version: number, commandId: string) => Promise<unknown>,
 		fallback: string
-	): Promise<void> {
-		if (busy) return;
+	): Promise<boolean> {
+		if (busy) return false;
 		busy = true;
 		failure = '';
 		const target = { companyId, documentId };
+		let done = true;
 		try {
 			await run(view.document.version, crypto.randomUUID());
 		} catch (cause) {
+			done = false;
 			failure = isDocumentConflict(cause)
 				? 'Sharing changed while you were looking. Check it and try again.'
 				: failureSentence(cause, fallback);
@@ -130,10 +145,11 @@
 		} finally {
 			busy = false;
 		}
+		return done;
 	}
 
-	function add(actorId: string, access: string): void {
-		void change(
+	function add(actorId: string, access: string): Promise<boolean> {
+		return change(
 			(version, commandId) =>
 				setDocumentParticipant(
 					companyId,
@@ -165,13 +181,32 @@
 		);
 	}
 
+	/* Removing someone says so, with Undo: it adds them back at the level they had. */
 	function remove(actorId: string): void {
+		if (busy) return;
+		const before = participants.find((item) => item.actor_id === actorId);
 		participants = participants.filter((item) => item.actor_id !== actorId);
 		void change(
 			(version, commandId) =>
 				removeDocumentParticipant(companyId, documentId, actorId, version, commandId),
 			'Access was not removed.'
-		);
+		).then((done) => {
+			if (!done || !before) return;
+			const who = actorId === viewerId ? 'You no longer have' : `${nameOf(actorId)} no longer has`;
+			toast(`${who} access.`, { undo: () => add(actorId, before.access) });
+		});
+	}
+
+	async function invite(email: string): Promise<boolean> {
+		failure = '';
+		try {
+			await inviteToCompany(companyId, email);
+			toast(invitedFromShare(email, view.document.general_access));
+			return true;
+		} catch (cause) {
+			failure = failureSentence(cause, `${email} was not invited.`);
+			return false;
+		}
 	}
 
 	function setGeneral(value: GeneralAccess): void {
@@ -196,6 +231,7 @@
 			generalOptions={generalAccessOptions('document')}
 			levels={LEVELS}
 			ownerName={nameOf(ownerId)}
+			ownerIsYou={!!viewerId && ownerId === viewerId}
 			people={shared}
 			{directory}
 			canManage={mayManage}
@@ -207,6 +243,7 @@
 			onadd={add}
 			onaccess={setAccess}
 			onremove={remove}
+			oninvite={canInvite ? invite : undefined}
 		/>
 	</div>
 </section>

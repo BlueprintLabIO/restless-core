@@ -6,6 +6,12 @@
 	import SharePanel from '$lib/components/SharePanel.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { generalAccessOptions, type GeneralAccess } from '$lib/model/general-access';
+	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
+	import { mayManageCompanySetup } from '$lib/model/company-access';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
+	import { inviteToCompany } from '$lib/model/members';
+	import { FORMER_MEMBER, invitedFromShare, shareRows } from '$lib/model/share-people';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import {
 		getSheetSharing,
 		setSheetGeneralAccess,
@@ -43,14 +49,17 @@
 	let busy = $state(false);
 	let failure = $state('');
 
-	const nameOf = (actorId: string) =>
-		people.find((candidate) => candidate.actor_id === actorId)?.display ?? actorId;
+	const principalSource = $derived(companyPrincipalQuery(company));
+	holdQueries(() => [principalSource]);
+	const viewerId = $derived(principalSource.view?.actor_id ?? '');
+	const display = (actorId: string) =>
+		people.find((candidate) => candidate.actor_id === actorId)?.display;
+	const nameOf = (actorId: string) => display(actorId) ?? FORMER_MEMBER;
 	const owner = $derived(sharing?.owner_actor_id ?? '');
 	const shared = $derived(
-		(sharing?.people ?? [])
-			.filter((row) => row.actor_id !== owner)
-			.map((row) => ({ actor_id: row.actor_id, name: nameOf(row.actor_id), access: row.access }))
+		shareRows(sharing?.people ?? [], { owner, viewer: viewerId, nameOf: display })
 	);
+	const canInvite = $derived(!!sharing?.may_manage && mayManageCompanySetup(principalSource.view));
 	const directory = $derived(people.filter((person) => person.actor_id !== owner));
 	const link = $derived(
 		typeof location === 'undefined' ? '' : new URL(sheetHref(company, sheet), location.origin).href
@@ -72,14 +81,16 @@
 		});
 	});
 
-	async function change(run: () => Promise<unknown>, fallback: string): Promise<void> {
-		if (busy) return;
+	async function change(run: () => Promise<unknown>, fallback: string): Promise<boolean> {
+		if (busy) return false;
 		busy = true;
 		failure = '';
 		const target = { company, sheet };
+		let done = true;
 		try {
 			await run();
 		} catch (cause) {
+			done = false;
 			failure = failureSentence(cause, fallback);
 		}
 		try {
@@ -88,6 +99,41 @@
 			failure ||= failureSentence(cause, 'Sharing could not be refreshed.');
 		} finally {
 			busy = false;
+		}
+		return done;
+	}
+
+	function add(actorId: string, access: 'read' | 'edit'): Promise<boolean> {
+		return change(
+			() => setSheetParticipant(company, sheet, actorId, access),
+			`${nameOf(actorId)} was not added.`
+		);
+	}
+
+	/* Removing someone says so, with Undo: it adds them back at the level they had. */
+	function remove(actorId: string): void {
+		if (busy) return;
+		const before = sharing?.people.find((row) => row.actor_id === actorId);
+		optimistic(actorId, null);
+		void change(
+			() => setSheetParticipant(company, sheet, actorId, null),
+			'Access was not removed.'
+		).then((done) => {
+			if (!done || !before) return;
+			const who = actorId === viewerId ? 'You no longer have' : `${nameOf(actorId)} no longer has`;
+			toast(`${who} access.`, { undo: () => add(actorId, before.access) });
+		});
+	}
+
+	async function invite(email: string): Promise<boolean> {
+		failure = '';
+		try {
+			await inviteToCompany(company, email);
+			toast(invitedFromShare(email, sharing?.general_access ?? 'private'));
+			return true;
+		} catch (cause) {
+			failure = failureSentence(cause, `${email} was not invited.`);
+			return false;
 		}
 	}
 
@@ -114,6 +160,7 @@
 	generalOptions={generalAccessOptions('sheet')}
 	levels={LEVELS}
 	ownerName={nameOf(owner)}
+	ownerIsYou={!!viewerId && owner === viewerId}
 	people={shared}
 	{directory}
 	canManage={sharing.may_manage}
@@ -121,11 +168,8 @@
 	{failure}
 	{link}
 	ongeneral={setGeneral}
-	onadd={(actorId, access) =>
-		void change(
-			() => setSheetParticipant(company, sheet, actorId, access as 'read' | 'edit'),
-			`${nameOf(actorId)} was not added.`
-		)}
+	onadd={(actorId, access) => void add(actorId, access as 'read' | 'edit')}
+	oninvite={canInvite ? invite : undefined}
 	onaccess={(actorId, access) => {
 		if (busy) return;
 		optimistic(actorId, access as 'read' | 'edit');
@@ -134,14 +178,7 @@
 			'Access was not changed.'
 		);
 	}}
-	onremove={(actorId) => {
-		if (busy) return;
-		optimistic(actorId, null);
-		void change(
-			() => setSheetParticipant(company, sheet, actorId, null),
-			'Access was not removed.'
-		);
-	}}
+	onremove={remove}
 />{/if}
 
 <style>

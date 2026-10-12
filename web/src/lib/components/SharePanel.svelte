@@ -11,6 +11,7 @@
 		type GeneralAccess,
 		type ShareCandidate
 	} from '$lib/model/general-access';
+	import { looksLikeEmail } from '$lib/model/invite-emails';
 
 	interface Level {
 		value: string;
@@ -22,6 +23,7 @@
 		generalOptions,
 		levels,
 		ownerName,
+		ownerIsYou = false,
 		people,
 		directory,
 		canManage,
@@ -32,15 +34,24 @@
 		ongeneral,
 		onadd,
 		onaccess,
-		onremove
+		onremove,
+		oninvite
 	}: {
 		general: GeneralAccess;
 		generalOptions: ReadonlyArray<{ value: GeneralAccess; label: string }>;
 		/** The levels a person can be added at, lowest first. */
 		levels: ReadonlyArray<Level>;
 		ownerName: string;
-		/** Everyone added, besides the owner, with their level. */
-		people: ReadonlyArray<{ actor_id: string; name: string; access: string }>;
+		ownerIsYou?: boolean;
+		/** Everyone added, besides the owner, with their level, whether it is the viewer, and who
+		 * added them when that is known. */
+		people: ReadonlyArray<{
+			actor_id: string;
+			name: string;
+			access: string;
+			you?: boolean;
+			granted?: string;
+		}>;
 		/** The company's people and agents, to add by name. */
 		directory: ReadonlyArray<ShareCandidate>;
 		canManage: boolean;
@@ -52,9 +63,14 @@
 		onadd: (actorId: string, access: string) => void;
 		onaccess: (actorId: string, access: string) => void;
 		onremove: (actorId: string) => void;
+		/** Invite someone who is not in the company yet, by email. Given only to people who may. */
+		oninvite?: (email: string) => Promise<boolean>;
 	} = $props();
 
 	let query = $state('');
+	let active = $state(0);
+	let inviting = $state(false);
+	const listId = $props.id();
 	/* People are added at the highest level unless chosen otherwise, as in Notion. */
 	let grant = $state(highestLevel());
 	let copied = $state<'' | 'copied' | 'failed'>('');
@@ -72,6 +88,23 @@
 
 	const added = $derived(new Set(people.map((row) => row.actor_id)));
 	const matches = $derived(matchPeople(directory, query, added));
+	/* An email nobody in the company goes by can be invited from here, by whoever may invite. */
+	const inviteEmail = $derived(
+		oninvite && !matches.length && looksLikeEmail(query) ? query.trim() : ''
+	);
+	type Option = { kind: 'person'; actor_id: string; display: string } | { kind: 'invite'; email: string };
+	const options = $derived<Option[]>([
+		...matches.map((match) => ({
+			kind: 'person' as const,
+			actor_id: match.actor_id,
+			display: match.display
+		})),
+		...(inviteEmail ? [{ kind: 'invite' as const, email: inviteEmail }] : [])
+	]);
+	$effect(() => {
+		void query;
+		active = 0;
+	});
 	const generalLabel = $derived(
 		generalOptions.find((option) => option.value === general)?.label ?? 'Private'
 	);
@@ -90,10 +123,31 @@
 		ongeneral(value);
 	}
 
+	async function invite(email: string): Promise<void> {
+		if (!oninvite || inviting) return;
+		inviting = true;
+		try {
+			if (await oninvite(email)) query = '';
+		} finally {
+			inviting = false;
+		}
+	}
+
+	function choose(option: Option | undefined): void {
+		if (!option) return;
+		if (option.kind === 'person') add(option.actor_id);
+		else void invite(option.email);
+	}
+
+	/* Up and Down move through the matches, Enter takes the highlighted one, as in Notion. */
 	function onkeydown(event: KeyboardEvent): void {
-		if (event.key === 'Enter') {
+		if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && options.length) {
 			event.preventDefault();
-			if (matches[0]) add(matches[0].actor_id);
+			const step = event.key === 'ArrowDown' ? 1 : -1;
+			active = (active + step + options.length) % options.length;
+		} else if (event.key === 'Enter') {
+			event.preventDefault();
+			choose(options[active] ?? options[0]);
 		} else if (event.key === 'Escape' && query) {
 			event.preventDefault();
 			event.stopPropagation();
@@ -143,10 +197,15 @@
 			<input
 				type="search"
 				bind:value={query}
-				placeholder="Add people by name"
+				placeholder={oninvite ? 'Add people by name or email' : 'Add people by name'}
 				aria-label="Add people by name"
 				autocomplete="off"
 				spellcheck="false"
+				role="combobox"
+				aria-autocomplete="list"
+				aria-expanded={!!query.trim()}
+				aria-controls={`${listId}-matches`}
+				aria-activedescendant={options.length ? `${listId}-option-${active}` : undefined}
 				{onkeydown}
 			/>
 			<select bind:value={grant} aria-label="Level for people you add" disabled={busy}>
@@ -155,11 +214,34 @@
 				{/each}
 			</select>
 			{#if query.trim()}
-				<ul class="matches" aria-label="Matching colleagues">
-					{#each matches as match (match.actor_id)}
-						<li>
-							<button type="button" disabled={busy} onclick={() => add(match.actor_id)}
-								>{match.display}</button
+				<ul
+					class="matches"
+					id={`${listId}-matches`}
+					role="listbox"
+					aria-label="Matching colleagues"
+				>
+					{#each options as option, index (option.kind === 'person' ? option.actor_id : 'invite')}
+						<li
+							id={`${listId}-option-${index}`}
+							role="option"
+							aria-selected={index === active}
+							class:active={index === active}
+						>
+							<button
+								type="button"
+								tabindex="-1"
+								disabled={busy || inviting}
+								title={option.kind === 'invite'
+									? 'Sends an invitation to join the company. Share this with them here once they accept.'
+									: undefined}
+								onmousedown={(event) => event.preventDefault()}
+								onmouseenter={() => (active = index)}
+								onclick={() => choose(option)}
+								>{option.kind === 'person'
+									? option.display
+									: inviting
+										? `Inviting ${option.email}…`
+										: `Invite ${option.email} to the company`}</button
 							>
 						</li>
 					{:else}
@@ -174,12 +256,14 @@
 
 	<ul class="people" aria-label="People with access" aria-busy={!loaded}>
 		<li>
-			<span class="name">{ownerName}</span>
+			<span class="name">{ownerName}{#if ownerIsYou}<span class="you"> (you)</span>{/if}</span>
 			<span class="fixed" title="The owner can always edit and share it">Owner</span>
 		</li>
 		{#each people as row (row.actor_id)}
 			<li class:managed={canManage}>
-				<span class="name">{row.name}</span>
+				<span class="name" title={row.granted}
+					>{row.name}{#if row.you}<span class="you"> (you)</span>{/if}</span
+				>
 				{#if canManage}
 					<select
 						value={row.access}
@@ -285,9 +369,11 @@
 		text-align: left;
 		cursor: pointer;
 	}
-	.matches button:hover:not(:disabled),
-	.matches button:focus-visible {
+	.matches li.active button:not(:disabled) {
 		background: var(--wash-hover);
+	}
+	.you {
+		color: var(--text-tertiary);
 	}
 	.matches .none {
 		padding: 6px 8px;
