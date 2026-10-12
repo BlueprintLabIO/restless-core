@@ -1,4 +1,5 @@
 <script lang="ts">
+	import MemberInbox from '$lib/components/MemberInbox.svelte';
 	import WelcomeTour from '$lib/components/WelcomeTour.svelte';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { prefetchOnIntent } from '$lib/model/prefetch';
@@ -774,7 +775,12 @@
 			companyId,
 			page.url.pathname,
 			principal,
-			attention.status === 'unknown' ? undefined : liveNeedsYou.length
+			ownerAccess
+				? attention.status === 'unknown'
+					? undefined
+					: liveNeedsYou.length
+				: (collaboration.view?.attention.handoffs.length ?? 0) +
+						(collaboration.view?.attention.mentions.length ?? 0)
 		);
 		return routes.map((tab) =>
 			tab.key === 'company' && providerIssue
@@ -1237,7 +1243,13 @@
 			onexectoggle={() => inPlace(() => (execRailOpen = !execRailOpen))}
 			rail={railVisible ? executiveRail : null}
 		>
-			{#if childAllowed}
+			{#if childAllowed && !ownerAccess && principal && page.url.pathname === `/${companyId}`}
+				<MemberInbox
+					{companyId}
+					view={collaboration.view}
+					onchanged={() => void collaboration.refresh()}
+				/>
+			{:else if childAllowed}
 				{@render children()}
 			{:else if principalProjection.failure}
 				<section class="company-access-state cockpit-pane">

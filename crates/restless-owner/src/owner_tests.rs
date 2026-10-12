@@ -2759,6 +2759,10 @@ model = \"anthropic/claude-sonnet-5-5\"
         ] {
             assert!(membership_boundary_violation(&Method::GET, path, &principal).is_none(), "{path}");
         }
+        // They answer what is assigned to them, and never review an outcome for the owner.
+        assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/handoffs/h-1/decision", &principal).is_none());
+        assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/handoffs/h-1/complete", &principal).is_none());
+        assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/handoffs/h-1/review", &principal).is_some());
         // They open the Work files they can see; the handlers check which.
         assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/library/open", &principal).is_none());
         assert!(membership_boundary_violation(&Method::GET, "/api/companies/aris/library/content", &principal).is_none());

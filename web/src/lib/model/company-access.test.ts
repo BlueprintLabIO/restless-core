@@ -27,6 +27,7 @@ test('members see Work, Library, People and Company, never the Inbox or Apps', (
 	assert.deepEqual(
 		tabs.map(({ key, href, on }) => ({ key, href, on })),
 		[
+			{ key: 'attention', href: '/acme', on: false },
 			{ key: 'work', href: '/acme/work', on: false },
 			{ key: 'library', href: '/acme/library', on: false },
 			{ key: 'people', href: '/acme/people', on: true },
@@ -34,7 +35,7 @@ test('members see Work, Library, People and Company, never the Inbox or Apps', (
 		]
 	);
 	assert.equal(
-		tabs.some((tab) => tab.key === 'attention' || tab.key === 'apps'),
+		tabs.some((tab) => tab.key === 'apps'),
 		false
 	);
 });
@@ -78,12 +79,12 @@ test('members open the shared areas and the Company sections that describe it', 
 		'/acme/company/charter',
 		'/acme/company/identity',
 		'/acme/company/members',
-		'/acme/company/schedules'
+		'/acme/company/schedules',
+		'/acme'
 	]) {
 		assert.equal(mayOpenCompanyRoute('acme', pathname, member), true, pathname);
 	}
 	for (const pathname of [
-		'/acme',
 		'/acme/apps',
 		'/acme/company/authority',
 		'/acme/company/computer',

@@ -45,6 +45,8 @@ export function mayOpenCompanyRoute(
 	const root = `/${encodeURIComponent(companyId)}`;
 	if (SHARED_COMPANY_SECTIONS.some((section) => pathname === `${root}/company${section}`))
 		return true;
+	/* Their own Inbox: what the team handed them and where they were mentioned. */
+	if (pathname === root) return true;
 	return (
 		pathname === `${root}/people` ||
 		pathname.startsWith(`${root}/people/`) ||
@@ -65,6 +67,13 @@ export function companyShellTabs(
 	if (!principal) return [];
 	if (!hasOwnerSurfaceAccess(principal)) {
 		return [
+			{
+				key: 'attention',
+				label: 'Inbox',
+				href: root,
+				on: pathname === root,
+				badge: attentionCount || undefined
+			},
 			{
 				key: 'work',
 				label: 'Work',

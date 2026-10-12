@@ -1963,6 +1963,8 @@ fn membership_boundary_violation(
         || member_reads_company_setup(method, path)
         // Teammates open the files of the Work they can see; the handlers check which.
         || is_company_library_read(method, path)
+        // A person answers what is assigned to them; OrgIntel checks the assignment.
+        || is_handoff_answer(method, path)
         // An admin runs the day to day with the owner, and may stop a turn that went wrong; a
         // member's message waits its turn instead.
         || (principal.membership_role() == "admin"
@@ -2112,6 +2114,21 @@ fn admin_manages_company_setup(path: &str) -> bool {
             | ["loops"]
             | ["loops", _, "cancel"]
     )
+}
+
+fn is_handoff_answer(method: &Method, path: &str) -> bool {
+    if *method != Method::POST {
+        return false;
+    }
+    let Some(rest) = path.strip_prefix("/api/companies/") else {
+        return false;
+    };
+    let mut segments = rest.split('/');
+    if !segments.next().is_some_and(|company| !company.is_empty()) {
+        return false;
+    }
+    let tail: Vec<&str> = segments.collect();
+    matches!(tail.as_slice(), ["handoffs", handoff, "decision" | "complete"] if !handoff.is_empty())
 }
 
 fn is_company_library_read(method: &Method, path: &str) -> bool {
@@ -8294,6 +8311,7 @@ fn agent_activity_stream(
 
 async fn resolve_handoff_decision(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath((company, handoff)): AxumPath<(String, Uuid)>,
     Json(input): Json<OwnerHandoffDecisionInput>,
 ) -> impl IntoResponse {
@@ -8320,7 +8338,9 @@ async fn resolve_handoff_decision(
         restless_orgintel::OwnerHandoffState::Resolved
     };
     match org
-        .resolve_handoff_as(handoff, "owner", outcome, input.resolution.trim())
+        // The owner answers what is owed to the owner; a teammate answers only what is assigned
+        // to them, which OrgIntel checks against the handoff.
+        .resolve_handoff_as(handoff, handoff_resolver(&principal), outcome, input.resolution.trim())
         .await
     {
         Ok(()) => Json(serde_json::json!({
@@ -8333,8 +8353,17 @@ async fn resolve_handoff_decision(
     }
 }
 
+fn handoff_resolver(principal: &RequestPrincipal) -> &str {
+    if principal.membership_role() == "owner" {
+        "owner"
+    } else {
+        principal.actor_id()
+    }
+}
+
 async fn complete_human_step(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath((company, handoff)): AxumPath<(String, Uuid)>,
 ) -> impl IntoResponse {
     let org = match state.daemon.orgintel.get(&company).await {
@@ -8347,12 +8376,21 @@ async fn complete_human_step(
             )
         }
     };
-    match org
-        .complete_owner_human_step(
+    let done = if principal.membership_role() == "owner" {
+        org.complete_owner_human_step(
             handoff,
             "Owner confirmed the requested human step is complete.",
         )
         .await
+    } else {
+        org.complete_human_step_as(
+            handoff,
+            principal.actor_id(),
+            "The assigned person confirmed the requested human step is complete.",
+        )
+        .await
+    };
+    match done
     {
         Ok(()) => Json(serde_json::json!({
             "handoff_id": handoff,

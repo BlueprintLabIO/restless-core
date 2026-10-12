@@ -456,6 +456,19 @@ impl OrgIntel {
         .map(|_| ())
     }
 
+    /// Record that the person a ready human step is assigned to has done it. The handoff must be
+    /// owed by `actor_id`; payments and judgements keep their dedicated actions.
+    pub async fn complete_human_step_as(
+        &self,
+        id: Uuid,
+        actor_id: &str,
+        resolution: &str,
+    ) -> Result<()> {
+        self.resolve_handoff(id, actor_id, OwnerHandoffState::Resolved, resolution, false, true)
+            .await
+            .map(|_| ())
+    }
+
     /// Resolve an irreducible-human handoff from a live external observation.
     /// The observer is explicit in the transcript and feedback edge; this is
     /// never available for open-ended owner judgement or outcome review.
