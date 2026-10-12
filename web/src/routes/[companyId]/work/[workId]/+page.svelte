@@ -293,6 +293,12 @@
 	}
 
 	/* An output the Library can show opens there, in place: a site live, a deck as a slideshow. */
+	/* A company file the lead asked for reads as its name and opens in the Library. */
+	const expectedPath = $derived(
+		/^\/company\/\S+\.[A-Za-z0-9]+$/.test(work?.expected_artifact?.trim() ?? '')
+			? work!.expected_artifact!.trim()
+			: ''
+	);
 	function libraryHref(artifact: Artifact): string | null {
 		const uri = artifactUri(artifact);
 		if (artifact.state !== 'available' || !uri) return null;
@@ -510,7 +516,10 @@
 						</header>
 						{#if work.expected_artifact}
 							<p class="expected-artifact" title="The output the accountable lead asked for">
-								<span>Expected</span>{work.expected_artifact}
+								<span>Expected</span>{#if expectedPath}<a
+										href={`/${encodeURIComponent(companyId)}/library?path=${encodeURIComponent(expectedPath)}`}
+										title={expectedPath}>{expectedPath.split('/').pop()}</a
+									>{:else}{work.expected_artifact}{/if}
 							</p>
 						{/if}
 						{#if artifacts.length || gates.length || !ownerAccess}

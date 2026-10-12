@@ -127,6 +127,8 @@
 		z-index: 30;
 		display: grid;
 		gap: 3px;
+		/* Its own width, not what is left of the window at its first, unmeasured position. */
+		width: max-content;
 		min-width: 200px;
 		max-width: min(320px, calc(100vw - 40px));
 		padding: 6px;

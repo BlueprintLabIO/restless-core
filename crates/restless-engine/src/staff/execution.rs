@@ -791,7 +791,7 @@ pub fn staff_spend_limit_reached(
 /// state and makes successful handoffs look like failures.
 const SPECIALIST_TERMINATION_PROMPT: &str = "Your assigned specialist task is ending now. Based on the task you were given, answer with JSON only, no prose:\n\
     {\"decision\": \"continue\" | \"blocked\" | \"changes_requested\" | \"outcome_met\" | \"abandon\", \
-     \"reason\": \"<one line>\"}\n\
+     \"reason\": \"<one plain line a person can read: what happened, without ids, digests, byte counts or commands>\"}\n\
     - continue: more machine-doable work remains in your assigned task\n\
     - blocked: an explicit human, external, lead, or internal coordination condition prevents this assigned task from advancing; say exactly what condition and who or what must act. Do not call ordinary machine-doable work, a later review, or unrelated company work blocked\n\
     - changes_requested: you are a reviewer and found concrete changes; this follows the Work graph's revises edge\n\

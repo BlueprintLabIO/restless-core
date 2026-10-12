@@ -1176,7 +1176,7 @@ async fn run_turn(
 pub const TERMINATION_PROMPT: &str = "The turn is ending now. Based on everything above, decide how the \
     work stands and answer with JSON only, no prose:\n\
     {\"decision\": \"continue\" | \"waiting\" | \"blocked\" | \"outcome_met\" | \"abandon\", \
-     \"reason\": \"<one line>\"}\n\
+     \"reason\": \"<one plain line a person can read: what happened, without ids, digests, byte counts or commands>\"}\n\
     - continue: more machine-doable executive work remains now; schedule a near-term continuation\n\
     - waiting: delegated Work or an observable external process is already in flight and its durable completion/failure event will wake you; do not poll it\n\
     - blocked: the company cannot advance the active outcome until a human or external event acts; \
