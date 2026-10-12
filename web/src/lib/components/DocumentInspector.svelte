@@ -947,11 +947,12 @@
 		<div class="inspector-dismiss">
 			<button
 				type="button"
-				class="flat-action"
+				class="flat-action icon-only"
 				onclick={ondismiss}
-				title="Close this tray without accepting or rejecting a review"
+				aria-label="Close"
+				title="Close this panel without accepting or rejecting a review"
 			>
-				<X size={14} aria-hidden="true" /> Dismiss
+				<X size={15} aria-hidden="true" />
 			</button>
 		</div>
 	{/if}
@@ -992,10 +993,7 @@
 	{#if panel === 'comments'}
 		<div class="inspector-body comments-body">
 			<header class="inspector-head">
-				<div>
-					<h2>Discussion</h2>
-					<p>Feedback stays attached to this document.</p>
-				</div>
+				<h2 title="Comments stay attached to this document">Discussion</h2>
 				{#if canComment}
 					<button type="button" class="flat-action" onclick={beginDocumentComment}
 						>New comment</button
@@ -1156,7 +1154,7 @@
 							bind:this={commentInput}
 							bind:value={commentText}
 							rows="3"
-							placeholder="Write a clear question or observation. Type @ to mention someone."
+							placeholder="Reply, or type @ to mention someone"
 							disabled={!online || commentBusy}
 							role="combobox"
 							aria-autocomplete="list"
@@ -2048,5 +2046,8 @@
 			z-index: 2;
 			background: var(--surface-rail);
 		}
+	}
+	.inspector-dismiss .icon-only {
+		padding: 4px;
 	}
 </style>

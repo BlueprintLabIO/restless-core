@@ -1713,7 +1713,9 @@
 		background: transparent;
 		color: var(--text-tertiary);
 		cursor: grab;
-		transform: translateX(-6px);
+		/* Fully in the gutter, clear of the first letter. The plugin positions it with an inline
+		 * transform; translate composes with that rather than being replaced by it. */
+		translate: -18px 0;
 		transition:
 			background-color var(--motion-state) var(--ease-standard),
 			color var(--motion-state) var(--ease-standard);

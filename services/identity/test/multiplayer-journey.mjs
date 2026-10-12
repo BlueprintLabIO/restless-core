@@ -558,10 +558,11 @@ try {
   await owner.page.goto(documentUrl);
   const ownerBody = owner.page.getByLabel("Collaborative document body");
   await ownerBody.waitFor({ timeout: 30000 });
-  await ownerBody.click();
-  await owner.page.keyboard.press("Control+End");
+  // Start a new line after the last paragraph, then type the slash there.
+  await ownerBody.locator("p").last().click();
+  await owner.page.keyboard.press("End");
   await owner.page.keyboard.press("Enter");
-  await owner.page.keyboard.type("/");
+  await owner.page.keyboard.type("/", { delay: 50 });
   await owner.page.getByRole("listbox", { name: "Blocks" }).waitFor({ timeout: 10000 });
   await owner.page.keyboard.press("Escape");
   await until(async () => !(await owner.page.getByRole("listbox", { name: "Blocks" }).isVisible()), "the / menu closes on Escape", 10);
