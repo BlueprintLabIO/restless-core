@@ -2793,6 +2793,11 @@ model = \"anthropic/claude-sonnet-5-5\"
                 (Method::GET, "/api/companies/aris/direct-conversations"),
                 (Method::GET, "/api/companies/aris/group-conversations"),
                 (Method::GET, "/api/companies/aris/room-messages/search"),
+                (Method::GET, "/api/companies/aris/for-you"),
+                (Method::POST, "/api/companies/aris/for-you/read"),
+                (Method::GET, "/api/companies/aris/library-pins"),
+                (Method::POST, "/api/companies/aris/library-pins"),
+                (Method::GET, "/api/companies/aris/comment-search"),
                 (Method::GET, "/api/companies/aris/message-reactions"),
                 (Method::POST, "/api/companies/aris/messages/42/reactions"),
             ] { assert!(membership_boundary_violation(&method,path,&participant).is_none(), "{role} refused {method} {path}"); }

@@ -56,6 +56,10 @@ pub struct SheetRow {
     #[sqlx(skip)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub may_manage: Option<bool>,
+    /// In a listing: who made the newest change, for "Edited by" in the Library.
+    #[sqlx(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_editor_actor_id: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct SheetMessage {
@@ -445,6 +449,24 @@ impl OrgIntel {
             }
             if last {
                 break;
+            }
+        }
+        // Who changed each one last: the newest accepted operation, else the newest checkpoint.
+        let ids: Vec<Uuid> = visible.iter().map(|row| row.id).collect();
+        let editors: Vec<(Uuid, Option<String>)> = sqlx::query_as(
+            "SELECT sheet.id,COALESCE(\
+               (SELECT m.actor_id FROM native_sheet_messages m WHERE m.sheet_id=sheet.id \
+                  AND m.actor_id<>'daemon' ORDER BY m.sequence DESC LIMIT 1),\
+               (SELECT c.actor_id FROM native_sheet_checkpoints c WHERE c.sheet_id=sheet.id \
+                  AND c.actor_id<>'daemon' ORDER BY c.sequence DESC LIMIT 1)) \
+             FROM unnest($1::uuid[]) AS sheet(id)",
+        )
+        .bind(&ids)
+        .fetch_all(&mut *tx)
+        .await?;
+        for (id, editor) in editors {
+            if let Some(row) = visible.iter_mut().find(|row| row.id == id) {
+                row.last_editor_actor_id = editor;
             }
         }
         tx.commit().await?;

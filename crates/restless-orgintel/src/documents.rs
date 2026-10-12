@@ -229,6 +229,10 @@ pub struct DocumentParticipantPage {
 pub struct DocumentSummary {
     pub document: DocumentRow,
     pub access: DocumentAccess,
+    /// Who made the newest saved change, for "Edited by" in the Library: the people editing
+    /// when the live body was saved, else whoever saved the version. None when only the daemon
+    /// is known.
+    pub last_editor_actor_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -5005,6 +5009,7 @@ impl OrgIntel {
             updated_at: DateTime<Utc>,
             version: i64,
             access: DocumentAccess,
+            last_editor_actor_id: Option<String>,
         }
 
         let limit = bounded_page_limit(limit, MAX_DOCUMENT_LIST_PAGE)?;
@@ -5024,7 +5029,13 @@ impl OrgIntel {
                       WHEN p.access='read' THEN 'read'::native_document_access \
                       WHEN d.visibility='company' AND a.actor_class='human' \
                         THEN d.company_access \
-                      ELSE 'read'::native_document_access END AS access \
+                      ELSE 'read'::native_document_access END AS access,\
+                    (SELECT COALESCE(\
+                       (SELECT min(e.actor_id) FROM native_document_version_editors e \
+                         WHERE e.version_id=v.id),\
+                       NULLIF(v.created_by_actor_id,'daemon')) \
+                     FROM native_document_versions v WHERE v.document_id=d.id \
+                     ORDER BY v.version_number DESC LIMIT 1) AS last_editor_actor_id \
              FROM native_documents d \
              JOIN actors a ON a.id=$1 AND a.retired_at IS NULL \
              LEFT JOIN native_document_participants p \
@@ -5080,6 +5091,7 @@ impl OrgIntel {
                     version: row.version,
                 },
                 access: row.access,
+                last_editor_actor_id: row.last_editor_actor_id,
             })
             .collect();
         Ok(DocumentSummaryPage { items, next_cursor })

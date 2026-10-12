@@ -51,6 +51,8 @@ mod decisions_api;
 mod rooms_lifecycle_api;
 #[path = "owner_sharing.rs"]
 mod sharing_api;
+#[path = "owner_shell.rs"]
+mod shell_api;
 #[path = "owner_sheets.rs"]
 pub mod sheets_api;
 #[path = "owner_skills.rs"]
@@ -1617,6 +1619,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .merge(rooms_lifecycle_api::routes::<OwnerState>())
         .merge(documents_api::routes::<OwnerState>())
         .merge(for_you_api::routes::<OwnerState>())
+        .merge(shell_api::routes::<OwnerState>())
         .merge(sheets_api::routes::<OwnerState>())
         .merge(member_collaboration_api::routes::<OwnerState>())
         .fallback(api_not_found)
@@ -2022,6 +2025,11 @@ fn membership_boundary_violation(
         || is_company_route_family(path, "documents")
         || is_company_route_family(path, "sheets")
         || is_company_route_family(path, "sheets-archived")
+        // Each person's own For you and Library pins, and comments only on documents they can
+        // read.
+        || is_company_route_family(path, "for-you")
+        || is_company_route_family(path, "library-pins")
+        || is_company_route_family(path, "comment-search")
         // Presence names only people already in the company directory.
         || is_company_route_family(path, "presence")
         // Everyone reads the member list; the issuer decides who may change it.
