@@ -49,6 +49,12 @@ pub(crate) enum SheetCommand {
         sheet: String,
         actor: String,
     },
+    /// Set who in the company may open it without being added; requires sharing rights.
+    Access {
+        sheet: String,
+        #[arg(value_parser=["private","view","edit"])]
+        access: String,
+    },
     Versions {
         sheet: String,
     },
@@ -112,6 +118,9 @@ impl SheetCommand {
             } => json!({"operation":"share","sheet":sheet,"actor":actor,"access":access}),
             Self::Unshare { sheet, actor } => {
                 json!({"operation":"share","sheet":sheet,"actor":actor,"access":null})
+            }
+            Self::Access { sheet, access } => {
+                json!({"operation":"access","sheet":sheet,"access":access})
             }
             Self::Versions { sheet } => json!({"operation":"versions","sheet":sheet}),
             Self::Version { sheet, version } => {

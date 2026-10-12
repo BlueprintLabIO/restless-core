@@ -68,6 +68,11 @@ mod tests {
             execute(&org,"alice",SheetOperation::Create{id:theirs,title:"Alice's".into(),visibility:"company".into(),from:Some(json!({"csv":"Item,Total\nGFX,=1+1"}))}).await.unwrap();
             // People in the company edit company sheets, so a teammate may retitle one.
             assert_eq!(execute(&org,"bob",SheetOperation::Rename{sheet:theirs,title:"Bob's".into()}).await.unwrap()["title"],"Bob's");
+            // The Exec manages sharing on a company sheet as the owner would; a member does not.
+            assert!(execute(&org,"bob",SheetOperation::Access{sheet:theirs,access:"view".into()}).await.is_err());
+            assert_eq!(execute(&org,"exec",SheetOperation::Access{sheet:theirs,access:"view".into()}).await.unwrap()["general_access"],"view");
+            assert_eq!(org.sheet_state(theirs,"bob",false,0).await.unwrap().access,"read");
+            execute(&org,"exec",SheetOperation::Access{sheet:theirs,access:"edit".into()}).await.unwrap();
             assert_eq!(execute(&org,"owner",SheetOperation::Rename{sheet:theirs,title:"Tidied".into()}).await.unwrap()["title"],"Tidied");
             let imported=execute(&org,"owner",SheetOperation::Read{sheet:theirs,query:Some(json!({"action":"get_range","range":"B2"}))}).await.unwrap();
             assert_eq!(imported["result"]["rows"][0][0]["value"],2,"a sheet made from CSV keeps its formulas");
@@ -308,6 +313,11 @@ pub enum SheetOperation {
         actor: String,
         access: Option<String>,
     },
+    /// Who in the company may open it without being added: private, view or edit.
+    Access {
+        sheet: Uuid,
+        access: String,
+    },
     Versions {
         sheet: Uuid,
     },
@@ -431,6 +441,9 @@ pub async fn execute(
             org.share_sheet(sheet, actor, &target, access.as_deref())
                 .await?;
             Ok(json!({"shared":true}))
+        }
+        SheetOperation::Access { sheet, access } => {
+            Ok(json!(org.set_sheet_general_access(sheet, actor, &access).await?))
         }
         SheetOperation::Versions { sheet } => Ok(json!(org.sheet_checkpoints(sheet, actor).await?)),
         SheetOperation::Version { sheet, version } => {
