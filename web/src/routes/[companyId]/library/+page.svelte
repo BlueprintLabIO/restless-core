@@ -15,7 +15,6 @@
 	import SidebarGroup from '$lib/ui/views/SidebarGroup.svelte';
 	import SidebarSearch from '$lib/ui/views/SidebarSearch.svelte';
 	import SidebarHeadButton from '$lib/ui/views/SidebarHeadButton.svelte';
-	import SidebarEmpty from '$lib/ui/views/SidebarEmpty.svelte';
 	import LibraryViewer from '$lib/components/LibraryViewer.svelte';
 	import { personName } from '$lib/model/initials';
 	import LibraryNew from '$lib/components/LibraryNew.svelte';
@@ -926,15 +925,6 @@
 					/>
 				{/each}
 			</SidebarGroup>
-		{/if}
-		{#if !loading && !entries.length && !query}
-			<SidebarEmpty
-				text="Everything the team makes lands here: documents, sheets, sites, decks and images."
-			>
-				<button type="button" onclick={() => creator?.open('doc')}
-					><FileText size={15} strokeWidth={1.8} aria-hidden="true" />New document</button
-				>
-			</SidebarEmpty>
 		{/if}
 	{/snippet}
 	{#snippet foot()}

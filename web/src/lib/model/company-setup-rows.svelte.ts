@@ -139,7 +139,7 @@ export function createCompanySetup(companyIdOf: () => string) {
 	};
 
 	const model = $derived.by(() => {
-		if (entry?.unstartable_reason) return 'Needs a model connection';
+		if (entry?.unstartable_reason) return 'No model yet';
 		const value = intelligence.view;
 		if (intelligence.error) return 'Unavailable right now';
 		if (!value) return '…';
@@ -169,16 +169,13 @@ export function createCompanySetup(companyIdOf: () => string) {
 	});
 	const limits = $derived.by(() => {
 		if (!view) return source.failure ? 'Unavailable right now' : '…';
-		const asks = view.limits.asks_owner.map((limit) => limit.title.toLowerCase());
-		return asks.length ? `Asks you before ${asks.join(', ')}` : 'Set what it may do alone';
+		/* The rules themselves are on the page; the row says only whether any exist. */
+		return view.limits.asks_owner.length ? 'Asks you first' : 'Not set';
 	});
 	const computer = $derived.by(() => {
 		if (!view) return source.failure ? 'Unavailable right now' : '…';
 		const runtime = view.limits.runtime;
-		if (runtime.asleep) return 'Asleep · wakes when work is owed';
-		return runtime.sleep_after_minutes
-			? `Running · sleeps after ${runtime.sleep_after_minutes} minutes idle`
-			: 'Running · never sleeps';
+		return runtime.asleep ? 'Asleep' : 'Running';
 	});
 	const modelMissing = $derived(!!entry?.unstartable_reason || model === 'Not chosen yet');
 
@@ -286,7 +283,7 @@ export function createCompanySetup(companyIdOf: () => string) {
 				href: '/account/connections',
 				icon: LinkIcon,
 				todo: 0,
-				reading: 'In your account',
+				reading: 'Account',
 				tooltip: MODEL_CONNECTIONS_WHY
 			});
 		}

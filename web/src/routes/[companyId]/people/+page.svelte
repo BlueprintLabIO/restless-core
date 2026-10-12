@@ -626,15 +626,11 @@
 						No people match.
 					</p>{/if}
 				{#if sparse}
-					<SidebarEmpty
-						text="It's just you and the Exec so far. Leads and staff appear here as the Exec builds the team."
-					>
+					<!-- A new group chat is the + above; this only says why the list is short. -->
+					<SidebarEmpty text="Leads and staff appear here as the Exec builds the team.">
 						{#if owner}<a href={`/${encodeURIComponent(companyId)}/company/members`}
 								><UserPlus size={15} strokeWidth={1.8} aria-hidden="true" />Invite a colleague</a
 							>{/if}
-						<button type="button" onclick={() => manager?.open()}
-							><MessagesSquare size={15} strokeWidth={1.8} aria-hidden="true" />New group chat</button
-						>
 					</SidebarEmpty>
 				{/if}
 			{/if}

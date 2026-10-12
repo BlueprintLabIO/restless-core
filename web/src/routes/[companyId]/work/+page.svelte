@@ -82,11 +82,7 @@
 	/* Coordination down is not an empty company: its Work may be missing. */
 	const coordination = $derived(
 		coordinationFailure(
-			ownerAccess
-				? attention
-				: collaboration
-					? { sourceHealth: collaboration.source_health }
-					: null
+			ownerAccess ? attention : collaboration ? { sourceHealth: collaboration.source_health } : null
 		)
 	);
 	const loaded = $derived(
@@ -456,12 +452,13 @@
 					: undefined}
 			>
 				{#each openGoals as goal (goal.id)}{@render goalRow(goal)}{:else}
-					<SidebarEmpty
-						text="Goals are the outcomes you're working toward, like “3 paying clients by November”. Exec proposes them as you talk and keeps the work under them."
-					>
-						{#if ownerAccess}<button type="button" onclick={proposeGoals}
-								><Sparkles size={15} strokeWidth={1.8} aria-hidden="true" />Ask Exec to propose
-								goals</button
+					<!-- What a goal is lives in the heading's tooltip; the empty state only says there is none. -->
+					<SidebarEmpty text="No goals yet">
+						{#if ownerAccess}<button
+								type="button"
+								title="Ask Exec to propose goals"
+								onclick={proposeGoals}
+								><Sparkles size={15} strokeWidth={1.8} aria-hidden="true" />Propose goals</button
 							>{/if}
 					</SidebarEmpty>
 				{/each}

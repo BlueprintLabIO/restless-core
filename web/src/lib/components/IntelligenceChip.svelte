@@ -9,6 +9,7 @@
 	import { failureSentence } from '$lib/model/failure';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import Check from '@lucide/svelte/icons/check';
+	import Brain from '@lucide/svelte/icons/brain';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	let { companyId, actorId, name }: { companyId: string; actorId: string; name: string } = $props();
@@ -70,11 +71,14 @@
 		title={`${name} thinks with ${modelLabel(agent.effective_model)}, ${effortLabel(agent.thinking_effort).toLowerCase()} effort`}
 	>
 		<ActionMenu label={`${name}’s model`}>
-			{#snippet trigger()}<span class="face"
-					>{modelLabel(agent.effective_model)}<i aria-hidden="true">·</i>{effortLabel(
-						agent.thinking_effort
-					)}</span
+			{#snippet trigger()}<span class="face" aria-hidden="true"
+					><Brain size={14} strokeWidth={1.8} /></span
 				>{/snippet}
+			<p class="now">
+				{modelLabel(agent.effective_model)}<i aria-hidden="true">·</i>{effortLabel(
+					agent.thinking_effort
+				)} effort
+			</p>
 			{#each choices as model (model.id)}
 				<button type="button" disabled={busy || !assignment} onclick={() => choose(model.id)}
 					><span>{model.name}</span>{#if model.id === current}<Check
@@ -96,15 +100,16 @@
 		min-width: 0;
 	}
 	.chip :global(summary) {
-		display: flex;
-		max-width: 100%;
-		overflow: hidden;
-		width: auto;
+		display: grid;
+		place-items: center;
+		width: 24px;
 		height: 24px;
-		padding: 0 8px;
+		padding: 0;
 		border-radius: 999px;
-		color: var(--text-secondary);
-		font-size: var(--t-label);
+		color: var(--text-tertiary);
+	}
+	.chip :global(summary:hover) {
+		color: var(--ink);
 	}
 	.chip-link {
 		padding: 0 8px;
@@ -115,16 +120,13 @@
 	.chip-link:hover {
 		color: var(--ink);
 	}
-	.face {
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+	.now {
+		margin: 4px 10px 6px;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
 	}
-	.face i {
+	.now i {
 		margin: 0 4px;
-	}
-	.face i {
 		color: var(--text-tertiary);
 		font-style: normal;
 	}
