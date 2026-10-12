@@ -28,7 +28,6 @@ use crate::{runtime, Daemon};
 
 use super::{api_error, company_display_name, OwnerState};
 
-const MENTION_LIMIT: i64 = 25;
 
 #[derive(Clone)]
 pub(super) struct MemberCollaborationState {
@@ -308,8 +307,8 @@ struct MemberArtifactView {
 
 #[derive(Debug, Serialize)]
 struct MemberAttentionView {
+    /// Mentions, replies and changes reach a person through For you.
     handoffs: Vec<MemberHandoffView>,
-    mentions: Vec<MemberMentionView>,
 }
 
 #[derive(Debug, Serialize)]
@@ -327,29 +326,6 @@ struct MemberHandoffView {
     escalated_from: Option<String>,
     /// Exec's prepared brief when this is an outcome to review.
     owner_brief: Option<restless_orgintel::OwnerBrief>,
-}
-
-#[derive(Debug, Serialize)]
-struct MemberMentionView {
-    id: Uuid,
-    room_id: Uuid,
-    room_title: String,
-    message_id: i64,
-    thread_root_message_id: i64,
-    from_actor: String,
-    body: String,
-    work_id: Option<Uuid>,
-    why_this_actor: Option<String>,
-    expected_response: Option<String>,
-    recommendation: Option<String>,
-    alternatives: Vec<String>,
-    evidence: Vec<String>,
-    uncertainty: Option<String>,
-    affected_scope: Option<String>,
-    deadline_at: Option<DateTime<Utc>>,
-    fallback: Option<String>,
-    independent_work_can_continue: bool,
-    created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize)]
@@ -390,11 +366,8 @@ async fn collaboration_bootstrap(
         source.org.list_teams(),
         source.org.list_goals(),
         source.org.collaborator_work_graph_snapshot(&actor_id),
-        source
-            .org
-            .pending_message_mentions_for_actor(&actor_id, 0, MENTION_LIMIT),
     );
-    let (identity, actors, teams, goals, graph, mentions) = match projected {
+    let (identity, actors, teams, goals, graph) = match projected {
         Ok(projected) => projected,
         Err(error) => {
             tracing::error!(%error, %company, %actor_id, "member collaboration projection unavailable");
@@ -558,7 +531,6 @@ async fn collaboration_bootstrap(
             owner_brief: handoff.owner_brief,
         })
         .collect();
-    let mentions = mentions.into_iter().map(member_mention).collect();
 
     (
         [(CACHE_CONTROL, HeaderValue::from_static("no-store"))],
@@ -588,7 +560,7 @@ async fn collaboration_bootstrap(
                 })
                 .collect(),
             work_graph,
-            attention: MemberAttentionView { handoffs, mentions },
+            attention: MemberAttentionView { handoffs },
             source_health: MemberSourceHealth {
                 orgintel: "available",
             },
@@ -596,40 +568,6 @@ async fn collaboration_bootstrap(
         }),
     )
         .into_response()
-}
-
-fn member_mention(context: restless_orgintel::MessageMentionContext) -> MemberMentionView {
-    let mention = context.mention;
-    MemberMentionView {
-        id: mention.id,
-        room_id: mention.room_id,
-        room_title: context.room_title,
-        message_id: mention.message_id,
-        thread_root_message_id: mention.thread_root_message_id,
-        from_actor: context.message.from_actor,
-        body: context.message.body,
-        work_id: mention.work_id,
-        why_this_actor: mention.why_this_actor,
-        expected_response: mention.expected_response,
-        recommendation: mention.recommendation,
-        alternatives: string_array(mention.alternatives),
-        evidence: string_array(mention.evidence),
-        uncertainty: mention.uncertainty,
-        affected_scope: mention.affected_scope,
-        deadline_at: mention.deadline_at,
-        fallback: mention.fallback,
-        independent_work_can_continue: mention.independent_work_can_continue,
-        created_at: mention.created_at,
-    }
-}
-
-fn string_array(value: serde_json::Value) -> Vec<String> {
-    value
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|value| value.as_str().map(str::to_string))
-        .collect()
 }
 
 /// Where a teammate's Library opens a Work file: a path in the company home, or the address of a
@@ -920,23 +858,6 @@ mod tests {
         })
         .await
         .unwrap();
-        let mut mention = restless_orgintel::NewRoomMessageMention::actor("alice");
-        mention.work_id = Some(shared_work);
-        mention.why_this_actor = Some("Alice owns the launch call".into());
-        mention.expected_response = Some("Pick the launch name".into());
-        org.send_room_message_with_mentions(
-            shared_room.id,
-            "bob",
-            "Which launch name should we use?",
-            None,
-            "member-bootstrap-attention",
-            None,
-            &[mention],
-            None,
-        )
-        .await
-        .unwrap();
-
         let state = MemberCollaborationState::fixed([
             (
                 company.clone(),
@@ -978,13 +899,9 @@ mod tests {
         // Every person sees all Work; Rooms scope the conversation, not visibility.
         assert!(titles.contains(&"Private Room work"));
         assert!(body["attention"]["handoffs"].as_array().unwrap().is_empty());
-        assert_eq!(
-            body["attention"]["mentions"][0]["body"],
-            "Which launch name should we use?"
-        );
-        assert_eq!(
-            body["attention"]["mentions"][0]["work_id"],
-            shared_work.to_string()
+        assert!(
+            body["attention"].get("mentions").is_none(),
+            "mentions reach a person through For you"
         );
         assert_forbidden_key_absent(
             &body,

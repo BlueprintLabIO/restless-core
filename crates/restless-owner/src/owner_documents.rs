@@ -1174,7 +1174,10 @@ async fn get_document(
         .get_document_for_actor(document, principal.actor_id())
         .await
     {
-        Ok(document) => document_json(StatusCode::OK, document),
+        Ok(document) => document_json(
+            StatusCode::OK,
+            super::for_you_api::document_read_view(&org, document, principal.actor_id()).await,
+        ),
         Err(error) => document_error(error),
     }
 }

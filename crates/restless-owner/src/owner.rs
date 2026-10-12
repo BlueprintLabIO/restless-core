@@ -25,6 +25,8 @@ mod library_api;
 mod custom_harnesses;
 #[path = "owner_documents.rs"]
 mod documents_api;
+#[path = "owner_for_you.rs"]
+mod for_you_api;
 #[path = "owner_member_collaboration.rs"]
 mod member_collaboration_api;
 #[path = "owner_model_catalog.rs"]
@@ -1603,6 +1605,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .merge(room_api_routes::<OwnerState>())
         .merge(rooms_lifecycle_api::routes::<OwnerState>())
         .merge(documents_api::routes::<OwnerState>())
+        .merge(for_you_api::routes::<OwnerState>())
         .merge(sheets_api::routes::<OwnerState>())
         .merge(member_collaboration_api::routes::<OwnerState>())
         .fallback(api_not_found)
