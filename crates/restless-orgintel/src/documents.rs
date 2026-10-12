@@ -4153,6 +4153,19 @@ async fn snapshot_live_document(
      .bind(&content.content_json).bind(&content.plain_text).bind(&content.content_hash)
      .bind(current.get::<DocumentStatus, _>("status")).bind(actor_id).bind(reason)
      .execute(&mut **tx).await?;
+    // Who changed it: the people holding a write session since the previous version (S65).
+    sqlx::query(
+        "INSERT INTO native_document_version_editors (document_id,version_id,actor_id) \
+         SELECT DISTINCT $1,$2,session.actor_id FROM native_document_collaboration_sessions session \
+         JOIN native_document_versions previous ON previous.id=$3 \
+         WHERE session.document_id=$1 AND session.access='write' \
+           AND session.expires_at>previous.created_at AND session.actor_id<>'daemon'",
+    )
+    .bind(document_id)
+    .bind(id)
+    .bind(current.get::<Uuid, _>("current_named_version_id"))
+    .execute(&mut **tx)
+    .await?;
     sqlx::query(
         "UPDATE native_documents SET current_named_version_id=$2,version=version+1 WHERE id=$1",
     )
