@@ -20,6 +20,7 @@ import {
 import { collaborationDocumentName, type CollaborationTarget } from '../src/target.js';
 import { CoreTokenVerifier, type CollaborationClaims } from '../src/token-verifier.js';
 import {
+  ACTOR_ID,
   COMPANY_ID,
   DOCUMENT_ID,
   ISSUER,
@@ -33,6 +34,7 @@ class MemoryDocumentStore implements DocumentStore {
   readonly sessions = new Set<string>();
   loadCount = 0;
   storeCount = 0;
+  readonly noted: string[] = [];
   initialized = false;
   closed = false;
 
@@ -66,6 +68,10 @@ class MemoryDocumentStore implements DocumentStore {
   }
 
   loadedCheckpoint(_target: CollaborationTarget): string { return DOCUMENT_ID; }
+
+  async noteEditors(_target: CollaborationTarget, actorIds: readonly string[]): Promise<void> {
+    this.noted.push(...actorIds);
+  }
 
   async close(): Promise<void> {
     this.closed = true;
@@ -248,6 +254,9 @@ test('the real Hocuspocus boundary authenticates before load and enforces read-o
   await eventually(() => readDocument.getText('content').toString().includes('-writer'), 'writer fan-out');
   await eventually(() => store.storeCount > 0, 'durable store hook');
   assert.equal(documentText(store.state), 'seed-writer');
+  // Who changed it is the writer whose edit was kept, never the reader whose edit was refused.
+  await eventually(() => store.noted.length > 0, 'editor note');
+  assert.deepEqual([...new Set(store.noted)], [ACTOR_ID]);
 
   let replayRejected = false;
   const replay = new HocuspocusProvider({

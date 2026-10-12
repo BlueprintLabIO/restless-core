@@ -313,6 +313,16 @@ export class PostgresDocumentStore implements DocumentStore {
     }
   }
 
+  async noteEditors(target: CollaborationTarget, actorIds: readonly string[]): Promise<void> {
+    this.assertCompany(target.companyId);
+    if (!actorIds.length) return;
+    await this.pool.query('SELECT orgintel_native_document_note_editors($1,$2,$3)', [
+      target.companyId,
+      target.documentId,
+      [...actorIds].slice(0, 64),
+    ]);
+  }
+
   async store(input: StoredDocumentInput): Promise<void> {
     this.assertCompany(input.companyId);
     const key = collaborationDocumentName(input);

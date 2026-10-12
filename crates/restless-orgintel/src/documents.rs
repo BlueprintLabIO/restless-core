@@ -4354,13 +4354,22 @@ async fn snapshot_live_document(
      .bind(&content.content_json).bind(&content.plain_text).bind(&content.content_hash)
      .bind(current.get::<DocumentStatus, _>("status")).bind(actor_id).bind(reason)
      .execute(&mut **tx).await?;
-    // Who changed it: the people holding a write session since the previous version (S65).
+    // Who changed it: the people whose edits the collaboration sidecar stored since the previous
+    // version (S66). A sidecar that noted nobody leaves the earlier rule: whoever held a write
+    // session since then (S65).
     sqlx::query(
         "INSERT INTO native_document_version_editors (document_id,version_id,actor_id) \
+         SELECT DISTINCT $1,$2,editor.actor_id FROM native_document_live_editors editor \
+         JOIN native_document_versions previous ON previous.id=$3 \
+         WHERE editor.document_id=$1 AND editor.edited_at>previous.created_at \
+           AND editor.actor_id<>'daemon' \
+         UNION \
          SELECT DISTINCT $1,$2,session.actor_id FROM native_document_collaboration_sessions session \
          JOIN native_document_versions previous ON previous.id=$3 \
          WHERE session.document_id=$1 AND session.access='write' \
-           AND session.expires_at>previous.created_at AND session.actor_id<>'daemon'",
+           AND session.expires_at>previous.created_at AND session.actor_id<>'daemon' \
+           AND NOT EXISTS(SELECT 1 FROM native_document_live_editors noted \
+             WHERE noted.document_id=$1 AND noted.edited_at>previous.created_at)",
     )
     .bind(document_id)
     .bind(id)

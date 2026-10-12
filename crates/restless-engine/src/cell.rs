@@ -638,6 +638,10 @@ async fn ensure_native_documents_store_inner(
             "GRANT EXECUTE ON FUNCTION {company}.orgintel_native_document_yjs_store(\
              UUID,UUID,BIGINT,UUID,UUID,BYTEA,JSONB) TO {sidecar_role}"
         ),
+        format!(
+            "GRANT EXECUTE ON FUNCTION {company}.orgintel_native_document_note_editors(\
+             UUID,UUID,TEXT[]) TO {sidecar_role}"
+        ),
     ] {
         cell_admin
             .execute(statement.as_str())

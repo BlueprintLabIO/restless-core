@@ -46,6 +46,8 @@ export interface DocumentStore {
   load(target: CollaborationTarget): Promise<Uint8Array>;
   loadedCheckpoint(target: CollaborationTarget): string;
   store(input: StoredDocumentInput): Promise<void>;
+  /** Notes who changed the body since the last store; best effort, never blocks saving. */
+  noteEditors?(target: CollaborationTarget, actorIds: readonly string[]): Promise<void>;
   release?(target: CollaborationTarget): void | Promise<void>;
   close(): Promise<void>;
 }
@@ -218,6 +220,8 @@ export class NativeDocumentsCollaborationServer {
   private readinessProbeSequence = 0;
   /** Loaded documents whose latest store failed, until one succeeds or the document unloads. */
   private readonly unsaved = new Map<string, Exclude<SaveStatus, 'saved'>>();
+  /** Per document, the writers whose changes arrived since its last store. */
+  private readonly editors = new Map<string, Set<string>>();
 
   constructor(
     private readonly config: CollaborationConfig,
@@ -421,6 +425,15 @@ export class NativeDocumentsCollaborationServer {
           throw error;
         }
       },
+      onChange: async ({ context, documentName }) => {
+        const session = context?.session;
+        const claims = session?.lease.claims;
+        if (!session || !claims || claims.access !== 'write') return;
+        if (collaborationDocumentName(session.target) !== documentName) return;
+        let writers = this.editors.get(documentName);
+        if (!writers) this.editors.set(documentName, (writers = new Set()));
+        writers.add(claims.actor_id);
+      },
       onStoreDocument: async ({ document, documentName }) => {
         const target = documentTarget(this.config.companyId, documentName);
         const state = Y.encodeStateAsUpdate(document);
@@ -433,6 +446,10 @@ export class NativeDocumentsCollaborationServer {
         try {
           await this.store.store({ ...target, state });
           if (this.unsaved.delete(documentName)) document.broadcastStateless(saveStatus('saved'));
+          // Who changed it, once it is kept; a writer arriving after this is noted with the next store.
+          const writers = this.editors.get(documentName);
+          this.editors.delete(documentName);
+          if (writers?.size) await this.store.noteEditors?.(target, [...writers]).catch(() => undefined);
         } catch (error) {
           if (!(error instanceof DocumentCheckpointChangedError)) {
             // The body stays in memory and every later store retries it. Say so plainly: content
@@ -459,6 +476,7 @@ export class NativeDocumentsCollaborationServer {
       },
       afterUnloadDocument: async ({ documentName }) => {
         this.unsaved.delete(documentName);
+        this.editors.delete(documentName);
         const target = documentTarget(this.config.companyId, documentName);
         await this.store.release?.(target);
       },
