@@ -77,6 +77,7 @@ CONTENT AND CONFLICTS
   Each block needs a unique attrs.block_id (including nested block nodes); text nodes do not.
   Common blocks: paragraph, heading (attrs.level 1-6), bulletList/orderedList with listItem
   children containing paragraphs, blockquote, codeBlock (attrs.language), horizontalRule.
+  An image block (attrs.attachment_id, attrs.alt) shows a company file; keep it unchanged.
   Inline text: {"type":"text","text":"..."}; optional marks include bold, italic, strike, code.
   Copy an existing block when changing text rather than reconstructing unfamiliar structure.
   A block can be edited only once in one command. All guards are checked before any update.

@@ -7,9 +7,12 @@
 	import DocumentActions from './DocumentActions.svelte';
 	import PageFaces from './PageFaces.svelte';
 	import { documentFaces } from '$lib/model/page-faces';
+	import DocumentBlockMenus from './DocumentBlockMenus.svelte';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import './document-print.css';
-	import { Editor } from '@tiptap/core';
+	import { Editor, type JSONContent } from '@tiptap/core';
+	import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
+	import { MAX_UPLOAD_BYTES, uploadAttachments } from '$lib/model/attachments';
 	import { Selection } from '@tiptap/pm/state';
 	import { HocuspocusProvider } from '@hocuspocus/provider';
 	import * as Y from 'yjs';
@@ -46,12 +49,17 @@
 		type DocumentCollaborationState
 	} from '$lib/model/document-collaboration';
 	import {
+		DOCUMENT_IMAGE_TYPES,
 		createDocumentEditorExtensions,
+		documentTable,
+		imageAltFromName,
 		inDocumentTable,
 		linkFromInput,
 		runDocumentTableAction,
 		safeHref,
-		selectedDocumentBlockId
+		selectedDocumentBlockId,
+		withDocumentImages,
+		type SlashMenuState
 	} from '$lib/model/document-editor-schema';
 	import {
 		failClosedDocumentRead,
@@ -434,7 +442,14 @@
 								provider,
 								writable,
 								{ actorId, nameOf: (id) => nameOf(id) },
-								{ companyId: routeCompany, requestLink: () => openLinkBar() }
+								{
+									companyId: routeCompany,
+									requestLink: () => openLinkBar(),
+									uploadImages: (files, at) => void insertImages(files, at),
+									slashChange: setSlash,
+									slashKey: (event) => menus?.slashKey(event) ?? false,
+									blockMenu: (target) => menus?.openBlockMenu(target)
+								}
 							),
 							editable: writable,
 							editorProps: {
@@ -510,27 +525,77 @@
 	}
 
 	function addTable(): void {
-		run((instance) =>
-			instance.commands.insertContent({
-				type: 'table',
-				content: [
-					{
-						type: 'tableRow',
-						content: [
-							{ type: 'tableHeader', content: [{ type: 'paragraph' }] },
-							{ type: 'tableHeader', content: [{ type: 'paragraph' }] }
-						]
-					},
-					{
-						type: 'tableRow',
-						content: [
-							{ type: 'tableCell', content: [{ type: 'paragraph' }] },
-							{ type: 'tableCell', content: [{ type: 'paragraph' }] }
-						]
+		run((instance) => instance.commands.insertContent(documentTable()));
+	}
+
+	/* "/" and a block's own actions: their menus draw here; the editor says when they open. */
+	let menus = $state<ReturnType<typeof DocumentBlockMenus>>();
+	let slash = $state<SlashMenuState | null>(null);
+	function setSlash(next: SlashMenuState | null): void {
+		if (next?.from === slash?.from && next?.query === slash?.query) return;
+		slash = next;
+	}
+
+	/* Images: pasted, dropped or picked files become company files (the Library's own upload),
+	 * then image blocks where they were put. The block is remembered by identity, since a
+	 * co-editor may move things while the file uploads. */
+	let addingImages = $state(0);
+	let imageFailure = $state('');
+
+	async function insertImages(files: File[], at: number): Promise<void> {
+		const instance = editorState.editor;
+		if (!instance || !canWriteLive) return;
+		const images = files.filter((file) => DOCUMENT_IMAGE_TYPES.includes(file.type));
+		if (!images.length) {
+			imageFailure = 'Only PNG, JPEG, GIF and WebP images can go in a document.';
+			return;
+		}
+		const large = images.find((file) => file.size > MAX_UPLOAD_BYTES);
+		if (large) {
+			imageFailure = `${large.name} is larger than ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB, the most one image can be.`;
+			return;
+		}
+		const { doc } = instance.state;
+		const resolved = doc.resolve(Math.max(0, Math.min(at, doc.content.size)));
+		const anchor = resolved.depth >= 1 ? resolved.node(1).attrs.block_id : null;
+		imageFailure = '';
+		addingImages += images.length;
+		try {
+			const added = await uploadAttachments(companyId, images);
+			const current = editorState.editor;
+			if (!current || !current.isEditable) return;
+			placeImages(
+				current,
+				typeof anchor === 'string' ? anchor : null,
+				added.map((file, index) => ({
+					type: 'image',
+					attrs: {
+						attachment_id: file.id,
+						alt: imageAltFromName(images[index]?.name ?? file.name)
 					}
-				]
-			})
-		);
+				}))
+			);
+		} catch (cause) {
+			imageFailure = failureSentence(cause, 'The image was not added.');
+		} finally {
+			addingImages -= images.length;
+		}
+	}
+
+	/** In place of the empty block they were put in, after any other block, or at the end. */
+	function placeImages(instance: Editor, anchor: string | null, images: JSONContent[]): void {
+		const { doc } = instance.state;
+		let found: { pos: number; node: ProseMirrorNode } | null = null;
+		doc.forEach((node, offset) => {
+			if (!found && anchor && node.attrs.block_id === anchor) found = { pos: offset, node };
+		});
+		const target = found as { pos: number; node: ProseMirrorNode } | null;
+		const at = !target
+			? doc.content.size
+			: target.node.type.name === 'paragraph' && target.node.content.size === 0
+				? { from: target.pos, to: target.pos + target.node.nodeSize }
+				: target.pos + target.node.nodeSize;
+		instance.chain().insertContentAt(at, images).run();
 	}
 
 	function commentOnSelection(): void {
@@ -786,7 +851,9 @@
 				<RefreshCw class="spinning" size={14} strokeWidth={1.8} aria-hidden="true" />
 			{/if}
 			<span
-				>{saveProblem
+				>{addingImages
+					? 'Adding image…'
+					: saveProblem
 					? 'Not saved'
 					: savingShown
 						? 'Saving…'
@@ -1087,6 +1154,16 @@
 		</div>
 	{/if}
 
+	{#if imageFailure}
+		<div class="editor-error" role="alert">
+			<span>{imageFailure}</span><button
+				type="button"
+				class="btn small"
+				onclick={() => (imageFailure = '')}>Dismiss</button
+			>
+		</div>
+	{/if}
+
 	{#if saveFailure}
 		<div class="editor-error" role="alert">
 			<span>{saveFailure}</span>{#if titleDirty}<button
@@ -1149,10 +1226,20 @@
 							: 'Read only.'}</span
 					>
 				</div>
-				<div class="rendered-document">{@html view.current_version.rendered_html}</div>
+				<div class="rendered-document">
+					{@html withDocumentImages(view.current_version.rendered_html, companyId)}
+				</div>
 			</div>
 		{/if}
 	</div>
+	{#if editor && canWriteLive}
+		<DocumentBlockMenus
+			bind:this={menus}
+			{editor}
+			{slash}
+			onimages={(files, at) => void insertImages(files, at)}
+		/>
+	{/if}
 </section>
 
 <style>
@@ -1594,6 +1681,50 @@
 	}
 	:global(.native-document-body.ProseMirror-focused > [data-block-id]:hover) {
 		background: color-mix(in srgb, var(--surface-work) 3%, transparent);
+	}
+	/* An image is the file it names, as wide as the page allows; until it loads it holds a quiet
+	 * line of space rather than none. */
+	:global(.native-document-body .native-image),
+	:global(.rendered-document figure) {
+		margin: var(--space-4) 0;
+	}
+	:global(.native-document-body .native-image img),
+	:global(.rendered-document img[data-attachment-id]) {
+		display: block;
+		max-width: 100%;
+		height: auto;
+		min-height: 48px;
+		border-radius: var(--radius-control);
+		background: var(--surface-alt);
+	}
+	:global(.native-document-body .native-image.ProseMirror-selectednode img) {
+		outline: 2px solid var(--intent-feedback);
+		outline-offset: 2px;
+	}
+	/* A block's grip, beside the block under the pointer: quiet until reached for. */
+	:global(.block-handle) {
+		display: grid;
+		place-items: center;
+		width: 18px;
+		height: 24px;
+		padding: 0;
+		border: 0;
+		border-radius: 4px;
+		background: transparent;
+		color: var(--text-tertiary);
+		cursor: grab;
+		transform: translateX(-6px);
+		transition:
+			background-color var(--motion-state) var(--ease-standard),
+			color var(--motion-state) var(--ease-standard);
+	}
+	:global(.block-handle:hover),
+	:global(.block-handle:focus-visible) {
+		background: var(--wash-hover);
+		color: var(--ink);
+	}
+	:global(.block-handle[data-dragging='true']) {
+		cursor: grabbing;
 	}
 	/* Other people's carets: a thin coloured bar with their name above it. */
 	:global(.collaboration-carets__caret) {

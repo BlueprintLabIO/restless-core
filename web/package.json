@@ -51,6 +51,8 @@
 		"@tiptap/core": "^3.31.3",
 		"@tiptap/extension-collaboration": "^3.31.3",
 		"@tiptap/extension-collaboration-caret": "^3.31.3",
+		"@tiptap/extension-drag-handle": "^3.31.3",
+		"@tiptap/extension-node-range": "^3.31.3",
 		"@tiptap/extension-task-item": "^3.31.3",
 		"@tiptap/extension-task-list": "^3.31.3",
 		"@tiptap/extension-unique-id": "^3.31.3",

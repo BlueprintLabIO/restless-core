@@ -1,4 +1,5 @@
 import {
+	Extension,
 	InputRule,
 	Mark,
 	Node,
@@ -12,6 +13,7 @@ import {
 } from '@tiptap/core';
 import Collaboration, { isChangeOrigin } from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
+import { DragHandlePlugin, normalizeNestedOptions } from '@tiptap/extension-drag-handle';
 import { OrderedList } from '@tiptap/extension-list';
 import TaskItem from '@tiptap/extension-task-item';
 import TaskList from '@tiptap/extension-task-list';
@@ -40,7 +42,8 @@ const BLOCK_TYPES = [
 	'table',
 	'tableRow',
 	'tableCell',
-	'tableHeader'
+	'tableHeader',
+	'image'
 ] as const;
 
 /* The documents sidecar stores only what the company schema allows and refuses the whole body
@@ -550,6 +553,14 @@ export interface DocumentEditorHooks {
 	companyId?: string;
 	/** Mod-K: the page opens its link field. */
 	requestLink?: () => void;
+	/** Image files pasted or dropped at a position: the page uploads them and places them there. */
+	uploadImages?: (files: File[], at: number) => void;
+	/** The "/" menu opened, changed or closed. */
+	slashChange?: (state: SlashMenuState | null) => void;
+	/** A key pressed while the "/" menu is open; true when the menu used it. */
+	slashKey?: (event: KeyboardEvent) => boolean;
+	/** Open the actions of the top-level block at a position, beside an anchor. */
+	blockMenu?: (target: { pos: number; anchor: DOMRect; fromKeyboard?: boolean }) => void;
 }
 
 function caretExtension(provider: HocuspocusProvider, carets: DocumentCarets) {
@@ -574,6 +585,270 @@ function caretExtension(provider: HocuspocusProvider, carets: DocumentCarets) {
 			style: `background-color: hsl(${caretHue(typeof user.actor_id === 'string' ? user.actor_id : '')} 65% 45% / 0.18)`
 		})
 	});
+}
+
+/** Where a company file shows in place: the attachment route, which serves a raster image inline
+ * only when its bytes really are one. */
+export function documentImageSrc(companyId: string, attachmentId: string): string {
+	return `/api/companies/${encodeURIComponent(companyId)}/attachments/${encodeURIComponent(attachmentId)}?inline=1`;
+}
+
+const ATTACHMENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+const MAX_IMAGE_ALT = 300;
+/** The raster types the attachment route shows in place. */
+export const DOCUMENT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+
+function attachmentIdFrom(value: string | null | undefined): string | null {
+	return value && ATTACHMENT_ID.test(value) ? value : null;
+}
+
+/** A file's name as the words an image is described by: "Q3 chart.png" reads "Q3 chart". */
+export function imageAltFromName(name: string): string {
+	const alt = name
+		.replace(/\.[a-z0-9]{1,5}$/iu, '')
+		.replace(/[\p{Cc}]/gu, '')
+		.trim();
+	return [...alt].slice(0, MAX_IMAGE_ALT).join('');
+}
+
+/** A named version's rendered page shows its images from the company that holds them. */
+export function withDocumentImages(html: string, companyId: string): string {
+	return html.replace(
+		/<img data-attachment-id="([0-9a-f-]{36})"/gu,
+		(whole, id: string) =>
+			ATTACHMENT_ID.test(id)
+				? `<img src="${documentImageSrc(companyId, id)}" loading="lazy" data-attachment-id="${id}"`
+				: whole
+	);
+}
+
+function imageFiles(list: FileList | null | undefined): File[] {
+	return [...(list ?? [])].filter((file) => DOCUMENT_IMAGE_TYPES.includes(file.type));
+}
+
+/* An image is a block that names a company file; the page supplies its address. A copied image
+ * pastes back as itself; an image pasted from elsewhere arrives as a file and is uploaded. */
+function imageExtension(hooks: DocumentEditorHooks) {
+	return Node.create({
+		name: 'image',
+		group: 'block',
+		atom: true,
+		draggable: true,
+		selectable: true,
+		addAttributes: () => ({
+			...BLOCK_ID,
+			attachment_id: {
+				default: null,
+				parseHTML: (element: HTMLElement) =>
+					attachmentIdFrom(element.getAttribute('data-attachment-id')),
+				renderHTML: (attributes: Record<string, unknown>) =>
+					typeof attributes.attachment_id === 'string'
+						? { 'data-attachment-id': attributes.attachment_id }
+						: {}
+			},
+			alt: {
+				default: null,
+				parseHTML: (element: HTMLElement) => {
+					const alt = element.querySelector('img')?.getAttribute('alt') ?? '';
+					return alt.length <= MAX_IMAGE_ALT && !alt.includes('\0') ? alt : null;
+				},
+				renderHTML: () => ({})
+			},
+			width: {
+				default: null,
+				parseHTML: (element: HTMLElement) => {
+					const width = Number(element.querySelector('img')?.getAttribute('width'));
+					return Number.isInteger(width) && width >= 16 && width <= 4_096 ? width : null;
+				},
+				renderHTML: () => ({})
+			}
+		}),
+		parseHTML: () => [
+			{
+				tag: 'figure[data-attachment-id]',
+				getAttrs: (element: HTMLElement) =>
+					attachmentIdFrom(element.getAttribute('data-attachment-id')) ? {} : false
+			}
+		],
+		renderHTML: ({ node, HTMLAttributes }) => {
+			const id = attachmentIdFrom(node.attrs.attachment_id);
+			const width = node.attrs.width;
+			return [
+				'figure',
+				mergeAttributes(HTMLAttributes, { class: 'native-image' }),
+				[
+					'img',
+					{
+						src: id && hooks.companyId ? documentImageSrc(hooks.companyId, id) : null,
+						alt: typeof node.attrs.alt === 'string' ? node.attrs.alt : '',
+						...(typeof width === 'number' ? { width: String(width) } : {}),
+						loading: 'lazy',
+						draggable: 'false'
+					}
+				]
+			];
+		},
+		addProseMirrorPlugins() {
+			return [
+				new Plugin({
+					key: new PluginKey('documentImageFiles'),
+					props: {
+						handlePaste: (view, event) => {
+							const files = imageFiles(event.clipboardData?.files);
+							if (!files.length || !hooks.uploadImages || !view.editable) return false;
+							event.preventDefault();
+							hooks.uploadImages(files, view.state.selection.from);
+							return true;
+						},
+						handleDrop: (view, event, _slice, moved) => {
+							const files = moved ? [] : imageFiles(event.dataTransfer?.files);
+							if (!files.length || !hooks.uploadImages || !view.editable) return false;
+							event.preventDefault();
+							const at = view.posAtCoords({ left: event.clientX, top: event.clientY });
+							hooks.uploadImages(files, at?.pos ?? view.state.selection.from);
+							return true;
+						}
+					}
+				})
+			];
+		}
+	});
+}
+
+/** The "/" menu while it is open: where its slash is and what has been typed after it. */
+export interface SlashMenuState {
+	from: number;
+	query: string;
+}
+
+export const slashMenuKey = new PluginKey<SlashMenuState | null>('documentSlashMenu');
+
+/** The menu stays open while the caret is after its slash in the same block and the words typed
+ * after it could still name a block; anything else closes it. */
+export function nextSlashMenuState(
+	state: EditorState,
+	previous: SlashMenuState | null,
+	mapped: number
+): SlashMenuState | null {
+	if (!previous) return null;
+	const { selection, doc } = state;
+	if (!selection.empty || mapped < 0 || mapped >= doc.content.size) return null;
+	const head = selection.from;
+	if (head <= mapped || doc.textBetween(mapped, mapped + 1) !== '/') return null;
+	if (doc.resolve(mapped).parent !== selection.$from.parent) return null;
+	const query = doc.textBetween(mapped + 1, head);
+	if (query.length > 24 || /^\s|\s\s/u.test(query)) return null;
+	return { from: mapped, query };
+}
+
+/* Typing "/" in an empty text block opens a menu of blocks; a slash anywhere else is a slash.
+ * The page draws the menu and handles its keys; Escape, or deleting the slash, closes it. */
+function slashMenuExtension(hooks: DocumentEditorHooks) {
+	return Extension.create({
+		name: 'documentSlashMenu',
+		priority: 10_000,
+		addProseMirrorPlugins() {
+			return [
+				new Plugin<SlashMenuState | null>({
+					key: slashMenuKey,
+					state: {
+						init: () => null,
+						apply: (tr, value, _old, state) => {
+							const meta = tr.getMeta(slashMenuKey) as SlashMenuState | null | undefined;
+							if (meta !== undefined) return meta;
+							return value
+								? nextSlashMenuState(state, value, tr.mapping.map(value.from, -1))
+								: null;
+						}
+					},
+					props: {
+						handleTextInput: (view, from, to, text) => {
+							const { $from, empty } = view.state.selection;
+							if (text !== '/' || !empty || !hooks.slashChange) return false;
+							if ($from.parent.type.name !== 'paragraph' || $from.parent.content.size) return false;
+							view.dispatch(
+								view.state.tr.insertText('/', from, to).setMeta(slashMenuKey, { from, query: '' })
+							);
+							return true;
+						},
+						handleKeyDown: (view, event) => {
+							if (!slashMenuKey.getState(view.state)) return false;
+							if (event.key === 'Escape') {
+								view.dispatch(view.state.tr.setMeta(slashMenuKey, null));
+								return true;
+							}
+							return hooks.slashKey?.(event) ?? false;
+						}
+					},
+					view: () => ({
+						update: (view) => hooks.slashChange?.(slashMenuKey.getState(view.state) ?? null),
+						destroy: () => hooks.slashChange?.(null)
+					})
+				})
+			];
+		}
+	});
+}
+
+const GRIP =
+	'<svg width="10" height="16" viewBox="0 0 10 16" aria-hidden="true"><g fill="currentColor"><circle cx="2.5" cy="3" r="1.4"/><circle cx="7.5" cy="3" r="1.4"/><circle cx="2.5" cy="8" r="1.4"/><circle cx="7.5" cy="8" r="1.4"/><circle cx="2.5" cy="13" r="1.4"/><circle cx="7.5" cy="13" r="1.4"/></g></svg>';
+
+/* A grip beside the block under the pointer: drag it to move the block, click it (or press
+ * Ctrl+/ in the block) for its actions. Tiptap's own drag handle does the moving, CRDT-safely. */
+function blockHandleExtension(hooks: DocumentEditorHooks) {
+	return Extension.create({
+		name: 'documentBlockHandle',
+		addKeyboardShortcuts() {
+			return {
+				'Mod-/': () => {
+					const { $from } = this.editor.state.selection;
+					if (!hooks.blockMenu || !this.editor.isEditable || $from.depth < 1) return false;
+					const pos = $from.before(1);
+					const dom = this.editor.view.nodeDOM(pos);
+					if (!(dom instanceof HTMLElement)) return false;
+					hooks.blockMenu({ pos, anchor: dom.getBoundingClientRect(), fromKeyboard: true });
+					return true;
+				}
+			};
+		},
+		addProseMirrorPlugins() {
+			if (!hooks.blockMenu || typeof window === 'undefined') return [];
+			const element = window.document.createElement('button');
+			element.type = 'button';
+			element.className = 'block-handle';
+			element.setAttribute('aria-label', 'Move or change this block');
+			element.title = 'Drag to move. Click, or press Ctrl+/, for more';
+			element.innerHTML = GRIP;
+			let current = -1;
+			element.addEventListener('click', () => {
+				if (current >= 0)
+					hooks.blockMenu?.({ pos: current, anchor: element.getBoundingClientRect() });
+			});
+			return [
+				DragHandlePlugin({
+					editor: this.editor,
+					element,
+					nestedOptions: normalizeNestedOptions(false),
+					computePositionConfig: { placement: 'left-start', strategy: 'absolute' },
+					onNodeChange: ({ node, pos }) => {
+						current = node ? pos : -1;
+					}
+				}).plugin
+			];
+		}
+	});
+}
+
+/** A two-column table with a heading row, as the toolbar and the "/" menu insert it. */
+export function documentTable(): JSONContent {
+	const row = (type: 'tableHeader' | 'tableCell') => ({
+		type: 'tableRow',
+		content: [
+			{ type, content: [{ type: 'paragraph' }] },
+			{ type, content: [{ type: 'paragraph' }] }
+		]
+	});
+	return { type: 'table', content: [row('tableHeader'), row('tableCell')] };
 }
 
 export function createDocumentEditorExtensions(
@@ -601,6 +876,9 @@ export function createDocumentEditorExtensions(
 		Mention,
 		referenceExtension(hooks.companyId ?? ''),
 		linkExtension(hooks.requestLink),
+		imageExtension(hooks),
+		slashMenuExtension(hooks),
+		blockHandleExtension(hooks),
 		UniqueID.configure({
 			attributeName: 'block_id',
 			types: [...BLOCK_TYPES],
@@ -708,6 +986,32 @@ function projectedAttributes(
 			attrs.actor_id = string(source.actor_id, 'mention actor', 128);
 			attrs.label = string(source.label, 'mention label', 200);
 			break;
+		case 'image': {
+			const id = string(source.attachment_id, 'image file', 36);
+			if (!ATTACHMENT_ID.test(id)) invalid('image file is invalid.');
+			attrs.attachment_id = id;
+			if (source.alt !== null && source.alt !== undefined) {
+				if (
+					typeof source.alt !== 'string' ||
+					[...source.alt].length > MAX_IMAGE_ALT ||
+					source.alt.includes('\0')
+				) {
+					invalid('image description is invalid.');
+				}
+				attrs.alt = source.alt;
+			}
+			if (source.width !== null && source.width !== undefined) {
+				if (
+					!Number.isInteger(source.width) ||
+					Number(source.width) < 16 ||
+					Number(source.width) > 4_096
+				) {
+					invalid('image width is invalid.');
+				}
+				attrs.width = source.width;
+			}
+			break;
+		}
 		case 'reference': {
 			const kind = string(source.kind, 'reference kind', 32);
 			if (!REFERENCE_KINDS.includes(kind)) {
