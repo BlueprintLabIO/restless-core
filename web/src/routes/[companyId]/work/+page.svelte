@@ -424,7 +424,7 @@
 			count={loaded
 				? (graph?.work ?? []).filter(
 						(item) => item.status !== 'abandoned' && item.status !== 'completed'
-					).length
+					).length || null
 				: null}
 		/>
 		{#if loaded && graph && graph.work.length}
@@ -508,7 +508,7 @@
 			<div class="title">
 				{#if selectedGoal}<Target size={15} strokeWidth={1.8} aria-hidden="true" />{/if}
 				<h1>{title}</h1>
-				<span class="count" title="Open work">{loaded ? openCount : ''}</span>
+				<span class="count" title="Open work">{loaded && openCount ? openCount : ''}</span>
 				{#if selectedGoalAbout}<InfoTip text={selectedGoalAbout} />{/if}
 				{#if selectedGoal}<button
 						class="clear"

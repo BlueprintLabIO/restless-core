@@ -2,7 +2,7 @@
  * list, so a page cannot be reachable from one and missing from the other. */
 export type CompanyPage = {
 	key: string;
-	group: 'Company' | 'Capabilities' | 'Operations' | 'Records';
+	group: 'About' | 'Capabilities' | 'Operations' | 'Records';
 	label: string;
 	path: string;
 	exact?: boolean;
@@ -13,7 +13,7 @@ export type CompanyPage = {
 export const COMPANY_PAGES: CompanyPage[] = [
 	{
 		key: 'overview',
-		group: 'Company',
+		group: 'About',
 		label: 'Overview',
 		path: '',
 		exact: true,
@@ -21,21 +21,21 @@ export const COMPANY_PAGES: CompanyPage[] = [
 	},
 	{
 		key: 'charter',
-		group: 'Company',
+		group: 'About',
 		label: 'Charter',
 		path: '/charter',
 		keywords: 'mission name purpose quality legal profile direction'
 	},
 	{
 		key: 'identity',
-		group: 'Company',
+		group: 'About',
 		label: 'Identity',
 		path: '/identity',
 		keywords: 'voice brand'
 	},
 	{
 		key: 'members',
-		group: 'Company',
+		group: 'About',
 		label: 'Members',
 		path: '/members',
 		keywords: 'invite access'

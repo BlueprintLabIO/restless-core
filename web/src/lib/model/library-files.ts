@@ -63,7 +63,7 @@ const DECK_KIND = /^(deck|slides?|presentation)$/i;
 const DECK_NAME = /\b(deck|slides?|presentation)\b/i;
 /* Labels that name no particular file: recorders' defaults and the words for a kind. */
 const GENERIC_LABEL =
-	/^(outputs?|review[ _-]?target|artifact|file|result|deliverable|deck|site|page|index(\.html?)?|report|document)$/i;
+	/^(outputs?|review([ _-]?target)?|evidence|artifact|file|result|deliverable|deck|site|page|index(\.html?)?|report|document)$/i;
 
 function fileName(uri: string): string {
 	try {

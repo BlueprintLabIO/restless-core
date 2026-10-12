@@ -124,7 +124,8 @@
 	}
 	.item-meta {
 		flex: 1 1 0;
-		min-width: 0;
+		/* A crowded row shortens the title first; a name never collapses to one letter. */
+		min-width: min(7ch, 30%);
 		overflow: hidden;
 		color: var(--text-tertiary);
 		font-size: var(--t-body);

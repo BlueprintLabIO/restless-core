@@ -252,7 +252,11 @@
 	});
 	const directoryHumans = $derived.by(() => {
 		const query = search.trim().toLocaleLowerCase();
-		return people.filter((person) => person.kind === 'human' && matchesDirectory(person, query));
+		/* The company's owner is a colleague too, for everyone but the owner (never listed as themself). */
+		return people.filter(
+			(person) =>
+				(person.kind === 'human' || person.kind === 'owner') && matchesDirectory(person, query)
+		);
 	});
 	function href(person: string, room = '') {
 		const params = new URLSearchParams(room ? { room } : person ? { person } : {});
