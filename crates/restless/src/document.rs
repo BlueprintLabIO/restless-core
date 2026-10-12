@@ -21,7 +21,9 @@ pub(crate) enum DocumentCommand {
         #[arg(long)]
         archived: bool,
     },
-    /// Create a document from Markdown or restricted editor JSON.
+    /// Create a document from Markdown or restricted editor JSON. The title shows above the body,
+    /// so begin the body with its content, not the title again. Write for people: name or link
+    /// files and documents instead of quoting ids, paths or commands.
     Create {
         #[arg(long)]
         title: String,
@@ -118,7 +120,8 @@ CONTENT AND CONFLICTS
         #[arg(long)]
         cursor: Option<String>,
     },
-    /// Give a colleague access; requires ownership and current metadata revision.
+    /// Give a colleague or agent access. Its creator, the company owner and the Exec may share it;
+    /// pass the current metadata revision.
     Share {
         document: String,
         member: String,

@@ -850,6 +850,38 @@ struct ValidationState {
 /// non-authoritative representation from that exact value. Unknown nodes,
 /// marks, attributes and object fields are refused; arbitrary HTML therefore
 /// never crosses the storage or rendering boundary.
+/// The title is shown above the body, so a body that opens with the same words as a heading says
+/// it twice. Drop that one heading when something follows it; a body that is only the heading stays.
+fn without_repeated_title(content: &Value, title: &str) -> Value {
+    fn words(text: &str) -> String {
+        text.split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .trim_end_matches(|c: char| c.is_ascii_punctuation())
+            .to_lowercase()
+    }
+    fn text_of(node: &Value) -> String {
+        match node.get("text").and_then(Value::as_str) {
+            Some(text) => text.to_string(),
+            None => node
+                .get("content")
+                .and_then(Value::as_array)
+                .map(|children| children.iter().map(text_of).collect::<String>())
+                .unwrap_or_default(),
+        }
+    }
+    let mut trimmed = content.clone();
+    if let Some(blocks) = trimmed.get_mut("content").and_then(Value::as_array_mut) {
+        let repeats = blocks.len() > 1
+            && blocks[0].get("type").and_then(Value::as_str) == Some("heading")
+            && words(&text_of(&blocks[0])) == words(title);
+        if repeats {
+            blocks.remove(0);
+        }
+    }
+    trimmed
+}
+
 pub fn validate_document_json(content: &Value) -> DocumentResult<ValidatedDocument> {
     let serialized = serde_json::to_vec(content)
         .map_err(|error| DocumentError::Invalid(format!("content is not JSON: {error}")))?;
@@ -4249,7 +4281,7 @@ impl OrgIntel {
             input.linked_room_id,
             input.inherit_room_visibility,
         )?;
-        let content = validate_document_json(input.content_json)?;
+        let content = validate_document_json(&without_repeated_title(input.content_json, &title))?;
         let fingerprint = request_fingerprint(
             "document_create",
             json!({
@@ -8188,6 +8220,24 @@ impl OrgIntel {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_body_never_repeats_its_title_as_its_first_heading() {
+        let heading = |text: &str| json!({"type":"heading","attrs":{"level":2},"content":[{"type":"text","text":text}]});
+        let paragraph = json!({"type":"paragraph","content":[{"type":"text","text":"Body."}]});
+        let doc = |blocks: Vec<Value>| json!({"type":"doc","content":blocks});
+        // The same words, give or take case, spacing and a closing full stop, go.
+        let repeated = doc(vec![heading("Three  offers, three notes."), paragraph.clone()]);
+        assert_eq!(
+            without_repeated_title(&repeated, "Three offers, three notes"),
+            doc(vec![paragraph.clone()])
+        );
+        // A different first heading stays, and so does a body that is only the heading.
+        let different = doc(vec![heading("Why now"), paragraph.clone()]);
+        assert_eq!(without_repeated_title(&different, "Three offers"), different);
+        let only = doc(vec![heading("Three offers")]);
+        assert_eq!(without_repeated_title(&only, "Three offers"), only);
+    }
+
     use super::*;
     use serde_json::json;
 
