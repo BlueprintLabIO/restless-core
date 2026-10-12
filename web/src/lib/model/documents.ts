@@ -87,6 +87,8 @@ export interface DocumentVersionSummary {
 	created_by_actor_id: string;
 	reason: string;
 	created_at: string;
+	/** Who was editing when an automatic version saved the live body: whose change it was. */
+	editor_actor_ids?: string[];
 }
 
 export interface DocumentReadView {
@@ -96,7 +98,13 @@ export interface DocumentReadView {
 	/** This person's follow state; only the document read itself carries it. */
 	following?: boolean;
 	/** Others changed it since this person last opened it. */
-	changed_since_you_looked?: { actor_ids: string[]; actor_name: string; at: string } | null;
+	changed_since_you_looked?: {
+		actor_ids: string[];
+		actor_name: string;
+		at: string;
+		/** When this person last looked; what changed is everything after it. */
+		since?: string | null;
+	} | null;
 }
 
 export interface DocumentSummary {
@@ -198,6 +206,8 @@ export interface DocumentCommentRow {
 	content_hash: string;
 	mentioned_actor_ids: string[];
 	created_at: string;
+	/** When its author last changed it. */
+	edited_at?: string | null;
 }
 
 export interface DocumentCommentPage {
@@ -620,6 +630,102 @@ export function resolveDocumentCommentThread(
 		`${documentsPath(company, document)}/comments/${encodeURIComponent(thread)}/resolve`,
 		mutation({ expected_thread_version: expectedThreadVersion }, commandId)
 	);
+}
+
+/** A resolved thread, open again. */
+export function reopenDocumentCommentThread(
+	company: string,
+	document: string,
+	thread: string,
+	expectedThreadVersion: number
+): Promise<DocumentCommentThreadRow> {
+	return documentJson(
+		`${documentsPath(company, document)}/comments/${encodeURIComponent(thread)}/reopen`,
+		{
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ expected_thread_version: expectedThreadVersion })
+		}
+	);
+}
+
+function commentPath(company: string, document: string, thread: string, comment: string) {
+	return `${documentsPath(company, document)}/comments/${encodeURIComponent(thread)}/replies/${encodeURIComponent(comment)}`;
+}
+
+/** A comment's author changes what it says. */
+export function editDocumentComment(
+	company: string,
+	document: string,
+	thread: string,
+	comment: string,
+	contentJson: DocumentContent
+): Promise<DocumentCommentRow> {
+	return documentJson(commentPath(company, document, thread, comment), {
+		method: 'PATCH',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ content_json: contentJson })
+	});
+}
+
+/** A comment's author takes it back. */
+export async function deleteDocumentComment(
+	company: string,
+	document: string,
+	thread: string,
+	comment: string
+): Promise<void> {
+	const response = await fetch(commentPath(company, document, thread, comment), {
+		method: 'DELETE',
+		credentials: 'same-origin'
+	});
+	if (!response.ok) throw await responseError(response);
+}
+
+/** Someone's open ask for a document, as its sharing managers see it. */
+export interface DocumentAccessRequest {
+	id: string;
+	document_id: string;
+	actor_id: string;
+	access: DocumentAccess;
+	requested_at: string;
+}
+
+/** Ask to open a document, or for more than one has. Answers the same whether or not it exists. */
+export async function requestDocumentAccess(
+	company: string,
+	document: string,
+	access: DocumentAccess = 'read'
+): Promise<void> {
+	const response = await fetch(`${documentsPath(company, document)}/access-requests`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		credentials: 'same-origin',
+		body: JSON.stringify({ access })
+	});
+	if (!response.ok) throw await responseError(response);
+}
+
+export async function getDocumentAccessRequests(
+	company: string,
+	document: string
+): Promise<DocumentAccessRequest[]> {
+	const page = await documentJson<{ items: DocumentAccessRequest[] }>(
+		`${documentsPath(company, document)}/access-requests`
+	);
+	return page.items;
+}
+
+export async function dismissDocumentAccessRequest(
+	company: string,
+	document: string,
+	request: string
+): Promise<void> {
+	const response = await fetch(
+		`${documentsPath(company, document)}/access-requests/${encodeURIComponent(request)}/dismiss`,
+		{ method: 'POST', credentials: 'same-origin' }
+	);
+	if (!response.ok) throw await responseError(response);
 }
 
 export function getDocumentReviews(

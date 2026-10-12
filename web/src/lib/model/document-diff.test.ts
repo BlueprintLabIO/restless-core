@@ -1,0 +1,46 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { versionChanges, wordChanges } from './document-diff.ts';
+import type { DocumentContent } from './documents.ts';
+
+const doc = (...blocks: [string, string][]): DocumentContent => ({
+	type: 'doc',
+	content: blocks.map(([id, text]) => ({
+		type: 'paragraph',
+		attrs: { block_id: id },
+		content: text ? [{ type: 'text', text }] : undefined
+	}))
+});
+
+test('a reworded block names the words that changed, and nothing else', () => {
+	assert.deepEqual(wordChanges('Price is 10 dollars', 'Price is 12 dollars'), [
+		{ op: 'same', text: 'Price is ' },
+		{ op: 'removed', text: '10' },
+		{ op: 'added', text: '12' },
+		{ op: 'same', text: ' dollars' }
+	]);
+});
+
+test('blocks are matched by identity: added, removed where it stood, and reworded', () => {
+	const before = doc(['a', 'Intro'], ['b', 'Old plan'], ['c', 'Price is 10'], ['d', 'Close']);
+	const after = doc(['a', 'Intro'], ['c', 'Price is 12'], ['n', 'A new line'], ['d', 'Close']);
+	const changes = versionChanges(before, after);
+	assert.deepEqual(
+		changes.map((change) => [change.kind, change.id]),
+		[
+			['removed', 'b'],
+			['changed', 'c'],
+			['added', 'n']
+		]
+	);
+});
+
+test('a moved block that kept its words is not a change, and the first version is all new', () => {
+	const before = doc(['a', 'One'], ['b', 'Two']);
+	const after = doc(['b', 'Two'], ['a', 'One']);
+	assert.deepEqual(versionChanges(before, after), []);
+	assert.deepEqual(
+		versionChanges(null, before).map((change) => change.kind),
+		['added', 'added']
+	);
+});

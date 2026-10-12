@@ -3,7 +3,16 @@
  * archive marks per person, so what happens to an item on one device happens everywhere. */
 import { responseFailure } from './failure.ts';
 
-export type ForYouKind = 'mention' | 'reply' | 'comment' | 'change' | 'share' | 'review';
+export type ForYouKind =
+	| 'mention'
+	| 'reply'
+	| 'comment'
+	| 'change'
+	| 'share'
+	| 'review'
+	| 'access'
+	| 'comment-access'
+	| 'edit-access';
 
 export interface ForYouItem {
 	key: string;
@@ -118,6 +127,12 @@ export function forYouSentence(item: Pick<ForYouItem, 'kind' | 'actor_name' | 't
 			return `${who} shared ${where || 'a document'} with you`;
 		case 'review':
 			return `${who} asked you to review ${where || 'a document'}`;
+		case 'access':
+			return `${who} asked to open ${where || 'a document'}`;
+		case 'comment-access':
+			return `${who} asked to comment on ${where || 'a document'}`;
+		case 'edit-access':
+			return `${who} asked to edit ${where || 'a document'}`;
 		default:
 			return where || who;
 	}

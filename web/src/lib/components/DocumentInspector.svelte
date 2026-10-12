@@ -42,7 +42,7 @@
 	import Scale from '@lucide/svelte/icons/scale';
 	import Sparkles from '@lucide/svelte/icons/sparkles';
 	import X from '@lucide/svelte/icons/x';
-	import { tick } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import {
 		failClosedDocumentRead,
@@ -66,8 +66,11 @@
 		acceptDocumentRevisionProposal,
 		commentContent,
 		createDocumentCommentThread,
+		deleteDocumentComment,
 		documentBlockText,
+		editDocumentComment,
 		getDocument,
+		reopenDocumentCommentThread,
 		isRetryableDocumentFailure,
 		pendingDocumentCommand,
 		pendingDocumentMutation,
@@ -79,13 +82,18 @@
 		resolveDocumentCommentThread,
 		restoreDocumentVersion,
 		type CommentMention,
+		type DocumentCommentRow,
+		type DocumentNode,
 		type DocumentReadView,
 		type DocumentContent,
+		type DocumentVersionSummary,
 		type DocumentRevisionProposalSummary,
 		type PendingDocumentCommand,
 		type PendingDocumentMutation
 	} from '$lib/model/documents';
 	import { composerTrigger } from '$lib/primitives/composer-menu';
+	import { versionChanges } from '$lib/model/document-diff';
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 
 	export type DocumentInspectorPanel = 'comments' | 'review' | 'versions';
 
@@ -100,6 +108,11 @@
 		view: DocumentReadView;
 		panel: DocumentInspectorPanel;
 		requestedReviewId?: string;
+		/** A thread to open on arrival (from For you or a margin mark), and a comment to point at. */
+		requestedThreadId?: string;
+		requestedCommentId?: string;
+		/** History opens on what changed after this moment: when the person last looked. */
+		changesSince?: string;
 		people?: PersonReference[];
 		/** Who is looking: a Work-bound review can be sent back only by the person it asks. */
 		viewerActorId?: string;
@@ -119,6 +132,9 @@
 		view,
 		panel,
 		requestedReviewId = '',
+		requestedThreadId = '',
+		requestedCommentId = '',
+		changesSince = '',
 		people = [],
 		viewerActorId = '',
 		online = true,
@@ -407,10 +423,41 @@
 		oncommenttargetchange(null);
 	});
 
+	/* Open threads first; resolved ones wait behind their own tab, with Re-open. */
+	let threadFilter = $state<'open' | 'resolved'>('open');
+	const shownThreads = $derived(
+		threads.threads.filter((item) => item.thread.status === threadFilter)
+	);
+	const resolvedCount = $derived(
+		threads.threads.filter((item) => item.thread.status === 'resolved').length
+	);
+	/* Arriving for one thread (from For you, or a mark in the margin) opens that thread, shows
+	 * the passage it is about, and points at the comment that brought the person here. */
+	let appliedThread = $state('');
+	let flashCommentId = $state('');
 	$effect(() => {
-		if (!selectedThreadId && threads.threads.length) {
-			selectedThreadId = threads.threads[0].thread.id;
+		/* Until a thread asked for is found, nothing else is chosen in its place. */
+		if (requestedThreadId && appliedThread !== requestedThreadId) return;
+		if (!shownThreads.some((item) => item.thread.id === selectedThreadId))
+			selectedThreadId = shownThreads.at(-1)?.thread.id ?? '';
+	});
+	$effect(() => {
+		const wanted = requestedThreadId;
+		if (!wanted || wanted === untrack(() => appliedThread)) return;
+		const found = threads.threads.find((item) => item.thread.id === wanted);
+		if (!found) {
+			/* Gone (taken back, or no longer readable): show the list as usual. */
+			if (threads.status !== 'unknown' && !threads.hasMore) appliedThread = wanted;
+			return;
 		}
+		appliedThread = wanted;
+		threadFilter = found.thread.status;
+		selectedThreadId = wanted;
+		composingThread = false;
+		flashCommentId = requestedCommentId || 'newest';
+		setTimeout(() => (flashCommentId = ''), 2_400);
+		if (found.thread.block_id && found.anchor_state === 'active')
+			void tick().then(() => revealDocumentBlock(found.thread.block_id ?? ''));
 	});
 
 	$effect(() => {
@@ -564,6 +611,162 @@
 		} finally {
 			if (isCurrentTarget(target)) commentBusy = false;
 		}
+	}
+
+	async function reopenThread(): Promise<void> {
+		if (!selectedThread || !online || !canComment || commentBusy) return;
+		const target = { companyId, documentId, threadId: selectedThread.thread.id };
+		commentBusy = true;
+		commentFailure = '';
+		try {
+			const result = await reopenDocumentCommentThread(
+				target.companyId,
+				target.documentId,
+				target.threadId,
+				selectedThread.thread.version
+			);
+			threads.acceptResolved(target, result);
+			if (isCurrentTarget(target)) threadFilter = 'open';
+		} catch (cause) {
+			failClosedDocumentRead(client, cause, target.companyId, target.documentId);
+			if (isCurrentTarget(target))
+				commentFailure = failureSentence(cause, 'The thread was not reopened.');
+		} finally {
+			if (isCurrentTarget(target)) commentBusy = false;
+		}
+	}
+
+	/* A comment is its author's to change or take back; the company's owner may take back any. */
+	let editingCommentId = $state('');
+	let editText = $state('');
+	let confirmingDelete = $state('');
+	function mentionsIn(node: DocumentContent | DocumentNode): CommentMention[] {
+		const found: CommentMention[] = [];
+		const walk = (value: DocumentNode) => {
+			const actor = value.attrs?.actor_id;
+			const label = value.attrs?.label;
+			if (value.type === 'mention' && typeof actor === 'string' && typeof label === 'string')
+				found.push({ actor_id: actor, label });
+			value.content?.forEach(walk);
+		};
+		walk(node);
+		return found;
+	}
+	function startEdit(comment: DocumentCommentRow): void {
+		confirmingDelete = '';
+		editingCommentId = comment.id;
+		editText = comment.plain_text.trimEnd();
+	}
+	async function refreshThread(target: DocumentThreadTarget): Promise<void> {
+		await client.invalidateQueries({
+			queryKey: documentQueryKeys.comments(target.companyId, target.documentId, target.threadId)
+		});
+		await client.invalidateQueries({
+			queryKey: documentQueryKeys.commentThreads(target.companyId, target.documentId)
+		});
+	}
+	async function saveEdit(comment: DocumentCommentRow): Promise<void> {
+		const body = editText.trim();
+		if (!body || commentBusy) return;
+		const target = { companyId, documentId, threadId: comment.thread_id };
+		commentBusy = true;
+		commentFailure = '';
+		try {
+			await editDocumentComment(
+				target.companyId,
+				target.documentId,
+				target.threadId,
+				comment.id,
+				commentContent(body, knownActorIds, mentionsIn(comment.content_json))
+			);
+			if (isCurrentTarget(target)) editingCommentId = '';
+			await refreshThread(target);
+		} catch (cause) {
+			if (isCurrentTarget(target))
+				commentFailure = failureSentence(cause, 'Your change was not saved.');
+		} finally {
+			if (isCurrentTarget(target)) commentBusy = false;
+		}
+	}
+	async function deleteComment(comment: DocumentCommentRow): Promise<void> {
+		if (commentBusy) return;
+		const target = { companyId, documentId, threadId: comment.thread_id };
+		commentBusy = true;
+		commentFailure = '';
+		try {
+			await deleteDocumentComment(target.companyId, target.documentId, target.threadId, comment.id);
+			confirmingDelete = '';
+			await refreshThread(target);
+		} catch (cause) {
+			if (isCurrentTarget(target))
+				commentFailure = failureSentence(cause, 'The comment was not deleted.');
+		} finally {
+			if (isCurrentTarget(target)) commentBusy = false;
+		}
+	}
+
+	const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/u.test(navigator.platform);
+	/* Enter picks a mention; Cmd or Ctrl+Enter sends, as in any comment box. */
+	function composerKeys(event: KeyboardEvent): void {
+		if (
+			event.key === 'Enter' &&
+			(event.metaKey || event.ctrlKey) &&
+			!(mentionQuery && mentionOptions.length)
+		) {
+			event.preventDefault();
+			(event.currentTarget as HTMLTextAreaElement).form?.requestSubmit();
+			return;
+		}
+		mentionKeys(event);
+	}
+
+	/* History: what each version changed against the one before it, or, arriving from "changed
+	 * since you looked", everything after the last version this person had seen. */
+	const baseVersionId = $derived.by(() => {
+		const list = versions.versions;
+		const selected = list.find((item) => item.id === selectedVersionId);
+		if (!selected) return '';
+		if (changesSince && selected.id === list[0]?.id) {
+			const looked = Date.parse(changesSince);
+			const seen = list.find((item) => Date.parse(item.created_at) <= looked);
+			if (seen && seen.version_number < selected.version_number) return seen.id;
+		}
+		return list.find((item) => item.version_number < selected.version_number)?.id ?? '';
+	});
+	const baseDetail = documentVersionQuery(
+		() => companyId,
+		() => documentId,
+		() => baseVersionId
+	);
+	const changes = $derived(
+		versionDetail.version && (!baseVersionId || baseDetail.version)
+			? versionChanges(
+					baseDetail.version?.version.content_json ?? null,
+					versionDetail.version.version.content_json
+				)
+			: null
+	);
+	/* Arriving from "changed since you looked", the newest version is the one to read. */
+	let appliedSince = $state('');
+	$effect(() => {
+		const since = changesSince;
+		if (!since || since === untrack(() => appliedSince) || !versions.versions.length) return;
+		appliedSince = since;
+		selectedVersionId = versions.versions[0].id;
+	});
+	const changedSince = (item: DocumentVersionSummary) =>
+		Boolean(changesSince) && Date.parse(item.created_at) > Date.parse(changesSince);
+	function editorsOf(item: DocumentVersionSummary): string {
+		const ids = item.editor_actor_ids?.length
+			? item.editor_actor_ids
+			: item.created_by_actor_id === 'daemon'
+				? []
+				: [item.created_by_actor_id];
+		const names = ids.map(actorName);
+		if (!names.length) return 'Saved automatically';
+		return names.length <= 2
+			? names.join(' and ')
+			: `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
 	}
 
 	async function refreshDocument(target: DocumentTarget): Promise<void> {
@@ -993,7 +1196,23 @@
 	{#if panel === 'comments'}
 		<div class="inspector-body comments-body">
 			<header class="inspector-head">
-				<h2 title="Comments stay attached to this document">Discussion</h2>
+				{#if resolvedCount}
+					<div class="thread-filter" role="group" aria-label="Show threads">
+						<button
+							type="button"
+							aria-pressed={threadFilter === 'open'}
+							onclick={() => (threadFilter = 'open')}>Open</button
+						>
+						<button
+							type="button"
+							aria-pressed={threadFilter === 'resolved'}
+							title="Resolved threads can be reopened"
+							onclick={() => (threadFilter = 'resolved')}>Resolved {resolvedCount}</button
+						>
+					</div>
+				{:else}
+					<h2 title="Comments stay attached to this document">Discussion</h2>
+				{/if}
 				{#if canComment}
 					<button type="button" class="flat-action" onclick={beginDocumentComment}
 						>New comment</button
@@ -1027,7 +1246,7 @@
 
 			{#if !composingThread}
 				<div class="thread-index" aria-label="Comment threads">
-					{#each threads.threads as item (item.thread.id)}
+					{#each shownThreads as item (item.thread.id)}
 						{@const quote =
 							item.anchor_state === 'orphaned' ? null : blockQuote(item.thread.block_id)}
 						<button
@@ -1058,6 +1277,10 @@
 					{:else}
 						{#if threads.status === 'unknown'}
 							<Skeleton label="Loading comments" variant="messages" count={2} />
+						{:else if threads.threads.length}
+							<p class="quiet-state">
+								{threadFilter === 'open' ? 'Every thread is resolved.' : 'Nothing resolved yet.'}
+							</p>
 						{:else}
 							<div class="quiet-state">
 								<MessagesSquare size={18} strokeWidth={1.5} /><strong>No comments yet.</strong><span
@@ -1098,6 +1321,15 @@
 									onclick={() => void resolveThread()}
 									><Check size={14} strokeWidth={2} /> Resolve</button
 								>
+							{:else if selectedThread.thread.status === 'resolved' && canComment && (canJudge || selectedThread.thread.created_by_actor_id === viewerActorId)}
+								<button
+									type="button"
+									class="flat-action"
+									title="Open the thread again to reply"
+									disabled={!online || commentBusy}
+									onclick={() => void reopenThread()}
+									><RotateCcw size={13} strokeWidth={1.8} /> Re-open</button
+								>
 							{/if}
 						</div>
 					</header>
@@ -1110,19 +1342,88 @@
 							>{threadMessages.loadingMore ? 'Loading…' : 'Earlier replies'}</button
 						>
 					{/if}
-					{#each threadMessages?.comments ?? [] as comment (comment.id)}
+					{#each threadMessages?.comments ?? [] as comment, index (comment.id)}
 						{@const reactions = commentReactions.summaryFor(comment.id)}
-						<article class="comment-row">
+						{@const own = comment.author_actor_id === viewerActorId && canComment && online}
+						<article
+							class="comment-row"
+							class:flash={flashCommentId === comment.id ||
+								(flashCommentId === 'newest' &&
+									index === (threadMessages?.comments.length ?? 0) - 1)}
+						>
 							<header>
 								<strong>{actorName(comment.author_actor_id)}</strong><span class="comment-meta"
-									><time datetime={comment.created_at}>{shortDate(comment.created_at)}</time
+									><time
+										datetime={comment.created_at}
+										title={comment.edited_at ? `Edited ${shortDate(comment.edited_at)}` : undefined}
+										>{shortDate(comment.created_at)}{comment.edited_at ? ' · edited' : ''}</time
 									>{#if canComment && online}<ReactionAdd
 											{reactions}
 											onreact={(emoji, on) => void reactTo(comment.id, emoji, on)}
-										/>{/if}</span
+										/>{/if}{#if own && editingCommentId !== comment.id}<ActionMenu
+											label="Comment actions"
+											><button type="button" onclick={() => startEdit(comment)}>Edit</button
+											><button
+												type="button"
+												class="danger"
+												onclick={() => {
+													editingCommentId = '';
+													confirmingDelete = comment.id;
+												}}>Delete…</button
+											></ActionMenu
+										>{/if}</span
 								>
 							</header>
-							<p>{comment.plain_text}</p>
+							{#if editingCommentId === comment.id}
+								<form
+									class="comment-edit"
+									onsubmit={(event) => {
+										event.preventDefault();
+										void saveEdit(comment);
+									}}
+								>
+									<textarea
+										bind:value={editText}
+										rows="3"
+										aria-label="Edit your comment"
+										disabled={commentBusy}
+										onkeydown={(event) => {
+											if (event.key === 'Escape') editingCommentId = '';
+											else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+												event.preventDefault();
+												event.currentTarget.form?.requestSubmit();
+											}
+										}}></textarea>
+									<div class="edit-actions">
+										<button type="button" class="btn small ghost" onclick={() => (editingCommentId = '')}
+											>Cancel</button
+										>
+										<button
+											type="submit"
+											class="btn small primary"
+											disabled={!editText.trim() || commentBusy}>Save</button
+										>
+									</div>
+								</form>
+							{:else}
+								<p>{comment.plain_text}</p>
+							{/if}
+							{#if confirmingDelete === comment.id}
+								<div class="confirm-delete" role="alert">
+									<span>Delete this comment? It goes for everyone.</span>
+									<button
+										type="button"
+										class="btn small ghost"
+										onclick={() => (confirmingDelete = '')}>Keep</button
+									>
+									<button
+										type="button"
+										class="btn small danger"
+										disabled={commentBusy}
+										onclick={() => void deleteComment(comment)}>Delete</button
+									>
+								</div>
+							{/if}
 							{#if comment.mentioned_actor_ids.length}
 								<div class="mention-list">
 									{#each comment.mentioned_actor_ids as actorId (actorId)}<span
@@ -1155,6 +1456,7 @@
 							bind:value={commentText}
 							rows="3"
 							placeholder="Reply, or type @ to mention someone"
+							title={`${isMac ? '⌘' : 'Ctrl'}+Enter sends`}
 							disabled={!online || commentBusy}
 							role="combobox"
 							aria-autocomplete="list"
@@ -1167,7 +1469,7 @@
 								commentAttempt = null;
 								readMentionQuery(event.currentTarget);
 							}}
-							onkeydown={mentionKeys}
+							onkeydown={composerKeys}
 							onblur={() => setTimeout(() => (mentionQuery = null), 120)}></textarea>
 						{#if mentionQuery && mentionOptions.length}
 							<ul class="mention-menu" id="document-comment-mentions" role="listbox">
@@ -1392,10 +1694,11 @@
 	{:else}
 		<div class="inspector-body versions-body">
 			<header class="inspector-head">
-				<div>
-					<h2>History</h2>
-					<p>Versions are saved automatically. Restoring keeps the current draft in history.</p>
-				</div>
+				<h2
+					title="Versions are saved automatically, named for who was editing. Restoring keeps the current draft in history."
+				>
+					History
+				</h2>
 			</header>
 			{#if editing && canJudge}<p class="pending-draft">Waiting for edits to finish saving.</p>{/if}
 			{#if versionFailure}<p class="inline-error" role="alert">{versionFailure}</p>{/if}
@@ -1405,6 +1708,8 @@
 					<article
 						class:current={item.id === view.current_version.version.id}
 						class:selected={item.id === selectedVersionId}
+						class:fresh={changedSince(item)}
+						title={changedSince(item) ? 'Changed since you last looked' : undefined}
 					>
 						<span class="version-node"></span>
 						<header>
@@ -1414,11 +1719,9 @@
 						</header>
 						<p>{item.reason}</p>
 						<footer>
-							<span
-								>{item.created_by_actor_id === 'daemon'
-									? 'Restless'
-									: actorName(item.created_by_actor_id)}</span
-							><time datetime={item.created_at}>{shortDate(item.created_at)}</time>
+							<span>{editorsOf(item)}</span><time datetime={item.created_at}
+								>{shortDate(item.created_at)}</time
+							>
 						</footer>
 						<button
 							type="button"
@@ -1456,7 +1759,34 @@
 								>
 							{/if}
 						</header>
-						<pre>{versionDetail.version.version.plain_text || 'This version is empty.'}</pre>
+						{#if changes === null}
+							<Skeleton label="Comparing with the version before" count={3} />
+						{:else if changes.length}
+							<p class="diff-scope">
+								{baseVersionId && baseDetail.version
+									? `What changed since version ${baseDetail.version.version.version_number}`
+									: versionDetail.version.version.version_number === 1
+										? 'The first version'
+										: 'Everything in this version'}
+							</p>
+							<ol class="version-diff" aria-label="What changed">
+								{#each changes as change (change.id)}
+									<li class="diff-{change.kind}">
+										{#if change.kind === 'changed'}
+											{#each change.words as part, index (index)}{#if part.op === 'added'}<ins
+														>{part.text}</ins
+													>{:else if part.op === 'removed'}<del>{part.text}</del>{:else}{part.text}{/if}{/each}
+										{:else if change.kind === 'added'}
+											<ins>{change.text}</ins>
+										{:else}
+											<del>{change.text}</del>
+										{/if}
+									</li>
+								{/each}
+							</ol>
+						{:else}
+							<p class="diff-scope">No words changed in this version.</p>
+						{/if}
 					{:else if versionDetail.failure}
 						<FailureNotice
 							error={versionDetail.failure}
@@ -2016,14 +2346,112 @@
 		padding: 6px 9px;
 		border-bottom: 1px solid var(--border);
 	}
-	.version-preview pre {
-		max-height: 260px;
+	/* What a version changed: added words in a quiet green, removed ones struck through. */
+	.diff-scope {
 		margin: 0;
-		padding: 10px;
+		padding: 8px 10px 0;
+		color: var(--text-tertiary);
+		font: var(--t-label) var(--font-ui);
+	}
+	.version-diff {
+		display: grid;
+		gap: 6px;
+		max-height: 320px;
+		margin: 0;
+		padding: 8px 10px 10px;
 		overflow: auto;
-		white-space: pre-wrap;
+		list-style: none;
 		color: var(--text-secondary);
 		font: var(--t-body) / 1.55 var(--font-ui);
+		white-space: pre-wrap;
+	}
+	.version-diff li {
+		padding-left: 8px;
+		border-left: 2px solid var(--border);
+	}
+	.version-diff li.diff-added {
+		border-left-color: var(--state-success, var(--surface-work));
+	}
+	.version-diff li.diff-removed {
+		border-left-color: var(--state-danger);
+	}
+	.version-diff ins {
+		background: color-mix(in srgb, var(--surface-work) 16%, transparent);
+		color: var(--ink);
+		text-decoration: none;
+	}
+	.version-diff del {
+		color: var(--text-tertiary);
+		text-decoration: line-through;
+		text-decoration-color: var(--state-danger);
+	}
+	.version-line article.fresh .version-node {
+		background: var(--surface-attention);
+	}
+	/* Open or Resolved, once anything is resolved. */
+	.thread-filter {
+		display: inline-flex;
+		gap: 2px;
+	}
+	.thread-filter button {
+		padding: 3px 8px;
+		border: 0;
+		border-radius: var(--radius-control);
+		background: transparent;
+		color: var(--text-tertiary);
+		font: 600 var(--t-body) var(--font-ui);
+		cursor: pointer;
+	}
+	.thread-filter button[aria-pressed='true'] {
+		background: var(--wash-hover);
+		color: var(--ink);
+	}
+	/* The comment someone came here for, marked for a moment. */
+	.comment-row.flash {
+		animation: comment-flash 2.4s var(--ease-standard);
+	}
+	@keyframes comment-flash {
+		0%,
+		50% {
+			background: color-mix(in srgb, var(--highlight) 55%, transparent);
+		}
+		100% {
+			background: transparent;
+		}
+	}
+	.comment-meta :global(.action-menu > summary) {
+		width: 24px;
+		height: 24px;
+		margin-block: -4px;
+	}
+	.comment-edit {
+		display: grid;
+		gap: 6px;
+		margin-top: 6px;
+	}
+	.comment-edit textarea {
+		width: 100%;
+		padding: 7px 9px;
+		border: 1px solid var(--control-edge);
+		border-radius: var(--radius-control);
+		background: var(--surface-raised);
+		color: var(--ink);
+		font: var(--t-body) / 1.5 var(--font-ui);
+		resize: vertical;
+	}
+	.edit-actions,
+	.confirm-delete {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 6px;
+	}
+	.confirm-delete {
+		margin-top: 8px;
+		color: var(--text-secondary);
+	}
+	.confirm-delete span {
+		margin-right: auto;
 	}
 	.load-more {
 		width: calc(100% - 24px);

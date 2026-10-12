@@ -12,6 +12,8 @@
 	import { PRIVATE_HINT } from '$lib/model/general-access';
 	import DocumentEditor from '$lib/components/DocumentEditor.svelte';
 	import DocumentShare from '$lib/components/DocumentShare.svelte';
+	import DocumentAccessRequests from '$lib/components/DocumentAccessRequests.svelte';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import LibraryCrumb from '$lib/components/LibraryCrumb.svelte';
 	import DocumentInspector, {
 		revealDocumentBlock,
@@ -20,8 +22,12 @@
 	import { tick } from 'svelte';
 	import { Notice } from '$lib/ui/page';
 	import { askExec } from '$lib/model/ask-exec';
-	import { failureSentence } from '$lib/model/failure';
-	import { documentQuery, documentQueryKeys } from '$lib/model/document-queries.svelte';
+	import { failureKind, failureSentence } from '$lib/model/failure';
+	import {
+		documentCommentThreadsQuery,
+		documentQuery,
+		documentQueryKeys
+	} from '$lib/model/document-queries.svelte';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { sameDocumentTarget, type DocumentTarget } from '$lib/model/document-cache';
 	import {
@@ -29,6 +35,7 @@
 		documentMarkdownDownload,
 		getDocument,
 		getDocumentParticipants,
+		requestDocumentAccess,
 		setDocumentArchived,
 		setDocumentParticipant,
 		type DocumentReadView
@@ -76,15 +83,86 @@
 	const mayArchive = $derived(ownerAccess || documentView?.access === 'edit');
 	const archived = $derived(documentView?.document.status === 'archived');
 
-	/* One quiet line at the foot of the page answers a menu action, then goes. */
-	let notice = $state('');
-	let noticeTimer: ReturnType<typeof setTimeout> | undefined;
-	function say(message: string): void {
-		notice = message;
-		clearTimeout(noticeTimer);
-		noticeTimer = setTimeout(() => (notice = ''), 2_600);
+	/* A menu action is answered on the shared toast, with Undo when it can be taken back. */
+	const say = (message: string) => toast(message);
+	const sayFailure = (message: string) => toast(message, { tone: 'failure' });
+
+	/* Open comment threads, by the block they are on: the text marks them, the header counts
+	 * them. The panel reads the same cached list. */
+	const threads = documentCommentThreadsQuery(
+		() => companyId,
+		() => (documentView ? documentId : '')
+	);
+	const openThreads = $derived(threads.threads.filter((item) => item.thread.status === 'open'));
+	const commentedBlocks = $derived.by(() => {
+		const blocks = new Map<string, { threadId: string; count: number }>();
+		for (const item of openThreads) {
+			const block = item.thread.block_id;
+			if (!block || item.anchor_state !== 'active') continue;
+			/* The newest thread on a block is the one its mark opens. */
+			blocks.set(block, { threadId: item.thread.id, count: (blocks.get(block)?.count ?? 0) + 1 });
+		}
+		return blocks;
+	});
+	function openThread(threadId: string): void {
+		void goto(documentHref({ inspect: 'comments', thread: threadId }), {
+			keepFocus: true,
+			noScroll: true
+		});
 	}
-	$effect(() => () => clearTimeout(noticeTimer));
+
+	/* Someone who may not open it, or may only read it, asks the people who share it. */
+	let asked = $state('');
+	async function askForAccess(access: 'read' | 'edit'): Promise<void> {
+		const target = currentTarget();
+		try {
+			await requestDocumentAccess(target.companyId, target.documentId, access);
+			asked = target.documentId;
+			say(
+				access === 'edit'
+					? 'Asked for edit access. The people who share it will see it in For you.'
+					: 'Asked. The people who share it will see it in For you.'
+			);
+		} catch (cause) {
+			sayFailure(failureSentence(cause, 'The ask was not sent.'));
+		}
+	}
+	const unreadable = $derived(
+		!documentView &&
+			!shellPrincipal.failure &&
+			Boolean(detail.failure) &&
+			['access', 'missing'].includes(failureKind(detail.failure))
+	);
+	const ownerName = $derived(
+		documentView
+			? (people.find((person) => person.actor_id === documentView.document.owner_actor_id)
+					?.display ?? 'its owner')
+			: 'its owner'
+	);
+
+	/* A link to one block opens the document there. */
+	async function copyBlockLink(blockId: string): Promise<void> {
+		try {
+			await navigator.clipboard.writeText(
+				new URL(documentHref({ block: blockId }), location.origin).href
+			);
+			say('Link to the block copied');
+		} catch {
+			sayFailure('Could not copy the link');
+		}
+	}
+	const blockParam = $derived(page.url.searchParams.get('block'));
+	$effect(() => {
+		const block = blockParam;
+		if (!block || !documentView) return;
+		/* The live body mounts once it syncs; look for the block for a few seconds. */
+		let tries = 0;
+		const timer = setInterval(() => {
+			tries += 1;
+			if (revealDocumentBlock(block) || tries > 24) clearInterval(timer);
+		}, 250);
+		return () => clearInterval(timer);
+	});
 
 	function currentTarget(): DocumentTarget {
 		return { companyId, documentId };
@@ -100,7 +178,7 @@
 			);
 			say('Link copied');
 		} catch {
-			say('Could not copy the link');
+			sayFailure('Could not copy the link');
 		}
 	}
 
@@ -122,7 +200,7 @@
 			link.click();
 			setTimeout(() => URL.revokeObjectURL(url), 1_000);
 		} catch (cause) {
-			say(failureSentence(cause, 'The document could not be downloaded.'));
+			sayFailure(failureSentence(cause, 'The document could not be downloaded.'));
 		}
 	}
 
@@ -137,9 +215,11 @@
 			await setDocumentArchived(target.companyId, target.documentId, next);
 			const latest = await getDocument(target.companyId, target.documentId);
 			if (sameDocumentTarget(target, companyId, documentId)) detail.accept(target, latest);
-			say(next ? 'Archived' : 'Restored to the Library');
+			/* Archiving can be taken back at once; restoring is itself the undo. */
+			if (next) toast('Archived', { undo: () => setArchived(false) });
+			else say('Restored to the Library');
 		} catch (cause) {
-			say(failureSentence(cause, next ? 'It was not archived.' : 'It was not restored.'));
+			sayFailure(failureSentence(cause, next ? 'It was not archived.' : 'It was not restored.'));
 		}
 	}
 
@@ -167,7 +247,9 @@
 					say(`${exec.display} can now read and comment on this document`);
 				}
 			} catch (cause) {
-				say(failureSentence(cause, `${exec.display} could not be given access to this document.`));
+				sayFailure(
+					failureSentence(cause, `${exec.display} could not be given access to this document.`)
+				);
 			}
 		}
 		/* The draft carries the document as the composer's own @ reference does. */
@@ -191,7 +273,12 @@
 			(view) => (view ? { ...view, ...patch } : view)
 		);
 	}
-	let changed = $state<{ id: string; actor_name: string; at: string } | null>(null);
+	let changed = $state<{
+		id: string;
+		actor_name: string;
+		at: string;
+		since: string | null;
+	} | null>(null);
 	let arrivedAt = '';
 	function readChanges(target: DocumentTarget): void {
 		const keys = [`changes:${target.documentId}`];
@@ -206,7 +293,9 @@
 		if (arrivedAt === documentId) return;
 		arrivedAt = documentId;
 		const change = view.changed_since_you_looked;
-		changed = change ? { id: documentId, actor_name: change.actor_name, at: change.at } : null;
+		changed = change
+			? { id: documentId, actor_name: change.actor_name, at: change.at, since: change.since ?? null }
+			: null;
 		if (change) {
 			const target = currentTarget();
 			readChanges(target);
@@ -232,12 +321,17 @@
 			say(now ? 'Following. Comments and changes reach you in For you.' : 'Unfollowed');
 		} catch (cause) {
 			if (follow?.id === target.documentId) follow = { id: target.documentId, following: !next };
-			say(failureSentence(cause, 'That did not change. Try again.'));
+			sayFailure(failureSentence(cause, 'That did not change. Try again.'));
 		}
 	}
+	/* History opens on what changed since this person last looked. */
 	function seeChanges(): void {
+		const since = changed?.since;
 		changed = null;
-		changePanel('versions');
+		void goto(documentHref({ inspect: 'versions', ...(since ? { since } : {}) }), {
+			keepFocus: true,
+			noScroll: true
+		});
 	}
 	const changedWhen = (at: string) => {
 		const relative = formatRelative(at, '');
@@ -262,7 +356,7 @@
 	}
 	/* Below the width that fits both, the discussion covers the document; close it first. */
 	async function showBlock(blockId: string): Promise<void> {
-		if (window.matchMedia('(max-width: 1180px)').matches) {
+		if (window.matchMedia('(max-width: 900px)').matches) {
 			await goto(documentHref(), { keepFocus: true, noScroll: true });
 			await tick();
 		}
@@ -279,6 +373,12 @@
 		if (!sameDocumentTarget(target, companyId, documentId)) return;
 		detail.accept(target, view);
 	}
+	/* An ask granted above the sharing list redraws the list. */
+	let shareEpoch = $state(0);
+	function acceptGrant(target: DocumentTarget, view: DocumentReadView): void {
+		acceptDocument(target, view);
+		shareEpoch += 1;
+	}
 	namePageContext(() => documentView?.document.title ?? '');
 	holdQueries(() => [shellPrincipal, collaboration, cockpit]);
 </script>
@@ -294,7 +394,27 @@
 
 <div class="documents-screen" class:inspector-open={inspectorOpen}>
 	<main class="document-stage cockpit-pane" tabindex="-1">
-		{#if failure && !documentView}
+		{#if unreadable}
+			<!-- Private to others, moved or gone: the answer is the same, so asking reveals nothing. -->
+			<div class="stage-message">
+				<Lock size={22} strokeWidth={1.5} aria-hidden="true" />
+				<h2>You can’t open this document</h2>
+				<p>It may be private to others, or it was moved or removed.</p>
+				<div class="stage-actions">
+					<button
+						type="button"
+						class="btn small primary"
+						disabled={asked === documentId}
+						title="Whoever shares it sees your ask in For you"
+						onclick={() => void askForAccess('read')}
+						>{asked === documentId ? 'Asked' : 'Ask for access'}</button
+					>
+					<a class="btn small" href={`/${encodeURIComponent(companyId)}/library?show=docs`}
+						>Back to the Library</a
+					>
+				</div>
+			</div>
+		{:else if failure && !documentView}
 			<div class="stage-message">
 				<FailureNotice
 					error={failure}
@@ -302,6 +422,9 @@
 					variant="page"
 					onretry={() => void detail.refresh()}
 				/>
+				<a class="btn small" href={`/${encodeURIComponent(companyId)}/library?show=docs`}
+					>Back to the Library</a
+				>
 			</div>
 		{:else if documentView}
 			<DocumentEditor
@@ -319,6 +442,9 @@
 				{mayRename}
 				onaccept={acceptDocument}
 				oncomment={openBlockComment}
+				{commentedBlocks}
+				onopenthread={openThread}
+				oncopyblocklink={(blockId) => void copyBlockLink(blockId)}
 				ondirtychange={(value) => (documentDirty = value)}
 			>
 				{#snippet leading()}<LibraryCrumb {companyId} show="docs" />{#if documentView.document.general_access === 'private'}<span
@@ -362,15 +488,32 @@
 							>{follow.following ? 'Following' : 'Follow'}</button
 						>
 					{/if}
+					{#if documentView.access !== 'edit' && !ownerAccess}
+						<button
+							type="button"
+							class="btn small ask"
+							disabled={asked === documentView.document.id}
+							title={`Ask ${ownerName} and whoever shares it for edit access`}
+							onclick={() => void askForAccess('edit')}
+							>{asked === documentView.document.id ? 'Asked' : 'Ask to edit'}</button
+						>
+					{/if}
 					<button
 						type="button"
 						class="btn small icon"
-						aria-label="Comments and history"
-						title="Comments and history"
+						class:counted={openThreads.length > 0}
+						aria-label={openThreads.length
+							? `Comments (${openThreads.length} open) and history`
+							: 'Comments and history'}
+						title={openThreads.length
+							? `${openThreads.length} open ${openThreads.length === 1 ? 'thread' : 'threads'}, and history`
+							: 'Comments and history'}
 						aria-expanded={inspectorOpen && !sharing}
 						onclick={() => (inspectorOpen && !sharing ? closeInspector() : changePanel('comments'))}
 					>
-						<MessageSquare size={15} aria-hidden="true" />
+						<MessageSquare size={15} aria-hidden="true" />{#if openThreads.length}<span
+								class="count">{openThreads.length}</span
+							>{/if}
 					</button>
 				{/snippet}
 				{#snippet moreActions()}
@@ -392,6 +535,11 @@
 					{#if follow?.id === documentView.document.id}
 						<button type="button" class="narrow-only" onclick={() => void toggleFollow()}
 							>{follow.following ? 'Unfollow' : 'Follow'}</button
+						>
+					{/if}
+					{#if documentView.access !== 'edit' && !ownerAccess && asked !== documentView.document.id}
+						<button type="button" class="narrow-only" onclick={() => void askForAccess('edit')}
+							>Ask to edit</button
 						>
 					{/if}
 					<button type="button" onclick={() => changePanel('review')}>Request review…</button>
@@ -476,18 +624,32 @@
 				<strong>{documentView.document.title}</strong>
 			</header>
 			{#if sharing}
-				<DocumentShare
-					{companyId}
-					view={documentView}
-					{people}
-					onchanged={acceptDocument}
-					onclose={closeInspector}
-				/>
+				<div class="share-stack">
+					<DocumentAccessRequests
+						{companyId}
+						view={documentView}
+						nameOf={(actorId) =>
+							people.find((person) => person.actor_id === actorId)?.display ?? 'Someone'}
+						ongranted={acceptGrant}
+					/>
+					{#key shareEpoch}
+						<DocumentShare
+							{companyId}
+							view={documentView}
+							{people}
+							onchanged={acceptDocument}
+							onclose={closeInspector}
+						/>
+					{/key}
+				</div>
 			{:else}
 				<DocumentInspector
 					{companyId}
 					view={documentView}
 					panel={inspectorPanel}
+					requestedThreadId={page.url.searchParams.get('thread') ?? ''}
+					requestedCommentId={page.url.searchParams.get('comment') ?? ''}
+					changesSince={page.url.searchParams.get('since') ?? ''}
 					{people}
 					viewerActorId={principalId}
 					{online}
@@ -502,7 +664,6 @@
 			{/if}
 		</section>
 	{/if}
-	{#if notice}<p class="page-notice" role="status">{notice}</p>{/if}
 </div>
 
 <style>
@@ -523,24 +684,23 @@
 	.document-banner {
 		padding: 10px var(--space-4) 0;
 	}
-	.page-notice {
-		position: absolute;
-		bottom: 18px;
-		left: 50%;
-		z-index: 5;
-		max-width: min(420px, calc(100% - 32px));
-		margin: 0;
-		padding: 7px 14px;
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-lg);
-		background: var(--surface-raised);
-		box-shadow: var(--shadow-soft);
-		color: var(--ink);
-		transform: translateX(-50%);
-		animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
-	}
 	.documents-screen.inspector-open {
 		grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+	}
+	.share-stack {
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+		overflow: auto;
+	}
+	.btn.icon.counted {
+		width: auto;
+		gap: 4px;
+		padding: 0 8px;
+	}
+	.count {
+		font-size: var(--t-label);
+		font-variant-numeric: tabular-nums;
 	}
 	.document-stage,
 	.inspector-pane {
@@ -647,8 +807,15 @@
 		place-items: center;
 		color: var(--text-tertiary);
 	}
-	/* Below the width that fits both, the discussion takes the document's place. */
+	/* A small laptop still fits the discussion beside the text, a little narrower. */
 	@media (max-width: 1180px) {
+		.documents-screen.inspector-open {
+			grid-template-columns: minmax(0, 1fr) 300px;
+		}
+	}
+	/* Below the width that fits both, the discussion takes the document's place, under one bar:
+	 * the panel's own header would only repeat it. */
+	@media (max-width: 900px) {
 		.documents-screen.inspector-open {
 			grid-template-columns: minmax(0, 1fr);
 		}
@@ -658,15 +825,35 @@
 		.inspector-bar {
 			display: grid;
 		}
+		.inspector-pane :global(.share-head) {
+			display: none;
+		}
 	}
 	@media (max-width: 560px) {
 		.discuss,
 		.share,
-		.follow {
+		.follow,
+		.ask {
 			display: none;
 		}
 		:global(.document-actions) .narrow-only {
 			display: block;
+		}
+		/* On a phone the discussion is a sheet over the page, which stays in view above it. */
+		.documents-screen.inspector-open .document-stage {
+			display: flex;
+		}
+		.inspector-pane {
+			position: fixed;
+			right: 0;
+			bottom: 0;
+			left: 0;
+			z-index: 20;
+			height: min(72dvh, 640px);
+			border-top: 1px solid var(--border-strong);
+			border-radius: 14px 14px 0 0;
+			box-shadow: 0 -10px 32px #18243a24;
+			animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
 		}
 	}
 </style>
