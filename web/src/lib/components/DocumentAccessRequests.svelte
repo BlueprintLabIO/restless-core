@@ -114,7 +114,7 @@
 					<button
 						type="button"
 						class="btn small ghost"
-						title="Set the ask aside. They can ask again."
+						title="Set the ask aside. They can ask again tomorrow."
 						disabled={Boolean(busy)}
 						onclick={() => void dismiss(ask)}>Dismiss</button
 					>

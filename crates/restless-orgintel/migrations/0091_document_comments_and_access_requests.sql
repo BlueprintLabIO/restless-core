@@ -65,8 +65,8 @@ $$ LANGUAGE plpgsql;
 
 -- One open ask per person and document: to open it at all, or to comment on or edit what they
 -- may only read. It reaches the people who manage the document's sharing in For you. It is
--- answered by giving that access, which closes it, or by dismissing it. Asking again after a
--- dismissal asks anew.
+-- answered by giving that access, which closes it, or by dismissing it. Asking again within a
+-- day of an answer raises nothing unless it asks for more; after that it asks anew.
 CREATE TABLE native_document_access_requests (
   id UUID PRIMARY KEY,
   document_id UUID NOT NULL REFERENCES native_documents(id) ON DELETE CASCADE,

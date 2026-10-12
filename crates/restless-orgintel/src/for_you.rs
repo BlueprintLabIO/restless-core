@@ -266,7 +266,7 @@ const ITEMS: &str = "viewer AS ( \
    JOIN native_documents d ON d.id=q.document_id AND d.status<>'archived' \
    LEFT JOIN for_you_reads r ON r.actor_id=$1 AND r.item_key='access:'||q.id \
    WHERE q.closed_at IS NULL AND q.actor_id<>$1 AND ($6::uuid IS NULL OR q.document_id=$6) AND $8::uuid IS NULL \
-     AND (d.owner_actor_id=$1 OR EXISTS(SELECT 1 FROM human_principal_actor_bindings b \
+     AND (d.owner_actor_id=$1 OR $1='owner' OR EXISTS(SELECT 1 FROM human_principal_actor_bindings b \
        WHERE b.actor_id=$1 AND b.membership_role='owner' AND b.membership_status='active')) \
  ), \
  items AS ( \

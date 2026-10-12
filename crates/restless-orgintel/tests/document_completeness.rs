@@ -96,7 +96,7 @@ async fn asks(org: &OrgIntel, viewer: &str) -> Vec<ForYouItem> {
 
 #[tokio::test]
 async fn an_ask_for_access_reaches_only_sharing_managers_and_closes_when_granted() {
-    let Some((org, _)) = company("docask").await else {
+    let Some((org, url)) = company("docask").await else {
         eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping access requests");
         return;
     };
@@ -154,7 +154,8 @@ async fn an_ask_for_access_reaches_only_sharing_managers_and_closes_when_granted
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].actor_id, "casey");
 
-    // Dismissed, Casey's ask is gone; asking again asks anew.
+    // Dismissed, Casey's ask is gone, and asking again the same day raises nothing: a manager is
+    // not asked over and over. A day later, asking asks anew.
     org.dismiss_document_access_request(notes, listed[0].id, "alex")
         .await
         .unwrap();
@@ -164,10 +165,31 @@ async fn an_ask_for_access_reaches_only_sharing_managers_and_closes_when_granted
             .await,
         Err(DocumentError::Unavailable)
     ));
+    for _ in 0..3 {
+        org.request_document_access(notes, "casey", DocumentAccess::Edit)
+            .await
+            .unwrap();
+    }
+    assert!(asks(&org, "alex").await.is_empty());
+    let mut db = PgConnection::connect(&url).await.unwrap();
+    sqlx::query(&format!("SET search_path TO {}, pg_catalog, pg_temp", org.schema()))
+        .execute(&mut db)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE native_document_access_requests SET closed_at=closed_at-interval '2 days'")
+        .execute(&mut db)
+        .await
+        .unwrap();
     org.request_document_access(notes, "casey", DocumentAccess::Edit)
         .await
         .unwrap();
     assert_eq!(asks(&org, "alex").await.len(), 1);
+    // The company's owner manages every document's sharing and hears of asks for one they read.
+    share(&org, notes, "alex", "owner", DocumentAccess::Read).await;
+    assert!(asks(&org, "owner")
+        .await
+        .iter()
+        .any(|item| item.kind == "edit-access" && item.actor_ids == ["casey"]));
     // Bianca may now comment, but she does not manage sharing, so Casey's ask is not hers.
     assert!(asks(&org, "bianca").await.is_empty());
 }

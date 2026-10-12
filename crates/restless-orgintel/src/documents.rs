@@ -9895,7 +9895,8 @@ impl OrgIntel {
 
     /// Ask for a document: to open it (`Read`), or for more than the access one has. The answer
     /// is the same whether or not the document exists or the ask was needed, so asking tells
-    /// nobody what is there. An open ask is not repeated; one that was dismissed is asked anew.
+    /// nobody what is there. An open ask is not repeated. An ask set aside in the last day is not
+    /// raised again unless it asks for more, so nobody is asked over and over.
     pub async fn request_document_access(
         &self,
         document_id: Uuid,
@@ -9922,11 +9923,11 @@ impl OrgIntel {
             "INSERT INTO native_document_access_requests (id,document_id,actor_id,access) \
              VALUES ($1,$2,$3,$4) \
              ON CONFLICT (document_id,actor_id) DO UPDATE SET \
-               access=GREATEST(native_document_access_requests.access,EXCLUDED.access), \
+               access=CASE WHEN native_document_access_requests.closed_at IS NULL                  THEN GREATEST(native_document_access_requests.access,EXCLUDED.access)                  ELSE EXCLUDED.access END, \
                requested_at=CASE WHEN native_document_access_requests.closed_at IS NULL \
                  AND native_document_access_requests.access>=EXCLUDED.access \
                  THEN native_document_access_requests.requested_at ELSE now() END, \
-               closed_at=NULL,closed_by_actor_id=NULL",
+               closed_at=NULL,closed_by_actor_id=NULL              WHERE native_document_access_requests.closed_at IS NULL                OR native_document_access_requests.closed_at<now()-interval '1 day'                OR EXCLUDED.access>native_document_access_requests.access",
         )
         .bind(Uuid::new_v4())
         .bind(document_id)
