@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { formatMoment } from '$lib/ui/time';
+	import Pencil from '@lucide/svelte/icons/pencil';
+	import History from '@lucide/svelte/icons/history';
+	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { tick } from 'svelte';
@@ -329,9 +332,13 @@
 			{#snippet actions()}
 				<span class="inline-actions">
 					{#if onthread}
-						<button type="button" onclick={() => onthread?.()}>
-							<MessageCircle size={13} strokeWidth={2} aria-hidden="true" /> Reply
-						</button>
+						<button
+							type="button"
+							title="Reply in a thread"
+							aria-label="Reply"
+							onclick={() => onthread?.()}
+							><MessageCircle size={13} strokeWidth={2} aria-hidden="true" /></button
+						>
 					{/if}
 					{#if onpin}<button
 							type="button"
@@ -352,21 +359,29 @@
 							aria-label="Copy link to this message"
 							onclick={() => onjump?.()}><Link size={12} aria-hidden="true" /></button
 						>{/if}
-					{#if canEdit}<button type="button" onclick={beginEdit}>Edit</button>{/if}
+					{#if canEdit}<button type="button" title="Edit" aria-label="Edit" onclick={beginEdit}
+							><Pencil size={12} aria-hidden="true" /></button
+						>{/if}
 					{#if onhistory}
-						<button type="button" aria-expanded={historyOpen} onclick={() => onhistory?.()}>
-							{historyOpen ? 'Hide edits' : 'Edits'}
-						</button>
+						<button
+							type="button"
+							aria-expanded={historyOpen}
+							title={historyOpen ? 'Hide earlier versions' : 'Earlier versions'}
+							aria-label={historyOpen ? 'Hide edits' : 'Edits'}
+							onclick={() => onhistory?.()}><History size={12} aria-hidden="true" /></button
+						>
 					{/if}
 					{#if canDelete}
 						<button
 							type="button"
 							class="delete-action"
 							aria-expanded={confirmingDelete}
+							title="Delete"
+							aria-label="Delete"
 							onclick={() => {
 								confirmingDelete = !confirmingDelete;
 								deleteError = '';
-							}}>Delete</button
+							}}><Trash2 size={12} aria-hidden="true" /></button
 						>
 					{/if}
 				</span>

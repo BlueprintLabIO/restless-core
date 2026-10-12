@@ -1602,7 +1602,10 @@
 					<ArrowLeft size={15} strokeWidth={2} aria-hidden="true" />
 				</button>
 				<div>
-					<strong>Thread</strong><small>{Math.max(0, visibleThread.length - 1)} replies</small>
+					<strong>Thread</strong><small
+						>{Math.max(0, visibleThread.length - 1)}
+						{visibleThread.length - 1 === 1 ? 'reply' : 'replies'}</small
+					>
 				</div>
 			</header>
 			{#if exactTargetState === 'locating'}
@@ -1727,7 +1730,7 @@
 			disabled={sending || !online || (selectedRoom?.kind === 'direct' && !canExtendDirect)}
 			minlength={1}
 			placeholder={threadRootId
-				? 'Reply in this Thread…'
+				? 'Reply…'
 				: directPartner && actorIsAgent(directPartner)
 					? `Message ${roomLabel(selectedRoomId)}…`
 					: `Message ${roomLabel(selectedRoomId)}… @ asks someone to reply`}

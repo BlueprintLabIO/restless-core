@@ -54,7 +54,15 @@
 	}
 
 	function fileDescription(attachment: MessageAttachment): string {
-		return OFFICE_FILE_TYPES.get(extOf(attachment.name)) ?? attachment.mediaType;
+		/* A kind a person recognises, not a media type: "PDF", "CSV file", "Word document". */
+		const office = OFFICE_FILE_TYPES.get(extOf(attachment.name));
+		if (office) return office;
+		if (attachment.mediaType === 'application/pdf') return 'PDF';
+		if (attachment.mediaType.startsWith('image/')) return 'Image';
+		if (attachment.mediaType.startsWith('video/')) return 'Video';
+		if (attachment.mediaType.startsWith('audio/')) return 'Audio';
+		const ext = extOf(attachment.name);
+		return ext !== 'file' ? `${ext.toUpperCase()} file` : 'File';
 	}
 
 	type Preview = 'image' | 'pdf' | 'office' | 'text';
