@@ -1726,6 +1726,12 @@
 	:global(.block-handle[data-dragging='true']) {
 		cursor: grabbing;
 	}
+	/* A touch screen has no pointer to hover a block with; "/" still turns an empty line. */
+	@media (hover: none) {
+		:global(.block-handle) {
+			display: none;
+		}
+	}
 	/* Other people's carets: a thin coloured bar with their name above it. */
 	:global(.collaboration-carets__caret) {
 		position: relative;

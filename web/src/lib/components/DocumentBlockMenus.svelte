@@ -143,15 +143,20 @@
 		slashIndex = 0;
 	});
 
-	/* Under the slash, or above it when the page has no room below; measured after it lays out. */
+	/* Under the slash, or above it when the page has no room below. It is shown before it is
+	 * measured: a hidden panel has no height, and would open off the bottom of the page. */
 	$effect(() => {
 		const state = slash;
 		const panel = slashPanel;
-		void slashItems.length;
-		if (!state || !editor || !panel) {
+		const open = Boolean(state && editor && slashItems.length);
+		if (!panel) return;
+		if (!open) {
+			if (panel.matches(':popover-open')) panel.hidePopover();
 			slashPlace = null;
 			return;
 		}
+		if (!panel.matches(':popover-open')) panel.showPopover();
+		if (!state || !editor) return;
 		let coords: { left: number; top: number; bottom: number };
 		try {
 			coords = editor.view.coordsAtPos(state.from);
@@ -168,14 +173,6 @@
 					? Math.max(8, coords.top - height - 4)
 					: coords.bottom + 4
 		};
-	});
-
-	$effect(() => {
-		const panel = slashPanel;
-		if (!panel) return;
-		const open = Boolean(slash && slashItems.length);
-		if (open && !panel.matches(':popover-open')) panel.showPopover();
-		else if (!open && panel.matches(':popover-open')) panel.hidePopover();
 	});
 
 	$effect(() => {

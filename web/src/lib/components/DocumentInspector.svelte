@@ -1134,6 +1134,7 @@
 							{/if}
 							<MessageReactions
 								{reactions}
+								readonly={!canComment || !online}
 								onreact={(emoji, on) => void reactTo(comment.id, emoji, on)}
 							/>
 						</article>

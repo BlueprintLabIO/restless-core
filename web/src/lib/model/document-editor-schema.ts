@@ -817,7 +817,8 @@ function blockHandleExtension(hooks: DocumentEditorHooks) {
 			element.type = 'button';
 			element.className = 'block-handle';
 			element.setAttribute('aria-label', 'Move or change this block');
-			element.title = 'Drag to move. Click, or press Ctrl+/, for more';
+			const mod = /Mac|iPhone|iPad/u.test(window.navigator.platform) ? '⌘' : 'Ctrl+';
+			element.title = `Drag to move. Click, or press ${mod}/, for more`;
 			element.innerHTML = GRIP;
 			let current = -1;
 			element.addEventListener('click', () => {

@@ -5,10 +5,13 @@
 
 	let {
 		reactions,
-		onreact
+		onreact,
+		readonly = false
 	}: {
 		reactions: ReactionSummary[];
 		onreact: (emoji: string, on: boolean) => void;
+		/** Shown to someone who may see reactions but not add one. */
+		readonly?: boolean;
 	} = $props();
 </script>
 
@@ -20,7 +23,12 @@
 				class="pill"
 				class:mine={reaction.mine}
 				aria-pressed={reaction.mine}
-				title={reaction.mine ? 'Remove your reaction' : 'Add this reaction'}
+				disabled={readonly}
+				title={readonly
+					? `${reaction.count} ${reaction.emoji}`
+					: reaction.mine
+						? 'Remove your reaction'
+						: 'Add this reaction'}
 				onclick={() => onreact(reaction.emoji, !reaction.mine)}
 				><span aria-hidden="true">{reaction.emoji}</span><span>{reaction.count}</span></button
 			>
@@ -54,10 +62,13 @@
 			background var(--motion-state) var(--ease-standard),
 			transform var(--motion-press) var(--ease-standard);
 	}
-	.pill:hover {
+	.pill:hover:not(:disabled) {
 		border-color: var(--border-strong);
 	}
-	.pill:active {
+	.pill:disabled {
+		cursor: default;
+	}
+	.pill:active:not(:disabled) {
 		transform: scale(0.94);
 	}
 	.pill.mine {
