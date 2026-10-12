@@ -143,7 +143,13 @@ async fn mentions_replies_and_comments_reach_the_right_people_with_read_state_pe
     assert_eq!(mention.actor_ids, ["bianca"]);
     assert_eq!(mention.actor_names, ["Bianca"]);
     assert_eq!(mention.title, "Pricing");
-    assert_eq!(mention.target, ForYouTarget::Document { document_id: pricing });
+    assert_eq!(
+        mention.target,
+        ForYouTarget::Document {
+            document_id: pricing,
+            thread_id: Some(started)
+        }
+    );
     assert_eq!(alex_unread, 1, "the mention is not also a thread item");
     let thread_key = format!("thread:{started}");
     let (owner, owner_unread) = items(&org, "owner").await;

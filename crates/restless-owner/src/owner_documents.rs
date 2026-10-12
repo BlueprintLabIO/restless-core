@@ -117,6 +117,22 @@ where
             post(resolve_document_comment),
         )
         .route(
+            "/companies/{company}/documents/{document}/comments/{thread}/reopen",
+            post(reopen_document_comment),
+        )
+        .route(
+            "/companies/{company}/documents/{document}/comments/{thread}/replies/{comment}",
+            axum::routing::patch(edit_document_comment).delete(delete_document_comment),
+        )
+        .route(
+            "/companies/{company}/documents/{document}/access-requests",
+            get(list_document_access_requests).post(request_document_access),
+        )
+        .route(
+            "/companies/{company}/documents/{document}/access-requests/{request}/dismiss",
+            post(dismiss_document_access_request),
+        )
+        .route(
             "/companies/{company}/documents/{document}/comment-reactions",
             get(list_document_comment_reactions).post(set_document_comment_reaction),
         )
@@ -1800,6 +1816,150 @@ async fn resolve_document_comment(
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct EditDocumentCommentInput {
+    content_json: serde_json::Value,
+}
+
+/// A comment is its author's to edit (S65).
+async fn edit_document_comment(
+    State(state): State<RoomApiState>,
+    DocumentPrincipal(principal): DocumentPrincipal,
+    AxumPath((company, document, thread, comment)): AxumPath<(String, Uuid, Uuid, Uuid)>,
+    Json(input): Json<EditDocumentCommentInput>,
+) -> Response<Body> {
+    let org = match document_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .edit_document_comment(restless_orgintel::EditDocumentComment {
+            document_id: document,
+            thread_id: thread,
+            comment_id: comment,
+            actor_id: principal.actor_id(),
+            content_json: &input.content_json,
+        })
+        .await
+    {
+        Ok(comment) => document_json(StatusCode::OK, comment),
+        Err(error) => document_error(error),
+    }
+}
+
+/// Its author takes a comment back; the company's owner may take back any (S65).
+async fn delete_document_comment(
+    State(state): State<RoomApiState>,
+    DocumentPrincipal(principal): DocumentPrincipal,
+    AxumPath((company, document, thread, comment)): AxumPath<(String, Uuid, Uuid, Uuid)>,
+) -> Response<Body> {
+    let org = match document_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .delete_document_comment(document, thread, comment, principal.actor_id())
+        .await
+    {
+        Ok(()) => no_store(StatusCode::NO_CONTENT.into_response()),
+        Err(error) => document_error(error),
+    }
+}
+
+async fn reopen_document_comment(
+    State(state): State<RoomApiState>,
+    DocumentPrincipal(principal): DocumentPrincipal,
+    AxumPath((company, document, thread)): AxumPath<(String, Uuid, Uuid)>,
+    Json(input): Json<ResolveDocumentCommentInput>,
+) -> Response<Body> {
+    let org = match document_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .reopen_document_comment_thread(
+            document,
+            thread,
+            principal.actor_id(),
+            input.expected_thread_version,
+        )
+        .await
+    {
+        Ok(thread) => document_json(StatusCode::OK, thread),
+        Err(error) => document_error(error),
+    }
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct DocumentAccessRequestInput {
+    #[serde(default)]
+    access: Option<restless_orgintel::DocumentAccess>,
+}
+
+/// Someone asks to open a document, or for more than they have (S65). The answer is the same
+/// whether or not it exists, so asking never reveals a document.
+async fn request_document_access(
+    State(state): State<RoomApiState>,
+    DocumentPrincipal(principal): DocumentPrincipal,
+    AxumPath((company, document)): AxumPath<(String, Uuid)>,
+    Json(input): Json<DocumentAccessRequestInput>,
+) -> Response<Body> {
+    let org = match document_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .request_document_access(
+            document,
+            principal.actor_id(),
+            input.access.unwrap_or(restless_orgintel::DocumentAccess::Read),
+        )
+        .await
+    {
+        Ok(()) => no_store(StatusCode::ACCEPTED.into_response()),
+        Err(error) => document_error(error),
+    }
+}
+
+/// The open asks, for whoever manages the document's sharing.
+async fn list_document_access_requests(
+    State(state): State<RoomApiState>,
+    DocumentPrincipal(principal): DocumentPrincipal,
+    AxumPath((company, document)): AxumPath<(String, Uuid)>,
+) -> Response<Body> {
+    let org = match document_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .list_document_access_requests(document, principal.actor_id())
+        .await
+    {
+        Ok(items) => document_json(StatusCode::OK, serde_json::json!({ "items": items })),
+        Err(error) => document_error(error),
+    }
+}
+
+async fn dismiss_document_access_request(
+    State(state): State<RoomApiState>,
+    DocumentPrincipal(principal): DocumentPrincipal,
+    AxumPath((company, document, request)): AxumPath<(String, Uuid, Uuid)>,
+) -> Response<Body> {
+    let org = match document_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .dismiss_document_access_request(document, request, principal.actor_id())
+        .await
+    {
+        Ok(()) => no_store(StatusCode::NO_CONTENT.into_response()),
+        Err(error) => document_error(error),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct DocumentCommentReactionInput {
     comment_id: Uuid,
     emoji: String,
@@ -2465,6 +2625,52 @@ mod tests {
         assert!(page_limit(Some(51), 50).is_err());
         assert_eq!(page_limit(None, 50).unwrap(), DEFAULT_PAGE_LIMIT);
         assert_eq!(page_limit(None, 25).unwrap(), 25);
+    }
+
+    /// Asking for access answers the same for any document id, so it reveals nothing; only a
+    /// sharing manager reads or dismisses the asks.
+    #[tokio::test]
+    async fn access_request_routes_reveal_nothing_and_answer_only_to_managers() {
+        let Some(fixture) = DocumentRouteFixture::new().await else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping access request routes");
+            return;
+        };
+        let owner = fixture.app("owner", "owner", &fixture.company);
+        let alice = fixture.app("alice", "member", &fixture.company);
+        let blair = fixture.app("blair", "member", &fixture.company);
+        let documents = format!("/companies/{}/documents", fixture.company);
+        let (_, created) = request_json(
+            &owner,
+            Method::POST,
+            &documents,
+            Some(Uuid::new_v4()),
+            Some(create_body("Board plan")),
+        )
+        .await;
+        let path = format!("{documents}/{}", uuid_field(&created, "document_id"));
+        let asks = format!("{path}/access-requests");
+        let nowhere = format!("{documents}/{}/access-requests", Uuid::new_v4());
+        for uri in [&asks, &nowhere] {
+            let response = request(&alice, Method::POST, uri, None, Some(serde_json::json!({}))).await;
+            assert_eq!(response.status(), StatusCode::ACCEPTED);
+        }
+        let (status, _) = request_json(&alice, Method::GET, &asks, None, None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _) = request_json(&blair, Method::GET, &asks, None, None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, listed) = request_json(&owner, Method::GET, &asks, None, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(listed["items"].as_array().unwrap().len(), 1);
+        assert_eq!(listed["items"][0]["actor_id"], "alice");
+        assert_eq!(listed["items"][0]["access"], "read");
+        let dismiss = format!("{asks}/{}/dismiss", listed["items"][0]["id"].as_str().unwrap());
+        let response = request(&blair, Method::POST, &dismiss, None, None).await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let response = request(&owner, Method::POST, &dismiss, None, None).await;
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let other = fixture.app("alice", "member", &fixture.other_company);
+        let response = request(&other, Method::POST, &asks, None, Some(serde_json::json!({}))).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
     /// General access goes through the same PATCH, for whoever may manage sharing, and every

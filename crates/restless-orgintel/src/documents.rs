@@ -142,7 +142,7 @@ impl DocumentAccess {
         }
     }
 
-    fn permits(self, required: Self) -> bool {
+    pub(crate) fn permits(self, required: Self) -> bool {
         self.rank() >= required.rank()
     }
 }
@@ -196,6 +196,9 @@ pub struct DocumentVersionSummary {
     pub created_by_actor_id: String,
     pub reason: String,
     pub created_at: DateTime<Utc>,
+    /// Who was editing when an automatic version saved the live body (S65): the people whose
+    /// change it was. `created_by_actor_id` is only whatever saved it.
+    pub editor_actor_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
@@ -660,6 +663,10 @@ pub struct DocumentCommentRow {
     pub content_hash: String,
     pub mentioned_actor_ids: Vec<String>,
     pub created_at: DateTime<Utc>,
+    /// When its author last changed it; a comment is its author's to edit.
+    pub edited_at: Option<DateTime<Utc>>,
+    /// Taken back by its author. Lists never show it; rows that name it still resolve.
+    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -3215,7 +3222,10 @@ fn version_select() -> &'static str {
 
 fn version_summary_select() -> &'static str {
     "SELECT id,document_id,version_number,schema_version,content_hash,document_status,\
-            restored_from_version_id,created_by_actor_id,reason,created_at \
+            restored_from_version_id,created_by_actor_id,reason,created_at,\
+            ARRAY(SELECT editor.actor_id FROM native_document_version_editors editor \
+                  WHERE editor.version_id=native_document_versions.id \
+                  ORDER BY editor.actor_id) AS editor_actor_ids \
      FROM native_document_versions"
 }
 
@@ -3629,12 +3639,13 @@ fn comment_thread_columns() -> &'static str {
 
 fn comment_select() -> &'static str {
     "SELECT id,document_id,thread_id,reply_to_comment_id,author_actor_id,content_json,plain_text,\
-            content_hash,mentioned_actor_ids,created_at FROM native_document_comments"
+            content_hash,mentioned_actor_ids,created_at,edited_at,deleted_at \
+     FROM native_document_comments"
 }
 
 fn comment_columns() -> &'static str {
     "id,document_id,thread_id,reply_to_comment_id,author_actor_id,content_json,plain_text,\
-     content_hash,mentioned_actor_ids,created_at"
+     content_hash,mentioned_actor_ids,created_at,edited_at,deleted_at"
 }
 
 fn review_select() -> &'static str {
@@ -6360,6 +6371,17 @@ impl OrgIntel {
             sqlx::query("UPDATE native_document_mentions SET cancelled_at=now() WHERE document_id=$1 AND mentioned_actor_id=$2 AND resolution_comment_id IS NULL AND cancelled_at IS NULL")
             .bind(input.document_id).bind(input.participant_actor_id).execute(&mut *tx).await?;
         }
+        // Giving someone what they asked for answers their ask.
+        sqlx::query(
+            "UPDATE native_document_access_requests SET closed_at=now(),closed_by_actor_id=$3 \
+             WHERE document_id=$1 AND actor_id=$2 AND closed_at IS NULL AND access<=$4",
+        )
+        .bind(input.document_id)
+        .bind(input.participant_actor_id)
+        .bind(input.actor_id)
+        .bind(input.access)
+        .execute(&mut *tx)
+        .await?;
         let document_version: i64 = sqlx::query_scalar(
             "UPDATE native_documents SET version=version+1 WHERE id=$1 RETURNING version",
         )
@@ -6935,9 +6957,13 @@ impl OrgIntel {
         let active_blocks = top_level_block_ids(&current)?;
         let cursor_time = cursor.map(|value| value.created_at);
         let cursor_id = cursor.map(|value| value.id);
+        // A thread whose every comment was taken back has left the list.
         let mut rows = sqlx::query_as::<_, DocumentCommentThreadRow>(&format!(
             "{} WHERE document_id=$1 \
              AND ($2::timestamptz IS NULL OR (created_at,id)>($2,$3)) \
+             AND EXISTS(SELECT 1 FROM native_document_comments live \
+               WHERE live.thread_id=native_document_comment_threads.id \
+                 AND live.deleted_at IS NULL) \
              ORDER BY created_at,id LIMIT $4",
             comment_thread_select()
         ))
@@ -6996,7 +7022,7 @@ impl OrgIntel {
         let cursor_time = cursor.map(|value| value.created_at);
         let cursor_id = cursor.map(|value| value.id);
         let mut rows = sqlx::query_as::<_, DocumentCommentRow>(&format!(
-            "{} WHERE document_id=$1 AND thread_id=$2 \
+            "{} WHERE document_id=$1 AND thread_id=$2 AND deleted_at IS NULL \
              AND ($3::timestamptz IS NULL OR (created_at,id)>($3,$4)) \
              ORDER BY created_at,id LIMIT $5",
             comment_select()
@@ -9663,4 +9689,356 @@ pub(crate) async fn current_document_mention_context(
         return Err(DocumentError::Unavailable);
     }
     document_mention_context(tx, row).await
+}
+
+/// One person's open ask for a document (S65): to open it, or to comment on or edit what they
+/// may only read. Only the people who manage the document's sharing see it.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct DocumentAccessRequestRow {
+    pub id: Uuid,
+    pub document_id: Uuid,
+    pub actor_id: String,
+    pub access: DocumentAccess,
+    pub requested_at: DateTime<Utc>,
+}
+
+pub struct EditDocumentComment<'a> {
+    pub document_id: Uuid,
+    pub thread_id: Uuid,
+    pub comment_id: Uuid,
+    pub actor_id: &'a str,
+    pub content_json: &'a Value,
+}
+
+impl OrgIntel {
+    /// A comment is its author's to change while they may still comment. Mentions follow the new
+    /// text: someone newly mentioned hears of it, and an agent no longer mentioned is not asked.
+    pub async fn edit_document_comment(
+        &self,
+        input: EditDocumentComment<'_>,
+    ) -> DocumentResult<DocumentCommentRow> {
+        let content = validated_comment_content(input.content_json)?;
+        let mentions = mentioned_actor_ids(&content)?;
+        let mut tx = self.pool.begin().await?;
+        require_access(
+            &mut tx,
+            input.document_id,
+            input.actor_id,
+            DocumentAccess::Comment,
+        )
+        .await?;
+        let author = live_comment_author(
+            &mut tx,
+            input.document_id,
+            input.thread_id,
+            input.comment_id,
+        )
+        .await?;
+        if author != input.actor_id {
+            return Err(DocumentError::Unavailable);
+        }
+        require_mentioned_actor_access(&mut tx, input.document_id, &mentions).await?;
+        let comment = sqlx::query_as::<_, DocumentCommentRow>(&format!(
+            "UPDATE native_document_comments SET content_json=$4,plain_text=$5,content_hash=$6,\
+             mentioned_actor_ids=$7,edited_at=now() \
+             WHERE document_id=$1 AND thread_id=$2 AND id=$3 RETURNING {}",
+            comment_columns()
+        ))
+        .bind(input.document_id)
+        .bind(input.thread_id)
+        .bind(input.comment_id)
+        .bind(&content.content_json)
+        .bind(&content.plain_text)
+        .bind(&content.content_hash)
+        .bind(&mentions)
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlx::query(
+            "UPDATE native_document_mentions SET cancelled_at=now() \
+             WHERE comment_id=$1 AND NOT (mentioned_actor_id=ANY($2)) \
+               AND resolution_comment_id IS NULL AND cancelled_at IS NULL",
+        )
+        .bind(input.comment_id)
+        .bind(&mentions)
+        .execute(&mut *tx)
+        .await?;
+        enqueue_document_mentions(&mut tx, &comment).await?;
+        append_document_event(
+            &mut tx,
+            "document.comment.edited.v1",
+            input.document_id,
+            input.actor_id,
+            json!({
+                "document_id": input.document_id,
+                "thread_id": input.thread_id,
+                "comment_id": input.comment_id,
+            }),
+        )
+        .await?;
+        tx.commit().await?;
+        validate_comment_row(comment)
+    }
+
+    /// Its author takes a comment back; the company's owner may take back any comment on a
+    /// document they can read. It leaves every list at once, and an agent it asked is no longer
+    /// asked.
+    pub async fn delete_document_comment(
+        &self,
+        document_id: Uuid,
+        thread_id: Uuid,
+        comment_id: Uuid,
+        actor_id: &str,
+    ) -> DocumentResult<()> {
+        let mut tx = self.pool.begin().await?;
+        let access = require_access(&mut tx, document_id, actor_id, DocumentAccess::Read).await?;
+        let author = live_comment_author(&mut tx, document_id, thread_id, comment_id).await?;
+        let allowed = if author == actor_id {
+            access.permits(DocumentAccess::Comment)
+        } else {
+            company_owner(&mut tx, actor_id).await?
+        };
+        if !allowed {
+            return Err(DocumentError::Unavailable);
+        }
+        sqlx::query(
+            "UPDATE native_document_comments SET deleted_at=now() \
+             WHERE document_id=$1 AND thread_id=$2 AND id=$3",
+        )
+        .bind(document_id)
+        .bind(thread_id)
+        .bind(comment_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "UPDATE native_document_mentions SET cancelled_at=now() \
+             WHERE comment_id=$1 AND resolution_comment_id IS NULL AND cancelled_at IS NULL",
+        )
+        .bind(comment_id)
+        .execute(&mut *tx)
+        .await?;
+        append_document_event(
+            &mut tx,
+            "document.comment.deleted.v1",
+            document_id,
+            actor_id,
+            json!({
+                "document_id": document_id,
+                "thread_id": thread_id,
+                "comment_id": comment_id,
+            }),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// A resolved thread opens again for whoever could have resolved it: anyone who may edit the
+    /// document, or who started the thread and may still comment.
+    pub async fn reopen_document_comment_thread(
+        &self,
+        document_id: Uuid,
+        thread_id: Uuid,
+        actor_id: &str,
+        expected_thread_version: i64,
+    ) -> DocumentResult<DocumentCommentThreadRow> {
+        let mut tx = self.pool.begin().await?;
+        let access =
+            require_access(&mut tx, document_id, actor_id, DocumentAccess::Comment).await?;
+        let thread = sqlx::query_as::<_, DocumentCommentThreadRow>(&format!(
+            "{} WHERE document_id=$1 AND id=$2 FOR UPDATE",
+            comment_thread_select()
+        ))
+        .bind(document_id)
+        .bind(thread_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DocumentError::Unavailable)?;
+        if access != DocumentAccess::Edit && thread.created_by_actor_id != actor_id {
+            return Err(DocumentError::Unavailable);
+        }
+        if thread.status == DocumentCommentStatus::Open {
+            tx.commit().await?;
+            return Ok(thread);
+        }
+        if thread.version != expected_thread_version {
+            return Err(DocumentError::Conflict(format!(
+                "comment thread is version {}, expected {}",
+                thread.version, expected_thread_version
+            )));
+        }
+        let reopened = sqlx::query_as::<_, DocumentCommentThreadRow>(&format!(
+            "UPDATE native_document_comment_threads SET status='open',\
+             resolved_by_actor_id=NULL,resolved_at=NULL,version=version+1 \
+             WHERE document_id=$1 AND id=$2 RETURNING {}",
+            comment_thread_columns()
+        ))
+        .bind(document_id)
+        .bind(thread_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        append_document_event(
+            &mut tx,
+            "document.comment_thread.reopened.v1",
+            document_id,
+            actor_id,
+            json!({
+                "document_id": document_id,
+                "thread_id": thread_id,
+                "previous_thread_version": thread.version,
+                "thread_version": reopened.version,
+            }),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(reopened)
+    }
+
+    /// Ask for a document: to open it (`Read`), or for more than the access one has. The answer
+    /// is the same whether or not the document exists or the ask was needed, so asking tells
+    /// nobody what is there. An open ask is not repeated; one that was dismissed is asked anew.
+    pub async fn request_document_access(
+        &self,
+        document_id: Uuid,
+        actor_id: &str,
+        access: DocumentAccess,
+    ) -> DocumentResult<()> {
+        let mut tx = self.pool.begin().await?;
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM native_documents WHERE id=$1 AND status<>'archived')",
+        )
+        .bind(document_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !exists || !active_actor(&mut tx, actor_id).await? {
+            return Ok(());
+        }
+        if access_in_transaction(&mut tx, document_id, actor_id)
+            .await?
+            .is_some_and(|current| current.permits(access))
+        {
+            return Ok(());
+        }
+        sqlx::query(
+            "INSERT INTO native_document_access_requests (id,document_id,actor_id,access) \
+             VALUES ($1,$2,$3,$4) \
+             ON CONFLICT (document_id,actor_id) DO UPDATE SET \
+               access=GREATEST(native_document_access_requests.access,EXCLUDED.access), \
+               requested_at=CASE WHEN native_document_access_requests.closed_at IS NULL \
+                 AND native_document_access_requests.access>=EXCLUDED.access \
+                 THEN native_document_access_requests.requested_at ELSE now() END, \
+               closed_at=NULL,closed_by_actor_id=NULL",
+        )
+        .bind(Uuid::new_v4())
+        .bind(document_id)
+        .bind(actor_id)
+        .bind(access)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// The open asks for a document, for the people who manage its sharing. An ask that the
+    /// person's access already answers is left out.
+    pub async fn list_document_access_requests(
+        &self,
+        document_id: Uuid,
+        actor_id: &str,
+    ) -> DocumentResult<Vec<DocumentAccessRequestRow>> {
+        let mut tx = self.pool.begin().await?;
+        require_sharing_manager(&mut tx, document_id, actor_id).await?;
+        let rows = sqlx::query_as::<_, DocumentAccessRequestRow>(
+            "SELECT id,document_id,actor_id,access,requested_at \
+             FROM native_document_access_requests \
+             WHERE document_id=$1 AND closed_at IS NULL ORDER BY requested_at LIMIT 50",
+        )
+        .bind(document_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        let mut open = Vec::with_capacity(rows.len());
+        for row in rows {
+            let answered = access_in_transaction(&mut tx, document_id, &row.actor_id)
+                .await?
+                .is_some_and(|current| current.permits(row.access));
+            if !answered {
+                open.push(row);
+            }
+        }
+        tx.commit().await?;
+        Ok(open)
+    }
+
+    /// A sharing manager sets an ask aside without granting it.
+    pub async fn dismiss_document_access_request(
+        &self,
+        document_id: Uuid,
+        request_id: Uuid,
+        actor_id: &str,
+    ) -> DocumentResult<()> {
+        let mut tx = self.pool.begin().await?;
+        require_sharing_manager(&mut tx, document_id, actor_id).await?;
+        let changed = sqlx::query(
+            "UPDATE native_document_access_requests SET closed_at=now(),closed_by_actor_id=$3 \
+             WHERE document_id=$1 AND id=$2 AND closed_at IS NULL",
+        )
+        .bind(document_id)
+        .bind(request_id)
+        .bind(actor_id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if changed != 1 {
+            return Err(DocumentError::Unavailable);
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+}
+
+/// The author of a comment that is still there, locked for change; unavailable otherwise.
+async fn live_comment_author(
+    tx: &mut Transaction<'_, Postgres>,
+    document_id: Uuid,
+    thread_id: Uuid,
+    comment_id: Uuid,
+) -> DocumentResult<String> {
+    sqlx::query_scalar(
+        "SELECT author_actor_id FROM native_document_comments \
+         WHERE document_id=$1 AND thread_id=$2 AND id=$3 AND deleted_at IS NULL FOR UPDATE",
+    )
+    .bind(document_id)
+    .bind(thread_id)
+    .bind(comment_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or(DocumentError::Unavailable)
+}
+
+async fn company_owner(tx: &mut Transaction<'_, Postgres>, actor_id: &str) -> DocumentResult<bool> {
+    Ok(actor_id == "owner"
+        || sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM human_principal_actor_bindings WHERE actor_id=$1 \
+             AND membership_role='owner' AND membership_status='active')",
+        )
+        .bind(actor_id)
+        .fetch_one(&mut **tx)
+        .await?)
+}
+
+/// Whoever may change who can open the document; nobody else learns of its asks.
+async fn require_sharing_manager(
+    tx: &mut Transaction<'_, Postgres>,
+    document_id: Uuid,
+    actor_id: &str,
+) -> DocumentResult<()> {
+    let owner: String =
+        sqlx::query_scalar("SELECT owner_actor_id FROM native_documents WHERE id=$1")
+            .bind(document_id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .ok_or(DocumentError::Unavailable)?;
+    if !may_manage_participants(tx, document_id, &owner, actor_id).await? {
+        return Err(DocumentError::Unavailable);
+    }
+    Ok(())
 }

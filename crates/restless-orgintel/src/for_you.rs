@@ -127,18 +127,14 @@ const ITEMS: &str = "viewer AS ( \
    ) fresh ON TRUE \
  ), \
  doc_mentions AS ( \
-   SELECT 'doc-mention:'||c.id,'mention',c.document_id,NULL::uuid,NULL::uuid,NULL::text, \
-     NULL::bigint,NULL::bigint,NULL::uuid,d.title,left(c.plain_text,$7),ARRAY[c.author_actor_id], \
-     c.created_at, \
-     (c.created_at>GREATEST(viewer.through,COALESCE(r.read_at,'-infinity')) \
+   SELECT 'doc-mention:'||c.id,'mention',c.document_id,NULL::uuid,NULL::uuid,NULL::text,      NULL::bigint,NULL::bigint,c.thread_id,d.title,left(c.plain_text,$7),ARRAY[c.author_actor_id],      c.created_at,      (c.created_at>GREATEST(viewer.through,COALESCE(r.read_at,'-infinity')) \
       AND NOT EXISTS(SELECT 1 FROM native_document_comments answer \
         WHERE answer.thread_id=c.thread_id AND answer.author_actor_id=$1 \
           AND answer.created_at>c.created_at)) \
    FROM native_document_comments c CROSS JOIN viewer \
    JOIN native_documents d ON d.id=c.document_id AND d.status<>'archived' \
    LEFT JOIN for_you_reads r ON r.actor_id=$1 AND r.item_key='doc-mention:'||c.id \
-   WHERE $1=ANY(c.mentioned_actor_ids) AND c.author_actor_id<>$1 AND $8::uuid IS NULL \
-     AND ($6::uuid IS NULL OR c.document_id=$6) \
+   WHERE $1=ANY(c.mentioned_actor_ids) AND c.author_actor_id<>$1 AND $8::uuid IS NULL      AND c.deleted_at IS NULL      AND ($6::uuid IS NULL OR c.document_id=$6) \
  ), \
  thread_rows AS ( \
    SELECT t.id AS thread_id,t.document_id,d.title, \
@@ -153,21 +149,20 @@ const ITEMS: &str = "viewer AS ( \
  threads AS ( \
    SELECT 'thread:'||tr.thread_id, \
      CASE WHEN tr.joined_at IS NULL THEN 'comment' ELSE 'reply' END, \
-     tr.document_id,NULL::uuid,NULL::uuid,NULL::text,NULL::bigint,NULL::bigint,NULL::uuid,tr.title, \
-     left(latest.plain_text,$7),COALESCE(fresh.actors,ARRAY[latest.author_actor_id]), \
+     tr.document_id,NULL::uuid,NULL::uuid,NULL::text,NULL::bigint,NULL::bigint,tr.thread_id,tr.title,      left(latest.plain_text,$7),COALESCE(fresh.actors,ARRAY[latest.author_actor_id]), \
      latest.created_at,fresh.actors IS NOT NULL \
    FROM thread_rows tr CROSS JOIN viewer \
    LEFT JOIN for_you_reads r ON r.actor_id=$1 AND r.item_key='thread:'||tr.thread_id \
    JOIN LATERAL ( \
      SELECT c.author_actor_id,c.plain_text,c.created_at FROM native_document_comments c \
-     WHERE c.thread_id=tr.thread_id AND c.author_actor_id<>$1 \
+     WHERE c.thread_id=tr.thread_id AND c.author_actor_id<>$1 AND c.deleted_at IS NULL \
        AND NOT ($1=ANY(c.mentioned_actor_ids)) \
        AND c.created_at>LEAST(tr.joined_at,tr.followed_since) \
      ORDER BY c.created_at DESC,c.id DESC LIMIT 1 \
    ) latest ON TRUE \
    LEFT JOIN LATERAL ( \
      SELECT array_agg(DISTINCT c.author_actor_id) AS actors FROM native_document_comments c \
-     WHERE c.thread_id=tr.thread_id AND c.author_actor_id<>$1 \
+     WHERE c.thread_id=tr.thread_id AND c.author_actor_id<>$1 AND c.deleted_at IS NULL \
        AND NOT ($1=ANY(c.mentioned_actor_ids)) \
        AND c.created_at>LEAST(tr.joined_at,tr.followed_since) \
        AND c.created_at>GREATEST(viewer.through,COALESCE(r.read_at,'-infinity')) \
@@ -260,19 +255,30 @@ const ITEMS: &str = "viewer AS ( \
        AND m.accepted_at>GREATEST(viewer.through,COALESCE(r.read_at,'-infinity'))) fresh ON TRUE \
    WHERE sf.since IS NOT NULL AND $6::uuid IS NULL \
  ), \
+ access_requests AS ( \
+   SELECT 'access:'||q.id, \
+     CASE q.access WHEN 'read' THEN 'access' WHEN 'comment' THEN 'comment-access' \
+       ELSE 'edit-access' END, \
+     q.document_id,NULL::uuid,NULL::uuid,NULL::text,NULL::bigint,NULL::bigint,NULL::uuid,d.title,''::text, \
+     ARRAY[q.actor_id],q.requested_at, \
+     q.requested_at>GREATEST(viewer.through,COALESCE(r.read_at,'-infinity')) \
+   FROM native_document_access_requests q CROSS JOIN viewer \
+   JOIN native_documents d ON d.id=q.document_id AND d.status<>'archived' \
+   LEFT JOIN for_you_reads r ON r.actor_id=$1 AND r.item_key='access:'||q.id \
+   WHERE q.closed_at IS NULL AND q.actor_id<>$1 AND ($6::uuid IS NULL OR q.document_id=$6) AND $8::uuid IS NULL \
+     AND (d.owner_actor_id=$1 OR EXISTS(SELECT 1 FROM human_principal_actor_bindings b \
+       WHERE b.actor_id=$1 AND b.membership_role='owner' AND b.membership_status='active')) \
+ ), \
  items AS ( \
-   SELECT * FROM room_mentions UNION ALL SELECT * FROM room_threads \
-   UNION ALL SELECT * FROM doc_mentions UNION ALL SELECT * FROM threads \
-   UNION ALL SELECT * FROM doc_shares UNION ALL SELECT * FROM sheet_shares \
-   UNION ALL SELECT * FROM reviews UNION ALL SELECT * FROM changes \
-   UNION ALL SELECT * FROM sheet_changes \
- )";
+   SELECT * FROM room_mentions UNION ALL SELECT * FROM room_threads    UNION ALL SELECT * FROM doc_mentions UNION ALL SELECT * FROM threads    UNION ALL SELECT * FROM doc_shares UNION ALL SELECT * FROM sheet_shares    UNION ALL SELECT * FROM reviews UNION ALL SELECT * FROM changes    UNION ALL SELECT * FROM sheet_changes UNION ALL SELECT * FROM access_requests  )";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "source", rename_all = "snake_case")]
 pub enum ForYouTarget {
     Document {
         document_id: Uuid,
+        /// The comment thread a mention, reply or comment is in, so it opens on that thread.
+        thread_id: Option<Uuid>,
     },
     Sheet {
         sheet_id: Uuid,
@@ -293,7 +299,9 @@ pub struct ForYouItem {
     pub key: String,
     /// `mention`, `reply` (a document or Room thread the person is in), `comment` (a new thread on
     /// a document they follow), `share` (someone gave them a document or sheet), `review` (they
-    /// were asked to review a document) or `change` (others changed something they follow).
+    /// were asked to review a document), `change` (others changed something they follow), or
+    /// `access`, `comment-access` or `edit-access` (someone asks to open, comment on or edit a
+    /// document they manage).
     pub kind: String,
     /// The source's own title: the document, sheet or Room.
     pub title: String,
@@ -340,6 +348,8 @@ pub struct DocumentChangeNotice {
     pub actor_ids: Vec<String>,
     pub actor_names: Vec<String>,
     pub at: DateTime<Utc>,
+    /// When this person last looked, if they ever did: what changed is everything after it.
+    pub since: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -367,7 +377,7 @@ fn valid_key(key: &str) -> bool {
     let canonical = |id: &str| Uuid::parse_str(id).is_ok_and(|parsed| parsed.hyphenated().to_string() == id);
     match kind {
         "room-mention" | "doc-mention" | "thread" | "changes" | "share" | "sheet-share"
-        | "review" | "sheet-changes" => canonical(id),
+        | "review" | "sheet-changes" | "access" => canonical(id),
         "room-thread" => id.split_once(':').is_some_and(|(room, root)| {
             canonical(room)
                 && !root.is_empty()
@@ -443,7 +453,11 @@ impl OrgIntel {
                 let document_id: Option<Uuid> = row.try_get("document_id")?;
                 let sheet_id: Option<Uuid> = row.try_get("sheet_id")?;
                 let target = match (document_id, sheet_id) {
-                    (Some(document_id), _) => ForYouTarget::Document { document_id },
+                    (Some(document_id), _) => ForYouTarget::Document {
+                        document_id,
+                        // A document item carries its comment thread in the Room mention's column.
+                        thread_id: row.try_get("mention_id")?,
+                    },
                     (None, Some(sheet_id)) => ForYouTarget::Sheet { sheet_id },
                     (None, None) => ForYouTarget::Room {
                         room_id: row.try_get("room_id")?,
@@ -480,8 +494,23 @@ impl OrgIntel {
     ) -> DocumentResult<Vec<ForYouItem>> {
         let mut kept = Vec::with_capacity(items.len());
         for item in items {
+            if let ForYouTarget::Document { document_id, .. } = item.target {
+                // An ask for access is gone once the person has what they asked for.
+                let wanted = match item.kind.as_str() {
+                    "access" => Some(crate::DocumentAccess::Read),
+                    "comment-access" => Some(crate::DocumentAccess::Comment),
+                    "edit-access" => Some(crate::DocumentAccess::Edit),
+                    _ => None,
+                };
+                if let (Some(wanted), Some(asker)) = (wanted, item.actor_ids.first()) {
+                    let has = self.document_access_for_actor(document_id, asker).await?;
+                    if has.is_some_and(|access| access.permits(wanted)) {
+                        continue;
+                    }
+                }
+            }
             let allowed = match item.target {
-                ForYouTarget::Document { document_id } => match readable.get(&document_id) {
+                ForYouTarget::Document { document_id, .. } => match readable.get(&document_id) {
                     Some(allowed) => *allowed,
                     None => {
                         let allowed = self
@@ -734,7 +763,7 @@ impl OrgIntel {
         .bind(document_id)
         .fetch_one(&self.pool)
         .await?;
-        let changed_since_you_looked = self
+        let change = self
             .for_you_rows(
                 viewer,
                 None,
@@ -747,12 +776,30 @@ impl OrgIntel {
             )
             .await?
             .into_iter()
-            .find(|item| item.kind == "change")
-            .map(|item| DocumentChangeNotice {
-                actor_ids: item.actor_ids,
-                actor_names: item.actor_names,
-                at: item.at,
-            });
+            .find(|item| item.kind == "change");
+        let changed_since_you_looked = match change {
+            None => None,
+            Some(item) => {
+                let since: Option<DateTime<Utc>> = sqlx::query_scalar(
+                    "SELECT NULLIF(GREATEST( \
+                       COALESCE((SELECT read_through FROM for_you_read_cursors WHERE actor_id=$1), \
+                                '-infinity'::timestamptz), \
+                       COALESCE((SELECT read_at FROM for_you_reads \
+                                 WHERE actor_id=$1 AND item_key=$2),'-infinity'::timestamptz)), \
+                     '-infinity'::timestamptz)",
+                )
+                .bind(viewer)
+                .bind(format!("changes:{document_id}"))
+                .fetch_one(&self.pool)
+                .await?;
+                Some(DocumentChangeNotice {
+                    actor_ids: item.actor_ids,
+                    actor_names: item.actor_names,
+                    at: item.at,
+                    since,
+                })
+            }
+        };
         Ok(DocumentFollowState {
             following,
             changed_since_you_looked,

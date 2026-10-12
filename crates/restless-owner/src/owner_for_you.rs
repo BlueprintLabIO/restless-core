@@ -154,13 +154,26 @@ fn actor_names(names: &[String]) -> String {
 pub(super) fn href(company: &str, item: &ForYouItem) -> String {
     // Company names are already path-safe identifiers.
     match &item.target {
-        ForYouTarget::Document { document_id } => {
-            // Comments open beside the document and a review beside its request; a change or a
-            // share opens the document itself, which says what changed.
-            let panel = match item.kind.as_str() {
-                "change" | "share" => "",
-                "review" => "&inspect=review",
-                _ => "&inspect=comments",
+        ForYouTarget::Document {
+            document_id,
+            thread_id,
+        } => {
+            // A change or a share opens the document, which says what changed; a review opens
+            // beside its request; an ask for access opens its sharing; a comment opens on its
+            // thread, and a mention on the comment itself.
+            let panel = match (item.kind.as_str(), thread_id) {
+                ("change" | "share", _) => String::new(),
+                ("review", _) => "&inspect=review".into(),
+                ("access" | "comment-access" | "edit-access", _) => "&inspect=share".into(),
+                (_, Some(thread)) => {
+                    let comment = item
+                        .key
+                        .strip_prefix("doc-mention:")
+                        .map(|comment| format!("&comment={comment}"))
+                        .unwrap_or_default();
+                    format!("&inspect=comments&thread={thread}{comment}")
+                }
+                (_, None) => "&inspect=comments".into(),
             };
             format!("/{company}/library/documents?document={document_id}{panel}")
         }
@@ -478,6 +491,7 @@ pub(super) async fn document_read_view(
                                 "actor_ids": change.actor_ids,
                                 "actor_name": actor_names(&change.actor_names),
                                 "at": change.at,
+                                "since": change.since,
                             })
                         })
                         .unwrap_or(serde_json::Value::Null),
@@ -605,15 +619,16 @@ mod tests {
         })
         .await
         .unwrap();
-        org.create_document_comment_thread(restless_orgintel::NewDocumentCommentThread {
-            document_id: private,
-            actor_id: "owner",
-            command_id: Uuid::new_v4(),
-            block_id: None,
-            content_json: &content("Can you check this? ", Some("alex")),
-        })
-        .await
-        .unwrap();
+        let asked = org
+            .create_document_comment_thread(restless_orgintel::NewDocumentCommentThread {
+                document_id: private,
+                actor_id: "owner",
+                command_id: Uuid::new_v4(),
+                block_id: None,
+                content_json: &content("Can you check this? ", Some("alex")),
+            })
+            .await
+            .unwrap();
 
         let state = RoomApiState::fixed(HashMap::from([(company.clone(), org)]), url);
         let app = |actor: &str, role: &str| {
@@ -657,9 +672,13 @@ mod tests {
         assert_eq!(item["kind"], "mention");
         assert_eq!(item["actor_name"], "The Owner");
         assert_eq!(item["title"], "Board notes");
+        // A mention opens on its own thread and comment.
         assert_eq!(
             item["href"],
-            format!("/{company}/library/documents?document={private}&inspect=comments")
+            format!(
+                "/{company}/library/documents?document={private}&inspect=comments&thread={}&comment={}",
+                asked.thread.thread.id, asked.first_comment.id
+            )
         );
         let (_, body) = request(&bianca, Method::GET, path.clone(), None).await;
         assert_eq!(body["items"].as_array().unwrap().len(), 0, "nothing of Alex's reaches Bianca");
