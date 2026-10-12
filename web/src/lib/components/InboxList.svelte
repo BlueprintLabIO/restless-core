@@ -2,7 +2,8 @@
 	/* The Inbox: everything that needs the owner, as one list. Blocking items
 	 * first, then the oldest ask. No categories to file into; the kind is an
 	 * icon with a tooltip. Rows carry their own quick actions, J/K walks the
-	 * list, and snoozing is per device with an undo. */
+	 * list on into For you, and what the owner opened or snoozed is kept on the
+	 * server, so every device agrees. */
 	import { goto } from '$app/navigation';
 	import { onMount, untrack } from 'svelte';
 	import CircleCheck from '@lucide/svelte/icons/circle-check';
@@ -15,11 +16,23 @@
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { Item } from '$lib/ui/page';
-	import { useQueryClient } from '@tanstack/svelte-query';
-	import { completeHandoffHumanStep, dismissAttention } from '$lib/model/attention';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
+	import {
+		completeHandoffHumanStep,
+		dismissAttention,
+		restoreAttention
+	} from '$lib/model/attention';
 	import SetAsideList from './SetAside.svelte';
 	import ForYou from './ForYou.svelte';
 	import { useForYou } from '$lib/model/for-you.svelte';
+	import {
+		getInboxMarks,
+		setInboxMarks,
+		withMarks,
+		type InboxMark,
+		type InboxMarkChange
+	} from '$lib/model/for-you';
 	import { refreshAttention } from '$lib/model/queries.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import {
@@ -54,29 +67,62 @@
 	} = $props();
 
 	const client = useQueryClient();
-	/* Beside the decisions: mentions, replies and changes to what the owner follows. */
+	/* Beside the decisions: mentions, replies, shares and changes to what the owner follows. */
 	const forYou = useForYou();
-	let seen = $state<Record<string, string>>({});
-	let snoozed = $state<Record<string, number>>({});
+	let forYouList: ForYou | undefined = $state();
 	let showSnoozed = $state(false);
-	let notice = $state('');
-	let undoId = $state('');
 	let completing = $state('');
 	let clock = $state(Date.now());
+
+	/* What this person opened and snoozed, on every device. */
+	const marksKey = () => ['inbox-marks', companyId] as const;
+	const marksQuery = createQuery(() => ({
+		queryKey: marksKey(),
+		queryFn: () => getInboxMarks(companyId),
+		enabled: Boolean(companyId),
+		staleTime: 10_000,
+		refetchInterval: 30_000
+	}));
+	const marks = $derived(new Map((marksQuery.data ?? []).map((mark) => [mark.item_id, mark])));
+	const snoozedUntil = (item: AttentionItem) => {
+		const until = marks.get(item.id)?.snoozed_until;
+		return until ? Date.parse(until) : 0;
+	};
+	async function mark(changes: InboxMarkChange[], quiet = false) {
+		const key = marksKey();
+		client.setQueryData<InboxMark[]>(key, (data) => withMarks(data ?? [], changes));
+		try {
+			await setInboxMarks(companyId, changes);
+		} catch (cause) {
+			/* A seen mark that did not stick only leaves a dot; it is tried again next time. */
+			if (!quiet) toast(failureSentence(cause, 'That was not kept.'), { tone: 'failure' });
+		} finally {
+			void client.invalidateQueries({ queryKey: key });
+		}
+	}
+
 	async function notNeeded(item: AttentionItem) {
-		undoId = '';
 		try {
 			await dismissAttention(companyId, item.id);
-			notice = 'Set aside. It is under Set aside if you want it back.';
+			toast('Set aside', {
+				undo: async () => {
+					try {
+						await restoreAttention(companyId, item.id);
+					} catch (cause) {
+						toast(failureSentence(cause, 'That was not restored.'), { tone: 'failure' });
+					}
+					await refreshAttention(client, companyId);
+				}
+			});
 		} catch (cause) {
-			notice = failureSentence(cause, 'That was not set aside.');
+			toast(failureSentence(cause, 'That was not set aside.'), { tone: 'failure' });
 		}
 		await refreshAttention(client, companyId);
 	}
 
-	const snoozedCount = $derived(items.filter((item) => (snoozed[item.id] ?? 0) > clock).length);
+	const snoozedCount = $derived(items.filter((item) => snoozedUntil(item) > clock).length);
 	const visible = $derived(
-		inboxOrder(items.filter((item) => showSnoozed || (snoozed[item.id] ?? 0) <= clock))
+		inboxOrder(items.filter((item) => showSnoozed || snoozedUntil(item) <= clock))
 	);
 	$effect(() => {
 		const rows = visible;
@@ -108,44 +154,20 @@
 							? MessageCircle
 							: GitPullRequest;
 
-	/* Snooze and seen state belong to one company; the list is reused across a company switch. */
-	let stateFor = $state('');
-	function persist() {
-		if (stateFor !== companyId) return;
-		try {
-			localStorage.setItem(`restless:attention:${companyId}`, JSON.stringify({ seen, deferred: snoozed }));
-		} catch {
-			/* Browsing still works without storage. */
-		}
-	}
 	$effect(() => {
-		const company = companyId;
-		untrack(() => {
-			let saved: { seen?: Record<string, string>; deferred?: Record<string, number> } = {};
-			try {
-				saved = JSON.parse(localStorage.getItem(`restless:attention:${company}`) ?? '{}');
-			} catch {
-				/* Ignore an obsolete preference. */
-			}
-			seen = saved.seen ?? {};
-			snoozed = saved.deferred ?? {};
-			showSnoozed = false;
-			notice = '';
-			undoId = '';
-			stateFor = company;
-		});
+		companyId;
+		showSnoozed = false;
 	});
 	onMount(() => {
 		const timer = setInterval(() => (clock = Date.now()), 30_000);
 		return () => clearInterval(timer);
 	});
+	/* Opening an item reads this brief of it; a later brief reads as new again. */
 	$effect(() => {
-		if (stateFor !== companyId) return;
+		if (!marksQuery.data) return;
 		const item = items.find((row) => row.id === selectedId);
-		if (item && seen[item.id] !== stamp(item)) {
-			seen = { ...seen, [item.id]: stamp(item) };
-			persist();
-		}
+		if (item && marks.get(item.id)?.seen_stamp !== stamp(item))
+			void mark([{ item_id: item.id, seen_stamp: stamp(item) }], true);
 	});
 
 	function next(after: AttentionItem): string {
@@ -155,19 +177,18 @@
 		return target ? href(target.id) : `/${companyId}`;
 	}
 	function snooze(item: AttentionItem) {
-		snoozed = { ...snoozed, [item.id]: Date.now() + 3_600_000 };
-		persist();
-		undoId = item.id;
-		notice = 'Snoozed for an hour on this device';
+		void mark([{ item_id: item.id, snoozed_until: new Date(Date.now() + 3_600_000).toISOString() }]);
+		toast('Snoozed for an hour', {
+			undo: () => mark([{ item_id: item.id, snoozed_until: null }])
+		});
 		if (selectedId === item.id) void goto(next(item), { noScroll: true });
 	}
 	async function copy(item: AttentionItem) {
 		try {
 			await navigator.clipboard.writeText(new URL(href(item.id), location.origin).href);
-			notice = 'Link copied';
-			undoId = '';
+			toast('Link copied');
 		} catch {
-			notice = 'Could not copy the link';
+			toast('Could not copy the link', { tone: 'failure' });
 		}
 	}
 	async function done(item: AttentionItem) {
@@ -176,13 +197,22 @@
 		try {
 			await completeHandoffHumanStep(companyId, item.source.reference);
 			await refreshAttention(client, companyId);
-			notice = 'Marked done';
-			undoId = '';
+			toast('Marked done');
 		} catch (cause) {
-			notice = failureSentence(cause, 'That was not recorded.');
+			toast(failureSentence(cause, 'That was not recorded.'), { tone: 'failure' });
 		} finally {
 			completing = '';
 		}
+	}
+	function select(target: AttentionItem) {
+		void goto(href(target.id), { keepFocus: true, noScroll: true }).then(() => {
+			const row = document.querySelector<HTMLElement>('.inbox-list [aria-current="true"]');
+			row?.focus();
+			row?.scrollIntoView({
+				block: 'nearest',
+				behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+			});
+		});
 	}
 
 	function keyboard(event: KeyboardEvent) {
@@ -200,16 +230,16 @@
 		}
 		if (event.metaKey || event.ctrlKey || event.altKey) return;
 		const step = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 }[event.key];
-		if (step && visible.length) {
+		if (step) {
 			const index = visible.findIndex((row) => row.id === selectedId);
-			const target = visible[Math.max(0, Math.min(visible.length - 1, index + step))];
+			/* Past the last decision, the keys walk on into For you. */
+			if (step > 0 && (index === visible.length - 1 || !visible.length)) {
+				if (forYouList?.focusFirst()) event.preventDefault();
+				return;
+			}
+			if (!visible.length) return;
 			event.preventDefault();
-			void goto(href(target.id), { keepFocus: true, noScroll: true }).then(() =>
-				document.querySelector('.inbox-list [aria-current="true"]')?.scrollIntoView({
-					block: 'nearest',
-					behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
-				})
-			);
+			select(visible[Math.max(0, Math.min(visible.length - 1, index + step))]);
 		}
 		if (!item) return;
 		if (event.key === 'h') {
@@ -249,22 +279,6 @@
 		</ActionMenu>
 	</header>
 
-	{#if notice}
-		<div class="toast" role="status">
-			<span>{notice}</span>
-			{#if undoId}<button
-					class="btn small ghost"
-					onclick={() => {
-						snoozed = { ...snoozed, [undoId]: 0 };
-						persist();
-						notice = '';
-						undoId = '';
-					}}>Undo</button
-				>{/if}
-			<button class="btn small ghost" aria-label="Dismiss" onclick={() => (notice = '')}>×</button>
-		</div>
-	{/if}
-
 	<div class="inbox-list">
 		{#if failure && !loaded}
 			<div class="inbox-failure">
@@ -282,13 +296,13 @@
 		{/if}
 		{#each visible as item (item.id)}
 			{@const Icon = iconFor(item)}
-			{@const snoozedNow = (snoozed[item.id] ?? 0) > clock}
+			{@const snoozedNow = snoozedUntil(item) > clock}
 			<Item
 				title={attentionTitle(item)}
 				meta={item.preparing ? 'Being prepared' : attentionAsker(item)}
 				href={href(item.id)}
 				selected={selectedId === item.id}
-				unread={seen[item.id] !== stamp(item)}
+				unread={!!marksQuery.data && marks.get(item.id)?.seen_stamp !== stamp(item)}
 				dim={snoozedNow}
 			>
 				{#snippet leading()}<span class="kind" class:blocker={item.category === 'blocker'} title={attentionKindLabel(item)}
@@ -305,7 +319,13 @@
 								>{completing === item.id ? 'Recording…' : 'Mark done'} <kbd>E</kbd></button
 							>{/if}
 						{#if canDecline(item)}<a href={`${href(item.id)}&decline=1`}>Not doing this…</a>{/if}
-						<button onclick={() => snooze(item)}>Snooze for an hour <kbd>H</kbd></button>
+						{#if snoozedNow}
+							<button onclick={() => void mark([{ item_id: item.id, snoozed_until: null }])}
+								>Wake now</button
+							>
+						{:else}
+							<button onclick={() => snooze(item)}>Snooze for an hour <kbd>H</kbd></button>
+						{/if}
 						<button
 							title="Not needed: off your Inbox, kept under Set aside. Whoever asked stops waiting."
 							onclick={() => void notNeeded(item)}>Not needed</button
@@ -320,8 +340,17 @@
 		{:else if !loaded && !failure}
 			<div class="waiting" aria-label="Loading the Inbox"><i></i><i></i><i></i></div>
 		{/if}
-		{#if forYou && forYou.items.length}
-			<div class="for-you-slot"><ForYou source={forYou} /></div>
+		{#if forYou && (forYou.items.length || forYou.filter === 'unread')}
+			<div class="for-you-slot">
+				<ForYou
+					bind:this={forYouList}
+					source={forYou}
+					onexit={() => {
+						const last = visible.at(-1);
+						if (last) select(last);
+					}}
+				/>
+			</div>
 		{/if}
 		<div class="set-aside-slot"><SetAsideList {companyId} version={items.length} /></div>
 	</div>
@@ -378,22 +407,6 @@
 		border: 1px solid var(--border-strong);
 		border-radius: 3px;
 		font: var(--t-label) var(--font-mono);
-	}
-	.toast {
-		display: flex;
-		align-items: center;
-		gap: 4px;
-		margin: 8px 8px 0;
-		padding: 4px 4px 4px 12px;
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-lg);
-		background: var(--surface-raised);
-		box-shadow: var(--shadow-soft);
-		font-size: var(--t-body);
-		animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
-	}
-	.toast span {
-		flex: 1;
 	}
 	.inbox-list {
 		min-height: 0;

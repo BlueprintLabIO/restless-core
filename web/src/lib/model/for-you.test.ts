@@ -4,7 +4,10 @@ import {
 	forYouSentence,
 	newlyUnread,
 	unreadMarks,
+	withMarks,
+	withoutItems,
 	withRead,
+	withUnread,
 	type ForYouItem,
 	type ForYouPage
 } from './for-you.ts';
@@ -41,6 +44,47 @@ test('each kind reads as one sentence, and a direct message names no room', () =
 		forYouSentence({ kind: 'comment', actor_name: '', title: 'Plan' }),
 		'Someone commented on Plan'
 	);
+	assert.equal(
+		forYouSentence({ kind: 'share', actor_name: 'Exec', title: 'Deals' }),
+		'Exec shared Deals with you'
+	);
+	assert.equal(
+		forYouSentence({ kind: 'review', actor_name: 'Bianca', title: 'Pricing' }),
+		'Bianca asked you to review Pricing'
+	);
+});
+
+test('marking unread raises the count once, and archiving takes the row and its count away', () => {
+	const page: ForYouPage = {
+		items: [item('a', true), item('b', false), item('c', false)],
+		unread_count: 1,
+		next_before: null
+	};
+	const unread = withUnread(page, ['a', 'b']);
+	assert.equal(unread.unread_count, 2, 'an item already unread is not counted twice');
+	assert.deepEqual(
+		unread.items.map((row) => row.unread),
+		[true, true, false]
+	);
+	const archived = withoutItems(unread, ['a', 'c']);
+	assert.deepEqual(
+		archived.items.map((row) => row.key),
+		['b']
+	);
+	assert.equal(archived.unread_count, 1);
+});
+
+test('an Inbox mark keeps what a change leaves out, and null wakes a snooze', () => {
+	const snoozed = withMarks(
+		[],
+		[{ item_id: 'x', seen_stamp: '1', snoozed_until: '2026-10-13T10:00:00Z' }]
+	);
+	const seenAgain = withMarks(snoozed, [{ item_id: 'x', seen_stamp: '2' }]);
+	assert.deepEqual(seenAgain, [
+		{ item_id: 'x', seen_stamp: '2', snoozed_until: '2026-10-13T10:00:00Z' }
+	]);
+	const woken = withMarks(seenAgain, [{ item_id: 'x', snoozed_until: null }]);
+	assert.deepEqual(woken, [{ item_id: 'x', seen_stamp: '2', snoozed_until: null }]);
 });
 
 test('reading an item lowers the count once, and mark all clears it', () => {

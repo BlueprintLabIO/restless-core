@@ -27,10 +27,19 @@
 		{
 			title: 'Inbox',
 			keys: [
-				['J / K', 'Next or previous item'],
+				['J / K', 'Next or previous item, on into For you'],
 				['R', 'Reply'],
 				['E', 'Mark done'],
 				['H', 'Snooze']
+			]
+		},
+		{
+			title: 'For you',
+			keys: [
+				['J / K', 'Next or previous item'],
+				['Enter', 'Open'],
+				['E', 'Mark read'],
+				['Shift U', 'Mark unread']
 			]
 		}
 	];

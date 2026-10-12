@@ -1,43 +1,113 @@
 <script lang="ts">
-	/* For you: where someone mentioned, replied to or commented to this person, and what others
-	 * changed in documents they follow. One row each, newest first, unread in ink. Opening a row
-	 * reads it on every device. */
+	/* For you: where someone mentioned, replied to, shared with or asked this person, and what
+	 * others changed in what they follow. One row each, newest first, unread in ink. Opening a row
+	 * reads it on every device; a row can be marked unread again or archived until something new
+	 * happens there. J/K walk the rows, E reads one, Shift+U marks it unread. */
 	import CheckCheck from '@lucide/svelte/icons/check-check';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
-	import { Item } from '$lib/ui/page';
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import { Item, Segmented } from '$lib/ui/page';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { failureSentence } from '$lib/model/failure';
-	import { forYouSentence, type ForYouItem } from '$lib/model/for-you';
+	import { forYouSentence, type ForYouFilter, type ForYouItem } from '$lib/model/for-you';
 	import type { ForYouSource } from '$lib/model/for-you.svelte';
 
 	let {
 		source,
-		heading = 'For you'
+		heading = 'For you',
+		onexit
 	}: {
 		source: ForYouSource;
 		heading?: string;
+		/** K on the first row leaves the list upwards, to whatever sits above it. */
+		onexit?: () => void;
 	} = $props();
 
-	let failure = $state('');
+	let section: HTMLElement;
 
+	function fail(cause: unknown, fallback: string) {
+		toast(failureSentence(cause, fallback), { tone: 'failure' });
+	}
 	function open(item: ForYouItem) {
-		failure = '';
 		if (item.unread) void source.read([item.key]).catch(() => undefined);
 	}
 	async function readAll() {
-		failure = '';
 		try {
-			await source.read('all');
+			const was = await source.read('all');
+			toast('Marked all read', {
+				undo: was.length
+					? () => source.unread(was).catch((cause) => fail(cause, 'Not undone.'))
+					: undefined
+			});
 		} catch (cause) {
-			failure = failureSentence(cause, 'Not marked read. Try again.');
+			fail(cause, 'Not marked read. Try again.');
 		}
 	}
+	async function setRead(item: ForYouItem, read: boolean) {
+		try {
+			if (read) await source.read([item.key]);
+			else await source.unread([item.key]);
+		} catch (cause) {
+			fail(cause, read ? 'Not marked read.' : 'Not marked unread.');
+		}
+	}
+	async function archive(item: ForYouItem) {
+		try {
+			await source.archive([item.key]);
+			toast('Archived', {
+				undo: () =>
+					source.archive([item.key], false).catch((cause) => fail(cause, 'Not brought back.'))
+			});
+		} catch (cause) {
+			fail(cause, 'Not archived. Try again.');
+		}
+	}
+
+	/** Focuses the first row; the Inbox moves here from its last item. */
+	export function focusFirst(): boolean {
+		const first = section?.querySelector<HTMLElement>('.item-hit');
+		first?.focus();
+		return Boolean(first);
+	}
+	function keyboard(event: KeyboardEvent) {
+		if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+		const rows = [...section.querySelectorAll<HTMLElement>('.item-hit')];
+		const index = rows.indexOf(document.activeElement as HTMLElement);
+		if (index < 0) return;
+		const item = source.items[index];
+		const step = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 }[event.key];
+		if (step) {
+			event.preventDefault();
+			if (index + step < 0) onexit?.();
+			else rows[Math.min(rows.length - 1, index + step)]?.focus();
+		} else if (item && event.key === 'e' && item.unread) {
+			event.preventDefault();
+			void setRead(item, true);
+		} else if (item && event.key === 'U' && event.shiftKey && !item.unread) {
+			event.preventDefault();
+			void setRead(item, false);
+		}
+	}
+	const filters: { value: ForYouFilter; label: string; title: string }[] = [
+		{ value: 'all', label: 'All', title: 'Everything, newest first' },
+		{ value: 'unread', label: 'Unread', title: 'Only what you have not opened' }
+	];
 </script>
 
-<section class="for-you" aria-label={heading}>
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<section class="for-you" aria-label={heading} bind:this={section} onkeydown={keyboard}>
 	<header>
 		<h3>{heading}</h3>
 		{#if source.unreadCount}<span class="count" title="Unread">{source.unreadCount}</span>{/if}
 		<span class="spacer"></span>
+		{#if source.items.length || source.filter === 'unread'}
+			<Segmented
+				label="Show"
+				options={filters}
+				value={source.filter}
+				onchange={(value) => source.setFilter(value)}
+			/>
+		{/if}
 		{#if source.unreadCount}
 			<button
 				type="button"
@@ -48,7 +118,6 @@
 			>
 		{/if}
 	</header>
-	{#if failure}<p class="note" role="alert">{failure}</p>{/if}
 	{#each source.items as item (item.key)}
 		<Item
 			title={forYouSentence(item)}
@@ -58,13 +127,33 @@
 			onclick={() => open(item)}
 		>
 			{#snippet trailing()}<RelativeTime value={item.at} />{/snippet}
+			{#snippet actions()}
+				<ActionMenu label={`Actions for ${forYouSentence(item)}`}>
+					{#if item.unread}
+						<button type="button" onclick={() => void setRead(item, true)}
+							>Mark read <kbd>E</kbd></button
+						>
+					{:else}
+						<button type="button" onclick={() => void setRead(item, false)}
+							>Mark unread <kbd>⇧U</kbd></button
+						>
+					{/if}
+					<button
+						type="button"
+						title="Off this list until something new happens there"
+						onclick={() => void archive(item)}>Archive</button
+					>
+				</ActionMenu>
+			{/snippet}
 		</Item>
 	{:else}
 		{#if source.status === 'unknown' && source.failure}
 			<p class="note">For you could not be read. It tries again shortly.</p>
 		{:else if source.status !== 'unknown'}
 			<p class="note">
-				When someone mentions you, replies to you, or changes a document you follow, it shows here.
+				{source.filter === 'unread'
+					? 'Nothing unread.'
+					: 'When someone mentions you, replies to you, shares something with you, or changes what you follow, it shows here.'}
 			</p>
 		{/if}
 	{/each}
@@ -113,5 +202,13 @@
 	.more {
 		justify-self: start;
 		margin: 4px 8px 8px;
+	}
+	kbd {
+		margin-left: auto;
+		padding: 0 4px;
+		border: 1px solid var(--border-strong);
+		border-radius: 3px;
+		color: var(--text-tertiary);
+		font: var(--t-label) var(--font-mono);
 	}
 </style>

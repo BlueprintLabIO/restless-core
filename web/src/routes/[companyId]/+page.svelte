@@ -16,7 +16,6 @@
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
 	import InboxList from '$lib/components/InboxList.svelte';
 	import { useForYou } from '$lib/model/for-you.svelte';
-	import ForYou from '$lib/components/ForYou.svelte';
 	import InboxDetail from '$lib/components/InboxDetail.svelte';
 	import SetAsideList from '$lib/components/SetAside.svelte';
 	import { attentionTitle, coordinationFailure, isOutcomeReview } from '$lib/model/attention-presentation';
@@ -90,12 +89,14 @@
 		)?.unstartable_reason;
 		return reason ? startLinkLabel(reason) : '';
 	});
-	/* Coordination down is not a clear queue: what it holds may be missing. Something unread in
-	 * For you keeps the list open beside the floor. */
+	/* Coordination down is not a clear queue: what it holds may be missing. Nothing needs the
+	 * owner when Attention is empty; the list still stays open while For you has anything in it,
+	 * read or not, so reading an item changes its dot and nothing else moves. */
 	const coordination = $derived(coordinationFailure(view));
 	const forYou = useForYou();
+	const attentionClear = $derived(loaded && items.length === 0 && !coordination);
 	const queueClear = $derived(
-		loaded && items.length === 0 && !coordination && !forYou?.unreadCount
+		attentionClear && !forYou?.items.length && forYou?.filter !== 'unread'
 	);
 	/* Phones never mount the office canvas (see the clear state below). */
 	let compactScreen = $state(false);
@@ -124,7 +125,9 @@
 		);
 		return () => cancelAnimationFrame(frame);
 	});
-	const showClear = $derived(queueClear && companyCatalog.status !== 'unknown' && !startBlocker);
+	const showClear = $derived(
+		attentionClear && companyCatalog.status !== 'unknown' && !startBlocker
+	);
 	/* The queue starts collapsed until its source answers, so an idle
 	 * company's office is never squeezed and released; when items do arrive,
 	 * the queue opens with the same motion as any later change. */
@@ -969,8 +972,6 @@
 				</span>
 				<span>All clear</span>
 			</button>
-			<!-- Read items stay reachable when nothing needs the owner. -->
-			{#if queueClear && forYou?.items.length}<div class="attention-for-you"><ForYou source={forYou} /></div>{/if}
 			{#if queueClear}<div class="attention-set-aside"><SetAsideList {companyId} /></div>{/if}
 			{#if compactScreen && selectedItemId}<a class="attention-mobile-back" href={baseHref}
 					>← Inbox</a
