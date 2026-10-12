@@ -1076,6 +1076,7 @@ fn node_allowed(node_type: &str, expected: ChildRule) -> bool {
                 | "codeBlock"
                 | "horizontalRule"
                 | "table"
+                | "image"
         ),
         ChildRule::Inline => matches!(node_type, "text" | "hardBreak" | "mention" | "reference"),
         ChildRule::ListItem => node_type == "listItem",
@@ -1115,6 +1116,7 @@ fn validate_node_attrs(
         "codeBlock" => &["language", "block_id"][..],
         "mention" => &["actor_id", "label"][..],
         "reference" => &["kind", "id", "label"][..],
+        "image" => &["block_id", "attachment_id", "alt", "width"][..],
         "paragraph" | "bulletList" | "taskList" | "blockquote" | "horizontalRule" | "table"
         | "listItem" | "tableRow" | "tableCell" | "tableHeader" => &["block_id"][..],
         "doc" | "hardBreak" => &[][..],
@@ -1220,6 +1222,41 @@ fn validate_node_attrs(
                     .ok_or_else(|| DocumentError::Invalid("reference needs label".into()))?,
                 300,
             )?;
+        }
+        "image" => {
+            let attachment_id = attrs
+                .get("attachment_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| DocumentError::Invalid("image needs attachment_id".into()))?;
+            if Uuid::parse_str(attachment_id)
+                .map(|id| id.to_string() != attachment_id)
+                .unwrap_or(true)
+            {
+                return Err(DocumentError::Invalid(
+                    "image attachment_id must be a lowercase UUID".into(),
+                ));
+            }
+            if let Some(alt) = attrs.get("alt").filter(|value| !value.is_null()) {
+                let alt = alt
+                    .as_str()
+                    .ok_or_else(|| DocumentError::Invalid("image alt must be a string".into()))?;
+                if alt.chars().count() > 300 {
+                    return Err(DocumentError::Invalid(
+                        "image alt must contain at most 300 characters".into(),
+                    ));
+                }
+                reject_nul("image alt", alt)?;
+            }
+            if let Some(width) = attrs.get("width").filter(|value| !value.is_null()) {
+                let width = width.as_i64().ok_or_else(|| {
+                    DocumentError::Invalid("image width must be an integer".into())
+                })?;
+                if !(16..=4_096).contains(&width) {
+                    return Err(DocumentError::Invalid(
+                        "image width must be between 16 and 4096".into(),
+                    ));
+                }
+            }
         }
         _ => {}
     }
@@ -1431,7 +1468,7 @@ fn portable_markdown(envelope: &NativeDocumentPortableEnvelope, content: &str) -
     )
 }
 
-fn markdown_export_body(content: &Value) -> DocumentResult<String> {
+fn markdown_export_body(content: &Value, company_key: &str) -> DocumentResult<String> {
     let blocks = content
         .as_object()
         .and_then(|document| document.get("content"))
@@ -1449,14 +1486,14 @@ fn markdown_export_body(content: &Value) -> DocumentResult<String> {
             })?;
         validate_block_id(block_id).map_err(|error| DocumentError::Corrupt(error.to_string()))?;
         let mut portable = block.clone();
-        encode_markdown_semantic_nodes(&mut portable)?;
+        encode_markdown_semantic_nodes(&mut portable, company_key)?;
         let body = render_markdown_block(&portable, 0)?;
         rendered.push(format!("<!-- restless:block-id: {block_id} -->\n{body}"));
     }
     Ok(rendered.join("\n\n").trim_end().to_string())
 }
 
-fn encode_markdown_semantic_nodes(value: &mut Value) -> DocumentResult<()> {
+fn encode_markdown_semantic_nodes(value: &mut Value, company_key: &str) -> DocumentResult<()> {
     let replacement = value.as_object().and_then(|node| {
         let node_type = node.get("type").and_then(Value::as_str)?;
         let attrs = node.get("attrs").and_then(Value::as_object)?;
@@ -1504,13 +1541,32 @@ fn encode_markdown_semantic_nodes(value: &mut Value) -> DocumentResult<()> {
         *value = replacement;
         return Ok(());
     }
+    if let Some(node) = value.as_object_mut() {
+        if node.get("type").and_then(Value::as_str) == Some("image") {
+            if let Some(attrs) = node.get_mut("attrs").and_then(Value::as_object_mut) {
+                let id = attrs
+                    .get("attachment_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                attrs.insert(
+                    "src".into(),
+                    Value::String(format!(
+                        "/api/companies/{}/attachments/{id}",
+                        percent_encode_component(company_key)
+                    )),
+                );
+            }
+            return Ok(());
+        }
+    }
     if let Some(children) = value
         .as_object_mut()
         .and_then(|node| node.get_mut("content"))
         .and_then(Value::as_array_mut)
     {
         for child in children {
-            encode_markdown_semantic_nodes(child)?;
+            encode_markdown_semantic_nodes(child, company_key)?;
         }
     }
     Ok(())
@@ -1566,7 +1622,7 @@ fn markdown_export(
     version: &DocumentVersionRow,
     exported_at: DateTime<Utc>,
 ) -> DocumentResult<DocumentMarkdownExport> {
-    let body = markdown_export_body(&version.content_json)?;
+    let body = markdown_export_body(&version.content_json, company_key)?;
     let hosted_company_id = company_id
         .map(|value| value.to_string())
         .unwrap_or_else(|| "unbound".into());
@@ -1801,6 +1857,9 @@ fn markdown_body_to_document(body: &str) -> DocumentResult<Value> {
                 "attrs": {"level": level},
                 "content": parse_markdown_inline(text, 0, &[])?
             })
+        } else if let Some(image) = markdown_image(line)? {
+            index += 1;
+            image
         } else if line.trim() == "---" {
             index += 1;
             json!({"type":"horizontalRule","attrs":{}})
@@ -1930,6 +1989,38 @@ fn markdown_body_to_document(body: &str) -> DocumentResult<Value> {
     }
     let document = json!({"type":"doc","content":blocks});
     Ok(validate_document_json(&document)?.content_json)
+}
+
+/// An image line as an export writes it: `![alt](/api/companies/{company}/attachments/{id})`,
+/// or relative to the company's API root, `![alt](attachments/{id})`. Anything else is text.
+fn markdown_image(line: &str) -> DocumentResult<Option<Value>> {
+    let Some(rest) = line.trim().strip_prefix("![") else {
+        return Ok(None);
+    };
+    let Some((alt, target)) = rest.rsplit_once("](") else {
+        return Ok(None);
+    };
+    let Some(target) = target.strip_suffix(')') else {
+        return Ok(None);
+    };
+    let path = match target.strip_prefix("/api/companies/") {
+        Some(scoped) => match scoped.split_once('/') {
+            Some((company, path)) if !company.is_empty() => path,
+            _ => return Ok(None),
+        },
+        None => target,
+    };
+    let Some(id) = path.strip_prefix("attachments/") else {
+        return Ok(None);
+    };
+    match Uuid::parse_str(id) {
+        Ok(parsed) if parsed.to_string() == id => {}
+        _ => return Ok(None),
+    }
+    Ok(Some(json!({
+        "type": "image",
+        "attrs": {"attachment_id": id, "alt": unescape_markdown(alt)?}
+    })))
 }
 
 fn markdown_block_marker(line: &str) -> Option<&str> {
@@ -2612,6 +2703,20 @@ fn render_node(value: &Value) -> DocumentResult<String> {
         "tableRow" => Ok(format!("<tr{block}>{inner}</tr>")),
         "tableHeader" => Ok(format!("<th{block}>{inner}</th>")),
         "tableCell" => Ok(format!("<td{block}>{inner}</td>")),
+        // An image names the company file it shows; the page that renders it supplies the
+        // address, so the same body reads the same wherever it is exported.
+        "image" => {
+            let attrs = &object["attrs"];
+            let id = escape_html_attribute(attrs["attachment_id"].as_str().unwrap_or_default());
+            let alt = escape_html_attribute(attrs["alt"].as_str().unwrap_or_default());
+            let width = attrs["width"]
+                .as_i64()
+                .map(|width| format!(" width=\"{width}\""))
+                .unwrap_or_default();
+            Ok(format!(
+                "<figure{block}><img data-attachment-id=\"{id}\" alt=\"{alt}\"{width}></figure>"
+            ))
+        }
         "mention" => {
             let attrs = &object["attrs"];
             let actor = escape_html_attribute(attrs["actor_id"].as_str().unwrap_or_default());
@@ -2801,6 +2906,21 @@ fn render_markdown_block(value: &Value, depth: usize) -> DocumentResult<String> 
             Ok(format!("{fence}{language}\n{code}\n{fence}"))
         }
         "horizontalRule" => Ok("---".into()),
+        // A Markdown export names the company's own file route (markdown_export_body); elsewhere
+        // the address is relative to the company's API root.
+        "image" => {
+            let attrs = &object["attrs"];
+            let src = attrs["src"].as_str().map(str::to_string).unwrap_or_else(|| {
+                format!(
+                    "attachments/{}",
+                    attrs["attachment_id"].as_str().unwrap_or_default()
+                )
+            });
+            Ok(format!(
+                "![{}]({src})",
+                escape_markdown_text(attrs["alt"].as_str().unwrap_or_default())
+            ))
+        }
         "table" => render_markdown_table(children),
         other => Err(DocumentError::Corrupt(format!(
             "stored block {other:?} cannot be projected to Markdown"
@@ -3029,6 +3149,10 @@ fn collect_plain_text(value: &Value, output: &mut String) -> DocumentResult<()> 
             output.push_str(object["attrs"]["label"].as_str().unwrap_or_default());
         }
         "reference" => output.push_str(object["attrs"]["label"].as_str().unwrap_or_default()),
+        "image" => {
+            output.push_str(object["attrs"]["alt"].as_str().unwrap_or_default());
+            output.push('\n');
+        }
         "hardBreak" => output.push('\n'),
         _ => {
             if let Some(children) = object.get("content").and_then(Value::as_array) {
@@ -8392,6 +8516,167 @@ impl OrgIntel {
             accepted_version: Some(version_view(accepted_version)?),
         })
     }
+}
+
+/// One person's reaction to a document comment.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct DocumentCommentReactionRow {
+    pub comment_id: Uuid,
+    pub actor_id: String,
+    pub emoji: String,
+}
+
+/// Where a document body shows an image: anywhere in its tree, by attachment identity.
+const DOCUMENT_IMAGE_PATH: &str = "$.** ? (@.type == \"image\" && @.attrs.attachment_id == $id)";
+
+impl OrgIntel {
+    /// A file kept in the Library that a document shows, for someone who may read that document
+    /// (S65). The file must still be kept by a person (never a chat attachment), and that person
+    /// must still be able to edit a document whose live body or a named version shows it. Knowing
+    /// another person's file id is therefore not enough to publish it by putting it in a page.
+    pub async fn document_image_attachment_for_actor(
+        &self,
+        attachment_id: Uuid,
+        actor_id: &str,
+    ) -> DocumentResult<Option<crate::OwnerAttachmentRecord>> {
+        let mut tx = self.pool.begin().await?;
+        let kept = sqlx::query(
+            "SELECT attachment.attachment_id,attachment.canonical_name, \
+                    attachment.canonical_media_type,attachment.size_bytes, \
+                    attachment.content_sha256,attachment.message_id,attachment.sender_actor_id \
+             FROM owner_attachments attachment \
+             JOIN actors sender ON sender.id=attachment.sender_actor_id \
+             WHERE attachment.attachment_id=$1 AND attachment.kept_at IS NOT NULL \
+               AND attachment.message_id IS NULL AND attachment.purge_requested_at IS NULL \
+               AND attachment.purged_at IS NULL AND sender.retired_at IS NULL \
+               AND sender.actor_class='human'",
+        )
+        .bind(attachment_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(kept) = kept else {
+            return Ok(None);
+        };
+        let sender: String = kept.get("sender_actor_id");
+        let record = crate::OwnerAttachmentRecord {
+            attachment_id: kept.get("attachment_id"),
+            canonical_name: kept.get("canonical_name"),
+            canonical_media_type: kept.get("canonical_media_type"),
+            size_bytes: kept.get("size_bytes"),
+            content_sha256: kept.get("content_sha256"),
+            message_id: kept.get("message_id"),
+        };
+        let documents: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT document_id FROM native_document_yjs_state \
+             WHERE jsonb_path_exists(projection_json, $2::jsonpath, jsonb_build_object('id', $1::text)) \
+             UNION \
+             SELECT document_id FROM native_document_versions \
+             WHERE jsonb_path_exists(content_json, $2::jsonpath, jsonb_build_object('id', $1::text)) \
+             LIMIT 50",
+        )
+        .bind(attachment_id.to_string())
+        .bind(DOCUMENT_IMAGE_PATH)
+        .fetch_all(&mut *tx)
+        .await?;
+        for document_id in documents {
+            if access_in_transaction(&mut tx, document_id, actor_id)
+                .await?
+                .is_none()
+            {
+                continue;
+            }
+            let placed_by_editor = access_in_transaction(&mut tx, document_id, &sender)
+                .await?
+                .is_some_and(|access| access.permits(DocumentAccess::Edit));
+            if placed_by_editor {
+                tx.commit().await?;
+                return Ok(Some(record));
+            }
+        }
+        tx.commit().await?;
+        Ok(None)
+    }
+
+    /// Add or take back one person's reaction to a comment, as they would on a chat message.
+    /// Anyone who may comment on the document may react; the result is every reaction on it.
+    pub async fn set_document_comment_reaction(
+        &self,
+        document_id: Uuid,
+        comment_id: Uuid,
+        actor_id: &str,
+        emoji: &str,
+        on: bool,
+    ) -> DocumentResult<Vec<DocumentCommentReactionRow>> {
+        if emoji == "\u{1F4CC}" || !crate::MESSAGE_REACTIONS.contains(&emoji) {
+            return Err(DocumentError::Invalid(format!(
+                "reaction must be one of {}",
+                crate::MESSAGE_REACTIONS[..crate::MESSAGE_REACTIONS.len() - 1].join(" ")
+            )));
+        }
+        let mut tx = self.pool.begin().await?;
+        require_access(&mut tx, document_id, actor_id, DocumentAccess::Comment).await?;
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM native_document_comments WHERE id=$1 AND document_id=$2)",
+        )
+        .bind(comment_id)
+        .bind(document_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !exists {
+            return Err(DocumentError::Unavailable);
+        }
+        if on {
+            sqlx::query(
+                "INSERT INTO native_document_comment_reactions (comment_id,document_id,actor_id,emoji) \
+                 VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING",
+            )
+            .bind(comment_id)
+            .bind(document_id)
+            .bind(actor_id)
+            .bind(emoji)
+            .execute(&mut *tx)
+            .await?;
+        } else {
+            sqlx::query(
+                "DELETE FROM native_document_comment_reactions \
+                 WHERE comment_id=$1 AND actor_id=$2 AND emoji=$3",
+            )
+            .bind(comment_id)
+            .bind(actor_id)
+            .bind(emoji)
+            .execute(&mut *tx)
+            .await?;
+        }
+        let reactions = document_comment_reactions(&mut tx, document_id).await?;
+        tx.commit().await?;
+        Ok(reactions)
+    }
+
+    /// Every reaction on a document's comments, for someone who may read it.
+    pub async fn list_document_comment_reactions(
+        &self,
+        document_id: Uuid,
+        actor_id: &str,
+    ) -> DocumentResult<Vec<DocumentCommentReactionRow>> {
+        let mut tx = self.pool.begin().await?;
+        require_access(&mut tx, document_id, actor_id, DocumentAccess::Read).await?;
+        let reactions = document_comment_reactions(&mut tx, document_id).await?;
+        tx.commit().await?;
+        Ok(reactions)
+    }
+}
+
+async fn document_comment_reactions(
+    tx: &mut Transaction<'_, Postgres>,
+    document_id: Uuid,
+) -> DocumentResult<Vec<DocumentCommentReactionRow>> {
+    Ok(sqlx::query_as(
+        "SELECT comment_id,actor_id,emoji FROM native_document_comment_reactions \
+         WHERE document_id=$1 ORDER BY created_at,comment_id LIMIT 5000",
+    )
+    .bind(document_id)
+    .fetch_all(&mut **tx)
+    .await?)
 }
 
 #[cfg(test)]

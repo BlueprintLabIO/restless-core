@@ -9671,6 +9671,15 @@ async fn download_attachment(
         .owner_attachment_for_actor(attachment, principal.actor_id())
         .await
     {
+        Ok(Some(record)) => Ok(Some(record)),
+        // An image a document shows opens for whoever may read that document (S65).
+        Ok(None) => org
+            .document_image_attachment_for_actor(attachment, principal.actor_id())
+            .await
+            .map_err(|error| anyhow::anyhow!("{error}")),
+        Err(error) => Err(anyhow::anyhow!("{error:#}")),
+    };
+    let record = match record {
         Ok(Some(record)) => record,
         Ok(None) => {
             return api_error(

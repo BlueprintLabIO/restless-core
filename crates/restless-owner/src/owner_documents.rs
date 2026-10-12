@@ -117,6 +117,10 @@ where
             post(resolve_document_comment),
         )
         .route(
+            "/companies/{company}/documents/{document}/comment-reactions",
+            get(list_document_comment_reactions).post(set_document_comment_reaction),
+        )
+        .route(
             "/companies/{company}/documents/{document}/reviews",
             get(list_document_reviews).post(request_document_review),
         )
@@ -1790,6 +1794,59 @@ async fn resolve_document_comment(
         .await
     {
         Ok(thread) => document_json(StatusCode::OK, thread),
+        Err(error) => document_error(error),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DocumentCommentReactionInput {
+    comment_id: Uuid,
+    emoji: String,
+    on: bool,
+}
+
+/// Reactions on a document's comments (S65): anyone who may read the document sees them; anyone
+/// who may comment adds or takes back their own. A reaction is a stored signal, never a message.
+async fn list_document_comment_reactions(
+    State(state): State<RoomApiState>,
+    DocumentPrincipal(principal): DocumentPrincipal,
+    AxumPath((company, document)): AxumPath<(String, Uuid)>,
+) -> Response<Body> {
+    let org = match document_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .list_document_comment_reactions(document, principal.actor_id())
+        .await
+    {
+        Ok(reactions) => document_json(StatusCode::OK, serde_json::json!({ "reactions": reactions })),
+        Err(error) => document_error(error),
+    }
+}
+
+async fn set_document_comment_reaction(
+    State(state): State<RoomApiState>,
+    DocumentPrincipal(principal): DocumentPrincipal,
+    AxumPath((company, document)): AxumPath<(String, Uuid)>,
+    Json(input): Json<DocumentCommentReactionInput>,
+) -> Response<Body> {
+    let org = match document_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .set_document_comment_reaction(
+            document,
+            input.comment_id,
+            principal.actor_id(),
+            &input.emoji,
+            input.on,
+        )
+        .await
+    {
+        Ok(reactions) => document_json(StatusCode::OK, serde_json::json!({ "reactions": reactions })),
         Err(error) => document_error(error),
     }
 }

@@ -66,18 +66,20 @@ fn files_not_stored() -> Response<Body> {
 }
 
 /// POST /companies/{company}/attachments: one or more parts named `file`, kept in the Library
-/// with no conversation message.
+/// with no conversation message. Any person in the company may add one, as they do an image to a
+/// document (S65); it counts against their own kept-file quota and opens only for them unless a
+/// document they may edit shows it.
 pub(super) async fn upload_attachments(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
     mut multipart: Multipart,
 ) -> Response<Body> {
-    if principal.membership_role() != "owner" {
+    if !principal.permits_company(&company) {
         return api_error(
             StatusCode::FORBIDDEN,
-            "membership_role",
-            "only the company membership owner may add files to the Library",
+            "company_out_of_scope",
+            "this session is not scoped to that company",
         );
     }
     let mut files: Vec<(String, String, Vec<u8>)> = Vec::new();
