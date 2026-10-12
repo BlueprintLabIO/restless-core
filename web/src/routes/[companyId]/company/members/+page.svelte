@@ -16,6 +16,7 @@
 		getIssuerMembers,
 		IssuerSessionMissing,
 		joinMembers,
+		leaveCompany,
 		mayManage,
 		type CoreMembersView,
 		type IssuerInvitation,
@@ -24,6 +25,8 @@
 		type MembershipRole
 	} from '$lib/model/members';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { parseInviteEmails } from '$lib/model/invite-emails';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	/* Everyone sees who is in the company; owners and admins invite and change people. */
@@ -34,7 +37,6 @@
 	let issuer = $state<IssuerMembersView | null>(null);
 	let signInNeeded = $state(false);
 	let failure = $state('');
-	let notice = $state('');
 	let busy = $state('');
 	let confirming = $state('');
 	let inviteEmail = $state('');
@@ -103,11 +105,18 @@
 		return () => clearInterval(timer);
 	});
 
-	async function act(key: string, rest: string, body: Record<string, unknown>, done: string) {
-		if (!core?.issuer || !core.company_id || busy) return;
+	/* What happened is said once, in the shared toast, with Undo when it can be taken back. A
+	 * refusal stays on the page until the next change, since it needs reading. */
+	async function act(
+		key: string,
+		rest: string,
+		body: Record<string, unknown>,
+		done: string,
+		undo?: () => unknown
+	): Promise<boolean> {
+		if (!core?.issuer || !core.company_id || busy) return false;
 		busy = key;
 		failure = '';
-		notice = '';
 		try {
 			const result = await changeMembership<{ ending?: boolean }>(
 				core.issuer,
@@ -115,31 +124,116 @@
 				rest,
 				body
 			);
-			notice = result.ending ? 'Ending access. The company confirms it shortly.' : done;
+			toast(result.ending ? 'Ending access. The company confirms it shortly.' : done, { undo });
 			confirming = '';
 			await load();
+			return true;
 		} catch (cause) {
 			if (cause instanceof IssuerSessionMissing) signInNeeded = true;
 			failure = failureSentence(cause, 'That change was not made.');
+			return false;
 		} finally {
 			busy = '';
 		}
 	}
 
+	/* A role change says what it did and can be taken back: Undo sends the role it replaced. */
+	function changeRole(row: MemberRow, select: HTMLSelectElement) {
+		const next = select.value as MembershipRole;
+		const previous = row.role;
+		if (next === previous) return;
+		const path = `members/${row.membership_id}/role`;
+		const said = (role: MembershipRole) =>
+			`${row.name} is ${role === 'admin' ? 'now an admin' : 'now a member'}.`;
+		void act(`role:${row.membership_id}`, path, { role: next }, said(next), () =>
+			act(`role:${row.membership_id}`, path, { role: previous }, said(previous))
+		).then((done) => {
+			if (!done) select.value = previous;
+		});
+	}
+
+	/* Several addresses at once, as pasted: one invitation each. What was not sent stays in the
+	 * field with the reason, so nothing typed is lost. */
 	async function invite(event: SubmitEvent) {
 		event.preventDefault();
-		const email = inviteEmail.trim();
-		if (!email) return;
-		await act('invite', 'invitations', { email, role: inviteRole }, `Invitation sent to ${email}.`);
-		if (!failure) inviteEmail = '';
+		if (!core?.issuer || !core.company_id || busy) return;
+		const { emails, invalid } = parseInviteEmails(inviteEmail);
+		if (!emails.length) {
+			failure = invalid.length
+				? `${invalid.join(', ')} ${invalid.length === 1 ? 'is not an email address' : 'are not email addresses'}.`
+				: '';
+			return;
+		}
+		busy = 'invite';
+		failure = '';
+		const sent: string[] = [];
+		const refused: string[] = [];
+		let reason = '';
+		for (const email of emails) {
+			try {
+				await changeMembership(core.issuer, core.company_id, 'invitations', {
+					email,
+					role: inviteRole
+				});
+				sent.push(email);
+			} catch (cause) {
+				if (cause instanceof IssuerSessionMissing) signInNeeded = true;
+				refused.push(email);
+				reason ||= failureSentence(cause, 'The invitation was not sent.');
+			}
+		}
+		busy = '';
+		inviteEmail = [...refused, ...invalid].join(', ');
+		if (sent.length)
+			toast(sent.length === 1 ? `Invitation sent to ${sent[0]}.` : `${sent.length} invitations sent.`);
+		if (refused.length || invalid.length)
+			failure = [
+				refused.length ? `Not sent to ${refused.join(', ')}: ${reason}` : '',
+				invalid.length ? `Not an email address: ${invalid.join(', ')}.` : ''
+			]
+				.filter(Boolean)
+				.join(' ');
+		else inviting = false;
+		await load();
+	}
+
+	function resend(invitation: IssuerInvitation) {
+		void act(
+			`resend:${invitation.id}`,
+			'invitations',
+			{ email: invitation.email, role: invitation.role, resend: true },
+			`Invitation sent to ${invitation.email} again.`
+		);
 	}
 
 	async function copy(invitation: IssuerInvitation) {
 		try {
 			await navigator.clipboard.writeText(invitation.link);
-			notice = `Invitation link for ${invitation.email} copied.`;
+			toast(`Invitation link for ${invitation.email} copied.`);
 		} catch {
 			failure = 'The link could not be copied. Select it from the invitation email instead.';
+		}
+	}
+
+	/* Leaving is your own removal. You lose access at once; what you made stays with the company. */
+	let leaving = $state(false);
+	let leaveBusy = $state(false);
+	const mayLeave = $derived(
+		core?.mode === 'network' && !!core.issuer && !!core.company_id && principal?.membership_role !== 'owner'
+	);
+	async function leave() {
+		if (!core?.issuer || !core.company_id || leaveBusy) return;
+		leaveBusy = true;
+		failure = '';
+		try {
+			await leaveCompany(core.issuer, core.company_id);
+			window.location.assign(core.issuer.account_url);
+		} catch (cause) {
+			failure =
+				cause instanceof IssuerSessionMissing
+					? 'Sign in to your account first, then leave from here.'
+					: failureSentence(cause, 'You are still in the company.');
+			leaveBusy = false;
 		}
 	}
 
@@ -167,6 +261,27 @@
 		>{name.trim().charAt(0).toUpperCase() || '?'}</span
 	>{/snippet}
 
+{#snippet leaveActions()}
+	{#if leaving}
+		<button
+			class="btn small danger"
+			type="button"
+			disabled={leaveBusy}
+			title="You lose access at once. Your documents and messages stay with the company, and an admin can invite you back."
+			onclick={() => void leave()}>{leaveBusy ? 'Leaving…' : 'Leave company'}</button
+		><button
+			class="btn small ghost"
+			type="button"
+			disabled={leaveBusy}
+			onclick={() => (leaving = false)}>Stay</button
+		>
+	{:else}
+		<ActionMenu label="Your access"
+			><button onclick={() => (leaving = true)}>Leave company…</button></ActionMenu
+		>
+	{/if}
+{/snippet}
+
 <Page
 	title="Members"
 	info="Everyone in the company talks to Exec, edits company documents and reads how the company is set up. Admins also invite and remove members and run identity and schedules. Money, keys, approvals and the company computer stay with the owner."
@@ -186,7 +301,6 @@
 	{/snippet}
 
 	{#if failure}<Notice tone="danger" title="That change was not made" details={failure} />{/if}
-	{#if notice}<Notice tone="success" title={notice} />{/if}
 
 	{#if !core}
 		{#if !failure}<Skeleton label="Reading company access…" variant="page" count={4} />{/if}
@@ -199,9 +313,11 @@
 	{:else if !canManage}
 		<Section title="People" count={core.members.length}>
 			{#each core.members as member (member.actor_id)}
+				{@const self = member.actor_id === principal?.actor_id}
 				<Item
-					title={member.display}
-					meta={`${roleLabel(member.membership_role as MembershipRole)}${member.actor_id === principal?.actor_id ? ' · you' : ''}`}
+					title={`${member.display}${self ? ' (you)' : ''}`}
+					meta={roleLabel(member.membership_role as MembershipRole)}
+					actions={self && mayLeave ? leaveActions : undefined}
 				>
 					{#snippet leading()}{@render avatar(member.display)}{/snippet}
 				</Item>
@@ -226,10 +342,13 @@
 		{#if inviting}
 			<form class="invite" onsubmit={invite}>
 				<input
-					aria-label="Email to invite"
-					type="email"
+					aria-label="Emails to invite"
+					type="text"
+					inputmode="email"
 					autocomplete="off"
-					placeholder="colleague@example.com"
+					spellcheck="false"
+					placeholder="colleague@example.com, another@example.com"
+					title="Paste several addresses, separated by commas or spaces"
 					required
 					bind:value={inviteEmail}
 				/>
@@ -264,6 +383,10 @@
 									>{#if linkInvites}<button onclick={() => void copy(invitation)}
 											>Copy invitation link</button
 										>{/if}{#if viewer.role === 'owner' || invitation.role === 'member'}<button
+											disabled={!!busy}
+											title="Email the invitation again"
+											onclick={() => resend(invitation)}>Resend invitation</button
+										><button
 											disabled={!!busy}
 											onclick={() =>
 												void act(
@@ -302,13 +425,7 @@
 								aria-label={`Access for ${row.name}`}
 								value={row.role}
 								disabled={!!busy}
-								onchange={(event) =>
-									void act(
-										`role:${row.membership_id}`,
-										`members/${row.membership_id}/role`,
-										{ role: event.currentTarget.value },
-										`${row.name} is now ${roleLabel(event.currentTarget.value as MembershipRole).toLowerCase()}.`
-									)}
+								onchange={(event) => changeRole(row, event.currentTarget)}
 							>
 								<option value="member">Member</option>
 								<option value="admin">Admin</option>
@@ -316,7 +433,9 @@
 						{:else}<span>{roleLabel(row.role)}</span>{/if}
 					{/snippet}
 					{#snippet actions()}
-						{#if manageable}
+						{#if row.membership_id === viewer.membership_id && viewer.role !== 'owner'}
+							{@render leaveActions()}
+						{:else if manageable}
 							{#if confirming === row.membership_id}
 								<button
 									class="btn small danger"

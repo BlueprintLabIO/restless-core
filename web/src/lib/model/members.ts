@@ -113,6 +113,26 @@ export async function changeMembership<T = { ending: boolean }>(
 	return read(response);
 }
 
+/** Leave the company: your own removal at the issuer. The owner cannot. */
+export function leaveCompany(issuer: IssuerMetadata, companyId: string): Promise<{ ending: boolean }> {
+	return changeMembership(issuer, companyId, 'members/self/leave');
+}
+
+/** Invite someone by email from anywhere in the company, Share included: Core names the issuer
+ * and the issuer decides whether this person may invite. */
+export async function inviteToCompany(company: string, email: string): Promise<IssuerInvitation> {
+	const core = await getCoreMembers(company);
+	if (core.mode !== 'network' || !core.issuer || !core.company_id)
+		throw new Error('Turn on sharing under Company, Members before inviting people.');
+	const result = await changeMembership<{ invitation: IssuerInvitation }>(
+		core.issuer,
+		core.company_id,
+		'invitations',
+		{ email, role: 'member' }
+	);
+	return result.invitation;
+}
+
 export function joinMembers(core: CoreMember[], issuer: IssuerMember[]): MemberRow[] {
 	const actors = new Map(core.map((member) => [member.membership_id, member]));
 	const order: Record<MembershipRole, number> = { owner: 0, admin: 1, member: 2 };
