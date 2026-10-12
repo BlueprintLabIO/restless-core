@@ -41,6 +41,7 @@
 	import Lock from '@lucide/svelte/icons/lock';
 	import { PRIVATE_HINT } from '$lib/model/general-access';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import {
 		LIBRARY_KIND_LABEL,
 		LibraryOpenError,
@@ -51,8 +52,10 @@
 		libraryFiles,
 		libraryKind,
 		openLibraryFile,
-		readPins,
-		writePins,
+		fetchPins,
+		forgetLocalPins,
+		setPin,
+		takeLocalPins,
 		type LibraryArtifact,
 		type LibraryFile,
 		type LibraryFileKind
@@ -177,7 +180,6 @@
 	let archivedSheets = $state<SheetRow[]>([]);
 	let archivedArtifacts = $state<LibraryArtifact[]>([]);
 	let archiveBusy = $state('');
-	let actionFailure = $state('');
 	async function loadArchived() {
 		const target = companyId;
 		const [docs, sheetRows, artifacts] = await Promise.all([
@@ -214,7 +216,9 @@
 			];
 			archivedCursor = next.next_cursor;
 		} catch (cause) {
-			actionFailure = failureSentence(cause, 'More archived documents could not be read.');
+			toast(failureSentence(cause, 'More archived documents could not be read.'), {
+				tone: 'failure'
+			});
 		} finally {
 			archivedLoadingMore = false;
 		}
@@ -225,7 +229,6 @@
 	async function setArchived(entry: Entry, archived: boolean) {
 		if (archiveBusy) return;
 		archiveBusy = entry.id;
-		actionFailure = '';
 		try {
 			const [path, body] =
 				entry.kind === 'doc'
@@ -240,12 +243,18 @@
 				body: JSON.stringify(body)
 			});
 			if (!response.ok) {
-				actionFailure = failureSentence(
-					await responseFailure(response),
-					archived ? 'That could not be archived.' : 'That could not be restored.'
+				toast(
+					failureSentence(
+						await responseFailure(response),
+						archived ? `“${entry.title}” was not archived.` : `“${entry.title}” was not restored.`
+					),
+					{ tone: 'failure' }
 				);
 				return;
 			}
+			toast(archived ? `Archived “${entry.title}”` : `Restored “${entry.title}”`, {
+				undo: archived ? () => setArchived(entry, false) : undefined
+			});
 			if (entry.kind === 'sheet') {
 				sheets = await sheetJson<SheetRow[]>(companyId).catch(() => sheets);
 			} else if (entry.kind === 'doc') {
@@ -307,7 +316,6 @@
 				? (files.find((file) => file.uri === openPath) ?? fileAtPath(openPath))
 				: null
 	);
-	let fileActionFailure = $state('');
 	/* A live site has nothing to save; only a file in the company home downloads. */
 	const savable = (id: string) => {
 		const file = files.find((candidate) => candidate.id === id);
@@ -318,23 +326,24 @@
 	async function downloadFile(id: string) {
 		const file = files.find((candidate) => candidate.id === id);
 		if (!file?.uri.startsWith('/company/')) return;
-		fileActionFailure = '';
 		try {
 			window.location.assign(downloadHref((await openLibraryFile(companyId, file)).url));
 		} catch (cause) {
-			fileActionFailure =
-				cause instanceof Error ? cause.message : 'The file could not be downloaded.';
+			toast(cause instanceof Error ? cause.message : 'The file could not be downloaded.', {
+				tone: 'failure'
+			});
 		}
 	}
-	async function copyFileLink(id: string) {
-		const file = files.find((candidate) => candidate.id === id);
-		if (!file) return;
+	/* A link to a document, sheet or file opens it for anyone who may; it grants nothing. */
+	async function copyLink(entry: Entry) {
+		const file = isFile(entry) ? files.find((candidate) => candidate.id === entry.id) : null;
+		const href = file ? libraryFileHref(companyId, file) : entry.href;
+		if (!href) return;
 		try {
-			await navigator.clipboard.writeText(
-				new URL(libraryFileHref(companyId, file), location.origin).href
-			);
+			await navigator.clipboard.writeText(new URL(href, location.origin).href);
+			toast('Link copied');
 		} catch {
-			fileActionFailure = 'The link could not be copied.';
+			toast('The link could not be copied.', { tone: 'failure' });
 		}
 	}
 
@@ -418,12 +427,37 @@
 	});
 
 	let pins = $state<string[]>([]);
+	let pinsFor = '';
 	$effect(() => {
-		pins = readPins(companyId);
+		const target = companyId;
+		if (!principal.view || pinsFor === target) return;
+		pinsFor = target;
+		pins = [];
+		void (async () => {
+			let server = await fetchPins(target);
+			const local = takeLocalPins(target).filter((key) => !server.includes(key));
+			for (const key of local.toReversed()) server = await setPin(target, key, true);
+			forgetLocalPins(target);
+			if (target === companyId) pins = server;
+		})().catch(() => {
+			/* The sidebar shows no pins until the next visit reads them. */
+			if (target === companyId) pinsFor = '';
+		});
 	});
-	function togglePin(key: string) {
-		pins = pins.includes(key) ? pins.filter((pin) => pin !== key) : [key, ...pins];
-		writePins(companyId, pins);
+	async function togglePin(key: string) {
+		const target = companyId;
+		const pinned = !pins.includes(key);
+		const before = pins;
+		pins = pinned ? [key, ...pins] : pins.filter((pin) => pin !== key);
+		try {
+			const now = await setPin(target, key, pinned);
+			if (target === companyId) pins = now;
+		} catch (cause) {
+			if (target === companyId) pins = before;
+			toast(failureSentence(cause, pinned ? 'That was not pinned.' : 'That was not unpinned.'), {
+				tone: 'failure'
+			});
+		}
 	}
 	let creator: LibraryNew | undefined = $state();
 	$effect(() => {
@@ -467,6 +501,8 @@
 		rank?: number;
 		/** A document or sheet only the people added can open. */
 		private?: boolean;
+		/** Who made the newest change, when that is known and is not the owner. */
+		editor?: string;
 	};
 	const pinKey = (entry: Pick<Entry, 'kind' | 'id'>) => `${entry.kind}:${entry.id}`;
 	const isNative = (entry: Pick<Entry, 'kind'>) => entry.kind === 'doc' || entry.kind === 'sheet';
@@ -493,6 +529,7 @@
 		href: `${root}/library/documents?document=${encodeURIComponent(summary.document.id)}`,
 		updatedAt: summary.document.updated_at,
 		owner: name(summary.document.owner_actor_id),
+		editor: editedBy(summary.last_editor_actor_id, summary.document.owner_actor_id),
 		manage: owner || summary.access === 'edit',
 		private: summary.document.general_access === 'private',
 		status: archived ? '' : summary.document.status,
@@ -506,6 +543,7 @@
 		href: `${root}/library/sheets?sheet=${encodeURIComponent(sheet.id)}`,
 		updatedAt: sheet.updated_at,
 		owner: name(sheet.owner_actor_id),
+		editor: editedBy(sheet.last_editor_actor_id, sheet.owner_actor_id),
 		manage: owner || !!sheet.may_manage,
 		private: sheet.general_access === 'private',
 		status: '',
@@ -775,6 +813,8 @@
 	};
 	const backHref = $derived(filterHref(filter));
 
+	const editedBy = (editor: string | null | undefined, ownerId: string) =>
+		editor && editor !== ownerId ? name(editor) : undefined;
 	function name(actorId: string): string {
 		if (actorId === 'owner' || (!!actorId && actorId === viewer)) return 'You';
 		return (
@@ -845,7 +885,7 @@
 				await deleteAttachment(companyId, entry.id);
 				await loadKept();
 			}
-			if (pins.includes(pinKey(entry))) togglePin(pinKey(entry));
+			if (pins.includes(pinKey(entry))) void togglePin(pinKey(entry));
 			confirmDialog?.close();
 		} catch (cause) {
 			deleteFailure = failureSentence(cause, `“${entry.title}” was not deleted.`);
@@ -1104,12 +1144,6 @@
 						title="Only titles are being searched"
 						details={docSearch.failure}
 					/>{/if}
-				{#if actionFailure}<Notice tone="warning" title={actionFailure} role="alert">
-						{#snippet actions()}<button class="btn small" onclick={() => (actionFailure = '')}
-								>Dismiss</button
-							>{/snippet}
-					</Notice>{/if}
-				{#if fileActionFailure}<Notice tone="warning" title={fileActionFailure} />{/if}
 				{#if loading && !entries.length}
 					<Skeleton label="Loading the Library" variant="list" count={5} />
 				{:else if shown.length}
@@ -1150,7 +1184,8 @@
 						{#each shown as entry (entry.kind + entry.id)}
 							<Item
 								title={entry.title}
-								meta={entry.meta ?? entry.owner}
+								meta={entry.meta ??
+									(entry.editor ? `${entry.owner} · edited by ${entry.editor}` : entry.owner)}
 								href={entry.href}
 								unread={entry.review}
 								dim={filter === 'archived'}
@@ -1175,14 +1210,18 @@
 								{#snippet actions()}
 									<ActionMenu label={`Actions for ${entry.title}`}>
 										{#if entry.href}<a href={entry.href}>Open</a>{/if}
-										{#if filter !== 'archived'}<button onclick={() => togglePin(pinKey(entry))}
+										{#if filter !== 'archived'}<button onclick={() => void togglePin(pinKey(entry))}
 												>{pins.includes(pinKey(entry)) ? 'Unpin' : 'Pin to the sidebar'}</button
 											>{/if}
 										{#if isFile(entry) && filter !== 'archived' && savable(entry.id)}<button
 												onclick={() => void downloadFile(entry.id)}>Download</button
 											>{/if}
-										{#if isFile(entry) && filter !== 'archived'}<button
-												onclick={() => void copyFileLink(entry.id)}>Copy link</button
+										{#if (isFile(entry) || isNative(entry)) && filter !== 'archived'}<button
+												onclick={() => void copyLink(entry)}>Copy link</button
+											>{/if}
+										{#if isNative(entry) && entry.href && filter !== 'archived'}<a
+												href={`${entry.href}&inspect=share`}
+												title="Who can open it, and what they may do">Share…</a
 											>{/if}
 										{#if isNative(entry) && entry.manage && filter !== 'archived'}<a
 												href={`${entry.href}&rename=1`}

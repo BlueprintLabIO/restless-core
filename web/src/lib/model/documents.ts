@@ -110,6 +110,8 @@ export interface DocumentReadView {
 export interface DocumentSummary {
 	document: DocumentRow;
 	access: DocumentAccess;
+	/** Who made the newest saved change; null when only the system saved it. */
+	last_editor_actor_id?: string | null;
 }
 
 export interface DocumentListCursor {

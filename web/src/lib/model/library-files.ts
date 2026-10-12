@@ -314,11 +314,38 @@ export async function libraryFileBytes(company: string, path: string): Promise<A
 	return response.arrayBuffer();
 }
 
-/* Pins are a per-viewer convenience (S64 decision 1): browser storage, never company state. */
-const pinKey = (company: string) => `restless:${company}:library-pins`;
-export function readPins(company: string): string[] {
+/* Pins are each person's own and follow them to every device (S65): the server keeps them per
+ * person, newest first. A pin names an item; the Library shows it only while it can be read. */
+const pinsPath = (company: string) => `/api/companies/${encodeURIComponent(company)}/library-pins`;
+async function pinsAnswer(response: Response): Promise<string[]> {
+	if (!response.ok) throw await responseFailure(response);
+	const body = (await response.json()) as { pins?: unknown };
+	return Array.isArray(body.pins)
+		? body.pins.filter((value): value is string => typeof value === 'string')
+		: [];
+}
+export async function fetchPins(company: string): Promise<string[]> {
+	return pinsAnswer(
+		await fetch(pinsPath(company), { credentials: 'same-origin', cache: 'no-store' })
+	);
+}
+/** Pin or unpin one item; answers with this person's pins as they now stand. */
+export async function setPin(company: string, key: string, pinned: boolean): Promise<string[]> {
+	return pinsAnswer(
+		await fetch(pinsPath(company), {
+			method: 'POST',
+			credentials: 'same-origin',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ key, pinned })
+		})
+	);
+}
+/* Pins made before they moved to the server lived in this browser. They are handed over once,
+ * oldest first so the order holds, and the browser copy goes. */
+const localPinKey = (company: string) => `restless:${company}:library-pins`;
+export function takeLocalPins(company: string): string[] {
 	try {
-		const raw = JSON.parse(localStorage.getItem(pinKey(company)) ?? '[]');
+		const raw = JSON.parse(localStorage.getItem(localPinKey(company)) ?? '[]');
 		return Array.isArray(raw)
 			? raw.filter((value): value is string => typeof value === 'string')
 			: [];
@@ -326,10 +353,10 @@ export function readPins(company: string): string[] {
 		return [];
 	}
 }
-export function writePins(company: string, pins: string[]) {
+export function forgetLocalPins(company: string) {
 	try {
-		localStorage.setItem(pinKey(company), JSON.stringify(pins));
+		localStorage.removeItem(localPinKey(company));
 	} catch {
-		/* Pins still hold for this visit. */
+		/* Nothing to hand over again; the server copy is the one read. */
 	}
 }

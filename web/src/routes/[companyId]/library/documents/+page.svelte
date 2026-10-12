@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { namePageContext } from '$lib/model/page-context.svelte';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
 	/* One document, full width, opened from the Library. Its discussion and
 	 * review open beside it on wide screens and in its place on narrow ones. */
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
@@ -226,9 +227,10 @@
 			await setDocumentArchived(target.companyId, target.documentId, next);
 			const latest = await getDocument(target.companyId, target.documentId);
 			if (sameDocumentTarget(target, companyId, documentId)) detail.accept(target, latest);
-			/* Archiving can be taken back at once; restoring is itself the undo. */
-			if (next) toast('Archived', { undo: () => setArchived(false) });
-			else say('Restored to the Library');
+			/* Archiving can be taken back from the toast, as from a Library row. */
+			toast(next ? 'Archived' : 'Restored to the Library', {
+				undo: next ? () => setArchived(false) : undefined
+			});
 		} catch (cause) {
 			sayFailure(failureSentence(cause, next ? 'It was not archived.' : 'It was not restored.'));
 		}

@@ -8,6 +8,8 @@ export interface SheetRow {
 	archived_at?: string | null;
 	/** In a listing: whether the viewer may archive, restore and rename it. */
 	may_manage?: boolean;
+	/** In a listing: who made the newest change. */
+	last_editor_actor_id?: string | null;
 }
 export async function sheetJson<T>(company: string, suffix = '', init?: RequestInit): Promise<T> {
 	const response = await fetch(`/api/companies/${encodeURIComponent(company)}/sheets${suffix}`, {

@@ -104,6 +104,14 @@
 		versions = null;
 		titleDraft = null;
 	});
+	/* Share… from a Library row opens the sheet with who can open it beside it. */
+	$effect(() => {
+		if (page.url.searchParams.get('inspect') !== 'share' || !row || row.id !== sheet) return;
+		panel = 'sharing';
+		const url = new URL(page.url);
+		url.searchParams.delete('inspect');
+		replaceState(url, page.state);
+	});
 	/* A sheet made a moment ago, or opened to be renamed, has its title selected, ready to type. */
 	$effect(() => {
 		const url = page.url;
