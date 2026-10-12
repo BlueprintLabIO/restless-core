@@ -1549,3 +1549,58 @@ async fn agent_proposals_detect_stale_bases_and_never_overwrite_history() {
     .await;
     assert!(proposal_tamper.is_err());
 }
+
+/// The Exec shares a document Staff wrote when the owner asks it to bring someone in; a member
+/// who neither made the document nor owns the company cannot hand out access to it.
+#[tokio::test]
+async fn exec_shares_a_staff_document_but_a_member_cannot() {
+    let Some(org) = company("docshare").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping native Docs sharing scenario");
+        return;
+    };
+    let content = document_content("plan", "Renovation pricing");
+    let created = org
+        .create_document(NewDocument {
+            command_id: Uuid::new_v4(),
+            title: "Pricing",
+            kind: DocumentKind::Brief,
+            visibility: DocumentVisibility::Company,
+            linked_room_id: None,
+            inherit_room_visibility: false,
+            owner_actor_id: "research-analyst",
+            created_by_actor_id: "research-analyst",
+            content_json: &content,
+            reason: "Initial version",
+        })
+        .await
+        .unwrap();
+    // A person in the company edits a company document; the list says so, as opening it does.
+    let listed = org
+        .list_documents_for_actor("alex", false, None, 50)
+        .await
+        .unwrap();
+    let summary = listed
+        .items
+        .iter()
+        .find(|item| item.document.id == created.document_id)
+        .expect("a company document is listed for a person");
+    assert_eq!(summary.access, DocumentAccess::Edit);
+    let share = |actor_id, version, participant| SetDocumentParticipant {
+        command_id: Uuid::new_v4(),
+        document_id: created.document_id,
+        actor_id,
+        expected_document_version: version,
+        participant_actor_id: participant,
+        access: DocumentAccess::Edit,
+    };
+    org.set_document_participant(share("exec", 1, "alex"))
+        .await
+        .expect("the Exec shares a Staff document for the owner");
+    org.set_document_participant(share("owner", 2, "blair"))
+        .await
+        .expect("the company owner shares any document they can read");
+    assert!(matches!(
+        org.set_document_participant(share("alex", 3, "blair")).await,
+        Err(DocumentError::Unavailable)
+    ));
+}

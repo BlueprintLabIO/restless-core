@@ -862,12 +862,13 @@ async fn the_company_owner_may_retitle_a_staff_document_but_nothing_else() {
         }
     }
 
-    // A member who can only read it may not, even for the title alone.
+    // Someone without edit access may not, even for the title alone. (People in the company
+    // edit company documents, so this is an agent that was never given it.)
     assert!(matches!(
         org.update_document_metadata(metadata(
             document_id,
-            "alex",
-            "Alex's title",
+            "exec",
+            "Exec's title",
             DocumentVisibility::Company
         ))
         .await,

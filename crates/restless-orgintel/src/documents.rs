@@ -3215,6 +3215,36 @@ async fn active_room_participant(
     .await?)
 }
 
+/// Who may decide who else sees or edits a document: whoever made it, and the company's owner.
+/// The Exec acts for that owner, so it may too, except on a person's own private drafts. Nobody
+/// else learns that the document exists.
+async fn may_manage_participants(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    document_id: Uuid,
+    owner: &str,
+    actor_id: &str,
+) -> DocumentResult<bool> {
+    if actor_id == owner || actor_id == "owner" {
+        return Ok(true);
+    }
+    if actor_id == "exec" {
+        let (visibility, owner_class): (DocumentVisibility, Option<String>) = sqlx::query_as(
+            "SELECT d.visibility, a.actor_class FROM native_documents d              LEFT JOIN actors a ON a.id = d.owner_actor_id WHERE d.id=$1",
+        )
+        .bind(document_id)
+        .fetch_one(&mut **tx)
+        .await?;
+        return Ok(visibility == DocumentVisibility::Company
+            || !matches!(owner_class.as_deref(), Some("human") | Some("owner")));
+    }
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM human_principal_actor_bindings WHERE actor_id=$1          AND membership_role='owner' AND membership_status='active')",
+    )
+    .bind(actor_id)
+    .fetch_one(&mut **tx)
+    .await?)
+}
+
 async fn access_in_transaction(
     tx: &mut Transaction<'_, Postgres>,
     document_id: Uuid,
@@ -4745,6 +4775,8 @@ impl OrgIntel {
                       WHEN p.access='edit' THEN 'edit'::native_document_access \
                       WHEN p.access='comment' THEN 'comment'::native_document_access \
                       WHEN p.access='read' THEN 'read'::native_document_access \
+                      WHEN d.visibility='company' AND a.actor_class='human' \
+                        THEN 'edit'::native_document_access \
                       ELSE 'read'::native_document_access END AS access \
              FROM native_documents d \
              JOIN actors a ON a.id=$1 AND a.retired_at IS NULL \
@@ -5940,15 +5972,8 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(DocumentError::Unavailable)?;
-        require_access(
-            &mut tx,
-            input.document_id,
-            input.actor_id,
-            DocumentAccess::Edit,
-        )
-        .await?;
         let owner = row.get::<String, _>("owner_actor_id");
-        if owner != input.actor_id {
+        if !may_manage_participants(&mut tx, input.document_id, &owner, input.actor_id).await? {
             return Err(DocumentError::Unavailable);
         }
         let actual = row.get::<i64, _>("version");
@@ -6076,15 +6101,10 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(DocumentError::Unavailable)?;
-        require_access(
-            &mut tx,
-            input.document_id,
-            input.actor_id,
-            DocumentAccess::Edit,
-        )
-        .await?;
         let owner = row.get::<String, _>("owner_actor_id");
-        if owner != input.actor_id || input.participant_actor_id == owner {
+        if !may_manage_participants(&mut tx, input.document_id, &owner, input.actor_id).await?
+            || input.participant_actor_id == owner
+        {
             return Err(DocumentError::Unavailable);
         }
         let actual = row.get::<i64, _>("version");
