@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
+	import { mayManageCompanySetup } from '$lib/model/company-access';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { formatRelative, formatMoment } from '$lib/ui/time';
 	import { Page, Section, Row, Item, Notice, Segmented, Fold } from '$lib/ui/page';
@@ -22,6 +24,8 @@
 	} from '$lib/model/identity';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
+	/* Owners and admins decide the company identity; everyone else reads it. */
+	const canManage = $derived(mayManageCompanySetup(companyPrincipalQuery(companyId).view));
 	const source = $derived(identityQuery(companyId));
 	const view = $derived(source.view);
 	const currentEvidence = $derived.by(() => {
@@ -195,7 +199,7 @@
 
 		{#if view.pending_proposals.length}
 			<Section
-				title="Waiting for your decision"
+				title={canManage ? 'Waiting for your decision' : 'Proposals'}
 				count={view.pending_proposals.length}
 				info="Promoting makes a proposal the current version. Rejecting keeps its evidence without banning it."
 			>
@@ -215,7 +219,7 @@
 						{#snippet trailing()}<time title={formatMoment(proposal.created_at)}
 								>{when(proposal.created_at)}</time
 							>{/snippet}
-						{#if deciding === proposal.id}
+						{#if canManage && deciding === proposal.id}
 							<div class="decision">
 								<ul class="statements">
 									{#each evidence as item (item.id)}<li>
@@ -277,7 +281,7 @@
 								strokeWidth={1.8}
 								aria-hidden="true"
 							/>{/snippet}
-						{#if migrationFinding === finding.id}
+						{#if canManage && migrationFinding === finding.id}
 							<div class="decision">
 								<p class="consequence">{finding.consequence}</p>
 								<Segmented
@@ -311,7 +315,7 @@
 			</Section>
 		{/if}
 
-		<IdentityEditor {companyId} {view} onSaved={() => source.refresh()} />
+		{#if canManage}<IdentityEditor {companyId} {view} onSaved={() => source.refresh()} />{/if}
 
 		{#if view.current_release}
 			<Section

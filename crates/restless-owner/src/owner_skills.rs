@@ -6,6 +6,17 @@ use super::*;
 use serde_json::json;
 use uuid::Uuid;
 
+/// An admin runs the company's schedules with the owner.
+fn owner_or_admin(principal: &RequestPrincipal) -> Option<Response<Body>> {
+    (!matches!(principal.membership_role(), "owner" | "admin")).then(|| {
+        api_error(
+            StatusCode::FORBIDDEN,
+            "schedules",
+            "Only the owner or an admin can change schedules.",
+        )
+    })
+}
+
 fn owner_only(principal: &RequestPrincipal) -> Option<Response<Body>> {
     (principal.membership_role() != "owner").then(|| {
         api_error(
@@ -404,7 +415,7 @@ pub(super) async fn add_loop(
     AxumPath(company): AxumPath<String>,
     Json(input): Json<LoopInput>,
 ) -> Response<Body> {
-    if let Some(refusal) = owner_only(&principal) {
+    if let Some(refusal) = owner_or_admin(&principal) {
         return refusal;
     }
     let prompt = input.prompt.trim();
@@ -586,7 +597,7 @@ pub(super) async fn cancel_loop(
     Extension(principal): Extension<RequestPrincipal>,
     AxumPath((company, schedule)): AxumPath<(String, Uuid)>,
 ) -> Response<Body> {
-    if let Some(refusal) = owner_only(&principal) {
+    if let Some(refusal) = owner_or_admin(&principal) {
         return refusal;
     }
     let org = match org_for(&state, &company).await {
@@ -621,7 +632,7 @@ pub(super) async fn update_schedule(
     AxumPath((company, schedule)): AxumPath<(String, Uuid)>,
     Json(input): Json<ScheduleUpdateInput>,
 ) -> Response<Body> {
-    if let Some(refusal) = owner_only(&principal) {
+    if let Some(refusal) = owner_or_admin(&principal) {
         return refusal;
     }
     if input.every.is_some() && input.at_local.is_some() {
@@ -783,7 +794,7 @@ pub(super) async fn test_schedule_trigger(
     AxumPath((company, schedule)): AxumPath<(String, Uuid)>,
     Json(input): Json<ScheduleTestInput>,
 ) -> Response<Body> {
-    if let Some(refusal) = owner_only(&principal) {
+    if let Some(refusal) = owner_or_admin(&principal) {
         return refusal;
     }
     let org = match org_for(&state, &company).await {

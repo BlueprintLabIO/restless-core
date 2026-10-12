@@ -268,7 +268,7 @@ try {
   entry = decode((await call("/api/enter", { body: {}, cookie: colleague.cookie })).data.assertion);
   assert.equal(entry.membership_role, "admin");
   assert.equal(entry.membership_version, 2);
-  // Admins invite members, never administrators, and cannot change roles.
+  // Admins invite members, never admins, and cannot change roles.
   await cockpit("invitations", { cookie: colleague.cookie, body: { email: "a2@issuer.test", role: "admin" }, expected: 403 });
   const memberInvite = (await cockpit("invitations", { cookie: colleague.cookie, body: { email: "m2@issuer.test", role: "member" } })).data.invitation;
   await cockpit(`invitations/${memberInvite.id}/cancel`, { cookie: colleague.cookie, body: {} });

@@ -190,7 +190,11 @@
 		() => viewerActorId
 	);
 
-	const canOperate = $derived(['owner', 'operator'].includes(membershipRole ?? ''));
+	/* Every person in the company talks to Exec and the team; reviews are the owner's decisions. */
+	const canOperate = $derived(
+		['owner', 'operator', 'admin', 'member'].includes(membershipRole ?? '')
+	);
+	const canDecide = $derived(['owner', 'operator'].includes(membershipRole ?? ''));
 
 	/* Pinned messages stay in reach above the conversation. */
 	const pinnedMessages = $derived.by(() => {
@@ -1022,9 +1026,9 @@
 						bind:value={reviewFeedback}
 						rows="3"
 						placeholder="Describe the changes needed…"
-						disabled={!canOperate || deciding}></textarea></label
+						disabled={!canDecide || deciding}></textarea></label
 				>
-				<button class="btn small" disabled={!canOperate || deciding || !reviewFeedback.trim()}
+				<button class="btn small" disabled={!canDecide || deciding || !reviewFeedback.trim()}
 					>{deciding ? 'Recording…' : 'Request changes'}</button
 				>
 			</form>

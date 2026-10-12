@@ -18,14 +18,22 @@ export function hasOwnerSurfaceAccess(
 	return principal?.membership_role === 'owner';
 }
 
+/** Owners and admins run the company's day to day: members, identity and schedules. */
+export function mayManageCompanySetup(principal: CompanyPrincipal | null | undefined): boolean {
+	return principal?.membership_role === 'owner' || principal?.membership_role === 'admin';
+}
+
+/** The Company sections every person in the company can open; the owner sees them all. */
+const SHARED_COMPANY_SECTIONS = ['', '/charter', '/identity', '/members', '/schedules'];
+
 export function collaboratorHome(companyId: string): string {
 	return `/${encodeURIComponent(companyId)}/work`;
 }
 
 /**
- * Non-owner membership is deliberately smaller than owner Authority. These
- * are the collaboration routes whose server handlers authorize the acting
- * principal and record its Actor attribution themselves.
+ * Every person in the company works in it: Work, Library, People, Exec, and the
+ * Company sections that describe it. Approvals, money, keys, apps and the company
+ * computer stay with the owner; the server enforces the same split.
  */
 export function mayOpenCompanyRoute(
 	companyId: string,
@@ -35,8 +43,8 @@ export function mayOpenCompanyRoute(
 	if (!principal) return false;
 	if (hasOwnerSurfaceAccess(principal)) return true;
 	const root = `/${encodeURIComponent(companyId)}`;
-	// Administrators manage members; the issuer and Core both enforce it.
-	if (principal.membership_role === 'admin' && pathname === `${root}/company/members`) return true;
+	if (SHARED_COMPANY_SECTIONS.some((section) => pathname === `${root}/company${section}`))
+		return true;
 	return (
 		pathname === `${root}/people` ||
 		pathname.startsWith(`${root}/people/`) ||
@@ -56,17 +64,6 @@ export function companyShellTabs(
 	const root = `/${encodeURIComponent(companyId)}`;
 	if (!principal) return [];
 	if (!hasOwnerSurfaceAccess(principal)) {
-		const members =
-			principal.membership_role === 'admin'
-				? [
-						{
-							key: 'members',
-							label: 'Members',
-							href: `${root}/company/members`,
-							on: pathname === `${root}/company/members`
-						}
-					]
-				: [];
 		return [
 			{
 				key: 'work',
@@ -86,7 +83,12 @@ export function companyShellTabs(
 				href: `${root}/people`,
 				on: pathname === `${root}/people` || pathname.startsWith(`${root}/people/`)
 			},
-			...members
+			{
+				key: 'company',
+				label: 'Company',
+				href: `${root}/company`,
+				on: pathname === `${root}/company` || pathname.startsWith(`${root}/company/`)
+			}
 		];
 	}
 	return [

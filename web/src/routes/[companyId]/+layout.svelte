@@ -104,12 +104,13 @@
 	 * the owner is discussed beside it, as an Attention item's live browser is.
 	 * Do not keep shell-only rail state polling where it is hidden. */
 	const peopleConversation = $derived(
-		ownerAccess &&
+		!!principal &&
 			page.url.pathname === `/${companyId}/people` &&
 			page.url.searchParams.has('person')
 	);
+	/* Every person in the company talks to Exec beside their work, not only the owner. */
 	const railVisible = $derived.by(() => {
-		if (!ownerAccess) return false;
+		if (!principal) return false;
 		const path = page.url.pathname;
 		const people = `/${companyId}/people`;
 		return !(
@@ -402,12 +403,13 @@
 	/* People opens the Exec and team leads in this same conversation, full
 	 * width, instead of a second copy of it: one conversation, two sizes. */
 	const wideActor = $derived.by(() => {
-		if (!ownerAccess || page.url.searchParams.has('room')) return '';
+		if (!principal || page.url.searchParams.has('room')) return '';
 		const path = page.url.pathname;
 		if (path !== `/${companyId}/people`) return '';
 		const person = page.url.searchParams.get('person') ?? '';
 		if (person === 'exec') return person;
-		return cockpit?.teams.some((team) => team.lead_actor_id === person) ? person : '';
+		const teams = ownerAccess ? cockpit?.teams : collaboration.view?.teams;
+		return teams?.some((team) => team.lead_actor_id === person) ? person : '';
 	});
 	const railActorId = $derived(
 		wideActor || (focusedAttention?.responsibleActor?.id ?? chosenTopic?.actorId ?? 'exec')
@@ -439,7 +441,7 @@
 			railActorId,
 			railWorkId,
 			wideActor ? undefined : focusedAttention?.id,
-			() => ownerAccess,
+			() => !!principal,
 			principal?.actor_id ?? 'owner'
 		)
 	);
@@ -459,6 +461,12 @@
 	const railRouteState = $derived(agentRouteState(intelligence.view, railActorId));
 	const railConnectionStatus = $derived.by(() => {
 		if (providerIssue) return 'unavailable';
+		/* A member has no owner cockpit projection; whether Exec can think is the model route. */
+		if (!ownerAccess) {
+			if (intelligence.error) return 'error';
+			if (railRouteState === 'checking' || railRouteState === 'starting') return 'unknown';
+			return railRouteState === 'ready' ? 'available' : 'unavailable';
+		}
 		if (!cockpit) return cockpitProjection.failure ? 'error' : 'unknown';
 		if (cockpit.source_health.orgintel !== 'available') return 'error';
 		const actorAvailable = actorCanReceive(cockpit, railActorId);
@@ -573,7 +581,6 @@
 		outcomeStandard?: import('$lib/model/company').OutcomeStandard,
 		skills: string[] = []
 	): Promise<{ error?: string; notice?: string }> {
-		if (!ownerAccess) return { error: 'This company membership cannot send owner directions.' };
 		try {
 			const contextPath = includeContext ? cockpitContextPath(companyId, page.url) : undefined;
 			const busy = Boolean(railConversation.activeTurn);
@@ -854,7 +861,7 @@
 		)?.display ?? (ownerAccess ? 'Owner' : 'Member')
 	);
 	const viewerRole = $derived(
-		`${principal?.membership_role === 'owner' ? 'Owner' : 'Member'} · ${companyName || companyId}`
+		`${{ owner: 'Owner', admin: 'Admin', member: 'Member' }[principal?.membership_role ?? 'member'] ?? 'Member'} · ${companyName || companyId}`
 	);
 
 	/* Desktop notifications: tell this device about anything new that needs
@@ -1210,7 +1217,7 @@
 			present={others.present}
 			homeHref={ownerAccess ? '/' : collaboratorHome(companyId)}
 			canSwitchCompanies={ownerAccess}
-			execHref={ownerAccess &&
+			execHref={!!principal &&
 			(page.url.pathname === `/${companyId}/people` ||
 				page.url.pathname.startsWith(`/${companyId}/people/`))
 				? `/${companyId}/people?person=exec`

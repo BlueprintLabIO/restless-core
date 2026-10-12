@@ -13,13 +13,18 @@
 	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
 	import { reviseCompanyCharter } from '$lib/model/company';
 	import Markdown from '$lib/primitives/Markdown.svelte';
-	import { companyQuery } from '$lib/model/queries.svelte';
+	import { companyPrincipalQuery, companyQuery } from '$lib/model/queries.svelte';
+	import SharedCharter from '$lib/components/SharedCharter.svelte';
 	import ArrowRight from '@lucide/svelte/icons/arrow-right';
 	import Target from '@lucide/svelte/icons/target';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const source = $derived(companyQuery(companyId));
-	$effect(() => source.attach());
+	/* Everyone reads the charter; the owner edits it, from the owner's company view. */
+	const owner = $derived(companyPrincipalQuery(companyId).view?.membership_role === 'owner');
+	$effect(() => {
+		if (owner) source.attach();
+	});
 	const view = $derived(source.view);
 	const charterText = $derived(
 		view ? withoutDocumentTitle(view.charter.purpose, view.company.name) : ''
@@ -145,7 +150,9 @@
 	title="Charter"
 	info="Who the company is and why it exists. The charter is its purpose and operating rules, not its legal constitution or its current plan."
 >
-	{#if view}
+	{#if !owner}
+		<SharedCharter {companyId} />
+	{:else if view}
 		{#if source.status === 'stale'}<Notice
 				tone="warning"
 				title="Showing the last saved charter"

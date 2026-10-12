@@ -2752,15 +2752,60 @@ model = \"anthropic/claude-sonnet-5-5\"
                 "/api/companies/aris/messages/42/reactions/extra",
             ] { assert!(membership_boundary_violation(&Method::GET,path,&participant).is_some(), "{role} reached {path}"); }
         }
-        assert!(
-            membership_boundary_violation(
-                &Method::GET,
-                "/api/companies/aris/actors/exec/exchanges",
-                &principal,
-            )
-            .is_some(),
-            "internal agent exchanges are an owner-only surface"
-        );
+        // People in the company see what the team is doing and how it hands work around.
+        for path in [
+            "/api/companies/aris/actors/exec/exchanges",
+            "/api/companies/aris/actors/exec/activity",
+        ] {
+            assert!(membership_boundary_violation(&Method::GET, path, &principal).is_none(), "{path}");
+        }
+        // They read how the company is set up, and change none of it.
+        for path in [
+            "/api/companies/aris/company/charter",
+            "/api/companies/aris/company/identity",
+            "/api/companies/aris/schedules",
+            "/api/companies/aris/skills",
+            "/api/companies/aris/intelligence",
+            "/api/companies/aris/members",
+        ] {
+            assert!(membership_boundary_violation(&Method::GET, path, &principal).is_none(), "{path}");
+        }
+        for (method, path) in [
+            (Method::POST, "/api/companies/aris/company/charter"),
+            (Method::PUT, "/api/companies/aris/company/identity"),
+            (Method::PUT, "/api/companies/aris/schedules/schedule-1"),
+            (Method::POST, "/api/companies/aris/loops"),
+            (Method::PUT, "/api/companies/aris/intelligence/exec"),
+            (Method::GET, "/api/companies/aris/vault"),
+            (Method::GET, "/api/companies/aris/attention"),
+            (Method::POST, "/api/companies/aris/approvals/grant"),
+        ] {
+            assert!(membership_boundary_violation(&method, path, &principal).is_some(), "member reached {method} {path}");
+        }
+        // An admin also runs identity and schedules, and may interrupt; the charter, money,
+        // keys and approvals stay with the owner.
+        let mut admin_identity = identity.clone();
+        admin_identity.role = "admin".into();
+        let admin = RequestPrincipal::from_verified(&admin_identity).unwrap();
+        for (method, path) in [
+            (Method::PUT, "/api/companies/aris/company/identity"),
+            (Method::POST, "/api/companies/aris/company/identity/proposals/p-1/promote"),
+            (Method::PUT, "/api/companies/aris/schedules/schedule-1"),
+            (Method::POST, "/api/companies/aris/schedules/schedule-1/test"),
+            (Method::POST, "/api/companies/aris/loops"),
+            (Method::POST, "/api/companies/aris/actors/exec/conversation/42/interrupt"),
+        ] {
+            assert!(membership_boundary_violation(&method, path, &admin).is_none(), "admin refused {method} {path}");
+        }
+        for (method, path) in [
+            (Method::POST, "/api/companies/aris/company/charter"),
+            (Method::PUT, "/api/companies/aris/intelligence/exec"),
+            (Method::GET, "/api/companies/aris/vault"),
+            (Method::POST, "/api/companies/aris/approvals/grant"),
+            (Method::POST, "/api/companies/aris/company/spend-limit"),
+        ] {
+            assert!(membership_boundary_violation(&method, path, &admin).is_some(), "admin reached {method} {path}");
+        }
         assert!(membership_boundary_violation(
             &Method::POST,
             "/api/companies/aris/actors/exec/conversation",
@@ -2804,7 +2849,6 @@ model = \"anthropic/claude-sonnet-5-5\"
             "/api/companies/aris/cockpit",
             "/desktop",
             "/desktop/aris",
-            "/api/companies/aris/actors/exec/activity",
         ] {
             assert_eq!(
                 membership_boundary_violation(&Method::GET, protected_read, &principal)
@@ -2828,7 +2872,7 @@ model = \"anthropic/claude-sonnet-5-5\"
                 "/api/companies/aris/actors/exec/conversation/42/interrupt",
                 &principal,
             )
-            .expect("a member must not cancel another principal's owner directive")
+            .expect("a member's message waits; it does not cancel the current turn")
             .code,
             "membership_role"
         );

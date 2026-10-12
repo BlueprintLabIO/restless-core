@@ -70,11 +70,11 @@ export function authorizeChange(viewer, change, target) {
   if (target.role === "owner" || target.membership_id === viewer.membership_id)
     refuse(403, "You cannot change the company owner or yourself here.");
   if (viewer.role === "admin" && target.role !== "member")
-    refuse(403, "Only the owner can change an administrator.");
+    refuse(403, "Only the owner can change an admin.");
   if (change.verb === "role") {
     if (viewer.role !== "owner") refuse(403, "Only the owner can change roles.");
     if (!["member", "admin"].includes(change.role))
-      refuse(400, "Choose member or administrator access.");
+      refuse(400, "Choose member or admin access.");
     if (target.status !== "active")
       refuse(409, "Reinstate this person before changing their access.");
     return change.role !== target.role;
@@ -142,12 +142,17 @@ export function createIssuer({ auth, origin, placement, store, invitationLink })
   }
 
   async function adminView(request, companyId, viewer) {
+    // Members see who is in the company; pending invitations and their links are for the
+    // people who can manage them.
+    const manages = ["owner", "admin"].includes(viewer.role);
     const [members, invitations] = await Promise.all([
       store.members(companyId, viewer.organization_id),
-      auth.api.listInvitations({
-        headers: sessionHeaders(request),
-        query: { organizationId: viewer.organization_id },
-      }),
+      manages
+        ? auth.api.listInvitations({
+            headers: sessionHeaders(request),
+            query: { organizationId: viewer.organization_id },
+          })
+        : [],
     ]);
     const now = Date.now();
     return {
@@ -176,10 +181,11 @@ export function createIssuer({ auth, origin, placement, store, invitationLink })
     const viewer = await store.membership(companyId, user.id);
     if (!viewer || viewer.status !== "active")
       refuse(403, "You do not currently have access to this company.");
-    if (!["owner", "admin"].includes(viewer.role))
-      refuse(403, "Only the company owner or an administrator can manage members.");
+    // Everyone in the company sees who is in it; owners and admins change it.
     if (request.method === "GET" && rest === "members")
       return adminView(request, companyId, viewer);
+    if (!["owner", "admin"].includes(viewer.role))
+      refuse(403, "Only the company owner or an admin can manage members.");
     if (request.method !== "POST") refuse(404, "Membership action not found.");
     if (!/^application\/json\b/i.test(request.headers.get("content-type") ?? ""))
       refuse(415, "Membership changes must be JSON.");
@@ -188,9 +194,9 @@ export function createIssuer({ auth, origin, placement, store, invitationLink })
 
     if (rest === "invitations") {
       if (!["member", "admin"].includes(input.role))
-        refuse(400, "Choose member or administrator access.");
+        refuse(400, "Choose member or admin access.");
       if (input.role === "admin" && viewer.role !== "owner")
-        refuse(403, "Only the owner can invite an administrator.");
+        refuse(403, "Only the owner can invite an admin.");
       const invitation = await auth.api.createInvitation({
         headers: sessionHeaders(request),
         body: {
@@ -220,7 +226,7 @@ export function createIssuer({ auth, origin, placement, store, invitationLink })
       ).find((candidate) => candidate.id === match[1]);
       if (!invitation) refuse(404, "Invitation not found.");
       if (invitation.role !== "member" && viewer.role !== "owner")
-        refuse(403, "Only the owner can cancel an administrator invitation.");
+        refuse(403, "Only the owner can cancel an admin invitation.");
       await auth.api.cancelInvitation({
         headers: sessionHeaders(request),
         body: { invitationId: match[1] },

@@ -97,16 +97,10 @@ struct MembersView {
 
 pub(super) async fn members_view(
     State(state): State<OwnerState>,
-    Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
 ) -> Response<Body> {
-    if !matches!(principal.membership_role(), "owner" | "admin") {
-        return api_error(
-            StatusCode::FORBIDDEN,
-            "members",
-            "Only the company owner or an administrator can see company access.",
-        );
-    }
+    // Everyone in a company sees who else is in it. Inviting and changing people stays with
+    // the owner and admins, which the issuer enforces.
     let org = match state.daemon.orgintel.get(&company).await {
         Ok(org) => org,
         Err(error) => {

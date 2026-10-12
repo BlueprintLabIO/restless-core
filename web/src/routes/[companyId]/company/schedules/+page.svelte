@@ -6,6 +6,8 @@
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
+	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
+	import { mayManageCompanySetup } from '$lib/model/company-access';
 	import { createQuery } from '@tanstack/svelte-query';
 	import {
 		monitorSchedules,
@@ -19,6 +21,8 @@
 		type ScheduleTestReport
 	} from '$lib/model/skills';
 	const companyId = $derived(page.params.companyId ?? 'aris');
+	/* Owners and admins run the schedules; everyone else sees them. */
+	const canManage = $derived(mayManageCompanySetup(companyPrincipalQuery(companyId).view));
 	const query = createQuery(() => ({
 		queryKey: ['schedules', companyId],
 		queryFn: () => monitorSchedules(companyId)
@@ -153,9 +157,10 @@
 <CompanyTitle title="Schedules" {companyId} />
 
 <Page title="Schedules" info="Recurring check-ins Exec runs on its own, and what came of them.">
-	{#snippet actions()}<button class="btn primary small" onclick={() => (creating = !creating)}
-			>{creating ? 'Cancel' : 'New schedule'}</button
-		>{/snippet}
+	{#snippet actions()}{#if canManage}<button
+				class="btn primary small"
+				onclick={() => (creating = !creating)}>{creating ? 'Cancel' : 'New schedule'}</button
+			>{/if}{/snippet}
 
 	{#if failure}<Notice tone="danger" title="Schedules could not be updated" details={failure}>
 			{#snippet actions()}<button class="btn small" onclick={() => query.refetch()}>Retry</button
@@ -218,9 +223,9 @@
 		{#if !failure}<Skeleton label="Reading schedules…" variant="page" count={4} />{/if}
 	{:else if !schedules.length && !creating}
 		<Empty title="No schedules yet" info="A schedule wakes Exec to check something on a cadence.">
-			{#snippet action()}<button class="btn small" onclick={() => (creating = true)}
-					>Create a schedule</button
-				>{/snippet}
+			{#snippet action()}{#if canManage}<button class="btn small" onclick={() => (creating = true)}
+						>Create a schedule</button
+					>{/if}{/snippet}
 		</Empty>
 	{:else if schedules.length}
 		<Section title="Active" count={schedules.length}>
@@ -249,48 +254,48 @@
 								>Next <RelativeTime value={item.schedule.fire_at} /></span
 							>{/if}
 					{/snippet}
-					{#snippet actions()}
-						<ActionMenu label={`Options for ${item.schedule.reason}`}>
-							<button
-								disabled={!!busy}
-								onclick={() =>
-									act(
-										item.schedule.id,
-										() => updateSchedule(companyId, item.schedule, !paused),
-										paused ? 'Schedule resumed' : 'Schedule paused'
-									)}>{paused ? 'Resume' : 'Pause'}</button
-							>
-							{#if item.schedule.interval_seconds}<button
-									onclick={() => {
-										open = item.schedule.id;
-										editing = item.schedule.id;
-										editEvery = `${(item.schedule.interval_seconds ?? 3600) / 60}m`;
-									}}>Change cadence</button
-								>{:else if weekdays(item) && item.schedule.local_time}<button
-									onclick={() => {
-										open = item.schedule.id;
-										editing = item.schedule.id;
-										editTime = item.schedule.local_time?.slice(0, 5) ?? '09:00';
-									}}>Change time</button
-								>{/if}
-							<button
-								disabled={!item.testable || !!busy}
-								title={item.testable
-									? 'Tests admission without running an agent or external action'
-									: 'This schedule needs a bound responsibility'}
-								onclick={() =>
-									act(
-										item.schedule.id,
-										async () => {
-											report = await testScheduleTrigger(companyId, item.schedule.id);
-										},
-										'Trigger tested'
-									)}>Test trigger</button
-							>
-							<a href={`/${companyId}/people?person=exec&view=people`}>Discuss with Exec</a>
-							<button disabled={!!busy} onclick={() => remove(item)}>Delete schedule</button>
-						</ActionMenu>
-					{/snippet}
+					{#snippet actions()}{#if canManage}
+							<ActionMenu label={`Options for ${item.schedule.reason}`}>
+								<button
+									disabled={!!busy}
+									onclick={() =>
+										act(
+											item.schedule.id,
+											() => updateSchedule(companyId, item.schedule, !paused),
+											paused ? 'Schedule resumed' : 'Schedule paused'
+										)}>{paused ? 'Resume' : 'Pause'}</button
+								>
+								{#if item.schedule.interval_seconds}<button
+										onclick={() => {
+											open = item.schedule.id;
+											editing = item.schedule.id;
+											editEvery = `${(item.schedule.interval_seconds ?? 3600) / 60}m`;
+										}}>Change cadence</button
+									>{:else if weekdays(item) && item.schedule.local_time}<button
+										onclick={() => {
+											open = item.schedule.id;
+											editing = item.schedule.id;
+											editTime = item.schedule.local_time?.slice(0, 5) ?? '09:00';
+										}}>Change time</button
+									>{/if}
+								<button
+									disabled={!item.testable || !!busy}
+									title={item.testable
+										? 'Tests admission without running an agent or external action'
+										: 'This schedule needs a bound responsibility'}
+									onclick={() =>
+										act(
+											item.schedule.id,
+											async () => {
+												report = await testScheduleTrigger(companyId, item.schedule.id);
+											},
+											'Trigger tested'
+										)}>Test trigger</button
+								>
+								<a href={`/${companyId}/people?person=exec&view=people`}>Discuss with Exec</a>
+								<button disabled={!!busy} onclick={() => remove(item)}>Delete schedule</button>
+							</ActionMenu>
+						{/if}{/snippet}
 					{#if open === item.schedule.id}
 						<div class="detail">
 							{#if problem}

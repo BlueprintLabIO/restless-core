@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
+	import { mayManageCompanySetup } from '$lib/model/company-access';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { Page, Section, Item, Notice, Empty } from '$lib/ui/page';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
@@ -23,6 +25,9 @@
 	} from '$lib/model/members';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
+	/* Everyone sees who is in the company; owners and admins invite and change people. */
+	const principal = $derived(companyPrincipalQuery(companyId).view);
+	const canManage = $derived(mayManageCompanySetup(principal));
 	let core = $state<CoreMembersView | null>(null);
 	let issuer = $state<IssuerMembersView | null>(null);
 	let signInNeeded = $state(false);
@@ -50,7 +55,7 @@
 			const nextCore = await getCoreMembers(requestedCompany);
 			if (version !== loadVersion || requestedCompany !== companyId) return;
 			core = nextCore;
-			if (nextCore.mode !== 'network' || !nextCore.issuer || !nextCore.company_id) {
+			if (!canManage || nextCore.mode !== 'network' || !nextCore.issuer || !nextCore.company_id) {
 				issuer = null;
 				return;
 			}
@@ -137,7 +142,7 @@
 	}
 
 	function roleLabel(role: MembershipRole): string {
-		return { owner: 'Owner', admin: 'Administrator', member: 'Member' }[role];
+		return { owner: 'Owner', admin: 'Admin', member: 'Member' }[role];
 	}
 
 	function seen(row: MemberRow): string {
@@ -161,7 +166,7 @@
 
 <Page
 	title="Members"
-	info="Members can enter the company and collaborate. Membership never grants spending, policy or computer access."
+	info="Everyone in the company talks to Exec, edits company documents and reads how the company is set up. Admins also invite and remove members and run identity and schedules. Money, keys, approvals and the company computer stay with the owner."
 >
 	{#snippet actions()}
 		{#if core?.mode === 'local'}<button
@@ -187,6 +192,17 @@
 			<Item title="You" meta="Owner · this computer">
 				{#snippet leading()}{@render avatar('You')}{/snippet}
 			</Item>
+		</Section>
+	{:else if !canManage}
+		<Section title="People" count={core.members.length}>
+			{#each core.members as member (member.actor_id)}
+				<Item
+					title={member.display}
+					meta={`${roleLabel(member.membership_role as MembershipRole)}${member.actor_id === principal?.actor_id ? ' · you' : ''}`}
+				>
+					{#snippet leading()}{@render avatar(member.display)}{/snippet}
+				</Item>
+			{/each}
 		</Section>
 	{:else if core.issuer_unavailable}
 		<Notice
@@ -217,10 +233,10 @@
 				<select
 					aria-label="Access"
 					bind:value={inviteRole}
-					title="Members collaborate. Administrators can also invite and remove members. Only the owner can add or change administrators."
+					title="Members work in the company. Admins can also invite and remove members. Only the owner adds or changes admins."
 				>
 					<option value="member">Member</option>
-					{#if viewer.role === 'owner'}<option value="admin">Administrator</option>{/if}
+					{#if viewer.role === 'owner'}<option value="admin">Admin</option>{/if}
 				</select>
 				<button class="btn small primary" type="submit" disabled={busy === 'invite'}
 					>{busy === 'invite' ? 'Sending…' : 'Send invite'}</button
@@ -292,7 +308,7 @@
 									)}
 							>
 								<option value="member">Member</option>
-								<option value="admin">Administrator</option>
+								<option value="admin">Admin</option>
 							</select>
 						{:else}<span>{roleLabel(row.role)}</span>{/if}
 					{/snippet}

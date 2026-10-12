@@ -230,7 +230,8 @@ try{
  assert.equal(coreMembers.company_id,identity.company_id);
  assert.equal(coreMembers.issuer.admin_api,origin+'/api/admin/v1');
  assert.deepEqual(coreMembers.members.map(member=>member.actor_id).sort(),[colleague.principal.actor_id,'owner'].sort());
- await coreCall(base+'/members',undefined,colleague.coreCookie,403);
+ // Everyone in the company sees who is in it.
+ assert.deepEqual((await coreCall(base+'/members',undefined,colleague.coreCookie)).data.members.map(member=>member.actor_id).sort(),[colleague.principal.actor_id,'owner'].sort());
  console.log(`PASS owner claim, Exec announcement${claims===undefined?'':' and Authority fact'}; Core members view names the issuer`);
 
  const created=(await coreCall(base+'/documents',{title:'Launch collaboration check',kind:'brief',visibility:'participants',content_json:{type:'doc',content:[{type:'paragraph',attrs:{block_id:randomUUID()},content:[{type:'text',text:'A proposal written together.'}]}]},reason:'Isolated collaboration test'},owner.coreCookie,201)).data;

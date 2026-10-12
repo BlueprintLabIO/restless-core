@@ -1956,6 +1956,15 @@ fn membership_boundary_violation(
         || path.starts_with("/api/mcp-access/")
         || is_company_principal_route(path)
         || is_actor_conversation_route(path)
+        // Every person in the company talks to Exec and the team, and sees what they are doing
+        // and how they hand work to each other.
+        || is_actor_route(path, "activity")
+        || is_actor_route(path, "exchanges")
+        || member_reads_company_setup(method, path)
+        // An admin runs the day to day with the owner, and may stop a turn that went wrong; a
+        // member's message waits its turn instead.
+        || (principal.membership_role() == "admin"
+            && (admin_manages_company_setup(path) || is_actor_interrupt_route(path)))
         || is_company_route_family(path, "rooms")
         // Chat lists, message search and reactions answer only from the
         // Rooms the caller takes part in.
@@ -1969,7 +1978,7 @@ fn membership_boundary_violation(
         || is_company_route_family(path, "sheets-archived")
         // Presence names only people already in the company directory.
         || is_company_route_family(path, "presence")
-        // The members handler admits owners and administrators itself.
+        // Everyone reads the member list; the issuer decides who may change it.
         || is_company_route_family(path, "members")
         || is_company_collaboration_bootstrap_route(method, path)
         || is_attachment_download_route(method, path)
@@ -2052,6 +2061,83 @@ fn is_company_principal_route(path: &str) -> bool {
         && segments.next().is_none()
 }
 
+/// What every person in the company may read about it, as the Company tab shows it: the
+/// charter, identity, schedules, members, the company's know-how (offered while writing to
+/// Exec) and which model Exec uses. Changing any of
+/// it stays with the owner, or with an admin where `admin_manages_company_setup` says so.
+fn member_reads_company_setup(method: &Method, path: &str) -> bool {
+    if !matches!(*method, Method::GET | Method::HEAD) {
+        return false;
+    }
+    let Some(rest) = path.strip_prefix("/api/companies/") else {
+        return false;
+    };
+    let mut segments = rest.split('/');
+    if !segments.next().is_some_and(|company| !company.is_empty()) {
+        return false;
+    }
+    let tail: Vec<&str> = segments.collect();
+    matches!(
+        tail.as_slice(),
+        ["company", "charter"]
+            | ["company", "identity"]
+            | ["schedules"]
+            | ["skills"]
+            | ["intelligence"]
+    )
+}
+
+/// An admin runs the company's day to day with the owner: its identity and its schedules.
+/// Members, too, but the members handler and the issuer decide those themselves. Money,
+/// keys, approvals, the charter and the company computer stay with the owner.
+fn admin_manages_company_setup(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/companies/") else {
+        return false;
+    };
+    let mut segments = rest.split('/');
+    if !segments.next().is_some_and(|company| !company.is_empty()) {
+        return false;
+    }
+    let tail: Vec<&str> = segments.collect();
+    matches!(
+        tail.as_slice(),
+        ["company", "identity"]
+            | ["company", "logo"]
+            | ["company", "identity", "proposals", _, "promote" | "reject"]
+            | ["company", "identity", "drift", _, "decide"]
+            | ["schedules", _]
+            | ["schedules", _, "test"]
+            | ["loops"]
+            | ["loops", _, "cancel"]
+    )
+}
+
+fn is_actor_route(path: &str, leaf: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/companies/") else {
+        return false;
+    };
+    let mut segments = rest.split('/');
+    segments.next().is_some_and(|company| !company.is_empty())
+        && segments.next() == Some("actors")
+        && segments.next().is_some_and(|actor| !actor.is_empty())
+        && segments.next() == Some(leaf)
+        && segments.next().is_none()
+}
+
+fn is_actor_interrupt_route(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/companies/") else {
+        return false;
+    };
+    let mut segments = rest.split('/');
+    segments.next().is_some_and(|company| !company.is_empty())
+        && segments.next() == Some("actors")
+        && segments.next().is_some_and(|actor| !actor.is_empty())
+        && segments.next() == Some("conversation")
+        && segments.next().is_some_and(|message| !message.is_empty())
+        && segments.next() == Some("interrupt")
+        && segments.next().is_none()
+}
+
 fn is_actor_conversation_route(path: &str) -> bool {
     let Some(rest) = path.strip_prefix("/api/companies/") else {
         return false;
@@ -2086,6 +2172,8 @@ fn owner_message_membership_violation(
     membership_role: &str,
     input: &OwnerMessageInput,
 ) -> Option<BoundaryRefusal> {
+    // A Work thread is shared explicitly, and Inbox items are the owner's decisions; until a
+    // Work is shared, only the owner links a message to it.
     if membership_role != "owner" && (input.work_id.is_some() || input.attention_id.is_some()) {
         return Some(BoundaryRefusal {
             status: StatusCode::FORBIDDEN,
@@ -2097,7 +2185,7 @@ fn owner_message_membership_violation(
         return Some(BoundaryRefusal {
             status: StatusCode::FORBIDDEN,
             code: "membership_role",
-            message: "ordinary members may add collaboration input but may not interrupt an active cognitive session",
+            message: "a member's message waits for the current turn; the owner or an admin can interrupt it",
         });
     }
     None
@@ -6036,7 +6124,7 @@ async fn company_charter_history(
                 "revision": record.body["revision"],
                 "markdown": record.body["markdown"],
                 "saved_at": record.created_at,
-                "author": "You",
+                "author": "Owner",
             })
         })
         .collect();
@@ -6047,7 +6135,7 @@ async fn company_charter_history(
                 "revision": current,
                 "markdown": config.mission,
                 "saved_at": null,
-                "author": "You",
+                "author": "Owner",
             }),
         );
     }

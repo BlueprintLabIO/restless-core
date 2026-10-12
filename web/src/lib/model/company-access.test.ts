@@ -3,7 +3,13 @@ import test from 'node:test';
 import * as access from './company-access.ts';
 import type { CompanyPrincipal } from './query-persistence';
 
-const { collaboratorHome, companyShellTabs, hasOwnerSurfaceAccess, mayOpenCompanyRoute } = access;
+const {
+	collaboratorHome,
+	companyShellTabs,
+	hasOwnerSurfaceAccess,
+	mayManageCompanySetup,
+	mayOpenCompanyRoute
+} = access;
 
 function principal(membership_role: CompanyPrincipal['membership_role']): CompanyPrincipal {
 	return { actor_id: 'human-1', membership_role, cache_partition: 'partition-1' };
@@ -16,20 +22,28 @@ test('only the authenticated owner membership receives owner surfaces', () => {
 	assert.equal(hasOwnerSurfaceAccess(null), false);
 });
 
-test('collaborator navigation contains no owner-only destinations', () => {
+test('members see Work, Library, People and Company, never the Inbox or Apps', () => {
 	const tabs = companyShellTabs('acme', '/acme/people/rooms', principal('member'));
 	assert.deepEqual(
 		tabs.map(({ key, href, on }) => ({ key, href, on })),
 		[
 			{ key: 'work', href: '/acme/work', on: false },
 			{ key: 'library', href: '/acme/library', on: false },
-			{ key: 'people', href: '/acme/people', on: true }
+			{ key: 'people', href: '/acme/people', on: true },
+			{ key: 'company', href: '/acme/company', on: false }
 		]
 	);
 	assert.equal(
-		tabs.some((tab) => tab.key === 'company' || tab.key === 'attention'),
+		tabs.some((tab) => tab.key === 'attention' || tab.key === 'apps'),
 		false
 	);
+});
+
+test('owners and admins manage company setup; members read it', () => {
+	assert.equal(mayManageCompanySetup(principal('owner')), true);
+	assert.equal(mayManageCompanySetup(principal('admin')), true);
+	assert.equal(mayManageCompanySetup(principal('member')), false);
+	assert.equal(mayManageCompanySetup(null), false);
 });
 
 test('navigation stays empty until a principal has been authenticated', () => {
@@ -52,22 +66,30 @@ test('owner navigation keeps the six canonical company areas', () => {
 	assert.equal(companyShellTabs('acme', '/acme/apps/c-linear', principal('owner'))[4].on, true);
 });
 
-test('non-owner route admission matches only collaboration route families', () => {
+test('members open the shared areas and the Company sections that describe it', () => {
 	const member = principal('member');
 	for (const pathname of [
 		'/acme/people',
 		'/acme/people/rooms',
 		'/acme/work',
 		'/acme/work/work-1',
-		'/acme/library/documents'
+		'/acme/library/documents',
+		'/acme/company',
+		'/acme/company/charter',
+		'/acme/company/identity',
+		'/acme/company/members',
+		'/acme/company/schedules'
 	]) {
 		assert.equal(mayOpenCompanyRoute('acme', pathname, member), true, pathname);
 	}
 	for (const pathname of [
 		'/acme',
-		'/acme/company',
+		'/acme/apps',
 		'/acme/company/authority',
-		'/acme/company/computer'
+		'/acme/company/computer',
+		'/acme/company/vault',
+		'/acme/company/provider',
+		'/acme/company/resources'
 	]) {
 		assert.equal(mayOpenCompanyRoute('acme', pathname, member), false, pathname);
 	}

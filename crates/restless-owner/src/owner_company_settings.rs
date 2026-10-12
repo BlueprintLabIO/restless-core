@@ -17,7 +17,7 @@ pub(super) async fn save_identity(
     AxumPath(company): AxumPath<String>,
     Json(input): Json<IdentityInput>,
 ) -> impl IntoResponse {
-    if principal.membership_role() != "owner" {
+    if !matches!(principal.membership_role(), "owner" | "admin") {
         return api_error(
             StatusCode::FORBIDDEN,
             "identity",
@@ -421,7 +421,7 @@ pub(super) async fn save_logo(
     AxumPath(company): AxumPath<String>,
     body: Bytes,
 ) -> Response<Body> {
-    if principal.membership_role() != "owner" {
+    if !matches!(principal.membership_role(), "owner" | "admin") {
         return api_error(
             StatusCode::FORBIDDEN,
             "logo",
@@ -486,7 +486,7 @@ pub(super) async fn remove_logo(
     Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
 ) -> Response<Body> {
-    if principal.membership_role() != "owner" {
+    if !matches!(principal.membership_role(), "owner" | "admin") {
         return api_error(
             StatusCode::FORBIDDEN,
             "logo",
@@ -539,10 +539,10 @@ async fn logo_changed(config: &runtime::CompanyConfig) -> Response<Body> {
 mod logo_tests {
     use super::*;
 
-    /// The logo is the one owner setting a member may read: they see it beside
-    /// the company name. Changing it stays the owner's.
+    /// Everyone sees the logo beside the company name. Owners and admins change it, as part of
+    /// the company identity; a member does not.
     #[test]
-    fn members_may_read_the_logo_but_only_the_owner_changes_it() {
+    fn members_read_the_logo_and_admins_change_it() {
         let identity = |role: &str| crate::entry::VerifiedIdentity {
             user: "user-1".into(),
             issuer: Some("https://cloud.restless.test".into()),
@@ -560,20 +560,17 @@ mod logo_tests {
         };
         let path = "/api/companies/aris/company/logo";
         for role in ["member", "admin"] {
-            let member = RequestPrincipal::from_verified(&identity(role)).unwrap();
-            assert!(membership_boundary_violation(&Method::GET, path, &member).is_none());
-            for method in [Method::PUT, Method::DELETE, Method::POST] {
-                assert!(
-                    membership_boundary_violation(&method, path, &member).is_some(),
-                    "{role} reached {method} {path}"
+            let person = RequestPrincipal::from_verified(&identity(role)).unwrap();
+            assert!(membership_boundary_violation(&Method::GET, path, &person).is_none());
+            for method in [Method::PUT, Method::DELETE] {
+                assert_eq!(
+                    membership_boundary_violation(&method, path, &person).is_none(),
+                    role == "admin",
+                    "{role} {method} {path}"
                 );
             }
-            for other in [
-                "/api/companies/aris/company/logo/extra",
-                "/api/companies/aris/company/identity",
-                "/api/companies/aris/company",
-            ] {
-                assert!(membership_boundary_violation(&Method::GET, other, &member).is_some());
+            for other in ["/api/companies/aris/company/logo/extra", "/api/companies/aris/company"] {
+                assert!(membership_boundary_violation(&Method::GET, other, &person).is_some());
             }
         }
         let owner = RequestPrincipal::from_verified(&identity("owner")).unwrap();

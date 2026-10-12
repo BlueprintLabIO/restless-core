@@ -70,6 +70,9 @@ export const MODEL_CONNECTIONS_WHY =
 
 const KEY = Symbol('company-setup-rows');
 
+/** The Company sections every person in the company can open. */
+const MEMBER_SECTIONS = new Set(['charter', 'identity', 'members', 'schedules']);
+
 const plural = (count: number, one: string, many = `${one}s`) =>
 	`${count} ${count === 1 ? one : many}`;
 function counted(value: Count, one: string, none: string, many?: string): string {
@@ -83,7 +86,7 @@ export function createCompanySetup(companyIdOf: () => string) {
 	const companyId = $derived(companyIdOf());
 	const principal = $derived(companyPrincipalQuery(companyId).view);
 	const owner = $derived(principal?.membership_role === 'owner');
-	const catalog = companiesQuery();
+	const catalog = companiesQuery(() => owner);
 	const entry = $derived(catalog.view.find((company) => company.id === companyId));
 	const source = $derived(companyQuery(companyId));
 	$effect(() => {
@@ -105,7 +108,6 @@ export function createCompanySetup(companyIdOf: () => string) {
 			async () => (await getCoreMembers(company)).members.length,
 			(value) => (members = value)
 		);
-		if (!owner) return;
 		read(
 			async () =>
 				(await monitorSchedules(company)).filter(
@@ -113,6 +115,7 @@ export function createCompanySetup(companyIdOf: () => string) {
 				).length,
 			(value) => (schedules = value)
 		);
+		if (!owner) return;
 		read(
 			async () => {
 				const response = await fetch(`/api/companies/${encodeURIComponent(company)}/vault`, {
@@ -146,6 +149,8 @@ export function createCompanySetup(companyIdOf: () => string) {
 	});
 	const charterMissing = $derived(!!view && !view.charter.purpose.trim());
 	const charter = $derived.by(() => {
+		/* Everyone reads the charter; only the owner's view carries its current direction. */
+		if (!owner) return 'Purpose and rules';
 		if (!view) return source.failure ? 'Unavailable right now' : '…';
 		if (charterMissing) return 'Not written yet';
 		return (
@@ -217,11 +222,15 @@ export function createCompanySetup(companyIdOf: () => string) {
 			row('limits', 'Limits', limits, Gauge),
 			row('members', 'Members', counted(members, 'person', 'Only you', 'people'), Users),
 			row('computer', 'Computer', computer, Monitor)
-		].filter(
-			(candidate) =>
-				(owner || candidate.key === 'members') &&
-				!(candidate.key === 'vault' && secrets === 'refused')
-		)
+		]
+			/* Everyone sees the sections that describe the company; the owner also sees the ones
+			 * that hold its money, keys, model and computer. Only the owner is asked to finish setup. */
+			.filter(
+				(candidate) =>
+					(owner || MEMBER_SECTIONS.has(candidate.key)) &&
+					!(candidate.key === 'vault' && secrets === 'refused')
+			)
+			.map((candidate) => (owner ? candidate : { ...candidate, todo: 0 }))
 	);
 
 	/* The sections: the setup rows in the registry's groups, the records, and the way to the
