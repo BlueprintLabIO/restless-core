@@ -16,28 +16,18 @@
 	import { Selection } from '@tiptap/pm/state';
 	import { HocuspocusProvider } from '@hocuspocus/provider';
 	import * as Y from 'yjs';
-	import AlignLeft from '@lucide/svelte/icons/align-left';
 	import BetweenHorizontalEnd from '@lucide/svelte/icons/between-horizontal-end';
 	import BetweenVerticalEnd from '@lucide/svelte/icons/between-vertical-end';
 	import BoldIcon from '@lucide/svelte/icons/bold';
-	import Braces from '@lucide/svelte/icons/braces';
 	import Check from '@lucide/svelte/icons/check';
 	import CodeIcon from '@lucide/svelte/icons/code';
 	import ExternalLink from '@lucide/svelte/icons/external-link';
-	import Heading2 from '@lucide/svelte/icons/heading-2';
 	import ItalicIcon from '@lucide/svelte/icons/italic';
 	import LinkIcon from '@lucide/svelte/icons/link';
-	import List from '@lucide/svelte/icons/list';
-	import ListChecks from '@lucide/svelte/icons/list-checks';
-	import ListOrdered from '@lucide/svelte/icons/list-ordered';
+	import MessageSquare from '@lucide/svelte/icons/message-square';
 	import MessageSquarePlus from '@lucide/svelte/icons/message-square-plus';
-	import Minus from '@lucide/svelte/icons/minus';
-	import Quote from '@lucide/svelte/icons/quote';
-	import Redo2 from '@lucide/svelte/icons/redo-2';
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 	import Strikethrough from '@lucide/svelte/icons/strikethrough';
-	import Table2 from '@lucide/svelte/icons/table-2';
-	import Undo2 from '@lucide/svelte/icons/undo-2';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import {
 		documentCollaborationName,
@@ -50,8 +40,8 @@
 	} from '$lib/model/document-collaboration';
 	import {
 		DOCUMENT_IMAGE_TYPES,
+		commentMarksKey,
 		createDocumentEditorExtensions,
-		documentTable,
 		imageAltFromName,
 		inDocumentTable,
 		linkFromInput,
@@ -67,7 +57,6 @@
 		type DocumentTarget
 	} from '$lib/model/document-cache';
 	import {
-		documentText,
 		getDocument,
 		isDocumentConflict,
 		isRetryableDocumentFailure,
@@ -98,6 +87,11 @@
 		mayRename?: boolean;
 		onaccept?: (target: DocumentTarget, view: DocumentReadView) => void;
 		oncomment?: (blockId: string | null) => void;
+		/** Open comment threads by the block they are on: marked in the text, opened from the margin. */
+		commentedBlocks?: ReadonlyMap<string, { threadId: string; count: number }>;
+		onopenthread?: (threadId: string) => void;
+		/** Copy a link that opens this document at a block. */
+		oncopyblocklink?: (blockId: string) => void;
 		ondirtychange?: (dirty: boolean) => void;
 		onleavechange?: (ready: boolean) => void;
 	}
@@ -116,6 +110,9 @@
 		mayRename,
 		onaccept = () => {},
 		oncomment = () => {},
+		commentedBlocks = new Map(),
+		onopenthread = () => {},
+		oncopyblocklink,
 		ondirtychange = () => {},
 		onleavechange = () => {}
 	}: Props = $props();
@@ -186,6 +183,25 @@
 		);
 	});
 	const statusLabel = $derived(documentCollaborationStateLabel(collaborationState));
+	/* Someone who may not edit is told what they may do, not that the page is "read only". */
+	const readerLabel = $derived(
+		collaborationState === 'read-only' && view.access !== 'edit'
+			? view.access === 'comment'
+				? 'You can comment'
+				: 'You can view'
+			: statusLabel
+	);
+	const accessHint = $derived(
+		readerLabel === statusLabel
+			? statusLabel
+			: view.access === 'comment'
+				? 'You can read and comment. Ask for edit access to change it.'
+				: 'You can read it. Ask for more access to comment or change it.'
+	);
+	const shortTitle = (value: string) => {
+		const text = value.trim() || 'Untitled';
+		return text.length > 28 ? `${text.slice(0, 27)}…` : text;
+	};
 	const faces = $derived(documentFaces(presentStates, principalActorId, nameOf));
 	/* Faces: who else is on this document, from the live session's presence. The page says it is
 	 * here as soon as it connects, so a reader is seen too, not only someone with a caret. */
@@ -448,7 +464,8 @@
 									uploadImages: (files, at) => void insertImages(files, at),
 									slashChange: setSlash,
 									slashKey: (event) => menus?.slashKey(event) ?? false,
-									blockMenu: (target) => menus?.openBlockMenu(target)
+									blockMenu: (target) => menus?.openBlockMenu(target),
+									commentedBlocks: () => markedBlocks
 								}
 							),
 							editable: writable,
@@ -524,10 +541,6 @@
 		command(instance);
 	}
 
-	function addTable(): void {
-		run((instance) => instance.commands.insertContent(documentTable()));
-	}
-
 	/* "/" and a block's own actions: their menus draw here; the editor says when they open. */
 	let menus = $state<ReturnType<typeof DocumentBlockMenus>>();
 	let slash = $state<SlashMenuState | null>(null);
@@ -598,9 +611,159 @@
 		instance.chain().insertContentAt(at, images).run();
 	}
 
+	/* The block a comment is about: the one the text selection starts in (a reader has a
+	 * selection too, though no caret), else the editor's own. */
 	function commentOnSelection(): void {
 		const instance = editorState.editor;
-		oncomment(instance ? selectedDocumentBlockId(instance) : null);
+		oncomment(selectedBlock() ?? (instance ? selectedDocumentBlockId(instance) : null));
+	}
+
+	function selectedBlock(): string | null {
+		const node = window.getSelection()?.anchorNode;
+		const element = node instanceof Element ? node : node?.parentElement;
+		if (!element || !editorElement?.contains(element)) return null;
+		return (
+			element.closest('.native-document-body > [data-block-id]')?.getAttribute('data-block-id') ??
+			null
+		);
+	}
+
+	/* Blocks with an open thread are marked in the text, and a mark in the margin opens it. */
+	let markedBlocks: ReadonlySet<string> = new Set();
+	$effect(() => {
+		markedBlocks = new Set(commentedBlocks.keys());
+		/* Only the threads changing re-marks; the editor's own transactions must not. */
+		const instance = untrack(() => editorState.editor);
+		if (instance && !instance.isDestroyed)
+			instance.view.dispatch(instance.state.tr.setMeta(commentMarksKey, true));
+	});
+	let paperElement = $state<HTMLDivElement>();
+	let threadMarks = $state<{ threadId: string; count: number; top: number }[]>([]);
+	function placeThreadMarks(): void {
+		const paper = paperElement;
+		const body = editorElement;
+		if (!paper || !body || !commentedBlocks.size) {
+			threadMarks = [];
+			return;
+		}
+		const frame = paper.getBoundingClientRect();
+		const marks: { threadId: string; count: number; top: number }[] = [];
+		for (const element of body.querySelectorAll<HTMLElement>(
+			'.native-document-body > [data-block-id]'
+		)) {
+			const thread = commentedBlocks.get(element.dataset.blockId ?? '');
+			if (!thread) continue;
+			const box = element.getBoundingClientRect();
+			marks.push({ ...thread, top: box.top - frame.top + paper.scrollTop });
+		}
+		threadMarks = marks;
+	}
+	$effect(() => {
+		void commentedBlocks;
+		void editorState;
+		const frame = requestAnimationFrame(placeThreadMarks);
+		return () => cancelAnimationFrame(frame);
+	});
+	$effect(() => {
+		const paper = paperElement;
+		if (!paper) return;
+		const observer = new ResizeObserver(() => placeThreadMarks());
+		observer.observe(paper);
+		return () => observer.disconnect();
+	});
+
+	/* Formatting appears where the text is chosen, as in Notion: a small bar over the selection,
+	 * each button naming its shortcut. "/" and a block's own menu do the rest. */
+	const isMac = browser && /Mac|iPhone|iPad/u.test(navigator.platform);
+	const keys = (mac: string, other: string) => (isMac ? mac : other);
+	const FORMATS: {
+		mark: string;
+		label: string;
+		key: string;
+		Icon: typeof BoldIcon;
+		toggle: (instance: Editor) => boolean;
+	}[] = [
+		{
+			mark: 'bold',
+			label: 'Bold',
+			key: keys('⌘B', 'Ctrl+B'),
+			Icon: BoldIcon,
+			toggle: (instance) => instance.chain().focus().toggleBold().run()
+		},
+		{
+			mark: 'italic',
+			label: 'Italic',
+			key: keys('⌘I', 'Ctrl+I'),
+			Icon: ItalicIcon,
+			toggle: (instance) => instance.chain().focus().toggleItalic().run()
+		},
+		{
+			mark: 'strike',
+			label: 'Strikethrough',
+			key: keys('⌘⇧S', 'Ctrl+Shift+S'),
+			Icon: Strikethrough,
+			toggle: (instance) => instance.chain().focus().toggleStrike().run()
+		},
+		{
+			mark: 'code',
+			label: 'Code',
+			key: keys('⌘E', 'Ctrl+E'),
+			Icon: CodeIcon,
+			toggle: (instance) => instance.chain().focus().toggleCode().run()
+		}
+	];
+	let bubble = $state<{ left: number; top: number; below: boolean } | null>(null);
+	let sectionElement = $state<HTMLElement>();
+	function readSelection(): void {
+		const selection = window.getSelection();
+		const body = editorElement;
+		if (!selection || selection.isCollapsed || !selection.rangeCount || !body || linkEditing) {
+			bubble = null;
+			return;
+		}
+		const range = selection.getRangeAt(0);
+		if (!body.contains(range.commonAncestorContainer)) {
+			bubble = null;
+			return;
+		}
+		const box = range.getBoundingClientRect();
+		const frame = sectionElement?.getBoundingClientRect();
+		if ((!box.width && !box.height) || !frame) {
+			bubble = null;
+			return;
+		}
+		/* Placed within the editor, which contains its own layout (it is a size container). */
+		const top = box.top - frame.top;
+		const below = top < 96;
+		bubble = {
+			left: Math.max(120, Math.min(box.left - frame.left + box.width / 2, frame.width - 120)),
+			top: below ? box.bottom - frame.top + 8 : top - 8,
+			below
+		};
+	}
+	$effect(() => {
+		if (!browser) return;
+		const update = () => readSelection();
+		document.addEventListener('selectionchange', update);
+		paperElement?.addEventListener('scroll', update, { passive: true });
+		return () => {
+			document.removeEventListener('selectionchange', update);
+			paperElement?.removeEventListener('scroll', update);
+		};
+	});
+	const mayComment = $derived(view.access === 'comment' || view.access === 'edit');
+	function formatKeys(event: KeyboardEvent): void {
+		if (
+			(event.metaKey || event.ctrlKey) &&
+			event.shiftKey &&
+			!event.altKey &&
+			event.key.toLowerCase() === 'm' &&
+			mayComment &&
+			selectedBlock()
+		) {
+			event.preventDefault();
+			commentOnSelection();
+		}
 	}
 
 	/* Links: the toolbar button or Mod-K opens one field under the toolbar. It edits the link
@@ -830,7 +993,9 @@
 	});
 </script>
 
-<section class="document-editor" aria-label="Document editor">
+<!-- A reader's selection has no focus inside the page, so the comment key listens on the window. -->
+<svelte:window onkeydown={formatKeys} />
+<section class="document-editor" aria-label="Document editor" bind:this={sectionElement}>
 	<header class="editor-head">
 		<div class="document-title-field">
 			{@render leading?.()}
@@ -843,7 +1008,7 @@
 				? 'Recent edits are not being saved.'
 				: canWriteLive
 					? 'Edits and version history save automatically.'
-					: statusLabel}
+					: accessHint}
 		>
 			{#if collaborationState === 'synced' && !saveProblem}
 				<Check size={14} strokeWidth={2} aria-hidden="true" />
@@ -861,208 +1026,70 @@
 							? 'Unsaved title'
 							: canWriteLive
 								? 'Saved'
-								: statusLabel}</span
+								: readerLabel}</span
 			>
 		</div>
 		<div class="editor-actions">
 			<PageFaces {faces} />
 			{@render actions?.()}
 			{#if moreActions}
-				<DocumentActions>{@render moreActions()}</DocumentActions>
+				<DocumentActions
+					>{#if editor && canWriteLive}<!-- A touch screen has no keyboard shortcut for these. -->
+						<button
+							type="button"
+							class="touch-only"
+							disabled={!editor.can().undo()}
+							onclick={() => run((instance) => instance.chain().focus().undo().run())}
+							>Undo</button
+						>
+						<button
+							type="button"
+							class="touch-only"
+							disabled={!editor.can().redo()}
+							onclick={() => run((instance) => instance.chain().focus().redo().run())}
+							>Redo</button
+						>{/if}{@render moreActions()}</DocumentActions
+				>
 			{/if}
 		</div>
 	</header>
 
 	{#if editor}
-		<div class="format-toolbar" aria-label="Document formatting">
-			<button
-				type="button"
-				class:active={editor.isActive('paragraph')}
-				disabled={!canWriteLive}
-				aria-label="Paragraph"
-				title="Paragraph"
-				onclick={() => run((instance) => instance.chain().focus().setParagraph().run())}
-				><AlignLeft size={15} strokeWidth={1.8} /></button
-			>
-			<button
-				type="button"
-				class:active={editor.isActive('heading', { level: 2 })}
-				disabled={!canWriteLive}
-				aria-label="Heading"
-				title="Heading"
-				onclick={() =>
-					run((instance) => instance.chain().focus().toggleHeading({ level: 2 }).run())}
-				><Heading2 size={15} strokeWidth={1.8} /></button
-			>
-			<span class="toolbar-rule"></span>
-			<button
-				type="button"
-				class:active={editor.isActive('bold')}
-				disabled={!canWriteLive}
-				aria-label="Bold"
-				title="Bold"
-				onclick={() => run((instance) => instance.chain().focus().toggleBold().run())}
-				><BoldIcon size={15} strokeWidth={1.8} /></button
-			>
-			<button
-				type="button"
-				class:active={editor.isActive('italic')}
-				disabled={!canWriteLive}
-				aria-label="Italic"
-				title="Italic"
-				onclick={() => run((instance) => instance.chain().focus().toggleItalic().run())}
-				><ItalicIcon size={15} strokeWidth={1.8} /></button
-			>
-			<button
-				type="button"
-				class:active={editor.isActive('strike')}
-				disabled={!canWriteLive}
-				aria-label="Strike"
-				title="Strike"
-				onclick={() => run((instance) => instance.chain().focus().toggleStrike().run())}
-				><Strikethrough size={15} strokeWidth={1.8} /></button
-			>
-			<button
-				type="button"
-				class:active={editor.isActive('code')}
-				disabled={!canWriteLive}
-				aria-label="Inline code"
-				title="Inline code"
-				onclick={() => run((instance) => instance.chain().focus().toggleCode().run())}
-				><CodeIcon size={15} strokeWidth={1.8} /></button
-			>
-			<button
-				type="button"
-				class:active={linkActive || linkEditing}
-				disabled={!canWriteLive}
-				aria-label="Link"
-				aria-expanded={linkEditing}
-				title={linkActive ? 'Edit link (Ctrl+K)' : 'Add a link (Ctrl+K)'}
-				onclick={() => (linkEditing ? closeLinkBar() : openLinkBar())}
-				><LinkIcon size={15} strokeWidth={1.8} /></button
-			>
-			<span class="toolbar-rule"></span>
-			<button
-				type="button"
-				class:active={editor.isActive('bulletList')}
-				disabled={!canWriteLive}
-				aria-label="Bulleted list"
-				title="Bulleted list"
-				onclick={() => run((instance) => instance.chain().focus().toggleBulletList().run())}
-				><List size={15} strokeWidth={1.8} /></button
-			>
-			<button
-				type="button"
-				class:active={editor.isActive('orderedList')}
-				disabled={!canWriteLive}
-				aria-label="Numbered list"
-				title="Numbered list"
-				onclick={() => run((instance) => instance.chain().focus().toggleOrderedList().run())}
-				><ListOrdered size={15} strokeWidth={1.8} /></button
-			>
-			<button
-				type="button"
-				class:active={editor.isActive('taskList')}
-				disabled={!canWriteLive}
-				aria-label="Checklist"
-				title="Checklist"
-				onclick={() => run((instance) => instance.chain().focus().toggleTaskList().run())}
-				><ListChecks size={15} strokeWidth={1.8} /></button
-			>
-			<button
-				type="button"
-				class:active={editor.isActive('blockquote')}
-				disabled={!canWriteLive}
-				aria-label="Quote"
-				title="Quote"
-				onclick={() => run((instance) => instance.chain().focus().toggleBlockquote().run())}
-				><Quote size={15} strokeWidth={1.8} /></button
-			>
-			<button
-				type="button"
-				class:active={editor.isActive('codeBlock')}
-				disabled={!canWriteLive}
-				aria-label="Code block"
-				title="Code block"
-				onclick={() => run((instance) => instance.chain().focus().toggleCodeBlock().run())}
-				><Braces size={15} strokeWidth={1.8} /></button
-			>
-			<button
-				type="button"
-				disabled={!canWriteLive}
-				aria-label="Divider"
-				title="Divider"
-				onclick={() => run((instance) => instance.chain().focus().setHorizontalRule().run())}
-				><Minus size={15} strokeWidth={1.8} /></button
-			>
-			<button
-				type="button"
-				disabled={!canWriteLive}
-				aria-label="Table"
-				title="Insert a two-column table"
-				onclick={addTable}><Table2 size={15} strokeWidth={1.8} /></button
-			>
-			{#if inTable && canWriteLive}
-				<span class="table-tools" role="group" aria-label="Table">
+		{#if inTable && canWriteLive}
+			<div class="table-bar" role="group" aria-label="Table">
+				<button
+					type="button"
+					aria-label="Add a row below"
+					title="Add a row below (Tab in the last cell)"
+					onclick={() => run((instance) => runDocumentTableAction(instance, 'rowAfter'))}
+					><BetweenHorizontalEnd size={15} strokeWidth={1.8} /></button
+				>
+				<button
+					type="button"
+					aria-label="Add a column to the right"
+					title="Add a column to the right"
+					onclick={() => run((instance) => runDocumentTableAction(instance, 'columnAfter'))}
+					><BetweenVerticalEnd size={15} strokeWidth={1.8} /></button
+				>
+				<ActionMenu label="More table actions">
 					<button
 						type="button"
-						aria-label="Add a row below"
-						title="Add a row below (Tab in the last cell)"
-						onclick={() => run((instance) => runDocumentTableAction(instance, 'rowAfter'))}
-						><BetweenHorizontalEnd size={15} strokeWidth={1.8} /></button
+						onclick={() => run((instance) => runDocumentTableAction(instance, 'deleteRow'))}
+						>Delete row</button
 					>
 					<button
 						type="button"
-						aria-label="Add a column to the right"
-						title="Add a column to the right"
-						onclick={() => run((instance) => runDocumentTableAction(instance, 'columnAfter'))}
-						><BetweenVerticalEnd size={15} strokeWidth={1.8} /></button
+						onclick={() => run((instance) => runDocumentTableAction(instance, 'deleteColumn'))}
+						>Delete column</button
 					>
-					<ActionMenu label="More table actions">
-						<button
-							type="button"
-							onclick={() => run((instance) => runDocumentTableAction(instance, 'deleteRow'))}
-							>Delete row</button
-						>
-						<button
-							type="button"
-							onclick={() => run((instance) => runDocumentTableAction(instance, 'deleteColumn'))}
-							>Delete column</button
-						>
-						<button
-							type="button"
-							onclick={() => run((instance) => runDocumentTableAction(instance, 'deleteTable'))}
-							>Delete table</button
-						>
-					</ActionMenu>
-				</span>
-			{/if}
-			<span class="toolbar-rule"></span>
-			<button
-				type="button"
-				disabled={!canWriteLive || !editor.can().undo()}
-				aria-label="Undo"
-				title="Undo"
-				onclick={() => run((instance) => instance.chain().focus().undo().run())}
-				><Undo2 size={15} strokeWidth={1.8} /></button
-			>
-			<button
-				type="button"
-				disabled={!canWriteLive || !editor.can().redo()}
-				aria-label="Redo"
-				title="Redo"
-				onclick={() => run((instance) => instance.chain().focus().redo().run())}
-				><Redo2 size={15} strokeWidth={1.8} /></button
-			>
-			<button
-				type="button"
-				class="comment-button"
-				aria-label="Comment on selected block"
-				title="Comment on selected block"
-				onclick={commentOnSelection}
-				><MessageSquarePlus size={15} strokeWidth={1.8} /> Comment</button
-			>
-		</div>
+					<button
+						type="button"
+						onclick={() => run((instance) => runDocumentTableAction(instance, 'deleteTable'))}
+						>Delete table</button
+					>
+				</ActionMenu>
+			</div>
+		{/if}
 		{#if linkEditing && canWriteLive}
 			<form class="link-bar" onsubmit={applyLink}>
 				<input
@@ -1117,25 +1144,17 @@
 	{@render banner?.()}
 
 	{#if conflict}
+		<!-- Two people renamed it at once. The body merges on its own; the title is one choice. -->
 		<section class="conflict-band" aria-labelledby="document-conflict-title">
-			<div>
-				<h2 id="document-conflict-title">The title changed elsewhere.</h2>
-				<p>The live body is already merged. Choose which title to carry forward.</p>
-			</div>
-			<div class="conflict-compare">
-				<div>
-					<strong>Latest named version</strong>
-					<pre>{conflict.current_version.version.plain_text}</pre>
-				</div>
-				<div>
-					<strong>Live document</strong>
-					<pre>{editor?.getText() ?? documentText(view.current_version.version.content_json)}</pre>
-				</div>
-			</div>
+			<p id="document-conflict-title">
+				Someone renamed this to <q>{conflict.document.title}</q> while you typed
+				<q>{title.trim() || 'Untitled'}</q>.
+			</p>
 			<div class="conflict-actions">
-				<button type="button" class="btn small" onclick={useLatest}>Use latest metadata</button
+				<button type="button" class="btn small" onclick={useLatest}
+					>Use “{shortTitle(conflict.document.title)}”</button
 				><button type="button" class="btn small primary" onclick={keepMetadata}
-					>Keep my metadata</button
+					>Keep “{shortTitle(title)}”</button
 				>
 			</div>
 		</section>
@@ -1176,8 +1195,21 @@
 	{/if}
 
 	<!-- The page is what prints: Print or save as PDF, or the browser's own print. -->
-	<div class="paper document-print" class:read-only={!canWriteLive}>
+	<div class="paper document-print" class:read-only={!canWriteLive} bind:this={paperElement}>
 		<div class="paper-rule" aria-hidden="true"></div>
+		{#each threadMarks as mark (mark.threadId)}
+			<button
+				type="button"
+				class="thread-mark"
+				style:top={`${mark.top}px`}
+				aria-label={mark.count === 1 ? 'Open the comment' : `Open ${mark.count} comments`}
+				title={mark.count === 1 ? 'Open the comment' : `${mark.count} comments`}
+				onclick={() => onopenthread(mark.threadId)}
+				><MessageSquare size={13} strokeWidth={1.8} aria-hidden="true" />{#if mark.count > 1}<span
+						>{mark.count}</span
+					>{/if}</button
+			>
+		{/each}
 		<h1 class="print-title">{title.trim() || 'Untitled'}</h1>
 		<!-- The title is the page's first line, as Notion's is: large, borderless, typed in place. -->
 		<div class="paper-title">
@@ -1208,7 +1240,7 @@
 				title={titleEditable
 					? undefined
 					: online
-						? 'Only its owner can rename this document'
+						? 'Only people who can edit it can rename it'
 						: 'You are offline'}
 				oninput={(event) => {
 					title = event.currentTarget.value.replace(/\s*\n\s*/g, ' ');
@@ -1238,13 +1270,59 @@
 			{editor}
 			{slash}
 			onimages={(files, at) => void insertImages(files, at)}
+			oncomment={(blockId) => oncomment(blockId)}
+			onlink={oncopyblocklink}
 		/>
+	{/if}
+	{#if bubble && editor && (canWriteLive || mayComment)}
+		<div
+			class="selection-bubble"
+			class:below={bubble.below}
+			role="toolbar"
+			aria-label="Format the selection"
+			style:left={`${bubble.left}px`}
+			style:top={`${bubble.top}px`}
+		>
+			{#if canWriteLive}
+				{#each FORMATS as item (item.mark)}
+					<button
+						type="button"
+						class:active={editor.isActive(item.mark)}
+						aria-label={item.label}
+						aria-pressed={editor.isActive(item.mark)}
+						title={`${item.label} (${item.key})`}
+						onmousedown={(event) => event.preventDefault()}
+						onclick={() => run(item.toggle)}><item.Icon size={15} strokeWidth={2} /></button
+					>
+				{/each}
+				<button
+					type="button"
+					class:active={linkActive}
+					aria-label="Link"
+					title={`${linkActive ? 'Edit link' : 'Link'} (${keys('⌘K', 'Ctrl+K')})`}
+					onmousedown={(event) => event.preventDefault()}
+					onclick={openLinkBar}><LinkIcon size={15} strokeWidth={2} /></button
+				>
+			{/if}
+			{#if mayComment}
+				{#if canWriteLive}<span class="bubble-rule" aria-hidden="true"></span>{/if}
+				<button
+					type="button"
+					class="bubble-comment"
+					title={`Comment on this (${keys('⌘⇧M', 'Ctrl+Shift+M')})`}
+					onmousedown={(event) => event.preventDefault()}
+					onclick={commentOnSelection}
+					><MessageSquarePlus size={15} strokeWidth={1.8} aria-hidden="true" /> Comment</button
+				>
+			{/if}
+		</div>
 	{/if}
 </section>
 
 <style>
 	.document-editor {
 		container: document-editor / inline-size;
+		position: relative;
 		min-width: 0;
 		min-height: 0;
 		display: flex;
@@ -1348,20 +1426,16 @@
 	.collaboration-state.state-degraded {
 		color: var(--state-danger);
 	}
-	.format-toolbar button:disabled {
-		opacity: 0.42;
-		cursor: not-allowed;
-	}
-	.format-toolbar {
+	/* Inside a table, its own few actions; nowhere else is there a bar. */
+	.table-bar {
 		display: flex;
 		align-items: center;
 		gap: 2px;
-		padding: 6px var(--space-4);
+		padding: 4px var(--space-4);
 		border-bottom: 1px solid var(--border);
-		background: color-mix(in srgb, var(--surface-alt) 55%, var(--surface));
-		overflow-x: auto;
 	}
-	.format-toolbar button {
+	.table-bar button,
+	.selection-bubble button {
 		min-width: 28px;
 		height: 28px;
 		display: inline-flex;
@@ -1369,42 +1443,103 @@
 		justify-content: center;
 		gap: 5px;
 		padding: 0 6px;
-		border: 1px solid transparent;
+		border: 0;
 		border-radius: var(--radius-control);
 		background: transparent;
 		color: var(--text-secondary);
 		font: 600 var(--t-label) var(--font-ui);
 		cursor: pointer;
 	}
-	.format-toolbar button:hover:not(:disabled),
-	.format-toolbar button.active {
-		border-color: var(--border);
-		background: var(--surface);
+	.table-bar button:hover,
+	.selection-bubble button:hover,
+	.selection-bubble button.active {
+		background: var(--wash-hover);
 		color: var(--ink);
 	}
-	.format-toolbar .comment-button {
-		margin-left: auto;
-		padding-inline: 9px;
-		white-space: nowrap;
-	}
-	.toolbar-rule {
-		width: 1px;
-		height: 18px;
-		margin: 0 3px;
-		background: var(--border);
-		flex: none;
-	}
-	.table-tools {
-		display: inline-flex;
-		align-items: center;
-		gap: 2px;
-		margin-left: 2px;
-		padding-left: 4px;
-		border-left: 1px solid var(--border);
-	}
-	.table-tools :global(.action-menu > summary) {
+	.table-bar :global(.action-menu > summary) {
 		width: 28px;
 		height: 28px;
+	}
+	/* Over the chosen text, or under it near the top of the page. */
+	.selection-bubble {
+		position: absolute;
+		z-index: 25;
+		display: flex;
+		align-items: center;
+		gap: 1px;
+		padding: 3px;
+		border: 1px solid var(--border-strong);
+		border-radius: 8px;
+		background: var(--surface-raised);
+		box-shadow: 0 6px 22px #18243a1f;
+		transform: translate(-50%, -100%);
+		animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
+	}
+	.selection-bubble.below {
+		transform: translate(-50%, 0);
+	}
+	.selection-bubble .bubble-comment {
+		padding-inline: 8px;
+	}
+	.bubble-rule {
+		width: 1px;
+		height: 18px;
+		margin: 0 2px;
+		background: var(--border);
+	}
+	.touch-only {
+		display: none;
+	}
+	@media (hover: none) {
+		.touch-only {
+			display: block;
+		}
+	}
+	/* A block with an open thread: a quiet wash in the text, and a mark in the margin that opens it. */
+	:global(.native-document-body > .has-comments) {
+		box-shadow: inset 2px 0 0 color-mix(in srgb, var(--highlight) 90%, var(--surface-attention));
+		background: color-mix(in srgb, var(--highlight) 30%, transparent);
+		border-radius: 2px;
+	}
+	.thread-mark {
+		position: absolute;
+		right: clamp(4px, 2vw, 28px);
+		z-index: 2;
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		height: 24px;
+		padding: 0 6px;
+		border: 0;
+		border-radius: 999px;
+		background: transparent;
+		color: var(--text-tertiary);
+		font: 600 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
+		cursor: pointer;
+	}
+	.thread-mark:hover,
+	.thread-mark:focus-visible {
+		background: var(--wash-hover);
+		color: var(--ink);
+	}
+	@media print {
+		.thread-mark,
+		.selection-bubble {
+			display: none;
+		}
+		:global(.native-document-body > .has-comments) {
+			box-shadow: none;
+			background: none;
+		}
+	}
+	/* The empty line being written says how to make anything else. */
+	:global(.native-document-body > p.empty-line::before) {
+		content: attr(data-hint);
+		float: left;
+		height: 0;
+		color: var(--text-tertiary);
+		pointer-events: none;
 	}
 	.link-bar {
 		display: flex;
@@ -1469,31 +1604,8 @@
 		border-bottom: 1px solid color-mix(in srgb, var(--intent-authority) 28%, var(--border));
 		background: color-mix(in srgb, var(--intent-authority-soft) 70%, var(--surface));
 	}
-	.conflict-band h2,
 	.conflict-band p {
 		margin: 0;
-	}
-	.conflict-band p {
-		color: var(--text-secondary);
-	}
-	.conflict-compare {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: var(--space-2);
-	}
-	.conflict-compare > div {
-		min-width: 0;
-		padding: var(--space-3);
-		border-left: 2px solid var(--intent-authority);
-		background: color-mix(in srgb, var(--highlight) 64%, transparent);
-	}
-	.conflict-compare pre {
-		max-height: 120px;
-		margin: 6px 0 0;
-		overflow: auto;
-		white-space: pre-wrap;
-		font: var(--t-body) / 1.5 var(--font-ui);
-		color: var(--text-secondary);
 	}
 	.conflict-actions {
 		justify-content: flex-end;
@@ -1780,7 +1892,7 @@
 			grid-column: 2;
 			grid-row: 1 / 3;
 		}
-		.format-toolbar {
+		.table-bar {
 			padding-inline: var(--space-3);
 		}
 		.paper {
@@ -1789,9 +1901,6 @@
 		}
 		.paper-rule {
 			display: none;
-		}
-		.conflict-compare {
-			grid-template-columns: 1fr;
 		}
 		.collaboration-error > div {
 			align-items: flex-start;

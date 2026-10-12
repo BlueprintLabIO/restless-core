@@ -305,6 +305,25 @@ test('the "/" menu follows its slash and closes when the slash goes or the words
 	assert.equal(documentEditorSchema.nextSlashMenuState(at('/head', 6), null, 1), null, 'never opened');
 });
 
+test('"/" opens the menu at the start of a line or after a space, never mid-word or in code', (context) => {
+	const document = new Y.Doc();
+	context.after(() => document.destroy());
+	const schema = getSchema(
+		documentEditorSchema.createDocumentEditorExtensions(document, {} as never, true)
+	);
+	const at = (text: string, caret: number, type = 'paragraph') => {
+		const block = schema.node(type, { block_id: 'a' }, text ? [schema.text(text)] : []);
+		const doc = schema.node('doc', null, [block]);
+		return EditorState.create({ doc, selection: TextSelection.create(doc, caret) });
+	};
+	assert.ok(documentEditorSchema.slashOpensMenu(at('', 1)), 'an empty line');
+	assert.ok(documentEditorSchema.slashOpensMenu(at('Plan ', 6)), 'after a space');
+	assert.ok(documentEditorSchema.slashOpensMenu(at('Plan', 1)), 'the start of a line of text');
+	assert.ok(documentEditorSchema.slashOpensMenu(at('Plan', 1, 'heading')), 'a heading');
+	assert.ok(!documentEditorSchema.slashOpensMenu(at('and', 4)), 'mid-word: and/or');
+	assert.ok(!documentEditorSchema.slashOpensMenu(at('', 1, 'codeBlock')), 'code');
+});
+
 test('a paragraph stays the block the editor fills an empty place with', (context) => {
 	/* An image declared ahead of the paragraph once became the default block: deleting text or
 	 * turning a block left an empty image behind. */

@@ -21,6 +21,7 @@ import UniqueID from '@tiptap/extension-unique-id';
 import StarterKit from '@tiptap/starter-kit';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { Plugin, PluginKey, TextSelection, type EditorState } from '@tiptap/pm/state';
+import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import type { HocuspocusProvider } from '@hocuspocus/provider';
 import type { Doc } from 'yjs';
 import type { DocumentContent, DocumentMark, DocumentNode } from './documents';
@@ -561,6 +562,79 @@ export interface DocumentEditorHooks {
 	slashKey?: (event: KeyboardEvent) => boolean;
 	/** Open the actions of the top-level block at a position, beside an anchor. */
 	blockMenu?: (target: { pos: number; anchor: DOMRect; fromKeyboard?: boolean }) => void;
+	/** The top-level blocks that have an open comment thread, marked in the text. */
+	commentedBlocks?: () => ReadonlySet<string>;
+}
+
+/* Blocks with an open comment thread wear a quiet highlight, as commented text does in Notion.
+ * The page says which blocks; it dispatches this key when the threads change. */
+export const commentMarksKey = new PluginKey<DecorationSet>('documentCommentMarks');
+
+function commentMarks(doc: ProseMirrorNode, blocks: ReadonlySet<string> | undefined) {
+	if (!blocks?.size) return DecorationSet.empty;
+	const marks: Decoration[] = [];
+	doc.forEach((node, offset) => {
+		if (blocks.has(node.attrs.block_id))
+			marks.push(Decoration.node(offset, offset + node.nodeSize, { class: 'has-comments' }));
+	});
+	return DecorationSet.create(doc, marks);
+}
+
+function commentMarksExtension(hooks: DocumentEditorHooks) {
+	return Extension.create({
+		name: 'documentCommentMarks',
+		addProseMirrorPlugins() {
+			return [
+				new Plugin<DecorationSet>({
+					key: commentMarksKey,
+					state: {
+						init: (_, state) => commentMarks(state.doc, hooks.commentedBlocks?.()),
+						apply: (tr, marks, _old, state) =>
+							tr.getMeta(commentMarksKey) || tr.docChanged
+								? commentMarks(state.doc, hooks.commentedBlocks?.())
+								: marks
+					},
+					props: { decorations: (state) => commentMarksKey.getState(state) }
+				})
+			];
+		}
+	});
+}
+
+/* The line being written, while it is empty, says how to make anything else: the toolbar is gone,
+ * so "/" is the way in. */
+function emptyLineHintExtension() {
+	return Extension.create({
+		name: 'documentEmptyLineHint',
+		addProseMirrorPlugins() {
+			return [
+				new Plugin({
+					key: new PluginKey('documentEmptyLineHint'),
+					props: {
+						decorations: (state) => {
+							const { $from, empty } = state.selection;
+							const parent = $from.parent;
+							if (
+								!this.editor.isEditable ||
+								!empty ||
+								parent.type.name !== 'paragraph' ||
+								parent.content.size ||
+								$from.depth !== 1
+							)
+								return null;
+							const at = $from.before(1);
+							return DecorationSet.create(state.doc, [
+								Decoration.node(at, at + parent.nodeSize, {
+									class: 'empty-line',
+									'data-hint': 'Type / for blocks'
+								})
+							]);
+						}
+					}
+				})
+			];
+		}
+	});
 }
 
 function caretExtension(provider: HocuspocusProvider, carets: DocumentCarets) {
@@ -742,8 +816,20 @@ export function nextSlashMenuState(
 	return { from: mapped, query };
 }
 
-/* Typing "/" in an empty text block opens a menu of blocks; a slash anywhere else is a slash.
- * The page draws the menu and handles its keys; Escape, or deleting the slash, closes it. */
+/** Whether a "/" typed here opens the block menu: at the start of a line of text, or after a
+ * space, as in Notion. Mid-word ("and/or") and in code it is only a slash. */
+export function slashOpensMenu(state: EditorState): boolean {
+	const { $from, empty } = state.selection;
+	const parent = $from.parent;
+	if (!empty || !parent.isTextblock || parent.type.spec.code) return false;
+	if ($from.parentOffset === 0) return true;
+	const before = parent.textBetween($from.parentOffset - 1, $from.parentOffset, undefined, '￼');
+	return /\s/u.test(before);
+}
+
+/* Typing "/" at the start of a line, or after a space, opens a menu of blocks; a slash anywhere
+ * else is a slash. The page draws the menu and handles its keys; Escape, or deleting the slash,
+ * closes it. */
 function slashMenuExtension(hooks: DocumentEditorHooks) {
 	return Extension.create({
 		name: 'documentSlashMenu',
@@ -764,9 +850,7 @@ function slashMenuExtension(hooks: DocumentEditorHooks) {
 					},
 					props: {
 						handleTextInput: (view, from, to, text) => {
-							const { $from, empty } = view.state.selection;
-							if (text !== '/' || !empty || !hooks.slashChange) return false;
-							if ($from.parent.type.name !== 'paragraph' || $from.parent.content.size) return false;
+							if (text !== '/' || !hooks.slashChange || !slashOpensMenu(view.state)) return false;
 							view.dispatch(
 								view.state.tr.insertText('/', from, to).setMeta(slashMenuKey, { from, query: '' })
 							);
@@ -881,6 +965,8 @@ export function createDocumentEditorExtensions(
 		imageExtension(hooks),
 		slashMenuExtension(hooks),
 		blockHandleExtension(hooks),
+		commentMarksExtension(hooks),
+		emptyLineHintExtension(),
 		UniqueID.configure({
 			attributeName: 'block_id',
 			types: [...BLOCK_TYPES],

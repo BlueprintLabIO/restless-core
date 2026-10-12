@@ -25,6 +25,18 @@
 			]
 		},
 		{
+			title: 'Documents',
+			keys: [
+				['/', 'Blocks, at the start of a line or after a space'],
+				[`${mod} /`, 'This block: comment, link, duplicate, turn into'],
+				[`${mod} ⇧ M`, 'Comment on the selection'],
+				[`${mod} B / I / E`, 'Bold, italic, code'],
+				[`${mod} ⇧ S`, 'Strikethrough'],
+				[`${mod} K`, 'Link'],
+				[`${mod} Enter`, 'Send a comment']
+			]
+		},
+		{
 			title: 'Inbox',
 			keys: [
 				['J / K', 'Next or previous item, on into For you'],

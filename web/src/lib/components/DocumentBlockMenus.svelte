@@ -1,7 +1,8 @@
 <script lang="ts">
-	/* The editor's two block menus: "/" in an empty block (insert or turn it into a block, keys
-	 * stay in the page), and a block's own actions from its drag handle or Ctrl+/ (duplicate,
-	 * delete, turn into). Both look and move like the cockpit's ActionMenu. */
+	/* The editor's two block menus: "/" at the start of a line or after a space (insert or turn
+	 * the block into another, keys stay in the page), and a block's own actions from its drag
+	 * handle or Ctrl+/ (comment, copy its link, duplicate, turn into, delete). Both look and move
+	 * like the cockpit's ActionMenu. */
 	import { tick, type Component } from 'svelte';
 	import type { Editor } from '@tiptap/core';
 	import { TextSelection } from '@tiptap/pm/state';
@@ -14,6 +15,8 @@
 	import Heading2 from '@lucide/svelte/icons/heading-2';
 	import Heading3 from '@lucide/svelte/icons/heading-3';
 	import ImageIcon from '@lucide/svelte/icons/image';
+	import Link from '@lucide/svelte/icons/link';
+	import MessageSquare from '@lucide/svelte/icons/message-square';
 	import List from '@lucide/svelte/icons/list';
 	import ListChecks from '@lucide/svelte/icons/list-checks';
 	import ListOrdered from '@lucide/svelte/icons/list-ordered';
@@ -35,9 +38,13 @@
 		slash: SlashMenuState | null;
 		/** Image files chosen for a position: the page uploads and places them. */
 		onimages: (files: File[], at: number) => void;
+		/** Start a comment thread on a block. */
+		oncomment?: (blockId: string) => void;
+		/** Copy a link that opens the document at a block. */
+		onlink?: (blockId: string) => void;
 	}
 
-	let { editor, slash, onimages }: Props = $props();
+	let { editor, slash, onimages, oncomment, onlink }: Props = $props();
 
 	type Chain = ReturnType<Editor['chain']>;
 	interface BlockChoice {
@@ -324,6 +331,16 @@
 		instance.view.focus();
 	}
 
+	const COMMENT_KEYS =
+		typeof navigator !== 'undefined' && /Mac|iPhone|iPad/u.test(navigator.platform)
+			? '⌘⇧M'
+			: 'Ctrl+Shift+M';
+
+	function withBlockId(node: ProseMirrorNode, use: (blockId: string) => void): void {
+		const id = node.attrs.block_id;
+		if (typeof id === 'string' && id) use(id);
+	}
+
 	function remove(instance: Editor, node: ProseMirrorNode, pos: number): void {
 		const { state } = instance;
 		const tr =
@@ -459,6 +476,24 @@
 	onkeydown={blockKeys}
 >
 	{#if blockView === 'main'}
+		{#if oncomment}
+			<button
+				type="button"
+				role="menuitem"
+				onclick={() => onBlock((_editor, node) => withBlockId(node, oncomment))}
+				><MessageSquare size={16} strokeWidth={1.8} aria-hidden="true" />Comment<kbd
+					>{COMMENT_KEYS}</kbd
+				></button
+			>
+		{/if}
+		{#if onlink}
+			<button
+				type="button"
+				role="menuitem"
+				onclick={() => onBlock((_editor, node) => withBlockId(node, onlink))}
+				><Link size={16} strokeWidth={1.8} aria-hidden="true" />Copy link to block</button
+			>
+		{/if}
 		<button type="button" role="menuitem" onclick={() => onBlock(duplicate)}
 			><Copy size={16} strokeWidth={1.8} aria-hidden="true" />Duplicate</button
 		>
@@ -568,6 +603,11 @@
 	}
 	.block-menu button.back {
 		color: var(--text-secondary);
+	}
+	.block-menu kbd {
+		margin-left: auto;
+		color: var(--text-tertiary);
+		font: var(--t-label) var(--font-ui);
 	}
 	.block-menu button.danger,
 	.block-menu button.danger :global(svg) {
