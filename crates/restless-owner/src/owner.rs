@@ -2188,10 +2188,12 @@ struct BoundaryRefusal {
 fn owner_message_membership_violation(
     membership_role: &str,
     input: &OwnerMessageInput,
+    work_visible: bool,
 ) -> Option<BoundaryRefusal> {
-    // A Work thread is shared explicitly, and Inbox items are the owner's decisions; until a
-    // Work is shared, only the owner links a message to it.
-    if membership_role != "owner" && (input.work_id.is_some() || input.attention_id.is_some()) {
+    // Anyone talks about Work they can see; Inbox items are the owner's decisions.
+    if membership_role != "owner"
+        && (input.attention_id.is_some() || (input.work_id.is_some() && !work_visible))
+    {
         return Some(BoundaryRefusal {
             status: StatusCode::FORBIDDEN,
             code: "work_scope",
@@ -2206,6 +2208,17 @@ fn owner_message_membership_violation(
         });
     }
     None
+}
+
+/// Whether a teammate's collaboration view shows this Work: company-wide Work, or Work shared
+/// into a room they are in. Unreadable state counts as not shown.
+async fn teammate_sees_work(state: &OwnerState, company: &str, actor_id: &str, work_id: Uuid) -> bool {
+    let Ok(org) = state.daemon.orgintel.get(company).await else {
+        return false;
+    };
+    org.collaborator_work_graph_snapshot(actor_id)
+        .await
+        .is_ok_and(|graph| graph.work.iter().any(|work| work.id == work_id))
 }
 
 /// The whole network-mode entry decision, as one pure function.
@@ -8390,7 +8403,15 @@ async fn send_actor_message(
             "an outcome standard can be selected only for a new Exec request",
         );
     }
-    if let Some(refusal) = owner_message_membership_violation(principal.membership_role(), &input) {
+    let work_visible = match input.work_id {
+        Some(work_id) if principal.membership_role() != "owner" => {
+            teammate_sees_work(&state, &company, principal.actor_id(), work_id).await
+        }
+        _ => true,
+    };
+    if let Some(refusal) =
+        owner_message_membership_violation(principal.membership_role(), &input, work_visible)
+    {
         return api_error(refusal.status, refusal.code, refusal.message);
     }
     // Context is useful navigation metadata, not part of message delivery. Parse

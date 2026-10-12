@@ -2911,27 +2911,28 @@ model = \"anthropic/claude-sonnet-5-5\"
             ..OwnerMessageInput::default()
         };
         assert_eq!(
-            owner_message_membership_violation("member", &work_scoped)
-                .expect("an unshared Work reference is owner-only")
+            owner_message_membership_violation("member", &work_scoped, false)
+                .expect("Work the member cannot see is refused")
                 .code,
             "work_scope"
         );
-        assert!(owner_message_membership_violation("owner", &work_scoped).is_none());
+        assert!(owner_message_membership_violation("member", &work_scoped, true).is_none());
+        assert!(owner_message_membership_violation("owner", &work_scoped, false).is_none());
         assert_eq!(
-            owner_message_membership_violation("admin", &work_scoped)
-                .expect("admin is not the Work-sharing authority")
+            owner_message_membership_violation("admin", &work_scoped, false)
+                .expect("an admin also sees only shared Work")
                 .code,
             "work_scope"
         );
         work_scoped.work_id = None;
         work_scoped.interrupt = true;
         assert_eq!(
-            owner_message_membership_violation("member", &work_scoped)
+            owner_message_membership_violation("member", &work_scoped, true)
                 .expect("a member cannot interrupt another cognitive session")
                 .code,
             "membership_role"
         );
-        assert!(owner_message_membership_violation("admin", &work_scoped).is_none());
+        assert!(owner_message_membership_violation("admin", &work_scoped, true).is_none());
     }
 
     /// S27-T2. The plane genuinely serves both companies, so a pass here proves
