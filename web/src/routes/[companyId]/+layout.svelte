@@ -1020,7 +1020,10 @@
 				})),
 			...people
 				.filter(
-					(person) => !['system', 'owner'].includes(person.kind) && person.actor_id !== viewer
+					(person) =>
+						person.kind !== 'system' &&
+						person.actor_id !== viewer &&
+						!(ownerAccess && person.kind === 'owner')
 				)
 				.map((person) => ({
 					id: `person:${person.actor_id}`,
@@ -1106,6 +1109,10 @@
 	 * conversation is named from the lists already in hand. */
 	let recents = $state<Recent[]>([]);
 	let recentsFor = '';
+	/* The title showing when a place was arrived at belongs to the page before it, until the
+	 * title changes. */
+	let arrivedAt = '';
+	let carriedTitle: string | null = null;
 	$effect(() => {
 		const key = `${companyId}:${principal?.actor_id ?? ''}`;
 		if (!principal || recentsFor === key) return;
@@ -1116,10 +1123,18 @@
 		const viewer = principal?.actor_id;
 		if (!viewer || recentsFor !== `${companyId}:${viewer}`) return;
 		const place = recentPlace(companyId, page.url);
+		const title = pageContext.title;
+		const arrival = place ? `${place.kind}:${place.id}` : '';
+		if (arrival !== arrivedAt) {
+			arrivedAt = arrival;
+			carriedTitle = title;
+		} else if (title !== carriedTitle) carriedTitle = null;
 		if (!place) return;
 		const label =
 			place.kind === 'document' || place.kind === 'sheet'
-				? pageContext.title
+				? title === carriedTitle
+					? ''
+					: title
 				: place.kind === 'person'
 					? place.id === 'exec' || personName(place.id) !== place.id
 						? personName(place.id)
