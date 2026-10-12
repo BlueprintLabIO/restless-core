@@ -19,7 +19,7 @@
 
 <dialog
 	bind:this={dialog}
-	class="confirm"
+	class="confirm bridge-tokens"
 	aria-labelledby="confirm-title"
 	aria-describedby={pending?.body ? 'confirm-body' : undefined}
 	onclose={() => confirmation.pending?.answer(false)}

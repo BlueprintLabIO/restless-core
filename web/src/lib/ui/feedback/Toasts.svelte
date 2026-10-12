@@ -9,7 +9,7 @@
 	}
 </script>
 
-<div class="toasts" aria-live="polite">
+<div class="toasts bridge-tokens" aria-live="polite">
 	{#each toasts.list as item (item.id)}
 		<div
 			class="toast"
