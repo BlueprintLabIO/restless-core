@@ -566,6 +566,22 @@ struct CreateDocumentInput {
     reason: String,
 }
 
+/// A PATCH either sets the document's general access, for whoever may manage its sharing, or
+/// changes its metadata as before.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum PatchDocumentInput {
+    GeneralAccess(GeneralAccessInput),
+    Metadata(UpdateDocumentInput),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GeneralAccessInput {
+    expected_version: i64,
+    general_access: restless_orgintel::GeneralAccess,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct UpdateDocumentInput {
@@ -1268,7 +1284,7 @@ async fn update_document(
     DocumentPrincipal(principal): DocumentPrincipal,
     AxumPath((company, document)): AxumPath<(String, Uuid)>,
     headers: HeaderMap,
-    Json(input): Json<UpdateDocumentInput>,
+    Json(input): Json<PatchDocumentInput>,
 ) -> Response<Body> {
     let command_id = match command_id(&headers) {
         Ok(command_id) => command_id,
@@ -1277,6 +1293,24 @@ async fn update_document(
     let org = match document_orgintel(&state, &principal, &company).await {
         Ok(org) => org,
         Err(response) => return response,
+    };
+    let input = match input {
+        PatchDocumentInput::Metadata(input) => input,
+        PatchDocumentInput::GeneralAccess(input) => {
+            return match org
+                .set_document_general_access(restless_orgintel::SetDocumentGeneralAccess {
+                    command_id,
+                    document_id: document,
+                    actor_id: principal.actor_id(),
+                    expected_version: input.expected_version,
+                    general_access: input.general_access,
+                })
+                .await
+            {
+                Ok(result) => document_json(StatusCode::OK, result),
+                Err(error) => document_error(error),
+            };
+        }
     };
     match org
         .update_document_metadata(restless_orgintel::UpdateDocumentMetadata {
@@ -2376,6 +2410,62 @@ mod tests {
         assert_eq!(page_limit(None, 25).unwrap(), 25);
     }
 
+    /// General access goes through the same PATCH, for whoever may manage sharing, and every
+    /// read and list then says it.
+    #[tokio::test]
+    async fn general_access_route_is_for_sharing_managers_and_reads_back() {
+        let Some(fixture) = DocumentRouteFixture::new().await else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping general access route scenario");
+            return;
+        };
+        let owner = fixture.app("owner", "owner", &fixture.company);
+        let alice = fixture.app("alice", "member", &fixture.company);
+        let documents = format!("/companies/{}/documents", fixture.company);
+        let (status, created) = request_json(
+            &owner,
+            Method::POST,
+            &documents,
+            Some(Uuid::new_v4()),
+            Some(create_body("Shared plan")),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let path = format!("{documents}/{}", uuid_field(&created, "document_id"));
+        let (_, read) = request_json(&owner, Method::GET, &path, None, None).await;
+        assert_eq!(read["document"]["general_access"], "private");
+        let (status, _) = request_json(&alice, Method::GET, &path, None, None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let view = serde_json::json!({"expected_version": 1, "general_access": "view"});
+        let (status, _) =
+            request_json(&alice, Method::PATCH, &path, Some(Uuid::new_v4()), Some(view.clone()))
+                .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "a member cannot open it up");
+        let (status, result) =
+            request_json(&owner, Method::PATCH, &path, Some(Uuid::new_v4()), Some(view)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(result["operation"], "document_metadata_update");
+
+        let (status, read) = request_json(&alice, Method::GET, &path, None, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(read["document"]["general_access"], "view");
+        assert_eq!(read["access"], "read");
+        let (_, listed) = request_json(&alice, Method::GET, &documents, None, None).await;
+        let item = listed["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["document"]["id"] == read["document"]["id"])
+            .expect("listed for a person once the company can view it");
+        assert_eq!(item["document"]["general_access"], "view");
+        assert_eq!(item["access"], "read");
+
+        let unknown = serde_json::json!({"expected_version": 2, "general_access": "everyone"});
+        let (status, _) =
+            request_json(&owner, Method::PATCH, &path, Some(Uuid::new_v4()), Some(unknown)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
     #[tokio::test]
     async fn document_routes_require_exact_authenticated_company_and_actor_scope() {
         let Some(fixture) = DocumentRouteFixture::new().await else {
@@ -3050,8 +3140,12 @@ mod tests {
             request_json(&owner, Method::GET, &participants, None, None).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(owner_participants["items"].as_array().unwrap().len(), 2);
-        let (status, _) = request_json(&alice, Method::GET, &participants, None, None).await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
+        // Whoever can open it sees who else can, but only its managers change that.
+        let (status, alice_view) =
+            request_json(&alice, Method::GET, &participants, None, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(alice_view["may_manage"], false);
+        assert_eq!(owner_participants["may_manage"], true);
         let (status, _) = request_json(&alice, Method::GET, &document_path, None, None).await;
         assert_eq!(status, StatusCode::OK);
 
@@ -3081,8 +3175,6 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK);
-        let (status, _) = request_json(&alice, Method::GET, &participants, None, None).await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
         let (status, _) = request_json(
             &alice,
             Method::POST,
@@ -3104,8 +3196,6 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK);
-        let (status, _) = request_json(&alice, Method::GET, &participants, None, None).await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
 
         let (status, _) = request_json(
             &alice,

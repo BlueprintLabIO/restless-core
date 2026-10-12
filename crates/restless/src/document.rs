@@ -140,6 +140,16 @@ CONTENT AND CONFLICTS
         #[arg(long)]
         key: String,
     },
+    /// Set who in the company may open it without being added; requires sharing rights.
+    Access {
+        document: String,
+        #[arg(value_parser=["private","view","comment","edit"])]
+        access: String,
+        #[arg(long)]
+        revision: i64,
+        #[arg(long)]
+        key: String,
+    },
     Threads {
         document: String,
         #[arg(long)]
@@ -298,6 +308,14 @@ impl DocumentCommand {
                 key,
             } => {
                 json!({"operation":"unshare","document":document,"member":member,"revision":revision,"key":key})
+            }
+            Self::Access {
+                document,
+                access,
+                revision,
+                key,
+            } => {
+                json!({"operation":"access","document":document,"access":access,"revision":revision,"key":key})
             }
             Self::Threads { document, cursor } => {
                 json!({"operation":"threads","document":document,"cursor":decode_cursor(cursor)?})

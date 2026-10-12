@@ -42,6 +42,9 @@ pub struct SheetRow {
     pub title: String,
     pub owner_actor_id: String,
     pub visibility: String,
+    /// What every person in the company may do without being added: "private", "view" or
+    /// "edit". Exec and Staff never gain access this way; they are added.
+    pub general_access: String,
     pub engine_version: String,
     pub head_revision: String,
     pub sequence: i64,
@@ -76,13 +79,27 @@ pub struct SheetCheckpoint {
     pub actor_id: String,
     pub created_at: DateTime<Utc>,
 }
+/// Who can open a sheet, for its share panel: the general access, each person added with their
+/// level, and whether the reader may change any of it.
+#[derive(Debug, Clone, Serialize)]
+pub struct SheetSharing {
+    pub general_access: String,
+    pub owner_actor_id: String,
+    pub people: Vec<SheetParticipant>,
+    pub may_manage: bool,
+}
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct SheetParticipant {
+    pub actor_id: String,
+    pub access: String,
+}
 #[derive(Debug, Clone, Serialize)]
 pub struct SheetClient {
     pub client_id: Uuid,
     pub reconnect_token: String,
     pub generation: Uuid,
 }
-const ROW: &str = "id,title,owner_actor_id,visibility,engine_version,head_revision,sequence,created_at,updated_at,archived_at";
+const ROW: &str = "id,title,owner_actor_id,visibility,CASE WHEN visibility='participants' THEN 'private' WHEN company_access='read' THEN 'view' ELSE 'edit' END AS general_access,engine_version,head_revision,sequence,created_at,updated_at,archived_at";
 
 async fn access(
     tx: &mut Transaction<'_, Postgres>,
@@ -90,12 +107,13 @@ async fn access(
     actor: &str,
     edit: bool,
 ) -> Result<String> {
-    let row: Option<(String, String)> =
-        sqlx::query_as("SELECT owner_actor_id,visibility FROM native_sheets WHERE id=$1 FOR SHARE")
-            .bind(id)
-            .fetch_optional(&mut **tx)
-            .await?;
-    let Some((owner, visibility)) = row else {
+    let row: Option<(String, String, String)> = sqlx::query_as(
+        "SELECT owner_actor_id,visibility,company_access FROM native_sheets WHERE id=$1 FOR SHARE",
+    )
+    .bind(id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some((owner, visibility, company_access)) = row else {
         return Err(SheetError::Unavailable);
     };
     let class: Option<String> = sqlx::query_scalar(
@@ -124,8 +142,9 @@ async fn access(
     let grant = if owner == actor {
         Some("edit".to_string())
     } else {
-        // People in the company edit company sheets; an explicit grant still wins.
-        explicit.or_else(|| (visibility == "company" && class == "human").then(|| "edit".into()))
+        // People in the company get a company sheet's general access; an explicit grant still
+        // wins, and Exec and Staff see a sheet only once it is shared with them.
+        explicit.or_else(|| (visibility == "company" && class == "human").then_some(company_access))
     };
     let grant = grant.ok_or(SheetError::Unavailable)?;
     if edit && grant != "edit" {
@@ -144,6 +163,31 @@ async fn may_manage(tx: &mut Transaction<'_, Postgres>, id: Uuid, actor: &str) -
         return Err(SheetError::Unavailable);
     }
     Ok(())
+}
+/// Who may decide who else sees or edits a sheet, as for documents: whoever made it, the
+/// company's owner, and the Exec acting for that owner, except on a person's private sheet.
+async fn may_share(tx: &mut Transaction<'_, Postgres>, id: Uuid, actor: &str) -> Result<bool> {
+    let row: Option<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT s.owner_actor_id,s.visibility,a.actor_class FROM native_sheets s \
+         LEFT JOIN actors a ON a.id=s.owner_actor_id WHERE s.id=$1",
+    )
+    .bind(id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some((owner, visibility, owner_class)) = row else {
+        return Err(SheetError::Unavailable);
+    };
+    // A suspended member shares nothing, as they open nothing.
+    let denied: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM human_principal_actor_bindings WHERE actor_id=$1 AND membership_status<>'active')")
+        .bind(actor).fetch_one(&mut **tx).await?;
+    if denied {
+        return Ok(false);
+    }
+    if owner == actor || company_owner(tx, actor).await? {
+        return Ok(true);
+    }
+    Ok(actor == "exec"
+        && (visibility == "company" || !matches!(owner_class.as_deref(), Some("human" | "owner"))))
 }
 async fn company_owner(tx: &mut Transaction<'_, Postgres>, actor: &str) -> Result<bool> {
     if actor == "owner" {
@@ -655,8 +699,7 @@ impl OrgIntel {
                 .bind(id)
                 .fetch_optional(&mut *tx)
                 .await?;
-        access(&mut tx, id, actor, true).await?;
-        if owner.as_deref() != Some(actor) {
+        if owner.is_none() || !may_share(&mut tx, id, actor).await? {
             return Err(SheetError::Unavailable);
         }
         if let Some(grant) = grant {
@@ -680,6 +723,78 @@ impl OrgIntel {
         }
         tx.commit().await?;
         Ok(())
+    }
+    /// Set who in the company may open a sheet without being added: "private", "view" or "edit".
+    /// Its managers may, as they may share it.
+    pub async fn set_sheet_general_access(
+        &self,
+        id: Uuid,
+        actor: &str,
+        general_access: &str,
+    ) -> Result<SheetRow> {
+        let (visibility, company_access) = match general_access {
+            "private" => ("participants", None),
+            "view" => ("company", Some("read")),
+            "edit" => ("company", Some("edit")),
+            _ => return Err(SheetError::Invalid("invalid general access".into())),
+        };
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SELECT id FROM native_sheets WHERE id=$1 FOR UPDATE")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(SheetError::Unavailable)?;
+        if !may_share(&mut tx, id, actor).await? {
+            return Err(SheetError::Unavailable);
+        }
+        let row: SheetRow = sqlx::query_as(&format!(
+            "UPDATE native_sheets SET visibility=$2, company_access=COALESCE($3,company_access) \
+             WHERE id=$1 RETURNING {ROW}"
+        ))
+        .bind(id)
+        .bind(visibility)
+        .bind(company_access)
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlx::query("INSERT INTO events (kind,actor_id,body) VALUES ($1,$2,$3)")
+            .bind("sheet.general_access.updated.v1")
+            .bind(actor)
+            .bind(json!({ "sheet_id": id, "general_access": general_access }))
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(row)
+    }
+    /// The share panel's view of a sheet, for anyone who can open it or may manage it.
+    pub async fn sheet_sharing(&self, id: Uuid, actor: &str) -> Result<SheetSharing> {
+        let mut tx = self.pool.begin().await?;
+        let may_manage = may_share(&mut tx, id, actor).await?;
+        if !may_manage {
+            access(&mut tx, id, actor, false).await?;
+        }
+        let (owner_actor_id, general_access): (String, String) = sqlx::query_as(
+            "SELECT owner_actor_id,CASE WHEN visibility='participants' THEN 'private' \
+               WHEN company_access='read' THEN 'view' ELSE 'edit' END \
+             FROM native_sheets WHERE id=$1",
+        )
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let people = sqlx::query_as(
+            "SELECT p.actor_id,p.access FROM native_sheet_participants p \
+             JOIN actors a ON a.id=p.actor_id \
+             WHERE p.sheet_id=$1 AND a.retired_at IS NULL ORDER BY p.actor_id",
+        )
+        .bind(id)
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(SheetSharing {
+            general_access,
+            owner_actor_id,
+            people,
+            may_manage,
+        })
     }
     pub async fn sheet_checkpoints(&self, id: Uuid, actor: &str) -> Result<Vec<SheetCheckpoint>> {
         let mut tx = self.pool.begin().await?;

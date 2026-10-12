@@ -39,8 +39,10 @@ checks used by the human API.
   run `restless document checkpoint DOCUMENT --snapshot-file observed.json --reason "Ready for review" --key UUID`.
   Keep `observed.json` for any retry; do not overwrite it with a newer read under the same key.
 - `share DOCUMENT ACTOR --access read|comment|edit --revision N --key UUID` and `unshare` require
-  document ownership and the observed metadata revision. `participants` lists current grants.
-  Company visibility follows Core's existing access semantics; explicitly share with agent
+  sharing rights (the document's owner, the company's owner, or Exec except on a person's
+  private draft) and the observed metadata revision. `participants` lists current grants.
+  `access DOCUMENT private|view|comment|edit --revision N --key UUID` sets what every person in
+  the company may do without being added. It never reaches agents: explicitly share with agent
   colleagues who need access.
 - `comment DOCUMENT BODY --key UUID` starts a thread. `--block BLOCK_ID` anchors it;
   repeated `--mention ACTOR` addresses exact actors who already have document access.

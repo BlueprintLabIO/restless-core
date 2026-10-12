@@ -83,6 +83,47 @@ pub enum DocumentVisibility {
     Participants,
 }
 
+/// What every person in the company may do with a document or sheet without being added:
+/// nothing (private), or view, comment or edit it. It is the company visibility together with
+/// the level people get through it. Exec and Staff never gain access this way; they are added.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GeneralAccess {
+    Private,
+    View,
+    Comment,
+    Edit,
+}
+
+impl GeneralAccess {
+    /// The visibility and company level that say this, or no company level when private.
+    pub fn parts(self) -> (DocumentVisibility, Option<DocumentAccess>) {
+        match self {
+            Self::Private => (DocumentVisibility::Participants, None),
+            Self::View => (DocumentVisibility::Company, Some(DocumentAccess::Read)),
+            Self::Comment => (DocumentVisibility::Company, Some(DocumentAccess::Comment)),
+            Self::Edit => (DocumentVisibility::Company, Some(DocumentAccess::Edit)),
+        }
+    }
+}
+
+impl TryFrom<String> for GeneralAccess {
+    type Error = String;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        match value.as_str() {
+            "private" => Ok(Self::Private),
+            "view" => Ok(Self::View),
+            "comment" => Ok(Self::Comment),
+            "edit" => Ok(Self::Edit),
+            other => Err(format!("unknown general access {other:?}")),
+        }
+    }
+}
+
+/// The general access a document row reads as, for a SELECT list.
+const GENERAL_ACCESS_SQL: &str = "CASE WHEN visibility='participants' THEN 'private' \
+     WHEN company_access='read' THEN 'view' ELSE company_access::text END AS general_access";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(type_name = "native_document_access", rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
@@ -113,6 +154,8 @@ pub struct DocumentRow {
     pub kind: DocumentKind,
     pub status: DocumentStatus,
     pub visibility: DocumentVisibility,
+    #[sqlx(try_from = "String")]
+    pub general_access: GeneralAccess,
     pub linked_room_id: Option<Uuid>,
     pub inherit_room_visibility: bool,
     pub owner_actor_id: String,
@@ -174,6 +217,9 @@ pub struct DocumentParticipantCursor {
 pub struct DocumentParticipantPage {
     pub items: Vec<DocumentParticipantRow>,
     pub next_cursor: Option<DocumentParticipantCursor>,
+    /// Whether the reader may change who has access: whoever made it, the company's owner, and
+    /// the Exec (not on a person's private draft). Everyone else who can open it sees the list.
+    pub may_manage: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -466,6 +512,16 @@ pub struct RestoreDocumentVersion<'a> {
     pub expected_current_version_id: Uuid,
     pub source_version_id: Uuid,
     pub reason: &'a str,
+}
+
+/// Change who in the company may open a document without being added. Its managers may: whoever
+/// made it, the company's owner and the Exec (not on a person's private draft).
+pub struct SetDocumentGeneralAccess<'a> {
+    pub command_id: Uuid,
+    pub document_id: Uuid,
+    pub actor_id: &'a str,
+    pub expected_version: i64,
+    pub general_access: GeneralAccess,
 }
 
 pub struct SetDocumentParticipant<'a> {
@@ -3018,10 +3074,13 @@ fn normalize_plain_text(value: &str) -> String {
     output.trim().to_string()
 }
 
-fn document_select() -> &'static str {
-    "SELECT id,title,kind,status,visibility,linked_room_id,inherit_room_visibility,\
-            owner_actor_id,current_named_version_id,created_by_actor_id,created_at,updated_at,version \
-     FROM native_documents"
+fn document_select() -> String {
+    format!(
+        "SELECT id,title,kind,status,visibility,{GENERAL_ACCESS_SQL},linked_room_id,\
+                inherit_room_visibility,owner_actor_id,current_named_version_id,\
+                created_by_actor_id,created_at,updated_at,version \
+         FROM native_documents"
+    )
 }
 
 fn version_select() -> &'static str {
@@ -3286,14 +3345,16 @@ async fn access_in_transaction(
     // participant revocation and named-version creation take this row FOR
     // UPDATE, so neither can split an authorized projection into an old access
     // decision followed by post-revocation content at READ COMMITTED.
-    let document: Option<(String, DocumentVisibility, Option<Uuid>, bool)> = sqlx::query_as(
-        "SELECT owner_actor_id,visibility,linked_room_id,inherit_room_visibility \
-         FROM native_documents WHERE id=$1 FOR SHARE",
-    )
-    .bind(document_id)
-    .fetch_optional(&mut **tx)
-    .await?;
-    let Some((owner_actor_id, visibility, linked_room_id, inherit_room_visibility)) = document
+    let document: Option<(String, DocumentVisibility, DocumentAccess, Option<Uuid>, bool)> =
+        sqlx::query_as(
+            "SELECT owner_actor_id,visibility,company_access,linked_room_id,inherit_room_visibility \
+             FROM native_documents WHERE id=$1 FOR SHARE",
+        )
+        .bind(document_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+    let Some((owner_actor_id, visibility, company_access, linked_room_id, inherit_room_visibility)) =
+        document
     else {
         return Ok(None);
     };
@@ -3329,10 +3390,11 @@ async fn access_in_transaction(
         return Ok(explicit_access);
     }
 
-    // People in the company are teammates: a company document is theirs to edit. An explicit
-    // participant grant above (for example read-only) still wins.
+    // People in the company are teammates: a company document's general access says what each
+    // may do with it. An explicit participant grant above still wins, either way. Exec and Staff
+    // see a document only once it is shared with them. The list query must agree.
     if visibility == DocumentVisibility::Company && actor_class == "human" {
-        return Ok(Some(DocumentAccess::Edit));
+        return Ok(Some(company_access));
     }
 
     if visibility == DocumentVisibility::Participants && inherit_room_visibility {
@@ -4797,6 +4859,8 @@ impl OrgIntel {
             kind: DocumentKind,
             status: DocumentStatus,
             visibility: DocumentVisibility,
+            #[sqlx(try_from = "String")]
+            general_access: GeneralAccess,
             linked_room_id: Option<Uuid>,
             inherit_room_visibility: bool,
             owner_actor_id: String,
@@ -4812,8 +4876,11 @@ impl OrgIntel {
         let cursor_time = cursor.map(|value| value.updated_at);
         let cursor_id = cursor.map(|value| value.id);
         let mut rows = sqlx::query_as::<_, Listed>(
-            "SELECT d.id,d.title,d.kind,d.status,d.visibility,d.linked_room_id,\
-                    d.inherit_room_visibility,d.owner_actor_id,\
+            "SELECT d.id,d.title,d.kind,d.status,d.visibility,\
+                    CASE WHEN d.visibility='participants' THEN 'private' \
+                      WHEN d.company_access='read' THEN 'view' \
+                      ELSE d.company_access::text END AS general_access,\
+                    d.linked_room_id,d.inherit_room_visibility,d.owner_actor_id,\
                     d.current_named_version_id,d.created_by_actor_id,d.created_at,d.updated_at,d.version,\
                     CASE \
                       WHEN d.owner_actor_id=$1 THEN 'edit'::native_document_access \
@@ -4821,7 +4888,7 @@ impl OrgIntel {
                       WHEN p.access='comment' THEN 'comment'::native_document_access \
                       WHEN p.access='read' THEN 'read'::native_document_access \
                       WHEN d.visibility='company' AND a.actor_class='human' \
-                        THEN 'edit'::native_document_access \
+                        THEN d.company_access \
                       ELSE 'read'::native_document_access END AS access \
              FROM native_documents d \
              JOIN actors a ON a.id=$1 AND a.retired_at IS NULL \
@@ -4867,6 +4934,7 @@ impl OrgIntel {
                     kind: row.kind,
                     status: row.status,
                     visibility: row.visibility,
+                    general_access: row.general_access,
                     linked_room_id: row.linked_room_id,
                     inherit_room_visibility: row.inherit_room_visibility,
                     owner_actor_id: row.owner_actor_id,
@@ -5947,7 +6015,13 @@ impl OrgIntel {
                 .bind(document_id)
                 .fetch_optional(&mut *tx)
                 .await?;
-        if owner_actor_id.as_deref() != Some(actor_id) {
+        let Some(owner_actor_id) = owner_actor_id else {
+            return Err(DocumentError::Unavailable);
+        };
+        // Whoever can open a document sees who else can; only its managers change that.
+        let may_manage =
+            may_manage_participants(&mut tx, document_id, &owner_actor_id, actor_id).await?;
+        if !may_manage && access_in_transaction(&mut tx, document_id, actor_id).await?.is_none() {
             return Err(DocumentError::Unavailable);
         }
         let mut participants = sqlx::query_as::<_, DocumentParticipantRow>(
@@ -5978,7 +6052,96 @@ impl OrgIntel {
         Ok(DocumentParticipantPage {
             items: participants,
             next_cursor,
+            may_manage,
         })
+    }
+
+    /// Set a document's general access. Making it company-visible stops it inheriting a linked
+    /// room's members; explicit participants keep their own grants either way.
+    pub async fn set_document_general_access(
+        &self,
+        input: SetDocumentGeneralAccess<'_>,
+    ) -> DocumentResult<DocumentCommandResult> {
+        let fingerprint = request_fingerprint(
+            "general_access_set",
+            json!({
+                "document_id": input.document_id,
+                "actor_id": input.actor_id,
+                "expected_version": input.expected_version,
+                "general_access": input.general_access,
+            }),
+        );
+        let mut tx = self.pool.begin().await?;
+        lock_document_command(&mut tx, input.command_id).await?;
+        if let Some(result) = replayed_document_command_result(
+            &mut tx,
+            input.command_id,
+            Some(input.document_id),
+            input.actor_id,
+            "document_metadata_update",
+            &fingerprint,
+        )
+        .await?
+        {
+            tx.commit().await?;
+            return Ok(result);
+        }
+        let row = sqlx::query(
+            "SELECT owner_actor_id,version FROM native_documents WHERE id=$1 FOR UPDATE",
+        )
+        .bind(input.document_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DocumentError::Unavailable)?;
+        let owner = row.get::<String, _>("owner_actor_id");
+        if !may_manage_participants(&mut tx, input.document_id, &owner, input.actor_id).await? {
+            return Err(DocumentError::Unavailable);
+        }
+        let actual = row.get::<i64, _>("version");
+        if actual != input.expected_version {
+            return Err(DocumentError::Conflict(format!(
+                "metadata is version {actual}, expected {}",
+                input.expected_version
+            )));
+        }
+        let (visibility, company_access) = input.general_access.parts();
+        let document_version: i64 = sqlx::query_scalar(
+            "UPDATE native_documents SET visibility=$2,\
+               company_access=COALESCE($3,company_access),\
+               inherit_room_visibility=inherit_room_visibility AND $2='participants',\
+               version=version+1 \
+             WHERE id=$1 RETURNING version",
+        )
+        .bind(input.document_id)
+        .bind(visibility)
+        .bind(company_access)
+        .fetch_one(&mut *tx)
+        .await?;
+        let result = record_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            "document_metadata_update",
+            &fingerprint,
+            input.document_id,
+            input.actor_id,
+        )
+        .await?;
+        append_document_event(
+            &mut tx,
+            "document.metadata.updated.v1",
+            input.document_id,
+            input.actor_id,
+            json!({
+                "document_id": input.document_id,
+                "document_version": document_version,
+                "visibility": visibility,
+                "general_access": input.general_access,
+            }),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(result)
     }
 
     pub async fn set_document_participant(

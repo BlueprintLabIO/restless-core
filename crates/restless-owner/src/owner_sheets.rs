@@ -25,6 +25,10 @@ where
             post(operation),
         )
         .route(
+            "/companies/{company}/sheets/{sheet}/participants",
+            get(sharing),
+        )
+        .route(
             "/companies/{company}/sheets/{sheet}/participants/{actor}",
             axum::routing::put(share).delete(unshare),
         )
@@ -166,18 +170,61 @@ async fn create(
     )
     .await
 }
+/// A PATCH renames a sheet, or sets its general access ("private", "view" or "edit") for
+/// whoever may manage its sharing.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum PatchInput {
+    Rename(RenameInput),
+    GeneralAccess(GeneralAccessInput),
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RenameInput {
     title: String,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GeneralAccessInput {
+    general_access: String,
+}
 async fn rename(
     State(s): State<RoomApiState>,
     RoomPrincipal(p): RoomPrincipal,
     AxumPath((c, sheet)): AxumPath<(String, Uuid)>,
-    Json(i): Json<RenameInput>,
+    Json(i): Json<PatchInput>,
 ) -> Response<Body> {
-    run(s, p, c, SheetOperation::Rename { sheet, title: i.title }).await
+    match i {
+        PatchInput::Rename(i) => run(s, p, c, SheetOperation::Rename { sheet, title: i.title }).await,
+        PatchInput::GeneralAccess(i) => match async {
+            let org = org(&s, &p, &c).await?;
+            anyhow::Ok(json!(
+                org.set_sheet_general_access(sheet, p.actor_id(), &i.general_access)
+                    .await?
+            ))
+        }
+        .await
+        {
+            Ok(value) => no_store(Json(value).into_response()),
+            Err(e) => failure(e),
+        },
+    }
+}
+/// Who can open a sheet, for its share panel.
+async fn sharing(
+    State(s): State<RoomApiState>,
+    RoomPrincipal(p): RoomPrincipal,
+    AxumPath((c, sheet)): AxumPath<(String, Uuid)>,
+) -> Response<Body> {
+    match async {
+        let org = org(&s, &p, &c).await?;
+        anyhow::Ok(json!(org.sheet_sharing(sheet, p.actor_id()).await?))
+    }
+    .await
+    {
+        Ok(value) => no_store(Json(value).into_response()),
+        Err(e) => failure(e),
+    }
 }
 async fn read(
     State(s): State<RoomApiState>,

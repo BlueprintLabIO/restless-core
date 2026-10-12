@@ -90,6 +90,13 @@ pub enum DocumentOperation {
         revision: i64,
         key: Uuid,
     },
+    /// Who in the company may open it without being added: private, view, comment or edit.
+    Access {
+        document: Uuid,
+        access: GeneralAccess,
+        revision: i64,
+        key: Uuid,
+    },
     Threads {
         document: Uuid,
         #[serde(default)]
@@ -346,6 +353,21 @@ pub async fn execute(
                 actor_id: actor,
                 expected_document_version: revision,
                 participant_actor_id: &member,
+            })
+            .await?
+        ),
+        DocumentOperation::Access {
+            document,
+            access,
+            revision,
+            key,
+        } => json!(
+            org.set_document_general_access(SetDocumentGeneralAccess {
+                command_id: key,
+                document_id: document,
+                actor_id: actor,
+                expected_version: revision,
+                general_access: access,
             })
             .await?
         ),
