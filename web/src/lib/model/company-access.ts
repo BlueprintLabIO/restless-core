@@ -26,8 +26,20 @@ export function mayManageCompanySetup(principal: CompanyPrincipal | null | undef
 /** The Company sections every person in the company can open; the owner sees them all. */
 const SHARED_COMPANY_SECTIONS = ['', '/charter', '/identity', '/members', '/schedules'];
 
+/** Where a member lands: their Inbox, with For you and what the team handed them. */
 export function collaboratorHome(companyId: string): string {
-	return `/${encodeURIComponent(companyId)}/work`;
+	return `/${encodeURIComponent(companyId)}`;
+}
+
+/** Why a member was brought home from a page that is the owner's, in a sentence. */
+export function refusedRouteReason(companyId: string, pathname: string): string {
+	const root = `/${encodeURIComponent(companyId)}`;
+	if (pathname === `${root}/apps` || pathname.startsWith(`${root}/apps/`))
+		return 'Apps are managed by the owner.';
+	if (pathname === `${root}/company/computer`) return 'The company computer is the owner’s.';
+	if (pathname.startsWith(`${root}/company/`))
+		return 'That part of Company is managed by the owner.';
+	return 'That page is the owner’s.';
 }
 
 /**

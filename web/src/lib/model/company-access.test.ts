@@ -8,7 +8,8 @@ const {
 	companyShellTabs,
 	hasOwnerSurfaceAccess,
 	mayManageCompanySetup,
-	mayOpenCompanyRoute
+	mayOpenCompanyRoute,
+	refusedRouteReason
 } = access;
 
 function principal(membership_role: CompanyPrincipal['membership_role']): CompanyPrincipal {
@@ -96,5 +97,11 @@ test('members open the shared areas and the Company sections that describe it', 
 	}
 	assert.equal(mayOpenCompanyRoute('acme', '/other/people/rooms', member), false);
 	assert.equal(mayOpenCompanyRoute('acme', '/acme/company/authority', principal('owner')), true);
-	assert.equal(collaboratorHome('acme group'), '/acme%20group/work');
+	// A member lands on what needs them: the Inbox, which they may always open.
+	assert.equal(collaboratorHome('acme group'), '/acme%20group');
+	assert.equal(mayOpenCompanyRoute('acme', collaboratorHome('acme'), member), true);
+	// A page that is the owner's says why, rather than moving them silently.
+	assert.equal(refusedRouteReason('acme', '/acme/apps/c-linear'), 'Apps are managed by the owner.');
+	assert.match(refusedRouteReason('acme', '/acme/company/vault'), /managed by the owner/);
+	assert.match(refusedRouteReason('acme', '/acme/company/computer'), /owner/);
 });

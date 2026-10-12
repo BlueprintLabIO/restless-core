@@ -56,6 +56,7 @@
 		immersive = false,
 		onexectoggle = null,
 		commands = [],
+		recents = [],
 		search = null,
 		rail = null,
 		viewerName = '',
@@ -85,6 +86,8 @@
 		onexectoggle?: (() => void) | null;
 		/** Destinations and actions for the command menu (⌘K). */
 		commands?: Command[];
+		/** What the person opened lately, shown in the command menu before anything is typed. */
+		recents?: Command[];
 		/** What the command menu finds beyond its commands, such as text inside documents. */
 		search?: CommandSearch | null;
 		/** The signed-in person, for the profile circle. */
@@ -449,7 +452,7 @@
 		</a>
 	{/snippet}
 
-	<CommandMenu bind:open={commandMenuOpen} commands={menuCommands} {search} />
+	<CommandMenu bind:open={commandMenuOpen} commands={menuCommands} {recents} {search} />
 
 	{#if !immersive}
 		<nav class="bridge-dock" aria-label="Company navigation">

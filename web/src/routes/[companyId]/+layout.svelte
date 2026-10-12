@@ -7,7 +7,7 @@
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import { page } from '$app/state';
-	import { setContext, tick } from 'svelte';
+	import { setContext, tick, untrack } from 'svelte';
 	const setupDraft = $state<{ name: string | null }>({ name: null });
 	setContext('company-setup-draft', setupDraft);
 	import { afterNavigate, goto } from '$app/navigation';
@@ -30,8 +30,19 @@
 		collaboratorHome,
 		companyShellTabs,
 		hasOwnerSurfaceAccess,
-		mayOpenCompanyRoute
+		mayOpenCompanyRoute,
+		refusedRouteReason
 	} from '$lib/model/company-access';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import {
+		readRecents,
+		recentPlace,
+		remember,
+		writeRecents,
+		type Recent
+	} from '$lib/model/recents';
+	import { searchComments } from '$lib/model/comment-search';
+	import { searchRoomMessages } from '$lib/model/rooms';
 	import {
 		attentionQuery,
 		cockpitQuery,
@@ -508,6 +519,7 @@
 	$effect(() => {
 		const authenticated = principal;
 		if (!authenticated || mayOpenCompanyRoute(companyId, page.url.pathname, authenticated)) return;
+		toast(refusedRouteReason(companyId, page.url.pathname));
 		void goto(collaboratorHome(companyId), { replaceState: true });
 	});
 	$effect(() => {
@@ -930,22 +942,32 @@
 		knownForYou = unreadMarks(snapshot);
 	});
 
+	/* Everyone gets the same quick actions over what they can see: make a document or sheet, ask
+	 * Exec or a lead, find a person, Work or a goal, and the Company pages they may open. The owner
+	 * also adds files and apps, sees what needs them and moves between companies. */
 	const commands = $derived.by((): Command[] => {
-		if (!ownerAccess) return [];
+		if (!principal) return [];
 		const root = `/${encodeURIComponent(companyId)}`;
-		const work = attention.view?.workGraph?.work ?? [];
-		const goalTitle = new Map((cockpit?.goals ?? []).map((goal) => [goal.id, goal.title]));
-		const leads = (cockpit?.teams ?? [])
-			.map((team) => cockpit?.people.find((person) => person.actor_id === team.lead_actor_id))
+		const viewer = principal.actor_id;
+		const people = (ownerAccess ? cockpit?.people : collaboration.view?.people) ?? [];
+		const teams = (ownerAccess ? cockpit?.teams : collaboration.view?.teams) ?? [];
+		const goals = (ownerAccess ? cockpit?.goals : collaboration.view?.goals) ?? [];
+		const work = ownerAccess
+			? (attention.view?.workGraph?.work ?? [])
+			: (collaboration.view?.work_graph.work ?? []);
+		const goalTitle = new Map(goals.map((goal) => [goal.id, goal.title]));
+		const leads = teams
+			.map((team) => people.find((person) => person.actor_id === team.lead_actor_id))
 			.filter(
-				(person): person is NonNullable<typeof person> => !!person && person.actor_id !== 'exec'
+				(person): person is NonNullable<typeof person> =>
+					!!person && person.actor_id !== 'exec' && person.actor_id !== viewer
 			);
-		return [
+		const shared: Command[] = [
 			{
 				id: 'action:new-document',
 				group: 'Actions',
 				label: 'New document',
-				keywords: 'create write doc',
+				keywords: 'create write doc page',
 				href: `${root}/library?create=doc`
 			},
 			{
@@ -956,19 +978,83 @@
 				href: `${root}/library?create=sheet`
 			},
 			{
-				id: 'action:upload-files',
-				group: 'Actions',
-				label: 'Upload files',
-				keywords: 'add file attach import pdf image contract invoice',
-				href: `${root}/library?show=yours&create=upload`
-			},
-			{
 				id: 'action:ask-exec',
 				group: 'Actions',
 				label: 'Ask the Exec…',
 				keywords: 'talk message chat',
 				run: () => askPerson('exec')
 			},
+			...leads.map((lead) => ({
+				id: `action:ask:${lead.actor_id}`,
+				group: 'Actions',
+				label: `Ask ${lead.display}…`,
+				keywords: `talk message lead ${lead.role}`,
+				run: () => askPerson(lead.actor_id)
+			})),
+			...forYou.items
+				.filter((item) => item.unread)
+				.slice(0, 8)
+				.map((item) => ({
+					id: `for-you:${item.key}`,
+					group: 'For you',
+					label: forYouSentence(item),
+					hint: item.excerpt,
+					href: item.href
+				})),
+			...work
+				.filter((item) => item.status !== 'abandoned')
+				.map((item) => ({
+					id: `work:${item.id}`,
+					group: 'Work',
+					label: item.title,
+					hint: `${workStatusLabel(item.status)}${item.goal_id && goalTitle.has(item.goal_id) ? ` · ${goalTitle.get(item.goal_id)}` : ''}`,
+					href: `${root}/work/${encodeURIComponent(item.id)}`
+				})),
+			...goals
+				.filter((goal) => !goal.closed_at)
+				.map((goal) => ({
+					id: `goal:${goal.id}`,
+					group: 'Goals',
+					label: goal.title,
+					href: `${root}/work?goal=${encodeURIComponent(goal.id)}`
+				})),
+			...people
+				.filter(
+					(person) => !['system', 'owner'].includes(person.kind) && person.actor_id !== viewer
+				)
+				.map((person) => ({
+					id: `person:${person.actor_id}`,
+					group: 'People',
+					label: person.display,
+					hint:
+						person.kind === 'exec'
+							? 'Executive'
+							: person.role.charAt(0).toUpperCase() + person.role.slice(1),
+					keywords: 'message talk chat',
+					href: `${root}/people?person=${encodeURIComponent(person.actor_id)}`
+				})),
+			...COMPANY_PAGES.map((companyPage) => ({
+				id: `company:${companyPage.key}`,
+				group: 'Company',
+				label: companyPage.label,
+				hint: companyPage.group,
+				keywords: `settings ${companyPage.keywords ?? ''}`,
+				href: companyPageHref(encodeURIComponent(companyId), companyPage)
+			})).filter((command) =>
+				mayOpenCompanyRoute(companyId, new URL(command.href, page.url).pathname, principal)
+			)
+		];
+		if (!ownerAccess) return shared;
+		return [
+			...shared.slice(0, 2),
+			{
+				id: 'action:upload-files',
+				group: 'Actions',
+				label: 'Upload files',
+				keywords: 'add file attach import pdf image contract invoice',
+				href: `${root}/library?show=yours&create=upload`
+			},
+			...shared.slice(2),
 			{
 				id: 'action:add-app',
 				group: 'Actions',
@@ -983,13 +1069,6 @@
 				hint: entry.category,
 				keywords: `connect ${entry.key} ${entry.description}`,
 				href: `${root}/apps/${encodeURIComponent(entry.key)}`
-			})),
-			...leads.map((lead) => ({
-				id: `action:ask:${lead.actor_id}`,
-				group: 'Actions',
-				label: `Ask ${lead.display}…`,
-				keywords: `talk message lead ${lead.role}`,
-				run: () => askPerson(lead.actor_id)
 			})),
 			/* Files Work produced are already in hand; documents, sheets and kept files are found by
 			 * the menu's search as the owner types. */
@@ -1010,44 +1089,6 @@
 				hint: item.requestedAction,
 				href: `${root}?item=${encodeURIComponent(item.id)}`
 			})),
-			...work
-				.filter((item) => item.status !== 'abandoned')
-				.map((item) => ({
-					id: `work:${item.id}`,
-					group: 'Work',
-					label: item.title,
-					hint: `${workStatusLabel(item.status)}${item.goal_id && goalTitle.has(item.goal_id) ? ` · ${goalTitle.get(item.goal_id)}` : ''}`,
-					href: `${root}/work/${encodeURIComponent(item.id)}`
-				})),
-			...(cockpit?.goals ?? [])
-				.filter((goal) => !goal.closed_at)
-				.map((goal) => ({
-					id: `goal:${goal.id}`,
-					group: 'Goals',
-					label: goal.title,
-					href: `${root}/work?goal=${encodeURIComponent(goal.id)}`
-				})),
-			...(cockpit?.people ?? [])
-				.filter((person) => !['system', 'owner'].includes(person.kind))
-				.map((person) => ({
-					id: `person:${person.actor_id}`,
-					group: 'People',
-					label: person.display,
-					hint:
-						person.kind === 'exec'
-							? 'Executive'
-							: person.role.charAt(0).toUpperCase() + person.role.slice(1),
-					keywords: 'message talk chat',
-					href: `${root}/people?person=${encodeURIComponent(person.actor_id)}`
-				})),
-			...COMPANY_PAGES.map((companyPage) => ({
-				id: `company:${companyPage.key}`,
-				group: 'Company',
-				label: companyPage.label,
-				hint: companyPage.group,
-				keywords: `settings ${companyPage.keywords ?? ''}`,
-				href: companyPageHref(encodeURIComponent(companyId), companyPage)
-			})),
 			...companies
 				.filter((company) => company.lifecycle_status === 'active' && company.id !== companyId)
 				.map((company) => ({
@@ -1059,6 +1100,56 @@
 			{ id: 'portfolio', group: 'Switch company', label: 'All companies', href: '/' }
 		];
 	});
+
+	/* What this person opened lately, newest first, for ⌘K before anything is typed. A place is
+	 * remembered once its name is known: a document or sheet names itself, a person or a group
+	 * conversation is named from the lists already in hand. */
+	let recents = $state<Recent[]>([]);
+	let recentsFor = '';
+	$effect(() => {
+		const key = `${companyId}:${principal?.actor_id ?? ''}`;
+		if (!principal || recentsFor === key) return;
+		recentsFor = key;
+		recents = readRecents(companyId, principal.actor_id);
+	});
+	$effect(() => {
+		const viewer = principal?.actor_id;
+		if (!viewer || recentsFor !== `${companyId}:${viewer}`) return;
+		const place = recentPlace(companyId, page.url);
+		if (!place) return;
+		const label =
+			place.kind === 'document' || place.kind === 'sheet'
+				? pageContext.title
+				: place.kind === 'person'
+					? place.id === 'exec' || personName(place.id) !== place.id
+						? personName(place.id)
+						: ''
+					: (groupChats.conversations.find((row) => row.room_id === place.id)?.title ?? '');
+		if (!label) return;
+		const key = `${place.kind}:${place.id}`;
+		const current = untrack(() => recents);
+		if (current[0]?.key === key && current[0].label === label) return;
+		const next = remember(current, { key, ...place, label });
+		recents = next;
+		writeRecents(companyId, viewer, next);
+	});
+	const RECENT_HINT = {
+		document: 'Document',
+		sheet: 'Sheet',
+		person: 'Conversation',
+		room: 'Conversation'
+	} as const;
+	const recentCommands = $derived<Command[]>(
+		recents
+			.filter((recent) => recent.href !== `${page.url.pathname}${page.url.search}`)
+			.map((recent) => ({
+				id: `recent:${recent.key}`,
+				group: 'Recent',
+				label: recent.label,
+				hint: RECENT_HINT[recent.kind],
+				href: recent.href
+			}))
+	);
 
 	/* ⌘K reaches the Library too: text inside documents on the server, and sheet titles and kept
 	 * file names from lists read at most every half minute while the menu is in use. */
@@ -1100,12 +1191,41 @@
 		const words = text.toLocaleLowerCase().split(/\s+/).filter(Boolean);
 		const named = (value: string) =>
 			words.every((word) => value.toLocaleLowerCase().includes(word));
-		const [documents, lists] = await Promise.all([
+		const [documents, lists, messages, comments] = await Promise.all([
 			searchDocuments(company, text, 0, signal).catch(() => null),
-			libraryListsFor(company, owner)
+			libraryListsFor(company, owner),
+			searchRoomMessages(company, text, null, 8, signal).catch(() => null),
+			searchComments(company, text, 6, signal).catch(() => [])
 		]);
 		if (signal.aborted || company !== companyId) return [];
+		const conversationName = (roomId: string) => {
+			const direct = directChats.conversations.find((row) => row.room_id === roomId);
+			if (direct) return personName(direct.person_actor_id);
+			return groupChats.conversations.find((row) => row.room_id === roomId)?.title ?? '';
+		};
+		const flat = (value: string) => value.replace(/\s+/g, ' ').trim();
 		return [
+			...(messages?.messages ?? []).map((message) => {
+				const where = conversationName(message.room_id);
+				const who = message.from_actor === viewer ? 'You' : personName(message.from_actor);
+				const thread = message.thread_root_message_id
+					? `&thread=${encodeURIComponent(message.thread_root_message_id)}`
+					: '';
+				return {
+					id: `conversation:${message.id}`,
+					group: 'Conversations',
+					label: flat(message.snippet) || 'Message',
+					hint: where && where !== who ? `${who} in ${where}` : who,
+					href: `${root}/people?room=${encodeURIComponent(message.room_id)}${thread}&focus=${message.id}`
+				};
+			}),
+			...comments.map((comment) => ({
+				id: `comment:${comment.comment_id}`,
+				group: 'Comments',
+				label: flat(comment.snippet) || 'Comment',
+				hint: `${comment.author_actor_id === viewer ? 'You' : personName(comment.author_actor_id)} on ${comment.document_title || 'Untitled document'}`,
+				href: comment.href
+			})),
 			...(documents?.items ?? []).map((hit) => {
 				const flat = hit.snippet.replace(/\s+/g, ' ').trim();
 				const at = flat.toLocaleLowerCase().indexOf(text.toLocaleLowerCase());
@@ -1258,6 +1378,7 @@
 			{companies}
 			{tabs}
 			{commands}
+			recents={recentCommands}
 			search={principal ? searchLibrary : null}
 			{viewerName}
 			{viewerRole}

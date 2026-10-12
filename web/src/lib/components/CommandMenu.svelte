@@ -17,10 +17,10 @@
 </script>
 
 <script lang="ts">
-	/* One place to jump to anything in the company: surfaces, settings pages,
-	 * Work, goals, people and other companies. It replaces hunting through the
-	 * switcher, the settings spine and the Work map when the owner already
-	 * knows what they want. */
+	/* One place to jump to anything in the company: what was open lately, surfaces, settings
+	 * pages, Work, goals, people, conversations and other companies. It replaces hunting through
+	 * the switcher, the settings spine and the Work map when the person already knows what they
+	 * want. */
 	import { tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import Search from '@lucide/svelte/icons/search';
@@ -29,10 +29,13 @@
 	let {
 		open = $bindable(false),
 		commands,
+		recents = [],
 		search = null
 	}: {
 		open?: boolean;
 		commands: Command[];
+		/** What this person opened lately, shown first before anything is typed. */
+		recents?: Command[];
 		search?: CommandSearch | null;
 	} = $props();
 
@@ -44,6 +47,8 @@
 	let returnFocus: HTMLElement | null = null;
 
 	const PER_GROUP = 8;
+	/* A group's "more" opens the rest of it in place; typing again folds it back. */
+	let expanded = $state<string[]>([]);
 	/* The exit plays before the dialog closes. */
 	let leaving = $state(false);
 
@@ -81,7 +86,8 @@
 
 	const results = $derived.by(() => {
 		const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
-		const matches = commands.filter((command) => {
+		const pool = words.length ? commands : [...recents, ...commands];
+		const matches = pool.filter((command) => {
 			if (!words.length) return true;
 			const haystack =
 				`${command.label} ${command.hint ?? ''} ${command.group} ${command.keywords ?? ''}`.toLocaleLowerCase();
@@ -110,7 +116,8 @@
 			...ranked.slice(split)
 		]) {
 			const group = groups.get(command.group) ?? { items: [], total: 0 };
-			if (group.items.length < PER_GROUP) group.items.push(command);
+			if (group.items.length < PER_GROUP || expanded.includes(command.group))
+				group.items.push(command);
 			group.total += 1;
 			groups.set(command.group, group);
 		}
@@ -125,7 +132,23 @@
 	$effect(() => {
 		void query;
 		active = 0;
+		expanded = [];
 	});
+
+	function expand(group: string) {
+		const first = results.find((section) => section.group === group)?.items.length ?? 0;
+		expanded = [...expanded, group];
+		/* The keyboard lands on the first row that was hidden. */
+		void tick().then(() => {
+			const before = results.slice(
+				0,
+				results.findIndex((section) => section.group === group)
+			);
+			active = before.reduce((total, section) => total + section.items.length, 0) + first;
+			input?.focus();
+			list?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest' });
+		});
+	}
 
 	$effect(() => {
 		if (!dialog) return;
@@ -133,6 +156,7 @@
 			returnFocus = document.activeElement as HTMLElement | null;
 			query = '';
 			active = 0;
+			expanded = [];
 			dialog.showModal();
 			void tick().then(() => input?.focus());
 		} else if (!open && dialog.open) {
@@ -215,7 +239,7 @@
 				bind:value={query}
 				{onkeydown}
 				type="text"
-				placeholder="Jump to Work, a document, file, person or setting…"
+				placeholder="Search documents, conversations, people and settings…"
 				aria-label="Search"
 				role="combobox"
 				aria-expanded="true"
@@ -257,14 +281,17 @@
 						</button>
 					{/each}
 					{#if section.more > 0}
-						<p class="command-more" aria-hidden="true">
-							{section.more} more in {section.group}. Keep typing to narrow.
-						</p>
+						<button
+							type="button"
+							class="command-more"
+							tabindex="-1"
+							onclick={() => expand(section.group)}>Show {section.more} more</button
+						>
 					{/if}
 				</div>
 			{:else}
 				<p class="command-empty">
-					{searching ? 'Searching the Library…' : `No match for “${query.trim()}”.`}
+					{searching ? 'Searching…' : `No match for “${query.trim()}”.`}
 				</p>
 			{/each}
 		</div>
@@ -464,10 +491,19 @@
 	}
 
 	.command-more {
-		margin: 0;
-		padding: 4px 10px 8px;
+		margin: 0 0 4px;
+		padding: 4px 10px;
+		border: 0;
+		border-radius: var(--radius-control);
+		background: transparent;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
+		cursor: pointer;
+	}
+
+	.command-more:hover {
+		background: var(--wash-hover);
+		color: var(--text-secondary);
 	}
 
 	@media (max-width: 760px) {
