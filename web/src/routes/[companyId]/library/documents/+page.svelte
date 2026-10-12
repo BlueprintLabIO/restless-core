@@ -8,6 +8,8 @@
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import BookOpen from '@lucide/svelte/icons/book-open';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
+	import Lock from '@lucide/svelte/icons/lock';
+	import { PRIVATE_HINT } from '$lib/model/general-access';
 	import DocumentEditor from '$lib/components/DocumentEditor.svelte';
 	import DocumentShare from '$lib/components/DocumentShare.svelte';
 	import LibraryCrumb from '$lib/components/LibraryCrumb.svelte';
@@ -63,12 +65,13 @@
 	const failure = $derived(shellPrincipal.failure ?? detail.failure ?? null);
 	const principalId = $derived(shellPrincipal.view?.actor_id ?? '');
 	const people = $derived((ownerAccess ? cockpit.view?.people : collaboration.view?.people) ?? []);
-	/* Sharing belongs to the document's owner. Anyone who may edit it retitles, archives and
-	 * restores it; the company's owner may do that to anything they can read. */
+	/* Anyone who can open it sees who else can; its creator, the company's owner and the Exec
+	 * change that. Anyone who may edit it retitles, archives and restores it; the company's owner
+	 * may do that to anything they can read. */
 	const ownsDocument = $derived(
 		Boolean(documentView && principalId && documentView.document.owner_actor_id === principalId)
 	);
-	const sharing = $derived(inspectorValue === 'share' && ownsDocument);
+	const sharing = $derived(inspectorValue === 'share');
 	const mayRename = $derived(ownerAccess || ownsDocument || documentView?.access === 'edit');
 	const mayArchive = $derived(ownerAccess || documentView?.access === 'edit');
 	const archived = $derived(documentView?.document.status === 'archived');
@@ -318,7 +321,10 @@
 				oncomment={openBlockComment}
 				ondirtychange={(value) => (documentDirty = value)}
 			>
-				{#snippet leading()}<LibraryCrumb {companyId} show="docs" />{/snippet}
+				{#snippet leading()}<LibraryCrumb {companyId} show="docs" />{#if documentView.document.general_access === 'private'}<span
+							class="private"
+							title={PRIVATE_HINT}><Lock size={13} strokeWidth={1.8} aria-label="Private" /></span
+						>{/if}{/snippet}
 				{#snippet actions()}
 					{#if ownerAccess && !documentView.document.linked_room_id}
 						<button
@@ -336,16 +342,14 @@
 							title="Talk it through with Exec, with this document alongside">Discuss</a
 						>
 					{/if}
-					{#if ownsDocument}
-						<button
-							type="button"
-							class="btn small share"
-							class:active={sharing}
-							aria-expanded={sharing}
-							title="Choose who can read, comment on or edit it, Exec and Staff included"
-							onclick={() => (sharing ? closeInspector() : changePanel('share'))}>Share</button
-						>
-					{/if}
+					<button
+						type="button"
+						class="btn small share"
+						class:active={sharing}
+						aria-expanded={sharing}
+						title="Who can open it, and at what level, Exec and Staff included"
+						onclick={() => (sharing ? closeInspector() : changePanel('share'))}>Share</button
+					>
 					{#if follow?.id === documentView.document.id}
 						<button
 							type="button"
@@ -382,11 +386,9 @@
 							>Discuss with Exec</button
 						>
 					{/if}
-					{#if ownsDocument}
-						<button type="button" class="narrow-only" onclick={() => changePanel('share')}
-							>Share…</button
-						>
-					{/if}
+					<button type="button" class="narrow-only" onclick={() => changePanel('share')}
+						>Share…</button
+					>
 					{#if follow?.id === documentView.document.id}
 						<button type="button" class="narrow-only" onclick={() => void toggleFollow()}
 							>{follow.following ? 'Unfollow' : 'Follow'}</button
@@ -639,6 +641,11 @@
 		display: flex;
 		gap: 8px;
 		margin-top: var(--space-2);
+	}
+	.private {
+		display: inline-grid;
+		place-items: center;
+		color: var(--text-tertiary);
 	}
 	/* Below the width that fits both, the discussion takes the document's place. */
 	@media (max-width: 1180px) {

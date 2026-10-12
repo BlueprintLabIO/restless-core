@@ -1,19 +1,21 @@
 <script lang="ts">
-	/* Who can open a document, for its owner: the company as a whole (people read it), and anyone
-	 * named here, Exec and Staff included, at view, comment or edit. Exec and Staff never see a
-	 * document through company visibility; this is how one reaches them. */
+	/* Who can open a document: its general access for the company's people, and anyone added by
+	 * name, Exec and Staff included, at view, comment or edit. Exec and Staff never see a document
+	 * through general access; adding them is how one reaches them. Whoever may not manage sharing
+	 * sees the same, read-only. */
 	import { untrack } from 'svelte';
 	import X from '@lucide/svelte/icons/x';
-	import Toggle from '$lib/ui/page/Toggle.svelte';
+	import SharePanel from '$lib/components/SharePanel.svelte';
 	import { failureSentence } from '$lib/model/failure';
+	import { generalAccessOptions, type GeneralAccess } from '$lib/model/general-access';
 	import type { DocumentTarget } from '$lib/model/document-cache';
 	import {
 		getDocument,
 		getDocumentParticipants,
 		isDocumentConflict,
 		removeDocumentParticipant,
+		setDocumentGeneralAccess,
 		setDocumentParticipant,
-		updateDocumentMetadata,
 		type DocumentAccess,
 		type DocumentParticipantCursor,
 		type DocumentParticipantRow,
@@ -41,44 +43,51 @@
 		onclose: () => void;
 	} = $props();
 
-	const ACCESS: ReadonlyArray<{ value: DocumentAccess; label: string }> = [
+	const LEVELS: ReadonlyArray<{ value: DocumentAccess; label: string }> = [
 		{ value: 'read', label: 'Can view' },
 		{ value: 'comment', label: 'Can comment' },
 		{ value: 'edit', label: 'Can edit' }
 	];
 
 	let participants = $state<DocumentParticipantRow[]>([]);
+	let mayManage = $state(false);
 	let loaded = $state(false);
 	let busy = $state(false);
 	let failure = $state('');
-	let person = $state('');
-	let grant = $state<DocumentAccess>('comment');
 
 	const documentId = $derived(view.document.id);
 	const ownerId = $derived(view.document.owner_actor_id);
 	const nameOf = (actorId: string) =>
 		people.find((candidate) => candidate.actor_id === actorId)?.display ?? actorId;
-	const shared = $derived(participants.filter((row) => row.actor_id !== ownerId));
-	const candidates = $derived(
-		people.filter(
-			(candidate) =>
-				candidate.kind !== 'system' &&
-				candidate.actor_id !== ownerId &&
-				!participants.some((row) => row.actor_id === candidate.actor_id)
-		)
+	const shared = $derived(
+		participants
+			.filter((row) => row.actor_id !== ownerId)
+			.map((row) => ({ actor_id: row.actor_id, name: nameOf(row.actor_id), access: row.access }))
+	);
+	const directory = $derived(people.filter((person) => person.actor_id !== ownerId));
+	const link = $derived(
+		typeof location === 'undefined'
+			? ''
+			: new URL(
+					`/${encodeURIComponent(companyId)}/library/documents?document=${encodeURIComponent(documentId)}`,
+					location.origin
+				).href
 	);
 
 	async function load(target: DocumentTarget): Promise<void> {
 		const rows: DocumentParticipantRow[] = [];
 		let cursor: DocumentParticipantCursor | null = null;
+		let manages = false;
 		for (let page = 0; page < 10; page += 1) {
 			const result = await getDocumentParticipants(target.companyId, target.documentId, cursor);
 			rows.push(...result.items);
+			manages = result.may_manage;
 			cursor = result.next_cursor;
 			if (!cursor) break;
 		}
 		if (target.companyId !== companyId || target.documentId !== documentId) return;
 		participants = rows;
+		mayManage = manages;
 		loaded = true;
 	}
 
@@ -86,6 +95,7 @@
 		const target = { companyId, documentId };
 		untrack(() => {
 			participants = [];
+			mayManage = false;
 			loaded = false;
 			failure = '';
 			void load(target).catch((cause) => {
@@ -122,57 +132,53 @@
 		}
 	}
 
-	function share(event: SubmitEvent): void {
-		event.preventDefault();
-		const actorId = person;
-		const access = grant;
-		if (!actorId) return;
-		person = '';
+	function add(actorId: string, access: string): void {
 		void change(
 			(version, commandId) =>
-				setDocumentParticipant(companyId, documentId, actorId, version, access, commandId),
-			'It was not shared.'
+				setDocumentParticipant(
+					companyId,
+					documentId,
+					actorId,
+					version,
+					access as DocumentAccess,
+					commandId
+				),
+			`${nameOf(actorId)} was not added.`
 		);
 	}
 
-	function setAccess(row: DocumentParticipantRow, access: DocumentAccess): void {
+	function setAccess(actorId: string, access: string): void {
 		participants = participants.map((item) =>
-			item.actor_id === row.actor_id ? { ...item, access } : item
+			item.actor_id === actorId ? { ...item, access: access as DocumentAccess } : item
 		);
 		void change(
 			(version, commandId) =>
-				setDocumentParticipant(companyId, documentId, row.actor_id, version, access, commandId),
+				setDocumentParticipant(
+					companyId,
+					documentId,
+					actorId,
+					version,
+					access as DocumentAccess,
+					commandId
+				),
 			'Access was not changed.'
 		);
 	}
 
-	function remove(row: DocumentParticipantRow): void {
-		participants = participants.filter((item) => item.actor_id !== row.actor_id);
+	function remove(actorId: string): void {
+		participants = participants.filter((item) => item.actor_id !== actorId);
 		void change(
 			(version, commandId) =>
-				removeDocumentParticipant(companyId, documentId, row.actor_id, version, commandId),
+				removeDocumentParticipant(companyId, documentId, actorId, version, commandId),
 			'Access was not removed.'
 		);
 	}
 
-	function setCompanyVisible(visible: boolean): void {
-		const source = view.document;
+	function setGeneral(value: GeneralAccess): void {
 		void change(
 			(version, commandId) =>
-				updateDocumentMetadata(
-					companyId,
-					documentId,
-					{
-						expected_version: version,
-						title: source.title,
-						kind: source.kind,
-						visibility: visible ? 'company' : 'participants',
-						linked_room_id: source.linked_room_id,
-						inherit_room_visibility: visible ? false : source.inherit_room_visibility
-					},
-					commandId
-				),
-			'Visibility was not changed.'
+				setDocumentGeneralAccess(companyId, documentId, version, value, commandId),
+			'General access was not changed.'
 		);
 	}
 </script>
@@ -185,65 +191,23 @@
 		>
 	</header>
 	<div class="share-body">
-		<div class="visibility">
-			<span
-				title="Everyone in the company can open and read it. Exec and Staff see a document only once it is shared with them below."
-				>Company can read</span
-			>
-			<Toggle
-				checked={view.document.visibility === 'company'}
-				label="Everyone in the company can read it"
-				disabled={busy}
-				onchange={setCompanyVisible}
-			/>
-		</div>
-
-		<form class="add" onsubmit={share}>
-			<select bind:value={person} aria-label="Person" disabled={busy || !candidates.length}>
-				<option value="">{candidates.length ? 'Add someone' : 'Everyone is added'}</option>
-				{#each candidates as candidate (candidate.actor_id)}
-					<option value={candidate.actor_id}>{candidate.display}</option>
-				{/each}
-			</select>
-			<select bind:value={grant} aria-label="Access" disabled={busy}>
-				{#each ACCESS as option (option.value)}
-					<option value={option.value}>{option.label}</option>
-				{/each}
-			</select>
-			<button type="submit" class="btn small primary" disabled={busy || !person}>Share</button>
-		</form>
-
-		{#if failure}<p class="share-error" role="alert">{failure}</p>{/if}
-
-		<ul class="people" aria-label="People with access" aria-busy={!loaded}>
-			<li>
-				<span class="name">{nameOf(ownerId)}</span>
-				<span class="fixed" title="The owner can always edit, share and rename it">Owner</span>
-			</li>
-			{#each shared as row (row.actor_id)}
-				<li>
-					<span class="name">{nameOf(row.actor_id)}</span>
-					<select
-						value={row.access}
-						aria-label={`Access for ${nameOf(row.actor_id)}`}
-						disabled={busy}
-						onchange={(event) => setAccess(row, event.currentTarget.value as DocumentAccess)}
-					>
-						{#each ACCESS as option (option.value)}
-							<option value={option.value}>{option.label}</option>
-						{/each}
-					</select>
-					<button
-						type="button"
-						class="close"
-						aria-label={`Remove ${nameOf(row.actor_id)}`}
-						title="Remove access"
-						disabled={busy}
-						onclick={() => remove(row)}><X size={14} strokeWidth={2} /></button
-					>
-				</li>
-			{/each}
-		</ul>
+		<SharePanel
+			general={view.document.general_access}
+			generalOptions={generalAccessOptions('document')}
+			levels={LEVELS}
+			ownerName={nameOf(ownerId)}
+			people={shared}
+			{directory}
+			canManage={mayManage}
+			{busy}
+			{loaded}
+			{failure}
+			{link}
+			ongeneral={setGeneral}
+			onadd={add}
+			onaccess={setAccess}
+			onremove={remove}
+		/>
 	</div>
 </section>
 
@@ -281,82 +245,13 @@
 		color: var(--text-tertiary);
 		cursor: pointer;
 	}
-	.close:hover:not(:disabled) {
+	.close:hover {
 		background: var(--wash-hover);
 		color: var(--ink);
 	}
-	.close:disabled {
-		opacity: 0.45;
-		cursor: not-allowed;
-	}
 	.share-body {
-		display: grid;
-		align-content: start;
-		gap: 14px;
 		min-height: 0;
 		overflow: auto;
 		padding: 14px 12px;
-	}
-	.visibility {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 10px;
-		color: var(--text-secondary);
-	}
-	.add {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto auto;
-		gap: 6px;
-	}
-	select {
-		min-width: 0;
-		height: 30px;
-		padding: 0 6px;
-		border: 1px solid var(--control-edge);
-		border-radius: var(--radius-control);
-		background: var(--surface-raised);
-		color: var(--ink);
-		font: var(--t-body) var(--font-ui);
-	}
-	.share-error {
-		margin: 0;
-		padding: 8px 10px;
-		border-radius: var(--radius-control);
-		background: var(--state-danger-soft);
-		color: var(--state-danger);
-	}
-	.people {
-		display: grid;
-		margin: 0;
-		padding: 0;
-		list-style: none;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
-		background: var(--surface-raised);
-	}
-	.people li {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto auto;
-		align-items: center;
-		gap: 6px;
-		min-height: 44px;
-		padding: 6px 8px 6px 12px;
-	}
-	.people li + li {
-		border-top: 1px solid var(--border);
-	}
-	.people li:first-child {
-		grid-template-columns: minmax(0, 1fr) auto;
-	}
-	.name {
-		min-width: 0;
-		overflow: hidden;
-		color: var(--ink);
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.fixed {
-		color: var(--text-tertiary);
 	}
 </style>

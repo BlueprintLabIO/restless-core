@@ -1,5 +1,8 @@
+import type { GeneralAccess } from './general-access.ts';
 export interface SheetRow {
 	id: string; title: string; owner_actor_id: string; visibility: 'company' | 'participants';
+	/** What every person in the company may do without being added: private, view or edit. */
+	general_access: GeneralAccess;
 	engine_version: string; head_revision: string; sequence: number; updated_at: string;
 	/** Set while the sheet is archived out of the Library. It still opens. */
 	archived_at?: string | null;
@@ -22,6 +25,25 @@ export function createSheet(company: string, id: string, title: string): Promise
 /** Rename a sheet: 1-200 characters, for its editors and the company's owner. */
 export function renameSheet(company: string, id: string, title: string): Promise<SheetRow> {
 	return sheetJson(company, `/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ title }) });
+}
+/** Who can open a sheet, for its share panel. */
+export interface SheetSharing {
+	general_access: GeneralAccess;
+	owner_actor_id: string;
+	people: { actor_id: string; access: 'read' | 'edit' }[];
+	/** Whether the reader may change any of it: its owner, the company's owner, or the Exec. */
+	may_manage: boolean;
+}
+export function getSheetSharing(company: string, id: string): Promise<SheetSharing> {
+	return sheetJson(company, `/${encodeURIComponent(id)}/participants`);
+}
+export function setSheetGeneralAccess(company: string, id: string, general_access: GeneralAccess): Promise<SheetRow> {
+	return sheetJson(company, `/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ general_access }) });
+}
+/** Add someone to a sheet at a level, change their level, or with null remove them. */
+export function setSheetParticipant(company: string, id: string, actor: string, access: 'read' | 'edit' | null): Promise<unknown> {
+	const path = `/${encodeURIComponent(id)}/participants/${encodeURIComponent(actor)}`;
+	return sheetJson(company, path, access ? { method: 'PUT', body: JSON.stringify({ access }) } : { method: 'DELETE' });
 }
 export function sheetHref(company: string, id: string): string {
 	return `/${encodeURIComponent(company)}/library/sheets?sheet=${encodeURIComponent(id)}`;

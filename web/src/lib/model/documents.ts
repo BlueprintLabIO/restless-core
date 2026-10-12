@@ -1,4 +1,5 @@
 import { responseFailure } from './failure.ts';
+import type { GeneralAccess } from './general-access.ts';
 export type DocumentKind =
 	| 'brief'
 	| 'plan'
@@ -42,6 +43,8 @@ export interface DocumentRow {
 	kind: DocumentKind;
 	status: DocumentStatus;
 	visibility: DocumentVisibility;
+	/** What every person in the company may do without being added. */
+	general_access: GeneralAccess;
 	linked_room_id: string | null;
 	inherit_room_visibility: boolean;
 	owner_actor_id: string;
@@ -157,6 +160,8 @@ export interface DocumentParticipantCursor {
 export interface DocumentParticipantPage {
 	items: DocumentParticipantRow[];
 	next_cursor: DocumentParticipantCursor | null;
+	/** Whether the reader may change who has access; anyone who can open it sees the list. */
+	may_manage: boolean;
 }
 
 export interface DocumentCommentThreadRow {
@@ -452,6 +457,21 @@ export function updateDocumentMetadata(
 	commandId: string
 ): Promise<DocumentCommandResult> {
 	return documentJson(documentsPath(company, document), mutation(input, commandId, 'PATCH'));
+}
+
+/** Set what every person in the company may do without being added. Its creator, the company's
+ * owner and the Exec may; anyone else is told it is unavailable. */
+export function setDocumentGeneralAccess(
+	company: string,
+	document: string,
+	expectedVersion: number,
+	generalAccess: GeneralAccess,
+	commandId: string
+): Promise<DocumentCommandResult> {
+	return documentJson(
+		documentsPath(company, document),
+		mutation({ expected_version: expectedVersion, general_access: generalAccess }, commandId, 'PATCH')
+	);
 }
 
 export function getDocumentVersions(

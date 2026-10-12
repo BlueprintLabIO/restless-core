@@ -365,6 +365,7 @@ test('checkpoint metadata uses the edit base instead of borrowing a later fetche
 		kind: 'brief',
 		status: 'draft',
 		visibility: 'participants',
+		general_access: 'private',
 		linked_room_id: 'room-a',
 		inherit_room_visibility: true,
 		owner_actor_id: 'owner',

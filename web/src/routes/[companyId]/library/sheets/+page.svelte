@@ -7,12 +7,15 @@
 	import { page } from '$app/state';
 	import { goto, replaceState } from '$app/navigation';
 	import X from '@lucide/svelte/icons/x';
+	import Lock from '@lucide/svelte/icons/lock';
 	import FileSpreadsheet from '@lucide/svelte/icons/file-spreadsheet';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import { Item, Notice, Empty } from '$lib/ui/page';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import SheetEditor from '$lib/components/SheetEditor.svelte';
 	import LibraryCrumb from '$lib/components/LibraryCrumb.svelte';
+	import SheetShare from '$lib/components/SheetShare.svelte';
+	import { PRIVATE_HINT } from '$lib/model/general-access';
 	import type { EditorStatus } from '$lib/model/sheet-editor';
 	import {
 		SPREADSHEET_ACCEPT,
@@ -58,9 +61,6 @@
 		worksheet = $state('');
 	let panel = $state<'history' | 'sharing' | ''>('');
 	let versions = $state<Version[] | null>(null);
-	let participant = $state(''),
-		grant = $state('edit'),
-		sharing = $state(false);
 	let csvInput: HTMLInputElement | undefined = $state();
 	let importInput: HTMLInputElement | undefined = $state();
 	let editor: SheetEditor | undefined = $state();
@@ -74,7 +74,6 @@
 	let lastImport = $state<File | null>(null);
 	let epoch = 0;
 	const ready = $derived(saveState === 'saved');
-	const owned = $derived(!!row && row.owner_actor_id === principal.view?.actor_id);
 	/* Renaming, archiving and restoring: the sheet's editors, and the company's owner. */
 	const canManage = $derived(!!row && (access === 'edit' || hasOwnerSurfaceAccess(principal.view)));
 
@@ -338,23 +337,6 @@
 				}),
 			(copy) => void goto(`${sheetHref(company, copy.id)}&rename=1`)
 		);
-	async function share(event: SubmitEvent) {
-		event.preventDefault();
-		if (!participant || sharing) return;
-		sharing = true;
-		await act(
-			() =>
-				sheetJson(company, `/${sheet}/participants/${encodeURIComponent(participant)}`, {
-					method: grant === 'remove' ? 'DELETE' : 'PUT',
-					...(grant === 'remove' ? {} : { body: JSON.stringify({ access: grant }) })
-				}),
-			() => {
-				participant = '';
-				panel = '';
-			}
-		);
-		sharing = false;
-	}
 	const stateLabel = $derived(
 		saveState === 'saved'
 			? access === 'edit'
@@ -411,6 +393,9 @@
 			{:else}
 				<h1 title={row?.title}>{row?.title ?? (missing ? 'Sheet unavailable' : '')}</h1>
 			{/if}
+			{#if row?.general_access === 'private'}<span class="private" title={PRIVATE_HINT}
+					><Lock size={13} strokeWidth={1.8} aria-label="Private" /></span
+				>{/if}
 			{#if !importing}<span
 					class="state state-{saveState}"
 					class:flash={!!flash}
@@ -418,13 +403,13 @@
 				>{/if}
 			<span class="spacer"></span>
 			{#if row}
-				{#if owned}<button
-						class="btn small"
-						class:active={panel === 'sharing'}
-						type="button"
-						title="Give a colleague read or edit access"
-						onclick={() => openPanel('sharing')}>Share</button
-					>{/if}
+				<button
+					class="btn small"
+					class:active={panel === 'sharing'}
+					type="button"
+					title="Who can open it, and at what level, Exec and Staff included"
+					onclick={() => openPanel('sharing')}>Share</button
+				>
 				<ActionMenu label="Sheet actions">
 					<button type="button" onclick={() => openPanel('history')}>History</button>
 					<button type="button" onclick={copyLink}>Copy link</button>
@@ -605,26 +590,14 @@
 					{/if}
 				</div>
 			{:else}
-				<form class="side-body share" onsubmit={share}>
-					<label
-						><span>Colleague</span><select bind:value={participant}
-							><option value="">Choose a colleague</option
-							>{#each directory.view?.people ?? [] as person (person.actor_id)}<option
-									value={person.actor_id}>{person.display}</option
-								>{/each}</select
-						></label
-					>
-					<label
-						><span>Access</span><select bind:value={grant}
-							><option value="edit">Can edit</option><option value="read">Can view</option><option
-								value="remove">Remove access</option
-							></select
-						></label
-					>
-					<button class="btn small primary" disabled={!participant || sharing}
-						>{sharing ? 'Applying…' : 'Apply'}</button
-					>
-				</form>
+				<div class="side-body">
+					<SheetShare
+						{company}
+						{sheet}
+						people={directory.view?.people ?? []}
+						onchanged={(value) => (row = { ...value })}
+					/>
+				</div>
 			{/if}
 		</aside>
 	{/if}
@@ -767,18 +740,11 @@
 		margin: 4px;
 		color: var(--text-tertiary);
 	}
-	.share {
+	.private {
 		display: grid;
-		align-content: start;
-		gap: 14px;
-	}
-	.share label {
-		display: grid;
-		gap: 6px;
-		color: var(--text-secondary);
-	}
-	.share .btn {
-		justify-self: end;
+		flex: none;
+		place-items: center;
+		color: var(--text-tertiary);
 	}
 	/* Below the width that fits both, the panel takes the sheet's place. */
 	@media (max-width: 1100px) {

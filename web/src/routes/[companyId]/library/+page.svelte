@@ -38,6 +38,8 @@
 	import Upload from '@lucide/svelte/icons/upload';
 	import Pin from '@lucide/svelte/icons/pin';
 	import FileIcon from '@lucide/svelte/icons/file';
+	import Lock from '@lucide/svelte/icons/lock';
+	import { PRIVATE_HINT } from '$lib/model/general-access';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import {
 		LIBRARY_KIND_LABEL,
@@ -463,6 +465,8 @@
 		sent?: boolean;
 		/** Search relevance order; absent outside a search. */
 		rank?: number;
+		/** A document or sheet only the people added can open. */
+		private?: boolean;
 	};
 	const pinKey = (entry: Pick<Entry, 'kind' | 'id'>) => `${entry.kind}:${entry.id}`;
 	const isNative = (entry: Pick<Entry, 'kind'>) => entry.kind === 'doc' || entry.kind === 'sheet';
@@ -490,6 +494,7 @@
 		updatedAt: summary.document.updated_at,
 		owner: name(summary.document.owner_actor_id),
 		manage: owner || summary.access === 'edit',
+		private: summary.document.general_access === 'private',
 		status: archived ? '' : summary.document.status,
 		review:
 			!archived && (summary.document.status === 'in_review' || requested.has(summary.document.id))
@@ -502,6 +507,7 @@
 		updatedAt: sheet.updated_at,
 		owner: name(sheet.owner_actor_id),
 		manage: owner || !!sheet.may_manage,
+		private: sheet.general_access === 'private',
 		status: '',
 		review: false
 	});
@@ -1161,6 +1167,9 @@
 											tone={statusTone(entry.status)}
 											label={statusLabel(entry.status)}
 										/>{/if}
+									{#if entry.private}<span class="private" title={PRIVATE_HINT}
+											><Lock size={13} strokeWidth={1.8} aria-label="Private" /></span
+										>{/if}
 									<RelativeTime value={entry.updatedAt} />
 								{/snippet}
 								{#snippet actions()}
@@ -1470,6 +1479,11 @@
 	}
 	.review {
 		color: var(--intent-authority);
+	}
+	.private {
+		display: inline-grid;
+		place-items: center;
+		color: var(--text-tertiary);
 	}
 	.more {
 		width: 100%;
