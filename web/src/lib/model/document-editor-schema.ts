@@ -572,6 +572,7 @@ function caretExtension(provider: HocuspocusProvider, carets: DocumentCarets) {
 			const hue = caretHue(actorId);
 			const caret = window.document.createElement('span');
 			caret.classList.add('collaboration-carets__caret');
+			caret.dataset.actorId = actorId;
 			caret.style.borderColor = `hsl(${hue} 65% 45%)`;
 			const label = window.document.createElement('div');
 			label.classList.add('collaboration-carets__label');
