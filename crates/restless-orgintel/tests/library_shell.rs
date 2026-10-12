@@ -4,7 +4,8 @@
 
 use restless_orgintel::{
     DocumentAccess, DocumentKind, DocumentVisibility, NewDocument, NewDocumentCommentThread,
-    NewNamedDocumentVersion, OrgIntel, SetDocumentParticipant, MAX_LIBRARY_PINS,
+    NewNamedDocumentVersion, OrgIntel, RemoveDocumentParticipant, SetDocumentParticipant,
+    MAX_LIBRARY_PINS,
 };
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -157,6 +158,30 @@ async fn comment_search_answers_only_from_documents_the_person_can_read() {
     assert_eq!(found(alex.clone()), vec!["Pricing"]);
     assert!(alex[0].snippet.contains("margin"));
     assert_eq!(alex[0].author_actor_id, "owner");
+    // Once Bianca is taken off the board notes, its comments stop answering her, her own included.
+    let version = org
+        .get_document_for_actor(board, "owner")
+        .await
+        .unwrap()
+        .document
+        .version;
+    org.remove_document_participant(RemoveDocumentParticipant {
+        command_id: Uuid::new_v4(),
+        document_id: board,
+        actor_id: "owner",
+        expected_document_version: version,
+        participant_actor_id: "bianca",
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        found(
+            org.search_document_comments_for_actor("bianca", "margin", 8)
+                .await
+                .unwrap()
+        ),
+        vec!["Pricing"]
+    );
     // Exec sees a document only once it is shared with Exec, comments included.
     assert!(org
         .search_document_comments_for_actor("exec", "margin", 8)
@@ -219,4 +244,56 @@ async fn the_library_says_who_changed_a_document_last() {
         editor(org.list_documents_for_actor("bianca", false, None, 20).await.unwrap()),
         Some("alex".into())
     );
+}
+
+#[tokio::test]
+async fn the_library_says_who_changed_a_sheet_last() {
+    let Some(org) = company("sheeteditor").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping sheet editor scenario");
+        return;
+    };
+    let sheet = Uuid::new_v4();
+    let mut head = Uuid::new_v4().to_string();
+    org.create_sheet(sheet, "bianca", "Deals", "company", &json!({ "revisionId": head }))
+        .await
+        .unwrap();
+    let editor = |rows: Vec<restless_orgintel::SheetRow>| {
+        rows.into_iter()
+            .find(|row| row.id == sheet)
+            .and_then(|row| row.last_editor_actor_id)
+    };
+    // Nobody has changed it since it was made.
+    assert_eq!(editor(org.list_sheets("alex").await.unwrap()), None);
+
+    for person in ["alex", "bianca", "alex"] {
+        let next = Uuid::new_v4().to_string();
+        let message = json!({
+            "version": 1,
+            "type": "REMOTE_REVISION",
+            "serverRevisionId": head,
+            "nextRevisionId": next,
+            "clientId": Uuid::new_v4().to_string(),
+            "commands": []
+        });
+        org.accept_sheet_messages(
+            sheet,
+            person,
+            &head,
+            &[message],
+            &json!({ "revisionId": next }),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        head = next;
+        // Each reader sees the newest change's author, whoever is reading.
+        for reader in ["alex", "bianca", "owner"] {
+            assert_eq!(
+                editor(org.list_sheets(reader).await.unwrap()).as_deref(),
+                Some(person),
+                "{reader} after {person}"
+            );
+        }
+    }
 }
