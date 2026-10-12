@@ -91,6 +91,15 @@
 		}
 	}
 
+	/* Show a level change or removal at once; the read-back after it restores the truth. */
+	function optimistic(actorId: string, access: 'read' | 'edit' | null): void {
+		if (!sharing) return;
+		const people = access
+			? sharing.people.map((row) => (row.actor_id === actorId ? { ...row, access } : row))
+			: sharing.people.filter((row) => row.actor_id !== actorId);
+		sharing = { ...sharing, people };
+	}
+
 	function setGeneral(value: GeneralAccess): void {
 		void change(async () => onchanged(await setSheetGeneralAccess(company, sheet, value)),
 			'General access was not changed.'
@@ -117,16 +126,22 @@
 			() => setSheetParticipant(company, sheet, actorId, access as 'read' | 'edit'),
 			`${nameOf(actorId)} was not added.`
 		)}
-	onaccess={(actorId, access) =>
+	onaccess={(actorId, access) => {
+		if (busy) return;
+		optimistic(actorId, access as 'read' | 'edit');
 		void change(
 			() => setSheetParticipant(company, sheet, actorId, access as 'read' | 'edit'),
 			'Access was not changed.'
-		)}
-	onremove={(actorId) =>
+		);
+	}}
+	onremove={(actorId) => {
+		if (busy) return;
+		optimistic(actorId, null);
 		void change(
 			() => setSheetParticipant(company, sheet, actorId, null),
 			'Access was not removed.'
-		)}
+		);
+	}}
 />{/if}
 
 <style>

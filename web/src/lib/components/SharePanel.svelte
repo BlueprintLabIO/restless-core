@@ -57,8 +57,14 @@
 	let query = $state('');
 	/* People are added at the highest level unless chosen otherwise, as in Notion. */
 	let grant = $state(highestLevel());
-	let copied = $state(false);
+	let copied = $state<'' | 'copied' | 'failed'>('');
 	let copyTimer: ReturnType<typeof setTimeout> | undefined;
+	/* The general access just chosen, shown while it is saved. Once the change settles the
+	 * selector shows what the server holds again, so a refused change does not linger. */
+	let pendingGeneral = $state<GeneralAccess | null>(null);
+	$effect(() => {
+		if (!busy) pendingGeneral = null;
+	});
 
 	function highestLevel(): string {
 		return levels[levels.length - 1]?.value ?? 'edit';
@@ -73,8 +79,15 @@
 		levels.find((level) => level.value === value)?.label ?? value;
 
 	function add(actorId: string): void {
+		if (busy) return;
 		query = '';
 		onadd(actorId, grant);
+	}
+
+	function chooseGeneral(select: HTMLSelectElement): void {
+		const value = select.value as GeneralAccess;
+		pendingGeneral = value;
+		ongeneral(value);
 	}
 
 	function onkeydown(event: KeyboardEvent): void {
@@ -91,12 +104,12 @@
 	async function copyLink(): Promise<void> {
 		try {
 			await navigator.clipboard.writeText(link);
-			copied = true;
-			clearTimeout(copyTimer);
-			copyTimer = setTimeout(() => (copied = false), 2_000);
+			copied = 'copied';
 		} catch {
-			copied = false;
+			copied = 'failed';
 		}
+		clearTimeout(copyTimer);
+		copyTimer = setTimeout(() => (copied = ''), 2_000);
 	}
 	$effect(() => () => clearTimeout(copyTimer));
 </script>
@@ -111,10 +124,10 @@
 		</span>
 		{#if canManage}
 			<select
-				value={general}
+				value={pendingGeneral ?? general}
 				aria-label="General access"
 				disabled={busy}
-				onchange={(event) => ongeneral(event.currentTarget.value as GeneralAccess)}
+				onchange={(event) => chooseGeneral(event.currentTarget)}
 			>
 				{#each generalOptions as option (option.value)}
 					<option value={option.value}>{option.label}</option>
@@ -134,7 +147,6 @@
 				aria-label="Add people by name"
 				autocomplete="off"
 				spellcheck="false"
-				disabled={busy}
 				{onkeydown}
 			/>
 			<select bind:value={grant} aria-label="Level for people you add" disabled={busy}>
@@ -198,7 +210,12 @@
 		type="button"
 		class="btn small copy"
 		title={general === 'private' ? 'Only people added can open the link' : 'Anyone in the company can open the link'}
-		onclick={() => void copyLink()}>{copied ? 'Link copied' : 'Copy link'}</button
+		onclick={() => void copyLink()}
+		>{copied === 'copied'
+			? 'Link copied'
+			: copied === 'failed'
+				? 'Could not copy the link'
+				: 'Copy link'}</button
 	>
 </div>
 
