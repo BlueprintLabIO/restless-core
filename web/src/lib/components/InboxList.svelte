@@ -347,7 +347,7 @@
 		{:else if !loaded && !failure}
 			<div class="waiting" aria-label="Loading the Inbox"><i></i><i></i><i></i></div>
 		{/if}
-		{#if forYou && (forYou.items.length || forYou.filter === 'unread')}
+		{#if forYou && (forYou.items.length || forYou.filter !== 'all')}
 			<div class="for-you-slot">
 				<ForYou
 					bind:this={forYouList}

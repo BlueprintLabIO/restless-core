@@ -35,7 +35,8 @@ export interface ForYouPage {
 	next_before: string | null;
 }
 
-export type ForYouFilter = 'all' | 'unread';
+/** Archived lists what the person archived and nothing new has happened to since. */
+export type ForYouFilter = 'all' | 'unread' | 'archived';
 
 function path(companyId: string, rest = ''): string {
 	return `/api/companies/${encodeURIComponent(companyId)}/for-you${rest}`;
@@ -48,7 +49,7 @@ export async function getForYou(
 ): Promise<ForYouPage> {
 	const params = new URLSearchParams();
 	if (before) params.set('before', before);
-	if (filter === 'unread') params.set('unread', 'true');
+	if (filter !== 'all') params.set(filter, 'true');
 	const query = params.toString() ? `?${params}` : '';
 	const response = await fetch(path(companyId, query), {
 		credentials: 'same-origin',

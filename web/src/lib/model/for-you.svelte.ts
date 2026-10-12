@@ -72,10 +72,18 @@ export function forYouSource(
 		);
 	};
 	/* Applies the change here at once, on every filter's copy, then asks the server. */
-	async function change(update: (page: ForYouPage) => ForYouPage, send: () => Promise<void>) {
-		client.setQueriesData<Pages>({ queryKey: base() }, (data) =>
-			data ? { ...data, pages: data.pages.map(update) } : data
-		);
+	async function change(
+		update: (page: ForYouPage, shown: ForYouFilter) => ForYouPage,
+		send: () => Promise<void>
+	) {
+		for (const [queryKey, data] of client.getQueriesData<Pages>({ queryKey: base() })) {
+			const shown = queryKey[queryKey.length - 1] as ForYouFilter;
+			if (data)
+				client.setQueryData<Pages>(queryKey, {
+					...data,
+					pages: data.pages.map((page) => update(page, shown))
+				});
+		}
 		try {
 			await send();
 		} finally {
@@ -135,7 +143,14 @@ export function forYouSource(
 		async archive(keys, archived = true) {
 			if (!keys.length) return;
 			await change(
-				(page) => (archived ? withoutItems(page, keys) : page),
+				/* Archiving leaves the current lists; bringing back leaves Archived. Each list
+				 * gains its arrivals when the server answers. */
+				(page, shown) =>
+					archived === (shown !== 'archived')
+						? shown === 'archived'
+							? { ...page, items: page.items.filter((item) => !keys.includes(item.key)) }
+							: withoutItems(page, keys)
+						: page,
 				() => archiveForYou(companyId(), keys, archived)
 			);
 		}

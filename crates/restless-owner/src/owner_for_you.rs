@@ -45,6 +45,9 @@ struct ForYouQuery {
     /// Only what is unread.
     #[serde(default)]
     unread: bool,
+    /// Only what this person archived.
+    #[serde(default)]
+    archived: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -243,11 +246,17 @@ async fn list_for_you(
         Err(response) => return no_store(response),
     };
     match org
-        .for_you_page_filtered(
+        .for_you_page_showing(
             principal.actor_id(),
             before.as_ref(),
             query.limit.unwrap_or(DEFAULT_FOR_YOU_PAGE),
-            query.unread,
+            if query.archived {
+                restless_orgintel::ForYouShow::Archived
+            } else if query.unread {
+                restless_orgintel::ForYouShow::Unread
+            } else {
+                restless_orgintel::ForYouShow::Current
+            },
         )
         .await
     {

@@ -5,7 +5,7 @@
 use chrono::{Duration, Utc};
 use restless_orgintel::{
     CompanyAccessIdentity, DocumentAccess, DocumentError, DocumentKind, DocumentVisibility,
-    ForYouCursor, ForYouItem, ForYouTarget, HumanAccessContext, InboxMarkChange, NewDocument,
+    ForYouCursor, ForYouItem, ForYouShow, ForYouTarget, HumanAccessContext, InboxMarkChange, NewDocument,
     NewDocumentCommentThread,
     NewNamedDocumentVersion, NewRoomMessageMention, OrgIntel, RemoveDocumentParticipant,
     ReplyToDocumentComment, RoomKind, SetDocumentParticipant,
@@ -424,6 +424,31 @@ async fn changes_by_others_coalesce_per_document_and_say_who_changed_it() {
     .await
     .unwrap();
     assert_eq!(stored, "stored");
+    // Bianca opens it to write as well but types nothing. The sidecar notes only whose edits it
+    // kept, so she is not named as changing it (S66); an address with no write session is ignored.
+    let consumed: bool = sqlx::query_scalar(
+        "SELECT orgintel_native_document_collaboration_consume($1,$2,$3,$4,$5,$6,$7)",
+    )
+    .bind(company_id)
+    .bind(pricing)
+    .bind("bianca")
+    .bind(Uuid::new_v4())
+    .bind("write")
+    .bind(Utc::now())
+    .bind(Utc::now() + Duration::seconds(60))
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    assert!(consumed);
+    let noted: i32 =
+        sqlx::query_scalar("SELECT orgintel_native_document_note_editors($1,$2,$3)")
+            .bind(company_id)
+            .bind(pricing)
+            .bind(vec!["alex".to_string(), "mallory".to_string()])
+            .fetch_one(&mut db)
+            .await
+            .unwrap();
+    assert_eq!(noted, 1);
     org.create_document_comment_thread(NewDocumentCommentThread {
         document_id: pricing,
         actor_id: "bianca",
@@ -667,10 +692,27 @@ async fn marks_are_per_person_unread_wins_over_all_read_and_archive_lasts_until_
     // Archived, it leaves the list; unarchived it comes back; news brings it back by itself.
     org.archive_for_you("alex", &[key.clone()], true).await.unwrap();
     assert!(find(&items(&org, "alex").await.0, &key).is_none());
+    let archived = |org: &OrgIntel| {
+        let org = org.clone();
+        async move {
+            org.for_you_page_showing("alex", None, 50, ForYouShow::Archived)
+                .await
+                .unwrap()
+                .items
+        }
+    };
+    assert!(find(&archived(&org).await, &key).is_some(), "Archived shows it");
+    assert!(org
+        .for_you_page_showing("bianca", None, 50, ForYouShow::Archived)
+        .await
+        .unwrap()
+        .items
+        .is_empty(), "Alex's archive is Alex's own");
     org.mark_all_for_you_read("alex").await.unwrap();
     assert!(find(&items(&org, "alex").await.0, &key).is_none(), "mark all read keeps it archived");
     org.archive_for_you("alex", &[key.clone()], false).await.unwrap();
     assert!(find(&items(&org, "alex").await.0, &key).is_some_and(|item| !item.unread));
+    assert!(find(&archived(&org).await, &key).is_none(), "unarchived leaves Archived");
     // Undo puts back exactly what was archived: an unread item comes back unread.
     org.mark_for_you_unread("alex", &[key.clone()]).await.unwrap();
     org.archive_for_you("alex", &[key.clone()], true).await.unwrap();
@@ -683,6 +725,7 @@ async fn marks_are_per_person_unread_wins_over_all_read_and_archive_lasts_until_
     reply(&org, pricing, started, "bianca").await;
     let (alex, unread) = items(&org, "alex").await;
     assert!(find(&alex, &key).is_some_and(|item| item.unread), "a new reply resurfaces it");
+    assert!(find(&archived(&org).await, &key).is_none(), "news takes it out of Archived");
     assert_eq!(unread, 1);
 
     // Malformed marks are refused; a Room thread mark names its Room and root.

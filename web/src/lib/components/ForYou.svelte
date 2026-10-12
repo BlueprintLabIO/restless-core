@@ -51,6 +51,16 @@
 			fail(cause, read ? 'Not marked read.' : 'Not marked unread.');
 		}
 	}
+	async function bringBack(item: ForYouItem) {
+		try {
+			await source.archive([item.key], false);
+			toast('Moved back to For you', {
+				undo: () => source.archive([item.key]).catch((cause) => fail(cause, 'Not undone.'))
+			});
+		} catch (cause) {
+			fail(cause, 'Not moved back. Try again.');
+		}
+	}
 	async function archive(item: ForYouItem) {
 		try {
 			await source.archive([item.key]);
@@ -90,7 +100,12 @@
 	}
 	const filters: { value: ForYouFilter; label: string; title: string }[] = [
 		{ value: 'all', label: 'All', title: 'Everything, newest first' },
-		{ value: 'unread', label: 'Unread', title: 'Only what you have not opened' }
+		{ value: 'unread', label: 'Unread', title: 'Only what you have not opened' },
+		{
+			value: 'archived',
+			label: 'Archived',
+			title: 'What you archived; anything new there brings it back by itself'
+		}
 	];
 </script>
 
@@ -100,7 +115,7 @@
 		<h3>{heading}</h3>
 		{#if source.unreadCount}<span class="count" title="Unread">{source.unreadCount}</span>{/if}
 		<span class="spacer"></span>
-		{#if source.items.length || source.filter === 'unread'}
+		{#if source.items.length || source.filter !== 'all'}
 			<Segmented
 				label="Show"
 				options={filters}
@@ -138,11 +153,15 @@
 							>Mark unread <kbd>⇧U</kbd></button
 						>
 					{/if}
-					<button
-						type="button"
-						title="Off this list until something new happens there"
-						onclick={() => void archive(item)}>Archive</button
-					>
+					{#if source.filter === 'archived'}
+						<button type="button" onclick={() => void bringBack(item)}>Move back</button>
+					{:else}
+						<button
+							type="button"
+							title="Off this list until something new happens there"
+							onclick={() => void archive(item)}>Archive</button
+						>
+					{/if}
 				</ActionMenu>
 			{/snippet}
 		</Item>
@@ -153,7 +172,9 @@
 			<p class="note">
 				{source.filter === 'unread'
 					? 'Nothing unread.'
-					: 'When someone mentions you, replies to you, shares something with you, or changes what you follow, it shows here.'}
+					: source.filter === 'archived'
+						? 'Nothing archived.'
+						: 'When someone mentions you, replies to you, shares something with you, or changes what you follow, it shows here.'}
 			</p>
 		{/if}
 	{/each}

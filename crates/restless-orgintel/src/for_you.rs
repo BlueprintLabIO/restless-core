@@ -401,6 +401,16 @@ fn checked_keys(keys: &[String]) -> DocumentResult<()> {
     Ok(())
 }
 
+/// Which part of For you a page shows: what is current, only its unread items, or what this
+/// person archived and nothing new has happened to since.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ForYouShow {
+    #[default]
+    Current,
+    Unread,
+    Archived,
+}
+
 /// Narrows the list to one document or one sheet.
 #[derive(Debug, Clone, Copy, Default)]
 struct Source {
@@ -414,7 +424,7 @@ impl OrgIntel {
         viewer: &str,
         before: Option<&ForYouCursor>,
         limit: i64,
-        unread_only: bool,
+        show: ForYouShow,
         source: Source,
     ) -> DocumentResult<Vec<ForYouItem>> {
         // A person's own mark can make an item unread again or archive it until something new
@@ -425,27 +435,28 @@ impl OrgIntel {
                SELECT items.key,items.kind,items.document_id,items.sheet_id,items.room_id, \
                  items.room_kind,items.thread_root_message_id,items.message_id,items.mention_id, \
                  items.title,items.excerpt,items.actors,items.at, \
-                 (items.unread OR COALESCE(mark.marked_unread,false)) AS unread \
+                 (items.unread OR COALESCE(mark.marked_unread,false)) AS unread, \
+                 (mark.archived_at IS NOT NULL AND items.at<=mark.archived_at) AS archived \
                FROM items \
                LEFT JOIN for_you_reads mark ON mark.actor_id=$1 AND mark.item_key=items.key \
-               WHERE mark.archived_at IS NULL OR items.at>mark.archived_at \
              ) \
              SELECT marked.*, ARRAY(SELECT COALESCE(NULLIF(btrim(a.display),''),a.id) \
                  FROM unnest(marked.actors) WITH ORDINALITY u(id,n) JOIN actors a ON a.id=u.id \
                  ORDER BY u.n) AS actor_names \
              FROM marked \
              WHERE ($2::timestamptz IS NULL OR (marked.at,marked.key)<($2,$3)) \
-               AND (NOT $5 OR marked.unread) \
+               AND (NOT $5 OR marked.unread) AND marked.archived=$9 \
              ORDER BY marked.at DESC,marked.key DESC LIMIT $4"
         ))
         .bind(viewer)
         .bind(before.map(|cursor| cursor.at))
         .bind(before.map(|cursor| cursor.key.as_str()).unwrap_or(""))
         .bind(limit)
-        .bind(unread_only)
+        .bind(show == ForYouShow::Unread)
         .bind(source.document)
         .bind(EXCERPT_CHARS)
         .bind(source.sheet)
+        .bind(show == ForYouShow::Archived)
         .fetch_all(&self.pool)
         .await?;
         rows.into_iter()
@@ -548,7 +559,7 @@ impl OrgIntel {
         before: Option<&ForYouCursor>,
         limit: i64,
     ) -> DocumentResult<ForYouPage> {
-        self.for_you_page_filtered(viewer, before, limit, false)
+        self.for_you_page_showing(viewer, before, limit, ForYouShow::Current)
             .await
     }
 
@@ -559,6 +570,22 @@ impl OrgIntel {
         before: Option<&ForYouCursor>,
         limit: i64,
         unread_only: bool,
+    ) -> DocumentResult<ForYouPage> {
+        let show = if unread_only {
+            ForYouShow::Unread
+        } else {
+            ForYouShow::Current
+        };
+        self.for_you_page_showing(viewer, before, limit, show).await
+    }
+
+    /// One page of For you as `show` asks, newest first, plus how many current items are unread.
+    pub async fn for_you_page_showing(
+        &self,
+        viewer: &str,
+        before: Option<&ForYouCursor>,
+        limit: i64,
+        show: ForYouShow,
     ) -> DocumentResult<ForYouPage> {
         if !(1..=MAX_FOR_YOU_PAGE).contains(&limit) {
             return Err(DocumentError::Invalid(format!(
@@ -577,7 +604,7 @@ impl OrgIntel {
                     viewer,
                     cursor.as_ref(),
                     limit + 1,
-                    unread_only,
+                    show,
                     Source::default(),
                 )
                 .await?;
@@ -616,7 +643,13 @@ impl OrgIntel {
         readable: &mut HashMap<Uuid, bool>,
     ) -> DocumentResult<Vec<ForYouItem>> {
         let unread = self
-            .for_you_rows(viewer, None, MAX_FOR_YOU_UNREAD, true, Source::default())
+            .for_you_rows(
+                viewer,
+                None,
+                MAX_FOR_YOU_UNREAD,
+                ForYouShow::Unread,
+                Source::default(),
+            )
             .await?;
         self.readable_for_you(viewer, unread, readable).await
     }
@@ -768,7 +801,7 @@ impl OrgIntel {
                 viewer,
                 None,
                 MAX_FOR_YOU_PAGE,
-                true,
+                ForYouShow::Unread,
                 Source {
                     document: Some(document_id),
                     sheet: None,
