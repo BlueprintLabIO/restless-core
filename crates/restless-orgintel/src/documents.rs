@@ -8566,31 +8566,35 @@ impl OrgIntel {
             content_sha256: kept.get("content_sha256"),
             message_id: kept.get("message_id"),
         };
-        let documents: Vec<Uuid> = sqlx::query_scalar(
+        // Live bodies first (one row a document); only an image no live body shows any more is
+        // looked for in named versions, which are many and large.
+        for source in [
             "SELECT document_id FROM native_document_yjs_state \
              WHERE jsonb_path_exists(projection_json, $2::jsonpath, jsonb_build_object('id', $1::text)) \
-             UNION \
-             SELECT document_id FROM native_document_versions \
+             LIMIT 50",
+            "SELECT DISTINCT document_id FROM native_document_versions \
              WHERE jsonb_path_exists(content_json, $2::jsonpath, jsonb_build_object('id', $1::text)) \
              LIMIT 50",
-        )
-        .bind(attachment_id.to_string())
-        .bind(DOCUMENT_IMAGE_PATH)
-        .fetch_all(&mut *tx)
-        .await?;
-        for document_id in documents {
-            if access_in_transaction(&mut tx, document_id, actor_id)
-                .await?
-                .is_none()
-            {
-                continue;
-            }
-            let placed_by_editor = access_in_transaction(&mut tx, document_id, &sender)
-                .await?
-                .is_some_and(|access| access.permits(DocumentAccess::Edit));
-            if placed_by_editor {
-                tx.commit().await?;
-                return Ok(Some(record));
+        ] {
+            let documents: Vec<Uuid> = sqlx::query_scalar(source)
+                .bind(attachment_id.to_string())
+                .bind(DOCUMENT_IMAGE_PATH)
+                .fetch_all(&mut *tx)
+                .await?;
+            for document_id in documents {
+                if access_in_transaction(&mut tx, document_id, actor_id)
+                    .await?
+                    .is_none()
+                {
+                    continue;
+                }
+                let placed_by_editor = access_in_transaction(&mut tx, document_id, &sender)
+                    .await?
+                    .is_some_and(|access| access.permits(DocumentAccess::Edit));
+                if placed_by_editor {
+                    tx.commit().await?;
+                    return Ok(Some(record));
+                }
             }
         }
         tx.commit().await?;
