@@ -449,15 +449,15 @@ try {
     },
   });
   const askedId = asked.message?.id ?? asked.id;
+  // The mention reaches only the person named, in their For you.
+  const forYou = (who) => coreApi(who, `${base}/for-you?limit=50`);
   let mention;
   await until(async () => {
-    const bootstrap = await coreApi(alice, `${base}/collaboration/bootstrap`);
-    mention = bootstrap.attention.mentions.find((item) => item.room_id === room.id);
-    return mention;
-  }, "Alice's attention shows the mention", 30);
-  assert.equal(
-    (await coreApi(bob, `${base}/collaboration/bootstrap`)).attention.mentions.length,
-    0,
+    mention = (await forYou(alice)).items.find((item) => item.kind === "mention" && item.excerpt.includes("budget"));
+    return mention?.unread;
+  }, "Alice's For you shows the unread mention", 30);
+  assert(
+    !(await forYou(bob)).items.some((item) => item.kind === "mention"),
     "a mention reaches only the person named",
   );
   const asking = alice.page.locator("article.room-message").filter({ hasText: question }).first();
@@ -474,26 +474,98 @@ try {
     "the owner can read Alice's thread answer",
     20,
   );
-  const aliceView = await coreApi(alice, `${base}/collaboration/bootstrap`);
-  const stillOpen = aliceView.attention.mentions.some((item) => item.id === mention.id);
-  if (stillOpen) note("answering a mention from the cockpit thread does not resolve it; no cockpit control sends resolves_mention_id");
-  const ownerSeen = aliceView.people.find((item) => item.actor_id === owner.principal.actor_id);
-  if (ownerSeen?.display !== people.owner.name)
-    note(`members see the owner as ${JSON.stringify(ownerSeen?.display ?? null)}, not ${JSON.stringify(people.owner.name)}`);
-  if (await asking.getByText(alice.principal.actor_id).count())
-    note("the mention receipt shows the raw actor id instead of the person's name");
-  await coreApi(alice, `${base}/rooms/${room.id}/messages/${askedId}/replies`, {
+  await coreApi(alice, `${base}/for-you/read`, { method: "POST", body: { keys: [mention.key] } });
+  assert(
+    !(await forYou(alice)).items.find((item) => item.key === mention.key)?.unread,
+    "reading a For you item marks it read for that person",
+  );
+  pass("a mention reached only Alice's For you; she answered in the thread and reading it marked it read");
+
+  // 9b. Working together on a page, as in Notion: faces, comments that reach the person,
+  //     replies that come back, reactions, view-only access and the / menu.
+  const mentionNode = (who) => ({ type: "mention", attrs: { actor_id: who.principal.actor_id, label: who.name } });
+  const commentBody = (text, who) => ({
+    type: "doc",
+    content: [{ type: "paragraph", attrs: { block_id: randomUUID() }, content: [{ type: "text", text }, ...(who ? [mentionNode(who)] : [])] }],
+  });
+  for (const who of [owner, alice]) {
+    await who.page.goto(documentUrl);
+    await who.page.getByLabel("Collaborative document body").waitFor({ timeout: 30000 });
+  }
+  for (const [who, other] of [[owner, alice], [alice, owner]]) {
+    await until(
+      async () => ((await who.page.locator(".page-faces").getAttribute("aria-label").catch(() => "")) ?? "").includes(other.name),
+      `${who.key} sees ${other.key}'s face on the page`,
+      30,
+    );
+  }
+  await shot(owner, "faces");
+  pass("owner and a member each see the other's face on the document they share");
+
+  const commented = await coreApi(owner, `${base}/documents/${documentId}/comments`, {
     method: "POST",
     expected: 201,
-    body: { body: "Resolving the request.", command_id: randomUUID(), resolves_mention_id: mention.id },
+    body: { content_json: commentBody("Can you check the numbers ", alice) },
   });
-  await until(async () => {
-    const bootstrap = await coreApi(alice, `${base}/collaboration/bootstrap`);
-    return !bootstrap.attention.mentions.some((item) => item.id === mention.id);
-  }, "Alice's resolving answer clears her attention item", 30);
-  pass(
-    `a mention reached only Alice; she answered in the thread from her browser${stillOpen ? " (the browser answer left it open)" : ""} and resolving it cleared her attention`,
+  const threadId = commented.thread.thread.id;
+  await until(
+    async () => (await forYou(alice)).items.some((item) => item.kind === "mention" && item.title === "Multiplayer plan" && item.unread),
+    "a comment mention reaches Alice's For you",
+    30,
   );
+  assert(
+    !(await forYou(bob)).items.some((item) => item.kind === "mention" && item.title === "Multiplayer plan"),
+    "a comment mention reaches only the person named",
+  );
+  await coreApi(alice, `${base}/documents/${documentId}/comments/${threadId}/replies`, {
+    method: "POST",
+    expected: 201,
+    body: { content_json: commentBody("Checked, they add up.") },
+  });
+  await until(
+    async () => (await forYou(owner)).items.some((item) => item.kind === "reply" && item.title === "Multiplayer plan" && item.unread),
+    "Alice's reply reaches the owner's For you",
+    30,
+  );
+  await coreApi(owner, `${base}/documents/${documentId}/comment-reactions`, {
+    method: "POST",
+    body: { comment_id: commented.first_comment.id, emoji: "👍", on: true },
+  });
+  assert(
+    JSON.stringify(await coreApi(alice, `${base}/documents/${documentId}/comment-reactions`)).includes("👍"),
+    "a reaction on a comment is visible to the other person",
+  );
+  pass("a comment mention reached only Alice, her reply came back to the owner, and a reaction is shared");
+
+  const viewOnly = await coreApi(owner, `${base}/documents`, {
+    method: "POST",
+    expected: 201,
+    body: { title: "Read me", kind: "brief", visibility: "company", content_json: commentBody("Policy text."), reason: "Multiplayer smoke" },
+  });
+  const viewDocument = (await coreApi(owner, `${base}/documents/${viewOnly.document_id}`)).document;
+  await coreApi(owner, `${base}/documents/${viewOnly.document_id}`, {
+    method: "PATCH",
+    body: { expected_version: viewDocument.version, general_access: "view" },
+  });
+  assert.equal((await coreApi(alice, `${base}/documents/${viewOnly.document_id}`)).access, "read", "company view gives a member read access");
+  await alice.page.goto(`${core}/documents/${company}/${viewOnly.document_id}`);
+  const readBody = alice.page.getByLabel("Collaborative document body");
+  await readBody.waitFor({ timeout: 30000 });
+  await alice.page.getByText("Policy text.").waitFor({ timeout: 30000 });
+  assert.equal(await readBody.getAttribute("contenteditable"), "false", "a view-only document cannot be typed into");
+  pass("general access 'company can view' gives a member a read-only page");
+
+  await owner.page.goto(documentUrl);
+  const ownerBody = owner.page.getByLabel("Collaborative document body");
+  await ownerBody.waitFor({ timeout: 30000 });
+  await ownerBody.click();
+  await owner.page.keyboard.press("Control+End");
+  await owner.page.keyboard.press("Enter");
+  await owner.page.keyboard.type("/");
+  await owner.page.getByRole("listbox", { name: "Blocks" }).waitFor({ timeout: 10000 });
+  await owner.page.keyboard.press("Escape");
+  await until(async () => !(await owner.page.getByRole("listbox", { name: "Blocks" }).isVisible()), "the / menu closes on Escape", 10);
+  pass("typing / at the start of a line opens the block menu, Escape closes it");
 
   // 10. Removal from Members closes Bob's live document connection and session.
   await bob.page.goto(documentUrl);

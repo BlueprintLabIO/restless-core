@@ -2465,3 +2465,16 @@ html[data-pane-resizing] .bridge-exrail {
 	background: color-mix(in srgb, var(--surface) 86%, transparent);
 	backdrop-filter: blur(7px);
 }
+.bridge-root .attention-for-you {
+	position: absolute;
+	z-index: 6;
+	top: 64px;
+	left: 12px;
+	width: min(380px, calc(100% - 24px));
+	max-height: calc(100% - 140px);
+	overflow: auto;
+	padding: 4px;
+	border-radius: var(--radius-pane);
+	background: color-mix(in srgb, var(--surface) 90%, transparent);
+	backdrop-filter: blur(7px);
+}

@@ -16,6 +16,7 @@
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
 	import InboxList from '$lib/components/InboxList.svelte';
 	import { useForYou } from '$lib/model/for-you.svelte';
+	import ForYou from '$lib/components/ForYou.svelte';
 	import InboxDetail from '$lib/components/InboxDetail.svelte';
 	import SetAsideList from '$lib/components/SetAside.svelte';
 	import { attentionTitle, coordinationFailure, isOutcomeReview } from '$lib/model/attention-presentation';
@@ -968,6 +969,8 @@
 				</span>
 				<span>All clear</span>
 			</button>
+			<!-- Read items stay reachable when nothing needs the owner. -->
+			{#if queueClear && forYou?.items.length}<div class="attention-for-you"><ForYou source={forYou} /></div>{/if}
 			{#if queueClear}<div class="attention-set-aside"><SetAsideList {companyId} /></div>{/if}
 			{#if compactScreen && selectedItemId}<a class="attention-mobile-back" href={baseHref}
 					>← Inbox</a
