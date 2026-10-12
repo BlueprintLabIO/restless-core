@@ -14,7 +14,7 @@
 		<div
 			class="toast"
 			class:failure={item.tone === 'failure'}
-			role={item.tone === 'failure' ? 'alert' : 'status'}
+			role={item.tone === 'failure' ? 'alert' : undefined}
 			onmouseenter={() => holdToast(item.id, true)}
 			onmouseleave={() => holdToast(item.id, false)}
 			onfocusin={() => holdToast(item.id, true)}

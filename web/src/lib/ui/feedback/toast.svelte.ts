@@ -9,7 +9,9 @@ export type Toast = {
 	undo?: () => unknown;
 };
 
+/* Long enough to reach Undo without hurrying; a plain notice goes sooner. */
 const LIFETIME_MS = 6000;
+const UNDO_LIFETIME_MS = 10000;
 const MAX = 3;
 let next = 1;
 const timers = new Map<number, ReturnType<typeof setTimeout>>();
@@ -24,9 +26,10 @@ export function dismissToast(id: number) {
 
 function schedule(id: number) {
 	clearTimeout(timers.get(id));
+	const undoable = toasts.list.find((item) => item.id === id)?.undo;
 	timers.set(
 		id,
-		setTimeout(() => dismissToast(id), LIFETIME_MS)
+		setTimeout(() => dismissToast(id), undoable ? UNDO_LIFETIME_MS : LIFETIME_MS)
 	);
 }
 
@@ -34,7 +37,8 @@ function schedule(id: number) {
 export function toast(text: string, options: { undo?: () => unknown; tone?: ToastTone } = {}) {
 	const item: Toast = { id: next++, text, tone: options.tone ?? 'done', undo: options.undo };
 	const kept = toasts.list.slice(-(MAX - 1));
-	for (const dropped of toasts.list.filter((entry) => !kept.includes(entry))) dismissToast(dropped.id);
+	for (const dropped of toasts.list.filter((entry) => !kept.includes(entry)))
+		dismissToast(dropped.id);
 	toasts.list = [...kept, item];
 	schedule(item.id);
 	return item.id;

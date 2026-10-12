@@ -12,7 +12,9 @@ export type ConfirmRequest = {
 	danger?: boolean;
 };
 
-type Pending = ConfirmRequest & { answer: (yes: boolean) => void };
+type Pending = ConfirmRequest & { id: number; answer: (yes: boolean) => void };
+
+let asked = 0;
 
 export const confirmation = $state<{ pending: Pending | null }>({ pending: null });
 
@@ -20,10 +22,13 @@ export const confirmation = $state<{ pending: Pending | null }>({ pending: null 
 export function confirmAction(request: ConfirmRequest): Promise<boolean> {
 	confirmation.pending?.answer(false);
 	return new Promise((resolve) => {
+		/* Compared by id: the state holds a proxy of the request, never the object itself. */
+		const id = ++asked;
 		const pending: Pending = {
 			...request,
+			id,
 			answer: (yes) => {
-				if (confirmation.pending === pending) confirmation.pending = null;
+				if (confirmation.pending?.id === id) confirmation.pending = null;
 				resolve(yes);
 			}
 		};
