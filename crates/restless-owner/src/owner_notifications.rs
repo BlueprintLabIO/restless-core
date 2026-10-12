@@ -3,6 +3,8 @@
 //! Core remains the only owner of Mention, Attention/review and Authority
 //! objects. This endpoint projects their current durable pending state without
 //! message bodies or evidence; Cloud owns only the external email attempt.
+//! Document mentions and thread replies come from For you, under the same
+//! closed kinds Cloud already accepts.
 
 use super::*;
 
@@ -452,6 +454,13 @@ async fn projected_intents(
         ));
     }
 
+    // A document mention, or a reply in a document or Room thread someone is
+    // in, still unread a while after it happened. For you decides what is owed
+    // and that its source is still readable; opening it anywhere withdraws it.
+    for pending in org.pending_human_for_you_notifications(Utc::now()).await? {
+        intents.push(for_you_intent(company, identity, pending));
+    }
+
     // Attention owns the exact definition of owner-worthy work. Reusing its
     // live projection here prevents email eligibility from drifting from the
     // cockpit (current Work revision/brief, payment state and prepared command
@@ -616,6 +625,46 @@ async fn projected_intents(
         intents,
         withdrawal_authoritative,
     })
+}
+
+/// A mention keeps the mention kind; a reply is personal attention. The
+/// epoch is the item's latest activity, so a later reply is a new email and
+/// the same one never is.
+fn for_you_intent(
+    company: &str,
+    identity: restless_orgintel::CompanyAccessIdentity,
+    pending: restless_orgintel::PendingForYouNotification,
+) -> NotificationIntent {
+    let item = &pending.item;
+    let (kind, verb) = if item.key.starts_with("doc-mention:") {
+        ("direct_mention", "mentioned you in")
+    } else {
+        ("personal_attention", "replied in")
+    };
+    let who = match for_you_api::actor_phrase(&item.actor_names) {
+        names if names.is_empty() => "Someone".to_string(),
+        names => names,
+    };
+    let title = match item.title.trim() {
+        "" => "a thread",
+        title => title,
+    };
+    intent(
+        kind,
+        &format!("orgintel:for-you:{}", item.key),
+        &format!("orgintel-for-you:{}:{}", item.key, item.at.timestamp_micros()),
+        identity,
+        pending.recipient.clone(),
+        item.actor_ids
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "exec".into()),
+        None,
+        who.clone(),
+        format!("{who} {verb} {title}"),
+        for_you_api::href(company, item),
+        item.at,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -885,6 +934,62 @@ mod tests {
         assert_ne!(first_a.intent_id, b.intent_id);
         assert_ne!(b.intent_id, second_a.intent_id);
         assert_ne!(first_a.intent_id, second_a.intent_id);
+    }
+
+    /// A document mention emails as a mention and a reply as personal
+    /// attention, both under kinds Cloud accepts, linking back into the
+    /// company; a later reply in the same thread is a new delivery.
+    #[test]
+    fn for_you_items_email_under_closed_kinds_with_a_company_link() {
+        let identity = restless_orgintel::CompanyAccessIdentity {
+            company_id: Uuid::from_u128(1),
+            cell_id: Uuid::from_u128(2),
+        };
+        let document_id = Uuid::from_u128(3);
+        let pending = |key: &str, kind: &str, at: DateTime<Utc>| {
+            restless_orgintel::PendingForYouNotification {
+                item: restless_orgintel::ForYouItem {
+                    key: key.into(),
+                    kind: kind.into(),
+                    title: "Pricing".into(),
+                    excerpt: "private words".into(),
+                    target: restless_orgintel::ForYouTarget::Document { document_id },
+                    actor_ids: vec!["bianca".into()],
+                    actor_names: vec!["Bianca".into()],
+                    at,
+                    unread: true,
+                },
+                recipient: restless_orgintel::HumanNotificationRecipient {
+                    identity_issuer: "https://fleet.example".into(),
+                    user_id: "user-1".into(),
+                    membership_id: "member-1".into(),
+                    actor_id: "alex".into(),
+                },
+            }
+        };
+        let now = Utc::now();
+        let mention = for_you_intent(
+            "company_ab",
+            identity,
+            pending(&format!("doc-mention:{}", Uuid::from_u128(4)), "mention", now),
+        );
+        assert_eq!(mention.kind, "direct_mention");
+        assert_eq!(mention.object.kind, "mention");
+        assert_eq!(mention.summary, "Bianca mentioned you in Pricing");
+        assert!(mention.deep_link_path.starts_with("/company_ab/"));
+        assert!(!mention.summary.contains("private"), "the email never carries what was said");
+        let thread = format!("thread:{}", Uuid::from_u128(5));
+        let reply = for_you_intent("company_ab", identity, pending(&thread, "reply", now));
+        assert_eq!(reply.kind, "personal_attention");
+        assert_eq!(reply.object.kind, "attention");
+        assert_eq!(reply.summary, "Bianca replied in Pricing");
+        let later = for_you_intent(
+            "company_ab",
+            identity,
+            pending(&thread, "reply", now + chrono::Duration::seconds(1)),
+        );
+        assert_eq!(reply.object.id, later.object.id);
+        assert_ne!(reply.intent_id, later.intent_id);
     }
 
     #[test]

@@ -1,10 +1,12 @@
-//! For you and document follows (S65) for the owner and every member, over the verified company
-//! principal. A thin transport: OrgIntel assembles the items and decides access; this module only
-//! turns their targets into cockpit links.
+//! For you, document and sheet follows, and the owner Inbox's own marks (S65) for the owner and
+//! every member, over the verified company principal. A thin transport: OrgIntel assembles the
+//! items and decides access; this module only turns their targets into cockpit links.
 
 use super::*;
 
-use restless_orgintel::{DocumentError, DocumentReadView, ForYouCursor, ForYouItem, ForYouTarget};
+use restless_orgintel::{
+    DocumentError, DocumentReadView, ForYouCursor, ForYouItem, ForYouTarget, InboxMarkChange,
+};
 
 const DEFAULT_FOR_YOU_PAGE: i64 = 50;
 
@@ -16,9 +18,21 @@ where
     Router::<S>::new()
         .route("/companies/{company}/for-you", get(list_for_you))
         .route("/companies/{company}/for-you/read", post(mark_for_you_read))
+        .route("/companies/{company}/for-you/unread", post(mark_for_you_unread))
+        .route("/companies/{company}/for-you/archive", post(archive_for_you))
         .route(
             "/companies/{company}/documents/{document}/follow",
             axum::routing::put(follow_document).delete(unfollow_document),
+        )
+        .route(
+            "/companies/{company}/sheets/{sheet}/follow",
+            get(sheet_follow_state)
+                .put(follow_sheet)
+                .delete(unfollow_sheet),
+        )
+        .route(
+            "/companies/{company}/inbox-marks",
+            get(list_inbox_marks).put(set_inbox_marks),
         )
         .layer(DefaultBodyLimit::max(16 * 1024))
 }
@@ -28,6 +42,51 @@ where
 struct ForYouQuery {
     before: Option<String>,
     limit: Option<i64>,
+    /// Only what is unread.
+    #[serde(default)]
+    unread: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ForYouKeysInput {
+    keys: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ForYouArchiveInput {
+    keys: Vec<String>,
+    #[serde(default = "archived_default")]
+    archived: bool,
+}
+
+fn archived_default() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InboxMarkInput {
+    item_id: String,
+    #[serde(default)]
+    seen_stamp: Option<String>,
+    /// Absent keeps the snooze; null wakes the item; a time snoozes it until then.
+    #[serde(default, deserialize_with = "present")]
+    snoozed_until: Option<Option<DateTime<Utc>>>,
+}
+
+fn present<'de, D>(deserializer: D) -> std::result::Result<Option<Option<DateTime<Utc>>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<DateTime<Utc>>::deserialize(deserializer).map(Some)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InboxMarksInput {
+    marks: Vec<InboxMarkInput>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -91,28 +150,40 @@ fn actor_names(names: &[String]) -> String {
     }
 }
 
-fn href(company: &str, item: &ForYouItem) -> String {
+/// The cockpit link for an item, relative to the site root. The hosted email uses it too.
+pub(super) fn href(company: &str, item: &ForYouItem) -> String {
     // Company names are already path-safe identifiers.
     match &item.target {
         ForYouTarget::Document { document_id } => {
-            // Comments open beside the document; a change opens the document, which says what changed.
-            let panel = if item.kind == "change" {
-                ""
-            } else {
-                "&inspect=comments"
+            // Comments open beside the document and a review beside its request; a change or a
+            // share opens the document itself, which says what changed.
+            let panel = match item.kind.as_str() {
+                "change" | "share" => "",
+                "review" => "&inspect=review",
+                _ => "&inspect=comments",
             };
             format!("/{company}/library/documents?document={document_id}{panel}")
         }
+        ForYouTarget::Sheet { sheet_id } => format!("/{company}/library/sheets?sheet={sheet_id}"),
         ForYouTarget::Room {
             room_id,
             thread_root_message_id,
             message_id,
             mention_id,
             ..
-        } => format!(
-            "/{company}/people?room={room_id}&thread={thread_root_message_id}&message={message_id}&mention={mention_id}"
-        ),
+        } => {
+            let mention = mention_id
+                .map(|mention| format!("&mention={mention}"))
+                .unwrap_or_default();
+            format!(
+                "/{company}/people?room={room_id}&thread={thread_root_message_id}&message={message_id}{mention}"
+            )
+        }
     }
+}
+
+pub(super) fn actor_phrase(names: &[String]) -> String {
+    actor_names(names)
 }
 
 fn item_view(company: &str, item: ForYouItem) -> ForYouItemView {
@@ -159,10 +230,11 @@ async fn list_for_you(
         Err(response) => return no_store(response),
     };
     match org
-        .for_you_page(
+        .for_you_page_filtered(
             principal.actor_id(),
             before.as_ref(),
             query.limit.unwrap_or(DEFAULT_FOR_YOU_PAGE),
+            query.unread,
         )
         .await
     {
@@ -206,6 +278,143 @@ async fn mark_for_you_read(
             .await
     };
     match result {
+        Ok(()) => no_store(StatusCode::NO_CONTENT.into_response()),
+        Err(error) => for_you_error(error),
+    }
+}
+
+/// Marks items unread again for this person, on every device.
+async fn mark_for_you_unread(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<ForYouKeysInput>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return no_store(response),
+    };
+    match org
+        .mark_for_you_unread(principal.actor_id(), &input.keys)
+        .await
+    {
+        Ok(()) => no_store(StatusCode::NO_CONTENT.into_response()),
+        Err(error) => for_you_error(error),
+    }
+}
+
+/// Archives items for this person, or brings them back.
+async fn archive_for_you(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<ForYouArchiveInput>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return no_store(response),
+    };
+    match org
+        .archive_for_you(principal.actor_id(), &input.keys, input.archived)
+        .await
+    {
+        Ok(()) => no_store(StatusCode::NO_CONTENT.into_response()),
+        Err(error) => for_you_error(error),
+    }
+}
+
+fn sheet_follow_error(error: DocumentError) -> Response<Body> {
+    match error {
+        DocumentError::Unavailable => no_store(api_error(
+            StatusCode::NOT_FOUND,
+            "sheet",
+            "the sheet is unavailable",
+        )),
+        error => for_you_error(error),
+    }
+}
+
+async fn sheet_follow(
+    state: RoomApiState,
+    principal: RequestPrincipal,
+    company: String,
+    sheet: Uuid,
+    following: Option<bool>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return no_store(response),
+    };
+    let result = match following {
+        Some(following) => org.set_sheet_follow(sheet, principal.actor_id(), following).await,
+        None => org.sheet_following(sheet, principal.actor_id()).await,
+    };
+    match result {
+        Ok(following) => no_store(Json(serde_json::json!({ "following": following })).into_response()),
+        Err(error) => sheet_follow_error(error),
+    }
+}
+
+async fn sheet_follow_state(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath((company, sheet)): AxumPath<(String, Uuid)>,
+) -> Response<Body> {
+    sheet_follow(state, principal, company, sheet, None).await
+}
+
+async fn follow_sheet(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath((company, sheet)): AxumPath<(String, Uuid)>,
+) -> Response<Body> {
+    sheet_follow(state, principal, company, sheet, Some(true)).await
+}
+
+async fn unfollow_sheet(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath((company, sheet)): AxumPath<(String, Uuid)>,
+) -> Response<Body> {
+    sheet_follow(state, principal, company, sheet, Some(false)).await
+}
+
+/// This person's own seen and snooze marks on the owner Inbox.
+async fn list_inbox_marks(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return no_store(response),
+    };
+    match org.inbox_marks(principal.actor_id()).await {
+        Ok(marks) => no_store(Json(serde_json::json!({ "marks": marks })).into_response()),
+        Err(error) => for_you_error(error),
+    }
+}
+
+async fn set_inbox_marks(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<InboxMarksInput>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return no_store(response),
+    };
+    let marks = input
+        .marks
+        .into_iter()
+        .map(|mark| InboxMarkChange {
+            item_id: mark.item_id,
+            seen_stamp: mark.seen_stamp,
+            snoozed_until: mark.snoozed_until,
+        })
+        .collect::<Vec<_>>();
+    match org.set_inbox_marks(principal.actor_id(), &marks).await {
         Ok(()) => no_store(StatusCode::NO_CONTENT.into_response()),
         Err(error) => for_you_error(error),
     }
@@ -399,7 +608,18 @@ mod tests {
 
         let (status, body) = request(&alex, Method::GET, path.clone(), None).await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["unread_count"], 1);
+        assert_eq!(body["unread_count"], 2, "the mention, and being given the document");
+        let shared = body["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["kind"] == "share")
+            .expect("Alex hears he was given Board notes");
+        assert_eq!(shared["excerpt"], "Can comment");
+        assert_eq!(
+            shared["href"],
+            format!("/{company}/library/documents?document={private}")
+        );
         let item = &body["items"][0];
         assert_eq!(item["kind"], "mention");
         assert_eq!(item["actor_name"], "The Owner");
@@ -425,11 +645,62 @@ mod tests {
         let (status, _) =
             request(&bianca, Method::POST, read.clone(), Some(serde_json::json!({"keys": [key]}))).await;
         assert_eq!(status, StatusCode::NO_CONTENT);
-        assert_eq!(request(&alex, Method::GET, path.clone(), None).await.1["unread_count"], 1);
+        assert_eq!(request(&alex, Method::GET, path.clone(), None).await.1["unread_count"], 2);
+        let (status, _) = request(
+            &bianca,
+            Method::POST,
+            format!("{path}/archive"),
+            Some(serde_json::json!({"keys": [key.clone()]})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(
+            request(&alex, Method::GET, path.clone(), None).await.1["items"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2,
+            "Bianca's archive is her own"
+        );
+        let (_, body) = request(&alex, Method::GET, format!("{path}?unread=true"), None).await;
+        assert_eq!(body["items"].as_array().unwrap().len(), 2);
+
+        // Inbox marks are the person's own.
+        let marks = format!("/companies/{company}/inbox-marks");
+        let (status, _) = request(
+            &alex,
+            Method::PUT,
+            marks.clone(),
+            Some(serde_json::json!({"marks": [{"item_id": "handoff:1", "seen_stamp": "1", "snoozed_until": null}]})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(request(&alex, Method::GET, marks.clone(), None).await.1["marks"][0]["item_id"], "handoff:1");
+        assert_eq!(request(&bianca, Method::GET, marks, None).await.1["marks"], serde_json::json!([]));
+
+        // A sheet nobody can open cannot be followed, and says nothing about whether it exists.
+        let (status, _) = request(
+            &alex,
+            Method::PUT,
+            format!("/companies/{company}/sheets/{}/follow", Uuid::new_v4()),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
         let (status, _) =
             request(&alex, Method::POST, read.clone(), Some(serde_json::json!({"all": true}))).await;
         assert_eq!(status, StatusCode::NO_CONTENT);
         assert_eq!(request(&alex, Method::GET, path.clone(), None).await.1["unread_count"], 0);
+        // Marked unread again, it waits for Alex past "mark all read".
+        let (status, _) = request(
+            &alex,
+            Method::POST,
+            format!("{path}/unread"),
+            Some(serde_json::json!({"keys": [key.clone()]})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(request(&alex, Method::GET, path.clone(), None).await.1["unread_count"], 1);
         let (status, _) =
             request(&alex, Method::POST, read, Some(serde_json::json!({"keys": ["x:y"]}))).await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);

@@ -768,6 +768,17 @@ impl OrgIntel {
         tx.commit().await?;
         Ok(row)
     }
+    /// Whether this person may open the sheet now, for projections that recheck access on read.
+    pub async fn sheet_readable(&self, id: Uuid, actor: &str) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        let readable = match access(&mut tx, id, actor, false).await {
+            Ok(_) => true,
+            Err(SheetError::Unavailable) => false,
+            Err(error) => return Err(error),
+        };
+        tx.commit().await?;
+        Ok(readable)
+    }
     /// The share panel's view of a sheet, for anyone who can open it or may manage it.
     pub async fn sheet_sharing(&self, id: Uuid, actor: &str) -> Result<SheetSharing> {
         let mut tx = self.pool.begin().await?;

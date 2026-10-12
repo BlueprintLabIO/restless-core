@@ -1,11 +1,12 @@
-//! For you (S65): who hears about mentions, replies, comments and changes; that read state belongs
-//! to each person; and that an item disappears once its source is no longer readable. Uses a
-//! disposable company schema when Postgres is available.
+//! For you (S65): who hears about mentions, replies, comments, shares, Room threads and changes;
+//! that read state belongs to each person; and that an item disappears once its source is no
+//! longer readable. Uses a disposable company schema when Postgres is available.
 
 use chrono::{Duration, Utc};
 use restless_orgintel::{
     CompanyAccessIdentity, DocumentAccess, DocumentError, DocumentKind, DocumentVisibility,
-    ForYouCursor, ForYouItem, ForYouTarget, NewDocument, NewDocumentCommentThread,
+    ForYouCursor, ForYouItem, ForYouTarget, HumanAccessContext, InboxMarkChange, NewDocument,
+    NewDocumentCommentThread,
     NewNamedDocumentVersion, NewRoomMessageMention, OrgIntel, RemoveDocumentParticipant,
     ReplyToDocumentComment, RoomKind, SetDocumentParticipant,
 };
@@ -223,7 +224,7 @@ async fn an_item_disappears_once_its_source_is_no_longer_readable() {
         .unwrap();
     }
     thread(&org, private, "bianca", Some("alex")).await;
-    assert_eq!(items(&org, "alex").await.1, 1);
+    assert_eq!(items(&org, "alex").await.1, 2, "the mention, and being given the document");
     // Someone who cannot read the document cannot follow it or learn it exists.
     assert!(matches!(
         org.set_document_follow(private, "exec", true).await,
@@ -268,7 +269,7 @@ async fn an_item_disappears_once_its_source_is_no_longer_readable() {
     assert_eq!(unread, 1);
     assert!(matches!(alex[0].target, ForYouTarget::Room { room_id, .. } if room_id == room.id));
     assert_eq!(alex[0].excerpt, "Can you check the launch copy?");
-    assert!(items(&org, "bianca").await.0.is_empty());
+    assert!(items(&org, "bianca").await.0.iter().all(|item| !item.key.starts_with("room-mention:")));
     org.remove_room_participant("owner", room.id, "alex")
         .await
         .unwrap();
@@ -458,4 +459,325 @@ async fn changes_by_others_coalesce_per_document_and_say_who_changed_it() {
     .await
     .unwrap();
     assert_eq!(left, 0);
+}
+
+async fn scratch_db(org: &OrgIntel, url: &str) -> PgConnection {
+    let mut db = PgConnection::connect(url).await.unwrap();
+    sqlx::query(&format!("SET search_path TO {}, pg_catalog, pg_temp", org.schema()))
+        .execute(&mut db)
+        .await
+        .unwrap();
+    db
+}
+
+/// Someone else's edit to a sheet, as the sheet engine records it.
+async fn sheet_edit(db: &mut PgConnection, sheet: Uuid, actor: &str) {
+    sqlx::query(
+        "INSERT INTO native_sheet_messages (sheet_id,sequence,revision_id,actor_id,message) \
+         SELECT $1,COALESCE(max(sequence),0)+1,$2,$3,'{}'::jsonb FROM native_sheet_messages \
+         WHERE sheet_id=$1",
+    )
+    .bind(sheet)
+    .bind(Uuid::new_v4().to_string())
+    .bind(actor)
+    .execute(db)
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn being_shared_a_document_or_sheet_reaches_only_that_person_while_they_have_it() {
+    let Some((org, url)) = company("foryoushare").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping For you share scenario");
+        return;
+    };
+    let board = document(&org, "Board notes", DocumentVisibility::Participants).await;
+    org.set_document_participant(SetDocumentParticipant {
+        command_id: Uuid::new_v4(),
+        document_id: board,
+        actor_id: "owner",
+        expected_document_version: 1,
+        participant_actor_id: "alex",
+        access: DocumentAccess::Comment,
+    })
+    .await
+    .unwrap();
+    let key = format!("share:{board}");
+    let (alex, unread) = items(&org, "alex").await;
+    let shared = find(&alex, &key).expect("Alex hears he was given the document");
+    assert_eq!((shared.kind.as_str(), shared.excerpt.as_str()), ("share", "Can comment"));
+    assert_eq!(shared.actor_names, ["The Owner"]);
+    assert_eq!(shared.target, ForYouTarget::Document { document_id: board });
+    assert_eq!(unread, 1);
+    assert!(find(&items(&org, "owner").await.0, &key).is_none(), "making it is not being shared it");
+    assert!(find(&items(&org, "bianca").await.0, &key).is_none());
+
+    // A sheet shared with Alex, and with Exec, who takes part like a person.
+    let sheet = Uuid::new_v4();
+    org.create_sheet(sheet, "owner", "Deals", "participants", &json!({"revisionId": "r0"}))
+        .await
+        .unwrap();
+    org.share_sheet(sheet, "owner", "alex", Some("edit")).await.unwrap();
+    let sheet_key = format!("sheet-share:{sheet}");
+    let (alex, _) = items(&org, "alex").await;
+    let shared = find(&alex, &sheet_key).expect("Alex hears he was given the sheet");
+    assert_eq!(shared.target, ForYouTarget::Sheet { sheet_id: sheet });
+    assert_eq!(shared.excerpt, "Can edit");
+    assert!(find(&items(&org, "bianca").await.0, &sheet_key).is_none());
+
+    // Changes others make to a sheet he follows reach him; his own never do.
+    let mut db = scratch_db(&org, &url).await;
+    sheet_edit(&mut db, sheet, "alex").await;
+    assert!(org.sheet_following(sheet, "alex").await.unwrap(), "editing follows a sheet");
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    sheet_edit(&mut db, sheet, "owner").await;
+    let changes = format!("sheet-changes:{sheet}");
+    let (alex, _) = items(&org, "alex").await;
+    let changed = find(&alex, &changes).expect("the owner's edit reaches Alex");
+    assert_eq!((changed.kind.as_str(), changed.actor_ids.clone()), ("change", vec!["owner".to_string()]));
+    let (owner, _) = items(&org, "owner").await;
+    assert!(find(&owner, &changes).is_some_and(|item| item.actor_ids == ["alex"]));
+    org.set_sheet_follow(sheet, "alex", false).await.unwrap();
+    assert!(find(&items(&org, "alex").await.0, &changes).is_none(), "leaving a sheet quiets it");
+    // Bianca cannot follow a sheet she cannot open, nor learn it exists.
+    assert!(matches!(
+        org.set_sheet_follow(sheet, "bianca", true).await,
+        Err(DocumentError::Unavailable)
+    ));
+
+    // Losing access takes the items with it.
+    org.share_sheet(sheet, "owner", "alex", None).await.unwrap();
+    org.remove_document_participant(RemoveDocumentParticipant {
+        command_id: Uuid::new_v4(),
+        document_id: board,
+        actor_id: "owner",
+        expected_document_version: 2,
+        participant_actor_id: "alex",
+    })
+    .await
+    .unwrap();
+    let (alex, unread) = items(&org, "alex").await;
+    assert!(alex.is_empty(), "nothing is left from what Alex can no longer open");
+    assert_eq!(unread, 0);
+}
+
+#[tokio::test]
+async fn replies_in_a_room_thread_reach_the_people_in_it() {
+    let Some((org, _)) = company("foryouroomthread").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping For you Room thread scenario");
+        return;
+    };
+    let room = org
+        .create_room("owner", RoomKind::Group, "Launch", &["owner", "alex", "bianca", "exec"], "launch")
+        .await
+        .unwrap();
+    let root = org
+        .send_room_message(room.id, "alex", "Shall we ship Friday?", None, "root")
+        .await
+        .unwrap()
+        .message
+        .id;
+    let answer = org
+        .send_room_message(room.id, "exec", "Friday works.", Some(root), "answer")
+        .await
+        .unwrap()
+        .message
+        .id;
+    let key = format!("room-thread:{}:{root}", room.id);
+    let (alex, unread) = items(&org, "alex").await;
+    let replied = find(&alex, &key).expect("Alex started the thread");
+    assert_eq!(replied.kind, "reply");
+    assert_eq!(replied.actor_names, ["Exec"]);
+    assert_eq!(replied.excerpt, "Friday works.");
+    assert!(matches!(
+        replied.target,
+        ForYouTarget::Room { thread_root_message_id, message_id, mention_id: None, .. }
+            if thread_root_message_id == root && message_id == answer
+    ));
+    assert_eq!(unread, 1);
+    assert!(find(&items(&org, "bianca").await.0, &key).is_none(), "Bianca is not in the thread");
+    assert!(find(&items(&org, "exec").await.0, &key).is_none(), "Exec's own reply is not news to it");
+
+    // A reply that mentions Alex is his mention, not also a thread item.
+    org.mark_for_you_read("alex", &[key.clone()]).await.unwrap();
+    org.send_room_message_with_mentions(
+        room.id,
+        "bianca",
+        "Alex, can you confirm?",
+        Some(root),
+        "confirm",
+        None,
+        &[NewRoomMessageMention::actor("alex")],
+        None,
+    )
+    .await
+    .unwrap();
+    let (alex, unread) = items(&org, "alex").await;
+    assert_eq!(unread, 1);
+    assert!(!find(&alex, &key).unwrap().unread);
+    assert!(alex.iter().any(|item| item.unread && item.key.starts_with("room-mention:")));
+
+    // Reading the conversation in the Room reads its thread here too.
+    let late = org
+        .send_room_message(room.id, "exec", "Booked.", Some(root), "booked")
+        .await
+        .unwrap()
+        .message
+        .id;
+    assert!(find(&items(&org, "alex").await.0, &key).unwrap().unread);
+    org.mark_room_read_through(room.id, "alex", late).await.unwrap();
+    assert!(!find(&items(&org, "alex").await.0, &key).unwrap().unread);
+
+    // Leaving the Room takes the thread with it.
+    org.remove_room_participant("owner", room.id, "alex").await.unwrap();
+    assert!(find(&items(&org, "alex").await.0, &key).is_none());
+}
+
+#[tokio::test]
+async fn marks_are_per_person_unread_wins_over_all_read_and_archive_lasts_until_news() {
+    let Some((org, _)) = company("foryoumarks").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping For you marks scenario");
+        return;
+    };
+    let pricing = document(&org, "Pricing", DocumentVisibility::Company).await;
+    let started = thread(&org, pricing, "alex", None).await;
+    reply(&org, pricing, started, "bianca").await;
+    let key = format!("thread:{started}");
+    assert!(find(&items(&org, "alex").await.0, &key).unwrap().unread);
+
+    // Marked unread, it stays unread past "mark all read" until it is opened.
+    org.mark_all_for_you_read("alex").await.unwrap();
+    org.mark_for_you_unread("alex", &[key.clone()]).await.unwrap();
+    let page = org.for_you_page_filtered("alex", None, 50, true).await.unwrap();
+    assert_eq!(page.items.iter().map(|item| item.key.as_str()).collect::<Vec<_>>(), [key.as_str()]);
+    assert_eq!(page.unread_count, 1);
+    assert!(find(&items(&org, "owner").await.0, &key).unwrap().unread, "Alex's marks are his own");
+    org.mark_all_for_you_read("alex").await.unwrap();
+    assert_eq!(items(&org, "alex").await.1, 0, "mark all read clears a marked-unread item");
+    org.mark_for_you_unread("alex", &[key.clone()]).await.unwrap();
+    org.mark_for_you_read("alex", &[key.clone()]).await.unwrap();
+    assert_eq!(items(&org, "alex").await.1, 0, "opening it reads it");
+
+    // Archived, it leaves the list; unarchived it comes back; news brings it back by itself.
+    org.archive_for_you("alex", &[key.clone()], true).await.unwrap();
+    assert!(find(&items(&org, "alex").await.0, &key).is_none());
+    org.mark_all_for_you_read("alex").await.unwrap();
+    assert!(find(&items(&org, "alex").await.0, &key).is_none(), "mark all read keeps it archived");
+    org.archive_for_you("alex", &[key.clone()], false).await.unwrap();
+    assert!(find(&items(&org, "alex").await.0, &key).is_some_and(|item| !item.unread));
+    org.archive_for_you("alex", &[key.clone()], true).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    reply(&org, pricing, started, "bianca").await;
+    let (alex, unread) = items(&org, "alex").await;
+    assert!(find(&alex, &key).is_some_and(|item| item.unread), "a new reply resurfaces it");
+    assert_eq!(unread, 1);
+
+    // Malformed marks are refused; a Room thread mark names its Room and root.
+    assert!(matches!(
+        org.archive_for_you("alex", &["attention:x".into()], true).await,
+        Err(DocumentError::Invalid(_))
+    ));
+    org.mark_for_you_read("alex", &[format!("room-thread:{}:7", Uuid::new_v4())])
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn inbox_marks_follow_the_person_and_only_that_person() {
+    let Some((org, _)) = company("foryouinbox").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Inbox marks scenario");
+        return;
+    };
+    let until = Utc::now() + Duration::hours(1);
+    org.set_inbox_marks(
+        "owner",
+        &[InboxMarkChange {
+            item_id: "handoff:1".into(),
+            seen_stamp: Some("2026-10-13T00:00:00Z".into()),
+            snoozed_until: Some(Some(until)),
+        }],
+    )
+    .await
+    .unwrap();
+    // Seeing it again leaves the snooze alone; waking it clears only the snooze.
+    org.set_inbox_marks(
+        "owner",
+        &[InboxMarkChange {
+            item_id: "handoff:1".into(),
+            seen_stamp: Some("2026-10-13T01:00:00Z".into()),
+            snoozed_until: None,
+        }],
+    )
+    .await
+    .unwrap();
+    let marks = org.inbox_marks("owner").await.unwrap();
+    assert_eq!(marks.len(), 1);
+    assert_eq!(marks[0].seen_stamp.as_deref(), Some("2026-10-13T01:00:00Z"));
+    assert_eq!(marks[0].snoozed_until.map(|at| at.timestamp()), Some(until.timestamp()));
+    org.set_inbox_marks(
+        "owner",
+        &[InboxMarkChange {
+            item_id: "handoff:1".into(),
+            seen_stamp: None,
+            snoozed_until: Some(None),
+        }],
+    )
+    .await
+    .unwrap();
+    let marks = org.inbox_marks("owner").await.unwrap();
+    assert_eq!(marks[0].snoozed_until, None);
+    assert_eq!(marks[0].seen_stamp.as_deref(), Some("2026-10-13T01:00:00Z"));
+    assert!(org.inbox_marks("alex").await.unwrap().is_empty(), "marks are the owner's own");
+    assert!(org.set_inbox_marks("owner", &[]).await.is_err());
+}
+
+#[tokio::test]
+async fn a_document_mention_still_unread_after_a_while_is_owed_an_email_until_it_is_read() {
+    let Some((org, _)) = company("foryouemail").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping For you email scenario");
+        return;
+    };
+    let identity = CompanyAccessIdentity {
+        company_id: Uuid::new_v4(),
+        cell_id: Uuid::new_v4(),
+    };
+    org.ensure_company_access_identity(identity).await.unwrap();
+    let now = Utc::now();
+    let binding = org
+        .consume_human_access_context(HumanAccessContext {
+            display_name: None,
+            issuer: "https://fleet.example.test",
+            subject: "member-user",
+            company_id: identity.company_id,
+            cell_id: identity.cell_id,
+            membership_id: "member-membership",
+            membership_role: "member",
+            membership_version: 1,
+            assertion_id: Uuid::new_v4(),
+            issued_at: now,
+            expires_at: now + Duration::minutes(5),
+        })
+        .await
+        .unwrap();
+    let member = binding.actor_id.as_str();
+    let pricing = document(&org, "Pricing", DocumentVisibility::Company).await;
+    let started = thread(&org, pricing, "bianca", Some(member)).await;
+    // Fresh, it waits for the cockpit.
+    assert!(org.pending_human_for_you_notifications(Utc::now()).await.unwrap().is_empty());
+    let later = Utc::now() + Duration::minutes(15);
+    let owed = org.pending_human_for_you_notifications(later).await.unwrap();
+    assert_eq!(owed.len(), 1, "only the hosted person is owed; the local owner has no binding");
+    assert_eq!(owed[0].recipient.actor_id, member);
+    assert!(owed[0].item.key.starts_with("doc-mention:"));
+    assert_eq!(owed[0].item.target, ForYouTarget::Document { document_id: pricing });
+    let _ = started;
+    // History is not news.
+    assert!(org
+        .pending_human_for_you_notifications(Utc::now() + Duration::days(3))
+        .await
+        .unwrap()
+        .is_empty());
+    // Opened in the cockpit, it is withdrawn.
+    org.mark_for_you_read(member, &[owed[0].item.key.clone()]).await.unwrap();
+    assert!(org.pending_human_for_you_notifications(later).await.unwrap().is_empty());
 }

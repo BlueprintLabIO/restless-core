@@ -4,9 +4,20 @@
 //! handoffs remain the canonical durable objects and their existing event rows
 //! remain the wake/replay substrate. Cloud polls this projection and owns only
 //! delivery attempts and receipts for the external email effect.
+//!
+//! Document mentions and replies in threads a person is in reach email through
+//! the same projection, read from For you: an item still unread a while after
+//! it happened is owed, and opening it anywhere withdraws it.
 
 use super::*;
 use serde::Serialize;
+
+/// How long a For you item waits unread before it is emailed: long enough that
+/// someone at the cockpit reads it there first.
+pub const FOR_YOU_EMAIL_AFTER: chrono::Duration = chrono::Duration::minutes(10);
+/// Older unread items are history, not news; they are never emailed, so the
+/// first projection after an upgrade does not send a backlog.
+pub const FOR_YOU_EMAIL_WITHIN: chrono::Duration = chrono::Duration::days(2);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct HumanNotificationRecipient {
@@ -29,6 +40,24 @@ pub struct PendingMentionNotification {
     pub source_user_id: Option<String>,
     pub recipient: HumanNotificationRecipient,
     pub created_at: DateTime<Utc>,
+}
+
+/// A For you item a hosted person has not opened: a mention of them in a
+/// document comment, or a reply in a document or Room thread they are in.
+#[derive(Debug, Clone)]
+pub struct PendingForYouNotification {
+    pub item: ForYouItem,
+    pub recipient: HumanNotificationRecipient,
+}
+
+/// Which For you items are worth an email: document mentions and replies.
+/// Room mentions already have their own intent; shares, reviews, comments on
+/// followed documents and changes stay in the cockpit.
+pub fn for_you_item_is_emailed(item: &ForYouItem, now: DateTime<Utc>) -> bool {
+    (item.key.starts_with("doc-mention:") || item.kind == "reply")
+        && item.unread
+        && item.at <= now - FOR_YOU_EMAIL_AFTER
+        && item.at > now - FOR_YOU_EMAIL_WITHIN
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,6 +149,39 @@ impl OrgIntel {
             source_user_id: row.get("notification_source_user_id"),
         })
         .collect())
+    }
+
+    /// Document mentions and thread replies still unread by each active hosted
+    /// person a while after they happened, each still readable by them.
+    pub async fn pending_human_for_you_notifications(
+        &self,
+        now: DateTime<Utc>,
+    ) -> DocumentResult<Vec<PendingForYouNotification>> {
+        let recipients = sqlx::query(
+            "SELECT issuer,subject,membership_id,actor_id \
+               FROM human_principal_actor_bindings \
+              WHERE membership_status='active' ORDER BY membership_id",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        let mut pending = Vec::new();
+        for row in recipients {
+            let recipient = HumanNotificationRecipient {
+                identity_issuer: row.get("issuer"),
+                user_id: row.get("subject"),
+                membership_id: row.get("membership_id"),
+                actor_id: row.get("actor_id"),
+            };
+            for item in self.unread_for_you_items(&recipient.actor_id).await? {
+                if for_you_item_is_emailed(&item, now) {
+                    pending.push(PendingForYouNotification {
+                        item,
+                        recipient: recipient.clone(),
+                    });
+                }
+            }
+        }
+        Ok(pending)
     }
 
     pub async fn active_hosted_owners(&self) -> Result<Vec<HumanNotificationRecipient>> {
