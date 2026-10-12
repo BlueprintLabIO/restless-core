@@ -111,6 +111,8 @@
 		/** A thread to open on arrival (from For you or a margin mark), and a comment to point at. */
 		requestedThreadId?: string;
 		requestedCommentId?: string;
+		/** Asking again for the thread already in the address opens it again. */
+		threadRequest?: number;
 		/** History opens on what changed after this moment: when the person last looked. */
 		changesSince?: string;
 		people?: PersonReference[];
@@ -134,6 +136,7 @@
 		requestedReviewId = '',
 		requestedThreadId = '',
 		requestedCommentId = '',
+		threadRequest = 0,
 		changesSince = '',
 		people = [],
 		viewerActorId = '',
@@ -434,23 +437,26 @@
 	/* Arriving for one thread (from For you, or a mark in the margin) opens that thread, shows
 	 * the passage it is about, and points at the comment that brought the person here. */
 	let appliedThread = $state('');
+	const requestedKey = $derived(requestedThreadId ? `${requestedThreadId}#${threadRequest}` : '');
 	let flashCommentId = $state('');
 	$effect(() => {
 		/* Until a thread asked for is found, nothing else is chosen in its place. */
-		if (requestedThreadId && appliedThread !== requestedThreadId) return;
+		if (requestedKey && appliedThread !== requestedKey) return;
 		if (!shownThreads.some((item) => item.thread.id === selectedThreadId))
 			selectedThreadId = shownThreads.at(-1)?.thread.id ?? '';
 	});
 	$effect(() => {
 		const wanted = requestedThreadId;
-		if (!wanted || wanted === untrack(() => appliedThread)) return;
+		const key = requestedKey;
+		if (!wanted || key === untrack(() => appliedThread)) return;
 		const found = threads.threads.find((item) => item.thread.id === wanted);
 		if (!found) {
-			/* Gone (taken back, or no longer readable): show the list as usual. */
-			if (threads.status !== 'unknown' && !threads.hasMore) appliedThread = wanted;
+			/* Gone (taken back, or no longer readable), or not among those loaded: show the list
+			 * as usual rather than nothing. */
+			if (threads.status !== 'unknown') appliedThread = key;
 			return;
 		}
-		appliedThread = wanted;
+		appliedThread = key;
 		threadFilter = found.thread.status;
 		selectedThreadId = wanted;
 		composingThread = false;

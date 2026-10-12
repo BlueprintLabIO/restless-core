@@ -104,7 +104,15 @@
 		}
 		return blocks;
 	});
+	/* A margin mark opens its thread, even when that thread is already in the address and the
+	 * person has since looked at another. */
+	let threadRequest = $state(0);
 	function openThread(threadId: string): void {
+		const url = page.url.searchParams;
+		if (url.get('inspect') === 'comments' && url.get('thread') === threadId) {
+			threadRequest += 1;
+			return;
+		}
 		void goto(documentHref({ inspect: 'comments', thread: threadId }), {
 			keepFocus: true,
 			noScroll: true
@@ -133,6 +141,9 @@
 			Boolean(detail.failure) &&
 			['access', 'missing'].includes(failureKind(detail.failure))
 	);
+	/* Inside the company the answer is "not found" for private and gone alike, and asking is
+	 * possible; from outside it there is nobody to ask. */
+	const mayAsk = $derived(unreadable && failureKind(detail.failure) === 'missing');
 	const ownerName = $derived(
 		documentView
 			? (people.find((person) => person.actor_id === documentView.document.owner_actor_id)
@@ -401,14 +412,16 @@
 				<h2>You can’t open this document</h2>
 				<p>It may be private to others, or it was moved or removed.</p>
 				<div class="stage-actions">
-					<button
-						type="button"
-						class="btn small primary"
-						disabled={asked === documentId}
-						title="Whoever shares it sees your ask in For you"
-						onclick={() => void askForAccess('read')}
-						>{asked === documentId ? 'Asked' : 'Ask for access'}</button
-					>
+					{#if mayAsk}
+						<button
+							type="button"
+							class="btn small primary"
+							disabled={asked === documentId}
+							title="Whoever shares it sees your ask in For you"
+							onclick={() => void askForAccess('read')}
+							>{asked === documentId ? 'Asked' : 'Ask for access'}</button
+						>
+					{/if}
 					<a class="btn small" href={`/${encodeURIComponent(companyId)}/library?show=docs`}
 						>Back to the Library</a
 					>
@@ -488,7 +501,7 @@
 							>{follow.following ? 'Following' : 'Follow'}</button
 						>
 					{/if}
-					{#if documentView.access !== 'edit' && !ownerAccess}
+					{#if documentView.access !== 'edit' && !ownerAccess && !archived}
 						<button
 							type="button"
 							class="btn small ask"
@@ -537,7 +550,7 @@
 							>{follow.following ? 'Unfollow' : 'Follow'}</button
 						>
 					{/if}
-					{#if documentView.access !== 'edit' && !ownerAccess && asked !== documentView.document.id}
+					{#if documentView.access !== 'edit' && !ownerAccess && !archived && asked !== documentView.document.id}
 						<button type="button" class="narrow-only" onclick={() => void askForAccess('edit')}
 							>Ask to edit</button
 						>
@@ -649,6 +662,7 @@
 					panel={inspectorPanel}
 					requestedThreadId={page.url.searchParams.get('thread') ?? ''}
 					requestedCommentId={page.url.searchParams.get('comment') ?? ''}
+					{threadRequest}
 					changesSince={page.url.searchParams.get('since') ?? ''}
 					{people}
 					viewerActorId={principalId}
