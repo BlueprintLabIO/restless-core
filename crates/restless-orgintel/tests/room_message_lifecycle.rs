@@ -342,7 +342,10 @@ async fn edits_and_deletes_are_immutable_retry_safe_and_visible_as_tombstones() 
     .unwrap();
     let inbox = org.conversation_inbox("exec").await.unwrap();
     assert_eq!(inbox.len(), 1);
-    assert_eq!(inbox[0].body, "Updated private instruction");
+    // The edited text, with the file the message carries as a path the Exec can read.
+    assert!(inbox[0].body.starts_with(&format!(
+        "Updated private instruction\n\nAttached files:\n- proof.txt: /var/lib/restless-owner-attachments/{attachment_id}/content"
+    )));
     org.delete_room_message(
         direct.id,
         "owner",

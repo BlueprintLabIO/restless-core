@@ -67,8 +67,8 @@ fn files_not_stored() -> Response<Body> {
 
 /// POST /companies/{company}/attachments: one or more parts named `file`, kept in the Library
 /// with no conversation message. Any person in the company may add one, as they do an image to a
-/// document (S65); it counts against their own kept-file quota and opens only for them unless a
-/// document they may edit shows it.
+/// document or a file to a message (S65); it counts against their own kept-file quota and opens
+/// only for them unless a document shows it or a message they send carries it.
 pub(super) async fn upload_attachments(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,

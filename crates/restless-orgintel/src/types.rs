@@ -1388,6 +1388,32 @@ pub struct RoomMessageRow {
     /// but normal projections replace its body with an empty tombstone.
     pub deleted_at: Option<DateTime<Utc>>,
     pub legacy_read_at: Option<DateTime<Utc>>,
+    /// Files the author attached (S65). A deleted Message carries none.
+    #[sqlx(skip)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<RoomMessageAttachment>,
+}
+
+/// A file attached to a Room Message. Its bytes were uploaded on their own and kept by the
+/// author; the Message only references them (S65).
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct RoomMessageAttachment {
+    #[serde(skip)]
+    pub message_id: i64,
+    pub attachment_id: Uuid,
+    pub name: String,
+    pub media_type: String,
+    pub size_bytes: i64,
+}
+
+impl RoomMessageAttachment {
+    /// Where the bytes live on the company computer, as Exec and Staff read them.
+    pub fn path(&self) -> String {
+        format!(
+            "/var/lib/restless-owner-attachments/{}/content",
+            self.attachment_id
+        )
+    }
 }
 
 impl RoomMessageRow {

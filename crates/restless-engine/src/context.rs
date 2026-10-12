@@ -148,6 +148,14 @@ pub fn message_mention_context(mention: &MessageMentionContext) -> String {
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| "(none)".into())
     };
+    // Attached files reach the agent as paths on the company computer, as the Exec rail's do.
+    let mut body = mention.message.body.clone();
+    if !mention.message.attachments.is_empty() {
+        body.push_str("\nAttached files:");
+        for file in &mention.message.attachments {
+            body.push_str(&format!("\n- {}: {}", file.name, file.path()));
+        }
+    }
     format!(
         "Mention {} in Room {:?} ({})\n\
          Return path: Room {}, Thread {}, reply to Message {}\n\
@@ -170,7 +178,7 @@ pub fn message_mention_context(mention: &MessageMentionContext) -> String {
         mention.mention.thread_root_message_id,
         mention.message.id,
         mention.message.from_actor,
-        mention.message.body,
+        body,
         optional(mention.mention.why_this_actor.as_deref()),
         optional(mention.mention.expected_response.as_deref()),
         mention
@@ -1170,12 +1178,22 @@ mod tests {
                     edited_at: None,
                     deleted_at: None,
                     legacy_read_at: None,
+                    attachments: vec![restless_orgintel::RoomMessageAttachment {
+                        message_id: 41,
+                        attachment_id: uuid::Uuid::nil(),
+                        name: "launch-plan.pdf".into(),
+                        media_type: "application/pdf".into(),
+                        size_bytes: 12,
+                    }],
                 },
             },
         ));
         let package = assemble(&with_mention);
         assert!(package.user_prompt.contains(&mention_id.to_string()));
         assert!(package.user_prompt.contains("Should we ship?"));
+        assert!(package.user_prompt.contains(
+            "- launch-plan.pdf: /var/lib/restless-owner-attachments/00000000-0000-0000-0000-000000000000/content"
+        ));
         assert!(package.user_prompt.contains("Thread 40"));
         assert!(package.user_prompt.contains("persisted automatically"));
         assert!(!package.user_prompt.contains("unrelated Room history"));

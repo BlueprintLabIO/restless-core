@@ -19,6 +19,8 @@ const MAX_ROOM_SEARCH_LIMIT: i64 = 25;
 const MAX_ROOM_SEARCH_SNIPPET_CHARACTERS: i32 = 480;
 const MAX_ACTIVE_ROOMS_CREATED_PER_ACTOR: i64 = 128;
 const MAX_MESSAGE_MENTIONS: usize = 16;
+/// Files one Room Message may carry, as many as one upload or one Exec message takes.
+pub const MAX_ROOM_MESSAGE_ATTACHMENTS: usize = 6;
 const MAX_PENDING_MENTIONS_AUTHORED_PER_ACTOR: i64 = 256;
 const MAX_PENDING_MENTIONS_FOR_ACTOR: i64 = 256;
 const MAX_MESSAGE_MENTION_CONTEXT_BYTES: usize = 64 * 1024;
@@ -50,6 +52,7 @@ fn room_message_digest(
     body: &str,
     mentions: &[NewRoomMessageMention],
     resolves_mention_id: Option<Uuid>,
+    attachment_ids: &[Uuid],
 ) -> String {
     let mut digest = Sha256::new();
     // Keep this first five-part spelling byte-for-byte compatible with the
@@ -82,6 +85,20 @@ fn room_message_digest(
             digest.update((part.len() as u64).to_be_bytes());
             digest.update(part.as_bytes());
         }
+    }
+    if !attachment_ids.is_empty() {
+        // Files are a later semantic field with their own domain, so a send without files keeps
+        // its earlier digest and stays replayable.
+        let part = format!(
+            "restless.room-message.attachments.v1:{}",
+            attachment_ids
+                .iter()
+                .map(Uuid::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        digest.update((part.len() as u64).to_be_bytes());
+        digest.update(part.as_bytes());
     }
     format!("{:x}", digest.finalize())
 }
@@ -483,7 +500,7 @@ async fn room_message_in_tx(
     room_id: Uuid,
     message_id: i64,
 ) -> Result<RoomMessageRow> {
-    sqlx::query_as(
+    let message: RoomMessageRow = sqlx::query_as(
         "SELECT message.id,message.room_id,message.from_actor,message.to_actor, \
                 CASE WHEN message.deleted_at IS NULL \
                      THEN COALESCE(revision.body,message.body) ELSE '' END AS body, \
@@ -500,7 +517,50 @@ async fn room_message_in_tx(
     .bind(message_id)
     .fetch_optional(&mut **tx)
     .await?
-    .ok_or_else(|| OrgIntelError::InvalidRoom("Room message does not exist".into()))
+    .ok_or_else(|| OrgIntelError::InvalidRoom("Room message does not exist".into()))?;
+    let mut messages = [message];
+    attach_room_message_files_in_tx(tx, &mut messages).await?;
+    let [message] = messages;
+    Ok(message)
+}
+
+/// Fill each Message's attached files. A deleted Message, and a file whose deletion was
+/// requested, show none.
+async fn attach_room_message_files_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    messages: &mut [RoomMessageRow],
+) -> Result<()> {
+    let ids = messages
+        .iter()
+        .filter(|message| message.deleted_at.is_none())
+        .map(|message| message.id)
+        .collect::<Vec<_>>();
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let files: Vec<RoomMessageAttachment> = sqlx::query_as(
+        "SELECT message_id,attachment_id,canonical_name AS name, \
+                canonical_media_type AS media_type,size_bytes \
+         FROM owner_attachments \
+         WHERE message_id=ANY($1) AND purge_requested_at IS NULL AND purged_at IS NULL \
+         ORDER BY message_id,created_at,canonical_name,attachment_id",
+    )
+    .bind(&ids)
+    .fetch_all(&mut **tx)
+    .await?;
+    if files.is_empty() {
+        return Ok(());
+    }
+    let mut by_message: HashMap<i64, Vec<RoomMessageAttachment>> = HashMap::new();
+    for file in files {
+        by_message.entry(file.message_id).or_default().push(file);
+    }
+    for message in messages.iter_mut() {
+        if let Some(files) = by_message.remove(&message.id) {
+            message.attachments = files;
+        }
+    }
+    Ok(())
 }
 
 async fn durable_room_message_event_id(
@@ -1974,6 +2034,40 @@ impl OrgIntel {
             mentions,
             resolves_mention_id,
             None,
+            &[],
+        )
+        .await
+    }
+
+    /// The same retry-safe send carrying files the author already uploaded and kept (S65).
+    /// Each file must be the author's own, kept and not yet attached anywhere; the Message
+    /// takes it over in the same transaction, so a file is attached at most once.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the Room command keeps attribution, thread, retry, mention and file semantics explicit"
+    )]
+    pub async fn send_room_message_with_attachments(
+        &self,
+        room_id: Uuid,
+        author_actor: &str,
+        body: &str,
+        parent_message_id: Option<i64>,
+        client_command_id: &str,
+        mentions: &[NewRoomMessageMention],
+        resolves_mention_id: Option<Uuid>,
+        attachment_ids: &[Uuid],
+    ) -> Result<RoomMessageSendResult> {
+        self.send_room_message_with_mention_claim(
+            room_id,
+            author_actor,
+            body,
+            parent_message_id,
+            client_command_id,
+            None,
+            mentions,
+            resolves_mention_id,
+            None,
+            attachment_ids,
         )
         .await
     }
@@ -1993,7 +2087,18 @@ impl OrgIntel {
         mentions: &[NewRoomMessageMention],
         resolves_mention_id: Option<Uuid>,
         resolution_claim_token: Option<Uuid>,
+        attachment_ids: &[Uuid],
     ) -> Result<RoomMessageSendResult> {
+        if attachment_ids.len() > MAX_ROOM_MESSAGE_ATTACHMENTS {
+            return Err(OrgIntelError::InvalidRoom(format!(
+                "Attach at most {MAX_ROOM_MESSAGE_ATTACHMENTS} files to one message."
+            )));
+        }
+        if attachment_ids.iter().collect::<BTreeSet<_>>().len() != attachment_ids.len() {
+            return Err(OrgIntelError::InvalidRoom(
+                "The same file is attached twice to this message.".into(),
+            ));
+        }
         if body.trim().is_empty() || body.len() > MAX_ROOM_MESSAGE_BYTES {
             return Err(OrgIntelError::InvalidRoom(format!(
                 "a Room message needs 1 to {MAX_ROOM_MESSAGE_BYTES} bytes"
@@ -2020,6 +2125,7 @@ impl OrgIntel {
             body,
             &mentions,
             resolves_mention_id,
+            attachment_ids,
         );
 
         let target_ids = mentions
@@ -2309,6 +2415,33 @@ impl OrgIntel {
                 mentions,
                 resolved_mention,
             });
+        }
+
+        if !attachment_ids.is_empty() {
+            // The upload already stored and kept the bytes. Attaching moves each file from the
+            // author's own keep to this Message, where every current participant may read it;
+            // it stays under the same retention limits and purge path.
+            let attached = sqlx::query(
+                "UPDATE owner_attachments \
+                 SET message_id=$2,linked_at=now(),kept_at=NULL, \
+                     staging_finished_at=COALESCE(staging_finished_at,now()) \
+                 WHERE attachment_id=ANY($1) AND sender_actor_id=$3 \
+                   AND kept_at IS NOT NULL AND message_id IS NULL \
+                   AND gc_claimed_at IS NULL AND gc_claim_token IS NULL \
+                   AND purge_requested_at IS NULL AND purged_at IS NULL",
+            )
+            .bind(attachment_ids)
+            .bind(message_id)
+            .bind(author_actor)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+            if attached != attachment_ids.len() as u64 {
+                return Err(OrgIntelError::InvalidRoom(
+                    "These files can no longer be attached: a file is attached once, by the person who added it. Add them again, then send."
+                        .into(),
+                ));
+            }
         }
 
         for mention in &mentions {
@@ -3192,6 +3325,8 @@ impl OrgIntel {
             let next_before_message_id = has_more.then(|| roots[0].id);
             (roots, has_more, next_before_message_id)
         };
+        let mut messages = messages;
+        attach_room_message_files_in_tx(&mut tx, &mut messages).await?;
         let message_ids = messages
             .iter()
             .map(|message| message.id)
@@ -3286,7 +3421,7 @@ impl OrgIntel {
             .iter()
             .map(|mention| mention.room_id)
             .collect::<Vec<_>>();
-        let messages: Vec<RoomMessageRow> = sqlx::query_as(
+        let mut messages: Vec<RoomMessageRow> = sqlx::query_as(
             "SELECT message.id,message.room_id,message.from_actor,message.to_actor, \
                     CASE WHEN message.deleted_at IS NULL \
                          THEN COALESCE(revision.body,message.body) ELSE '' END AS body, \
@@ -3302,6 +3437,7 @@ impl OrgIntel {
         .bind(&message_ids)
         .fetch_all(&mut *tx)
         .await?;
+        attach_room_message_files_in_tx(&mut tx, &mut messages).await?;
         let rooms: Vec<(Uuid, String)> =
             sqlx::query_as("SELECT id,title FROM rooms WHERE id=ANY($1)")
                 .bind(&room_ids)
@@ -3789,6 +3925,7 @@ impl OrgIntel {
             &[],
             Some(claim.context.mention.id),
             Some(claim.lease.token),
+            &[],
         )
         .await
     }

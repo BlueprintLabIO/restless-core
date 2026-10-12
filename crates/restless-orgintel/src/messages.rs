@@ -1020,8 +1020,9 @@ impl OrgIntel {
 
     /// Return canonical attachment metadata only while the requesting Actor is
     /// a current participant in the authoritative Message Room, or is the
-    /// active human who kept the file in the Library without a Message. UUID
-    /// secrecy is never treated as an authorization boundary.
+    /// active human who added the file (kept in the Library, or attached to a
+    /// Message they sent that is not deleted). UUID secrecy is never treated as
+    /// an authorization boundary.
     pub async fn owner_attachment_for_actor(
         &self,
         attachment_id: Uuid,
@@ -1047,7 +1048,9 @@ impl OrgIntel {
              FROM owner_attachments attachment \
              JOIN actors actor ON actor.id=attachment.sender_actor_id \
              WHERE attachment.attachment_id=$1 AND attachment.sender_actor_id=$2 \
-               AND attachment.kept_at IS NOT NULL AND attachment.message_id IS NULL \
+               AND (attachment.kept_at IS NOT NULL OR EXISTS (\
+                    SELECT 1 FROM messages sent \
+                    WHERE sent.id=attachment.message_id AND sent.deleted_at IS NULL)) \
                AND attachment.purge_requested_at IS NULL AND attachment.purged_at IS NULL \
                AND actor.retired_at IS NULL AND actor.actor_class='human' \
              LIMIT 1",
@@ -2399,11 +2402,21 @@ impl OrgIntel {
         Ok(sqlx::query_as(
             "WITH eligible AS (\
                SELECT message.id,message.from_actor,message.to_actor,\
-                      COALESCE(revision.body,message.body) AS body,\
+                      COALESCE(revision.body,message.body) || COALESCE(files.manifest,'') AS body,\
                       message.outcome_standard,message.created_at,message.read_at,\
-                      octet_length(COALESCE(revision.body,message.body)) AS body_bytes \
+                      octet_length(COALESCE(revision.body,message.body) \
+                                   || COALESCE(files.manifest,'')) AS body_bytes \
                FROM messages message \
                LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
+               LEFT JOIN LATERAL (\
+                 SELECT E'\n\nAttached files:\n' || string_agg(\
+                          '- ' || file.canonical_name || ': /var/lib/restless-owner-attachments/' \
+                          || file.attachment_id::text || '/content', E'\n' \
+                          ORDER BY file.created_at,file.canonical_name) AS manifest \
+                 FROM owner_attachments file \
+                 WHERE file.message_id=message.id AND file.purge_requested_at IS NULL \
+                   AND strpos(message.body,file.attachment_id::text)=0\
+               ) files ON TRUE \
                WHERE message.read_at IS NULL AND message.deleted_at IS NULL \
                  AND message.from_actor<>$1 \
                  AND NOT EXISTS (\

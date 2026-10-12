@@ -465,6 +465,9 @@ struct RoomMessageInput {
     mentions: Vec<restless_orgintel::NewRoomMessageMention>,
     #[serde(default)]
     resolves_mention_id: Option<Uuid>,
+    /// Files the sender already uploaded, in the order they show (S65).
+    #[serde(default)]
+    attachment_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1036,8 +1039,8 @@ fn cockpit_payment_intent(payment: finance::PaymentIntent) -> CockpitPaymentInte
 
 /// Core-owned collaboration stays behind the same verified company entry
 /// boundary as the existing owner API. A smaller body ceiling applies here
-/// because Room commands are JSON metadata and bounded message text, never
-/// attachment transport.
+/// because Room commands are JSON metadata and bounded message text: a file
+/// travels through the attachment upload first and a message names it by id.
 fn room_api_routes<S>() -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
@@ -8033,15 +8036,15 @@ async fn deliver_room_message(
         Err(response) => return response,
     };
     match org
-        .send_room_message_with_mentions(
+        .send_room_message_with_attachments(
             room,
             principal.actor_id(),
             &input.body,
             parent_message_id,
             &input.command_id,
-            None,
             &input.mentions,
             input.resolves_mention_id,
+            &input.attachment_ids,
         )
         .await
     {
