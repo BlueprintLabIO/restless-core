@@ -14,7 +14,6 @@
 	import DocumentEditor from '$lib/components/DocumentEditor.svelte';
 	import DocumentShare from '$lib/components/DocumentShare.svelte';
 	import DocumentAccessRequests from '$lib/components/DocumentAccessRequests.svelte';
-	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import LibraryCrumb from '$lib/components/LibraryCrumb.svelte';
 	import DocumentInspector, {
 		revealDocumentBlock,

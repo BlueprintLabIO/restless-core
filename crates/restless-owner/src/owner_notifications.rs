@@ -953,7 +953,7 @@ mod tests {
                     kind: kind.into(),
                     title: "Pricing".into(),
                     excerpt: "private words".into(),
-                    target: restless_orgintel::ForYouTarget::Document { document_id },
+                    target: restless_orgintel::ForYouTarget::Document { document_id, thread_id: None },
                     actor_ids: vec!["bianca".into()],
                     actor_names: vec!["Bianca".into()],
                     at,

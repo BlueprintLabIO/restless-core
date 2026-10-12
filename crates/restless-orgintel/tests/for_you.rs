@@ -513,7 +513,7 @@ async fn being_shared_a_document_or_sheet_reaches_only_that_person_while_they_ha
     let shared = find(&alex, &key).expect("Alex hears he was given the document");
     assert_eq!((shared.kind.as_str(), shared.excerpt.as_str()), ("share", "Can comment"));
     assert_eq!(shared.actor_names, ["The Owner"]);
-    assert_eq!(shared.target, ForYouTarget::Document { document_id: board });
+    assert_eq!(shared.target, ForYouTarget::Document { document_id: board, thread_id: None });
     assert_eq!(unread, 1);
     assert!(find(&items(&org, "owner").await.0, &key).is_none(), "making it is not being shared it");
     assert!(find(&items(&org, "bianca").await.0, &key).is_none());
@@ -782,7 +782,7 @@ async fn a_document_mention_still_unread_after_a_while_is_owed_an_email_until_it
     assert_eq!(owed.len(), 1, "only the hosted person is owed; the local owner has no binding");
     assert_eq!(owed[0].recipient.actor_id, member);
     assert!(owed[0].item.key.starts_with("doc-mention:"));
-    assert_eq!(owed[0].item.target, ForYouTarget::Document { document_id: pricing });
+    assert_eq!(owed[0].item.target, ForYouTarget::Document { document_id: pricing, thread_id: Some(started) });
     let _ = started;
     // History is not news.
     assert!(org

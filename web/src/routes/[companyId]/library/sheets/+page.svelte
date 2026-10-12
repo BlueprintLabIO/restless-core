@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { namePageContext } from '$lib/model/page-context.svelte';
 	/* One sheet, full width, opened from the Library. History and sharing open
 	 * in a side panel named in the address (?inspect=history|share), so a link or
@@ -103,14 +104,6 @@
 		error = null;
 		versions = null;
 		titleDraft = null;
-	});
-	/* Share… from a Library row opens the sheet with who can open it beside it. */
-	$effect(() => {
-		if (page.url.searchParams.get('inspect') !== 'share' || !row || row.id !== sheet) return;
-		panel = 'sharing';
-		const url = new URL(page.url);
-		url.searchParams.delete('inspect');
-		replaceState(url, page.state);
 	});
 	/* A sheet made a moment ago, or opened to be renamed, has its title selected, ready to type. */
 	$effect(() => {
@@ -228,12 +221,12 @@
 			file = input.files?.[0];
 		input.value = '';
 		if (!file) return;
-		if (
-			!window.confirm(
-				`Replace this tab’s cells from A1 with ${file.name}? A version is saved first, so History can recover them.`
-			)
-		)
-			return;
+		const yes = await confirmAction({
+			title: `Replace this tab’s cells with ${file.name}?`,
+			body: 'Cells from A1 are replaced. A version is saved first, so History can recover them.',
+			action: 'Replace'
+		});
+		if (!yes) return;
 		const expected_revision = revision,
 			target = worksheet,
 			csv = await file.text();
