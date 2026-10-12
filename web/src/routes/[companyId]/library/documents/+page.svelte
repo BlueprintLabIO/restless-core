@@ -19,7 +19,8 @@
 	import { Notice } from '$lib/ui/page';
 	import { askExec } from '$lib/model/ask-exec';
 	import { failureSentence } from '$lib/model/failure';
-	import { documentQuery } from '$lib/model/document-queries.svelte';
+	import { documentQuery, documentQueryKeys } from '$lib/model/document-queries.svelte';
+	import { useQueryClient } from '@tanstack/svelte-query';
 	import { sameDocumentTarget, type DocumentTarget } from '$lib/model/document-cache';
 	import {
 		documentFileName,
@@ -177,7 +178,16 @@
 	/* Following, and what others changed since this person last opened it. The notice says what
 	 * was true on arrival; opening the document, and leaving it, reads its changes. */
 	const forYou = useForYou();
+	const queries = useQueryClient();
 	let follow = $state<{ id: string; following: boolean } | null>(null);
+	/* The kept copy of the document answers the next visit at once, so it learns what this one
+	 * changed: the follow choice, and that the changes were seen. */
+	function keep(target: DocumentTarget, patch: Partial<DocumentReadView>): void {
+		queries.setQueryData<DocumentReadView>(
+			documentQueryKeys.detail(target.companyId, target.documentId),
+			(view) => (view ? { ...view, ...patch } : view)
+		);
+	}
 	let changed = $state<{ id: string; actor_name: string; at: string } | null>(null);
 	let arrivedAt = '';
 	function readChanges(target: DocumentTarget): void {
@@ -194,7 +204,11 @@
 		arrivedAt = documentId;
 		const change = view.changed_since_you_looked;
 		changed = change ? { id: documentId, actor_name: change.actor_name, at: change.at } : null;
-		if (change) readChanges(currentTarget());
+		if (change) {
+			const target = currentTarget();
+			readChanges(target);
+			keep(target, { changed_since_you_looked: null });
+		}
 	});
 	$effect(() => {
 		const target = currentTarget();
@@ -211,6 +225,7 @@
 		try {
 			const now = await setDocumentFollow(target.companyId, target.documentId, next);
 			if (follow?.id === target.documentId) follow = { id: target.documentId, following: now };
+			keep(target, { following: now });
 			say(now ? 'Following. Comments and changes reach you in For you.' : 'Unfollowed');
 		} catch (cause) {
 			if (follow?.id === target.documentId) follow = { id: target.documentId, following: !next };
@@ -223,7 +238,10 @@
 	}
 	const changedWhen = (at: string) => {
 		const relative = formatRelative(at, '');
-		return relative === 'Just now' ? 'just now' : `${relative} ago`;
+		/* A clock a little ahead of the server's still reads as now. */
+		return relative === 'Just now' || relative === 'Soon' || relative.startsWith('in ')
+			? 'just now'
+			: `${relative} ago`;
 	};
 
 	/* Documents are found in the Library; this address without one goes there. */

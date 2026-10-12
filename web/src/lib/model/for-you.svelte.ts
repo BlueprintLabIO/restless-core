@@ -48,7 +48,11 @@ export function forYouSource(
 	}));
 	return {
 		get items() {
-			return query.data?.pages.flatMap((page) => page.items) ?? [];
+			/* Pages are read at different moments; an item read twice is listed once. */
+			const seen = new Set<string>();
+			return (query.data?.pages.flatMap((page) => page.items) ?? []).filter(
+				(item) => !seen.has(item.key) && Boolean(seen.add(item.key))
+			);
 		},
 		get unreadCount() {
 			return query.data?.pages[0]?.unread_count ?? 0;
