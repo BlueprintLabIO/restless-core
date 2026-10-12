@@ -454,6 +454,85 @@ fn sheet_presence(id: Uuid) -> tokio::sync::broadcast::Sender<(Uuid, Value)> {
         .clone()
 }
 
+/// Who has each sheet open: session client to actor. Ephemeral like cursors, and
+/// what a sheet's faces are made from.
+static SHEET_HERE: std::sync::LazyLock<Mutex<HashMap<Uuid, HashMap<Uuid, String>>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// A change this recent shows its author as editing. Exec and Staff change a
+/// sheet without a session, so this is also how they appear on it.
+const EDITING_FOR: Duration = Duration::from_secs(30);
+
+/// Keeps one session in its sheet's roster, and takes it out however the session ends.
+struct SheetHere {
+    sheet: Uuid,
+    client: Uuid,
+    hub: tokio::sync::broadcast::Sender<(Uuid, Value)>,
+}
+
+impl SheetHere {
+    fn join(sheet: Uuid, client: Uuid, actor: &str, hub: tokio::sync::broadcast::Sender<(Uuid, Value)>) -> Self {
+        SHEET_HERE
+            .lock()
+            .expect("sheet roster")
+            .entry(sheet)
+            .or_default()
+            .insert(client, actor.to_string());
+        let _ = hub.send((client, json!({"type":"FACES"})));
+        Self { sheet, client, hub }
+    }
+}
+
+impl Drop for SheetHere {
+    fn drop(&mut self) {
+        {
+            let mut here = SHEET_HERE.lock().expect("sheet roster");
+            if let Some(clients) = here.get_mut(&self.sheet) {
+                clients.remove(&self.client);
+                if clients.is_empty() {
+                    here.remove(&self.sheet);
+                }
+            }
+        }
+        let _ = self.hub.send((self.client, json!({"type":"FACES"})));
+    }
+}
+
+/// The people and agents on a sheet besides `actor`, one per actor in a stable
+/// order: everyone with it open, and anyone whose change landed within
+/// [`EDITING_FOR`], who is editing.
+fn sheet_faces(
+    sheet: Uuid,
+    actor: &str,
+    editing: &HashMap<String, std::time::Instant>,
+    display: impl Fn(&str) -> String,
+) -> Vec<Value> {
+    let mut sessions: Vec<(Uuid, String)> = SHEET_HERE
+        .lock()
+        .expect("sheet roster")
+        .get(&sheet)
+        .map(|clients| clients.iter().map(|(c, a)| (*c, a.clone())).collect())
+        .unwrap_or_default();
+    sessions.sort();
+    let mut faces: Vec<(String, Vec<String>)> = Vec::new();
+    for (client, other) in sessions {
+        if other == actor {
+            continue;
+        }
+        match faces.iter_mut().find(|(a, _)| *a == other) {
+            Some((_, clients)) => clients.push(client.to_string()),
+            None => faces.push((other, vec![client.to_string()])),
+        }
+    }
+    let mut agents: Vec<&String> = editing.keys().filter(|a| *a != actor && !faces.iter().any(|(f, _)| f == *a)).collect();
+    agents.sort();
+    faces.extend(agents.into_iter().map(|a| (a.clone(), Vec::new())));
+    faces
+        .into_iter()
+        .map(|(a, clients)| json!({"actor_id":a,"name":display(&a),"client_ids":clients,"editing":editing.contains_key(&a)}))
+        .collect()
+}
+
 /// Where an agent's revision landed, so its cursor can show it working.
 fn revision_position(message: &Value) -> Option<Value> {
     message["commands"].as_array()?.iter().find_map(|command| {
@@ -463,6 +542,15 @@ fn revision_position(message: &Value) -> Option<Value> {
             "row": command["row"].as_u64()?,
         }))
     })
+}
+
+/// Sends a sheet's faces when they differ from what this session last sent.
+async fn send_faces(socket: &mut WebSocket, sent: &mut Vec<Value>, now: Vec<Value>) -> Result<()> {
+    if *sent != now {
+        socket.send(AxumMessage::Text(json!({"type":"FACES","faces":now}).to_string().into())).await?;
+        *sent = now;
+    }
+    Ok(())
 }
 
 async fn session(
@@ -485,6 +573,9 @@ async fn session(
     let display = |actor_id: &str| names.get(actor_id).cloned().unwrap_or_else(|| actor_id.to_string());
     let hub = sheet_presence(id);
     let mut presence = hub.subscribe();
+    let _here = SheetHere::join(id, client.client_id, &actor, hub.clone());
+    let mut editing: HashMap<String, std::time::Instant> = HashMap::new();
+    let mut faces: Vec<Value> = Vec::new();
     let mut interval = tokio::time::interval(Duration::from_millis(200));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
@@ -493,8 +584,14 @@ async fn session(
             _=interval.tick()=>{
                 if !org.sheet_client_active(id,&actor,client.client_id,client.generation).await? {break;}
                 let state=match org.sheet_state(id,&actor,false,cursor).await {Ok(s)=>s,Err(_)=>break};
+                let before=editing.len();
+                editing.retain(|_, at| at.elapsed() < EDITING_FOR);
+                let mut changed=editing.len()!=before;
                 for m in state.messages {
                     cursor=m.sequence;
+                    if m.actor_id != actor && m.message["type"] == "REMOTE_REVISION" {
+                        changed |= editing.insert(m.actor_id.clone(), std::time::Instant::now()).is_none();
+                    }
                     socket.send(AxumMessage::Text(json!({"type":"MESSAGE","sequence":cursor,"message":m.message}).to_string().into())).await?;
                     // Someone else's edit moves their cursor to where it landed;
                     // for an agent this is the only cursor it has.
@@ -506,9 +603,14 @@ async fn session(
                     }
                 }
                 if state.access!="edit" {socket.send(AxumMessage::Text(json!({"type":"ACCESS","access":state.access}).to_string().into())).await?;}
+                if changed {send_faces(&mut socket, &mut faces, sheet_faces(id, &actor, &editing, display)).await?;}
             }
             shared=presence.recv()=>{
                 match shared {
+                    // Someone opened or left this sheet: say who is here now.
+                    Ok((_, message)) if message["type"] == "FACES" => {
+                        send_faces(&mut socket, &mut faces, sheet_faces(id, &actor, &editing, display)).await?;
+                    }
                     Ok((from, message)) if from != client.client_id => {
                         socket.send(AxumMessage::Text(json!({"type":"PRESENCE","message":message}).to_string().into())).await?;
                     }
@@ -608,7 +710,15 @@ mod tests {
             membership_version: Some(1),
             display_name: None,
         };
+        let owner_identity = VerifiedIdentity {
+            user: "owner-user".into(),
+            role: "owner".into(),
+            actor: Some("owner".into()),
+            membership_id: Some("membership-owner".into()),
+            ..identity.clone()
+        };
         let token = sessions.establish(identity, Duration::from_secs(60));
+        let owner_token = sessions.establish(owner_identity, Duration::from_secs(60));
         let mut handles = HashMap::new();
         handles.insert(company.clone(), org.clone());
         let mut state = RoomApiState::fixed(handles, url.clone());
@@ -715,6 +825,47 @@ mod tests {
                     "MESSAGE"
                 );
             }
+            // Faces: someone opening the sheet appears to the people on it,
+            // each sees the other and not themselves, and leaving removes them.
+            async fn next_faces(
+                socket: &mut tokio_tungstenite::WebSocketStream<
+                    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+                >,
+            ) -> Value {
+                for _ in 0..6 {
+                    let frame = tokio::time::timeout(Duration::from_secs(3), socket.next())
+                        .await
+                        .expect("a frame")
+                        .unwrap()
+                        .unwrap();
+                    let frame: Value = serde_json::from_str(frame.to_text().unwrap()).unwrap();
+                    if frame["type"] == "FACES" {
+                        return frame["faces"].clone();
+                    }
+                }
+                panic!("no faces frame");
+            }
+            let mut owner_request = format!("ws://{address}{path}/collaboration")
+                .into_client_request()
+                .unwrap();
+            owner_request.headers_mut().insert(
+                COOKIE,
+                HeaderValue::from_str(&format!("{SESSION_COOKIE}={owner_token}")).unwrap(),
+            );
+            let (mut owner_socket, _) = tokio_tungstenite::connect_async(owner_request).await.unwrap();
+            let owner_bootstrap = owner_socket.next().await.unwrap().unwrap();
+            let owner_bootstrap: Value = serde_json::from_str(owner_bootstrap.to_text().unwrap()).unwrap();
+            let seen_by_alice = next_faces(&mut socket).await;
+            assert_eq!(
+                seen_by_alice,
+                json!([{"actor_id":"owner","name":"Owner","client_ids":[owner_bootstrap["client_id"]],"editing":false}])
+            );
+            let seen_by_owner = next_faces(&mut owner_socket).await;
+            assert_eq!(seen_by_owner[0]["actor_id"], "alice");
+            assert_eq!(seen_by_owner.as_array().unwrap().len(), 1, "you are never your own face");
+            owner_socket.close(None).await.unwrap();
+            assert_eq!(next_faces(&mut socket).await, json!([]), "leaving takes the face away");
+
             // Another actor's edit reaches this session with that actor's
             // cursor on the cell it changed; agents have no other cursor.
             let head = org.sheet_state(sheet, "owner", false, 0).await.unwrap().sheet.head_revision;
@@ -747,6 +898,11 @@ mod tests {
             assert_eq!(cursor["type"], "CLIENT_MOVED");
             assert_eq!(cursor["client"]["name"], "Owner");
             assert_eq!(cursor["client"]["position"], json!({"sheetId":"Sheet1","col":4,"row":6}));
+            // An edit with no session (how Exec and Staff work) still puts a face on the sheet.
+            assert_eq!(
+                next_faces(&mut socket).await,
+                json!([{"actor_id":"owner","name":"Owner","client_ids":[],"editing":true}])
+            );
             let read = client
                 .post(format!("{origin}{path}/operations"))
                 .header(COOKIE, &cookie)
