@@ -1077,6 +1077,14 @@ where
             post(archive_room),
         )
         .route(
+            "/companies/{company}/rooms/archived",
+            get(list_archived_rooms),
+        )
+        .route(
+            "/companies/{company}/rooms/{room}/restore",
+            post(restore_room),
+        )
+        .route(
             "/companies/{company}/rooms/{room}/messages",
             get(list_room_messages).post(send_room_message),
         )
@@ -7422,6 +7430,37 @@ async fn archive_room(
         Err(response) => return response,
     };
     match org.archive_room(principal.actor_id(), room).await {
+        Ok(room) => Json(room).into_response(),
+        Err(error) => room_error(error),
+    }
+}
+
+/// The archived group conversations the viewer owns, which only they can bring back.
+async fn list_archived_rooms(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org.archived_rooms_owned_by(principal.actor_id()).await {
+        Ok(rooms) => Json(serde_json::json!({ "rooms": rooms })).into_response(),
+        Err(error) => room_error(error),
+    }
+}
+
+async fn restore_room(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath((company, room)): AxumPath<(String, Uuid)>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org.restore_room(principal.actor_id(), room).await {
         Ok(room) => Json(room).into_response(),
         Err(error) => room_error(error),
     }

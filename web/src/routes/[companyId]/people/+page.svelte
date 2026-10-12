@@ -21,12 +21,17 @@
 		attentionQuery
 	} from '$lib/model/queries.svelte';
 	import {
+		archivedRoomsQuery,
+		roomQueryKeys,
 		roomsQuery,
 		recentDirectConversationsQuery,
 		recentGroupConversationsQuery,
 		roomMessageSearchQuery
 	} from '$lib/model/room-queries.svelte';
-	import { conversationUnread, messagePreview, type Room } from '$lib/model/rooms';
+	import { conversationUnread, messagePreview, restoreRoom, type Room } from '$lib/model/rooms';
+	import { useQueryClient } from '@tanstack/svelte-query';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { failureSentence } from '$lib/model/failure';
 	import { getContext, type Snippet } from 'svelte';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
@@ -85,6 +90,24 @@
 		people.filter((p) => p.kind === 'exec' || teams.some((t) => t.lead_actor_id === p.actor_id))
 	);
 	const rooms = $derived(roomsQuery(companyId));
+	/* Groups you archived wait under Chats until you restore them; nobody else sees them. */
+	const archived = $derived(archivedRoomsQuery(companyId, () => view === 'chats'));
+	const roomClient = useQueryClient();
+	let restoring = $state('');
+	async function restore(room: Room) {
+		if (restoring) return;
+		restoring = room.id;
+		try {
+			await restoreRoom(companyId, room.id);
+			await roomClient.invalidateQueries({ queryKey: roomQueryKeys.list(companyId) });
+			toast(`${room.title} is back in Chats.`);
+			void goto(href('', room.id));
+		} catch (error) {
+			toast(failureSentence(error, `${room.title} could not be restored.`), { tone: 'failure' });
+		} finally {
+			restoring = '';
+		}
+	}
 	const recent = $derived(
 		recentDirectConversationsQuery(companyId, () => !!principal.view?.actor_id)
 	);
@@ -586,6 +609,28 @@
 						<SidebarEmpty text="No conversations yet." />
 					{/if}
 				{/each}
+				{#if archived.rooms.length && !search.trim()}
+					<details class="archived-chats">
+						<summary
+							class="team-directory-head"
+							title="Groups you archived. Restoring one brings it back for everyone still in it."
+							><span>Archived</span><em>{archived.rooms.length}</em></summary
+						>
+						{#each archived.rooms as room (room.id)}
+							<div class="archived-chat">
+								<span class="avatar">#</span>
+								<span class="name">{room.title}</span>
+								<button
+									type="button"
+									class="btn small ghost"
+									disabled={!!restoring}
+									onclick={() => void restore(room)}
+									>{restoring === room.id ? 'Restoring…' : 'Restore'}</button
+								>
+							</div>
+						{/each}
+					</details>
+				{/if}
 			{:else}
 				{#if execShown}
 					<section class="directory-section executive-section" aria-label="Executive">
@@ -890,6 +935,31 @@
 		color: var(--text-tertiary);
 		font-style: normal;
 		font-weight: 400;
+	}
+	.archived-chats {
+		margin-top: 8px;
+	}
+	.archived-chats summary {
+		cursor: pointer;
+		list-style: none;
+	}
+	.archived-chats summary::-webkit-details-marker {
+		display: none;
+	}
+	.archived-chat {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		min-height: 36px;
+		padding: 0 4px 0 8px;
+		color: var(--text-secondary);
+	}
+	.archived-chat .name {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.team-owner {
 		display: flex;

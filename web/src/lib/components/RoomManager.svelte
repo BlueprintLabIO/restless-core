@@ -13,10 +13,12 @@
 		archiveRoom,
 		removeRoomParticipant,
 		renameRoom,
+		restoreRoom,
 		type Room,
 		type RoomParticipant
 	} from '$lib/model/rooms';
 	import { roomQueryKeys } from '$lib/model/room-queries.svelte';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
 	let {
 		companyId,
 		actorId,
@@ -68,6 +70,7 @@
 	);
 	let renaming = $state('');
 	let confirmArchive = $state(false);
+	let confirmLeave = $state(false);
 	const initialParticipantSet = $derived(new Set(initialParticipants));
 	const availablePeople = $derived.by(() => {
 		const candidates = new Map(
@@ -110,6 +113,7 @@
 		} else {
 			renaming = room.title;
 			confirmArchive = false;
+			confirmLeave = false;
 		}
 		dialog.showModal();
 	}
@@ -137,6 +141,21 @@
 			else if (action === 'archive') await archiveRoom(requestedCompanyId, requestedRoomId);
 			else await removeRoomParticipant(requestedCompanyId, requestedRoomId, requestedActorId);
 			await refreshRoomLists(requestedCompanyId, requestedRoomId);
+			if (action === 'archive') {
+				/* Archived is not gone: Undo brings it back, as Restore under Chats does later. */
+				toast('Conversation archived.', {
+					undo: async () => {
+						try {
+							await restoreRoom(requestedCompanyId, requestedRoomId);
+							await refreshRoomLists(requestedCompanyId, requestedRoomId);
+						} catch (error) {
+							toast(failureSentence(error, 'The conversation could not be restored.'), {
+								tone: 'failure'
+							});
+						}
+					}
+				});
+			} else if (action === 'leave') toast('You left the conversation.');
 			if (action !== 'rename' && isCurrentScope(requestedScope)) {
 				dialog.close();
 				onclosed();
@@ -242,6 +261,22 @@
 			await client.invalidateQueries({
 				queryKey: roomQueryKeys.participants(requestedCompanyId, requestedRoomId)
 			});
+			/* Removing someone is said once, with Undo that adds them back. */
+			if (!add)
+				toast(`${displayFor(person)} removed from the conversation.`, {
+					undo: async () => {
+						try {
+							await addRoomParticipant(requestedCompanyId, requestedRoomId, person);
+							await client.invalidateQueries({
+								queryKey: roomQueryKeys.participants(requestedCompanyId, requestedRoomId)
+							});
+						} catch (error) {
+							toast(failureSentence(error, `${displayFor(person)} could not be added back.`), {
+								tone: 'failure'
+							});
+						}
+					}
+				});
 		} catch (error) {
 			if (
 				isCurrentScope(requestedScope) &&
@@ -345,17 +380,27 @@
 		{/if}
 		{#if canLeave}
 			<div class="room-exit">
-				<button
-					type="button"
-					disabled={busy}
-					title="You stop receiving this conversation. What you said stays in it."
-					onclick={() => void lifecycle('leave')}>Leave conversation</button
-				>
+				{#if confirmLeave}
+					<span>Leave? Only its owner can add you back.</span>
+					<button type="button" disabled={busy} onclick={() => (confirmLeave = false)}
+						>Stay</button
+					>
+					<button type="button" class="danger" disabled={busy} onclick={() => void lifecycle('leave')}
+						>Leave</button
+					>
+				{:else}
+					<button
+						type="button"
+						disabled={busy}
+						title="You stop receiving this conversation. What you said stays in it."
+						onclick={() => (confirmLeave = true)}>Leave conversation</button
+					>
+				{/if}
 			</div>
 		{:else if canManage && room.kind === 'group'}
 			<div class="room-exit">
 				{#if confirmArchive}
-					<span>Archive for everyone? Messages are kept.</span>
+					<span>Archive for everyone? You can restore it from Chats.</span>
 					<button type="button" disabled={busy} onclick={() => (confirmArchive = false)}
 						>Cancel</button
 					>
@@ -366,7 +411,7 @@
 					<button
 						type="button"
 						disabled={busy}
-						title="Closes the conversation for everyone in it and removes it from Chats. Its messages are kept."
+						title="Closes the conversation for everyone in it and moves it to Archived under Chats. Its messages are kept, and you can restore it."
 						onclick={() => (confirmArchive = true)}>Archive conversation</button
 					>
 				{/if}

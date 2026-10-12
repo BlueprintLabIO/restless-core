@@ -3943,4 +3943,26 @@ async fn a_group_owner_renames_or_archives_and_a_member_can_only_leave() {
         .send_room_message(room.id, "exec", "Too late", None, "lifecycle-late")
         .await
         .is_err());
+
+    // Archived is not gone: its owner, and only its owner, sees it and brings it back.
+    let shelf = org.archived_rooms_owned_by("owner").await.unwrap();
+    assert_eq!(shelf.iter().map(|row| row.id).collect::<Vec<_>>(), vec![room.id]);
+    assert!(org.archived_rooms_owned_by("exec").await.unwrap().is_empty());
+    assert!(org
+        .restore_room("exec", room.id)
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("only the Room owner"));
+    let restored = org.restore_room("owner", room.id).await.unwrap();
+    assert!(restored.archived_at.is_none());
+    assert_eq!(restored.title, "Launch week");
+    assert!(org.archived_rooms_owned_by("owner").await.unwrap().is_empty());
+    // Restoring again is a no-op, and the Room is open to those still in it.
+    assert!(org.restore_room("owner", room.id).await.unwrap().archived_at.is_none());
+    org.send_room_message(room.id, "exec", "Back again", None, "lifecycle-back")
+        .await
+        .unwrap();
+    // Someone who left before the archive stays out.
+    assert!(org.room_participants("delivery-build", room.id).await.is_err());
 }

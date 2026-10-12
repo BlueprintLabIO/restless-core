@@ -1958,6 +1958,97 @@ impl OrgIntel {
         Ok(room)
     }
 
+    /// The group Rooms this Actor owns and has archived, most recently archived first, so its
+    /// owner can bring one back. Archive closed them to everyone else, so nobody else sees them.
+    pub async fn archived_rooms_owned_by(&self, actor: &str) -> Result<Vec<RoomRow>> {
+        Ok(sqlx::query_as(
+            "SELECT room.id,room.kind,room.title,room.created_by,room.canonical_key, \
+                    room.created_at,room.archived_at \
+             FROM rooms room \
+             JOIN room_participants participant ON participant.room_id=room.id \
+             JOIN actors actor ON actor.id=participant.actor_id \
+             WHERE participant.actor_id=$1 AND participant.role='owner' \
+               AND participant.left_at IS NULL AND actor.retired_at IS NULL \
+               AND room.kind='group' AND room.archived_at IS NOT NULL \
+             ORDER BY room.archived_at DESC, room.id LIMIT 50",
+        )
+        .bind(actor)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    /// Bring an archived group Room back for everyone still in it. Only its owner may, as only
+    /// its owner may archive it. Mentions cancelled by the archive stay answered; the transcript
+    /// was never touched. Restoring a Room that is already active changes nothing.
+    pub async fn restore_room(&self, requesting_actor: &str, room_id: Uuid) -> Result<RoomRow> {
+        let mut tx = self.pool.begin().await?;
+        // Actor -> Room, the one lifecycle lock order.
+        let active: Option<String> = sqlx::query_scalar(
+            "SELECT id FROM actors WHERE id=$1 AND retired_at IS NULL FOR SHARE",
+        )
+        .bind(requesting_actor)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let room: Option<RoomRow> = sqlx::query_as(
+            "SELECT id,kind,title,created_by,canonical_key,created_at,archived_at \
+             FROM rooms WHERE id=$1 FOR UPDATE",
+        )
+        .bind(room_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let owns: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM room_participants WHERE room_id=$1 AND actor_id=$2 \
+               AND role='owner' AND left_at IS NULL)",
+        )
+        .bind(room_id)
+        .bind(requesting_actor)
+        .fetch_one(&mut *tx)
+        .await?;
+        let Some(room) = room.filter(|_| active.is_some() && owns) else {
+            return Err(OrgIntelError::RoomAccessDenied(
+                "only the Room owner may restore it".into(),
+            ));
+        };
+        if room.kind != RoomKind::Group {
+            return Err(OrgIntelError::InvalidRoom(
+                "only a group Room can be restored".into(),
+            ));
+        }
+        if room.archived_at.is_none() {
+            tx.commit().await?;
+            return Ok(room);
+        }
+        let active_owned_rooms: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM rooms WHERE created_by=$1 AND archived_at IS NULL",
+        )
+        .bind(requesting_actor)
+        .fetch_one(&mut *tx)
+        .await?;
+        if active_owned_rooms >= MAX_ACTIVE_ROOMS_CREATED_PER_ACTOR {
+            return Err(OrgIntelError::InvalidRoom(format!(
+                "an Actor may own at most {MAX_ACTIVE_ROOMS_CREATED_PER_ACTOR} active Rooms"
+            )));
+        }
+        let restored: RoomRow = sqlx::query_as(
+            "UPDATE rooms SET archived_at=NULL WHERE id=$1 \
+             RETURNING id,kind,title,created_by,canonical_key,created_at,archived_at",
+        )
+        .bind(room_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        append_room_event(
+            &mut tx,
+            "room.restored.v1",
+            room_id,
+            requesting_actor,
+            None,
+            serde_json::json!({ "room_id": room_id, "restored_by": requesting_actor }),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(restored)
+    }
+
     /// Send one idempotent Room message. The Actor id is an authorization
     /// parameter, not client-authored attribution: the HTTP adapter must derive
     /// it from CompanyAccessContext. A reused command id returns the original

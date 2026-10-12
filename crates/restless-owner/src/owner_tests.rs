@@ -1537,6 +1537,58 @@
     }
 
     #[tokio::test]
+    async fn an_archived_room_is_listed_and_restored_only_by_its_owner() {
+        let Some(fixture) = RoomRouteFixture::new().await else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping archived Room route scenario");
+            return;
+        };
+        let alice = fixture.app("alice", "member", &fixture.company);
+        let bob = fixture.app("bob", "member", &fixture.company);
+        let rooms_path = format!("/companies/{}/rooms", fixture.company);
+        let (status, group) = room_request(
+            &alice,
+            Method::POST,
+            &rooms_path,
+            Some(serde_json::json!({
+                "kind": "group",
+                "title": "Offsite",
+                "command_id": "archived-offsite-room",
+                "participant_actor_ids": ["bob"]
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let room = room_id(&group);
+        let archive = format!("{rooms_path}/{room}/archive");
+        let restore = format!("{rooms_path}/{room}/restore");
+        let archived = format!("{rooms_path}/archived");
+        let (status, _) = room_request(&alice, Method::POST, &archive, None).await;
+        assert_eq!(status, StatusCode::OK);
+
+        // A participant who does not own it neither sees it on the shelf nor brings it back.
+        let (status, shelf) = room_request(&bob, Method::GET, &archived, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(shelf["rooms"].as_array().unwrap().len(), 0);
+        let (status, denied) = room_request(&bob, Method::POST, &restore, None).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(denied["error"], "room_access");
+
+        let (status, shelf) = room_request(&alice, Method::GET, &archived, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(shelf["rooms"][0]["id"], room.to_string());
+        let (status, restored) = room_request(&alice, Method::POST, &restore, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(restored["archived_at"].is_null());
+        let (status, page) = room_request(&bob, Method::GET, &rooms_path, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(page["rooms"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["id"] == room.to_string()));
+    }
+
+    #[tokio::test]
     async fn room_participant_and_read_routes_enforce_room_roles_and_monotonicity() {
         let Some(fixture) = RoomRouteFixture::new().await else {
             eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Room role route scenario");

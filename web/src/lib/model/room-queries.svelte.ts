@@ -8,6 +8,7 @@ import {
 } from './room-deep-link';
 import {
 	editRoomMessagePages,
+	getArchivedRooms,
 	getRecentDirectConversations,
 	getRecentGroupConversations,
 	getRoomEventSnapshot,
@@ -40,6 +41,8 @@ const ROOM_REFRESH_MS = 15_000;
 
 export const roomQueryKeys = {
 	list: (company: string) => ['rooms', company] as const,
+	/* Under the list's key, so whatever refreshes the list refreshes this too. */
+	archived: (company: string) => ['rooms', company, 'archived'] as const,
 	recentDirect: (company: string) => ['recent-direct-conversations', company] as const,
 	recentGroups: (company: string) => ['recent-group-conversations', company] as const,
 	roomSearch: (company: string, search: string) => ['room-search', company, search] as const,
@@ -76,6 +79,22 @@ export function recentGroupConversationsQuery(
 		},
 		get status() {
 			return sourceStatus(query);
+		}
+	};
+}
+
+/** The viewer's own archived groups, read only while someone looks at Chats. */
+export function archivedRoomsQuery(companyId: string, enabled: () => boolean) {
+	const query = createQuery(() => ({
+		queryKey: roomQueryKeys.archived(companyId),
+		queryFn: () => getArchivedRooms(companyId),
+		enabled: enabled(),
+		staleTime: ROOM_STALE_MS,
+		gcTime: ROOM_RETAIN_MS
+	}));
+	return {
+		get rooms() {
+			return query.data ?? [];
 		}
 	};
 }
@@ -596,6 +615,7 @@ export function roomActivityStream(companyId: string, roomId: string) {
 		const roomChanged =
 			event?.kind === 'room.renamed.v1' ||
 			event?.kind === 'room.archived.v1' ||
+			event?.kind === 'room.restored.v1' ||
 			event?.kind === 'room.participant.joined.v1' ||
 			event?.kind === 'room.participant.left.v1';
 		await Promise.all([

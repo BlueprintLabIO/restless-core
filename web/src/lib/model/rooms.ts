@@ -635,3 +635,13 @@ export function renameRoom(company: string, room: string, title: string): Promis
 export function archiveRoom(company: string, room: string): Promise<Room> {
 	return roomJson(`${roomPath(company, room)}/archive`, { method: 'POST' });
 }
+
+/** The groups the viewer owns and archived, which only they can bring back. */
+export async function getArchivedRooms(company: string): Promise<Room[]> {
+	return (await roomJson<{ rooms: Room[] }>(`${roomPath(company)}/archived`)).rooms;
+}
+
+/** Bring an archived group back for everyone still in it. */
+export function restoreRoom(company: string, room: string): Promise<Room> {
+	return roomJson(`${roomPath(company, room)}/restore`, { method: 'POST' });
+}
