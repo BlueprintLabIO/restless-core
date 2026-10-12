@@ -74,8 +74,31 @@
 		<link rel="manifest" href="/manifest.webmanifest" />
 		<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 		%sveltekit.head%
+		<style>
+			/* The cockpit's frame paints with the first byte, before its code runs: the app
+			 * background, the top bar and the work pane. The app replaces it on mount. */
+			.boot {
+				position: fixed;
+				inset: 0;
+				display: grid;
+				grid-template-rows: var(--topbar-h, 46px) minmax(0, 1fr);
+				gap: 6px;
+				padding: var(--app-gutter, 8px);
+				background: var(--bg-app, #eff1f6);
+				pointer-events: none;
+			}
+			.boot > i {
+				border: 1px solid var(--border, rgba(76, 88, 117, 0.1));
+				border-radius: var(--radius-pane, 6px);
+				background: var(--surface-pane, #fafbfe);
+			}
+			body:has(.app-mount > *) > .boot {
+				display: none;
+			}
+		</style>
 	</head>
 	<body data-sveltekit-preload-data="hover">
-		<div style="display: contents">%sveltekit.body%</div>
+		<div class="boot bridge-tokens" aria-hidden="true"><i></i><i></i></div>
+		<div class="app-mount" style="display: contents">%sveltekit.body%</div>
 	</body>
 </html>
