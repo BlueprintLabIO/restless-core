@@ -50,6 +50,7 @@
 	import AppRequestCards from './AppRequestCards.svelte';
 	import { fetchSetAside } from '$lib/model/attention';
 	import WorkInFlight from './WorkInFlight.svelte';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	let {
 		messages = [],
@@ -905,6 +906,7 @@
 			: 'Its model connection stopped working.'
 	);
 	const providerAction = $derived(neverConnected ? 'Connect a model' : providerLabel);
+	holdQueries(() => [directRooms]);
 </script>
 
 <aside

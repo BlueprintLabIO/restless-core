@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	let { companyId }: { companyId: string } = $props();
 	const intelligence = $derived(intelligenceQuery(companyId));
 	type Connection = {
@@ -121,6 +122,7 @@
 			) ?? false
 		);
 	}
+	holdQueries(() => [intelligence]);
 </script>
 
 <section class="native-connections" aria-label="Harness connections">

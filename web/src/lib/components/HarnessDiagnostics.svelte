@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { companyQuery } from '$lib/model/queries.svelte';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	let { companyId }: { companyId: string } = $props();
 	const source = $derived(companyQuery(companyId));
 	$effect(() => source.attach(true));
@@ -7,6 +8,7 @@
 	function words(value: string) {
 		return value === 'incompatible' ? 'Configuration required' : value.replaceAll('_', ' ');
 	}
+	holdQueries(() => [source]);
 </script>
 
 {#if view}<details class="diagnostics">

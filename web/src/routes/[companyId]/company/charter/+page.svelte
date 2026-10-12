@@ -17,11 +17,13 @@
 	import SharedCharter from '$lib/components/SharedCharter.svelte';
 	import ArrowRight from '@lucide/svelte/icons/arrow-right';
 	import Target from '@lucide/svelte/icons/target';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const source = $derived(companyQuery(companyId));
 	/* Everyone reads the charter; the owner edits it, from the owner's company view. */
-	const owner = $derived(companyPrincipalQuery(companyId).view?.membership_role === 'owner');
+	const principal = $derived(companyPrincipalQuery(companyId));
+	const owner = $derived(principal.view?.membership_role === 'owner');
 	$effect(() => {
 		if (owner) source.attach();
 	});
@@ -142,6 +144,7 @@
 	}
 
 	const when = (value?: Date | string) => formatRelative(value, 'Not yet');
+	holdQueries(() => [source, principal]);
 </script>
 
 <CompanyTitle title="Charter" {companyId} />

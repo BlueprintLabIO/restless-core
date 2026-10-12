@@ -85,6 +85,7 @@
 		collaborationBootstrapQuery,
 		companyPrincipalQuery
 	} from '$lib/model/queries.svelte';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const root = $derived(`/${encodeURIComponent(companyId)}`);
@@ -847,6 +848,7 @@
 			deleting = false;
 		}
 	}
+	holdQueries(() => [principal, cockpit, collaboration, attention]);
 </script>
 
 <CompanyTitle title="Library" {companyId} />

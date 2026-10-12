@@ -18,6 +18,7 @@
 	import { renameInAccount, reviseCompanyCharter } from '$lib/model/company';
 	import { failureSentence } from '$lib/model/failure';
 	import type { ReadbackLine } from '$lib/model/generated/conversation';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? '');
 	const principal = $derived(companyPrincipalQuery(companyId));
@@ -203,6 +204,7 @@
 		if (company.view?.charter.purpose.trim() && !starting)
 			void goto(`/${companyId}`, { replaceState: true });
 	});
+	holdQueries(() => [principal, company, conversation]);
 </script>
 
 <svelte:head><title>Hi, I’m Exec</title></svelte:head>

@@ -22,10 +22,12 @@
 		type IdentityMigrationDisposition,
 		type IdentityProposalRow
 	} from '$lib/model/identity';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	/* Owners and admins decide the company identity; everyone else reads it. */
-	const canManage = $derived(mayManageCompanySetup(companyPrincipalQuery(companyId).view));
+	const principal = $derived(companyPrincipalQuery(companyId));
+	const canManage = $derived(mayManageCompanySetup(principal.view));
 	const source = $derived(identityQuery(companyId));
 	const view = $derived(source.view);
 	const currentEvidence = $derived.by(() => {
@@ -181,6 +183,7 @@
 		const text = words(value);
 		return text.charAt(0).toUpperCase() + text.slice(1);
 	};
+	holdQueries(() => [principal, source]);
 </script>
 
 <CompanyTitle title="Identity" {companyId} />

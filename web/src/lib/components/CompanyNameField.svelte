@@ -8,6 +8,7 @@
 	import { beforeNavigate } from '$app/navigation';
 	import { getContext, onMount } from 'svelte';
 	import { attentionQuery, companiesQuery, companyQuery } from '$lib/model/queries.svelte';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	type Settings = { display_name: string; mission: string; model: string; revision: string };
 	let { companyId }: { companyId: string } = $props();
@@ -118,6 +119,7 @@
 	beforeNavigate((navigation) => {
 		if (!navigation.willUnload && dirty) void save();
 	});
+	holdQueries(() => [attention, company]);
 </script>
 
 

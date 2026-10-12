@@ -35,6 +35,7 @@
 		companyPrincipalQuery,
 		cockpitQuery
 	} from '$lib/model/queries.svelte';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const shellPrincipal = $derived(companyPrincipalQuery(companyId));
@@ -203,6 +204,7 @@
 		detail.accept(target, view);
 	}
 	namePageContext(() => documentView?.document.title ?? '');
+	holdQueries(() => [shellPrincipal, collaboration, cockpit]);
 </script>
 
 <svelte:window bind:online />

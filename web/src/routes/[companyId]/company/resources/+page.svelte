@@ -12,6 +12,7 @@
 	import { page } from '$app/state';
 	import { openCompanyResource, type CompanyResource } from '$lib/model/company';
 	import { companyQuery } from '$lib/model/queries.svelte';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const source = $derived(companyQuery(companyId));
@@ -57,6 +58,7 @@
 			opening = null;
 		}
 	}
+	holdQueries(() => [source]);
 </script>
 
 <CompanyTitle title="Limits" {companyId} />

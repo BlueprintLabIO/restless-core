@@ -23,10 +23,12 @@
 		type MemberRow,
 		type MembershipRole
 	} from '$lib/model/members';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	/* Everyone sees who is in the company; owners and admins invite and change people. */
-	const principal = $derived(companyPrincipalQuery(companyId).view);
+	const principalSource = $derived(companyPrincipalQuery(companyId));
+	const principal = $derived(principalSource.view);
 	const canManage = $derived(mayManageCompanySetup(principal));
 	let core = $state<CoreMembersView | null>(null);
 	let issuer = $state<IssuerMembersView | null>(null);
@@ -156,6 +158,7 @@
 	function expires(value: string): string {
 		return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 	}
+	holdQueries(() => [principalSource]);
 </script>
 
 <CompanyTitle title="Members" {companyId} />

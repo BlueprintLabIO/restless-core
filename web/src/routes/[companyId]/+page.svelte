@@ -42,6 +42,7 @@
 	import OfficePreview from '$lib/components/OfficePreview.svelte';
 	import Download from '@lucide/svelte/icons/download';
 	import ExternalLink from '@lucide/svelte/icons/external-link';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 
@@ -518,6 +519,7 @@
 			sendingMessage = false;
 		}
 	}
+	holdQueries(() => [leadConversation]);
 </script>
 
 <svelte:head><title>Attention — {view?.company.name ?? companyId}</title></svelte:head>

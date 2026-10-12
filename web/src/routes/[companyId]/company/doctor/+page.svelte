@@ -10,6 +10,7 @@
 	import Monitor from '@lucide/svelte/icons/monitor';
 	import { recoverCompany, type RecoveryAction } from '$lib/model/company';
 	import { companyQuery } from '$lib/model/queries.svelte';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const source = $derived(companyQuery(companyId));
@@ -109,6 +110,7 @@
 				: status === 'unknown'
 					? 'info'
 					: 'danger';
+	holdQueries(() => [source]);
 </script>
 
 <CompanyTitle title="Health" {companyId} />

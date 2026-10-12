@@ -20,9 +20,11 @@
 		type MonitoredSchedule,
 		type ScheduleTestReport
 	} from '$lib/model/skills';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	/* Owners and admins run the schedules; everyone else sees them. */
-	const canManage = $derived(mayManageCompanySetup(companyPrincipalQuery(companyId).view));
+	const principal = $derived(companyPrincipalQuery(companyId));
+	const canManage = $derived(mayManageCompanySetup(principal.view));
 	const query = createQuery(() => ({
 		queryKey: ['schedules', companyId],
 		queryFn: () => monitorSchedules(companyId)
@@ -152,6 +154,7 @@
 				: state === 'completed' || state === 'done'
 					? 'success'
 					: 'neutral';
+	holdQueries(() => [principal]);
 </script>
 
 <CompanyTitle title="Schedules" {companyId} />

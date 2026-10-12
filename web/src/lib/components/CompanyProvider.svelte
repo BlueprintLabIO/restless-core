@@ -23,6 +23,7 @@
 	} from '$lib/model/intelligence-events';
 	import { getCompanies, type CompanyCatalogEntry } from '$lib/model/cockpit';
 	import { getApplianceStatus } from '$lib/model/appliance';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	let { companyId }: { companyId: string } = $props();
 	/* On Cloud the account supplies intelligence: this computer has no harness sign-ins, key storage,
 	 * diagnostics or custom harnesses of its own, so those stay out of view instead of retrying. */
@@ -574,6 +575,7 @@
 			secret = '';
 		};
 	});
+	holdQueries(() => [intelligence]);
 </script>
 
 <Page

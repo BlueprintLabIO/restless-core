@@ -12,6 +12,7 @@
 		type OfficePreferences
 	} from './officePlan';
 	import { projectOfficeMembers, type OfficeMember } from './projection';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	let {
 		companyId,
@@ -93,6 +94,7 @@
 		preferences = next;
 		window.localStorage.setItem(preferenceKey(), JSON.stringify(next));
 	}
+	holdQueries(() => [cockpitProjection]);
 </script>
 
 <section

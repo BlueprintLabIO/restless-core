@@ -4,6 +4,7 @@
 	import { onMount } from 'svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	let { companyId }: { companyId: string } = $props();
 	type Config = {
 		name: string;
@@ -204,6 +205,7 @@
 			)[row.installation.state] ?? 'Not installed'
 		);
 	}
+	holdQueries(() => [intelligence]);
 </script>
 
 <section class="custom-harnesses" aria-labelledby="custom-harness-title">

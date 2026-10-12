@@ -67,6 +67,7 @@
 	import type { AttentionItem, ThreadMessage } from '$lib/model/view';
 	import Composer from '$lib/primitives/Composer.svelte';
 	import { followChat } from '$lib/actions/follow-chat';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	const SEARCH_DEBOUNCE_MS = 250;
 
@@ -1166,6 +1167,21 @@
 		}
 		return 'The linked message is no longer available in this Thread.';
 	}
+	holdQueries(() => [
+		principalProjection,
+		cockpitProjection,
+		attention,
+		collaboration,
+		roomList,
+		roomProjection,
+		participantProjection,
+		readProjection,
+		threadProjection,
+		messageSearchProjection,
+		revisionProjection,
+		libraryDocuments,
+		actorConversation
+	]);
 </script>
 
 <svelte:window

@@ -26,6 +26,7 @@
 	import { failureSentence } from '$lib/model/failure';
 	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
 	import { companyPrincipalQuery, collaborationBootstrapQuery } from '$lib/model/queries.svelte';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	interface Version {
 		id: string;
@@ -368,6 +369,7 @@
 						: ''
 	);
 	namePageContext(() => (importing ? 'Import a spreadsheet' : (row?.title ?? '')));
+	holdQueries(() => [principal, directory]);
 </script>
 
 <svelte:head

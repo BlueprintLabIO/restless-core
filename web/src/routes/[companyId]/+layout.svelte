@@ -69,6 +69,7 @@
 		listRetainedAttachments,
 		type RetainedAttachment
 	} from '$lib/model/attachments';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	let { children } = $props();
 
@@ -1138,6 +1139,16 @@
 			retryingStartup = false;
 		}
 	}
+	holdQueries(() => [
+		principalProjection,
+		intelligence,
+		collaboration,
+		attention,
+		libraryDocuments,
+		railConversation,
+		directChats,
+		groupChats
+	]);
 </script>
 
 <CompanyQueryPersistence {companyId} />

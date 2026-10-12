@@ -52,6 +52,7 @@
 	} from '$lib/model/attention-presentation';
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import { dueLabel, finishLine, goalAbout, type Goal } from '$lib/work/goal';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
@@ -346,6 +347,12 @@
 				}))
 		}))
 	);
+	holdQueries(() => [
+		principalProjection,
+		attentionProjection,
+		cockpitProjection,
+		collaborationProjection
+	]);
 </script>
 
 <CompanyTitle title="Work" {companyId} />

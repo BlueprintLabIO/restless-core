@@ -18,6 +18,7 @@
 	import type { NativeDocumentAttention } from '$lib/model/view';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import './document-print.css';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	let {
 		companyId,
@@ -107,6 +108,7 @@
 			busy = false;
 		}
 	}
+	holdQueries(() => [shell, collaboration]);
 </script>
 
 <svelte:window bind:online />

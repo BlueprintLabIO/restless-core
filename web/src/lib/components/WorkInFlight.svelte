@@ -6,6 +6,7 @@
 	import { personName } from '$lib/model/initials';
 	import { formatMoment } from '$lib/ui/time';
 	import { judgementHolders, workWaitingOnOwner } from '$lib/model/attention-presentation';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	let { companyId }: { companyId: string } = $props();
 	const attention = $derived(attentionQuery(companyId));
@@ -68,6 +69,7 @@
 		}
 		return out.toSorted((a, b) => b.at.localeCompare(a.at)).slice(0, 3);
 	});
+	holdQueries(() => [attention, cockpit]);
 </script>
 
 {#if lines.length}

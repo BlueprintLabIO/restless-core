@@ -6,6 +6,7 @@
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
 	import { Section, Item, Notice, Empty } from '$lib/ui/page';
 	import Bot from '@lucide/svelte/icons/bot';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	const catalog = modelCatalog();
 	let { companyId }: { companyId: string } = $props();
 	const source = $derived(intelligenceQuery(companyId));
@@ -143,6 +144,7 @@
 			busy = false;
 		}
 	}
+	holdQueries(() => [source]);
 </script>
 
 <Section

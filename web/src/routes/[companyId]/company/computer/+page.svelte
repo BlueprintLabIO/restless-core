@@ -20,6 +20,7 @@
 		rememberCompanyBrowserDestination
 	} from '$lib/model/company-browser';
 	import { attentionQuery, browserStatusQuery, companyQuery } from '$lib/model/queries.svelte';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	type TransitionDocument = Document & {
 		startViewTransition?: (update: () => void | Promise<void>) => { finished: Promise<void> };
@@ -378,6 +379,7 @@
 	}
 
 	const when = (value?: Date | string) => formatRelative(value, 'Not yet');
+	holdQueries(() => [source, attention, browserProjection]);
 </script>
 
 <CompanyTitle title="Computer" {companyId} />

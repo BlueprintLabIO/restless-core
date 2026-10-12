@@ -14,6 +14,7 @@
 	import type { DecisionContinuation } from '$lib/model/view';
 	import CircleCheck from '@lucide/svelte/icons/circle-check';
 	import Send from '@lucide/svelte/icons/send';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const attention = $derived(attentionQuery(companyId));
@@ -172,6 +173,7 @@
 					? 'warning'
 					: 'neutral';
 	const when = (value: string) => formatRelative(value, '');
+	holdQueries(() => [attention, company]);
 </script>
 
 <CompanyTitle title="Activity" {companyId} />

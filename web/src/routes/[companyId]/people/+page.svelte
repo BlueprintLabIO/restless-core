@@ -28,6 +28,7 @@
 	} from '$lib/model/room-queries.svelte';
 	import { conversationUnread, messagePreview, type Room } from '$lib/model/rooms';
 	import { getContext, type Snippet } from 'svelte';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	/* The Exec and team leads open in the same conversation as the rail, at
 	 * full width; the layout owns it. */
@@ -425,6 +426,16 @@
 	);
 	const inviteExpiry = (iso: string) =>
 		new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+	holdQueries(() => [
+		principal,
+		cockpit,
+		collaboration,
+		attention,
+		rooms,
+		recent,
+		messageSearch,
+		recentGroups
+	]);
 </script>
 
 <svelte:head

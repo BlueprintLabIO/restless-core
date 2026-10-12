@@ -26,6 +26,7 @@
 	import { fileLabel, LIBRARY_KIND_LABEL, libraryKind } from '$lib/model/library-files';
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import { goalAbout } from '$lib/work/goal';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	/* The authoring contract deliberately separates a human opening from the
 	 * exact actor contract with one blank line. Respect that declared boundary;
@@ -344,6 +345,12 @@
 		if (Number.isNaN(date.getTime())) return value;
 		return formatMoment(date);
 	}
+	holdQueries(() => [
+		principalProjection,
+		attentionProjection,
+		cockpitProjection,
+		collaborationProjection
+	]);
 </script>
 
 <svelte:head><title>{work?.title ?? 'Work detail'} — {companyName}</title></svelte:head>

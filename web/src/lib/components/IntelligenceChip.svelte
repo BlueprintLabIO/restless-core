@@ -9,6 +9,7 @@
 	import { failureSentence } from '$lib/model/failure';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import Check from '@lucide/svelte/icons/check';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	let { companyId, actorId, name }: { companyId: string; actorId: string; name: string } = $props();
 	const catalog = modelCatalog();
@@ -57,6 +58,7 @@
 			busy = false;
 		}
 	}
+	holdQueries(() => [source]);
 </script>
 
 {#if agent && modelLabel(agent.effective_model) === 'Unavailable'}

@@ -8,6 +8,7 @@
 	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
 	import { companyQuery } from '$lib/model/queries.svelte';
 	import { approvalAction } from '$lib/model/attention';
+	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	let { section = 'spend' }: { section?: 'spend' | 'authority' | 'computer' } = $props();
 	const companyId = $derived(page.params.companyId ?? 'aris');
@@ -165,6 +166,7 @@
 	function minor(value: number, currency: string): string {
 		return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(value / 100);
 	}
+	holdQueries(() => [source]);
 </script>
 
 {#if view}
