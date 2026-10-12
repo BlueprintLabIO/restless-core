@@ -354,6 +354,7 @@
 			composerSkills = [];
 			retryCommandId = null;
 			retryBody = '';
+			retryFiles = [];
 			sendError = '';
 			pendingMessage = null;
 			return;
@@ -374,6 +375,8 @@
 				stored.body || stored.commandId ? stored : legacyDraft?.body ? legacyDraft : stored;
 			composer = draft.body;
 			composerFiles = volatileFileDrafts.get(nextKey) ?? [];
+			/* A kept command id belongs to the files that draft failed with. */
+			retryFiles = draft.commandId ? [...composerFiles] : [];
 			retryCommandId = draft.commandId;
 			retryBody = draft.commandId ? draft.body.trim() : '';
 			if (draft === legacyDraft && oldPersonKey) {
@@ -1145,6 +1148,8 @@
 			}
 			retryCommandId = retryable ? commandId : null;
 			retryBody = retryable ? body : '';
+			/* A refused send may have found its files taken; the next attempt uploads them anew. */
+			if (!retryable) for (const file of files) uploadedFiles.delete(file);
 			pendingMessage = null;
 			sendError = failureSentence(cause, 'This message was not delivered.');
 			if (files.length) volatileFileDrafts.set(targetDraft, files);
