@@ -51,6 +51,7 @@ const projection = {
     },
     { type: 'codeBlock', attrs: { block_id: 'code', language: 'typescript' }, content: [{ type: 'text', text: 'const proof = true' }] },
     { type: 'horizontalRule', attrs: { block_id: 'rule' } },
+    { type: 'image', attrs: { block_id: 'chart', attachment_id: '0b7d9c1e-3f4a-4b5c-8d6e-7f8091a2b3c4', alt: 'Q3 chart' } },
     {
       type: 'table', attrs: { block_id: 'table' }, content: [{
         type: 'tableRow', content: [
@@ -74,6 +75,26 @@ test('the document codec round-trips the released rich-text schema through the T
   assert.deepEqual([...document.share.keys()], [PROSEMIRROR_FRAGMENT_NAME]);
   assert.ok(document.getXmlFragment(PROSEMIRROR_FRAGMENT_NAME).length > 0);
   document.destroy();
+});
+
+test('an image keeps only the company file it names', () => {
+  const restored = projectionFromState(stateFromProjection(projection));
+  assert.deepEqual((restored.content as Array<{ type: string }>).find((node) => node.type === 'image'), {
+    type: 'image',
+    attrs: { block_id: 'chart', attachment_id: '0b7d9c1e-3f4a-4b5c-8d6e-7f8091a2b3c4', alt: 'Q3 chart' },
+  });
+  for (const attrs of [
+    { block_id: 'x', attachment_id: '0b7d9c1e-3f4a-4b5c-8d6e-7f8091a2b3c4', src: 'https://elsewhere.test/a.png' },
+    { block_id: 'x', attachment_id: '../../secrets' },
+    { block_id: 'x', attachment_id: '0B7D9C1E-3F4A-4B5C-8D6E-7F8091A2B3C4' },
+    { block_id: 'x', attachment_id: '0b7d9c1e-3f4a-4b5c-8d6e-7f8091a2b3c4', width: 9_000 },
+  ]) {
+    assert.throws(
+      () => stateFromProjection({ type: 'doc', content: [{ type: 'image', attrs }] }),
+      DocumentCodecError,
+      JSON.stringify(attrs),
+    );
+  }
 });
 
 test('the document codec rejects malformed projections and hidden shared Yjs types', () => {

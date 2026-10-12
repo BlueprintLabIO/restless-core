@@ -46,6 +46,11 @@ const nodes: Record<string, NodeSpec> = {
     marks: '',
   },
   horizontalRule: { attrs: blockId, group: 'block' },
+  image: {
+    attrs: { block_id: { default: null }, attachment_id: {}, alt: { default: null }, width: { default: null } },
+    atom: true,
+    group: 'block',
+  },
   table: { attrs: blockId, content: 'tableRow+', group: 'block', isolating: true },
   tableRow: { attrs: blockId, content: '(tableCell | tableHeader)+' },
   tableCell: { attrs: blockId, content: 'block+', isolating: true },
@@ -161,6 +166,8 @@ function validateMarks(value: unknown): void {
   }
 }
 
+const ATTACHMENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+
 function validateAttributes(type: string, value: unknown, state: ValidationState): void {
   const attrs = value === undefined ? {} : object(value);
   const allowed = (() => {
@@ -171,6 +178,7 @@ function validateAttributes(type: string, value: unknown, state: ValidationState
       case 'codeBlock': return ['block_id', 'language'];
       case 'mention': return ['actor_id', 'label'];
       case 'reference': return ['id', 'kind', 'label'];
+      case 'image': return ['block_id', 'attachment_id', 'alt', 'width'];
       case 'paragraph':
       case 'bulletList':
       case 'taskList':
@@ -204,6 +212,18 @@ function validateAttributes(type: string, value: unknown, state: ValidationState
   if (type === 'mention') {
     boundedString(attrs.actor_id, 128);
     boundedString(attrs.label, 200);
+  }
+  if (type === 'image') {
+    // An image names a company file by its identity; the page supplies the address.
+    if (typeof attrs.attachment_id !== 'string' || !ATTACHMENT_ID.test(attrs.attachment_id)) invalid();
+    if (
+      attrs.alt !== undefined && attrs.alt !== null &&
+      (typeof attrs.alt !== 'string' || [...attrs.alt].length > 300 || attrs.alt.includes('\0'))
+    ) invalid();
+    if (
+      attrs.width !== undefined && attrs.width !== null &&
+      (!Number.isInteger(attrs.width) || (attrs.width as number) < 16 || (attrs.width as number) > 4_096)
+    ) invalid();
   }
   if (type === 'reference') {
     const kind = boundedString(attrs.kind, 32);
