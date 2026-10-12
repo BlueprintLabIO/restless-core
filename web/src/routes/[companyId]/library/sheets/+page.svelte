@@ -13,6 +13,8 @@
 	import { Item, Notice, Empty } from '$lib/ui/page';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import SheetEditor from '$lib/components/SheetEditor.svelte';
+	import PageFaces from '$lib/components/PageFaces.svelte';
+	import type { PageFace } from '$lib/model/page-faces';
 	import LibraryCrumb from '$lib/components/LibraryCrumb.svelte';
 	import SheetShare from '$lib/components/SheetShare.svelte';
 	import { PRIVATE_HINT } from '$lib/model/general-access';
@@ -64,6 +66,7 @@
 	let csvInput: HTMLInputElement | undefined = $state();
 	let importInput: HTMLInputElement | undefined = $state();
 	let editor: SheetEditor | undefined = $state();
+	let faces = $state<PageFace[]>([]);
 	let titleInput: HTMLInputElement | undefined = $state();
 	let titleDraft = $state<string | null>(null);
 	let focusTitleFor = $state('');
@@ -402,6 +405,7 @@
 					title="Accepted edits are stored in company history">{flash || stateLabel}</span
 				>{/if}
 			<span class="spacer"></span>
+			<PageFaces {faces} />
 			{#if row}
 				<button
 					class="btn small"
@@ -542,6 +546,7 @@
 					{company}
 					{sheet}
 					{onstatus}
+					onfaces={(value) => (faces = value)}
 				/>{/key}
 		{/if}
 	</main>

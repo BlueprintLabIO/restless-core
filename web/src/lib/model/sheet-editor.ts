@@ -5,6 +5,7 @@ import spreadsheetCss from '@odoo/o-spreadsheet/dist/o_spreadsheet.css?inline';
 import bootstrapCss from 'bootstrap/dist/css/bootstrap.min.css?inline';
 import fontCss from 'font-awesome/css/font-awesome.min.css?inline';
 import type { SheetRow } from './sheets';
+import { sheetFaces, type PageFace } from './page-faces.ts';
 
 class Root extends Component {
 	static template = xml`<Spreadsheet model="props.model"/>`;
@@ -74,7 +75,9 @@ export function mountSheet(
 	element: HTMLDivElement,
 	company: string,
 	sheet: string,
-	status: (value: EditorStatus) => void
+	status: (value: EditorStatus) => void,
+	/** Who else has this sheet open, or just changed it; cleared while the session is down. */
+	faces: (value: PageFace[]) => void = () => {}
 ) {
 	let model: any,
 		app: App<typeof Root> | undefined,
@@ -88,6 +91,13 @@ export function mountSheet(
 		timer: ReturnType<typeof setTimeout>;
 	let access = 'read';
 	let row: SheetRow | undefined;
+	let present: unknown = [];
+	/* Each face takes the selection colour the grid gives that person's session. */
+	function showFaces(value: unknown = present) {
+		present = value;
+		const clients: { id: string; color?: string }[] = model?.getters.getConnectedClients() ?? [];
+		faces(sheetFaces(present, (id) => clients.find((client) => client.id === id)?.color));
+	}
 	const pending = new Map();
 	const styles = document.createElement('style');
 	// Bootstrap is required by Owl, and scoped to this editor so it cannot reset
@@ -149,6 +159,7 @@ export function mountSheet(
 		app = undefined;
 		model = undefined;
 		target.replaceChildren();
+		showFaces([]);
 		status({ state: 'error', message, access: 'read', denied });
 	}
 	/* A change the server refused, or one too large to send, must not take the editor down with
@@ -166,6 +177,7 @@ export function mountSheet(
 		pending.clear();
 		cursor = 0;
 		target.replaceChildren();
+		showFaces([]);
 		status({ state: 'connecting', access, sheet: row, notice });
 		connect();
 	}
@@ -255,6 +267,11 @@ export function mountSheet(
 				// Other people's and agents' cursors: shown, never sequenced or stored.
 				if (envelope.type === 'PRESENCE') {
 					if (model) receive?.(envelope.message);
+					showFaces();
+					return;
+				}
+				if (envelope.type === 'FACES') {
+					showFaces(envelope.faces);
 					return;
 				}
 				if (envelope.type === 'ACCESS') {
@@ -305,6 +322,7 @@ export function mountSheet(
 		current.onclose = async () => {
 			if (stale()) return;
 			model?.updateMode('readonly');
+			showFaces([]);
 			status({
 				state: 'offline',
 				access,

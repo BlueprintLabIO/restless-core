@@ -22,6 +22,7 @@ import { Plugin, PluginKey, TextSelection, type EditorState } from '@tiptap/pm/s
 import type { HocuspocusProvider } from '@hocuspocus/provider';
 import type { Doc } from 'yjs';
 import type { DocumentContent, DocumentMark, DocumentNode } from './documents';
+import { caretHue } from './page-faces.ts';
 
 export const DOCUMENT_COLLABORATION_FRAGMENT = 'default';
 
@@ -534,13 +535,6 @@ function orderedStart(value: unknown): number {
 	const start = Number(value);
 	if (!Number.isInteger(start) || start < 1) return 1;
 	return Math.min(start, MAX_ORDERED_START);
-}
-
-/** The same person always gets the same caret colour. */
-export function caretHue(actorId: string): number {
-	let hash = 0;
-	for (const character of actorId) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-	return hash % 360;
 }
 
 /** Other people's carets. The server stamps each with the actor it verified;

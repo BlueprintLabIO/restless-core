@@ -1,11 +1,18 @@
 <script lang="ts">
 	import type { EditorStatus } from '$lib/model/sheet-editor';
+	import type { PageFace } from '$lib/model/page-faces';
 	import { Notice } from '$lib/ui/page';
 	let {
 		company,
 		sheet,
-		onstatus
-	}: { company: string; sheet: string; onstatus?: (value: EditorStatus) => void } = $props();
+		onstatus,
+		onfaces
+	}: {
+		company: string;
+		sheet: string;
+		onstatus?: (value: EditorStatus) => void;
+		onfaces?: (value: PageFace[]) => void;
+	} = $props();
 	let host: HTMLDivElement;
 	let editorState = $state<EditorStatus>({ state: 'connecting', access: 'read' });
 	let notice = $state<EditorStatus['notice']>();
@@ -25,19 +32,28 @@
 		void import('$lib/model/sheet-editor')
 			.then((module) => {
 				if (disposed) return;
-				editor = module.mountSheet(host, targetCompany, targetSheet, (value: EditorStatus) => {
-					if (!disposed) {
-						editorState = value;
-						if (value.notice) notice = value.notice;
-						onstatus?.(value);
+				editor = module.mountSheet(
+					host,
+					targetCompany,
+					targetSheet,
+					(value: EditorStatus) => {
+						if (!disposed) {
+							editorState = value;
+							if (value.notice) notice = value.notice;
+							onstatus?.(value);
+						}
+					},
+					(value) => {
+						if (!disposed) onfaces?.(value);
 					}
-				});
+				);
 			})
 			.catch((error) => {
 				if (!disposed) editorState = { state: 'error', access: 'read', message: error.message };
 			});
 		return () => {
 			disposed = true;
+			onfaces?.([]);
 			editor?.destroy();
 			editor = undefined;
 		};

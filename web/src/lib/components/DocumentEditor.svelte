@@ -5,6 +5,8 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import DocumentActions from './DocumentActions.svelte';
+	import PageFaces from './PageFaces.svelte';
+	import { documentFaces } from '$lib/model/page-faces';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import './document-print.css';
 	import { Editor } from '@tiptap/core';
@@ -119,6 +121,7 @@
 	let documentRestored = $state(false);
 	let retryGeneration = $state(0);
 	let activeProvider = $state.raw<HocuspocusProvider | null>(null);
+	let presentStates = $state.raw<ReadonlyMap<number, unknown>>(new Map());
 	const offlineProviders = new WeakSet<HocuspocusProvider>();
 	let title = $state('');
 	let kind = $state<DocumentKind>('freeform');
@@ -175,6 +178,21 @@
 		);
 	});
 	const statusLabel = $derived(documentCollaborationStateLabel(collaborationState));
+	const faces = $derived(documentFaces(presentStates, principalActorId, nameOf));
+	/* Faces: who else is on this document, from the live session's presence. The page says it is
+	 * here as soon as it connects, so a reader is seen too, not only someone with a caret. */
+	$effect(() => {
+		const awareness = activeProvider?.awareness;
+		if (!awareness) {
+			presentStates = new Map();
+			return;
+		}
+		const update = () => (presentStates = new Map(awareness.getStates()));
+		awareness.on('change', update);
+		untrack(() => awareness.setLocalStateField('user', { actor_id: principalActorId }));
+		update();
+		return () => awareness.off('change', update);
+	});
 	/* Opening a document settles a few sync messages within ~100 ms. Say
 	 * "Saving…" only when changes are still waiting after 400 ms, so opening
 	 * reads Connecting → Saved and a real save still shows. */
@@ -780,6 +798,7 @@
 			>
 		</div>
 		<div class="editor-actions">
+			<PageFaces {faces} />
 			{@render actions?.()}
 			{#if moreActions}
 				<DocumentActions>{@render moreActions()}</DocumentActions>
