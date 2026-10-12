@@ -435,6 +435,22 @@ try {
   for (const who of editors) await shot(who, "room");
   pass("room chat typed by owner and a member appears live for all three people");
 
+  // 8b. A file dropped into a group room reaches everyone in it.
+  const picture = join(root, "room-picture.png");
+  // A 1x1 PNG is enough for the browser to decode and show.
+  await writeFile(picture, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64"));
+  await alice.page.locator('input[type="file"]').first().setInputFiles(picture);
+  const aliceComposer = alice.page.getByRole("textbox", { name: "Conversation message" });
+  await aliceComposer.fill("Alice: here is the photo.");
+  await aliceComposer.press("Enter");
+  for (const who of editors) {
+    const sent = who.page.locator("article.room-message").filter({ hasText: "here is the photo" }).first();
+    await sent.waitFor({ timeout: 30000 });
+    await until(async () => (await sent.locator("img").count()) > 0, `${who.key} sees the attached picture`, 30);
+  }
+  await shot(owner, "room-attachment");
+  pass("a picture attached in a group room appears for all three people");
+
   // 9. Attention: the owner asks Alice by name. It reaches only Alice's attention;
   //    she answers in the thread from her browser. The cockpit has no control that
   //    resolves a mention, so resolution uses the product API a client would call.
