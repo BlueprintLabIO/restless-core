@@ -295,6 +295,10 @@ struct MemberArtifactView {
     /// Only non-secret HTTP(S) locators are copied. Runtime paths, userinfo,
     /// query credentials and fragments stay behind the owner/Runtime boundary.
     href: Option<String>,
+    /// Where the Library opens this file for a teammate: a path in the company home, or a
+    /// service on the company computer without userinfo, query or fragment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    uri: Option<String>,
     created_at: DateTime<Utc>,
 }
 
@@ -517,6 +521,7 @@ async fn collaboration_bootstrap(
                         digest: artifact.digest,
                         source_commit: artifact.source_commit,
                         href: safe_collaboration_href(&artifact.uri),
+                        uri: member_library_uri(&artifact.uri),
                         created_at: artifact.created_at,
                     })
             })
@@ -613,6 +618,25 @@ fn string_array(value: serde_json::Value) -> Vec<String> {
         .flatten()
         .filter_map(|value| value.as_str().map(str::to_string))
         .collect()
+}
+
+/// Where a teammate's Library opens a Work file: a path in the company home, or the address of a
+/// service on the company computer, never with userinfo, query or fragment.
+pub(super) fn member_library_uri(uri: &str) -> Option<String> {
+    if uri.starts_with("/company/") {
+        return runtime::runtime_review_file_root(uri).is_ok().then(|| uri.to_string());
+    }
+    let mut parsed = url::Url::parse(uri).ok()?;
+    if parsed.scheme() != "http"
+        || !matches!(parsed.host_str(), Some("127.0.0.1" | "localhost"))
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return None;
+    }
+    parsed.set_query(None);
+    parsed.set_fragment(None);
+    Some(parsed.to_string())
 }
 
 fn safe_collaboration_href(uri: &str) -> Option<String> {
@@ -987,5 +1011,24 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+}
+
+#[cfg(test)]
+mod library_uri_tests {
+    use super::member_library_uri;
+
+    /// A teammate's Library gets a company-home path or a local service address, and never
+    /// credentials or anything off the company computer.
+    #[test]
+    fn a_teammate_sees_only_company_file_and_local_service_addresses() {
+        assert_eq!(
+            member_library_uri("http://127.0.0.1:4173/deck/?token=secret#slide-2").as_deref(),
+            Some("http://127.0.0.1:4173/deck/")
+        );
+        assert_eq!(member_library_uri("http://user:pass@127.0.0.1:4173/"), None);
+        assert_eq!(member_library_uri("https://example.com/report.pdf"), None);
+        assert_eq!(member_library_uri("file:///etc/passwd"), None);
+        assert_eq!(member_library_uri("/etc/passwd"), None);
     }
 }

@@ -95,6 +95,8 @@ export interface CollaborationArtifact {
 	digest: string | null;
 	source_commit: string | null;
 	href: string | null;
+	/** Where the Library opens it: a company-home path or a service on the company computer. */
+	uri?: string;
 	created_at: string;
 }
 
@@ -328,6 +330,7 @@ function parseArtifact(value: unknown): CollaborationArtifact {
 		digest: nullableText(row.digest),
 		source_commit: nullableText(row.source_commit),
 		href: nullableText(row.href),
+		...(typeof row.uri === 'string' ? { uri: row.uri } : {}),
 		created_at: text(row.created_at)
 	};
 }

@@ -1961,6 +1961,8 @@ fn membership_boundary_violation(
         || is_actor_route(path, "activity")
         || is_actor_route(path, "exchanges")
         || member_reads_company_setup(method, path)
+        // Teammates open the files of the Work they can see; the handlers check which.
+        || is_company_library_read(method, path)
         // An admin runs the day to day with the owner, and may stop a turn that went wrong; a
         // member's message waits its turn instead.
         || (principal.membership_role() == "admin"
@@ -2109,6 +2111,21 @@ fn admin_manages_company_setup(path: &str) -> bool {
             | ["schedules", _, "test"]
             | ["loops"]
             | ["loops", _, "cancel"]
+    )
+}
+
+fn is_company_library_read(method: &Method, path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/companies/") else {
+        return false;
+    };
+    let mut segments = rest.split('/');
+    if !segments.next().is_some_and(|company| !company.is_empty()) {
+        return false;
+    }
+    let tail: Vec<&str> = segments.collect();
+    matches!(
+        (method.clone(), tail.as_slice()),
+        (Method::POST, ["library", "open"]) | (Method::GET | Method::HEAD, ["library", "content"])
     )
 }
 

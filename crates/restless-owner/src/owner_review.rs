@@ -279,11 +279,31 @@ pub(crate) struct LibraryTicketRequest {
 /// as a table; the ticket still serves Download and Open in a tab.
 pub(crate) async fn issue_library_ticket(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
     Json(input): Json<LibraryTicketRequest>,
 ) -> impl IntoResponse {
     if let Err(error) = runtime::CompanyConfig::load(&state.daemon.root, &company) {
         return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}"));
+    }
+    // A teammate opens the files of the Work they can see, not any path on the computer.
+    if principal.membership_role() != "owner" {
+        let visible = match teammate_library(&state, &company, principal.actor_id()).await {
+            Ok(visible) => visible,
+            Err(refusal) => return refusal,
+        };
+        let allowed = match (input.artifact_id, input.path.as_deref().map(str::trim)) {
+            (Some(artifact_id), None) => visible.ids.contains(&artifact_id),
+            (None, Some(path)) => visible.uris.contains(path),
+            _ => false,
+        };
+        if !allowed {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "library",
+                "this file is not one of the Work files you can open",
+            );
+        }
     }
     let (uri, item_id) = match (input.artifact_id, input.path.as_deref().map(str::trim)) {
         (Some(artifact_id), None) => match recorded_library_file(&state, &company, artifact_id).await
@@ -350,6 +370,38 @@ pub(crate) async fn issue_library_ticket(
 }
 
 /// The locator of a file Work recorded, if it is still the available version.
+/// The Work files a teammate can open: those of the Work their collaboration view shows.
+struct TeammateLibrary {
+    ids: std::collections::HashSet<Uuid>,
+    uris: std::collections::HashSet<String>,
+}
+
+async fn teammate_library(
+    state: &OwnerState,
+    company: &str,
+    actor_id: &str,
+) -> std::result::Result<TeammateLibrary, Response<Body>> {
+    let unavailable = |error: anyhow::Error| {
+        api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}"))
+    };
+    let org = state.daemon.orgintel.get(company).await.map_err(unavailable)?;
+    let graph = org
+        .collaborator_work_graph_snapshot(actor_id)
+        .await
+        .map_err(|error| unavailable(error.into()))?;
+    let work: std::collections::HashSet<Uuid> = graph.work.iter().map(|work| work.id).collect();
+    let mut library = TeammateLibrary { ids: Default::default(), uris: Default::default() };
+    for artifact in graph.artifacts {
+        if artifact.work_id.is_some_and(|work_id| work.contains(&work_id))
+            && super::member_collaboration_api::member_library_uri(&artifact.uri).is_some()
+        {
+            library.ids.insert(artifact.id);
+            library.uris.insert(artifact.uri);
+        }
+    }
+    Ok(library)
+}
+
 async fn recorded_library_file(
     state: &OwnerState,
     company: &str,
@@ -402,10 +454,24 @@ pub(crate) struct LibraryContentQuery {
 /// as an inert download with no-sniff so the cockpit origin never renders it.
 pub(crate) async fn library_file_content(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
     Query(query): Query<LibraryContentQuery>,
 ) -> Response<Body> {
     let path = query.path.trim();
+    if principal.membership_role() != "owner" {
+        match teammate_library(&state, &company, principal.actor_id()).await {
+            Ok(visible) if visible.uris.contains(path) => {}
+            Ok(_) => {
+                return api_error(
+                    StatusCode::NOT_FOUND,
+                    "library",
+                    "this file is not one of the Work files you can open",
+                )
+            }
+            Err(refusal) => return refusal,
+        }
+    }
     let office = std::path::Path::new(path)
         .extension()
         .and_then(|extension| extension.to_str())

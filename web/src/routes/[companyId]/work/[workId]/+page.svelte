@@ -64,11 +64,7 @@
 	/* Coordination down is not missing Work: it may simply not be readable right now. */
 	const coordination = $derived(
 		coordinationFailure(
-			ownerAccess
-				? attention
-				: collaboration
-					? { sourceHealth: collaboration.source_health }
-					: null
+			ownerAccess ? attention : collaboration ? { sourceHealth: collaboration.source_health } : null
 		)
 	);
 	function retryWork() {
@@ -282,18 +278,24 @@
 		);
 	}
 
+	/** Where the Library opens it, when known: the owner's records and a teammate's projection both carry it. */
+	function artifactUri(artifact: Artifact): string | null {
+		return 'uri' in artifact && typeof artifact.uri === 'string' ? artifact.uri : null;
+	}
+
 	function artifactLabel(artifact: Artifact): string {
 		return isLegacyAutomaticArtifact(artifact)
 			? `Output from: ${work?.title ?? 'this work'}`
-			: 'uri' in artifact
-				? fileLabel(artifact.label, artifact.uri, work?.title)
+			: artifactUri(artifact)
+				? fileLabel(artifact.label, artifactUri(artifact)!, work?.title)
 				: artifact.label || artifact.kind;
 	}
 
 	/* An output the Library can show opens there, in place: a site live, a deck as a slideshow. */
 	function libraryHref(artifact: Artifact): string | null {
-		if (!ownerAccess || artifact.state !== 'available' || !('uri' in artifact)) return null;
-		return libraryKind(artifact)
+		const uri = artifactUri(artifact);
+		if (artifact.state !== 'available' || !uri) return null;
+		return libraryKind({ kind: artifact.kind, uri, label: artifact.label })
 			? `/${encodeURIComponent(companyId)}/library?file=${encodeURIComponent(artifact.id)}`
 			: null;
 	}
@@ -301,7 +303,8 @@
 	function artifactNote(artifact: Artifact): string {
 		if (!isLegacyAutomaticArtifact(artifact)) {
 			if (artifact.note) return artifact.note;
-			const kind = 'uri' in artifact ? libraryKind(artifact) : null;
+			const uri = artifactUri(artifact);
+			const kind = uri ? libraryKind({ kind: artifact.kind, uri, label: artifact.label }) : null;
 			const locator = artifactLocator(artifact);
 			const name = locator?.split(/[?#]/)[0].split('/').filter(Boolean).at(-1) ?? '';
 			return kind

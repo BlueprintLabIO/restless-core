@@ -2759,6 +2759,10 @@ model = \"anthropic/claude-sonnet-5-5\"
         ] {
             assert!(membership_boundary_violation(&Method::GET, path, &principal).is_none(), "{path}");
         }
+        // They open the Work files they can see; the handlers check which.
+        assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/library/open", &principal).is_none());
+        assert!(membership_boundary_violation(&Method::GET, "/api/companies/aris/library/content", &principal).is_none());
+        assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/library/archive", &principal).is_some());
         // They read how the company is set up, and change none of it.
         for path in [
             "/api/companies/aris/company/charter",

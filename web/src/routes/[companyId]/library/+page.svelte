@@ -267,15 +267,34 @@
 	let search = $state('');
 	const query = $derived(search.trim());
 
-	/* What Work produced on the company computer. The owner reads the Work graph; a collaborator's
-	 * projection carries no file locations, so files are the owner's view for now (S64 decision 5). */
+	/* What Work produced on the company computer. The owner reads the Work graph; a teammate reads
+	 * the files of the Work their collaboration view shows, and the server opens only those. */
 	const files = $derived(
 		owner
 			? libraryFiles(
 					((attention.view?.workGraph?.artifacts ?? []) as unknown as LibraryArtifact[]) ?? [],
 					attention.view?.workGraph?.work ?? []
 				)
-			: []
+			: libraryFiles(
+					(collaboration.view?.work_graph.artifacts ?? []).flatMap((artifact) =>
+						artifact.uri
+							? [
+									{
+										id: artifact.id,
+										kind: artifact.kind,
+										uri: artifact.uri,
+										label: artifact.label,
+										note: artifact.note,
+										created_by: '',
+										work_id: artifact.work_id,
+										state: artifact.state,
+										created_at: artifact.created_at
+									}
+								]
+							: []
+					),
+					collaboration.view?.work_graph.work ?? []
+				)
 	);
 	/* Files from Work that waits on the owner's judgement are waiting on their review too. */
 	const workWaitingOnOwner = $derived(waitingOnOwner(attention.view?.items ?? []));
@@ -301,7 +320,8 @@
 		try {
 			window.location.assign(downloadHref((await openLibraryFile(companyId, file)).url));
 		} catch (cause) {
-			fileActionFailure = cause instanceof Error ? cause.message : 'The file could not be downloaded.';
+			fileActionFailure =
+				cause instanceof Error ? cause.message : 'The file could not be downloaded.';
 		}
 	}
 	async function copyFileLink(id: string) {
@@ -930,7 +950,11 @@
 		{#if !openFileId && !openUploadId && !openPath}<div class="library-narrow-search">
 				<SidebarSearch bind:value={search} placeholder="Search files" />
 			</div>{/if}
-		<nav class="library-filters" aria-label="Library" hidden={!!(openFileId || openUploadId || openPath)}>
+		<nav
+			class="library-filters"
+			aria-label="Library"
+			hidden={!!(openFileId || openUploadId || openPath)}
+		>
 			{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(owner && counts.yours ? [{ key: 'yours' as Filter, label: 'From you' }] : []), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : []), FILTERS.at(-1)!] as item (item.key)}
 				<a
 					href={filterHref(item.key)}
