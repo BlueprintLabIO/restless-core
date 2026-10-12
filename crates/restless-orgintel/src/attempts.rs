@@ -1296,10 +1296,11 @@ impl OrgIntel {
         let allowed = by == "owner"
             || by == "exec"
             || by == owner_id
-            || accountability.lead_actor_id.as_deref() == Some(by);
+            || accountability.lead_actor_id.as_deref() == Some(by)
+            || accountability.responsible_actor_id.as_deref() == Some(by);
         if !allowed {
             return Err(OrgIntelError::InvalidWork(format!(
-                "{by:?} is not the Work owner, its lead, the Exec, or the owner"
+                "{by:?} is not the Work owner, its lead, the person who owns its team, the Exec, or the owner"
             )));
         }
         let ready_handoff: bool = sqlx::query_scalar(
@@ -1381,10 +1382,11 @@ impl OrgIntel {
         let allowed = by == "owner"
             || by == "exec"
             || by == owner_id
-            || accountability.lead_actor_id.as_deref() == Some(by);
+            || accountability.lead_actor_id.as_deref() == Some(by)
+            || accountability.responsible_actor_id.as_deref() == Some(by);
         if !allowed {
             return Err(OrgIntelError::InvalidWork(format!(
-                "{by:?} is not the Work owner, its lead, the Exec, or the owner"
+                "{by:?} is not the Work owner, its lead, the person who owns its team, the Exec, or the owner"
             )));
         }
         let running: bool = sqlx::query_scalar(

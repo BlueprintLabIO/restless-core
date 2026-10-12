@@ -382,6 +382,10 @@ pub struct TeamRow {
     pub outcome_standard_source: OutcomeStandardSource,
     pub standard_source_message_id: Option<i64>,
     pub lead_actor_id: String,
+    /// The person who owns this team: directs it, answers what its lead and Exec pass up, and
+    /// accepts its outcomes. None means the owner.
+    #[sqlx(default)]
+    pub responsible_actor_id: Option<String>,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub disbanded_at: Option<DateTime<Utc>>,
@@ -404,6 +408,9 @@ pub struct GoalRow {
     /// When the owner wants it by, if they said.
     #[sqlx(default)]
     pub due_on: Option<chrono::NaiveDate>,
+    /// The team that delivers this goal. None means the owner holds it directly.
+    #[sqlx(default)]
+    pub team_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]

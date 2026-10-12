@@ -17,7 +17,11 @@ export type CockpitModelCooldown = { model: string, kind: string, reason: string
 
 export type CockpitPerson = { actor_id: string, kind: string, role: string, display: string, model: string | null, team_id: string | null, spent_usd: number, session_running: boolean, session_observed_at: string | null, model_cooldown: CockpitModelCooldown | null, };
 
-export type CockpitTeam = { id: string, name: string, brief: string, outcome_standard: OutcomeStandard, outcome_standard_source: OutcomeStandardSource, standard_source_message_id: number | null, frontier_phase: string, lead_actor_id: string, created_by: string, created_at: string, member_count: number, in_motion_count: number, blocked_count: number, };
+export type CockpitTeam = { id: string, name: string, brief: string, outcome_standard: OutcomeStandard, outcome_standard_source: OutcomeStandardSource, standard_source_message_id: number | null, frontier_phase: string, lead_actor_id: string,
+/**
+ * The person who owns the team; null means the owner.
+ */
+responsible_actor_id: string | null, created_by: string, created_at: string, member_count: number, in_motion_count: number, blocked_count: number, };
 
 export type CockpitGoal = { id: string, title: string, body: string, created_by: string, created_at: string, closed_at: string | null,
 /**
@@ -31,7 +35,11 @@ done_when: string,
 /**
  * When the owner wants it by, if they said.
  */
-due_on: string | null, };
+due_on: string | null,
+/**
+ * The team that delivers it; null means the owner holds it.
+ */
+team_id: string | null, };
 
 export type CockpitSpend = { accounted_usd: number, ceiling_usd: number, remaining_usd: number | null, status: string, };
 

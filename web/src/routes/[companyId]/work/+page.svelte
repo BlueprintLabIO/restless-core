@@ -251,7 +251,26 @@
 			? (goal as { outcome_standard: OutcomeStandard }).outcome_standard
 			: undefined;
 	const selectedGoalRow = $derived(goals.find((goal) => goal.id === selectedGoal));
-	const selectedGoalAbout = $derived(selectedGoalRow ? goalAbout(selectedGoalRow) : '');
+	/* Teams own goals: which team delivers each one, and who owns that team. */
+	const teamRows = $derived((ownerAccess ? cockpit?.teams : collaboration?.teams) ?? []);
+	const peopleRows = $derived((ownerAccess ? cockpit?.people : collaboration?.people) ?? []);
+	function goalTeam(goal: Goal): string {
+		const team = goal.team_id ? teamRows.find((row) => row.id === goal.team_id) : undefined;
+		if (!team) return '';
+		const ownerId =
+			('owner_person' in team ? team.owner_person : team.responsible_actor_id) ?? null;
+		const owner = ownerId
+			? ownerId === principalProjection.view?.actor_id
+				? 'you'
+				: (peopleRows.find((person) => person.actor_id === ownerId)?.display ?? '')
+			: '';
+		return owner ? `${team.name} team, owned by ${owner}` : `${team.name} team`;
+	}
+	const selectedGoalAbout = $derived(
+		selectedGoalRow
+			? [goalTeam(selectedGoalRow), goalAbout(selectedGoalRow)].filter(Boolean).join(' · ')
+			: ''
+	);
 	const overrides = $derived(
 		new Map(
 			((graph && 'standards' in graph ? graph.standards : undefined) ?? []).map((row) => [
@@ -364,6 +383,7 @@
 		subTone={reading.tone}
 		{indent}
 		title={[
+			goalTeam(goal),
 			finishLine(goal)
 				? `Done when ${finishLine(goal)}`
 				: 'No finish line yet: Exec will agree one with you',

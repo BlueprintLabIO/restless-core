@@ -1559,6 +1559,11 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                                 "name": team.name,
                                 "brief": team.brief,
                                 "lead_actor_id": team.lead_actor_id,
+                                // The person who owns the team; null means the owner.
+                                "owner_person": team.responsible_actor_id,
+                                "owner_person_name": team.responsible_actor_id.as_deref().and_then(|person| {
+                                    actors.iter().find(|actor| actor.id == person).map(|actor| actor.display.clone())
+                                }),
                                 "members": members,
                                 "created_at": team.created_at,
                             })
@@ -1718,6 +1723,61 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 }
             }
             _ => Response::err("team lead needs --team, --actor, --reason, and an acting actor"),
+        },
+        // People own teams. Only the owner decides who: directly, or by telling Exec, which
+        // records it citing that owner message. Without --to the team goes back to the owner.
+        "team-owner" => match (
+            request.orgintel.name.as_deref(),
+            request.orgintel.actor.as_deref(),
+            request.common.reason.as_deref(),
+        ) {
+            (Some(team), Some(changed_by), Some(reason)) => match daemon.orgintel.get(company).await {
+                Ok(org) => {
+                    let team_id = match resolve_team(&org, team).await {
+                        Ok(id) => id,
+                        Err(error) => return Response::err(error),
+                    };
+                    let person = match request.common.to.as_deref().map(str::trim) {
+                        None | Some("") | Some("owner") | Some("none") => None,
+                        Some(reference) => match resolve_person(&org, reference).await {
+                            Ok(id) => Some(id),
+                            Err(error) => return Response::err(error),
+                        },
+                    };
+                    let result = match person.as_deref() {
+                        Some(person) => {
+                            org.appoint_responsible_person(
+                                team_id,
+                                person,
+                                changed_by,
+                                request.orgintel.source_message_id,
+                                reason,
+                            )
+                            .await
+                        }
+                        None => {
+                            org.release_responsible_person(
+                                team_id,
+                                changed_by,
+                                request.orgintel.source_message_id,
+                                reason,
+                            )
+                            .await
+                        }
+                    };
+                    match result {
+                        Ok(()) => Response::ok(serde_json::json!({
+                            "team_id": team_id,
+                            "owner_person": person,
+                        })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    }
+                }
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            _ => Response::err(
+                "team owner needs --team, --reason and an acting actor; --person names who owns it, or omit it to hand the team back to the owner",
+            ),
         },
         "team-disband" => match (
             request.orgintel.name.as_deref(),
@@ -1927,6 +1987,17 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 match daemon.orgintel.get(company).await {
                     Ok(org) => match org.add_goal(title, body, actor).await {
                         Ok(goal_id) => {
+                            if let Some(team) = request.orgintel.team_name.as_deref() {
+                                let team_id = match resolve_team(&org, team).await {
+                                    Ok(id) => id,
+                                    Err(error) => return Response::err(error),
+                                };
+                                if let Err(error) =
+                                    org.set_goal_team(goal_id, Some(team_id), actor).await
+                                {
+                                    return Response::err(format!("{error:#}"));
+                                }
+                            }
                             if request.done_when.is_some() || due.is_some() {
                                 if let Err(error) = org
                                     .set_goal_details(goal_id, None, request.done_when.as_deref(), due, actor)
@@ -1955,15 +2026,30 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                     Err(message) => return Response::err(message),
                 };
                 match daemon.orgintel.get(company).await {
-                    Ok(org) => match org
-                        .set_goal_details(
-                            goal_id,
-                            request.orgintel.title.as_deref(),
-                            request.done_when.as_deref(),
-                            due,
-                            actor,
+                    Ok(org) => match async {
+                        if let Some(team) = request.orgintel.team_name.as_deref().map(str::trim) {
+                            let team_id = match team {
+                                "" | "none" | "owner" => None,
+                                reference => Some(
+                                    resolve_team(&org, reference)
+                                        .await
+                                        .map_err(|error| anyhow::anyhow!(error))?,
+                                ),
+                            };
+                            org.set_goal_team(goal_id, team_id, actor).await?;
+                        }
+                        anyhow::Ok(
+                            org.set_goal_details(
+                                goal_id,
+                                request.orgintel.title.as_deref(),
+                                request.done_when.as_deref(),
+                                due,
+                                actor,
+                            )
+                            .await?,
                         )
-                        .await
+                    }
+                    .await
                     {
                         Ok(changed) => Response::ok(serde_json::json!({ "goal_id": goal_id, "changed": changed })),
                         Err(error) => Response::err(format!("{error:#}")),
@@ -4393,6 +4479,7 @@ pub fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Re
         | "team-update"
         | "team-assign"
         | "team-lead"
+        | "team-owner"
         | "team-disband"
         | "goal-add"
         | "goal-update"
@@ -4590,6 +4677,37 @@ pub fn pin_actor(
 /// ids are what another command just returned. Refusing one of the two would
 /// make the surface awkward for no safety gain — both resolve to one live team
 /// or to an error that says so.
+/// A person by actor id or by display name, among current people other than the owner.
+pub async fn resolve_person(
+    org: &restless_orgintel::OrgIntel,
+    reference: &str,
+) -> std::result::Result<String, String> {
+    let actors = org
+        .list_actors()
+        .await
+        .map_err(|error| format!("{error:#}"))?;
+    let people: Vec<_> = actors
+        .iter()
+        .filter(|actor| actor.actor_class == "human" && actor.id != "owner")
+        .collect();
+    if let Some(person) = people.iter().find(|actor| actor.id == reference) {
+        return Ok(person.id.clone());
+    }
+    let named: Vec<_> = people
+        .iter()
+        .filter(|actor| actor.display.eq_ignore_ascii_case(reference))
+        .collect();
+    match named.as_slice() {
+        [person] => Ok(person.id.clone()),
+        [] => Err(format!(
+            "no current person called {reference:?}; `restless people` lists them"
+        )),
+        _ => Err(format!(
+            "more than one person is called {reference:?}; use their actor id"
+        )),
+    }
+}
+
 pub async fn resolve_team(
     org: &restless_orgintel::OrgIntel,
     reference: &str,

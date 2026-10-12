@@ -79,7 +79,12 @@ export type TeamRow = { id: string, name: string,
 /**
  * Why this team exists and what it is accountable for.
  */
-brief: string, outcome_standard: OutcomeStandard, outcome_standard_source: OutcomeStandardSource, standard_source_message_id: number | null, lead_actor_id: string, created_by: string, created_at: string, disbanded_at: string | null, };
+brief: string, outcome_standard: OutcomeStandard, outcome_standard_source: OutcomeStandardSource, standard_source_message_id: number | null, lead_actor_id: string,
+/**
+ * The person who owns this team: directs it, answers what its lead and Exec pass up, and
+ * accepts its outcomes. None means the owner.
+ */
+responsible_actor_id: string | null, created_by: string, created_at: string, disbanded_at: string | null, };
 
 export type ActorRow = { id: string,
 /**
@@ -131,7 +136,11 @@ done_when: string,
 /**
  * When the owner wants it by, if they said.
  */
-due_on: string | null, };
+due_on: string | null,
+/**
+ * The team that delivers this goal. None means the owner holds it directly.
+ */
+team_id: string | null, };
 
 export type WorkRow = { id: string, goal_id: string | null, owner_id: string, title: string, outcome: string, status: WorkStatus, resolution: string, priority: number, expected_artifact: string,
 /**

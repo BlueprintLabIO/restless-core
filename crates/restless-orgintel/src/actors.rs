@@ -614,9 +614,12 @@ impl OrgIntel {
     /// returned — they are history, not structure.
     pub async fn list_teams(&self) -> Result<Vec<TeamRow>> {
         Ok(sqlx::query_as::<_, TeamRow>(
-            "SELECT id,name,brief,outcome_standard,outcome_standard_source,standard_source_message_id, \
-                    lead_actor_id,created_by,created_at,disbanded_at \
-             FROM teams WHERE disbanded_at IS NULL ORDER BY created_at, id",
+            "SELECT t.id,t.name,t.brief,t.outcome_standard,t.outcome_standard_source,\
+                    t.standard_source_message_id,t.lead_actor_id,\
+                    (SELECT p.id FROM actors p WHERE p.id=t.responsible_actor_id \
+                       AND p.actor_class='human' AND p.retired_at IS NULL) AS responsible_actor_id,\
+                    t.created_by,t.created_at,t.disbanded_at \
+             FROM teams t WHERE t.disbanded_at IS NULL ORDER BY t.created_at, t.id",
         )
         .fetch_all(&self.pool)
         .await?)
@@ -1202,8 +1205,9 @@ impl OrgIntel {
     }
 
     /// Pass a judgement up one altitude because it is outside this actor's
-    /// remit. Leads and unassigned specialists go to the Exec; only the Exec
-    /// can pass ordinary judgement to the owner.
+    /// remit. Leads and unassigned specialists go to the Exec; the Exec passes
+    /// prepared judgement to the person who owns the Work's team, or to the
+    /// owner when nobody does; that person may pass it on to the owner.
     pub async fn escalate_handoff(&self, id: Uuid, from_actor: &str, reason: &str) -> Result<()> {
         if reason.trim().is_empty() {
             return Err(OrgIntelError::InvalidWork(
@@ -1212,7 +1216,6 @@ impl OrgIntel {
                     .into(),
             ));
         }
-        let next = (from_actor != "exec").then_some("exec");
         let mut tx = self.pool.begin().await?;
         let candidate_work_id: Uuid = sqlx::query_scalar(
             "SELECT work_id FROM owner_handoffs \
@@ -1226,6 +1229,14 @@ impl OrgIntel {
             OrgIntelError::InvalidWork("no pending handoff is assigned to that actor".into())
         })?;
         let accountability = lock_work_accountability_in_tx(&mut tx, candidate_work_id).await?;
+        let from_person = accountability.responsible_actor_id.as_deref() == Some(from_actor);
+        let next: Option<String> = if from_person {
+            None
+        } else if from_actor == "exec" {
+            accountability.responsible_actor_id.clone()
+        } else {
+            Some("exec".to_string())
+        };
         let row = sqlx::query(
             "SELECT work_id,attempt_id,category,requested_action,prepared_state, \
                     resume_condition,owner_brief,brief_source_fingerprint \
@@ -1270,7 +1281,7 @@ impl OrgIntel {
         )
         .bind(id)
         .bind(from_actor)
-        .bind(next)
+        .bind(next.as_deref())
         .bind(reason.trim())
         .execute(&mut *tx)
         .await?;
@@ -1331,6 +1342,8 @@ impl OrgIntel {
 pub(crate) struct LockedWorkAccountability {
     pub owner_id: String,
     pub lead_actor_id: Option<String>,
+    /// The active person who owns the Work's team, if the team has one.
+    pub responsible_actor_id: Option<String>,
     pub status: WorkStatus,
     pub revision: i64,
 }
@@ -1375,10 +1388,10 @@ async fn lock_work_accountability_with_mode_in_tx(
         .fetch_optional(&mut **tx)
         .await?
         .flatten();
-    let locked_team: Option<(Uuid, String)> = match candidate_team {
+    let locked_team: Option<(Uuid, String, Option<String>)> = match candidate_team {
         Some(team_id) => {
             sqlx::query_as(
-                "SELECT id,lead_actor_id FROM teams \
+                "SELECT id,lead_actor_id,responsible_actor_id FROM teams \
              WHERE id=$1 AND disbanded_at IS NULL FOR SHARE",
             )
             .bind(team_id)
@@ -1387,9 +1400,13 @@ async fn lock_work_accountability_with_mode_in_tx(
         }
         None => None,
     };
-    let lead_actor_id = locked_team.as_ref().map(|(_, lead)| lead.clone());
+    let lead_actor_id = locked_team.as_ref().map(|(_, lead, _)| lead.clone());
+    let named_responsible = locked_team
+        .as_ref()
+        .and_then(|(_, _, responsible)| responsible.clone());
     let mut actor_ids = vec![owner_id.clone(), "exec".to_string()];
     actor_ids.extend(lead_actor_id.iter().cloned());
+    actor_ids.extend(named_responsible.iter().cloned());
     actor_ids.sort();
     actor_ids.dedup();
     let actors = sqlx::query_as::<_, (String, String, Option<Uuid>, Option<DateTime<Utc>>)>(
@@ -1438,9 +1455,16 @@ async fn lock_work_accountability_with_mode_in_tx(
             "the stable Exec fallback is not active".into(),
         ));
     }
+    // A responsible person who has left the company no longer answers for the team.
+    let responsible_actor_id = named_responsible.filter(|person| {
+        actors.iter().any(|(id, class, _, retired_at)| {
+            id == person && class == "human" && retired_at.is_none()
+        })
+    });
     Ok(LockedWorkAccountability {
         owner_id,
         lead_actor_id,
+        responsible_actor_id,
         status,
         revision,
     })

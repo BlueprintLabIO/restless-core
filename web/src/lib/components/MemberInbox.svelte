@@ -1,11 +1,16 @@
 <script lang="ts">
-	/* A teammate's Inbox: what the team handed to this person, and where they were mentioned.
-	 * The owner's Inbox carries approvals and spending; this one carries only what is theirs to
-	 * answer, and the server checks each answer against the handoff's assignment. */
+	/* A person's Inbox: what the team handed them, the teams they own, and where they were
+	 * mentioned. People own teams and agents run them, so a team's judgement calls and finished
+	 * outcomes come here for its person; the server checks every answer against the team. */
 	import { Page, Section, Item, Notice, Empty } from '$lib/ui/page';
 	import { formatRelative, formatMoment } from '$lib/ui/time';
 	import { failureSentence } from '$lib/model/failure';
-	import type { CollaborationBootstrap, CollaborationHandoff } from '$lib/model/collaboration';
+	import { personName } from '$lib/model/initials';
+	import type {
+		CollaborationBootstrap,
+		CollaborationHandoff,
+		CollaborationWork
+	} from '$lib/model/collaboration';
 
 	let {
 		companyId,
@@ -32,46 +37,59 @@
 	let failure = $state('');
 	let notice = $state('');
 
+	const me = $derived(view?.principal.actor_id ?? '');
 	const handoffs = $derived(view?.attention.handoffs ?? []);
 	const mentions = $derived(view?.attention.mentions ?? []);
+	const myTeams = $derived((view?.teams ?? []).filter((team) => team.owner_person === me));
 	const name = (actorId: string) =>
-		view?.people.find((person) => person.actor_id === actorId)?.display ?? actorId;
+		actorId === 'exec'
+			? 'Exec'
+			: personName(view?.people.find((person) => person.actor_id === actorId)?.display ?? actorId);
 	const workTitle = (workId: string | null) =>
 		(workId && view?.work_graph.work.find((work) => work.id === workId)?.title) || '';
+	const teamOf = (work: CollaborationWork) =>
+		view?.people.find((person) => person.actor_id === work.owner_id)?.team_id ?? null;
+	const teamWork = (teamId: string, status: CollaborationWork['status']) =>
+		(view?.work_graph.work ?? []).filter(
+			(work) => work.status === status && teamOf(work) === teamId
+		);
+	const isReview = (handoff: CollaborationHandoff) =>
+		handoff.category === 'owner_judgement' && handoff.owner_brief?.kind === 'outcome_review';
+	const workHref = (workId: string) =>
+		`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(workId)}`;
 
-	async function post(
-		handoff: CollaborationHandoff,
-		action: 'decision' | 'complete',
-		body?: object
-	) {
-		busy = handoff.id;
+	async function send(path: string, body: object, done: string) {
+		busy = path;
 		failure = '';
 		notice = '';
 		try {
-			const response = await fetch(
-				`/api/companies/${encodeURIComponent(companyId)}/handoffs/${encodeURIComponent(handoff.id)}/${action}`,
-				{
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify(body ?? {})
-				}
-			);
+			const response = await fetch(`/api/companies/${encodeURIComponent(companyId)}/${path}`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(body)
+			});
 			if (!response.ok) {
 				const detail = (await response.json().catch(() => null)) as { message?: string } | null;
-				throw new Error(detail?.message ?? 'That answer was not recorded. Try again.');
+				throw new Error(detail?.message ?? 'That was not recorded. Try again.');
 			}
-			notice =
-				action === 'complete'
-					? 'Marked done. The team picks it up from here.'
-					: 'Answer sent to the team.';
+			notice = done;
 			open = '';
 			answer = '';
 			onchanged();
 		} catch (cause) {
-			failure = failureSentence(cause, 'That answer was not recorded.');
+			failure = failureSentence(cause, 'That was not recorded.');
 		} finally {
 			busy = '';
 		}
+	}
+	const handoffPath = (handoff: CollaborationHandoff, action: string) =>
+		`handoffs/${encodeURIComponent(handoff.id)}/${action}`;
+	const workPath = (work: CollaborationWork, action: string) =>
+		`work/${encodeURIComponent(work.id)}/${action}`;
+
+	function toggle(key: string) {
+		open = open === key ? '' : key;
+		answer = '';
 	}
 
 	function mentionHref(mention: CollaborationBootstrap['attention']['mentions'][number]): string {
@@ -85,35 +103,38 @@
 	}
 </script>
 
-<Page title="Inbox" info="What the team handed to you, and where people or agents mentioned you.">
+<Page
+	title="Inbox"
+	info="What your teams need you to decide, the teams you own, and where people or agents mentioned you."
+>
 	{#if failure}<Notice tone="danger" title="Not recorded" details={failure} />{/if}
 	{#if notice}<Notice tone="success" title={notice} />{/if}
 
 	{#if !view}
 		<Empty compact title="Reading your Inbox…" />
-	{:else if !handoffs.length && !mentions.length}
+	{:else if !handoffs.length && !mentions.length && !myTeams.length}
 		<Empty
 			title="Nothing waiting for you"
-			info="When the team hands you a decision or a step, or someone mentions you, it shows here."
+			info="When a team you own needs a decision, someone hands you a step, or someone mentions you, it shows here."
 		/>
 	{:else}
 		{#if handoffs.length}
 			<Section title="Waiting for you" count={handoffs.length}>
 				{#each handoffs as handoff (handoff.id)}
+					{@const review = isReview(handoff)}
 					{@const judgement = handoff.category === 'owner_judgement'}
 					<Item
-						title={handoff.requested_action}
+						title={review
+							? (handoff.owner_brief?.headline ?? handoff.requested_action)
+							: handoff.requested_action}
 						meta={[
-							CATEGORY[handoff.category] ?? 'Step',
+							review ? 'Outcome to review' : (CATEGORY[handoff.category] ?? 'Step'),
 							workTitle(handoff.work_id),
-							`from ${name(handoff.requested_by)}`
+							`from ${name(handoff.escalated_from ?? handoff.requested_by)}`
 						]
 							.filter(Boolean)
 							.join(' · ')}
-						onclick={() => {
-							open = open === handoff.id ? '' : handoff.id;
-							answer = '';
-						}}
+						onclick={() => toggle(handoff.id)}
 						selected={open === handoff.id}
 						unread
 					>
@@ -122,11 +143,62 @@
 							>{/snippet}
 						{#if open === handoff.id}
 							<div class="detail">
-								{#if handoff.prepared_state}<p class="prepared">{handoff.prepared_state}</p>{/if}
-								{#if handoff.resume_condition}<p class="resume" title="What the team waits for">
-										Then: {handoff.resume_condition}
-									</p>{/if}
-								{#if judgement}
+								{#if handoff.owner_brief}
+									<p class="prepared">{handoff.owner_brief.situation}</p>
+									<p class="prepared">
+										<strong>Recommended:</strong>
+										{handoff.owner_brief.recommendation}
+									</p>
+									<p class="resume">If nobody decides: {handoff.owner_brief.no_action}</p>
+								{:else}
+									{#if handoff.prepared_state}<p class="prepared">{handoff.prepared_state}</p>{/if}
+									{#if handoff.resume_condition}<p class="resume">
+											Then: {handoff.resume_condition}
+										</p>{/if}
+								{/if}
+								<a class="link" href={workHref(handoff.work_id)}>Open the Work</a>
+								{#if review}
+									<textarea
+										bind:value={answer}
+										aria-label="Feedback"
+										placeholder="Feedback for the team (needed to request changes)"></textarea>
+									<div class="bar">
+										<button
+											class="btn primary small"
+											type="button"
+											disabled={!!busy}
+											onclick={() =>
+												send(
+													handoffPath(handoff, 'review'),
+													{ decision: 'accept', feedback: answer.trim() },
+													'Accepted. The Work is done.'
+												)}>Accept</button
+										>
+										<button
+											class="btn small"
+											type="button"
+											disabled={!!busy || !answer.trim()}
+											onclick={() =>
+												send(
+													handoffPath(handoff, 'review'),
+													{ decision: 'request_changes', feedback: answer.trim() },
+													'Changes requested. The team picks it up.'
+												)}>Request changes</button
+										>
+										<button
+											class="btn small quiet"
+											type="button"
+											disabled={!!busy || !answer.trim()}
+											title="Say why; the owner gets your reason"
+											onclick={() =>
+												send(
+													handoffPath(handoff, 'escalate'),
+													{ reason: answer.trim() },
+													'Passed to the owner.'
+												)}>Pass to the owner</button
+										>
+									</div>
+								{:else if judgement}
 									<textarea
 										bind:value={answer}
 										aria-label="Your answer"
@@ -135,18 +207,37 @@
 										<button
 											class="btn primary small"
 											type="button"
-											disabled={busy === handoff.id || !answer.trim()}
-											onclick={() => post(handoff, 'decision', { resolution: answer.trim() })}
-											>{busy === handoff.id ? 'Sending…' : 'Send answer'}</button
+											disabled={!!busy || !answer.trim()}
+											onclick={() =>
+												send(
+													handoffPath(handoff, 'decision'),
+													{ resolution: answer.trim() },
+													'Answer sent to the team.'
+												)}>Send answer</button
 										>
 										<button
 											class="btn small"
 											type="button"
-											disabled={busy === handoff.id || !answer.trim()}
+											disabled={!!busy || !answer.trim()}
 											title="Say why; the team gets your reason"
 											onclick={() =>
-												post(handoff, 'decision', { resolution: answer.trim(), declined: true })}
-											>Decline</button
+												send(
+													handoffPath(handoff, 'decision'),
+													{ resolution: answer.trim(), declined: true },
+													'Declined. The team has your reason.'
+												)}>Decline</button
+										>
+										<button
+											class="btn small quiet"
+											type="button"
+											disabled={!!busy || !answer.trim()}
+											title="Say why; the owner gets your reason"
+											onclick={() =>
+												send(
+													handoffPath(handoff, 'escalate'),
+													{ reason: answer.trim() },
+													'Passed to the owner.'
+												)}>Pass to the owner</button
 										>
 									</div>
 								{:else if handoff.category !== 'payment_confirmation'}
@@ -154,9 +245,13 @@
 										<button
 											class="btn primary small"
 											type="button"
-											disabled={busy === handoff.id}
-											onclick={() => post(handoff, 'complete')}
-											>{busy === handoff.id ? 'Recording…' : 'Mark done'}</button
+											disabled={!!busy}
+											onclick={() =>
+												send(
+													handoffPath(handoff, 'complete'),
+													{},
+													'Marked done. The team picks it up from here.'
+												)}>Mark done</button
 										>
 									</div>
 								{/if}
@@ -166,6 +261,61 @@
 				{/each}
 			</Section>
 		{/if}
+		{#each myTeams as team (team.id)}
+			{@const blocked = teamWork(team.id, 'blocked')}
+			<Section
+				title={`Your team: ${team.name}`}
+				info={`${name(team.lead_actor_id)} runs it for you · ${team.in_motion_count} in progress · ${team.blocked_count} blocked`}
+				count={blocked.length || undefined}
+			>
+				{#each blocked as work (work.id)}
+					{@const key = `work:${work.id}`}
+					<Item
+						title={work.title}
+						meta={['Blocked', name(work.owner_id)].join(' · ')}
+						onclick={() => toggle(key)}
+						selected={open === key}
+					>
+						{#if open === key}
+							<div class="detail">
+								{#if work.resolution}<p class="prepared">{work.resolution}</p>{/if}
+								<a class="link" href={workHref(work.id)}>Open the Work</a>
+								<textarea
+									bind:value={answer}
+									aria-label="Reason"
+									placeholder="What changed, or why it should stop"></textarea>
+								<div class="bar">
+									<button
+										class="btn primary small"
+										type="button"
+										disabled={!!busy || !answer.trim()}
+										onclick={() =>
+											send(workPath(work, 'resume'), { reason: answer.trim() }, 'Resumed.')}
+										>Resume</button
+									>
+									<button
+										class="btn small"
+										type="button"
+										disabled={!!busy || !answer.trim()}
+										onclick={() =>
+											send(
+												workPath(work, 'abandon'),
+												{ reason: answer.trim() },
+												'Stopped. The team will not pick it up again.'
+											)}>Stop this Work</button
+									>
+								</div>
+							</div>
+						{/if}
+					</Item>
+				{:else}
+					<Item
+						title="Nothing blocked"
+						meta={`Talk to ${name(team.lead_actor_id)} or Exec to direct the team`}
+					/>
+				{/each}
+			</Section>
+		{/each}
 		{#if mentions.length}
 			<Section title="Mentions" count={mentions.length}>
 				{#each mentions as mention (mention.id)}
@@ -200,6 +350,11 @@
 	}
 	.resume {
 		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.link {
+		width: fit-content;
+		color: var(--accent-ink, var(--text-secondary));
 		font-size: var(--t-label);
 	}
 	textarea {

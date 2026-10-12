@@ -1268,6 +1268,25 @@ enum TeamCommand {
         #[arg(long)]
         reason: String,
     },
+    /// Say which person owns a team: they direct it, answer what its lead and Exec pass
+    /// up, and accept its outcomes. Only the owner decides; Exec records it citing the
+    /// owner's message with --source-message. Omit --person to hand the team back to the
+    /// owner.
+    Owner {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// Team name or id.
+        #[arg(long)]
+        team: String,
+        /// The person: their name or actor id.
+        #[arg(long)]
+        person: Option<String>,
+        /// The owner's message to Exec that asked for this (required when Exec records it).
+        #[arg(long)]
+        source_message: Option<i64>,
+        #[arg(long)]
+        reason: String,
+    },
     /// Replace a team's accountable lead.
     Lead {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -1900,8 +1919,12 @@ enum GoalCommand {
         /// When it is wanted by, YYYY-MM-DD.
         #[arg(long)]
         due: Option<String>,
+        /// The team that delivers it (name or id). Teams own goals.
+        #[arg(long)]
+        team: Option<String>,
     },
-    /// Change a Goal's title, finish line or due date (an empty --due clears it).
+    /// Change a Goal's title, finish line, due date (an empty --due clears it) or team
+    /// (--team none hands it back to the owner).
     Update {
         #[arg(long)]
         goal: String,
@@ -1911,6 +1934,8 @@ enum GoalCommand {
         done_when: Option<String>,
         #[arg(long)]
         due: Option<String>,
+        #[arg(long)]
+        team: Option<String>,
     },
     /// Close an open Goal (`/goal clear`). Its Work is not changed.
     Close {
@@ -3298,6 +3323,17 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 "reason": reason,
                 "actor": acting_actor(),
             }),
+            TeamCommand::Owner {
+                company,
+                team,
+                person,
+                source_message,
+                reason,
+            } => serde_json::json!({
+                "cmd": "team-owner", "company": company, "name": team, "to": person,
+                "source_message_id": source_message, "reason": reason,
+                "actor": acting_actor(),
+            }),
             TeamCommand::Lead {
                 company,
                 team,
@@ -3344,13 +3380,13 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             None | Some(GoalCommand::List) => {
                 serde_json::json!({ "cmd": "goals", "company": company })
             }
-            Some(GoalCommand::Add { title, body, done_when, due }) => serde_json::json!({
+            Some(GoalCommand::Add { title, body, done_when, due, team }) => serde_json::json!({
                 "cmd": "goal-add", "company": company, "title": title, "body": body,
-                "done_when": done_when, "due": due, "actor": acting_actor(),
+                "done_when": done_when, "due": due, "team_name": team, "actor": acting_actor(),
             }),
-            Some(GoalCommand::Update { goal, title, done_when, due }) => serde_json::json!({
+            Some(GoalCommand::Update { goal, title, done_when, due, team }) => serde_json::json!({
                 "cmd": "goal-update", "company": company, "goal": goal, "title": title,
-                "done_when": done_when, "due": due, "actor": acting_actor(),
+                "done_when": done_when, "due": due, "team_name": team, "actor": acting_actor(),
             }),
             Some(GoalCommand::Close { goal }) => serde_json::json!({
                 "cmd": "goal-close", "company": company, "goal": goal,

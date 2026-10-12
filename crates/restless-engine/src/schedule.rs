@@ -533,6 +533,20 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     // Shadow decisions on any result notice still unread; they change nothing.
     crate::decisions::shadow_exec_results(&org, &config.mission).await;
 
+    // People own teams. What waits on a person gets one reminder from Exec after a day and
+    // goes to the owner after two, so a quiet person never stalls their team.
+    let (remind_after, escalate_after) = person_wait_limits();
+    if let Err(error) = org.remind_waiting_people(remind_after).await {
+        tracing::warn!(company, "could not remind people of waiting judgement: {error:#}");
+    }
+    match org.escalate_unanswered_to_owner(escalate_after).await {
+        Ok(0) => {}
+        Ok(moved) => tracing::info!(company, moved, "passed unanswered judgement to the owner"),
+        Err(error) => {
+            tracing::warn!(company, "could not pass unanswered judgement to the owner: {error:#}")
+        }
+    }
+
     // A daemon/process restart can cut a direct CLI wake after the durable
     // `wake` event but before `wake_end`. That work is still owed even when no
     // unread owner message remains. Recover it before claiming new schedules
@@ -1597,4 +1611,21 @@ mod tests {
         }
         assert!(held_for(&claims) <= super::BACKOFF_CEILING);
     }
+}
+
+/// How long judgement may wait on a person before Exec reminds them, and before it goes to the
+/// owner. One and two days; `RESTLESS_PERSON_REMIND_AFTER_SECS` and
+/// `RESTLESS_PERSON_ESCALATE_AFTER_SECS` shorten them for tests.
+fn person_wait_limits() -> (chrono::Duration, chrono::Duration) {
+    let seconds = |name: &str, default: i64| {
+        std::env::var(name)
+            .ok()
+            .and_then(|value| value.parse::<i64>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(default)
+    };
+    (
+        chrono::Duration::seconds(seconds("RESTLESS_PERSON_REMIND_AFTER_SECS", 24 * 3600)),
+        chrono::Duration::seconds(seconds("RESTLESS_PERSON_ESCALATE_AFTER_SECS", 48 * 3600)),
+    )
 }

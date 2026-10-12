@@ -700,6 +700,18 @@ impl OrgIntel {
         decision: OwnerReviewDecision,
         feedback: &str,
     ) -> Result<()> {
+        self.decide_review_as(id, "owner", decision, feedback).await
+    }
+
+    /// The same review, decided by the person the judgement is assigned to: the owner for
+    /// what is theirs, or the person who owns the Work's team.
+    pub async fn decide_review_as(
+        &self,
+        id: Uuid,
+        reviewer: &str,
+        decision: OwnerReviewDecision,
+        feedback: &str,
+    ) -> Result<()> {
         let feedback = feedback.trim();
         if decision == OwnerReviewDecision::ChangesRequested && feedback.is_empty() {
             return Err(OrgIntelError::InvalidWork(
@@ -738,9 +750,17 @@ impl OrgIntel {
             ));
         }
         let assigned_to: Option<String> = row.get("assigned_to");
-        if assigned_to.is_some() {
+        let reviewer_owns = match assigned_to.as_deref() {
+            None => reviewer == "owner",
+            Some(assigned) => {
+                assigned == reviewer
+                    && accountability.responsible_actor_id.as_deref() == Some(reviewer)
+            }
+        };
+        if !reviewer_owns {
             return Err(OrgIntelError::InvalidWork(
-                "the owner cannot review judgement that is still assigned below them".into(),
+                "this review is still assigned below you, or is waiting on someone else"
+                    .into(),
             ));
         }
         let brief: Option<serde_json::Value> = row.get("owner_brief");
@@ -793,50 +813,63 @@ impl OrgIntel {
         if !feedback.is_empty() {
             let existing_message: Option<i64> = sqlx::query_scalar(
                 "SELECT m.id FROM messages m JOIN work_feedback f ON f.message_id=m.id \
-                 WHERE f.work_id=$1 AND m.from_actor='owner' AND m.to_actor=$2 AND m.body=$3 \
+                 WHERE f.work_id=$1 AND m.from_actor=$4 AND m.to_actor=$2 AND m.body=$3 \
                    AND NOT EXISTS (SELECT 1 FROM work_attempt_feedback af WHERE af.message_id=m.id) \
                  ORDER BY m.id DESC LIMIT 1",
             )
             .bind(work_id)
             .bind(&owner_id)
             .bind(feedback)
+            .bind(reviewer)
             .fetch_optional(&mut *tx)
             .await?;
             if existing_message.is_none() {
                 let room_id =
-                    ensure_direct_message_room_in_tx(&mut tx, "owner", Some(&owner_id)).await?;
+                    ensure_direct_message_room_in_tx(&mut tx, reviewer, Some(&owner_id)).await?;
                 let message_id: i64 = sqlx::query_scalar(
                     "INSERT INTO messages (room_id,from_actor,to_actor,body) \
-                     VALUES ($1,'owner',$2,$3) RETURNING id",
+                     VALUES ($1,$4,$2,$3) RETURNING id",
                 )
                 .bind(room_id)
                 .bind(&owner_id)
                 .bind(feedback)
+                .bind(reviewer)
                 .fetch_one(&mut *tx)
                 .await?;
                 sqlx::query(
                     "INSERT INTO work_feedback (work_id,message_id,linked_by) \
-                     VALUES ($1,$2,'owner')",
+                     VALUES ($1,$2,$3)",
                 )
                 .bind(work_id)
                 .bind(message_id)
+                .bind(reviewer)
                 .execute(&mut *tx)
                 .await?;
             }
         }
 
+        // The record names who decided: the owner, or the person who owns the team.
+        let who = if reviewer == "owner" {
+            "Owner".to_string()
+        } else {
+            sqlx::query_scalar::<_, String>("SELECT display FROM actors WHERE id=$1")
+                .bind(reviewer)
+                .fetch_optional(&mut *tx)
+                .await?
+                .unwrap_or_else(|| reviewer.to_string())
+        };
         let (handoff_state, resolution) = match decision {
             OwnerReviewDecision::Accepted => (
                 OwnerHandoffState::Resolved,
                 if feedback.is_empty() {
-                    "Owner accepted the prepared outcome".to_string()
+                    format!("{who} accepted the prepared outcome")
                 } else {
-                    format!("Owner accepted the prepared outcome: {feedback}")
+                    format!("{who} accepted the prepared outcome: {feedback}")
                 },
             ),
             OwnerReviewDecision::ChangesRequested => (
                 OwnerHandoffState::Declined,
-                format!("Owner requested changes: {feedback}"),
+                format!("{who} requested changes: {feedback}"),
             ),
         };
         sqlx::query(
@@ -858,7 +891,7 @@ impl OrgIntel {
                 .await?;
             }
             OwnerReviewDecision::ChangesRequested => {
-                invalidate_from(&mut tx, work_id, "owner", feedback).await?;
+                invalidate_from(&mut tx, work_id, reviewer, feedback).await?;
             }
         }
         tx.commit().await?;

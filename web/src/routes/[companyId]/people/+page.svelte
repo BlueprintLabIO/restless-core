@@ -49,6 +49,38 @@
 	);
 	type DirectoryPerson = (typeof people)[number];
 	const teams = $derived((owner ? cockpit.view?.teams : collaboration.view?.teams) ?? []);
+	/* People own teams; agents run them. The owner says who, here or by telling Exec. */
+	function teamOwnerId(team: (typeof teams)[number]): string | null {
+		return ('owner_person' in team ? team.owner_person : team.responsible_actor_id) ?? null;
+	}
+	const everyone = $derived((owner ? cockpit.view?.people : collaboration.view?.people) ?? []);
+	const humanColleagues = $derived(everyone.filter((person) => person.kind === 'human'));
+	function teamOwnerName(id: string): string {
+		if (id === principal.view?.actor_id) return 'you';
+		return personName(everyone.find((person) => person.actor_id === id)?.display ?? 'a colleague');
+	}
+	let teamOwnerError = $state('');
+	async function setTeamOwner(teamId: string, person: string) {
+		teamOwnerError = '';
+		const response = await fetch(
+			`/api/companies/${encodeURIComponent(companyId)}/teams/${encodeURIComponent(teamId)}/owner`,
+			{
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					person: person || null,
+					reason: person
+						? 'Appointed by the owner from People'
+						: 'Handed back to the owner from People'
+				})
+			}
+		);
+		if (!response.ok) {
+			const detail = (await response.json().catch(() => null)) as { message?: string } | null;
+			teamOwnerError = detail?.message ?? 'Who owns the team did not change. Try again.';
+		}
+		void cockpit.refresh();
+	}
 	const contacts = $derived(
 		people.filter((p) => p.kind === 'exec' || teams.some((t) => t.lead_actor_id === p.actor_id))
 	);
@@ -578,6 +610,25 @@
 								>{entry.members.length + (entry.lead ? 1 : 0)}</em
 							>
 						</header>
+						{#if owner}
+							<label
+								class="team-owner"
+								title="The person who owns a team directs it and decides what its lead passes up"
+							>
+								<span>Owned by</span>
+								<select
+									value={teamOwnerId(entry.team) ?? ''}
+									onchange={(event) => void setTeamOwner(entry.team.id, event.currentTarget.value)}
+								>
+									<option value="">You</option>
+									{#each humanColleagues as person (person.actor_id)}
+										<option value={person.actor_id}>{personName(person.display)}</option>
+									{/each}
+								</select>
+							</label>
+						{:else if teamOwnerId(entry.team)}
+							<p class="team-owner">Owned by {teamOwnerName(teamOwnerId(entry.team) ?? '')}</p>
+						{/if}
 						{#if entry.lead}{@render directoryPerson(entry.lead, 'lead')}{/if}
 						{#each entry.members.filter((member) => entry.teamMatches || matchesDirectory(member, search
 										.trim()
@@ -620,6 +671,7 @@
 						{/each}
 					</section>
 				{/if}
+				{#if teamOwnerError}<p class="empty" role="alert">{teamOwnerError}</p>{/if}
 				{#if !execShown && !directoryTeams.length && !directoryUnassigned.length && !directoryHumans.length && !shownInvitations.length}<p
 						class="empty"
 					>
@@ -846,6 +898,24 @@
 		color: var(--text-tertiary);
 		font-style: normal;
 		font-weight: 400;
+	}
+	.team-owner {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin: 0 0 4px;
+		padding: 0 8px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.team-owner select {
+		min-width: 0;
+		padding: 2px 4px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		background: var(--surface-raised);
+		color: var(--text-secondary);
+		font: inherit;
 	}
 	/* A person: their name, then what they are doing in its colour; the selected one raised. */
 	.directory-person {

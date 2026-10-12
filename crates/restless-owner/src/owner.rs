@@ -17,6 +17,8 @@ mod company_settings_api;
 mod desktop_api;
 #[path = "owner_review.rs"]
 mod review_api;
+#[path = "owner_teams.rs"]
+mod teams_api;
 #[path = "owner_library.rs"]
 mod library_api;
 #[path = "owner_custom_harnesses.rs"]
@@ -715,6 +717,8 @@ struct CockpitTeam {
     standard_source_message_id: Option<i64>,
     frontier_phase: String,
     lead_actor_id: String,
+    /// The person who owns the team; null means the owner.
+    responsible_actor_id: Option<String>,
     created_by: String,
     created_at: chrono::DateTime<Utc>,
     member_count: usize,
@@ -736,6 +740,8 @@ struct CockpitGoal {
     done_when: String,
     /// When the owner wants it by, if they said.
     due_on: Option<chrono::NaiveDate>,
+    /// The team that delivers it; null means the owner holds it.
+    team_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, ts_rs::TS)]
@@ -1304,6 +1310,22 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(skills_api::close_goal),
         )
         .route(
+            "/companies/{company}/goals/{goal}/team",
+            post(teams_api::set_goal_team),
+        )
+        .route(
+            "/companies/{company}/teams/{team}/owner",
+            get(teams_api::team_owner_history).post(teams_api::set_team_owner),
+        )
+        .route(
+            "/companies/{company}/work/{work}/resume",
+            post(teams_api::resume_work),
+        )
+        .route(
+            "/companies/{company}/work/{work}/abandon",
+            post(teams_api::abandon_work),
+        )
+        .route(
             "/companies/{company}/goals/{goal}/standard",
             post(skills_api::set_goal_standard),
         )
@@ -1448,6 +1470,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route(
             "/companies/{company}/handoffs/{handoff}/complete",
             post(complete_human_step),
+        )
+        .route(
+            "/companies/{company}/handoffs/{handoff}/escalate",
+            post(teams_api::pass_handoff_to_owner),
         )
         .route(
             "/companies/{company}/tool-connections",
@@ -1965,6 +1991,8 @@ fn membership_boundary_violation(
         || is_company_library_read(method, path)
         // A person answers what is assigned to them; OrgIntel checks the assignment.
         || is_handoff_answer(method, path)
+        // The person who owns a team runs its Work and goals; OrgIntel checks the team.
+        || is_team_owner_action(method, path)
         // An admin runs the day to day with the owner, and may stop a turn that went wrong; a
         // member's message waits its turn instead.
         || (principal.membership_role() == "admin"
@@ -2128,7 +2156,28 @@ fn is_handoff_answer(method: &Method, path: &str) -> bool {
         return false;
     }
     let tail: Vec<&str> = segments.collect();
-    matches!(tail.as_slice(), ["handoffs", handoff, "decision" | "complete"] if !handoff.is_empty())
+    matches!(
+        tail.as_slice(),
+        ["handoffs", handoff, "decision" | "complete" | "review" | "escalate"] if !handoff.is_empty()
+    )
+}
+
+fn is_team_owner_action(method: &Method, path: &str) -> bool {
+    if *method != Method::POST {
+        return false;
+    }
+    let Some(rest) = path.strip_prefix("/api/companies/") else {
+        return false;
+    };
+    let mut segments = rest.split('/');
+    if !segments.next().is_some_and(|company| !company.is_empty()) {
+        return false;
+    }
+    let tail: Vec<&str> = segments.collect();
+    matches!(
+        tail.as_slice(),
+        ["work", work, "resume" | "abandon"] if !work.is_empty()
+    ) || matches!(tail.as_slice(), ["goals", goal, "team"] if !goal.is_empty())
 }
 
 fn is_company_library_read(method: &Method, path: &str) -> bool {
@@ -6656,6 +6705,7 @@ async fn cockpit_view(
                 standard_source_message_id: team.standard_source_message_id,
                 frontier_phase: frontier_phase.into(),
                 lead_actor_id: team.lead_actor_id.clone(),
+                responsible_actor_id: team.responsible_actor_id.clone(),
                 created_by: team.created_by.clone(),
                 created_at: team.created_at,
                 member_count,
@@ -6829,6 +6879,7 @@ async fn cockpit_view(
                 outcome_standard: goal.outcome_standard,
                 done_when: goal.done_when,
                 due_on: goal.due_on,
+                team_id: goal.team_id,
             })
             .collect(),
         spend: CockpitSpend {
@@ -8353,7 +8404,7 @@ async fn resolve_handoff_decision(
     }
 }
 
-fn handoff_resolver(principal: &RequestPrincipal) -> &str {
+pub(super) fn handoff_resolver(principal: &RequestPrincipal) -> &str {
     if principal.membership_role() == "owner" {
         "owner"
     } else {

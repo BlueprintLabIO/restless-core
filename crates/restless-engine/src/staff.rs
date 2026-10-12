@@ -950,6 +950,7 @@ mod tests {
             outcome_standard_source: restless_orgintel::OutcomeStandardSource::CompanyDefault,
             standard_source_message_id: None,
             lead_actor_id: "onboarding-curator".into(),
+            responsible_actor_id: None,
             created_by: "exec".into(),
             created_at: now,
             disbanded_at: None,

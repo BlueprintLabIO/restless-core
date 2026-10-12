@@ -2759,10 +2759,23 @@ model = \"anthropic/claude-sonnet-5-5\"
         ] {
             assert!(membership_boundary_violation(&Method::GET, path, &principal).is_none(), "{path}");
         }
-        // They answer what is assigned to them, and never review an outcome for the owner.
-        assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/handoffs/h-1/decision", &principal).is_none());
-        assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/handoffs/h-1/complete", &principal).is_none());
-        assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/handoffs/h-1/review", &principal).is_some());
+        // They answer and review what is assigned to them, and pass it to the owner; OrgIntel
+        // checks the assignment and the team.
+        for path in [
+            "/api/companies/aris/handoffs/h-1/decision",
+            "/api/companies/aris/handoffs/h-1/complete",
+            "/api/companies/aris/handoffs/h-1/review",
+            "/api/companies/aris/handoffs/h-1/escalate",
+            // The person who owns a team runs its Work and goals.
+            "/api/companies/aris/work/w-1/resume",
+            "/api/companies/aris/work/w-1/abandon",
+            "/api/companies/aris/goals/g-1/team",
+        ] {
+            assert!(membership_boundary_violation(&Method::POST, path, &principal).is_none(), "{path}");
+        }
+        // Only the owner says who owns a team.
+        assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/teams/t-1/owner", &principal).is_some());
+        assert!(membership_boundary_violation(&Method::GET, "/api/companies/aris/work/w-1/resume", &principal).is_some());
         // They open the Work files they can see; the handlers check which.
         assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/library/open", &principal).is_none());
         assert!(membership_boundary_violation(&Method::GET, "/api/companies/aris/library/content", &principal).is_none());
@@ -3413,6 +3426,7 @@ model = \"anthropic/claude-sonnet-5-5\"
                 standard_source_message_id: None,
                 frontier_phase: "building".into(),
                 lead_actor_id: "exec".into(),
+                responsible_actor_id: None,
                 created_by: "owner".into(),
                 created_at: at(),
                 member_count: 1,
@@ -3429,6 +3443,7 @@ model = \"anthropic/claude-sonnet-5-5\"
                 outcome_standard: restless_orgintel::OutcomeStandard::Thorough,
                 done_when: "The contract is observable".into(),
                 due_on: None,
+                team_id: None,
             }],
             spend: CockpitSpend {
                 accounted_usd: 1.25,

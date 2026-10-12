@@ -93,7 +93,8 @@ impl OrgIntel {
 
     pub async fn list_goals(&self) -> Result<Vec<GoalRow>> {
         Ok(sqlx::query_as(
-            "SELECT id, title, body, created_by, created_at, closed_at, outcome_standard, done_when, due_on \
+            "SELECT id, title, body, created_by, created_at, closed_at, outcome_standard, done_when, due_on, \
+                    team_id \
              FROM goals ORDER BY created_at",
         )
         .fetch_all(&self.pool)
@@ -1249,10 +1250,26 @@ impl OrgIntel {
         }
         let override_assignment = matches!(changed_by, "owner" | "exec");
         if !override_assignment {
-            let led_team = locked_teams
+            let mut led_team = locked_teams
                 .iter()
                 .find(|(_, lead)| lead == changed_by)
                 .map(|(team_id, _)| *team_id);
+            // The person who owns the team may move its Work between its members too.
+            if led_team.is_none() {
+                if let Some(team) = previous_owner_team {
+                    let owns: bool = sqlx::query_scalar(
+                        "SELECT EXISTS(SELECT 1 FROM teams WHERE id=$1 \
+                         AND responsible_actor_id=$2 AND disbanded_at IS NULL)",
+                    )
+                    .bind(team)
+                    .bind(changed_by)
+                    .fetch_one(&mut *tx)
+                    .await?;
+                    if owns {
+                        led_team = Some(team);
+                    }
+                }
+            }
             if led_team.is_none() || previous_owner_team != led_team || new_owner_team != led_team {
                 return Err(OrgIntelError::InvalidWork(
                     "a lead may only reassign Work between active members of its own team".into(),
@@ -1404,33 +1421,37 @@ impl OrgIntel {
         let mut tx = self.pool.begin().await?;
         let may_override = matches!(changed_by, "owner" | "exec");
         if !may_override {
-            let led_team: Option<Uuid> = sqlx::query_scalar(
-                "SELECT id FROM teams WHERE lead_actor_id=$1 AND disbanded_at IS NULL",
+            let leads_or_owns_a_team: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM teams WHERE disbanded_at IS NULL \
+                 AND (lead_actor_id=$1 OR responsible_actor_id=$1))",
             )
             .bind(changed_by)
-            .fetch_optional(&mut *tx)
+            .fetch_one(&mut *tx)
             .await?;
-            let Some(led_team) = led_team else {
+            if !leads_or_owns_a_team {
                 return Err(OrgIntelError::InvalidWork(
-                    "only the owner, Exec, or the accountable team lead may repair graph edges"
+                    "only the owner, Exec, the team's lead or the person who owns the team may repair graph edges"
                         .into(),
                 ));
-            };
+            }
             let within_team: bool = sqlx::query_scalar(
                 "SELECT EXISTS(\
                    SELECT 1 FROM work wf JOIN actors af ON af.id=wf.owner_id, \
                                       work wt JOIN actors at ON at.id=wt.owner_id \
-                   WHERE wf.id=$1 AND wt.id=$2 AND af.team_id=$3 AND at.team_id=$3\
+                                      JOIN teams t ON t.id=at.team_id \
+                   WHERE wf.id=$1 AND wt.id=$2 AND af.team_id=at.team_id \
+                     AND t.disbanded_at IS NULL \
+                     AND (t.lead_actor_id=$3 OR t.responsible_actor_id=$3)\
                  )",
             )
             .bind(from)
             .bind(to)
-            .bind(led_team)
+            .bind(changed_by)
             .fetch_one(&mut *tx)
             .await?;
             if !within_team {
                 return Err(OrgIntelError::InvalidWork(
-                    "a lead may only repair dependencies between Work owned by its own team".into(),
+                    "a lead or team owner may only repair dependencies between Work owned by its own team".into(),
                 ));
             }
         }

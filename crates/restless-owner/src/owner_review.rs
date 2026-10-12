@@ -131,6 +131,7 @@ pub(crate) struct ReviewTicketResponse {
 
 pub(crate) async fn review_outcome(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath((company, handoff)): AxumPath<(String, Uuid)>,
     Json(input): Json<OwnerReviewInput>,
 ) -> impl IntoResponse {
@@ -156,7 +157,9 @@ pub(crate) async fn review_outcome(
         }
     };
     match org
-        .decide_owner_review(handoff, decision, &input.feedback)
+        // The owner reviews what is theirs; the person who owns the Work's team reviews what
+        // Exec prepared for them. OrgIntel checks whose review it is.
+        .decide_review_as(handoff, handoff_resolver(&principal), decision, &input.feedback)
         .await
     {
         Ok(()) => Json(serde_json::json!({

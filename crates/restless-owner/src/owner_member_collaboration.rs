@@ -223,6 +223,8 @@ struct MemberTeamView {
     name: String,
     brief: String,
     lead_actor_id: String,
+    /// The person who owns the team; null means the owner.
+    owner_person: Option<String>,
     member_count: usize,
     in_motion_count: usize,
     blocked_count: usize,
@@ -234,6 +236,8 @@ struct MemberGoalView {
     title: String,
     body: String,
     closed_at: Option<DateTime<Utc>>,
+    /// The team that delivers it; null means the owner.
+    team_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -319,6 +323,10 @@ struct MemberHandoffView {
     prepared_state: String,
     resume_condition: String,
     created_at: DateTime<Utc>,
+    /// Who passed it here: the team's lead or Exec.
+    escalated_from: Option<String>,
+    /// Exec's prepared brief when this is an outcome to review.
+    owner_brief: Option<restless_orgintel::OwnerBrief>,
 }
 
 #[derive(Debug, Serialize)]
@@ -431,6 +439,7 @@ async fn collaboration_bootstrap(
             name: team.name,
             brief: team.brief,
             lead_actor_id: team.lead_actor_id,
+            owner_person: team.responsible_actor_id,
             member_count: actor_teams
                 .values()
                 .filter(|team_id| **team_id == team.id)
@@ -545,6 +554,8 @@ async fn collaboration_bootstrap(
             prepared_state: handoff.prepared_state,
             resume_condition: handoff.resume_condition,
             created_at: handoff.created_at,
+            escalated_from: handoff.escalated_from,
+            owner_brief: handoff.owner_brief,
         })
         .collect();
     let mentions = mentions.into_iter().map(member_mention).collect();
@@ -573,6 +584,7 @@ async fn collaboration_bootstrap(
                     title: goal.title,
                     body: goal.body,
                     closed_at: goal.closed_at,
+                    team_id: goal.team_id,
                 })
                 .collect(),
             work_graph,

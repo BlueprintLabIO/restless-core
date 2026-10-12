@@ -1,5 +1,6 @@
 import type {
 	ArtifactRefState,
+	OwnerBrief,
 	OwnerHandoffCategory,
 	WorkAttemptState,
 	WorkEdgeKind,
@@ -38,6 +39,8 @@ export interface CollaborationTeam {
 	name: string;
 	brief: string;
 	lead_actor_id: string;
+	/** The person who owns the team; null means the owner. */
+	owner_person: string | null;
 	member_count: number;
 	in_motion_count: number;
 	blocked_count: number;
@@ -48,6 +51,8 @@ export interface CollaborationGoal {
 	title: string;
 	body: string;
 	closed_at: string | null;
+	/** The team that delivers it; null means the owner holds it. */
+	team_id: string | null;
 }
 
 export interface CollaborationWork {
@@ -110,6 +115,10 @@ export interface CollaborationHandoff {
 	prepared_state: string;
 	resume_condition: string;
 	created_at: string;
+	/** Who passed it here: the team's lead or Exec. */
+	escalated_from: string | null;
+	/** Exec's prepared brief when this is an outcome to review. */
+	owner_brief: OwnerBrief | null;
 }
 
 export interface CollaborationMention {
@@ -258,6 +267,7 @@ function parseTeam(value: unknown): CollaborationTeam {
 		name: text(row.name),
 		brief: text(row.brief),
 		lead_actor_id: text(row.lead_actor_id),
+		owner_person: nullableText(row.owner_person ?? null),
 		member_count: integer(row.member_count),
 		in_motion_count: integer(row.in_motion_count),
 		blocked_count: integer(row.blocked_count)
@@ -270,7 +280,8 @@ function parseGoal(value: unknown): CollaborationGoal {
 		id: text(row.id),
 		title: text(row.title),
 		body: text(row.body),
-		closed_at: nullableText(row.closed_at)
+		closed_at: nullableText(row.closed_at),
+		team_id: nullableText(row.team_id ?? null)
 	};
 }
 
@@ -346,7 +357,33 @@ function parseHandoff(value: unknown): CollaborationHandoff {
 		requested_action: text(row.requested_action),
 		prepared_state: text(row.prepared_state),
 		resume_condition: text(row.resume_condition),
-		created_at: text(row.created_at)
+		created_at: text(row.created_at),
+		escalated_from: nullableText(row.escalated_from ?? null),
+		owner_brief: parseBrief(row.owner_brief)
+	};
+}
+
+const BRIEF_KINDS = [
+	'outcome_review',
+	'decision',
+	'blocker',
+	'opportunity',
+	'contradiction',
+	'human_step'
+] as const;
+
+function parseBrief(value: unknown): OwnerBrief | null {
+	if (value === null || value === undefined) return null;
+	const row = object(value);
+	return {
+		kind: oneOf(row.kind, BRIEF_KINDS),
+		headline: text(row.headline),
+		situation: text(row.situation),
+		impact: text(row.impact),
+		recommendation: text(row.recommendation),
+		no_action: text(row.no_action),
+		uncertainty: nullableText(row.uncertainty ?? null),
+		deadline: nullableText(row.deadline ?? null)
 	};
 }
 

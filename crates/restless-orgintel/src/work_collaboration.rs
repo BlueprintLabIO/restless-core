@@ -278,6 +278,8 @@ impl OrgIntel {
         let visible: Vec<Uuid> = sqlx::query_scalar(
             "SELECT item.id FROM work item \
              WHERE item.collaboration_visibility='company' \
+                OR EXISTS(SELECT 1 FROM actors person \
+                          WHERE person.id=$1 AND person.actor_class='human') \
                 OR EXISTS(\
                   SELECT 1 FROM rooms room \
                   JOIN room_participants participant ON participant.room_id=room.id \
