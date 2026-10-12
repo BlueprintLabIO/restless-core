@@ -94,6 +94,7 @@ pub struct SheetParticipant {
     pub access: String,
     /// Who added them; unknown for people added before it was kept. A level change keeps it.
     pub added_by_actor_id: Option<String>,
+    pub added_at: Option<DateTime<Utc>>,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct SheetClient {
@@ -714,7 +715,7 @@ impl OrgIntel {
             if !active {
                 return Err(SheetError::Unavailable);
             }
-            sqlx::query("INSERT INTO native_sheet_participants(sheet_id,actor_id,access,added_by_actor_id) VALUES($1,$2,$3,$4) ON CONFLICT(sheet_id,actor_id) DO UPDATE SET access=EXCLUDED.access")
+            sqlx::query("INSERT INTO native_sheet_participants(sheet_id,actor_id,access,added_by_actor_id,added_at) VALUES($1,$2,$3,$4,now()) ON CONFLICT(sheet_id,actor_id) DO UPDATE SET access=EXCLUDED.access")
                 .bind(id).bind(participant).bind(grant).bind(actor).execute(&mut *tx).await?;
         } else {
             sqlx::query("DELETE FROM native_sheet_participants WHERE sheet_id=$1 AND actor_id=$2")
@@ -783,7 +784,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         let people = sqlx::query_as(
-            "SELECT p.actor_id,p.access,p.added_by_actor_id FROM native_sheet_participants p \
+            "SELECT p.actor_id,p.access,p.added_by_actor_id,p.added_at FROM native_sheet_participants p \
              JOIN actors a ON a.id=p.actor_id \
              WHERE p.sheet_id=$1 AND a.retired_at IS NULL ORDER BY p.actor_id",
         )

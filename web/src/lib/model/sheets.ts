@@ -31,7 +31,12 @@ export interface SheetSharing {
 	general_access: GeneralAccess;
 	owner_actor_id: string;
 	/** Who added each person; null when that was before it was kept. */
-	people: { actor_id: string; access: 'read' | 'edit'; added_by_actor_id: string | null }[];
+	people: {
+		actor_id: string;
+		access: 'read' | 'edit';
+		added_by_actor_id: string | null;
+		added_at: string | null;
+	}[];
 	/** Whether the reader may change any of it: its owner, the company's owner, or the Exec. */
 	may_manage: boolean;
 }

@@ -291,9 +291,15 @@ async fn sheets_mirror_general_access() {
     };
     assert_eq!(granted_by(&sharing, "alex").as_deref(), Some("blair"));
     assert_eq!(granted_by(&sharing, "research-analyst").as_deref(), Some("owner"));
+    let added_at = |sharing: &restless_orgintel::SheetSharing, actor: &str| {
+        sharing.people.iter().find(|row| row.actor_id == actor).and_then(|row| row.added_at)
+    };
+    let first_added = added_at(&sharing, "research-analyst");
+    assert!(first_added.is_some());
     org.share_sheet(sheet, "exec", "research-analyst", Some("read")).await.unwrap();
     let sharing = org.sheet_sharing(sheet, "blair").await.unwrap();
     assert_eq!(granted_by(&sharing, "research-analyst").as_deref(), Some("owner"));
+    assert_eq!(added_at(&sharing, "research-analyst"), first_added);
     org.share_sheet(sheet, "blair", "alex", None).await.unwrap();
     let seen = org.sheet_sharing(sheet, "alex").await.unwrap();
     assert!(!seen.may_manage);
