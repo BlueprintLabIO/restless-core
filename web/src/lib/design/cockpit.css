@@ -2464,4 +2464,19 @@ html[data-pane-resizing] .bridge-exrail {
 	border-radius: var(--radius-control);
 	background: color-mix(in srgb, var(--surface) 86%, transparent);
 	backdrop-filter: blur(7px);
+	display: flex;
+	align-items: flex-end;
+	gap: 2px;
+}
+.bridge-root .attention-archived {
+	padding: 6px 8px;
+	border: 0;
+	border-radius: var(--radius-control);
+	background: none;
+	color: var(--text-tertiary);
+	font-size: var(--t-label);
+	cursor: pointer;
+}
+.bridge-root .attention-archived:hover {
+	background: var(--wash-hover);
 }

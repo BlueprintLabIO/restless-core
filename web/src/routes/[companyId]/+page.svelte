@@ -18,14 +18,23 @@
 	import { useForYou } from '$lib/model/for-you.svelte';
 	import InboxDetail from '$lib/components/InboxDetail.svelte';
 	import SetAsideList from '$lib/components/SetAside.svelte';
-	import { attentionTitle, coordinationFailure, isOutcomeReview } from '$lib/model/attention-presentation';
+	import {
+		attentionTitle,
+		coordinationFailure,
+		isOutcomeReview
+	} from '$lib/model/attention-presentation';
 	import { formatRelative, formatMoment } from '$lib/ui/time';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
 	import CompanyOffice, { preloadOffice } from '$lib/office/LazyCompanyOffice.svelte';
 	import type { AttentionItem } from '$lib/model/view';
-	import { attentionQuery, companiesQuery, conversationQuery, turnWorking } from '$lib/model/queries.svelte';
+	import {
+		attentionQuery,
+		companiesQuery,
+		conversationQuery,
+		turnWorking
+	} from '$lib/model/queries.svelte';
 	import { startFixHref, startLinkLabel } from '$lib/model/company-start';
 	import { browserTabClientId } from '$lib/model/browserTab';
 	import { getBrowserStatus } from '$lib/model/company';
@@ -95,9 +104,7 @@
 	const coordination = $derived(coordinationFailure(view));
 	const forYou = useForYou();
 	const attentionClear = $derived(loaded && items.length === 0 && !coordination);
-	const queueClear = $derived(
-		attentionClear && !forYou?.items.length && forYou?.filter !== 'unread'
-	);
+	const queueClear = $derived(attentionClear && !forYou?.items.length && forYou?.filter === 'all');
 	/* Phones never mount the office canvas (see the clear state below). */
 	let compactScreen = $state(false);
 	$effect(() => {
@@ -349,7 +356,9 @@
 	const reviewOffice = $derived(reviewIsFile ? officeFormat(reviewPath) : null);
 	const reviewIsPowerPoint = $derived(/\.pptx?$/i.test(reviewPath));
 	/* A file the browser cannot show (another Office format, an archive) is offered to download. */
-	const reviewDownloadOnly = $derived(reviewIsFile && !reviewOffice && downloads({ uri: reviewPath }));
+	const reviewDownloadOnly = $derived(
+		reviewIsFile && !reviewOffice && downloads({ uri: reviewPath })
+	);
 	const reviewSaveHref = $derived(reviewUrl && reviewIsFile ? downloadHref(reviewUrl) : '');
 
 	onMount(() => {
@@ -770,8 +779,7 @@
 					class="btn small"
 					type="button"
 					title="Leaves this work-through view without resolving the handoff."
-					onclick={() => closePreparedComputer()}
-					>Leave computer</button
+					onclick={() => closePreparedComputer()}>Leave computer</button
 				>
 			</div>
 		</header>
@@ -972,7 +980,15 @@
 				</span>
 				<span>All clear</span>
 			</button>
-			{#if queueClear}<div class="attention-set-aside"><SetAsideList {companyId} /></div>{/if}
+			{#if queueClear}<div class="attention-set-aside">
+					<SetAsideList {companyId} />
+					{#if forYou}<button
+							type="button"
+							class="attention-archived"
+							title="For you items you archived"
+							onclick={() => forYou.setFilter('archived')}>Archived</button
+						>{/if}
+				</div>{/if}
 			{#if compactScreen && selectedItemId}<a class="attention-mobile-back" href={baseHref}
 					>← Inbox</a
 				>{/if}

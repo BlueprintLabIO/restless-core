@@ -63,5 +63,5 @@ then the sidecar's notes are refused quietly, and attribution falls back to writ
 
 Landed on `main`; schema version 94.
 
-**Still open:** For you's header is hidden when nothing is current, so reaching Archived then
-needs one current item.
+A clear Inbox keeps "Archived" beside "Set aside" in its corner, so archived items stay
+reachable when nothing is current.
