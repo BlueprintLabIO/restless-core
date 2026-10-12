@@ -39,8 +39,8 @@ async fn org_for(
     })
 }
 
-fn refused(code: &'static str, error: impl std::fmt::Display) -> Response<Body> {
-    api_error(StatusCode::FORBIDDEN, code, format!("{error:#}"))
+fn refused(code: &'static str, error: restless_orgintel::OrgIntelError) -> Response<Body> {
+    api_error(StatusCode::FORBIDDEN, code, error.plain_message())
 }
 
 /// The owner says which person owns a team, or hands it back. Owner only: the boundary
@@ -79,7 +79,7 @@ pub(super) async fn set_team_owner(
             "owner_person": input.person,
         }))
         .into_response(),
-        Err(error) => api_error(StatusCode::BAD_REQUEST, "team_owner", format!("{error:#}")),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, "team_owner", error.plain_message()),
     }
 }
 
@@ -94,7 +94,7 @@ pub(super) async fn team_owner_history(
     };
     match org.team_responsibility_history(team).await {
         Ok(events) => Json(events).into_response(),
-        Err(error) => api_error(StatusCode::BAD_REQUEST, "team_owner", format!("{error:#}")),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, "team_owner", error.plain_message()),
     }
 }
 

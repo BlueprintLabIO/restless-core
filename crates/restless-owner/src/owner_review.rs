@@ -168,7 +168,7 @@ pub(crate) async fn review_outcome(
             "recorded": true,
         }))
         .into_response(),
-        Err(error) => api_error(StatusCode::BAD_REQUEST, "review", format!("{error:#}")),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, "review", error.plain_message()),
     }
 }
 

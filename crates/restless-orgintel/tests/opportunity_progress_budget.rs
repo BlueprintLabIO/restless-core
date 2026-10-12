@@ -1,4 +1,4 @@
-use chrono::{Duration, Utc};
+use chrono::{Duration, Timelike, Utc};
 use restless_orgintel::{NewWork, OrgIntel, WorkspaceSpec};
 use serde_json::json;
 use sqlx::PgPool;
@@ -16,7 +16,9 @@ async fn settled_linked_work_gets_one_bounded_adjudication_wake() {
     org.ensure_actor("exec", "exec", "exec", "The Exec")
         .await
         .unwrap();
-    let start = Utc::now();
+    // Sub-microsecond time on purpose: Postgres rounds text timestamps to the microsecond and
+    // bound ones truncate, so a retry stored from text once landed after the moment it was due.
+    let start = (Utc::now() - Duration::seconds(1)).with_nanosecond(999_999_999).unwrap();
     let responsibility = Uuid::new_v4();
     org.create_exact_schedule_with_responsibility(
         "exec",

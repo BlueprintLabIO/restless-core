@@ -337,6 +337,32 @@ pub enum OrgIntelError {
     InvalidSkill(String),
 }
 
+impl OrgIntelError {
+    /// The refusal as a person reads it: the reason itself, without the category
+    /// ("invalid Work graph: ...") that agents and logs use to tell refusals apart. A storage
+    /// fault is not the person's doing, so it says so instead of quoting the database.
+    pub fn plain_message(&self) -> String {
+        let reason = match self {
+            Self::InvalidWork(reason)
+            | Self::InvalidRoom(reason)
+            | Self::RoomAccessDenied(reason)
+            | Self::RoomCommandConflict(reason)
+            | Self::InvalidContext(reason)
+            | Self::ContextConflict(reason)
+            | Self::InvalidSkill(reason) => reason.trim().to_string(),
+            Self::Db(_) | Self::Migrate(_) => {
+                return "Something went wrong on our side. Try again in a moment.".into()
+            }
+            other => other.to_string(),
+        };
+        let mut chars = reason.chars();
+        match chars.next() {
+            Some(first) => first.to_uppercase().chain(chars).collect(),
+            None => reason,
+        }
+    }
+}
+
 pub type Result<T> = std::result::Result<T, OrgIntelError>;
 
 #[derive(Debug, Serialize, sqlx::FromRow, ts_rs::TS)]
@@ -2731,4 +2757,25 @@ pub struct IdentityMigrationDecisionRow {
     pub rationale: String,
     pub authority_record_id: String,
     pub decided_at: DateTime<Utc>,
+}
+
+#[cfg(test)]
+mod plain_message_tests {
+    use super::OrgIntelError;
+
+    #[test]
+    fn people_read_the_reason_not_the_category() {
+        let refusal = OrgIntelError::InvalidWork(
+            "a person moves goals only between teams they own".into(),
+        );
+        assert_eq!(
+            refusal.plain_message(),
+            "A person moves goals only between teams they own"
+        );
+        assert!(refusal.to_string().starts_with("invalid Work graph: "));
+        assert_eq!(
+            OrgIntelError::Db(sqlx::Error::PoolTimedOut).plain_message(),
+            "Something went wrong on our side. Try again in a moment."
+        );
+    }
 }

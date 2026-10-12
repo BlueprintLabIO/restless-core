@@ -8406,7 +8406,7 @@ async fn resolve_handoff_decision(
             "declined": input.declined,
         }))
         .into_response(),
-        Err(error) => api_error(StatusCode::BAD_REQUEST, "decision", format!("{error:#}")),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, "decision", error.plain_message()),
     }
 }
 
@@ -8454,7 +8454,7 @@ async fn complete_human_step(
             "recorded": true,
         }))
         .into_response(),
-        Err(error) => api_error(StatusCode::BAD_REQUEST, "human_step", format!("{error:#}")),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, "human_step", error.plain_message()),
     }
 }
 

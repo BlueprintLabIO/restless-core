@@ -786,13 +786,16 @@ impl OrgIntel {
                 "opportunity state or evidence-bearing outcome is invalid".into(),
             ));
         }
-        if state == "waiting_retry"
-            && outcome
-                .get("next_wake_at")
-                .and_then(serde_json::Value::as_str)
-                .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
-                .is_none_or(|value| value.with_timezone(&Utc) <= now)
-        {
+        // Parsed here and bound, never cast from the JSON text in SQL: Postgres rounds a
+        // nanosecond RFC3339 string to the nearest microsecond while every bound time is
+        // truncated, so a retry stored from text could land a microsecond after the moment it
+        // was due and miss that wake.
+        let next_wake_at = outcome
+            .get("next_wake_at")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+            .map(|value| value.with_timezone(&Utc));
+        if state == "waiting_retry" && next_wake_at.is_none_or(|value| value <= now) {
             return Err(OrgIntelError::InvalidWork(
                 "waiting_retry requires a future RFC3339 next_wake_at".into(),
             ));
@@ -986,7 +989,7 @@ impl OrgIntel {
         let row = sqlx::query_as::<_, OpportunityRow>(
             "UPDATE opportunities SET state=$3, outcome=$4, outcome_reason=$7, evidence_refs=COALESCE($8,'[]'::jsonb), revision=revision+1, \
                last_progress_at=$5, settled_at=CASE WHEN $6 THEN $5 ELSE NULL END, \
-               next_wake_at=CASE WHEN $3='waiting_retry' THEN ($4->>'next_wake_at')::timestamptz ELSE next_wake_at END, \
+               next_wake_at=CASE WHEN $3='waiting_retry' THEN $9 ELSE next_wake_at END, \
                lease_owner=CASE WHEN $6 OR $3 IN ('queued','waiting_retry') THEN NULL ELSE lease_owner END, \
                lease_expires_at=CASE WHEN $6 OR $3 IN ('queued','waiting_retry') THEN NULL ELSE lease_expires_at END \
              WHERE id=$1 AND owner_epoch=$2 AND lease_expires_at > $5 \
@@ -1003,6 +1006,7 @@ impl OrgIntel {
         .bind(terminal)
         .bind(outcome_reason)
         .bind(evidence_refs)
+        .bind(next_wake_at)
         .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(|| OrgIntelError::InvalidWork(
