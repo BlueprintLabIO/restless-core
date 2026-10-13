@@ -474,7 +474,7 @@
 >
 
 <div class="sheet-screen" class:side-open={panel !== ''}>
-	<main class="sheet-stage cockpit-pane">
+	<section class="sheet-stage cockpit-pane">
 		<header class="head">
 			<LibraryCrumb companyId={company} show="sheets" />
 			{#if importing}
@@ -505,6 +505,8 @@
 						}
 					}}
 				/>
+				<!-- The title field is the page's heading to the eye; this names it for screen readers. -->
+				<h1 class="sr-title">{row?.title ?? 'Sheet'}</h1>
 			{:else}
 				<h1 title={row?.title}>{row?.title ?? (missing ? 'Sheet unavailable' : '')}</h1>
 			{/if}
@@ -709,7 +711,7 @@
 					onfaces={(value) => (faces = value)}
 				/>{/key}
 		{/if}
-	</main>
+	</section>
 
 	{#if panel}
 		<aside class="side cockpit-pane" aria-label={panel === 'history' ? 'History' : 'Sharing'}>
@@ -928,6 +930,15 @@
 	}
 	.narrow-only {
 		display: none;
+	}
+	.sr-title {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		margin: 0;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
 	}
 	@media (max-width: 560px) {
 		.follow {

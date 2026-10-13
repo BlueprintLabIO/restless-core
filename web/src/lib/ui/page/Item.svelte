@@ -17,7 +17,8 @@
 		leading,
 		trailing,
 		actions,
-		children
+		children,
+		role
 	}: {
 		title: string;
 		meta?: string | null;
@@ -32,10 +33,19 @@
 		actions?: Snippet;
 		/** Optional detail under the row, such as an expanded editor. */
 		children?: Snippet;
+		/** `listitem` when the row sits in a `role="list"`. */
+		role?: 'listitem';
 	} = $props();
 </script>
 
-<div class="item" class:selected class:unread class:dim class:interactive={!!href || !!onclick}>
+<div
+	class="item"
+	{role}
+	class:selected
+	class:unread
+	class:dim
+	class:interactive={!!href || !!onclick}
+>
 	<div class="item-row">
 		{#if href}<a class="item-hit" {href} aria-current={selected ? 'true' : undefined} {onclick}
 				><span class="sr-only">{title}</span></a

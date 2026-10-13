@@ -482,7 +482,7 @@
 					defaultSize: 300
 				}}
 			>
-				<main class="work-detail-main">
+				<section class="work-detail-main">
 					<section class="work-description" aria-label={readerSummaryLabel}>
 						<div
 							class="outcome-body"
@@ -652,7 +652,7 @@
 							</section>
 						</div>
 					</details>
-				</main>
+				</section>
 
 				<div class="work-detail-rail">
 					<dl class="work-properties" aria-label="Work properties">

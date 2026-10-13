@@ -417,7 +417,7 @@
 >
 
 <div class="documents-screen" class:inspector-open={inspectorOpen}>
-	<main class="document-stage cockpit-pane" tabindex="-1">
+	<section class="document-stage cockpit-pane" tabindex="-1">
 		{#if unreadable}
 			<!-- Private to others, moved or gone: the answer is the same, so asking reveals nothing. -->
 			<div class="stage-message">
@@ -641,7 +641,7 @@
 				</div>
 			</div>
 		{/if}
-	</main>
+	</section>
 
 	{#if documentView && inspectorOpen}
 		<section class="inspector-pane cockpit-pane">

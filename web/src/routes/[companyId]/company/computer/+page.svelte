@@ -470,7 +470,7 @@
 	<div class="company-computer-portal">
 		{#if error}<div class="computer-error portal-error" role="alert">{error}</div>{/if}
 
-		<main class="computer-portal-stage">
+		<section class="computer-portal-stage">
 			<section class:unavailable={!canAttach} class="computer-portal-machine">
 				<div class="computer-portal-bezel">
 					<div class="computer-portal-glyph" aria-hidden="true">
@@ -511,7 +511,7 @@
 					{/if}
 				</div>
 			</section>
-		</main>
+		</section>
 
 		<footer class="computer-portal-footer">
 			<div>

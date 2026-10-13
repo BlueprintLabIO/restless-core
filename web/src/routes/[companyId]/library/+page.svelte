@@ -1177,42 +1177,43 @@
 				{#if loading && !entries.length}
 					<Skeleton label="Loading the Library" variant="list" count={5} />
 				{:else if shown.length}
-					<div class="table" role="list">
-						<div class="table-head">
-							<button
-								type="button"
-								class="sort"
-								class:sorted={sort === 'name' || sort === 'name-desc'}
-								title={sortTitle('name')}
-								onclick={() => sortBy('name')}
-								>Name{#if sort === 'name'}<ArrowUp
+					<div class="table-head">
+						<button
+							type="button"
+							class="sort"
+							class:sorted={sort === 'name' || sort === 'name-desc'}
+							title={sortTitle('name')}
+							onclick={() => sortBy('name')}
+							>Name{#if sort === 'name'}<ArrowUp
+									size={12}
+									strokeWidth={2}
+									aria-hidden="true"
+								/>{:else if sort === 'name-desc'}<ArrowDown
+									size={12}
+									strokeWidth={2}
+									aria-hidden="true"
+								/>{/if}</button
+						><span aria-hidden="true">Owner</span><button
+							type="button"
+							class="sort"
+							class:sorted={!!sortParam && (sort === 'updated' || sort === 'oldest')}
+							title={sortTitle('updated')}
+							onclick={() => sortBy('updated')}
+							>Updated{#if sortParam === 'updated' || sort === 'oldest'}{#if sort === 'oldest'}<ArrowUp
 										size={12}
 										strokeWidth={2}
 										aria-hidden="true"
-									/>{:else if sort === 'name-desc'}<ArrowDown
+									/>{:else}<ArrowDown
 										size={12}
 										strokeWidth={2}
 										aria-hidden="true"
-									/>{/if}</button
-							><span aria-hidden="true">Owner</span><button
-								type="button"
-								class="sort"
-								class:sorted={!!sortParam && (sort === 'updated' || sort === 'oldest')}
-								title={sortTitle('updated')}
-								onclick={() => sortBy('updated')}
-								>Updated{#if sortParam === 'updated' || sort === 'oldest'}{#if sort === 'oldest'}<ArrowUp
-											size={12}
-											strokeWidth={2}
-											aria-hidden="true"
-										/>{:else}<ArrowDown
-											size={12}
-											strokeWidth={2}
-											aria-hidden="true"
-										/>{/if}{/if}</button
-							>
-						</div>
+									/>{/if}{/if}</button
+						>
+					</div>
+					<div class="table" role="list" aria-label="Files">
 						{#each shown as entry (entry.kind + entry.id)}
 							<Item
+								role="listitem"
 								title={entry.title}
 								meta={entry.meta ??
 									(entry.editor ? `${entry.owner} · edited by ${entry.editor}` : entry.owner)}
@@ -1287,23 +1288,23 @@
 								{/snippet}
 							</Item>
 						{/each}
-						{#if searchesDocuments && docSearch.hasMore}<button
-								class="more"
-								disabled={docSearch.loadingMore}
-								onclick={() => docSearch.loadMore()}
-								>{docSearch.loadingMore ? 'Loading…' : 'More matching documents'}</button
-							>{:else if !query && filter === 'archived' && archivedCursor}<button
-								class="more"
-								disabled={archivedLoadingMore}
-								onclick={() => void loadMoreArchived()}
-								>{archivedLoadingMore ? 'Loading…' : 'Load more archived documents'}</button
-							>{:else if !searchesDocuments && documents.hasMore && (filter === 'all' || filter === 'docs' || filter === 'review')}<button
-								class="more"
-								disabled={documents.loadingMore}
-								onclick={() => documents.loadMore()}
-								>{documents.loadingMore ? 'Loading…' : 'Load more documents'}</button
-							>{/if}
 					</div>
+					{#if searchesDocuments && docSearch.hasMore}<button
+							class="more"
+							disabled={docSearch.loadingMore}
+							onclick={() => docSearch.loadMore()}
+							>{docSearch.loadingMore ? 'Loading…' : 'More matching documents'}</button
+						>{:else if !query && filter === 'archived' && archivedCursor}<button
+							class="more"
+							disabled={archivedLoadingMore}
+							onclick={() => void loadMoreArchived()}
+							>{archivedLoadingMore ? 'Loading…' : 'Load more archived documents'}</button
+						>{:else if !searchesDocuments && documents.hasMore && (filter === 'all' || filter === 'docs' || filter === 'review')}<button
+							class="more"
+							disabled={documents.loadingMore}
+							onclick={() => documents.loadMore()}
+							>{documents.loadingMore ? 'Loading…' : 'Load more documents'}</button
+						>{/if}
 				{:else if searchesDocuments && docSearch.loading}
 					<div class="searching"><Pending label="Searching inside documents" /></div>
 				{:else}

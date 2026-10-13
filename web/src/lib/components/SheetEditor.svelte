@@ -13,7 +13,7 @@
 		onstatus?: (value: EditorStatus) => void;
 		onfaces?: (value: PageFace[]) => void;
 	} = $props();
-	let host: HTMLDivElement;
+	let host: HTMLDivElement | undefined = $state();
 	let editorState = $state<EditorStatus>({ state: 'connecting', access: 'read' });
 	let notice = $state<EditorStatus['notice']>();
 	let retry = $state(0);
@@ -28,12 +28,13 @@
 		retry;
 		let disposed = false;
 		notice = undefined;
-		if (!host) return;
+		const surface = host;
+		if (!surface) return;
 		void import('$lib/model/sheet-editor')
 			.then((module) => {
 				if (disposed) return;
 				editor = module.mountSheet(
-					host,
+					surface,
 					targetCompany,
 					targetSheet,
 					(value: EditorStatus) => {
@@ -56,6 +57,39 @@
 			onfaces?.([]);
 			editor?.destroy();
 			editor = undefined;
+		};
+	});
+	/* The spreadsheet engine draws a few controls without names and with a tab order of its own.
+	 * Name them, and keep the page's tab order, however often it draws them again. */
+	const UNNAMED: [string, string][] = [
+		['.o-font-size', 'Font size'],
+		['.o-grid-add-rows-input', 'Rows to add']
+	];
+	$effect(() => {
+		const root = host;
+		if (!root) return;
+		let frame = 0;
+		const repair = () => {
+			frame = 0;
+			for (const [selector, name] of UNNAMED)
+				for (const control of root.querySelectorAll<HTMLElement>(selector))
+					if (!control.getAttribute('aria-label')) control.setAttribute('aria-label', name);
+			for (const control of root.querySelectorAll<HTMLElement>('[tabindex]'))
+				if (Number(control.getAttribute('tabindex')) > 0) control.setAttribute('tabindex', '0');
+		};
+		const observer = new MutationObserver(() => {
+			frame ||= requestAnimationFrame(repair);
+		});
+		observer.observe(root, {
+			subtree: true,
+			childList: true,
+			attributes: true,
+			attributeFilter: ['tabindex']
+		});
+		repair();
+		return () => {
+			observer.disconnect();
+			cancelAnimationFrame(frame);
 		};
 	});
 </script>

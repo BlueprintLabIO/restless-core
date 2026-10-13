@@ -1585,8 +1585,16 @@
 		margin: 0;
 		color: var(--state-danger);
 	}
+	/* The page's heading for screen readers, and the printed title; the editable title above is a
+	 * field, not a heading. */
 	.print-title {
-		display: none;
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		margin: 0;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
 	}
 	.conflict-actions {
 		display: flex;

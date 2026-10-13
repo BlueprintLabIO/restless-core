@@ -217,7 +217,7 @@
 		<a href="/">← Home</a>
 	</header>
 
-	<main class="talk">
+	<section class="talk">
 		<p class="trail" aria-label="Your answers so far">{trail}</p>
 
 		{#if readback.length && !waiting}
@@ -301,7 +301,7 @@
 			{/if}
 		{/if}
 		{#if error}<p class="error" role="alert">{error}</p>{/if}
-	</main>
+	</section>
 </div>
 
 <style>

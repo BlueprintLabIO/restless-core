@@ -43,10 +43,10 @@
 		<div class="sidebar-list">{@render nav()}</div>
 		{#if foot}<div class="sidebar-foot">{@render foot()}</div>{/if}
 	</nav>
-	<main class="sidebar-main">
+	<section class="sidebar-main">
 		{#if narrow}<div class="sidebar-narrow">{@render narrow()}</div>{/if}
 		{@render children()}
-	</main>
+	</section>
 </div>
 
 <style>

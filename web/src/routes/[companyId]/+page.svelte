@@ -541,6 +541,7 @@
 </script>
 
 <svelte:head><title>Inbox — {view?.company.name ?? companyId}</title></svelte:head>
+<h1 class="sr-title">Inbox</h1>
 
 {#if focusedReview}
 	<section
@@ -1604,5 +1605,14 @@
 		.live-mark.owner {
 			box-shadow: none;
 		}
+	}
+	.sr-title {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		margin: 0;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
 	}
 </style>
