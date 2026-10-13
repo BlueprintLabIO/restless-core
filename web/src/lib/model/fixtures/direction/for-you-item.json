@@ -1,0 +1,44 @@
+{
+  "key": "direction-day:2026-10-14",
+  "kind": "applied",
+  "title": "1 change applied for Bianca",
+  "excerpt": "Website copy speaks in first person as the business",
+  "href": "/acme?inspect=direction&day=2026-10-14",
+  "actor_id": "human-bianca",
+  "actor_name": "Bianca",
+  "at": "2026-10-14T09:12:00Z",
+  "unread": true,
+  "direction_applied": [
+    {
+      "id": "018f0000-0000-7000-8000-000000000001",
+      "requester": {
+        "actor_id": "human-bianca",
+        "name": "Bianca"
+      },
+      "source_message": "4182",
+      "class": "content",
+      "team": {
+        "id": "site-renovation",
+        "name": "Site Renovation Studio"
+      },
+      "summary": "Website copy speaks in first person as the business",
+      "target": {
+        "kind": "team_brief",
+        "team": {
+          "id": "site-renovation",
+          "name": "Site Renovation Studio"
+        }
+      },
+      "routed_to": {
+        "actor_id": "owner",
+        "name": "Yail"
+      },
+      "applied_at": "2026-10-14T09:12:00Z",
+      "grant_id": null,
+      "undo": {
+        "state": "available",
+        "until": "2026-10-21T09:12:00Z"
+      }
+    }
+  ]
+}

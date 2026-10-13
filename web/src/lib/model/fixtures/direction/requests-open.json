@@ -1,0 +1,49 @@
+{
+  "items": [
+    {
+      "id": "018f0000-0000-7000-8000-000000000002",
+      "requester": {
+        "actor_id": "human-bodhi",
+        "name": "Bodhi"
+      },
+      "routed_to": {
+        "actor_id": "owner",
+        "name": "Yail"
+      },
+      "class": "staffing",
+      "team": {
+        "id": "site-renovation",
+        "name": "Site Renovation Studio"
+      },
+      "summary": "Give the studio's designer a stronger model",
+      "change": "Set designer-ui's model to the company's strongest model",
+      "reason": "The redo keeps coming back text-heavy",
+      "source_message": "4190",
+      "filed_at": "2026-10-14T10:03:00Z",
+      "state": "open",
+      "decision": null,
+      "failure": null,
+      "applied": null,
+      "offers": {
+        "always_allow": {
+          "label": "Always allow Bodhi to change staffing for Site Renovation Studio",
+          "grantee": {
+            "kind": "person",
+            "actor_id": "human-bodhi",
+            "name": "Bodhi"
+          },
+          "class": "staffing",
+          "scope": {
+            "kind": "team",
+            "id": "site-renovation",
+            "name": "Site Renovation Studio"
+          }
+        },
+        "make_team_owner": {
+          "actor_id": "human-bodhi",
+          "name": "Bodhi"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,84 @@
+{
+  "day": "2026-10-14",
+  "summary": "Exec applied 1 change for others · 1 request waiting",
+  "applied": [
+    {
+      "id": "018f0000-0000-7000-8000-000000000001",
+      "requester": {
+        "actor_id": "human-bianca",
+        "name": "Bianca"
+      },
+      "source_message": "4182",
+      "class": "content",
+      "team": {
+        "id": "site-renovation",
+        "name": "Site Renovation Studio"
+      },
+      "summary": "Website copy speaks in first person as the business",
+      "target": {
+        "kind": "team_brief",
+        "team": {
+          "id": "site-renovation",
+          "name": "Site Renovation Studio"
+        }
+      },
+      "routed_to": {
+        "actor_id": "owner",
+        "name": "Yail"
+      },
+      "applied_at": "2026-10-14T09:12:00Z",
+      "grant_id": null,
+      "undo": {
+        "state": "available",
+        "until": "2026-10-21T09:12:00Z"
+      }
+    }
+  ],
+  "requests_waiting": [
+    {
+      "id": "018f0000-0000-7000-8000-000000000002",
+      "requester": {
+        "actor_id": "human-bodhi",
+        "name": "Bodhi"
+      },
+      "routed_to": {
+        "actor_id": "owner",
+        "name": "Yail"
+      },
+      "class": "staffing",
+      "team": {
+        "id": "site-renovation",
+        "name": "Site Renovation Studio"
+      },
+      "summary": "Give the studio's designer a stronger model",
+      "change": "Set designer-ui's model to the company's strongest model",
+      "reason": "The redo keeps coming back text-heavy",
+      "source_message": "4190",
+      "filed_at": "2026-10-14T10:03:00Z",
+      "state": "open",
+      "decision": null,
+      "failure": null,
+      "applied": null,
+      "offers": {
+        "always_allow": {
+          "label": "Always allow Bodhi to change staffing for Site Renovation Studio",
+          "grantee": {
+            "kind": "person",
+            "actor_id": "human-bodhi",
+            "name": "Bodhi"
+          },
+          "class": "staffing",
+          "scope": {
+            "kind": "team",
+            "id": "site-renovation",
+            "name": "Site Renovation Studio"
+          }
+        },
+        "make_team_owner": {
+          "actor_id": "human-bodhi",
+          "name": "Bodhi"
+        }
+      }
+    }
+  ]
+}

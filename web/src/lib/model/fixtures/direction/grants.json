@@ -1,0 +1,25 @@
+{
+  "items": [
+    {
+      "id": "018f0000-0000-7000-8000-000000000003",
+      "grantee": {
+        "kind": "person",
+        "actor_id": "human-bodhi",
+        "name": "Bodhi"
+      },
+      "class": "staffing",
+      "scope": {
+        "kind": "team",
+        "id": "site-renovation",
+        "name": "Site Renovation Studio"
+      },
+      "granted_by": {
+        "actor_id": "owner",
+        "name": "Yail"
+      },
+      "granted_at": "2026-10-14T10:20:00Z",
+      "source_request": "018f0000-0000-7000-8000-000000000002",
+      "label": "Bodhi can change staffing for Site Renovation Studio"
+    }
+  ]
+}
