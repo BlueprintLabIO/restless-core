@@ -22,6 +22,8 @@
 	import { STANDARDS, setWorkStandard, standardLabel } from '$lib/model/standards';
 	import type { OutcomeStandard } from '$lib/model/company';
 	import { failureSentence } from '$lib/model/failure';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { celebrate } from '$lib/ui/celebrate';
 	import { coordinationFailure } from '$lib/model/attention-presentation';
 	import { fileLabel, LIBRARY_KIND_LABEL, libraryKind } from '$lib/model/library-files';
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
@@ -89,6 +91,51 @@
 		ownerAccess ? (cockpit?.company.name ?? companyId) : (collaboration?.company.name ?? companyId)
 	);
 	const goal = $derived(goals.find((item) => item.id === work?.goal_id) ?? null);
+	/* The owner, and the person who owns this Work's team, may resume it or stop it; the server
+	 * checks the team. It used to live only in a team owner's Inbox. */
+	const workTeam = $derived(
+		teams.find(
+			(team) => team.id === people.find((person) => person.actor_id === work?.owner_id)?.team_id
+		) ?? null
+	);
+	const maySteer = $derived(
+		ownerAccess ||
+			(!!workTeam &&
+				'owner_person' in workTeam &&
+				workTeam.owner_person === principalProjection.view?.actor_id)
+	);
+	let steering = $state<'' | 'resume' | 'abandon'>('');
+	let steerReason = $state('');
+	let steerBusy = $state(false);
+	let steerFailure = $state('');
+	async function steer(action: 'resume' | 'abandon') {
+		if (!work || steerBusy || !steerReason.trim()) return;
+		steerBusy = true;
+		steerFailure = '';
+		try {
+			const response = await fetch(
+				`/api/companies/${encodeURIComponent(companyId)}/work/${encodeURIComponent(work.id)}/${action}`,
+				{
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ reason: steerReason.trim() })
+				}
+			);
+			if (!response.ok) {
+				const detail = (await response.json().catch(() => null)) as { message?: string } | null;
+				throw new Error(detail?.message ?? 'That was not recorded. Try again.');
+			}
+			if (action === 'resume') celebrate(document.activeElement);
+			toast(action === 'resume' ? 'Resumed' : 'Stopped');
+			steering = '';
+			steerReason = '';
+			retryWork();
+		} catch (cause) {
+			steerFailure = failureSentence(cause, 'That was not recorded.');
+		} finally {
+			steerBusy = false;
+		}
+	}
 	const goalInfo = $derived(goal ? goalAbout(goal) : '');
 	/* The bar this Work is held to: its own, else its Goal's. */
 	const ownStandard = $derived(
@@ -388,6 +435,22 @@
 					<i aria-hidden="true"></i>
 					<span>{unverifiedCompletion ? 'Done · unverified' : workStatusLabel(work.status)}</span>
 				</div>
+				{#if maySteer && (work.status === 'blocked' || work.status === 'active')}
+					<div class="work-steer">
+						{#if work.status === 'blocked'}<button
+								class="btn small"
+								type="button"
+								aria-expanded={steering === 'resume'}
+								onclick={() => (steering = steering === 'resume' ? '' : 'resume')}>Resume…</button
+							>{/if}
+						<button
+							class="btn small ghost"
+							type="button"
+							aria-expanded={steering === 'abandon'}
+							onclick={() => (steering = steering === 'abandon' ? '' : 'abandon')}>Stop…</button
+						>
+					</div>
+				{/if}
 				{#if ownerAccess}
 					<div class="work-talk">
 						<a class="btn small" href="?talk=exec" title="Talk about this Work with the Exec"
@@ -403,6 +466,41 @@
 				{/if}
 			</div>
 		</header>
+
+		{#if steering && work}
+			<form
+				class="work-steer-form"
+				onsubmit={(event) => {
+					event.preventDefault();
+					void steer(steering as 'resume' | 'abandon');
+				}}
+			>
+				<!-- svelte-ignore a11y_autofocus -->
+				<textarea
+					bind:value={steerReason}
+					rows="2"
+					autofocus
+					aria-label={steering === 'resume' ? 'What changed' : 'Why it should stop'}
+					placeholder={steering === 'resume'
+						? 'What changed, so it can continue'
+						: 'Why it should stop'}></textarea>
+				{#if steerFailure}<p class="steer-failure" role="alert">{steerFailure}</p>{/if}
+				<div class="steer-actions">
+					<button
+						class="btn small {steering === 'abandon' ? 'danger' : 'primary'}"
+						disabled={steerBusy || !steerReason.trim()}
+						>{steerBusy
+							? 'Recording…'
+							: steering === 'resume'
+								? 'Resume this Work'
+								: 'Stop this Work'}</button
+					>
+					<button class="btn small ghost" type="button" onclick={() => (steering = '')}
+						>Cancel</button
+					>
+				</div>
+			</form>
+		{/if}
 
 		{#if workTurn}
 			<section class="work-live-activity" aria-label="Live Work activity">
@@ -776,3 +874,34 @@
 		<FailureNotice error={failure} subject="this Work" variant="page" onretry={retryWork} />
 	{/if}
 </article>
+
+<style>
+	.work-steer {
+		display: flex;
+		gap: 6px;
+	}
+	.work-steer-form {
+		display: grid;
+		gap: 8px;
+		max-width: 560px;
+		margin: 0 0 12px;
+	}
+	.work-steer-form textarea {
+		padding: 8px 10px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-control);
+		background: var(--surface-raised);
+		color: var(--ink);
+		font: inherit;
+		resize: vertical;
+	}
+	.steer-actions {
+		display: flex;
+		gap: 6px;
+	}
+	.steer-failure {
+		margin: 0;
+		color: var(--state-danger);
+		font-size: var(--t-label);
+	}
+</style>

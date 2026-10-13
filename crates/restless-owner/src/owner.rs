@@ -2018,6 +2018,9 @@ fn membership_boundary_violation(
         || is_company_library_read(method, path)
         // A person answers what is assigned to them; OrgIntel checks the assignment.
         || is_handoff_answer(method, path)
+        // Each person's Inbox: the handler projects only what is assigned to them. Exactly the
+        // read: the owner's set-aside list and dismissals stay the owner's.
+        || is_own_attention_read(method, path)
         // The person who owns a team runs its Work and goals; OrgIntel checks the team.
         || is_team_owner_action(method, path)
         // An admin runs the day to day with the owner, and may stop a turn that went wrong; a
@@ -2038,6 +2041,8 @@ fn membership_boundary_violation(
         // Each person's own For you and Library pins, and comments only on documents they can
         // read.
         || is_company_route_family(path, "for-you")
+        // What each person opened and snoozed in their own Inbox.
+        || is_company_route_family(path, "inbox-marks")
         || is_company_route_family(path, "library-pins")
         || is_company_route_family(path, "comment-search")
         // Presence names only people already in the company directory.
@@ -2132,6 +2137,17 @@ fn is_owner_data_surface(path: &str) -> bool {
         || path.starts_with("/api/")
         || path == "/desktop"
         || path.starts_with("/desktop/")
+}
+
+fn is_own_attention_read(method: &Method, path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/companies/") else {
+        return false;
+    };
+    let mut segments = rest.split('/');
+    *method == Method::GET
+        && segments.next().is_some_and(|company| !company.is_empty())
+        && segments.next() == Some("attention")
+        && segments.next().is_none()
 }
 
 fn is_company_route_family(path: &str, family: &str) -> bool {
@@ -5614,6 +5630,7 @@ async fn restore_company(
 
 async fn attention_view(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
 ) -> impl IntoResponse {
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
@@ -5621,7 +5638,19 @@ async fn attention_view(
         Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
     };
     let org = state.daemon.orgintel.get(&company).await.ok();
-    match attention::project(&config, &state.daemon.authority, org.as_ref()).await {
+    // Everyone else's Inbox is the same projection, of what is assigned to them alone.
+    let projected = if principal.membership_role() == "owner" {
+        attention::project(&config, &state.daemon.authority, org.as_ref()).await
+    } else {
+        attention::project_for(
+            &config,
+            &state.daemon.authority,
+            org.as_ref(),
+            principal.actor_id(),
+        )
+        .await
+    };
+    match projected {
         Ok(view) => Json(view).into_response(),
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,

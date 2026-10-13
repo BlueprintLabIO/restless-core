@@ -716,6 +716,13 @@ mod tests {
                 )
                 .is_none());
             }
+            // Each person reads their own Inbox; the handler projects only what is theirs.
+            assert!(super::super::membership_boundary_violation(
+                &Method::GET,
+                "/api/companies/acme/attention",
+                &collaborator,
+            )
+            .is_none());
             for (method, path) in [
                 (Method::POST, "/api/companies/acme/collaboration/bootstrap"),
                 (Method::GET, "/api/companies/acme/collaboration"),
@@ -724,7 +731,11 @@ mod tests {
                     "/api/companies/acme/collaboration/bootstrap/extra",
                 ),
                 (Method::GET, "/api/companies/acme/cockpit"),
-                (Method::GET, "/api/companies/acme/attention"),
+                // Their own Inbox is read below; the owner's set-aside list and dismissals are not
+                // theirs.
+                (Method::GET, "/api/companies/acme/attention/dismissed"),
+                (Method::POST, "/api/companies/acme/attention/dismiss"),
+                (Method::POST, "/api/companies/acme/attention"),
                 (Method::GET, "/api/companies/acme/company"),
                 (Method::GET, "/api/companies/acme/browser/status"),
             ] {

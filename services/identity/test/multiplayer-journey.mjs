@@ -788,14 +788,23 @@ try {
   //     on the way. An owner-only read that fails for her is a console error, and leaves part of
   //     her screen empty.
   const refused = [];
-  let screen = "";
+  // Only requests a screen under test made count: a page left behind (step 9e's missing document)
+  // may still answer a retry after the next screen's watcher is attached.
+  let screen = null;
+  const madeHere = new WeakSet();
+  const noteRequest = (request) => {
+    if (screen !== null) madeHere.add(request);
+  };
   const watchRefusals = (response) => {
+    if (!madeHere.has(response.request())) return;
     const url = new URL(response.url());
     if (url.origin === core && response.status() >= 400 && url.pathname.startsWith("/api/"))
       refused.push(`${response.status()} ${response.request().method()} ${url.pathname} (on ${screen || "Inbox"})`);
   };
+  alice.page.on("request", noteRequest);
   alice.page.on("response", watchRefusals);
   for (const path of ["", "/library", "/people", "/work", "/company", `/library/sheets?sheet=${sheetId}`]) {
+    await alice.page.goto("about:blank");
     screen = path;
     await alice.page.goto(`${core}/${company}${path}`);
     await pause(3500);
@@ -808,6 +817,7 @@ try {
     }
   }
   alice.page.off("response", watchRefusals);
+  alice.page.off("request", noteRequest);
   assert.deepEqual([...new Set(refused)], [], "a member's screens make no refused requests");
   pass("a member sees the company floor, and her everyday screens make no request she is refused");
 

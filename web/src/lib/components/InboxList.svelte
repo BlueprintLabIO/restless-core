@@ -24,6 +24,7 @@
 		restoreAttention
 	} from '$lib/model/attention';
 	import SetAsideList from './SetAside.svelte';
+	import { celebrate } from '$lib/ui/celebrate';
 	import ForYou from './ForYou.svelte';
 	import { useForYou } from '$lib/model/for-you.svelte';
 	import {
@@ -52,7 +53,8 @@
 		failure = null,
 		coordination = null,
 		onretry,
-		onvisible
+		onvisible,
+		canSetAside = true
 	}: {
 		companyId: string;
 		items: AttentionItem[];
@@ -64,6 +66,8 @@
 		coordination?: Error | null;
 		onretry?: () => unknown;
 		onvisible?: (items: AttentionItem[]) => void;
+		/** Setting an item aside is the owner's: it answers for the whole company queue. */
+		canSetAside?: boolean;
 	} = $props();
 
 	const client = useQueryClient();
@@ -138,7 +142,8 @@
 				action.id === 'complete-human-step' ||
 				(action.id === 'decline' && item.category === 'approval')
 		);
-	const canDiscuss = (item: AttentionItem) => item.actions.some((action) => action.id === 'chat-lead');
+	const canDiscuss = (item: AttentionItem) =>
+		item.actions.some((action) => action.id === 'chat-lead');
 	const canComplete = (item: AttentionItem) =>
 		item.actions.some((action) => action.id === 'complete-human-step');
 	const iconFor = (item: AttentionItem) =>
@@ -182,7 +187,9 @@
 		return target ? href(target.id) : `/${companyId}`;
 	}
 	function snooze(item: AttentionItem) {
-		void mark([{ item_id: item.id, snoozed_until: new Date(Date.now() + 3_600_000).toISOString() }]);
+		void mark([
+			{ item_id: item.id, snoozed_until: new Date(Date.now() + 3_600_000).toISOString() }
+		]);
 		toast('Snoozed for an hour', {
 			undo: () => mark([{ item_id: item.id, snoozed_until: null }])
 		});
@@ -199,8 +206,12 @@
 	async function done(item: AttentionItem) {
 		if (completing || !canComplete(item)) return;
 		completing = item.id;
+		/* Where the row is now; it leaves the list once the step is recorded. */
+		const row = document.activeElement?.closest('[role="listitem"], li, a') ?? null;
+		const at = row?.getBoundingClientRect() ?? null;
 		try {
 			await completeHandoffHumanStep(companyId, item.source.reference);
+			celebrate(at);
 			await refreshAttention(client, companyId);
 			toast('Marked done');
 		} catch (cause) {
@@ -277,11 +288,13 @@
 		<span class="spacer"></span>
 		<ActionMenu label="Inbox options">
 			<button onclick={() => (showSnoozed = !showSnoozed)} disabled={!snoozedCount && !showSnoozed}
-				>{showSnoozed ? 'Hide snoozed' : `Show snoozed${snoozedCount ? ` (${snoozedCount})` : ''}`}</button
+				>{showSnoozed
+					? 'Hide snoozed'
+					: `Show snoozed${snoozedCount ? ` (${snoozedCount})` : ''}`}</button
 			>
 			<span class="shortcuts" role="note"
-				><kbd>J</kbd><kbd>K</kbd> move · <kbd>R</kbd> reply · <kbd>C</kbd> discuss · <kbd>H</kbd> snooze
-				· <kbd>E</kbd> done</span
+				><kbd>J</kbd><kbd>K</kbd> move · <kbd>R</kbd> reply · <kbd>C</kbd> discuss · <kbd>H</kbd>
+				snooze · <kbd>E</kbd> done</span
 			>
 		</ActionMenu>
 	</header>
@@ -296,7 +309,7 @@
 				<FailureNotice error={coordination} {onretry} />
 			</div>
 		{/if}
-		{#if blocker && !items.some((item) => item.actions.some((action) => action.id === 'open-intelligence-provider'))}
+		{#if blocker && !items.some( (item) => item.actions.some((action) => action.id === 'open-intelligence-provider') )}
 			<a class="setup" href={`/${companyId}/company/provider`}
 				><TriangleAlert size={15} strokeWidth={1.8} aria-hidden="true" /><span>{blocker}</span></a
 			>
@@ -312,14 +325,18 @@
 				unread={!!marksQuery.data && marks.get(item.id)?.seen_stamp !== stamp(item)}
 				dim={snoozedNow}
 			>
-				{#snippet leading()}<span class="kind" class:blocker={item.category === 'blocker'} title={attentionKindLabel(item)}
+				{#snippet leading()}<span
+						class="kind"
+						class:blocker={item.category === 'blocker'}
+						title={attentionKindLabel(item)}
 						><Icon size={15} strokeWidth={1.8} aria-label={attentionKindLabel(item)} /></span
 					>{/snippet}
 				{#snippet trailing()}<RelativeTime value={item.createdAt} />{/snippet}
 				{#snippet actions()}
 					<ActionMenu label={`Actions for ${attentionTitle(item)}`}>
 						<a href={href(item.id)}>Open</a>
-						{#if canDiscuss(item)}<a href={`${href(item.id)}&conversation=${encodeURIComponent(item.id)}`}
+						{#if canDiscuss(item)}<a
+								href={`${href(item.id)}&conversation=${encodeURIComponent(item.id)}`}
 								>Discuss <kbd>C</kbd></a
 							>{/if}
 						{#if canComplete(item)}<button disabled={!!completing} onclick={() => done(item)}
@@ -333,17 +350,19 @@
 						{:else}
 							<button onclick={() => snooze(item)}>Snooze for an hour <kbd>H</kbd></button>
 						{/if}
-						<button
-							title="Not needed: off your Inbox, kept under Set aside. Whoever asked stops waiting."
-							onclick={() => void notNeeded(item)}>Not needed</button
-						>
+						{#if canSetAside}<button
+								title="Not needed: off your Inbox, kept under Set aside. Whoever asked stops waiting."
+								onclick={() => void notNeeded(item)}>Not needed</button
+							>{/if}
 						<button onclick={() => copy(item)}>Copy link</button>
 					</ActionMenu>
 				{/snippet}
 			</Item>
 		{/each}
 		{#if loaded && !visible.length && !(coordination && !items.length)}
-			<p class="empty">{items.length ? 'Everything here is snoozed.' : 'No decisions waiting on you.'}</p>
+			<p class="empty">
+				{items.length ? 'Everything here is snoozed.' : 'No decisions waiting on you.'}
+			</p>
 		{:else if !loaded && !failure}
 			<div class="waiting" aria-label="Loading the Inbox"><i></i><i></i><i></i></div>
 		{/if}
@@ -359,7 +378,9 @@
 				/>
 			</div>
 		{/if}
-		<div class="set-aside-slot"><SetAsideList {companyId} version={items.length} /></div>
+		{#if canSetAside}<div class="set-aside-slot">
+				<SetAsideList {companyId} version={items.length} />
+			</div>{/if}
 	</div>
 </div>
 

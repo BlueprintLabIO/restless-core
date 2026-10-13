@@ -610,7 +610,8 @@ mod tests {
         );
         for (method, path) in [
             (Method::GET, "/api/companies"),
-            (Method::GET, "/api/companies/acme/attention"),
+            // Their own Inbox is theirs; the owner's set-aside list is not.
+            (Method::GET, "/api/companies/acme/attention/dismissed"),
             (Method::POST, "/api/companies/acme/approvals/grant"),
             (Method::POST, "/api/companies/other/actors/exec/conversation"),
         ] {

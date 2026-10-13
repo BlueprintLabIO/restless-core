@@ -366,6 +366,32 @@ pub async fn project(
     authority: &crate::authority::AuthorityStore,
     org: Option<&OrgIntel>,
 ) -> Result<AttentionView> {
+    project_queue(config, authority, org, None).await
+}
+
+/// One person's Inbox: the handoffs assigned to them (a team's judgement goes to the team's
+/// person), projected exactly as the owner's are, so their Inbox is the owner's Inbox with their
+/// own items. Nothing else of the owner's queue, and no Work graph: the person's visible Work
+/// comes from their collaboration view.
+pub async fn project_for(
+    config: &CompanyConfig,
+    authority: &crate::authority::AuthorityStore,
+    org: Option<&OrgIntel>,
+    assignee: &str,
+) -> Result<AttentionView> {
+    let mut view = project_queue(config, authority, org, Some(assignee)).await?;
+    view.items.retain(|item| item.source.kind == "owner_handoff");
+    view.work_graph = None;
+    view.set_aside.clear();
+    Ok(view)
+}
+
+async fn project_queue(
+    config: &CompanyConfig,
+    authority: &crate::authority::AuthorityStore,
+    org: Option<&OrgIntel>,
+    assignee: Option<&str>,
+) -> Result<AttentionView> {
     let approved = approval::approved_parties(authority, &config.name).await?;
     let approvals = authority
         .records_of_kind(&config.name, "approval_required")
@@ -754,7 +780,7 @@ pub async fn project(
         // This is a filter on *whose queue*, never on whether the owner may
         // look: `restless attention --all` and the lead's own queue both remain
         // readable. Judgement is delegated, not hidden.
-        .filter(|handoff| handoff.assigned_to.is_none())
+        .filter(|handoff| handoff.assigned_to.as_deref() == assignee)
     {
         let Some(item) = work.get(&handoff.work_id) else {
             continue;
@@ -3149,4 +3175,139 @@ fn tool_words(tool: &str) -> String {
     }
     let words = words.split_whitespace().collect::<Vec<_>>().join(" ");
     if words.is_empty() { "use a tool".into() } else { format!("use {words}") }
+}
+
+#[cfg(test)]
+mod person_queue_tests {
+    //! Everyone's Inbox is one projection: the owner's queue, or exactly what is assigned to
+    //! one person. Runs only when RESTLESS_TEST_DATABASE_URL is set.
+    use super::*;
+    use restless_orgintel::{
+        NewOwnerHandoff, NewWork, OwnerBrief, OwnerBriefKind, OwnerHandoffCategory, WorkspaceSpec,
+    };
+
+    async fn work_for(org: &OrgIntel, owner: &str, title: &str) -> uuid::Uuid {
+        org.add_work(NewWork {
+            owner_id: owner,
+            title,
+            outcome: "an outcome that needs a person",
+            goal_id: None,
+            priority: 0,
+            expected_artifact: "",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(1),
+        })
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_person_sees_only_what_is_assigned_to_them() {
+        let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping person queue scenario");
+            return;
+        };
+        let company = format!("apq{}_test", std::process::id());
+        let org = OrgIntel::ensure(&url, &company).await.unwrap();
+        for (id, kind, role, display) in [
+            ("owner", "owner", "owner", "The Owner"),
+            ("exec", "exec", "exec", "The Exec"),
+            ("site-direction", "staff", "lead", "Bea"),
+            ("site-design", "staff", "designer", "Bodhi"),
+            ("human-kit", "human", "member", "Kit"),
+            ("human-sam", "human", "member", "Sam"),
+        ] {
+            org.ensure_actor(id, kind, role, display).await.unwrap();
+        }
+        let site = org
+            .create_team("Website", "Renovate the site", "site-direction", "exec")
+            .await
+            .unwrap();
+        org.set_actor_team("site-design", Some(site), "site-direction", "designs pages")
+            .await
+            .unwrap();
+        org.appoint_responsible_person(site, "human-kit", "owner", None, "Kit looks after it")
+            .await
+            .unwrap();
+
+        // A judgement climbs designer -> lead -> Exec (with its brief) -> Kit.
+        let kits_work = work_for(&org, "site-design", "Choose the hero image").await;
+        let kits = org
+            .request_owner_handoff(NewOwnerHandoff {
+                work_id: kits_work,
+                attempt_id: None,
+                requested_by: "site-design",
+                category: OwnerHandoffCategory::OwnerJudgement,
+                requested_action: "choose the hero image",
+                prepared_state: "two images are ready",
+                resume_condition: "an image is chosen",
+            })
+            .await
+            .unwrap();
+        org.escalate_handoff(kits, "site-direction", "the image is the team's person's call")
+            .await
+            .unwrap();
+        org.prepare_owner_brief(
+            kits,
+            "exec",
+            OwnerBrief {
+                kind: OwnerBriefKind::OutcomeReview,
+                headline: "Choose the hero image".into(),
+                situation: "The team prepared two images.".into(),
+                impact: "The page ships with the chosen one.".into(),
+                recommendation: "Choose the warmer image.".into(),
+                no_action: "The page waits.".into(),
+                uncertainty: None,
+                deadline: None,
+            },
+        )
+        .await
+        .unwrap();
+        org.escalate_handoff(kits, "exec", "prepared for Kit").await.unwrap();
+
+        // A human step for the owner: never assigned below them.
+        let owners_work = work_for(&org, "site-design", "Pass the sign-in check").await;
+        let owners = org
+            .request_owner_handoff(NewOwnerHandoff {
+                work_id: owners_work,
+                attempt_id: None,
+                requested_by: "site-design",
+                category: OwnerHandoffCategory::Captcha,
+                requested_action: "solve the sign-in check",
+                prepared_state: "the sign-in page is open",
+                resume_condition: "the check is passed",
+            })
+            .await
+            .unwrap();
+
+        let authority = crate::authority::AuthorityStore::connect(&url).await.unwrap();
+        let config: CompanyConfig =
+            toml::from_str(&format!("name = {company:?}\nmission = \"test\"\n")).unwrap();
+        let reference = |view: &AttentionView| {
+            view.items
+                .iter()
+                .map(|item| item.source.reference.clone())
+                .collect::<Vec<_>>()
+        };
+
+        let kit = project_for(&config, &authority, Some(&org), "human-kit")
+            .await
+            .unwrap();
+        assert_eq!(reference(&kit), vec![kits.to_string()]);
+        assert!(kit.work_graph.is_none(), "a person's Work comes from their own view");
+        assert!(kit.items.iter().all(|item| item.source.kind == "owner_handoff"));
+
+        let owner = project(&config, &authority, Some(&org)).await.unwrap();
+        assert!(reference(&owner).contains(&owners.to_string()));
+        assert!(
+            !reference(&owner).contains(&kits.to_string()),
+            "Kit's judgement is Kit's, not the owner's"
+        );
+
+        let sam = project_for(&config, &authority, Some(&org), "human-sam")
+            .await
+            .unwrap();
+        assert!(sam.items.is_empty(), "nothing is assigned to Sam");
+        org.drop_schema().await.unwrap();
+    }
 }

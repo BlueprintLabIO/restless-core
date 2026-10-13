@@ -2861,7 +2861,7 @@ model = \"anthropic/claude-sonnet-5-5\"
             (Method::POST, "/api/companies/aris/loops"),
             (Method::PUT, "/api/companies/aris/intelligence/exec"),
             (Method::GET, "/api/companies/aris/vault"),
-            (Method::GET, "/api/companies/aris/attention"),
+            (Method::GET, "/api/companies/aris/attention/dismissed"),
             (Method::POST, "/api/companies/aris/approvals/grant"),
         ] {
             assert!(membership_boundary_violation(&method, path, &principal).is_some(), "member reached {method} {path}");

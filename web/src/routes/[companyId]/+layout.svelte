@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { reenterIfLapsed } from '$lib/model/reenter';
-	import MemberInbox from '$lib/components/MemberInbox.svelte';
 	import WelcomeTour from '$lib/components/WelcomeTour.svelte';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { prefetchOnIntent } from '$lib/model/prefetch';
@@ -1454,14 +1453,7 @@
 			onexectoggle={() => inPlace(() => (execRailOpen = !execRailOpen))}
 			rail={railVisible ? executiveRail : null}
 		>
-			{#if childAllowed && !ownerAccess && principal && page.url.pathname === `/${companyId}`}
-				<MemberInbox
-					{companyId}
-					{forYou}
-					view={collaboration.view}
-					onchanged={() => void collaboration.refresh()}
-				/>
-			{:else if childAllowed}
+			{#if childAllowed}
 				{@render children()}
 			{:else if principalProjection.failure}
 				<section class="company-access-state cockpit-pane">

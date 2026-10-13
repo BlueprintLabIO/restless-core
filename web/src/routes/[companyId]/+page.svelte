@@ -18,6 +18,7 @@
 	import { useForYou } from '$lib/model/for-you.svelte';
 	import InboxDetail from '$lib/components/InboxDetail.svelte';
 	import SetAsideList from '$lib/components/SetAside.svelte';
+	import { celebrate } from '$lib/ui/celebrate';
 	import {
 		attentionTitle,
 		coordinationFailure,
@@ -31,6 +32,7 @@
 	import type { AttentionItem } from '$lib/model/view';
 	import {
 		attentionQuery,
+		collaborationBootstrapQuery,
 		companiesQuery,
 		companyPrincipalQuery,
 		conversationQuery,
@@ -63,9 +65,16 @@
 	 * surface was missing: before it existed, `items` was `[]` both when the
 	 * queue was genuinely clear and when nobody had asked yet, so first paint
 	 * asserted "Nothing needs your judgement" and took it back a moment later. */
+	/* Everyone's Inbox is this page. The owner's /attention is the company queue; anyone else's is
+	 * the same projection of what is assigned to them, and their floor is the Work they may see. */
+	const principal = $derived(companyPrincipalQuery(companyId).view);
+	const owner = $derived(hasOwnerSurfaceAccess(principal));
 	const source = attentionQuery(
 		() => companyId,
-		() => hasOwnerSurfaceAccess(companyPrincipalQuery(companyId).view)
+		() => !!principal
+	);
+	const collaboration = $derived(
+		collaborationBootstrapQuery(companyId, () => (owner ? null : principal))
 	);
 	const view = $derived(source.view);
 	const loaded = $derived(source.status !== 'unknown');
@@ -91,7 +100,21 @@
 
 	const items = $derived(view?.items ?? []);
 	let visibleItems = $state<AttentionItem[] | null>(null);
-	const graph = $derived(view?.workGraph ?? null);
+	const graph = $derived(
+		owner
+			? (view?.workGraph ?? null)
+			: collaboration.view
+				? ({
+						gates: [],
+						gate_runs: [],
+						handoffs: [],
+						attempt_inputs: [],
+						attempt_feedback: [],
+						standards: [],
+						...collaboration.view.work_graph
+					} as unknown as NonNullable<typeof view>['workGraph'])
+				: null
+	);
 	/* The Work graph's file references, so files named by an item open in the Library viewer. */
 	const artifacts = $derived((graph?.artifacts ?? []) as unknown as LibraryArtifact[]);
 	const selectedItemId = $derived(page.url.searchParams.get('item'));
@@ -152,9 +175,9 @@
 		);
 		return () => cancelAnimationFrame(frame);
 	});
-	const showClear = $derived(
-		attentionClear && companyCatalog.status !== 'unknown' && !startBlocker
-	);
+	/* The company catalogue is the owner's; nobody else waits on it. */
+	const catalogPending = $derived(owner && companyCatalog.status === 'unknown');
+	const showClear = $derived(attentionClear && !catalogPending && !startBlocker);
 	/* The queue starts collapsed until its source answers, so an idle
 	 * company's office is never squeezed and released; when items do arrive,
 	 * the queue opens with the same motion as any later change. */
@@ -557,7 +580,7 @@
 			sendingMessage = false;
 		}
 	}
-	holdQueries(() => [leadConversation, identity]);
+	holdQueries(() => [leadConversation, identity, collaboration]);
 </script>
 
 <svelte:head><title>Inbox — {view?.company.name ?? companyId}</title></svelte:head>
@@ -962,6 +985,7 @@
 				onvisible={(rows) => (visibleItems = rows)}
 				{companyId}
 				{items}
+				canSetAside={owner}
 				selectedId={selectedItem?.id}
 				blocker={startBlocker}
 				{loaded}
@@ -1002,7 +1026,7 @@
 				<span>No decisions</span>
 			</button>
 			{#if queueClear}<div class="attention-set-aside">
-					<SetAsideList {companyId} />
+					{#if owner}<SetAsideList {companyId} />{/if}
 					{#if forYou}<button
 							type="button"
 							class="attention-archived"
@@ -1045,7 +1069,7 @@
 				     campus is a large canvas that costs battery for little use at
 				     this size. -->
 				<div class="attention-clear-compact" role="status">
-					{#if companyCatalog.status === 'unknown'}<p>Checking company…</p>
+					{#if catalogPending}<p>Checking company…</p>
 					{:else if startBlocker}<TriangleAlert size={22} />
 						<p>Exec is waiting for intelligence.</p>
 						<a class="btn primary small" href={startFixHref(companyId)}>{startBlocker}</a>
@@ -1076,8 +1100,9 @@
 				<CompanyOffice
 					{companyId}
 					{graph}
+					collaboration={owner ? null : collaboration.view}
 					sourceHealth={view?.sourceHealth ?? {}}
-					quietSignal={companyCatalog.status === 'unknown' || !!startBlocker}
+					quietSignal={catalogPending || !!startBlocker}
 				/>
 			{/if}
 		</section>
@@ -1096,6 +1121,8 @@
 			if (result.error) throw result.error;
 		}}
 		onresolved={(result) => {
+			/* From the answer just given, before the detail closes around it. */
+			celebrate(document.activeElement);
 			resolvedHere = item.id;
 			sent = result;
 		}}
