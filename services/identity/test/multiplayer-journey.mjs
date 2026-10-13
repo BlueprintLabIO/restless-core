@@ -784,6 +784,33 @@ try {
   assert.equal((await coreApi(owner, `${base}/documents/${launch.document.id}`)).document.title, "Launch checklist");
   pass("a member duplicated a company page, then renamed, archived, restored and deleted her copy");
 
+  // 9g. A member's everyday screens ask only for what a member may read: no request is refused
+  //     on the way. An owner-only read that fails for her is a console error, and leaves part of
+  //     her screen empty.
+  const refused = [];
+  let screen = "";
+  const watchRefusals = (response) => {
+    const url = new URL(response.url());
+    if (url.origin === core && response.status() >= 400 && url.pathname.startsWith("/api/"))
+      refused.push(`${response.status()} ${response.request().method()} ${url.pathname} (on ${screen || "Inbox"})`);
+  };
+  alice.page.on("response", watchRefusals);
+  for (const path of ["", "/library", "/people", "/work", "/company", `/library/sheets?sheet=${sheetId}`]) {
+    screen = path;
+    await alice.page.goto(`${core}/${company}${path}`);
+    await pause(3500);
+    if (!path) {
+      // The company floor is hers too, read from what a member may see.
+      const floor = alice.page.locator(".company-office");
+      await floor.waitFor({ timeout: 15000 });
+      await until(async () => Number(await floor.getAttribute("data-member-count")) > 0, "the floor shows who is at work", 15);
+      await shot(alice, "member-inbox");
+    }
+  }
+  alice.page.off("response", watchRefusals);
+  assert.deepEqual([...new Set(refused)], [], "a member's screens make no refused requests");
+  pass("a member sees the company floor, and her everyday screens make no request she is refused");
+
   // 10. Removal from Members closes Bob's live document connection and session.
   await bob.page.goto(documentUrl);
   await bob.page.getByLabel("Collaborative document body").waitFor({ timeout: 30000 });

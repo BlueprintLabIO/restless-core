@@ -32,9 +32,11 @@
 	import {
 		attentionQuery,
 		companiesQuery,
+		companyPrincipalQuery,
 		conversationQuery,
 		turnWorking
 	} from '$lib/model/queries.svelte';
+	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
 	import { startFixHref, startLinkLabel } from '$lib/model/company-start';
 	import { browserTabClientId } from '$lib/model/browserTab';
 	import { getBrowserStatus } from '$lib/model/company';
@@ -60,7 +62,10 @@
 	 * surface was missing: before it existed, `items` was `[]` both when the
 	 * queue was genuinely clear and when nobody had asked yet, so first paint
 	 * asserted "Nothing needs your judgement" and took it back a moment later. */
-	const source = attentionQuery(() => companyId);
+	const source = attentionQuery(
+		() => companyId,
+		() => hasOwnerSurfaceAccess(companyPrincipalQuery(companyId).view)
+	);
 	const view = $derived(source.view);
 	const loaded = $derived(source.status !== 'unknown');
 
@@ -89,7 +94,9 @@
 	/* The Work graph's file references, so files named by an item open in the Library viewer. */
 	const artifacts = $derived((graph?.artifacts ?? []) as unknown as LibraryArtifact[]);
 	const selectedItemId = $derived(page.url.searchParams.get('item'));
-	const companyCatalog = companiesQuery();
+	const companyCatalog = companiesQuery(() =>
+		hasOwnerSurfaceAccess(companyPrincipalQuery(companyId).view)
+	);
 	/* A company that cannot start is not clear, whatever the queue says: say
 	 * the blocker in the portfolio's words and link straight to its fix. */
 	const startBlocker = $derived.by(() => {

@@ -13,22 +13,42 @@
 	} from './officePlan';
 	import { projectOfficeMembers, type OfficeMember } from './projection';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
+	import type { CockpitView } from '$lib/model/cockpit';
+	import type { CollaborationBootstrap } from '$lib/model/collaboration';
 
 	let {
 		companyId,
 		graph,
 		sourceHealth,
-		quietSignal = false
+		quietSignal = false,
+		collaboration = null
 	}: {
 		companyId: string;
 		graph: WorkGraphSnapshot | null;
 		sourceHealth: Record<string, string>;
 		/** The surface already explains why the floor is not live (a start blocker). */
 		quietSignal?: boolean;
+		/** A member's floor: the people, teams and Work they may read, from their collaboration
+		 * view. The owner's cockpit is not theirs to read. */
+		collaboration?: CollaborationBootstrap | null;
 	} = $props();
 
-	const cockpitProjection = $derived(cockpitQuery(companyId));
-	const cockpit = $derived(cockpitProjection.view);
+	const cockpitProjection = $derived(cockpitQuery(companyId, () => !collaboration));
+	/* A member's view carries the same people and teams; its computer status is not theirs, so the
+	 * floor reads Work as it stands rather than claiming the computer is down. */
+	const memberCockpit = $derived(
+		collaboration
+			? ({
+					people: collaboration.people,
+					teams: collaboration.teams,
+					source_health: {
+						runtime: 'available',
+						orgintel: collaboration.source_health.orgintel
+					}
+				} as unknown as CockpitView)
+			: null
+	);
+	const cockpit = $derived(memberCockpit ?? cockpitProjection.view);
 	const error = $derived(
 		cockpitProjection.failure ? describeFailure(cockpitProjection.failure).title + '.' : ''
 	);

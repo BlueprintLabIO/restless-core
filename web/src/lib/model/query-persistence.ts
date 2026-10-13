@@ -1,6 +1,7 @@
 import type { QueryClient } from '@tanstack/query-core';
 import { responseFailure } from './failure.ts';
 import { bootFetch } from './boot-fetch.ts';
+import { rememberRole } from './known-role.ts';
 
 export const QUERY_CACHE_SCHEMA = 2;
 export const QUERY_CACHE_MAX_AGE_MS = 12 * 60 * 60_000;
@@ -503,6 +504,7 @@ export async function getCompanyPrincipal(
 			code: 'invalid_principal'
 		});
 	}
+	rememberRole(company, membershipRole);
 	return {
 		actor_id: actorId,
 		membership_role: membershipRole as CompanyMembershipRole,

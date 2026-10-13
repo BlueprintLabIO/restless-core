@@ -65,6 +65,16 @@ const DECK_NAME = /\b(deck|slides?|presentation)\b/i;
 const GENERIC_LABEL =
 	/^(outputs?|review([ _-]?target)?|evidence|artifact|file|result|deliverable|deck|site|page|index(\.html?)?|report|document)$/i;
 
+/* A page whose title was its own address ("127.0.0.1:8650", "http://localhost:5173/"), or any
+ * bare host and port, names nothing a person would recognise. */
+const ADDRESS_LABEL =
+	/^([a-z][a-z0-9+.-]*:\/\/\S*|(localhost|\d{1,3}(\.\d{1,3}){3}|\[[0-9a-f:]+\])(:\d+)?(\/\S*)?|[a-z0-9.-]+:\d{2,5}(\/\S*)?)$/i;
+/** Whether a label names nothing in particular: a recorder's default, the word for a kind, or an
+ * address. */
+function namesNothing(label: string): boolean {
+	return GENERIC_LABEL.test(label) || ADDRESS_LABEL.test(label);
+}
+
 function fileName(uri: string): string {
 	try {
 		const url = new URL(uri);
@@ -132,10 +142,10 @@ export function officeFormat(uri: string): 'docx' | 'xlsx' | null {
  * then its own file name, then the Work it came from. */
 export function fileLabel(label: string, uri: string, workTitle?: string): string {
 	const given = label.trim();
-	if (given && !GENERIC_LABEL.test(given)) return given;
+	if (given && !namesNothing(given)) return given;
 	const path = uri.split(/[?#]/)[0];
 	const name = path.startsWith('/company/') ? pathName(path) : fileName(uri);
-	if (name && !GENERIC_LABEL.test(name)) return name;
+	if (name && !namesNothing(name)) return name;
 	/* A page is its folder: `…/q4-review/deck/index.html` is the Q4 review. */
 	if (/^index\.html?$/i.test(name)) {
 		const folder = path
@@ -165,7 +175,7 @@ export function libraryFiles(
 		if (artifact.state !== 'available' || !artifact.work_id) continue;
 		const kind = libraryKind(artifact);
 		if (!kind) continue;
-		const named = artifact.label.trim() && !GENERIC_LABEL.test(artifact.label.trim());
+		const named = artifact.label.trim() && !namesNothing(artifact.label.trim());
 		const merged = byUri.get(artifact.uri);
 		if (merged) {
 			merged.ids?.push(artifact.id);

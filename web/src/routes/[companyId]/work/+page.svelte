@@ -51,6 +51,7 @@
 		workWaitingOnOwner
 	} from '$lib/model/attention-presentation';
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
+	import { emptyWorkTitle } from '$lib/model/work-views';
 	import { dueLabel, finishLine, goalAbout, type Goal } from '$lib/work/goal';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
@@ -625,7 +626,7 @@
 					</section>
 				{/if}
 				{#if !goalWork.length}
-					<Empty compact title={selectedGoal ? 'No work under this goal yet' : 'No work yet'} />
+					<Empty compact title={emptyWorkTitle(selectedGoal)} />
 				{/if}
 			{/if}
 		</div>

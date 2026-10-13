@@ -10,6 +10,8 @@
 	import { formatRelative, formatMoment } from '$lib/ui/time';
 	import { failureSentence } from '$lib/model/failure';
 	import { personName } from '$lib/model/initials';
+	import CompanyOffice from '$lib/office/LazyCompanyOffice.svelte';
+	import type { WorkGraphSnapshot } from '$lib/model/generated/orgintel';
 	import type {
 		CollaborationBootstrap,
 		CollaborationHandoff,
@@ -45,6 +47,20 @@
 	let stopping = $state('');
 
 	const me = $derived(view?.principal.actor_id ?? '');
+	/* The floor reads the Work a member may see; gates and handoffs beyond theirs are not in it. */
+	const floorGraph = $derived(
+		view
+			? ({
+					gates: [],
+					gate_runs: [],
+					handoffs: [],
+					attempt_inputs: [],
+					attempt_feedback: [],
+					standards: [],
+					...view.work_graph
+				} as unknown as WorkGraphSnapshot)
+			: null
+	);
 	const handoffs = $derived(view?.attention.handoffs ?? []);
 	const myTeams = $derived((view?.teams ?? []).filter((team) => team.owner_person === me));
 	const name = (actorId: string) =>
@@ -340,9 +356,22 @@
 			<ForYou source={forYou} />
 		</Section>
 	{/if}
+	<!-- The company itself, below what is the person's own: who is at work on what. -->
+	{#if view}
+		<section class="member-floor" aria-label="Company floor">
+			<CompanyOffice {companyId} graph={floorGraph} sourceHealth={{}} collaboration={view} />
+		</section>
+	{/if}
 </Page>
 
 <style>
+	.member-floor {
+		height: clamp(320px, 52vh, 560px);
+		margin-top: 12px;
+		overflow: hidden;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+	}
 	.detail {
 		display: grid;
 		gap: 10px;

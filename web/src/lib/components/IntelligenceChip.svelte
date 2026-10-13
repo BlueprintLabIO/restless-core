@@ -13,9 +13,16 @@
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import { FILTER_FROM, filterModels, splitModels } from '$lib/model/model-groups';
 
+	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
+	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
+
 	let { companyId, actorId, name }: { companyId: string; actorId: string; name: string } = $props();
-	const catalog = modelCatalog();
-	const source = $derived(intelligenceQuery(companyId));
+	/* Choosing a model is the owner's (and an admin's); for anyone else the chip is not there, and
+	 * reads nothing they would be refused. */
+	const principal = $derived(companyPrincipalQuery(companyId));
+	const allowed = $derived(hasOwnerSurfaceAccess(principal.view));
+	const catalog = modelCatalog(() => allowed);
+	const source = $derived(intelligenceQuery(companyId, () => allowed));
 	const agent = $derived(source.view?.agents.find((row) => row.id === actorId) ?? null);
 	const assignment = $derived(agent?.assignment ?? source.view?.default ?? source.view?.base_default ?? null);
 	const connection = $derived(
@@ -69,7 +76,7 @@
 	holdQueries(() => [source]);
 </script>
 
-{#if agent && modelLabel(agent.effective_model) === 'Unavailable'}
+{#if !allowed}{:else if agent && modelLabel(agent.effective_model) === 'Unavailable'}
 	<a class="chip-link" href={`/${encodeURIComponent(companyId)}/company/provider`}>Choose a model</a
 	>
 {:else if agent}

@@ -24,6 +24,7 @@
 	import { accountServicePath } from '$lib/model/account-service';
 	import { planeAnswersAccountPaths } from '$lib/model/appliance';
 	import { registerServiceWorkerWhereLocal } from '$lib/model/service-worker-registration';
+	import { knownPlaneOwner } from '$lib/model/known-role';
 	import { dev } from '$app/environment';
 
 	let { children } = $props();
@@ -140,7 +141,9 @@
 		});
 	});
 	onMount(() => {
-		if (!dev) void registerServiceWorkerWhereLocal().catch(() => {});
+		/* The worker serves a local appliance's owner; asking the plane whether it is hosted is the
+		 * owner's read, refused to a member. */
+		if (!dev && knownPlaneOwner()) void registerServiceWorkerWhereLocal().catch(() => {});
 	});
 
 	onMount(() => {

@@ -89,7 +89,7 @@ export function createCompanySetup(companyIdOf: () => string) {
 	const owner = $derived(principal?.membership_role === 'owner');
 	const catalog = companiesQuery(() => owner);
 	const entry = $derived(catalog.view.find((company) => company.id === companyId));
-	const source = $derived(companyQuery(companyId));
+	const source = $derived(companyQuery(companyId, () => owner));
 	$effect(() => {
 		if (owner) source.attach();
 	});
