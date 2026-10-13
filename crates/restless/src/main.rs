@@ -14,6 +14,7 @@
 
 mod appliance;
 mod chat;
+mod direction;
 mod document;
 mod sheet;
 mod skill;
@@ -88,6 +89,20 @@ enum Command {
         company: Option<String>,
         #[command(subcommand)]
         command: DocumentCommand,
+    },
+    /// Exec only: route and record the changes people direct.
+    Direction {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: direction::DirectionCommand,
+    },
+    /// Exec only: ask whoever owns a direction to approve a change someone asked for.
+    Request {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: direction::RequestCommand,
     },
     /// Native spreadsheets shared with humans and agents.
     Sheet {
@@ -2593,6 +2608,12 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             serde_json::json!({"cmd":"room-operation", "company":company.context("no company: pass -c or set RESTLESS_COMPANY")?, "room_operation":operation})
         }
         Command::Document { company, command } => {
+            command.request(company.context("no company: pass -c or set RESTLESS_COMPANY")?)?
+        }
+        Command::Direction { company, command } => {
+            command.request(company.context("no company: pass -c or set RESTLESS_COMPANY")?)?
+        }
+        Command::Request { company, command } => {
             command.request(company.context("no company: pass -c or set RESTLESS_COMPANY")?)?
         }
         Command::Tools { company, command } => {

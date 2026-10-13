@@ -96,6 +96,9 @@ pub struct AttentionItem {
     pub review_target: Option<ReviewTargetRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub native_document: Option<restless_orgintel::DocumentAttentionReference>,
+    /// A request routed to this person (S80): `source.kind = "direction_request"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direction_request: Option<crate::direction::DirectionRequest>,
     pub actions: Vec<AttentionAction>,
     pub can_continue: bool,
     pub preparing: bool,
@@ -337,7 +340,7 @@ async fn conversation_requests(
                 responsible_actor: Some(actor),
                 runtime_attach: None,
                 review_target: None,
-                native_document: None,
+                native_document: None, direction_request: None,
                 actions: vec![AttentionAction {
                     id: "continue-conversation".into(),
                     label: "Reply".into(),
@@ -369,6 +372,62 @@ pub async fn project(
     project_queue(config, authority, org, None).await
 }
 
+/// Open direction requests routed to `viewer` (the owner sees every one), as Inbox items: the
+/// request in the person's words, and Approve, Always allow and Decline in its detail (S80).
+async fn direction_items(
+    authority: &crate::authority::AuthorityStore,
+    company: &str,
+    org: &OrgIntel,
+    viewer: &str,
+) -> Result<Vec<AttentionItem>> {
+    let names = crate::direction_authority::Names::read(org).await?;
+    let requests = crate::direction_authority::requests(authority, company, &names, viewer, false).await?;
+    Ok(requests
+        .into_iter()
+        .map(|request| {
+            let who = request.requester.name.clone();
+            AttentionItem {
+                id: format!("authority:direction_request:{}", request.id),
+                work_id: None,
+                source: AttentionSource {
+                    plane: "authority",
+                    kind: crate::direction::DIRECTION_REQUEST_ATTENTION_KIND.into(),
+                    reference: request.id.to_string(),
+                    party: None,
+                    call_key: None,
+                },
+                category: "decision".into(),
+                title: format!("{who} asks: {}", request.summary),
+                what_happened: format!("{who} asked Exec to change something only you can approve: {}", request.change),
+                why_it_matters: if request.reason.trim().is_empty() {
+                    "Nothing changes until you answer.".into()
+                } else {
+                    request.reason.clone()
+                },
+                recommendation: "Approve it, approve it and always allow changes like it, or decline with a reason.".into(),
+                requested_action: "Approve or decline.".into(),
+                if_no_action: format!("Nothing changes; {who}'s request waits."),
+                uncertainty: None,
+                deadline: None,
+                brief_status: "source-authored",
+                brief_author: None,
+                briefed_at: Some(request.filed_at),
+                evidence: Vec::new(),
+                review_sources: Vec::new(),
+                responsible_actor: None,
+                runtime_attach: None,
+                review_target: None,
+                native_document: None,
+                actions: Vec::new(),
+                can_continue: false,
+                preparing: false,
+                created_at: request.filed_at,
+                direction_request: Some(request),
+            }
+        })
+        .collect())
+}
+
 /// One person's Inbox: the handoffs assigned to them (a team's judgement goes to the team's
 /// person), projected exactly as the owner's are, so their Inbox is the owner's Inbox with their
 /// own items. Nothing else of the owner's queue, and no Work graph: the person's visible Work
@@ -380,7 +439,10 @@ pub async fn project_for(
     assignee: &str,
 ) -> Result<AttentionView> {
     let mut view = project_queue(config, authority, org, Some(assignee)).await?;
-    view.items.retain(|item| item.source.kind == "owner_handoff");
+    view.items.retain(|item| {
+        item.source.kind == "owner_handoff"
+            || item.source.kind == crate::direction::DIRECTION_REQUEST_ATTENTION_KIND
+    });
     view.work_graph = None;
     view.set_aside.clear();
     Ok(view)
@@ -554,7 +616,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
-            native_document: None,
+            native_document: None, direction_request: None,
             actions: vec![
                 AttentionAction {
                     id: "grant".into(),
@@ -636,7 +698,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
-            native_document: None,
+            native_document: None, direction_request: None,
             actions: vec![
                 AttentionAction {
                     id: "grant".into(),
@@ -710,7 +772,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
-            native_document: None,
+            native_document: None, direction_request: None,
             actions: vec![AttentionAction {
                 id: "open-app".into(),
                 label: "Sign in again".into(),
@@ -1316,7 +1378,7 @@ async fn project_queue(
             responsible_actor,
             runtime_attach,
             review_target,
-            native_document: None,
+            native_document: None, direction_request: None,
             actions,
             preparing,
             can_continue: false,
@@ -1386,7 +1448,7 @@ async fn project_queue(
                 runtime_attach: None,
                 review_target: None,
                 created_at: request.created_at,
-                native_document: Some(request),
+                native_document: Some(request), direction_request: None,
                 actions,
                 preparing: false,
                 can_continue: false,
@@ -1481,7 +1543,7 @@ async fn project_queue(
                                     responsible_actor: actors.get("exec").cloned(),
                                     runtime_attach: None,
                                     review_target: None,
-                                    native_document: None,
+                                    native_document: None, direction_request: None,
                                     actions: vec![action],
                                     can_continue: false,
                                     preparing: false,
@@ -1512,12 +1574,18 @@ async fn project_queue(
             uncertainty: Some("Exec makes a judgment on each proposed send against this mandate. It can make mistakes; approval of this mandate is not a guarantee that every send will be appropriate.".into()),
             deadline: Some(proposal.expires_at.to_rfc3339()), brief_status: "source-observed", brief_author: None, briefed_at: None,
             evidence: vec![AttentionEvidence { label: "Exact proposed email mandate".into(), uri: None, content: Some(limits), kind: "authority-email-mandate-proposal" }, AttentionEvidence { label: "Exec judgement".into(), uri: None, content: Some(if note.is_empty() { "No additional rationale supplied.".into() } else { note.into() }), kind: "exec-judgement" }],
-            review_sources: Vec::new(), responsible_actor: None, runtime_attach: None, review_target: None, native_document: None,
+            review_sources: Vec::new(), responsible_actor: None, runtime_attach: None, review_target: None, native_document: None, direction_request: None,
             actions: vec![
                 AttentionAction { id: "approve-email-mandate".into(), label: "Approve mandate".into(), role: "decision", consequence: "Grants the exact reviewed email mandate and its limits.".into(), next_state: "The pending proposal is resolved and the mandate becomes active.".into(), href: None },
                 AttentionAction { id: "decline-email-mandate".into(), label: "Decline mandate".into(), role: "decision", consequence: "Declines this exact email mandate proposal.".into(), next_state: "The proposal is resolved without granting email authority.".into(), href: None },
             ], can_continue: false, preparing: false, created_at: record.created_at,
         });
+    }
+    if let Some(org) = org {
+        match direction_items(authority, &config.name, org, assignee.unwrap_or("owner")).await {
+            Ok(direction) => items.extend(direction),
+            Err(error) => tracing::warn!(company = config.name, "direction requests unavailable: {error:#}"),
+        }
     }
     items.sort_by_key(|item| {
         let priority = match item.category.as_str() {
@@ -1623,7 +1691,7 @@ async fn project_queue(
                     responsible_actor: None,
                     runtime_attach: None,
                     review_target: None,
-                    native_document: None,
+                    native_document: None, direction_request: None,
                     actions: vec![AttentionAction {
                         id: if route_missing { "open-intelligence-provider".into() } else { "open-company-health".into() },
                         label: if route_missing { "Choose intelligence".into() } else { "Open Health".into() },

@@ -38,7 +38,7 @@ const KEY_FILE: &str = "company-projection.ed25519";
 const TOKEN_TYPE: &str = "restless-company-projection+jwt";
 const ALGORITHM: &str = "EdDSA";
 const AUDIENCE: &str = "restless-fleet";
-const CONTRACT_VERSION: u32 = 2;
+const CONTRACT_VERSION: u32 = 3;
 const KIND_ATTENTION: &str = "attention";
 
 const URL_ENV: &str = "RESTLESS_PROJECTION_URL";
@@ -53,8 +53,9 @@ const HEARTBEAT: Duration = Duration::from_secs(120);
 const DISABLED_PROBE: Duration = Duration::from_secs(600);
 const FAILURE_BACKOFF: Duration = Duration::from_secs(30);
 
-/// The whole of the v2 `attention` record: v1's count and time plus two more counts and one yes/no.
-/// Field-for-field what Fleet accepts; keep them together. Still nothing that could hold content.
+/// The whole of the v3 `attention` record: v1's count and time, v2's two counts and one yes/no, and
+/// v3's two direction counts. Field-for-field what Fleet accepts; keep them together. Still nothing
+/// that could hold content: Fleet writes the morning digest line from the counts.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AttentionClaims {
@@ -75,6 +76,10 @@ pub struct AttentionClaims {
     pub outcomes_last_day: u32,
     /// Whether Exec has working intelligence and can start (v2).
     pub exec_ready: bool,
+    /// Direction requests waiting for the owner's answer (v3); also counted in `decisions_waiting`.
+    pub requests_waiting: u32,
+    /// Changes Exec applied on other people's direction in the 24 hours before `projected_at` (v3).
+    pub changes_applied_last_day: u32,
 }
 
 #[derive(Clone)]
@@ -232,6 +237,8 @@ pub struct Summary {
     pub people_working: u32,
     pub outcomes_last_day: u32,
     pub exec_ready: bool,
+    pub requests_waiting: u32,
+    pub changes_applied_last_day: u32,
 }
 
 /// Counts the owner's queue, finds when Work last moved and counts Work completed in the last day.
@@ -289,6 +296,8 @@ pub fn summarize_parts(
         people_working: bounded(people_working),
         outcomes_last_day: bounded(outcomes),
         exec_ready,
+        requests_waiting: 0,
+        changes_applied_last_day: 0,
     }
 }
 
@@ -308,7 +317,38 @@ pub async fn card_for(daemon: &Daemon, company: &str) -> Result<Summary> {
         .await
         .is_none()
         && computer_can_start(daemon, company).await;
-    Ok(summarize(&view, working, exec_ready, Utc::now()))
+    let now = Utc::now();
+    let mut summary = summarize(&view, working, exec_ready, now);
+    let (requests, applied) = direction_counts(daemon, company, &org, now).await?;
+    summary.requests_waiting = bounded(requests);
+    summary.changes_applied_last_day = bounded(applied);
+    Ok(summary)
+}
+
+/// How many direction requests wait for the owner, and how many changes Exec applied for other
+/// people in the last day: the two numbers behind the digest line.
+async fn direction_counts(
+    daemon: &Daemon,
+    company: &str,
+    org: &restless_orgintel::OrgIntel,
+    now: DateTime<Utc>,
+) -> Result<(usize, usize)> {
+    use restless_engine::direction_authority as direction;
+    let names = direction::Names::read(org).await?;
+    let owner = direction::company_owner(&daemon.authority, company).await?;
+    let waiting = direction::requests(&daemon.authority, company, &names, "owner", false).await?;
+    let applied = direction::applied(
+        &daemon.authority,
+        company,
+        &names,
+        "owner",
+        Some(now - chrono::Duration::hours(24)),
+    )
+    .await?
+    .into_iter()
+    .filter(|entry| entry.requester.actor_id != owner && entry.requester.actor_id != "owner")
+    .count();
+    Ok((waiting.len(), applied))
 }
 
 /// Exec can start only on a computer that runs or will wake. A plane that runs
@@ -461,6 +501,8 @@ impl ProjectionEmitter {
             people_working: summary.people_working,
             outcomes_last_day: summary.outcomes_last_day,
             exec_ready: summary.exec_ready,
+            requests_waiting: summary.requests_waiting,
+            changes_applied_last_day: summary.changes_applied_last_day,
         }
     }
 
@@ -572,6 +614,8 @@ mod tests {
             people_working: 0,
             outcomes_last_day: 0,
             exec_ready: true,
+            requests_waiting: 0,
+            changes_applied_last_day: 0,
         }
     }
 
@@ -589,6 +633,8 @@ mod tests {
                 people_working: 2,
                 outcomes_last_day: 3,
                 exec_ready: true,
+                requests_waiting: 1,
+                changes_applied_last_day: 2,
             },
             now,
         );
@@ -624,6 +670,7 @@ mod tests {
             keys,
             [
                 "aud",
+                "changes_applied_last_day",
                 "company_id",
                 "contract_version",
                 "decisions_waiting",
@@ -635,6 +682,7 @@ mod tests {
                 "people_working",
                 "plane_id",
                 "projected_at",
+                "requests_waiting",
                 "sequence"
             ],
             "the record carries exactly the contract fields and nothing that could hold content"
@@ -643,7 +691,9 @@ mod tests {
         assert_eq!(payload["people_working"], 2);
         assert_eq!(payload["outcomes_last_day"], 3);
         assert_eq!(payload["exec_ready"], true);
-        assert_eq!(payload["contract_version"], 2);
+        assert_eq!(payload["requests_waiting"], 1);
+        assert_eq!(payload["changes_applied_last_day"], 2);
+        assert_eq!(payload["contract_version"], 3);
         assert_eq!(payload["kind"], "attention");
         let header: serde_json::Value = serde_json::from_slice(
             &base64::engine::general_purpose::URL_SAFE_NO_PAD
@@ -797,10 +847,10 @@ mod tests {
         .is_none());
     }
 
-    /// The wire contract, pinned. `contracts/company-projection.v2.fixture.json` is byte-identical in
+    /// The wire contract, pinned. `contracts/company-projection.v3.fixture.json` is byte-identical in
     /// Core and in Cloud: Core proves it still signs exactly this record, and Cloud proves it still
-    /// accepts it, so neither side can drift without a test failing. The v1 fixture stays beside it
-    /// for Cloud, which keeps accepting v1 from planes not yet upgraded. Regenerate with
+    /// accepts it, so neither side can drift without a test failing. The v1 and v2 fixtures stay
+    /// beside it for Cloud, which keeps accepting them from planes not yet upgraded. Regenerate with
     /// `RESTLESS_WRITE_PROJECTION_FIXTURE=1 cargo test -p restless-owner projection_fixture`.
     #[test]
     fn projection_fixture_is_the_pinned_wire_contract() {
@@ -819,10 +869,12 @@ mod tests {
             people_working: 2,
             outcomes_last_day: 3,
             exec_ready: true,
+            requests_waiting: 1,
+            changes_applied_last_day: 2,
         };
         let fixture = serde_json::json!({
             "contract": "restless-company-projection",
-            "version": 2,
+            "version": 3,
             "verify_at": 1_790_000_010,
             "hostname": "owner.example.test",
             "plane_id": claims.plane_id,
@@ -832,13 +884,15 @@ mod tests {
                 "sequence": 1_790_000_000_000i64,
                 "people_working": 2,
                 "outcomes_last_day": 3,
-                "exec_ready": true
+                "exec_ready": true,
+                "requests_waiting": 1,
+                "changes_applied_last_day": 2
             },
             "jwks": signer.jwks(),
             "token": signer.sign(&claims).unwrap(),
         });
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../contracts/company-projection.v2.fixture.json");
+            .join("../../contracts/company-projection.v3.fixture.json");
         let rendered = serde_json::to_string_pretty(&fixture).unwrap()
             + "
 ";

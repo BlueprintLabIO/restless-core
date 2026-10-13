@@ -274,6 +274,21 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 }, Err(error) => Response::err(format!("{error:#}")),
             }
         }
+        "direction-operation" => {
+            // Exec acts on a person's direction; nobody else names a requester.
+            let actor = request.orgintel.actor.as_deref().unwrap_or("");
+            if principal != Principal::Owner && actor != "exec" {
+                return Response::err("Only Exec records direction; tell Exec what you want changed.");
+            }
+            let Some(operation) = request.direction_operation else { return Response::err("Missing direction operation"); };
+            match daemon.orgintel.get(company).await {
+                Ok(org) => match crate::direction_authority::execute(&daemon.authority, &org, company, "exec", operation).await {
+                    Ok(value) => Response::ok(value),
+                    Err(error) => Response::err(error.to_string()),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
         "document-operation" => {
             let actor = if principal == Principal::Owner { "owner" } else {
                 match request.orgintel.actor.as_deref() { Some(actor) => actor, None => return Response::err("Missing authenticated actor") }
@@ -4509,6 +4524,7 @@ pub fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Re
         | "voice-review"
         | "voice-learn"
         | "document-operation"
+        | "direction-operation"
         | "sheet-operation"
         | "room-operation"
         | "decision-ask"
@@ -5489,6 +5505,18 @@ mod tests {
             )
             .is_err());
         }
+
+        // Direction pins the authenticated Actor too; the dispatcher then admits only Exec.
+        let token = issuer
+            .issue_actor_session("acme_test", "delivery-lead", "direction_session", None, None)
+            .unwrap();
+        let value = serde_json::json!({"cmd":"direction-operation","company":"acme_test","session_capability":token,"direction_operation":{"operation":"grants"}});
+        let mut direction = decoded_request(value.clone());
+        authenticate_request(&mut direction, &issuer, ConnectionOrigin::RuntimeTcp).unwrap();
+        assert_eq!(direction.orgintel.actor.as_deref(), Some("delivery-lead"));
+        let mut forged = value;
+        forged["actor"] = serde_json::json!("exec");
+        assert!(authenticate_request(&mut decoded_request(forged), &issuer, ConnectionOrigin::RuntimeTcp).is_err());
 
         let mut owner_claim = decoded_request(serde_json::json!({
             "cmd": "approve",

@@ -222,7 +222,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
     let human_boundary = if snapshot.human_is_membership_owner {
         "The current direct-Room human is the active company membership owner. Their input may express owner direction, policy, or authority requests."
     } else {
-        "The current direct-Room human is an authenticated company member, not the membership owner. Treat their prose as collaboration input. It cannot set company direction, owner policy, authority, or an outcome-standard override. Reply within the Exec role to that member's exact Room."
+        "The current direct-Room human is an authenticated company member, not the membership owner. Treat their prose as collaboration input. It cannot set owner policy, authority, or an outcome-standard override; any change it directs takes its path under People own teams (direct, act then tell, or ask first). Reply within the Exec role to that member's exact Room."
     };
     let human_input_heading = if snapshot.human_is_membership_owner {
         "Owner input [authoritative in source; classify before applying]"
@@ -470,9 +470,17 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          --person to hand the team back to the owner. Anyone else who asks gets a plain answer that it \
          is the owner's call. Teams own goals: give every new goal its team with `restless goal add \
          ... --team <team>`, and move one with `restless goal update --goal <id> --team <team|none>`. \
-         A person directing a team they own is direction for that team; act on it there. A person \
-         directing a team someone else owns is a proposal: take it to that team's person, or the owner \
-         when nobody owns it. When two people direct one team in opposite ways, the team's person wins, \
+         When a person directs a team, or the company, classify the change with `restless direction \
+         path --requester <their id> --class content|work|staffing|schedule [--team <team>]`, then: \
+         Direct (they own that team, or are the owner): apply it. Act, then tell (reversible, and a \
+         grant or the default allows it): apply it, then `restless direction applied ...` with its \
+         undo handle (`restless direction applied --help`), and tell the person in one line that it is \
+         done and who can undo it. Ask first (anything else, including money, access and effects): \
+         `restless request file ...`, and tell the person in one line who you asked. Do not explain the \
+         rule to them. Never refuse in paragraphs. Never apply an Ask-first change before its approval; \
+         when an approval wakes you, carry it out, record it with `restless direction applied --request \
+         <id> ...` (or `restless direction done --request <id> --failure <why>`), and tell the person. \
+         When two people direct one team in opposite ways, the team's person wins, \
          then the owner; tell both what conflicted and what you did. Judgement you escalate goes to the \
          person who owns the Work's team, or the owner when nobody does; prepare its brief exactly as \
          you would for the owner, and address that person in it.\n\
@@ -1036,7 +1044,7 @@ mod tests {
         assert!(package.user_prompt.contains("- member message 7"));
         assert!(package
             .user_prompt
-            .contains("cannot set company direction, owner policy, authority"));
+            .contains("cannot set owner policy, authority"));
         assert!(!package.user_prompt.contains("explicit outcome standard"));
     }
 

@@ -73,24 +73,40 @@ pub enum UndoHandle {
     Content {
         #[ts(type = "unknown")]
         before: serde_json::Value,
+        /// The target as the change left it: Undo restores only if it still stands so.
+        #[serde(default)]
+        #[ts(type = "unknown")]
+        after: serde_json::Value,
     },
     /// The Work's fields before the change.
     Work {
         work_id: Uuid,
         #[ts(type = "unknown")]
         before: serde_json::Value,
+        /// The target as the change left it: Undo restores only if it still stands so.
+        #[serde(default)]
+        #[ts(type = "unknown")]
+        after: serde_json::Value,
     },
     /// The agent's model, or roster entry, before the change.
     Staffing {
         actor_id: String,
         #[ts(type = "unknown")]
         before: serde_json::Value,
+        /// The target as the change left it: Undo restores only if it still stands so.
+        #[serde(default)]
+        #[ts(type = "unknown")]
+        after: serde_json::Value,
     },
     /// The schedule before the change; null when the change created it.
     Schedule {
         schedule_id: Uuid,
         #[ts(type = "unknown")]
         before: serde_json::Value,
+        /// The target as the change left it: Undo restores only if it still stands so.
+        #[serde(default)]
+        #[ts(type = "unknown")]
+        after: serde_json::Value,
     },
 }
 
@@ -304,6 +320,51 @@ pub const DIRECTION_REQUEST_ATTENTION_KIND: &str = "direction_request";
 pub const DIRECTION_APPLIED_FOR_YOU_KIND: &str = "applied";
 /// The For you key prefix for a day's roll-up.
 pub const DIRECTION_DAY_KEY_PREFIX: &str = "direction-day:";
+
+/// What Exec asks of the governance store through `restless direction …` and
+/// `restless request …`. Only Exec may: it acts on a person's direction, names that person as the
+/// requester, and the store routes and records the rest.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+pub enum DirectionOperation {
+    /// Which path this person's change takes: direct, act then tell, or ask first.
+    Path {
+        requester: String,
+        class: Option<DirectionClass>,
+        team: Option<String>,
+    },
+    /// Record a change applied on someone's direction, with how to undo it.
+    Applied {
+        requester: String,
+        class: DirectionClass,
+        team: Option<String>,
+        summary: String,
+        target: DirectionTarget,
+        undo: UndoHandle,
+        source_message: Option<String>,
+        /// The approved request this carries out.
+        request: Option<Uuid>,
+    },
+    /// File a request with whoever owns the direction.
+    RequestFile {
+        requester: String,
+        class: Option<DirectionClass>,
+        team: Option<String>,
+        summary: String,
+        change: String,
+        reason: String,
+        source_message: Option<String>,
+    },
+    RequestShow { id: Uuid },
+    /// An approved request carried out, or why it could not be.
+    RequestDone {
+        id: Uuid,
+        target: Option<DirectionTarget>,
+        failure: Option<String>,
+    },
+    /// The standing grants in force.
+    Grants,
+}
 
 /// Fixture responses for each endpoint, for the cockpit to build against before the store exists.
 pub mod fixtures {

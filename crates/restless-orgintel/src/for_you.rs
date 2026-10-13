@@ -449,6 +449,9 @@ fn valid_key(key: &str) -> bool {
         "room-mention" | "doc-mention" | "thread" | "changes" | "share" | "sheet-share"
         | "review" | "sheet-changes" | "access" | "sheet-access" | "sheet-mention"
         | "sheet-thread" => canonical(id),
+        // One day's applied changes (S80), by the company-local day.
+        "direction-day" => id.len() == 10
+            && chrono::NaiveDate::parse_from_str(id, "%Y-%m-%d").is_ok(),
         "room-thread" => id.split_once(':').is_some_and(|(room, root)| {
             canonical(room)
                 && !root.is_empty()
@@ -489,7 +492,44 @@ struct Source {
     sheet: Option<Uuid>,
 }
 
+/// A person's own mark on one For you row that is not OrgIntel's to assemble (a day of applied
+/// direction, S80): when they read it, whether they marked it unread, and when they archived it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForYouMark {
+    pub read_at: DateTime<Utc>,
+    pub marked_unread: bool,
+    pub archived_at: Option<DateTime<Utc>>,
+}
+
 impl OrgIntel {
+    /// This person's marks on the given rows, and the instant everything before counts as read.
+    pub async fn for_you_marks(
+        &self,
+        viewer: &str,
+        keys: &[String],
+    ) -> DocumentResult<(HashMap<String, ForYouMark>, Option<DateTime<Utc>>)> {
+        let rows: Vec<(String, DateTime<Utc>, bool, Option<DateTime<Utc>>)> = sqlx::query_as(
+            "SELECT item_key,read_at,marked_unread,archived_at FROM for_you_reads              WHERE actor_id=$1 AND item_key=ANY($2)",
+        )
+        .bind(viewer)
+        .bind(keys)
+        .fetch_all(&self.pool)
+        .await?;
+        let through: Option<DateTime<Utc>> =
+            sqlx::query_scalar("SELECT read_through FROM for_you_read_cursors WHERE actor_id=$1")
+                .bind(viewer)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok((
+            rows.into_iter()
+                .map(|(key, read_at, marked_unread, archived_at)| {
+                    (key, ForYouMark { read_at, marked_unread, archived_at })
+                })
+                .collect(),
+            through,
+        ))
+    }
+
     async fn for_you_rows(
         &self,
         viewer: &str,

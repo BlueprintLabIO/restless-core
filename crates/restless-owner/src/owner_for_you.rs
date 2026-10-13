@@ -112,6 +112,9 @@ struct ForYouItemView {
     actor_name: String,
     at: DateTime<Utc>,
     unread: bool,
+    /// One day's changes Exec applied on others' direction, each with its Undo (S80).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    direction_applied: Option<Vec<restless_engine::direction::DirectionApplied>>,
 }
 
 fn no_store(mut response: Response<Body>) -> Response<Body> {
@@ -229,7 +232,81 @@ fn item_view(company: &str, item: ForYouItem) -> ForYouItemView {
         actor_name: actor_names(&item.actor_names),
         at: item.at,
         unread: item.unread,
+        direction_applied: None,
     }
+}
+
+/// The days this person was told of changes Exec applied for others, newest first: one row a day,
+/// within the Undo window. Archived days stay out; a day is unread when something in it is newer
+/// than the person's last read of it.
+async fn direction_days(
+    state: &RoomApiState,
+    org: &restless_orgintel::OrgIntel,
+    company: &str,
+    viewer: &str,
+    unread_only: bool,
+) -> Vec<ForYouItemView> {
+    use restless_engine::direction::{DirectionApplied, DIRECTION_APPLIED_FOR_YOU_KIND, DIRECTION_DAY_KEY_PREFIX};
+    use restless_engine::direction_authority as direction;
+    let Some(authority) = state.authority() else { return Vec::new() };
+    let Ok(names) = direction::Names::read(org).await else { return Vec::new() };
+    let since = Utc::now() - chrono::Duration::days(direction::UNDO_WINDOW_DAYS);
+    let entries = match direction::applied(authority, company, &names, viewer, Some(since)).await {
+        Ok(entries) => entries,
+        Err(error) => {
+            tracing::warn!(error = %format!("{error:#}"), "direction days unavailable");
+            return Vec::new();
+        }
+    };
+    // The owner is `owner` here, while the store may route to their Authority id.
+    let owner = direction::company_owner(authority, company).await.unwrap_or_else(|_| "owner".into());
+    let mine = |actor: &str| actor == viewer || (viewer == "owner" && (actor == owner || actor == "owner"));
+    let mut days: std::collections::BTreeMap<chrono::NaiveDate, Vec<DirectionApplied>> = Default::default();
+    for entry in entries {
+        if mine(&entry.routed_to.actor_id) && !mine(&entry.requester.actor_id) {
+            days.entry(entry.applied_at.date_naive()).or_default().push(entry);
+        }
+    }
+    let keys: Vec<String> = days.keys().map(|day| format!("{DIRECTION_DAY_KEY_PREFIX}{day}")).collect();
+    let (marks, through) = org.for_you_marks(viewer, &keys).await.unwrap_or_default();
+    let mut rows = Vec::new();
+    for (day, entries) in days.into_iter().rev() {
+        let key = format!("{DIRECTION_DAY_KEY_PREFIX}{day}");
+        let at = entries.iter().map(|entry| entry.applied_at).max().unwrap_or_else(Utc::now);
+        let mark = marks.get(&key);
+        if mark.and_then(|mark| mark.archived_at).is_some_and(|archived| at <= archived) {
+            continue;
+        }
+        let read = mark.map(|mark| mark.read_at).into_iter().chain(through).max();
+        let unread = mark.is_some_and(|mark| mark.marked_unread) || read.is_none_or(|read| at > read);
+        if unread_only && !unread {
+            continue;
+        }
+        let mut who: Vec<String> = Vec::new();
+        for entry in &entries {
+            if !who.contains(&entry.requester.name) {
+                who.push(entry.requester.name.clone());
+            }
+        }
+        let count = entries.len();
+        rows.push(ForYouItemView {
+            key,
+            kind: DIRECTION_APPLIED_FOR_YOU_KIND.into(),
+            title: format!(
+                "{count} {} applied for {}",
+                if count == 1 { "change" } else { "changes" },
+                actor_names(&who)
+            ),
+            excerpt: entries.first().map(|entry| entry.summary.clone()).unwrap_or_default(),
+            href: format!("/{company}?inspect=direction&day={day}"),
+            actor_id: entries.first().map(|entry| entry.requester.actor_id.clone()).unwrap_or_default(),
+            actor_name: actor_names(&who),
+            at,
+            unread,
+            direction_applied: Some(entries),
+        });
+    }
+    rows
 }
 
 async fn list_for_you(
@@ -255,6 +332,13 @@ async fn list_for_you(
         Ok(org) => org,
         Err(response) => return no_store(response),
     };
+    // The governance store knows the owner as `owner`, whatever their Actor.
+    let viewer = if principal.membership_role() == "owner" { "owner" } else { principal.actor_id() };
+    let days = if before.is_none() && !query.archived {
+        direction_days(&state, &org, &company, viewer, query.unread).await
+    } else {
+        Vec::new()
+    };
     match org
         .for_you_page_showing(
             principal.actor_id(),
@@ -270,18 +354,21 @@ async fn list_for_you(
         )
         .await
     {
-        Ok(page) => no_store(
-            Json(serde_json::json!({
-                "items": page
-                    .items
-                    .into_iter()
-                    .map(|item| item_view(&company, item))
-                    .collect::<Vec<_>>(),
-                "unread_count": page.unread_count,
-                "next_before": page.next_before.map(|cursor| cursor.encode()),
-            }))
-            .into_response(),
-        ),
+        Ok(page) => {
+            let unread_days = days.iter().filter(|day| day.unread).count() as i64;
+            let mut items: Vec<ForYouItemView> =
+                page.items.into_iter().map(|item| item_view(&company, item)).collect();
+            items.extend(days);
+            items.sort_by(|a, b| b.at.cmp(&a.at));
+            no_store(
+                Json(serde_json::json!({
+                    "items": items,
+                    "unread_count": page.unread_count + unread_days,
+                    "next_before": page.next_before.map(|cursor| cursor.encode()),
+                }))
+                .into_response(),
+            )
+        }
         Err(error) => for_you_error(error),
     }
 }

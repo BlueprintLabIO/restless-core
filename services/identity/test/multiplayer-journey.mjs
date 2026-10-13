@@ -11,7 +11,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { closeSync, openSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
+import { createConnection, createServer } from "node:net";
 import { lookup } from "node:dns/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
@@ -218,6 +218,29 @@ async function coreApi(who, path, { method = "GET", body, expected = 200 } = {})
   assert.equal(response.status(), expected, `${method} ${path} as ${who.key}: ${text.slice(0, 300)}`);
   return text ? JSON.parse(text) : null;
 }
+
+// Exec's side, over the plane's own socket as the owner, exactly as the CLI sends it.
+async function daemonCommand(request) {
+  const line = await new Promise((resolve, reject) => {
+    const socket = createConnection(join(root, "restlessd.sock"));
+    let buffer = "";
+    socket.setEncoding("utf8");
+    socket.on("connect", () => socket.write(JSON.stringify({ principal: "owner", ...request }) + "\n"));
+    socket.on("data", (chunk) => {
+      buffer += chunk;
+      const end = buffer.indexOf("\n");
+      if (end >= 0) {
+        socket.end();
+        resolve(buffer.slice(0, end));
+      }
+    });
+    socket.on("error", reject);
+  });
+  const response = JSON.parse(line);
+  assert(response.ok, `${request.cmd}: ${JSON.stringify(response.error)}`);
+  return response.data;
+}
+const direction = (operation) => daemonCommand({ cmd: "direction-operation", company, direction_operation: operation });
 
 // Account site, driven exactly as a person would: create, verify by email, sign in.
 async function createAccount(who, start = "/") {
@@ -862,6 +885,94 @@ try {
   });
   assert.equal(memberTries.status(), 403);
   assert.match(await memberTries.text(), /owner or an admin/, "a member is told an admin may do it too");
+  // 9i. Direction and permission (S80), with Bob an admin. Exec's half runs over the plane's own
+  //     socket exactly as `restless direction` and `restless request` send it; each person's half
+  //     runs through their own session.
+  {
+    const alicePerson = alice.principal.actor_id;
+    const website = `Website ${randomUUID().slice(0, 6)}`;
+    await daemonCommand({ cmd: "actor-create", company, as_actor: "copy-critic", role: "Copywriter", name: "Wren", actor: "exec", reason: "Website copy for the direction smoke" });
+    await daemonCommand({ cmd: "team-create", company, name: website, to: "copy-critic", body: "Copy is plain.", actor: "exec" });
+    const brief = async () => (await daemonCommand({ cmd: "teams", company })).teams.find((team) => team.name === website)?.brief;
+    const teamId = (await daemonCommand({ cmd: "teams", company })).teams.find((team) => team.name === website).id;
+    const directionPath = async (requester, cls, team) =>
+      (await direction({ operation: "path", requester, class: cls ?? null, team: team ?? null })).path;
+
+    // 1. A member's content rule on an unowned team applies at once; the owner can undo it, and Alice is told.
+    assert.equal(await directionPath(alicePerson, "content", website), "act_then_tell");
+    await daemonCommand({ cmd: "team-update", company, name: website, body: "Copy speaks in first person as the business.", actor: "exec", reason: "Alice asked for first person" });
+    const applied = await direction({
+      operation: "applied", requester: alicePerson, class: "content", team: website,
+      summary: "Website copy speaks in first person", target: { kind: "team_brief", team: { id: teamId, name: website } },
+      undo: { kind: "content", before: { team_id: teamId, brief: "Copy is plain." }, after: { brief: "Copy speaks in first person as the business." } },
+    });
+    const forYou = await coreApi(owner, `${base}/for-you`);
+    const day = forYou.items.find((item) => item.kind === "applied");
+    assert(day?.direction_applied?.some((entry) => entry.id === applied.id), "the owner's For you shows the change applied for Alice");
+    const undone = await coreApi(owner, `${base}/direction/applied/${applied.id}/undo`, { method: "POST" });
+    assert.equal(undone.undo.state, "undone");
+    assert.equal(await brief(), "Copy is plain.", "Undo restores the brief");
+
+    // 2. A spend change asks first; Approve reaches Exec, and the request turns Done for Alice.
+    assert.equal(await directionPath(alicePerson, null, null), "ask_first");
+    const spend = (await direction({ operation: "request_file", requester: alicePerson, class: null, team: null, summary: "Raise the ads budget to $200", change: "Monthly ads envelope from $100 to $200", reason: "Launch week" })).request;
+    const inbox = await coreApi(owner, `${base}/attention`);
+    assert(inbox.items.some((item) => item.direction_request?.id === spend.id), "the request is in the owner's Inbox");
+    const approved = await coreApi(owner, `${base}/direction/requests/${spend.id}/decision`, { method: "POST", body: { decision: "approve" } });
+    assert.equal(approved.state, "approved");
+    await direction({ operation: "request_done", id: spend.id, target: null, failure: null });
+    const mine = await coreApi(alice, `${base}/direction/requests?state=mine`);
+    assert.equal(mine.items.find((item) => item.id === spend.id)?.state, "done", "Alice's request turns Done");
+
+    // 3. Approve, and always allow: her next staffing change applies; after Revoke it asks again.
+    assert.equal(await directionPath(alicePerson, "staffing", website), "ask_first");
+    const staffing = (await direction({ operation: "request_file", requester: alicePerson, class: "staffing", team: website, summary: "Give the copywriter a stronger model", change: "The copywriter on the frontier tier", reason: "" })).request;
+    await coreApi(owner, `${base}/direction/requests/${staffing.id}/decision`, { method: "POST", body: { decision: "approve", always_allow: true } });
+    assert.equal(await directionPath(alicePerson, "staffing", website), "act_then_tell", "a standing grant lets her next staffing change apply");
+    const grant = (await coreApi(owner, `${base}/direction/grants`)).items.find((item) => item.class === "staffing");
+    await coreApi(owner, `${base}/direction/grants/${grant.id}/revoke`, { method: "POST", expected: 204 });
+    assert.equal(await directionPath(alicePerson, "staffing", website), "ask_first", "after Revoke it asks again");
+
+    // 4. "Make Alice owner" makes her next direction for that team Direct.
+    const own = (await direction({ operation: "request_file", requester: alicePerson, class: "schedule", team: website, summary: "Post twice a week", change: "A Tuesday and Friday posting schedule", reason: "" })).request;
+    await coreApi(owner, `${base}/direction/requests/${own.id}/decision`, { method: "POST", body: { decision: "approve", make_team_owner: true } });
+    assert.equal(await directionPath(alicePerson, "schedule", website), "direct");
+
+    // 5. The owner and an admin approve one request at once: one wins, the other is told who did.
+    const race = (await direction({ operation: "request_file", requester: alicePerson, class: null, team: null, summary: "Invite a contractor", change: "Invite sam@multiplayer.test as a member", reason: "" })).request;
+    const answers = await Promise.all(
+      [owner, bob].map((who) =>
+        who.context.request.fetch(`${core}${base}/direction/requests/${race.id}/decision`, {
+          method: "POST",
+          headers: { Origin: core, "Content-Type": "application/json", "Idempotency-Key": randomUUID() },
+          data: JSON.stringify({ decision: "approve" }),
+          failOnStatusCode: false,
+        }),
+      ),
+    );
+    assert.deepEqual(answers.map((answer) => answer.status()).sort(), [200, 409], "one approval wins");
+    const loser = answers.find((answer) => answer.status() === 409);
+    assert.match((await loser.json()).message, /already approved/);
+
+    // 6. One change applied and one request open: the digest counts both.
+    await direction({
+      operation: "applied", requester: bob.principal.actor_id, class: "content", team: null,
+      summary: "Charter mentions the launch", target: { kind: "charter" }, undo: { kind: "content", before: {} },
+    }).catch(() => null);
+    const open = (await direction({ operation: "request_file", requester: alicePerson, class: null, team: null, summary: "Open a second bank account", change: "Business savings account", reason: "" })).request;
+    const digest = await coreApi(owner, `${base}/direction/digest`);
+    assert.match(digest.summary, /applied .* for others/, "the digest counts what was applied");
+    assert(digest.requests_waiting.some((item) => item.id === open.id), "the digest lists the waiting request");
+
+    // 7. A member never sees another's requests and is refused grants and Undo.
+    await direction({ operation: "request_file", requester: bob.principal.actor_id, class: null, team: null, summary: "Bob's private ask", change: "Something only Bob asked", reason: "" });
+    const aliceOpen = await coreApi(alice, `${base}/direction/requests?state=open`);
+    assert(!aliceOpen.items.some((item) => item.requester.actor_id === bob.principal.actor_id), "Alice never sees Bob's requests");
+    await coreApi(alice, `${base}/direction/grants`, { expected: 403 });
+    await coreApi(alice, `${base}/direction/applied/${applied.id}/undo`, { method: "POST", expected: 403 });
+    pass("direction: act then tell with Undo, ask first with Approve and Done, always allow until revoked, make owner, one answer wins, the digest counts, and a member sees only her own");
+  }
+
   // Taking it back is as immediate: his admin session ends, and he is a member again.
   await owner.page.goto(`${core}/${company}/company/members`);
   await bobAccess.waitFor({ timeout: 30000 });

@@ -456,6 +456,7 @@ impl AuthorityStore {
             crate::connections::ensure_schema(&pool).await?;
             crate::telegram::ensure_schema(&pool).await?;
             crate::member_access::ensure_schema(&pool).await?;
+            crate::direction_authority::ensure_schema(&pool).await?;
             Ok::<_, anyhow::Error>(())
         }
         .await;

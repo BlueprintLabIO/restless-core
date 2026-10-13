@@ -9,6 +9,7 @@ pub mod airwallex;
 pub mod airwallex_ingress;
 pub mod approval;
 pub mod direction;
+pub mod direction_authority;
 pub mod attention;
 pub mod authority;
 pub mod capability;

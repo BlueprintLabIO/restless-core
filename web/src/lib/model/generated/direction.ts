@@ -13,7 +13,23 @@ export type DirectionTeam = { id: string, name: string, };
 
 export type DirectionTarget = { "kind": "document", id: string, title: string, } | { "kind": "sheet", id: string, title: string, } | { "kind": "charter" } | { "kind": "team_brief", team: DirectionTeam, } | { "kind": "work", id: string, title: string, } | { "kind": "schedule", id: string, title: string, } | { "kind": "agent", actor_id: string, name: string, };
 
-export type UndoHandle = { "kind": "content", before: unknown, } | { "kind": "work", work_id: string, before: unknown, } | { "kind": "staffing", actor_id: string, before: unknown, } | { "kind": "schedule", schedule_id: string, before: unknown, };
+export type UndoHandle = { "kind": "content", before: unknown, 
+/**
+ * The target as the change left it: Undo restores only if it still stands so.
+ */
+after: unknown, } | { "kind": "work", work_id: string, before: unknown, 
+/**
+ * The target as the change left it: Undo restores only if it still stands so.
+ */
+after: unknown, } | { "kind": "staffing", actor_id: string, before: unknown, 
+/**
+ * The target as the change left it: Undo restores only if it still stands so.
+ */
+after: unknown, } | { "kind": "schedule", schedule_id: string, before: unknown, 
+/**
+ * The target as the change left it: Undo restores only if it still stands so.
+ */
+after: unknown, };
 
 export type UndoState = { "state": "available", until: string, } | { "state": "undone", by: DirectionPerson, at: string, } | { "state": "changed_since" } | { "state": "expired" };
 

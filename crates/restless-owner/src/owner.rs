@@ -29,6 +29,8 @@ mod documents_api;
 mod pending_shares_api;
 #[path = "owner_typing.rs"]
 mod typing_api;
+#[path = "owner_direction.rs"]
+mod direction_api;
 #[path = "owner_for_you.rs"]
 mod for_you_api;
 #[path = "owner_member_collaboration.rs"]
@@ -225,6 +227,15 @@ impl FromRef<OwnerState> for RoomApiState {
 }
 
 impl RoomApiState {
+    /// The governance store, when this state serves the daemon (tests use fixed companies only).
+    fn authority(&self) -> Option<&restless_engine::authority::AuthorityStore> {
+        match &self.source {
+            RoomOrgIntelSource::Daemon(daemon) => Some(&daemon.authority),
+            #[cfg(test)]
+            RoomOrgIntelSource::Fixed { .. } => None,
+        }
+    }
+
     async fn orgintel(&self, company: &str) -> Result<restless_orgintel::OrgIntel> {
         match &self.source {
             RoomOrgIntelSource::Daemon(daemon) => daemon.orgintel.get(company).await,
@@ -1389,6 +1400,22 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/companies/{company}/archive", post(archive_company))
         .route("/companies/{company}/restore", post(restore_company))
         .route("/companies/{company}/attention", get(attention_view))
+        .route("/companies/{company}/direction/requests", get(direction_api::requests))
+        .route(
+            "/companies/{company}/direction/requests/{request}/decision",
+            post(direction_api::decide),
+        )
+        .route("/companies/{company}/direction/applied", get(direction_api::applied))
+        .route(
+            "/companies/{company}/direction/applied/{applied}/undo",
+            post(direction_api::undo),
+        )
+        .route("/companies/{company}/direction/grants", get(direction_api::grants))
+        .route(
+            "/companies/{company}/direction/grants/{grant}/revoke",
+            post(direction_api::revoke),
+        )
+        .route("/companies/{company}/direction/digest", get(direction_api::digest))
         .route("/companies/{company}/attention/dismiss", post(dismiss_attention))
         .route("/companies/{company}/attention/dismissed", get(dismissed_attention))
         .route("/companies/{company}/attention/restore", post(restore_attention))
@@ -2043,6 +2070,9 @@ fn membership_boundary_violation(
         || is_company_route_family(path, "for-you")
         // What each person opened and snoozed in their own Inbox.
         || is_company_route_family(path, "inbox-marks")
+        // Direction (S80): a person's own requests and changes, and what is routed to them to
+        // decide or undo; the store checks each against the person asking.
+        || is_company_route_family(path, "direction")
         || is_company_route_family(path, "library-pins")
         || is_company_route_family(path, "comment-search")
         // Presence names only people already in the company directory.

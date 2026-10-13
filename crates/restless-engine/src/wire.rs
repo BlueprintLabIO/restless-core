@@ -634,6 +634,9 @@ pub struct Request {
     pub document_operation: Option<crate::document_commands::DocumentOperation>,
     #[serde(default)]
     pub sheet_operation: Option<crate::sheet_commands::SheetOperation>,
+    /// Exec's direction and permission operation (S80).
+    #[serde(default)]
+    pub direction_operation: Option<crate::direction::DirectionOperation>,
     /// A typed decision a company actor asks for (`restless decide`): `state` and `questions`.
     #[serde(default)]
     pub decision: Option<serde_json::Value>,
@@ -784,6 +787,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "room-operation" => &["actor", "room_operation"],
         "document-operation" => &["actor", "document_operation"],
         "sheet-operation" => &["actor", "sheet_operation"],
+        "direction-operation" => &["actor", "direction_operation"],
         "decision-ask" => &["actor", "decision"],
         "tools-list" => &["actor", "tool"],
         "tools-check" => &["actor", "tool"],
@@ -1735,6 +1739,7 @@ mod tests {
             "effect-reconcile",
             "watch",
             "document-review-request",
+            "direction-operation",
         ];
         for command in COMMANDS {
             assert!(
