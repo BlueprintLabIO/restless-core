@@ -47,15 +47,17 @@ const FOLLOWED: &str = "followed AS ( \
  ), \
  follows AS (SELECT * FROM followed WHERE since IS NOT NULL)";
 
-/// Sheets a person follows, the same way: an explicit choice wins, otherwise owning or editing a
-/// sheet follows it from the first time they did.
+/// Sheets a person follows, the same way: an explicit choice wins, otherwise owning, editing,
+/// commenting on or being mentioned in a sheet follows it from the first time they did.
 const SHEETS_FOLLOWED: &str = "sheet_follows AS ( \
    SELECT s.id AS sheet_id,s.title, \
      LEAST( \
        CASE WHEN f.following THEN f.updated_at END, \
        CASE WHEN s.owner_actor_id=$1 THEN s.created_at END, \
        (SELECT min(m.accepted_at) FROM native_sheet_messages m \
-         WHERE m.sheet_id=s.id AND m.actor_id=$1) \
+         WHERE m.sheet_id=s.id AND m.actor_id=$1), \
+       (SELECT min(c.created_at) FROM native_sheet_comments c \
+         WHERE c.sheet_id=s.id AND (c.author_actor_id=$1 OR $1=ANY(c.mentioned_actor_ids))) \
      ) AS since \
    FROM native_sheets s \
    LEFT JOIN native_sheet_follows f ON f.sheet_id=s.id AND f.actor_id=$1 \
@@ -169,6 +171,54 @@ const ITEMS: &str = "viewer AS ( \
    ) fresh ON TRUE \
    WHERE tr.joined_at IS NOT NULL OR tr.followed_since IS NOT NULL \
  ), \
+ sheet_mentions AS ( \
+   SELECT 'sheet-mention:'||c.id,'mention',NULL::uuid,c.sheet_id,NULL::uuid,NULL::text, \
+     NULL::bigint,NULL::bigint,c.thread_id,s.title,left(c.body,$7),ARRAY[c.author_actor_id], \
+     c.created_at, \
+     (c.created_at>GREATEST(viewer.through,COALESCE(r.read_at,'-infinity')) \
+      AND NOT EXISTS(SELECT 1 FROM native_sheet_comments answer \
+        WHERE answer.thread_id=c.thread_id AND answer.author_actor_id=$1 \
+          AND answer.deleted_at IS NULL AND answer.created_at>c.created_at)) \
+   FROM native_sheet_comments c CROSS JOIN viewer \
+   JOIN native_sheets s ON s.id=c.sheet_id AND s.archived_at IS NULL \
+   LEFT JOIN for_you_reads r ON r.actor_id=$1 AND r.item_key='sheet-mention:'||c.id \
+   WHERE $1=ANY(c.mentioned_actor_ids) AND c.author_actor_id<>$1 AND c.deleted_at IS NULL \
+     AND $6::uuid IS NULL AND ($8::uuid IS NULL OR c.sheet_id=$8) \
+ ), \
+ sheet_thread_rows AS ( \
+   SELECT t.id AS thread_id,t.sheet_id,s.title, \
+     (SELECT min(c.created_at) FROM native_sheet_comments c \
+       WHERE c.thread_id=t.id AND c.author_actor_id=$1) AS joined_at, \
+     sf.since AS followed_since \
+   FROM native_sheet_comment_threads t \
+   JOIN native_sheets s ON s.id=t.sheet_id AND s.archived_at IS NULL \
+   LEFT JOIN sheet_follows sf ON sf.sheet_id=t.sheet_id \
+   WHERE $6::uuid IS NULL AND ($8::uuid IS NULL OR t.sheet_id=$8) \
+ ), \
+ sheet_threads AS ( \
+   SELECT 'sheet-thread:'||tr.thread_id, \
+     CASE WHEN tr.joined_at IS NULL THEN 'comment' ELSE 'reply' END, \
+     NULL::uuid,tr.sheet_id,NULL::uuid,NULL::text,NULL::bigint,NULL::bigint,tr.thread_id,tr.title, \
+     left(latest.body,$7),COALESCE(fresh.actors,ARRAY[latest.author_actor_id]), \
+     latest.created_at,fresh.actors IS NOT NULL \
+   FROM sheet_thread_rows tr CROSS JOIN viewer \
+   LEFT JOIN for_you_reads r ON r.actor_id=$1 AND r.item_key='sheet-thread:'||tr.thread_id \
+   JOIN LATERAL ( \
+     SELECT c.author_actor_id,c.body,c.created_at FROM native_sheet_comments c \
+     WHERE c.thread_id=tr.thread_id AND c.author_actor_id<>$1 AND c.deleted_at IS NULL \
+       AND NOT ($1=ANY(c.mentioned_actor_ids)) \
+       AND c.created_at>LEAST(tr.joined_at,tr.followed_since) \
+     ORDER BY c.created_at DESC,c.id DESC LIMIT 1 \
+   ) latest ON TRUE \
+   LEFT JOIN LATERAL ( \
+     SELECT array_agg(DISTINCT c.author_actor_id) AS actors FROM native_sheet_comments c \
+     WHERE c.thread_id=tr.thread_id AND c.author_actor_id<>$1 AND c.deleted_at IS NULL \
+       AND NOT ($1=ANY(c.mentioned_actor_ids)) \
+       AND c.created_at>LEAST(tr.joined_at,tr.followed_since) \
+       AND c.created_at>GREATEST(viewer.through,COALESCE(r.read_at,'-infinity')) \
+   ) fresh ON TRUE \
+   WHERE tr.joined_at IS NOT NULL OR tr.followed_since IS NOT NULL \
+ ), \
  doc_shares AS ( \
    SELECT 'share:'||p.document_id,'share',p.document_id,NULL::uuid,NULL::uuid,NULL::text, \
      NULL::bigint,NULL::bigint,NULL::uuid,d.title, \
@@ -184,7 +234,7 @@ const ITEMS: &str = "viewer AS ( \
  sheet_shares AS ( \
    SELECT 'sheet-share:'||p.sheet_id,'share',NULL::uuid,p.sheet_id,NULL::uuid,NULL::text, \
      NULL::bigint,NULL::bigint,NULL::uuid,s.title, \
-     CASE p.access WHEN 'edit' THEN 'Can edit' ELSE 'Can view' END, \
+     CASE p.access WHEN 'edit' THEN 'Can edit' WHEN 'comment' THEN 'Can comment' ELSE 'Can view' END, \
      ARRAY[p.added_by_actor_id],p.added_at, \
      p.added_at>GREATEST(viewer.through,COALESCE(r.read_at,'-infinity')) \
    FROM native_sheet_participants p CROSS JOIN viewer \
@@ -270,7 +320,8 @@ const ITEMS: &str = "viewer AS ( \
        WHERE b.actor_id=$1 AND b.membership_role='owner' AND b.membership_status='active')) \
  ), \
  sheet_access AS ( \
-   SELECT 'sheet-access:'||q.id,CASE q.access WHEN 'edit' THEN 'edit-access' ELSE 'access' END, \
+   SELECT 'sheet-access:'||q.id,CASE q.access WHEN 'edit' THEN 'edit-access' \
+     WHEN 'comment' THEN 'comment-access' ELSE 'access' END, \
      NULL::uuid,q.sheet_id,NULL::uuid,NULL::text,NULL::bigint,NULL::bigint,NULL::uuid,s.title,''::text, \
      ARRAY[q.actor_id],q.requested_at, \
      q.requested_at>GREATEST(viewer.through,COALESCE(r.read_at,'-infinity')) \
@@ -281,11 +332,13 @@ const ITEMS: &str = "viewer AS ( \
      AND (s.owner_actor_id=$1 OR $1='owner' OR EXISTS(SELECT 1 FROM human_principal_actor_bindings b \
        WHERE b.actor_id=$1 AND b.membership_role='owner' AND b.membership_status='active')) \
      AND NOT EXISTS(SELECT 1 FROM native_sheet_participants p WHERE p.sheet_id=q.sheet_id \
-       AND p.actor_id=q.actor_id AND (p.access='edit' OR q.access='read')) \
-     AND NOT (s.visibility='company' AND (s.company_access='edit' OR q.access='read')) \
+       AND p.actor_id=q.actor_id AND (p.access='edit' OR q.access='read' \
+         OR (p.access='comment' AND q.access='comment'))) \
+     AND NOT (s.visibility='company' AND (s.company_access='edit' OR q.access='read' \
+       OR (s.company_access='comment' AND q.access='comment'))) \
  ), \
  items AS ( \
-   SELECT * FROM room_mentions UNION ALL SELECT * FROM room_threads    UNION ALL SELECT * FROM doc_mentions UNION ALL SELECT * FROM threads    UNION ALL SELECT * FROM doc_shares UNION ALL SELECT * FROM sheet_shares    UNION ALL SELECT * FROM reviews UNION ALL SELECT * FROM changes    UNION ALL SELECT * FROM sheet_changes UNION ALL SELECT * FROM access_requests    UNION ALL SELECT * FROM sheet_access  )";
+   SELECT * FROM room_mentions UNION ALL SELECT * FROM room_threads    UNION ALL SELECT * FROM doc_mentions UNION ALL SELECT * FROM threads    UNION ALL SELECT * FROM doc_shares UNION ALL SELECT * FROM sheet_shares    UNION ALL SELECT * FROM reviews UNION ALL SELECT * FROM changes    UNION ALL SELECT * FROM sheet_changes UNION ALL SELECT * FROM access_requests    UNION ALL SELECT * FROM sheet_access    UNION ALL SELECT * FROM sheet_mentions UNION ALL SELECT * FROM sheet_threads  )";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "source", rename_all = "snake_case")]
@@ -297,6 +350,8 @@ pub enum ForYouTarget {
     },
     Sheet {
         sheet_id: Uuid,
+        /// The comment thread a mention, reply or comment is in, so it opens on that thread.
+        thread_id: Option<Uuid>,
     },
     Room {
         room_id: Uuid,
@@ -392,7 +447,8 @@ fn valid_key(key: &str) -> bool {
     let canonical = |id: &str| Uuid::parse_str(id).is_ok_and(|parsed| parsed.hyphenated().to_string() == id);
     match kind {
         "room-mention" | "doc-mention" | "thread" | "changes" | "share" | "sheet-share"
-        | "review" | "sheet-changes" | "access" | "sheet-access" => canonical(id),
+        | "review" | "sheet-changes" | "access" | "sheet-access" | "sheet-mention"
+        | "sheet-thread" => canonical(id),
         "room-thread" => id.split_once(':').is_some_and(|(room, root)| {
             canonical(room)
                 && !root.is_empty()
@@ -484,7 +540,10 @@ impl OrgIntel {
                         // A document item carries its comment thread in the Room mention's column.
                         thread_id: row.try_get("mention_id")?,
                     },
-                    (None, Some(sheet_id)) => ForYouTarget::Sheet { sheet_id },
+                    (None, Some(sheet_id)) => ForYouTarget::Sheet {
+                        sheet_id,
+                        thread_id: row.try_get("mention_id")?,
+                    },
                     (None, None) => ForYouTarget::Room {
                         room_id: row.try_get("room_id")?,
                         room_kind: row.try_get("room_kind")?,
@@ -547,7 +606,7 @@ impl OrgIntel {
                         allowed
                     }
                 },
-                ForYouTarget::Sheet { sheet_id } => match readable.get(&sheet_id) {
+                ForYouTarget::Sheet { sheet_id, .. } => match readable.get(&sheet_id) {
                     Some(allowed) => *allowed,
                     None => {
                         let allowed = self

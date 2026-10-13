@@ -1,5 +1,10 @@
 import { App, Component, xml } from '@odoo/owl';
-import { Model, Spreadsheet } from '@odoo/o-spreadsheet/dist/o_spreadsheet.esm.js';
+import {
+	Model,
+	Spreadsheet,
+	helpers,
+	registries
+} from '@odoo/o-spreadsheet/dist/o_spreadsheet.esm.js';
 import templates from '@odoo/o-spreadsheet/dist/o_spreadsheet.xml?raw';
 import spreadsheetCss from '@odoo/o-spreadsheet/dist/o_spreadsheet.css?inline';
 import bootstrapCss from 'bootstrap/dist/css/bootstrap.min.css?inline';
@@ -28,6 +33,79 @@ export interface EditorStatus {
 	notice?: { title: string; text: string; details?: string };
 }
 type UpstreamMessage = Record<string, any>;
+/** The cell a person has selected: the tab by the grid's id and name, the cell as A1. */
+export interface SheetSelection {
+	worksheet: string;
+	name: string;
+	cell: string;
+	/** Every tab, by id, with its name now. */
+	tabs: Record<string, string>;
+}
+
+/* "Comment" in the grid's own right-click menu, for anyone who can open the sheet, opens the
+ * comments on the cell. The menu is the engine's, shared by every open sheet; it calls whichever
+ * sheet was opened last. */
+let commentRequest: (() => void) | undefined;
+let commentMenuAdded = false;
+function addCommentMenu() {
+	if (commentMenuAdded) return;
+	commentMenuAdded = true;
+	registries.cellMenuRegistry.add('restless_comment', {
+		name: 'Comment',
+		description: navigator.platform.includes('Mac') ? '⌘⌥M' : 'Ctrl+Alt+M',
+		sequence: 1,
+		separator: true,
+		isReadonlyAllowed: true,
+		execute: () => commentRequest?.()
+	});
+}
+/** A cell to mark as carrying a comment thread. */
+export interface SheetMark {
+	worksheet: string;
+	cell: string;
+}
+
+/* Commented cells carry a small corner mark, drawn over the grid where the engine draws other
+ * people's cursors, and redrawn whenever the grid changes or scrolls. It never takes a click. */
+function drawMarks(model: any, element: HTMLElement, marks: readonly SheetMark[]) {
+	const canvas = element.querySelector<HTMLCanvasElement>('.o-grid canvas');
+	const host = canvas?.parentElement;
+	let layer = element.querySelector<HTMLDivElement>('.sheet-comment-marks');
+	if (!host) return;
+	if (!layer || layer.parentElement !== host) {
+		layer?.remove();
+		layer = document.createElement('div');
+		layer.className = 'sheet-comment-marks';
+		layer.setAttribute('aria-hidden', 'true');
+		layer.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:1';
+		host.append(layer);
+	}
+	const sheetId = model.getters.getActiveSheetId();
+	const seen = new Set<string>();
+	const html: string[] = [];
+	for (const mark of marks) {
+		if (mark.worksheet !== sheetId || seen.has(mark.cell)) continue;
+		seen.add(mark.cell);
+		let position: { col: number; row: number };
+		try {
+			position = helpers.toCartesian(mark.cell);
+		} catch {
+			continue;
+		}
+		if (!model.getters.isVisibleInViewport({ sheetId, ...position })) continue;
+		const { x, y, width } = model.getters.getVisibleRect({
+			left: position.col,
+			top: position.row,
+			right: position.col,
+			bottom: position.row
+		});
+		html.push(
+			`<span style="position:absolute;left:${x + width - 8}px;top:${y + 1}px;width:0;height:0;border-top:7px solid #e8a317;border-left:7px solid transparent"></span>`
+		);
+	}
+	const next = html.join('');
+	if (layer.innerHTML !== next) layer.innerHTML = next;
+}
 
 /* One change is one revision. A paste sends a command per cell, and the server takes up to
  * 100,000 commands in a message of at most 8 MiB. Past either, it is refused here, before it is
@@ -77,8 +155,28 @@ export function mountSheet(
 	sheet: string,
 	status: (value: EditorStatus) => void,
 	/** Who else has this sheet open, or just changed it; cleared while the session is down. */
-	faces: (value: PageFace[]) => void = () => {}
+	faces: (value: PageFace[]) => void = () => {},
+	/** The cell the person has selected, each time it changes. */
+	selected: (value: SheetSelection) => void = () => {},
+	/** The person asked to comment on the selected cell. */
+	comment: () => void = () => {}
 ) {
+	addCommentMenu();
+	commentRequest = comment;
+	const shortcut = (event: KeyboardEvent) => {
+		if (
+			(event.ctrlKey || event.metaKey) &&
+			event.altKey &&
+			event.code === 'KeyM' &&
+			event.target instanceof Node &&
+			element.contains(event.target)
+		) {
+			event.preventDefault();
+			event.stopPropagation();
+			comment();
+		}
+	};
+	element.addEventListener('keydown', shortcut, true);
 	let model: any,
 		app: App<typeof Root> | undefined,
 		socket: WebSocket | undefined,
@@ -92,6 +190,28 @@ export function mountSheet(
 	let access = 'read';
 	let row: SheetRow | undefined;
 	let present: unknown = [];
+	let marks: readonly SheetMark[] = [];
+	let lastSelection = '';
+	const listener = {};
+	function gridChanged() {
+		if (!model) return;
+		const { col, row } = model.getters.getActivePosition();
+		const worksheet = model.getters.getActiveSheetId();
+		const tabs: Record<string, string> = {};
+		for (const id of model.getters.getSheetIds()) tabs[id] = model.getters.getSheetName(id);
+		const value = {
+			worksheet,
+			name: tabs[worksheet] ?? '',
+			cell: helpers.toXC(col, row),
+			tabs
+		};
+		const key = JSON.stringify(value);
+		if (key !== lastSelection) {
+			lastSelection = key;
+			selected(value);
+		}
+		drawMarks(model, element, marks);
+	}
 	/* Each face takes the selection colour the grid gives that person's session. */
 	function showFaces(value: unknown = present) {
 		present = value;
@@ -299,6 +419,8 @@ export function mountSheet(
 							state.messages.map((m: { message: UpstreamMessage }) => m.message)
 						);
 						cursor = state.sheet.sequence;
+						lastSelection = '';
+						model.on('update', listener, gridChanged);
 						const mounted = new App(Root, { props: { model }, templates });
 						app = mounted;
 						await mount(mounted);
@@ -307,6 +429,7 @@ export function mountSheet(
 							return;
 						}
 						if (access === 'edit') fitColumnsOnce(model, sheet);
+						gridChanged();
 					} else for (const m of state.messages) accepted(m.sequence, m.message);
 					model.updateMode(access === 'edit' ? 'normal' : 'readonly');
 					for (const message of pending.values()) socket?.send(JSON.stringify(message));
@@ -348,8 +471,26 @@ export function mountSheet(
 	connect();
 	return {
 		getModel: () => model,
+		/** Show a cell: its tab, selected, scrolled into view. False if the tab is gone. */
+		select(worksheet: string, cell: string): boolean {
+			if (!model || !model.getters.getSheetIds().includes(worksheet)) return false;
+			const active = model.getters.getActiveSheetId();
+			if (active !== worksheet)
+				model.dispatch('ACTIVATE_SHEET', { sheetIdFrom: active, sheetIdTo: worksheet });
+			const { col, row } = helpers.toCartesian(cell);
+			model.selection.selectCell(col, row);
+			model.dispatch('SCROLL_TO_CELL', { col, row });
+			return true;
+		},
+		/** The cells to mark as carrying a comment thread. */
+		mark(value: readonly SheetMark[]) {
+			marks = value;
+			if (model) drawMarks(model, element, marks);
+		},
 		destroy() {
 			disposed = true;
+			element.removeEventListener('keydown', shortcut, true);
+			if (commentRequest === comment) commentRequest = undefined;
 			clearTimeout(timer);
 			socket?.close();
 			app?.destroy();

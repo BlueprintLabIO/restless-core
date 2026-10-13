@@ -4,9 +4,9 @@ A living assessment of the cockpit's collaboration against Notion, the owner's b
 not a feature count: each area asks whether the everyday path is complete, polished and works for
 every person in the company, members as well as the owner. Update it with each sprint.
 
-**Read:** 13 October 2026, after Sprint 73.
+**Read:** 13 October 2026, after Sprint 74.
 **Evidence:**
-- the three-person multiplayer smoke (`scripts/multiplayer-smoke`): 21 steps, owner and two
+- the three-person multiplayer smoke (`scripts/multiplayer-smoke`): 22 steps, owner and two
   members over network entry
 - the DB suites
 - an axe-core audit of ten screens at desktop and phone width
@@ -27,7 +27,7 @@ every person in the company, members as well as the owner. Update it with each s
 | Inbox / notifications | At par | For you: mentions, replies, comments, changes, shares, asks; unread, archive with Undo, Archived view; desktop notices; email when away (S65–S66) | per-kind mute settings (waiting until asked for) |
 | Live updates | At par | Library, For you, sharing and comments update within seconds for everyone (S68, S70); rooms live; typing indicators (S73) | none |
 | Library and organisation | Close | list, kinds, review, Archived with restore and delete, pins on every device, Duplicate (S67), Edited by (S72), ⌘K search including comments | nested pages and a page tree (Notion's sidebar hierarchy) are not modelled: the Library is flat by kind |
-| Sheets | Close | co-editing, sharing, general access, history, CSV/Excel in and out, Duplicate, ask for access | comments on cells or rows are missing (Notion database pages carry comments) |
+| Sheets | At par | co-editing, sharing at view, comment or edit, history, CSV/Excel in and out, Duplicate, ask for access; comments on cells with mentions, replies, resolve, corner marks and For you (S74) | a thread stays on the cell address it was written on when rows are inserted above it |
 | Chat (People rooms) | At par | group and direct rooms, threads, files and pictures, reactions, mentions, typing (S73), search | none on the everyday path |
 | Version history | Close | named versions, restore, what changed since you last looked, who edited | a side-by-side diff view of two versions is not offered |
 | Search (⌘K) | Close | documents by title and body, sheets, people, conversations, comments, recents | full-text search inside sheets |
@@ -38,8 +38,7 @@ every person in the company, members as well as the owner. Update it with each s
 
 ## Next, in order
 
-1. **Comments on sheets:** the largest remaining collaboration gap.
-2. **A keyboard-only walk and a screen-reader pass** over the everyday screens.
-3. **A page tree:** nesting documents under one another, the largest structural difference from
+1. **A keyboard-only walk and a screen-reader pass** over the everyday screens.
+2. **A page tree:** nesting documents under one another, the largest structural difference from
    Notion. It needs a design decision on how nesting meets general access.
-4. **A version diff view.**
+3. **A version diff view.**

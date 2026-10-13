@@ -121,7 +121,7 @@ impl OrgIntel {
             .ok_or_else(|| DocumentError::Invalid("that is not an email address".into()))?;
         let known = match target {
             ShareTarget::Document(_) => matches!(access, "read" | "comment" | "edit"),
-            ShareTarget::Sheet(_) => matches!(access, "read" | "edit"),
+            ShareTarget::Sheet(_) => matches!(access, "read" | "comment" | "edit"),
         };
         if !known {
             return Err(DocumentError::Invalid(format!("unknown access {access:?}")));

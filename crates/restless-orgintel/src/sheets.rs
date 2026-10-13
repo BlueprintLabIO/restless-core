@@ -42,8 +42,8 @@ pub struct SheetRow {
     pub title: String,
     pub owner_actor_id: String,
     pub visibility: String,
-    /// What every person in the company may do without being added: "private", "view" or
-    /// "edit". Exec and Staff never gain access this way; they are added.
+    /// What every person in the company may do without being added: "private", "view",
+    /// "comment" or "edit". Exec and Staff never gain access this way; they are added.
     pub general_access: String,
     pub engine_version: String,
     pub head_revision: String,
@@ -92,7 +92,7 @@ pub struct SheetSharing {
     pub people: Vec<SheetParticipant>,
     pub may_manage: bool,
 }
-/// Someone asking for a sheet: to view (`read`) or to edit.
+/// Someone asking for a sheet: to view (`read`), to comment or to edit.
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct SheetAccessRequest {
     pub id: Uuid,
@@ -114,9 +114,9 @@ pub struct SheetClient {
     pub reconnect_token: String,
     pub generation: Uuid,
 }
-const ROW: &str = "id,title,owner_actor_id,visibility,CASE WHEN visibility='participants' THEN 'private' WHEN company_access='read' THEN 'view' ELSE 'edit' END AS general_access,engine_version,head_revision,sequence,created_at,updated_at,archived_at";
+const ROW: &str = "id,title,owner_actor_id,visibility,CASE WHEN visibility='participants' THEN 'private' WHEN company_access='read' THEN 'view' WHEN company_access='comment' THEN 'comment' ELSE 'edit' END AS general_access,engine_version,head_revision,sequence,created_at,updated_at,archived_at";
 
-async fn access(
+pub(crate) async fn access(
     tx: &mut Transaction<'_, Postgres>,
     id: Uuid,
     actor: &str,
@@ -223,6 +223,19 @@ fn bounded(value: &Value) -> Result<usize> {
     }
     Ok(size)
 }
+/// How much a level allows: viewing, then commenting, then editing.
+pub(crate) fn level_rank(level: &str) -> u8 {
+    match level {
+        "edit" => 2,
+        "comment" => 1,
+        _ => 0,
+    }
+}
+/// The same order in SQL, for a column or parameter holding a level.
+fn level_rank_sql(expression: &str) -> String {
+    format!("(CASE {expression} WHEN 'edit' THEN 2 WHEN 'comment' THEN 1 ELSE 0 END)")
+}
+const LEVELS: [&str; 3] = ["read", "comment", "edit"];
 fn revision(message: &Value, field: &str) -> Result<String> {
     let value = message[field]
         .as_str()
@@ -716,11 +729,11 @@ impl OrgIntel {
         tx.commit().await?;
         Ok(sequence)
     }
-    /// Asks whoever may share a sheet for access to it: to view, or to edit. Nothing happens
-    /// for a sheet that is gone, or for an ask the person's access already answers. An ask set
-    /// aside stays quiet for a day unless the person asks for more.
+    /// Asks whoever may share a sheet for access to it: to view, to comment or to edit. Nothing
+    /// happens for a sheet that is gone, or for an ask the person's access already answers. An
+    /// ask set aside stays quiet for a day unless the person asks for more.
     pub async fn request_sheet_access(&self, id: Uuid, actor: &str, wanted: &str) -> Result<()> {
-        if !["read", "edit"].contains(&wanted) {
+        if !LEVELS.contains(&wanted) {
             return Err(SheetError::Invalid("invalid access".into()));
         }
         let mut tx = self.pool.begin().await?;
@@ -741,24 +754,27 @@ impl OrgIntel {
             return Ok(());
         }
         match access(&mut tx, id, actor, false).await {
-            Ok(grant) if grant == "edit" || wanted == "read" => return Ok(()),
+            Ok(grant) if level_rank(&grant) >= level_rank(wanted) => return Ok(()),
             Ok(_) | Err(SheetError::Unavailable) => {}
             Err(error) => return Err(error),
         }
-        sqlx::query(
+        // An open ask keeps the most it asked for; one set aside wakes for more, or after a day.
+        let old = level_rank_sql("native_sheet_access_requests.access");
+        let new = level_rank_sql("EXCLUDED.access");
+        sqlx::query(&format!(
             "INSERT INTO native_sheet_access_requests (id,sheet_id,actor_id,access) \
              VALUES ($1,$2,$3,$4) \
              ON CONFLICT (sheet_id,actor_id) DO UPDATE SET \
                access=CASE WHEN native_sheet_access_requests.closed_at IS NULL \
-                 AND native_sheet_access_requests.access='edit' THEN 'edit' ELSE EXCLUDED.access END, \
+                 AND {old}>{new} THEN native_sheet_access_requests.access ELSE EXCLUDED.access END, \
                requested_at=CASE WHEN native_sheet_access_requests.closed_at IS NULL \
-                 AND native_sheet_access_requests.access=EXCLUDED.access \
+                 AND {old}>={new} \
                  THEN native_sheet_access_requests.requested_at ELSE now() END, \
                closed_at=NULL,closed_by_actor_id=NULL \
              WHERE native_sheet_access_requests.closed_at IS NULL \
                OR native_sheet_access_requests.closed_at<now()-interval '1 day' \
-               OR (EXCLUDED.access='edit' AND native_sheet_access_requests.access='read')",
-        )
+               OR {new}>{old}"
+        ))
         .bind(Uuid::new_v4())
         .bind(id)
         .bind(actor)
@@ -789,7 +805,7 @@ impl OrgIntel {
         let mut open = Vec::with_capacity(rows.len());
         for row in rows {
             let answered = match access(&mut tx, id, &row.actor_id, false).await {
-                Ok(grant) => grant == "edit" || row.access == "read",
+                Ok(grant) => level_rank(&grant) >= level_rank(&row.access),
                 Err(SheetError::Unavailable) => false,
                 Err(error) => return Err(error),
             };
@@ -836,7 +852,7 @@ impl OrgIntel {
         participant: &str,
         grant: Option<&str>,
     ) -> Result<()> {
-        if grant.is_some_and(|g| !["read", "edit"].contains(&g)) {
+        if grant.is_some_and(|g| !LEVELS.contains(&g)) {
             return Err(SheetError::Invalid("invalid access".into()));
         }
         let mut tx = self.pool.begin().await?;
@@ -861,7 +877,7 @@ impl OrgIntel {
             sqlx::query("INSERT INTO native_sheet_participants(sheet_id,actor_id,access,added_by_actor_id,added_at) VALUES($1,$2,$3,$4,now()) ON CONFLICT(sheet_id,actor_id) DO UPDATE SET access=EXCLUDED.access")
                 .bind(id).bind(participant).bind(grant).bind(actor).execute(&mut *tx).await?;
             // Giving someone what they asked for answers their ask.
-            sqlx::query("UPDATE native_sheet_access_requests SET closed_at=now(),closed_by_actor_id=$3 WHERE sheet_id=$1 AND actor_id=$2 AND closed_at IS NULL AND (access='read' OR $4='edit')")
+            sqlx::query(&format!("UPDATE native_sheet_access_requests SET closed_at=now(),closed_by_actor_id=$3 WHERE sheet_id=$1 AND actor_id=$2 AND closed_at IS NULL AND {}<={}", level_rank_sql("access"), level_rank_sql("$4")))
                 .bind(id).bind(participant).bind(actor).bind(grant).execute(&mut *tx).await?;
         } else {
             sqlx::query("DELETE FROM native_sheet_participants WHERE sheet_id=$1 AND actor_id=$2")
@@ -873,7 +889,8 @@ impl OrgIntel {
         tx.commit().await?;
         Ok(())
     }
-    /// Set who in the company may open a sheet without being added: "private", "view" or "edit".
+    /// Set who in the company may open a sheet without being added: "private", "view",
+    /// "comment" or "edit".
     /// Its managers may, as they may share it.
     pub async fn set_sheet_general_access(
         &self,
@@ -884,6 +901,7 @@ impl OrgIntel {
         let (visibility, company_access) = match general_access {
             "private" => ("participants", None),
             "view" => ("company", Some("read")),
+            "comment" => ("company", Some("comment")),
             "edit" => ("company", Some("edit")),
             _ => return Err(SheetError::Invalid("invalid general access".into())),
         };
@@ -934,7 +952,8 @@ impl OrgIntel {
         }
         let (owner_actor_id, general_access): (String, String) = sqlx::query_as(
             "SELECT owner_actor_id,CASE WHEN visibility='participants' THEN 'private' \
-               WHEN company_access='read' THEN 'view' ELSE 'edit' END \
+               WHEN company_access='read' THEN 'view' WHEN company_access='comment' THEN 'comment' \
+               ELSE 'edit' END \
              FROM native_sheets WHERE id=$1",
         )
         .bind(id)

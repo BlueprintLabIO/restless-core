@@ -47,7 +47,7 @@ async fn an_ask_for_a_sheet_reaches_its_sharer_and_closes_when_answered() {
         .find(|item| item.key.starts_with("sheet-access:"))
         .expect("the owner hears of the ask");
     assert_eq!(ask.kind, "access");
-    assert_eq!(ask.target, ForYouTarget::Sheet { sheet_id: deals });
+    assert_eq!(ask.target, ForYouTarget::Sheet { sheet_id: deals, thread_id: None });
     assert_eq!(ask.actor_ids, ["alex"]);
 
     // Sharing it to view answers the ask; asking to edit is a new ask.

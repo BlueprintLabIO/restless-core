@@ -1,27 +1,50 @@
 <script lang="ts">
-	import type { EditorStatus } from '$lib/model/sheet-editor';
+	import type { EditorStatus, SheetMark, SheetSelection } from '$lib/model/sheet-editor';
 	import type { PageFace } from '$lib/model/page-faces';
 	import { Notice } from '$lib/ui/page';
 	let {
 		company,
 		sheet,
 		onstatus,
-		onfaces
+		onfaces,
+		onselection,
+		oncomment,
+		marks = []
 	}: {
 		company: string;
 		sheet: string;
 		onstatus?: (value: EditorStatus) => void;
 		onfaces?: (value: PageFace[]) => void;
+		/** The selected cell, each time it changes. */
+		onselection?: (value: SheetSelection) => void;
+		/** The person asked to comment on the selected cell, from the grid's menu or Ctrl+Alt+M. */
+		oncomment?: () => void;
+		/** Cells that carry a comment thread, marked in the grid. */
+		marks?: readonly SheetMark[];
 	} = $props();
 	let host: HTMLDivElement | undefined = $state();
 	let editorState = $state<EditorStatus>({ state: 'connecting', access: 'read' });
 	let notice = $state<EditorStatus['notice']>();
 	let retry = $state(0);
-	let editor: { getModel(): any; destroy(): void } | undefined;
+	let editor:
+		| {
+				getModel(): any;
+				select(worksheet: string, cell: string): boolean;
+				mark(value: readonly SheetMark[]): void;
+				destroy(): void;
+		  }
+		| undefined = $state.raw();
 	/** The live workbook model, for downloading it; undefined until the sheet has opened. */
 	export function getModel(): any {
 		return editor?.getModel();
 	}
+	/** Show a cell, on its tab; false when the sheet is not open or the tab is gone. */
+	export function select(worksheet: string, cell: string): boolean {
+		return editor?.select(worksheet, cell) ?? false;
+	}
+	$effect(() => {
+		editor?.mark(marks);
+	});
 	$effect(() => {
 		const targetCompany = company,
 			targetSheet = sheet;
@@ -46,6 +69,12 @@
 					},
 					(value) => {
 						if (!disposed) onfaces?.(value);
+					},
+					(value) => {
+						if (!disposed) onselection?.(value);
+					},
+					() => {
+						if (!disposed) oncomment?.();
 					}
 				);
 			})

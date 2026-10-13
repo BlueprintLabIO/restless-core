@@ -1,11 +1,11 @@
 <script lang="ts">
 	/* Who can open a sheet, as for documents: its general access for the company's people, and
-	 * anyone added by name, Exec and Staff included, at view or edit. Whoever may not manage
+	 * anyone added by name, Exec and Staff included, to view, comment or edit. Whoever may not manage
 	 * sharing sees the same, read-only. */
 	import { untrack } from 'svelte';
 	import SharePanel from '$lib/components/SharePanel.svelte';
 	import { failureSentence } from '$lib/model/failure';
-	import { generalAccessOptions, type GeneralAccess } from '$lib/model/general-access';
+	import { GENERAL_ACCESS_OPTIONS, type GeneralAccess } from '$lib/model/general-access';
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import { mayManageCompanySetup } from '$lib/model/company-access';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
@@ -27,6 +27,7 @@
 		setSheetGeneralAccess,
 		setSheetParticipant,
 		sheetHref,
+		type SheetLevel,
 		type SheetRow,
 		type SheetSharing
 	} from '$lib/model/sheets';
@@ -52,8 +53,15 @@
 
 	const LEVELS = [
 		{ value: 'read', label: 'Can view' },
+		{ value: 'comment', label: 'Can comment' },
 		{ value: 'edit', label: 'Can edit' }
 	] as const;
+
+	const ASKED: Record<SheetLevel, { asked: string; grant: string; verb: string }> = {
+		read: { asked: 'asked to open it', grant: 'Let them view', verb: 'view' },
+		comment: { asked: 'asked to comment', grant: 'Let them comment', verb: 'comment on' },
+		edit: { asked: 'asked to edit', grant: 'Let them edit', verb: 'edit' }
+	};
 
 	let sharing = $state<SheetSharing | null>(null);
 	let pending = $state<PendingShare[]>([]);
@@ -127,7 +135,7 @@
 		return done;
 	}
 
-	function add(actorId: string, access: 'read' | 'edit'): Promise<boolean> {
+	function add(actorId: string, access: SheetLevel): Promise<boolean> {
 		return change(
 			() => setSheetParticipant(company, sheet, actorId, access),
 			`${nameOf(actorId)} was not added.`
@@ -163,15 +171,14 @@
 			void load({ company, sheet }).catch(() => undefined);
 			return true;
 		} catch (cause) {
-			if (cause instanceof AlreadyMember)
-				return add(cause.member.actor_id, access as 'read' | 'edit');
+			if (cause instanceof AlreadyMember) return add(cause.member.actor_id, access as SheetLevel);
 			failure = failureSentence(cause, `${email} was not invited.`);
 			return false;
 		}
 	}
 
 	/* Show a level change or removal at once; the read-back after it restores the truth. */
-	function optimistic(actorId: string, access: 'read' | 'edit' | null): void {
+	function optimistic(actorId: string, access: SheetLevel | null): void {
 		if (!sharing) return;
 		const people = access
 			? sharing.people.map((row) => (row.actor_id === actorId ? { ...row, access } : row))
@@ -205,7 +212,7 @@
 	/* Granting gives the level asked for; Dismiss sets the ask aside for a day. */
 	async function grantAsk(ask: SheetAccessRequest): Promise<void> {
 		if (await add(ask.actor_id, ask.access))
-			toast(`${nameOf(ask.actor_id)} can ${ask.access === 'read' ? 'view' : 'edit'} it now`);
+			toast(`${nameOf(ask.actor_id)} can ${ASKED[ask.access].verb} it now`);
 	}
 	function dismissAsk(ask: SheetAccessRequest): void {
 		void change(
@@ -229,7 +236,7 @@
 				<div class="ask">
 					<p>
 						<strong>{nameOf(ask.actor_id)}</strong>
-						{ask.access === 'edit' ? 'asked to edit' : 'asked to open it'}
+						{ASKED[ask.access].asked}
 						<RelativeTime value={ask.requested_at} />
 					</p>
 					<div class="ask-actions">
@@ -237,8 +244,7 @@
 							type="button"
 							class="btn small primary"
 							disabled={busy}
-							onclick={() => void grantAsk(ask)}
-							>{ask.access === 'edit' ? 'Let them edit' : 'Let them view'}</button
+							onclick={() => void grantAsk(ask)}>{ASKED[ask.access].grant}</button
 						>
 						<button
 							type="button"
@@ -252,7 +258,7 @@
 			{/each}
 		</section>{/if}<SharePanel
 		general={sharing.general_access}
-		generalOptions={generalAccessOptions('sheet')}
+		generalOptions={GENERAL_ACCESS_OPTIONS}
 		levels={LEVELS}
 		ownerName={nameOf(owner)}
 		ownerIsYou={!!viewerId && owner === viewerId}
@@ -263,16 +269,16 @@
 		{failure}
 		{link}
 		ongeneral={setGeneral}
-		onadd={(actorId, access) => void add(actorId, access as 'read' | 'edit')}
+		onadd={(actorId, access) => void add(actorId, access as SheetLevel)}
 		oninvite={canInvite ? invite : undefined}
 		{pending}
 		onpendingaccess={setPendingAccess}
 		onpendingremove={removePending}
 		onaccess={(actorId, access) => {
 			if (busy) return;
-			optimistic(actorId, access as 'read' | 'edit');
+			optimistic(actorId, access as SheetLevel);
 			void change(
-				() => setSheetParticipant(company, sheet, actorId, access as 'read' | 'edit'),
+				() => setSheetParticipant(company, sheet, actorId, access as SheetLevel),
 				'Access was not changed.'
 			);
 		}}

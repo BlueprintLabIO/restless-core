@@ -2,23 +2,19 @@
  * people, then the people added by name. Exec and Staff never see anything through general
  * access; they are added like anyone else. */
 
-/** What every person in the company may do without being added. Sheets have no comments. */
+/** What every person in the company may do without being added. */
 export type GeneralAccess = 'private' | 'view' | 'comment' | 'edit';
 
 export const PRIVATE_HINT = 'Only people added can open it';
 
-const GENERAL: ReadonlyArray<{ value: GeneralAccess; label: string }> = [
+/** The levels documents and sheets both offer. */
+export const GENERAL_ACCESS_OPTIONS: ReadonlyArray<{ value: GeneralAccess; label: string }> = [
 	{ value: 'private', label: 'Private' },
 	{ value: 'view', label: 'Company can view' },
 	{ value: 'comment', label: 'Company can comment' },
 	{ value: 'edit', label: 'Company can edit' }
 ];
 
-export function generalAccessOptions(
-	kind: 'document' | 'sheet'
-): ReadonlyArray<{ value: GeneralAccess; label: string }> {
-	return kind === 'sheet' ? GENERAL.filter((option) => option.value !== 'comment') : GENERAL;
-}
 
 export interface ShareCandidate {
 	actor_id: string;

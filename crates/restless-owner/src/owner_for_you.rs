@@ -181,9 +181,13 @@ pub(super) fn href(company: &str, item: &ForYouItem) -> String {
             format!("/{company}/library/documents?document={document_id}{panel}")
         }
         // An ask for a sheet opens its sharing, where it can be granted.
-        ForYouTarget::Sheet { sheet_id } => match item.kind.as_str() {
-            "access" | "edit-access" => {
+        // A mention, reply or comment opens the sheet on its thread.
+        ForYouTarget::Sheet { sheet_id, thread_id } => match (item.kind.as_str(), thread_id) {
+            ("access" | "comment-access" | "edit-access", _) => {
                 format!("/{company}/library/sheets?sheet={sheet_id}&inspect=share")
+            }
+            (_, Some(thread)) => {
+                format!("/{company}/library/sheets?sheet={sheet_id}&inspect=comments&thread={thread}")
             }
             _ => format!("/{company}/library/sheets?sheet={sheet_id}"),
         },

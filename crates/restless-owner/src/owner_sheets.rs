@@ -60,6 +60,22 @@ where
             "/companies/{company}/sheets/{sheet}/collaboration",
             get(collaboration),
         )
+        .route(
+            "/companies/{company}/sheets/{sheet}/comments",
+            get(comments).post(start_thread),
+        )
+        .route(
+            "/companies/{company}/sheets/{sheet}/comments/{thread}/replies",
+            post(reply),
+        )
+        .route(
+            "/companies/{company}/sheets/{sheet}/comments/{thread}/resolve",
+            post(resolve),
+        )
+        .route(
+            "/companies/{company}/sheets/{sheet}/comments/{thread}/{comment}",
+            axum::routing::patch(edit_comment).delete(delete_comment),
+        )
         .layer(DefaultBodyLimit::max(restless_orgintel::MAX_SHEET_BYTES))
 }
 fn failure(error: anyhow::Error) -> Response<Body> {
@@ -70,6 +86,17 @@ fn failure(error: anyhow::Error) -> Response<Body> {
         StatusCode::NOT_FOUND
     } else {
         StatusCode::UNPROCESSABLE_ENTITY
+    };
+    // A refusal the person can act on reads as a sentence, without the error's own prefix.
+    let message = match message.strip_prefix("invalid sheet: ") {
+        Some(reason) if status == StatusCode::UNPROCESSABLE_ENTITY => {
+            let mut letters = reason.chars();
+            letters
+                .next()
+                .map(|first| first.to_uppercase().chain(letters).collect())
+                .unwrap_or_default()
+        }
+        _ => message,
     };
     no_store(api_error(status, "sheet", message))
 }
@@ -182,8 +209,8 @@ async fn create(
     )
     .await
 }
-/// A PATCH renames a sheet, or sets its general access ("private", "view" or "edit") for
-/// whoever may manage its sharing.
+/// A PATCH renames a sheet, or sets its general access ("private", "view", "comment" or "edit")
+/// for whoever may manage its sharing.
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum PatchInput {
@@ -220,6 +247,152 @@ async fn rename(
             Ok(value) => no_store(Json(value).into_response()),
             Err(e) => failure(e),
         },
+    }
+}
+/// The sheet's comment threads, and whether the reader may take part.
+async fn comments(
+    State(s): State<RoomApiState>,
+    RoomPrincipal(p): RoomPrincipal,
+    AxumPath((c, sheet)): AxumPath<(String, Uuid)>,
+) -> Response<Body> {
+    match async {
+        let org = org(&s, &p, &c).await?;
+        anyhow::Ok(json!(org.sheet_comments(sheet, p.actor_id()).await?))
+    }
+    .await
+    {
+        Ok(value) => no_store(Json(value).into_response()),
+        Err(e) => failure(e),
+    }
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NewThread {
+    id: Uuid,
+    worksheet_id: String,
+    cell: String,
+    body: String,
+    #[serde(default)]
+    mentions: Vec<String>,
+}
+async fn start_thread(
+    State(s): State<RoomApiState>,
+    RoomPrincipal(p): RoomPrincipal,
+    AxumPath((c, sheet)): AxumPath<(String, Uuid)>,
+    Json(i): Json<NewThread>,
+) -> Response<Body> {
+    match async {
+        let org = org(&s, &p, &c).await?;
+        anyhow::Ok(json!(
+            org.create_sheet_comment_thread(
+                sheet,
+                p.actor_id(),
+                i.id,
+                &i.worksheet_id,
+                &i.cell,
+                &i.body,
+                &i.mentions
+            )
+            .await?
+        ))
+    }
+    .await
+    {
+        Ok(value) => no_store(Json(value).into_response()),
+        Err(e) => failure(e),
+    }
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NewReply {
+    id: Uuid,
+    body: String,
+    #[serde(default)]
+    mentions: Vec<String>,
+}
+async fn reply(
+    State(s): State<RoomApiState>,
+    RoomPrincipal(p): RoomPrincipal,
+    AxumPath((c, sheet, thread)): AxumPath<(String, Uuid, Uuid)>,
+    Json(i): Json<NewReply>,
+) -> Response<Body> {
+    match async {
+        let org = org(&s, &p, &c).await?;
+        anyhow::Ok(json!(
+            org.reply_to_sheet_comment(sheet, p.actor_id(), thread, i.id, &i.body, &i.mentions)
+                .await?
+        ))
+    }
+    .await
+    {
+        Ok(value) => no_store(Json(value).into_response()),
+        Err(e) => failure(e),
+    }
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Resolve {
+    resolved: bool,
+}
+async fn resolve(
+    State(s): State<RoomApiState>,
+    RoomPrincipal(p): RoomPrincipal,
+    AxumPath((c, sheet, thread)): AxumPath<(String, Uuid, Uuid)>,
+    Json(i): Json<Resolve>,
+) -> Response<Body> {
+    match async {
+        let org = org(&s, &p, &c).await?;
+        anyhow::Ok(json!(
+            org.set_sheet_comment_thread_resolved(sheet, p.actor_id(), thread, i.resolved)
+                .await?
+        ))
+    }
+    .await
+    {
+        Ok(value) => no_store(Json(value).into_response()),
+        Err(e) => failure(e),
+    }
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EditComment {
+    body: String,
+    #[serde(default)]
+    mentions: Vec<String>,
+}
+async fn edit_comment(
+    State(s): State<RoomApiState>,
+    RoomPrincipal(p): RoomPrincipal,
+    AxumPath((c, sheet, _thread, comment)): AxumPath<(String, Uuid, Uuid, Uuid)>,
+    Json(i): Json<EditComment>,
+) -> Response<Body> {
+    match async {
+        let org = org(&s, &p, &c).await?;
+        anyhow::Ok(json!(
+            org.edit_sheet_comment(sheet, p.actor_id(), comment, &i.body, &i.mentions)
+                .await?
+        ))
+    }
+    .await
+    {
+        Ok(value) => no_store(Json(value).into_response()),
+        Err(e) => failure(e),
+    }
+}
+async fn delete_comment(
+    State(s): State<RoomApiState>,
+    RoomPrincipal(p): RoomPrincipal,
+    AxumPath((c, sheet, _thread, comment)): AxumPath<(String, Uuid, Uuid, Uuid)>,
+) -> Response<Body> {
+    match async {
+        let org = org(&s, &p, &c).await?;
+        org.delete_sheet_comment(sheet, p.actor_id(), comment).await?;
+        anyhow::Ok(())
+    }
+    .await
+    {
+        Ok(()) => no_store(StatusCode::NO_CONTENT.into_response()),
+        Err(e) => failure(e),
     }
 }
 /// Who can open a sheet, for its share panel.

@@ -92,7 +92,7 @@ async fn a_share_waits_for_an_invitee_and_is_given_when_they_enter() {
         .await
         .unwrap();
     assert!(matches!(
-        org.share_with_invitee(ShareTarget::Sheet(deals), "owner", "dana@example.com", "comment")
+        org.share_with_invitee(ShareTarget::Sheet(deals), "owner", "dana@example.com", "manage")
             .await,
         Err(DocumentError::Invalid(_))
     ));

@@ -552,7 +552,7 @@ async fn being_shared_a_document_or_sheet_reaches_only_that_person_while_they_ha
     let sheet_key = format!("sheet-share:{sheet}");
     let (alex, _) = items(&org, "alex").await;
     let shared = find(&alex, &sheet_key).expect("Alex hears he was given the sheet");
-    assert_eq!(shared.target, ForYouTarget::Sheet { sheet_id: sheet });
+    assert_eq!(shared.target, ForYouTarget::Sheet { sheet_id: sheet, thread_id: None });
     assert_eq!(shared.excerpt, "Can edit");
     assert!(find(&items(&org, "bianca").await.0, &sheet_key).is_none());
 

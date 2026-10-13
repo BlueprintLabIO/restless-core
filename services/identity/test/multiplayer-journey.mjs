@@ -672,6 +672,40 @@ try {
   );
   pass("a member asked for a private sheet; the owner granted it from For you and she can open it");
 
+  // 9c2. Comments on a sheet. The owner lets Alice comment; she comments on a cell and mentions
+  //      the owner, whose open sheet shows it at once and marks the cell. The owner hears of it in
+  //      For you, replies from the thread it opens, and resolves it; Alice sees both as they happen.
+  await coreApi(owner, `${base}/sheets/${sheetId}/participants/${alice.principal.actor_id}`, {
+    method: "PUT",
+    body: { access: "comment" },
+  });
+  await owner.page.goto(`${core}/${company}/library/sheets?sheet=${sheetId}&inspect=comments`);
+  await owner.page.getByText("No open comments").waitFor({ timeout: 30000 });
+  await alice.page.goto(`${core}/${company}/library/sheets?sheet=${sheetId}&inspect=comments`);
+  const aliceComment = alice.page.getByRole("combobox", { name: "Comment on A1" });
+  await aliceComment.waitFor({ timeout: 30000 });
+  await aliceComment.click();
+  await aliceComment.pressSequentially("Is this right, @Mar", { delay: 30 });
+  await alice.page.getByRole("option", { name: owner.name }).waitFor({ timeout: 5000 });
+  await alice.page.keyboard.press("Enter");
+  await aliceComment.pressSequentially("?", { delay: 30 });
+  await alice.page.getByRole("button", { name: "Comment", exact: true }).click();
+  await alice.page.getByText(`Is this right, @${owner.name} ?`).waitFor({ timeout: 10000 });
+  await owner.page.getByText(`Is this right, @${owner.name} ?`).waitFor({ timeout: 8000 });
+  await until(async () => (await owner.page.locator(".sheet-comment-marks span").count()) === 1, "the commented cell is marked", 10);
+  const sheetMention = (await coreApi(owner, `${base}/for-you?limit=50`)).items.find((item) => item.key.startsWith("sheet-mention:"));
+  assert.ok(sheetMention?.href.includes("inspect=comments&thread="), "the mention opens the sheet on its thread");
+  await owner.page.goto(core + sheetMention.href);
+  const ownerReply = owner.page.getByRole("combobox", { name: "Reply on A1" });
+  await ownerReply.waitFor({ timeout: 30000 });
+  await ownerReply.fill("Yes, it matches the board pack.");
+  await owner.page.getByRole("button", { name: "Reply", exact: true }).click();
+  await alice.page.getByText("Yes, it matches the board pack.").waitFor({ timeout: 8000 });
+  await shot(owner, "sheet-comments");
+  await owner.page.getByRole("button", { name: "Resolve the thread on A1" }).click();
+  await alice.page.getByText("No open comments").waitFor({ timeout: 8000 });
+  pass("a member commented on a sheet's cell and mentioned the owner; the reply and resolve reached her live");
+
   // 9d. A page made for the company reaches a member's open Library as it happens. The list polls
   //     every 15 seconds; arriving well inside that is the change stream, which members now hear.
   await alice.page.goto(`${core}/${company}/library`);

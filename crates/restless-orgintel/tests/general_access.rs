@@ -261,14 +261,19 @@ async fn sheets_mirror_general_access() {
             opened
         }
     };
-    for (level, person) in [("private", None), ("view", Some("read")), ("edit", Some("edit"))] {
+    for (level, person) in [
+        ("private", None),
+        ("view", Some("read")),
+        ("comment", Some("comment")),
+        ("edit", Some("edit")),
+    ] {
         let row = org.set_sheet_general_access(sheet, "blair", level).await.unwrap();
         assert_eq!(row.general_access, level);
         assert_eq!(opens("alex").await.as_deref(), person, "{level} for a person");
         assert_eq!(opens("exec").await, None, "{level} for Exec");
         assert_eq!(opens("research-analyst").await, None, "{level} for Staff");
     }
-    assert!(org.set_sheet_general_access(sheet, "blair", "comment").await.is_err());
+    assert!(org.set_sheet_general_access(sheet, "blair", "anyone").await.is_err());
     // A member cannot change it or share it; the Exec and the company's owner may.
     assert!(org.set_sheet_general_access(sheet, "alex", "private").await.is_err());
     assert!(org.share_sheet(sheet, "alex", "research-analyst", Some("edit")).await.is_err());

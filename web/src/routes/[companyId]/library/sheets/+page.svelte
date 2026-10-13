@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { namePageContext } from '$lib/model/page-context.svelte';
-	/* One sheet, full width, opened from the Library. History and sharing open
-	 * in a side panel named in the address (?inspect=history|share), so a link or
-	 * Back reopens them; everything else lives in the header's More menu. Follow
+	/* One sheet, full width, opened from the Library. Comments, history and sharing
+	 * open in a side panel named in the address (?inspect=comments|history|share,
+	 * with &thread= for one thread), so a link or Back reopens them; everything else
+	 * lives in the header's More menu. Follow
 	 * says whether its changes reach this person in For you. With ?import=1 and no
 	 * sheet, the page imports an Excel or CSV file as a new sheet. */
 	import { tick, untrack } from 'svelte';
@@ -12,6 +13,9 @@
 	import X from '@lucide/svelte/icons/x';
 	import Lock from '@lucide/svelte/icons/lock';
 	import FileSpreadsheet from '@lucide/svelte/icons/file-spreadsheet';
+	import MessageSquare from '@lucide/svelte/icons/message-square';
+	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
+	import SheetComments from '$lib/components/SheetComments.svelte';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import { Item, Notice, Empty } from '$lib/ui/page';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
@@ -21,16 +25,18 @@
 	import LibraryCrumb from '$lib/components/LibraryCrumb.svelte';
 	import SheetShare from '$lib/components/SheetShare.svelte';
 	import { PRIVATE_HINT } from '$lib/model/general-access';
-	import type { EditorStatus } from '$lib/model/sheet-editor';
+	import type { EditorStatus, SheetMark, SheetSelection } from '$lib/model/sheet-editor';
 	import {
 		SPREADSHEET_ACCEPT,
 		importSpreadsheet,
 		askForSheet,
 		duplicateSheet,
+		getSheetComments,
 		renameSheet,
 		saveFile,
 		sheetHref,
 		sheetJson,
+		type SheetLevel,
 		type SheetRow
 	} from '$lib/model/sheets';
 	import { failureSentence } from '$lib/model/failure';
@@ -69,15 +75,23 @@
 		saveState = $state('connecting'),
 		access = $state('read'),
 		worksheet = $state('');
-	const panel = $derived.by<'history' | 'sharing' | ''>(() => {
+	const panel = $derived.by<'comments' | 'history' | 'sharing' | ''>(() => {
 		const inspect = page.url.searchParams.get('inspect');
-		return inspect === 'history' ? 'history' : inspect === 'share' ? 'sharing' : '';
+		return inspect === 'comments'
+			? 'comments'
+			: inspect === 'history'
+				? 'history'
+				: inspect === 'share'
+					? 'sharing'
+					: '';
 	});
+	const focusThread = $derived(page.url.searchParams.get('thread') ?? '');
 	let versions = $state<Version[] | null>(null);
 	let csvInput: HTMLInputElement | undefined = $state();
 	let importInput: HTMLInputElement | undefined = $state();
 	let editor: SheetEditor | undefined = $state();
 	let faces = $state<PageFace[]>([]);
+	let selection = $state<SheetSelection | null>(null);
 	let titleInput: HTMLInputElement | undefined = $state();
 	let titleDraft = $state<string | null>(null);
 	let focusTitleFor = $state('');
@@ -141,6 +155,38 @@
 		if (value.denied && !row) missing = true;
 	}
 
+	/* Comments on the sheet's cells, live for everyone who has it open: open threads mark their
+	 * cells in the grid, and the panel lists them all. */
+	const queryClient = useQueryClient();
+	const commentsKey = $derived(['sheet-comments', company, sheet, partition]);
+	const commentsQuery = createQuery(() => ({
+		queryKey: commentsKey,
+		queryFn: () => getSheetComments(company, sheet),
+		enabled: !!sheet && authorized && !!row,
+		staleTime: 5_000
+	}));
+	const comments = $derived(commentsQuery.data ?? null);
+	const openThreads = $derived((comments?.threads ?? []).filter((thread) => !thread.resolved_at));
+	const marks = $derived<SheetMark[]>(
+		openThreads.map((thread) => ({ worksheet: thread.worksheet_id, cell: thread.cell }))
+	);
+	const refreshComments = () => queryClient.invalidateQueries({ queryKey: commentsKey });
+	/* Reading a sheet's comments reads what For you said about them. */
+	$effect(() => {
+		const id = row?.id;
+		if (!id || panel !== 'comments' || !comments) return;
+		untrack(() => {
+			const unread =
+				forYou?.items.filter(
+					(item) =>
+						item.unread &&
+						/^sheet-(mention|thread):/.test(item.key) &&
+						item.href.includes(`sheet=${id}`)
+				) ?? [];
+			if (unread.length) void forYou?.read(unread.map((item) => item.key)).catch(() => undefined);
+		});
+	});
+
 	/* Every action is bound to the sheet it started on; a late answer for a
 	 * sheet the owner has since left is dropped. */
 	async function act<T>(
@@ -198,7 +244,7 @@
 	/* Someone who may not open it, or may only view it, asks whoever shares it. The answer is
 	 * the same whether the sheet is private or gone, so asking reveals nothing. */
 	let asked = $state('');
-	async function askForAccess(wanted: 'read' | 'edit') {
+	async function askForAccess(wanted: SheetLevel) {
 		const target = sheet;
 		try {
 			await askForSheet(company, target, wanted);
@@ -206,7 +252,9 @@
 			toast(
 				wanted === 'edit'
 					? 'Asked for edit access. Whoever shares it will see it in For you.'
-					: 'Asked. Whoever shares it will see it in For you.'
+					: wanted === 'comment'
+						? 'Asked to comment. Whoever shares it will see it in For you.'
+						: 'Asked. Whoever shares it will see it in For you.'
 			);
 		} catch (cause) {
 			toast(failureSentence(cause, 'The ask was not sent.'), { tone: 'failure' });
@@ -366,13 +414,24 @@
 			() => sheetJson<Version[]>(company, `/${sheet}/versions`),
 			(value) => (versions = value)
 		);
-	function showPanel(next: 'history' | 'sharing' | '') {
+	function showPanel(next: 'comments' | 'history' | 'sharing' | '') {
 		const url = new URL(page.url);
-		if (next) url.searchParams.set('inspect', next === 'sharing' ? 'share' : 'history');
+		if (next) url.searchParams.set('inspect', next === 'sharing' ? 'share' : next);
 		else url.searchParams.delete('inspect');
+		url.searchParams.delete('thread');
 		void goto(url, { keepFocus: true, noScroll: true });
 	}
-	const openPanel = (next: 'history' | 'sharing') => showPanel(panel === next ? '' : next);
+	const openPanel = (next: 'comments' | 'history' | 'sharing') =>
+		showPanel(panel === next ? '' : next);
+	/* "Comment" from the grid's menu or Ctrl+Alt+M opens the panel ready to write. */
+	async function commentHere() {
+		if (panel !== 'comments') showPanel('comments');
+		await tick();
+		setTimeout(() => document.getElementById('sheet-new-comment')?.focus(), 60);
+	}
+	function tabName(worksheet: string): string | null {
+		return selection?.tabs[worksheet] ?? null;
+	}
 	$effect(() => {
 		if (panel === 'history' && sheet && authorized) untrack(() => void loadVersions());
 	});
@@ -456,7 +515,9 @@
 		saveState === 'saved'
 			? access === 'edit'
 				? 'Saved'
-				: 'Read only'
+				: access === 'comment'
+					? 'Can comment'
+					: 'Read only'
 			: saveState === 'saving'
 				? 'Saving…'
 				: saveState === 'offline'
@@ -521,7 +582,7 @@
 			<span class="spacer"></span>
 			<PageFaces {faces} />
 			{#if row}
-				{#if access === 'read'}
+				{#if access !== 'edit'}
 					<button
 						type="button"
 						class="btn small follow"
@@ -543,6 +604,17 @@
 					>
 				{/if}
 				<button
+					class="btn small comments-button"
+					class:active={panel === 'comments'}
+					type="button"
+					title="Comments on its cells"
+					aria-label={openThreads.length ? `Comments, ${openThreads.length} open` : 'Comments'}
+					onclick={() => openPanel('comments')}
+					><MessageSquare size={14} strokeWidth={1.8} />{#if openThreads.length}<span
+							>{openThreads.length}</span
+						>{/if}</button
+				>
+				<button
 					class="btn small"
 					class:active={panel === 'sharing'}
 					type="button"
@@ -560,7 +632,7 @@
 							<RelativeTime value={row.updated_at} />
 						</p>{/if}
 					<button type="button" onclick={() => openPanel('history')}>History</button>
-					{#if access === 'read'}
+					{#if access !== 'edit'}
 						<button
 							type="button"
 							class="narrow-only"
@@ -717,7 +789,10 @@
 					{company}
 					{sheet}
 					{onstatus}
+					{marks}
 					onfaces={(value) => (faces = value)}
+					onselection={(value) => (selection = value)}
+					oncomment={() => void commentHere()}
 				/>{/key}
 		{/if}
 	</section>
@@ -725,9 +800,12 @@
 	{#if panel}
 		<!-- On a phone the panel covers the sheet and its heading; this names the page meanwhile. -->
 		<h1 class="sr-title">{row?.title ?? 'Sheet'}</h1>
-		<aside class="side cockpit-pane" aria-label={panel === 'history' ? 'History' : 'Sharing'}>
+		<aside
+			class="side cockpit-pane"
+			aria-label={panel === 'comments' ? 'Comments' : panel === 'history' ? 'History' : 'Sharing'}
+		>
 			<header class="side-head">
-				<h2>{panel === 'history' ? 'History' : 'Share'}</h2>
+				<h2>{panel === 'comments' ? 'Comments' : panel === 'history' ? 'History' : 'Share'}</h2>
 				<button
 					type="button"
 					class="close"
@@ -736,7 +814,25 @@
 					onclick={() => showPanel('')}><X size={16} strokeWidth={2} /></button
 				>
 			</header>
-			{#if panel === 'history'}
+			{#if panel === 'comments'}
+				<div class="side-body">
+					<SheetComments
+						{company}
+						{sheet}
+						{comments}
+						people={directory.view?.people ?? []}
+						viewer={principal.view?.actor_id ?? ''}
+						{selection}
+						focus={focusThread}
+						{tabName}
+						onshow={(thread) => editor?.select(thread.worksheet_id, thread.cell)}
+						onchanged={refreshComments}
+						onask={access === 'read' && asked !== sheet
+							? () => void askForAccess('comment')
+							: undefined}
+					/>
+				</div>
+			{:else if panel === 'history'}
 				<div class="side-body">
 					{#if versions === null}
 						<p class="quiet">Loading…</p>
@@ -864,6 +960,11 @@
 	}
 	.btn.active {
 		background: var(--surface-hover);
+	}
+	.comments-button {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
 	}
 	.file {
 		display: none;

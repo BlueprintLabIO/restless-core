@@ -1,15 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { generalAccessOptions, matchPeople } from './general-access.ts';
+import { GENERAL_ACCESS_OPTIONS, matchPeople } from './general-access.ts';
 
-test('sheets offer no comment level; documents offer all four', () => {
+test('documents and sheets offer the same four levels', () => {
 	assert.deepEqual(
-		generalAccessOptions('document').map((option) => option.value),
+		GENERAL_ACCESS_OPTIONS.map((option) => option.value),
 		['private', 'view', 'comment', 'edit']
-	);
-	assert.deepEqual(
-		generalAccessOptions('sheet').map((option) => option.value),
-		['private', 'view', 'edit']
 	);
 });
 

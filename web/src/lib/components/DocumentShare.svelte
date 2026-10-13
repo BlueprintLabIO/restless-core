@@ -7,7 +7,7 @@
 	import X from '@lucide/svelte/icons/x';
 	import SharePanel from '$lib/components/SharePanel.svelte';
 	import { failureSentence } from '$lib/model/failure';
-	import { generalAccessOptions, type GeneralAccess } from '$lib/model/general-access';
+	import { GENERAL_ACCESS_OPTIONS, type GeneralAccess } from '$lib/model/general-access';
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import { mayManageCompanySetup } from '$lib/model/company-access';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
@@ -272,7 +272,7 @@
 	<div class="share-body">
 		<SharePanel
 			general={view.document.general_access}
-			generalOptions={generalAccessOptions('document')}
+			generalOptions={GENERAL_ACCESS_OPTIONS}
 			levels={LEVELS}
 			ownerName={nameOf(ownerId)}
 			ownerIsYou={!!viewerId && ownerId === viewerId}
