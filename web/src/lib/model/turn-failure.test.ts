@@ -18,6 +18,14 @@ test('credit, rate limits, missing models and dropped connections each say so', 
 	assert.match(turnFailureReason('request timed out after 60s'), /dropped/);
 });
 
+test('an unavailable connection says where to look, without repeating that the reply failed', () => {
+	const reason = turnFailureReason(
+		'Exec reply failed: This intelligence connection is temporarily unavailable.'
+	);
+	assert.match(reason, /unavailable right now/);
+	assert.doesNotMatch(reason, /reply failed/);
+});
+
 test('anything else keeps its first sentence without the runtime prefixes', () => {
 	assert.equal(
 		turnFailureReason(

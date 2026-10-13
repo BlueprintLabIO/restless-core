@@ -21,6 +21,10 @@ const RULES: { test: RegExp; say: string }[] = [
 		say: 'its chosen model is not available. Pick another in Company → Intelligence.'
 	},
 	{
+		test: /connection is (temporarily )?unavailable|no (intelligence|model) connection|reconnect (the )?model/i,
+		say: 'its model connection is unavailable right now. Check it in Company → Intelligence.'
+	},
+	{
 		test: /timed? ?out|timeout|econnreset|econnrefused|connection (reset|refused|closed)|network|socket hang up/i,
 		say: 'the connection to the model dropped. Send it again.'
 	}
@@ -33,6 +37,7 @@ export function turnFailureReason(error: string | null | undefined): string {
 	for (const rule of RULES) if (rule.test.test(raw)) return rule.say;
 	const plain = raw
 		.replace(/^\[[^\]]+\]\s*/, '')
+		.replace(/^[\w .-]+ reply failed:\s*/i, '')
 		.replace(/^the agent session failed:\s*/i, '')
 		.replace(/^acp [^:]+:\s*/i, '')
 		.replace(/^internal error:\s*/i, '')
