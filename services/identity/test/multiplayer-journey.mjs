@@ -629,6 +629,29 @@ try {
   await until(async () => !(await owner.page.getByRole("listbox", { name: "Blocks" }).isVisible()), "the / menu closes on Escape", 10);
   pass("typing / at the start of a line opens the block menu, Escape closes it");
 
+  // 9c. Alice asks for a sheet she cannot open; the owner hears of it in For you, opens its
+  //     sharing from there and lets her view it.
+  const sheetId = randomUUID();
+  await coreApi(owner, `${base}/sheets`, {
+    method: "POST",
+    body: { id: sheetId, title: "Budget", visibility: "participants" },
+  });
+  await alice.page.goto(`${core}/${company}/library/sheets?sheet=${sheetId}`);
+  await alice.page.getByRole("button", { name: "Ask for access" }).click();
+  await alice.page.getByRole("button", { name: "Asked" }).waitFor({ timeout: 15000 });
+  const asks = await coreApi(owner, `${base}/sheets/${sheetId}/access-requests`);
+  assert.deepEqual(asks.items.map((ask) => [ask.actor_id, ask.access]), [[alice.principal.actor_id, "read"]]);
+  const askItem = (await coreApi(owner, `${base}/for-you?limit=50`)).items.find((item) => item.key.startsWith("sheet-access:"));
+  assert.ok(askItem?.href.includes("inspect=share"), "the ask opens the sheet's sharing");
+  await owner.page.goto(core + askItem.href);
+  await owner.page.getByRole("button", { name: "Let them view" }).click();
+  await until(
+    async () => (await alice.context.request.fetch(`${core}${base}/sheets/${sheetId}/participants`, { failOnStatusCode: false })).status() === 200,
+    "Alice can open the sheet she asked for",
+    20,
+  );
+  pass("a member asked for a private sheet; the owner granted it from For you and she can open it");
+
   // 10. Removal from Members closes Bob's live document connection and session.
   await bob.page.goto(documentUrl);
   await bob.page.getByLabel("Collaborative document body").waitFor({ timeout: 30000 });
