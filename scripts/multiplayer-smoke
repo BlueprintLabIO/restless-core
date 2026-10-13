@@ -37,9 +37,11 @@ docker image inspect "$RESTLESS_COMPANY_IMAGE" >/dev/null 2>&1 \
 # host does not resolve it, the smoke runs in private user and mount namespaces
 # with its own hosts file, so nothing on the host changes. The inner namespace
 # maps back to the caller's uid: Core hands its own uid to the containers it starts.
-if ! getent hosts plane.localhost | grep -Eq '^(127\.0\.0\.1|::1)[[:space:]]'; then
+# The services listen on IPv4 loopback, so the name's first address for an ordinary lookup must
+# be 127.0.0.1: recent glibc answers ::1 for any *.localhost, which is not enough.
+if ! getent ahosts plane.localhost | head -1 | grep -Eq '^127\.0\.0\.1[[:space:]]'; then
   [[ -z "${RESTLESS_SMOKE_PRIVATE_HOSTS:-}" ]] && command -v unshare >/dev/null \
-    || fail "plane.localhost must resolve to loopback (systemd-resolved does; otherwise add '127.0.0.1 plane.localhost' to /etc/hosts)"
+    || fail "plane.localhost must resolve to 127.0.0.1 (add '127.0.0.1 plane.localhost' to /etc/hosts)"
   hosts="$(mktemp)"
   { cat /etc/hosts; echo "127.0.0.1 plane.localhost"; } >"$hosts"
   exec unshare -rm bash -c '

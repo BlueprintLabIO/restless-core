@@ -491,6 +491,26 @@ try {
   await shot(owner, "room-attachment");
   pass("a picture attached in a group room appears for all three people");
 
+  // 8c. Typing says so to the others in the room, and sending ends it.
+  const typingPosts = [];
+  alice.page.on("response", (response) => {
+    if (response.url().includes("/typing")) typingPosts.push(response.status());
+  });
+  const aliceTyping = alice.page.getByRole("textbox", { name: "Conversation message" });
+  await aliceTyping.click();
+  await aliceTyping.pressSequentially("Thinking about it", { delay: 60 });
+  await owner.page
+    .getByText(`${alice.name} is typing…`)
+    .waitFor({ timeout: 5000 })
+    .catch(async (error) => {
+      const line = await owner.page.locator(".room-typing").allInnerTexts();
+      throw Error(`typing did not reach the owner: POSTs ${JSON.stringify(typingPosts)}, owner line ${JSON.stringify(line)}: ${error.message}`);
+    });
+  assert.equal(await alice.page.getByText(`${alice.name} is typing…`).count(), 0, "nobody is told they are typing themselves");
+  await aliceTyping.fill("");
+  await owner.page.getByText(`${alice.name} is typing…`).waitFor({ state: "detached", timeout: 10000 });
+  pass("a member typing in a room shows to the others as it happens, and the line goes once she stops");
+
   // 9. Attention: the owner asks Alice by name. It reaches only Alice's attention;
   //    she answers in the thread from her browser. The cockpit has no control that
   //    resolves a mention, so resolution uses the product API a client would call.
