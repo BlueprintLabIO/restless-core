@@ -590,6 +590,14 @@ pub fn validate_direct_provider(provider: &str) -> Result<()> {
     Ok(())
 }
 
+/// The provider a route's connection serves, when it is one provider's models rather than a
+/// harness with its own model names.
+pub fn route_provider(connection: &str) -> Option<&str> {
+    connection
+        .strip_prefix("direct:")
+        .or_else(|| account_intelligence_route(connection).map(|(provider, _, _)| provider))
+}
+
 impl CompanyConfig {
     pub fn configured_model(&self) -> Option<&str> {
         let model = self.model.as_str();
@@ -655,15 +663,28 @@ impl CompanyConfig {
         }
         config
     }
+    /// The model an actor runs on. An owner's choice for this agent is exact. An agent on the
+    /// company default may run any model of that default's provider that Exec chose for it (Opus
+    /// for a hard redo, Haiku for a sweep): the connection serves them all, so no new grant is
+    /// needed. A model of another provider falls back to the default.
     pub fn agent_preference<'a>(
         &'a self,
         actor: &str,
         previous: Option<&'a str>,
     ) -> Option<&'a str> {
-        if self.agent_intelligence.contains_key(actor)
-            || self.agent_intelligence.contains_key("default")
-        {
+        if self.agent_intelligence.contains_key(actor) {
             Some(&self.model)
+        } else if let Some(route) = self.agent_intelligence.get("default") {
+            let same_provider = route_provider(&route.connection).zip(previous).and_then(
+                |(provider, model)| {
+                    model
+                        .trim()
+                        .split_once('/')
+                        .filter(|(prefix, id)| *prefix == provider && !id.trim().is_empty())
+                        .map(|_| model.trim())
+                },
+            );
+            Some(same_provider.unwrap_or(&self.model))
         } else {
             // Older Staff runs could persist a native harness marker as an
             // actor preference. It is not a direct route after a harness change.
@@ -4512,6 +4533,22 @@ model = "claude-sonnet-4-6"
             Some("anthropic/claude-sonnet-4-6")
         );
         assert!(inherited.model_failover.is_empty());
+        // On the default route, Exec may staff any model the same connection serves.
+        let bob = config.for_agent("bob");
+        assert_eq!(
+            bob.agent_preference("bob", Some("anthropic/claude-opus-5-5")),
+            Some("anthropic/claude-opus-5-5")
+        );
+        assert_eq!(
+            bob.agent_preference("bob", Some("anthropic/claude-haiku-5-5")),
+            Some("anthropic/claude-haiku-5-5")
+        );
+        assert_eq!(bob.agent_preference("bob", None), Some("anthropic/claude-sonnet-4-6"));
+        // The owner's choice for one agent stays exact.
+        assert_eq!(
+            alice.agent_preference("alice", Some("anthropic/claude-opus-5-5")),
+            Some("anthropic/claude-sonnet-4-6")
+        );
     }
 
     #[test]

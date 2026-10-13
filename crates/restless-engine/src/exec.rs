@@ -1544,6 +1544,17 @@ async fn staffing_routes(org: &OrgIntel, config: &CompanyConfig) -> String {
     for failover in &config.model_failover {
         routes.entry(failover.clone()).or_default();
     }
+    /* The company default's connection serves every model of its provider; an agent on that
+     * default may run any of them (see CompanyConfig::agent_preference). */
+    if let Some(provider) = config
+        .agent_intelligence
+        .get("default")
+        .and_then(|route| runtime::route_provider(&route.connection))
+    {
+        for model in crate::model_catalog::provider_models(provider, 12).await {
+            routes.entry(model).or_default();
+        }
+    }
     routes.retain(|model, _| !model.trim().is_empty());
     if routes.is_empty() {
         return "(none connected yet; the owner connects intelligence in Company → Intelligence)"

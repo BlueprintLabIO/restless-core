@@ -140,6 +140,33 @@ async fn fetch_catalog() -> Result<Bytes> {
     Ok(Bytes::from(body))
 }
 
+/// The newest tool-calling text models the catalog lists for one provider, as `provider/model`,
+/// newest first, at most `limit`: what Exec may staff with on that provider's connection. Empty
+/// until the catalog has loaded.
+pub async fn provider_models(provider: &str, limit: usize) -> Vec<String> {
+    let Some(body) = CACHE.lock().await.response.clone() else {
+        return Vec::new();
+    };
+    let Ok(catalog) = serde_json::from_slice::<serde_json::Value>(&body) else {
+        return Vec::new();
+    };
+    let Some(models) = catalog["catalog"][provider]["models"].as_object() else {
+        return Vec::new();
+    };
+    let mut rows: Vec<(&str, &str)> = models
+        .iter()
+        .filter(|(_, model)| {
+            model["tool_call"] == serde_json::Value::Bool(true) && model["status"] != "deprecated"
+        })
+        .map(|(id, model)| (model["release_date"].as_str().unwrap_or(""), id.as_str()))
+        .collect();
+    rows.sort_by(|a, b| b.cmp(a));
+    rows.into_iter()
+        .take(limit)
+        .map(|(_, id)| format!("{provider}/{id}"))
+        .collect()
+}
+
 /// The catalog's list price for one `provider/model` route, in USD per
 /// million input and output tokens. `None` when the catalog has not loaded
 /// yet or does not price that model; never a guessed number.

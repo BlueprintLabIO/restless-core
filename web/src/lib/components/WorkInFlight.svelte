@@ -33,7 +33,9 @@
 		const graph = attention.view?.workGraph;
 		if (!graph) return [];
 		const name = (actor: string) =>
-			personName(cockpit.view?.people.find((person) => person.actor_id === actor)?.display ?? actor);
+			personName(
+				cockpit.view?.people.find((person) => person.actor_id === actor)?.display ?? actor
+			);
 		/* Waiting on the owner means what the Inbox shows; a lead or Exec may still hold the judgement. */
 		const waitingOnOwner = workWaitingOnOwner(attention.view?.items ?? []);
 		const heldBy = judgementHolders(graph.handoffs ?? []);
@@ -47,7 +49,8 @@
 			const holder = heldBy.get(work.id);
 			let state = '';
 			let tone = '';
-			if (work.status === 'completed' && now - updated < RECENT_MS) [state, tone] = ['Done', 'done'];
+			if (work.status === 'completed' && now - updated < RECENT_MS)
+				[state, tone] = ['Done', 'done'];
 			else if (work.status === 'blocked') [state, tone] = ['Blocked', 'blocked'];
 			else if (work.status === 'active' && waiting) [state, tone] = ['Waiting on you', 'waiting'];
 			else if (work.status === 'active' && holder) [state, tone] = [`With ${name(holder)}`, ''];
@@ -73,36 +76,58 @@
 </script>
 
 {#if lines.length}
-	<ul class="in-flight" aria-label="Work under way">
-		{#each lines as line (line.id)}
-			<li>
-				<a
-					href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(line.id)}`}
-					title={line.tone === 'quiet'
-						? `Nothing has moved for a while. Ask Exec about “${line.title}”.`
-						: line.title}
-				>
-					<i class="dot" data-tone={line.tone} aria-hidden="true"></i>
-					<span class="title"
-						>{#if line.goal}<span class="goal" title={`Toward ${line.goal}`}>{line.goal} ›</span>
-						{/if}{line.title}</span
+	<section class="in-flight" aria-labelledby="in-flight-label">
+		<p class="label" id="in-flight-label">Under way</p>
+		<ul>
+			{#each lines as line (line.id)}
+				<li>
+					<!-- The Work's own title leads: many Work items share one Goal, whose long title
+					     made every line read the same. The Goal is in the tooltip. -->
+					<a
+						href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(line.id)}`}
+						title={[
+							line.title,
+							line.goal && `Toward ${line.goal}`,
+							line.tone === 'quiet' && 'Nothing has moved for a while. Ask Exec about it.'
+						]
+							.filter(Boolean)
+							.join('\n')}
 					>
-					<span class="who">{line.who}</span>
-					<span class="state">{line.state}</span>
-				</a>
-			</li>
-		{/each}
-	</ul>
+						<i class="dot" data-tone={line.tone} aria-hidden="true"></i>
+						<span class="title">{line.title}</span>
+						<span class="meta">{line.who} · {line.state}</span>
+					</a>
+				</li>
+			{/each}
+		</ul>
+	</section>
 {/if}
 
 <style>
+	/* Never wider than the rail: each line truncates its title, never scrolls sideways. */
 	.in-flight {
-		display: grid;
-		gap: 1px;
+		min-width: 0;
 		margin: 0 10px 6px;
+		font-size: var(--t-label);
+	}
+	.label {
+		margin: 0;
+		padding: 2px 6px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		font-weight: 500;
+		letter-spacing: 0.02em;
+	}
+	ul {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: 1px;
+		margin: 0;
 		padding: 0;
 		list-style: none;
-		font-size: var(--t-label);
+	}
+	li {
+		min-width: 0;
 	}
 	a {
 		display: flex;
@@ -145,13 +170,14 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.goal {
+	.meta {
+		flex: 0 1 auto;
+		min-width: 0;
+		max-width: 45%;
+		overflow: hidden;
 		color: var(--text-tertiary);
-	}
-	.who,
-	.state {
-		flex: none;
-		color: var(--text-tertiary);
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	@keyframes breathe {
 		50% {

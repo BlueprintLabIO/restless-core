@@ -343,7 +343,7 @@
 			</Item>
 		{/each}
 		{#if loaded && !visible.length && !(coordination && !items.length)}
-			<p class="empty">{items.length ? 'Everything here is snoozed.' : 'Nothing needs you.'}</p>
+			<p class="empty">{items.length ? 'Everything here is snoozed.' : 'No decisions waiting on you.'}</p>
 		{:else if !loaded && !failure}
 			<div class="waiting" aria-label="Loading the Inbox"><i></i><i></i><i></i></div>
 		{/if}

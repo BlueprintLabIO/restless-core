@@ -972,13 +972,13 @@
 				type="button"
 				aria-hidden={!showClear}
 				tabindex={showClear ? 0 : -1}
-				title={showClear ? 'No owner action is required. Check again now.' : undefined}
+				title={showClear ? 'No decision is waiting on you. Check again now.' : undefined}
 				onclick={() => void refresh()}
 			>
 				<span class="attention-clear-glyph" aria-hidden="true">
 					<MatrixGlyph rows={GLYPHS.check} size={7} />
 				</span>
-				<span>All clear</span>
+				<span>No decisions</span>
 			</button>
 			{#if queueClear}<div class="attention-set-aside">
 					<SetAsideList {companyId} />

@@ -113,7 +113,7 @@
 <section class="for-you" aria-label={heading} bind:this={section} onkeydown={keyboard}>
 	<header>
 		<h3>{heading}</h3>
-		{#if source.unreadCount}<span class="count" title="Unread">{source.unreadCount}</span>{/if}
+		{#if source.unreadCount}<span class="count">{source.unreadCount} unread</span>{/if}
 		<span class="spacer"></span>
 		{#if source.items.length || source.filter !== 'all'}
 			<Segmented
@@ -201,12 +201,16 @@
 		padding: 4px 8px 4px 16px;
 	}
 	h3 {
+		flex: none;
 		margin: 0;
+		white-space: nowrap;
 		color: var(--text-secondary);
 		font-size: var(--t-label);
 		font-weight: 600;
 	}
 	.count {
+		flex: none;
+		white-space: nowrap;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 		font-variant-numeric: tabular-nums;

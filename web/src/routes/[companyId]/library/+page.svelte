@@ -8,6 +8,9 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { Item, Notice, Empty, Dot } from '$lib/ui/page';
+	import FileX from '@lucide/svelte/icons/file-x';
+	import FileDown from '@lucide/svelte/icons/file-down';
+	import FileQuestion from '@lucide/svelte/icons/file-question';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import SidebarShell from '$lib/ui/views/SidebarShell.svelte';
@@ -833,9 +836,7 @@
 	const backHref = $derived(filterHref(filter));
 
 	const editedBy = (editor: string | null | undefined, ownerId: string) =>
-		editor && editor !== ownerId
-			? name(editor).replace(/^You$/, 'you')
-			: undefined;
+		editor && editor !== ownerId ? name(editor).replace(/^You$/, 'you') : undefined;
 	function name(actorId: string): string {
 		if ((owner && actorId === 'owner') || (!!actorId && actorId === viewer)) return 'You';
 		return (
@@ -1040,6 +1041,8 @@
 		/>
 	{:else if openFileId && !loading && attention.view}
 		<Empty
+			page
+			icon={FileX}
 			title="This file is no longer in the Library"
 			info="A newer version replaced it, it was archived, or the Work that made it was retired."
 		>
@@ -1047,6 +1050,8 @@
 		</Empty>
 	{:else if uploadRow}
 		<Empty
+			page
+			icon={FileDown}
 			title={uploadRow.canonical_name}
 			info="Browsers cannot show this kind of file. Download it to open it on your computer."
 		>
@@ -1058,6 +1063,8 @@
 		</Empty>
 	{:else if openUploadId && kept}
 		<Empty
+			page
+			icon={FileX}
 			title="This file is no longer kept"
 			info="It was deleted, or it is not one you added or sent."
 		>
@@ -1065,6 +1072,8 @@
 		</Empty>
 	{:else if openPath && owner}
 		<Empty
+			page
+			icon={FileQuestion}
 			title="This is not a file the cockpit can open"
 			info={`${openPath} is not a file in the company's home folder.`}
 		>

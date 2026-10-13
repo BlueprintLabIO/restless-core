@@ -569,7 +569,11 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          # Presenting to the owner [company doctrine]\n{owner_briefing}\n\n\
          # Running the business well [company doctrine]\n{run_business}\n\n\
          # Intelligence you can staff with [internal decision]\n\
-         Exact routes for `--model`; the owner connects others in Company → Intelligence.\n\
+         Routes for `--model`. An agent on the company default may also run any other model \
+         of that provider, listed under it: choose the model the work needs (`restless people \
+         model --actor <id> --model <provider/model> --reason <why>`); it runs on the same \
+         connection. An agent the owner set a model for keeps it. The owner connects other \
+         providers in Company → Intelligence.\n\
          {staffing_routes}\n\n\
          {skills_contract}\n\n\
          # Affecting the world [internal decision]\n\

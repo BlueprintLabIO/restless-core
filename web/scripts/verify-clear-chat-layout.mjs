@@ -43,7 +43,7 @@ try {
 		const seam = page.getByRole('separator', { name: 'Resize Exec pane', exact: true });
 		await seam.waitFor();
 		if (mode === 'clear')
-			await page.getByRole('button', { name: 'All clear', exact: true }).waitFor();
+			await page.getByRole('button', { name: 'No decisions', exact: true }).waitFor();
 		await page.waitForTimeout(300);
 		widths[mode] = Number(await seam.getAttribute('aria-valuenow'));
 		if (mode !== 'clear') assert(widths[mode] <= 400, `${mode} should retain normal chat width`);
@@ -54,7 +54,7 @@ try {
 		await page.close();
 	}
 	console.log(
-		'PASS pending and unavailable retain compact chat; confirmed All clear expands chat:',
+		'PASS pending and unavailable retain compact chat; confirmed No decisions expands chat:',
 		widths
 	);
 } finally {
