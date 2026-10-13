@@ -652,6 +652,32 @@ try {
   );
   pass("a member asked for a private sheet; the owner granted it from For you and she can open it");
 
+  // 9d. A page made for the company reaches a member's open Library as it happens. The list polls
+  //     every 15 seconds; arriving well inside that is the change stream, which members now hear.
+  await alice.page.goto(`${core}/${company}/library`);
+  await alice.page.getByRole("heading", { name: "All files" }).first().waitFor({ timeout: 30000 }).catch(() => undefined);
+  await pause(2000);
+  await coreApi(owner, `${base}/documents`, {
+    method: "POST",
+    expected: 201,
+    body: { title: "Launch checklist", kind: "brief", visibility: "company", content_json: commentBody("Ship it."), reason: "Multiplayer smoke" },
+  });
+  await alice.page.getByText("Launch checklist").first().waitFor({ timeout: 6000 });
+  pass("a page the owner made for the company appeared in a member's open Library within seconds");
+
+  // 9e. A document a member cannot open says so, once, rather than loading forever.
+  let documentReads = 0;
+  const countReads = (request) => {
+    if (/\/api\/companies\/[^/]+\/documents\/[0-9a-f-]{36}$/.test(new URL(request.url()).pathname)) documentReads += 1;
+  };
+  alice.page.on("request", countReads);
+  await alice.page.goto(`${core}/${company}/library/documents?document=${randomUUID()}`);
+  await alice.page.getByText("You can’t open this document").waitFor({ timeout: 15000 });
+  await pause(5000);
+  alice.page.off("request", countReads);
+  assert.ok(documentReads <= 2, `a refused document is read ${documentReads} times, not once`);
+  pass("a document a member cannot open says so at once, and is not asked for again and again");
+
   // 10. Removal from Members closes Bob's live document connection and session.
   await bob.page.goto(documentUrl);
   await bob.page.getByLabel("Collaborative document body").waitFor({ timeout: 30000 });
