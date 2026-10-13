@@ -678,6 +678,30 @@ try {
   assert.ok(documentReads <= 2, `a refused document is read ${documentReads} times, not once`);
   pass("a document a member cannot open says so at once, and is not asked for again and again");
 
+  // 9f. A member keeps a page of her own as an owner would: she duplicates a company page, and
+  //     renames, archives, restores and deletes the copy; the original is untouched.
+  const launch = (await coreApi(alice, `${base}/documents?limit=50`)).items.find(
+    (item) => item.document.title === "Launch checklist",
+  );
+  assert.ok(launch, "the company page is in Alice's list");
+  const copy = await coreApi(alice, `${base}/documents/${launch.document.id}/duplicate`, { method: "POST", expected: 201 });
+  let mine = (await coreApi(alice, `${base}/documents/${copy.document_id}`)).document;
+  assert.equal(mine.owner_actor_id, alice.principal.actor_id, "the copy is Alice's");
+  assert.equal(mine.title, "Copy of Launch checklist");
+  await coreApi(alice, `${base}/documents/${copy.document_id}`, {
+    method: "PATCH",
+    body: { expected_version: mine.version, title: "Alice's checklist", kind: mine.kind, visibility: mine.visibility },
+  });
+  mine = (await coreApi(alice, `${base}/documents/${copy.document_id}`)).document;
+  assert.equal(mine.title, "Alice's checklist");
+  for (const archived of [true, false, true]) {
+    await coreApi(alice, `${base}/documents/${copy.document_id}/archive`, { method: "POST", body: { archived } });
+  }
+  await coreApi(alice, `${base}/documents/${copy.document_id}`, { method: "DELETE" });
+  await coreApi(owner, `${base}/documents/${copy.document_id}`, { expected: 404 });
+  assert.equal((await coreApi(owner, `${base}/documents/${launch.document.id}`)).document.title, "Launch checklist");
+  pass("a member duplicated a company page, then renamed, archived, restored and deleted her copy");
+
   // 10. Removal from Members closes Bob's live document connection and session.
   await bob.page.goto(documentUrl);
   await bob.page.getByLabel("Collaborative document body").waitFor({ timeout: 30000 });
