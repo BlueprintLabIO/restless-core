@@ -1823,6 +1823,7 @@
 	}
 	/* A block's grip, beside the block under the pointer: quiet until reached for. */
 	:global(.block-handle) {
+		position: relative;
 		display: grid;
 		place-items: center;
 		width: 18px;
@@ -1839,6 +1840,18 @@
 		transition:
 			background-color var(--motion-state) var(--ease-standard),
 			color var(--motion-state) var(--ease-standard);
+	}
+	/* The gutter offset leaves a gap between the text and the grip. Crossing it left the editor,
+	 * and the plugin hid the grip before the pointer reached it. This invisible strip belongs to the
+	 * grip, so the pointer is never outside both. */
+	:global(.block-handle)::after {
+		content: '';
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		left: 100%;
+		/* Exactly the translate below, so it never covers the text. */
+		width: 18px;
 	}
 	:global(.block-handle:hover),
 	:global(.block-handle:focus-visible) {

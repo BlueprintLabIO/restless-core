@@ -673,7 +673,7 @@
 						{#each entry.members.filter((member) => entry.teamMatches || matchesDirectory(member, search
 										.trim()
 										.toLocaleLowerCase())) as member (member.actor_id)}
-							{@render directoryPerson(member, 'member')}
+							{@render directoryPerson(member, entry.lead ? 'member teammate' : 'member')}
 						{/each}
 					</section>
 				{/each}
@@ -756,6 +756,9 @@
 		<a class="back" href={indexHref()}><ArrowLeft size={16} /> People</a>
 		{#if wide.actor && wide.actor === personId && !roomId}
 			{@render wide.render()(true)}
+		{:else if personId === 'exec' && !roomId}
+			<!-- Exec's chat is the rail itself, widened into this pane a moment after it mounts; a
+			     room view's skeleton would only flash first. -->
 		{:else if roomId || personId}
 			<RoomConversation />
 		{:else}
@@ -1042,6 +1045,34 @@
 	}
 	.doing.work {
 		color: var(--intent-feedback);
+	}
+	/* Under a lead, the team reads as the lead's: indented, one line each, the role beside the
+	 * name, so a team of nine is a short list rather than nine cards. */
+	.directory-person.teammate {
+		align-items: center;
+		min-height: 30px;
+		margin-left: 18px;
+		padding: 2px 8px;
+	}
+	.directory-person.teammate .avatar {
+		width: 20px;
+		height: 20px;
+		margin-top: 0;
+		border-radius: 5px;
+		font-size: var(--t-label);
+	}
+	.directory-person.teammate .person-lines {
+		display: flex;
+		align-items: baseline;
+		gap: 6px;
+	}
+	.directory-person.teammate .name {
+		flex: none;
+		max-width: 60%;
+	}
+	.directory-person.teammate .doing {
+		min-width: 0;
+		font-size: var(--t-label);
 	}
 	.doing.wait {
 		color: var(--intent-authority);

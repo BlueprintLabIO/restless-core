@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { copyText } from '$lib/model/copy-text';
 	import { formatMoment } from '$lib/ui/time';
 	import { onDestroy, untrack } from 'svelte';
 	import type { Snippet } from 'svelte';
@@ -106,13 +107,11 @@
 		!!companyId && !!messageId && /^\d+$/.test(messageId) && sender !== 'owner'
 	);
 
+	/* The whole message as read: its takeaway line, then its text. */
 	async function copyMessage() {
-		try {
-			await navigator.clipboard.writeText(text);
-			copyState = 'copied';
-		} catch {
-			copyState = 'failed';
-		}
+		copyState = (await copyText(takeaway ? `${takeaway}\n\n${text}` : text))
+			? 'copied'
+			: 'failed';
 		window.clearTimeout(copyTimer);
 		copyTimer = window.setTimeout(() => (copyState = 'idle'), 1_800);
 	}
@@ -203,7 +202,6 @@
 		<footer class="message-footer">
 			<div class="message-actions" role="toolbar" aria-label="Message actions">
 				{#if onreact}<ReactionAdd {reactions} {onreact} />{/if}
-				{@render actions?.()}
 				{#if copyable}
 					<button
 						type="button"
@@ -228,6 +226,7 @@
 						{/if}
 					</button>
 				{/if}
+				{@render actions?.()}
 			</div>
 		</footer>
 	{/if}
