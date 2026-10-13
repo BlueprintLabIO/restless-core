@@ -132,8 +132,9 @@ async function fill(model, sheetId, start, values, limit = MAX_EDIT_CELLS) {
     const value = values[r][c];
     const cell = value && typeof value === 'object' ? value : { content: value };
     const text = content(cell.content), pos = { sheetId, col: start.col + c, row: start.row + r };
-    // Clearing a cell that is already empty changes nothing; skipping it keeps imports fast.
-    if (!text && !cell.format && !model.getters.getCell(pos)) continue;
+    // A cell that already holds this content changes nothing, and the engine refuses a change
+    // that changes nothing: skip it. This covers clearing an empty cell, and re-importing a file.
+    if (!cell.format && (model.getters.getCell(pos)?.content ?? '') === text) continue;
     commands.push({ type: 'UPDATE_CELL', ...pos, content: text, ...(cell.format ? { format: cell.format } : {}) });
   }
   await apply(model, commands);

@@ -27,6 +27,15 @@ test('CSV uses all populated rows, quoted fields and auto-expands worksheet', as
   assert.match(read.result.csv,/GFX,"line one\nline two, quoted"/);
   assert.equal(read.workbook.sheets[0].rowNumber,102);
 });
+test('importing a CSV again changes only what differs, and an identical import changes nothing', async () => {
+  const base=(await execute(blank)).workbook;
+  const first=await execute({...blank,snapshot:base,operation:{action:'import_csv',csv:'Item,Q1\nRent,40\nPay,100'}});
+  const again=await execute({...blank,snapshot:base,messages:first.messages,operation:{action:'import_csv',csv:'Item,Q1\nRent,45\nPay,100\nAds,12'}});
+  const read=await execute({...blank,snapshot:base,messages:[...first.messages,...again.messages],operation:{action:'export_csv'}});
+  assert.equal(read.result.csv.trimEnd(),'Item,Q1\r\nRent,45\r\nPay,100\r\nAds,12');
+  const same=await execute({...blank,snapshot:base,messages:[...first.messages,...again.messages],operation:{action:'import_csv',csv:'Item,Q1\nRent,45'}});
+  assert.equal(same.messages.length,0,'nothing differs, so nothing is sent');
+});
 test('a large write is a few revisions that replay to the same workbook and export whole', async () => {
   const base=(await execute(blank)).workbook;
   const values=Array.from({length:500},(_,r)=>Array.from({length:50},(_,c)=>r*50+c));

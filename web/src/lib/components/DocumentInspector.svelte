@@ -728,10 +728,27 @@
 
 	/* History: what each version changed against the one before it, or, arriving from "changed
 	 * since you looked", everything after the last version this person had seen. */
+	/* A person may compare the previewed version with any older one; by default, the one before. */
+	let compareWithId = $state('');
+	let comparedFor = '';
+	$effect(() => {
+		if (selectedVersionId !== comparedFor) {
+			comparedFor = selectedVersionId;
+			compareWithId = '';
+		}
+	});
+	const olderVersions = $derived.by(() => {
+		const selected = versions.versions.find((item) => item.id === selectedVersionId);
+		return selected
+			? versions.versions.filter((item) => item.version_number < selected.version_number)
+			: [];
+	});
 	const baseVersionId = $derived.by(() => {
 		const list = versions.versions;
 		const selected = list.find((item) => item.id === selectedVersionId);
 		if (!selected) return '';
+		if (compareWithId && olderVersions.some((item) => item.id === compareWithId))
+			return compareWithId;
 		if (changesSince && selected.id === list[0]?.id) {
 			const looked = Date.parse(changesSince);
 			const seen = list.find((item) => Date.parse(item.created_at) <= looked);
@@ -1765,6 +1782,21 @@
 								>
 							{/if}
 						</header>
+						{#if olderVersions.length > 1}
+							<label class="compare-with"
+								>Compare with
+								<select
+									value={baseVersionId}
+									onchange={(event) => (compareWithId = event.currentTarget.value)}
+								>
+									{#each olderVersions as older (older.id)}
+										<option value={older.id}
+											>Version {older.version_number} · {shortDate(older.created_at)}</option
+										>
+									{/each}
+								</select></label
+							>
+						{/if}
 						{#if changes === null}
 							<Skeleton label="Comparing with the version before" count={3} />
 						{:else if changes.length}
@@ -2353,6 +2385,25 @@
 		border-bottom: 1px solid var(--border);
 	}
 	/* What a version changed: added words in a quiet green, removed ones struck through. */
+	.compare-with {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin: 0;
+		padding: 8px 10px 0;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+	}
+	.compare-with select {
+		min-width: 0;
+		max-width: 100%;
+		padding: 2px 6px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-control);
+		background: var(--surface-raised);
+		color: var(--ink);
+		font: inherit;
+	}
 	.diff-scope {
 		margin: 0;
 		padding: 8px 10px 0;

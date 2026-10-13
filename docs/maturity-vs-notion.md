@@ -4,7 +4,7 @@ A living assessment of the cockpit's collaboration against Notion, the owner's b
 not a feature count: each area asks whether the everyday path is complete, polished and works for
 every person in the company, members as well as the owner. Update it with each sprint.
 
-**Read:** 13 October 2026, after Sprint 75.
+**Read:** 13 October 2026, after Sprint 77.
 **Evidence:**
 - the three-person multiplayer smoke (`scripts/multiplayer-smoke`): 22 steps, owner and two
   members over network entry
@@ -31,7 +31,7 @@ every person in the company, members as well as the owner. Update it with each s
 | Library and organisation | Close | list, kinds, review, Archived with restore and delete, pins on every device, Duplicate (S67), Edited by (S72), ⌘K search including comments | nested pages and a page tree (Notion's sidebar hierarchy) are not modelled: the Library is flat by kind |
 | Sheets | At par | co-editing, sharing at view, comment or edit, history, CSV/Excel in and out, Duplicate, ask for access; comments on cells with mentions, replies, resolve, corner marks and For you (S74) | a thread stays on the cell address it was written on when rows are inserted above it |
 | Chat (People rooms) | At par | group and direct rooms, threads, files and pictures, reactions, mentions, typing (S73), search | none on the everyday path |
-| Version history | Close | named versions, restore, what changed since you last looked, who edited | a side-by-side diff view of two versions is not offered |
+| Version history | At par | named versions, restore, what changed since you last looked, who edited; compare any two versions of a page (S77); what a sheet version changed, cell by cell (S77) | none on the everyday path |
 | Search (⌘K) | Close | documents by title and body, sheets, people, conversations, comments, recents | full-text search inside sheets |
 | Members and access lifecycle | At par | invite (several at once), resend, role changes with Undo, leave with consequence stated, removal closes live sessions at once (smoke) | none |
 | Phone width | Close | every everyday screen fits 390 px with no overflow (S69); panels become sheets | a native app is out of scope; touch editing of sheets is the engine's own |
@@ -42,4 +42,3 @@ every person in the company, members as well as the owner. Update it with each s
 
 1. **A page tree:** nesting documents under one another, the largest structural difference from
    Notion. It needs a design decision on how nesting meets general access.
-2. **A version diff view.**

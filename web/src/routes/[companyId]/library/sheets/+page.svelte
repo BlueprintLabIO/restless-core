@@ -40,6 +40,7 @@
 		type SheetRow
 	} from '$lib/model/sheets';
 	import { failureSentence } from '$lib/model/failure';
+	import { sheetChanges, type SheetChanges } from '$lib/model/sheet-diff';
 	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
 	import { companyPrincipalQuery, collaborationBootstrapQuery } from '$lib/model/queries.svelte';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
@@ -119,6 +120,7 @@
 		missing = false;
 		error = null;
 		versions = null;
+		changesOf = null;
 		titleDraft = null;
 	});
 	/* A sheet made a moment ago, or opened to be renamed, has its title selected, ready to type. */
@@ -489,6 +491,31 @@
 			toast(failureSentence(cause, 'That did not change. Try again.'), { tone: 'failure' });
 		}
 	}
+	/* What a version changed, cell by cell, against the version before it. */
+	let changesOf = $state<{
+		version: Version;
+		since: Version | null;
+		changes: SheetChanges | null;
+	} | null>(null);
+	async function showChanges(version: Version) {
+		const list = versions ?? [];
+		const since = list[list.indexOf(version) + 1] ?? null;
+		changesOf = { version, since, changes: null };
+		const read = (id: string) =>
+			sheetJson<{ workbook: unknown }>(company, `/${sheet}/versions/${id}`).then(
+				(saved) => saved.workbook as Parameters<typeof sheetChanges>[0]
+			);
+		await act(
+			() => Promise.all([since ? read(since.id) : Promise.resolve(null), read(version.id)]),
+			([before, after]) => {
+				if (changesOf?.version.id === version.id)
+					changesOf = { version, since, changes: sheetChanges(before, after) };
+			},
+			'What changed could not be read'
+		);
+	}
+	const versionName = (version: Version) =>
+		version.title ?? `Autosave, ${new Date(version.created_at).toLocaleString()}`;
 	/* A saved version downloads as the workbook it was, every tab, as .xlsx. */
 	const downloadVersion = (version: Version) =>
 		act(
@@ -855,6 +882,9 @@
 									{#snippet trailing()}<RelativeTime value={version.created_at} />{/snippet}
 									{#snippet actions()}
 										<ActionMenu label="Version actions">
+											<button type="button" onclick={() => void showChanges(version)}
+												>What changed</button
+											>
 											<button type="button" onclick={() => recover(version)}
 												>Recover as a copy</button
 											>
@@ -870,6 +900,58 @@
 						</div>
 					{:else}
 						<Empty compact title="No checkpoints yet" info="Save a version to keep one." />
+					{/if}
+					{#if changesOf}
+						<section class="changes" aria-label="What changed" aria-live="polite">
+							<header>
+								<strong>{versionName(changesOf.version)}</strong>
+								<button
+									type="button"
+									class="close"
+									aria-label="Close what changed"
+									title="Close"
+									onclick={() => (changesOf = null)}><X size={14} strokeWidth={2} /></button
+								>
+							</header>
+							<p class="since">
+								{changesOf.since
+									? `What changed since ${versionName(changesOf.since)}`
+									: 'Everything in the first version'}
+							</p>
+							{#if !changesOf.changes}
+								<p class="quiet">Comparing…</p>
+							{:else if !changesOf.changes.cells.length && !changesOf.changes.tabs.length}
+								<p class="quiet">No cells changed.</p>
+							{:else}
+								<ol class="cell-changes">
+									{#each changesOf.changes.tabs as tab (tab.tab + tab.kind)}
+										<li>
+											<span class="where">{tab.tab}</span>
+											{tab.kind === 'added'
+												? 'tab added'
+												: tab.kind === 'removed'
+													? 'tab removed'
+													: `renamed from ${tab.from}`}
+										</li>
+									{/each}
+									{#each changesOf.changes.cells as change (change.tab + change.cell)}
+										<li>
+											<span class="where">{change.tab} · {change.cell}</span>
+											{#if change.before}<del>{change.before}</del>{/if}
+											{#if change.before && change.after}<span aria-hidden="true">→</span>{/if}
+											{#if change.after}<ins>{change.after}</ins>{:else}<span class="quiet-inline"
+													>cleared</span
+												>{/if}
+										</li>
+									{/each}
+								</ol>
+								{#if changesOf.changes.more}<p class="quiet">
+										And {changesOf.changes.more} more {changesOf.changes.more === 1
+											? 'cell'
+											: 'cells'}. Download the version to see them all.
+									</p>{/if}
+							{/if}
+						</section>
 					{/if}
 				</div>
 			{:else}
@@ -1027,6 +1109,56 @@
 	.quiet {
 		margin: 4px;
 		color: var(--text-tertiary);
+	}
+	.changes {
+		display: grid;
+		gap: 6px;
+		margin-top: 12px;
+		padding: 10px 12px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-lg);
+		background: var(--surface-raised);
+	}
+	.changes header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 6px;
+	}
+	.changes .since {
+		margin: 0;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.cell-changes {
+		display: grid;
+		gap: 4px;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+		overflow-wrap: anywhere;
+	}
+	.cell-changes li {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 6px;
+	}
+	.cell-changes .where {
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		font-weight: 600;
+	}
+	.cell-changes del {
+		color: var(--text-tertiary);
+	}
+	.cell-changes ins {
+		text-decoration: none;
+		background: var(--wash-hover);
+	}
+	.quiet-inline {
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
 	}
 	.private {
 		display: grid;
