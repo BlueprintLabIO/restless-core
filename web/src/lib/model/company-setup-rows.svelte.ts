@@ -204,11 +204,11 @@ export function createCompanySetup(companyIdOf: () => string) {
 			row('charter', 'Charter', charter, BookOpen, charterMissing ? 1 : 0, 'Write the charter'),
 			row(
 				'identity',
-				'Identity',
+				'Brand & voice',
 				identityValue,
 				Fingerprint,
 				proposals || (identityMissing ? 1 : 0),
-				proposals ? 'Review the identity proposals' : 'Set the company identity'
+				proposals ? 'Review what Exec learned' : 'Set the brand and voice'
 			),
 			row('provider', 'Intelligence', model, Brain, modelMissing ? 1 : 0, 'Choose a model'),
 			row('vault', 'Vault', counted(secrets, 'secret', 'No secrets stored'), KeyRound),

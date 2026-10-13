@@ -568,6 +568,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          # Writing what the owner reads [company doctrine]\n{owner_readable}\n\
          # Presenting to the owner [company doctrine]\n{owner_briefing}\n\n\
          # Running the business well [company doctrine]\n{run_business}\n\n\
+         # Align, look, learn [company doctrine]\n{align_learn}\n\n\
          # Intelligence you can staff with [internal decision]\n\
          Routes for `--model`. An agent on the company default may also run any other model \
          of that provider, listed under it: choose the model the work needs (`restless people \
@@ -675,6 +676,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         sourcing = crate::capability_sourcing::SOURCE_CAPABILITY.trim(),
         skills_contract = crate::skills::contract_section(),
         run_business = crate::owner_brief::RUN_THE_BUSINESS.trim(),
+        align_learn = crate::owner_brief::ALIGN_AND_LEARN.trim(),
         staffing_routes = snapshot.staffing_routes.trim(),
         conversation_style = crate::owner_brief::CONVERSE_WITH_OWNER.trim(),
         // A company with no charter is meeting its owner: Exec interviews instead of working.

@@ -186,11 +186,11 @@
 	holdQueries(() => [principal, source]);
 </script>
 
-<CompanyTitle title="Identity" {companyId} />
+<CompanyTitle title="Brand & voice" {companyId} />
 
 <Page
-	title="Identity"
-	info="What the company is and how it sounds. Agents use it in all company work. Drafts can suggest changes; only you approve them."
+	title="Brand & voice"
+	info="How the company looks and sounds. Every site, deck and message the team makes starts from it. Exec proposes changes from your feedback; only you approve them."
 >
 	{#if view}
 		{#if failure}<Notice

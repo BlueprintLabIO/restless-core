@@ -239,6 +239,52 @@ async function inspectPage(page, response, consoleErrors, pageErrors) {
             textCharacters: (element.textContent ?? '').replace(/\s+/g, ' ').trim().length,
           };
         });
+      /* How much a visitor is asked to read: words overall, per screen, per section, and the
+       * longest paragraphs. Facts only; the brief and the skill say what is too much. */
+      const wordsIn = (text) => (text.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) ?? []).length;
+      const isVisual = (element) =>
+        ['IMG', 'VIDEO', 'CANVAS', 'svg', 'PICTURE'].includes(element.tagName) ||
+        element.hasAttribute('data-visual');
+      const sectionCandidates = [
+        ...document.querySelectorAll('main > section, main > div > section, body > section, section[id], [data-section]'),
+      ].filter(visible);
+      const sections = (sectionCandidates.length ? sectionCandidates : [...(document.querySelector('main') ?? document.body).children].filter(visible))
+        .slice(0, 40)
+        .map((element) => {
+          const words = wordsIn(element.innerText ?? '');
+          const visuals = [...element.querySelectorAll('img, video, canvas, svg, picture, [data-visual]')]
+            .filter(visible)
+            .filter((visual) => {
+              const rect = visual.getBoundingClientRect();
+              return rect.width * rect.height >= 64 * 64;
+            }).length;
+          const heading = element.querySelector('h1, h2, h3');
+          return {
+            selector: selectorFor(element),
+            heading: heading ? textFor(heading).slice(0, 80) : '',
+            words,
+            visuals,
+            heightPx: Math.round(element.getBoundingClientRect().height),
+          };
+        });
+      const paragraphs = [...document.querySelectorAll('p, li')]
+        .filter(visible)
+        .map((element) => wordsIn(element.innerText ?? ''))
+        .filter((count) => count > 0);
+      const bodyWords = wordsIn(document.body.innerText ?? '');
+      const screens = Math.max(1, document.documentElement.scrollHeight / Math.max(1, window.innerHeight));
+      const density = {
+        words: bodyWords,
+        screens: Math.round(screens * 10) / 10,
+        wordsPerScreen: Math.round(bodyWords / screens),
+        visuals: visibleElements.filter(isVisual).filter((element) => {
+          const rect = element.getBoundingClientRect();
+          return rect.width * rect.height >= 64 * 64;
+        }).length,
+        longestParagraphWords: paragraphs.length ? Math.max(...paragraphs) : 0,
+        paragraphsOver60Words: paragraphs.filter((count) => count > 60).length,
+        sections,
+      };
       const graphics = {
         svg: visibleElements.filter((element) => element.tagName === 'svg').length,
         canvas: visibleElements.filter((element) => element.tagName === 'CANVAS').length,
@@ -284,6 +330,7 @@ async function inspectPage(page, response, consoleErrors, pageErrors) {
           readingSurfaces,
           graphics,
         },
+        density,
         consoleErrors: capturedConsoleErrors,
         pageErrors: capturedPageErrors,
       };

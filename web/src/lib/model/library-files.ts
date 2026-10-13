@@ -212,6 +212,30 @@ export function libraryFileById(
 	return files.find((file) => file.id === id || file.ids?.includes(id)) ?? null;
 }
 
+/** What a link to a file that is no longer listed was, and what took its place: the newest file
+ * of the same kind from the same Work. A link in Exec's message to a site's first version should
+ * lead to the version that replaced it, not to a dead end. */
+export function replacedFile(
+	artifacts: readonly LibraryArtifact[],
+	files: readonly LibraryFile[],
+	id: string,
+	works: readonly { id: string; title: string }[] = []
+): { gone: string; workTitle: string; replacement: LibraryFile | null } | null {
+	const record = artifacts.find((artifact) => artifact.id === id);
+	if (!record) return null;
+	const kind = libraryKind(record);
+	const workTitle = works.find((work) => work.id === record.work_id)?.title ?? '';
+	const replacement =
+		files
+			.filter(
+				(file) =>
+					file.workId === record.work_id &&
+					(file.kind === kind || (kind === 'site' && file.kind === 'deck'))
+			)
+			.toSorted((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0] ?? null;
+	return { gone: fileLabel(record.label, record.uri, workTitle), workTitle, replacement };
+}
+
 /** A file in the company home that no recorded output names: a link in a message or document
  * pointed at it. It opens the same way, by its path. */
 export function fileAtPath(path: string): LibraryFile | null {

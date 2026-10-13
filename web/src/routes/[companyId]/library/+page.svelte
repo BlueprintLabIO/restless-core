@@ -52,6 +52,7 @@
 		fileAtPath,
 		libraryFileHref,
 		libraryFileById,
+		replacedFile,
 		libraryFiles,
 		libraryKind,
 		openLibraryFile,
@@ -284,33 +285,31 @@
 
 	/* What Work produced on the company computer. The owner reads the Work graph; a teammate reads
 	 * the files of the Work their collaboration view shows, and the server opens only those. */
-	const files = $derived(
+	const artifacts = $derived<LibraryArtifact[]>(
 		owner
-			? libraryFiles(
-					((attention.view?.workGraph?.artifacts ?? []) as unknown as LibraryArtifact[]) ?? [],
-					attention.view?.workGraph?.work ?? []
-				)
-			: libraryFiles(
-					(collaboration.view?.work_graph.artifacts ?? []).flatMap((artifact) =>
-						artifact.uri
-							? [
-									{
-										id: artifact.id,
-										kind: artifact.kind,
-										uri: artifact.uri,
-										label: artifact.label,
-										note: artifact.note,
-										created_by: '',
-										work_id: artifact.work_id,
-										state: artifact.state,
-										created_at: artifact.created_at
-									}
-								]
-							: []
-					),
-					collaboration.view?.work_graph.work ?? []
+			? (((attention.view?.workGraph?.artifacts ?? []) as unknown as LibraryArtifact[]) ?? [])
+			: (collaboration.view?.work_graph.artifacts ?? []).flatMap((artifact) =>
+					artifact.uri
+						? [
+								{
+									id: artifact.id,
+									kind: artifact.kind,
+									uri: artifact.uri,
+									label: artifact.label,
+									note: artifact.note,
+									created_by: '',
+									work_id: artifact.work_id,
+									state: artifact.state,
+									created_at: artifact.created_at
+								}
+							]
+						: []
 				)
 	);
+	const libraryWorks = $derived(
+		owner ? (attention.view?.workGraph?.work ?? []) : (collaboration.view?.work_graph.work ?? [])
+	);
+	const files = $derived(libraryFiles(artifacts, libraryWorks));
 	/* Files from Work that waits on the owner's judgement are waiting on their review too. */
 	const workWaitingOnOwner = $derived(waitingOnOwner(attention.view?.items ?? []));
 	const fileOpen = $derived(
@@ -1039,14 +1038,25 @@
 			{backHref}
 			resolve={uploadResolver}
 		/>
-	{:else if openFileId && !loading && attention.view}
+	{:else if openFileId && !loading && (attention.view || collaboration.view)}
+		{@const gone = replacedFile(artifacts, files, openFileId, libraryWorks)}
+		<!-- A link to a version that was replaced leads on to the one that replaced it. -->
 		<Empty
 			page
 			icon={FileX}
-			title="This file is no longer in the Library"
-			info="A newer version replaced it, it was archived, or the Work that made it was retired."
+			title={gone?.replacement
+				? `${gone.gone} was replaced`
+				: gone
+					? `${gone.gone} is no longer in the Library`
+					: 'This file is no longer in the Library'}
+			info={gone?.replacement
+				? `${gone.workTitle || 'Its Work'} made a newer version: ${gone.replacement.label}.`
+				: 'A newer version replaced it, it was archived, or the Work that made it was retired.'}
 		>
-			{#snippet action()}<a class="btn small" href={backHref}>Back to the Library</a>{/snippet}
+			{#snippet action()}{#if gone?.replacement}<a
+						class="btn small primary"
+						href={fileHref(gone.replacement.id)}>Open the newer version</a
+					>{/if}<a class="btn small" href={backHref}>Back to the Library</a>{/snippet}
 		</Empty>
 	{:else if uploadRow}
 		<Empty

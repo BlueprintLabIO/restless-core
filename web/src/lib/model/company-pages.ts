@@ -29,9 +29,9 @@ export const COMPANY_PAGES: CompanyPage[] = [
 	{
 		key: 'identity',
 		group: 'About',
-		label: 'Identity',
+		label: 'Brand & voice',
 		path: '/identity',
-		keywords: 'voice brand'
+		keywords: 'identity voice brand tone look style'
 	},
 	{
 		key: 'members',

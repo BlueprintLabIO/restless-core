@@ -64,13 +64,19 @@ state, use owner cookies, or use the review URL as browser control. Inspect at l
 - footer information architecture and closing conversion path; and
 - the exact deterministic observations in `manifest.json`, including overflow, off-viewport controls,
   invisible authored content, computed reading width/design evidence, console errors and broken
-  internal links.
+  internal links; and
+- `density` against the brief's copy budget, or the landing-page defaults when the brief sets none:
+  a section over its word budget, a section with no visual carrying its point, a paragraph over 40
+  words, or more than 120 words per desktop screen is a consequential defect. Quote the numbers.
+- the owner's brief and Brand & voice: the stated audience, the one action, the references the owner
+  chose and the never-say list. A candidate that contradicts the brief is rejected however polished.
 
 Compare product fidelity first and maturity second. Name where the candidate follows or contradicts
 the product, then where it closes or misses the external reference's standard of narrative depth,
 proof, responsiveness and finish. Reject invented marketing identities, copied references, fake
-metrics, component-library collage, short pages that leave the visitor's question unanswered, and
-visual spectacle standing in for product truth.
+metrics, component-library collage, pages that leave the visitor's question unanswered, walls of text
+that answer it at length (a long page is not a deep one), and visual spectacle standing in for
+product truth.
 
 Return one verdict: `accept`, `changes_requested` or `reject`. For changes, consolidate only
 consequential defects with exact route, viewport and observed evidence. Do not edit the candidate.

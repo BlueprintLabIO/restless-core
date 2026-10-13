@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { libraryFileById, libraryFiles, type LibraryArtifact } from './library-files.ts';
+import {
+	libraryFileById,
+	libraryFiles,
+	replacedFile,
+	type LibraryArtifact
+} from './library-files.ts';
 
 const record = (over: Partial<LibraryArtifact>): LibraryArtifact => ({
 	id: 'a',
@@ -64,4 +69,44 @@ test('a site titled with its own address is named after its Work', () => {
 test('a real title that merely mentions a port is kept', () => {
 	const [file] = libraryFiles([record({ label: 'Q4 review: port 8080 migration' })]);
 	assert.equal(file.label, 'Q4 review: port 8080 migration');
+});
+
+/* Seen in production: Exec linked a site's first version after a redo replaced it. */
+test('a link to a replaced file finds the newer file from the same Work', () => {
+	const old = record({
+		id: 'v1',
+		kind: 'site',
+		uri: '/company/outputs/taylor/v1/index.html',
+		label: 'Taylor & Ward site',
+		state: 'superseded',
+		created_at: '2026-10-12T10:00:00Z'
+	});
+	const newer = record({
+		id: 'v2',
+		kind: 'site',
+		uri: '/company/outputs/taylor/v2/index.html',
+		label: 'Taylor & Ward site, visual',
+		created_at: '2026-10-13T10:00:00Z'
+	});
+	const other = record({
+		id: 'x',
+		work_id: 'w9',
+		uri: '/company/outputs/other/index.html',
+		label: 'Other'
+	});
+	const works = [{ id: 'w1', title: 'Taylor & Ward redo' }];
+	const files = libraryFiles([old, newer, other], works);
+	assert.equal(libraryFileById(files, 'v1'), null, 'the old version is not listed');
+	const found = replacedFile([old, newer, other], files, 'v1', works);
+	assert.equal(found?.gone, 'Taylor & Ward site');
+	assert.equal(found?.workTitle, 'Taylor & Ward redo');
+	assert.equal(found?.replacement?.id, 'v2');
+	assert.equal(replacedFile([old, newer], files, 'missing'), null);
+});
+
+test('a replaced file with nothing newer says so', () => {
+	const old = record({ id: 'v1', label: 'Draft', state: 'superseded' });
+	const found = replacedFile([old], libraryFiles([old]), 'v1');
+	assert.equal(found?.replacement, null);
+	assert.equal(found?.gone, 'Draft');
 });

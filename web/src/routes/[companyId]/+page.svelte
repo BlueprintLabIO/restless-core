@@ -34,6 +34,7 @@
 		companiesQuery,
 		companyPrincipalQuery,
 		conversationQuery,
+		identityQuery,
 		turnWorking
 	} from '$lib/model/queries.svelte';
 	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
@@ -94,6 +95,18 @@
 	/* The Work graph's file references, so files named by an item open in the Library viewer. */
 	const artifacts = $derived((graph?.artifacts ?? []) as unknown as LibraryArtifact[]);
 	const selectedItemId = $derived(page.url.searchParams.get('item'));
+	/* Brand & voice not set yet: the clear Inbox offers to set it up with Exec. */
+	const identity = $derived(identityQuery(companyId));
+	const brandMissing = $derived(
+		hasOwnerSurfaceAccess(companyPrincipalQuery(companyId).view) &&
+			!!identity.view &&
+			!identity.view.current_release &&
+			!identity.view.pending_proposals.length
+	);
+	const setUpBrand = () =>
+		askExec(
+			"Let's set up our brand and voice. Ask me what you need: which brands feel like us, how we should sound, and anything we must never say."
+		);
 	const companyCatalog = companiesQuery(() =>
 		hasOwnerSurfaceAccess(companyPrincipalQuery(companyId).view)
 	);
@@ -544,7 +557,7 @@
 			sendingMessage = false;
 		}
 	}
-	holdQueries(() => [leadConversation]);
+	holdQueries(() => [leadConversation, identity]);
 </script>
 
 <svelte:head><title>Inbox — {view?.company.name ?? companyId}</title></svelte:head>
@@ -1048,6 +1061,18 @@
 					{/if}
 				</div>
 			{:else}
+				{#if brandMissing && !startBlocker}
+					<!-- Until the brand and voice are set, every site and message the team makes is a guess. -->
+					<div class="brand-nudge" role="status">
+						<p>
+							<strong>Set your brand and voice</strong>
+							Exec asks three questions, so what the team makes sounds and looks like you.
+						</p>
+						<button class="btn small primary" type="button" onclick={setUpBrand}
+							>Set up with Exec</button
+						>
+					</div>
+				{/if}
 				<CompanyOffice
 					{companyId}
 					{graph}
@@ -1078,6 +1103,32 @@
 {/snippet}
 
 <style>
+	.brand-nudge {
+		position: absolute;
+		z-index: 2;
+		/* Below the "No decisions" pill that shares this corner. */
+		top: 52px;
+		left: 12px;
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		max-width: min(520px, calc(100% - 24px));
+		padding: 10px 12px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-lg);
+		background: var(--surface-raised);
+		box-shadow: 0 6px 20px rgb(0 0 0 / 0.08);
+	}
+	.brand-nudge p {
+		margin: 0;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+	}
+	.brand-nudge strong {
+		display: block;
+		color: var(--ink);
+		font-size: var(--t-body);
+	}
 	.attention-resolution-notice {
 		position: absolute;
 		bottom: 16px;

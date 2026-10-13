@@ -26,6 +26,33 @@ taste simultaneously.
 Read [the team and stage contract](references/team-and-stage-contract.md) when forming or correcting
 the team.
 
+## Start from the owner's brief, not from assumptions
+
+Before any direction is drawn, the Work carries a brief from the person who asked for it:
+
+- who the page is for, and the one thing a visitor should do;
+- two or three sites the owner likes, and what they like about each;
+- what must be said, and what must never be (words, claims, imagery);
+- the copy budget, if it differs from the defaults below.
+
+Read it with the company's Brand & voice (`restless identity brief --outcome <work> --channel web
+--audience <audience>`). If the brief is missing any of these, the lead asks Exec to put the missing
+questions to the owner in one message and waits for the answers before exploring. Never fill a gap
+with a guess about taste: a guessed audience or reference is the most expensive mistake in this
+workflow.
+
+## Copy budget
+
+Visitors scan; they do not read. Unless the brief says otherwise, each page keeps to:
+
+- the hero: a headline of at most 10 words and at most 25 words around it;
+- every other section: at most 60 words, and a visual or an interaction that carries its point;
+- no paragraph over 40 words; and
+- at most 120 words per screen at desktop width.
+
+The capture manifest reports `density` (words, words per screen, words and visuals per section, the
+longest paragraph). Read it after every render. Cutting words is usually the fastest quality gain.
+
 ## Establish the quality floor
 
 When an incumbent exists, capture it at desktop and mobile and treat it as the minimum quality floor.
@@ -50,9 +77,18 @@ visual directions before building the full site. Each direction must show a real
 representative product encounter, a compact copy voice sample, desktop/mobile intent, and its single
 signature interaction. It may be a live route or a rendered prototype.
 
-The art/creative lead compares the directions against product truth and the incumbent, chooses one,
-and records why. Do not average the directions together. Do not spend full-site production time on
-an unselected concept.
+The art/creative lead compares the directions against product truth and the incumbent, shortlists
+one or two, and records why. Do not average the directions together. Do not spend full-site
+production time on an unselected concept.
+
+## Give the owner a first look
+
+Before building the full site, show the owner the shortlisted directions as screenshots at desktop
+and phone width: one owner judgement, "First look", with the images and one line each on what is
+different. Ask which is closer, and what is wrong with it. This takes the owner a minute and saves a
+full build in the wrong direction. Their answer is taste evidence: record it with
+`restless identity voice-evidence` or `restless identity evidence --pillar visual`, citing the
+judgement, so the next site starts from it.
 
 ## Build the selected system
 

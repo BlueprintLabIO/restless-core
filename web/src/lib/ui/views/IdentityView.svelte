@@ -28,7 +28,7 @@
 	<section class="identity-view" aria-label="Company identity">
 		<header class="id-head">
 			<Fingerprint size={15} strokeWidth={2.2} />
-			<strong>Identity</strong>
+			<strong>Brand & voice</strong>
 			<span class="id-version">{version}</span>
 		</header>
 		<div class="id-pillars">

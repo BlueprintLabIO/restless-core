@@ -10,6 +10,10 @@ pub const WELCOME_THE_OWNER: &str = include_str!("../prompts/welcome-the-owner.m
 /// How the Exec proposes improvements, what it may change without asking,
 /// and how it weighs labour against model spend.
 pub const RUN_THE_BUSINESS: &str = include_str!("../prompts/run-the-business.md");
+/// Align before making, look before passing, learn from every correction: foundations first,
+/// a kickoff brief before customer-facing Work, and corrections recorded as Brand & voice
+/// evidence the owner promotes.
+pub const ALIGN_AND_LEARN: &str = include_str!("../prompts/align-and-learn.md");
 
 /// What the owner actually reads. Work titles, outcomes, resolutions, Attempt
 /// summaries, artifact labels and gate names are rendered to the owner exactly
