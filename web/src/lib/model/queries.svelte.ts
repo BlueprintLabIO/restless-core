@@ -279,8 +279,11 @@ export function companyQuery(companyId: string, enabled: QueryEnabled = true) {
 	const probed = createQuery(() => options(true, () => probeCredentials));
 	const current = () => (probeCredentials && (probed.data || probed.error) ? probed : plain);
 	return {
+		/* The probed copy speaks only on a page that asked for it. Elsewhere a copy cached by an
+		 * earlier visit is stale: it would hide every save and refresh this page makes. */
 		get view() {
-			return ((probed.data ?? plain.data) as CompanyView | undefined) ?? null;
+			const data = probeCredentials ? (probed.data ?? plain.data) : plain.data;
+			return (data as CompanyView | undefined) ?? null;
 		},
 		get status() {
 			if (probeCredentials && !probed.data && !probed.error) return 'unknown';
@@ -292,6 +295,7 @@ export function companyQuery(companyId: string, enabled: QueryEnabled = true) {
 		refresh: () => refresh(current()),
 		accept(view: CompanyView): void {
 			if (probeCredentials) client.setQueryData(queryKeys.company(companyId, true), view);
+			else void client.invalidateQueries({ queryKey: queryKeys.company(companyId, true) });
 			client.setQueryData(queryKeys.company(companyId, false), view);
 		},
 		attach(probe = false): () => void {

@@ -110,10 +110,25 @@
 			runtimeSaving = false;
 		}
 	}
+	/* The new limit shows the moment Save is pressed; the authority's answer replaces it, and a
+	 * refusal puts the old one back with the editor open on the reason. */
 	async function saveLimit() {
 		if (limitSaving) return;
+		const ceiling = Number(limit);
+		if (!Number.isFinite(ceiling) || ceiling < 0) {
+			limitError = 'Enter a limit in US dollars, such as 50.';
+			return;
+		}
 		limitSaving = true;
 		limitError = '';
+		const before = view;
+		if (before && before.limits.status === 'available') {
+			source.accept({
+				...before,
+				limits: { ...before.limits, spend: { ...before.limits.spend, ceiling_usd: ceiling } }
+			});
+		}
+		editingLimit = false;
 		try {
 			const r = await fetch(`/api/companies/${encodeURIComponent(companyId)}/company/spend-limit`, {
 				method: 'POST',
@@ -123,10 +138,11 @@
 			const result = await r.json();
 			if (!r.ok) throw new Error(result.message ?? 'The limit could not be saved.');
 			source.accept(result);
-			editingLimit = false;
 			toast('Spend limit saved');
 		} catch (e) {
+			if (before) source.accept(before);
 			limitError = failureSentence(e, 'The limit could not be saved.');
+			editingLimit = true;
 		} finally {
 			limitSaving = false;
 		}

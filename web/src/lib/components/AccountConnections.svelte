@@ -5,7 +5,7 @@
 	import { failureSentence } from '$lib/model/failure';
 	import { hostPlace, planeStatus, type ApplianceStatus } from '$lib/model/appliance';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import { getCompanies, type CompanyCatalogEntry } from '$lib/model/cockpit';
 	import { accountGrantFix } from '$lib/model/company-start';
@@ -135,7 +135,9 @@
 
 	async function refresh() {
 		const sequence = ++refreshSequence;
-		loading = true;
+		/* Only the first load shows a skeleton; a background refresh (status checks, another tab's
+		 * change) keeps the page as it is. */
+		if (!connections.length) loading = true;
 		error = '';
 		try {
 			const response = await fetch('/api/connections', { cache: 'no-store' });
@@ -148,8 +150,12 @@
 					.filter((item) => item.kind === 'oauth' && item.status === 'present')
 					.map((item) => item.provider)
 			);
-			connections = body.connections ?? [];
-			includedProviders = body.included_providers ?? [];
+			/* An unchanged answer leaves the rows alone, so an open editor (its model menu
+			 * included) is not re-rendered under the person's pointer. */
+			const next: AccountConnection[] = body.connections ?? [];
+			if (JSON.stringify(next) !== JSON.stringify($state.snapshot(connections))) connections = next;
+			const included: string[] = body.included_providers ?? [];
+			if (included.join() !== includedProviders.join()) includedProviders = included;
 			if (
 				connections.some(
 					(item) =>
@@ -419,10 +425,14 @@
 		selectedMakeDefault = false;
 		replaceRequired = false;
 	}
+	/* Until the person picks, the suggestion follows the catalog as it loads. A refresh of the
+	 * connection list is not a reason to touch it. */
 	$effect(() => {
 		if (!managingId || !selectedCompany || modelTouched) return;
-		const item = connections.find((row) => row.id === managingId);
-		if (item) selectedModel = defaultModel(item.provider, item.kind);
+		const item = untrack(() => connections.find((row) => row.id === managingId));
+		if (!item) return;
+		const suggested = defaultModel(item.provider, item.kind);
+		if (suggested !== untrack(() => selectedModel)) selectedModel = suggested;
 	});
 	async function grant(item: AccountConnection, companyId: string, replace = false) {
 		if (busyCompany || !validModel(item.provider, selectedModel)) return;
@@ -659,7 +669,7 @@
 							}}
 							aria-label={`Model for ${item.label} in ${company.name}`}
 							><option value="">Choose a model…</option
-							>{#each modelChoices(item.provider, item.kind) as model}<option
+							>{#each modelChoices(item.provider, item.kind) as model (model.id)}<option
 									value={routeModel(item.provider, model.id)}>{model.name ?? model.id}</option
 								>{/each}<option value="__custom">Custom model ID…</option></select
 						></label

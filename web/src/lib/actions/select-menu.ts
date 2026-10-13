@@ -26,7 +26,9 @@ export function selectMenu(root: HTMLElement) {
 		const list = items();
 		if (!list.length) return;
 		active = (index + list.length) % list.length;
-		list[active].focus();
+		/* Focus must not scroll the page: that scroll used to dismiss the menu it had just opened. */
+		list[active].focus({ preventScroll: true });
+		list[active].scrollIntoView({ block: 'nearest' });
 	}
 
 	function close(restoreFocus = true) {
@@ -37,12 +39,20 @@ export function selectMenu(root: HTMLElement) {
 		source = null;
 		document.removeEventListener('pointerdown', outside, true);
 		window.removeEventListener('resize', dismiss);
-		window.removeEventListener('scroll', dismiss, true);
+		window.removeEventListener('scroll', follow, true);
 	}
 
-	function dismiss(event: Event) {
-		if (event.type === 'scroll' && menu?.contains(event.target as Node)) return;
+	function dismiss() {
 		close(false);
+	}
+
+	/* The page scrolling under an open menu moves the menu with its select; the menu closes only
+	 * once the select has left the screen. Scrolling inside the menu is its own. */
+	function follow(event: Event) {
+		if (!menu || !source || menu.contains(event.target as Node)) return;
+		const anchor = source.getBoundingClientRect();
+		if (anchor.bottom < 0 || anchor.top > innerHeight) close(false);
+		else place(source);
 	}
 
 	function outside(event: PointerEvent) {
@@ -94,14 +104,16 @@ export function selectMenu(root: HTMLElement) {
 			} else return;
 			event.preventDefault();
 		});
-		root.append(menu);
+		/* Inside the select's own token scope, where the menu's styles apply; the action's root
+		 * can sit outside it (the account pages wrap their tokens). */
+		(select.closest('.bridge-root, .bridge-tokens') ?? root).append(menu);
 		place(select);
 		const list = items();
 		const selected = list.findIndex((item) => item.getAttribute('aria-selected') === 'true');
 		focus(selected >= 0 ? selected : 0);
 		document.addEventListener('pointerdown', outside, true);
 		window.addEventListener('resize', dismiss);
-		window.addEventListener('scroll', dismiss, true);
+		window.addEventListener('scroll', follow, true);
 	}
 
 	function row(select: HTMLSelectElement, option: HTMLOptionElement): HTMLButtonElement {
