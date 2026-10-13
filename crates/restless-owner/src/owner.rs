@@ -27,6 +27,8 @@ mod custom_harnesses;
 mod documents_api;
 #[path = "owner_pending_shares.rs"]
 mod pending_shares_api;
+#[path = "owner_typing.rs"]
+mod typing_api;
 #[path = "owner_for_you.rs"]
 mod for_you_api;
 #[path = "owner_member_collaboration.rs"]
@@ -1111,6 +1113,10 @@ where
         .route(
             "/companies/{company}/rooms/{room}/read-cursor",
             get(get_room_read_cursor).post(mark_room_read),
+        )
+        .route(
+            "/companies/{company}/rooms/{room}/typing",
+            post(typing_api::room_typing),
         )
         .route(
             "/companies/{company}/attachments",
@@ -7740,6 +7746,7 @@ async fn room_events_live(
             poll_immediately: true,
             close_after_pending: false,
             wakes,
+            typing: typing_api::TYPING.subscribe(),
             fallback_initial: state.event_fallback_initial,
             fallback_max: state.event_fallback_max,
             fallback_current: state.event_fallback_initial,
@@ -7950,12 +7957,21 @@ struct RoomEventStreamState {
     poll_immediately: bool,
     close_after_pending: bool,
     wakes: tokio::sync::broadcast::Receiver<crate::cell_wake::CellWake>,
+    /// Others typing in this Room, said between replays.
+    typing: tokio::sync::broadcast::Receiver<typing_api::RoomTyping>,
     fallback_initial: Duration,
     fallback_max: Duration,
     fallback_current: Duration,
     fallback_jitter: u64,
     _admission: crate::cell_wake::StreamAdmission,
     session_lease: Option<SessionLease>,
+}
+
+/// What a waiting Room stream woke for.
+enum RoomStreamWake {
+    Replay,
+    Stop,
+    Typing(String),
 }
 
 fn room_event_stream(
@@ -7991,18 +8007,50 @@ fn room_event_stream(
             }
             if !state.poll_immediately {
                 let session_lease = state.session_lease.clone();
-                if !wait_for_room_event_hint(
-                    &mut state.wakes,
-                    &state.company,
-                    state.room_id,
-                    state.after_event_id,
-                    (state.fallback_current, state.fallback_max),
-                    state.fallback_jitter,
-                    session_lease.as_ref(),
-                )
-                .await
-                {
-                    return None;
+                let woke = {
+                    let hint = wait_for_room_event_hint(
+                        &mut state.wakes,
+                        &state.company,
+                        state.room_id,
+                        state.after_event_id,
+                        (state.fallback_current, state.fallback_max),
+                        state.fallback_jitter,
+                        session_lease.as_ref(),
+                    );
+                    let typing = &mut state.typing;
+                    let (company, room_id, me) = (&state.company, state.room_id, &state.actor_id);
+                    let typed = async move {
+                        loop {
+                            match typing.recv().await {
+                                Ok(signal)
+                                    if signal.company == *company
+                                        && signal.room_id == room_id
+                                        && signal.actor_id != *me =>
+                                {
+                                    return signal.actor_id;
+                                }
+                                Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                                }
+                                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                                    std::future::pending::<()>().await;
+                                }
+                            }
+                        }
+                    };
+                    tokio::select! {
+                        replay = hint => if replay { RoomStreamWake::Replay } else { RoomStreamWake::Stop },
+                        who = typed => RoomStreamWake::Typing(who),
+                    }
+                };
+                match woke {
+                    RoomStreamWake::Stop => return None,
+                    RoomStreamWake::Typing(who) => {
+                        let event = Event::default()
+                            .event("typing")
+                            .data(serde_json::json!({ "actor_id": who }).to_string());
+                        return Some((Ok(event), state));
+                    }
+                    RoomStreamWake::Replay => {}
                 }
             }
             state.poll_immediately = false;

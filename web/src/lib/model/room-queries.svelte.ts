@@ -569,9 +569,33 @@ export function roomReadCursorQuery(companyId: string, roomId: string) {
  * during that read are replayed after the snapshot cursor rather than falling
  * into a read-then-subscribe gap.
  */
+/** How long a typing signal shows; the typist repeats it every few seconds while typing. */
+const TYPING_SHOWS_MS = 6_000;
+
 export function roomActivityStream(companyId: string, roomId: string) {
 	const client = useQueryClient();
 	let transport = $state<RoomTransport>('connecting');
+	/* Who else is typing, until when. A message from them ends it at once. */
+	let typing = $state<Record<string, number>>({});
+	let typingTimer: ReturnType<typeof setTimeout> | null = null;
+	const prune = (): void => {
+		const now = Date.now();
+		const kept = Object.fromEntries(Object.entries(typing).filter(([, until]) => until > now));
+		if (Object.keys(kept).length !== Object.keys(typing).length) typing = kept;
+		if (typingTimer) clearTimeout(typingTimer);
+		const next = Math.min(...Object.values(kept));
+		typingTimer = Number.isFinite(next) ? setTimeout(prune, next - now + 50) : null;
+	};
+	const sawTyping = (actorId: string): void => {
+		typing = { ...typing, [actorId]: Date.now() + TYPING_SHOWS_MS };
+		prune();
+	};
+	const stoppedTyping = (actorId: string): void => {
+		if (!(actorId in typing)) return;
+		const { [actorId]: _, ...rest } = typing;
+		typing = rest;
+		prune();
+	};
 	let stop: (() => void) | null = null;
 	let retryTimer: ReturnType<typeof setTimeout> | null = null;
 	let generation = 0;
@@ -649,6 +673,10 @@ export function roomActivityStream(companyId: string, roomId: string) {
 		get transport() {
 			return transport;
 		},
+		/** Others typing in the Room now. */
+		get typing(): string[] {
+			return Object.keys(typing);
+		},
 		attach(): () => void {
 			stop?.();
 			if (retryTimer) clearTimeout(retryTimer);
@@ -681,11 +709,13 @@ export function roomActivityStream(companyId: string, roomId: string) {
 					afterEventId,
 					(event) => {
 						latestEventId = Math.max(latestEventId, event.id);
+						if (event.message_id !== null) stoppedTyping(event.actor_id);
 						applyLifecycleEvent(event);
 						void invalidate(event);
 					},
 					(next) => (transport = next),
-					scheduleRestart
+					scheduleRestart,
+					sawTyping
 				);
 			};
 
@@ -708,6 +738,9 @@ export function roomActivityStream(companyId: string, roomId: string) {
 				generation += 1;
 				if (retryTimer) clearTimeout(retryTimer);
 				retryTimer = null;
+				if (typingTimer) clearTimeout(typingTimer);
+				typingTimer = null;
+				typing = {};
 				stop?.();
 				stop = null;
 			};

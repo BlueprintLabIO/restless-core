@@ -318,6 +318,17 @@ async fn active_room_access(
     })
 }
 
+impl OrgIntel {
+    /// Whether this person takes part in the Room now. A guessed id or a former participant does
+    /// not. For signals that keep nothing, such as someone typing.
+    pub async fn room_open_to(&self, room_id: Uuid, actor_id: &str) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        let open = active_room_kind(&mut tx, room_id, actor_id).await.is_ok();
+        tx.rollback().await?;
+        Ok(open)
+    }
+}
+
 pub(crate) async fn active_room_kind(
     tx: &mut Transaction<'_, Postgres>,
     room_id: Uuid,

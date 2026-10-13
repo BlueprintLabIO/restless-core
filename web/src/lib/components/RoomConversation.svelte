@@ -63,6 +63,7 @@
 		type NewRoomMention,
 		type Room,
 		type RoomMessage as RoomMessageRecord,
+		sendRoomTyping,
 		type RoomMessageSearchResult
 	} from '$lib/model/rooms';
 	import type { AttentionItem, ThreadMessage } from '$lib/model/view';
@@ -544,9 +545,7 @@
 		participants
 			.filter((participant) => participant.actor_id !== currentActorId)
 			.map((participant) => roster.find((person) => person.actor_id === participant.actor_id))
-			.filter(
-				(person): person is (typeof roster)[number] => !!person && person.kind !== 'system'
-			)
+			.filter((person): person is (typeof roster)[number] => !!person && person.kind !== 'system')
 	);
 	const directPartner = $derived(
 		selectedRoom?.kind === 'direct' &&
@@ -933,6 +932,28 @@
 		mentionGap = null;
 		mentionGapAccepted = '';
 		addedForSend = [];
+	});
+	/* Typing says so to the others in the Room, at most every few seconds. An empty composer
+	 * (just sent, or cleared) starts afresh, so the next message is said at once. */
+	let lastTypingSignal = 0;
+	$effect(() => {
+		const draft = composer;
+		const room = untrack(() => selectedRoomId);
+		if (!draft.trim() || !room) {
+			lastTypingSignal = 0;
+			return;
+		}
+		const now = Date.now();
+		if (now - lastTypingSignal < 3_000) return;
+		lastTypingSignal = now;
+		sendRoomTyping(companyId, room);
+	});
+	const typingLine = $derived.by(() => {
+		const names = (activity?.typing ?? []).map(displayName);
+		if (!names.length) return '';
+		if (names.length === 1) return `${names[0]} is typing…`;
+		if (names.length === 2) return `${names[0]} and ${names[1]} are typing…`;
+		return 'Several people are typing…';
 	});
 	/* Editing the message retires a notice about the words it no longer has. */
 	$effect(() => {
@@ -1707,6 +1728,7 @@
 </div>
 
 {#snippet messageComposer()}
+	<p class="room-typing" aria-live="polite">{typingLine}</p>
 	<form class="room-composer" onsubmit={submitMessage} bind:this={composerForm}>
 		<Composer
 			bind:value={composer}
@@ -1762,8 +1784,10 @@
 			<div class="mention-gap" role="status">
 				<span
 					>{names}
-					{mentionGap.missing.length === 1 ? 'isn’t' : 'aren’t'} in this conversation, so they won’t
-					be asked.{selectedRoom?.kind === 'direct' ? ' Add people starts a group with them.' : ''}</span
+					{mentionGap.missing.length === 1 ? 'isn’t' : 'aren’t'} in this conversation, so they won’t be
+					asked.{selectedRoom?.kind === 'direct'
+						? ' Add people starts a group with them.'
+						: ''}</span
 				>
 				{#if canManageRoom}<button
 						type="button"
@@ -2424,5 +2448,13 @@
 		.thread-messages {
 			scroll-padding-bottom: 92px;
 		}
+	}
+	/* Who else is typing: one quiet line above the composer, its height kept so nothing jumps. */
+	.room-typing {
+		min-height: 1.4em;
+		margin: 0;
+		padding: 0 16px 2px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
 	}
 </style>

@@ -52,7 +52,11 @@ export interface RecentGroupConversation {
  * server read cursor, written by someone else. Your own message sent from another device is read.
  */
 export function conversationUnread(
-	row: { last_message_id: number; last_message_from?: string; last_read_message_id?: number | null },
+	row: {
+		last_message_id: number;
+		last_message_from?: string;
+		last_read_message_id?: number | null;
+	},
 	viewerActorId: string
 ): boolean {
 	if (!viewerActorId || row.last_message_from === viewerActorId) return false;
@@ -496,6 +500,14 @@ export function sendRoomMessage(
 	});
 }
 
+/** Say this person is typing in the Room; the others see it for a few seconds. */
+export function sendRoomTyping(company: string, room: string): void {
+	void fetch(`${roomPath(company, room)}/typing`, {
+		method: 'POST',
+		credentials: 'same-origin'
+	}).catch(() => undefined);
+}
+
 export function getRoomEventSnapshot(company: string, room: string): Promise<RoomEventPage> {
 	return roomJson(`${roomPath(company, room)}/events?after_event_id=0&limit=1`);
 }
@@ -507,7 +519,8 @@ export function openRoomEventStream(
 	afterEventId: number,
 	onevent: (event: RoomEvent) => void,
 	ontransport: (transport: RoomTransport) => void,
-	onrestart: (reason: RoomStreamRestartReason) => void
+	onrestart: (reason: RoomStreamRestartReason) => void,
+	ontyping?: (actorId: string) => void
 ): () => void {
 	ontransport('connecting');
 	const source = new EventSource(
@@ -531,6 +544,16 @@ export function openRoomEventStream(
 			onevent(JSON.parse(event.data) as RoomEvent);
 		} catch {
 			retire('transport');
+		}
+	}) as EventListener);
+	/* Someone else typing in the Room: a passing signal, never an event to replay. */
+	source.addEventListener('typing', ((event: MessageEvent<string>) => {
+		if (retired || !ontyping) return;
+		try {
+			const actorId = (JSON.parse(event.data) as { actor_id?: unknown }).actor_id;
+			if (typeof actorId === 'string') ontyping(actorId);
+		} catch {
+			/* A malformed signal is simply not shown. */
 		}
 	}) as EventListener);
 	/* A compacted cursor is an explicit projection reset, not an ordinary
