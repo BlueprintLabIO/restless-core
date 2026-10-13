@@ -1120,6 +1120,7 @@
 			onresolved={(result) => {
 				resolvedHere = item.id;
 				sent = result;
+				void source.refresh();
 			}}
 		/>
 	{:else}<InboxDetail

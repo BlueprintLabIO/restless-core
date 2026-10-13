@@ -120,10 +120,27 @@ pub(super) async fn decide(
             // An approved request is Exec's to carry out at once: wake it with the request.
             if decided.state == restless_engine::direction::RequestState::Approved {
                 wake_exec_for(&state, &company, acting(&principal).id, &decided).await;
+            } else if decided.state == restless_engine::direction::RequestState::Declined {
+                tell_declined(&org, &decided).await;
             }
             no_store(Json(decided).into_response())
         }
         Err(error) => refused(error),
+    }
+}
+
+/// The person who asked hears a decline where they asked: in their room with Exec, with the reason.
+async fn tell_declined(org: &restless_orgintel::OrgIntel, request: &restless_engine::direction::DirectionRequest) {
+    let Some(decision) = &request.decision else { return };
+    if decision.by.actor_id == request.requester.actor_id {
+        return;
+    }
+    let mut line = format!("{} declined: {}.", decision.by.name, request.summary.trim_end_matches('.'));
+    if let Some(reason) = decision.reason.as_deref().filter(|reason| !reason.trim().is_empty()) {
+        line.push_str(&format!(" “{}”", reason.trim()));
+    }
+    if let Err(error) = org.send_message("exec", Some(&request.requester.actor_id), &line).await {
+        tracing::warn!(%error, "could not tell the requester about a decline");
     }
 }
 

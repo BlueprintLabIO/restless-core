@@ -58,6 +58,8 @@
 			error = failureSentence(cause, 'That answer was not recorded.');
 		} finally {
 			busy = false;
+			/* The Today line counts what still waits. */
+			void client.invalidateQueries({ queryKey: ['direction-digest', companyId] });
 			await refreshAttention(client, companyId);
 		}
 	}
