@@ -109,11 +109,19 @@
 >
 	{#if !view}
 		<Empty compact title="Reading your Inbox…" />
-	{:else if !handoffs.length && !myTeams.length && !forYou.items.length && forYou.status === 'live'}
+	{:else if !handoffs.length && !myTeams.length && !forYou.items.length && forYou.status === 'live' && forYou.filter === 'all'}
+		<!-- Archived stays one click away when nothing else is here. -->
 		<Empty
 			title="Nothing waiting for you"
 			info="When a team you own needs a decision, someone hands you a step, mentions you or replies to you, or changes a document you follow, it shows here."
-		/>
+		>
+			{#snippet action()}<button
+					type="button"
+					class="btn small ghost"
+					title="For you items you archived"
+					onclick={() => forYou.setFilter('archived')}>Archived</button
+				>{/snippet}
+		</Empty>
 	{:else}
 		{#if handoffs.length}
 			<Section title="Waiting for you" count={handoffs.length}>

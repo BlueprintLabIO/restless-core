@@ -253,7 +253,11 @@
 							>
 						</li>
 					{:else}
-						<li class="none">Nobody else by that name</li>
+						<li class="none">
+							{looksLikeEmail(query) && !oninvite
+								? 'Not in the company yet. An admin can invite them from Members.'
+								: 'Nobody else by that name'}
+						</li>
 					{/each}
 				</ul>
 			{/if}

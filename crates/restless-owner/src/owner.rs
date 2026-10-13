@@ -2045,6 +2045,9 @@ fn membership_boundary_violation(
         || is_attachment_upload_route(method, path)
         // Whoever may share a document or sheet may share it with an invitee; OrgIntel decides.
         || is_company_route_family(path, "pending-shares")
+        // Change hints name a kind of change and carry nothing else; what a person refetches
+        // on one is answered only from what they may read.
+        || (*method == Method::GET && is_company_route_family(path, "changes"))
         || company_settings_api::is_company_logo_read(method, path)
     {
         return None;

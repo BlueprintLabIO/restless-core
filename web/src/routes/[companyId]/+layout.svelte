@@ -192,11 +192,9 @@
 
 	/* The shell and the Attention surface read one source rather than polling the
 	 * same endpoint on two clocks. The badge can no longer disagree with the
-	 * queue it is counting. */
-	companyChangeStream(
-		() => companyId,
-		() => ownerAccess
-	);
+	 * queue it is counting. Members hear the same change hints, so a page shared
+	 * with them or a reply to them appears without waiting for the next poll. */
+	companyChangeStream(() => companyId);
 	const attention = $derived(attentionQuery(companyId, () => ownerAccess));
 	const cockpitProjection = cockpitQuery(
 		() => companyId,

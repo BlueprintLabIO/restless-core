@@ -2803,6 +2803,7 @@ model = \"anthropic/claude-sonnet-5-5\"
                 (Method::POST, "/api/companies/aris/attachments"),
                 (Method::GET, "/api/companies/aris/pending-shares"),
                 (Method::POST, "/api/companies/aris/pending-shares/cancel"),
+                (Method::GET, "/api/companies/aris/changes"),
             ] { assert!(membership_boundary_violation(&method,path,&participant).is_none(), "{role} refused {method} {path}"); }
             assert!(membership_boundary_violation(&Method::POST,"/api/companies/aris/up",&participant).is_some());
             // Adding a file is open; listing everyone's kept files is not.
