@@ -897,13 +897,22 @@
 	/* A company that never had a model and one whose model connection stopped are different
 	 * situations: say which, in a few words, and name the one action that fixes it. */
 	const neverConnected = $derived(!providerLabel.startsWith('Reconnect'));
+	/* Only the owner connects models. A teammate is told who can fix it, with no button to a page
+	 * they cannot open. */
+	const ownerFixes = $derived(membershipRole === 'owner');
 	const providerHeading = $derived(
-		neverConnected ? 'Connect a model' : `${participantName} can't reply`
+		!ownerFixes
+			? `${participantName} can't reply right now`
+			: neverConnected
+				? 'Connect a model'
+				: `${participantName} can't reply`
 	);
 	const providerReason = $derived(
-		neverConnected
-			? `${participantName} needs one to think and act. Use an API key or a ChatGPT or Claude sign-in.`
-			: 'Its model connection stopped working.'
+		!ownerFixes
+			? 'Its model connection isn’t working. The company owner can fix it in Company → Intelligence.'
+			: neverConnected
+				? `${participantName} needs one to think and act. Use an API key or a ChatGPT or Claude sign-in.`
+				: 'Its model connection stopped working.'
 	);
 	const providerAction = $derived(neverConnected ? 'Connect a model' : providerLabel);
 	holdQueries(() => [directRooms]);
@@ -1255,7 +1264,7 @@
 								<p class="exr-empty-p">
 									{needsProvider ? providerReason : capabilityHint}
 								</p>
-								{#if needsProvider}
+								{#if needsProvider && ownerFixes}
 									<a
 										class="btn primary small provider-connect"
 										href={`/${companyId}/company/provider`}
@@ -1312,17 +1321,17 @@
 					<!-- In the empty state the connect action sits with its explanation
 					     above; otherwise it takes the composer's place. -->
 					{#if !providerPromptInline}
-						<a
-							class="btn primary small provider-connect-slot"
-							href={`/${companyId}/company/provider`}
-							>{#if neverConnected}<Plus
-									size={14}
-									strokeWidth={2}
-									aria-hidden="true"
-								/>{:else}<RotateCw size={14} strokeWidth={2} aria-hidden="true" />{/if}<span
-								>{providerAction}</span
-							></a
-						>
+						{#if ownerFixes}<a
+								class="btn primary small provider-connect-slot"
+								href={`/${companyId}/company/provider`}
+								>{#if neverConnected}<Plus
+										size={14}
+										strokeWidth={2}
+										aria-hidden="true"
+									/>{:else}<RotateCw size={14} strokeWidth={2} aria-hidden="true" />{/if}<span
+									>{providerAction}</span
+								></a
+							>{/if}
 					{/if}
 				{:else}
 					{#if membershipRole === 'owner' && participantId === 'exec'}<WorkInFlight
