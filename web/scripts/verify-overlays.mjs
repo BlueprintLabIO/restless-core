@@ -95,7 +95,7 @@ try {
 	check('the result count is announced', menu.status === '8 results', JSON.stringify(menu));
 	check(
 		'truncated results say how many are hidden',
-		/4 more in People/.test(menu.more ?? ''),
+		/Show 4 more/.test(menu.more ?? ''),
 		menu.more
 	);
 	await page.keyboard.press('Escape');
