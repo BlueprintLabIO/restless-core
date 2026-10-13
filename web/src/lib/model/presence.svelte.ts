@@ -1,5 +1,5 @@
 /* Who else is in this company's cockpit. Each open cockpit heartbeats while
- * visible; presence is ephemeral and never stored. */
+ * visible and leaves as soon as it is hidden; presence is ephemeral and never stored. */
 export type PresentPerson = { actor_id: string; display: string };
 
 export function presence(company: () => string) {
@@ -22,8 +22,9 @@ export function presence(company: () => string) {
 		}
 		void beat();
 		const timer = setInterval(beat, 30_000);
-		const onVisible = () => void beat();
 		const onLeave = () => void fetch(url, { method: 'DELETE', keepalive: true }).catch(() => {});
+		/* A hidden tab is not someone looking: leave at once, and come back when seen again. */
+		const onVisible = () => (document.visibilityState === 'visible' ? void beat() : onLeave());
 		document.addEventListener('visibilitychange', onVisible);
 		window.addEventListener('pagehide', onLeave);
 		return () => {

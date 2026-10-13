@@ -64,6 +64,20 @@ export function forYouSource(
 		refetchInterval: REFRESH_MS,
 		refetchIntervalInBackground: background()
 	}));
+	/* Polling on while hidden (desktop notices) asks for the first page only: an infinite query
+	 * refetches every page it holds, so pages loaded further down go when the tab is hidden. */
+	$effect(() => {
+		const trim = () => {
+			if (document.visibilityState !== 'hidden') return;
+			client.setQueryData<Pages>(key(), (data) =>
+				data && data.pages.length > 1
+					? { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) }
+					: data
+			);
+		};
+		document.addEventListener('visibilitychange', trim);
+		return () => document.removeEventListener('visibilitychange', trim);
+	});
 	const items = () => {
 		/* Pages are read at different moments; an item read twice is listed once. */
 		const seen = new Set<string>();
