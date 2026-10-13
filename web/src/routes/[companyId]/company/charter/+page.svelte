@@ -220,7 +220,7 @@
 						class="text-link"
 						onclick={toggleHistory}
 						aria-expanded={historyOpen}
-						title={`Owner authorised ${formatMoment(view.charter.effective_at)} · revision ${view.charter.revision}`}
+						title={`Owner authorised ${formatMoment(view.charter.effective_at)}`}
 						>Saved {when(view.charter.effective_at)}</button
 					>
 					<button class="btn small" type="button" onclick={beginEditing}>Edit</button>
