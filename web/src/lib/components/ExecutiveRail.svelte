@@ -50,6 +50,7 @@
 	import AppRequestCards from './AppRequestCards.svelte';
 	import { fetchSetAside } from '$lib/model/attention';
 	import WorkInFlight from './WorkInFlight.svelte';
+	import MyRequests from './MyRequests.svelte';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	let {
@@ -1338,6 +1339,7 @@
 							{companyId}
 						/>{/if}
 					{#if membershipRole === 'owner'}<AppRequestCards {companyId} actor={participantId} />{/if}
+					{#if participantId === 'exec'}<MyRequests {companyId} />{/if}
 					<form class="exr-composer" onsubmit={submitAsk}>
 						{#if quoting}
 							<div class="quoting">

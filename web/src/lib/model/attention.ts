@@ -54,6 +54,7 @@ export interface MessageInterruptResult {
 
 type WireItem = {
 	native_document?: AttentionItem['nativeDocument'];
+	direction_request?: AttentionItem['directionRequest'];
 	id: string;
 	work_id?: string;
 	source: AttentionItem['source'];
@@ -153,6 +154,7 @@ export async function getAttention(company: string): Promise<AttentionView> {
 				id: item.id,
 				workId: item.work_id,
 				source: item.source,
+				directionRequest: item.direction_request,
 				category: item.category,
 				title: item.preparing ? 'Preparing your next step' : item.title,
 				whatHappened: item.preparing ? item.requested_action : item.what_happened,

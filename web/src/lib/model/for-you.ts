@@ -2,6 +2,7 @@
  * newest first. The server assembles it from the objects themselves and keeps read, unread and
  * archive marks per person, so what happens to an item on one device happens everywhere. */
 import { responseFailure } from './failure.ts';
+import type { DirectionApplied } from './generated/direction';
 
 export type ForYouKind =
 	| 'mention'
@@ -12,7 +13,9 @@ export type ForYouKind =
 	| 'review'
 	| 'access'
 	| 'comment-access'
-	| 'edit-access';
+	| 'edit-access'
+	/* One row a day: the changes Exec applied for others without asking (S80). */
+	| 'applied';
 
 export interface ForYouItem {
 	key: string;
@@ -27,6 +30,8 @@ export interface ForYouItem {
 	actor_name: string;
 	at: string;
 	unread: boolean;
+	/** On an `applied` row: each change, with its Undo. */
+	direction_applied?: DirectionApplied[];
 }
 
 export interface ForYouPage {
@@ -134,6 +139,9 @@ export function forYouSentence(item: Pick<ForYouItem, 'kind' | 'actor_name' | 't
 			return `${who} asked to comment on ${where || 'a document'}`;
 		case 'edit-access':
 			return `${who} asked to edit ${where || 'a document'}`;
+		case 'applied':
+			// The server words it: "4 changes applied for Bianca and Bodhi".
+			return where || 'Changes applied for others';
 		default:
 			return where || who;
 	}

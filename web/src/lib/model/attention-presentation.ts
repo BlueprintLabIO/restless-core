@@ -34,12 +34,18 @@ export function attentionKindLabel(item: AttentionItem): string {
 	if (item.category === 'blocker') return 'Setup';
 	if (item.category === 'human_step') return 'Your step';
 	if (item.category === 'conversation') return 'Question';
+	if (item.source.kind === 'direction_request') return 'Request';
 	return 'Decision';
 }
 
 /** Who is asking: the accountable lead, or whoever wrote the brief. */
 export function attentionAsker(item: AttentionItem): string {
-	return item.responsibleActor?.display ?? item.briefAuthor?.display ?? 'Exec';
+	return (
+		item.directionRequest?.requester.name ??
+		item.responsibleActor?.display ??
+		item.briefAuthor?.display ??
+		'Exec'
+	);
 }
 
 /** One list: what blocks the company first, then the oldest ask first, so

@@ -11,6 +11,8 @@
 	import { failureSentence } from '$lib/model/failure';
 	import { forYouSentence, type ForYouFilter, type ForYouItem } from '$lib/model/for-you';
 	import type { ForYouSource } from '$lib/model/for-you.svelte';
+	import { page } from '$app/state';
+	import AppliedChanges from './AppliedChanges.svelte';
 
 	let {
 		source,
@@ -22,6 +24,7 @@
 		/** K on the first row leaves the list upwards, to whatever sits above it. */
 		onexit?: () => void;
 	} = $props();
+	const companyId = $derived(page.params.companyId ?? '');
 
 	let section: HTMLElement;
 
@@ -136,8 +139,8 @@
 	{#each source.items as item (item.key)}
 		<Item
 			title={forYouSentence(item)}
-			meta={item.excerpt || null}
-			href={item.href}
+			meta={item.kind === 'applied' ? null : item.excerpt || null}
+			href={item.kind === 'applied' ? undefined : item.href}
 			unread={item.unread}
 			onclick={() => open(item)}
 		>
@@ -165,6 +168,11 @@
 				</ActionMenu>
 			{/snippet}
 		</Item>
+		{#if item.kind === 'applied' && item.direction_applied?.length}<AppliedChanges
+				{companyId}
+				changes={item.direction_applied}
+				onchanged={() => source.refresh()}
+			/>{/if}
 	{:else}
 		{#if source.status === 'unknown' && source.failure}
 			<p class="note">For you could not be read. It tries again shortly.</p>

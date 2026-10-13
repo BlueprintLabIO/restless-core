@@ -11,6 +11,7 @@
 	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
 	import SharingSetup from '$lib/components/SharingSetup.svelte';
+	import StandingPermissions from '$lib/components/StandingPermissions.svelte';
 	import {
 		changeMembership,
 		getCoreMembers,
@@ -485,6 +486,7 @@
 			{/each}
 		</Section>
 	{/if}
+	{#if principalSource.view?.membership_role === 'owner'}<StandingPermissions {companyId} />{/if}
 </Page>
 
 {#if sharingOpen && core?.mode === 'local'}<SharingSetup

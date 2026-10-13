@@ -19,6 +19,8 @@
 	import InboxDetail from '$lib/components/InboxDetail.svelte';
 	import SetAsideList from '$lib/components/SetAside.svelte';
 	import { celebrate } from '$lib/ui/celebrate';
+	import DirectionRequestDetail from '$lib/components/DirectionRequestDetail.svelte';
+	import DirectionToday from '$lib/components/DirectionToday.svelte';
 	import {
 		attentionTitle,
 		coordinationFailure,
@@ -981,6 +983,7 @@
 			</div>
 		{/if}
 		<aside class="cockpit-pane attention-index" aria-hidden={queueClear} inert={queueClear}>
+			<DirectionToday {companyId} />
 			<InboxList
 				onvisible={(rows) => (visibleItems = rows)}
 				{companyId}
@@ -1110,23 +1113,32 @@
 {/if}
 
 {#snippet attentionDetail(item: AttentionItem)}
-	<InboxDetail
-		{companyId}
-		{item}
-		{artifacts}
-		workOwnerId={graph?.work.find((work) => work.id === item.workId)?.owner_id}
-		declining={page.url.searchParams.get('decline') === '1'}
-		onopenDocument={async () => {
-			const result = await source.reload();
-			if (result.error) throw result.error;
-		}}
-		onresolved={(result) => {
-			/* From the answer just given, before the detail closes around it. */
-			celebrate(document.activeElement);
-			resolvedHere = item.id;
-			sent = result;
-		}}
-	/>
+	{#if item.directionRequest}
+		<DirectionRequestDetail
+			{companyId}
+			request={item.directionRequest}
+			onresolved={(result) => {
+				resolvedHere = item.id;
+				sent = result;
+			}}
+		/>
+	{:else}<InboxDetail
+			{companyId}
+			{item}
+			{artifacts}
+			workOwnerId={graph?.work.find((work) => work.id === item.workId)?.owner_id}
+			declining={page.url.searchParams.get('decline') === '1'}
+			onopenDocument={async () => {
+				const result = await source.reload();
+				if (result.error) throw result.error;
+			}}
+			onresolved={(result) => {
+				/* From the answer just given, before the detail closes around it. */
+				celebrate(document.activeElement);
+				resolvedHere = item.id;
+				sent = result;
+			}}
+		/>{/if}
 {/snippet}
 
 <style>

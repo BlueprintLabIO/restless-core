@@ -1,3 +1,4 @@
+import type { DirectionRequest } from './generated/direction';
 /** The small owner-surface contract. Source-owned reads map into these shapes. */
 
 export interface NativeDocumentAttention {
@@ -13,6 +14,8 @@ export interface NativeDocumentAttention {
 
 export interface AttentionItem {
 	preparing?: boolean;
+	/** A request someone asked Exec for that waits on this person (S80). */
+	directionRequest?: DirectionRequest;
 	nativeDocument?: NativeDocumentAttention;
 	id: string;
 	workId?: string;
