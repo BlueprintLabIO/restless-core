@@ -332,7 +332,7 @@ impl OrgIntel {
         if denied {
             return Err(SheetError::Unavailable);
         }
-        sqlx::query("INSERT INTO native_sheets(id,title,owner_actor_id,visibility,engine_version,replay_base,head_revision) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(id) DO NOTHING")
+        sqlx::query("INSERT INTO native_sheets(id,title,owner_actor_id,visibility,engine_version,replay_base,head_revision,search_text) VALUES($1,$2,$3,$4,$5,$6,$7,native_sheet_text($6)) ON CONFLICT(id) DO NOTHING")
             .bind(id).bind(title.trim()).bind(actor).bind(visibility).bind(SHEET_ENGINE_VERSION).bind(workbook).bind(head).execute(&mut *tx).await?;
         let row: SheetRow = sqlx::query_as(&format!("SELECT {ROW} FROM native_sheets WHERE id=$1"))
             .bind(id)
@@ -707,12 +707,15 @@ impl OrgIntel {
                 "checkpoint does not match accepted head".into(),
             ));
         }
+        // The text of its cells follows each change, for finding the sheet by what is in it.
         sqlx::query(
-            "UPDATE native_sheets SET head_revision=$2,sequence=$3,updated_at=now() WHERE id=$1",
+            "UPDATE native_sheets SET head_revision=$2,sequence=$3,updated_at=now(),\
+             search_text=native_sheet_text($4) WHERE id=$1",
         )
         .bind(id)
         .bind(&head)
         .bind(sequence)
+        .bind(workbook)
         .execute(&mut *tx)
         .await?;
         if !messages.is_empty()

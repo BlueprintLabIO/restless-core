@@ -4,7 +4,7 @@ A living assessment of the cockpit's collaboration against Notion, the owner's b
 not a feature count: each area asks whether the everyday path is complete, polished and works for
 every person in the company, members as well as the owner. Update it with each sprint.
 
-**Read:** 13 October 2026, after Sprint 77.
+**Read:** 13 October 2026, after Sprint 78.
 **Evidence:**
 - the three-person multiplayer smoke (`scripts/multiplayer-smoke`): 22 steps, owner and two
   members over network entry
@@ -32,7 +32,7 @@ every person in the company, members as well as the owner. Update it with each s
 | Sheets | At par | co-editing, sharing at view, comment or edit, history, CSV/Excel in and out, Duplicate, ask for access; comments on cells with mentions, replies, resolve, corner marks and For you (S74) | a thread stays on the cell address it was written on when rows are inserted above it |
 | Chat (People rooms) | At par | group and direct rooms, threads, files and pictures, reactions, mentions, typing (S73), search | none on the everyday path |
 | Version history | At par | named versions, restore, what changed since you last looked, who edited; compare any two versions of a page (S77); what a sheet version changed, cell by cell (S77) | none on the everyday path |
-| Search (⌘K) | Close | documents by title and body, sheets, people, conversations, comments, recents | full-text search inside sheets |
+| Search (⌘K) | At par | documents by title and body, sheets by title and by what their cells hold, people, conversations, comments on documents and sheets, recents (S78) | none on the everyday path |
 | Members and access lifecycle | At par | invite (several at once), resend, role changes with Undo, leave with consequence stated, removal closes live sessions at once (smoke) | none |
 | Phone width | Close | every everyday screen fits 390 px with no overflow (S69); panels become sheets | a native app is out of scope; touch editing of sheets is the engine's own |
 | Accessibility | Close | axe: no findings of moderate or higher impact on ten screens at desktop; one main region, headings, named controls (S71, S72); every everyday screen walks by keyboard alone with visible focus, the sheet grid lets the keyboard out, menus and the palette return focus, and messages name their authors (S75) | a pass with a real screen reader (NVDA, VoiceOver) by a person; the accessibility tree was read, not listened to |

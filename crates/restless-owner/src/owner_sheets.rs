@@ -18,6 +18,7 @@ where
         .route("/companies/{company}/sheets", get(list).post(create))
         .route("/companies/{company}/sheets/{sheet}", get(read).patch(rename))
         .route("/companies/{company}/sheets-archived", get(list_archived))
+        .route("/companies/{company}/sheets/search", get(search))
         .route("/companies/{company}/sheets/{sheet}/archive", axum::routing::post(archive))
         .route("/companies/{company}/sheets/{sheet}", delete(delete_archived))
         .route(
@@ -247,6 +248,29 @@ async fn rename(
             Ok(value) => no_store(Json(value).into_response()),
             Err(e) => failure(e),
         },
+    }
+}
+#[derive(Deserialize)]
+struct SearchQuery {
+    #[serde(default)]
+    q: String,
+}
+/// Sheets whose cells hold the words searched for, and comments on sheets, among those the person
+/// may open.
+async fn search(
+    State(s): State<RoomApiState>,
+    RoomPrincipal(p): RoomPrincipal,
+    AxumPath(c): AxumPath<String>,
+    axum::extract::Query(query): axum::extract::Query<SearchQuery>,
+) -> Response<Body> {
+    match async {
+        let org = org(&s, &p, &c).await?;
+        anyhow::Ok(json!(org.search_sheets(p.actor_id(), query.q.trim()).await?))
+    }
+    .await
+    {
+        Ok(value) => no_store(Json(value).into_response()),
+        Err(e) => failure(e),
     }
 }
 /// The sheet's comment threads, and whether the reader may take part.

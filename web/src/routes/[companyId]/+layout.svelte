@@ -73,7 +73,7 @@
 	import { CATALOGUE, buildApps } from '$lib/model/apps';
 	import type { CommandSearch } from '$lib/components/CommandMenu.svelte';
 	import { searchDocuments } from '$lib/model/documents';
-	import { sheetJson, type SheetRow } from '$lib/model/sheets';
+	import { searchSheets, sheetJson, type SheetRow } from '$lib/model/sheets';
 	import { LIBRARY_KIND_LABEL, libraryFiles, type LibraryArtifact } from '$lib/model/library-files';
 	import {
 		attachmentHref,
@@ -1220,11 +1220,12 @@
 		const words = text.toLocaleLowerCase().split(/\s+/).filter(Boolean);
 		const named = (value: string) =>
 			words.every((word) => value.toLocaleLowerCase().includes(word));
-		const [documents, lists, messages, comments] = await Promise.all([
+		const [documents, lists, messages, comments, inSheets] = await Promise.all([
 			searchDocuments(company, text, 0, signal).catch(() => null),
 			libraryListsFor(company, owner),
 			searchRoomMessages(company, text, null, 8, signal).catch(() => null),
-			searchComments(company, text, 6, signal).catch(() => [])
+			searchComments(company, text, 6, signal).catch(() => []),
+			searchSheets(company, text, signal).catch(() => null)
 		]);
 		if (signal.aborted || company !== companyId) return [];
 		const conversationName = (roomId: string) => {
@@ -1255,6 +1256,13 @@
 				hint: `${comment.author_actor_id === viewer ? 'You' : personName(comment.author_actor_id)} on ${comment.document_title || 'Untitled document'}`,
 				href: comment.href
 			})),
+			...(inSheets?.comments ?? []).map((comment) => ({
+				id: `comment:${comment.comment_id}`,
+				group: 'Comments',
+				label: flat(comment.snippet) || 'Comment',
+				hint: `${comment.author_actor_id === viewer ? 'You' : personName(comment.author_actor_id)} on ${comment.title || 'Untitled sheet'}`,
+				href: `${root}/library/sheets?sheet=${encodeURIComponent(comment.sheet_id)}&inspect=comments&thread=${encodeURIComponent(comment.thread_id)}`
+			})),
 			...(documents?.items ?? []).map((hit) => {
 				const flat = hit.snippet.replace(/\s+/g, ' ').trim();
 				const at = flat.toLocaleLowerCase().indexOf(text.toLocaleLowerCase());
@@ -1274,6 +1282,18 @@
 					label: sheet.title || 'Untitled sheet',
 					hint: 'Sheet',
 					href: `${root}/library/sheets?sheet=${encodeURIComponent(sheet.id)}`
+				})),
+			/* A sheet found by what is in it says where: its cell, and what the cell holds. */
+			...(inSheets?.cells ?? [])
+				.filter(
+					(hit) => !lists.sheets.some((sheet) => sheet.id === hit.sheet_id && named(sheet.title))
+				)
+				.map((hit) => ({
+					id: `library:sheet:${hit.sheet_id}`,
+					group: 'Library',
+					label: hit.title || 'Untitled sheet',
+					hint: hit.cell ? `${hit.cell} · ${flat(hit.snippet)}` : 'Sheet',
+					href: `${root}/library/sheets?sheet=${encodeURIComponent(hit.sheet_id)}`
 				})),
 			...lists.kept
 				.filter((row) => (!viewer || row.sender_actor_id === viewer) && named(row.canonical_name))

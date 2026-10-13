@@ -180,6 +180,21 @@ export async function deleteSheetComment(
 		{ method: 'DELETE' }
 	);
 }
+/** What search found in sheets: cells holding every word, and comments on sheets. */
+export interface SheetSearch {
+	cells: { sheet_id: string; title: string; tab: string | null; cell: string | null; snippet: string }[];
+	comments: {
+		sheet_id: string;
+		title: string;
+		thread_id: string;
+		comment_id: string;
+		author_actor_id: string;
+		snippet: string;
+	}[];
+}
+export function searchSheets(company: string, q: string, signal?: AbortSignal): Promise<SheetSearch> {
+	return sheetJson(company, `/search?q=${encodeURIComponent(q)}`, { signal });
+}
 export function sheetHref(company: string, id: string): string {
 	return `/${encodeURIComponent(company)}/library/sheets?sheet=${encodeURIComponent(id)}`;
 }
