@@ -3447,6 +3447,50 @@ async fn active_room_participant(
 /// Who may decide who else sees or edits a document: whoever made it, and the company's owner.
 /// The Exec acts for that owner, so it may too, except on a person's own private drafts. Nobody
 /// else learns that the document exists.
+/// A duplicate shows the images it was made with (S68). The image counts as placed by an editor
+/// when a document this one was duplicated from, however many copies back, shows it and its sender
+/// may edit that document. Only Duplicate sets the lineage, from a document its maker could read.
+async fn placed_in_original(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    document_id: Uuid,
+    attachment_id: Uuid,
+    sender: &str,
+) -> DocumentResult<bool> {
+    let mut current = document_id;
+    for _ in 0..8 {
+        let original: Option<Uuid> = sqlx::query_scalar(
+            "SELECT duplicated_from FROM native_documents WHERE id=$1",
+        )
+        .bind(current)
+        .fetch_optional(&mut **tx)
+        .await?
+        .flatten();
+        let Some(original) = original else {
+            return Ok(false);
+        };
+        let shows: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM native_document_yjs_state WHERE document_id=$1 \
+               AND jsonb_path_exists(projection_json, $3::jsonpath, jsonb_build_object('id', $2::text))) \
+             OR EXISTS(SELECT 1 FROM native_document_versions WHERE document_id=$1 \
+               AND jsonb_path_exists(content_json, $3::jsonpath, jsonb_build_object('id', $2::text)))",
+        )
+        .bind(original)
+        .bind(attachment_id.to_string())
+        .bind(DOCUMENT_IMAGE_PATH)
+        .fetch_one(&mut **tx)
+        .await?;
+        if shows
+            && access_in_transaction(tx, original, sender)
+                .await?
+                .is_some_and(|access| access.permits(DocumentAccess::Edit))
+        {
+            return Ok(true);
+        }
+        current = original;
+    }
+    Ok(false)
+}
+
 pub(crate) async fn may_manage_participants(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     document_id: Uuid,
@@ -8638,7 +8682,9 @@ impl OrgIntel {
                 let placed_by_editor = access_in_transaction(&mut tx, document_id, &sender)
                     .await?
                     .is_some_and(|access| access.permits(DocumentAccess::Edit));
-                if placed_by_editor {
+                if placed_by_editor
+                    || placed_in_original(&mut tx, document_id, attachment_id, &sender).await?
+                {
                     tx.commit().await?;
                     return Ok(Some(record));
                 }

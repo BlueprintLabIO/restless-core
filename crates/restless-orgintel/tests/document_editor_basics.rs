@@ -265,3 +265,36 @@ async fn people_who_may_comment_react_to_comments_and_readers_see_the_reactions(
         .unwrap();
     assert!(cleared.is_empty());
 }
+
+#[tokio::test]
+async fn a_duplicate_shows_the_images_it_was_made_with() {
+    let Some(org) = company("dupimage").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping duplicate image scenario");
+        return;
+    };
+    // Alex puts a chart in his document and lets Blair read it; Blair duplicates it.
+    let chart = keep_file(&org, "alex").await;
+    let original = private_document(&org, "alex", &with_image(chart)).await;
+    share(&org, original, "alex", "blair", DocumentAccess::Read).await;
+    let copy = org
+        .duplicate_document(original, "blair", Uuid::new_v4())
+        .await
+        .unwrap()
+        .document_id;
+    // Casey can open only the copy, and still sees the chart it was made with.
+    share(&org, copy, "blair", "casey", DocumentAccess::Read).await;
+    assert!(sees(&org, chart, "casey").await, "a duplicate keeps its images");
+
+    // Pasting someone else's file id into your own document shows nothing, copy or not.
+    let secret = keep_file(&org, "alex").await;
+    let _hidden = private_document(&org, "alex", &with_image(secret)).await;
+    let mine = private_document(&org, "blair", &with_image(secret)).await;
+    let mine_copy = org
+        .duplicate_document(mine, "blair", Uuid::new_v4())
+        .await
+        .unwrap()
+        .document_id;
+    share(&org, mine_copy, "blair", "casey", DocumentAccess::Read).await;
+    assert!(!sees(&org, secret, "casey").await);
+    assert!(!sees(&org, secret, "blair").await);
+}

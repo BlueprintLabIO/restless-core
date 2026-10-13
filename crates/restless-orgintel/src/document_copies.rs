@@ -55,6 +55,14 @@ impl OrgIntel {
                 reason: "Duplicated",
             })
             .await?;
+        // Where it came from, so the images it was made with still show in it.
+        sqlx::query(
+            "UPDATE native_documents SET duplicated_from=$2 WHERE id=$1 AND duplicated_from IS NULL",
+        )
+        .bind(created.document_id)
+        .bind(source_id)
+        .execute(&self.pool)
+        .await?;
         let copy = self.get_document_for_actor(created.document_id, actor_id).await?;
         let wanted = source.document.general_access;
         if copy.document.general_access != wanted && wanted != GeneralAccess::Private {

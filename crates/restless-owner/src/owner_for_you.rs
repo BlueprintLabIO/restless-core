@@ -180,7 +180,13 @@ pub(super) fn href(company: &str, item: &ForYouItem) -> String {
             };
             format!("/{company}/library/documents?document={document_id}{panel}")
         }
-        ForYouTarget::Sheet { sheet_id } => format!("/{company}/library/sheets?sheet={sheet_id}"),
+        // An ask for a sheet opens its sharing, where it can be granted.
+        ForYouTarget::Sheet { sheet_id } => match item.kind.as_str() {
+            "access" | "edit-access" => {
+                format!("/{company}/library/sheets?sheet={sheet_id}&inspect=share")
+            }
+            _ => format!("/{company}/library/sheets?sheet={sheet_id}"),
+        },
         ForYouTarget::Room {
             room_id,
             thread_root_message_id,

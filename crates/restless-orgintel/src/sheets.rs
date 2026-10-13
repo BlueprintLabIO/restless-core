@@ -92,6 +92,14 @@ pub struct SheetSharing {
     pub people: Vec<SheetParticipant>,
     pub may_manage: bool,
 }
+/// Someone asking for a sheet: to view (`read`) or to edit.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct SheetAccessRequest {
+    pub id: Uuid,
+    pub actor_id: String,
+    pub access: String,
+    pub requested_at: chrono::DateTime<chrono::Utc>,
+}
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct SheetParticipant {
     pub actor_id: String,
@@ -708,6 +716,119 @@ impl OrgIntel {
         tx.commit().await?;
         Ok(sequence)
     }
+    /// Asks whoever may share a sheet for access to it: to view, or to edit. Nothing happens
+    /// for a sheet that is gone, or for an ask the person's access already answers. An ask set
+    /// aside stays quiet for a day unless the person asks for more.
+    pub async fn request_sheet_access(&self, id: Uuid, actor: &str, wanted: &str) -> Result<()> {
+        if !["read", "edit"].contains(&wanted) {
+            return Err(SheetError::Invalid("invalid access".into()));
+        }
+        let mut tx = self.pool.begin().await?;
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM native_sheets WHERE id=$1 AND archived_at IS NULL)",
+        )
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let human: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM actors WHERE id=$1 AND retired_at IS NULL \
+               AND actor_class IN ('human','owner'))",
+        )
+        .bind(actor)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !exists || !human {
+            return Ok(());
+        }
+        match access(&mut tx, id, actor, false).await {
+            Ok(grant) if grant == "edit" || wanted == "read" => return Ok(()),
+            Ok(_) | Err(SheetError::Unavailable) => {}
+            Err(error) => return Err(error),
+        }
+        sqlx::query(
+            "INSERT INTO native_sheet_access_requests (id,sheet_id,actor_id,access) \
+             VALUES ($1,$2,$3,$4) \
+             ON CONFLICT (sheet_id,actor_id) DO UPDATE SET \
+               access=CASE WHEN native_sheet_access_requests.closed_at IS NULL \
+                 AND native_sheet_access_requests.access='edit' THEN 'edit' ELSE EXCLUDED.access END, \
+               requested_at=CASE WHEN native_sheet_access_requests.closed_at IS NULL \
+                 AND native_sheet_access_requests.access=EXCLUDED.access \
+                 THEN native_sheet_access_requests.requested_at ELSE now() END, \
+               closed_at=NULL,closed_by_actor_id=NULL \
+             WHERE native_sheet_access_requests.closed_at IS NULL \
+               OR native_sheet_access_requests.closed_at<now()-interval '1 day' \
+               OR (EXCLUDED.access='edit' AND native_sheet_access_requests.access='read')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(id)
+        .bind(actor)
+        .bind(wanted)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// The open asks for a sheet, for whoever may share it; an ask already answered is left out.
+    pub async fn list_sheet_access_requests(
+        &self,
+        id: Uuid,
+        actor: &str,
+    ) -> Result<Vec<SheetAccessRequest>> {
+        let mut tx = self.pool.begin().await?;
+        if !may_share(&mut tx, id, actor).await? {
+            return Err(SheetError::Unavailable);
+        }
+        let rows: Vec<SheetAccessRequest> = sqlx::query_as(
+            "SELECT id,actor_id,access,requested_at FROM native_sheet_access_requests \
+             WHERE sheet_id=$1 AND closed_at IS NULL ORDER BY requested_at LIMIT 50",
+        )
+        .bind(id)
+        .fetch_all(&mut *tx)
+        .await?;
+        let mut open = Vec::with_capacity(rows.len());
+        for row in rows {
+            let answered = match access(&mut tx, id, &row.actor_id, false).await {
+                Ok(grant) => grant == "edit" || row.access == "read",
+                Err(SheetError::Unavailable) => false,
+                Err(error) => return Err(error),
+            };
+            if !answered {
+                open.push(row);
+            }
+        }
+        tx.commit().await?;
+        Ok(open)
+    }
+
+    /// Whoever may share a sheet sets an ask aside without granting it.
+    pub async fn dismiss_sheet_access_request(
+        &self,
+        id: Uuid,
+        request: Uuid,
+        actor: &str,
+    ) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        if !may_share(&mut tx, id, actor).await? {
+            return Err(SheetError::Unavailable);
+        }
+        let changed = sqlx::query(
+            "UPDATE native_sheet_access_requests SET closed_at=now(),closed_by_actor_id=$3 \
+             WHERE sheet_id=$1 AND id=$2 AND closed_at IS NULL",
+        )
+        .bind(id)
+        .bind(request)
+        .bind(actor)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if changed != 1 {
+            return Err(SheetError::Unavailable);
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn share_sheet(
         &self,
         id: Uuid,
@@ -739,6 +860,9 @@ impl OrgIntel {
             }
             sqlx::query("INSERT INTO native_sheet_participants(sheet_id,actor_id,access,added_by_actor_id,added_at) VALUES($1,$2,$3,$4,now()) ON CONFLICT(sheet_id,actor_id) DO UPDATE SET access=EXCLUDED.access")
                 .bind(id).bind(participant).bind(grant).bind(actor).execute(&mut *tx).await?;
+            // Giving someone what they asked for answers their ask.
+            sqlx::query("UPDATE native_sheet_access_requests SET closed_at=now(),closed_by_actor_id=$3 WHERE sheet_id=$1 AND actor_id=$2 AND closed_at IS NULL AND (access='read' OR $4='edit')")
+                .bind(id).bind(participant).bind(actor).bind(grant).execute(&mut *tx).await?;
         } else {
             sqlx::query("DELETE FROM native_sheet_participants WHERE sheet_id=$1 AND actor_id=$2")
                 .bind(id)

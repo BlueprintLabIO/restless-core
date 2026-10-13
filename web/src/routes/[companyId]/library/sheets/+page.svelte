@@ -25,6 +25,7 @@
 	import {
 		SPREADSHEET_ACCEPT,
 		importSpreadsheet,
+		askForSheet,
 		duplicateSheet,
 		renameSheet,
 		saveFile,
@@ -192,6 +193,23 @@
 			say('Link copied');
 		} catch {
 			say('Could not copy the link');
+		}
+	}
+	/* Someone who may not open it, or may only view it, asks whoever shares it. The answer is
+	 * the same whether the sheet is private or gone, so asking reveals nothing. */
+	let asked = $state('');
+	async function askForAccess(wanted: 'read' | 'edit') {
+		const target = sheet;
+		try {
+			await askForSheet(company, target, wanted);
+			asked = target;
+			toast(
+				wanted === 'edit'
+					? 'Asked for edit access. Whoever shares it will see it in For you.'
+					: 'Asked. Whoever shares it will see it in For you.'
+			);
+		} catch (cause) {
+			toast(failureSentence(cause, 'The ask was not sent.'), { tone: 'failure' });
 		}
 	}
 	/* A copy you own opens with its title selected, ready to rename. */
@@ -501,6 +519,16 @@
 			<span class="spacer"></span>
 			<PageFaces {faces} />
 			{#if row}
+				{#if access === 'read'}
+					<button
+						type="button"
+						class="btn small"
+						disabled={asked === row.id}
+						title="Ask whoever shares it for edit access"
+						onclick={() => void askForAccess('edit')}
+						>{asked === row.id ? 'Asked' : 'Ask to edit'}</button
+					>
+				{/if}
 				{#if follow?.id === row.id}
 					<button
 						class="btn small follow"
@@ -650,9 +678,15 @@
 				title="Sheet unavailable"
 				info="It may have been removed, or you may no longer have access."
 			>
-				{#snippet action()}<a
-						class="btn small"
-						href={`/${encodeURIComponent(company)}/library?show=sheets`}>Back to the Library</a
+				{#snippet action()}<button
+						type="button"
+						class="btn small primary"
+						disabled={asked === sheet}
+						title="Whoever shares it sees your ask in For you"
+						onclick={() => void askForAccess('read')}
+						>{asked === sheet ? 'Asked' : 'Ask for access'}</button
+					><a class="btn small" href={`/${encodeURIComponent(company)}/library?show=sheets`}
+						>Back to the Library</a
 					>{/snippet}
 			</Empty>
 		{:else if sheet && authorized}

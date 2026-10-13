@@ -41,6 +41,14 @@ where
             post(duplicate),
         )
         .route(
+            "/companies/{company}/sheets/{sheet}/access-requests",
+            get(access_requests).post(ask_for_access),
+        )
+        .route(
+            "/companies/{company}/sheets/{sheet}/access-requests/{request}/dismiss",
+            post(dismiss_access_request),
+        )
+        .route(
             "/companies/{company}/sheets/{sheet}/versions/{version}",
             get(version),
         )
@@ -215,6 +223,61 @@ async fn rename(
     }
 }
 /// Who can open a sheet, for its share panel.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AskForAccess {
+    access: String,
+}
+/// Ask whoever may share a sheet for it. The answer never says whether the sheet exists.
+async fn ask_for_access(
+    State(s): State<RoomApiState>,
+    RoomPrincipal(p): RoomPrincipal,
+    AxumPath((c, sheet)): AxumPath<(String, Uuid)>,
+    Json(i): Json<AskForAccess>,
+) -> Response<Body> {
+    match async {
+        let org = org(&s, &p, &c).await?;
+        org.request_sheet_access(sheet, p.actor_id(), &i.access).await?;
+        anyhow::Ok(())
+    }
+    .await
+    {
+        Ok(()) => no_store(StatusCode::NO_CONTENT.into_response()),
+        Err(e) => failure(e),
+    }
+}
+async fn access_requests(
+    State(s): State<RoomApiState>,
+    RoomPrincipal(p): RoomPrincipal,
+    AxumPath((c, sheet)): AxumPath<(String, Uuid)>,
+) -> Response<Body> {
+    match async {
+        let org = org(&s, &p, &c).await?;
+        anyhow::Ok(json!({ "items": org.list_sheet_access_requests(sheet, p.actor_id()).await? }))
+    }
+    .await
+    {
+        Ok(value) => no_store(Json(value).into_response()),
+        Err(e) => failure(e),
+    }
+}
+async fn dismiss_access_request(
+    State(s): State<RoomApiState>,
+    RoomPrincipal(p): RoomPrincipal,
+    AxumPath((c, sheet, request)): AxumPath<(String, Uuid, Uuid)>,
+) -> Response<Body> {
+    match async {
+        let org = org(&s, &p, &c).await?;
+        org.dismiss_sheet_access_request(sheet, request, p.actor_id())
+            .await?;
+        anyhow::Ok(())
+    }
+    .await
+    {
+        Ok(()) => no_store(StatusCode::NO_CONTENT.into_response()),
+        Err(e) => failure(e),
+    }
+}
 async fn sharing(
     State(s): State<RoomApiState>,
     RoomPrincipal(p): RoomPrincipal,

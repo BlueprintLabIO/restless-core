@@ -18,7 +18,11 @@
 		shareWithInvitee,
 		type PendingShare
 	} from '$lib/model/pending-shares';
+	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import {
+		dismissSheetAccessRequest,
+		sheetAccessRequests,
+		type SheetAccessRequest,
 		getSheetSharing,
 		setSheetGeneralAccess,
 		setSheetParticipant,
@@ -53,6 +57,8 @@
 
 	let sharing = $state<SheetSharing | null>(null);
 	let pending = $state<PendingShare[]>([]);
+	/* Who asked for this sheet, above its sharing, for whoever may share it. */
+	let asks = $state<SheetAccessRequest[]>([]);
 	let busy = $state(false);
 	let failure = $state('');
 
@@ -74,12 +80,16 @@
 
 	async function load(target: { company: string; sheet: string }): Promise<void> {
 		const value = await getSheetSharing(target.company, target.sheet);
-		const waiting = value.may_manage
-			? await getPendingShares(target.company, { sheet: target.sheet })
-			: [];
+		const [waiting, asked] = value.may_manage
+			? await Promise.all([
+					getPendingShares(target.company, { sheet: target.sheet }),
+					sheetAccessRequests(target.company, target.sheet).catch(() => [])
+				])
+			: [[], []];
 		if (target.company !== company || target.sheet !== sheet) return;
 		sharing = value;
 		pending = waiting;
+		asks = asked;
 	}
 
 	$effect(() => {
@@ -87,6 +97,7 @@
 		untrack(() => {
 			sharing = null;
 			pending = [];
+			asks = [];
 			failure = '';
 			void load(target).catch((cause) => {
 				failure = failureSentence(cause, 'Sharing could not be loaded.');
@@ -191,6 +202,18 @@
 		);
 	}
 
+	/* Granting gives the level asked for; Dismiss sets the ask aside for a day. */
+	async function grantAsk(ask: SheetAccessRequest): Promise<void> {
+		if (await add(ask.actor_id, ask.access))
+			toast(`${nameOf(ask.actor_id)} can ${ask.access === 'read' ? 'view' : 'edit'} it now`);
+	}
+	function dismissAsk(ask: SheetAccessRequest): void {
+		void change(
+			() => dismissSheetAccessRequest(company, sheet, ask.id),
+			'That did not change. Try again.'
+		);
+	}
+
 	function setGeneral(value: GeneralAccess): void {
 		void change(
 			async () => onchanged(await setSheetGeneralAccess(company, sheet, value)),
@@ -201,7 +224,33 @@
 
 {#if !sharing}
 	<p class="quiet" role={failure ? 'alert' : undefined}>{failure || 'Loading…'}</p>
-{:else}<SharePanel
+{:else}{#if asks.length}<section class="asks" aria-label="Asked for access">
+			{#each asks as ask (ask.id)}
+				<div class="ask">
+					<p>
+						<strong>{nameOf(ask.actor_id)}</strong>
+						{ask.access === 'edit' ? 'asked to edit' : 'asked to open it'}
+						<RelativeTime value={ask.requested_at} />
+					</p>
+					<div class="ask-actions">
+						<button
+							type="button"
+							class="btn small primary"
+							disabled={busy}
+							onclick={() => void grantAsk(ask)}
+							>{ask.access === 'edit' ? 'Let them edit' : 'Let them view'}</button
+						>
+						<button
+							type="button"
+							class="btn small ghost"
+							title="Set the ask aside. They can ask again tomorrow."
+							disabled={busy}
+							onclick={() => dismissAsk(ask)}>Dismiss</button
+						>
+					</div>
+				</div>
+			{/each}
+		</section>{/if}<SharePanel
 		general={sharing.general_access}
 		generalOptions={generalAccessOptions('sheet')}
 		levels={LEVELS}
@@ -231,6 +280,31 @@
 	/>{/if}
 
 <style>
+	.asks {
+		display: grid;
+		gap: 8px;
+		margin-bottom: 12px;
+	}
+	.ask {
+		display: grid;
+		gap: 8px;
+		padding: 10px 12px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		background: var(--surface-raised);
+	}
+	.ask p {
+		margin: 0;
+		color: var(--text-secondary);
+	}
+	.ask strong {
+		color: var(--ink);
+		font-weight: 600;
+	}
+	.ask-actions {
+		display: flex;
+		gap: 6px;
+	}
 	.quiet {
 		margin: 4px;
 		color: var(--text-tertiary);

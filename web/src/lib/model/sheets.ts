@@ -60,6 +60,38 @@ export function duplicateSheet(company: string, sheet: string, copy: string): Pr
 		body: JSON.stringify({ id: copy })
 	});
 }
+/** Someone asking for a sheet: to view (`read`) or to edit. */
+export interface SheetAccessRequest {
+	id: string;
+	actor_id: string;
+	access: 'read' | 'edit';
+	requested_at: string;
+}
+/** Ask whoever shares a sheet for it; the answer never says whether it exists. */
+export function askForSheet(company: string, sheet: string, access: 'read' | 'edit') {
+	return sheetJson<unknown>(company, `/${encodeURIComponent(sheet)}/access-requests`, {
+		method: 'POST',
+		body: JSON.stringify({ access })
+	});
+}
+export async function sheetAccessRequests(
+	company: string,
+	sheet: string
+): Promise<SheetAccessRequest[]> {
+	return (
+		await sheetJson<{ items: SheetAccessRequest[] }>(
+			company,
+			`/${encodeURIComponent(sheet)}/access-requests`
+		)
+	).items;
+}
+export function dismissSheetAccessRequest(company: string, sheet: string, request: string) {
+	return sheetJson<unknown>(
+		company,
+		`/${encodeURIComponent(sheet)}/access-requests/${encodeURIComponent(request)}/dismiss`,
+		{ method: 'POST' }
+	);
+}
 export function sheetHref(company: string, id: string): string {
 	return `/${encodeURIComponent(company)}/library/sheets?sheet=${encodeURIComponent(id)}`;
 }

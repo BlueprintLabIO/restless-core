@@ -269,8 +269,23 @@ const ITEMS: &str = "viewer AS ( \
      AND (d.owner_actor_id=$1 OR $1='owner' OR EXISTS(SELECT 1 FROM human_principal_actor_bindings b \
        WHERE b.actor_id=$1 AND b.membership_role='owner' AND b.membership_status='active')) \
  ), \
+ sheet_access AS ( \
+   SELECT 'sheet-access:'||q.id,CASE q.access WHEN 'edit' THEN 'edit-access' ELSE 'access' END, \
+     NULL::uuid,q.sheet_id,NULL::uuid,NULL::text,NULL::bigint,NULL::bigint,NULL::uuid,s.title,''::text, \
+     ARRAY[q.actor_id],q.requested_at, \
+     q.requested_at>GREATEST(viewer.through,COALESCE(r.read_at,'-infinity')) \
+   FROM native_sheet_access_requests q CROSS JOIN viewer \
+   JOIN native_sheets s ON s.id=q.sheet_id AND s.archived_at IS NULL \
+   LEFT JOIN for_you_reads r ON r.actor_id=$1 AND r.item_key='sheet-access:'||q.id \
+   WHERE q.closed_at IS NULL AND q.actor_id<>$1 AND $6::uuid IS NULL AND ($8::uuid IS NULL OR q.sheet_id=$8) \
+     AND (s.owner_actor_id=$1 OR $1='owner' OR EXISTS(SELECT 1 FROM human_principal_actor_bindings b \
+       WHERE b.actor_id=$1 AND b.membership_role='owner' AND b.membership_status='active')) \
+     AND NOT EXISTS(SELECT 1 FROM native_sheet_participants p WHERE p.sheet_id=q.sheet_id \
+       AND p.actor_id=q.actor_id AND (p.access='edit' OR q.access='read')) \
+     AND NOT (s.visibility='company' AND (s.company_access='edit' OR q.access='read')) \
+ ), \
  items AS ( \
-   SELECT * FROM room_mentions UNION ALL SELECT * FROM room_threads    UNION ALL SELECT * FROM doc_mentions UNION ALL SELECT * FROM threads    UNION ALL SELECT * FROM doc_shares UNION ALL SELECT * FROM sheet_shares    UNION ALL SELECT * FROM reviews UNION ALL SELECT * FROM changes    UNION ALL SELECT * FROM sheet_changes UNION ALL SELECT * FROM access_requests  )";
+   SELECT * FROM room_mentions UNION ALL SELECT * FROM room_threads    UNION ALL SELECT * FROM doc_mentions UNION ALL SELECT * FROM threads    UNION ALL SELECT * FROM doc_shares UNION ALL SELECT * FROM sheet_shares    UNION ALL SELECT * FROM reviews UNION ALL SELECT * FROM changes    UNION ALL SELECT * FROM sheet_changes UNION ALL SELECT * FROM access_requests    UNION ALL SELECT * FROM sheet_access  )";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "source", rename_all = "snake_case")]
@@ -377,7 +392,7 @@ fn valid_key(key: &str) -> bool {
     let canonical = |id: &str| Uuid::parse_str(id).is_ok_and(|parsed| parsed.hyphenated().to_string() == id);
     match kind {
         "room-mention" | "doc-mention" | "thread" | "changes" | "share" | "sheet-share"
-        | "review" | "sheet-changes" | "access" => canonical(id),
+        | "review" | "sheet-changes" | "access" | "sheet-access" => canonical(id),
         "room-thread" => id.split_once(':').is_some_and(|(room, root)| {
             canonical(room)
                 && !root.is_empty()
