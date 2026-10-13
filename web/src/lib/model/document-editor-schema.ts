@@ -637,6 +637,60 @@ function emptyLineHintExtension() {
 	});
 }
 
+/* A split block keeps its id on the part that is still the same block: the part with content, or
+ * the first when both or neither have any; the other part gets a new id. Tiptap's UniqueID gives
+ * the id to the second part whenever the first is empty, so splitting an empty line handed that
+ * line's Yjs identity to the new one, and every colleague's caret on it followed into the new
+ * line (S67). UniqueID still declares the attribute and fills ids when a document opens; this
+ * plugin replaces its transaction handling, and gives any block without an id one. */
+export function blockIdentityPlugin(): Plugin {
+	return new Plugin({
+		key: new PluginKey('blockIdentity'),
+		appendTransaction: (transactions, oldState, newState) => {
+			if (!transactions.some((tr) => tr.docChanged && !isChangeOrigin(tr))) return null;
+			const transform = combineTransactionSteps(oldState.doc, [...transactions]);
+			const byId = new Map<string, { node: ProseMirrorNode; pos: number }[]>();
+			const seen = new Set<number>();
+			for (const { newRange } of getChangedRanges(transform)) {
+				for (const found of findChildrenInRange(newState.doc, newRange, (node) =>
+					(BLOCK_TYPES as readonly string[]).includes(node.type.name)
+				)) {
+					if (seen.has(found.pos)) continue;
+					seen.add(found.pos);
+					const id = found.node.attrs.block_id;
+					const key = typeof id === 'string' && id ? id : `missing:${found.pos}`;
+					byId.set(key, [...(byId.get(key) ?? []), found]);
+				}
+			}
+			const tr = newState.tr;
+			for (const [key, parts] of byId) {
+				if (key.startsWith('missing:')) {
+					tr.setNodeMarkup(parts[0].pos, undefined, {
+						...parts[0].node.attrs,
+						block_id: crypto.randomUUID()
+					});
+					continue;
+				}
+				if (parts.length < 2) continue;
+				const filled = parts.filter((part) => part.node.content.size > 0);
+				const keeper = filled.length === 1 ? filled[0] : parts[0];
+				for (const part of parts)
+					if (part !== keeper)
+						tr.setNodeMarkup(part.pos, undefined, {
+							...part.node.attrs,
+							block_id: crypto.randomUUID()
+						});
+			}
+			return tr.steps.length ? tr : null;
+		}
+	});
+}
+
+const blockIdentityExtension = Extension.create({
+	name: 'blockIdentity',
+	addProseMirrorPlugins: () => [blockIdentityPlugin()]
+});
+
 function caretExtension(provider: HocuspocusProvider, carets: DocumentCarets) {
 	return CollaborationCaret.configure({
 		provider,
@@ -652,7 +706,10 @@ function caretExtension(provider: HocuspocusProvider, carets: DocumentCarets) {
 			label.classList.add('collaboration-carets__label');
 			label.style.backgroundColor = `hsl(${hue} 65% 45%)`;
 			label.textContent = carets.nameOf(actorId);
-			caret.append(label);
+			/* Never a place to type: the browser's own caret must not step into someone else's.
+			 * The word joiners either side keep it moving past, as Tiptap's own caret does. */
+			caret.contentEditable = 'false';
+			caret.append('⁠', label, '⁠');
 			return caret;
 		},
 		selectionRender: (user) => ({
@@ -688,12 +745,10 @@ export function imageAltFromName(name: string): string {
 
 /** A named version's rendered page shows its images from the company that holds them. */
 export function withDocumentImages(html: string, companyId: string): string {
-	return html.replace(
-		/<img data-attachment-id="([0-9a-f-]{36})"/gu,
-		(whole, id: string) =>
-			ATTACHMENT_ID.test(id)
-				? `<img src="${documentImageSrc(companyId, id)}" loading="lazy" data-attachment-id="${id}"`
-				: whole
+	return html.replace(/<img data-attachment-id="([0-9a-f-]{36})"/gu, (whole, id: string) =>
+		ATTACHMENT_ID.test(id)
+			? `<img src="${documentImageSrc(companyId, id)}" loading="lazy" data-attachment-id="${id}"`
+			: whole
 	);
 }
 
@@ -918,6 +973,8 @@ function blockHandleExtension(hooks: DocumentEditorHooks) {
 					computePositionConfig: { placement: 'left-start', strategy: 'absolute' },
 					onNodeChange: ({ node, pos }) => {
 						current = node ? pos : -1;
+						// Readers move and change nothing, so they see no grip.
+						element.style.display = this.editor.isEditable ? '' : 'none';
 					}
 				}).plugin
 			];
@@ -967,7 +1024,8 @@ export function createDocumentEditorExtensions(
 		blockHandleExtension(hooks),
 		commentMarksExtension(hooks),
 		emptyLineHintExtension(),
-		UniqueID.configure({
+		blockIdentityExtension,
+		UniqueID.extend({ addProseMirrorPlugins: () => [] }).configure({
 			attributeName: 'block_id',
 			types: [...BLOCK_TYPES],
 			filterTransaction: (transaction) => !isChangeOrigin(transaction),

@@ -266,7 +266,11 @@ test('an image keeps only the company file it names, and a page shows it from th
 		{ block_id: 'x', attachment_id: CHART, width: 9_000 }
 	]) {
 		assert.throws(
-			() => documentEditorSchema.projectDocumentContent({ type: 'doc', content: [{ type: 'image', attrs }] }),
+			() =>
+				documentEditorSchema.projectDocumentContent({
+					type: 'doc',
+					content: [{ type: 'image', attrs }]
+				}),
 			/image/u,
 			JSON.stringify(attrs)
 		);
@@ -300,9 +304,21 @@ test('the "/" menu follows its slash and closes when the slash goes or the words
 		query: 'head'
 	});
 	assert.equal(documentEditorSchema.nextSlashMenuState(at('', 1), open, 1), null, 'slash deleted');
-	assert.equal(documentEditorSchema.nextSlashMenuState(at('/ h', 4), open, 1), null, 'a space first');
-	assert.equal(documentEditorSchema.nextSlashMenuState(at('/head', 10), open, 1), null, 'caret left');
-	assert.equal(documentEditorSchema.nextSlashMenuState(at('/head', 6), null, 1), null, 'never opened');
+	assert.equal(
+		documentEditorSchema.nextSlashMenuState(at('/ h', 4), open, 1),
+		null,
+		'a space first'
+	);
+	assert.equal(
+		documentEditorSchema.nextSlashMenuState(at('/head', 10), open, 1),
+		null,
+		'caret left'
+	);
+	assert.equal(
+		documentEditorSchema.nextSlashMenuState(at('/head', 6), null, 1),
+		null,
+		'never opened'
+	);
 });
 
 test('"/" opens the menu at the start of a line or after a space, never mid-word or in code', (context) => {
@@ -334,4 +350,43 @@ test('a paragraph stays the block the editor fills an empty place with', (contex
 	);
 	assert.equal(schema.topNodeType.contentMatch.defaultType?.name, 'paragraph');
 	assert.equal(schema.nodes.blockquote.contentMatch.defaultType?.name, 'paragraph');
+});
+
+test('a split block keeps its id on the part that is still that block', (context) => {
+	const document = new Y.Doc();
+	context.after(() => document.destroy());
+	const schema = getSchema(
+		documentEditorSchema.createDocumentEditorExtensions(document, {} as never, true)
+	);
+	const paragraph = (id: string, text: string) =>
+		schema.nodes.paragraph.create({ block_id: id }, text ? schema.text(text) : undefined);
+	const ids = (state: EditorState) => {
+		const found: [string, string][] = [];
+		state.doc.forEach((node) => found.push([node.attrs.block_id, node.textContent]));
+		return found;
+	};
+	const split = (blocks: ReturnType<typeof paragraph>[], at: (state: EditorState) => number) => {
+		let state = EditorState.create({
+			schema,
+			doc: schema.nodes.doc.create(null, blocks),
+			plugins: [documentEditorSchema.blockIdentityPlugin()]
+		});
+		state = state.applyTransaction(state.tr.split(at(state))).state;
+		return ids(state);
+	};
+	// Enter at the end of a line: the line keeps its id; the new empty line is new.
+	const end = split([paragraph('a', 'Shared plan.')], () => 13);
+	assert.deepEqual(end[0], ['a', 'Shared plan.']);
+	assert.notEqual(end[1][0], 'a');
+	// Enter on an empty line: that line keeps its id; the new one below is new.
+	const empty = split([paragraph('a', 'Shared plan.'), paragraph('b', '')], () => 15);
+	assert.deepEqual(empty.slice(0, 2), [
+		['a', 'Shared plan.'],
+		['b', '']
+	]);
+	assert.ok(!['a', 'b'].includes(empty[2][0]));
+	// Enter at the start of a line: the text keeps its id; the empty line above is new.
+	const start = split([paragraph('a', 'Shared plan.')], () => 1);
+	assert.deepEqual(start[1], ['a', 'Shared plan.']);
+	assert.notEqual(start[0][0], 'a');
 });
