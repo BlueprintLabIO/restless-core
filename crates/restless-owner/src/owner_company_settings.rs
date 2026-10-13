@@ -569,6 +569,15 @@ mod logo_tests {
                     "{role} {method} {path}"
                 );
             }
+            if role == "member" {
+                // A member is told who may: an admin can, not only the owner.
+                assert_eq!(
+                    membership_boundary_violation(&Method::PUT, path, &person)
+                        .unwrap()
+                        .message,
+                    "Only the company's owner or an admin can do that."
+                );
+            }
             for other in ["/api/companies/aris/company/logo/extra", "/api/companies/aris/company"] {
                 assert!(membership_boundary_violation(&Method::GET, other, &person).is_some());
             }

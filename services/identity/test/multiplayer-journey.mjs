@@ -811,6 +811,64 @@ try {
   assert.deepEqual([...new Set(refused)], [], "a member's screens make no refused requests");
   pass("a member sees the company floor, and her everyday screens make no request she is refused");
 
+  // 9h. An admin runs the day to day: the owner makes Bob an admin from Members. His screens,
+  //     Company settings included, make no request he is refused; a member who tries what an
+  //     admin may do is told who may.
+  await owner.page.goto(`${core}/${company}/company/members`);
+  const bobAccess = owner.page.locator(`select[aria-label="Access for ${people.bob.name}"]`);
+  await bobAccess.waitFor({ timeout: 30000 });
+  await bobAccess.selectOption("admin");
+  await owner.page.getByText(`${people.bob.name} is now an admin.`).waitFor({ timeout: 15000 });
+  // The change reaches Core at once: his session from before ends, and he comes back an admin.
+  await until(
+    async () =>
+      (await bob.context.request.fetch(`${core}${base}/principal`, { failOnStatusCode: false })).status() === 401,
+    "Bob's session from before the change ends",
+    30,
+  );
+  await bob.page.goto(`${accounts}/`);
+  await bob.page.locator("#company").waitFor({ state: "visible" });
+  await openCompany(bob);
+  assert.equal(bob.principal.membership_role, "admin", "Bob comes back an admin");
+  const adminRefused = [];
+  let adminScreen = "";
+  const watchAdmin = (response) => {
+    const url = new URL(response.url());
+    if (url.origin === core && response.status() >= 400 && url.pathname.startsWith("/api/"))
+      adminRefused.push(`${response.status()} ${response.request().method()} ${url.pathname} (on ${adminScreen || "Inbox"})`);
+  };
+  bob.page.on("response", watchAdmin);
+  for (const path of ["", "/library", "/people", "/work", "/company", "/company/members", "/company/identity", "/company/schedules"]) {
+    adminScreen = path;
+    await bob.page.goto(`${core}/${company}${path}`);
+    await pause(3500);
+  }
+  bob.page.off("response", watchAdmin);
+  assert.deepEqual([...new Set(adminRefused)], [], "an admin's screens make no refused requests");
+  const memberTries = await alice.context.request.fetch(`${core}${base}/company/logo`, {
+    method: "DELETE",
+    headers: { Origin: core },
+    failOnStatusCode: false,
+  });
+  assert.equal(memberTries.status(), 403);
+  assert.match(await memberTries.text(), /owner or an admin/, "a member is told an admin may do it too");
+  // Taking it back is as immediate: his admin session ends, and he is a member again.
+  await owner.page.goto(`${core}/${company}/company/members`);
+  await bobAccess.waitFor({ timeout: 30000 });
+  await bobAccess.selectOption("member");
+  await owner.page.getByText(`${people.bob.name} is now a member.`).waitFor({ timeout: 15000 });
+  await until(
+    async () =>
+      (await bob.context.request.fetch(`${core}${base}/principal`, { failOnStatusCode: false })).status() === 401,
+    "Bob's admin session ends when the role is taken back",
+    30,
+  );
+  await bob.page.goto(`${accounts}/`);
+  await bob.page.locator("#company").waitFor({ state: "visible" });
+  await openCompany(bob);
+  assert.equal(bob.principal.membership_role, "member", "Bob comes back a member");
+  pass("a role change reaches Core at once both ways; as an admin Bob's screens make no refused request, and a member is told who may act");
+
   // 10. Removal from Members closes Bob's live document connection and session.
   await bob.page.goto(documentUrl);
   await bob.page.getByLabel("Collaborative document body").waitFor({ timeout: 30000 });

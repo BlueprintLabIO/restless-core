@@ -1064,7 +1064,10 @@ fn validate_membership_control_claims(
     if claims.plane_hostname != plane_hostname {
         return Err(Refusal::WrongHost);
     }
+    // An active control carries a role change: Core applies the role and ends sessions from the
+    // versions before it, so a promotion or a demotion holds at once rather than at next entry.
     let membership_status = match claims.membership_status.as_str() {
+        "active" => restless_orgintel::ExternalMembershipStatus::Active,
         "suspended" => restless_orgintel::ExternalMembershipStatus::Suspended,
         "removed" => restless_orgintel::ExternalMembershipStatus::Removed,
         _ => return Err(Refusal::InvalidMembership),
@@ -1901,6 +1904,24 @@ mod tests {
             restless_orgintel::ExternalMembershipStatus::Suspended
         );
 
+        // A role change arrives as an active control with the new role and version.
+        let mut promotion = membership_control_claims();
+        promotion.membership_status = "active".into();
+        promotion.membership_role = "admin".into();
+        promotion.membership_version = 9;
+        let verified = entry
+            .verify_membership_control_at(
+                &membership_control_token(&promotion),
+                at(1_000),
+                SignaturePolicy::Enforce,
+            )
+            .await
+            .expect("a role change verifies");
+        assert_eq!(
+            (verified.membership_status, verified.membership_role.as_str(), verified.membership_version),
+            (restless_orgintel::ExternalMembershipStatus::Active, "admin", 9)
+        );
+
         assert_eq!(
             entry
                 .verify_membership_control_at(
@@ -1955,7 +1976,7 @@ mod tests {
         assert_eq!(refusal(&candidate).await, Refusal::WrongHost);
 
         let mut candidate = membership_control_claims();
-        candidate.membership_status = "active".into();
+        candidate.membership_status = "paused".into();
         assert_eq!(refusal(&candidate).await, Refusal::InvalidMembership);
 
         let mut candidate = membership_control_claims();

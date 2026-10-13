@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS restless_membership_controls (
   company_id uuid NOT NULL,
   user_id text NOT NULL,
   role text NOT NULL CHECK (role IN ('owner','admin','member')),
-  status text NOT NULL CHECK (status IN ('suspended','removed')),
+  status text NOT NULL CHECK (status IN ('active','suspended','removed')),
   version bigint NOT NULL CHECK (version >= 1),
   created_at timestamptz NOT NULL DEFAULT now(),
   attempts integer NOT NULL DEFAULT 0,
@@ -40,6 +40,13 @@ CREATE TABLE IF NOT EXISTS restless_membership_controls (
 );
 CREATE INDEX IF NOT EXISTS restless_membership_controls_due
   ON restless_membership_controls (next_attempt_at) WHERE delivered_at IS NULL;
+-- A role change is delivered too (an active control), so an install made before it widens the
+-- check it was created with.
+ALTER TABLE restless_membership_controls
+  DROP CONSTRAINT IF EXISTS restless_membership_controls_status_check;
+ALTER TABLE restless_membership_controls
+  ADD CONSTRAINT restless_membership_controls_status_check
+  CHECK (status IN ('active','suspended','removed'));
 `;
 
 export async function createSqlMembershipStore({
@@ -98,7 +105,8 @@ export async function createSqlMembershipStore({
                 state.status, state.version,
                 EXISTS (SELECT 1 FROM restless_membership_controls control
                          WHERE control.membership_id = member.id
-                           AND control.delivered_at IS NULL) AS ending
+                           AND control.delivered_at IS NULL
+                           AND control.status <> 'active') AS ending
            FROM member
            LEFT JOIN restless_membership_state state ON state.membership_id = member.id
           WHERE member."organizationId" = $1 AND member."userId" = $2`,
@@ -115,7 +123,8 @@ export async function createSqlMembershipStore({
         `SELECT member.id AS membership_id, member.role, "user".name, "user".email,
                 state.status, state.version,
                 EXISTS (SELECT 1 FROM restless_membership_controls control
-                         WHERE control.membership_id = member.id AND control.delivered_at IS NULL) AS ending
+                         WHERE control.membership_id = member.id AND control.delivered_at IS NULL
+                           AND control.status <> 'active') AS ending
            FROM member
            JOIN "user" ON "user".id = member."userId"
            LEFT JOIN restless_membership_state state ON state.membership_id = member.id
@@ -190,15 +199,16 @@ export async function createSqlMembershipStore({
       const target = await lockedState(client, companyId, membershipId);
       if (!authorize(target)) return;
       if (requested.verb === "role") {
-        // Role and version change together: the next handoff carries both.
+        // Role and version change together, and Core hears of it at once: sessions from the
+        // version before end, and the person comes back with the new role. Waiting for their next
+        // entry left a promoted member without what they were given, and a demoted admin with
+        // what was taken away.
         await client.query("UPDATE member SET role=$2 WHERE id=$1", [
           target.membership_id,
           requested.role,
         ]);
-        await client.query(
-          "UPDATE restless_membership_state SET role=$2, version=version+1, updated_at=now() WHERE membership_id=$1",
-          [target.membership_id, requested.role],
-        );
+        // The status stays as it is: a role change never reinstates a suspended member.
+        jti = await enqueueControl(client, companyId, { ...target, role: requested.role }, target.status);
       } else if (requested.verb === "suspend") {
         jti = await enqueueControl(client, companyId, target, "suspended");
       } else if (requested.verb === "reinstate") {
@@ -211,9 +221,10 @@ export async function createSqlMembershipStore({
         await client.query("DELETE FROM member WHERE id=$1", [target.membership_id]);
       }
     });
-    // Try at once; the outbox keeps retrying if Core is unavailable.
+    // Try at once; the outbox keeps retrying if Core is unavailable. Only suspension and removal
+    // end anything: a role change in flight leaves access as it is.
     const ended = jti ? await deliverNow(jti) : true;
-    return { ending: !ended };
+    return { ending: requested.verb !== "role" && !ended };
   }
 
   async function sign(claims, typ) {

@@ -2058,10 +2058,16 @@ fn membership_boundary_violation(
     {
         return None;
     }
+    // What an admin may do, a member is told so: the owner is not the only one who can.
+    let message = if admin_manages_company_setup(path) {
+        "Only the company's owner or an admin can do that."
+    } else {
+        "Only the company's owner can do that."
+    };
     Some(BoundaryRefusal {
         status: StatusCode::FORBIDDEN,
         code: "membership_role",
-        message: "Only the company's owner can do that.",
+        message,
     })
 }
 

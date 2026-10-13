@@ -769,7 +769,6 @@ impl OrgIntel {
             || context.membership_id.trim().is_empty()
             || context.membership_id.len() > 512
             || !matches!(context.membership_role, "owner" | "admin" | "member")
-            || !context.membership_status.is_terminal()
             || context.membership_version < 0
             || context.assertion_version != MEMBERSHIP_CONTROL_CONTRACT_VERSION
             || context.assertion_id.is_nil()
@@ -919,6 +918,13 @@ impl OrgIntel {
                     )
                 }
             }
+            // A role change for someone who has never entered changes nothing here: their first
+            // entry carries the role, and recording it as a denial would keep them out.
+            None if requested_status == ExternalMembershipStatus::Active => (
+                MembershipControlOutcome::Applied,
+                requested_status,
+                context.membership_version,
+            ),
             None => match denial {
                 Some((subject, role, version, status)) => {
                     if subject != context.subject {

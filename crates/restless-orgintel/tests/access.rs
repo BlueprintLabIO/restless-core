@@ -803,6 +803,94 @@ async fn membership_control_receipt_survives_restart_and_other_memberships_stay_
         .unwrap());
 }
 
+/// S79: a role change is delivered as an active control. The old session is no longer current, and
+/// the person's next entry at the new version carries the new role. For someone who never entered,
+/// an active control records nothing that would keep them out.
+#[tokio::test]
+async fn an_active_control_changes_the_role_at_once_and_never_denies_entry() {
+    let Some(org) = company().await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping access scenario");
+        return;
+    };
+    let issuer = "https://cloud.restless.run";
+    let company_id = Uuid::new_v4();
+    let cell_id = Uuid::new_v4();
+    let now = Utc::now();
+    bind_company(&org, company_id, cell_id).await;
+    let entered = org
+        .consume_human_access_context(context(
+            issuer,
+            "user-1",
+            company_id,
+            cell_id,
+            "membership-1",
+            "member",
+            1,
+            Uuid::new_v4(),
+            now,
+        ))
+        .await
+        .unwrap();
+    let promotion = control(
+        issuer,
+        "user-1",
+        company_id,
+        cell_id,
+        "membership-1",
+        "admin",
+        ExternalMembershipStatus::Active,
+        2,
+        Uuid::new_v4(),
+        now + Duration::seconds(1),
+    );
+    let receipt = org
+        .apply_external_membership_control(promotion)
+        .await
+        .unwrap();
+    assert_eq!(receipt.outcome, MembershipControlOutcome::Applied);
+    assert_eq!(receipt.observed_status, ExternalMembershipStatus::Active);
+    assert!(!org
+        .human_session_membership_is_current(&entered.actor_id, "membership-1", 1, "member")
+        .await
+        .unwrap());
+    assert!(org
+        .human_session_membership_is_current(&entered.actor_id, "membership-1", 2, "admin")
+        .await
+        .unwrap());
+
+    // Someone who never entered: nothing recorded, so their first entry is not refused.
+    let unseen = control(
+        issuer,
+        "user-9",
+        company_id,
+        cell_id,
+        "membership-9",
+        "admin",
+        ExternalMembershipStatus::Active,
+        3,
+        Uuid::new_v4(),
+        now + Duration::seconds(2),
+    );
+    org.apply_external_membership_control(unseen).await.unwrap();
+    let first = org
+        .consume_human_access_context(context(
+            issuer,
+            "user-9",
+            company_id,
+            cell_id,
+            "membership-9",
+            "admin",
+            3,
+            Uuid::new_v4(),
+            now + Duration::seconds(3),
+        ))
+        .await;
+    assert!(
+        first.is_ok(),
+        "an active control never keeps someone out: {first:?}"
+    );
+}
+
 #[tokio::test]
 async fn verified_human_names_follow_the_bound_actor_without_changing_roles() {
     let Some(org) = company().await else {

@@ -208,3 +208,11 @@ message grants nothing, and later entries send nothing. The owner claim sends no
    of, the invited address.
 5. **First entry creates no owner Attention.** Exec receives the fact and raises Attention only when
    it needs the owner's judgement.
+6. **A role change is delivered at once, not at next entry (S79b, issuer 1.1.1).** The issuer
+   enqueues an `active` membership control with the new role and version, through the same outbox
+   as `suspended` and `removed`. Core applies it and ends sessions from the versions before, so the
+   person re-enters with the new role. Before this, a demoted admin kept admin until their session
+   renewed. Only `suspended` and `removed` are terminal: they mark a member as ending access and
+   hold entry until delivered. An `active` control does neither. Rollout order: Core accepts
+   `active` controls before an issuer sends them. An older Core refuses them and the outbox retries,
+   which is harmless.
