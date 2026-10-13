@@ -11,6 +11,7 @@
 	import Check from '@lucide/svelte/icons/check';
 	import Brain from '@lucide/svelte/icons/brain';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
+	import { FILTER_FROM, filterModels, splitModels } from '$lib/model/model-groups';
 
 	let { companyId, actorId, name }: { companyId: string; actorId: string; name: string } = $props();
 	const catalog = modelCatalog();
@@ -28,6 +29,12 @@
 			)
 	);
 	const current = $derived(assignment?.model ?? '');
+	/* Newest of each family up front, older versions on request, a filter for long catalogues. */
+	let query = $state('');
+	let showOlder = $state(false);
+	const filtered = $derived(filterModels(choices, query));
+	const grouped = $derived(splitModels(filtered, current));
+	const shown = $derived(query || showOlder ? filtered : grouped.latest);
 	let busy = $state(false);
 	let failure = $state('');
 
@@ -79,14 +86,36 @@
 					agent.thinking_effort
 				)} effort
 			</p>
-			{#each choices as model (model.id)}
-				<button type="button" disabled={busy || !assignment} onclick={() => choose(model.id)}
-					><span>{model.name}</span>{#if model.id === current}<Check
-							size={14}
-							aria-label="Current"
-						/>{/if}</button
-				>
-			{/each}
+			{#if choices.length >= FILTER_FROM || assignment?.connection.includes('openrouter')}<input
+					class="filter"
+					type="search"
+					placeholder="Find a model"
+					aria-label="Find a model"
+					bind:value={query}
+				/>{/if}
+			<div class="models">
+				{#each shown as model (model.id)}
+					<button type="button" disabled={busy || !assignment} onclick={() => choose(model.id)}
+						><span>{model.name}</span>{#if model.id === current}<Check
+								size={14}
+								aria-label="Current"
+							/>{/if}</button
+					>
+				{:else}<p class="now">No listed model matches.</p>{/each}
+			</div>
+			{#if query.trim() && !choices.some((model) => model.id === query.trim())}<button
+					type="button"
+					disabled={busy || !assignment}
+					title="Use a model ID this provider offers that the list does not show"
+					onclick={() => choose(query.trim())}>Use model ID “{query.trim()}”</button
+				>{/if}
+			{#if !query && grouped.older.length}<button
+					type="button"
+					class="older"
+					aria-expanded={showOlder}
+					onclick={() => (showOlder = !showOlder)}
+					>{showOlder ? 'Fewer models' : `Older models (${grouped.older.length})`}</button
+				>{/if}
 			{#if failure}<p class="failure" role="alert">{failure}</p>{/if}
 			<a href={`/${encodeURIComponent(companyId)}/company/provider`}>All intelligence settings</a>
 		</ActionMenu>
@@ -110,6 +139,23 @@
 	}
 	.chip :global(summary:hover) {
 		color: var(--ink);
+	}
+	.filter {
+		margin: 4px 8px;
+		padding: 4px 8px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		background: var(--surface-raised);
+		color: var(--ink);
+		font: inherit;
+	}
+	.models {
+		display: grid;
+		max-height: min(320px, 50vh);
+		overflow-y: auto;
+	}
+	.older {
+		color: var(--text-tertiary);
 	}
 	.chip-link {
 		padding: 0 8px;

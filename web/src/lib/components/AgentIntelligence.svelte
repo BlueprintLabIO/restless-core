@@ -118,6 +118,30 @@
 					presets[0]?.id ??
 					''));
 	}
+	/* The plan's included AI stays one click away once the company has moved to its own key. */
+	const included = $derived(source.view?.connections.find((c) => c.included) ?? null);
+	const defaultConnection = $derived(
+		(source.view?.default ?? source.view?.base_default)?.connection ?? ''
+	);
+	async function useIncluded() {
+		if (!included || !source.view) return;
+		editing = 'default';
+		connection = included.id;
+		const base = source.view.base_default;
+		model =
+			base?.connection === included.id
+				? base.model
+				: (included.models?.find((m) => m.default)?.id ??
+					included.models?.[0]?.id ??
+					included.model ??
+					presets[0]?.id ??
+					'');
+		if (!model) {
+			choose();
+			return;
+		}
+		await save();
+	}
 	async function save(reset = false) {
 		if (!source.view || busy) return;
 		busy = true;
@@ -170,12 +194,22 @@
 						: agent.id === 'default'
 							? 'No default selected'
 							: 'Company default'
-				} · ${modelLabel(agent.assignment?.model ?? agent.effective_model)}`}
+				} · ${
+					!agent.assignment && agent.id !== 'default' && !defaultConnection
+						? 'Not chosen yet'
+						: modelLabel(agent.assignment?.model ?? agent.effective_model)
+				}`}
 				selected={editing === agent.id}
 			>
 				{#snippet leading()}<Bot size={15} strokeWidth={1.8} />{/snippet}
 				{#snippet trailing()}
 					{#if agent.id === 'default'}<span title={agent.role}>Default</span>{/if}
+					{#if agent.id === 'default' && included && defaultConnection !== included.id && editing !== 'default'}<button
+							class="btn small"
+							disabled={busy}
+							title="Go back to the AI included in your plan"
+							onclick={() => void useIncluded()}>Use Included AI</button
+						>{/if}
 					{#if source.view?.connections.length && editing !== agent.id}<button
 							class="btn small"
 							disabled={busy}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { reenterIfLapsed } from '$lib/model/reenter';
 	import MemberInbox from '$lib/components/MemberInbox.svelte';
 	import WelcomeTour from '$lib/components/WelcomeTour.svelte';
 	import { useQueryClient } from '@tanstack/svelte-query';
@@ -212,6 +213,11 @@
 			(ownerAccess ? (attention.failure ?? cockpitProjection.failure) : collaboration.failure)
 	);
 	const startupBlocking = $derived(!startupReady && Boolean(startupFailure || startupStalled));
+	/* A hosted company session that lapsed (a plane restart, its own expiry) goes back in through
+	 * the account and lands here again, instead of asking the person to start over from Home. */
+	$effect(() => {
+		reenterIfLapsed((startupFailure as { status?: number } | null)?.status);
+	});
 	$effect(() => {
 		if (startupReady) {
 			startupStalled = false;

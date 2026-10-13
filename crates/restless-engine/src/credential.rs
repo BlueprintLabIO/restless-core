@@ -219,6 +219,19 @@ pub async fn store_reference(reference: &str, value: &str) -> Result<()> {
     }
 }
 
+/// Remove the secret a reference names, when its backend can. Restless keeps only references, so
+/// this is how a removed connection stops leaving its key behind. Returns false when the backend
+/// cannot delete (env:, broker-held sign-ins) or the delete failed; the caller says so.
+pub async fn delete_reference(reference: &str) -> bool {
+    match parse_reference(reference) {
+        Ok(CredentialReference::Infisical(locator)) => match InfisicalSettings::from_env() {
+            Ok(settings) => infisical_delete(&settings, &locator).await.is_ok(),
+            Err(_) => false,
+        },
+        _ => false,
+    }
+}
+
 /// Put the generated per-cell native Documents database capability into the
 /// exact secret location consumed by Cloud's company-cell provider. The raw
 /// URL is read only inside the account plane, forwarded to Infisical, and
@@ -745,6 +758,29 @@ async fn infisical_upsert(
     let status = response.status();
     if !status.is_success() {
         bail!("Infisical secret upsert returned HTTP {}", status.as_u16());
+    }
+    Ok(())
+}
+
+async fn infisical_delete(settings: &InfisicalSettings, locator: &InfisicalLocator<'_>) -> Result<()> {
+    let client = infisical_client()?;
+    let access_token = infisical_login(&client, settings).await?;
+    let endpoint = infisical_endpoint(&settings.base_url, &["api", "v4", "secrets", locator.name])?;
+    let response = client
+        .delete(endpoint)
+        .bearer_auth(access_token)
+        .json(&serde_json::json!({
+            "projectId": settings.project_id,
+            "environment": settings.environment,
+            "secretPath": locator.path,
+        }))
+        .send()
+        .await
+        .context("delete secret in Infisical")?;
+    let status = response.status();
+    // Already gone is the outcome we wanted.
+    if !status.is_success() && status != reqwest::StatusCode::NOT_FOUND {
+        bail!("Infisical secret delete returned HTTP {}", status.as_u16());
     }
     Ok(())
 }

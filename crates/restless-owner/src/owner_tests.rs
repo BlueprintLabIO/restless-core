@@ -4450,3 +4450,12 @@ mission = "Configure Exec separately"
             Some("Connect a model in Company → Intelligence.")
         );
     }
+
+    #[test]
+    fn a_claude_plan_token_is_named_before_it_is_saved_as_an_api_key() {
+        let refusal = subscription_token_refusal("anthropic", "sk-ant-oat01-abc")
+            .expect("a plan token is not an API key");
+        assert!(refusal.contains("Sign in with Claude"));
+        assert!(subscription_token_refusal("anthropic", "sk-ant-api03-abc").is_none());
+        assert!(subscription_token_refusal("openai", "sk-ant-oat01-abc").is_none());
+    }

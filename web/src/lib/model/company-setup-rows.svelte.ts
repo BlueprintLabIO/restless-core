@@ -1,3 +1,4 @@
+import { modelLabel } from './intelligence-labels';
 /* The Company area's rows: each area's current value and whether it waits on the owner. The
  * section navigation and the overview read one instance (made by the Company layout), so a count
  * in the navigation and the overview's to-do list can never disagree, and both list the same
@@ -145,7 +146,8 @@ export function createCompanySetup(companyIdOf: () => string) {
 		if (!value) return '…';
 		const exec = value.agents.find((agent) => agent.role === 'exec') ?? value.agents[0];
 		const chosen = value.default?.model ?? exec?.effective_model;
-		return chosen ? chosen.split('/').pop()! : 'Not chosen yet';
+		/* Named as people read it ("Claude Sonnet 5.5"), never the routing id. */
+		return chosen ? modelLabel(chosen) : 'Not chosen yet';
 	});
 	const charterMissing = $derived(!!view && !view.charter.purpose.trim());
 	const charter = $derived.by(() => {

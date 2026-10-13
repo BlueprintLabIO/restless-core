@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
+	import { reenterIfLapsed } from '$lib/model/reenter';
 	import { failureSentence } from '$lib/model/failure';
 	import { hostPlace, planeStatus, type ApplianceStatus } from '$lib/model/appliance';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
@@ -136,6 +139,7 @@
 		error = '';
 		try {
 			const response = await fetch('/api/connections', { cache: 'no-store' });
+			if (reenterIfLapsed(response.status)) return;
 			const body = await response.json();
 			if (sequence !== refreshSequence) return;
 			if (!response.ok) throw new Error(body.message ?? 'Could not load account connections.');
@@ -237,6 +241,38 @@
 			importingCompany = '';
 		}
 	}
+	/* Removing revokes the connection from every company and deletes its key. The server refuses
+	 * while an agent still runs on it and says which company to change first. */
+	async function removeConnection(item: AccountConnection) {
+		const yes = await confirmAction({
+			title: `Remove ${item.label}?`,
+			body: 'Every company loses access to it, and its key is deleted from your vault.',
+			action: 'Remove',
+			danger: true
+		});
+		if (!yes) return;
+		error = '';
+		try {
+			const response = await fetch(`/api/connections/${encodeURIComponent(item.id)}`, {
+				method: 'DELETE'
+			});
+			const body = (await response.json().catch(() => ({}))) as {
+				message?: string;
+				vault_deleted?: boolean;
+			};
+			if (!response.ok) throw new Error(body.message ?? 'Could not remove this connection.');
+			if (managingId === item.id) managingId = '';
+			await refresh();
+			announceIntelligenceChange();
+			toast(
+				body.vault_deleted === false
+					? `${item.label} removed. Its key is still in your vault; delete it there if you no longer need it.`
+					: `${item.label} removed`
+			);
+		} catch (cause) {
+			error = failureSentence(cause, 'Could not remove this connection.');
+		}
+	}
 	async function create(event: SubmitEvent) {
 		event.preventDefault();
 		if (busy) return;
@@ -255,6 +291,11 @@
 			addOpen = false;
 			await refresh();
 			announceIntelligenceChange();
+			/* Saved, but the provider could not be asked whether it accepts the key. */
+			if (body.unverified)
+				toast(
+					`${providerName(provider)} key saved. Restless couldn't check it yet, so the first reply will tell.`
+				);
 		} catch (cause) {
 			secret = '';
 			error = failureSentence(cause, 'Could not save this connection.');
@@ -864,7 +905,7 @@
 											? 'Reconnect'
 											: 'Connect'}</button
 								>{/if}
-							{#if item && signedIn && accountScope === 'account'}<button
+							{#if item && accountScope === 'account'}<button
 									class="btn small"
 									aria-expanded={managingId === item.id}
 									onclick={() => toggleManage(item)}
@@ -874,7 +915,10 @@
 									>{#if row.oauth && signedIn}<button
 											disabled={!!oauthJob}
 											onclick={() => void startSignIn(row.oauth!)}>Reconnect same account</button
-										>{/if}<button onclick={() => void refresh()}>Refresh status</button></ActionMenu
+										>{/if}<button onclick={() => void refresh()}>Refresh status</button><button
+										class="danger"
+										onclick={() => void removeConnection(item)}>Remove…</button
+									></ActionMenu
 								>{/if}
 						</div>
 					</div>

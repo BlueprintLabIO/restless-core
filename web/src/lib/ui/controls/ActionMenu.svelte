@@ -19,6 +19,9 @@
 			panel.style.left = `${Math.max(8, Math.min(trigger.right - bounds.width, innerWidth - bounds.width - 8))}px`;
 			panel.style.top = `${Math.max(8, trigger.bottom + bounds.height + 8 > innerHeight ? trigger.top - bounds.height - 4 : trigger.bottom + 4)}px`;
 		}
+		/* Items render on first reach, after the panel opens: placing it then would use an empty
+		 * width and push a right-edge menu off the screen. Place it again whenever it resizes. */
+		let sized: ResizeObserver | null = null;
 		function toggle() {
 			reached = true;
 			if (!panel) return;
@@ -27,6 +30,10 @@
 				position();
 				// The panel has no width until it lays out; place it again then.
 				requestAnimationFrame(position);
+				if (!sized && typeof ResizeObserver !== 'undefined') {
+					sized = new ResizeObserver(position);
+					sized.observe(panel);
+				}
 			} else if (panel.matches(':popover-open')) panel.hidePopover();
 		}
 		function choose(event: MouseEvent) {
@@ -62,6 +69,7 @@
 		window.addEventListener('scroll', position, true);
 		return {
 			destroy() {
+				sized?.disconnect();
 				node.removeEventListener('toggle', toggle);
 				node.removeEventListener('click', choose);
 				node.removeEventListener('keydown', keyboard);

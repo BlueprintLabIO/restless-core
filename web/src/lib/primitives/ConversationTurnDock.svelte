@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { turnFailureReason } from '$lib/model/turn-failure';
 	import Check from '@lucide/svelte/icons/check';
 	import CircleAlert from '@lucide/svelte/icons/circle-alert';
 	import type { ActiveAgentTurn } from '$lib/model/queries.svelte';
@@ -93,9 +94,9 @@
 				return 'Replied';
 			case 'failed': {
 				/* Say why, in one line; the full reason is in the detail. */
-				const reason = (turn.live?.error ?? '').split(/(?<=[.!?])\s/)[0]?.trim() ?? '';
+				const reason = turnFailureReason(turn.live?.error);
 				return reason
-					? `${participantName} couldn't reply · ${reason.length > 90 ? `${reason.slice(0, 90)}…` : reason}`
+					? `${participantName} couldn't reply: ${reason}`
 					: `${participantName} couldn't reply`;
 			}
 			case 'queued':

@@ -1259,6 +1259,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(list_owner_connections).post(create_owner_connection),
         )
         .route("/connections/import", post(import_owner_connection))
+        .route("/connections/{connection}", axum::routing::delete(remove_owner_connection))
         .route(
             "/mcp-access",
             get(mcp_api::list_access).post(mcp_api::issue_access),
@@ -3971,6 +3972,7 @@ async fn create_owner_connection(
         kind: kind.to_string(),
         account_key: None,
     };
+    let mut unverified = false;
     if connection.kind == "oauth" {
         let reference = owner_connection_reference(&connection);
         if credential::probe_reference(&reference).await.status != credential::ProbeStatus::Present
@@ -3987,8 +3989,14 @@ async fn create_owner_connection(
         };
     } else {
         let secret = input.secret.as_deref().unwrap_or_default();
-        if let crate::model_connections::KeyCheck::Rejected(reason) =
-            crate::model_connections::check_api_key(provider, secret.trim()).await
+        // A Claude Pro or Max sign-in token is not an API key: the provider refuses it as one,
+        // later, mid-conversation. Say so now, without a network call.
+        if let Some(message) = subscription_token_refusal(provider, secret.trim()) {
+            return api_error(StatusCode::BAD_REQUEST, "connections", message);
+        }
+        let key_check = crate::model_connections::check_api_key(provider, secret.trim()).await;
+        unverified = matches!(key_check, crate::model_connections::KeyCheck::Unverified);
+        if let crate::model_connections::KeyCheck::Rejected(reason) = key_check
         {
             let hint = if provider == "anthropic" {
                 " Paste an API key from console.anthropic.com; a Claude Pro or Max plan connects with Sign in with Claude instead."
@@ -4017,8 +4025,117 @@ async fn create_owner_connection(
     if save_owner_connections(&state.daemon.root, &registry).is_err() {
         return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The connection is available, but could not be registered. Retry after checking the host state.");
     }
-    Json(serde_json::json!({"connection": safe_connection_summary(&connection, vec![])}))
-        .into_response()
+    // A key the provider could not be asked about is saved, and the person is told it is unchecked.
+    Json(serde_json::json!({
+        "connection": safe_connection_summary(&connection, vec![]),
+        "unverified": unverified,
+    }))
+    .into_response()
+}
+
+/// A subscription sign-in token pasted where an API key belongs, named for what it is.
+fn subscription_token_refusal(provider: &str, secret: &str) -> Option<&'static str> {
+    match provider {
+        "anthropic" if secret.starts_with("sk-ant-oat") => Some(
+            "This is a Claude Pro or Max sign-in token, not an API key. Use Sign in with Claude for a plan, or paste an API key from console.anthropic.com.",
+        ),
+        _ => None,
+    }
+}
+
+/// Remove a model connection from the account: revoke it from every company, delete its key from
+/// the vault, and forget it. While any agent's model still runs on it the removal is refused and
+/// names where, so no company silently loses its model.
+async fn remove_owner_connection(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(id): AxumPath<String>,
+) -> Response<Body> {
+    if !principal.is_account_owner() {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "connections",
+            "Manage model connections through your account provider.",
+        );
+    }
+    let _write = state.charter_writes.lock().await;
+    let mut registry = match load_owner_connections(&state.daemon.root) {
+        Ok(registry) => registry,
+        Err(_) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "connections",
+                "Could not read saved connections.",
+            )
+        }
+    };
+    let Some(connection) = registry.connections.iter().find(|c| c.id == id).cloned() else {
+        return api_error(StatusCode::NOT_FOUND, "connections", "That connection no longer exists.");
+    };
+    let reference = owner_connection_reference(&connection);
+    let companies = crate::configured_companies(&state.daemon.root).unwrap_or_default();
+    let mut configs = Vec::new();
+    let mut in_use = Vec::new();
+    for company in companies {
+        let Ok(config) = runtime::CompanyConfig::load(&state.daemon.root, &company) else {
+            continue;
+        };
+        // Only a company that still has the key and runs an agent on it blocks removal. A
+        // company whose access was already revoked keeps a dangling choice, cleared below.
+        let granted = config.credentials.values().any(|value| value == &reference);
+        let uses = config.agent_intelligence.values().any(|route| {
+            runtime::account_intelligence_route(&route.connection)
+                .is_some_and(|(_, route_id, _)| route_id == connection.id)
+        });
+        if granted && uses {
+            in_use.push(
+                config
+                    .display_name
+                    .clone()
+                    .unwrap_or_else(|| company_display_name(&config.name)),
+            );
+        }
+        configs.push(config);
+    }
+    if !in_use.is_empty() {
+        return api_error(
+            StatusCode::CONFLICT,
+            "connection_in_use",
+            format!(
+                "{} still runs on this connection. Choose another model for it in Company → Intelligence, then remove it.",
+                in_use.join(", ")
+            ),
+        );
+    }
+    for mut config in configs {
+        let before = (config.credentials.len(), config.agent_intelligence.len());
+        config.credentials.retain(|_, value| value != &reference);
+        // A choice that named this connection now names nothing: the company asks for a model.
+        config.agent_intelligence.retain(|_, route| {
+            !runtime::account_intelligence_route(&route.connection)
+                .is_some_and(|(_, route_id, _)| route_id == connection.id)
+        });
+        if (config.credentials.len(), config.agent_intelligence.len()) != before
+            && runtime::CompanyConfig::save(&state.daemon.root, &config).is_err()
+        {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "connections",
+                "Could not revoke this connection from a company. Nothing was removed.",
+            );
+        }
+    }
+    let vault_deleted =
+        connection.kind != "api_key" || credential::delete_reference(&reference).await;
+    registry.connections.retain(|c| c.id != connection.id);
+    if save_owner_connections(&state.daemon.root, &registry).is_err() {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "connections",
+            "The connection was revoked from every company but could not be removed. Try again.",
+        );
+    }
+    Json(serde_json::json!({ "removed": true, "vault_deleted": vault_deleted })).into_response()
 }
 
 /// Connections a provider refused while a company used them, by connection ID: the provider's
