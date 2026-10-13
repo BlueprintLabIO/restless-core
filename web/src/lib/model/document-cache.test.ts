@@ -96,3 +96,23 @@ test('late completions only match the document target that started them', () => 
 	assert.equal(sameDocumentTarget(target, 'acme', 'document-b'), false);
 	assert.equal(sameDocumentTarget(target, 'other', 'document-a'), false);
 });
+
+test('the refused read itself is kept, so its refusal shows instead of asking again forever', async () => {
+	const client = new QueryClient();
+	const companyId = 'acme';
+	const key = ['document', companyId, 'document-a'];
+	const denied = Object.assign(new Error('gone'), { status: 404 });
+	await client
+		.fetchQuery({
+			queryKey: key,
+			retry: false,
+			queryFn: () => {
+				failClosedDocumentRead(client, denied, companyId, 'document-a');
+				throw denied;
+			}
+		})
+		.catch(() => undefined);
+	const kept = client.getQueryCache().find({ queryKey: key });
+	assert.ok(kept, 'the refused query is still there');
+	assert.equal(kept.state.error, denied);
+});

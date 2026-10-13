@@ -65,15 +65,21 @@ export function purgeDeniedDocumentState(
 						}
 					: current
 		);
+		/* A read still in flight is the one that was refused: removing it would let its page
+		 * create it again and ask again, forever, never showing the refusal. Its error stands, and
+		 * readable data hides what it held. */
 		client.removeQueries({
 			predicate: (query) =>
 				documentQueryForCompany(query.queryKey, companyId) &&
 				query.queryKey[0] !== 'documents' &&
-				query.queryKey[2] === documentId
+				query.queryKey[2] === documentId &&
+				query.state.fetchStatus !== 'fetching'
 		});
 	} else {
 		client.removeQueries({
-			predicate: (query) => documentQueryForCompany(query.queryKey, companyId)
+			predicate: (query) =>
+				documentQueryForCompany(query.queryKey, companyId) &&
+				query.state.fetchStatus !== 'fetching'
 		});
 	}
 }
