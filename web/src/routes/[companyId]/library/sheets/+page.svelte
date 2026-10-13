@@ -522,7 +522,7 @@
 				{#if access === 'read'}
 					<button
 						type="button"
-						class="btn small"
+						class="btn small follow"
 						disabled={asked === row.id}
 						title="Ask whoever shares it for edit access"
 						onclick={() => void askForAccess('edit')}
@@ -549,6 +549,15 @@
 				>
 				<ActionMenu label="Sheet actions">
 					<button type="button" onclick={() => openPanel('history')}>History</button>
+					{#if access === 'read'}
+						<button
+							type="button"
+							class="narrow-only"
+							disabled={asked === row.id}
+							onclick={() => void askForAccess('edit')}
+							>{asked === row.id ? 'Asked to edit' : 'Ask to edit'}</button
+						>
+					{/if}
 					{#if follow?.id === row.id}
 						<button type="button" class="narrow-only" onclick={() => void toggleFollow()}
 							>{follow.following ? 'Unfollow' : 'Follow'}</button
@@ -675,6 +684,8 @@
 			</div>
 		{:else if missing}
 			<Empty
+				page
+				icon={FileSpreadsheet}
 				title="Sheet unavailable"
 				info="It may have been removed, or you may no longer have access."
 			>

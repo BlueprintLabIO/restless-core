@@ -205,7 +205,7 @@
 				type="search"
 				bind:value={query}
 				oninput={() => (active = 0)}
-				placeholder={oninvite ? 'Add people by name or email' : 'Add people by name'}
+				placeholder={oninvite ? 'Name or email' : 'Add people by name'}
 				aria-label={oninvite ? 'Add people by name or email' : 'Add people by name'}
 				autocomplete="off"
 				spellcheck="false"
@@ -304,8 +304,11 @@
 		{/each}
 		{#each pending as row (row.email)}
 			<li class:managed={canManage}>
-				<span class="name" title={`Invited to the company; gets this when they join`}
-					>{row.email}{' '}<span class="you">(invited)</span></span
+				<!-- The address may be cut short on a phone; that they are invited never is. -->
+				<span
+					class="name invitee"
+					title={`${row.email}: invited to the company; gets this when they join`}
+					><span class="address">{row.email}</span><span class="you">invited</span></span
 				>
 				{#if canManage && onpendingaccess && onpendingremove}
 					<select
@@ -448,8 +451,9 @@
 		min-height: 44px;
 		padding: 6px 8px 6px 12px;
 	}
+	/* The level fits its longest name ("Can comment") at any text size. */
 	.people li.managed {
-		grid-template-columns: minmax(0, 1fr) 8.5rem auto;
+		grid-template-columns: minmax(0, 1fr) max-content auto;
 	}
 	.people li + li {
 		border-top: 1px solid var(--border);
@@ -460,6 +464,19 @@
 		color: var(--ink);
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.invitee {
+		display: flex;
+		gap: 6px;
+		align-items: baseline;
+	}
+	.invitee .address {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.invitee .you {
+		flex: none;
 	}
 	.fixed {
 		padding-right: 4px;

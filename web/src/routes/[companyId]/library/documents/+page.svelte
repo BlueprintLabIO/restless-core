@@ -857,7 +857,8 @@
 		.inspector-bar {
 			display: grid;
 		}
-		.inspector-pane :global(.share-head) {
+		.inspector-pane :global(.share-head),
+		.inspector-pane :global(.inspector-dismiss) {
 			display: none;
 		}
 	}
