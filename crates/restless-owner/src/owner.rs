@@ -2040,6 +2040,11 @@ fn membership_boundary_violation(
         || is_company_route_family(path, "members")
         || is_company_collaboration_bootstrap_route(method, path)
         || is_attachment_download_route(method, path)
+        // Everyone attaches files to their messages and images to documents. The upload is kept
+        // under the person who added it; reading it is decided where it is used.
+        || is_attachment_upload_route(method, path)
+        // Whoever may share a document or sheet may share it with an invitee; OrgIntel decides.
+        || is_company_route_family(path, "pending-shares")
         || company_settings_api::is_company_logo_read(method, path)
     {
         return None;
@@ -2047,7 +2052,7 @@ fn membership_boundary_violation(
     Some(BoundaryRefusal {
         status: StatusCode::FORBIDDEN,
         code: "membership_role",
-        message: "this membership may collaborate but may not perform owner operations",
+        message: "Only the company's owner can do that.",
     })
 }
 
@@ -2079,6 +2084,19 @@ fn is_attachment_download_route(method: &Method, path: &str) -> bool {
             .next()
             .and_then(|attachment| Uuid::parse_str(attachment).ok())
             .is_some()
+        && segments.next().is_none()
+}
+
+fn is_attachment_upload_route(method: &Method, path: &str) -> bool {
+    if *method != Method::POST {
+        return false;
+    }
+    let Some(rest) = path.strip_prefix("/api/companies/") else {
+        return false;
+    };
+    let mut segments = rest.split('/');
+    segments.next().is_some_and(|company| !company.is_empty())
+        && segments.next() == Some("attachments")
         && segments.next().is_none()
 }
 

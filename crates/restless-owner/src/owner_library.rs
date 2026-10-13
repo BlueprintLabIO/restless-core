@@ -172,7 +172,7 @@ pub(super) async fn upload_attachments(
     if !restless_engine::runtime_sleep::wake_for(
         &state.daemon,
         &company,
-        "the owner added files to the Library",
+        "someone added files",
     )
     .await
     {

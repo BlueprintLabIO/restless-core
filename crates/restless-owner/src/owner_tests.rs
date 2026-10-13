@@ -2800,8 +2800,13 @@ model = \"anthropic/claude-sonnet-5-5\"
                 (Method::GET, "/api/companies/aris/comment-search"),
                 (Method::GET, "/api/companies/aris/message-reactions"),
                 (Method::POST, "/api/companies/aris/messages/42/reactions"),
+                (Method::POST, "/api/companies/aris/attachments"),
+                (Method::GET, "/api/companies/aris/pending-shares"),
+                (Method::POST, "/api/companies/aris/pending-shares/cancel"),
             ] { assert!(membership_boundary_violation(&method,path,&participant).is_none(), "{role} refused {method} {path}"); }
             assert!(membership_boundary_violation(&Method::POST,"/api/companies/aris/up",&participant).is_some());
+            // Adding a file is open; listing everyone's kept files is not.
+            assert!(membership_boundary_violation(&Method::GET,"/api/companies/aris/attachments",&participant).is_some());
             // Only a message's reactions open, not the file previews beside them.
             for path in [
                 "/api/companies/aris/messages/42/reference",
