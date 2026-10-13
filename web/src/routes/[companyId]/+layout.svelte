@@ -105,14 +105,24 @@
 	let ExecutiveRail = $state<typeof ExecutiveRailView | null>(null);
 	let railLoading: Promise<void> | null = null;
 	function loadRail() {
+		/* Offline, the import fails; the next reach for the rail tries again. */
 		railLoading ??= import('$lib/components/ExecutiveRail.svelte').then(
-			(module) => void (ExecutiveRail = module.default)
+			(module) => void (ExecutiveRail = module.default),
+			() => void (railLoading = null)
 		);
 		return railLoading;
 	}
 	$effect(() => {
 		/* People shows the Exec and leads in the rail at full width. */
 		if (execRailOpen || wideActor) void loadRail();
+	});
+	onMount(() => {
+		/* A rail that could not load while offline loads once the connection is back. */
+		const online = () => {
+			if (!ExecutiveRail && (execRailOpen || wideActor)) void loadRail();
+		};
+		window.addEventListener('online', online);
+		return () => window.removeEventListener('online', online);
 	});
 	onMount(() => {
 		const early = () => void loadRail();

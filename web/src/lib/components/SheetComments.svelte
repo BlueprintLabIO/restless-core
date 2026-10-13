@@ -56,8 +56,9 @@
 		focus?: string;
 		/** A tab's name from its id, or null when the tab is gone. */
 		tabName: (worksheet: string) => string | null;
-		/** Show a thread's cell in the grid. */
-		onshow: (thread: SheetCommentThread) => void;
+		/** Show a thread's cell in the grid; `quiet` when arriving from a link, which keeps the
+		 * thread in view. */
+		onshow: (thread: SheetCommentThread, quiet?: boolean) => void;
 		/** Something changed here; read the threads again. */
 		onchanged: () => Promise<unknown>;
 		/** Ask whoever shares it for comment access, for a reader who may only view. */
@@ -120,7 +121,8 @@
 		if (!thread) return;
 		focused = focus;
 		show = thread.resolved_at ? 'resolved' : 'open';
-		choose(thread);
+		active = thread.id;
+		onshow(thread, true);
 		void tick().then(() =>
 			document.getElementById(`sheet-thread-${thread.id}`)?.scrollIntoView({ block: 'nearest' })
 		);

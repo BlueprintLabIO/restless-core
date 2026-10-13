@@ -107,8 +107,11 @@ export function observeSessionEnd(pageCompany: () => string | undefined): () => 
 		return response;
 	};
 	// A route whose code moved with an update fails to load; wait for the plane, then load it fresh.
+	// Offline, every load fails and nothing moved: the page stays as it is, drafts and all, and
+	// whatever failed to load tries again when it is next reached.
 	const preloadFailed = (event: Event) => {
 		event.preventDefault();
+		if (navigator.onLine === false) return;
 		void reenter(original);
 	};
 	window.addEventListener('vite:preloadError', preloadFailed);

@@ -715,7 +715,24 @@ try {
     await alice.page.evaluate(() => !document.activeElement?.closest(".o-spreadsheet") && document.activeElement !== document.body),
     "Escape, then Tab, leaves the grid",
   );
-  pass("a member commented on a sheet's cell and mentioned the owner; the reply and resolve reached her live; the keyboard leaves the grid");
+  // Losing the connection keeps the page and the draft: coming back online must not reload it.
+  let reloaded = false;
+  const onLoad = () => (reloaded = true);
+  alice.page.on("load", onLoad);
+  await alice.context.setOffline(true);
+  await alice.page.mouse.click(5, 300); // the first pointer loads the rail's code, which fails offline
+  const offlineDraft = alice.page.getByRole("combobox", { name: /^Comment on / });
+  await offlineDraft.fill("Drafted while offline");
+  await alice.page.getByRole("button", { name: "Comment", exact: true }).click();
+  await alice.page.getByText("You're offline").first().waitFor({ timeout: 5000 });
+  await alice.context.setOffline(false);
+  await pause(4000);
+  alice.page.off("load", onLoad);
+  assert.equal(reloaded, false, "coming back online does not reload the page");
+  assert.equal(await offlineDraft.inputValue(), "Drafted while offline", "the draft survives the lost connection");
+  await alice.page.getByRole("button", { name: "Comment", exact: true }).click();
+  await owner.page.getByText("Drafted while offline").waitFor({ timeout: 8000 });
+  pass("a member commented on a sheet's cell and mentioned the owner; the reply and resolve reached her live; the keyboard leaves the grid; a draft outlives a lost connection");
 
   // 9d. A page made for the company reaches a member's open Library as it happens. The list polls
   //     every 15 seconds; arriving well inside that is the change stream, which members now hear.

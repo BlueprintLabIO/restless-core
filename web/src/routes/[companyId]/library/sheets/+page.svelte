@@ -429,6 +429,15 @@
 		await tick();
 		setTimeout(() => document.getElementById('sheet-new-comment')?.focus(), 60);
 	}
+	/* Where the panel covers the sheet, showing a thread's cell closes it first, so the cell is seen. */
+	async function showThreadCell(thread: { worksheet_id: string; cell: string }, quiet = false) {
+		if (!quiet && matchMedia('(max-width: 1100px)').matches) {
+			showPanel('');
+			await tick();
+			await new Promise((done) => requestAnimationFrame(done));
+		}
+		editor?.select(thread.worksheet_id, thread.cell);
+	}
 	function tabName(worksheet: string): string | null {
 		return selection?.tabs[worksheet] ?? null;
 	}
@@ -825,7 +834,7 @@
 						{selection}
 						focus={focusThread}
 						{tabName}
-						onshow={(thread) => editor?.select(thread.worksheet_id, thread.cell)}
+						onshow={showThreadCell}
 						onchanged={refreshComments}
 						onask={access === 'read' && asked !== sheet
 							? () => void askForAccess('comment')
