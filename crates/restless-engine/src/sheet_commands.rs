@@ -97,6 +97,15 @@ mod tests {
             execute(&org,"owner",SheetOperation::RestoreCopy{sheet,version:checkpoint,id:recovered,title:"Recovered".into()}).await.unwrap();
             assert!(org.sheet_state(recovered,"alice",false,0).await.is_err());
             let old=execute(&org,"owner",SheetOperation::Read{sheet:recovered,query:Some(json!({"action":"get_range","range":"F2"}))}).await.unwrap();
+            // Duplicating copies the sheet as it reads now into one the duplicator owns, private as
+            // its original is, without its people.
+            let copied=Uuid::new_v4();
+            let copy=execute(&org,"alice",SheetOperation::Duplicate{sheet,id:copied}).await.unwrap();
+            assert_eq!(copy["title"],"Copy of Deals 2026");
+            assert_eq!(copy["general_access"],"private");
+            let now=execute(&org,"alice",SheetOperation::Read{sheet:copied,query:Some(json!({"action":"get_range","range":"F2"}))}).await.unwrap();
+            assert_eq!(now["result"]["rows"][0][0]["value"],900,"the copy has the latest edits");
+            assert!(org.sheet_state(copied,"exec",false,0).await.is_err(),"the original's people are not copied");
             assert_eq!(old["result"]["rows"][0][0]["value"],1000);
             org.share_sheet(sheet,"owner","alice",Some("edit")).await.unwrap();
             org.share_sheet(sheet,"owner","bob",Some("edit")).await.unwrap();
@@ -337,6 +346,12 @@ pub enum SheetOperation {
         key: Uuid,
         title: String,
     },
+    /// A copy of the sheet as it reads now, owned by whoever duplicated it, with the same general
+    /// access; its people and history stay with the original.
+    Duplicate {
+        sheet: Uuid,
+        id: Uuid,
+    },
 }
 fn company_visibility() -> String {
     "company".into()
@@ -462,6 +477,24 @@ pub async fn execute(
                 org.create_sheet(id, actor, &title, "participants", &checkpoint["workbook"])
                     .await?
             ))
+        }
+        SheetOperation::Duplicate { sheet, id } => {
+            let state = org.sheet_state(sheet, actor, false, 0).await?;
+            let output = model(model_input(&state)).await?;
+            let general = state.sheet.general_access.clone();
+            let visibility = if general == "private" {
+                "participants"
+            } else {
+                "company"
+            };
+            let title = restless_orgintel::copy_title(&state.sheet.title);
+            let mut copy = org
+                .create_sheet(id, actor, &title, visibility, &output["workbook"])
+                .await?;
+            if general != "private" && copy.general_access != general {
+                copy = org.set_sheet_general_access(id, actor, &general).await?;
+            }
+            Ok(json!(copy))
         }
         SheetOperation::Checkpoint {
             sheet,

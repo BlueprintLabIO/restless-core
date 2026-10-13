@@ -25,6 +25,7 @@
 	import {
 		SPREADSHEET_ACCEPT,
 		importSpreadsheet,
+		duplicateSheet,
 		renameSheet,
 		saveFile,
 		sheetHref,
@@ -191,6 +192,15 @@
 			say('Link copied');
 		} catch {
 			say('Could not copy the link');
+		}
+	}
+	/* A copy you own opens with its title selected, ready to rename. */
+	async function duplicate() {
+		try {
+			const copy = await duplicateSheet(company, sheet, crypto.randomUUID());
+			await goto(`${sheetHref(company, copy.id)}&rename=1`);
+		} catch (cause) {
+			toast(failureSentence(cause, 'It was not duplicated.'), { tone: 'failure' });
 		}
 	}
 	const downloadXlsx = () =>
@@ -517,6 +527,11 @@
 						>
 					{/if}
 					<button type="button" onclick={copyLink}>Copy link</button>
+					<button
+						type="button"
+						title="A copy you own, with the same access"
+						onclick={() => void duplicate()}>Duplicate</button
+					>
 					<button
 						type="button"
 						disabled={!ready}

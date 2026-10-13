@@ -33,6 +33,7 @@
 	import {
 		documentFileName,
 		documentMarkdownDownload,
+		duplicateDocument,
 		getDocument,
 		getDocumentParticipants,
 		requestDocumentAccess,
@@ -190,6 +191,18 @@
 			say('Link copied');
 		} catch {
 			sayFailure('Could not copy the link');
+		}
+	}
+
+	/* A copy you own opens with its title selected, ready to rename. */
+	async function duplicate(): Promise<void> {
+		try {
+			const copy = await duplicateDocument(companyId, documentId, crypto.randomUUID());
+			await goto(
+				`/${encodeURIComponent(companyId)}/library/documents?document=${encodeURIComponent(copy.document_id)}&rename=1`
+			);
+		} catch (cause) {
+			sayFailure(failureSentence(cause, 'It was not duplicated.'));
 		}
 	}
 
@@ -537,6 +550,11 @@
 					>
 					<button type="button" onclick={printDocument}>Print or save as PDF</button>
 					<button type="button" onclick={() => void copyLink()}>Copy link</button>
+					<button
+						type="button"
+						title="A copy you own, with the same access"
+						onclick={() => void duplicate()}>Duplicate</button
+					>
 					{#if ownerAccess && !documentView.document.linked_room_id}
 						<button type="button" class="narrow-only" onclick={() => void discuss()}
 							>Discuss with Exec</button

@@ -64,6 +64,10 @@ where
             post(archive_document),
         )
         .route(
+            "/companies/{company}/documents/{document}/duplicate",
+            post(duplicate_document),
+        )
+        .route(
             "/companies/{company}/documents/{document}",
             delete(delete_document),
         )
@@ -1193,6 +1197,30 @@ async fn create_document(
         .await
     {
         Ok(document) => document_json(StatusCode::CREATED, document),
+        Err(error) => document_error(error),
+    }
+}
+
+/// A copy the person owns, with the body as it reads now and the same general access.
+async fn duplicate_document(
+    State(state): State<RoomApiState>,
+    DocumentPrincipal(principal): DocumentPrincipal,
+    AxumPath((company, document)): AxumPath<(String, Uuid)>,
+    headers: HeaderMap,
+) -> Response<Body> {
+    let command_id = match command_id(&headers) {
+        Ok(command_id) => command_id,
+        Err(failure) => return failure.into_response(),
+    };
+    let org = match document_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .duplicate_document(document, principal.actor_id(), command_id)
+        .await
+    {
+        Ok(copy) => document_json(StatusCode::CREATED, copy),
         Err(error) => document_error(error),
     }
 }

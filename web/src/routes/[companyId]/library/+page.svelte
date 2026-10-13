@@ -62,9 +62,10 @@
 	} from '$lib/model/library-files';
 	import { documentsQuery } from '$lib/model/document-queries.svelte';
 	import { documentSearch } from '$lib/model/document-search.svelte';
-	import { sheetJson, type SheetRow } from '$lib/model/sheets';
+	import { duplicateSheet, sheetJson, type SheetRow } from '$lib/model/sheets';
 	import {
 		deleteArchivedDocument,
+		duplicateDocument,
 		getArchivedDocuments,
 		getDocument,
 		type DocumentListCursor,
@@ -335,6 +336,23 @@
 		}
 	}
 	/* A link to a document, sheet or file opens it for anyone who may; it grants nothing. */
+	/* Duplicate opens the copy with its title selected, as a new document or sheet opens. */
+	async function duplicate(entry: Entry) {
+		try {
+			const path =
+				entry.kind === 'doc'
+					? `documents?document=${encodeURIComponent(
+							(await duplicateDocument(companyId, entry.id, crypto.randomUUID())).document_id
+						)}`
+					: `sheets?sheet=${encodeURIComponent(
+							(await duplicateSheet(companyId, entry.id, crypto.randomUUID())).id
+						)}`;
+			await goto(`${root}/library/${path}&rename=1`);
+		} catch (cause) {
+			toast(failureSentence(cause, `“${entry.title}” was not duplicated.`), { tone: 'failure' });
+		}
+	}
+
 	async function copyLink(entry: Entry) {
 		const file = isFile(entry) ? files.find((candidate) => candidate.id === entry.id) : null;
 		const href = file ? libraryFileHref(companyId, file) : entry.href;
@@ -1221,6 +1239,10 @@
 											>{/if}
 										{#if (isFile(entry) || isNative(entry)) && filter !== 'archived'}<button
 												onclick={() => void copyLink(entry)}>Copy link</button
+											>{/if}
+										{#if isNative(entry) && filter !== 'archived'}<button
+												title="A copy you own, with the same access"
+												onclick={() => void duplicate(entry)}>Duplicate</button
 											>{/if}
 										{#if isNative(entry) && entry.href && filter !== 'archived'}<a
 												href={`${entry.href}&inspect=share`}

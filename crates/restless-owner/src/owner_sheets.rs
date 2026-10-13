@@ -37,6 +37,10 @@ where
             get(versions).post(checkpoint),
         )
         .route(
+            "/companies/{company}/sheets/{sheet}/duplicate",
+            post(duplicate),
+        )
+        .route(
             "/companies/{company}/sheets/{sheet}/versions/{version}",
             get(version),
         )
@@ -353,6 +357,19 @@ async fn restore(
         },
     )
     .await
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Duplicate {
+    id: Uuid,
+}
+async fn duplicate(
+    State(s): State<RoomApiState>,
+    RoomPrincipal(p): RoomPrincipal,
+    AxumPath((c, id)): AxumPath<(String, Uuid)>,
+    Json(i): Json<Duplicate>,
+) -> Response<Body> {
+    run(s, p, c, SheetOperation::Duplicate { sheet: id, id: i.id }).await
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

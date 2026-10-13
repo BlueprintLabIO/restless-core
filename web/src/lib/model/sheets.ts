@@ -53,6 +53,13 @@ export function setSheetParticipant(company: string, id: string, actor: string, 
 	const path = `/${encodeURIComponent(id)}/participants/${encodeURIComponent(actor)}`;
 	return sheetJson(company, path, access ? { method: 'PUT', body: JSON.stringify({ access }) } : { method: 'DELETE' });
 }
+/** A copy the person owns, as the sheet reads now, with the same general access. */
+export function duplicateSheet(company: string, sheet: string, copy: string): Promise<SheetRow> {
+	return sheetJson<SheetRow>(company, `/${encodeURIComponent(sheet)}/duplicate`, {
+		method: 'POST',
+		body: JSON.stringify({ id: copy })
+	});
+}
 export function sheetHref(company: string, id: string): string {
 	return `/${encodeURIComponent(company)}/library/sheets?sheet=${encodeURIComponent(id)}`;
 }

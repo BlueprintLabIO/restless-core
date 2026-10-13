@@ -811,6 +811,15 @@ export function requestDocumentReviewChanges(
 }
 
 /** Archive a document out of the Library, or restore it (as a draft). */
+/** A copy the person owns, with the body as it reads now and the same general access. */
+export function duplicateDocument(
+	company: string,
+	document: string,
+	commandId: string
+): Promise<DocumentCommandResult> {
+	return documentJson(`${documentsPath(company, document)}/duplicate`, mutation({}, commandId));
+}
+
 export function setDocumentArchived(
 	company: string,
 	document: string,
