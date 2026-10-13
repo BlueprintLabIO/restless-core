@@ -550,6 +550,15 @@
 					onclick={() => openPanel('sharing')}>Share</button
 				>
 				<ActionMenu label="Sheet actions">
+					{#if row}{@const editor = row.last_editor_actor_id
+							? directory.view?.people.find(
+									(person) => person.actor_id === row?.last_editor_actor_id
+								)?.display
+							: null}
+						<p class="menu-note">
+							Edited{editor ? ` by ${editor}` : ''}
+							<RelativeTime value={row.updated_at} />
+						</p>{/if}
 					<button type="button" onclick={() => openPanel('history')}>History</button>
 					{#if access === 'read'}
 						<button
@@ -714,6 +723,8 @@
 	</section>
 
 	{#if panel}
+		<!-- On a phone the panel covers the sheet and its heading; this names the page meanwhile. -->
+		<h1 class="sr-title">{row?.title ?? 'Sheet'}</h1>
 		<aside class="side cockpit-pane" aria-label={panel === 'history' ? 'History' : 'Sharing'}>
 			<header class="side-head">
 				<h2>{panel === 'history' ? 'History' : 'Share'}</h2>

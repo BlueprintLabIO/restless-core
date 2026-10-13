@@ -79,6 +79,7 @@ async fn a_duplicate_is_yours_with_the_body_and_access_of_the_original() {
     assert_eq!(view.document.title, "Copy of Pricing");
     assert_eq!(view.document.owner_actor_id, "alex");
     assert_eq!(view.access, DocumentAccess::Edit);
+    assert_eq!(view.last_editor_actor_id.as_deref(), Some("alex"), "the copy names who made it");
     assert_eq!(view.document.general_access, GeneralAccess::Private);
     assert!(view.current_version.markdown.contains("Three tiers"));
     assert!(org.get_document_for_actor(copy.document_id, "bianca").await.is_err());

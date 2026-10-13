@@ -148,6 +148,14 @@
 	.action-menu-panel:not(:popover-open) {
 		display: none;
 	}
+	/* A quiet line of facts above a menu's actions, such as who edited last. */
+	.action-menu-panel :global(.menu-note) {
+		margin: 0 0 3px;
+		padding: 4px 10px 8px;
+		border-bottom: 1px solid var(--border);
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
 	.action-menu-panel :global(:is(button, a)) {
 		display: flex;
 		align-items: center;

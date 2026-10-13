@@ -1,4 +1,5 @@
 <script lang="ts">
+	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import { namePageContext } from '$lib/model/page-context.svelte';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	/* One document, full width, opened from the Library. Its discussion and
@@ -318,7 +319,12 @@
 		arrivedAt = documentId;
 		const change = view.changed_since_you_looked;
 		changed = change
-			? { id: documentId, actor_name: change.actor_name, at: change.at, since: change.since ?? null }
+			? {
+					id: documentId,
+					actor_name: change.actor_name,
+					at: change.at,
+					since: change.since ?? null
+				}
 			: null;
 		if (change) {
 			const target = currentTarget();
@@ -473,7 +479,10 @@
 				oncopyblocklink={(blockId) => void copyBlockLink(blockId)}
 				ondirtychange={(value) => (documentDirty = value)}
 			>
-				{#snippet leading()}<LibraryCrumb {companyId} show="docs" />{#if documentView.document.general_access === 'private'}<span
+				{#snippet leading()}<LibraryCrumb
+						{companyId}
+						show="docs"
+					/>{#if documentView.document.general_access === 'private'}<span
 							class="private"
 							title={PRIVATE_HINT}><Lock size={13} strokeWidth={1.8} aria-label="Private" /></span
 						>{/if}{/snippet}
@@ -543,6 +552,14 @@
 					</button>
 				{/snippet}
 				{#snippet moreActions()}
+					{#if documentView}{@const editor = documentView.last_editor_actor_id
+							? people.find((person) => person.actor_id === documentView.last_editor_actor_id)
+									?.display
+							: null}
+						<p class="menu-note">
+							Edited{editor ? ` by ${editor}` : ''}
+							<RelativeTime value={documentView.current_version.version.created_at} />
+						</p>{/if}
 					<button
 						type="button"
 						title="The latest saved version, as a Markdown file"

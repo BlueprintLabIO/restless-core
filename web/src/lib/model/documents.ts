@@ -95,6 +95,8 @@ export interface DocumentReadView {
 	document: DocumentRow;
 	access: DocumentAccess;
 	current_version: DocumentVersionView;
+	/** Who made the newest saved change; null when only the system is known. */
+	last_editor_actor_id?: string | null;
 	/** This person's follow state; only the document read itself carries it. */
 	following?: boolean;
 	/** Others changed it since this person last opened it. */

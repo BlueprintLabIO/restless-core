@@ -297,6 +297,10 @@ pub struct DocumentReadView {
     pub document: DocumentRow,
     pub access: DocumentAccess,
     pub current_version: DocumentVersionView,
+    /// Who made the newest saved change, as the Library names it ("Edited by"): the people
+    /// editing when the live body was saved, else whoever saved the version. None when only the
+    /// daemon is known.
+    pub last_editor_actor_id: Option<String>,
 }
 
 /// One self-contained, deterministic checkpoint that may cross the explicit
@@ -5187,11 +5191,24 @@ impl OrgIntel {
                 "document {document_id} has no current named version"
             ))
         })?;
+        let last_editor_actor_id: Option<String> = sqlx::query_scalar(
+            "SELECT COALESCE(\
+               (SELECT min(e.actor_id) FROM native_document_version_editors e \
+                 WHERE e.version_id=v.id),\
+               NULLIF(v.created_by_actor_id,'daemon')) \
+             FROM native_document_versions v WHERE v.document_id=$1 \
+             ORDER BY v.version_number DESC LIMIT 1",
+        )
+        .bind(document_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten();
         tx.commit().await?;
         Ok(DocumentReadView {
             document,
             access,
             current_version: version_view(current)?,
+            last_editor_actor_id,
         })
     }
 
