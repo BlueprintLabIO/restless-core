@@ -56,8 +56,9 @@ Read on 13 October 2026 from `main` at `f70d989a`.
 ## Deploy order
 
 Core must ship before an identity release that sends `email`, because Core refuses unknown claims.
-A cell picks up the new sidecar grant the next time its Documents credential is provisioned. Until
-then the sidecar's notes are refused quietly, and attribution falls back to write sessions.
+Core grants the sidecar its new function whenever it opens a company, so existing companies pick
+it up on their first start after the release. Until then the sidecar's notes are refused quietly,
+and attribution falls back to write sessions.
 
 ## Results
 

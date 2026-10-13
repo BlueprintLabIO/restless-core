@@ -336,16 +336,39 @@ try {
   await shot(owner, "entered");
   pass("owner verified by email, claimed the company and entered it");
 
-  // 5. Owner invites both colleagues from Company → Members.
+  // 5. Before anyone else is in the company, the owner shares a document with Bob's address; it
+  //    waits for him (S66). Then the owner invites both colleagues from Company → Members.
+  const welcome = await coreApi(owner, `${base}/documents`, {
+    method: "POST",
+    expected: 201,
+    body: {
+      title: "Welcome pack",
+      kind: "brief",
+      visibility: "participants",
+      content_json: { type: "doc", content: [{ type: "paragraph", attrs: { block_id: randomUUID() }, content: [{ type: "text", text: "Read me first." }] }] },
+      reason: "Multiplayer smoke",
+    },
+  });
+  await coreApi(owner, `${base}/pending-shares`, {
+    method: "POST",
+    expected: 204,
+    body: { document: welcome.document_id, email: bob.email.toUpperCase(), access: "comment" },
+  });
+  const waiting = await coreApi(owner, `${base}/pending-shares?document=${welcome.document_id}`);
+  assert.deepEqual(waiting.items.map((item) => [item.email, item.access]), [[bob.email.toLowerCase(), "comment"]]);
   await owner.page.goto(`${core}/${company}/company/members`);
   for (const who of [alice, bob]) {
-    const field = owner.page.getByLabel("Email to invite");
+    const field = owner.page.getByLabel("Emails to invite");
     if (!(await field.isVisible())) await owner.page.getByRole("button", { name: "Invite", exact: true }).click();
     await field.fill(who.email);
     await owner.page.getByRole("button", { name: "Send invite" }).click();
     await owner.page.getByText(`Invitation sent to ${who.email}.`).waitFor();
-    // The form clears only after the list reloads; typing earlier is discarded.
-    await until(async () => (await field.inputValue()) === "", "invite form cleared", 15);
+    // The form closes (or clears) only after the list reloads; typing earlier is discarded.
+    await until(
+      async () => !(await field.isVisible()) || (await field.inputValue()) === "",
+      "invite form done",
+      15,
+    );
     who.invitation = await smtp.waitFor((m) => m.to === who.email && m.subject.startsWith("Join "), `${who.key} invitation`);
   }
   await shot(owner, "invited");
@@ -365,6 +388,18 @@ try {
   const actors = new Set([owner, alice, bob].map((who) => who.principal.actor_id));
   assert.equal(actors.size, 3, "three people are three distinct Actors");
   pass("both colleagues accepted by email link and entered as distinct member Actors");
+
+  // 6b. What waited for Bob's address is his now, shared by the owner; Alice was never given it.
+  const given = await coreApi(bob, `${base}/documents/${welcome.document_id}`);
+  assert.equal(given.access, "comment");
+  await coreApi(alice, `${base}/documents/${welcome.document_id}`, { expected: 404 });
+  assert.deepEqual((await coreApi(owner, `${base}/pending-shares?document=${welcome.document_id}`)).items, []);
+  const bobForYou = await coreApi(bob, `${base}/for-you?limit=50`);
+  assert.ok(
+    bobForYou.items.some((item) => item.kind === "share" && item.title === "Welcome pack"),
+    "Bob's For you says the owner shared Welcome pack with him",
+  );
+  pass("a document shared with an invited address was waiting for Bob when he joined, and only for him");
 
   // 7. One native document, three editors at once; every edit survives reload.
   const created = await coreApi(owner, `${base}/documents`, {
@@ -398,8 +433,13 @@ try {
   const line = (who) => `${who.name} wrote this line live.`;
   await Promise.all(
     editors.map(async (who) => {
-      await who.body.click();
-      await who.page.keyboard.press("Control+End");
+      // Into the end of the last line, as a person clicks after what is there.
+      await who.body.locator("p").last().click();
+      // The editor learns where the caret went from the browser's selectionchange, which comes a
+      // moment after the click; a person never presses the next key within that moment.
+      await who.page.waitForTimeout(150);
+      await who.page.keyboard.press("End");
+      await who.page.waitForTimeout(150);
       await who.page.keyboard.press("Enter");
       // Human-speed keystrokes, so remote edits arrive while each person types.
       await who.page.keyboard.type(line(who), { delay: 40 });
@@ -490,7 +530,7 @@ try {
     "the owner can read Alice's thread answer",
     20,
   );
-  await coreApi(alice, `${base}/for-you/read`, { method: "POST", body: { keys: [mention.key] } });
+  await coreApi(alice, `${base}/for-you/read`, { method: "POST", expected: 204, body: { keys: [mention.key] } });
   assert(
     !(await forYou(alice)).items.find((item) => item.key === mention.key)?.unread,
     "reading a For you item marks it read for that person",
@@ -510,7 +550,8 @@ try {
   }
   for (const [who, other] of [[owner, alice], [alice, owner]]) {
     await until(
-      async () => ((await who.page.locator(".page-faces").getAttribute("aria-label").catch(() => "")) ?? "").includes(other.name),
+      // Each face is a button named for the person and what they are doing there.
+      async () => (await who.page.locator(".page-faces [aria-label]").evaluateAll((faces) => faces.map((face) => face.getAttribute("aria-label")).join(" "))).includes(other.name),
       `${who.key} sees ${other.key}'s face on the page`,
       30,
     );
@@ -564,11 +605,13 @@ try {
     body: { expected_version: viewDocument.version, general_access: "view" },
   });
   assert.equal((await coreApi(alice, `${base}/documents/${viewOnly.document_id}`)).access, "read", "company view gives a member read access");
-  await alice.page.goto(`${core}/documents/${company}/${viewOnly.document_id}`);
-  const readBody = alice.page.getByLabel("Collaborative document body");
+  await alice.page.goto(`${core}/${company}/library/documents?document=${viewOnly.document_id}`);
+  const readBody = alice.page.getByLabel("Document body", { exact: true });
   await readBody.waitFor({ timeout: 30000 });
   await alice.page.getByText("Policy text.").waitFor({ timeout: 30000 });
   assert.equal(await readBody.getAttribute("contenteditable"), "false", "a view-only document cannot be typed into");
+  await readBody.locator("p").first().hover();
+  assert.equal(await alice.page.locator(".block-handle").isVisible(), false, "a reader sees no block grip");
   pass("general access 'company can view' gives a member a read-only page");
 
   await owner.page.goto(documentUrl);
@@ -576,7 +619,9 @@ try {
   await ownerBody.waitFor({ timeout: 30000 });
   // Start a new line after the last paragraph, then type the slash there.
   await ownerBody.locator("p").last().click();
+  await owner.page.waitForTimeout(150);
   await owner.page.keyboard.press("End");
+  await owner.page.waitForTimeout(150);
   await owner.page.keyboard.press("Enter");
   await owner.page.keyboard.type("/", { delay: 50 });
   await owner.page.getByRole("listbox", { name: "Blocks" }).waitFor({ timeout: 10000 });
@@ -588,12 +633,21 @@ try {
   await bob.page.goto(documentUrl);
   await bob.page.getByLabel("Collaborative document body").waitFor({ timeout: 30000 });
   await until(() => bob.sockets.some((item) => item.url.includes("/collaboration") && !item.closed), "Bob's live document connection", 30);
+  // The connections open now are the ones removal must close; a retry the page makes on its way
+  // to the account site is not Bob's access.
+  const openAtRemoval = bob.sockets.filter((item) => item.url.includes("/collaboration") && !item.closed);
   await owner.page.goto(`${core}/${company}/company/members`);
   await owner.page.locator(`summary[aria-label="Access for ${people.bob.name}"]`).click();
   await owner.page.getByRole("button", { name: "Remove…" }).click();
   await owner.page.getByRole("button", { name: "Remove access" }).click();
   await owner.page.getByText(`${people.bob.name} no longer has access.`).waitFor();
-  await until(() => bob.sockets.filter((item) => item.url.includes("/collaboration")).every((item) => item.closed), "removal closes Bob's document connection", 30);
+  // Closed by Core, or gone with the page when it left for the account site (the browser reports no
+  // close for a socket torn down with its page).
+  await until(
+    () => openAtRemoval.every((item) => item.closed) || !bob.page.url().startsWith(core),
+    "removal closes Bob's document connection",
+    30,
+  );
   await coreApi(bob, `${base}/principal`, { expected: 401 });
   await pause(5000);
   if (await bob.page.getByText("Reconnecting").count())

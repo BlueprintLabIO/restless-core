@@ -401,7 +401,7 @@ pub async fn ensure_database(
 /// Provision the only database capability granted to the native Documents
 /// collaboration sidecar. The cell owner remains Core-private; this second
 /// login can connect to one cell database, use one company schema, and execute
-/// exactly the three bounded collaboration functions from migration 0053.
+/// exactly the bounded collaboration functions from migrations 0053 and 0094.
 ///
 /// Call this only after OrgIntel migrations have completed. Re-running it
 /// restores the least-privilege grants and default privileges, so a release
@@ -1046,6 +1046,7 @@ mod tests {
             format!(
                 "{company}.orgintel_native_document_yjs_store(uuid,uuid,bigint,uuid,uuid,bytea,jsonb)"
             ),
+            format!("{company}.orgintel_native_document_note_editors(uuid,uuid,text[])"),
         ] {
             let permitted: bool = sqlx::query_scalar(
                 "SELECT has_function_privilege(current_user, $1, 'EXECUTE')",
