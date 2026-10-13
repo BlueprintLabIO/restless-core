@@ -65,21 +65,21 @@ export function purgeDeniedDocumentState(
 						}
 					: current
 		);
-		/* A read still in flight is the one that was refused: removing it would let its page
-		 * create it again and ask again, forever, never showing the refusal. Its error stands, and
-		 * readable data hides what it held. */
+		/* Only reads nothing on screen is watching go. Removing one a page is watching either
+		 * makes the page ask again forever or leaves it waiting on a read that no longer exists,
+		 * never showing the refusal. Each watched read meets the refusal itself, and readable data
+		 * hides what it held. */
 		client.removeQueries({
 			predicate: (query) =>
 				documentQueryForCompany(query.queryKey, companyId) &&
 				query.queryKey[0] !== 'documents' &&
 				query.queryKey[2] === documentId &&
-				query.state.fetchStatus !== 'fetching'
+				query.getObserversCount() === 0
 		});
 	} else {
 		client.removeQueries({
 			predicate: (query) =>
-				documentQueryForCompany(query.queryKey, companyId) &&
-				query.state.fetchStatus !== 'fetching'
+				documentQueryForCompany(query.queryKey, companyId) && query.getObserversCount() === 0
 		});
 	}
 }

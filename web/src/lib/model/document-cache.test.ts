@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { QueryClient } from '@tanstack/query-core';
+import { QueryClient, QueryObserver } from '@tanstack/query-core';
 import * as documentCache from './document-cache.ts';
 
 const { failClosedDocumentRead, sameDocumentTarget } = documentCache;
@@ -97,22 +97,28 @@ test('late completions only match the document target that started them', () => 
 	assert.equal(sameDocumentTarget(target, 'other', 'document-a'), false);
 });
 
-test('the refused read itself is kept, so its refusal shows instead of asking again forever', async () => {
+test('a read on screen is kept when refused, so its refusal shows instead of a skeleton', async () => {
 	const client = new QueryClient();
 	const companyId = 'acme';
-	const key = ['document', companyId, 'document-a'];
 	const denied = Object.assign(new Error('gone'), { status: 404 });
-	await client
-		.fetchQuery({
-			queryKey: key,
-			retry: false,
-			queryFn: () => {
-				failClosedDocumentRead(client, denied, companyId, 'document-a');
-				throw denied;
-			}
-		})
-		.catch(() => undefined);
-	const kept = client.getQueryCache().find({ queryKey: key });
-	assert.ok(kept, 'the refused query is still there');
-	assert.equal(kept.state.error, denied);
+	// The page watches the document; a sibling read for it (its comments) is refused first.
+	const detail = new QueryObserver(client, {
+		queryKey: ['document', companyId, 'document-a'],
+		retry: false,
+		queryFn: async () => {
+			await new Promise((resolve) => setTimeout(resolve, 5));
+			throw denied;
+		}
+	});
+	const unsubscribe = detail.subscribe(() => undefined);
+	client.setQueryData(['document-comments', companyId, 'document-a'], { stale: true });
+	failClosedDocumentRead(client, denied, companyId, 'document-a');
+	await new Promise((resolve) => setTimeout(resolve, 30));
+	assert.equal(detail.getCurrentResult().error, denied, 'the page sees the refusal');
+	assert.equal(
+		client.getQueryData(['document-comments', companyId, 'document-a']),
+		undefined,
+		'what nothing watches is cleared'
+	);
+	unsubscribe();
 });
