@@ -1273,13 +1273,16 @@
 		{#if selectedRoomId}
 			<header class="room-head">
 				<div class="room-head-copy">
-					{#if directPerson}
-						<span class="room-contact"
-							><span class="person-avatar">{initials(directPerson.display)}</span><strong
-								>{directPerson.display}</strong
-							></span
-						>
-					{:else}<strong>{roomLabel(selectedRoomId)}</strong>{/if}
+					<!-- The conversation's name is its heading, so a screen reader can jump to it. -->
+					<h2 class="room-heading">
+						{#if directPerson}
+							<span class="room-contact"
+								><span class="person-avatar" aria-hidden="true"
+									>{initials(directPerson.display)}</span
+								><strong>{directPerson.display}</strong></span
+							>
+						{:else}<strong>{roomLabel(selectedRoomId)}</strong>{/if}
+					</h2>
 					{#if participantSummary && !directPerson}<small>{participantSummary}</small>{/if}
 				</div>
 				<button
@@ -2121,6 +2124,12 @@
 	.thread-head > div {
 		min-width: 0;
 		flex: 1;
+	}
+
+	.room-heading {
+		min-width: 0;
+		margin: 0;
+		font: inherit;
 	}
 
 	.room-head-copy strong,

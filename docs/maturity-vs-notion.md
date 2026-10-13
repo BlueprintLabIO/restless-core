@@ -4,12 +4,14 @@ A living assessment of the cockpit's collaboration against Notion, the owner's b
 not a feature count: each area asks whether the everyday path is complete, polished and works for
 every person in the company, members as well as the owner. Update it with each sprint.
 
-**Read:** 13 October 2026, after Sprint 74.
+**Read:** 13 October 2026, after Sprint 75.
 **Evidence:**
 - the three-person multiplayer smoke (`scripts/multiplayer-smoke`): 22 steps, owner and two
   members over network entry
 - the DB suites
 - an axe-core audit of ten screens at desktop and phone width
+- a keyboard-only walk of nine everyday screens (`web/scripts/keyboard-walk.mjs`) and their
+  accessibility trees
 - a phone-width walk of the everyday screens
 
 **Levels:**
@@ -33,12 +35,11 @@ every person in the company, members as well as the owner. Update it with each s
 | Search (⌘K) | Close | documents by title and body, sheets, people, conversations, comments, recents | full-text search inside sheets |
 | Members and access lifecycle | At par | invite (several at once), resend, role changes with Undo, leave with consequence stated, removal closes live sessions at once (smoke) | none |
 | Phone width | Close | every everyday screen fits 390 px with no overflow (S69); panels become sheets | a native app is out of scope; touch editing of sheets is the engine's own |
-| Accessibility | Close | axe: no findings of moderate or higher impact on ten screens at desktop; one main region, headings, named controls (S71, S72) | a full keyboard-only walk and a screen-reader pass have not been done |
+| Accessibility | Close | axe: no findings of moderate or higher impact on ten screens at desktop; one main region, headings, named controls (S71, S72); every everyday screen walks by keyboard alone with visible focus, the sheet grid lets the keyboard out, menus and the palette return focus, and messages name their authors (S75) | a pass with a real screen reader (NVDA, VoiceOver) by a person; the accessibility tree was read, not listened to |
 | Failure and edge states | At par | refusals say so at once (S69, S70); one toast with Undo, one confirmation for the irreversible; empty states lead somewhere (S68) | none known |
 
 ## Next, in order
 
-1. **A keyboard-only walk and a screen-reader pass** over the everyday screens.
-2. **A page tree:** nesting documents under one another, the largest structural difference from
+1. **A page tree:** nesting documents under one another, the largest structural difference from
    Notion. It needs a design decision on how nesting meets general access.
-3. **A version diff view.**
+2. **A version diff view.**

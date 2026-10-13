@@ -182,9 +182,10 @@
 		window.setTimeout(finish, 400);
 	}
 
+	/* Focus goes back where it was once the dialog has closed: while it is open the page behind it
+	 * is inert and cannot take focus. */
 	function close() {
 		open = false;
-		returnFocus?.focus?.();
 	}
 
 	function choose(command: Command | undefined) {
@@ -221,7 +222,10 @@
 	class="command-menu"
 	data-closing={leaving ? '' : undefined}
 	aria-label="Search and jump"
-	onclose={() => (open = false)}
+	onclose={() => {
+		open = false;
+		if (returnFocus?.isConnected) returnFocus.focus();
+	}}
 	oncancel={(event) => {
 		// Escape takes the animated exit instead of the browser's instant close.
 		event.preventDefault();

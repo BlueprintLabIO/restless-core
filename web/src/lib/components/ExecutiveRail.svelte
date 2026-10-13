@@ -1751,6 +1751,10 @@
 	.topic-switch :global(.action-menu[open] > summary) {
 		background: var(--wash-hover);
 	}
+	/* The switcher clips what overflows it, so its focus ring is drawn inside. */
+	.topic-switch :global(summary:focus-visible) {
+		outline-offset: -2px;
+	}
 	.exr-tools {
 		display: flex;
 		flex: none;

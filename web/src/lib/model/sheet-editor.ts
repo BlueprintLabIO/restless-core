@@ -177,6 +177,43 @@ export function mountSheet(
 		}
 	};
 	element.addEventListener('keydown', shortcut, true);
+	/* Tab moves between cells, as in any spreadsheet, so the grid would keep the keyboard for good.
+	 * Escape, then Tab (or Shift+Tab), leaves it for the controls before or after the sheet. */
+	let leaving = false;
+	const leave = (event: KeyboardEvent) => {
+		if (!(event.target instanceof Node) || !element.contains(event.target)) return;
+		if (event.key === 'Escape') {
+			leaving = true;
+			return;
+		}
+		if (event.key !== 'Tab' || !leaving) {
+			if (!['Shift', 'Control', 'Alt', 'Meta'].includes(event.key)) leaving = false;
+			return;
+		}
+		leaving = false;
+		const outside = [
+			...document.querySelectorAll<HTMLElement>(
+				'a[href],button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),summary,[contenteditable="true"],[tabindex]:not([tabindex="-1"])'
+			)
+		].filter(
+			(candidate) =>
+				!element.contains(candidate) &&
+				candidate.getClientRects().length > 0 &&
+				!candidate.closest('[inert],[aria-hidden="true"],[hidden]')
+		);
+		const after = (candidate: HTMLElement) =>
+			Boolean(element.compareDocumentPosition(candidate) & Node.DOCUMENT_POSITION_FOLLOWING);
+		const next = event.shiftKey
+			? outside.filter((candidate) => !after(candidate)).at(-1)
+			: outside.find(after);
+		if (!next) return;
+		event.preventDefault();
+		event.stopPropagation();
+		next.focus();
+	};
+	const pointer = () => (leaving = false);
+	element.addEventListener('keydown', leave, true);
+	element.addEventListener('pointerdown', pointer, true);
 	let model: any,
 		app: App<typeof Root> | undefined,
 		socket: WebSocket | undefined,
@@ -490,6 +527,8 @@ export function mountSheet(
 		destroy() {
 			disposed = true;
 			element.removeEventListener('keydown', shortcut, true);
+			element.removeEventListener('keydown', leave, true);
+			element.removeEventListener('pointerdown', pointer, true);
 			if (commentRequest === comment) commentRequest = undefined;
 			clearTimeout(timer);
 			socket?.close();

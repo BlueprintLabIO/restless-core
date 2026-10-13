@@ -591,7 +591,7 @@
 							? 'page'
 							: undefined}
 					>
-						<span class="avatar">{chat.mark}</span>
+						<span class="avatar" aria-hidden="true">{chat.mark}</span>
 						<span class="person-lines"
 							><span class="name" class:strong={chat.unread}>{chat.name}</span><small
 								class="doing"
@@ -621,7 +621,7 @@
 						>
 						{#each archived.rooms as room (room.id)}
 							<div class="archived-chat">
-								<span class="avatar">#</span>
+								<span class="avatar" aria-hidden="true">#</span>
 								<span class="name">{room.title}</span>
 								<button
 									type="button"

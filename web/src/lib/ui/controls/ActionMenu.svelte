@@ -22,12 +22,19 @@
 		/* Items render on first reach, after the panel opens: placing it then would use an empty
 		 * width and push a right-edge menu off the screen. Place it again whenever it resizes. */
 		let sized: ResizeObserver | null = null;
+		/* Opened from the keyboard, the menu takes focus at its first item, as a menu does. */
+		let byKeyboard = false;
 		function toggle() {
 			reached = true;
 			if (!panel) return;
 			if (node.open) {
 				panel.showPopover();
 				position();
+				if (byKeyboard)
+					requestAnimationFrame(() =>
+						panel.querySelector<HTMLElement>('button:not(:disabled), a[href]')?.focus()
+					);
+				byKeyboard = false;
 				// The panel has no width until it lays out; place it again then.
 				requestAnimationFrame(position);
 				if (!sized && typeof ResizeObserver !== 'undefined') {
@@ -43,6 +50,11 @@
 				node.open = false;
 		}
 		function keyboard(event: KeyboardEvent) {
+			if (
+				(event.key === 'Enter' || event.key === ' ') &&
+				event.target === node.querySelector('summary')
+			)
+				byKeyboard = !node.open;
 			const actions = [...panel.querySelectorAll<HTMLElement>('button:not(:disabled), a[href]')];
 			if (!actions.length || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
 			event.preventDefault();

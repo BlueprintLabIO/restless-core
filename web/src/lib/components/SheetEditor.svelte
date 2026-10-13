@@ -92,8 +92,11 @@
 	 * Name them, and keep the page's tab order, however often it draws them again. */
 	const UNNAMED: [string, string][] = [
 		['.o-font-size', 'Font size'],
-		['.o-grid-add-rows-input', 'Rows to add']
+		['.o-grid-add-rows-input', 'Rows to add'],
+		['.o-grid-composer .o-composer', 'Cell']
 	];
+	/* Said once, where the keyboard lands in the grid: how to leave it. */
+	const LEAVE_HINT = 'Escape, then Tab, leaves the grid. Ctrl+Alt+M comments on the cell.';
 	$effect(() => {
 		const root = host;
 		if (!root) return;
@@ -103,6 +106,9 @@
 			for (const [selector, name] of UNNAMED)
 				for (const control of root.querySelectorAll<HTMLElement>(selector))
 					if (!control.getAttribute('aria-label')) control.setAttribute('aria-label', name);
+			for (const cell of root.querySelectorAll<HTMLElement>('.o-grid-composer .o-composer'))
+				if (!cell.getAttribute('aria-description'))
+					cell.setAttribute('aria-description', LEAVE_HINT);
 			for (const control of root.querySelectorAll<HTMLElement>('[tabindex]'))
 				if (Number(control.getAttribute('tabindex')) > 0) control.setAttribute('tabindex', '0');
 		};

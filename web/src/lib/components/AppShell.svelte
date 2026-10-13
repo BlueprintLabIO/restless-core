@@ -433,7 +433,7 @@
 			href={tab.href}
 			aria-current={tab.on ? 'page' : undefined}
 			aria-label={tab.badge
-				? `${tab.label}, ${tab.badge} items`
+				? `${tab.label}, ${tab.badge} ${tab.badge === 1 ? 'item' : 'items'}`
 				: tab.dot
 					? `${tab.label}, ${tab.dot}`
 					: tab.label}

@@ -704,7 +704,18 @@ try {
   await shot(owner, "sheet-comments");
   await owner.page.getByRole("button", { name: "Resolve the thread on A1" }).click();
   await alice.page.getByText("No open comments").waitFor({ timeout: 8000 });
-  pass("a member commented on a sheet's cell and mentioned the owner; the reply and resolve reached her live");
+  // By keyboard alone: Tab moves between cells, and Escape then Tab leaves the grid for the panel.
+  const cell = alice.page.locator(".o-grid-composer .o-composer").first();
+  await cell.focus();
+  await alice.page.keyboard.press("Tab");
+  assert.ok(await alice.page.evaluate(() => !!document.activeElement?.closest(".o-spreadsheet")), "Tab moves between cells");
+  await alice.page.keyboard.press("Escape");
+  await alice.page.keyboard.press("Tab");
+  assert.ok(
+    await alice.page.evaluate(() => !document.activeElement?.closest(".o-spreadsheet") && document.activeElement !== document.body),
+    "Escape, then Tab, leaves the grid",
+  );
+  pass("a member commented on a sheet's cell and mentioned the owner; the reply and resolve reached her live; the keyboard leaves the grid");
 
   // 9d. A page made for the company reaches a member's open Library as it happens. The list polls
   //     every 15 seconds; arriving well inside that is the change stream, which members now hear.

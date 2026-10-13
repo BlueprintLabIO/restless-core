@@ -8,6 +8,7 @@
 	class="crumb"
 	href={`/${encodeURIComponent(companyId)}/library?show=${show}`}
 	title="Back to the Library"
+	aria-label="Back to the Library"
 	><ArrowLeft size={15} strokeWidth={1.9} aria-hidden="true" /><span>Library</span></a
 ><span class="sep" aria-hidden="true">/</span>
 

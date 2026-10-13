@@ -212,9 +212,8 @@
 		max-height: 220px;
 	}
 	textarea:focus {
-		outline: none;
-		border-color: var(--focus, var(--border-strong));
-		box-shadow: 0 0 0 2px var(--focus-ring, transparent);
+		outline: 2px solid var(--intent-feedback);
+		outline-offset: -1px;
 	}
 	.mention-menu {
 		position: absolute;

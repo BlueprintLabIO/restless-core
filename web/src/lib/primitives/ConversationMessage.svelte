@@ -330,8 +330,15 @@
 		margin: 0;
 	}
 
+	/* Your own bubble shows no name or avatar, but a screen reader still hears whose words they are. */
 	.conversation-message.owner .message-meta :is(.message-avatar, strong) {
-		display: none;
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		margin: 0;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
 	}
 
 	/* The owner's words: a soft bubble whose tail corner points at the rail's edge they came from. */

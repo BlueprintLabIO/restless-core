@@ -13,7 +13,31 @@
 			if ((event.target as Element).closest('button:not(:disabled), a')) node.hidePopover();
 		};
 		node.addEventListener('click', close);
-		return { destroy: () => node.removeEventListener('click', close) };
+		node.addEventListener('keydown', arrows);
+		return {
+			destroy: () => {
+				node.removeEventListener('click', close);
+				node.removeEventListener('keydown', arrows);
+			}
+		};
+	}
+	/* Opened from the keyboard, the menu takes focus at its first item; arrows, Home and End move
+	 * through it, as in every other menu. */
+	let byKeyboard = false;
+	const items = () => [...panel.querySelectorAll<HTMLElement>('button:not(:disabled), a[href]')];
+	function arrows(event: KeyboardEvent) {
+		if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+		const actions = items();
+		if (!actions.length) return;
+		event.preventDefault();
+		const index = actions.indexOf(document.activeElement as HTMLElement);
+		const next =
+			event.key === 'Home'
+				? 0
+				: event.key === 'End'
+					? actions.length - 1
+					: (index + (event.key === 'ArrowDown' ? 1 : -1) + actions.length) % actions.length;
+		actions[next].focus();
 	}
 	function position() {
 		const rect = trigger.getBoundingClientRect();
@@ -32,6 +56,15 @@
 	aria-expanded={open}
 	title="Document actions"
 	onclick={position}
+	onkeydown={(event) => {
+		if (event.key === 'Enter' || event.key === ' ') byKeyboard = !open;
+		else if (event.key === 'ArrowDown' && !open) {
+			event.preventDefault();
+			byKeyboard = true;
+			position();
+			panel.showPopover();
+		}
+	}}
 >
 	<Ellipsis size={18} />
 </button>
@@ -42,7 +75,11 @@
 	class="document-actions"
 	style:top={`${top}px`}
 	style:left={`${left}px`}
-	ontoggle={(event) => (open = event.newState === 'open')}
+	ontoggle={(event) => {
+		open = event.newState === 'open';
+		if (open && byKeyboard) requestAnimationFrame(() => items()[0]?.focus());
+		byKeyboard = false;
+	}}
 	use:closeOnAction
 	role="group"
 	aria-label="Document actions"
