@@ -312,6 +312,27 @@
 		owner ? (attention.view?.workGraph?.work ?? []) : (collaboration.view?.work_graph.work ?? [])
 	);
 	const files = $derived(libraryFiles(artifacts, libraryWorks));
+	/* Archived Work files still open, read only, so the owner can see what one is before
+	 * restoring it. */
+	const archivedLibraryFiles = $derived(
+		archivedArtifacts.flatMap((artifact): LibraryFile[] => {
+			const kind = libraryKind(artifact);
+			if (!kind) return [];
+			const name = artifact.uri.split(/[?#]/)[0].split('/').filter(Boolean).at(-1) ?? artifact.uri;
+			return [
+				{
+					id: artifact.id,
+					kind,
+					label: artifact.label.trim() || name,
+					uri: artifact.uri,
+					createdBy: artifact.created_by,
+					workId: artifact.work_id,
+					createdAt: artifact.created_at,
+					name
+				}
+			];
+		})
+	);
 	/* Files from Work that waits on the owner's judgement are waiting on their review too. */
 	const workWaitingOnOwner = $derived(waitingOnOwner(attention.view?.items ?? []));
 	const fileOpen = $derived(
@@ -647,27 +668,6 @@
 			.map((summary) => docEntry(summary)),
 		...sheets.map(sheetEntry)
 	]);
-	/* Archived Work files still open, read only, so the owner can see what one is before
-	 * restoring it. */
-	const archivedLibraryFiles = $derived(
-		archivedArtifacts.flatMap((artifact): LibraryFile[] => {
-			const kind = libraryKind(artifact);
-			if (!kind) return [];
-			const name = artifact.uri.split(/[?#]/)[0].split('/').filter(Boolean).at(-1) ?? artifact.uri;
-			return [
-				{
-					id: artifact.id,
-					kind,
-					label: artifact.label.trim() || name,
-					uri: artifact.uri,
-					createdBy: artifact.created_by,
-					workId: artifact.work_id,
-					createdAt: artifact.created_at,
-					name
-				}
-			];
-		})
-	);
 	const archivedFiles = $derived(archivedLibraryFiles.map((file) => fileEntry(file, true)));
 	const archivedEntries = $derived<Entry[]>([
 		...archivedDocs.map((summary) => docEntry(summary, true)),
