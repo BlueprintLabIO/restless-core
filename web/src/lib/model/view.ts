@@ -85,7 +85,8 @@ export interface AttentionItem {
 		generation: string;
 		uri: string;
 		/** `asleep`: the company computer is asleep; asking for a ticket wakes it. */
-		status: 'available' | 'unavailable' | 'asleep';
+		/** `stopped`: the company computer is off; Company › Computer starts it. */
+		status: 'available' | 'unavailable' | 'asleep' | 'stopped';
 		kind: 'runtime-web' | 'runtime-text' | 'runtime-file';
 		label: string;
 		content?: string;

@@ -225,13 +225,11 @@ fn review_target_availability(
         );
     }
     let detail = format!("{error:#}");
+    // `stopped`: the cockpit offers the way to start it beside the message.
     if detail.contains("is not running") || detail.contains("No such container") {
         return (
-            "unavailable",
-            Some(
-                "The company computer is stopped, so this outcome cannot be opened. Start it from Company → Computer."
-                    .into(),
-            ),
+            "stopped",
+            Some("The company computer is stopped, so this outcome cannot be opened until it starts.".into()),
         );
     }
     ("unavailable", Some(detail))

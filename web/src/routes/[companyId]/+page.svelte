@@ -735,6 +735,12 @@
 						<h1>{reviewError ? 'This outcome cannot be opened here.' : 'Opening the outcome…'}</h1>
 						{#if reviewError}
 							<p>{reviewError}</p>
+							{#if focusedReview.reviewTarget?.status === 'stopped'}<a
+									class="btn small primary"
+									href={`/${encodeURIComponent(companyId)}/company/computer`}
+									title="Start the company computer; this review opens once it is running"
+									>Start the computer</a
+								>{/if}
 							{#if focusedReview.reviewTarget?.uri}
 								<code class="review-unavailable-uri">{focusedReview.reviewTarget.uri}</code>
 							{/if}
