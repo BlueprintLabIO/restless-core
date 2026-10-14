@@ -24,9 +24,11 @@
 
 	import { tick, type Snippet } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { dismissable } from '$lib/actions/dismissable';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import Check from '@lucide/svelte/icons/check';
+	import Plus from '@lucide/svelte/icons/plus';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
 	import SearchIcon from '@lucide/svelte/icons/search';
@@ -117,6 +119,20 @@
 	const activeCompanies = $derived(
 		companies.filter((company) => company.lifecycle_status === 'active')
 	);
+	/* Switching keeps the area: from Company › Limits to the other company's Limits. Only the
+	 * surface (and a Company settings page) carries over; a Work item or a person does not. */
+	const switchSuffix = $derived.by(() => {
+		const parts = page.url.pathname.split('/').filter(Boolean);
+		if (parts[0] !== companyId || parts.length < 2) return '';
+		return `/${parts.slice(1, parts[1] === 'company' ? 3 : 2).join('/')}`;
+	});
+	let switcherQuery = $state('');
+	const switchable = $derived.by(() => {
+		const q = switcherQuery.trim().toLocaleLowerCase();
+		return q
+			? activeCompanies.filter((company) => company.name.toLocaleLowerCase().includes(q))
+			: activeCompanies;
+	});
 	/* The bar names the company; an uploaded logo sits beside the name, a generated mark does not. */
 	const currentLogo = $derived(
 		companies.find((company) => company.id === companyId)?.logo_url ?? null
@@ -322,10 +338,17 @@
 							<span><strong>All companies</strong></span>
 						</a>
 						<div class="company-switcher-rule" role="separator"></div>
-						{#each activeCompanies as company (company.id)}
+						{#if activeCompanies.length > 6}<input
+								class="switcher-search"
+								type="search"
+								placeholder="Find a company"
+								aria-label="Find a company"
+								bind:value={switcherQuery}
+							/>{/if}
+						{#each switchable as company (company.id)}
 							<a
 								class:current={company.id === companyId}
-								href={`/${company.id}`}
+								href={`/${company.id}${company.id === companyId ? '' : switchSuffix}`}
 								aria-current={company.id === companyId ? 'page' : undefined}
 							>
 								<span class="switcher-mark" class:logo={!!company.logo_url} aria-hidden="true"
@@ -339,7 +362,10 @@
 									><strong>{company.name}</strong><small
 										>{company.unstartable_reason
 											? 'Can’t start'
-											: (RUNTIME_LABEL[company.runtime_status] ?? company.runtime_status)}</small
+											: (RUNTIME_LABEL[company.runtime_status] ?? company.runtime_status)}{company
+											.card?.decisions_waiting
+											? ` · ${company.card.decisions_waiting} waiting`
+											: ''}</small
 									></span
 								>
 								{#if company.id === companyId}<Check
@@ -360,6 +386,11 @@
 								/>
 							</a>
 						{/each}
+						<div class="company-switcher-rule" role="separator"></div>
+						<a class="company-overview-link" href="/?start=1">
+							<Plus size={14} strokeWidth={2} aria-hidden="true" />
+							<span><strong>Start a company</strong></span>
+						</a>
 					</div>
 				</details>
 			{:else}

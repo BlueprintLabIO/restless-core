@@ -7,7 +7,6 @@
 	import { page } from '$app/state';
 	import CompanyNameField from '$lib/components/CompanyNameField.svelte';
 	import CompanyLogoField from '$lib/components/CompanyLogoField.svelte';
-	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
 	import CharterPurpose from '$lib/components/CharterPurpose.svelte';
 	import { companyPrincipalQuery, companyQuery } from '$lib/model/queries.svelte';
 	import SharedCharter from '$lib/components/SharedCharter.svelte';
@@ -49,16 +48,8 @@
 			</Notice>{/if}
 		<Section id="name" title="Company">
 			<Row label="Name">
+				<!-- A name is the company's own; copying another company's would only make two alike. -->
 				{#key `${companyId}:${nameVersion}`}<CompanyNameField {companyId} />{/key}
-				<CopyCompanySetting
-					{companyId}
-					setting="name"
-					label="Company name"
-					oncopied={async () => {
-						nameVersion += 1;
-						await source.refresh();
-					}}
-				/>
 			</Row>
 			<Row
 				label="Logo"

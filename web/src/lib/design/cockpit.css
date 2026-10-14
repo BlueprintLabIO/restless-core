@@ -264,6 +264,11 @@
 		transform var(--motion-press) var(--ease-standard);
 }
 
+.bridge-root .company-switcher-menu .switcher-search {
+	width: 100%;
+	margin: 2px 0 4px;
+}
+
 .bridge-root .company-switcher-menu a:hover,
 .bridge-root .company-switcher-menu a.current {
 	background: var(--intent-feedback-soft);

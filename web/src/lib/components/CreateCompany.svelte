@@ -2,10 +2,56 @@
 	/* Starting a company is a conversation, not a form: the owner names it (or keeps a friendly
 	 * generated name), then it is created (its computer starts at once) and the welcome page
 	 * opens, where Exec gets to know the owner. */
-	import { tick } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { goto } from '$app/navigation';
-	import { createCompany, getCompanies } from '$lib/model/cockpit';
+	import { page } from '$app/state';
+	import { createCompany, getCompanies, type CompanyCatalogEntry } from '$lib/model/cockpit';
+	import { copyCompanySetup } from '$lib/model/company';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
+
+	/* A new company can start from another's setup: each chosen section is copied after creation,
+	 * one at a time, the way the per-setting copy does it. The name is never copied, so two
+	 * companies never end up with the same one. */
+	const SECTIONS = [
+		{ id: 'models', label: 'Model choices', on: true },
+		{ id: 'spend', label: 'Spend limit', on: true },
+		{ id: 'runtime', label: 'Computer limits', on: true },
+		{ id: 'purpose', label: 'Charter purpose', on: false }
+	] as const;
+	let others = $state<CompanyCatalogEntry[]>([]);
+	let from = $state('');
+	let chosen = $state<Record<string, boolean>>(
+		Object.fromEntries(SECTIONS.map((section) => [section.id, section.on]))
+	);
+	onMount(() => {
+		void getCompanies()
+			.then((rows) => (others = rows.filter((row) => row.lifecycle_status === 'active')))
+			.catch(() => {});
+		/* The company switcher's "Start a company" lands here ready to name it. */
+		if (page.url.searchParams.get('start') === '1') void ask();
+	});
+	async function copyFrom(target: string, source: string): Promise<string[]> {
+		const failed: string[] = [];
+		for (const section of SECTIONS) {
+			if (!chosen[section.id]) continue;
+			try {
+				const preview = await copyCompanySetup<{
+					source_revision: string;
+					target_revision: string;
+				}>(target, true, { source, sections: [section.id] });
+				await copyCompanySetup(target, false, {
+					source,
+					sections: [section.id],
+					source_revision: preview.source_revision,
+					target_revision: preview.target_revision
+				});
+			} catch {
+				failed.push(section.label);
+			}
+		}
+		return failed;
+	}
 
 	const ADJECTIVES = [
 		'Hopeful',
@@ -70,6 +116,11 @@
 				const existing = await getCompanies().catch(() => []);
 				if (!existing.some((company) => company.id === planned)) throw cause;
 			}
+			if (from) {
+				const failed = await copyFrom(planned, from);
+				if (failed.length)
+					toast(`Not copied: ${failed.join(', ')}. Set them in Company.`, { tone: 'failure' });
+			}
 			await goto(`/${planned}/welcome`);
 		} catch (cause) {
 			error = failureSentence(cause, 'The company was not created. Try again.');
@@ -118,6 +169,23 @@
 				}}
 				title="Keep this name or type your own. You can change it later in Company › Charter."
 			/>
+			{#if others.length}
+				<label for="new-company-from">Start from</label>
+				<select id="new-company-from" bind:value={from} disabled={busy}>
+					<option value="">A blank setup</option>
+					{#each others as company (company.id)}<option value={company.id}
+							>{company.name}’s setup</option
+						>{/each}
+				</select>
+				{#if from}
+					<fieldset class="sections" disabled={busy}>
+						<legend class="sr-only">What to copy</legend>
+						{#each SECTIONS as section (section.id)}<label class="check"
+								><input type="checkbox" bind:checked={chosen[section.id]} />{section.label}</label
+							>{/each}
+					</fieldset>
+				{/if}
+			{/if}
 			<div class="name-actions">
 				<button
 					class="btn small ghost"
@@ -160,8 +228,26 @@
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
-	.name-card input {
+	.name-card input,
+	.name-card select {
 		width: 100%;
+	}
+	.sections {
+		display: grid;
+		gap: 4px;
+		margin: 0;
+		padding: 0;
+		border: 0;
+	}
+	.name-card .check {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		color: var(--ink);
+		font-size: var(--t-body);
+	}
+	.name-card .check input {
+		width: auto;
 	}
 	.name-actions {
 		display: flex;
