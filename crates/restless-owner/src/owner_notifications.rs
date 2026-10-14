@@ -407,7 +407,25 @@ async fn hosted_company(
     Ok((org, identity))
 }
 
+/// What is owed, minus anyone who turned email off: their intents are withdrawn, so a pending
+/// delivery is cancelled at preflight as well.
 async fn projected_intents(
+    state: &OwnerState,
+    org: &restless_orgintel::OrgIntel,
+    company: &str,
+    identity: restless_orgintel::CompanyAccessIdentity,
+) -> Result<NotificationProjection> {
+    let mut projection = owed_intents(state, org, company, identity).await?;
+    let opted_out = org.email_opted_out().await?;
+    if !opted_out.is_empty() {
+        projection
+            .intents
+            .retain(|intent| !opted_out.contains(&intent.recipient.actor_id));
+    }
+    Ok(projection)
+}
+
+async fn owed_intents(
     state: &OwnerState,
     org: &restless_orgintel::OrgIntel,
     company: &str,

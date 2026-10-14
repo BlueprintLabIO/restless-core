@@ -34,6 +34,10 @@ where
             "/companies/{company}/inbox-marks",
             get(list_inbox_marks).put(set_inbox_marks),
         )
+        .route(
+            "/companies/{company}/notification-preferences",
+            get(notification_preferences).put(set_notification_preferences),
+        )
         .layer(DefaultBodyLimit::max(16 * 1024))
 }
 
@@ -536,6 +540,55 @@ async fn set_inbox_marks(
     match org.set_inbox_marks(principal.actor_id(), &marks).await {
         Ok(()) => no_store(StatusCode::NO_CONTENT.into_response()),
         Err(error) => for_you_error(error),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NotificationPreferencesInput {
+    email: bool,
+}
+
+/// This person's own choice of email for what needs them.
+async fn notification_preferences(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return no_store(response),
+    };
+    match org.email_notifications(principal.actor_id()).await {
+        Ok(email) => no_store(Json(serde_json::json!({ "email": email })).into_response()),
+        Err(error) => no_store(api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "orgintel",
+            error.to_string(),
+        )),
+    }
+}
+
+async fn set_notification_preferences(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<NotificationPreferencesInput>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return no_store(response),
+    };
+    match org
+        .set_email_notifications(principal.actor_id(), input.email)
+        .await
+    {
+        Ok(()) => no_store(Json(serde_json::json!({ "email": input.email })).into_response()),
+        Err(error) => no_store(api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "orgintel",
+            error.to_string(),
+        )),
     }
 }
 

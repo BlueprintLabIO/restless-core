@@ -166,3 +166,19 @@ async fn mention_notification_presentation_is_immutable_after_actor_and_room_ren
     assert_eq!(after[0].room_title, "Launch room");
     assert_eq!(after[0].source_actor_display, "The Exec");
 }
+
+/// Email is on until a person turns it off, and only the people who turned it off are excluded.
+#[tokio::test]
+async fn email_is_on_until_a_person_turns_it_off() {
+    let Some((org, _)) = company("notification_email").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping email preference scenario");
+        return;
+    };
+    assert!(org.email_notifications("owner").await.unwrap());
+    assert!(org.email_opted_out().await.unwrap().is_empty());
+    org.set_email_notifications("owner", false).await.unwrap();
+    assert!(!org.email_notifications("owner").await.unwrap());
+    assert!(org.email_opted_out().await.unwrap().contains("owner"));
+    org.set_email_notifications("owner", true).await.unwrap();
+    assert!(org.email_opted_out().await.unwrap().is_empty());
+}

@@ -2122,6 +2122,8 @@ fn membership_boundary_violation(
         || is_company_route_family(path, "for-you")
         // What each person opened and snoozed in their own Inbox.
         || is_company_route_family(path, "inbox-marks")
+        // Each person's own choice of email.
+        || is_company_route_family(path, "notification-preferences")
         // Direction (S80): a person's own requests and changes, and what is routed to them to
         // decide or undo; the store checks each against the person asking.
         || is_company_route_family(path, "direction")

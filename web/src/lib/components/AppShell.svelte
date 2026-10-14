@@ -397,6 +397,7 @@
 				role={viewerRole}
 				{present}
 				owner={canSwitchCompanies}
+				{companyId}
 				onshortcuts={() => shortcuts?.open()}
 			/>
 			{#if execHref}

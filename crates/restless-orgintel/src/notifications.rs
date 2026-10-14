@@ -69,6 +69,40 @@ pub struct HandoffNotificationPresentation {
 }
 
 impl OrgIntel {
+    /// Whether this person wants email for what needs them; yes until they say no.
+    pub async fn email_notifications(&self, actor_id: &str) -> Result<bool> {
+        let email: Option<bool> =
+            sqlx::query_scalar("SELECT email FROM notification_preferences WHERE actor_id=$1")
+                .bind(actor_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(email.unwrap_or(true))
+    }
+
+    /// Turn this person's email on or off.
+    pub async fn set_email_notifications(&self, actor_id: &str, email: bool) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO notification_preferences (actor_id,email,updated_at) VALUES ($1,$2,now()) \
+             ON CONFLICT (actor_id) DO UPDATE SET email=EXCLUDED.email, updated_at=now()",
+        )
+        .bind(actor_id)
+        .bind(email)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// The people who turned email off, so the delivery projection owes them nothing.
+    pub async fn email_opted_out(&self) -> Result<std::collections::HashSet<String>> {
+        Ok(sqlx::query_scalar::<_, String>(
+            "SELECT actor_id FROM notification_preferences WHERE NOT email",
+        )
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .collect())
+    }
+
     /// Current unresolved direct mentions owed to hosted human Actors.
     ///
     /// The Message body and structured mention evidence are intentionally not

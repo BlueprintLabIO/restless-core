@@ -13,12 +13,16 @@
 	import { planeStatus } from '$lib/model/appliance';
 	import { isLocalHost } from '$lib/model/reenter';
 	import { forgetThisBrowser } from '$lib/model/sign-out';
+	import { readEmailNotify, setEmailNotify } from '$lib/model/email-notify';
+	import { failureSentence } from '$lib/model/failure';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
 
 	let {
 		name,
 		role,
 		present = [],
 		owner = false,
+		companyId = '',
 		onshortcuts
 	}: {
 		name: string;
@@ -26,6 +30,8 @@
 		present?: PresentPerson[];
 		/** The owner reaches their Account pages from here; members do not have them. */
 		owner?: boolean;
+		/** The company whose email preference the menu shows. */
+		companyId?: string;
 		onshortcuts: () => void;
 	} = $props();
 	onMount(() => desktopNotify.load());
@@ -33,9 +39,12 @@
 	 * its own address; a member cannot read the plane's status, and on the one address the issuer
 	 * is this origin, so an unread status still offers it. */
 	let signOut = $state(false);
+	/* Email is sent by the hosted plane; a local appliance sends none, so it offers no switch. */
+	let emailDelivered = $state(false);
 	onMount(() => {
 		if (isLocalHost(window.location.hostname)) return;
 		void planeStatus().then((status) => {
+			emailDelivered = status ? Boolean(status.hosted) : true;
 			signOut = status
 				? Boolean(status.hosted) &&
 					(!status.home_url || new URL(status.home_url).origin === window.location.origin)
@@ -43,6 +52,31 @@
 		});
 	});
 	const shown = $derived(present.slice(0, 3));
+	/* Email reaches this person with every tab closed; desktop notifications only this device. */
+	let email = $state<boolean | null>(null);
+	$effect(() => {
+		const company = companyId;
+		email = null;
+		if (!company) return;
+		let current = true;
+		void readEmailNotify(company)
+			.then((value) => current && (email = value))
+			.catch(() => undefined);
+		return () => {
+			current = false;
+		};
+	});
+	async function toggleEmail() {
+		if (email === null || !companyId) return;
+		const next = !email;
+		email = next;
+		try {
+			email = await setEmailNotify(companyId, next);
+		} catch (cause) {
+			email = !next;
+			toast(failureSentence(cause, 'Your email choice was not saved.'), { tone: 'failure' });
+		}
+	}
 </script>
 
 <div class="profile">
@@ -89,6 +123,14 @@
 						size={14}
 						aria-label="On"
 					/>{:else if desktopNotify.blocked}<small class="blocked">Blocked</small>{/if}</button
+			>
+		{/if}
+		{#if email !== null && emailDelivered}
+			<button
+				type="button"
+				title="Email me when something needs me and I have not seen it here, even with every tab closed. Applies on every device."
+				onclick={() => void toggleEmail()}
+				><span>Email notifications</span>{#if email}<Check size={14} aria-label="On" />{/if}</button
 			>
 		{/if}
 		<button type="button" onclick={onshortcuts}><span>Keyboard shortcuts</span><kbd>?</kbd></button>
