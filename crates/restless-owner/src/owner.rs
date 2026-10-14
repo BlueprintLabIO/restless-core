@@ -51,6 +51,8 @@ mod owner_vault;
 mod plane_readiness;
 #[path = "owner_presence.rs"]
 mod presence_api;
+#[path = "owner_publications.rs"]
+mod publications_api;
 #[path = "owner_rooms_lifecycle.rs"]
 mod rooms_lifecycle_api;
 #[path = "owner_sharing.rs"]
@@ -1659,6 +1661,26 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route(
             "/companies/{company}/company/authority-owner/transfer",
             post(transfer_company_authority_owner),
+        )
+        .route(
+            "/companies/{company}/publications/{publication}",
+            get(publications_api::show),
+        )
+        .route(
+            "/companies/{company}/publications/{publication}/authorize",
+            post(publications_api::authorize),
+        )
+        .route(
+            "/companies/{company}/publications/{publication}/invitations",
+            post(publications_api::invite),
+        )
+        .route(
+            "/companies/{company}/publications/{publication}/invitations/{invitation}/revoke",
+            post(publications_api::revoke),
+        )
+        .route(
+            "/companies/{company}/publications/{publication}/stop",
+            post(publications_api::stop),
         )
         .route(
             "/companies/{company}/resources/{resource}/open",

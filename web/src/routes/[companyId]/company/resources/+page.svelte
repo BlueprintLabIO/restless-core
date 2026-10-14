@@ -7,6 +7,7 @@
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import CompanyLimits from '$lib/components/CompanyLimits.svelte';
+	import Publications from '$lib/components/Publications.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { openCompanyResource, type CompanyResource } from '$lib/model/company';
@@ -114,6 +115,7 @@
 				{/each}
 			{/if}
 		</Section>
+		<Publications {companyId} items={view.resources.items} onchanged={() => source.refresh()} />
 		{#if launchError}<Notice tone="danger" title="The resource could not be opened"
 				>{launchError}</Notice
 			>{/if}

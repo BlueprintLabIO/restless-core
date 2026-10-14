@@ -876,6 +876,144 @@ async fn direction_items(
         .collect())
 }
 
+/// Publications the company prepared that wait for the owner's yes: the exact audience, expiry,
+/// resource envelope and immutable build are the prepared last mile, so the Inbox brings them to
+/// the owner with Authorise and Decline rather than leaving a terminal command.
+async fn publication_items(
+    config: &CompanyConfig,
+    authority: &crate::authority::AuthorityStore,
+) -> Result<Vec<AttentionItem>> {
+    let requests = authority
+        .records_of_kind(&config.name, "publication_request")
+        .await?;
+    if requests.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut settled = std::collections::BTreeSet::new();
+    for kind in [
+        "publication_authorized",
+        "publication_resource_grant",
+        "publication_failed",
+        "publication_stopped",
+    ] {
+        for record in authority.records_of_kind(&config.name, kind).await? {
+            if let Some(id) = record.body.get("publication_id").and_then(serde_json::Value::as_str) {
+                settled.insert(id.to_string());
+            }
+        }
+    }
+    let now = Utc::now();
+    let mut items = Vec::new();
+    for record in requests {
+        let Some(id) = record.body.get("publication_id").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let request = record.body.get("request").cloned().unwrap_or_default();
+        let expires_at = request
+            .get("expires_at")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+            .map(|value| value.with_timezone(&Utc));
+        if settled.contains(id) || expires_at.is_some_and(|expiry| expiry <= now) {
+            continue;
+        }
+        let text = |pointer: &str| {
+            request
+                .pointer(pointer)
+                .map(|value| match value {
+                    serde_json::Value::String(text) => text.clone(),
+                    other => other.to_string(),
+                })
+                .unwrap_or_else(|| "not stated".into())
+        };
+        let audience = match text("/audience").as_str() {
+            "owner-only" => "only you".to_string(),
+            "named-invitees" => "people you invite".to_string(),
+            "public" => "anyone with the address".to_string(),
+            other => other.to_string(),
+        };
+        let what = match text("/candidate/manifest/profile").as_str() {
+            "https-websocket-demo" => "web demo",
+            "godot-enet-udp" => "game server",
+            _ => "service",
+        };
+        let expiry = expires_at
+            .map(|at| at.format("%Y-%m-%d %H:%M UTC").to_string())
+            .unwrap_or_else(|| "not stated".into());
+        let limits = format!(
+            "Audience: {audience}\nExpires: {expiry}\nCPU: {} millicores\nMemory: {} MiB\nStorage: {} MiB\nConnections: {}\nBuild: {}",
+            text("/resources/cpu_millis"),
+            text("/resources/memory_mib"),
+            text("/resources/ephemeral_storage_mib"),
+            text("/resources/max_connections"),
+            text("/candidate/image"),
+        );
+        items.push(AttentionItem {
+            id: format!("authority:publication:{id}"),
+            work_id: request
+                .pointer("/candidate/work_id")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|value| uuid::Uuid::parse_str(value).ok()),
+            source: AttentionSource {
+                plane: "authority",
+                kind: "publication_authorization".into(),
+                reference: id.to_string(),
+                party: None,
+                call_key: None,
+            },
+            category: "approval".into(),
+            title: format!("Put the {what} online"),
+            what_happened: format!(
+                "The company built a {what} and prepared it for {audience}, until {expiry}. Nothing is online until you authorise it."
+            ),
+            why_it_matters: "Authorising starts this exact build outside the company computer, reachable by its audience, within the limits below.".into(),
+            recommendation: "Authorise if this audience, expiry and build are what you want online. You can revoke invitations or stop it later from Limits.".into(),
+            requested_action: format!("Authorise or decline the {what} for {audience}, until {expiry}."),
+            if_no_action: "Nothing goes online; the prepared build waits until its start window passes.".into(),
+            uncertainty: None,
+            deadline: expires_at.map(|at| at.to_rfc3339()),
+            brief_status: "source-observed",
+            brief_author: None,
+            briefed_at: None,
+            evidence: vec![AttentionEvidence {
+                label: "Exact publication".into(),
+                uri: None,
+                content: Some(limits),
+                kind: "authority-publication",
+            }],
+            review_sources: Vec::new(),
+            responsible_actor: None,
+            runtime_attach: None,
+            review_target: None,
+            native_document: None,
+            direction_request: None,
+            charter_proposal: None,
+            actions: vec![
+                AttentionAction {
+                    id: "authorize-publication".into(),
+                    label: "Authorise".into(),
+                    role: "decision",
+                    consequence: "Starts this exact build for its audience, within its limits and expiry.".into(),
+                    next_state: "It appears under Online in Limits, where you can invite, revoke or stop it.".into(),
+                    href: None,
+                },
+                AttentionAction {
+                    id: "decline-publication".into(),
+                    label: "Decline".into(),
+                    role: "decision",
+                    consequence: "Nothing goes online.".into(),
+                    next_state: "The prepared publication is stopped and its cleanup recorded.".into(),
+                    href: None,
+                },
+            ],
+            can_continue: true,
+            preparing: false,
+            created_at: record.created_at,
+        });
+    }
+    Ok(items)
+}
+
 /// The charter draft Exec left for the owner, as one Inbox item that opens the charter itself.
 async fn charter_item(
     config: &CompanyConfig,
@@ -2098,6 +2236,13 @@ async fn project_queue(
                 AttentionAction { id: "decline-email-mandate".into(), label: "Decline mandate".into(), role: "decision", consequence: "Declines this exact email mandate proposal.".into(), next_state: "The proposal is resolved without granting email authority.".into(), href: None },
             ], can_continue: false, preparing: false, created_at: record.created_at,
         });
+    }
+    // Only the owner authorises what the company puts online.
+    if assignee.is_none() {
+        match publication_items(config, authority).await {
+            Ok(publications) => items.extend(publications),
+            Err(error) => tracing::warn!(company = config.name, "publications unavailable: {error:#}"),
+        }
     }
     if let Some(org) = org {
         match direction_items(authority, &config.name, org, assignee.unwrap_or("owner")).await {

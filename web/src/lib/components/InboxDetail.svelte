@@ -11,6 +11,7 @@
 	 * away until asked for. */
 	import { decideEmailMandateProposal } from '$lib/model/company-actions';
 	import { decidePayee } from '$lib/model/company';
+	import { authorizePublication, stopPublication } from '$lib/model/publications';
 	import { failureSentence } from '$lib/model/failure';
 	import { untrack } from 'svelte';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
@@ -138,6 +139,8 @@
 	const declineMandate = $derived(action('decline-email-mandate'));
 	const approvePayee = $derived(action('approve-payee'));
 	const declinePayee = $derived(action('decline-payee'));
+	const authorizeOnline = $derived(action('authorize-publication'));
+	const declineOnline = $derived(action('decline-publication'));
 	const record = $derived(action('record-decision'));
 	const open = $derived(action('open-outcome'));
 	const review = $derived(item.actions.some((candidate) => candidate.id === 'accept-review'));
@@ -420,6 +423,22 @@
 			approve ? 'Payee approved' : note.trim() ? 'Declined. Exec has your note.' : 'Declined',
 			'The payee decision was not recorded. Try again.',
 			execHref
+		);
+	/* A prepared publication: the owner's yes puts the exact build online; no stops it. */
+	const decidePublication = (authorize: boolean) =>
+		run(
+			async () => {
+				if (authorize) await authorizePublication(companyId, item.source.reference);
+				else
+					await stopPublication(
+						companyId,
+						item.source.reference,
+						'Declined by the owner from the Inbox'
+					);
+				await refreshAttention(client, companyId);
+			},
+			authorize ? 'Authorised. It goes online shortly.' : 'Declined. Nothing went online.',
+			'That was not recorded. Try again.'
 		);
 	async function openDocument() {
 		if (acting || !onopenDocument) return;
@@ -821,6 +840,23 @@
 							disabled={acting}
 							title="Decline, with an optional note for Exec"
 							onclick={() => (approvalNote = 'decline')}>{declinePayee.label}…</button
+						>{/if}
+				{:else if authorizeOnline}
+					{#key `${item.id}:${attempt}`}
+						<HoldApprove
+							small
+							completeLabel="Authorising…"
+							label="Hold to authorise"
+							disabled={acting}
+							title={`${authorizeOnline.consequence} ${authorizeOnline.nextState}`}
+							onapprove={() => void decidePublication(true)}
+						/>
+					{/key}
+					{#if declineOnline}<button
+							class="btn small"
+							disabled={acting}
+							title={`${declineOnline.consequence} ${declineOnline.nextState}`}
+							onclick={() => void decidePublication(false)}>{declineOnline.label}</button
 						>{/if}
 				{:else if documentRequest && (item.nativeDocument || onopenDocument)}
 					{#if item.nativeDocument}<a class="btn primary small" href={base} title={item.ifNoAction}
