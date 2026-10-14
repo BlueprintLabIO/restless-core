@@ -132,8 +132,9 @@
 	const base = $derived(`/${encodeURIComponent(companyId)}?item=${encodeURIComponent(item.id)}`);
 	const action = (id: string) => item.actions.find((candidate) => candidate.id === id);
 	const grant = $derived(action('grant'));
-	/* Permission at first use: approve this call and let the tool act from now on. */
-	const grantAlways = $derived(action('grant-always'));
+	/* Permission at first use: approve this call and let the tool act from now on. The owner's
+	 * alone: an away deputy answers one call at a time. */
+	const grantAlways = $derived(canSetAside ? action('grant-always') : undefined);
 	const decline = $derived(action('decline'));
 	const approveMandate = $derived(action('approve-email-mandate'));
 	const declineMandate = $derived(action('decline-email-mandate'));

@@ -458,6 +458,12 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     let Ok(config) = CompanyConfig::load(&daemon.root, company) else {
         return;
     };
+    // An away whose return date passed ends here, resuming the schedules it paused.
+    if let Ok(org) = daemon.orgintel.get(company).await {
+        if let Err(error) = crate::away::end_if_over(&daemon.authority, &org, company).await {
+            tracing::warn!(company, "could not end a finished away: {error:#}");
+        }
+    }
     // A just-created company has no intelligence route. Keep durable work and
     // messages untouched until the owner explicitly selects one; never let a
     // host credential or another company's gateway route become a default.

@@ -12,6 +12,7 @@ pub mod direction;
 pub mod direction_authority;
 pub mod attention;
 pub mod authority;
+pub mod away;
 pub mod capability;
 pub mod capability_sourcing;
 pub mod cell;

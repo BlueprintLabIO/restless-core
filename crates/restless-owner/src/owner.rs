@@ -1603,6 +1603,14 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(company_settings_api::save_payment_allowance),
         )
         .route(
+            "/companies/{company}/company/away",
+            get(company_settings_api::away_mode).post(company_settings_api::start_away),
+        )
+        .route(
+            "/companies/{company}/company/away/end",
+            post(company_settings_api::end_away),
+        )
+        .route(
             "/companies/{company}/company/payment-rail",
             post(company_settings_api::save_payment_rail),
         )
@@ -2286,7 +2294,8 @@ fn membership_boundary_violation(
         || (principal.membership_role() == "admin"
             && (admin_manages_company_setup(path)
                 || is_actor_interrupt_route(path)
-                || admin_reads_company_record(method, path)))
+                || admin_reads_company_record(method, path)
+                || admin_deputy_route(method, path)))
         || is_company_route_family(path, "rooms")
         // Chat lists, message search and reactions answer only from the
         // Rooms the caller takes part in.
@@ -2500,11 +2509,29 @@ fn admin_reads_company_record(method: &Method, path: &str) -> bool {
     matches!(
         tail.as_slice(),
         ["company"]
+            | ["company", "away"]
             | ["company", "activity"]
             | ["attention", "history"]
             | ["tool-connections"]
             | ["app-requests"]
     )
+}
+
+/// While the owner is away, the admin they named answers single approvals; the handlers check
+/// that the away is in force and that this admin is its deputy.
+fn admin_deputy_route(method: &Method, path: &str) -> bool {
+    if *method != Method::POST {
+        return false;
+    }
+    let Some(rest) = path.strip_prefix("/api/companies/") else {
+        return false;
+    };
+    let mut segments = rest.split('/');
+    if !segments.next().is_some_and(|company| !company.is_empty()) {
+        return false;
+    }
+    let tail: Vec<&str> = segments.collect();
+    matches!(tail.as_slice(), ["approvals", "grant" | "decline"])
 }
 
 /// An admin runs the company's day to day with the owner: its identity and its schedules.
@@ -6064,13 +6091,33 @@ async fn attention_view(
         )
         .await
     } else {
-        attention::project_for(
+        let mine = attention::project_for(
             &config,
             &state.daemon.authority,
             org.as_ref(),
             principal.actor_id(),
         )
-        .await
+        .await;
+        // The away owner's deputy also sees the approvals waiting on the owner.
+        if principal.membership_role() == "admin"
+            && restless_engine::away::is_deputy(&state.daemon.authority, &company, principal.actor_id())
+                .await
+        {
+            match (
+                mine,
+                attention::project(&config, &state.daemon.authority, org.as_ref()).await,
+            ) {
+                (Ok(mut mine), Ok(owner)) => {
+                    mine.items.extend(owner.items.into_iter().filter(|item| {
+                        item.category == "approval" && item.source.kind == "approval_required"
+                    }));
+                    Ok(mine)
+                }
+                (mine, _) => mine,
+            }
+        } else {
+            mine
+        }
     };
     match projected {
         Ok(view) => Json(view).into_response(),
@@ -10870,6 +10917,22 @@ fn verified_attachment_response(
 /// C45-T4's ownership separation exists so this can require the actual
 /// Authority owner specifically, once one has been established away from the
 /// bootstrap default, rather than merely "an owner-role member."
+/// The Authority owner, or while the owner is away the admin they named, for one decision at a
+/// time: a deputy may allow once or decline, never grant standing permission or revoke.
+async fn require_authority_owner_or_deputy(
+    state: &OwnerState,
+    company: &str,
+    principal: &RequestPrincipal,
+) -> Result<(), Response<Body>> {
+    if principal.membership_role() == "admin"
+        && restless_engine::away::is_deputy(&state.daemon.authority, company, principal.actor_id())
+            .await
+    {
+        return Ok(());
+    }
+    require_authority_owner(state, company, principal).await
+}
+
 async fn require_authority_owner(
     state: &OwnerState,
     company: &str,
@@ -11006,7 +11069,12 @@ async fn grant(
     AxumPath(company): AxumPath<String>,
     Json(input): Json<PartyAction>,
 ) -> impl IntoResponse {
-    if let Err(refusal) = require_authority_owner(&state, &company, &principal).await {
+    let checked = if input.always {
+        require_authority_owner(&state, &company, &principal).await
+    } else {
+        require_authority_owner_or_deputy(&state, &company, &principal).await
+    };
+    if let Err(refusal) = checked {
         return refusal;
     }
     if input.changes_requested {
@@ -11116,7 +11184,7 @@ async fn decline(
     AxumPath(company): AxumPath<String>,
     Json(input): Json<PartyAction>,
 ) -> impl IntoResponse {
-    if let Err(refusal) = require_authority_owner(&state, &company, &principal).await {
+    if let Err(refusal) = require_authority_owner_or_deputy(&state, &company, &principal).await {
         return refusal;
     }
     let org = state.daemon.orgintel.get(&company).await.ok();

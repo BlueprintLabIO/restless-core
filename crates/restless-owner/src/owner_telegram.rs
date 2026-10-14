@@ -325,6 +325,15 @@ async fn delivery_loop(state: OwnerState) {
                     .clone()
                     .unwrap_or_else(|| config.name.clone());
                 let mut items = attention.items;
+                // While the owner is away, only what blocks the company reaches their phone.
+                if restless_engine::away::current(&state.daemon.authority, &link.company)
+                    .await
+                    .ok()
+                    .flatten()
+                    .is_some()
+                {
+                    items.retain(|item| item.category == "blocker");
+                }
                 items.sort_by_key(|item| item.created_at);
                 let mut outgoing = Vec::new();
                 for item in &items {

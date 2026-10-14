@@ -1398,3 +1398,84 @@ pub(super) async fn decide_payee(
     }
     Json(serde_json::json!({"decided": true})).into_response()
 }
+
+#[derive(Serialize)]
+struct AwayView {
+    away: Option<restless_engine::away::Away>,
+}
+
+/// The away mode in force, for the owner and the admins who run the company with them.
+pub(super) async fn away_mode(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    if !matches!(principal.membership_role(), "owner" | "admin") {
+        return api_error(StatusCode::FORBIDDEN, "away", "Only the owner and admins see away mode.");
+    }
+    match restless_engine::away::current(&state.daemon.authority, &company).await {
+        Ok(away) => Json(AwayView { away }).into_response(),
+        Err(e) => api_error(StatusCode::SERVICE_UNAVAILABLE, "away", format!("{e:#}")),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct AwayInput {
+    until: DateTime<Utc>,
+    #[serde(default)]
+    deputy: Option<String>,
+    #[serde(default)]
+    pause_schedules: Vec<Uuid>,
+}
+
+/// "I'm away until …": pause the chosen schedules, name a deputy, quiet Telegram to blockers.
+pub(super) async fn start_away(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<AwayInput>,
+) -> Response<Body> {
+    if principal.membership_role() != "owner" {
+        return api_error(StatusCode::FORBIDDEN, "away", "Only the owner can go away.");
+    }
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(e) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{e:#}")),
+    };
+    match restless_engine::away::start(
+        &state.daemon.authority,
+        &org,
+        &company,
+        principal.actor_id(),
+        input.until,
+        input.deputy,
+        input.pause_schedules,
+    )
+    .await
+    {
+        Ok(away) => Json(AwayView { away: Some(away) }).into_response(),
+        Err(e) => api_error(StatusCode::BAD_REQUEST, "away", format!("{e:#}")),
+    }
+}
+
+/// The owner is back: resume exactly what the away paused.
+pub(super) async fn end_away(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    if principal.membership_role() != "owner" {
+        return api_error(StatusCode::FORBIDDEN, "away", "Only the owner can end away mode.");
+    }
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(e) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{e:#}")),
+    };
+    match restless_engine::away::end(&state.daemon.authority, &org, &company, principal.actor_id())
+        .await
+    {
+        Ok(()) => Json(AwayView { away: None }).into_response(),
+        Err(e) => api_error(StatusCode::SERVICE_UNAVAILABLE, "away", format!("{e:#}")),
+    }
+}

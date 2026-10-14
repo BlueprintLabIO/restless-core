@@ -2744,8 +2744,15 @@ model = \"anthropic/claude-sonnet-5-5\"
             (Method::POST, "/api/companies/aris/tool-connections"),
             (Method::POST, "/api/companies/aris/company/payment-rail"),
             (Method::GET, "/api/companies/aris/vault"),
+            (Method::POST, "/api/companies/aris/approvals/revoke"),
+            (Method::POST, "/api/companies/aris/company/away"),
         ] {
             assert!(membership_boundary_violation(&method, path, &admin).is_some(), "admin reached {method} {path}");
+        }
+        // Single approvals reach the handler, which admits only the away owner's named deputy.
+        for path in ["/api/companies/aris/approvals/grant", "/api/companies/aris/approvals/decline"] {
+            assert!(membership_boundary_violation(&Method::POST, path, &admin).is_none(), "{path}");
+            assert!(membership_boundary_violation(&Method::POST, path, &member).is_some(), "{path}");
         }
     }
 
