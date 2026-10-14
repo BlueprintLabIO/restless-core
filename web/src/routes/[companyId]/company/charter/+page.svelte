@@ -16,10 +16,11 @@
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? '');
-	const source = $derived(companyQuery(companyId));
-	/* Everyone reads the charter; the owner edits it, from the owner's company view. */
+	/* Everyone reads the charter; the owner edits it, from the owner's company view, which only
+	 * the owner may read. */
 	const principal = $derived(companyPrincipalQuery(companyId));
 	const owner = $derived(principal.view?.membership_role === 'owner');
+	const source = $derived(companyQuery(companyId, () => owner));
 	$effect(() => {
 		if (owner) source.attach();
 	});
