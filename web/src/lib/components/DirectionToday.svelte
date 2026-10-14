@@ -31,10 +31,9 @@
 		align-items: baseline;
 		gap: 8px;
 		min-width: 0;
-		margin: 8px 8px 4px;
-		padding: 8px 10px;
-		border-radius: var(--radius-control);
-		background: var(--surface-alt);
+		margin: 0;
+		padding: 8px 16px;
+		border-bottom: 1px solid var(--border);
 		font-size: var(--t-label);
 	}
 	.label {

@@ -313,13 +313,14 @@ export async function recoverCompany(
 export async function reviseCompanyCharter(
 	company: string,
 	markdown: string,
-	baseRevision: string
+	baseRevision: string,
+	proposalId?: string
 ): Promise<CharterRevisionOutcome> {
 	return ownerResponse<CharterRevisionOutcome>(
 		await fetch(`/api/companies/${encodeURIComponent(company)}/company/charter`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ markdown, base_revision: baseRevision }),
+			body: JSON.stringify({ markdown, base_revision: baseRevision, proposal_id: proposalId }),
 			credentials: 'same-origin'
 		})
 	);

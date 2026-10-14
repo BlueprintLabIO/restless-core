@@ -20,7 +20,7 @@
 	import SetAsideList from '$lib/components/SetAside.svelte';
 	import { celebrate } from '$lib/ui/celebrate';
 	import DirectionRequestDetail from '$lib/components/DirectionRequestDetail.svelte';
-	import DirectionToday from '$lib/components/DirectionToday.svelte';
+	import CharterPurpose from '$lib/components/CharterPurpose.svelte';
 	import {
 		attentionTitle,
 		coordinationFailure,
@@ -37,6 +37,7 @@
 		collaborationBootstrapQuery,
 		companiesQuery,
 		companyPrincipalQuery,
+		companyQuery,
 		conversationQuery,
 		identityQuery,
 		turnWorking
@@ -148,6 +149,8 @@
 	 * read or not, so reading an item changes its dot and nothing else moves. */
 	const coordination = $derived(coordinationFailure(view));
 	const forYou = useForYou();
+	/* The charter an Inbox draft opens: read only while such an item is on screen. */
+	const charterCompany = $derived(companyQuery(companyId, () => !!selectedItem?.charterProposal));
 	const attentionClear = $derived(loaded && items.length === 0 && !coordination);
 	const queueClear = $derived(attentionClear && !forYou?.items.length && forYou?.filter === 'all');
 	/* Phones never mount the office canvas (see the clear state below). */
@@ -953,13 +956,13 @@
 		class:awaiting={!loaded && !source.failure}
 		aria-busy={!loaded && !source.failure}
 		use:resizePane={{
-			key: `${companyId}:attention`,
+			key: `${companyId}:inbox`,
 			label: 'Resize attention panes',
 			target: '.attention-index',
 			variable: '--attention-index-w',
-			min: 180,
-			minOther: 280,
-			defaultSize: 280,
+			min: 260,
+			minOther: 320,
+			defaultSize: 340,
 			enabled: !queueClear
 		}}
 	>
@@ -983,7 +986,6 @@
 			</div>
 		{/if}
 		<aside class="cockpit-pane attention-index" aria-hidden={queueClear} inert={queueClear}>
-			<DirectionToday {companyId} />
 			<InboxList
 				onvisible={(rows) => (visibleItems = rows)}
 				{companyId}
@@ -1113,7 +1115,28 @@
 {/if}
 
 {#snippet attentionDetail(item: AttentionItem)}
-	{#if item.directionRequest}
+	{#if item.charterProposal}
+		<div class="attention-surface">
+			<header class="attention-surface-head">
+				<h2>{item.title}</h2>
+				<a href={`/${companyId}/company/charter`} title="Open Company › Charter"
+					>Company › Charter</a
+				>
+			</header>
+			{#if charterCompany.view}
+				<CharterPurpose
+					{companyId}
+					view={charterCompany.view}
+					inbox
+					onsaved={(company) => {
+						charterCompany.accept(company);
+						resolvedHere = item.id;
+						void source.refresh();
+					}}
+				/>
+			{/if}
+		</div>
+	{:else if item.directionRequest}
 		<DirectionRequestDetail
 			{companyId}
 			request={item.directionRequest}
@@ -1712,5 +1735,37 @@
 		overflow: hidden;
 		clip-path: inset(50%);
 		white-space: nowrap;
+	}
+	/* An item that is a real surface (the charter, S82): its own heading and a link to where it
+	 * lives, then the surface itself, not a summary of it. */
+	.attention-surface {
+		display: grid;
+		gap: var(--space-4);
+		max-width: 760px;
+		width: 100%;
+		margin: 0 auto;
+		padding: var(--space-5) var(--space-5) var(--space-6);
+	}
+	.attention-surface-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: var(--space-3);
+	}
+	.attention-surface-head h2 {
+		margin: 0;
+		font-size: var(--t-head);
+		font-weight: 600;
+		letter-spacing: -0.01em;
+	}
+	.attention-surface-head a {
+		flex: none;
+		white-space: nowrap;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		text-decoration: none;
+	}
+	.attention-surface-head a:hover {
+		color: var(--ink);
 	}
 </style>

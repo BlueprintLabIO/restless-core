@@ -282,7 +282,7 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
             }
             let Some(operation) = request.direction_operation else { return Response::err("Missing direction operation"); };
             match daemon.orgintel.get(company).await {
-                Ok(org) => match crate::direction_authority::execute(&daemon.authority, &org, company, "exec", operation).await {
+                Ok(org) => match crate::direction_authority::execute(&daemon.authority, &org, &daemon.root, company, "exec", operation).await {
                     Ok(value) => Response::ok(value),
                     Err(error) => Response::err(error.to_string()),
                 },

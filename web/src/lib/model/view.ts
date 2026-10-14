@@ -1,4 +1,4 @@
-import type { DirectionRequest } from './generated/direction';
+import type { CharterProposal, DirectionRequest } from './generated/direction';
 /** The small owner-surface contract. Source-owned reads map into these shapes. */
 
 export interface NativeDocumentAttention {
@@ -16,6 +16,8 @@ export interface AttentionItem {
 	preparing?: boolean;
 	/** A request someone asked Exec for that waits on this person (S80). */
 	directionRequest?: DirectionRequest;
+	/** Exec's charter draft (S82): the item opens the charter itself, with the draft on it. */
+	charterProposal?: CharterProposal;
 	nativeDocument?: NativeDocumentAttention;
 	id: string;
 	workId?: string;

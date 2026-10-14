@@ -17,7 +17,8 @@ const ROOT = resolve('src/lib/ui');
 const ALLOWED_PACKAGES = new Set(['svelte', '@lucide/svelte']);
 const FORBIDDEN_CALLS = /\b(fetch|XMLHttpRequest|WebSocket|localStorage|sessionStorage)\s*\(/;
 
-const IMPORT = /(?:import|export)\s+(?:type\s+)?(?:[^'"]*?\s+from\s+)?['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g;
+const IMPORT =
+	/(?:import|export)\s+(?:type\s+)?(?:[^'"]*?\s+from\s+)?['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g;
 
 const offences = [];
 
@@ -35,7 +36,8 @@ function scan(file) {
 		const at = `${relative(process.cwd(), file)}  ${specifier}`;
 		if (specifier.startsWith('.')) {
 			const target = resolve(dirname(file), specifier);
-			if (target !== ROOT && !target.startsWith(ROOT + sep)) offences.push(`${at}  (escapes src/lib/ui)`);
+			if (target !== ROOT && !target.startsWith(ROOT + sep))
+				offences.push(`${at}  (escapes src/lib/ui)`);
 		} else if (specifier.startsWith('$')) {
 			offences.push(`${at}  (app alias; use a relative path inside ui)`);
 		} else if (!ALLOWED_PACKAGES.has(packageName(specifier))) {
@@ -43,7 +45,9 @@ function scan(file) {
 		}
 	}
 	if (!isCss && FORBIDDEN_CALLS.test(source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ''))) {
-		offences.push(`${relative(process.cwd(), file)}  (network or storage call: views render from props)`);
+		offences.push(
+			`${relative(process.cwd(), file)}  (network or storage call: views render from props)`
+		);
 	}
 }
 
@@ -75,14 +79,44 @@ scanConfirms(resolve('src'));
 if (nativeConfirms.length) {
 	console.error('\nThe browser confirm() prompt is used where confirmAction() belongs:\n');
 	for (const file of nativeConfirms) console.error('  ' + file);
-	console.error('\nAsk with confirmAction() from $lib/ui/feedback/confirm.svelte, or act and offer Undo.\n');
+	console.error(
+		'\nAsk with confirmAction() from $lib/ui/feedback/confirm.svelte, or act and offer Undo.\n'
+	);
+	process.exit(1);
+}
+
+/* Sprint 82: nothing on screen moves unless a newer fact says so. A refresh of everything is the
+ * pattern that made the cockpit reshuffle, so outside the model layer every invalidation names
+ * the queries it means; the model layer's change hints and resync are the only blanket ones. */
+const blanketRefreshes = [];
+function scanRefreshes(dir) {
+	for (const entry of readdirSync(dir, { withFileTypes: true })) {
+		const path = join(dir, entry.name);
+		if (entry.isDirectory()) scanRefreshes(path);
+		else if (/\.(svelte|ts)$/.test(entry.name) && !/\.test\.ts$/.test(entry.name)) {
+			if (path.startsWith(resolve('src/lib/model') + sep)) continue;
+			const source = readFileSync(path, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+			for (const call of source.matchAll(/invalidateQueries\(([^)]*)\)/g)) {
+				if (!/queryKey/.test(call[1]))
+					blanketRefreshes.push(`${relative(process.cwd(), path)}  ${call[0]}`);
+			}
+		}
+	}
+}
+scanRefreshes(resolve('src'));
+if (blanketRefreshes.length) {
+	console.error('\nA refresh of everything outside the model layer:\n');
+	for (const call of blanketRefreshes) console.error('  ' + call);
+	console.error('\nName the queries (queryKey), or use resyncVisible() from $lib/model/steady.\n');
 	process.exit(1);
 }
 
 if (offences.length) {
 	console.error(`\n${offences.length} import(s) cross the src/lib/ui boundary.\n`);
 	for (const offence of offences) console.error('  ' + offence);
-	console.error('\nMove the dependency into src/lib/ui, pass it in as a prop, or keep the file outside ui.\n');
+	console.error(
+		'\nMove the dependency into src/lib/ui, pass it in as a prop, or keep the file outside ui.\n'
+	);
 	process.exit(1);
 }
 console.log('ui boundary: src/lib/ui imports only itself, svelte and allowed packages');

@@ -101,8 +101,9 @@
 
 <article class="direction-request" aria-labelledby="direction-request-title">
 	<header>
-		<span class="kind">Request</span>
-		<h2 id="direction-request-title">{current.summary}</h2>
+		<h2 id="direction-request-title" title="A request: nothing changes until you answer">
+			{current.summary}
+		</h2>
 		<p class="meta">
 			<strong>{current.requester.name}</strong> asked{#if current.team}&nbsp;for {current.team
 					.name}{/if}
@@ -156,20 +157,19 @@
 						class="btn small"
 						type="button"
 						disabled={busy}
-						title="Approve this, and let this kind of change apply without asking. You can undo each one and revoke this in Company → Members."
+						title={`Approve, and ${always.label.charAt(0).toLowerCase() + always.label.slice(1)}. Each one can still be undone; revoke it in Company → Members.`}
 						onclick={(event) =>
 							void answer({ decision: 'approve', always_allow: true }, event.currentTarget)}
-						>Approve, and {always.label.charAt(0).toLowerCase() + always.label.slice(1)}
-						<kbd>A</kbd></button
+						>Always allow <kbd>A</kbd></button
 					>{/if}
 				{#if makeOwner && current.team}<button
 						class="btn small"
 						type="button"
 						disabled={busy}
-						title={`${makeOwner.name}'s direction for ${current.team.name} then applies directly.`}
+						title={`Approve, and make ${makeOwner.name} owner of ${current.team.name}: their direction for it then applies directly.`}
 						onclick={(event) =>
 							void answer({ decision: 'approve', make_team_owner: true }, event.currentTarget)}
-						>Approve, and make {makeOwner.name} owner of {current.team.name}</button
+						>Make {makeOwner.name} owner</button
 					>{/if}
 				<button
 					class="btn small ghost"
@@ -185,26 +185,21 @@
 <style>
 	.direction-request {
 		display: grid;
-		gap: 16px;
+		gap: 20px;
 		max-width: 680px;
-		padding: 24px 28px;
+		padding: 28px 32px;
 	}
 	header {
 		display: grid;
 		gap: 6px;
 	}
-	.kind {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-		font-weight: 600;
-		letter-spacing: 0.02em;
-	}
 	h2 {
 		margin: 0;
 		color: var(--ink);
-		font-size: var(--t-title);
+		font-size: var(--t-head);
 		font-weight: 600;
-		line-height: 1.3;
+		line-height: 1.35;
+		letter-spacing: -0.005em;
 	}
 	.meta {
 		display: flex;
@@ -253,13 +248,11 @@
 		gap: 8px;
 		align-items: center;
 	}
-	/* A grant's label is a sentence; it wraps inside the pane instead of running past it. */
+	.answers {
+		padding-top: 4px;
+	}
 	.answers .btn {
-		max-width: 100%;
-		height: auto;
-		min-height: 28px;
-		white-space: normal;
-		text-align: left;
+		white-space: nowrap;
 	}
 	.decline input {
 		flex: 1 1 260px;

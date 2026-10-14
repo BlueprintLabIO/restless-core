@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { reenterIfLapsed } from '$lib/model/reenter';
+	import { firstPaint } from '$lib/model/first-paint.svelte';
 	import WelcomeTour from '$lib/components/WelcomeTour.svelte';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { prefetchOnIntent } from '$lib/model/prefetch';
@@ -88,6 +89,7 @@
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
+	const entry = firstPaint(() => companyId);
 	const principal = $derived(principalProjection.view);
 	const ownerAccess = $derived(hasOwnerSurfaceAccess(principal));
 	/* For you, for the owner and every member: the Inbox lists it, the Inbox tab counts what is
@@ -896,10 +898,14 @@
 		window.addEventListener(ASK_EXEC_EVENT, ask);
 		return () => window.removeEventListener(ASK_EXEC_EVENT, ask);
 	});
+	/* Blank until the people list names the viewer: a placeholder letter that later changes is
+	 * exactly the flicker this avoids. The avatar keeps its place either way. */
+	const viewerPeople = $derived(ownerAccess ? cockpit?.people : collaboration.view?.people);
 	const viewerName = $derived(
-		(ownerAccess ? cockpit?.people : collaboration.view?.people)?.find(
-			(person) => person.actor_id === principal?.actor_id
-		)?.display ?? (ownerAccess ? 'Owner' : 'Member')
+		!principal || !viewerPeople
+			? ''
+			: (viewerPeople.find((person) => person.actor_id === principal.actor_id)?.display ??
+					(ownerAccess ? 'Owner' : 'Member'))
 	);
 	const viewerRole = $derived(
 		`${{ owner: 'Owner', admin: 'Admin', member: 'Member' }[principal?.membership_role ?? 'member'] ?? 'Member'} · ${companyName || companyId}`
@@ -1412,6 +1418,7 @@
 
 <div
 	class="company-browser-link-capture"
+	class:first-paint-pending={!entry.ready}
 	use:companyBrowserLinks={{ open: openInCompanyBrowser }}
 	use:prefetchOnIntent={{ client: queryClient, company: () => companyId }}
 >
@@ -1612,6 +1619,24 @@
 	@media (prefers-reduced-motion: reduce) {
 		.company-access-state p,
 		.access-mark {
+			animation: none;
+		}
+	}
+	/* Entering a company: every region fetches while hidden and the page appears once,
+	 * settled (first-paint.svelte.ts). */
+	.first-paint-pending {
+		visibility: hidden;
+	}
+	.company-browser-link-capture:not(.first-paint-pending) {
+		animation: first-paint-in 120ms var(--ease-standard, ease-out) backwards;
+	}
+	@keyframes first-paint-in {
+		from {
+			opacity: 0;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.company-browser-link-capture:not(.first-paint-pending) {
 			animation: none;
 		}
 	}

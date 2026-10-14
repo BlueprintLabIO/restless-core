@@ -17,10 +17,13 @@
 	let {
 		source,
 		heading = 'For you',
+		embedded = false,
 		onexit
 	}: {
 		source: ForYouSource;
 		heading?: string;
+		/** Shown as the Inbox's For you tab, whose tab already names it. */
+		embedded?: boolean;
 		/** K on the first row leaves the list upwards, to whatever sits above it. */
 		onexit?: () => void;
 	} = $props();
@@ -114,8 +117,8 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <section class="for-you" aria-label={heading} bind:this={section} onkeydown={keyboard}>
-	<header>
-		<h3>{heading}</h3>
+	<header class:embedded>
+		{#if !embedded}<h3>{heading}</h3>{/if}
 		{#if source.unreadCount}<span class="count">{source.unreadCount} unread</span>{/if}
 		<span class="spacer"></span>
 		{#if source.items.length || source.filter !== 'all'}
@@ -138,6 +141,7 @@
 	</header>
 	{#each source.items as item (item.key)}
 		<Item
+			stacked
 			title={forYouSentence(item)}
 			meta={item.kind === 'applied' ? null : item.excerpt || null}
 			href={item.kind === 'applied' ? undefined : item.href}
@@ -200,6 +204,9 @@
 	.for-you {
 		display: grid;
 		min-width: 0;
+	}
+	header.embedded {
+		padding-left: 8px;
 	}
 	header {
 		display: flex;

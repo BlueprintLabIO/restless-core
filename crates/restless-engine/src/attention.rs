@@ -99,6 +99,10 @@ pub struct AttentionItem {
     /// A request routed to this person (S80): `source.kind = "direction_request"`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub direction_request: Option<crate::direction::DirectionRequest>,
+    /// A charter draft waiting for the owner (S82): the item opens Company › Charter's own editor
+    /// with the draft in it, not a copy of the text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub charter_proposal: Option<crate::direction::CharterProposal>,
     pub actions: Vec<AttentionAction>,
     pub can_continue: bool,
     pub preparing: bool,
@@ -340,7 +344,7 @@ async fn conversation_requests(
                 responsible_actor: Some(actor),
                 runtime_attach: None,
                 review_target: None,
-                native_document: None, direction_request: None,
+                native_document: None, direction_request: None, charter_proposal: None,
                 actions: vec![AttentionAction {
                     id: "continue-conversation".into(),
                     label: "Reply".into(),
@@ -423,9 +427,65 @@ async fn direction_items(
                 preparing: false,
                 created_at: request.filed_at,
                 direction_request: Some(request),
+                charter_proposal: None,
             }
         })
         .collect())
+}
+
+/// The charter draft Exec left for the owner, as one Inbox item that opens the charter itself.
+async fn charter_item(
+    config: &CompanyConfig,
+    authority: &crate::authority::AuthorityStore,
+    org: &OrgIntel,
+) -> Result<Option<AttentionItem>> {
+    let names = crate::direction_authority::Names::read(org).await?;
+    let revision = crate::authority::mandate_revision(&config.mission);
+    let proposal = crate::direction_authority::charter_proposal(authority, &config.name, &names, &revision)
+        .await
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
+    Ok(proposal.map(|proposal| {
+        let empty = config.mission.trim().is_empty();
+        AttentionItem {
+            id: format!("authority:charter_proposal:{}", proposal.id),
+            work_id: None,
+            source: AttentionSource {
+                plane: "authority",
+                kind: "charter_proposal".into(),
+                reference: proposal.id.to_string(),
+                party: None,
+                call_key: None,
+            },
+            category: "decision".into(),
+            title: if empty { "Publish the company charter".into() } else { "Publish the charter change".into() },
+            what_happened: "Exec drafted the charter in Company › Charter.".into(),
+            why_it_matters: if proposal.reason.trim().is_empty() {
+                "Every agent works under the charter; nothing changes until you publish it.".into()
+            } else {
+                proposal.reason.clone()
+            },
+            recommendation: "Read the draft, edit it if you like, then publish or discard it.".into(),
+            requested_action: "Publish or discard.".into(),
+            if_no_action: "The charter stays as it is.".into(),
+            uncertainty: None,
+            deadline: None,
+            brief_status: "source-authored",
+            brief_author: None,
+            briefed_at: Some(proposal.proposed_at),
+            evidence: Vec::new(),
+            review_sources: Vec::new(),
+            responsible_actor: None,
+            runtime_attach: None,
+            review_target: None,
+            native_document: None,
+            actions: Vec::new(),
+            can_continue: false,
+            preparing: false,
+            created_at: proposal.proposed_at,
+            direction_request: None,
+            charter_proposal: Some(proposal),
+        }
+    }))
 }
 
 /// One person's Inbox: the handoffs assigned to them (a team's judgement goes to the team's
@@ -616,7 +676,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
-            native_document: None, direction_request: None,
+            native_document: None, direction_request: None, charter_proposal: None,
             actions: vec![
                 AttentionAction {
                     id: "grant".into(),
@@ -698,7 +758,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
-            native_document: None, direction_request: None,
+            native_document: None, direction_request: None, charter_proposal: None,
             actions: vec![
                 AttentionAction {
                     id: "grant".into(),
@@ -772,7 +832,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
-            native_document: None, direction_request: None,
+            native_document: None, direction_request: None, charter_proposal: None,
             actions: vec![AttentionAction {
                 id: "open-app".into(),
                 label: "Sign in again".into(),
@@ -1378,7 +1438,7 @@ async fn project_queue(
             responsible_actor,
             runtime_attach,
             review_target,
-            native_document: None, direction_request: None,
+            native_document: None, direction_request: None, charter_proposal: None,
             actions,
             preparing,
             can_continue: false,
@@ -1448,7 +1508,7 @@ async fn project_queue(
                 runtime_attach: None,
                 review_target: None,
                 created_at: request.created_at,
-                native_document: Some(request), direction_request: None,
+                native_document: Some(request), direction_request: None, charter_proposal: None,
                 actions,
                 preparing: false,
                 can_continue: false,
@@ -1543,7 +1603,7 @@ async fn project_queue(
                                     responsible_actor: actors.get("exec").cloned(),
                                     runtime_attach: None,
                                     review_target: None,
-                                    native_document: None, direction_request: None,
+                                    native_document: None, direction_request: None, charter_proposal: None,
                                     actions: vec![action],
                                     can_continue: false,
                                     preparing: false,
@@ -1574,7 +1634,7 @@ async fn project_queue(
             uncertainty: Some("Exec makes a judgment on each proposed send against this mandate. It can make mistakes; approval of this mandate is not a guarantee that every send will be appropriate.".into()),
             deadline: Some(proposal.expires_at.to_rfc3339()), brief_status: "source-observed", brief_author: None, briefed_at: None,
             evidence: vec![AttentionEvidence { label: "Exact proposed email mandate".into(), uri: None, content: Some(limits), kind: "authority-email-mandate-proposal" }, AttentionEvidence { label: "Exec judgement".into(), uri: None, content: Some(if note.is_empty() { "No additional rationale supplied.".into() } else { note.into() }), kind: "exec-judgement" }],
-            review_sources: Vec::new(), responsible_actor: None, runtime_attach: None, review_target: None, native_document: None, direction_request: None,
+            review_sources: Vec::new(), responsible_actor: None, runtime_attach: None, review_target: None, native_document: None, direction_request: None, charter_proposal: None,
             actions: vec![
                 AttentionAction { id: "approve-email-mandate".into(), label: "Approve mandate".into(), role: "decision", consequence: "Grants the exact reviewed email mandate and its limits.".into(), next_state: "The pending proposal is resolved and the mandate becomes active.".into(), href: None },
                 AttentionAction { id: "decline-email-mandate".into(), label: "Decline mandate".into(), role: "decision", consequence: "Declines this exact email mandate proposal.".into(), next_state: "The proposal is resolved without granting email authority.".into(), href: None },
@@ -1585,6 +1645,13 @@ async fn project_queue(
         match direction_items(authority, &config.name, org, assignee.unwrap_or("owner")).await {
             Ok(direction) => items.extend(direction),
             Err(error) => tracing::warn!(company = config.name, "direction requests unavailable: {error:#}"),
+        }
+        // Only the owner publishes the charter, so only the owner's Inbox holds its draft.
+        if assignee.is_none() {
+            match charter_item(config, authority, org).await {
+                Ok(item) => items.extend(item),
+                Err(error) => tracing::warn!(company = config.name, "charter draft unavailable: {error:#}"),
+            }
         }
     }
     items.sort_by_key(|item| {
@@ -1691,7 +1758,7 @@ async fn project_queue(
                     responsible_actor: None,
                     runtime_attach: None,
                     review_target: None,
-                    native_document: None, direction_request: None,
+                    native_document: None, direction_request: None, charter_proposal: None,
                     actions: vec![AttentionAction {
                         id: if route_missing { "open-intelligence-provider".into() } else { "open-company-health".into() },
                         label: if route_missing { "Choose intelligence".into() } else { "Open Health".into() },

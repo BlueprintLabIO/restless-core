@@ -315,7 +315,9 @@
 							>
 								<span class="switcher-mark" class:logo={!!company.logo_url} aria-hidden="true"
 									><CompanyMark id={company.id} logoUrl={company.logo_url} size={8} /><i
-										class="runtime-{company.unstartable_reason ? 'blocked' : company.runtime_status}"
+										class="runtime-{company.unstartable_reason
+											? 'blocked'
+											: company.runtime_status}"
 									></i></span
 								>
 								<span
@@ -387,14 +389,12 @@
 				<span class="tb-search-label">Search</span>
 				<kbd aria-hidden="true">{menuShortcut}</kbd>
 			</button>
-			{#if viewerName}
-				<ProfileMenu
-					name={viewerName}
-					role={viewerRole}
-					{present}
-					onshortcuts={() => shortcuts?.open()}
-				/>
-			{/if}
+			<ProfileMenu
+				name={viewerName}
+				role={viewerRole}
+				{present}
+				onshortcuts={() => shortcuts?.open()}
+			/>
 			{#if execHref}
 				<a
 					class="tb-exec"

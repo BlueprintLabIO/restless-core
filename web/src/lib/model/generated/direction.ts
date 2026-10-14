@@ -152,6 +152,16 @@ always_allow?: boolean,
  */
 make_team_owner?: boolean, };
 
+export type CharterProposal = { id: string, markdown: string, 
+/**
+ * The charter revision the draft was written against.
+ */
+base_revision: string, 
+/**
+ * Whether the charter is still at that revision; when not, publishing asks first.
+ */
+current: boolean, reason: string, requester: DirectionPerson, source_message: string | null, proposed_at: string, };
+
 export type DirectionUndoResult = DirectionApplied;
 
 export const DIRECTION_REQUEST_ATTENTION_KIND = "direction_request";

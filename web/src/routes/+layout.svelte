@@ -21,6 +21,7 @@
 	import { connection, observeFailure, observeSuccess } from '$lib/model/connection.svelte';
 	import { isRetryable } from '$lib/model/failure';
 	import { observeSessionEnd } from '$lib/model/session-reentry';
+	import { installTripwire, resyncVisible, steady } from '$lib/model/steady';
 	import { accountServicePath } from '$lib/model/account-service';
 	import { planeAnswersAccountPaths } from '$lib/model/appliance';
 	import { registerServiceWorkerWhereLocal } from '$lib/model/service-worker-registration';
@@ -88,35 +89,38 @@
 		if (!observeSuccess()) return;
 		/* Anything read during the outage may be behind: refresh what is on
 		 * screen once, then confirm briefly. */
-		void queryClient.invalidateQueries({ refetchType: 'active' });
+		void resyncVisible(queryClient);
 		restored = true;
 		clearTimeout(restoredTimer);
 		restoredTimer = setTimeout(() => (restored = false), 2_400);
 	}
-	const queryClient = new QueryClient({
-		queryCache: new QueryCache({ onError: observeFailure, onSuccess: succeeded }),
-		mutationCache: new MutationCache({ onError: observeFailure, onSuccess: succeeded }),
-		defaultOptions: {
-			queries: {
-				// Private networks and localhost can work while the OS reports no Internet.
-				// Attempt the real endpoint; browser online state is not access evidence.
-				networkMode: 'always',
-				staleTime: 5_000,
-				gcTime: 10 * 60_000,
-				refetchOnWindowFocus: true,
-				/* Retry only what a second attempt can fix. A 404 or a rejected
-				 * request is shown at once rather than after a pointless wait. */
-				retry: (failureCount, error) => failureCount < 3 && isRetryable(error),
-				retryDelay: (attempt) => Math.min(500 * 2 ** attempt, 4_000)
+	const queryClient = steady(
+		new QueryClient({
+			queryCache: new QueryCache({ onError: observeFailure, onSuccess: succeeded }),
+			mutationCache: new MutationCache({ onError: observeFailure, onSuccess: succeeded }),
+			defaultOptions: {
+				queries: {
+					// Private networks and localhost can work while the OS reports no Internet.
+					// Attempt the real endpoint; browser online state is not access evidence.
+					networkMode: 'always',
+					staleTime: 5_000,
+					gcTime: 10 * 60_000,
+					refetchOnWindowFocus: true,
+					/* Retry only what a second attempt can fix. A 404 or a rejected
+					 * request is shown at once rather than after a pointless wait. */
+					retry: (failureCount, error) => failureCount < 3 && isRetryable(error),
+					retryDelay: (attempt) => Math.min(500 * 2 ** attempt, 4_000)
+				}
 			}
-		}
-	});
+		})
+	);
 	function reconnectNow() {
 		void queryClient.refetchQueries({ type: 'active' });
 	}
 
 	/* A hosted session that ends mid-use re-enters through the account issuer. */
 	onMount(() => observeSessionEnd(() => page.params.companyId));
+	onMount(() => installTripwire(queryClient));
 
 	/* On Cloud's one address, Home, Profile, Security, Plan and Support are the account service's
 	 * pages: a link to one leaves this app with a full load instead of being routed here. Whether
@@ -156,7 +160,7 @@
 			lastReconciledAt = now;
 			/* Backgrounding is normal on mobile. Keep the current route and local
 			 * interface state, then refresh only queries that still have observers. */
-			void queryClient.invalidateQueries({ refetchType: 'active' });
+			void resyncVisible(queryClient);
 		};
 
 		const onVisibilityChange = () => {

@@ -1,6 +1,6 @@
 # Sprint 82 — Nothing moves unless you moved it; the work is the surface
 
-**Status:** planned
+**Status:** landed (see Results; Cloud deploy recorded there)
 **Programme:** owner feedback; quality of the cockpit
 **Depends on:** Sprint 80 (direction and permission), Sprint 81.
 
@@ -202,3 +202,101 @@ way Linear's inbox does:
   it to be worse than the member trace above.
 - Whether pre-S80 screenshots exist in `docs/screenshots/` to compare against for E. If not, render
   `a8c49fa7` on the dev stack for the before shots.
+
+## Results
+
+### What changed
+
+- **A. One ordered conversation:**
+  - `web/src/lib/model/steady.ts` makes every local cache write cancel reads already in flight
+    (`steady()`, installed on the app's one QueryClient).
+  - A send writes its saved message straight into the conversation, and the placeholder leaves
+    only once the server's copy is held.
+  - The `pending = null` guess, which dropped your answer whenever any read's newest message was
+    Exec's, is deleted.
+  - A retract is declared (`expectRemoval`), so the tripwire knows that removal is expected.
+- **B. Stale never wins:**
+  - Change hints are routed by kind (`hintTouches`): a `message`, `room_event` or `mention`
+    refetches conversations, rooms, Inbox, For you and direction reads, and never settings, the
+    principal, intelligence or connections. `resync` and unknown kinds refetch everything except
+    settings.
+  - Company identity and browser status poll like the other settings (slowly while the change
+    stream is live) instead of every 10 seconds.
+- **C. Entering the cockpit:**
+  - `first-paint.svelte.ts` mounts every region and fetches while hidden, then reveals once, when
+    no company query is still waiting for its first answer (capped at 1.2 s).
+  - The avatar stays blank until the people list names you; it no longer shows "M" first.
+- **D. The work is the surface:**
+  - `restless charter show | apply | propose`:
+    - `apply` saves the real charter when the owner asked, reads it back, and attributes the
+      revision to Exec.
+    - Anyone else's direction is refused with "Only <owner> sets the charter", pointing at
+      `propose`.
+    - `propose` records a draft (`mandate_proposal`); a newer draft replaces an older one.
+  - `GET /company/charter` returns the open draft. Saving with `proposal_id` publishes it, and
+    `POST …/proposal/{id}/discard` discards it.
+  - The owner's Inbox gets one `charter_proposal` item, which opens `CharterPurpose`: the same
+    component as Company › Charter, showing the draft over the current text with Publish, Edit
+    and Discard. The Charter page shrank from 452 to 129 lines.
+  - Filing a request to the person whose own direction it is is refused ("it is Direct: apply
+    it"), which removes the "approve your own request" card.
+  - Exec's doctrine (`context.rs`, "People own teams") now says to work on the source of truth,
+    never call a file write "saved", and never ask the owner to run a command.
+- **E. The Inbox column:**
+  - Inbox and For you are tabs with counts, replacing two stacked lists.
+  - Today is one line under the tabs.
+  - Rows have two lines (`Item stacked`): the title wraps to two lines and the asker sits
+    underneath, with no "X asks:" prefix.
+  - The column defaults to 340 px (min 260) under a new pane key, so old 280 px widths reset.
+  - The request card has a smaller title, no eyebrow, and short buttons ("Always allow",
+    "Make … owner") whose full sentence is in the tooltip.
+- **F. Guardrails:**
+  - The tripwire records any shown conversation message that disappears without a retract. It
+    collects these in strict mode and logs them to the console.
+  - `check-ui-boundary.mjs` fails on any blanket `invalidateQueries` outside `lib/model`;
+    `resyncVisible()` is the only one, used after an outage and on return from the background.
+  - `web/scripts/verify-steady.mjs` runs journeys against a dev stack and a `_test` company.
+
+### Verification (dev stack, `s82_test`, owner)
+
+- `verify-steady.mjs`: entry, hints, answer, charter and settings all pass.
+  - **entry:** after the reveal the only change is the office canvas replacing its own
+    "Opening the company floor…" line.
+  - **hints:** a real `message` hint (`restless message --from exec`) refetched the conversation,
+    Inbox, For you and digest, and no settings read.
+  - **answer:** the answer stays from the moment it is sent, while a stale read lands during the
+    send.
+    - Negative control: the same journey on the old `queries.svelte.ts`, without `steady()`, fails
+      with exactly your report: answer, then buttons, then answer
+      (`closed:answer → buttons:no-answer → closed:answer`).
+  - **charter:**
+    - `propose` puts a draft in the Inbox, and Publish makes it the charter that `charter show`
+      reads back.
+    - A second draft is discarded on the Charter page.
+    - `apply` for a non-owner is refused.
+    - `apply` for the owner saved it, and history shows "Exec".
+  - **settings:** a charter save shows Saving…, then saved; a rename shows Saving…, then done.
+    Nothing else on the page moves.
+- `steady.test.ts`: the hint routing and the tripwire pass, and so does the local-write-wins test.
+  That test fails with a plain QueryClient (checked).
+- `npm run check` (svelte-check, type, UI boundary and document search) is clean. Web unit tests:
+  142/142.
+- `restless-engine` tests for direction, attention and context pass (41); the CLI direction test
+  passes.
+- Screenshots of the Inbox and the charter item were taken at 1440, 1024 and 390 px.
+
+### Not done or not verified
+
+- **Admin and member journeys were not run on the dev stack**, which has only the owner. The
+  member cockpit entry is checked on Cloud after the deploy (see below).
+- **No model was connected on the dev stack.** The answer journey stands in a ready model route
+  and intercepts the conversation. An Exec turn that follows the new charter doctrine needs a
+  model; the next real charter request on Cloud is that check.
+- **The Cloud direct-link hop** (`/company_…` → `/account?return=` → back) is a Cloud gateway
+  change: mint the company session before serving the app. It is not in this Core change.
+- **Raw `fetch` in settings components** (21 files) is unchanged. The jank came from blanket
+  refetches and stale reads landing over writes, and both are now fixed centrally. A component
+  that loads its own data without a cache cannot be overwritten by a stale shared read.
+- **The `CharterProposal` database scenario has no Rust test.** The live charter journey covers
+  it against the real stack.
+

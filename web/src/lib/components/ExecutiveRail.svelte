@@ -34,7 +34,11 @@
 	import HoldApprove from '$lib/ui/controls/HoldApprove.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
-	import { turnWorking, type ActiveAgentTurn, type QuerySourceStatus } from '$lib/model/queries.svelte';
+	import {
+		turnWorking,
+		type ActiveAgentTurn,
+		type QuerySourceStatus
+	} from '$lib/model/queries.svelte';
 	import type { OutcomeStandard } from '$lib/model/company';
 	import type { ThreadMessage } from '$lib/model/view';
 	import { runExecCommand } from '$lib/model/skills';
@@ -45,6 +49,7 @@
 	import { conversationUnread, deleteRoomMessage, markRoomRead } from '$lib/model/rooms';
 	import { goto } from '$app/navigation';
 	import { composerOptions, readDraft, writeDraft } from '$lib/model/composer-options.svelte';
+	import { expectRemoval } from '$lib/model/steady';
 	import { agentExchangesQuery, type AgentExchange } from '$lib/model/exchanges.svelte';
 	import HandoffGroup from '$lib/primitives/HandoffGroup.svelte';
 	import AppRequestCards from './AppRequestCards.svelte';
@@ -512,9 +517,7 @@
 	 * the server read cursor through the room's latest message. A reply newer than the list row
 	 * first refreshes the row, so the cursor only ever names a message the server listed. */
 	const isDirectTopic = $derived(
-		!review &&
-			!workContext &&
-			(!currentTopicKey.includes(':') || currentTopicKey.endsWith(':'))
+		!review && !workContext && (!currentTopicKey.includes(':') || currentTopicKey.endsWith(':'))
 	);
 	let readMarking = '';
 	$effect(() => {
@@ -563,6 +566,7 @@
 		if (!last || retracting) return;
 		retracting = true;
 		try {
+			expectRemoval(last.id);
 			await deleteRoomMessage(
 				companyId,
 				directRoom,

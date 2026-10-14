@@ -42,7 +42,8 @@
 		</div>
 	{/if}
 	<ActionMenu label="Your profile">
-		{#snippet trigger()}<span class="face me">{initials(name).charAt(0)}</span>{/snippet}
+		{#snippet trigger()}<span class="face me">{name ? initials(name).charAt(0) : ''}</span
+			>{/snippet}
 		<div class="who">
 			<strong>{name}</strong>
 			<small>{role}</small>

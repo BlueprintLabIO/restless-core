@@ -30,6 +30,7 @@ import { getCompanyIdentity, type CompanyIdentitySnapshot } from './identity';
 import { getCompanyPrincipal, type CompanyPrincipal } from './query-persistence';
 import type { ThreadMessage } from './view';
 import { changes, pollEvery } from './connection.svelte';
+import { hintTouches, parseHint } from './steady';
 
 export type QuerySourceStatus = 'unknown' | 'live' | 'stale';
 export type ActivityTransport = 'idle' | 'connecting' | 'live' | 'reconnecting';
@@ -311,7 +312,8 @@ export function identityQuery(companyId: string) {
 		queryFn: () => getCompanyIdentity(companyId),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
-		refetchInterval: REFRESH_MS,
+		// Settings change by a save here, which writes its own answer; a slow poll is the fallback.
+		refetchInterval: pollEvery(REFRESH_MS, 60_000),
 		refetchIntervalInBackground: false
 	}));
 	return {
@@ -334,7 +336,7 @@ export function browserStatusQuery(companyId: string) {
 		queryFn: () => getBrowserStatus(companyId),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
-		refetchInterval: REFRESH_MS,
+		refetchInterval: pollEvery(REFRESH_MS, 60_000),
 		refetchIntervalInBackground: false
 	}));
 	return {
@@ -488,7 +490,6 @@ export function conversationQuery(
 			return;
 		}
 		if (last && last.from_actor !== viewerActorId) {
-			pending = null;
 			if (live?.phase === 'complete' || live?.phase === 'failed') {
 				stop?.();
 				stop = null;
@@ -496,6 +497,13 @@ export function conversationQuery(
 				transport = 'idle';
 			}
 		}
+	});
+
+	/* The placeholder leaves only once the server's copy is held. No read can drop that copy:
+	 * a local write cancels every older read in flight. */
+	$effect(() => {
+		const held = (query.data as ActorConversation | undefined)?.messages;
+		if (pending && held?.some((message) => String(message.id) === pending?.id)) pending = null;
 	});
 
 	return {
@@ -629,6 +637,35 @@ export function conversationQuery(
 				throw error;
 			}
 			sentKeys.set(String(result.messageId), optimisticId);
+			/* The saved message goes straight into the conversation. A read already in flight
+			 * started before it existed, so that read is cancelled (steady.ts) rather than
+			 * allowed to land over it and reopen whatever it answered. Attachments come back
+			 * from the server's read, so a message with files keeps its placeholder until then. */
+			if (!files.length) {
+				client.setQueryData<ActorConversation>(key, (conversation) =>
+					conversation && !conversation.messages.some((message) => message.id === result.messageId)
+						? {
+								...conversation,
+								messages: [
+									...conversation.messages,
+									{
+										id: result.messageId,
+										from_actor: viewerActorId,
+										to_actor: actorId,
+										body,
+										outcome_standard: outcomeStandard ?? null,
+										attachments: [],
+										details: null,
+										intent: null,
+										context_path: contextPath ?? null,
+										created_at: sentAt.toISOString(),
+										read_at: null
+									}
+								]
+							}
+						: conversation
+				);
+			}
 			if (pending?.id === optimisticId) {
 				pending.clientKey = optimisticId;
 				pending.id = String(result.messageId);
@@ -695,14 +732,17 @@ export function companyChangeStream(companyId: () => string, enabled: QueryEnabl
 		const source = new EventSource(`/api/companies/${encodeURIComponent(company)}/changes`);
 		source.onopen = () => (changes.live = true);
 		source.onerror = () => (changes.live = false);
-		source.addEventListener('change', () => {
-			/* Every kind refreshes every active query for the company, except
-			 * an open Room's messages, which the Room's own stream owns. A
-			 * bare `room_event` is not "only rooms": a message to the Exec is
-			 * one too, and the Exec rail must see it. */
+		source.addEventListener('change', (event) => {
+			/* A hint names what kind of thing changed, and only queries that kind can affect
+			 * refetch: a teammate's message never reloads settings, the principal or model
+			 * connections. An open Room's messages stay with the Room's own stream. A bare
+			 * `room_event` is not "only rooms": a message to the Exec is one too. */
+			const kinds = parseHint((event as MessageEvent).data);
 			void client.invalidateQueries({
 				predicate: (query) =>
-					query.queryKey.includes(company) && !ROOM_STREAM_OWNED.has(String(query.queryKey[0])),
+					query.queryKey.includes(company) &&
+					!ROOM_STREAM_OWNED.has(String(query.queryKey[0])) &&
+					hintTouches(kinds, query.queryKey),
 				refetchType: 'active'
 			});
 		});

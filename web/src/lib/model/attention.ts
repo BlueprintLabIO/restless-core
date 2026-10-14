@@ -55,6 +55,7 @@ export interface MessageInterruptResult {
 type WireItem = {
 	native_document?: AttentionItem['nativeDocument'];
 	direction_request?: AttentionItem['directionRequest'];
+	charter_proposal?: AttentionItem['charterProposal'];
 	id: string;
 	work_id?: string;
 	source: AttentionItem['source'];
@@ -155,6 +156,7 @@ export async function getAttention(company: string): Promise<AttentionView> {
 				workId: item.work_id,
 				source: item.source,
 				directionRequest: item.direction_request,
+				charterProposal: item.charter_proposal,
 				category: item.category,
 				title: item.preparing ? 'Preparing your next step' : item.title,
 				whatHappened: item.preparing ? item.requested_action : item.what_happened,
@@ -522,10 +524,13 @@ export type SetAside = {
 
 /** What the owner set aside lately, newest first. */
 export async function fetchSetAside(companyId: string): Promise<SetAside[]> {
-	const response = await fetch(`/api/companies/${encodeURIComponent(companyId)}/attention/dismissed`, {
-		credentials: 'same-origin',
-		cache: 'no-store'
-	});
+	const response = await fetch(
+		`/api/companies/${encodeURIComponent(companyId)}/attention/dismissed`,
+		{
+			credentials: 'same-origin',
+			cache: 'no-store'
+		}
+	);
 	if (!response.ok) throw await ownerError(response);
 	return ((await response.json()) as { items: SetAside[] }).items;
 }
@@ -537,12 +542,15 @@ export async function restoreAttention(
 	companyId: string,
 	itemId: string
 ): Promise<{ restored: boolean; waiting: boolean | null }> {
-	const response = await fetch(`/api/companies/${encodeURIComponent(companyId)}/attention/restore`, {
-		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		credentials: 'same-origin',
-		body: JSON.stringify({ item_id: itemId })
-	});
+	const response = await fetch(
+		`/api/companies/${encodeURIComponent(companyId)}/attention/restore`,
+		{
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			credentials: 'same-origin',
+			body: JSON.stringify({ item_id: itemId })
+		}
+	);
 	if (!response.ok) throw await ownerError(response);
 	const body = (await response.json().catch(() => ({}))) as {
 		restored?: boolean;
@@ -554,11 +562,14 @@ export async function restoreAttention(
 /** Set an Inbox item aside as not needed. No message is sent: the agent that asked reads it in
  * its own context, and the item can be restored from the Inbox's set-aside list. */
 export async function dismissAttention(companyId: string, itemId: string): Promise<void> {
-	const response = await fetch(`/api/companies/${encodeURIComponent(companyId)}/attention/dismiss`, {
-		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		credentials: 'same-origin',
-		body: JSON.stringify({ item_id: itemId })
-	});
+	const response = await fetch(
+		`/api/companies/${encodeURIComponent(companyId)}/attention/dismiss`,
+		{
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			credentials: 'same-origin',
+			body: JSON.stringify({ item_id: itemId })
+		}
+	);
 	if (!response.ok) throw await ownerError(response);
 }

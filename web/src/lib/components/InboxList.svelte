@@ -5,7 +5,7 @@
 	 * list on into For you, and what the owner opened or snoozed is kept on the
 	 * server, so every device agrees. */
 	import { goto } from '$app/navigation';
-	import { onMount, untrack } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import CircleCheck from '@lucide/svelte/icons/circle-check';
 	import Eye from '@lucide/svelte/icons/eye';
 	import GitPullRequest from '@lucide/svelte/icons/git-pull-request';
@@ -26,6 +26,7 @@
 	import SetAsideList from './SetAside.svelte';
 	import { celebrate } from '$lib/ui/celebrate';
 	import ForYou from './ForYou.svelte';
+	import DirectionToday from './DirectionToday.svelte';
 	import { useForYou } from '$lib/model/for-you.svelte';
 	import {
 		getInboxMarks,
@@ -74,6 +75,25 @@
 	/* Beside the decisions: mentions, replies, shares and changes to what the owner follows. */
 	const forYou = useForYou();
 	let forYouList: ForYou | undefined = $state();
+	/* One list at a time: decisions, or what happened around you. Remembered per company on this
+	 * device; the counts on both tabs keep the other one in view. */
+	let tab = $state<'inbox' | 'for-you'>('inbox');
+	const tabKey = () => `restless:inbox-tab:${companyId}`;
+	$effect(() => {
+		try {
+			tab = localStorage.getItem(tabKey()) === 'for-you' ? 'for-you' : 'inbox';
+		} catch {
+			tab = 'inbox';
+		}
+	});
+	function showTab(next: 'inbox' | 'for-you') {
+		tab = next;
+		try {
+			localStorage.setItem(tabKey(), next);
+		} catch {
+			/* Storage can be unavailable; the tab still switches. */
+		}
+	}
 	let showSnoozed = $state(false);
 	let completing = $state('');
 	let clock = $state(Date.now());
@@ -252,7 +272,11 @@
 			const index = visible.findIndex((row) => row.id === selectedId);
 			/* Past the last decision, the keys walk on into For you. */
 			if (step > 0 && (index === visible.length - 1 || !visible.length)) {
-				if (forYouList?.focusFirst()) event.preventDefault();
+				if (forYou?.items.length) {
+					event.preventDefault();
+					showTab('for-you');
+					void tick().then(() => forYouList?.focusFirst());
+				}
 				return;
 			}
 			if (!visible.length) return;
@@ -283,115 +307,135 @@
 
 <div class="inbox">
 	<header class="inbox-head">
-		<h2>Inbox</h2>
-		<span class="inbox-count">{loaded ? visible.length : ''}</span>
+		<div class="inbox-tabs" role="tablist" aria-label="Inbox">
+			<button
+				type="button"
+				role="tab"
+				aria-selected={tab === 'inbox'}
+				class:active={tab === 'inbox'}
+				title="Decisions and steps waiting on you"
+				onclick={() => showTab('inbox')}
+				>Inbox{#if loaded && visible.length}<span class="tab-count">{visible.length}</span
+					>{/if}</button
+			>
+			{#if forYou}<button
+					type="button"
+					role="tab"
+					aria-selected={tab === 'for-you'}
+					class:active={tab === 'for-you'}
+					title="Mentions, replies, shares and changes to what you follow"
+					onclick={() => showTab('for-you')}
+					>For you{#if forYou.unreadCount}<span class="tab-count unread">{forYou.unreadCount}</span
+						>{/if}</button
+				>{/if}
+		</div>
 		<span class="spacer"></span>
 		<ActionMenu label="Inbox options">
-			<button onclick={() => (showSnoozed = !showSnoozed)} disabled={!snoozedCount && !showSnoozed}
-				>{showSnoozed
-					? 'Hide snoozed'
-					: `Show snoozed${snoozedCount ? ` (${snoozedCount})` : ''}`}</button
-			>
+			{#if tab === 'inbox'}<button
+					onclick={() => (showSnoozed = !showSnoozed)}
+					disabled={!snoozedCount && !showSnoozed}
+					>{showSnoozed
+						? 'Hide snoozed'
+						: `Show snoozed${snoozedCount ? ` (${snoozedCount})` : ''}`}</button
+				>{/if}
 			<span class="shortcuts" role="note"
 				><kbd>J</kbd><kbd>K</kbd> move · <kbd>R</kbd> reply · <kbd>C</kbd> discuss · <kbd>H</kbd>
 				snooze · <kbd>E</kbd> done</span
 			>
 		</ActionMenu>
 	</header>
+	<DirectionToday {companyId} />
 
-	<div class="inbox-list">
-		{#if failure && !loaded}
-			<div class="inbox-failure">
-				<FailureNotice error={failure} subject="the Inbox" variant="block" {onretry} />
-			</div>
-		{:else if coordination && loaded}
-			<div class="inbox-failure">
-				<FailureNotice error={coordination} {onretry} />
-			</div>
+	<div class="inbox-list" role="tabpanel">
+		{#if tab === 'for-you' && forYou}
+			<ForYou
+				bind:this={forYouList}
+				source={forYou}
+				embedded
+				onexit={() => {
+					showTab('inbox');
+					const last = visible.at(-1);
+					if (last) select(last);
+				}}
+			/>
+		{:else}
+			{#if failure && !loaded}
+				<div class="inbox-failure">
+					<FailureNotice error={failure} subject="the Inbox" variant="block" {onretry} />
+				</div>
+			{:else if coordination && loaded}
+				<div class="inbox-failure">
+					<FailureNotice error={coordination} {onretry} />
+				</div>
+			{/if}
+			{#if blocker && !items.some( (item) => item.actions.some((action) => action.id === 'open-intelligence-provider') )}
+				<a class="setup" href={`/${companyId}/company/provider`}
+					><TriangleAlert size={15} strokeWidth={1.8} aria-hidden="true" /><span>{blocker}</span></a
+				>
+			{/if}
+			{#each visible as item (item.id)}
+				{@const Icon = iconFor(item)}
+				{@const snoozedNow = snoozedUntil(item) > clock}
+				<Item
+					stacked
+					title={attentionTitle(item)}
+					meta={item.preparing ? 'Being prepared' : attentionAsker(item)}
+					href={href(item.id)}
+					selected={selectedId === item.id}
+					unread={!!marksQuery.data && marks.get(item.id)?.seen_stamp !== stamp(item)}
+					dim={snoozedNow}
+				>
+					{#snippet leading()}<span
+							class="kind"
+							class:blocker={item.category === 'blocker'}
+							title={attentionKindLabel(item)}
+							><Icon size={15} strokeWidth={1.8} aria-label={attentionKindLabel(item)} /></span
+						>{/snippet}
+					{#snippet trailing()}<RelativeTime value={item.createdAt} />{/snippet}
+					{#snippet actions()}
+						<ActionMenu label={`Actions for ${attentionTitle(item)}`}>
+							<a href={href(item.id)}>Open</a>
+							{#if canDiscuss(item)}<a
+									href={`${href(item.id)}&conversation=${encodeURIComponent(item.id)}`}
+									>Discuss <kbd>C</kbd></a
+								>{/if}
+							{#if canComplete(item)}<button disabled={!!completing} onclick={() => done(item)}
+									>{completing === item.id ? 'Recording…' : 'Mark done'} <kbd>E</kbd></button
+								>{/if}
+							{#if canDecline(item)}<a href={`${href(item.id)}&decline=1`}>Not doing this…</a>{/if}
+							{#if snoozedNow}
+								<button onclick={() => void mark([{ item_id: item.id, snoozed_until: null }])}
+									>Wake now</button
+								>
+							{:else}
+								<button onclick={() => snooze(item)}>Snooze for an hour <kbd>H</kbd></button>
+							{/if}
+							{#if canSetAside}<button
+									title="Not needed: off your Inbox, kept under Set aside. Whoever asked stops waiting."
+									onclick={() => void notNeeded(item)}>Not needed</button
+								>{/if}
+							<button onclick={() => copy(item)}>Copy link</button>
+						</ActionMenu>
+					{/snippet}
+				</Item>
+			{/each}
+			{#if loaded && !visible.length && !(coordination && !items.length)}
+				<p class="empty">
+					{items.length ? 'Everything here is snoozed.' : 'No decisions waiting on you.'}
+				</p>
+			{:else if !loaded && !failure}
+				<div class="waiting" aria-label="Loading the Inbox"><i></i><i></i><i></i></div>
+			{/if}
+			{#if canSetAside}<div class="set-aside-slot">
+					<SetAsideList {companyId} version={items.length} />
+				</div>{/if}
 		{/if}
-		{#if blocker && !items.some( (item) => item.actions.some((action) => action.id === 'open-intelligence-provider') )}
-			<a class="setup" href={`/${companyId}/company/provider`}
-				><TriangleAlert size={15} strokeWidth={1.8} aria-hidden="true" /><span>{blocker}</span></a
-			>
-		{/if}
-		{#each visible as item (item.id)}
-			{@const Icon = iconFor(item)}
-			{@const snoozedNow = snoozedUntil(item) > clock}
-			<Item
-				title={attentionTitle(item)}
-				meta={item.preparing ? 'Being prepared' : attentionAsker(item)}
-				href={href(item.id)}
-				selected={selectedId === item.id}
-				unread={!!marksQuery.data && marks.get(item.id)?.seen_stamp !== stamp(item)}
-				dim={snoozedNow}
-			>
-				{#snippet leading()}<span
-						class="kind"
-						class:blocker={item.category === 'blocker'}
-						title={attentionKindLabel(item)}
-						><Icon size={15} strokeWidth={1.8} aria-label={attentionKindLabel(item)} /></span
-					>{/snippet}
-				{#snippet trailing()}<RelativeTime value={item.createdAt} />{/snippet}
-				{#snippet actions()}
-					<ActionMenu label={`Actions for ${attentionTitle(item)}`}>
-						<a href={href(item.id)}>Open</a>
-						{#if canDiscuss(item)}<a
-								href={`${href(item.id)}&conversation=${encodeURIComponent(item.id)}`}
-								>Discuss <kbd>C</kbd></a
-							>{/if}
-						{#if canComplete(item)}<button disabled={!!completing} onclick={() => done(item)}
-								>{completing === item.id ? 'Recording…' : 'Mark done'} <kbd>E</kbd></button
-							>{/if}
-						{#if canDecline(item)}<a href={`${href(item.id)}&decline=1`}>Not doing this…</a>{/if}
-						{#if snoozedNow}
-							<button onclick={() => void mark([{ item_id: item.id, snoozed_until: null }])}
-								>Wake now</button
-							>
-						{:else}
-							<button onclick={() => snooze(item)}>Snooze for an hour <kbd>H</kbd></button>
-						{/if}
-						{#if canSetAside}<button
-								title="Not needed: off your Inbox, kept under Set aside. Whoever asked stops waiting."
-								onclick={() => void notNeeded(item)}>Not needed</button
-							>{/if}
-						<button onclick={() => copy(item)}>Copy link</button>
-					</ActionMenu>
-				{/snippet}
-			</Item>
-		{/each}
-		{#if loaded && !visible.length && !(coordination && !items.length)}
-			<p class="empty">
-				{items.length ? 'Everything here is snoozed.' : 'No decisions waiting on you.'}
-			</p>
-		{:else if !loaded && !failure}
-			<div class="waiting" aria-label="Loading the Inbox"><i></i><i></i><i></i></div>
-		{/if}
-		{#if forYou && (forYou.items.length || forYou.filter !== 'all')}
-			<div class="for-you-slot">
-				<ForYou
-					bind:this={forYouList}
-					source={forYou}
-					onexit={() => {
-						const last = visible.at(-1);
-						if (last) select(last);
-					}}
-				/>
-			</div>
-		{/if}
-		{#if canSetAside}<div class="set-aside-slot">
-				<SetAsideList {companyId} version={items.length} />
-			</div>{/if}
 	</div>
 </div>
 
 <style>
 	.set-aside-slot {
 		margin: 12px 8px 8px;
-	}
-	.for-you-slot {
-		margin-top: 8px;
-		padding-top: 4px;
-		border-top: 1px solid var(--border);
 	}
 	.inbox {
 		display: grid;
@@ -405,18 +449,56 @@
 		align-items: center;
 		gap: 8px;
 		min-height: 52px;
-		padding: 8px 8px 8px 16px;
+		padding: 8px 8px 8px 10px;
 		border-bottom: 1px solid var(--border);
 	}
-	h2 {
-		margin: 0;
+	.inbox-tabs {
+		display: flex;
+		gap: 2px;
+		min-width: 0;
+	}
+	.inbox-tabs button {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		height: 30px;
+		padding: 0 10px;
+		border: 0;
+		border-radius: var(--radius-control);
+		background: transparent;
+		color: var(--text-secondary);
+		font: inherit;
+		font-size: var(--t-body);
+		font-weight: 500;
+		white-space: nowrap;
+		cursor: pointer;
+		transition:
+			background-color var(--motion-state) var(--ease-standard),
+			color var(--motion-state) var(--ease-standard);
+	}
+	.inbox-tabs button:hover {
+		background: var(--surface-hover);
 		color: var(--ink);
-		font-size: var(--t-head);
+	}
+	.inbox-tabs button.active {
+		background: var(--surface-alt);
+		color: var(--ink);
 		font-weight: 600;
 	}
-	.inbox-count {
+	.tab-count {
+		min-width: 18px;
+		padding: 0 5px;
+		border-radius: 9px;
+		background: var(--surface-hover);
 		color: var(--text-tertiary);
+		font-size: var(--t-label);
 		font-variant-numeric: tabular-nums;
+		line-height: 18px;
+		text-align: center;
+	}
+	.tab-count.unread {
+		background: color-mix(in srgb, var(--intent-conversation) 14%, transparent);
+		color: var(--intent-conversation);
 	}
 	.spacer {
 		flex: 1;

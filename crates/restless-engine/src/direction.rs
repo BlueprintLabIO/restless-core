@@ -364,6 +364,40 @@ pub enum DirectionOperation {
     },
     /// The standing grants in force.
     Grants,
+    /// The charter as it stands, with any draft waiting for the owner.
+    CharterShow,
+    /// Save the charter on the owner's own direction. Anyone else's goes through `CharterPropose`.
+    CharterApply {
+        requester: String,
+        markdown: String,
+        source_message: Option<String>,
+    },
+    /// Draft a charter change into Company › Charter, where the owner publishes, edits or
+    /// discards it. A newer draft replaces an older one.
+    CharterPropose {
+        requester: String,
+        markdown: String,
+        reason: String,
+        source_message: Option<String>,
+    },
+}
+
+/// A charter change Exec drafted, shown in Company › Charter and the Inbox until the owner
+/// publishes or discards it (Sprint 82).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+pub struct CharterProposal {
+    #[ts(type = "string")]
+    pub id: Uuid,
+    pub markdown: String,
+    /// The charter revision the draft was written against.
+    pub base_revision: String,
+    /// Whether the charter is still at that revision; when not, publishing asks first.
+    pub current: bool,
+    pub reason: String,
+    pub requester: DirectionPerson,
+    pub source_message: Option<String>,
+    #[ts(type = "string")]
+    pub proposed_at: DateTime<Utc>,
 }
 
 /// Fixture responses for each endpoint, for the cockpit to build against before the store exists.
@@ -631,6 +665,7 @@ mod direction_contract_tests {
             DirectionAppliedPage::decl(&cfg),
             DirectionGrantList::decl(&cfg),
             DirectionDecisionInput::decl(&cfg),
+            CharterProposal::decl(&cfg),
         ] {
             out.push_str("export ");
             out.push_str(&decl);

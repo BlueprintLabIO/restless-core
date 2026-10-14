@@ -564,6 +564,9 @@ struct AuthorityOwnerTransferInput {
 struct CharterRevisionInput {
     markdown: String,
     base_revision: String,
+    /// The draft this save publishes, edited or not; it leaves the Inbox once saved.
+    #[serde(default)]
+    proposal_id: Option<uuid::Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1436,6 +1439,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route(
             "/companies/{company}/company/charter",
             get(company_charter_history).post(revise_company_charter),
+        )
+        .route(
+            "/companies/{company}/company/charter/proposal/{proposal}/discard",
+            post(discard_charter_proposal),
         )
         .route(
             "/companies/{company}/company/spend-limit",
@@ -6460,7 +6467,7 @@ async fn company_charter_history(
                 "revision": record.body["revision"],
                 "markdown": record.body["markdown"],
                 "saved_at": record.created_at,
-                "author": "Owner",
+                "author": if record.actor_id.as_deref() == Some("exec") { "Exec" } else { "Owner" },
             })
         })
         .collect();
@@ -6475,7 +6482,38 @@ async fn company_charter_history(
             }),
         );
     }
-    Json(serde_json::json!({ "current_revision": current, "revisions": revisions })).into_response()
+    let proposal = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => match restless_engine::direction_authority::Names::read(&org).await {
+            Ok(names) => restless_engine::direction_authority::charter_proposal(&state.daemon.authority, &company, &names, &current)
+                .await
+                .ok()
+                .flatten(),
+            Err(_) => None,
+        },
+        Err(_) => None,
+    };
+    Json(serde_json::json!({ "current_revision": current, "revisions": revisions, "proposal": proposal }))
+        .into_response()
+}
+
+/// The owner set Exec's charter draft aside; the charter stays as it is.
+async fn discard_charter_proposal(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, proposal)): AxumPath<(String, uuid::Uuid)>,
+) -> Response<Body> {
+    match restless_engine::direction_authority::resolve_charter_proposal(
+        &state.daemon.authority,
+        &company,
+        proposal,
+        principal.actor_id(),
+        "discarded",
+    )
+    .await
+    {
+        Ok(()) => Json(serde_json::json!({ "discarded": proposal })).into_response(),
+        Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "charter", format!("{error:#}")),
+    }
 }
 
 async fn revise_company_charter(
@@ -6531,6 +6569,19 @@ async fn revise_company_charter(
             )
         }
     };
+    if let Some(proposal) = input.proposal_id {
+        if let Err(error) = restless_engine::direction_authority::resolve_charter_proposal(
+            &state.daemon.authority,
+            &company,
+            proposal,
+            "owner",
+            "published",
+        )
+        .await
+        {
+            tracing::warn!(%error, company, "charter saved but its draft could not be closed");
+        }
+    }
     Json(CharterRevisionResponse {
         company: company_projection::project(&state.daemon, &config, false).await,
         revision,

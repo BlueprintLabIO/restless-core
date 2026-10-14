@@ -1,0 +1,467 @@
+<script lang="ts">
+	/* The charter's purpose, as the owner reads and edits it: one surface for Company › Charter and
+	 * for the Inbox. When Exec drafted a change, the draft sits on this same surface with Publish,
+	 * Edit and Discard, so the owner never approves a copy of the charter somewhere else (S82). */
+	import { beforeNavigate, goto } from '$app/navigation';
+	import { tick } from 'svelte';
+	import { useQueryClient } from '@tanstack/svelte-query';
+	import { Section, Notice, Empty } from '$lib/ui/page';
+	import Markdown from '$lib/primitives/Markdown.svelte';
+	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
+	import { formatMoment, formatRelative } from '$lib/ui/time';
+	import { failureSentence } from '$lib/model/failure';
+	import { reviseCompanyCharter, type CompanyView } from '$lib/model/company';
+	import { charterKey, charterQuery, discardCharterProposal } from '$lib/model/charter.svelte';
+	import { companyPrincipalQuery, refreshAttention } from '$lib/model/queries.svelte';
+	import { celebrate } from '$lib/ui/celebrate';
+
+	let {
+		companyId,
+		view,
+		onsaved,
+		inbox = false
+	}: {
+		companyId: string;
+		view: CompanyView;
+		/** The saved company, so the page's copy updates from the save's own answer. */
+		onsaved: (company: CompanyView) => void;
+		/** Shown as an Inbox item: the draft leads, history stays on the Charter page. */
+		inbox?: boolean;
+	} = $props();
+
+	const client = useQueryClient();
+	const charter = charterQuery(() => companyId);
+	const principal = $derived(companyPrincipalQuery(companyId));
+	const viewer = $derived(principal.view?.actor_id ?? 'owner');
+	const proposal = $derived(charter.proposal);
+
+	const charterText = $derived(withoutDocumentTitle(view.charter.purpose, view.company.name));
+	const LONG_CHARTER = 900;
+	let charterExpanded = $state(false);
+	let historyOpen = $state(false);
+	let editing = $state(false);
+	let saving = $state(false);
+	let discarding = $state(false);
+	let draft = $state('');
+	let openedMarkdown = $state('');
+	let baseRevision = $state('');
+	let editingProposal = $state<string | undefined>();
+	let editor = $state<HTMLTextAreaElement>();
+	let notice = $state('');
+	let failure = $state('');
+	const changed = $derived(editing && draft !== openedMarkdown);
+
+	function beginEditing(from = view.charter.purpose, proposalId?: string) {
+		draft = from;
+		openedMarkdown = proposalId ? '' : from;
+		baseRevision = view.charter.revision;
+		editingProposal = proposalId;
+		failure = '';
+		notice = '';
+		editing = true;
+		void tick().then(() => editor?.focus());
+	}
+
+	function cancelEditing() {
+		editing = false;
+		draft = '';
+		openedMarkdown = '';
+		baseRevision = '';
+		editingProposal = undefined;
+		failure = '';
+	}
+
+	async function save(markdown: string, revision: string, proposalId?: string) {
+		if (saving) return;
+		saving = true;
+		failure = '';
+		notice = '';
+		try {
+			const outcome = await reviseCompanyCharter(companyId, markdown, revision, proposalId);
+			onsaved(outcome.company);
+			notice = outcome.message;
+			if (outcome.evidence_status === 'incomplete')
+				notice += ' Authority recorded the request but could not confirm its final evidence.';
+			cancelEditing();
+			// The draft is published: it leaves this page and the Inbox at once.
+			client.setQueryData(charterKey(companyId), (record: typeof charter.record) =>
+				record ? { ...record, proposal: null } : record
+			);
+			void charter.refresh();
+			if (proposalId) {
+				void refreshAttention(client, companyId);
+				celebrate();
+			}
+		} catch (cause) {
+			failure = failureSentence(cause, 'The charter was not saved.');
+			if ((cause as Error & { status?: number })?.status === 409) void charter.refresh();
+		} finally {
+			saving = false;
+		}
+	}
+
+	function saveEdits() {
+		if (!editing || (!changed && !editingProposal)) return;
+		void save(draft, baseRevision, editingProposal);
+	}
+
+	async function publish() {
+		if (!proposal) return;
+		if (
+			!proposal.current &&
+			!(await confirmAction({
+				title: 'The charter changed after Exec drafted this',
+				body: 'Publishing replaces the current charter with the draft.',
+				action: 'Publish anyway'
+			}))
+		)
+			return;
+		void save(proposal.markdown, view.charter.revision, proposal.id);
+	}
+
+	async function discard() {
+		if (!proposal || discarding) return;
+		discarding = true;
+		failure = '';
+		try {
+			await discardCharterProposal(companyId, proposal.id);
+			client.setQueryData(charterKey(companyId), (record: typeof charter.record) =>
+				record ? { ...record, proposal: null } : record
+			);
+			void refreshAttention(client, companyId);
+			notice = 'Draft discarded. The charter is unchanged.';
+		} catch (cause) {
+			failure = failureSentence(cause, 'The draft was not discarded.');
+		} finally {
+			discarding = false;
+		}
+	}
+
+	let leaving = false;
+	beforeNavigate((navigation) => {
+		if (!changed || leaving || navigation.willUnload || !navigation.to) return;
+		navigation.cancel();
+		const target = navigation.to.url;
+		void confirmAction({
+			title: 'Discard your unsaved charter changes?',
+			action: 'Discard',
+			danger: true
+		}).then((yes) => {
+			if (!yes) return;
+			leaving = true;
+			void goto(target).finally(() => (leaving = false));
+		});
+	});
+	$effect(() => {
+		if (!changed) return;
+		const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+		window.addEventListener('beforeunload', warn);
+		return () => window.removeEventListener('beforeunload', warn);
+	});
+
+	function editorKeys(event: KeyboardEvent) {
+		if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+			event.preventDefault();
+			saveEdits();
+		}
+		if (event.key === 'Escape' && !changed) cancelEditing();
+	}
+
+	function withoutDocumentTitle(markdown: string, companyName: string): string {
+		const trimmed = markdown.trim();
+		const title = `# ${companyName}`;
+		return trimmed === title
+			? ''
+			: trimmed.startsWith(`${title}\n`)
+				? trimmed.slice(title.length).trimStart()
+				: trimmed;
+	}
+
+	const when = (value?: Date | string | null) => formatRelative(value ?? undefined, 'Not yet');
+</script>
+
+{#if failure}<Notice tone="danger" title="The charter was not saved" details={failure} />{/if}
+{#if notice}<Notice tone="success" title="Charter">{notice}</Notice>{/if}
+
+{#if proposal && !editing}
+	<section class="draft" aria-label="Exec's draft of the charter">
+		<header>
+			<div class="draft-who">
+				<strong>Draft from Exec</strong>
+				<time title={formatMoment(proposal.proposed_at)}>{when(proposal.proposed_at)}</time>
+				{#if proposal.requester.name && !['exec', 'owner', viewer].includes(proposal.requester.actor_id)}<span
+						title="Who asked for it">for {proposal.requester.name}</span
+					>{/if}
+			</div>
+			<div class="draft-actions">
+				<button class="btn small" type="button" disabled={discarding || saving} onclick={discard}
+					>{discarding ? 'Discarding…' : 'Discard'}</button
+				>
+				<button
+					class="btn small"
+					type="button"
+					disabled={saving}
+					onclick={() => beginEditing(proposal.markdown, proposal.id)}>Edit</button
+				>
+				<button class="btn primary small" type="button" disabled={saving} onclick={publish}
+					>{saving ? 'Publishing…' : 'Publish'}</button
+				>
+			</div>
+		</header>
+		{#if proposal.reason}<p class="draft-why">{proposal.reason}</p>{/if}
+		{#if !proposal.current}<p class="draft-stale">
+				The charter changed after this was drafted. Read both before publishing.
+			</p>{/if}
+		<div class="charter-text draft-text">
+			<Markdown text={withoutDocumentTitle(proposal.markdown, view.company.name)} />
+		</div>
+	</section>
+{/if}
+
+<Section
+	title={proposal && !editing ? 'Current charter' : 'Purpose'}
+	info="The owner-authorised purpose and rules every agent works under. Each save is a new revision."
+	group={false}
+>
+	{#snippet actions()}
+		{#if editing}
+			<span class="edit-state" class:changed={changed || editingProposal}
+				>{editingProposal ? "Editing Exec's draft" : changed ? 'Unsaved changes' : 'Editing'}</span
+			>
+			<button class="btn small" type="button" disabled={saving} onclick={cancelEditing}
+				>Cancel</button
+			>
+			<button
+				class="btn primary small"
+				type="button"
+				disabled={(!changed && !editingProposal) || saving}
+				title="Save (⌘/Ctrl + Enter)"
+				onclick={saveEdits}>{saving ? 'Saving…' : editingProposal ? 'Publish' : 'Save'}</button
+			>
+		{:else}
+			{#if !inbox}<button
+					type="button"
+					class="text-link"
+					onclick={() => (historyOpen = !historyOpen)}
+					aria-expanded={historyOpen}
+					title={`Saved ${formatMoment(view.charter.effective_at)}`}
+					>Saved {when(view.charter.effective_at)}</button
+				>{/if}
+			<button class="btn small" type="button" onclick={() => beginEditing()}>Edit</button>
+			{#if !inbox}<CopyCompanySetting
+					{companyId}
+					setting="purpose"
+					label="Purpose"
+					oncopied={() => void charter.refresh()}
+				/>{/if}
+		{/if}
+	{/snippet}
+	<div class="charter-card">
+		{#if editing}
+			<textarea
+				class="charter-editor"
+				bind:this={editor}
+				bind:value={draft}
+				aria-label="Company charter in Markdown"
+				title="Markdown: # for headings, - for lists, a blank line between paragraphs."
+				spellcheck="true"
+				onkeydown={editorKeys}></textarea>
+		{:else if charterText}
+			<div
+				class="charter-text"
+				class:collapsed={!charterExpanded && charterText.length > LONG_CHARTER}
+			>
+				<Markdown text={charterText} />
+			</div>
+			{#if charterText.length > LONG_CHARTER}<button
+					class="text-link expand"
+					onclick={() => (charterExpanded = !charterExpanded)}
+					>{charterExpanded ? 'Show less' : 'Show the full charter'}</button
+				>{/if}
+		{:else if proposal}
+			<p class="empty-line">No charter yet. Exec's draft above becomes it when you publish.</p>
+		{:else}
+			<Empty
+				compact
+				title="No charter yet"
+				info="Write the company's purpose, or agree it with Exec and save it here."
+			>
+				{#snippet action()}<button class="btn primary small" onclick={() => beginEditing()}
+						>Write charter</button
+					>{/snippet}
+			</Empty>
+		{/if}
+	</div>
+</Section>
+
+{#if historyOpen && !inbox}
+	<Section title="Charter history" count={charter.record?.revisions.length || null}>
+		{#if charter.loading}<Empty compact title="Loading revisions…" />
+		{:else if charter.failure}<Notice tone="danger" title="Could not read charter history"
+				>{failureSentence(charter.failure, '')}
+				{#snippet actions()}<button class="btn small" onclick={() => void charter.refresh()}
+						>Retry</button
+					>{/snippet}</Notice
+			>
+		{:else}
+			{#each charter.record?.revisions ?? [] as revision, index (`${revision.revision}:${index}`)}
+				<details class="revision">
+					<summary>
+						<span
+							>{revision.revision === view.charter.revision ? 'Current' : 'Earlier'} · {revision.author}</span
+						>
+						<time title={revision.saved_at ? formatMoment(revision.saved_at) : undefined}
+							>{revision.saved_at ? when(revision.saved_at) : ''}</time
+						>
+					</summary>
+					<div class="revision-text"><Markdown text={revision.markdown} /></div>
+				</details>
+			{/each}
+		{/if}
+	</Section>
+{/if}
+
+<style>
+	.draft {
+		display: grid;
+		gap: var(--space-3);
+		margin-bottom: var(--space-5);
+		padding: 16px 20px 20px;
+		border: 1px solid color-mix(in srgb, var(--intent-conversation) 45%, var(--border));
+		border-radius: var(--radius-lg);
+		background: color-mix(in srgb, var(--intent-conversation) 5%, var(--surface-raised));
+		box-shadow: var(--shadow-soft);
+	}
+	.draft header {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
+	}
+	.draft-who {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 8px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.draft-who strong {
+		color: var(--ink);
+		font-size: var(--t-body);
+		font-weight: 600;
+	}
+	.draft-actions {
+		display: flex;
+		gap: 8px;
+	}
+	.draft-why,
+	.draft-stale,
+	.empty-line {
+		margin: 0;
+		color: var(--text-secondary);
+		font-size: var(--t-body);
+		line-height: 1.55;
+	}
+	.draft-stale {
+		color: var(--intent-authority);
+	}
+	.charter-card {
+		padding: 18px 20px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-lg);
+		background: var(--surface-raised);
+		box-shadow: var(--shadow-soft);
+	}
+	.charter-text {
+		color: var(--ink);
+		font-size: var(--t-body);
+		line-height: 1.65;
+	}
+	.charter-text :global(.md > :first-child) {
+		margin-top: 0;
+	}
+	.charter-text :global(.md > :last-child) {
+		margin-bottom: 0;
+	}
+	.charter-text.collapsed {
+		max-height: 15rem;
+		overflow: hidden;
+		mask-image: linear-gradient(#000 75%, transparent);
+	}
+	.charter-editor {
+		width: 100%;
+		min-height: 360px;
+		border: 0;
+		padding: 0;
+		background: transparent;
+		font: var(--t-body) / 1.65 var(--font-mono);
+		resize: vertical;
+		box-shadow: none;
+	}
+	.charter-editor:focus-visible {
+		outline: none;
+	}
+	.charter-card:has(.charter-editor:focus-visible) {
+		border-color: color-mix(in srgb, var(--intent-conversation) 55%, var(--border));
+	}
+	.edit-state {
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.edit-state.changed {
+		color: var(--intent-authority);
+	}
+	.text-link {
+		padding: 4px 6px;
+		border: 0;
+		border-radius: var(--radius-control);
+		background: transparent;
+		color: var(--text-tertiary);
+		font: inherit;
+		font-size: var(--t-label);
+		cursor: pointer;
+	}
+	.text-link:hover {
+		background: var(--surface-alt);
+		color: var(--ink);
+	}
+	.expand {
+		margin: 10px 0 0 -6px;
+		font-size: var(--t-body);
+		color: var(--text-secondary);
+	}
+	.revision summary {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		min-height: 44px;
+		padding: 0 16px;
+		color: var(--ink);
+		font-size: var(--t-body);
+		cursor: pointer;
+		list-style: none;
+	}
+	.revision summary::-webkit-details-marker {
+		display: none;
+	}
+	.revision summary::before {
+		content: none !important;
+	}
+	.revision summary:hover {
+		background: var(--surface-hover);
+	}
+	.revision time {
+		margin-left: auto;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.revision-text {
+		padding: 4px 16px 16px;
+		color: var(--text-secondary);
+		font-size: var(--t-body);
+		line-height: 1.6;
+	}
+</style>

@@ -92,6 +92,58 @@ pub(crate) enum RequestCommand {
     Show { id: String },
 }
 
+#[derive(Subcommand)]
+pub(crate) enum CharterCommand {
+    /// The charter as it stands, its revision, and any draft waiting for the owner.
+    Show,
+    /// Save the charter because the owner told you what it should say. Refused for anyone else.
+    Apply {
+        /// The owner, by Actor id.
+        #[arg(long)]
+        requester: String,
+        /// A Markdown file holding the whole new charter.
+        #[arg(long)]
+        file: std::path::PathBuf,
+        /// The owner's message, by id.
+        #[arg(long)]
+        source_message: Option<String>,
+    },
+    /// Draft a charter change into Company › Charter for the owner to publish, edit or discard.
+    Propose {
+        /// Who asked for it, by Actor id (your own id when it is your proposal).
+        #[arg(long)]
+        requester: String,
+        /// A Markdown file holding the whole proposed charter.
+        #[arg(long)]
+        file: std::path::PathBuf,
+        /// Why, in one or two plain sentences; the owner reads it beside the draft.
+        #[arg(long, default_value = "")]
+        reason: String,
+        #[arg(long)]
+        source_message: Option<String>,
+    },
+}
+
+impl CharterCommand {
+    pub(crate) fn request(self, company: String) -> Result<Value> {
+        let read = |file: &std::path::Path| {
+            std::fs::read_to_string(file).with_context(|| format!("read {}", file.display()))
+        };
+        let operation = match self {
+            Self::Show => json!({"operation":"charter_show"}),
+            Self::Apply { requester, file, source_message } => json!({
+                "operation":"charter_apply","requester":requester,"markdown":read(&file)?,
+                "source_message":source_message,
+            }),
+            Self::Propose { requester, file, reason, source_message } => json!({
+                "operation":"charter_propose","requester":requester,"markdown":read(&file)?,
+                "reason":reason,"source_message":source_message,
+            }),
+        };
+        Ok(envelope(company, operation))
+    }
+}
+
 fn parse(field: &str, raw: &str) -> Result<Value> {
     serde_json::from_str(raw).with_context(|| format!("--{field} must be JSON"))
 }

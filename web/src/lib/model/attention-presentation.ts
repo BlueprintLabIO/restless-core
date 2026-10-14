@@ -16,6 +16,8 @@ export function ownerAttention(items: AttentionItem[]): AttentionItem[] {
 }
 
 export function attentionTitle(item: AttentionItem): string {
+	// The row already names who asked; the title is what they asked for.
+	if (item.directionRequest) return item.directionRequest.summary;
 	return item.title.replace(/^(Blocked|Decision|Approval|Outcome review):\s*/i, '');
 }
 

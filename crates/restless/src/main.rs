@@ -97,6 +97,14 @@ enum Command {
         #[command(subcommand)]
         command: direction::DirectionCommand,
     },
+    /// Exec only: the company charter Company › Charter shows; save it on the owner's direction or
+    /// draft a change for them to publish.
+    Charter {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: direction::CharterCommand,
+    },
     /// Exec only: ask whoever owns a direction to approve a change someone asked for.
     Request {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
@@ -2614,6 +2622,9 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             command.request(company.context("no company: pass -c or set RESTLESS_COMPANY")?)?
         }
         Command::Request { company, command } => {
+            command.request(company.context("no company: pass -c or set RESTLESS_COMPANY")?)?
+        }
+        Command::Charter { company, command } => {
             command.request(company.context("no company: pass -c or set RESTLESS_COMPANY")?)?
         }
         Command::Tools { company, command } => {

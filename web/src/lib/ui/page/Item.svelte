@@ -14,6 +14,7 @@
 		selected = false,
 		unread = false,
 		dim = false,
+		stacked = false,
 		leading,
 		trailing,
 		actions,
@@ -28,6 +29,9 @@
 		unread?: boolean;
 		/** Finished or archived: present but quiet. */
 		dim?: boolean;
+		/** Title over meta, the title on up to two lines: for narrow lists such as the Inbox, where
+		 * one line cut every title to a few words. */
+		stacked?: boolean;
 		leading?: Snippet;
 		trailing?: Snippet;
 		actions?: Snippet;
@@ -44,6 +48,7 @@
 	class:selected
 	class:unread
 	class:dim
+	class:stacked
 	class:interactive={!!href || !!onclick}
 >
 	<div class="item-row">
@@ -197,6 +202,58 @@
 		}
 		.item-detail {
 			padding-left: 14px;
+		}
+	}
+	/* Two-line rows: the title wraps to two lines, who and when sit under it, and the row's
+	 * actions take the time's place on hover rather than squeezing the title. */
+	.stacked > .item-row {
+		align-items: flex-start;
+		min-height: 56px;
+		padding-top: 10px;
+		padding-bottom: 10px;
+	}
+	.stacked .item-main {
+		flex-direction: column;
+		align-items: stretch;
+		gap: 2px;
+	}
+	.stacked .item-title {
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		-webkit-box-orient: vertical;
+		line-height: 1.35;
+		white-space: normal;
+		overflow-wrap: anywhere;
+	}
+	.stacked .item-meta {
+		flex: none;
+		min-width: 0;
+		font-size: var(--t-label);
+	}
+	.stacked .item-leading {
+		margin-top: 1px;
+	}
+	.stacked .item-trailing {
+		padding-top: 1px;
+		font-size: var(--t-label);
+	}
+	.stacked .item-actions {
+		position: absolute;
+		top: 6px;
+		right: 8px;
+		border-radius: var(--radius-control);
+		background: var(--surface-hover);
+	}
+	@media (hover: hover) and (pointer: fine) {
+		.stacked:is(:hover, :focus-within) .item-trailing {
+			visibility: hidden;
+		}
+	}
+	@media not ((hover: hover) and (pointer: fine)) {
+		.stacked .item-actions {
+			position: static;
+			background: transparent;
 		}
 	}
 </style>

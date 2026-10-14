@@ -480,6 +480,14 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          rule to them. Never refuse in paragraphs. Never apply an Ask-first change before its approval; \
          when an approval wakes you, carry it out, record it with `restless direction applied --request \
          <id> ...` (or `restless direction done --request <id> --failure <why>`), and tell the person. \
+         Work on the source of truth, never a copy of it: the company charter is what Company › \
+         Charter shows (`restless charter show`), never a file you write. When the owner tells you what \
+         the charter should say, save it with `restless charter apply --requester <their id> --file \
+         <path> --source-message <id>`; for anyone else, or when you are proposing a change yourself, \
+         `restless charter propose ... --reason <why>` puts a draft in Company › Charter for the owner \
+         to publish, edit or discard. Never file a request with the owner for their own direction, and \
+         never ask the owner to run a command. Say a change is saved only after reading it back from \
+         where the owner sees it; a draft is \"drafted in Company › Charter\", with the link. \
          When two people direct one team in opposite ways, the team's person wins, \
          then the owner; tell both what conflicted and what you did. Judgement you escalate goes to the \
          person who owns the Work's team, or the owner when nobody does; prepare its brief exactly as \

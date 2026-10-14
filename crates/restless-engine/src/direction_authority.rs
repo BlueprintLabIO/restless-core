@@ -262,6 +262,15 @@ pub async fn file_request(
     // A person need not say why; the approver then sees only what they asked for.
     let reason: String = input.reason.trim().chars().take(1000).collect();
     let routed = routed_to(authority, company, names, input.team).await?;
+    // Asking someone to approve their own direction makes them a dispatcher for nothing: it is
+    // Direct, so Exec applies it (the charter through `restless charter apply`).
+    let owner = company_owner(authority, company).await?;
+    if input.requester == routed || (input.requester == "owner" && routed == owner) {
+        bail!(
+            "{} asked for this themselves, so it is Direct: apply it now and tell them it is done. For the charter, use `restless charter apply`.",
+            names.person(input.requester).name
+        );
+    }
     let team = input.team.and_then(|team| names.team(team)).map(|(id, _, _)| id.to_string());
     let id = Uuid::new_v4();
     authority
@@ -951,6 +960,7 @@ async fn restore(
 pub async fn execute(
     authority: &AuthorityStore,
     org: &OrgIntel,
+    root: &std::path::Path,
     company: &str,
     by: &str,
     operation: DirectionOperation,
@@ -1015,7 +1025,187 @@ pub async fn execute(
             let grants = active_grants(authority, company, &names).await?;
             json!({ "items": grants })
         }
+        DirectionOperation::CharterShow => {
+            let config = crate::runtime::CompanyConfig::load(root, company)
+                .map_err(|error| DirectionError::Missing(format!("{error:#}")))?;
+            let revision = crate::authority::mandate_revision(&config.mission);
+            let proposal = charter_proposal(authority, company, &names, &revision).await?;
+            json!({ "markdown": config.mission, "revision": revision, "proposal": proposal })
+        }
+        DirectionOperation::CharterApply { requester, markdown, source_message } => {
+            charter_apply(authority, root, company, &names, by, &requester, markdown, source_message.as_deref())
+                .await?
+        }
+        DirectionOperation::CharterPropose { requester, markdown, reason, source_message } => {
+            charter_propose(authority, root, company, &names, by, &requester, markdown, &reason, source_message.as_deref())
+                .await?
+        }
     })
+}
+
+pub const CHARTER_PROPOSAL: &str = "mandate_proposal";
+pub const CHARTER_PROPOSAL_RESOLVED: &str = "mandate_proposal_resolved";
+
+/// The draft waiting for the owner, if any: the newest proposal nobody has published, discarded
+/// or replaced.
+pub async fn charter_proposal(
+    authority: &AuthorityStore,
+    company: &str,
+    names: &Names,
+    current_revision: &str,
+) -> std::result::Result<Option<CharterProposal>, DirectionError> {
+    let Some(record) = authority.recent_records_of_kind(company, CHARTER_PROPOSAL, 1).await?.into_iter().next() else {
+        return Ok(None);
+    };
+    let Some(id) = uuid_field(&record.body, "id") else { return Ok(None) };
+    if authority
+        .find_record(company, CHARTER_PROPOSAL_RESOLVED, "proposal_id", &id.to_string())
+        .await?
+        .is_some()
+    {
+        return Ok(None);
+    }
+    let base_revision = string_field(&record.body, "base_revision").unwrap_or_default();
+    let markdown = string_field(&record.body, "markdown").unwrap_or_default();
+    // A draft the charter already says is not waiting for anyone.
+    if crate::authority::mandate_revision(&markdown) == current_revision {
+        return Ok(None);
+    }
+    Ok(Some(CharterProposal {
+        id,
+        current: base_revision == current_revision,
+        base_revision,
+        markdown,
+        reason: string_field(&record.body, "reason").unwrap_or_default(),
+        requester: names.person(&string_field(&record.body, "requester").unwrap_or_default()),
+        source_message: string_field(&record.body, "source_message"),
+        proposed_at: record.created_at,
+    }))
+}
+
+/// Close a draft: `published` (the owner saved it, edited or not), `discarded`, or `replaced`
+/// by a newer draft. Closing twice is harmless.
+pub async fn resolve_charter_proposal(
+    authority: &AuthorityStore,
+    company: &str,
+    proposal_id: Uuid,
+    by: &str,
+    resolution: &str,
+) -> Result<()> {
+    if authority
+        .find_record(company, CHARTER_PROPOSAL_RESOLVED, "proposal_id", &proposal_id.to_string())
+        .await?
+        .is_some()
+    {
+        return Ok(());
+    }
+    authority
+        .emit(
+            company,
+            CHARTER_PROPOSAL_RESOLVED,
+            Some(by),
+            json!({ "proposal_id": proposal_id, "resolution": resolution, "by": by }),
+        )
+        .await?;
+    Ok(())
+}
+
+/// The owner told Exec what the charter should say: Exec saves it to the real charter, the one
+/// Company › Charter shows, and reads it back before saying so. Nobody else's direction changes
+/// the charter; theirs becomes a draft (`charter_propose`).
+#[allow(clippy::too_many_arguments)]
+async fn charter_apply(
+    authority: &AuthorityStore,
+    root: &std::path::Path,
+    company: &str,
+    names: &Names,
+    by: &str,
+    requester: &str,
+    markdown: String,
+    source_message: Option<&str>,
+) -> std::result::Result<Value, DirectionError> {
+    let owner = company_owner(authority, company).await?;
+    if requester != owner && requester != "owner" {
+        return Err(DirectionError::NotYours(format!(
+            "Only {} sets the charter. Draft it for them with `restless charter propose`; it waits in Company › Charter.",
+            names.person(&owner).name
+        )));
+    }
+    crate::authority::validate_mandate(&markdown).map_err(|error| DirectionError::Invalid(format!("{error:#}")))?;
+    let config = crate::runtime::CompanyConfig::load(root, company)
+        .map_err(|error| DirectionError::Missing(format!("{error:#}")))?;
+    let expected = crate::authority::mandate_revision(&markdown);
+    let outcome = crate::authority::revise_mandate_by(authority, root, config, markdown, by)
+        .await
+        .map_err(DirectionError::Store)?;
+    // "Saved" is what the charter says now, not what was written.
+    let saved = crate::runtime::CompanyConfig::load(root, company)
+        .map(|config| crate::authority::mandate_revision(&config.mission) == expected)
+        .unwrap_or(false);
+    if !saved {
+        return Err(DirectionError::Store(anyhow!(
+            "the charter did not change; Company › Charter still shows the previous text"
+        )));
+    }
+    if let Some(open) = charter_proposal(authority, company, names, "").await? {
+        resolve_charter_proposal(authority, company, open.id, by, "replaced").await?;
+    }
+    Ok(json!({
+        "revision": expected,
+        "source_message": source_message,
+        "status": outcome.evidence_status,
+        "say": "Saved to Company › Charter.",
+    }))
+}
+
+/// Draft a charter change for the owner. It shows in Company › Charter as a draft over the
+/// current text and in the owner's Inbox; publishing it there is the owner's save.
+#[allow(clippy::too_many_arguments)]
+async fn charter_propose(
+    authority: &AuthorityStore,
+    root: &std::path::Path,
+    company: &str,
+    names: &Names,
+    by: &str,
+    requester: &str,
+    markdown: String,
+    reason: &str,
+    source_message: Option<&str>,
+) -> std::result::Result<Value, DirectionError> {
+    crate::authority::validate_mandate(&markdown).map_err(|error| DirectionError::Invalid(format!("{error:#}")))?;
+    let config = crate::runtime::CompanyConfig::load(root, company)
+        .map_err(|error| DirectionError::Missing(format!("{error:#}")))?;
+    let current = crate::authority::mandate_revision(&config.mission);
+    if crate::authority::mandate_revision(&markdown) == current {
+        return Ok(json!({ "say": "The charter already says this; nothing to draft." }));
+    }
+    if let Some(open) = charter_proposal(authority, company, names, &current).await? {
+        resolve_charter_proposal(authority, company, open.id, by, "replaced").await?;
+    }
+    let id = Uuid::new_v4();
+    authority
+        .emit(
+            company,
+            CHARTER_PROPOSAL,
+            Some(by),
+            json!({
+                "id": id,
+                "markdown": markdown,
+                "base_revision": current,
+                "reason": reason.trim().chars().take(600).collect::<String>(),
+                "requester": requester,
+                "source_message": source_message,
+            }),
+        )
+        .await?;
+    let owner = company_owner(authority, company).await?;
+    Ok(json!({
+        "proposal_id": id,
+        "say": format!(
+            "Drafted in Company › Charter. {} can publish, edit or discard it there.",
+            names.person(&owner).name
+        ),
+    }))
 }
 
 /// One day's direction for a viewer: applied changes that day and requests still waiting.

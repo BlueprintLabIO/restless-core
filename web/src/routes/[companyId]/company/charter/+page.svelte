@@ -1,19 +1,14 @@
 <script lang="ts">
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
-	import { formatRelative, formatMoment } from '$lib/ui/time';
 	import { Page, Section, Row, Item, Notice, Empty } from '$lib/ui/page';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
-	import { beforeNavigate, goto } from '$app/navigation';
-	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { page } from '$app/state';
-	import { tick } from 'svelte';
 	import CompanyNameField from '$lib/components/CompanyNameField.svelte';
 	import CompanyLogoField from '$lib/components/CompanyLogoField.svelte';
 	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
-	import { reviseCompanyCharter } from '$lib/model/company';
-	import Markdown from '$lib/primitives/Markdown.svelte';
+	import CharterPurpose from '$lib/components/CharterPurpose.svelte';
 	import { companyPrincipalQuery, companyQuery } from '$lib/model/queries.svelte';
 	import SharedCharter from '$lib/components/SharedCharter.svelte';
 	import ArrowRight from '@lucide/svelte/icons/arrow-right';
@@ -29,129 +24,7 @@
 		if (owner) source.attach();
 	});
 	const view = $derived(source.view);
-	const charterText = $derived(
-		view ? withoutDocumentTitle(view.charter.purpose, view.company.name) : ''
-	);
-	const LONG_CHARTER = 900;
-	let charterExpanded = $state(false);
-	let historyOpen = $state(false);
-	let historyBusy = $state(false);
-	let historyError = $state('');
-	let history = $state<
-		{ revision: string; markdown: string; saved_at: string | null; author: string }[]
-	>([]);
-	let editing = $state(false);
 	let nameVersion = $state(0);
-	let saving = $state(false);
-	let draft = $state('');
-	let openedMarkdown = $state('');
-	let baseRevision = $state('');
-	let editor = $state<HTMLTextAreaElement>();
-	let notice = $state('');
-	let failure = $state('');
-	const changed = $derived(editing && draft !== openedMarkdown);
-
-	async function toggleHistory() {
-		historyOpen = !historyOpen;
-		if (!historyOpen) return;
-		historyBusy = true;
-		historyError = '';
-		try {
-			const response = await fetch(
-				`/api/companies/${encodeURIComponent(companyId)}/company/charter`,
-				{ cache: 'no-store' }
-			);
-			if (!response.ok) throw new Error('Could not read charter history. Try again.');
-			history = (await response.json()).revisions;
-		} catch (cause) {
-			historyError = failureSentence(cause, 'Could not read charter history.');
-		} finally {
-			historyBusy = false;
-		}
-	}
-
-	let discarding = false;
-	beforeNavigate((navigation) => {
-		if (!changed || discarding || navigation.willUnload || !navigation.to) return;
-		navigation.cancel();
-		const target = navigation.to.url;
-		void confirmAction({
-			title: 'Discard your unsaved charter changes?',
-			action: 'Discard',
-			danger: true
-		}).then((yes) => {
-			if (!yes) return;
-			discarding = true;
-			void goto(target).finally(() => (discarding = false));
-		});
-	});
-
-	function beginEditing() {
-		if (!view) return;
-		draft = view.charter.purpose;
-		openedMarkdown = view.charter.purpose;
-		baseRevision = view.charter.revision;
-		failure = '';
-		notice = '';
-		editing = true;
-		void tick().then(() => editor?.focus());
-	}
-
-	function cancelEditing() {
-		editing = false;
-		draft = '';
-		openedMarkdown = '';
-		baseRevision = '';
-		failure = '';
-	}
-
-	async function saveCharter() {
-		if (!changed || saving) return;
-		saving = true;
-		failure = '';
-		notice = '';
-		try {
-			const outcome = await reviseCompanyCharter(companyId, draft, baseRevision);
-			source.accept(outcome.company);
-			nameVersion += 1;
-			notice = outcome.message;
-			if (outcome.evidence_status === 'incomplete')
-				notice += ' Authority recorded the request but could not confirm its final evidence.';
-			cancelEditing();
-		} catch (cause) {
-			failure = failureSentence(cause, 'The charter was not saved.');
-			if ((cause as Error & { status?: number })?.status === 409) await source.refresh();
-		} finally {
-			saving = false;
-		}
-	}
-
-	$effect(() => {
-		if (!changed) return;
-		const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-		window.addEventListener('beforeunload', warn);
-		return () => window.removeEventListener('beforeunload', warn);
-	});
-
-	function editorKeys(event: KeyboardEvent) {
-		if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-			event.preventDefault();
-			void saveCharter();
-		}
-		if (event.key === 'Escape' && !changed) cancelEditing();
-	}
-
-	function withoutDocumentTitle(markdown: string, companyName: string): string {
-		const trimmed = markdown.trim();
-		const title = `# ${companyName}`;
-		return trimmed === title
-			? ''
-			: trimmed.startsWith(`${title}\n`)
-				? trimmed.slice(title.length).trimStart()
-				: trimmed;
-	}
-
-	const when = (value?: Date | string) => formatRelative(value, 'Not yet');
 	holdQueries(() => [source, principal]);
 </script>
 
@@ -172,9 +45,6 @@
 				{#snippet actions()}<button class="btn small" onclick={() => source.refresh()}>Retry</button
 					>{/snippet}
 			</Notice>{/if}
-		{#if failure}<Notice tone="danger" title="The charter was not saved" details={failure} />{/if}
-		{#if notice}<Notice tone="success" title="Charter saved">{notice}</Notice>{/if}
-
 		<Section title="Company">
 			<Row label="Name">
 				{#key `${companyId}:${nameVersion}`}<CompanyNameField {companyId} />{/key}
@@ -196,108 +66,14 @@
 			</Row>
 		</Section>
 
-		<Section
-			title="Purpose"
-			info="The owner-authorised purpose and rules every agent works under. Each save is a new revision."
-			group={false}
-		>
-			{#snippet actions()}
-				{#if editing}
-					<span class="edit-state" class:changed>{changed ? 'Unsaved changes' : 'Editing'}</span>
-					<button class="btn small" type="button" disabled={saving} onclick={cancelEditing}
-						>Cancel</button
-					>
-					<button
-						class="btn primary small"
-						type="button"
-						disabled={!changed || saving}
-						title="Save (⌘/Ctrl + Enter)"
-						onclick={saveCharter}>{saving ? 'Saving…' : 'Save'}</button
-					>
-				{:else}
-					<button
-						type="button"
-						class="text-link"
-						onclick={toggleHistory}
-						aria-expanded={historyOpen}
-						title={`Owner authorised ${formatMoment(view.charter.effective_at)}`}
-						>Saved {when(view.charter.effective_at)}</button
-					>
-					<button class="btn small" type="button" onclick={beginEditing}>Edit</button>
-					<CopyCompanySetting
-						{companyId}
-						setting="purpose"
-						label="Purpose"
-						oncopied={() => source.refresh()}
-					/>
-				{/if}
-			{/snippet}
-			<div class="charter-card">
-				{#if editing}
-					<textarea
-						class="charter-editor"
-						bind:this={editor}
-						bind:value={draft}
-						aria-label="Company charter in Markdown"
-						title="Markdown: # for headings, - for lists, a blank line between paragraphs."
-						spellcheck="true"
-						onkeydown={editorKeys}></textarea>
-				{:else if charterText}
-					<div
-						class="charter-text"
-						class:collapsed={!charterExpanded && charterText.length > LONG_CHARTER}
-					>
-						<Markdown text={charterText} />
-					</div>
-					{#if charterText.length > LONG_CHARTER}<button
-							class="text-link expand"
-							onclick={() => (charterExpanded = !charterExpanded)}
-							>{charterExpanded ? 'Show less' : 'Show the full charter'}</button
-						>{/if}
-				{:else}
-					<Empty
-						compact
-						title="No charter yet"
-						info="Write the company's purpose, or agree it with Exec and save it here."
-					>
-						{#snippet action()}<button class="btn primary small" onclick={beginEditing}
-								>Write charter</button
-							>{/snippet}
-					</Empty>
-				{/if}
-			</div>
-		</Section>
-
-		{#if historyOpen}
-			<Section title="Charter history" count={history.length || null}>
-				{#if historyBusy}<Empty compact title="Loading revisions…" />
-				{:else if historyError}<Notice tone="danger" title="Could not read charter history"
-						>{historyError}
-						{#snippet actions()}<button
-								class="btn small"
-								onclick={() => {
-									historyOpen = false;
-									void toggleHistory();
-								}}>Retry</button
-							>{/snippet}</Notice
-					>
-				{:else}
-					{#each history as revision, index (`${revision.revision}:${index}`)}
-						<details class="revision">
-							<summary>
-								<span
-									>{revision.revision === view.charter.revision ? 'Current' : 'Earlier'} · {revision.author}</span
-								>
-								<time title={revision.saved_at ? formatMoment(revision.saved_at) : undefined}
-									>{revision.saved_at ? when(revision.saved_at) : ''}</time
-								>
-							</summary>
-							<div class="revision-text"><Markdown text={revision.markdown} /></div>
-						</details>
-					{/each}
-				{/if}
-			</Section>
-		{/if}
+		<CharterPurpose
+			{companyId}
+			{view}
+			onsaved={(company) => {
+				source.accept(company);
+				nameVersion += 1;
+			}}
+		/>
 
 		<Section
 			title="Current direction"
@@ -351,102 +127,3 @@
 		<Skeleton label="Reading the charter…" variant="page" count={4} />
 	{/if}
 </Page>
-
-<style>
-	.charter-card {
-		padding: 18px 20px;
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-lg);
-		background: var(--surface-raised);
-		box-shadow: var(--shadow-soft);
-	}
-	.charter-text {
-		color: var(--ink);
-		font-size: var(--t-body);
-		line-height: 1.65;
-	}
-	.charter-text :global(.md > :first-child) {
-		margin-top: 0;
-	}
-	.charter-text :global(.md > :last-child) {
-		margin-bottom: 0;
-	}
-	.charter-text.collapsed {
-		max-height: 15rem;
-		overflow: hidden;
-		mask-image: linear-gradient(#000 75%, transparent);
-	}
-	.charter-editor {
-		width: 100%;
-		min-height: 360px;
-		border: 0;
-		padding: 0;
-		background: transparent;
-		font: var(--t-body) / 1.65 var(--font-mono);
-		resize: vertical;
-		box-shadow: none;
-	}
-	.charter-editor:focus-visible {
-		outline: none;
-	}
-	.charter-card:has(.charter-editor:focus-visible) {
-		border-color: color-mix(in srgb, var(--intent-conversation) 55%, var(--border));
-	}
-	.edit-state {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.edit-state.changed {
-		color: var(--intent-authority);
-	}
-	.text-link {
-		padding: 4px 6px;
-		border: 0;
-		border-radius: var(--radius-control);
-		background: transparent;
-		color: var(--text-tertiary);
-		font: inherit;
-		font-size: var(--t-label);
-		cursor: pointer;
-	}
-	.text-link:hover {
-		background: var(--surface-alt);
-		color: var(--ink);
-	}
-	.expand {
-		margin: 10px 0 0 -6px;
-		font-size: var(--t-body);
-		color: var(--text-secondary);
-	}
-	.revision summary {
-		display: flex;
-		align-items: center;
-		gap: var(--space-3);
-		min-height: 44px;
-		padding: 0 16px;
-		color: var(--ink);
-		font-size: var(--t-body);
-		cursor: pointer;
-		list-style: none;
-	}
-	.revision summary::-webkit-details-marker {
-		display: none;
-	}
-	.revision summary::before {
-		content: none !important;
-	}
-	.revision summary:hover {
-		background: var(--surface-hover);
-	}
-	.revision time {
-		margin-left: auto;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.revision-text {
-		padding: 4px 16px 16px;
-		color: var(--text-secondary);
-		font-size: var(--t-body);
-		line-height: 1.6;
-	}
-</style>

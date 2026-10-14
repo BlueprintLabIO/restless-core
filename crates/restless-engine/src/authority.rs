@@ -86,7 +86,7 @@ pub struct ModelCooldown {
 pub struct MandateRevisionOutcome {
     message: String,
     runtime_projection: MandateProjectionOutcome,
-    evidence_status: &'static str,
+    pub evidence_status: &'static str,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -1238,8 +1238,20 @@ pub fn validate_mandate(markdown: &str) -> Result<()> {
 pub async fn revise_mandate(
     authority: &AuthorityStore,
     root: &Path,
+    config: crate::runtime::CompanyConfig,
+    markdown: String,
+) -> Result<MandateRevisionOutcome> {
+    revise_mandate_by(authority, root, config, markdown, "owner").await
+}
+
+/// The same mutation, attributed: Exec saves the charter only on the owner's own direction
+/// (`direction_authority::charter_apply`), and the record says it was Exec's hand.
+pub async fn revise_mandate_by(
+    authority: &AuthorityStore,
+    root: &Path,
     mut config: crate::runtime::CompanyConfig,
     markdown: String,
+    actor: &str,
 ) -> Result<MandateRevisionOutcome> {
     validate_mandate(&markdown)?;
     let previous_markdown = config.mission.clone();
@@ -1261,7 +1273,7 @@ pub async fn revise_mandate(
         .emit(
             &config.name,
             "mandate_revision",
-            Some("owner"),
+            Some(actor),
             serde_json::json!({
                 "state": "requested",
                 "previous_revision": previous_revision,
@@ -1280,7 +1292,7 @@ pub async fn revise_mandate(
             .emit(
                 &config.name,
                 "mandate_revision",
-                Some("owner"),
+                Some(actor),
                 serde_json::json!({
                     "state": "failed",
                     "request_record_id": request_record_id,
@@ -1312,7 +1324,7 @@ pub async fn revise_mandate(
         .emit(
             &config.name,
             "mandate_revision",
-            Some("owner"),
+            Some(actor),
             serde_json::json!({
                 "state": "succeeded",
                 "request_record_id": request_record_id,
