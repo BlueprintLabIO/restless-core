@@ -1008,11 +1008,11 @@ pub(super) async fn governance_activity(
     AxumPath(company): AxumPath<String>,
     Query(query): Query<ActivityQuery>,
 ) -> impl IntoResponse {
-    if principal.membership_role() != "owner" {
+    if !matches!(principal.membership_role(), "owner" | "admin") {
         return api_error(
             StatusCode::FORBIDDEN,
             "activity",
-            "Only the owner can read the company's governance record.",
+            "Only the owner and admins can read the company's governance record.",
         );
     }
     // An archived company's record stays readable: it is how the owner looks back at it.

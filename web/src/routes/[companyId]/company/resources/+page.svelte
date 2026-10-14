@@ -11,10 +11,14 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { openCompanyResource, type CompanyResource } from '$lib/model/company';
-	import { companyQuery } from '$lib/model/queries.svelte';
+	import { companyPrincipalQuery, companyQuery } from '$lib/model/queries.svelte';
+	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? '');
+	/* An admin reads what the company spends; the owner also sets what it may do. */
+	const principal = $derived(companyPrincipalQuery(companyId));
+	const owner = $derived(hasOwnerSurfaceAccess(principal.view));
 	const source = $derived(companyQuery(companyId));
 	$effect(() => source.attach(true));
 	const view = $derived(source.view);
@@ -73,11 +77,11 @@
 	info="What the company may spend and do, the tools it can reach, and how long its computer runs. Every action is still checked before it runs."
 >
 	{#snippet actions()}
-		<nav class="jump" aria-label="Sections on this page">
-			<a href="#spend">Spend</a><a href="#authority">Authority</a><a href="#tools">Tools</a><a
-				href="#computer">Computer</a
-			>
-		</nav>
+		{#if owner}<nav class="jump" aria-label="Sections on this page">
+				<a href="#spend">Spend</a><a href="#authority">Authority</a><a href="#tools">Tools</a><a
+					href="#computer">Computer</a
+				>
+			</nav>{/if}
 	{/snippet}
 	{#if view}
 		{#if source.status === 'stale'}<Notice tone="warning" title="Showing the last values read">
@@ -85,58 +89,58 @@
 					>{/snippet}
 			</Notice>{/if}
 		<CompanyLimits section="spend" />
-		<CompanyLimits section="authority" />
+		{#if owner}<CompanyLimits section="authority" />
 
-		<Section
-			id="tools"
-			title="Tools"
-			info="Applications the company computer can open for you. Connected services and their tools live in Apps."
-			count={launchable.length || null}
-		>
-			{#if view.resources.status === 'unavailable'}
-				<Empty compact title="Tools are unavailable right now" />
-			{:else}
-				{#each launchable as item (item.id)}
-					<Item
-						title={item.label}
-						meta={item.launch?.detail ?? words(item.launch?.shape ?? item.kind)}
-					>
-						{#snippet leading()}<AppWindow size={15} strokeWidth={1.8} />{/snippet}
-						{#snippet trailing()}<button
-								class="btn small"
-								type="button"
-								disabled={item.launch?.availability !== 'ready' || opening !== null}
-								title={item.launch?.detail}
-								onclick={() => openResource(item)}>{openLabel(item)}</button
-							>{/snippet}
-					</Item>
+			<Section
+				id="tools"
+				title="Tools"
+				info="Applications the company computer can open for you. Connected services and their tools live in Apps."
+				count={launchable.length || null}
+			>
+				{#if view.resources.status === 'unavailable'}
+					<Empty compact title="Tools are unavailable right now" />
 				{:else}
-					<Empty compact title="No tools to open" />
-				{/each}
-			{/if}
-		</Section>
-		<Publications {companyId} items={view.resources.items} onchanged={() => source.refresh()} />
-		{#if launchError}<Notice tone="danger" title="The resource could not be opened"
-				>{launchError}</Notice
-			>{/if}
-		{#if nativeNotice}<Notice tone="success" title={nativeNotice} />{/if}
-		{#if embedded}
-			<Section title={embedded.label} group={false}>
-				{#snippet actions()}<button
-						class="btn small"
-						type="button"
-						onclick={() => (embedded = null)}>Close</button
-					>{/snippet}
-				<iframe
-					class="viewer"
-					src={embedded.href}
-					title={embedded.label}
-					sandbox="allow-forms allow-pointer-lock allow-scripts"
-				></iframe>
+					{#each launchable as item (item.id)}
+						<Item
+							title={item.label}
+							meta={item.launch?.detail ?? words(item.launch?.shape ?? item.kind)}
+						>
+							{#snippet leading()}<AppWindow size={15} strokeWidth={1.8} />{/snippet}
+							{#snippet trailing()}<button
+									class="btn small"
+									type="button"
+									disabled={item.launch?.availability !== 'ready' || opening !== null}
+									title={item.launch?.detail}
+									onclick={() => openResource(item)}>{openLabel(item)}</button
+								>{/snippet}
+						</Item>
+					{:else}
+						<Empty compact title="No tools to open" />
+					{/each}
+				{/if}
 			</Section>
-		{/if}
+			<Publications {companyId} items={view.resources.items} onchanged={() => source.refresh()} />
+			{#if launchError}<Notice tone="danger" title="The resource could not be opened"
+					>{launchError}</Notice
+				>{/if}
+			{#if nativeNotice}<Notice tone="success" title={nativeNotice} />{/if}
+			{#if embedded}
+				<Section title={embedded.label} group={false}>
+					{#snippet actions()}<button
+							class="btn small"
+							type="button"
+							onclick={() => (embedded = null)}>Close</button
+						>{/snippet}
+					<iframe
+						class="viewer"
+						src={embedded.href}
+						title={embedded.label}
+						sandbox="allow-forms allow-pointer-lock allow-scripts"
+					></iframe>
+				</Section>
+			{/if}
 
-		<CompanyLimits section="computer" />
+			<CompanyLimits section="computer" />{/if}
 	{:else if source.failure}
 		<FailureNotice
 			error={source.failure}

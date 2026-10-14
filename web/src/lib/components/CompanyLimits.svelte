@@ -8,7 +8,8 @@
 	import PaymentRail from '$lib/components/PaymentRail.svelte';
 	import { Section, Row, Item, Notice, Fold, Toggle } from '$lib/ui/page';
 	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
-	import { companyQuery } from '$lib/model/queries.svelte';
+	import { companyPrincipalQuery, companyQuery } from '$lib/model/queries.svelte';
+	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
 	import {
 		saveNativeLimit as postNativeLimit,
 		saveRuntimePolicy as postRuntimePolicy,
@@ -27,6 +28,9 @@
 	const source = $derived(companyQuery(companyId));
 	$effect(() => source.attach());
 	const view = $derived(source.view);
+	/* An admin reads the limits; only the owner changes them. */
+	const principal = $derived(companyPrincipalQuery(companyId));
+	const canEdit = $derived(hasOwnerSurfaceAccess(principal.view));
 	let editingLimit = $state(false),
 		limitSaving = $state(false),
 		limit = $state(''),
@@ -347,7 +351,7 @@
 				: `The total model budget across all work so far. The Inbox warns at ${spend.warning_percent}%; at the limit, model work stops. Lowering it does not undo past spend.`}
 		>
 			{#snippet actions()}
-				{#if !editingLimit}<button
+				{#if canEdit && !editingLimit}<button
 						class="btn small"
 						onclick={() => {
 							limit = String(spend.ceiling_usd);
@@ -358,12 +362,12 @@
 							editingLimit = true;
 						}}>Edit limit</button
 					>{/if}
-				<CopyCompanySetting
-					{companyId}
-					setting="spend"
-					label="Model spend limit"
-					oncopied={() => source.refresh()}
-				/>
+				{#if canEdit}<CopyCompanySetting
+						{companyId}
+						setting="spend"
+						label="Model spend limit"
+						oncopied={() => source.refresh()}
+					/>{/if}
 			{/snippet}
 			<div class="meter-row">
 				<div class="meter-copy">
@@ -404,13 +408,13 @@
 						: 'Spend accounting was interrupted'}
 				>
 					The total is a lower bound. The limit still stops model work once known spend reaches it.
-					{#snippet actions()}<button
-							class="btn small"
-							type="button"
-							disabled={resuming}
-							onclick={() => void resumeExact(unpriced.length)}
-							>{resuming ? 'Resuming…' : 'Resume exact accounting…'}</button
-						>{/snippet}
+					{#snippet actions()}{#if canEdit}<button
+								class="btn small"
+								type="button"
+								disabled={resuming}
+								onclick={() => void resumeExact(unpriced.length)}
+								>{resuming ? 'Resuming…' : 'Resume exact accounting…'}</button
+							>{/if}{/snippet}
 				</Notice>
 				{#if unpriced.length}<Fold label="Calls without a price" count={unpriced.length}>
 						{#each unpriced as call, index (index)}<Item
@@ -538,19 +542,19 @@
 								native.monthly_token_limit
 							)}{native.status === 'exhausted' ? ' · reached' : ''}</span
 						>
-						<button
-							class="btn small ghost"
-							type="button"
-							onclick={() => {
-								baseNativeTurns = native.monthly_turn_limit;
-								baseNativeTokens = native.monthly_token_limit;
-								nativeTurns = baseNativeTurns == null ? '' : String(baseNativeTurns);
-								nativeTokens = baseNativeTokens == null ? '' : String(baseNativeTokens);
-								nativeError = '';
-								nativeNotice = '';
-								editingNative = true;
-							}}>Edit</button
-						>
+						{#if canEdit}<button
+								class="btn small ghost"
+								type="button"
+								onclick={() => {
+									baseNativeTurns = native.monthly_turn_limit;
+									baseNativeTokens = native.monthly_token_limit;
+									nativeTurns = baseNativeTurns == null ? '' : String(baseNativeTurns);
+									nativeTokens = baseNativeTokens == null ? '' : String(baseNativeTokens);
+									nativeError = '';
+									nativeNotice = '';
+									editingNative = true;
+								}}>Edit</button
+							>{/if}
 					{/if}
 				</Row>
 				{#if editingNative}

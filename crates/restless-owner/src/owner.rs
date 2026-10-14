@@ -2278,7 +2278,9 @@ fn membership_boundary_violation(
         // An admin runs the day to day with the owner, and may stop a turn that went wrong; a
         // member's message waits its turn instead.
         || (principal.membership_role() == "admin"
-            && (admin_manages_company_setup(path) || is_actor_interrupt_route(path)))
+            && (admin_manages_company_setup(path)
+                || is_actor_interrupt_route(path)
+                || admin_reads_company_record(method, path)))
         || is_company_route_family(path, "rooms")
         // Chat lists, message search and reactions answer only from the
         // Rooms the caller takes part in.
@@ -2472,6 +2474,30 @@ fn member_reads_company_setup(method: &Method, path: &str) -> bool {
             | ["schedules"]
             | ["skills"]
             | ["intelligence"]
+    )
+}
+
+/// An admin who runs the company with the owner reads what it sent, decided and spent, and the
+/// apps it uses. Reads only: changing limits, apps, keys or approvals stays the owner's.
+fn admin_reads_company_record(method: &Method, path: &str) -> bool {
+    if !matches!(*method, Method::GET | Method::HEAD) {
+        return false;
+    }
+    let Some(rest) = path.strip_prefix("/api/companies/") else {
+        return false;
+    };
+    let mut segments = rest.split('/');
+    if !segments.next().is_some_and(|company| !company.is_empty()) {
+        return false;
+    }
+    let tail: Vec<&str> = segments.collect();
+    matches!(
+        tail.as_slice(),
+        ["company"]
+            | ["company", "activity"]
+            | ["attention", "history"]
+            | ["tool-connections"]
+            | ["app-requests"]
     )
 }
 

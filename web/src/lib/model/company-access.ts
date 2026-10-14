@@ -25,6 +25,14 @@ export function mayManageCompanySetup(principal: CompanyPrincipal | null | undef
 
 /** The Company sections every person in the company can open; the owner sees them all. */
 const SHARED_COMPANY_SECTIONS = ['', '/charter', '/identity', '/members', '/schedules'];
+/** What an admin also reads, to run the company with the owner: what it sent and decided,
+ * what it spends, and the apps it uses. Changing them stays the owner's. */
+const ADMIN_READ_SECTIONS = ['/activity', '/resources'];
+
+/** An admin reads Activity, spend and Apps beside the owner. */
+export function mayReadCompanyRecord(principal: CompanyPrincipal | null | undefined): boolean {
+	return principal?.membership_role === 'owner' || principal?.membership_role === 'admin';
+}
 
 /** Where a member lands: their Inbox, with For you and what the team handed them. */
 export function collaboratorHome(companyId: string): string {
@@ -56,6 +64,13 @@ export function mayOpenCompanyRoute(
 	if (hasOwnerSurfaceAccess(principal)) return true;
 	const root = `/${encodeURIComponent(companyId)}`;
 	if (SHARED_COMPANY_SECTIONS.some((section) => pathname === `${root}/company${section}`))
+		return true;
+	if (
+		mayReadCompanyRecord(principal) &&
+		(ADMIN_READ_SECTIONS.some((section) => pathname === `${root}/company${section}`) ||
+			pathname === `${root}/apps` ||
+			pathname.startsWith(`${root}/apps/`))
+	)
 		return true;
 	/* Their own Inbox: what the team handed them and where they were mentioned. */
 	if (pathname === root) return true;
@@ -104,6 +119,16 @@ export function companyShellTabs(
 				href: `${root}/people`,
 				on: pathname === `${root}/people` || pathname.startsWith(`${root}/people/`)
 			},
+			...(mayReadCompanyRecord(principal)
+				? [
+						{
+							key: 'apps',
+							label: 'Apps',
+							href: `${root}/apps`,
+							on: pathname === `${root}/apps` || pathname.startsWith(`${root}/apps/`)
+						}
+					]
+				: []),
 			{
 				key: 'company',
 				label: 'Company',

@@ -2710,6 +2710,45 @@ model = \"anthropic/claude-sonnet-5-5\"
         assert_eq!(included, std::collections::BTreeSet::from(["litellm".to_string()]));
     }
 
+    /// An admin reads what the company sent, decided and spent, and its apps; a member does not,
+    /// and neither changes them.
+    #[test]
+    fn an_admin_reads_activity_spend_and_apps_but_changes_none_of_them() {
+        let identity = |role: &str| crate::entry::VerifiedIdentity {
+            user: "user-1".into(),
+            issuer: Some("https://cloud.restless.test".into()),
+            owner: "owner-1".into(),
+            scope: crate::entry::CompanyScope::Company { company: "aris".into() },
+            role: role.into(),
+            actor: Some("human-1".into()),
+            company_id: Some(Uuid::new_v4()),
+            cell_id: Some(Uuid::new_v4()),
+            membership_id: Some("membership-1".into()),
+            membership_version: Some(1),
+            display_name: None,
+        };
+        let admin = RequestPrincipal::from_verified(&identity("admin")).unwrap();
+        let member = RequestPrincipal::from_verified(&identity("member")).unwrap();
+        for path in [
+            "/api/companies/aris/company",
+            "/api/companies/aris/company/activity",
+            "/api/companies/aris/attention/history",
+            "/api/companies/aris/tool-connections",
+            "/api/companies/aris/app-requests",
+        ] {
+            assert!(membership_boundary_violation(&Method::GET, path, &admin).is_none(), "admin refused {path}");
+            assert!(membership_boundary_violation(&Method::GET, path, &member).is_some(), "member reached {path}");
+        }
+        for (method, path) in [
+            (Method::POST, "/api/companies/aris/company/spend-limit"),
+            (Method::POST, "/api/companies/aris/tool-connections"),
+            (Method::POST, "/api/companies/aris/company/payment-rail"),
+            (Method::GET, "/api/companies/aris/vault"),
+        ] {
+            assert!(membership_boundary_violation(&method, path, &admin).is_some(), "admin reached {method} {path}");
+        }
+    }
+
     /// A hosted plane is its owner's own account plane, so its provider, Vault and sign-in settings
     /// carry no hosted refusal of their own. The boundary is the membership role: a member or an
     /// administrator still cannot reach them, and the owner can, from a company or the account.

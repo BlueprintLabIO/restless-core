@@ -77,6 +77,8 @@ const KEY = Symbol('company-setup-rows');
 
 /** The Company sections every person in the company can open. */
 const MEMBER_SECTIONS = new Set(['charter', 'identity', 'members', 'schedules']);
+/** An admin also reads what the company spends and its Activity. */
+const ADMIN_SECTIONS = new Set([...MEMBER_SECTIONS, 'limits']);
 
 const plural = (count: number, one: string, many = `${one}s`) =>
 	`${count} ${count === 1 ? one : many}`;
@@ -91,13 +93,15 @@ export function createCompanySetup(companyIdOf: () => string) {
 	const companyId = $derived(companyIdOf());
 	const principal = $derived(companyPrincipalQuery(companyId).view);
 	const owner = $derived(principal?.membership_role === 'owner');
+	/* An admin reads the company view too: its spend and Activity, not its keys or computer. */
+	const admin = $derived(principal?.membership_role === 'admin');
 	const catalog = companiesQuery(() => owner);
 	const entry = $derived(catalog.view.find((company) => company.id === companyId));
-	const source = $derived(companyQuery(companyId, () => owner));
+	const source = $derived(companyQuery(companyId, () => owner || admin));
 	$effect(() => {
-		if (owner) source.attach();
+		if (owner || admin) source.attach();
 	});
-	const view = $derived(owner ? source.view : null);
+	const view = $derived(owner || admin ? source.view : null);
 	const identity = $derived(identityQuery(companyId));
 	const intelligence = $derived(intelligenceQuery(companyId, () => owner));
 
@@ -274,7 +278,7 @@ export function createCompanySetup(companyIdOf: () => string) {
 			 * that hold its money, keys, model and computer. Only the owner is asked to finish setup. */
 			.filter(
 				(candidate) =>
-					(owner || MEMBER_SECTIONS.has(candidate.key)) &&
+					(owner || (admin ? ADMIN_SECTIONS : MEMBER_SECTIONS).has(candidate.key)) &&
 					!(candidate.key === 'vault' && secrets === 'refused')
 			)
 			.map((candidate) => (owner ? candidate : { ...candidate, todo: 0 }))
@@ -290,7 +294,7 @@ export function createCompanySetup(companyIdOf: () => string) {
 			const setupRow = byKey.get(target.key);
 			const record =
 				target.key === 'activity' ? History : target.key === 'health' ? HeartPulse : null;
-			if (!setupRow && !(record && owner)) continue;
+			if (!setupRow && !(record && (owner || (admin && target.key === 'activity')))) continue;
 			let group = out.find((candidate) => candidate.label === target.group);
 			if (!group) out.push((group = { label: target.group, rows: [] }));
 			const health = view?.computer.doctor.status;
