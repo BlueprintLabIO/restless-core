@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { formatMoney } from '$lib/ui/time';
+	import { formatMoment, formatMoney } from '$lib/ui/time';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
@@ -430,7 +430,7 @@
 				{#if unpriced.length}<Fold label="Calls without a price" count={unpriced.length}>
 						{#each unpriced as call, index (index)}<Item
 								title={call.model}
-								meta={`${who(call.actor)} · ${new Date(call.occurred_at).toLocaleString()}`}
+								meta={`${who(call.actor)} · ${formatMoment(call.occurred_at)}`}
 							/>{/each}
 					</Fold>{/if}
 				{#if resumeError}<Notice tone="danger" title="Nothing changed">{resumeError}</Notice>{/if}
@@ -610,8 +610,7 @@
 				/>
 			</Row>
 			{#if paused}<Notice tone="warning" title="Outside actions are paused">
-					Since {new Date(paused.paused_at).toLocaleString()}. Outside steps wait, prepared, until
-					you resume.
+					Since {formatMoment(paused.paused_at)}. Outside steps wait, prepared, until you resume.
 					{#snippet actions()}<button
 							class="btn small"
 							type="button"

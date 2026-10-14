@@ -4,6 +4,7 @@
 	import { Section, Item, Notice, Fold, Dot } from '$lib/ui/page';
 	import CopyButton from '$lib/ui/controls/CopyButton.svelte';
 	import { failureSentence } from '$lib/model/failure';
+	import { formatMoment } from '$lib/ui/time';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import type { CompanyResource } from '$lib/model/company';
@@ -55,7 +56,7 @@
 		const at = expiry(item);
 		return [
 			`Audience: ${audienceLabel(meta(item).audience)}`,
-			`Until ${at ? at.toLocaleString() : 'not stated'}`,
+			`Until ${formatMoment(at, 'not stated')}`,
 			`${limits.cpu_millis ?? '?'} millicores · ${limits.memory_mib ?? '?'} MiB memory · ${limits.max_connections ?? '?'} connections`,
 			`Build ${String(meta(item).image ?? 'not stated')}`
 		].join('\n');
@@ -252,9 +253,7 @@
 							{#each detail.invitations as row (row.invitation_id)}
 								<Item
 									title={row.subject}
-									meta={row.revoked
-										? 'Revoked'
-										: `Until ${new Date(row.expires_at).toLocaleString()}`}
+									meta={row.revoked ? 'Revoked' : `Until ${formatMoment(row.expires_at)}`}
 									dim={row.revoked}
 								>
 									{#snippet actions()}{#if !row.revoked}<button
