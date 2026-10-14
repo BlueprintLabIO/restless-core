@@ -1,0 +1,47 @@
+/* Printing any page, or saving it as a PDF, prints the work and nothing around it.
+ *
+ * The cockpit is fixed-height panes that scroll inside themselves, with the top bar, the phone
+ * dock and the Exec rail around them. On paper the chrome goes, the main pane flows to its full
+ * length, and nothing is clipped at the edge of a scroll box. Documents add their own sheet
+ * (components/document-print.css) on top of this one. */
+@media print {
+	@page {
+		margin: 16mm 14mm;
+	}
+
+	:is(.bridge-topbar, .bridge-dock, .bridge-exrail, .immersive-exec, .skip-link),
+	:is(.toasts, .app-loading-bar, .command-menu),
+	.pane-resizer {
+		display: none !important;
+	}
+
+	html,
+	body,
+	.bridge-root,
+	.bridge-body,
+	.bridge-workspace,
+	.bridge-content {
+		display: block !important;
+		position: static !important;
+		width: auto !important;
+		height: auto !important;
+		min-height: 0 !important;
+		max-height: none !important;
+		margin: 0 !important;
+		padding: 0 !important;
+		overflow: visible !important;
+		background: #fff !important;
+		box-shadow: none !important;
+	}
+
+	.bridge-content,
+	.bridge-content * {
+		max-height: none !important;
+		overflow: visible !important;
+	}
+
+	.bridge-content * {
+		box-shadow: none !important;
+		backdrop-filter: none !important;
+	}
+}

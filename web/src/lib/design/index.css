@@ -46,3 +46,4 @@
 @import './surfaces.css'; /* focused evidence + persistent executive transcript */
 @import './cockpit.css'; /* Bridge Light four-surface cockpit + semantic colour */
 @import './computer.css'; /* the company computer portal, entered desktop and live lamps */
+@import './print.css'; /* on paper: no chrome, the main pane flows */
