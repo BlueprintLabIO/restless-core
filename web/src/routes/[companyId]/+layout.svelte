@@ -17,6 +17,7 @@
 	import { COMPANY_PAGES, companyPageHref } from '$lib/model/company-pages';
 	import { workStatusLabel } from '$lib/work/status';
 	import { companyBrowserLinks } from '$lib/actions/company-browser-links';
+	import { linkPreference } from '$lib/model/link-preference.svelte';
 	import CompanyQueryPersistence from '$lib/components/CompanyQueryPersistence.svelte';
 	import { referenceOptions } from '$lib/model/composer-options.svelte';
 	import type ExecutiveRailView from '$lib/components/ExecutiveRail.svelte';
@@ -1622,7 +1623,10 @@
 <div
 	class="company-browser-link-capture"
 	class:first-paint-pending={!entry.ready}
-	use:companyBrowserLinks={{ open: openInCompanyBrowser }}
+	use:companyBrowserLinks={{
+		open: openInCompanyBrowser,
+		enabled: () => hasOwnerSurfaceAccess(principal) && linkPreference.company
+	}}
 	use:prefetchOnIntent={{ client: queryClient, company: () => companyId }}
 >
 	{#if welcoming && childAllowed}

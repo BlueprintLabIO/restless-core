@@ -14,6 +14,7 @@
 	import { isLocalHost } from '$lib/model/reenter';
 	import { forgetThisBrowser } from '$lib/model/sign-out';
 	import { readEmailNotify, setEmailNotify } from '$lib/model/email-notify';
+	import { linkPreference, setCompanyBrowserLinks } from '$lib/model/link-preference.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 
@@ -133,6 +134,17 @@
 				title="Email me when something needs me and I have not seen it here, even with every tab closed. Applies on every device."
 				onclick={() => void toggleEmail()}
 				><span>Email notifications</span>{#if email}<Check size={14} aria-label="On" />{/if}</button
+			>
+		{/if}
+		{#if owner}
+			<button
+				type="button"
+				title="Open links in the company computer’s browser, where the company’s sign-ins are, instead of a new tab here. It wakes the computer and adds a tab the agents can see. Applies on this device."
+				onclick={() => setCompanyBrowserLinks(!linkPreference.company)}
+				><span>Open links in company browser</span>{#if linkPreference.company}<Check
+						size={14}
+						aria-label="On"
+					/>{/if}</button
 			>
 		{/if}
 		<button type="button" onclick={onshortcuts}><span>Keyboard shortcuts</span><kbd>?</kbd></button>
