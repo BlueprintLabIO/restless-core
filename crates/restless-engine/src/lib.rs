@@ -48,6 +48,7 @@ pub mod tool_gateway;
 pub mod decisions;
 pub mod mentions;
 pub mod model_catalog;
+pub mod app_catalogue;
 pub mod model_connections;
 pub mod model_gateway;
 pub mod native_harness;

@@ -266,6 +266,35 @@ pub async fn write_skill_md(
     })
 }
 
+/// Write one supporting file of a candidate skill (a script, a reference, a template) beside its
+/// SKILL.md, for a skill installed from the Apps catalogue (Sprint 87). Only the candidate folder
+/// is writable this way, and the path stays inside the skill.
+pub async fn write_skill_file(company: &str, dir: &str, file: &str, bytes: &[u8]) -> Result<()> {
+    if owner_root(dir) != Some(skill_package::CANDIDATE_ROOT) {
+        bail!("catalogue files are written only to a candidate skill");
+    }
+    let safe = !file.is_empty()
+        && !file.starts_with('/')
+        && file.split('/').all(|part| !part.is_empty() && part != "." && part != "..")
+        && file
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '-' | '_'));
+    if !safe || file == "SKILL.md" {
+        bail!("{file} is not a file this skill can hold");
+    }
+    if bytes.len() > 2 * 1024 * 1024 {
+        bail!("{file} is larger than 2 MiB");
+    }
+    company_exec(
+        company,
+        r#"mkdir -p "$(dirname "$1/$2")" && cat > "$1/$2.tmp" && mv "$1/$2.tmp" "$1/$2""#,
+        &[dir, file],
+        Some(bytes),
+    )
+    .await?;
+    Ok(())
+}
+
 /// The next library read scans the company computer again.
 pub fn forget_scan(company: &str) {
     if let Ok(mut scans) = RECENT_SCANS.lock() {

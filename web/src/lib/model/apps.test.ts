@@ -4,7 +4,8 @@ import * as apps from './apps.ts';
 import type { ToolConnection } from './connections.ts';
 import type { SkillRow } from './skills.ts';
 
-const { CATALOGUE, buildApps, classifyLink } = apps;
+const { CATALOGUE, buildApps, classifyLink, connectTag } = apps;
+import { registryKey } from './app-catalogue.ts';
 
 function connection(overrides: Partial<ToolConnection>): ToolConnection {
 	return {
@@ -120,4 +121,64 @@ test('an ask the catalogue cannot answer is named honestly, never as a catalogue
 	);
 	for (const service of apps.UNLISTED)
 		assert.ok(!CATALOGUE.some((entry) => entry.key === service.key));
+});
+
+test('the public directory adds services and know-how the company lacks, real names first', () => {
+	const registry = [
+		{
+			key: 'mcp:io.zzz/a',
+			kind: 'mcp' as const,
+			name: '$AI tokens',
+			summary: '',
+			source: 'MCP Registry',
+			homepage: null,
+			endpoint: 'https://ai.example/mcp',
+			files: [],
+			runs_scripts: false
+		},
+		{
+			key: 'mcp:io.cal/b',
+			kind: 'mcp' as const,
+			name: 'Calendar Hub',
+			summary: 'Events',
+			source: 'MCP Registry',
+			homepage: null,
+			endpoint: 'https://cal.example/mcp',
+			files: [],
+			runs_scripts: false
+		},
+		{
+			key: 'mcp:dup',
+			kind: 'mcp' as const,
+			name: 'Slack again',
+			summary: '',
+			source: 'MCP Registry',
+			homepage: null,
+			endpoint: 'https://mcp.slack.com/mcp',
+			files: [],
+			runs_scripts: false
+		},
+		{
+			key: 'skill:anthropics/pdf',
+			kind: 'skill' as const,
+			name: 'pdf',
+			summary: 'PDF tools',
+			source: 'Anthropic skills',
+			homepage: null,
+			endpoint: null,
+			files: ['SKILL.md', 'scripts/fill.py'],
+			runs_scripts: true
+		}
+	];
+	const { browse } = buildApps([], null, [], registry);
+	const more = browse.filter((app) => app.category === 'More').map((app) => app.name);
+	assert.deepEqual(more, ['$AI tokens', 'Calendar Hub']);
+	assert.ok(
+		!browse.some((app) => app.name === 'Slack again'),
+		'a registry copy of a catalogued address is left out'
+	);
+	const pdf = browse.find((app) => app.key === 'x-pdf');
+	assert.equal(pdf?.registrySkill?.runsScripts, true);
+	assert.equal(connectTag(pdf!), 'Has scripts');
+	assert.equal(registryKey('Calendar Hub'), 'r-calendar-hub');
 });

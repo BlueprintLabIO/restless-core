@@ -287,7 +287,7 @@ function THREAD() {
 		['exec', 'owner', "Cleared the old sites and notes from your Library by retiring 69 stale records; the new studio's two site jobs are under way.\n\n- Reno's own site.\n- Taylor & Ward version 4, with the full-resolution original photos in place of the squeezed ones.\n\nI'll tell you when a first look is ready."],
 		['exec', 'studio-direction', 'Owner says the Anthropic connection was re-checked and the designer cooldown is now null. Please resume the Reno site on Opus. If it fails again with the same grant error, report and I will switch to Sonnet 5.5 on owner say-so.'],
 		['studio-direction', 'exec', "Reno site version 5 is blocked on the same revoked Opus 5.5 connection: I resumed it after the cooldown and it failed again ('account connection is no longer granted to the company'); retrying will keep failing."],
-		['exec', 'owner', '[budget] the company has spent $100.14 of its $100.00 ceiling; the owner must raise it before charged work continues'],
+		['exec', 'owner', 'The company has spent $100.14 of its $100 ceiling, so charged work has stopped. Raise it in Company › Limits and I will carry on.'],
 		['owner', 'exec', 'I raised the spend cap and renamed the company. Carry on with the Reno site.'],
 		['exec', 'owner', Array.from({ length: 12 }, (_, i) => `Paragraph ${i + 1}: the current page isn't conveying anything specific. The look is a generic quiet-editorial skin: cream paper, serif type, one clay accent.`).join('\n\n')],
 	];

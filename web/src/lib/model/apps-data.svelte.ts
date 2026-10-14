@@ -6,6 +6,7 @@ import { failureSentence } from './failure';
 import { fetchConnections, type ToolConnection } from './connections';
 import { fetchSkillLibrary, type SkillLibrary } from './skills';
 import { fetchAppRequests, type AppRequest } from './app-requests';
+import { fetchAppCatalogue, type RegistryItem } from './app-catalogue';
 import {
 	APP_KINDS,
 	BROWSE_CATEGORIES,
@@ -37,6 +38,7 @@ export function createAppsData(companyId: () => string) {
 	let connections = $state<ToolConnection[] | null>(null);
 	let library = $state<SkillLibrary | null>(null);
 	let requests = $state<AppRequest[]>([]);
+	let registry = $state<RegistryItem[]>([]);
 	let failure = $state('');
 	/* A part that did not load is said, never shown as nothing. */
 	let partial = $state('');
@@ -45,11 +47,14 @@ export function createAppsData(companyId: () => string) {
 		const id = companyId();
 		failure = '';
 		partial = '';
-		const [tools, skills, asked] = await Promise.allSettled([
+		const [tools, skills, asked, directory] = await Promise.allSettled([
 			fetchConnections(id),
 			fetchSkillLibrary(id),
-			fetchAppRequests(id)
+			fetchAppRequests(id),
+			fetchAppCatalogue()
 		]);
+		/* The public directory is extra: when it can't be read, Browse keeps its own list. */
+		if (directory.status === 'fulfilled') registry = directory.value.items;
 		if (tools.status === 'fulfilled') connections = tools.value;
 		else failure = failureSentence(tools.reason, 'Apps could not be read.');
 		if (skills.status === 'fulfilled') library = skills.value;
@@ -71,7 +76,8 @@ export function createAppsData(companyId: () => string) {
 			? buildApps(
 					connections,
 					library,
-					requests.map((request) => request.app)
+					requests.map((request) => request.app),
+					registry
 				)
 			: null
 	);

@@ -48,6 +48,11 @@
 		type SkillRow
 	} from '$lib/model/skills';
 	import { LOCAL_INFO, buildApps, nameForLink, skillName, type App } from '$lib/model/apps';
+	import {
+		fetchAppCatalogue,
+		installFromCatalogue,
+		type RegistryItem
+	} from '$lib/model/app-catalogue';
 	import { cockpitQuery, companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import AppMark from '$lib/primitives/AppMark.svelte';
 	import { declineAppRequest, fetchAppRequests, type AppRequest } from '$lib/model/app-requests';
@@ -113,15 +118,18 @@
 		partial = '';
 		try {
 			const missing: string[] = [];
-			const [tools, skills] = await Promise.all([
+			const [tools, skills, directory] = await Promise.all([
 				fetchConnections(companyId),
 				fetchSkillLibrary(companyId).catch(() => {
 					missing.push('know-how');
 					return library;
-				})
+				}),
+				/* The public directory names catalogue know-how and services; extra, never required. */
+				fetchAppCatalogue().catch(() => null)
 			]);
 			connections = tools;
 			library = skills;
+			if (directory) registry = directory.items;
 			if (requestId) {
 				const requests = await fetchAppRequests(companyId).catch(() => {
 					missing.push('the request');
@@ -148,7 +156,8 @@
 		void load();
 	});
 
-	const apps = $derived(connections ? buildApps(connections, library) : null);
+	let registry = $state<RegistryItem[]>([]);
+	const apps = $derived(connections ? buildApps(connections, library, [], registry) : null);
 	/* A catalogue key or a pasted link names an app that is not added yet. */
 	const app = $derived<App | undefined>(
 		apps?.mine.find((candidate) => candidate.key === key) ??
@@ -203,6 +212,22 @@
 				`${appsHref}/${encodeURIComponent(`c-${connection.name}`)}${requestId ? `?request=${requestId}` : ''}`,
 				{ replaceState: true }
 			);
+		});
+	}
+
+	/* Know-how from the public catalogue: install its files as a candidate. One without scripts
+	 * is accepted at once, the deliberate click being the owner's yes; one with scripts opens for
+	 * the same review as any candidate (Sprint 87). */
+	async function install() {
+		const skill = app?.registrySkill;
+		if (!skill) return;
+		await act('add', async () => {
+			const installed = await installFromCatalogue(companyId, skill.key);
+			if (!installed.runs_scripts)
+				await setSkillDisposition(companyId, installed.skill.name, 'accepted');
+			await goto(`${appsHref}/${encodeURIComponent(`s-${installed.skill.name}`)}`, {
+				replaceState: true
+			});
 		});
 	}
 
@@ -1068,6 +1093,16 @@
 					<span class="spacer"></span>
 					{#if !owner}
 						<span class="quiet" title="Adding an app is the owner's.">Not added</span>
+					{:else if app.registrySkill}
+						<button
+							class="btn small primary"
+							type="button"
+							disabled={!!busy}
+							title={app.registrySkill.runsScripts
+								? 'Installs it as a candidate. It ships scripts, so you review them before the company uses it.'
+								: 'Installs it, ready for the company to use.'}
+							onclick={() => void install()}>{busy === 'add' ? 'Installing…' : 'Install'}</button
+						>
 					{:else if app.catalogue?.auth === 'token'}
 						<TokenPicker
 							{companyId}

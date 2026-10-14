@@ -788,6 +788,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "document-operation" => &["actor", "document_operation"],
         "sheet-operation" => &["actor", "sheet_operation"],
         "direction-operation" => &["actor", "direction_operation"],
+        "apps-search" => &["body"],
         "decision-ask" => &["actor", "decision"],
         "tools-list" => &["actor", "tool"],
         "tools-check" => &["actor", "tool"],
@@ -1742,6 +1743,7 @@ mod tests {
             "watch",
             "document-review-request",
             "direction-operation",
+            "apps-search",
         ];
         for command in COMMANDS {
             assert!(

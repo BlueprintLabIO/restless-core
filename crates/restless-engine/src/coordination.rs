@@ -282,6 +282,45 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 }, Err(error) => Response::err(format!("{error:#}")),
             }
         }
+        "apps-search" => {
+            // The public Apps catalogue (Sprint 87): what Exec may recommend, each with the page in
+            // Apps where the owner installs it. Read-only; nothing is added here.
+            let words = request.common.body.as_deref().unwrap_or_default().to_lowercase();
+            let terms: Vec<&str> = words.split_whitespace().collect();
+            let catalogue = crate::app_catalogue::current().await;
+            let mut found: Vec<_> = catalogue
+                .items
+                .iter()
+                .filter(|item| {
+                    let text = format!("{} {}", item.name, item.summary).to_lowercase();
+                    !terms.is_empty() && terms.iter().all(|term| text.contains(term))
+                })
+                .take(10)
+                .map(|item| {
+                    let page = if item.kind == "skill" {
+                        format!("x-{}", item.key.rsplit('/').next().unwrap_or(&item.name))
+                    } else {
+                        catalogue_service_key(&item.name)
+                    };
+                    serde_json::json!({
+                        "name": item.name,
+                        "kind": if item.kind == "skill" { "know-how" } else { "service" },
+                        "summary": item.summary,
+                        "source": item.source,
+                        "runs_scripts": item.runs_scripts,
+                        "link": format!("/{company}/apps/{page}"),
+                    })
+                })
+                .collect::<Vec<_>>();
+            if found.is_empty() && !catalogue.unavailable.is_empty() {
+                return Response::err(format!(
+                    "The app directory could not be read just now: {}",
+                    catalogue.unavailable.join("; ")
+                ));
+            }
+            found.truncate(10);
+            Response::ok(serde_json::json!({ "items": found }))
+        }
         "direction-operation" => {
             // Exec acts on a person's direction; nobody else names a requester.
             let actor = request.orgintel.actor.as_deref().unwrap_or("");
@@ -5702,4 +5741,20 @@ fn parse_goal_due(raw: Option<&str>) -> std::result::Result<Option<Option<chrono
             .map(|date| Some(Some(date)))
             .map_err(|_| format!("due date {text:?} must be YYYY-MM-DD")),
     }
+}
+
+/// The Apps page key of a catalogue service, as the web names it (`registryKey` in
+/// web/src/lib/model/app-catalogue.ts): `r-` and its name as lowercase words, at most 34 characters.
+fn catalogue_service_key(name: &str) -> String {
+    let mut slug = String::new();
+    for character in name.to_lowercase().chars() {
+        if character.is_ascii_alphanumeric() {
+            slug.push(character);
+        } else if !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    let slug: String = slug.trim_matches('-').chars().take(34).collect();
+    let slug = slug.trim_end_matches('-');
+    format!("r-{}", if slug.is_empty() { "service" } else { slug })
 }

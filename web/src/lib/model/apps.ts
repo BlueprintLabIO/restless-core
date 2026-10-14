@@ -8,6 +8,7 @@
  * a local tool, know-how or a bundle) organises the power-user views, and the
  * mechanism behind it (MCP, CLI, skill, plugin) is explained on hover. */
 
+import { registryKey, type RegistryItem } from './app-catalogue.ts';
 import type { SkillAssignmentRow, SkillLibrary, SkillRow } from './skills';
 import type { ToolConnection } from './connections';
 
@@ -20,7 +21,9 @@ export type AppCategory =
 	| 'Projects'
 	| 'Documents'
 	| 'Websites'
-	| 'Know-how';
+	| 'Know-how'
+	/* Services from the public MCP Registry (Sprint 87). */
+	| 'More';
 
 export const BROWSE_CATEGORIES: AppCategory[] = [
 	'Communication',
@@ -30,7 +33,9 @@ export const BROWSE_CATEGORIES: AppCategory[] = [
 	'Sales',
 	'Design',
 	'Documents',
-	'Websites'
+	'Websites',
+	'Know-how',
+	'More'
 ];
 
 /** A known service address. It is not an adapter: adding it runs the same
@@ -393,6 +398,8 @@ export type App = {
 	catalogue?: CatalogueEntry;
 	/** The plugin this app came from, as `<git url>`. */
 	plugin?: string;
+	/** Know-how from the public catalogue, installed on the owner's click (Sprint 87). */
+	registrySkill?: { key: string; name: string; runsScripts: boolean; homepage: string | null };
 };
 
 const SKILL_WORDS = /[-_]+/g;
@@ -482,7 +489,8 @@ function skillApp(skill: SkillRow, assignments: SkillAssignmentRow[] = []): App 
 export function buildApps(
 	connections: ToolConnection[],
 	library: SkillLibrary | null,
-	requested: string[] = []
+	requested: string[] = [],
+	registry: RegistryItem[] = []
 ): { mine: App[]; browse: App[]; removed: App[] } {
 	const live = connections.filter((connection) => connection.status !== 'disconnected');
 	const skills = (library?.skills ?? []).filter((skill) => skill.disposition !== 'retired');
@@ -591,6 +599,74 @@ export function buildApps(
 		skills: [],
 		catalogue: entry
 	}));
+	/* The public directory: services by their remote address, know-how by its files. Anything
+	 * the company already has, or the hand-checked catalogue already offers, is left out. */
+	const endpoints = new Set([
+		...CATALOGUE.map((entry) => entry.endpoint),
+		...live.map((connection) => connection.endpoint ?? '')
+	]);
+	const knownSkills = new Set((library?.skills ?? []).map((skill) => skill.name));
+	const seen = new Set<string>();
+	for (const item of registry) {
+		if (item.kind === 'mcp' && item.endpoint) {
+			const key = registryKey(item.name);
+			if (endpoints.has(item.endpoint) || owned.has(key) || seen.has(key)) continue;
+			seen.add(key);
+			const entry: CatalogueEntry = {
+				key,
+				name: item.name,
+				description: item.summary || 'A service listed in the public MCP Registry.',
+				category: 'More',
+				endpoint: item.endpoint,
+				how: 'Sign in if it asks',
+				howTip: `Listed in the public MCP Registry${item.homepage ? ` (${item.homepage})` : ''}. Adding it checks the address answers first; it may then ask you to sign in.`
+			};
+			browse.push({
+				key,
+				kind: 'service',
+				name: entry.name,
+				description: entry.description,
+				how: entry.how,
+				howTip: entry.howTip,
+				category: 'More',
+				state: 'available',
+				connections: [],
+				skills: [],
+				catalogue: entry
+			});
+		} else if (item.kind === 'skill') {
+			const slug = item.key.split('/').pop() ?? item.name;
+			if (knownSkills.has(item.name) || seen.has(`x-${slug}`)) continue;
+			seen.add(`x-${slug}`);
+			browse.push({
+				key: `x-${slug}`,
+				kind: 'skill',
+				name: skillName(item.name),
+				description: item.summary || 'Know-how from Anthropic’s public skills.',
+				how: item.runs_scripts ? 'Install, then review its scripts' : 'Install',
+				howTip: item.runs_scripts
+					? 'From Anthropic’s public skills. It ships scripts the company computer would run, so it waits for your review after installing.'
+					: 'From Anthropic’s public skills: instructions the company follows. It grants no access.',
+				category: 'Know-how',
+				state: 'available',
+				connections: [],
+				skills: [],
+				registrySkill: {
+					key: item.key,
+					name: item.name,
+					runsScripts: item.runs_scripts,
+					homepage: item.homepage
+				}
+			});
+		}
+	}
+	/* Real names first: a directory of thousands should not open on "$AI…" and "00…". */
+	const sortName = (name: string) => name.replace(/^[^a-z]+/i, '').toLowerCase() || `~${name}`;
+	browse.sort((a, b) =>
+		a.category === 'More' && b.category === 'More'
+			? sortName(a.name).localeCompare(sortName(b.name))
+			: 0
+	);
 	const removed: App[] = retired.map((skill) => ({
 		...skillApp(skill),
 		state: 'paused' as const,
@@ -694,6 +770,7 @@ export function nameForLink(value: string): string {
 
 /** How a catalogued app connects, in two words, so a chooser sees it before adding. */
 export function connectTag(app: App): string {
+	if (app.registrySkill) return app.registrySkill.runsScripts ? 'Has scripts' : 'Know-how';
 	if (app.catalogue?.auth === 'token') return 'Token';
 	if (app.how.startsWith('Sign in')) return 'Sign in';
 	return 'No sign-in';

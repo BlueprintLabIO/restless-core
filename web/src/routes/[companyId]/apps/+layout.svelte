@@ -61,7 +61,9 @@
 		Sales: TrendingUp,
 		Design: Palette,
 		Documents: FileText,
-		Websites: Globe
+		Websites: Globe,
+		'Know-how': BookOpen,
+		More: Package
 	};
 	const KIND_ICONS: Record<AppKind, typeof LayoutGrid> = {
 		service: Globe2,

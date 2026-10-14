@@ -326,6 +326,19 @@
 				: []
 	);
 	const showWaiting = $derived(view === 'ask' || view === 'waiting');
+	/* The public directory runs to thousands: search it, and show at most a screenful. */
+	const TILE_LIMIT = 60;
+	let tileQuery = $state('');
+	const matchingTiles = $derived.by(() => {
+		const terms = tileQuery.toLowerCase().split(/\s+/).filter(Boolean);
+		return terms.length
+			? tiles.filter((app) => {
+					const text = `${app.name} ${app.description}`.toLowerCase();
+					return terms.every((term) => text.includes(term));
+				})
+			: tiles;
+	});
+	const shownTiles = $derived(matchingTiles.slice(0, TILE_LIMIT));
 </script>
 
 <svelte:window onkeydown={onWindowKey} />
@@ -672,14 +685,28 @@
 			</Section>
 		{/if}
 
+		{#if tiles.length > TILE_LIMIT}
+			<input
+				class="tile-search"
+				type="search"
+				placeholder={`Search ${tiles.length.toLocaleString()} apps`}
+				aria-label="Search these apps"
+				bind:value={tileQuery}
+			/>
+		{/if}
 		{#if tiles.length}
 			<Section>
-				{#each tiles as app (app.key)}
+				{#each shownTiles as app (app.key)}
 					<Item title={app.name} meta={app.description} href={route(app.key)}>
 						{#snippet leading()}{@render mark(app)}{/snippet}
 						{#snippet trailing()}
 							<span class="level" title={app.howTip}>{connectTag(app)}</span>
-							{#if owner}<button
+							{#if owner && app.registrySkill}<a
+									class="btn small"
+									href={route(app.key)}
+									aria-label={`Install ${app.name}`}
+									title="Opens it to read what it does, then install">Install</a
+								>{:else if owner}<button
 									class="btn small"
 									type="button"
 									disabled={!!busy}
@@ -692,8 +719,20 @@
 								>{/if}
 						{/snippet}
 					</Item>
+				{:else}
+					<Empty
+						compact
+						title="No app matches"
+						info="Try other words, or ask Exec what would fit."
+					/>
 				{/each}
 			</Section>
+			{#if matchingTiles.length > shownTiles.length}
+				<p class="tile-more">
+					Showing {shownTiles.length} of {matchingTiles.length.toLocaleString()}. Search to find
+					more.
+				</p>
+			{/if}
 		{:else if view === 'all' || (!isKind(view) && !['ask', 'waiting', 'in-use', 'removed'].includes(view))}
 			<Empty
 				compact
@@ -705,6 +744,16 @@
 </Page>
 
 <style>
+	.tile-search {
+		width: 100%;
+		max-width: 420px;
+		margin: 0 0 12px;
+	}
+	.tile-more {
+		margin: 10px 0 0;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
 	.ask {
 		position: relative;
 	}

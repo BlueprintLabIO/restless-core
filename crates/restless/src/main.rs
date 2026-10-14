@@ -37,6 +37,15 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+enum AppsCommand {
+    /// Search by words, such as "frontend design" or "calendar".
+    Search {
+        #[arg(required = true)]
+        words: Vec<String>,
+    },
+}
+
+#[derive(Subcommand)]
 enum Command {
     /// Install and operate the dependable local Restless appliance.
     Appliance {
@@ -89,6 +98,14 @@ enum Command {
         company: Option<String>,
         #[command(subcommand)]
         command: DocumentCommand,
+    },
+    /// Find services and know-how in the public Apps directory, each with the page in Apps where
+    /// the owner installs it. Recommend by that link; nothing installs from a chat reply.
+    Apps {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: AppsCommand,
     },
     /// Exec only: route and record the changes people direct.
     Direction {
@@ -2633,6 +2650,13 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         Command::Document { company, command } => {
             command.request(company.context("no company: pass -c or set RESTLESS_COMPANY")?)?
         }
+        Command::Apps { company, command } => match command {
+            AppsCommand::Search { words } => serde_json::json!({
+                "cmd": "apps-search",
+                "company": company.context("no company: pass -c or set RESTLESS_COMPANY")?,
+                "body": words.join(" "),
+            }),
+        },
         Command::Direction { company, command } => {
             command.request(company.context("no company: pass -c or set RESTLESS_COMPANY")?)?
         }

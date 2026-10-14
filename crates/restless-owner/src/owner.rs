@@ -1323,6 +1323,11 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/appliance/backups/latest", get(appliance_api::download_backup))
         .route("/appliance/resume", post(appliance_api::resume))
         .route("/model-catalog", get(model_catalog_api::get_catalog))
+        .route("/app-catalogue", get(skills_api::app_catalogue))
+        .route(
+            "/companies/{company}/app-catalogue/install",
+            post(skills_api::install_from_catalogue),
+        )
         .route("/companies", get(company_catalog).post(create_company))
         .route(
             "/connections",
@@ -2040,6 +2045,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
     tracing::info!(addr = %address, "owner gateway listening");
     tracing::info!(addr = %review_address, "isolated review gateway listening");
     crate::model_catalog::start_refresh_loop();
+    restless_engine::app_catalogue::start_refresh_loop();
     tokio::try_join!(
         axum::serve(listener, app),
         axum::serve(preview_listener, preview)
