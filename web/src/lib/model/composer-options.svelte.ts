@@ -48,6 +48,50 @@ export function writeDraft(key: string, body: string) {
 	}
 }
 
+/* What travels with a rail draft besides its text. Files cannot be stored, so only their names
+ * are kept, to say they need attaching again after a reload. An uncertain send's command id is
+ * kept with the exact text it was sent as, so resending after a reload cannot send it twice. */
+export interface RailDraftExtras {
+	files: string[];
+	skills: string[];
+	quoting: { author: string; excerpt: string; answer?: boolean } | null;
+	commandId: string | null;
+	commandBody: string;
+}
+const NO_EXTRAS: RailDraftExtras = {
+	files: [],
+	skills: [],
+	quoting: null,
+	commandId: null,
+	commandBody: ''
+};
+export function readDraftExtras(key: string): RailDraftExtras {
+	try {
+		const raw = localStorage.getItem(`${key}:extras`);
+		if (!raw) return NO_EXTRAS;
+		const value = JSON.parse(raw) as Partial<RailDraftExtras>;
+		return {
+			files: Array.isArray(value.files) ? value.files.filter((f) => typeof f === 'string') : [],
+			skills: Array.isArray(value.skills) ? value.skills.filter((s) => typeof s === 'string') : [],
+			quoting: value.quoting && typeof value.quoting.excerpt === 'string' ? value.quoting : null,
+			commandId: typeof value.commandId === 'string' ? value.commandId : null,
+			commandBody: typeof value.commandBody === 'string' ? value.commandBody : ''
+		};
+	} catch {
+		return NO_EXTRAS;
+	}
+}
+export function writeDraftExtras(key: string, extras: RailDraftExtras) {
+	try {
+		const empty =
+			!extras.files.length && !extras.skills.length && !extras.quoting && !extras.commandId;
+		if (empty) localStorage.removeItem(`${key}:extras`);
+		else localStorage.setItem(`${key}:extras`, JSON.stringify(extras));
+	} catch {
+		/* See writeDraft. */
+	}
+}
+
 /* `#` links open Work, Goals and documents as chips; `@` names a person by the actor id
  * conversations route on. Built from projections the page already holds. */
 export function referenceOptions(

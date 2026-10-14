@@ -560,6 +560,10 @@ export function conversationQuery(
 		get uploadProgress() {
 			return uploadProgress;
 		},
+		/** The key a retry must reuse while the last send's outcome is unknown. */
+		get uncertainCommandId() {
+			return uncertainCommand?.id ?? null;
+		},
 		refresh: () => refresh(query),
 		attach(): () => void {
 			return () => {
@@ -575,7 +579,9 @@ export function conversationQuery(
 			newFocus = false,
 			interrupt = false,
 			outcomeStandard?: import('./company').OutcomeStandard,
-			skills: string[] = []
+			skills: string[] = [],
+			/** A key kept from an unconfirmed send of this exact message (it survives a reload). */
+			retryCommandId?: string
 		): Promise<MessageSendResult> {
 			const sameUncertainIntent =
 				uncertainCommand?.body === body &&
@@ -586,7 +592,8 @@ export function conversationQuery(
 				uncertainCommand.outcomeStandard === outcomeStandard &&
 				uncertainCommand.files.length === files.length &&
 				uncertainCommand.files.every((file, index) => file === files[index]);
-			const clientCommandId = sameUncertainIntent ? uncertainCommand!.id : crypto.randomUUID();
+			const clientCommandId =
+				retryCommandId ?? (sameUncertainIntent ? uncertainCommand!.id : crypto.randomUUID());
 			uncertainCommand = {
 				id: clientCommandId,
 				body,

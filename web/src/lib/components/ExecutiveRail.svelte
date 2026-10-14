@@ -1,3 +1,16 @@
+<script lang="ts" module>
+	/* Files, a quote and chosen skills wait with the conversation they were meant for, across topic
+	 * switches, as a Room keeps its files per draft. Files live only in memory. */
+	const heldExtras = new Map<
+		string,
+		{
+			files: File[];
+			skills: string[];
+			quoting: { author: string; excerpt: string; answer?: boolean } | null;
+		}
+	>();
+</script>
+
 <script lang="ts">
 	import {
 		answerIndex,
@@ -48,7 +61,13 @@
 	import { recentDirectConversationsQuery } from '$lib/model/room-queries.svelte';
 	import { conversationUnread, deleteRoomMessage, markRoomRead } from '$lib/model/rooms';
 	import { goto } from '$app/navigation';
-	import { composerOptions, readDraft, writeDraft } from '$lib/model/composer-options.svelte';
+	import {
+		composerOptions,
+		readDraft,
+		readDraftExtras,
+		writeDraft,
+		writeDraftExtras
+	} from '$lib/model/composer-options.svelte';
 	import { expectRemoval } from '$lib/model/steady';
 	import { agentExchangesQuery, type AgentExchange } from '$lib/model/exchanges.svelte';
 	import HandoffGroup from '$lib/primitives/HandoffGroup.svelte';
@@ -129,8 +148,9 @@
 					newFocus: boolean,
 					interrupt: boolean,
 					outcomeStandard?: OutcomeStandard,
-					skills?: string[]
-			  ) => Promise<{ error?: string; notice?: string }>)
+					skills?: string[],
+					retryCommandId?: string
+			  ) => Promise<{ error?: string; notice?: string; retryCommandId?: string }>)
 			| null;
 		review?: {
 			/** The Inbox item under review; a change clears the previous review's note. */
@@ -348,25 +368,59 @@
 		loadedDraftKey = key;
 		composer = readDraft(key);
 	});
-	/* Only the text draft is saved per recipient. Files, a quote, a chosen skill, a pending new
-	 * conversation or a tapped answer were meant for the previous recipient, or for the
-	 * conversation before an Inbox focus opened or closed, and never travel. */
+	/* Files, a quote and chosen skills belong to one recipient (and to the conversation before or
+	 * after an Inbox focus): each waits with its own conversation and comes back with it. A pending
+	 * new conversation or a tapped answer never travels. A reload keeps the quote, the skills and
+	 * an uncertain send's key; files cannot survive one, and the rail says so. */
 	const carryKey = $derived(`${draftKey}:${review || workContext ? 'focus' : ''}`);
-	let carriedFor = '';
+	let carriedFor = $state('');
+	function holdExtras(key: string) {
+		if (!key) return;
+		if (composerFiles.length || composerSkills.length || quoting)
+			heldExtras.set(key, {
+				files: [...composerFiles],
+				skills: [...composerSkills],
+				quoting
+			});
+		else heldExtras.delete(key);
+	}
 	$effect(() => {
 		const key = carryKey;
 		if (key === carriedFor) return;
-		carriedFor = key;
 		untrack(() => {
+			holdExtras(carriedFor);
 			if (pendingAnswer) window.clearTimeout(pendingAnswer.timer);
 			pendingAnswer = null;
-			composerFiles = [];
-			composerSkills = [];
-			quoting = null;
 			newFocusPending = false;
 			fieldValues = {};
+			const held = heldExtras.get(key);
+			const stored = readDraftExtras(key);
+			composerFiles = held?.files ?? [];
+			composerSkills = held?.skills ?? stored.skills;
+			quoting = held ? held.quoting : stored.quoting;
+			retryCommandId = stored.commandId;
+			retryBody = stored.commandBody;
+			if (!held && stored.files.length)
+				askNotice = `Attached files do not survive a reload: attach ${stored.files.join(', ')} again.`;
 		});
+		carriedFor = key;
 	});
+	$effect(() => () => holdExtras(untrack(() => carriedFor)));
+	$effect(() => {
+		const key = carryKey;
+		const extras = {
+			files: composerFiles.map((file) => file.name),
+			skills: [...composerSkills],
+			quoting,
+			commandId: retryCommandId,
+			commandBody: retryBody
+		};
+		if (key !== carriedFor) return;
+		writeDraftExtras(key, extras);
+	});
+	/* An uncertain send keeps its key with the exact text, so resending it is idempotent. */
+	let retryCommandId = $state<string | null>(null);
+	let retryBody = $state('');
 	/* Text handed in from elsewhere (Ask Exec, Turn into Work, Edit) joins what the owner was
 	 * writing instead of replacing it; an unsent draft is never discarded. */
 	function handIn(text: string) {
@@ -875,7 +929,8 @@
 				newFocusPending,
 				working && interruptNext,
 				undefined,
-				skills
+				skills,
+				retryCommandId && retryBody === outgoing ? retryCommandId : undefined
 			);
 			// Your message rises to the top of the transcript and the reply grows beneath it.
 			await tick();
@@ -884,16 +939,22 @@
 			if (outcome.error) {
 				composer = sent;
 				askError = outcome.error;
+				retryCommandId = outcome.retryCommandId ?? null;
+				retryBody = outcome.retryCommandId ? outgoing : '';
 			} else {
 				composerFiles = [];
 				composerSkills = [];
 				quoting = null;
 				fieldValues = {};
 				newFocusPending = false;
+				retryCommandId = null;
+				retryBody = '';
 				askNotice = outcome.notice ?? '';
 			}
 		} catch (cause) {
 			composer = sent;
+			retryCommandId = null;
+			retryBody = '';
 			askError = failureSentence(cause, 'Your message was not delivered.');
 		} finally {
 			sending = false;
@@ -1399,6 +1460,7 @@
 							options={[...options.value, ...references]}
 							interruptible={working}
 							bind:interrupt={interruptNext}
+							actionLabel={retryCommandId ? 'Retry send · it cannot be sent twice' : ''}
 							disabled={!canOperate ||
 								sending ||
 								deciding ||

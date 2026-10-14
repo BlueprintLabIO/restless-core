@@ -655,8 +655,9 @@
 		newFocus: boolean,
 		interrupt: boolean,
 		outcomeStandard?: import('$lib/model/company').OutcomeStandard,
-		skills: string[] = []
-	): Promise<{ error?: string; notice?: string }> {
+		skills: string[] = [],
+		retryCommandId?: string
+	): Promise<{ error?: string; notice?: string; retryCommandId?: string }> {
 		try {
 			const contextPath = includeContext ? cockpitContextPath(companyId, page.url) : undefined;
 			const busy = Boolean(railConversation.activeTurn);
@@ -667,7 +668,8 @@
 				newFocus,
 				interrupt,
 				outcomeStandard,
-				skills
+				skills,
+				retryCommandId
 			);
 			if (interrupt) {
 				return {
@@ -691,11 +693,17 @@
 			) {
 				return { error: failure.serverMessage };
 			}
-			// The conversation query retains this exact send's command ID for a safe retry.
+			// A key this rail drew for an earlier, unconfirmed send is only ever taken by that
+			// send: a conflict on it means the earlier send arrived.
+			if (retryCommandId && status === 409 && failure?.code === 'client_command_id') {
+				return { notice: 'Your earlier send had arrived, so it was not sent again.' };
+			}
+			// The rail keeps this exact send's command ID with its draft for a safe retry.
 			if (typeof status !== 'number' || status >= 500 || [408, 425, 429].includes(status)) {
 				return {
 					error:
-						'We could not confirm that your message was sent. Your draft is still here. Try sending it again.'
+						'We could not confirm that your message was sent. Your draft is still here: Retry send cannot send it twice.',
+					retryCommandId: railConversation.uncertainCommandId ?? undefined
 				};
 			}
 			return {
