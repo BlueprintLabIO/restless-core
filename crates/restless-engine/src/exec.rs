@@ -1066,7 +1066,29 @@ async fn run_turn(
     // The one and only place a turn is classified. Everything below reads the
     // verdict; nothing below re-derives it from the transcript.
     let verdict = health::classify(&end);
-    let transcript = end.into_transcript();
+    let mut transcript = end.into_transcript();
+    // A reply that hands the owner a shell command is rewritten once, in the same session, before
+    // anything is saved: people act in the cockpit (Sprint 86; the owner was told to run
+    // `restless company set mission "$(cat …)"`).
+    if matches!(verdict, health::Verdict::Ran) && !focused_mention {
+        if let Some(found) = crate::staff::operator_text(&transcript.last_message_text) {
+            let ask = format!(
+                "Your reply asks the owner to run `{found}`. People use the cockpit, not a terminal. \
+                 Rewrite the reply so it names the page and the button (\"Company › Charter, Publish\"), \
+                 or does the step yourself if you may. Reply with the rewritten message only."
+            );
+            match tokio::time::timeout(TERMINATION_TIMEOUT, session.prompt_once(&ask)).await {
+                Ok(Ok(rewritten))
+                    if !rewritten.text.trim().is_empty()
+                        && crate::staff::operator_text(&rewritten.text).is_none()
+                        && health::classify_provider_error_content(&rewritten.text).is_none() =>
+                {
+                    transcript.last_message_text = rewritten.text.trim().to_string();
+                }
+                _ => tracing::warn!(%found, "a reply handed the owner a command and could not be rewritten"),
+            }
+        }
+    }
     let report = |termination, reason, retry_after_seconds, reply_complete| WakeReport {
         company: company.to_string(),
         model: model.to_string(),

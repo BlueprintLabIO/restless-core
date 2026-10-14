@@ -1373,6 +1373,8 @@ impl StaffDrive {
             .emit_event("model_session_ready", Some(&self.event_actor), readiness)
             .await?;
         let mut next = self.turn_prompt.clone();
+        // One rewrite at most when a reply hands a person a shell command (Sprint 86).
+        let mut asked_for_cockpit_terms = false;
         let mut spent: Vec<acp::TurnUsage> = Vec::new();
         loop {
             session.set_live_observer_enabled(true);
@@ -1425,6 +1427,17 @@ impl StaffDrive {
                         spent,
                         transcript.output_tokens,
                     ));
+                }
+                if !asked_for_cockpit_terms {
+                    if let Some(found) = operator_text(&reply) {
+                        asked_for_cockpit_terms = true;
+                        next = format!(
+                            "Your reply asks a person to run `{found}`. People use the cockpit, not a terminal. \
+                             Rewrite the reply so it names the page and the button (\"Company › Charter, Publish\"), \
+                             or does the step yourself if you may. Reply with the rewritten message only."
+                        );
+                        continue;
+                    }
                 }
                 return Ok((
                     Termination::OutcomeMet,
@@ -3156,5 +3169,54 @@ mod live_product_tests {
         if !std::env::var("RESTLESS_S17_BENCH_PRESERVE_SCHEMA").is_ok_and(|value| value == "1") {
             org.drop_schema().await.unwrap();
         }
+    }
+}
+
+/// The first shell command a reply hands a person, outside a fenced code block: a line or inline
+/// code starting `restless `, or a `$(…)` substitution. People act in the cockpit, so such a reply
+/// is rewritten once (Sprint 86, owner report: "run this once … restless company set mission").
+pub(crate) fn operator_text(reply: &str) -> Option<String> {
+    let mut fenced = false;
+    for line in reply.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") {
+            fenced = !fenced;
+            continue;
+        }
+        if fenced {
+            continue;
+        }
+        let candidates = trimmed
+            .split('`')
+            .enumerate()
+            .filter(|(index, _)| index % 2 == 1)
+            .map(|(_, code)| code.trim())
+            .chain(std::iter::once(trimmed));
+        for candidate in candidates {
+            if candidate.starts_with("restless ") && candidate.split_whitespace().count() >= 3 {
+                return Some(candidate.chars().take(80).collect());
+            }
+        }
+        if let Some(start) = trimmed.find("$(") {
+            return Some(trimmed[start..].chars().take(80).collect());
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod operator_text_tests {
+    use super::operator_text;
+
+    #[test]
+    fn a_reply_that_hands_over_a_command_is_caught_and_plain_words_pass() {
+        assert_eq!(
+            operator_text("Needs you: run this once.\n`restless company set mission \"$(cat /company/mission.md)\"`").as_deref(),
+            Some("restless company set mission \"$(cat /company/mission.md)\"")
+        );
+        assert!(operator_text("restless work list --company reno").is_some());
+        assert!(operator_text("Publish it in Company › Charter.").is_none());
+        assert!(operator_text("Here it is:\n```\nrestless charter show\n```\nas you asked.").is_none());
+        assert!(operator_text("A restless night for the team.").is_none());
     }
 }

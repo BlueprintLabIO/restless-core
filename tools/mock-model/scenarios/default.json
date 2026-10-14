@@ -1,6 +1,22 @@
 {
 	"rules": [
 		{
+			"match": "People use the cockpit, not a terminal",
+			"steps": [
+				{
+					"text": "The charter draft is ready. Publish it in Company \u203a Charter."
+				}
+			]
+		},
+		{
+			"match": "set the charter",
+			"steps": [
+				{
+					"text": "Needs you: run this once.\n\n`restless company set mission \"$(cat /company/mission.md)\"`"
+				}
+			]
+		},
+		{
 			"match": "long reply",
 			"steps": [
 				{
@@ -12,8 +28,24 @@
 		{
 			"match": "watch me work",
 			"steps": [
-				{ "tool": { "name": "bash", "input": { "command": "restless work list" } }, "delay_ms": 60 },
-				{ "tool": { "name": "bash", "input": { "command": "restless teams list" } }, "delay_ms": 60 },
+				{
+					"tool": {
+						"name": "bash",
+						"input": {
+							"command": "restless work list"
+						}
+					},
+					"delay_ms": 60
+				},
+				{
+					"tool": {
+						"name": "bash",
+						"input": {
+							"command": "restless teams list"
+						}
+					},
+					"delay_ms": 60
+				},
 				{
 					"delay_ms": 25,
 					"text": "I checked the Work and the teams. Here is where things stand.\n\n- **Reno's own website** is in motion with the designer.\n- **Taylor & Ward version 4** passed its independent check.\n- **Two reviews** are next.\n\nNothing needs you right now. I'll tell you when a first look is ready."
@@ -23,13 +55,28 @@
 		{
 			"match": "use a tool",
 			"steps": [
-				{ "tool": { "name": "bash", "input": { "command": "restless work list" } } },
-				{ "text": "I looked at the Work list. Two pieces are in motion and one is waiting on you." }
+				{
+					"tool": {
+						"name": "bash",
+						"input": {
+							"command": "restless work list"
+						}
+					}
+				},
+				{
+					"text": "I looked at the Work list. Two pieces are in motion and one is waiting on you."
+				}
 			]
 		},
 		{
 			"match": "fail",
-			"steps": [{ "error": 529, "message": "Overloaded" }]
+			"steps": [
+				{
+					"error": 529,
+					"message": "Overloaded"
+				}
+			]
 		}
-	]
+	],
+	"note": "Exec's prompt carries the recent conversation, so a rule can match an older message; the most specific rules come first."
 }

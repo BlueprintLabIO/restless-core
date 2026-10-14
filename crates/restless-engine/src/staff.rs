@@ -14,6 +14,7 @@ use tokio_util::sync::CancellationToken;
 mod context;
 mod conversation;
 mod execution;
+pub(crate) use execution::operator_text;
 mod gates;
 mod recovery;
 mod workspace;
