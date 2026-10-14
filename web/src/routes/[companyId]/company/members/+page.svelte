@@ -14,12 +14,15 @@
 	import StandingPermissions from '$lib/components/StandingPermissions.svelte';
 	import {
 		changeMembership,
+		getAuthorityOwner,
 		getCoreMembers,
 		getIssuerMembers,
 		IssuerSessionMissing,
 		joinMembers,
 		leaveCompany,
+		makeOwner,
 		mayManage,
+		type AuthorityOwner,
 		type CoreMembersView,
 		type IssuerInvitation,
 		type IssuerMembersView,
@@ -37,6 +40,7 @@
 	const canManage = $derived(mayManageCompanySetup(principal));
 	let core = $state<CoreMembersView | null>(null);
 	let issuer = $state<IssuerMembersView | null>(null);
+	let authority = $state<AuthorityOwner | null>(null);
 	let signInNeeded = $state(false);
 	let failure = $state('');
 	let busy = $state('');
@@ -70,6 +74,11 @@
 				if (version !== loadVersion || requestedCompany !== companyId) return;
 				issuer = nextIssuer;
 				signInNeeded = false;
+				// Only the owner reads who holds Authority, to finish a handover they started.
+				authority =
+					nextIssuer.viewer.role === 'owner'
+						? await getAuthorityOwner(requestedCompany).catch(() => null)
+						: null;
 			} catch (cause) {
 				if (version !== loadVersion || requestedCompany !== companyId) return;
 				issuer = null;
@@ -152,6 +161,45 @@
 		).then((done) => {
 			if (!done) select.value = previous;
 		});
+	}
+
+	/* A handover that moved Authority but not yet the owner membership: approvals wait for it. */
+	const handingTo = $derived(
+		viewer?.role === 'owner' &&
+			authority?.source === 'explicit_transfer' &&
+			authority.actor_id !== principal?.actor_id
+			? rows.find((row) => row.actor?.actor_id === authority?.actor_id && row.role !== 'owner')
+			: undefined
+	);
+
+	/* Handing the company on cannot be taken back by the person who does it, so it names exactly
+	 * what changes and asks for their name typed out. */
+	async function handOver(row: MemberRow, ask = true) {
+		if (!core?.issuer || !core.company_id || !row.actor || busy) return;
+		if (
+			ask &&
+			!(await confirmAction({
+				title: `Make ${row.name} the owner?`,
+				body: `${row.name} will approve money, keys, the charter and every approval, and manage everyone here. You become an admin. You cannot undo this yourself; only ${row.name} can hand it back.`,
+				action: 'Make owner',
+				danger: true,
+				typeToConfirm: row.name
+			}))
+		)
+			return;
+		busy = `owner:${row.membership_id}`;
+		failure = '';
+		try {
+			await makeOwner(companyId, core.issuer, core.company_id, row.actor.actor_id, row.name);
+			toast(`${row.name} is now the owner. You are an admin.`);
+			await load();
+		} catch (cause) {
+			if (cause instanceof IssuerSessionMissing) signInNeeded = true;
+			failure = failureSentence(cause, `${row.name} is not the owner yet.`);
+			await load();
+		} finally {
+			busy = '';
+		}
 	}
 
 	/* Several addresses at once, as pasted: one invitation each. What was not sent stays in the
@@ -403,6 +451,22 @@
 			</form>
 		{/if}
 
+		{#if handingTo}
+			{@const to = handingTo}
+			<Notice
+				tone="warning"
+				title={`Finish making ${to.name} the owner`}
+				details={`${to.name} already holds Authority but is not the owner yet, so approvals wait until this is finished.`}
+			>
+				{#snippet actions()}<button
+						class="btn small primary"
+						disabled={!!busy}
+						onclick={() => void handOver(to, false)}
+						>{busy === `owner:${to.membership_id}` ? 'Finishing…' : 'Finish'}</button
+					>{/snippet}
+			</Notice>
+		{/if}
+
 		{#if issuer.invitations.length}
 			<Section title="Invited" count={issuer.invitations.length}>
 				{#each issuer.invitations as invitation (invitation.id)}
@@ -493,6 +557,12 @@
 													{},
 													`${row.name} can enter again.`
 												)}>Reinstate</button
+										>{/if}{#if viewer.role === 'owner' && row.status === 'active' && !row.ending}<button
+											disabled={!!busy || !row.actor}
+											title={row.actor
+												? 'Hand them the company: they approve money, keys and the charter, and you become an admin'
+												: 'They need to open the company once before they can own it'}
+											onclick={() => void handOver(row)}>Make owner…</button
 										>{/if}<button
 										disabled={!!busy || row.ending}
 										onclick={() => (confirming = row.membership_id)}>Remove…</button

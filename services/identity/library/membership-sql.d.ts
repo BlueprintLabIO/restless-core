@@ -32,6 +32,7 @@ export interface SqlMembershipStore extends MembershipStore {
     companyId: string,
     userId: string
   ): Promise<(ViewerMembership & { user_id: string; version: number }) | null>;
+  transferOwnership: NonNullable<MembershipStore['transferOwnership']>;
   /** A single-use entry handoff; refuses unless the member is active and no terminal control is pending. */
   enter(user: { id: string; name?: string | null }, companyId: string): Promise<EntryHandoff>;
   jwks: { keys: Array<Record<string, string>> };

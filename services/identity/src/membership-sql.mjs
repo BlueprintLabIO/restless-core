@@ -227,6 +227,30 @@ export async function createSqlMembershipStore({
     return { ending: requested.verb !== "role" && !ended };
   }
 
+  /**
+   * Make one active admin or member the owner and the current owner an admin, in one transaction:
+   * both rows are locked in a fixed order, authorised against what they hold now, and each gets its
+   * next version and an active control so Core hears of both. A failure changes neither.
+   */
+  async function transferOwnership(companyId, fromMembershipId, toMembershipId, { authorize }) {
+    const jtis = [];
+    await transaction(async (client) => {
+      const locked = {};
+      for (const id of [...new Set([fromMembershipId, toMembershipId])].sort())
+        locked[id] = await lockedState(client, companyId, id);
+      const current = locked[fromMembershipId];
+      const target = locked[toMembershipId];
+      if (!authorize(current, target)) return;
+      await client.query("UPDATE member SET role='owner' WHERE id=$1", [target.membership_id]);
+      await client.query("UPDATE member SET role='admin' WHERE id=$1", [current.membership_id]);
+      // The new owner is told first, so the company is never without one it knows.
+      jtis.push(await enqueueControl(client, companyId, { ...target, role: "owner" }, target.status));
+      jtis.push(await enqueueControl(client, companyId, { ...current, role: "admin" }, current.status));
+    });
+    for (const jti of jtis) await deliverNow(jti);
+    return { ending: false };
+  }
+
   async function sign(claims, typ) {
     const now = Math.floor(Date.now() / 1000);
     return new SignJWT({
@@ -383,6 +407,7 @@ export async function createSqlMembershipStore({
     membership,
     members,
     change,
+    transferOwnership,
     enter,
     jwks,
     deliverDue,

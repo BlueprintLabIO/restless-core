@@ -216,3 +216,12 @@ message grants nothing, and later entries send nothing. The owner claim sends no
    hold entry until delivered. An `active` control does neither. Rollout order: Core accepts
    `active` controls before an issuer sends them. An older Core refuses them and the outbox retries,
    which is harmless.
+7. **Ownership is handed on explicitly, both halves together (S83 UXG-100, issuer 1.2.0).** Only
+   the owner makes an active admin or member the owner: `POST …/members/{id}/make-owner`. The Store
+   swaps the two roles in one transaction (the owner becomes an admin) and delivers both as
+   `active` controls, new owner first. The cockpit first asks Core to move root Authority to that
+   person (`POST /company/authority-owner/transfer`, which checks they are an active non-owner member
+   and records the transfer); a repeat of that request is a no-op, so an interrupted handover is
+   finished by asking again. Neither boundary is widened: afterwards the new owner passes the
+   membership boundary and the Authority checks because they hold both. A Store without
+   `transferOwnership` refuses the request.

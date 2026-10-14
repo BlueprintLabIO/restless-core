@@ -172,3 +172,45 @@ export function mayManage(viewer: IssuerMembersView['viewer'], target: IssuerMem
 	if (target.role === 'owner' || target.membership_id === viewer.membership_id) return false;
 	return viewer.role === 'owner' || target.role === 'member';
 }
+
+/** Who holds root Authority now: approvals, money, keys and the charter answer to them. */
+export interface AuthorityOwner {
+	actor_id: string;
+	source: 'explicit_transfer' | 'bootstrap_membership_owner' | 'local_default';
+}
+
+export async function getAuthorityOwner(company: string): Promise<AuthorityOwner> {
+	return read(
+		await fetch(`/api/companies/${encodeURIComponent(company)}/company/authority-owner`, {
+			credentials: 'same-origin',
+			cache: 'no-store'
+		})
+	);
+}
+
+/**
+ * Hand the company to an active admin or member, both halves in a safe order. Core first moves root
+ * Authority to them and records it; then the issuer makes them the owner and you an admin in one
+ * step. Core answers a repeat of the first half without writing, so if the second half fails the
+ * same call finishes the handover. Until it does, approvals wait.
+ */
+export async function makeOwner(
+	company: string,
+	issuer: IssuerMetadata,
+	companyId: string,
+	actorId: string,
+	name: string
+): Promise<void> {
+	const moved = await read<{ membership_id: string }>(
+		await fetch(`/api/companies/${encodeURIComponent(company)}/company/authority-owner/transfer`, {
+			method: 'POST',
+			credentials: 'same-origin',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				to_actor_id: actorId,
+				rationale: `The owner made ${name} the owner from Company, Members.`
+			})
+		})
+	);
+	await changeMembership(issuer, companyId, `members/${moved.membership_id}/make-owner`);
+}

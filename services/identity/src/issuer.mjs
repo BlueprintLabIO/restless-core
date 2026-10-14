@@ -92,6 +92,25 @@ export function authorizeChange(viewer, change, target) {
 }
 
 /**
+ * The rules for handing the company to someone else, run by the Store under its lock against both
+ * memberships' current state. Only the owner hands it on, to an active admin or member of the same
+ * company; the owner becomes an admin in the same transaction.
+ */
+export function authorizeOwnershipTransfer(viewer, current, target) {
+  if (current.membership_id !== viewer.membership_id || current.role !== "owner")
+    refuse(403, "Only the owner can make someone else the owner.");
+  if (current.status !== "active")
+    refuse(403, "You do not currently have access to this company.");
+  if (target.membership_id === current.membership_id)
+    refuse(409, "You are already the owner.");
+  if (!["admin", "member"].includes(target.role))
+    refuse(409, "This person is already the owner.");
+  if (target.status !== "active")
+    refuse(409, "Reinstate this person before making them the owner.");
+  return true;
+}
+
+/**
  * @param options.auth           Better Auth instance with the organization plugin
  * @param options.origin         issuer origin, e.g. https://accounts.example.com
  * @param options.placement      { resolve(companyId) -> coordinates | null }
@@ -99,6 +118,7 @@ export function authorizeChange(viewer, change, target) {
  *   membership(companyId, userId) -> { membership_id, organization_id, role, status, ending } | null,
  *   members(companyId, organizationId) -> [{ membership_id, name, email, role, status, version, ending }],
  *   change(companyId, membershipId, change, { actorUserId, headers, authorize }) -> { ending },
+ *   transferOwnership?(companyId, fromMembershipId, toMembershipId, { authorize }) -> { ending },
  * }
  * @param options.invitationLink (invitationId) -> absolute URL the invitee opens to accept
  */
@@ -250,6 +270,17 @@ export function createIssuer({ auth, origin, placement, store, invitationLink })
         body: { invitationId: match[1] },
       });
       return { cancelled: true };
+    }
+    // Handing the company on: the chosen person becomes the owner and the owner an admin, at
+    // once. The cockpit moves root Authority to them first (Core records it), then asks here.
+    match = rest.match(/^members\/([^/]{1,128})\/make-owner$/);
+    if (match) {
+      if (viewer.role !== "owner") refuse(403, "Only the owner can make someone else the owner.");
+      if (typeof store.transferOwnership !== "function")
+        refuse(404, "This account service cannot transfer ownership.");
+      return store.transferOwnership(companyId, viewer.membership_id, match[1], {
+        authorize: (current, target) => authorizeOwnershipTransfer(viewer, current, target),
+      });
     }
     match = rest.match(/^members\/([^/]{1,128})\/(role|suspend|reinstate|remove)$/);
     if (!match) refuse(404, "Membership action not found.");

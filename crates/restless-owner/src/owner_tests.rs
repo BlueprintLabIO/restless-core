@@ -2803,6 +2803,33 @@ model = \"anthropic/claude-sonnet-5-5\"
         }
     }
 
+    /// Handing the company on (UXG-100) stays behind the owner boundary: an admin or member never
+    /// reaches the Authority transfer, so only the owner can start it.
+    #[test]
+    fn only_the_owner_reaches_the_ownership_handover() {
+        let path = "/api/companies/aris/company/authority-owner/transfer";
+        for role in ["owner", "admin", "member"] {
+            let identity = crate::entry::VerifiedIdentity {
+                user: "user-1".into(),
+                issuer: Some("https://cloud.restless.test".into()),
+                owner: "owner-1".into(),
+                scope: crate::entry::CompanyScope::Company {
+                    company: "aris".into(),
+                },
+                role: role.into(),
+                actor: Some("human-1".into()),
+                company_id: Some(Uuid::new_v4()),
+                cell_id: Some(Uuid::new_v4()),
+                membership_id: Some("membership-1".into()),
+                membership_version: Some(1),
+                display_name: None,
+            };
+            let principal = RequestPrincipal::from_verified(&identity).unwrap();
+            let refused = membership_boundary_violation(&Method::POST, path, &principal).is_some();
+            assert_eq!(refused, role != "owner", "{role}");
+        }
+    }
+
     #[test]
     fn non_owner_members_may_collaborate_but_not_call_owner_mutations() {
         let identity = crate::entry::VerifiedIdentity {

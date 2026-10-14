@@ -7282,21 +7282,64 @@ async fn company_authority_owner(
     }
 }
 
+/// Root Authority moves to another person only as one half of handing the company on (UXG-100):
+/// the owner asks here first, then asks the issuer to make that person the owner and themselves an
+/// admin. Only an active admin or member Core has verified may receive it, so the membership half
+/// can follow. Asking again once Authority has moved, while the caller still holds the owner
+/// membership, writes nothing and answers the same, so an interrupted handover finishes by retrying.
 async fn transfer_company_authority_owner(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
     Json(input): Json<AuthorityOwnerTransferInput>,
 ) -> impl IntoResponse {
-    if input.to_actor_id.trim().is_empty() || input.rationale.trim().is_empty() {
+    let to_actor_id = input.to_actor_id.trim();
+    if to_actor_id.is_empty() || input.rationale.trim().is_empty() {
         return api_error(
             StatusCode::BAD_REQUEST,
             "authority_owner",
             "transfer needs a destination Actor and a concrete rationale",
         );
     }
-    let org = state.daemon.orgintel.get(&company).await.ok();
-    let current = match effective_authority_owner(&state, &company, org.as_ref()).await {
+    if state.entry.network().is_none() {
+        return api_error(
+            StatusCode::CONFLICT,
+            "authority_owner",
+            "Turn on sharing before handing the company to someone else.",
+        );
+    }
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "authority_owner",
+                format!("{error:#}"),
+            )
+        }
+    };
+    let members = match org.human_members().await {
+        Ok(members) => members,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "authority_owner",
+                format!("{error:#}"),
+            )
+        }
+    };
+    let Some(target) = members.iter().find(|member| {
+        member.actor_id == to_actor_id
+            && member.membership_status == "active"
+            && matches!(member.membership_role.as_str(), "admin" | "member")
+    }) else {
+        return api_error(
+            StatusCode::CONFLICT,
+            "authority_owner",
+            "Only an active admin or member who has opened the company can be made the owner.",
+        );
+    };
+    let current = match effective_authority_owner(&state, &company, Some(&org)).await {
         Ok(view) => view,
         Err(error) => {
             return api_error(
@@ -7306,11 +7349,24 @@ async fn transfer_company_authority_owner(
             )
         }
     };
-    if principal.actor_id() != current.actor_id {
+    let moved = |authority_record_id: Option<i64>| {
+        Json(serde_json::json!({
+            "actor_id": to_actor_id,
+            "membership_id": target.membership_id,
+            "source": "explicit_transfer",
+            "authority_record_id": authority_record_id,
+        }))
+        .into_response()
+    };
+    // Already moved by this owner's earlier request: the membership half is what remains.
+    if current.actor_id == to_actor_id && principal.membership_role() == "owner" {
+        return moved(None);
+    }
+    if principal.actor_id() != current.actor_id || principal.membership_role() != "owner" {
         return api_error(
             StatusCode::FORBIDDEN,
             "authority_owner",
-            "only the current Authority owner may transfer it",
+            "Only the owner who holds Authority may hand the company on.",
         );
     }
     match state
@@ -7319,17 +7375,12 @@ async fn transfer_company_authority_owner(
         .transfer_authority_owner(
             &company,
             &current.actor_id,
-            input.to_actor_id.trim(),
+            to_actor_id,
             input.rationale.trim(),
         )
         .await
     {
-        Ok(record_id) => Json(serde_json::json!({
-            "actor_id": input.to_actor_id.trim(),
-            "source": "explicit_transfer",
-            "authority_record_id": record_id,
-        }))
-        .into_response(),
+        Ok(record_id) => moved(Some(record_id)),
         Err(error) => api_error(
             StatusCode::CONFLICT,
             "authority_owner",

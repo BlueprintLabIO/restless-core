@@ -76,11 +76,31 @@ export interface MembershipStore {
     change: MembershipChange,
     options: ChangeOptions
   ): Promise<{ ending: boolean }>;
+  /**
+   * Optional (issuer 1.2.0). Make an active admin or member the owner and the current owner an
+   * admin in one transaction, delivering both to Core. Without it the admin API refuses the
+   * transfer.
+   */
+  transferOwnership?(
+    companyId: string,
+    fromMembershipId: string,
+    toMembershipId: string,
+    options: {
+      /** Run under the Store's lock on both memberships; throws a Refusal. */
+      authorize(current: ChangeTarget, target: ChangeTarget): boolean;
+    }
+  ): Promise<{ ending: boolean }>;
 }
 
 export declare function authorizeChange(
   viewer: Pick<ViewerMembership, 'membership_id' | 'role'>,
   change: MembershipChange,
+  target: ChangeTarget
+): boolean;
+
+export declare function authorizeOwnershipTransfer(
+  viewer: Pick<ViewerMembership, 'membership_id' | 'role'>,
+  current: ChangeTarget,
   target: ChangeTarget
 ): boolean;
 
