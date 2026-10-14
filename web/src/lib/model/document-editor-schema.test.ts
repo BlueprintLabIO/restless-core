@@ -475,3 +475,29 @@ test('find walks every block, ignores case, and never matches a chip by its labe
 	);
 	assert.deepEqual(documentEditorSchema.findMatches(doc, ''), []);
 });
+
+test('the outline lists headings, and an in-page link lands on its heading', (context) => {
+	const document = new Y.Doc();
+	context.after(() => document.destroy());
+	const schema = getSchema(
+		documentEditorSchema.createDocumentEditorExtensions(document, {} as never, true)
+	);
+	const doc = schema.node('doc', null, [
+		schema.node('heading', { block_id: 'h1', level: 1 }, [schema.text('Pricing & Terms')]),
+		schema.node('paragraph', { block_id: 'p' }, [schema.text('Two words.')]),
+		schema.node('heading', { block_id: 'h2', level: 2 }, [schema.text('Café hours')])
+	]);
+	const outline = documentEditorSchema.documentOutline(doc);
+	assert.deepEqual(
+		outline.map((entry) => [entry.level, entry.text]),
+		[
+			[1, 'Pricing & Terms'],
+			[2, 'Café hours']
+		]
+	);
+	assert.equal(documentEditorSchema.headingSlug('Pricing & Terms'), 'pricing-terms');
+	assert.equal(documentEditorSchema.documentAnchorTarget(doc, '#cafe-hours'), outline[1].pos);
+	assert.equal(documentEditorSchema.documentAnchorTarget(doc, '#h1'), outline[0].pos);
+	assert.equal(documentEditorSchema.documentAnchorTarget(doc, '#nowhere'), null);
+	assert.deepEqual(documentEditorSchema.documentCounts(doc), { words: 6, characters: 35 });
+});

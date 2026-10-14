@@ -33,6 +33,7 @@
 	import ChevronUp from '@lucide/svelte/icons/chevron-up';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import XIcon from '@lucide/svelte/icons/x';
+	import ListTree from '@lucide/svelte/icons/list-tree';
 	import Baseline from '@lucide/svelte/icons/baseline';
 	import TextAlignStart from '@lucide/svelte/icons/text-align-start';
 	import TextAlignCenter from '@lucide/svelte/icons/text-align-center';
@@ -63,6 +64,9 @@
 		imageAltFromName,
 		inDocumentTable,
 		linkFromInput,
+		documentAnchorTarget,
+		documentCounts,
+		documentOutline,
 		findKey,
 		replaceDocumentFind,
 		setDocumentFind,
@@ -1025,7 +1029,8 @@
 		}
 		const parsed = linkFromInput(linkDraft);
 		if (!parsed) {
-			linkProblem = 'Use a web address, an email address or a link that starts with /.';
+			linkProblem =
+				'Use a web address, an email address, a link that starts with /, or # and a heading.';
 			return;
 		}
 		const href = companyRelative(parsed);
@@ -1058,7 +1063,11 @@
 	 * with no access back to this page; a company link opens here, or in a new tab when asked. */
 	function openHref(href: string, newTab: boolean): void {
 		/* A live peer's body is not yet checked by the store: open only what it would keep. */
-		if (!safeHref(href) || href.startsWith('#')) return;
+		if (!safeHref(href)) return;
+		if (href.startsWith('#')) {
+			goToAnchor(href);
+			return;
+		}
 		if (href.startsWith('/')) {
 			if (newTab) window.open(href, '_blank', 'noopener');
 			else void goto(href);
@@ -1079,6 +1088,49 @@
 		if (editorState.editor?.isEditable && !reference && !modified) return;
 		openHref(anchor.getAttribute('href') ?? '', modified);
 	}
+
+	/* An in-page "#…" link, and the outline, go to a heading in this document. */
+	function goToPosition(pos: number): void {
+		const instance = editorState.editor;
+		if (!instance) return;
+		const dom = instance.view.nodeDOM(pos);
+		if (dom instanceof HTMLElement) dom.scrollIntoView({ block: 'start', behavior: 'smooth' });
+		const tr = instance.state.tr.setSelection(Selection.near(instance.state.doc.resolve(pos + 1)));
+		instance.view.dispatch(tr);
+	}
+	function goToAnchor(href: string): void {
+		const instance = editorState.editor;
+		const pos = instance ? documentAnchorTarget(instance.state.doc, href) : null;
+		if (pos !== null) goToPosition(pos);
+	}
+	let outlineOpen = $state(false);
+	const outline = $derived(editor ? documentOutline(editor.state.doc) : []);
+	const outlineTop = $derived(Math.min(...outline.map((entry) => entry.level)));
+
+	/* Words and characters, for the document and for the selection; counted shortly after typing
+	 * pauses rather than on every key. */
+	let counts = $state<{ words: number; characters: number; selected: boolean } | null>(null);
+	$effect(() => {
+		const instance = editorState.editor;
+		if (!instance) {
+			counts = null;
+			return;
+		}
+		const timer = setTimeout(() => {
+			if (instance.isDestroyed) return;
+			const { from, to, empty } = instance.state.selection;
+			counts = {
+				...documentCounts(instance.state.doc, empty ? 0 : from, empty ? undefined : to),
+				selected: !empty
+			};
+		}, 400);
+		return () => clearTimeout(timer);
+	});
+	const countsLabel = $derived(
+		counts
+			? `${counts.words.toLocaleString()} ${counts.words === 1 ? 'word' : 'words'}, ${counts.characters.toLocaleString()} ${counts.characters === 1 ? 'character' : 'characters'}${counts.selected ? ' selected' : ''}`
+			: ''
+	);
 
 	/* Hovering a link shows where it goes, with Open and (while editing) Edit, as in Notion. */
 	let hoverLink = $state<{ href: string; pos: number; left: number; top: number } | null>(null);
@@ -1258,13 +1310,14 @@
 		<div
 			class="collaboration-state state-{saveProblem ? 'degraded' : collaborationState}"
 			aria-live="polite"
-			title={saveProblem
-				? 'Recent edits are not being saved.'
-				: writingOffline
-					? 'Your edits are kept on this device and sync when the connection returns.'
-					: canWriteLive
-						? 'Edits and version history save automatically.'
-						: accessHint}
+			title={(countsLabel ? `${countsLabel}. ` : '') +
+				(saveProblem
+					? 'Recent edits are not being saved.'
+					: writingOffline
+						? 'Your edits are kept on this device and sync when the connection returns.'
+						: canWriteLive
+							? 'Edits and version history save automatically.'
+							: accessHint)}
 		>
 			{#if collaborationState === 'synced' && !saveProblem}
 				<Check size={14} strokeWidth={2} aria-hidden="true" />
@@ -1293,6 +1346,18 @@
 		</div>
 		<div class="editor-actions">
 			<PageFaces {faces} />
+			{#if outline.length}
+				<button
+					type="button"
+					class="head-icon"
+					class:active={outlineOpen}
+					aria-label="Outline"
+					aria-expanded={outlineOpen}
+					title="Outline: the headings in this document"
+					onclick={() => (outlineOpen = !outlineOpen)}
+					><ListTree size={16} strokeWidth={1.8} /></button
+				>
+			{/if}
 			{@render actions?.()}
 			{#if moreActions}
 				<DocumentActions
@@ -1308,7 +1373,11 @@
 							class="touch-only"
 							disabled={!editor.can().redo()}
 							onclick={() => run((instance) => instance.chain().focus().redo().run())}>Redo</button
-						>{/if}{@render moreActions()}</DocumentActions
+						>{/if}{#if editor}<button type="button" onclick={() => openFind(canWriteLive)}
+							>{canWriteLive ? 'Find and replace' : 'Find'}</button
+						>{/if}{@render moreActions()}{#if countsLabel}<p class="menu-count">
+							{countsLabel}
+						</p>{/if}</DocumentActions
 				>
 			{/if}
 		</div>
@@ -1552,6 +1621,30 @@
 					onclick={() => void saveTitle()}>Retry title</button
 				>{/if}
 		</div>
+	{/if}
+
+	{#if outlineOpen && outline.length}
+		<nav class="outline-panel" aria-label="Outline">
+			<button
+				type="button"
+				class="outline-close link-icon"
+				aria-label="Close outline"
+				title="Close outline"
+				onclick={() => (outlineOpen = false)}><XIcon size={14} strokeWidth={1.8} /></button
+			>
+			<ol>
+				{#each outline as entry (entry.pos)}
+					<li style:padding-left={`${(entry.level - outlineTop) * 12}px`}>
+						<button
+							type="button"
+							class:top={entry.level === outlineTop}
+							title={entry.text}
+							onclick={() => goToPosition(entry.pos)}>{entry.text}</button
+						>
+					</li>
+				{/each}
+			</ol>
+		</nav>
 	{/if}
 
 	<!-- The page is what prints: Print or save as PDF, or the browser's own print. -->
@@ -2079,6 +2172,84 @@
 	.link-icon:hover {
 		background: var(--wash-hover);
 		color: var(--ink);
+	}
+	.head-icon {
+		display: grid;
+		place-items: center;
+		width: 30px;
+		height: 30px;
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-control);
+		background: transparent;
+		color: var(--text-secondary);
+		cursor: pointer;
+	}
+	.head-icon:hover,
+	.head-icon.active {
+		background: var(--wash-hover);
+		color: var(--ink);
+	}
+	.menu-count {
+		margin: 4px 0 0;
+		padding: 6px 10px 2px;
+		border-top: 1px solid var(--border);
+		color: var(--text-tertiary);
+		font: var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
+	}
+	/* The outline floats over the page's left margin; on a narrow page it covers the top. */
+	.outline-panel {
+		position: absolute;
+		z-index: 20;
+		top: calc(var(--pane-head-h) + 8px);
+		left: 12px;
+		width: min(260px, calc(100% - 24px));
+		max-height: 60%;
+		overflow: auto;
+		padding: 8px 6px 6px;
+		border: 1px solid var(--border-strong);
+		border-radius: 8px;
+		background: var(--surface-raised);
+		box-shadow: 0 8px 28px #18243a18;
+	}
+	.outline-panel ol {
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+	.outline-panel li button {
+		display: block;
+		width: 100%;
+		min-height: 30px;
+		padding: 4px 8px;
+		overflow: hidden;
+		border: 0;
+		border-radius: 4px;
+		background: transparent;
+		color: var(--text-secondary);
+		font: var(--t-body) var(--font-ui);
+		text-align: left;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		cursor: pointer;
+	}
+	.outline-panel li button.top {
+		color: var(--ink);
+		font-weight: 500;
+	}
+	.outline-panel li button:hover {
+		background: var(--surface-alt);
+	}
+	.outline-close {
+		float: right;
+		width: 26px;
+		height: 26px;
+	}
+	@media print {
+		.outline-panel {
+			display: none;
+		}
 	}
 	.find-bar {
 		display: flex;

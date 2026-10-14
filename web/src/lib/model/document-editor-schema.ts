@@ -801,6 +801,78 @@ function commentMarksExtension(hooks: DocumentEditorHooks) {
 	});
 }
 
+/** A heading as the outline lists it: where it is, how deep, its words and its anchor. */
+export interface OutlineEntry {
+	pos: number;
+	level: number;
+	text: string;
+	blockId: string | null;
+}
+
+/** The words a heading is linked by in the page: "#pricing-and-terms". */
+export function headingSlug(text: string): string {
+	return text
+		.toLocaleLowerCase()
+		.normalize('NFKD')
+		.replace(/[\u0300-\u036f]/gu, '')
+		.replace(/[^\p{L}\p{N}]+/gu, '-')
+		.replace(/^-+|-+$/gu, '')
+		.slice(0, 80);
+}
+
+export function documentOutline(doc: ProseMirrorNode): OutlineEntry[] {
+	const entries: OutlineEntry[] = [];
+	doc.descendants((node, pos) => {
+		if (node.type.name === 'heading') {
+			const text = node.textContent.trim();
+			if (text)
+				entries.push({
+					pos,
+					level: Number(node.attrs.level) || 1,
+					text,
+					blockId: typeof node.attrs.block_id === 'string' ? node.attrs.block_id : null
+				});
+			return false;
+		}
+		return !node.isTextblock;
+	});
+	return entries;
+}
+
+/** Where an in-page "#…" link lands: the heading or block with that id, or the heading whose
+ * words make that anchor. */
+export function documentAnchorTarget(doc: ProseMirrorNode, href: string): number | null {
+	let fragment = href.replace(/^#/u, '');
+	try {
+		fragment = decodeURIComponent(fragment);
+	} catch {
+		/* Kept as written. */
+	}
+	if (!fragment) return null;
+	let found: number | null = null;
+	doc.descendants((node, pos) => {
+		if (found !== null) return false;
+		if (node.attrs.block_id === fragment) found = pos;
+		return found === null;
+	});
+	if (found !== null) return found;
+	const slug = headingSlug(fragment);
+	return documentOutline(doc).find((entry) => headingSlug(entry.text) === slug)?.pos ?? null;
+}
+
+/** Words and characters in the document, or in the part of it between two positions. */
+export function documentCounts(
+	doc: ProseMirrorNode,
+	from = 0,
+	to = doc.content.size
+): { words: number; characters: number } {
+	const text = doc.textBetween(from, to, '\n', ' ');
+	return {
+		words: (text.match(/[\p{L}\p{N}][\p{L}\p{N}'’.-]*/gu) ?? []).length,
+		characters: [...text.replace(/\n/gu, '')].length
+	};
+}
+
 /** One occurrence of what Find looks for: a range of document positions. */
 export interface FindMatch {
 	from: number;
