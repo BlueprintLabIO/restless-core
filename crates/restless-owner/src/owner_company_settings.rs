@@ -653,3 +653,55 @@ mod logo_tests {
         assert_ne!(company_setup_view(&config)["revision"], before);
     }
 }
+
+/// The legal profile as the owner edits it: every field safe for ordinary business output, or
+/// `null` before one is recorded. Evidence and private documents never pass here.
+pub(super) async fn legal_profile(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "legal_profile",
+            "Only the owner can read or change the legal profile.",
+        );
+    }
+    match legal::get_profile(&state.daemon.authority, &company).await {
+        Ok(profile) => Json(serde_json::json!({ "profile": profile.map(|profile| profile.safe) }))
+            .into_response(),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "legal_profile",
+            format!("Could not read the legal profile: {error:#}"),
+        ),
+    }
+}
+
+/// The owner asserts the company's legal details. Authority keeps them, records the change and
+/// keeps any registry observation that still describes the same company.
+pub(super) async fn save_legal_profile(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<legal::LegalProfileInput>,
+) -> Response<Body> {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "legal_profile",
+            "Only the owner can read or change the legal profile.",
+        );
+    }
+    let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(e) => return api_error(StatusCode::NOT_FOUND, "company", format!("{e:#}")),
+    };
+    if let Err(error) =
+        legal::set_profile(&state.daemon.authority, &company, input, principal.actor_id()).await
+    {
+        return api_error(StatusCode::BAD_REQUEST, "legal_profile", format!("{error:#}"));
+    }
+    Json(company_projection::project(&state.daemon, &config, false).await).into_response()
+}

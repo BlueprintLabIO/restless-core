@@ -11,6 +11,7 @@
 	import CharterPurpose from '$lib/components/CharterPurpose.svelte';
 	import { companyPrincipalQuery, companyQuery } from '$lib/model/queries.svelte';
 	import SharedCharter from '$lib/components/SharedCharter.svelte';
+	import LegalProfile from '$lib/components/LegalProfile.svelte';
 	import ArrowRight from '@lucide/svelte/icons/arrow-right';
 	import Target from '@lucide/svelte/icons/target';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
@@ -100,23 +101,7 @@
 			{/if}
 		</Section>
 
-		<Section
-			title="Legal profile"
-			info="Legal details approved for use in company output. Supporting evidence stays private."
-		>
-			{#if view.sources.authority.status !== 'available'}
-				<Empty compact title="Legal details are unavailable right now" />
-			{:else if view.charter.legal_identity}
-				<Row label="Legal name">{view.charter.legal_identity.legal_name}</Row>
-				{#if view.charter.legal_identity.trading_name}<Row label="Trading as"
-						>{view.charter.legal_identity.trading_name}</Row
-					>{/if}
-				<Row label="Form">{view.charter.legal_identity.entity_type}</Row>
-				<Row label="Jurisdiction">{view.charter.legal_identity.jurisdiction}</Row>
-			{:else}
-				<Empty compact title="No legal details yet" />
-			{/if}
-		</Section>
+		<LegalProfile {companyId} {view} onsaved={(company) => source.accept(company)} />
 	{:else if source.failure}
 		<FailureNotice
 			error={source.failure}

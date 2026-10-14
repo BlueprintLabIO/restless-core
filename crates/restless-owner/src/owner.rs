@@ -1518,6 +1518,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(company_settings_api::save_spend_limit),
         )
         .route(
+            "/companies/{company}/company/legal",
+            get(company_settings_api::legal_profile).put(company_settings_api::save_legal_profile),
+        )
+        .route(
             "/companies/{company}/company/runtime-policy",
             post(company_settings_api::save_runtime_policy),
         )

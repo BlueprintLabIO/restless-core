@@ -442,3 +442,40 @@ export function saveSpendLimit(
 export function copyCompanySetup<T>(company: string, preview: boolean, body: unknown) {
 	return postCompany<T>(company, `/copy-setup${preview ? '/preview' : ''}`, body);
 }
+
+/** The company's legal details as the owner asserts them: only what is safe on ordinary
+ * invoices, contracts and provider forms. */
+export type LegalProfileInput = {
+	legal_name: string;
+	trading_name?: string | null;
+	entity_type: string;
+	jurisdiction: string;
+	registration_identifier: { kind: string; value: string };
+	approved_business_address: string;
+	invoice_email?: string | null;
+};
+
+export async function readLegalProfile(company: string): Promise<LegalProfileInput | null> {
+	const body = await ownerResponse<{ profile: LegalProfileInput | null }>(
+		await fetch(`${companyApi(company)}/company/legal`, {
+			cache: 'no-store',
+			credentials: 'same-origin'
+		})
+	);
+	return body.profile;
+}
+
+/** Save the legal profile; the answer is the company view. */
+export async function saveLegalProfile(
+	company: string,
+	profile: LegalProfileInput
+): Promise<CompanyView> {
+	return ownerResponse<CompanyView>(
+		await fetch(`${companyApi(company)}/company/legal`, {
+			method: 'PUT',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(profile),
+			credentials: 'same-origin'
+		})
+	);
+}
