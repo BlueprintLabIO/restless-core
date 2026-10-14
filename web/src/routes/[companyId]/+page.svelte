@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { askExec } from '$lib/model/ask-exec';
 	import { failureSentence } from '$lib/model/failure';
+	import { readDraft, writeDraft } from '$lib/model/composer-options.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { listFlip, listIn, listOut } from '$lib/ui/motion';
 	import { resizePane } from '$lib/actions/resize-pane';
@@ -92,6 +93,15 @@
 	let activityRenewing = $state(false);
 	let conversationError = $state('');
 	let messageDraft = $state('');
+	/* A direction typed to the person on a handover survives a reload, per company and item. */
+	const handoverDraftKey = (itemId: string) => `restless:${companyId}:handover-draft:${itemId}`;
+	$effect(() => {
+		const id = focusItem?.id;
+		const body = messageDraft;
+		if (!id) return;
+		const timer = setTimeout(() => writeDraft(handoverDraftKey(id), body), 150);
+		return () => clearTimeout(timer);
+	});
 	let messageFiles = $state<File[]>([]);
 	let sendingMessage = $state(false);
 	let clientId = $state('');
@@ -487,7 +497,7 @@
 		focusItem = item;
 		controller = 'observer';
 		conversationError = '';
-		messageDraft = '';
+		messageDraft = readDraft(handoverDraftKey(item.id));
 		messageFiles = [];
 		desktopUrl = '';
 		if (!item.runtimeAttach) {

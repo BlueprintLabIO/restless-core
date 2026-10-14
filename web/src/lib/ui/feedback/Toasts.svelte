@@ -7,6 +7,10 @@
 		dismissToast(item.id);
 		await item.undo?.();
 	}
+	async function act(item: Toast) {
+		dismissToast(item.id);
+		await item.action?.run();
+	}
 
 	/* Undo is reachable from the keyboard wherever focus is: ⌘Z / Ctrl+Z outside a text field
 	 * takes back the newest action that still offers it. Text fields keep their own undo. */
@@ -48,6 +52,9 @@
 					title={`Undo (${undoKeys})`}
 					aria-keyshortcuts={isMac ? 'Meta+Z' : 'Control+Z'}
 					onclick={() => void undo(item)}>Undo</button
+				>{/if}
+			{#if item.action}<button type="button" class="undo" onclick={() => void act(item)}
+					>{item.action.label}</button
 				>{/if}
 			<button
 				type="button"

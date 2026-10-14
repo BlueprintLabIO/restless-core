@@ -2,6 +2,7 @@
 	import { settleQuietly } from '$lib/transition';
 	import Toasts from '$lib/ui/feedback/Toasts.svelte';
 	import ConfirmDialog from '$lib/ui/feedback/ConfirmDialog.svelte';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
 	/* The app frame that sits OUTSIDE the design scope: the offline banner and the
 	 * loading bar. They live here rather than inside `.bridge-root` because they
 	 * report on the app itself, not on the company — which is also why the z-ladder
@@ -119,7 +120,30 @@
 	}
 
 	/* A hosted session that ends mid-use re-enters through the account issuer. */
-	onMount(() => observeSessionEnd(() => page.params.companyId));
+	onMount(() =>
+		observeSessionEnd(
+			() => page.params.companyId,
+			(reason) =>
+				toast(
+					reason === 'signed_out'
+						? 'You were signed out. Sign in again to keep working; your drafts are kept.'
+						: 'Part of this page could not load after an update. Reload to finish; your drafts are kept.',
+					{
+						persist: true,
+						action:
+							reason === 'signed_out'
+								? {
+										label: 'Sign in',
+										run: () =>
+											window.location.assign(
+												`/account?return=${encodeURIComponent(location.pathname + location.search)}`
+											)
+									}
+								: { label: 'Reload', run: () => window.location.reload() }
+					}
+				)
+		)
+	);
 	onMount(() => installTripwire(queryClient));
 
 	/* On Cloud's one address, Home, Profile, Security, Plan and Support are the account service's

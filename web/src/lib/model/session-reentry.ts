@@ -27,6 +27,9 @@ const POLL_MS = 2_000;
 
 let waiting = false;
 
+/** Why a re-entry gave up: the session ended, or the page's code moved with an update. */
+export type ReentryGaveUp = 'signed_out' | 'updated';
+
 /** Resolve once the plane serves its health check again, or after the longest wait. */
 async function planeAnswers(fetcher: typeof fetch): Promise<void> {
 	const until = Date.now() + WAIT_MS;
@@ -42,15 +45,21 @@ async function planeAnswers(fetcher: typeof fetch): Promise<void> {
 }
 
 /** `once` names a retry this tab makes only once, until it is forgotten. */
-async function reenter(fetcher: typeof fetch, once?: string) {
+async function reenter(
+	fetcher: typeof fetch,
+	reason: ReentryGaveUp,
+	gaveUp: (reason: ReentryGaveUp) => void,
+	once?: string
+) {
 	if (waiting) return;
 	waiting = true;
 	await planeAnswers(fetcher);
 	try {
 		const last = Number(sessionStorage.getItem(GUARD_KEY) ?? 0);
-		// A reload that did not re-enter would loop; leave the page as it is instead.
+		// A reload that did not re-enter would loop; leave the page as it is and say so instead.
 		if (Date.now() - last < GUARD_MS || (once && sessionStorage.getItem(once))) {
 			waiting = false;
+			gaveUp(reason);
 			return;
 		}
 		sessionStorage.setItem(GUARD_KEY, String(Date.now()));
@@ -58,6 +67,7 @@ async function reenter(fetcher: typeof fetch, once?: string) {
 	} catch {
 		// Without storage there is no loop guard, so do not reload.
 		waiting = false;
+		gaveUp(reason);
 		return;
 	}
 	window.location.reload();
@@ -70,8 +80,14 @@ function servedPagePlane(pathname: string, company: string | undefined): boolean
 	return pathname === scope || pathname.startsWith(`${scope}/`);
 }
 
-/** `pageCompany` names the company of the page on screen, if it is a company page. */
-export function observeSessionEnd(pageCompany: () => string | undefined): () => void {
+/**
+ * `pageCompany` names the company of the page on screen, if it is a company page. `gaveUp` is told
+ * when a reload would loop, so the page can say what happened instead of later writes just failing.
+ */
+export function observeSessionEnd(
+	pageCompany: () => string | undefined,
+	gaveUp: (reason: ReentryGaveUp) => void
+): () => void {
 	const original = window.fetch;
 	window.fetch = async (input, init) => {
 		const response = await original(input, init);
@@ -99,7 +115,8 @@ export function observeSessionEnd(pageCompany: () => string | undefined): () => 
 					.json()
 					.then((body: { error?: unknown; code?: unknown }) => {
 						const code = typeof body.code === 'string' ? body.code : body.error;
-						if (typeof code === 'string' && lapsed(code)) void reenter(original, once);
+						if (typeof code === 'string' && lapsed(code))
+							void reenter(original, 'signed_out', gaveUp, once);
 					})
 					.catch(() => {});
 			}
@@ -112,7 +129,7 @@ export function observeSessionEnd(pageCompany: () => string | undefined): () => 
 	const preloadFailed = (event: Event) => {
 		event.preventDefault();
 		if (navigator.onLine === false) return;
-		void reenter(original);
+		void reenter(original, 'updated', gaveUp);
 	};
 	window.addEventListener('vite:preloadError', preloadFailed);
 	return () => {

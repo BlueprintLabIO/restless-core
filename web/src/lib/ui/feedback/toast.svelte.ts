@@ -7,6 +7,10 @@ export type Toast = {
 	text: string;
 	tone: ToastTone;
 	undo?: () => unknown;
+	/** One other thing to do about it ("Sign in", "Reload"); runs once, then the toast goes. */
+	action?: { label: string; run: () => unknown };
+	/** Stays until dismissed or acted on, as a failure does. */
+	persist?: boolean;
 };
 
 /* Long enough to reach Undo without hurrying; a plain notice goes sooner. A failure stays until it
@@ -28,7 +32,7 @@ export function dismissToast(id: number) {
 function schedule(id: number) {
 	clearTimeout(timers.get(id));
 	const item = toasts.list.find((entry) => entry.id === id);
-	if (!item || item.tone === 'failure') return;
+	if (!item || item.tone === 'failure' || item.persist) return;
 	const undoable = item.undo;
 	timers.set(
 		id,
@@ -37,19 +41,21 @@ function schedule(id: number) {
 }
 
 /** Say what happened. Pass undo when the action can be reversed; it runs once, then the toast goes. */
-export function toast(text: string, options: { undo?: () => unknown; tone?: ToastTone } = {}) {
-	const item: Toast = { id: next++, text, tone: options.tone ?? 'done', undo: options.undo };
-	/* The same failure said again replaces itself rather than stacking. */
-	if (item.tone === 'failure')
-		for (const same of toasts.list.filter(
-			(entry) => entry.tone === 'failure' && entry.text === text
-		))
+export function toast(
+	text: string,
+	options: Pick<Toast, 'undo' | 'action' | 'persist'> & { tone?: ToastTone } = {}
+) {
+	const item: Toast = { ...options, id: next++, text, tone: options.tone ?? 'done' };
+	/* The same lasting notice said again replaces itself rather than stacking. */
+	const lasting = (entry: Toast) => entry.tone === 'failure' || Boolean(entry.persist);
+	if (lasting(item))
+		for (const same of toasts.list.filter((entry) => lasting(entry) && entry.text === text))
 			dismissToast(same.id);
 	/* Over the limit, plain notices go first, then the oldest failure. A live Undo is never
 	 * evicted; it leaves on its own clock. */
 	while (toasts.list.length >= MAX) {
 		const evictable =
-			toasts.list.find((entry) => !entry.undo && entry.tone !== 'failure') ??
+			toasts.list.find((entry) => !entry.undo && entry.tone !== 'failure' && !entry.persist) ??
 			toasts.list.find((entry) => !entry.undo);
 		if (!evictable) break;
 		dismissToast(evictable.id);
