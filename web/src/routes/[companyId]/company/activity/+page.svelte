@@ -8,7 +8,7 @@
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { page } from '$app/state';
 	import { untrack } from 'svelte';
-	import { attentionQuery } from '$lib/model/queries.svelte';
+	import { attentionQuery, companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import { fetchDecisionHistory } from '$lib/model/attention';
 	import {
 		getGovernanceActivity,
@@ -24,6 +24,14 @@
 
 	const companyId = $derived(page.params.companyId ?? '');
 	const attention = $derived(attentionQuery(companyId));
+	const principal = $derived(companyPrincipalQuery(companyId));
+	/* Who acted, in words: the record holds actor ids such as `owner`. */
+	function actorName(id: string): string {
+		if (id === principal.view?.actor_id) return 'You';
+		if (id === 'owner') return 'The owner';
+		if (id === 'exec') return 'Exec';
+		return id;
+	}
 	const graph = $derived(attention.view?.workGraph ?? null);
 	/* The Inbox's "Recently decided" arrives with ?show=decisions; a link to one entry (an
 	 * outside action that failed, a decision someone else made) with ?q= and ?open=. */
@@ -220,7 +228,7 @@
 			state: item.state,
 			evidence: item.evidence,
 			detail: item.detail ?? null,
-			actor: item.actor ?? 'source record',
+			actor: item.actor ? actorName(item.actor) : 'source record',
 			workId: item.work_id,
 			party: item.party
 		}))
@@ -313,7 +321,7 @@
 				: state === 'unknown'
 					? 'warning'
 					: 'neutral';
-	holdQueries(() => [attention]);
+	holdQueries(() => [attention, principal]);
 </script>
 
 <CompanyTitle title="Activity" {companyId} />

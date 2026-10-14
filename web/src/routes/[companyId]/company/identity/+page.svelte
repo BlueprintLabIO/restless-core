@@ -252,7 +252,15 @@
 						>{when(view.current_release.effective_from)}</span
 					>
 				</Row>
-				<Row label="Promoted by">{view.current_release.promoted_by}</Row>
+				<Row label="Promoted by"
+					>{view.current_release.promoted_by === principal.view?.actor_id
+						? 'You'
+						: view.current_release.promoted_by === 'exec'
+							? 'Exec'
+							: view.current_release.promoted_by === 'owner'
+								? 'The owner'
+								: view.current_release.promoted_by}</Row
+				>
 				<Row
 					label="Bound artifacts"
 					info="Artifacts that were produced against this exact identity."

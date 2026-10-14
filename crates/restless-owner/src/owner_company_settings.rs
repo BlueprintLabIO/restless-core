@@ -1126,6 +1126,9 @@ pub(super) async fn export_company(
             }
         }
     });
+    // Fused: the body may be polled again after its end once the full length has been sent, and
+    // a bare `unfold` panics then, cutting the browser's download short.
+    let stream = futures_util::StreamExt::fuse(stream);
     let mut response = Response::new(Body::from_stream(stream));
     let headers = response.headers_mut();
     headers.insert(
