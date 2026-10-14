@@ -149,5 +149,15 @@
 		.list .page-toolbar {
 			padding-left: 14px;
 		}
+		/* Actions that do not fit beside the title move under it, rather than squeezing the
+		 * title to nothing and running off the edge. */
+		.page-head {
+			flex-wrap: wrap;
+		}
+		.page-actions {
+			flex: 0 1 auto;
+			flex-wrap: wrap;
+			min-width: 0;
+		}
 	}
 </style>
