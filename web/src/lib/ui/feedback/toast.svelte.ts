@@ -9,7 +9,8 @@ export type Toast = {
 	undo?: () => unknown;
 };
 
-/* Long enough to reach Undo without hurrying; a plain notice goes sooner. */
+/* Long enough to reach Undo without hurrying; a plain notice goes sooner. A failure stays until it
+ * is dismissed: it may be the only record that something did not happen. */
 const LIFETIME_MS = 6000;
 const UNDO_LIFETIME_MS = 10000;
 const MAX = 3;
@@ -26,7 +27,9 @@ export function dismissToast(id: number) {
 
 function schedule(id: number) {
 	clearTimeout(timers.get(id));
-	const undoable = toasts.list.find((item) => item.id === id)?.undo;
+	const item = toasts.list.find((entry) => entry.id === id);
+	if (!item || item.tone === 'failure') return;
+	const undoable = item.undo;
 	timers.set(
 		id,
 		setTimeout(() => dismissToast(id), undoable ? UNDO_LIFETIME_MS : LIFETIME_MS)
@@ -36,12 +39,33 @@ function schedule(id: number) {
 /** Say what happened. Pass undo when the action can be reversed; it runs once, then the toast goes. */
 export function toast(text: string, options: { undo?: () => unknown; tone?: ToastTone } = {}) {
 	const item: Toast = { id: next++, text, tone: options.tone ?? 'done', undo: options.undo };
-	const kept = toasts.list.slice(-(MAX - 1));
-	for (const dropped of toasts.list.filter((entry) => !kept.includes(entry)))
-		dismissToast(dropped.id);
-	toasts.list = [...kept, item];
+	/* The same failure said again replaces itself rather than stacking. */
+	if (item.tone === 'failure')
+		for (const same of toasts.list.filter(
+			(entry) => entry.tone === 'failure' && entry.text === text
+		))
+			dismissToast(same.id);
+	/* Over the limit, plain notices go first, then the oldest failure. A live Undo is never
+	 * evicted; it leaves on its own clock. */
+	while (toasts.list.length >= MAX) {
+		const evictable =
+			toasts.list.find((entry) => !entry.undo && entry.tone !== 'failure') ??
+			toasts.list.find((entry) => !entry.undo);
+		if (!evictable) break;
+		dismissToast(evictable.id);
+	}
+	toasts.list = [...toasts.list, item];
 	schedule(item.id);
 	return item.id;
+}
+
+/** Take back the newest action that still offers Undo. False when none does. */
+export function undoLatest(): boolean {
+	const item = toasts.list.findLast((entry) => entry.undo);
+	if (!item) return false;
+	dismissToast(item.id);
+	void item.undo?.();
+	return true;
 }
 
 /** Hovering or focusing a toast holds it; leaving starts its clock again. */

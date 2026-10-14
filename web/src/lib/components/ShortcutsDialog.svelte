@@ -10,6 +10,7 @@
 			keys: [
 				[`${mod} K`, 'Search and jump'],
 				[`${mod} J`, 'Show or hide the Exec'],
+				[`${mod} Z`, 'Undo the last action, while its Undo is showing'],
 				['G then I / W / L / P / C', 'Go to Inbox, Work, Library, People, Company'],
 				['?', 'These shortcuts']
 			]

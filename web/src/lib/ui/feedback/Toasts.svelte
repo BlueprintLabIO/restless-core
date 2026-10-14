@@ -1,13 +1,34 @@
 <script lang="ts">
 	/* The one place toasts appear: bottom centre, above the dock on a phone. */
 	import X from '@lucide/svelte/icons/x';
-	import { dismissToast, holdToast, toasts, type Toast } from './toast.svelte';
+	import { dismissToast, holdToast, toasts, undoLatest, type Toast } from './toast.svelte';
 
 	async function undo(item: Toast) {
 		dismissToast(item.id);
 		await item.undo?.();
 	}
+
+	/* Undo is reachable from the keyboard wherever focus is: ⌘Z / Ctrl+Z outside a text field
+	 * takes back the newest action that still offers it. Text fields keep their own undo. */
+	const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+	const undoKeys = isMac ? '⌘Z' : 'Ctrl+Z';
+	function editable(target: EventTarget | null): boolean {
+		const element = target as HTMLElement | null;
+		if (!element?.closest) return false;
+		return Boolean(
+			element.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]')
+		);
+	}
+	function onkeydown(event: KeyboardEvent) {
+		if (event.defaultPrevented || event.shiftKey || event.altKey) return;
+		if (!(isMac ? event.metaKey : event.ctrlKey) || event.key.toLowerCase() !== 'z') return;
+		if (editable(event.target) || !toasts.list.some((item) => item.undo)) return;
+		event.preventDefault();
+		undoLatest();
+	}
 </script>
+
+<svelte:window {onkeydown} />
 
 <div class="toasts bridge-tokens" aria-live="polite">
 	{#each toasts.list as item (item.id)}
@@ -21,7 +42,12 @@
 			onfocusout={() => holdToast(item.id, false)}
 		>
 			<span>{item.text}</span>
-			{#if item.undo}<button type="button" class="undo" onclick={() => void undo(item)}>Undo</button
+			{#if item.undo}<button
+					type="button"
+					class="undo"
+					title={`Undo (${undoKeys})`}
+					aria-keyshortcuts={isMac ? 'Meta+Z' : 'Control+Z'}
+					onclick={() => void undo(item)}>Undo</button
 				>{/if}
 			<button
 				type="button"
