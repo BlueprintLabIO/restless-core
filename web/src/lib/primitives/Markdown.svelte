@@ -241,11 +241,18 @@
 		min-width: 0;
 		max-width: 100%;
 	}
+	/* The language and copy button stay at the top of the visible part of a tall block while the
+	 * conversation scrolls past it (S85-09). */
 	.markdown :global(.md-code-header) {
+		position: sticky;
+		top: 0;
+		z-index: 1;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-2);
+		border-radius: 6px 6px 0 0;
+		background: var(--surface-raised);
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
