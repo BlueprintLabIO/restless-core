@@ -124,6 +124,8 @@ export interface DocumentListCursor {
 export interface DocumentListPage {
 	items: DocumentSummary[];
 	next_cursor: DocumentListCursor | null;
+	/** The whole list's size, on its first page. */
+	total?: number;
 }
 
 export interface DocumentVersionCursor {

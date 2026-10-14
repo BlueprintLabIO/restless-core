@@ -19,8 +19,12 @@ where
             "/companies/{company}/library-pins",
             get(list_pins).post(set_pin),
         )
+        .route(
+            "/companies/{company}/library-items",
+            get(list_library_items).post(set_library_collection),
+        )
         .route("/companies/{company}/comment-search", get(search_comments))
-        .layer(DefaultBodyLimit::max(4 * 1024))
+        .layer(DefaultBodyLimit::max(32 * 1024))
 }
 
 #[derive(Debug, Deserialize)]
@@ -28,6 +32,14 @@ where
 struct PinInput {
     key: String,
     pinned: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CollectionInput {
+    keys: Vec<String>,
+    /// The collection to put them in; null takes them out of any.
+    collection: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -99,6 +111,52 @@ async fn set_pin(
             .await
         {
             Ok(pins) => Json(serde_json::json!({ "pins": pins })).into_response(),
+            Err(error) => pins_unavailable(error),
+        },
+    )
+}
+
+async fn list_library_items(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return no_store(response),
+    };
+    no_store(
+        match org
+            .library_items(principal.membership_role() == "owner")
+            .await
+        {
+            Ok(items) => Json(serde_json::json!({ "items": items })).into_response(),
+            Err(error) => pins_unavailable(error),
+        },
+    )
+}
+
+async fn set_library_collection(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<CollectionInput>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return no_store(response),
+    };
+    no_store(
+        match org
+            .set_library_collection(
+                principal.actor_id(),
+                principal.membership_role() == "owner",
+                &input.keys,
+                input.collection.as_deref(),
+            )
+            .await
+        {
+            Ok(items) => Json(serde_json::json!({ "items": items })).into_response(),
             Err(error) => pins_unavailable(error),
         },
     )

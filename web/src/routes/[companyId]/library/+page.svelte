@@ -72,8 +72,26 @@
 	} from '$lib/model/library-files';
 	import { documentsQuery } from '$lib/model/document-queries.svelte';
 	import { importKind } from '$lib/model/office-import';
+	import {
+		collectionCounts,
+		fetchLibraryItems,
+		removeArchivedWorkFile,
+		renameLibraryFile,
+		setLibraryCollection,
+		type LibraryItem
+	} from '$lib/model/library-items';
+	import Folder from '@lucide/svelte/icons/folder';
+	import Square from '@lucide/svelte/icons/square';
+	import SquareCheck from '@lucide/svelte/icons/square-check';
 	import { documentSearch } from '$lib/model/document-search.svelte';
-	import { duplicateSheet, sheetJson, type SheetRow } from '$lib/model/sheets';
+	import {
+		duplicateSheet,
+		searchSheets,
+		sheetJson,
+		type SheetRow,
+		type SheetSearch
+	} from '$lib/model/sheets';
+	import { searchComments, type CommentSearchHit } from '$lib/model/comment-search';
 	import {
 		deleteArchivedDocument,
 		duplicateDocument,
@@ -231,6 +249,38 @@
 	$effect(() => {
 		if (principal.view) void loadArchived();
 	});
+	async function refreshAfterArchive() {
+		sheets = await sheetJson<SheetRow[]>(companyId).catch(() => sheets);
+		await Promise.all([documents.refresh(), attention.refresh(), loadArchived()]);
+	}
+	/* Archiving or restoring a selection: one request each, one sentence for all of them. */
+	async function archiveMany(list: Entry[], archived: boolean) {
+		if (archiveBusy || !list.length) return;
+		archiveBusy = 'many';
+		const failed: Entry[] = [];
+		try {
+			for (const entry of list) {
+				const response = await setLibraryArchived(companyId, entry, archived).catch(() => null);
+				if (!response?.ok) failed.push(entry);
+			}
+			const done = list.filter((entry) => !failed.includes(entry));
+			if (done.length)
+				toast(
+					`${archived ? 'Archived' : 'Restored'} ${done.length === 1 ? `“${done[0].title}”` : `${done.length} items`}`,
+					{
+						undo: archived ? () => archiveMany(done, false) : undefined
+					}
+				);
+			if (failed.length)
+				toast(
+					`${failed.length === 1 ? `“${failed[0].title}” was` : `${failed.length} items were`} not ${archived ? 'archived' : 'restored'}.`,
+					{ tone: 'failure' }
+				);
+			await refreshAfterArchive();
+		} finally {
+			archiveBusy = '';
+		}
+	}
 	async function setArchived(entry: Entry, archived: boolean) {
 		if (archiveBusy) return;
 		archiveBusy = entry.id;
@@ -493,6 +543,34 @@
 		};
 	});
 
+	/* Collections and kept files' names: company state, read once per company. */
+	let libraryItems = $state<{ company: string; items: LibraryItem[] } | null>(null);
+	const itemOf = $derived(
+		new Map(
+			(libraryItems?.company === companyId ? libraryItems.items : []).map((item) => [
+				item.item_key,
+				item
+			])
+		)
+	);
+	$effect(() => {
+		const target = companyId;
+		if (!principal.view || libraryItems?.company === target) return;
+		libraryItems = { company: target, items: [] };
+		void fetchLibraryItems(target)
+			.then((items) => {
+				if (target === companyId) libraryItems = { company: target, items };
+			})
+			.catch(() => {
+				/* The Library shows no collections until the next visit reads them. */
+			});
+	});
+	/** Whether this person may file an item in a collection: the owner anything, others what they
+	 * may edit. The server decides again. */
+	const mayOrganise = (entry: Entry) => owner || (isNative(entry) && !!entry.manage);
+	/** Whether this person may rename an item here: a Work file or kept file, by the owner. */
+	const mayRenameFile = (entry: Entry) => owner && (isFile(entry) || entry.kind === 'upload');
+
 	let pins = $state<string[]>([]);
 	let pinsFor = '';
 	$effect(() => {
@@ -571,6 +649,8 @@
 		private?: boolean;
 		/** Who made the newest change, when that is known and is not the owner. */
 		editor?: string;
+		/** The collection it is filed in, if any. */
+		collection?: string;
 	};
 	const pinKey = (entry: Pick<Entry, 'kind' | 'id'>) => `${entry.kind}:${entry.id}`;
 	const isNative = (entry: Pick<Entry, 'kind'>) => entry.kind === 'doc' || entry.kind === 'sheet';
@@ -642,7 +722,18 @@
 			sent: row.message_id !== null
 		}))
 	);
-	const entries = $derived<Entry[]>([
+	/* Each row carries its collection, and a kept file the name the owner gave it. */
+	const organised = (entry: Entry): Entry => {
+		const item = itemOf.get(pinKey(entry));
+		if (!item) return entry;
+		const label = entry.kind === 'upload' ? item.label : null;
+		return {
+			...entry,
+			collection: item.collection ?? undefined,
+			...(label ? { title: label, also: `${entry.title} ${entry.also ?? ''}` } : {})
+		};
+	};
+	const rawEntries = $derived<Entry[]>([
 		...files.map((file) => fileEntry(file)),
 		...keptEntries,
 		...documents.summaries
@@ -651,11 +742,14 @@
 		...sheets.map(sheetEntry)
 	]);
 	const archivedFiles = $derived(archivedLibraryFiles.map((file) => fileEntry(file, true)));
-	const archivedEntries = $derived<Entry[]>([
-		...archivedDocs.map((summary) => docEntry(summary, true)),
-		...archivedSheets.map(sheetEntry),
-		...archivedFiles
-	]);
+	const entries = $derived(rawEntries.map(organised));
+	const archivedEntries = $derived<Entry[]>(
+		[
+			...archivedDocs.map((summary) => docEntry(summary, true)),
+			...archivedSheets.map(sheetEntry),
+			...archivedFiles
+		].map(organised)
+	);
 	const FILE_KINDS: LibraryFileKind[] = [
 		'site',
 		'deck',
@@ -688,9 +782,12 @@
 					? 'From you'
 					: LIBRARY_KIND_LABEL[kind];
 	const count = (kind: Entry['kind']) => entries.filter((entry) => entry.kind === kind).length;
+	/* Documents arrive a page at a time; the server says how many there are in all, so the
+	 * counts never stop at the pages loaded so far. */
+	const docTotal = $derived(Math.max(documents.total ?? 0, count('doc')));
 	const counts = $derived({
-		all: entries.length,
-		docs: count('doc'),
+		all: entries.length - count('doc') + docTotal,
+		docs: docTotal,
 		sheets: count('sheet'),
 		yours: keptEntries.length,
 		review: entries.filter((entry) => entry.review).length,
@@ -744,8 +841,82 @@
 		if (at <= 40) return flat;
 		return `…${flat.slice(at - 30)}`;
 	}
+	/* Searching all files also reads inside sheets and comments, as ⌘K does: a sheet whose cells
+	 * or comments match is listed with the matching text, and so is a document whose comment does. */
+	let insideHits = $state<{
+		query: string;
+		sheets: SheetSearch | null;
+		comments: CommentSearchHit[];
+	}>({ query: '', sheets: null, comments: [] });
+	$effect(() => {
+		const text = filter === 'all' || filter === 'sheets' || filter === 'docs' ? query : '';
+		const target = companyId;
+		if (text.length < 2) return;
+		const controller = new AbortController();
+		const timer = setTimeout(() => {
+			void Promise.all([
+				filter === 'docs'
+					? Promise.resolve(null)
+					: searchSheets(target, text, controller.signal).catch(() => null),
+				filter === 'sheets'
+					? Promise.resolve([])
+					: searchComments(target, text, 20, controller.signal).catch(() => [])
+			]).then(([sheets, comments]) => {
+				if (!controller.signal.aborted && target === companyId)
+					insideHits = { query: text, sheets, comments };
+			});
+		}, 250);
+		return () => {
+			clearTimeout(timer);
+			controller.abort();
+		};
+	});
+	/** Where a search found text inside an item, as a quiet excerpt: a cell or a comment. */
+	const insideMatch = $derived.by(() => {
+		const found = new Map<string, string>();
+		if (!query || insideHits.query !== query) return found;
+		const flat = (text: string) => text.replace(/\s+/g, ' ').trim();
+		for (const cell of insideHits.sheets?.cells ?? [])
+			if (!found.has(`sheet:${cell.sheet_id}`))
+				found.set(
+					`sheet:${cell.sheet_id}`,
+					`${cell.cell ? `${cell.tab ? `${cell.tab} ` : ''}${cell.cell}: ` : ''}${flat(cell.snippet)}`
+				);
+		for (const comment of insideHits.sheets?.comments ?? [])
+			if (!found.has(`sheet:${comment.sheet_id}`))
+				found.set(`sheet:${comment.sheet_id}`, `Comment: ${flat(comment.snippet)}`);
+		for (const comment of insideHits.comments)
+			if (!found.has(`doc:${comment.document_id}`))
+				found.set(`doc:${comment.document_id}`, `Comment: ${flat(comment.snippet)}`);
+		return found;
+	});
 	const matches = (entry: Entry) =>
-		!query || `${entry.title} ${entry.also ?? ''}`.toLowerCase().includes(query.toLowerCase());
+		!query ||
+		`${entry.title} ${entry.also ?? ''}`.toLowerCase().includes(query.toLowerCase()) ||
+		insideMatch.has(pinKey(entry));
+
+	/* Who made it and when, as filters that sit beside the sort: everyone or one person, you, or
+	 * shared with you (made by someone else); any time, or the past week or month. */
+	const byParam = $derived(page.url.searchParams.get('by') ?? '');
+	const sinceParam = $derived(page.url.searchParams.get('since') ?? '');
+	const collectionParam = $derived(page.url.searchParams.get('collection') ?? '');
+	const byMatches = (entry: Entry) =>
+		!byParam ||
+		(byParam === 'you'
+			? entry.owner === 'You'
+			: byParam === 'others'
+				? entry.owner !== 'You'
+				: entry.owner === byParam);
+	const sinceMatches = (entry: Entry) => {
+		const days = Number(sinceParam);
+		return !days || Date.now() - Date.parse(entry.updatedAt) <= days * 86_400_000;
+	};
+	function setParam(name: string, value: string) {
+		const url = new URL(page.url);
+		if (value) url.searchParams.set(name, value);
+		else url.searchParams.delete(name);
+		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+	}
 	const inView = (entry: Entry) =>
 		filter === 'all' ||
 		filter === 'archived' ||
@@ -757,7 +928,20 @@
 		entry.kind === filter;
 	const listed = $derived.by(() => {
 		const pool = filter === 'archived' ? archivedEntries : filter === 'pinned' ? pinned : entries;
-		const local = pool.filter((entry) => inView(entry) && matches(entry));
+		const local = pool
+			.filter(
+				(entry) =>
+					inView(entry) &&
+					matches(entry) &&
+					byMatches(entry) &&
+					sinceMatches(entry) &&
+					(!collectionParam || entry.collection === collectionParam)
+			)
+			.map((entry) =>
+				!entry.meta && insideMatch.has(pinKey(entry))
+					? { ...entry, meta: insideMatch.get(pinKey(entry)) }
+					: entry
+			);
 		if (!searchesDocuments) return local;
 		/* Server hits lead in relevance order; title matches among loaded documents fill in while
 		 * the search is on its way. */
@@ -782,7 +966,15 @@
 			};
 		});
 		const found = new Set(hits.map((hit) => hit.id));
-		return [...hits, ...local.filter((entry) => entry.kind !== 'doc' || !found.has(entry.id))];
+		return [
+			...hits.filter(
+				(hit) =>
+					byMatches(hit) &&
+					sinceMatches(hit) &&
+					(!collectionParam || itemOf.get(pinKey(hit))?.collection === collectionParam)
+			),
+			...local.filter((entry) => entry.kind !== 'doc' || !found.has(entry.id))
+		];
 	});
 
 	type Sort = 'updated' | 'oldest' | 'name' | 'name-desc';
@@ -807,6 +999,19 @@
 			const age = Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
 			return sort === 'oldest' ? -age : age;
 		});
+	});
+	/* Sorting by anything but the newest edit reads every document first, so "A to Z" never
+	 * misses one on a later page. Bounded, as a company's Library is. */
+	$effect(() => {
+		if (
+			sort !== 'updated' &&
+			(filter === 'all' || filter === 'docs' || filter === 'review') &&
+			documents.hasMore &&
+			!documents.loadingMore &&
+			!documents.failure &&
+			documents.summaries.length < 1_000
+		)
+			void documents.loadMore();
 	});
 	function sortBy(column: 'name' | 'updated') {
 		const next: Sort =
@@ -842,23 +1047,114 @@
 		{ key: 'archived', label: 'Archived' }
 	];
 	const filterLabel = (key: Filter) =>
-		key === 'pinned'
-			? 'Pinned'
-			: key === 'yours'
-				? 'From you'
-				: (FILTERS.find((item) => item.key === key)?.label ??
-					(FILE_KINDS.includes(key as LibraryFileKind)
-						? LIBRARY_KIND_LABEL[key as LibraryFileKind]
-						: 'All files'));
+		collectionParam && key === 'all'
+			? collectionParam
+			: key === 'pinned'
+				? 'Pinned'
+				: key === 'yours'
+					? 'From you'
+					: (FILTERS.find((item) => item.key === key)?.label ??
+						(FILE_KINDS.includes(key as LibraryFileKind)
+							? LIBRARY_KIND_LABEL[key as LibraryFileKind]
+							: 'All files'));
 
-	const filterHref = (key: Filter) => {
+	const filterHref = (key: Filter, collection = '') => {
 		const url = new URLSearchParams();
 		if (key !== 'all') url.set('show', key);
+		if (collection) url.set('collection', collection);
 		if (sortParam) url.set('sort', sortParam);
 		const query = url.toString();
 		return query ? `${root}/library?${query}` : `${root}/library`;
 	};
-	const backHref = $derived(filterHref(filter));
+	const backHref = $derived(filterHref(filter, collectionParam));
+	/* Collections in use, among the items this person can see. */
+	const collections = $derived(
+		collectionCounts(
+			libraryItems?.company === companyId ? libraryItems.items : [],
+			new Set(entries.map(pinKey))
+		)
+	);
+	/* People who made something here, for the "made by" filter. */
+	const makers = $derived(
+		[...new Set(entries.map((entry) => entry.owner))]
+			.filter((name) => name && name !== 'You')
+			.sort((a, b) => a.localeCompare(b))
+	);
+
+	/* Selecting several rows to archive, pin or file them at once. */
+	let selecting = $state(false);
+	let selected = $state<string[]>([]);
+	const selectedEntries = $derived(shown.filter((entry) => selected.includes(pinKey(entry))));
+	function toggleSelected(entry: Entry) {
+		const key = pinKey(entry);
+		selected = selected.includes(key)
+			? selected.filter((item) => item !== key)
+			: [...selected, key];
+	}
+	function stopSelecting() {
+		selecting = false;
+		selected = [];
+	}
+	async function pinMany(list: Entry[]) {
+		for (const entry of list) if (!pins.includes(pinKey(entry))) await togglePin(pinKey(entry));
+		toast(`Pinned ${list.length === 1 ? `“${list[0].title}”` : `${list.length} items`}`);
+	}
+
+	/* Filing in a collection and renaming a file: one small dialog, a name to type. */
+	let organiseDialog: HTMLDialogElement | undefined = $state();
+	let organising = $state<{ mode: 'collection' | 'rename'; entries: Entry[] } | null>(null);
+	let organiseName = $state('');
+	let organiseBusy = $state(false);
+	let organiseFailure = $state('');
+	function askOrganise(mode: 'collection' | 'rename', list: Entry[]) {
+		if (!list.length) return;
+		organising = { mode, entries: list };
+		organiseName =
+			mode === 'rename'
+				? list[0].title
+				: list.every((entry) => entry.collection === list[0].collection)
+					? (list[0].collection ?? '')
+					: '';
+		organiseFailure = '';
+		organiseDialog?.showModal();
+	}
+	async function organise(clear = false) {
+		const job = organising;
+		if (!job || organiseBusy) return;
+		const name = clear ? '' : organiseName.trim();
+		organiseBusy = true;
+		organiseFailure = '';
+		try {
+			if (job.mode === 'collection') {
+				const items = await setLibraryCollection(companyId, job.entries.map(pinKey), name || null);
+				libraryItems = { company: companyId, items };
+				toast(
+					name
+						? `Moved ${job.entries.length === 1 ? `“${job.entries[0].title}”` : `${job.entries.length} items`} to ${name}`
+						: `Taken out of the collection`
+				);
+				if (selecting) stopSelecting();
+			} else {
+				const entry = job.entries[0];
+				if (entry.kind === 'upload') {
+					await renameLibraryFile(companyId, { key: pinKey(entry) }, name || null);
+					libraryItems = { company: companyId, items: await fetchLibraryItems(companyId) };
+				} else {
+					if (!name) throw new Error('Give it a name.');
+					await renameLibraryFile(companyId, { artifactId: entry.id }, name);
+					await Promise.all([attention.refresh(), loadArchived()]);
+				}
+			}
+			organiseDialog?.close();
+		} catch (cause) {
+			organiseFailure = failureSentence(
+				cause,
+				job.mode === 'collection' ? 'It was not moved.' : 'It was not renamed.'
+			);
+		} finally {
+			organiseBusy = false;
+		}
+	}
 
 	const editedBy = (editor: string | null | undefined, ownerId: string) =>
 		editor && editor !== ownerId ? name(editor).replace(/^You$/, 'you') : undefined;
@@ -909,13 +1205,15 @@
 		confirmDialog?.showModal();
 	}
 	const deleteConsequence = (entry: Entry) =>
-		entry.kind === 'doc'
-			? 'Its versions, comments and reviews go with it. This cannot be undone.'
-			: entry.kind === 'sheet'
-				? 'Its history and saved versions go with it. This cannot be undone.'
-				: entry.sent
-					? 'It is also removed from the conversation it was sent in. This cannot be undone.'
-					: 'This cannot be undone.';
+		isFile(entry)
+			? 'It no longer appears anywhere in the Library. The file stays on the company computer, and its Work keeps its record of it. This cannot be undone.'
+			: entry.kind === 'doc'
+				? 'Its versions, comments and reviews go with it. This cannot be undone.'
+				: entry.kind === 'sheet'
+					? 'Its history and saved versions go with it. This cannot be undone.'
+					: entry.sent
+						? 'It is also removed from the conversation it was sent in. This cannot be undone.'
+						: 'This cannot be undone.';
 	async function confirmDelete() {
 		const entry = confirming;
 		if (!entry || deleting) return;
@@ -927,6 +1225,9 @@
 				await loadArchived();
 			} else if (entry.kind === 'sheet') {
 				await sheetJson(companyId, `/${encodeURIComponent(entry.id)}`, { method: 'DELETE' });
+				await loadArchived();
+			} else if (isFile(entry)) {
+				await removeArchivedWorkFile(companyId, entry.id);
 				await loadArchived();
 			} else {
 				await deleteAttachment(companyId, entry.id);
@@ -958,7 +1259,7 @@
 			href={filterHref('all')}
 			label="All files"
 			icon={Library}
-			active={filter === 'all' && !fileOpen && !uploadFile}
+			active={filter === 'all' && !collectionParam && !fileOpen && !uploadFile}
 			count={counts.all || null}
 		/>
 		<SidebarRow
@@ -1005,6 +1306,19 @@
 				/>
 			{/if}
 		</SidebarGroup>
+		{#if collections.length}
+			<SidebarGroup label="Collections">
+				{#each collections as row (row.name)}
+					<SidebarRow
+						href={filterHref('all', row.name)}
+						label={row.name}
+						icon={Folder}
+						active={collectionParam === row.name && !fileOpen && !uploadFile}
+						count={row.total}
+					/>
+				{/each}
+			</SidebarGroup>
+		{/if}
 		{#if pinned.length}
 			<SidebarGroup label="Pinned" count={pinned.length}>
 				{#each pinned as entry (pinKey(entry))}
@@ -1043,8 +1357,16 @@
 			{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(owner && counts.yours ? [{ key: 'yours' as Filter, label: 'From you' }] : []), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : []), FILTERS.at(-1)!] as item (item.key)}
 				<a
 					href={filterHref(item.key)}
-					class:active={filter === item.key}
-					aria-current={filter === item.key ? 'page' : undefined}>{item.label}</a
+					class:active={filter === item.key && !collectionParam}
+					aria-current={filter === item.key && !collectionParam ? 'page' : undefined}
+					>{item.label}</a
+				>
+			{/each}
+			{#each collections as row (row.name)}
+				<a
+					href={filterHref('all', row.name)}
+					class:active={collectionParam === row.name}
+					aria-current={collectionParam === row.name ? 'page' : undefined}>{row.name}</a
 				>
 			{/each}
 		</nav>
@@ -1134,58 +1456,100 @@
 		>
 			<header class="head">
 				<h1>{filterLabel(filter)}</h1>
-				<span class="head-count">{shown.length || ''}</span>
+				<span class="head-count"
+					>{(!query && !collectionParam && !byParam && !sinceParam && filter === 'docs'
+						? counts.docs
+						: !query && !collectionParam && !byParam && !sinceParam && filter === 'all'
+							? counts.all
+							: shown.length) || ''}</span
+				>
 				{#if filter === 'yours' && keptUsage}<span
 						class="usage"
 						class:full={keptUsage.full}
 						title={keptUsage.detail}>{keptUsage.label}</span
 					>{/if}
 				<span class="spacer"></span>
-				<!-- One action, the one this view is about; All offers every way to add behind one button. -->
-				{#if filter === 'docs' || filter === 'sheets'}
-					{@const kind = filter === 'docs' ? 'doc' : 'sheet'}
+				{#if selecting}
+					{@const archivable = selectedEntries.filter(
+						(entry) => (isNative(entry) && entry.manage) || (isFile(entry) && owner)
+					)}
+					<span class="selection-count" aria-live="polite">{selected.length} selected</span>
 					<button
-						class="btn small primary new"
+						class="btn small"
 						type="button"
-						title={kind === 'doc' ? 'Start an untitled document' : 'Start an untitled sheet'}
-						onclick={() => creator?.open(kind)}
-						><Plus size={14} strokeWidth={2} aria-hidden="true" /><span
-							>{kind === 'doc' ? 'New document' : 'New sheet'}</span
-						></button
+						disabled={!archivable.length || !!archiveBusy}
+						title={filter === 'archived'
+							? 'Put the selected items back in the Library'
+							: 'Take the selected items out of the Library lists; restore them any time'}
+						onclick={() => void archiveMany(archivable, filter !== 'archived').then(stopSelecting)}
+						>{filter === 'archived' ? 'Restore' : 'Archive'}</button
 					>
-				{:else if filter === 'yours'}
-					<button
-						class="btn small primary new"
-						type="button"
-						title="Add files from this device; you can also drop them here"
-						onclick={() => creator?.pick()}
-						><Upload size={14} strokeWidth={2} aria-hidden="true" /><span>Upload files</span
-						></button
-					>
-				{:else if filter !== 'archived'}
-					<div class="new-menu">
-						<ActionMenu label="New">
-							{#snippet trigger()}<span class="new-trigger"
-									><Plus size={14} strokeWidth={2} aria-hidden="true" /><span>New</span><ChevronDown
-										size={13}
-										strokeWidth={2}
-										aria-hidden="true"
-									/></span
-								>{/snippet}
-							<button type="button" onclick={() => creator?.open('doc')}
-								><FileText size={14} strokeWidth={1.8} aria-hidden="true" />Document</button
-							>
-							<button type="button" onclick={() => creator?.open('sheet')}
-								><Sheet size={14} strokeWidth={1.8} aria-hidden="true" />Sheet</button
-							>
-							{#if owner}<button
-									type="button"
-									title="Add files from this device; you can also drop them on the list"
-									onclick={() => creator?.pick()}
-									><Upload size={14} strokeWidth={1.8} aria-hidden="true" />Upload files…</button
-								>{/if}
-						</ActionMenu>
-					</div>
+					{#if filter !== 'archived'}
+						<button
+							class="btn small"
+							type="button"
+							disabled={!selectedEntries.length}
+							onclick={() => void pinMany(selectedEntries).then(stopSelecting)}>Pin</button
+						>
+						<button
+							class="btn small"
+							type="button"
+							disabled={!selectedEntries.filter(mayOrganise).length}
+							onclick={() => askOrganise('collection', selectedEntries.filter(mayOrganise))}
+							>Move to collection…</button
+						>
+					{/if}
+					<button class="btn small primary" type="button" onclick={stopSelecting}>Done</button>
+				{:else}
+					{#if shown.length}<button
+							class="btn small"
+							type="button"
+							title="Choose several items to archive, pin or file at once"
+							onclick={() => (selecting = true)}>Select</button
+						>{/if}
+					<!-- One action, the one this view is about; All offers every way to add behind one button. -->
+					{#if filter === 'docs' || filter === 'sheets'}
+						{@const kind = filter === 'docs' ? 'doc' : 'sheet'}
+						<button
+							class="btn small primary new"
+							type="button"
+							title={kind === 'doc' ? 'Start an untitled document' : 'Start an untitled sheet'}
+							onclick={() => creator?.open(kind)}
+							><Plus size={14} strokeWidth={2} aria-hidden="true" /><span
+								>{kind === 'doc' ? 'New document' : 'New sheet'}</span
+							></button
+						>
+					{:else if filter === 'yours'}
+						<button
+							class="btn small primary new"
+							type="button"
+							title="Add files from this device; you can also drop them here"
+							onclick={() => creator?.pick()}
+							><Upload size={14} strokeWidth={2} aria-hidden="true" /><span>Upload files</span
+							></button
+						>
+					{:else if filter !== 'archived'}
+						<div class="new-menu">
+							<ActionMenu label="New">
+								{#snippet trigger()}<span class="new-trigger"
+										><Plus size={14} strokeWidth={2} aria-hidden="true" /><span>New</span
+										><ChevronDown size={13} strokeWidth={2} aria-hidden="true" /></span
+									>{/snippet}
+								<button type="button" onclick={() => creator?.open('doc')}
+									><FileText size={14} strokeWidth={1.8} aria-hidden="true" />Document</button
+								>
+								<button type="button" onclick={() => creator?.open('sheet')}
+									><Sheet size={14} strokeWidth={1.8} aria-hidden="true" />Sheet</button
+								>
+								{#if owner}<button
+										type="button"
+										title="Add files from this device; you can also drop them on the list"
+										onclick={() => creator?.pick()}
+										><Upload size={14} strokeWidth={1.8} aria-hidden="true" />Upload files…</button
+									>{/if}
+							</ActionMenu>
+						</div>
+					{/if}
 				{/if}
 			</header>
 
@@ -1236,7 +1600,31 @@
 									strokeWidth={2}
 									aria-hidden="true"
 								/>{/if}</button
-						><span aria-hidden="true">Owner</span><button
+						><select
+							class="facet"
+							class:set={!!byParam}
+							aria-label="Made by"
+							title="Who made it"
+							value={byParam}
+							onchange={(event) => setParam('by', event.currentTarget.value)}
+						>
+							<option value="">Anyone</option>
+							<option value="you">You</option>
+							<option value="others">Shared with you</option>
+							{#each makers as maker (maker)}<option value={maker}>{maker}</option>{/each}
+						</select><select
+							class="facet"
+							class:set={!!sinceParam}
+							aria-label="Updated"
+							title="When it last changed"
+							value={sinceParam}
+							onchange={(event) => setParam('since', event.currentTarget.value)}
+						>
+							<option value="">Any time</option>
+							<option value="1">Today</option>
+							<option value="7">Past week</option>
+							<option value="30">Past month</option>
+						</select><span aria-hidden="true">Owner</span><button
 							type="button"
 							class="sort"
 							class:sorted={!!sortParam && (sort === 'updated' || sort === 'oldest')}
@@ -1257,18 +1645,31 @@
 						{#each shown as entry (entry.kind + entry.id)}
 							<Item
 								role="listitem"
+								selected={selecting && selected.includes(pinKey(entry))}
+								onclick={selecting ? () => toggleSelected(entry) : undefined}
 								title={entry.title}
 								meta={entry.meta ??
 									(entry.editor ? `${entry.owner} · edited by ${entry.editor}` : entry.owner)}
-								href={entry.href}
+								href={selecting ? undefined : entry.href}
 								unread={entry.review}
 								dim={filter === 'archived'}
 							>
-								{#snippet leading()}{@const KindIcon = KIND_ICON[entry.kind]}<KindIcon
-										size={15}
-										strokeWidth={1.8}
-										aria-label={kindLabel(entry.kind)}
-									/>{/snippet}
+								{#snippet leading()}{@const KindIcon =
+										KIND_ICON[
+											entry.kind
+										]}{#if selecting}{#if selected.includes(pinKey(entry))}<SquareCheck
+												size={15}
+												strokeWidth={1.8}
+												aria-label="Selected"
+											/>{:else}<Square
+												size={15}
+												strokeWidth={1.8}
+												aria-label="Not selected"
+											/>{/if}{:else}<KindIcon
+											size={15}
+											strokeWidth={1.8}
+											aria-label={kindLabel(entry.kind)}
+										/>{/if}{/snippet}
 								{#snippet trailing()}
 									{#if entry.review}<span class="review">Needs review</span
 										>{:else if statusLabel(entry.status)}<Dot
@@ -1312,6 +1713,17 @@
 												href={`${entry.href}&rename=1`}
 												title="Open it with the title ready to change">Rename</a
 											>{/if}
+										{#if mayRenameFile(entry)}<button
+												title={entry.kind === 'upload'
+													? 'The name it shows in the Library; the file keeps its own'
+													: 'The name it shows everywhere; the file itself is unchanged'}
+												onclick={() => askOrganise('rename', [entry])}>Rename…</button
+											>{/if}
+										{#if mayOrganise(entry)}<button
+												title="File it in a collection in the sidebar"
+												onclick={() => askOrganise('collection', [entry])}
+												>{entry.collection ? 'Change collection…' : 'Move to collection…'}</button
+											>{/if}
 										{#if (isNative(entry) && entry.manage) || (isFile(entry) && owner)}
 											{#if filter === 'archived'}<button
 													disabled={!!archiveBusy}
@@ -1333,6 +1745,11 @@
 										{#if filter === 'archived' && isNative(entry) && entry.manage}<button
 												class="danger"
 												onclick={() => askDelete(entry)}>Delete permanently…</button
+											>{/if}
+										{#if filter === 'archived' && isFile(entry) && owner}<button
+												class="danger"
+												title="Stops listing it; the file stays on the company computer"
+												onclick={() => askDelete(entry)}>Remove from the Library…</button
 											>{/if}
 									</ActionMenu>
 								{/snippet}
@@ -1359,22 +1776,27 @@
 					<div class="searching"><Pending label="Searching inside documents" /></div>
 				{:else}
 					<Empty
-						title={query
-							? 'Nothing matches that search'
-							: filter === 'review'
-								? 'Nothing is waiting for your review'
-								: filter === 'archived'
-									? 'Nothing is archived'
-									: filter === 'yours'
-										? 'Nothing from you yet'
-										: 'Nothing here yet'}
+						title={byParam || sinceParam
+							? 'Nothing matches these filters'
+							: query
+								? 'Nothing matches that search'
+								: filter === 'review'
+									? 'Nothing is waiting for your review'
+									: filter === 'archived'
+										? 'Nothing is archived'
+										: filter === 'yours'
+											? 'Nothing from you yet'
+											: 'Nothing here yet'}
 						info={filter === 'yours'
 							? 'Files you add here or send in a conversation are kept here.'
 							: query && !searchesDocuments && filter !== 'archived'
 								? 'This view matches titles and file names. All files also searches inside documents.'
 								: 'Documents, sheets and everything the team makes, such as sites, decks and images, appear here as they work.'}
 					>
-						{#snippet action()}{#if query && !searchesDocuments && filter !== 'archived'}<a
+						{#snippet action()}{#if byParam || sinceParam}<a
+									class="btn small"
+									href={filterHref(filter, collectionParam)}>Clear filters</a
+								>{/if}{#if query && !searchesDocuments && filter !== 'archived'}<a
 									class="btn small"
 									href={filterHref('all')}>Search all files</a
 								>{:else if !query && filter === 'yours'}<button
@@ -1421,7 +1843,11 @@
 	onclose={() => (confirming = null)}
 >
 	{#if confirming}
-		<h2 id="library-confirm-title">Delete “{confirming.title}” permanently?</h2>
+		<h2 id="library-confirm-title">
+			{isFile(confirming)
+				? `Remove “${confirming.title}” from the Library?`
+				: `Delete “${confirming.title}” permanently?`}
+		</h2>
 		<p>{deleteConsequence(confirming)}</p>
 		{#if deleteFailure}<p class="confirm-failure" role="alert">{deleteFailure}</p>{/if}
 		<div class="confirm-actions">
@@ -1435,9 +1861,79 @@
 				type="button"
 				class="btn small danger"
 				disabled={deleting}
-				onclick={() => void confirmDelete()}>{deleting ? 'Deleting…' : 'Delete'}</button
+				onclick={() => void confirmDelete()}
+				>{deleting
+					? isFile(confirming)
+						? 'Removing…'
+						: 'Deleting…'
+					: isFile(confirming)
+						? 'Remove'
+						: 'Delete'}</button
 			>
 		</div>
+	{/if}
+</dialog>
+
+<dialog
+	bind:this={organiseDialog}
+	class="confirm"
+	aria-labelledby="library-organise-title"
+	oncancel={(event) => {
+		if (organiseBusy) event.preventDefault();
+	}}
+	onclose={() => (organising = null)}
+>
+	{#if organising}
+		<form
+			onsubmit={(event) => {
+				event.preventDefault();
+				void organise();
+			}}
+		>
+			<h2 id="library-organise-title">
+				{organising.mode === 'rename'
+					? `Rename “${organising.entries[0].title}”`
+					: organising.entries.length === 1
+						? `Move “${organising.entries[0].title}” to a collection`
+						: `Move ${organising.entries.length} items to a collection`}
+			</h2>
+			<!-- svelte-ignore a11y_autofocus -->
+			<input
+				class="organise-name"
+				bind:value={organiseName}
+				list={organising.mode === 'collection' ? 'library-collections' : undefined}
+				maxlength={organising.mode === 'collection' ? 80 : 200}
+				placeholder={organising.mode === 'collection' ? 'Collection name' : 'Name'}
+				aria-label={organising.mode === 'collection' ? 'Collection name' : 'Name'}
+				autofocus
+			/>
+			<datalist id="library-collections">
+				{#each collections as row (row.name)}<option value={row.name}></option>{/each}
+			</datalist>
+			{#if organiseFailure}<p class="confirm-failure" role="alert">{organiseFailure}</p>{/if}
+			<div class="confirm-actions">
+				{#if organising.mode === 'collection' && organising.entries.some((entry) => entry.collection)}<button
+						type="button"
+						class="btn small organise-clear"
+						disabled={organiseBusy}
+						onclick={() => void organise(true)}>Take out of collection</button
+					>{/if}
+				<button
+					type="button"
+					class="btn small"
+					disabled={organiseBusy}
+					onclick={() => organiseDialog?.close()}>Cancel</button
+				>
+				<button
+					type="submit"
+					class="btn small primary"
+					disabled={organiseBusy ||
+						(!organiseName.trim() &&
+							!(organising.mode === 'rename' && organising.entries[0].kind === 'upload'))}
+					>{organiseBusy ? 'Saving…' : organising.mode === 'rename' ? 'Rename' : 'Move'}</button
+				>
+			</div>
+		</form>
 	{/if}
 </dialog>
 
@@ -1668,6 +2164,43 @@
 	}
 	.confirm .confirm-failure {
 		color: var(--state-danger);
+	}
+	.organise-name {
+		width: 100%;
+		height: 32px;
+		margin: 4px 0 14px;
+		padding: 0 8px;
+		border: 1px solid var(--control-edge);
+		border-radius: var(--radius-control);
+		background: var(--surface-raised);
+		color: var(--ink);
+		font: var(--t-body) var(--font-ui);
+	}
+	.organise-clear {
+		margin-right: auto;
+	}
+	.selection-count {
+		color: var(--text-secondary);
+		font-variant-numeric: tabular-nums;
+	}
+	/* The filters sit in the column head, as quiet as the sort labels beside them. */
+	.facet {
+		height: 24px;
+		max-width: 150px;
+		padding: 0 4px;
+		border: 0;
+		border-radius: var(--radius-control);
+		background: transparent;
+		color: inherit;
+		font: inherit;
+		cursor: pointer;
+	}
+	.facet:hover {
+		background: var(--wash-hover);
+	}
+	.facet.set {
+		color: var(--text-secondary);
+		font-weight: 600;
 	}
 	.confirm-actions {
 		display: flex;

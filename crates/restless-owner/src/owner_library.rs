@@ -388,3 +388,123 @@ pub(super) async fn archived_work_files(
         ),
     }
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct LibraryRenameRequest {
+    /// A Work file, renamed everywhere it shows.
+    #[serde(default)]
+    artifact_id: Option<Uuid>,
+    /// A kept file: `upload:<id>`; its own name returns with a null or empty label.
+    #[serde(default)]
+    key: Option<String>,
+    label: Option<String>,
+}
+
+/// POST /companies/{company}/library/rename: the name a Work file or kept file shows.
+pub(super) async fn rename_library_file(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<LibraryRenameRequest>,
+) -> Response<Body> {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "membership_role",
+            "only the company membership owner may rename Library files",
+        );
+    }
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    };
+    let result = match (input.artifact_id, input.key.as_deref()) {
+        (Some(artifact_id), None) => org
+            .rename_work_artifact(artifact_id, input.label.as_deref().unwrap_or(""))
+            .await
+            .map(|changed| changed.then_some(())),
+        (None, Some(key)) => org
+            .set_library_label(principal.actor_id(), key, input.label.as_deref())
+            .await
+            .map(Some),
+        _ => {
+            return api_error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "library",
+                "name one file: an artifact_id or a key",
+            )
+        }
+    };
+    match result {
+        Ok(Some(())) => Json(serde_json::json!({ "renamed": true })).into_response(),
+        Ok(None) => api_error(
+            StatusCode::NOT_FOUND,
+            "library",
+            "this file is not one the company's Work recorded",
+        ),
+        Err(restless_orgintel::OrgIntelError::InvalidContext(message)) => {
+            api_error(StatusCode::UNPROCESSABLE_ENTITY, "library", message)
+        }
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "orgintel",
+            format!("{error:#}"),
+        ),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct LibraryRemoveRequest {
+    artifact_id: Uuid,
+}
+
+/// POST /companies/{company}/library/remove: take an archived Work file out of the Library for
+/// good. The file stays on the company computer, and Work's record of it stays.
+pub(super) async fn remove_archived_work_file(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<LibraryRemoveRequest>,
+) -> Response<Body> {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "membership_role",
+            "only the company membership owner may remove Library files",
+        );
+    }
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    };
+    match org
+        .remove_archived_work_artifact(input.artifact_id, principal.actor_id())
+        .await
+    {
+        Ok(true) => Json(serde_json::json!({ "removed": true })).into_response(),
+        Ok(false) => api_error(
+            StatusCode::CONFLICT,
+            "library",
+            "only a file you archived can be removed from the Library",
+        ),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "orgintel",
+            format!("{error:#}"),
+        ),
+    }
+}

@@ -2797,6 +2797,8 @@ model = \"anthropic/claude-sonnet-5-5\"
                 (Method::POST, "/api/companies/aris/for-you/read"),
                 (Method::GET, "/api/companies/aris/library-pins"),
                 (Method::POST, "/api/companies/aris/library-pins"),
+                (Method::GET, "/api/companies/aris/library-items"),
+                (Method::POST, "/api/companies/aris/library-items"),
                 (Method::GET, "/api/companies/aris/comment-search"),
                 (Method::GET, "/api/companies/aris/message-reactions"),
                 (Method::POST, "/api/companies/aris/messages/42/reactions"),
@@ -2859,6 +2861,8 @@ model = \"anthropic/claude-sonnet-5-5\"
         assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/library/open", &principal).is_none());
         assert!(membership_boundary_violation(&Method::GET, "/api/companies/aris/library/content", &principal).is_none());
         assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/library/archive", &principal).is_some());
+        assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/library/rename", &principal).is_some());
+        assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/library/remove", &principal).is_some());
         // They read how the company is set up, and change none of it.
         for path in [
             "/api/companies/aris/company/charter",

@@ -157,6 +157,10 @@ export function documentsQuery(companyId: QueryId) {
 		get failure() {
 			return (query.error as (Error & { status?: number }) | null) ?? null;
 		},
+		/** How many documents the whole list holds, past the pages loaded; null until known. */
+		get total() {
+			return readableData(query)?.pages[0]?.total ?? null;
+		},
 		get hasMore() {
 			return query.hasNextPage;
 		},

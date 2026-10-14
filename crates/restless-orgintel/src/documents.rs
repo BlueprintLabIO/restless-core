@@ -245,6 +245,10 @@ pub struct DocumentListCursor {
 pub struct DocumentSummaryPage {
     pub items: Vec<DocumentSummary>,
     pub next_cursor: Option<DocumentListCursor>,
+    /// How many documents the whole list holds, on its first page, so a count never stops at the
+    /// pages loaded so far.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -5067,6 +5071,7 @@ impl OrgIntel {
             version: i64,
             access: DocumentAccess,
             last_editor_actor_id: Option<String>,
+            total: i64,
         }
 
         let limit = bounded_page_limit(limit, MAX_DOCUMENT_LIST_PAGE)?;
@@ -5092,7 +5097,8 @@ impl OrgIntel {
                          WHERE e.version_id=v.id),\
                        NULLIF(v.created_by_actor_id,'daemon')) \
                      FROM native_document_versions v WHERE v.document_id=d.id \
-                     ORDER BY v.version_number DESC LIMIT 1) AS last_editor_actor_id \
+                     ORDER BY v.version_number DESC LIMIT 1) AS last_editor_actor_id,\
+                    count(*) OVER () AS total \
              FROM native_documents d \
              JOIN actors a ON a.id=$1 AND a.retired_at IS NULL \
              LEFT JOIN native_document_participants p \
@@ -5119,6 +5125,11 @@ impl OrgIntel {
         .bind(archived_only)
         .fetch_all(&self.pool)
         .await?;
+        let total = if cursor.is_none() {
+            Some(rows.first().map_or(0, |row| row.total))
+        } else {
+            None
+        };
         let next_cursor = if rows.len() > limit as usize {
             rows.truncate(limit as usize);
             rows.last().map(|row| DocumentListCursor {
@@ -5151,7 +5162,11 @@ impl OrgIntel {
                 last_editor_actor_id: row.last_editor_actor_id,
             })
             .collect();
-        Ok(DocumentSummaryPage { items, next_cursor })
+        Ok(DocumentSummaryPage {
+            items,
+            next_cursor,
+            total,
+        })
     }
 
     pub async fn document_access_for_actor(

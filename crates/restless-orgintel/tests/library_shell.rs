@@ -297,3 +297,69 @@ async fn the_library_says_who_changed_a_sheet_last() {
         }
     }
 }
+
+#[tokio::test]
+async fn collections_are_company_state_a_member_moves_only_what_they_may_edit() {
+    let Some(org) = company("librarycollections").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Library collections scenario");
+        return;
+    };
+    let board = document(&org, "Board notes", DocumentVisibility::Participants).await;
+    let plan = document(&org, "Plan", DocumentVisibility::Participants).await;
+    org.set_document_participant(SetDocumentParticipant {
+        command_id: Uuid::new_v4(),
+        document_id: plan,
+        actor_id: "owner",
+        expected_document_version: 1,
+        participant_actor_id: "alex",
+        access: DocumentAccess::Edit,
+    })
+    .await
+    .unwrap();
+    // The list says how many documents it holds on its first page, past the page size.
+    let first = org.list_documents_for_actor("owner", false, None, 1).await.unwrap();
+    assert_eq!((first.items.len(), first.total), (1, Some(2)));
+    let next = first.next_cursor.clone().expect("a second page");
+    let second = org
+        .list_documents_for_actor("owner", false, Some(&next), 1)
+        .await
+        .unwrap();
+    assert_eq!(second.total, None);
+    let (board, plan) = (format!("doc:{board}"), format!("doc:{plan}"));
+    let upload = "upload:0b9c3f0e-8a7e-4f39-9a51-6d1f0c4b2a11".to_string();
+
+    // The owner files anything; everyone sees the same collections.
+    org.set_library_collection("owner", true, &[board.clone(), upload.clone()], Some(" Clients "))
+        .await
+        .unwrap();
+    let seen = org.library_items(false).await.unwrap();
+    assert_eq!(seen.len(), 2);
+    assert!(seen.iter().all(|item| item.collection.as_deref() == Some("Clients")));
+
+    // A member moves a document they may edit, never one they cannot, nor a kept file.
+    org.set_library_collection("alex", false, &[plan.clone()], Some("Clients"))
+        .await
+        .unwrap();
+    for keys in [vec![board.clone()], vec![upload.clone()], vec![plan.clone(), board.clone()]] {
+        assert!(org
+            .set_library_collection("alex", false, &keys, None)
+            .await
+            .is_err());
+    }
+    assert_eq!(org.library_items(false).await.unwrap().len(), 3, "a refused move changes nothing");
+
+    // A kept file's name is the owner's alone to read; clearing everything drops the row.
+    org.set_library_label("owner", &upload, Some("Signed lease.pdf"))
+        .await
+        .unwrap();
+    let label = |items: Vec<restless_orgintel::LibraryItemRow>| {
+        items.into_iter().find(|item| item.item_key == upload).and_then(|item| item.label)
+    };
+    assert_eq!(label(org.library_items(true).await.unwrap()).as_deref(), Some("Signed lease.pdf"));
+    assert_eq!(label(org.library_items(false).await.unwrap()), None);
+    org.set_library_label("owner", &upload, None).await.unwrap();
+    org.set_library_collection("owner", true, &[upload.clone()], None)
+        .await
+        .unwrap();
+    assert!(org.library_items(true).await.unwrap().iter().all(|item| item.item_key != upload));
+}

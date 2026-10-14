@@ -1649,6 +1649,14 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/companies/{company}/library/archived",
             get(library_api::archived_work_files),
         )
+        .route(
+            "/companies/{company}/library/rename",
+            post(library_api::rename_library_file),
+        )
+        .route(
+            "/companies/{company}/library/remove",
+            post(library_api::remove_archived_work_file),
+        )
         // Listing, reading and purging kept files stay on the Room routes below; this adds a
         // file with no message, under the owner API's attachment-sized body ceiling.
         .route(
@@ -2118,6 +2126,8 @@ fn membership_boundary_violation(
         // decide or undo; the store checks each against the person asking.
         || is_company_route_family(path, "direction")
         || is_company_route_family(path, "library-pins")
+        // Collections: everyone reads them; OrgIntel lets a member move only what they may edit.
+        || is_company_route_family(path, "library-items")
         || is_company_route_family(path, "comment-search")
         // Presence names only people already in the company directory.
         || is_company_route_family(path, "presence")

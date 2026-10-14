@@ -147,7 +147,8 @@ impl OrgIntel {
             "SELECT id, kind, uri, note, created_by, work_id, attempt_id, digest, source_commit, \
                     runtime_generation, label, state, created_at, superseded_at \
              FROM artifact_refs a \
-             WHERE a.state='superseded' AND a.work_id IS NOT NULL AND (a.retired_by='owner' \
+             WHERE a.state='superseded' AND a.work_id IS NOT NULL AND a.library_removed_at IS NULL \
+               AND (a.retired_by='owner' \
                OR EXISTS(SELECT 1 FROM human_principal_actor_bindings b \
                  WHERE b.actor_id=a.retired_by AND b.membership_role='owner' \
                    AND b.membership_status='active')) \
