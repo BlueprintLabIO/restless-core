@@ -1,10 +1,11 @@
 <script lang="ts">
 	/* The first look round a new company, straight after meeting Exec: a few calm steps, each
 	 * lighting up the part of the screen it describes. It teaches the app's own places, so the
-	 * words are the app's, not Exec's. Skippable, and shown once. */
+	 * words are the app's, not Exec's. Skippable with Escape, steps back with Back, takes focus
+	 * so the keyboard can follow it, and replays from ⌘K ("Show the tour again"). */
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, tick } from 'svelte';
 
 	let { companyId }: { companyId: string } = $props();
 
@@ -25,9 +26,19 @@
 			text: 'Documents and sheets the company writes. Open one to read it, comment, or edit together.'
 		},
 		{
+			place: 'people',
+			title: 'People',
+			text: 'Everyone in the company, people and agents. Talk to anyone, or see what they’re looking after.'
+		},
+		{
 			place: 'apps',
 			title: 'Apps',
 			text: 'Give the company new abilities. Just say what it should be able to do.'
+		},
+		{
+			place: 'company',
+			title: 'Company',
+			text: 'Who the company is and how it runs: the charter, brand and voice, spending limits and the keys it holds.'
 		},
 		{
 			place: 'exec',
@@ -38,9 +49,15 @@
 
 	let step = $state(0);
 	const current = $derived(STEPS[step]);
+	let card = $state<HTMLDivElement>();
 
 	$effect(() => {
 		document.documentElement.dataset.tour = current.place;
+	});
+	/* Each step takes focus at its main button, so Enter moves on and a screen reader hears it. */
+	$effect(() => {
+		void step;
+		void tick().then(() => card?.querySelector<HTMLButtonElement>('.next')?.focus());
 	});
 	onDestroy(() => {
 		delete document.documentElement.dataset.tour;
@@ -48,11 +65,6 @@
 
 	function finish() {
 		delete document.documentElement.dataset.tour;
-		try {
-			localStorage.setItem(`restless:tour:${companyId}`, 'done');
-		} catch {
-			// Shown once is a convenience; without storage the URL decides.
-		}
 		const url = new URL(page.url);
 		url.searchParams.delete('tour');
 		void goto(`${url.pathname}${url.search}`, {
@@ -63,7 +75,19 @@
 	}
 </script>
 
-<div class="tour bridge-tokens" role="dialog" aria-label="A quick look around" aria-live="polite">
+<svelte:window
+	onkeydown={(event) => {
+		if (event.key === 'Escape') finish();
+	}}
+/>
+
+<div
+	class="tour bridge-tokens"
+	role="dialog"
+	aria-label="A quick look around"
+	aria-live="polite"
+	bind:this={card}
+>
 	<span class="count">{step + 1} of {STEPS.length}</span>
 	{#key step}
 		<div class="words">
@@ -72,7 +96,8 @@
 		</div>
 	{/key}
 	<div class="actions">
-		<button type="button" class="skip" onclick={finish}>Skip</button>
+		<button type="button" class="skip" onclick={finish} title="Esc">Skip</button>
+		{#if step > 0}<button type="button" class="back" onclick={() => (step -= 1)}>Back</button>{/if}
 		{#if step < STEPS.length - 1}
 			<button type="button" class="next" onclick={() => (step += 1)}>Next</button>
 		{:else}
@@ -130,9 +155,15 @@
 		cursor: pointer;
 	}
 	.skip {
+		margin-right: auto;
 		border: 0;
 		background: transparent;
 		color: var(--text-tertiary);
+	}
+	.back {
+		border: 1px solid var(--border);
+		background: transparent;
+		color: var(--ink);
 	}
 	.next {
 		border: 0;
@@ -143,7 +174,9 @@
 	:global(html[data-tour='attention'] .tb-tab[data-surface='attention']),
 	:global(html[data-tour='work'] .tb-tab[data-surface='work']),
 	:global(html[data-tour='library'] .tb-tab[data-surface='library']),
-	:global(html[data-tour='apps'] .tb-tab[data-surface='apps']) {
+	:global(html[data-tour='people'] .tb-tab[data-surface='people']),
+	:global(html[data-tour='apps'] .tb-tab[data-surface='apps']),
+	:global(html[data-tour='company'] .tb-tab[data-surface='company']) {
 		box-shadow: 0 0 0 2px color-mix(in srgb, var(--intent-conversation) 55%, transparent);
 		border-radius: var(--radius-control);
 		transition: box-shadow 400ms var(--ease-out, ease-out);

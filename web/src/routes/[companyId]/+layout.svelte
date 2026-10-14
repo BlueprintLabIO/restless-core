@@ -1114,6 +1114,13 @@
 				keywords: 'talk message chat',
 				run: () => askPerson('exec')
 			},
+			{
+				id: 'action:tour',
+				group: 'Actions',
+				label: 'Show the tour again',
+				keywords: 'help guide welcome tour introduction',
+				href: `${root}?tour=1`
+			},
 			/* A member finds their own handoffs as the owner finds what needs them. */
 			...(ownerAccess || attention.view ? [] : (collaboration.view?.attention.handoffs ?? [])).map(
 				(handoff) => ({
