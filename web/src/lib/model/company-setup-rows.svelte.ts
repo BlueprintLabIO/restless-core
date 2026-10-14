@@ -170,14 +170,20 @@ export function createCompanySetup(companyIdOf: () => string) {
 	});
 	const charterMissing = $derived(!!view && !view.charter.purpose.trim());
 	const charter = $derived.by(() => {
-		/* Everyone reads the charter; only the owner's view carries its current direction. */
+		/* Everyone reads the charter; only the owner's view carries it here. The summary is the
+		 * purpose's first line (the current goal is Work, not the charter). */
 		if (!owner) return 'Purpose and rules';
 		if (!view) return source.failure ? 'Unavailable right now' : '…';
 		if (charterMissing) return 'Not written yet';
-		return (
-			view.charter.current_direction?.title ??
-			`Saved ${formatRelative(view.charter.effective_at, 'earlier')}`
-		);
+		const line = view.charter.purpose
+			.split('\n')
+			.map((text) => text.replace(/^\s*(?:#+|[-*>]|\d+[.)])\s*/, '').trim())
+			.find(Boolean);
+		return line
+			? line.length > 90
+				? `${line.slice(0, 89).trimEnd()}…`
+				: line
+			: `Saved ${formatRelative(view.charter.effective_at, 'earlier')}`;
 	});
 	const proposals = $derived(identity.view?.pending_proposals.length ?? 0);
 	const identityMissing = $derived(!!identity.view && !identity.view.current_release && !proposals);
