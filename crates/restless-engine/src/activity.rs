@@ -17,6 +17,8 @@ use uuid::Uuid;
 
 use crate::acp::{LiveSessionEvent, SessionObserver};
 
+/// Longer than any provider error envelope; a reply past this is a real answer, never re-checked.
+const MAX_PROVIDER_ERROR_REPLY: usize = 4_000;
 const MAX_ACTIVITY_ITEMS: usize = 64;
 const MAX_ACTIVITY_LABEL_CHARS: usize = 500;
 const MAX_ACTIVITY_DETAIL_CHARS: usize = 160;
@@ -238,6 +240,15 @@ impl AgentActivityState {
                 let visible_before = self.reply.len();
                 if !self.suppress_reply_tail {
                     self.append_reply_delta(text);
+                }
+                // A provider's error body streamed as text ("401 {\"type\":\"error\"…}") is not a
+                // reply: the turn's failure reaches the person as a sentence, never as this.
+                if self.reply.len() <= MAX_PROVIDER_ERROR_REPLY
+                    && crate::health::classify_provider_error_content(&self.reply).is_some()
+                {
+                    self.reply.clear();
+                    self.reply_pending.clear();
+                    self.suppress_reply_tail = true;
                 }
                 changed |= self.reply.len() != visible_before;
                 incremental = !phase_changed && !starts_new_message;
@@ -791,6 +802,31 @@ mod tests {
         assert_eq!(state.completed_message_id, Some(99));
         assert_eq!(state.activity[0].label, "Prepare visible reply");
         assert_eq!(state.activity[0].detail, "shell");
+    }
+
+    #[test]
+    fn a_provider_error_body_is_never_shown_as_the_reply() {
+        let streams = AgentActivityStreams::default();
+        let work_id = Uuid::new_v4();
+        let turn = streams.start_work("company_test", "researcher", work_id, Uuid::new_v4());
+        turn.apply(LiveSessionEvent::ReplyDelta {
+            message_id: None,
+            text: "401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}".into(),
+        });
+        let state = streams
+            .subscribe("company_test", "researcher", None, Some(work_id))
+            .borrow()
+            .clone();
+        assert_eq!(state.reply, "", "the error body never reaches the reply");
+
+        let other = Uuid::new_v4();
+        let turn = streams.start_work("company_test", "writer", other, Uuid::new_v4());
+        turn.apply(LiveSessionEvent::ReplyDelta {
+            message_id: None,
+            text: "The 401 page now explains what went wrong.".into(),
+        });
+        let state = streams.subscribe("company_test", "writer", None, Some(other)).borrow().clone();
+        assert_eq!(state.reply, "The 401 page now explains what went wrong.");
     }
 
     #[test]
