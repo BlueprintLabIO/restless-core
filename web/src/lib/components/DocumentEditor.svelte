@@ -18,7 +18,9 @@
 	import { HocuspocusProvider } from '@hocuspocus/provider';
 	import * as Y from 'yjs';
 	import BetweenHorizontalEnd from '@lucide/svelte/icons/between-horizontal-end';
+	import BetweenHorizontalStart from '@lucide/svelte/icons/between-horizontal-start';
 	import BetweenVerticalEnd from '@lucide/svelte/icons/between-vertical-end';
+	import BetweenVerticalStart from '@lucide/svelte/icons/between-vertical-start';
 	import BoldIcon from '@lucide/svelte/icons/bold';
 	import Check from '@lucide/svelte/icons/check';
 	import CodeIcon from '@lucide/svelte/icons/code';
@@ -63,6 +65,7 @@
 		createDocumentEditorExtensions,
 		imageAltFromName,
 		inDocumentTable,
+		documentTableHasHeaderRow,
 		linkFromInput,
 		DOCUMENT_IMAGE_SIZES,
 		selectedDocumentImage,
@@ -1429,6 +1432,13 @@
 			<div class="table-bar" role="group" aria-label="Table">
 				<button
 					type="button"
+					aria-label="Add a row above"
+					title="Add a row above"
+					onclick={() => run((instance) => runDocumentTableAction(instance, 'rowBefore'))}
+					><BetweenHorizontalStart size={15} strokeWidth={1.8} /></button
+				>
+				<button
+					type="button"
 					aria-label="Add a row below"
 					title="Add a row below (Tab in the last cell)"
 					onclick={() => run((instance) => runDocumentTableAction(instance, 'rowAfter'))}
@@ -1436,10 +1446,26 @@
 				>
 				<button
 					type="button"
+					aria-label="Add a column to the left"
+					title="Add a column to the left"
+					onclick={() => run((instance) => runDocumentTableAction(instance, 'columnBefore'))}
+					><BetweenVerticalStart size={15} strokeWidth={1.8} /></button
+				>
+				<button
+					type="button"
 					aria-label="Add a column to the right"
 					title="Add a column to the right"
 					onclick={() => run((instance) => runDocumentTableAction(instance, 'columnAfter'))}
 					><BetweenVerticalEnd size={15} strokeWidth={1.8} /></button
+				>
+				<button
+					type="button"
+					class="table-toggle"
+					class:active={documentTableHasHeaderRow(editor)}
+					aria-pressed={documentTableHasHeaderRow(editor)}
+					title="Make the first row a heading row. Drag a column's right edge to resize it."
+					onclick={() => run((instance) => runDocumentTableAction(instance, 'toggleHeaderRow'))}
+					>Header row</button
 				>
 				<ActionMenu label="More table actions">
 					<button
@@ -2101,6 +2127,14 @@
 		background: var(--wash-hover);
 		color: var(--ink);
 	}
+	.table-bar button.active {
+		background: var(--wash-hover);
+		color: var(--ink);
+	}
+	:global(.native-document-body.resize-cursor),
+	:global(.native-document-body.resize-cursor *) {
+		cursor: col-resize !important;
+	}
 	.table-bar :global(.action-menu > summary) {
 		width: 28px;
 		height: 28px;
@@ -2667,6 +2701,11 @@
 		border: 1px solid var(--border-strong);
 		text-align: left;
 		vertical-align: top;
+	}
+	/* A resized column is as wide as it was dragged, narrower than the default if need be. */
+	:global(.native-document-body th[data-width]),
+	:global(.native-document-body td[data-width]) {
+		min-width: 60px;
 	}
 	:global(.native-document-body th) {
 		background: var(--surface-alt);

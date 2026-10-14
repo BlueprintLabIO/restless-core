@@ -1143,8 +1143,9 @@ fn validate_node_attrs(
         "reference" => &["kind", "id", "label"][..],
         "image" => &["block_id", "attachment_id", "alt", "width", "caption"][..],
         "file" => &["block_id", "attachment_id", "name"][..],
-        "bulletList" | "taskList" | "blockquote" | "horizontalRule" | "table"
-        | "listItem" | "tableRow" | "tableCell" | "tableHeader" => &["block_id"][..],
+        "tableCell" | "tableHeader" => &["block_id", "width"][..],
+        "bulletList" | "taskList" | "blockquote" | "horizontalRule" | "table" | "listItem"
+        | "tableRow" => &["block_id"][..],
         "doc" | "hardBreak" => &[][..],
         _ => &[][..],
     };
@@ -1259,6 +1260,18 @@ fn validate_node_attrs(
                     .ok_or_else(|| DocumentError::Invalid("reference needs label".into()))?,
                 300,
             )?;
+        }
+        "tableCell" | "tableHeader" => {
+            if let Some(width) = attrs.get("width").filter(|value| !value.is_null()) {
+                if !width
+                    .as_i64()
+                    .is_some_and(|width| (60..=1_600).contains(&width))
+                {
+                    return Err(DocumentError::Invalid(
+                        "column width must be an integer from 60 to 1600".into(),
+                    ));
+                }
+            }
         }
         "file" => {
             let attachment_id = attrs
@@ -2842,8 +2855,16 @@ fn render_node(value: &Value) -> DocumentResult<String> {
         "horizontalRule" => Ok(format!("<hr{block}>")),
         "table" => Ok(format!("<table{block}><tbody>{inner}</tbody></table>")),
         "tableRow" => Ok(format!("<tr{block}>{inner}</tr>")),
-        "tableHeader" => Ok(format!("<th{block}>{inner}</th>")),
-        "tableCell" => Ok(format!("<td{block}>{inner}</td>")),
+        "tableHeader" | "tableCell" => {
+            let tag = if node_type == "tableHeader" { "th" } else { "td" };
+            let width = object
+                .get("attrs")
+                .and_then(|attrs| attrs.get("width"))
+                .and_then(Value::as_i64)
+                .map(|width| format!(" data-width=\"{width}\" style=\"width: {width}px\""))
+                .unwrap_or_default();
+            Ok(format!("<{tag}{block}{width}>{inner}</{tag}>"))
+        }
         // An image names the company file it shows; the page that renders it supplies the
         // address, so the same body reads the same wherever it is exported.
         "image" => {
@@ -9166,6 +9187,23 @@ mod tests {
         ] {
             let body = json!({"type":"doc","content":[{"type":"file","attrs":attrs}]});
             assert!(validate_document_json(&body).is_err());
+        }
+    }
+
+    #[test]
+    fn a_column_width_is_a_bounded_integer() {
+        let table = |width: Value| {
+            json!({"type":"doc","content":[{"type":"table","attrs":{"block_id":"t"},"content":[
+                {"type":"tableRow","content":[{"type":"tableCell","attrs":{"width":width},
+                    "content":[{"type":"paragraph"}]}]}
+            ]}]})
+        };
+        let validated = validate_document_json(&table(json!(240))).unwrap();
+        assert!(validated
+            .rendered_html
+            .contains("<td data-width=\"240\" style=\"width: 240px\">"));
+        for width in [json!(10), json!(9_000), json!("240px"), json!(240.5)] {
+            assert!(validate_document_json(&table(width)).is_err());
         }
     }
 

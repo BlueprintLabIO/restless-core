@@ -194,10 +194,30 @@ export function inDocumentTable(editor: Editor): boolean {
 }
 
 export type DocumentTableAction =
-	'rowAfter' | 'columnAfter' | 'deleteRow' | 'deleteColumn' | 'deleteTable';
+	| 'rowBefore'
+	| 'rowAfter'
+	| 'columnBefore'
+	| 'columnAfter'
+	| 'toggleHeaderRow'
+	| 'deleteRow'
+	| 'deleteColumn'
+	| 'deleteTable';
+
+/** Whether the table the selection is in starts with a heading row. */
+export function documentTableHasHeaderRow(editor: Editor): boolean {
+	const context = tableContext(editor.state);
+	const first = context?.table.firstChild;
+	return Boolean(
+		first &&
+		first.childCount &&
+		[...Array(first.childCount).keys()].every(
+			(index) => first.child(index).type.name === 'tableHeader'
+		)
+	);
+}
 
 /* Tables here are plain grids with no merged cells, so rows and columns are added and removed
- * cell by cell. Nothing new reaches the schema: cells carry only their block identity. */
+ * cell by cell. Cells carry their block identity and, once a column is resized, its width. */
 export function runDocumentTableAction(editor: Editor, action: DocumentTableAction): boolean {
 	const { state, view } = editor;
 	const context = tableContext(state);
@@ -211,23 +231,42 @@ export function runDocumentTableAction(editor: Editor, action: DocumentTableActi
 			schema.nodes.paragraph.create()
 		);
 	switch (action) {
+		case 'rowBefore':
 		case 'rowAfter': {
 			const cells: ProseMirrorNode[] = [];
-			context.row.forEach(() => cells.push(schema.nodes.tableCell.createAndFill()!));
-			const at = context.rowPos + context.row.nodeSize;
+			/* A new row is ordinary cells, keeping each column's width; above a heading row it
+			 * becomes the heading row's sibling, not a second heading. */
+			context.row.forEach((cell) =>
+				cells.push(schema.nodes.tableCell.createAndFill({ width: cell.attrs.width ?? null })!)
+			);
+			const at = action === 'rowBefore' ? context.rowPos : context.rowPos + context.row.nodeSize;
 			tr.insert(at, schema.nodes.tableRow.create(null, cells));
 			tr.setSelection(TextSelection.near(tr.doc.resolve(at + 2)));
 			break;
 		}
+		case 'columnBefore':
 		case 'columnAfter': {
 			const inserts: Array<{ at: number; cell: ProseMirrorNode }> = [];
+			const before = action === 'columnBefore';
 			context.table.forEach((row, offset) => {
 				const index = Math.min(context.column, row.childCount - 1);
 				let at = context.tableStart + offset + 1;
-				for (let cell = 0; cell <= index; cell += 1) at += row.child(cell).nodeSize;
+				for (let cell = 0; cell < (before ? index : index + 1); cell += 1)
+					at += row.child(cell).nodeSize;
 				inserts.push({ at, cell: row.child(index).type.createAndFill()! });
 			});
 			for (const insert of inserts.reverse()) tr.insert(insert.at, insert.cell);
+			break;
+		}
+		case 'toggleHeaderRow': {
+			const first = context.table.firstChild!;
+			const heading = documentTableHasHeaderRow(editor);
+			const type = heading ? schema.nodes.tableCell : schema.nodes.tableHeader;
+			let at = context.tableStart + 1;
+			first.forEach((cell) => {
+				tr.setNodeMarkup(at, type, cell.attrs);
+				at += cell.nodeSize;
+			});
 			break;
 		}
 		case 'deleteRow': {
@@ -300,6 +339,9 @@ const Table = Node.create({
 			Tab: () => moveBetweenCells(this.editor, 1),
 			'Shift-Tab': () => moveBetweenCells(this.editor, -1)
 		};
+	},
+	addProseMirrorPlugins() {
+		return typeof window === 'undefined' ? [] : [columnResizePlugin(() => this.editor)];
 	}
 });
 
@@ -311,11 +353,35 @@ const TableRow = Node.create({
 	renderHTML: ({ HTMLAttributes }) => ['tr', HTMLAttributes, 0]
 });
 
+export const MIN_COLUMN_WIDTH = 60;
+export const MAX_COLUMN_WIDTH = 1_600;
+
+function columnWidth(value: unknown): number | null {
+	const width = Math.round(Number(value));
+	return Number.isFinite(width) && width >= MIN_COLUMN_WIDTH && width <= MAX_COLUMN_WIDTH
+		? width
+		: null;
+}
+
+/* A resized column's width, on every cell in it; a paste keeps a width only if it is in bounds. */
+const CELL_ATTRIBUTES = {
+	...BLOCK_ID,
+	width: {
+		default: null,
+		parseHTML: (element: HTMLElement) =>
+			columnWidth(element.getAttribute('data-width') ?? element.style?.width?.replace(/px$/u, '')),
+		renderHTML: (attributes: Record<string, unknown>) => {
+			const width = columnWidth(attributes.width);
+			return width ? { 'data-width': String(width), style: `width: ${width}px` } : {};
+		}
+	}
+};
+
 const TableCell = Node.create({
 	name: 'tableCell',
 	content: 'block+',
 	isolating: true,
-	addAttributes: () => BLOCK_ID,
+	addAttributes: () => CELL_ATTRIBUTES,
 	parseHTML: () => [{ tag: 'td' }],
 	renderHTML: ({ HTMLAttributes }) => ['td', HTMLAttributes, 0]
 });
@@ -324,10 +390,101 @@ const TableHeader = Node.create({
 	name: 'tableHeader',
 	content: 'block+',
 	isolating: true,
-	addAttributes: () => BLOCK_ID,
+	addAttributes: () => CELL_ATTRIBUTES,
 	parseHTML: () => [{ tag: 'th' }],
 	renderHTML: ({ HTMLAttributes }) => ['th', HTMLAttributes, 0]
 });
+
+/** Set one column of a table to a width, on every row's cell in it. */
+export function setDocumentColumnWidth(
+	editor: Editor,
+	tablePos: number,
+	column: number,
+	width: number
+): void {
+	const table = editor.state.doc.nodeAt(tablePos);
+	const value = columnWidth(width);
+	if (!table || table.type.name !== 'table' || !value || !editor.isEditable) return;
+	const tr = editor.state.tr;
+	table.forEach((row, rowOffset) => {
+		if (column >= row.childCount) return;
+		let at = tablePos + 1 + rowOffset + 1;
+		for (let index = 0; index < column; index += 1) at += row.child(index).nodeSize;
+		const cell = row.child(column);
+		tr.setNodeMarkup(at, undefined, { ...cell.attrs, width: value });
+	});
+	editor.view.dispatch(tr);
+}
+
+/* Dragging a column's right edge resizes it, as in any word processor; the width is written once,
+ * when the drag ends, so a co-editor sees one change rather than a stream. */
+function columnResizePlugin(editor: () => Editor): Plugin {
+	const EDGE = 5;
+	const edgeCell = (view: { dom: HTMLElement }, event: MouseEvent): HTMLTableCellElement | null => {
+		const cell = (event.target as Element | null)?.closest?.('td, th');
+		if (!(cell instanceof HTMLTableCellElement) || !view.dom.contains(cell)) return null;
+		const box = cell.getBoundingClientRect();
+		return box.right - event.clientX <= EDGE && box.right - event.clientX >= -EDGE ? cell : null;
+	};
+	return new Plugin({
+		key: new PluginKey('documentColumnResize'),
+		props: {
+			handleDOMEvents: {
+				mousemove: (view, event) => {
+					const resizable = view.editable && edgeCell(view, event) !== null;
+					view.dom.classList.toggle('resize-cursor', resizable);
+					return false;
+				},
+				mouseleave: (view) => {
+					view.dom.classList.remove('resize-cursor');
+					return false;
+				},
+				mousedown: (view, event) => {
+					if (!view.editable || event.button !== 0) return false;
+					const cell = edgeCell(view, event);
+					const tableElement = cell?.closest('table');
+					if (!cell || !tableElement) return false;
+					event.preventDefault();
+					const column = cell.cellIndex;
+					const start = event.clientX;
+					const startWidth = cell.getBoundingClientRect().width;
+					let tablePos = -1;
+					try {
+						const $cell = view.state.doc.resolve(view.posAtDOM(cell, 0));
+						for (let depth = $cell.depth; depth > 0; depth -= 1)
+							if ($cell.node(depth).type.name === 'table') {
+								tablePos = $cell.before(depth);
+								break;
+							}
+					} catch {
+						return false;
+					}
+					if (tablePos < 0) return false;
+					const cells = [...tableElement.rows]
+						.map((row) => row.cells[column])
+						.filter((item): item is HTMLTableCellElement => Boolean(item));
+					let width = startWidth;
+					const move = (next: MouseEvent) => {
+						width = Math.min(
+							MAX_COLUMN_WIDTH,
+							Math.max(MIN_COLUMN_WIDTH, startWidth + next.clientX - start)
+						);
+						for (const item of cells) item.style.width = `${width}px`;
+					};
+					const up = () => {
+						window.removeEventListener('mousemove', move);
+						window.removeEventListener('mouseup', up);
+						if (Math.abs(width - startWidth) >= 2)
+							setDocumentColumnWidth(editor(), tablePos, column, width);
+					};
+					window.addEventListener('mousemove', move);
+					window.addEventListener('mouseup', up);
+					return true;
+				}
+			}
+		}
+	});
+}
 
 function bounded(value: string | null | undefined, maximum: number): string | null {
 	const text = value?.trim() ?? '';
@@ -1841,6 +1998,13 @@ function projectedAttributes(
 			attrs.name = string(source.name, 'file name', MAX_FILE_NAME);
 			break;
 		}
+		case 'tableCell':
+		case 'tableHeader':
+			if (source.width !== null && source.width !== undefined) {
+				if (columnWidth(source.width) !== source.width) invalid('column width is invalid.');
+				attrs.width = source.width;
+			}
+			break;
 		case 'reference': {
 			const kind = string(source.kind, 'reference kind', 32);
 			if (!REFERENCE_KINDS.includes(kind)) {

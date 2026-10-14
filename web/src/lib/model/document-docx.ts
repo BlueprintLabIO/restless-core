@@ -186,7 +186,13 @@ function block(node: DocumentNode, writer: Writer, context: Context): string {
 								const inner = blocks(cell.content, writer);
 								/* A header cell reads bold; Word wants at least one paragraph per cell. */
 								const content = inner || '<w:p/>';
-								return `<w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/></w:tcPr>${
+								/* A resized column keeps its width: a pixel is 15 twentieths of a point. */
+								const width = Number(cell.attrs?.width);
+								const tcW =
+									Number.isInteger(width) && width > 0
+										? `<w:tcW w:w="${width * 15}" w:type="dxa"/>`
+										: '<w:tcW w:w="0" w:type="auto"/>';
+								return `<w:tc><w:tcPr>${tcW}</w:tcPr>${
 									cell.type === 'tableHeader'
 										? content.replace(/<w:r>(?!<w:rPr>)/g, '<w:r><w:rPr><w:b/></w:rPr>')
 										: content

@@ -59,6 +59,8 @@ const SIDECAR_ATTRIBUTES: Record<string, string[]> = {
 	reference: ['id', 'kind', 'label'],
 	image: ['alt', 'attachment_id', 'block_id', 'caption', 'width'],
 	file: ['attachment_id', 'block_id', 'name'],
+	tableCell: ['block_id', 'width'],
+	tableHeader: ['block_id', 'width'],
 	doc: [],
 	text: [],
 	hardBreak: []

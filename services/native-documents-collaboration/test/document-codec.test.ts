@@ -58,7 +58,7 @@ const projection = {
       type: 'table', attrs: { block_id: 'table' }, content: [{
         type: 'tableRow', content: [
           { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Claim', marks: [{ type: 'code' }] }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Observed' }] }] },
+          { type: 'tableCell', attrs: { width: 240 }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Observed' }] }] },
         ],
       }],
     },

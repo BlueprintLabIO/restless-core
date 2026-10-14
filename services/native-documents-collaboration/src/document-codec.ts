@@ -64,8 +64,8 @@ const nodes: Record<string, NodeSpec> = {
   },
   table: { attrs: blockId, content: 'tableRow+', group: 'block', isolating: true },
   tableRow: { attrs: blockId, content: '(tableCell | tableHeader)+' },
-  tableCell: { attrs: blockId, content: 'block+', isolating: true },
-  tableHeader: { attrs: blockId, content: 'block+', isolating: true },
+  tableCell: { attrs: { block_id: { default: null }, width: { default: null } }, content: 'block+', isolating: true },
+  tableHeader: { attrs: { block_id: { default: null }, width: { default: null } }, content: 'block+', isolating: true },
   text: { group: 'inline' },
   hardBreak: { inline: true, group: 'inline', selectable: false },
   mention: {
@@ -214,9 +214,10 @@ function validateAttributes(type: string, value: unknown, state: ValidationState
       case 'horizontalRule':
       case 'table':
       case 'tableRow':
+        return ['block_id'];
       case 'tableCell':
       case 'tableHeader':
-        return ['block_id'];
+        return ['block_id', 'width'];
       default:
         return [];
     }
@@ -254,6 +255,11 @@ function validateAttributes(type: string, value: unknown, state: ValidationState
       (!Number.isInteger(attrs.width) || (attrs.width as number) < 16 || (attrs.width as number) > 4_096)
     ) invalid();
   }
+  if (
+    (type === 'tableCell' || type === 'tableHeader') &&
+    attrs.width !== undefined && attrs.width !== null &&
+    (!Number.isInteger(attrs.width) || (attrs.width as number) < 60 || (attrs.width as number) > 1_600)
+  ) invalid();
   if (type === 'file') {
     // A file names a company file by its identity, as an image does.
     if (typeof attrs.attachment_id !== 'string' || !ATTACHMENT_ID.test(attrs.attachment_id)) invalid();
