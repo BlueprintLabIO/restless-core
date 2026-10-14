@@ -87,20 +87,34 @@
 		if (id === principal.view?.actor_id) return 'you';
 		return personName(everyone.find((person) => person.actor_id === id)?.display ?? 'a colleague');
 	}
-	let teamOwnerError = $state('');
-	async function setTeamOwner(teamId: string, person: string) {
-		teamOwnerError = '';
+	/* Changing who owns a team acts at once and can be undone; the line under the team header
+	 * shows only what the server holds, so a refused change never looks made. */
+	let teamOwnerBusy = $state('');
+	async function setTeamOwner(team: (typeof teams)[number], person: string, undoing = false) {
+		const previous = teamOwnerId(team) ?? '';
+		if (person === previous || teamOwnerBusy) return;
+		const label = teamName(team.name, companyId);
+		teamOwnerBusy = team.id;
 		try {
 			await recordTeamOwner(
 				companyId,
-				teamId,
+				team.id,
 				person || null,
 				person ? 'Appointed by the owner from People' : 'Handed back to the owner from People'
 			);
+			await cockpit.refresh();
+			toast(
+				person ? `${label} is now owned by ${teamOwnerName(person)}.` : `You own ${label} again.`,
+				undoing ? {} : { undo: () => void setTeamOwner(team, previous, true) }
+			);
 		} catch (cause) {
-			teamOwnerError = failureSentence(cause, 'Who owns the team did not change. Try again.');
+			toast(failureSentence(cause, `Who owns ${label} did not change. Try again.`), {
+				tone: 'failure'
+			});
+			void cockpit.refresh();
+		} finally {
+			teamOwnerBusy = '';
 		}
-		void cockpit.refresh();
 	}
 	const contacts = $derived(
 		people.filter((p) => p.kind === 'exec' || teams.some((t) => t.lead_actor_id === p.actor_id))
@@ -1001,25 +1015,24 @@
 						<header class="team-directory-head" title={entry.team.brief}>
 							<span>{teamName(entry.team.name, companyId)}</span><em
 								>{entry.members.length + (entry.lead ? 1 : 0)}</em
-							>
+							>{#if owner && humanColleagues.length}<div class="team-menu">
+									<ActionMenu label={`Who owns ${teamName(entry.team.name, companyId)}`}>
+										{#each [{ actor_id: '', display: 'You' }, ...humanColleagues] as choice (choice.actor_id)}
+											{@const current = (teamOwnerId(entry.team) ?? '') === choice.actor_id}
+											<button
+												type="button"
+												title="The person who owns a team directs it and decides what its lead passes up"
+												aria-current={current ? 'true' : undefined}
+												disabled={current || teamOwnerBusy === entry.team.id}
+												onclick={() => void setTeamOwner(entry.team, choice.actor_id)}
+												>{current ? 'Owned by' : 'Make owner:'}
+												{choice.actor_id ? personName(choice.display) : 'You'}</button
+											>
+										{/each}
+									</ActionMenu>
+								</div>{/if}
 						</header>
-						{#if owner}
-							<label
-								class="team-owner"
-								title="The person who owns a team directs it and decides what its lead passes up"
-							>
-								<span>Owned by</span>
-								<select
-									value={teamOwnerId(entry.team) ?? ''}
-									onchange={(event) => void setTeamOwner(entry.team.id, event.currentTarget.value)}
-								>
-									<option value="">You</option>
-									{#each humanColleagues as person (person.actor_id)}
-										<option value={person.actor_id}>{personName(person.display)}</option>
-									{/each}
-								</select>
-							</label>
-						{:else if teamOwnerId(entry.team)}
+						{#if teamOwnerId(entry.team)}
 							<p class="team-owner">Owned by {teamOwnerName(teamOwnerId(entry.team) ?? '')}</p>
 						{/if}
 						{#if entry.lead}{@render directoryPerson(entry.lead, 'lead')}{/if}
@@ -1088,7 +1101,6 @@
 						{/each}
 					</section>
 				{/if}
-				{#if teamOwnerError}<p class="empty" role="alert">{teamOwnerError}</p>{/if}
 				{#if !execShown && !directoryTeams.length && !directoryUnassigned.length && !directoryHumans.length && !shownInvitations.length}<p
 						class="empty"
 					>
@@ -1405,14 +1417,22 @@
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
-	.team-owner select {
-		min-width: 0;
-		padding: 2px 4px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
-		background: var(--surface-raised);
-		color: var(--text-secondary);
-		font: inherit;
+	/* Who owns the team is changed from the header's menu, shown on hover or focus. */
+	.team-menu {
+		margin-left: auto;
+		font-weight: 400;
+		opacity: 0;
+		transition: opacity var(--motion-state) var(--ease-standard);
+	}
+	.team-directory-head:hover .team-menu,
+	.team-directory-head:focus-within .team-menu,
+	.team-menu:has(:global(details[open])) {
+		opacity: 1;
+	}
+	@media (hover: none) {
+		.team-menu {
+			opacity: 1;
+		}
 	}
 	/* Each row keeps its menu beside the link, shown on hover or focus (always on touch). */
 	.person-row {
