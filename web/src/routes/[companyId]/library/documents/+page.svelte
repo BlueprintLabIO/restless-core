@@ -80,6 +80,7 @@
 	/* The words selected when the comment began, so the thread points at them, not the block. */
 	let commentQuote = $state<string | null>(null);
 	let documentDirty = $state(false);
+	let othersEditing = $state<string[]>([]);
 	const failure = $derived(shellPrincipal.failure ?? detail.failure ?? null);
 	const principalId = $derived(shellPrincipal.view?.actor_id ?? '');
 	const people = $derived((ownerAccess ? cockpit.view?.people : collaboration.view?.people) ?? []);
@@ -613,6 +614,7 @@
 				oncopyblocklink={(blockId) => void copyBlockLink(blockId)}
 				{suggestions}
 				ondirtychange={(value) => (documentDirty = value)}
+				oneditorschange={(names) => (othersEditing = names)}
 			>
 				{#snippet leading()}<LibraryCrumb
 						{companyId}
@@ -866,6 +868,7 @@
 					viewerActorId={principalId}
 					{online}
 					editing={documentDirty}
+					{othersEditing}
 					{commentBlockId}
 					{commentQuote}
 					ondismiss={closeInspector}

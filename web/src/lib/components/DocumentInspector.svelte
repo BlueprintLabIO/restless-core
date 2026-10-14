@@ -125,6 +125,8 @@
 		viewerActorId?: string;
 		online?: boolean;
 		editing?: boolean;
+		/** The others typing in the document now, whom a restore would interrupt. */
+		othersEditing?: string[];
 		commentBlockId?: string | null;
 		/** The words selected for a new block comment, when a passage was chosen. */
 		commentQuote?: string | null;
@@ -149,6 +151,7 @@
 		viewerActorId = '',
 		online = true,
 		editing = false,
+		othersEditing = [],
 		commentBlockId = null,
 		commentQuote = null,
 		onpanelchange = () => {},
@@ -2000,10 +2003,20 @@
 								<button
 									type="button"
 									class="flat-action"
+									title={othersEditing.length
+										? `${othersEditing.join(', ')} ${othersEditing.length === 1 ? 'is' : 'are'} typing in it now. Their editors switch to the restored version, with their unsaved changes put back on top.`
+										: 'Make this version the current one; the version it replaces stays in history.'}
 									disabled={!online || editing || Boolean(restoringVersionId)}
 									onclick={() => void restore(versionDetail.version?.version.id ?? '')}
 									><RotateCcw size={13} strokeWidth={1.8} />
-									{restoringVersionId ? 'Restoring…' : 'Restore as new version'}</button
+									{restoringVersionId
+										? 'Restoring…'
+										: 'Restore as new version'}{#if othersEditing.length}<span
+											class="others-editing"
+											>· {othersEditing.length === 1
+												? `${othersEditing[0]} is typing`
+												: `${othersEditing.length} people typing`}</span
+										>{/if}</button
 								>
 							{/if}
 						</header>
@@ -2159,6 +2172,10 @@
 	.flat-action:hover:not(:disabled) {
 		border-color: var(--border-strong);
 		color: var(--ink);
+	}
+	.others-editing {
+		color: var(--ink);
+		font-weight: 500;
 	}
 	.flat-action:disabled {
 		opacity: 0.5;

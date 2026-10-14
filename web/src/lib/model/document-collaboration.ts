@@ -1,3 +1,5 @@
+import type { DocumentContent, DocumentNode } from './documents.ts';
+
 const CANONICAL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 export type DocumentCollaborationAccess = 'read' | 'write';
@@ -233,4 +235,77 @@ export function clearPendingDocumentEdits(
 	} catch {
 		/* Nothing was kept. */
 	}
+}
+
+/* When someone restores an earlier version, the body is replaced and edits this device had not
+ * yet synced belong to a body that no longer exists. They are carried over block by block, by
+ * each top-level block's id: a block changed or added here is put back into the restored body
+ * (in place when the restored body has it, else after the block it followed), and a block
+ * removed here is removed there too. Everything else is the restored version. */
+export interface StrandedBlockEdits {
+	/** Changed or added blocks, in the order they stood here, each with the block before it. */
+	blocks: { node: DocumentNode; after: string | null }[];
+	removed: string[];
+}
+
+function blockIdOf(node: DocumentNode | undefined): string | null {
+	const id = node?.attrs?.block_id;
+	return typeof id === 'string' && id ? id : null;
+}
+
+export function strandedBlockEdits(
+	base: DocumentContent,
+	local: DocumentContent
+): StrandedBlockEdits {
+	const before = new Map<string, string>();
+	for (const node of base.content) {
+		const id = blockIdOf(node);
+		if (id) before.set(id, JSON.stringify(node));
+	}
+	const blocks: StrandedBlockEdits['blocks'] = [];
+	const present = new Set<string>();
+	let after: string | null = null;
+	for (const node of local.content) {
+		const id = blockIdOf(node);
+		if (!id) continue;
+		present.add(id);
+		if (before.get(id) !== JSON.stringify(node)) blocks.push({ node, after });
+		after = id;
+	}
+	return { blocks, removed: [...before.keys()].filter((id) => !present.has(id)) };
+}
+
+/** The restored body with the stranded edits put back, and how many of them changed it. */
+export function reapplyBlockEdits(
+	restored: DocumentContent,
+	edits: StrandedBlockEdits
+): { content: DocumentContent; applied: number } {
+	const removed = new Set(edits.removed);
+	let applied = 0;
+	const blocks = restored.content.filter((node) => {
+		const gone = removed.has(blockIdOf(node) ?? '');
+		if (gone) applied++;
+		return !gone;
+	});
+	const indexOf = (id: string) => blocks.findIndex((node) => blockIdOf(node) === id);
+	let lastPlaced = -1;
+	for (const { node, after } of edits.blocks) {
+		const at = indexOf(blockIdOf(node)!);
+		if (at >= 0) {
+			if (JSON.stringify(blocks[at]) !== JSON.stringify(node)) {
+				blocks[at] = node;
+				applied++;
+			}
+			lastPlaced = at;
+			continue;
+		}
+		const anchor = after === null ? -1 : indexOf(after);
+		const place =
+			anchor >= 0 || after === null ? anchor + 1 : lastPlaced >= 0 ? lastPlaced + 1 : blocks.length;
+		blocks.splice(place, 0, node);
+		lastPlaced = place;
+		applied++;
+	}
+	if (!blocks.length) blocks.push({ type: 'paragraph' });
+	return { content: { ...restored, content: blocks }, applied };
 }

@@ -147,3 +147,41 @@ test('edits kept on this device merge back once and never duplicate what the ser
 	clearPendingDocumentEdits('c', 'd', 'a');
 	assert.equal(loadPendingDocumentEdits('c', 'd', 'a'), null);
 });
+
+test('edits stranded by a restore are put back block by block, by id', () => {
+	const p = (id: string, text: string) => ({
+		type: 'paragraph',
+		attrs: { block_id: id },
+		content: [{ type: 'text', text }]
+	});
+	const doc = (...content: ReturnType<typeof p>[]) => ({ type: 'doc' as const, content });
+	// Before the restore this device had a, b, c; it changed b, added n and d, removed c.
+	const edits = collaboration.strandedBlockEdits(
+		doc(p('a', 'A'), p('b', 'B'), p('c', 'C')),
+		doc(p('a', 'A'), p('b', 'B edited'), p('n', 'New'), p('d', 'D'))
+	);
+	assert.deepEqual(
+		edits.blocks.map((edit) => [edit.node.attrs?.block_id, edit.after]),
+		[
+			['b', 'a'],
+			['n', 'b'],
+			['d', 'n']
+		]
+	);
+	assert.deepEqual(edits.removed, ['c']);
+	// The restored version has a, c, and an older z; b is gone from it.
+	const { content, applied } = collaboration.reapplyBlockEdits(
+		doc(p('z', 'Z'), p('a', 'A old'), p('c', 'C')),
+		edits
+	);
+	assert.deepEqual(
+		content.content.map((node) => node.attrs?.block_id),
+		['z', 'a', 'b', 'n', 'd']
+	);
+	// The restored a keeps its restored text: this device never changed a.
+	assert.equal(content.content[1].content?.[0].text, 'A old');
+	assert.equal(applied, 4);
+	// Nothing stranded leaves the restored version as it is.
+	const none = collaboration.reapplyBlockEdits(doc(p('a', 'A')), { blocks: [], removed: [] });
+	assert.equal(none.applied, 0);
+});

@@ -12,6 +12,7 @@
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import './document-print.css';
 	import { Editor, type JSONContent } from '@tiptap/core';
+	import { isChangeOrigin } from '@tiptap/extension-collaboration';
 	import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 	import { MAX_UPLOAD_BYTES, pastedPictureFile, uploadAttachments } from '$lib/model/attachments';
 	import { Selection } from '@tiptap/pm/state';
@@ -46,6 +47,9 @@
 	import {
 		clearPendingDocumentEdits,
 		loadPendingDocumentEdits,
+		reapplyBlockEdits,
+		strandedBlockEdits,
+		type StrandedBlockEdits,
 		savePendingDocumentEdits,
 		documentCollaborationName,
 		documentCollaborationStateLabel,
@@ -97,6 +101,7 @@
 		isRetryableDocumentFailure,
 		pendingDocumentCommand,
 		updateDocumentMetadata,
+		type DocumentContent,
 		type DocumentKind,
 		type DocumentReadView,
 		type PendingDocumentCommand
@@ -132,6 +137,8 @@
 		/** Whom and what "@" offers to name in the text. */
 		suggestions?: readonly DocumentSuggestion[];
 		ondirtychange?: (dirty: boolean) => void;
+		/** The names of the others typing in this document now. */
+		oneditorschange?: (names: string[]) => void;
 		onleavechange?: (ready: boolean) => void;
 	}
 
@@ -154,6 +161,7 @@
 		oncopyblocklink,
 		suggestions = [],
 		ondirtychange = () => {},
+		oneditorschange = () => {},
 		onleavechange = () => {}
 	}: Props = $props();
 	const client = useQueryClient();
@@ -163,7 +171,10 @@
 	let collaborationState = $state<DocumentCollaborationState>('connecting');
 	let collaborationAccess = $state<DocumentCollaborationAccess | null>(null);
 	let collaborationFailure = $state('');
-	let documentRestored = $state(false);
+	/* Edits this device had not synced when someone restored a version, carried to the restored
+	 * body once it opens; and what the owner is told about it. */
+	let carriedEdits: { document: string; edits: StrandedBlockEdits } | null = null;
+	let restoreNote = $state<{ document: string; text: string } | null>(null);
 	let retryGeneration = $state(0);
 	let activeProvider = $state.raw<HocuspocusProvider | null>(null);
 	let presentStates = $state.raw<ReadonlyMap<number, unknown>>(new Map());
@@ -249,6 +260,16 @@
 		return text.length > 28 ? `${text.slice(0, 27)}…` : text;
 	};
 	const faces = $derived(documentFaces(presentStates, principalActorId, nameOf));
+	const editorNames = $derived(
+		faces
+			.filter((face) => face.editing)
+			.map((face) => face.name)
+			.join('\n')
+	);
+	$effect(() => {
+		const names = editorNames;
+		untrack(() => oneditorschange(names ? names.split('\n') : []));
+	});
 	/* Faces: who else is on this document, from the live session's presence. The page says it is
 	 * here as soon as it connects, so a reader is seen too, not only someone with a caret. */
 	$effect(() => {
@@ -366,7 +387,6 @@
 			editorState = { editor: null };
 			collaborationAccess = null;
 			collaborationFailure = '';
-			documentRestored = false;
 			unsyncedChanges = 0;
 			storeProblem = '';
 			// Not known yet is not "missing": keep saying Connecting.
@@ -400,6 +420,8 @@
 			collaborationState = 'connecting';
 			/* What the service last acknowledged; local edits since then are kept on this device. */
 			let acknowledged: Uint8Array | null = null;
+			/* The body as it stood before the first edit the service has not acknowledged. */
+			let unsyncedBase: JSONContent | null = null;
 			let keepTimer: ReturnType<typeof setTimeout> | undefined;
 			const flushPending = () => {
 				clearTimeout(keepTimer);
@@ -471,14 +493,25 @@
 					if (disposed || collaborationState === 'degraded') return;
 					// Hocuspocus carries logical close reasons with code 1000.
 					if (event.reason === 'Document restored') {
-						documentRestored = true;
-						/* Edits kept from before the restore belong to the body that was replaced. */
+						/* Edits not yet synced belong to the body that was replaced: carry them, block
+						 * by block, onto the restored one, which opens straight away. */
+						const local = mountedEditor?.getJSON();
+						const edits =
+							unsyncedChanges > 0 && unsyncedBase && local
+								? strandedBlockEdits(unsyncedBase as DocumentContent, local as DocumentContent)
+								: null;
+						carriedEdits =
+							edits && (edits.blocks.length || edits.removed.length)
+								? { document: documentId, edits }
+								: null;
 						acknowledged = null;
 						clearPendingDocumentEdits(identity, documentId, actorId);
-						collaborationState = 'degraded';
-						collaborationFailure =
-							'Someone restored an earlier version. Copy any recent changes you want to keep from this read-only draft, then load the restored version.';
 						provider.disconnect();
+						restoreNote = {
+							document: documentId,
+							text: 'Someone restored an earlier version. You are editing it now.'
+						};
+						retryGeneration += 1;
 						return;
 					}
 					if (event.code === 4401 || event.code === 4403) {
@@ -492,6 +525,7 @@
 				onUnsyncedChanges: ({ number }) => {
 					if (disposed) return;
 					unsyncedChanges = number;
+					if (number === 0) unsyncedBase = null;
 					if (number === 0 && acknowledged) {
 						clearTimeout(keepTimer);
 						acknowledged = Y.encodeStateVector(yDocument);
@@ -570,7 +604,33 @@
 								editorState = { editor: instance };
 							}
 						});
+						const opened = mountedEditor;
+						opened.on('beforeTransaction', ({ transaction }) => {
+							if (!unsyncedBase && transaction.docChanged && !isChangeOrigin(transaction))
+								unsyncedBase = opened.state.doc.toJSON();
+						});
 						editorState = { editor: mountedEditor };
+						if (carriedEdits?.document === documentId) {
+							const { edits } = carriedEdits;
+							carriedEdits = null;
+							if (!writable) {
+								restoreNote = {
+									document: documentId,
+									text: 'Someone restored an earlier version. Your unsaved changes could not be put back: you can only read it now.'
+								};
+								return;
+							}
+							const { content, applied } = reapplyBlockEdits(
+								opened.getJSON() as DocumentContent,
+								edits
+							);
+							if (!applied) return;
+							opened.commands.setContent(content, { emitUpdate: true });
+							restoreNote = {
+								document: documentId,
+								text: `Someone restored an earlier version. Your ${applied} unsaved ${applied === 1 ? 'change was' : 'changes were'} put back on top of it; Undo takes ${applied === 1 ? 'it' : 'them'} out.`
+							};
+						}
 					});
 				}
 			});
@@ -1750,8 +1810,17 @@
 				type="button"
 				class="btn small"
 				disabled={!online}
-				onclick={() => (retryGeneration += 1)}
-				>{documentRestored ? 'Load restored version' : 'Retry'}</button
+				onclick={() => (retryGeneration += 1)}>Retry</button
+			>
+		</div>
+	{/if}
+
+	{#if restoreNote?.document === liveDocumentId}
+		<div class="editor-note" role="status">
+			<span>{restoreNote.text}</span><button
+				type="button"
+				class="btn small"
+				onclick={() => (restoreNote = null)}>Dismiss</button
 			>
 		</div>
 	{/if}
