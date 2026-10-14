@@ -106,7 +106,7 @@
 			]
 		}
 	]}
-	account={{ name: 'blueprintlabio', detail: 'blueprintlabio@gmail.com' }}
+	account={{ name: 'Ada Lovelace', detail: 'ada@example.com' }}
 >
 	{#snippet accountMenu()}
 		<a href="/gallery/home?view=settings">Settings</a>
@@ -154,14 +154,14 @@
 				{ label: 'Passkey or authenticator', done: false, href: '#security', action: 'Add' }
 			]}
 		>
-			{#snippet companyMenu(company)}<details class="gallery-row-menu"
-					><summary aria-label={`${company.name} options`}>⋯</summary
-					><div class="gallery-row-menu-panel">
+			{#snippet companyMenu(company)}<details class="gallery-row-menu">
+					<summary aria-label={`${company.name} options`}>⋯</summary>
+					<div class="gallery-row-menu-panel">
 						<a href="#rename">Rename</a><a href="#settings">Company settings</a><a href="#service"
 							>Service</a
 						>
-					</div></details
-				>{/snippet}
+					</div>
+				</details>{/snippet}
 			{#snippet heroActions()}<a class="button" href="#new">New company</a>{/snippet}
 			{#snippet usageAction()}<a href="#top-up">Top up</a>{/snippet}
 			{#snippet planAction()}<a class="button primary" href="#upgrade">Upgrade to Founder · $49</a
