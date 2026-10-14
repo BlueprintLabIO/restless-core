@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { failureSentence } from '$lib/model/failure';
+	import { initials } from '$lib/model/initials';
 	import Plus from '@lucide/svelte/icons/plus';
 	import Users from '@lucide/svelte/icons/users';
 	import X from '@lucide/svelte/icons/x';
@@ -62,6 +63,8 @@
 	let dialog: HTMLDialogElement;
 	let title = $state('');
 	let context = $state('');
+	/* "Add people" carries the conversation's context only when the person opens it (S85-11). */
+	let contextOpen = $state(false);
 	let selected = $state<string[]>([]);
 	let busyFor = $state('');
 	let failure = $state('');
@@ -171,6 +174,7 @@
 			pickerQuery = '';
 			selected = uniqueParticipantIds(initialParticipants);
 			context = initialContext;
+			contextOpen = false;
 		} else {
 			renaming = room.title;
 			confirmArchive = step === 'archive';
@@ -300,7 +304,7 @@
 			participants: [...requestedParticipants].sort()
 		});
 		const command = commandFor(intent);
-		const contextToCarry = context.trim();
+		const contextToCarry = !initialParticipants.length || contextOpen ? context.trim() : '';
 		const createdCallback = oncreated;
 		busyFor = requestedScope;
 		failure = '';
@@ -538,17 +542,14 @@
 		{/if}
 	{:else}
 		<form onsubmit={create}>
-			{#if initialParticipants.length}<p class="history-note">
-					This starts a new group. Earlier messages stay in the original conversation.
-				</p>{/if}
-			<label
-				>Conversation name (optional)<input
-					bind:value={title}
-					maxlength={160}
-					autocomplete="off"
-					disabled={busy}
-				/></label
-			>
+			{#if !initialParticipants.length}<label
+					>Conversation name (optional)<input
+						bind:value={title}
+						maxlength={160}
+						autocomplete="off"
+						disabled={busy}
+					/></label
+				>{/if}
 			<fieldset disabled={busy}>
 				<legend
 					>Members{#if selected.length}<span class="muted">{` · ${selected.length} chosen`}</span
@@ -572,7 +573,8 @@
 										disabled={initialParticipantSet.has(person.actor_id)}
 										bind:group={selected}
 										value={person.actor_id}
-									/>{person.display}</label
+									/><span class="avatar" aria-hidden="true">{initials(person.display)}</span
+									>{person.display}</label
 								>{/each}
 						</div>
 					{:else}
@@ -580,16 +582,19 @@
 					{/each}
 				</div>
 			</fieldset>
-			{#if initialParticipants.length}<label
-					>Context to carry forward (optional)<textarea
-						bind:value={context}
-						rows="5"
-						disabled={busy}
-						placeholder="Add context for the group…"></textarea></label
-				>
-				<p class="muted">
-					Review this excerpt before starting. It opens as a draft; send it when you are ready.
-				</p>{/if}
+			{#if initialParticipants.length}
+				{#if contextOpen}<label
+						>Context<textarea
+							bind:value={context}
+							rows="3"
+							disabled={busy}
+							placeholder="What the group should know…"></textarea></label
+					>
+					<p class="muted">It opens as a draft in the new group; send it when you are ready.</p>
+				{:else}<button type="button" class="add-context" onclick={() => (contextOpen = true)}
+						>Add context</button
+					>{/if}
+			{/if}
 			<button
 				class="create"
 				type="submit"
@@ -599,7 +604,7 @@
 				>{busy
 					? 'Opening…'
 					: initialParticipants.length
-						? 'Start group conversation'
+						? 'Start group'
 						: 'Start conversation'}</button
 			>
 		</form>
@@ -705,6 +710,30 @@
 		display: flex;
 		align-items: center;
 		gap: 10px;
+	}
+	.choice .avatar {
+		display: inline-grid;
+		flex: none;
+		place-items: center;
+		width: 24px;
+		height: 24px;
+		border-radius: 6px;
+		background: color-mix(in srgb, var(--intent-conversation) 15%, var(--surface-raised));
+		color: var(--intent-conversation);
+		font-size: var(--t-label);
+		font-weight: 600;
+	}
+	.add-context {
+		justify-self: start;
+		padding: 0;
+		border: 0;
+		background: none;
+		color: var(--text-secondary);
+		font: inherit;
+		font-size: var(--t-label);
+		text-decoration: underline;
+		text-underline-offset: 2px;
+		cursor: pointer;
 	}
 	.member {
 		min-height: 38px;
