@@ -89,3 +89,16 @@ export function turnFailureFix(error: string | null | undefined): TurnFailureFix
 	const raw = (error ?? '').trim();
 	return raw ? (RULES.find((rule) => rule.test.test(raw))?.fix ?? null) : null;
 }
+
+/** A failed turn whose "reply" is the provider's error body ("401 {"type":"error"…") said nothing a
+ * person should read: the failure line says what happened instead. A real partial reply stays. */
+export function replyIsError(
+	reply: string | null | undefined,
+	error: string | null | undefined
+): boolean {
+	const text = (reply ?? '').trim();
+	if (!text) return false;
+	if (/^\d{3}\s*\{/.test(text) || /^\{\s*"type"\s*:\s*"error"/.test(text)) return true;
+	const raw = (error ?? '').trim();
+	return !!raw && raw.includes(text.slice(0, 60));
+}

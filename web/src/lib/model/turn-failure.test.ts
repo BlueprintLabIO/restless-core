@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { turnFailureFix, turnFailureReason } from './turn-failure.ts';
+import { replyIsError, turnFailureFix, turnFailureReason } from './turn-failure.ts';
 
 test('a refused key names the key and where to fix it, not the transport', () => {
 	const reason = turnFailureReason(
@@ -61,4 +61,13 @@ test('a fix is offered only where the cockpit has a page for it', () => {
 	assert.equal(turnFailureFix('Authentication failed')?.label, 'Company → Intelligence');
 	assert.equal(turnFailureFix('request timed out'), null);
 	assert.equal(turnFailureFix(''), null);
+});
+
+test('a provider error body streamed as the reply is not shown as the reply', () => {
+	const body =
+		'401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}';
+	assert.equal(replyIsError(body, '[credential] provider rejected the credential: ' + body), true);
+	assert.equal(replyIsError('{"type":"error","error":{}}', ''), true);
+	assert.equal(replyIsError('I checked Work and', '[transport] connection reset'), false);
+	assert.equal(replyIsError('', 'anything'), false);
 });

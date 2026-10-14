@@ -1,5 +1,10 @@
 <script lang="ts">
-	import { turnFailureFix, turnFailureReason, turnStopped } from '$lib/model/turn-failure';
+	import {
+		replyIsError,
+		turnFailureFix,
+		turnFailureReason,
+		turnStopped
+	} from '$lib/model/turn-failure';
 	import { page } from '$app/state';
 	import Check from '@lucide/svelte/icons/check';
 	import CircleAlert from '@lucide/svelte/icons/circle-alert';
@@ -298,7 +303,7 @@
 	</div>
 	{#if actionError}<p class="turn-action-error" role="alert">{actionError}</p>{/if}
 
-	{#if reply && !expanded && turn.transport !== 'idle'}
+	{#if reply && !expanded && turn.transport !== 'idle' && !(phase === 'failed' && replyIsError(reply, turn.live?.error))}
 		<article
 			class="streamed-reply visible-reply"
 			aria-label={`${participantName} streaming reply`}
