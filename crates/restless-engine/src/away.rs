@@ -63,6 +63,19 @@ pub async fn is_deputy(authority: &AuthorityStore, company: &str, actor: &str) -
     )
 }
 
+/// Whether this person may answer an approval as the away owner's deputy: an admin, named as
+/// the deputy of an away in force, for a single decision (allow once or decline). Standing
+/// permission and revocation are never a deputy's.
+pub async fn deputy_may_decide(
+    authority: &AuthorityStore,
+    company: &str,
+    role: &str,
+    actor: &str,
+    standing: bool,
+) -> bool {
+    role == "admin" && !standing && is_deputy(authority, company, actor).await
+}
+
 /// Go away until `until`: pause the chosen live schedules and name an optional admin deputy.
 /// A new away replaces the one in force, resuming what that one paused first.
 pub async fn start(
@@ -182,4 +195,51 @@ async fn set_paused(
         )
         .await?
         .is_some())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Only the named admin deputy, only while the away holds, and only for single decisions.
+    #[tokio::test]
+    async fn only_the_named_deputy_decides_and_only_single_approvals_while_away() {
+        let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping away deputy scenario");
+            return;
+        };
+        let authority = AuthorityStore::connect(&database_url).await.unwrap();
+        let company = format!("away_{}_test", Uuid::new_v4().simple());
+        let may = |actor: &'static str, role: &'static str, standing: bool| {
+            let authority = &authority;
+            let company = &company;
+            async move { deputy_may_decide(authority, company, role, actor, standing).await }
+        };
+        assert!(!may("deputy", "admin", false).await, "no away in force");
+        let away = |until: DateTime<Utc>| Away {
+            until,
+            deputy: Some("deputy".into()),
+            paused_schedules: Vec::new(),
+            since: Some(Utc::now()),
+        };
+        authority
+            .emit(&company, AWAY_STARTED_KIND, Some("owner"), serde_json::to_value(away(Utc::now() + Duration::days(3))).unwrap())
+            .await
+            .unwrap();
+        assert!(may("deputy", "admin", false).await, "the named deputy allows once or declines");
+        assert!(!may("deputy", "admin", true).await, "never standing permission or revoke");
+        assert!(!may("other", "admin", false).await, "an admin who is not the deputy");
+        assert!(!may("deputy", "member", false).await, "a deputy who is no longer an admin");
+        authority
+            .emit(&company, AWAY_ENDED_KIND, Some("owner"), serde_json::json!({}))
+            .await
+            .unwrap();
+        assert!(!may("deputy", "admin", false).await, "the owner is back");
+        authority
+            .emit(&company, AWAY_STARTED_KIND, Some("owner"), serde_json::to_value(away(Utc::now() - Duration::minutes(1))).unwrap())
+            .await
+            .unwrap();
+        assert!(!may("deputy", "admin", false).await, "the return date passed");
+        authority.delete_test_company(&company).await.unwrap();
+    }
 }

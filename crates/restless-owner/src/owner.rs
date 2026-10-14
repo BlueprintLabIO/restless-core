@@ -10982,14 +10982,21 @@ fn verified_attachment_response(
 /// bootstrap default, rather than merely "an owner-role member."
 /// The Authority owner, or while the owner is away the admin they named, for one decision at a
 /// time: a deputy may allow once or decline, never grant standing permission or revoke.
+/// Checked first in each handler, before any side effect.
 async fn require_authority_owner_or_deputy(
     state: &OwnerState,
     company: &str,
     principal: &RequestPrincipal,
+    standing: bool,
 ) -> Result<(), Response<Body>> {
-    if principal.membership_role() == "admin"
-        && restless_engine::away::is_deputy(&state.daemon.authority, company, principal.actor_id())
-            .await
+    if restless_engine::away::deputy_may_decide(
+        &state.daemon.authority,
+        company,
+        principal.membership_role(),
+        principal.actor_id(),
+        standing,
+    )
+    .await
     {
         return Ok(());
     }
@@ -11132,12 +11139,9 @@ async fn grant(
     AxumPath(company): AxumPath<String>,
     Json(input): Json<PartyAction>,
 ) -> impl IntoResponse {
-    let checked = if input.always {
-        require_authority_owner(&state, &company, &principal).await
-    } else {
-        require_authority_owner_or_deputy(&state, &company, &principal).await
-    };
-    if let Err(refusal) = checked {
+    if let Err(refusal) =
+        require_authority_owner_or_deputy(&state, &company, &principal, input.always).await
+    {
         return refusal;
     }
     if input.changes_requested {
@@ -11247,7 +11251,9 @@ async fn decline(
     AxumPath(company): AxumPath<String>,
     Json(input): Json<PartyAction>,
 ) -> impl IntoResponse {
-    if let Err(refusal) = require_authority_owner_or_deputy(&state, &company, &principal).await {
+    if let Err(refusal) =
+        require_authority_owner_or_deputy(&state, &company, &principal, false).await
+    {
         return refusal;
     }
     let org = state.daemon.orgintel.get(&company).await.ok();

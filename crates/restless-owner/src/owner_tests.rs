@@ -2976,7 +2976,12 @@ model = \"anthropic/claude-sonnet-5-5\"
             assert!(membership_boundary_violation(&method, path, &principal).is_some(), "member reached {method} {path}");
         }
         // An admin also runs identity and schedules, and may interrupt; the charter, money,
-        // keys and approvals stay with the owner.
+        // keys and approvals stay with the owner. Single approvals (grant, decline) pass the
+        // boundary for an admin only so the handler can admit the away owner's named deputy;
+        // every other admin is refused there (away::deputy_may_decide, tested in the engine).
+        for path in ["/api/companies/aris/approvals/grant", "/api/companies/aris/approvals/decline"] {
+            assert!(membership_boundary_violation(&Method::POST, path, &principal).is_some(), "member reached {path}");
+        }
         let mut admin_identity = identity.clone();
         admin_identity.role = "admin".into();
         let admin = RequestPrincipal::from_verified(&admin_identity).unwrap();
@@ -2998,7 +3003,7 @@ model = \"anthropic/claude-sonnet-5-5\"
             (Method::PUT, "/api/companies/aris/intelligence/exec"),
             (Method::PUT, "/api/companies/aris/intelligence-effort"),
             (Method::GET, "/api/companies/aris/vault"),
-            (Method::POST, "/api/companies/aris/approvals/grant"),
+            (Method::POST, "/api/companies/aris/approvals/revoke"),
             (Method::POST, "/api/companies/aris/company/spend-limit"),
             (Method::POST, "/api/companies/aris/company/spend-exact"),
             (Method::PUT, "/api/companies/aris/provider/failover"),
