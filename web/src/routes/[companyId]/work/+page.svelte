@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ResizableSidebar from '$lib/components/ResizableSidebar.svelte';
 	/* Work: the company's goals and the work under them.
 	 *
 	 * The side panel lists goals as links; choosing one narrows the list and
@@ -641,236 +642,143 @@
 	</Item>
 {/snippet}
 
-<SidebarShell label="Goals" title="Work">
-	{#snippet top()}
-		<SidebarSearch bind:value={() => search, typeSearch} placeholder="Search work" />
-	{/snippet}
-	{#snippet nav()}
-		<SidebarRow
-			href={viewHref('')}
-			label="All work"
-			icon={ListIcon}
-			active={!selectedGoal}
-			count={loaded
-				? (graph?.work ?? []).filter(
-						(item) => item.status !== 'abandoned' && item.status !== 'completed'
-					).length || null
-				: null}
-		/>
-		{#if loaded && graph && graph.work.length}
-			<SidebarRow
-				href={viewHref('waiting')}
-				label="Needs you"
-				icon={InboxIcon}
-				active={selectedGoal === 'waiting'}
-				count={waitingCount}
-				todo
-				title="Work with a decision or step only you can take"
-			/>
-			<SidebarRow
-				href={viewHref('active')}
-				label="In progress"
-				icon={Activity}
-				active={selectedGoal === 'active'}
-				count={activeCount}
-				title="Work someone is doing now"
-			/>
-		{/if}
-		{#if loaded && graph}
-			<SidebarGroup
-				label="Goals"
-				count={openGoals.length || null}
-				help="Goals are the outcomes you're working toward, like “3 paying clients by November”. Exec proposes them as you talk and keeps the work under them."
-				action={ownerAccess && openGoals.length
-					? { label: 'Ask Exec to propose goals', icon: Plus, onclick: proposeGoals }
-					: undefined}
-			>
-				{#each openGoals as goal (goal.id)}{@render goalRow(goal)}{:else}
-					<!-- What a goal is lives in the heading's tooltip; the empty state only says there is none. -->
-					<SidebarEmpty text="No goals yet">
-						{#if ownerAccess}<button
-								type="button"
-								title="Ask Exec to propose goals"
-								onclick={proposeGoals}
-								><Sparkles size={15} strokeWidth={1.8} aria-hidden="true" />Propose goals</button
-							>{/if}
-					</SidebarEmpty>
-				{/each}
-				{#if otherOpen}<SidebarRow
-						href={viewHref('other')}
-						label="No goal"
-						icon={CircleDashed}
-						active={selectedGoal === 'other'}
-						count={otherOpen}
-						title="Work that serves no Goal. Exec keeps this small and proposes a Goal when a theme repeats."
-					/>{/if}
-			</SidebarGroup>
-		{:else if !loaded && !failure}
-			<Skeleton label="Loading goals" variant="list" count={4} />
-		{/if}
-	{/snippet}
-	{#snippet foot()}
-		<SidebarRow
-			href={viewHref('archived')}
-			label="Archived"
-			icon={ArchiveIcon}
-			active={selectedGoal === 'archived'}
-			count={closedGoals.length || null}
-			title="Goals that are closed, and their work"
-		/>
-		{#if archivedOpen}{#each closedGoals as goal (goal.id)}{@render goalRow(goal, true)}{/each}{/if}
-		{#if stoppedCount}<SidebarRow
-				href={viewHref('stopped')}
-				label="Stopped"
-				icon={Ban}
-				active={stoppedView}
-				count={stoppedCount}
-				title="Work that was stopped for good; open one to restore it"
-			/>{/if}
-	{/snippet}
-	{#snippet narrow()}
-		<div class="narrow-search">
+<ResizableSidebar area="work" label="Resize the Work sidebar">
+	<SidebarShell label="Goals" title="Work">
+		{#snippet top()}
 			<SidebarSearch bind:value={() => search, typeSearch} placeholder="Search work" />
-		</div>
-		{#if loaded && graph && !noWorkYet}
-			<nav class="views" aria-label="Goals">
-				{#each narrowViews as item (item.goal)}
-					<a
-						href={viewHref(item.goal)}
-						aria-current={selectedGoal === item.goal ? 'page' : undefined}>{item.label}</a
-					>
-				{/each}
-			</nav>
-		{/if}
-	{/snippet}
-
-	<div class="page">
-		<header class="head">
-			<div class="title">
-				{#if selectedGoal}<Target size={15} strokeWidth={1.8} aria-hidden="true" />{/if}
-				<h1>{title}</h1>
-				<span class="count" title="Open work">{loaded && openCount ? openCount : ''}</span>
-				{#if selectedGoal}<button
-						class="clear"
-						type="button"
-						aria-label="Show all work"
-						title="Show all work"
-						onclick={() => setQuery('goal', '')}><X size={14} strokeWidth={2} /></button
-					>{/if}
-			</div>
-			{#if selectedGoalRow && ownerAccess}
-				<div
-					class="goal-standard-picker"
-					title="How far this Goal's Work should go before it is called done"
+		{/snippet}
+		{#snippet nav()}
+			<SidebarRow
+				href={viewHref('')}
+				label="All work"
+				icon={ListIcon}
+				active={!selectedGoal}
+				count={loaded
+					? (graph?.work ?? []).filter(
+							(item) => item.status !== 'abandoned' && item.status !== 'completed'
+						).length || null
+					: null}
+			/>
+			{#if loaded && graph && graph.work.length}
+				<SidebarRow
+					href={viewHref('waiting')}
+					label="Needs you"
+					icon={InboxIcon}
+					active={selectedGoal === 'waiting'}
+					count={waitingCount}
+					todo
+					title="Work with a decision or step only you can take"
+				/>
+				<SidebarRow
+					href={viewHref('active')}
+					label="In progress"
+					icon={Activity}
+					active={selectedGoal === 'active'}
+					count={activeCount}
+					title="Work someone is doing now"
+				/>
+			{/if}
+			{#if loaded && graph}
+				<SidebarGroup
+					label="Goals"
+					count={openGoals.length || null}
+					help="Goals are the outcomes you're working toward, like “3 paying clients by November”. Exec proposes them as you talk and keeps the work under them."
+					action={ownerAccess && openGoals.length
+						? { label: 'Ask Exec to propose goals', icon: Plus, onclick: proposeGoals }
+						: undefined}
 				>
-					<ActionMenu label="Quality bar">
-						{#snippet trigger()}<span>{standardLabel(goalStandard(selectedGoalRow))}</span
-							>{/snippet}
-						{#each STANDARDS as option (option.value)}
-							<button
-								type="button"
-								title={option.title}
-								disabled={standardBusy}
-								onclick={() => chooseGoalStandard(option.value)}
-								><span>{option.label}</span
-								>{#if goalStandard(selectedGoalRow) === option.value}<Check
-										size={14}
-										aria-label="Current"
-									/>{/if}</button
-							>
-						{/each}
-					</ActionMenu>
-				</div>
-				{#if standardFailure}<span class="standard-failure" role="alert">{standardFailure}</span
-					>{/if}
-			{/if}
-			{#if selectedGoalRow && ownerAccess}
-				<div class="goal-standard-picker">
-					<ActionMenu label="Goal actions">
-						{#snippet trigger()}<span>Goal</span>{/snippet}
-						{#if !selectedGoalRow.closed_at}
-							<button type="button" onclick={addWork}><span>Add work…</span></button>
-							<button type="button" onclick={openGoalEdit}><span>Edit goal…</span></button>
-							{#each teamRows as team (team.id)}
-								<button
+					{#each openGoals as goal (goal.id)}{@render goalRow(goal)}{:else}
+						<!-- What a goal is lives in the heading's tooltip; the empty state only says there is none. -->
+						<SidebarEmpty text="No goals yet">
+							{#if ownerAccess}<button
 									type="button"
-									disabled={goalBusy}
-									onclick={() =>
-										goalAction(
-											() => setGoalTeam(companyId, selectedGoalRow.id, team.id),
-											`${team.name} team delivers it`
-										)}
-									><span>Delivered by {team.name}</span
-									>{#if selectedGoalRow.team_id === team.id}<Check
-											size={14}
-											aria-label="Current"
-										/>{/if}</button
-								>
-							{/each}
-							{#if selectedGoalRow.team_id}
-								<button
-									type="button"
-									disabled={goalBusy}
-									onclick={() =>
-										goalAction(
-											() => setGoalTeam(companyId, selectedGoalRow.id, null),
-											'You hold this goal'
-										)}><span>Hold it yourself</span></button
-								>
-							{/if}
-							<button type="button" onclick={() => (confirmingClose = true)}
-								><span>Close goal…</span></button
-							>
-						{:else}
-							<button
-								type="button"
-								disabled={goalBusy}
-								onclick={() =>
-									goalAction(() => reopenGoal(companyId, selectedGoalRow.id), 'Goal reopened')}
-								><span>Reopen goal</span></button
-							>
-						{/if}
-					</ActionMenu>
-				</div>
+									title="Ask Exec to propose goals"
+									onclick={proposeGoals}
+									><Sparkles size={15} strokeWidth={1.8} aria-hidden="true" />Propose goals</button
+								>{/if}
+						</SidebarEmpty>
+					{/each}
+					{#if otherOpen}<SidebarRow
+							href={viewHref('other')}
+							label="No goal"
+							icon={CircleDashed}
+							active={selectedGoal === 'other'}
+							count={otherOpen}
+							title="Work that serves no Goal. Exec keeps this small and proposes a Goal when a theme repeats."
+						/>{/if}
+				</SidebarGroup>
+			{:else if !loaded && !failure}
+				<Skeleton label="Loading goals" variant="list" count={4} />
 			{/if}
-			<div class="filters">
-				<div class="goal-standard-picker" title="Show the work one person owns">
-					<ActionMenu label="Owner">
-						{#snippet trigger()}<span>{ownerFilter ? ownerName(ownerFilter) : 'Anyone'}</span
-							>{/snippet}
-						<button type="button" onclick={() => setQuery('owner', '')}
-							><span>Anyone</span>{#if !ownerFilter}<Check
-									size={14}
-									aria-label="Current"
-								/>{/if}</button
+		{/snippet}
+		{#snippet foot()}
+			<SidebarRow
+				href={viewHref('archived')}
+				label="Archived"
+				icon={ArchiveIcon}
+				active={selectedGoal === 'archived'}
+				count={closedGoals.length || null}
+				title="Goals that are closed, and their work"
+			/>
+			{#if archivedOpen}{#each closedGoals as goal (goal.id)}{@render goalRow(
+						goal,
+						true
+					)}{/each}{/if}
+			{#if stoppedCount}<SidebarRow
+					href={viewHref('stopped')}
+					label="Stopped"
+					icon={Ban}
+					active={stoppedView}
+					count={stoppedCount}
+					title="Work that was stopped for good; open one to restore it"
+				/>{/if}
+		{/snippet}
+		{#snippet narrow()}
+			<div class="narrow-search">
+				<SidebarSearch bind:value={() => search, typeSearch} placeholder="Search work" />
+			</div>
+			{#if loaded && graph && !noWorkYet}
+				<nav class="views" aria-label="Goals">
+					{#each narrowViews as item (item.goal)}
+						<a
+							href={viewHref(item.goal)}
+							aria-current={selectedGoal === item.goal ? 'page' : undefined}>{item.label}</a
 						>
-						{#each ownerOptions as option (option.id)}
-							<button type="button" onclick={() => setQuery('owner', option.id)}
-								><span>{option.name}</span>{#if ownerFilter === option.id}<Check
-										size={14}
-										aria-label="Current"
-									/>{/if}</button
-							>
-						{/each}
-					</ActionMenu>
+					{/each}
+				</nav>
+			{/if}
+		{/snippet}
+
+		<div class="page">
+			<header class="head">
+				<div class="title">
+					{#if selectedGoal}<Target size={15} strokeWidth={1.8} aria-hidden="true" />{/if}
+					<h1>{title}</h1>
+					<span class="count" title="Open work">{loaded && openCount ? openCount : ''}</span>
+					{#if selectedGoal}<button
+							class="clear"
+							type="button"
+							aria-label="Show all work"
+							title="Show all work"
+							onclick={() => setQuery('goal', '')}><X size={14} strokeWidth={2} /></button
+						>{/if}
 				</div>
-				{#if !stoppedView}
-					<div class="goal-standard-picker" title="Show work in one state">
-						<ActionMenu label="Status">
-							{#snippet trigger()}<span
-									>{statusFilter
-										? WORK_STATUS_LABEL[statusFilter as WorkRow['status']]
-										: 'Any status'}</span
+				{#if selectedGoalRow && ownerAccess}
+					<div
+						class="goal-standard-picker"
+						title="How far this Goal's Work should go before it is called done"
+					>
+						<ActionMenu label="Quality bar">
+							{#snippet trigger()}<span>{standardLabel(goalStandard(selectedGoalRow))}</span
 								>{/snippet}
-							<button type="button" onclick={() => setQuery('status', '')}
-								><span>Any status</span>{#if !statusFilter}<Check
-										size={14}
-										aria-label="Current"
-									/>{/if}</button
-							>
-							{#each STATUS_OPTIONS as option (option)}
-								<button type="button" onclick={() => setQuery('status', option)}
-									><span>{WORK_STATUS_LABEL[option]}</span>{#if statusFilter === option}<Check
+							{#each STANDARDS as option (option.value)}
+								<button
+									type="button"
+									title={option.title}
+									disabled={standardBusy}
+									onclick={() => chooseGoalStandard(option.value)}
+									><span>{option.label}</span
+									>{#if goalStandard(selectedGoalRow) === option.value}<Check
 											size={14}
 											aria-label="Current"
 										/>{/if}</button
@@ -878,196 +786,296 @@
 							{/each}
 						</ActionMenu>
 					</div>
+					{#if standardFailure}<span class="standard-failure" role="alert">{standardFailure}</span
+						>{/if}
 				{/if}
-				<div class="goal-standard-picker" title="Order the work">
-					<ActionMenu label="Sort">
-						{#snippet trigger()}<span
-								>{sort === 'priority' ? 'Priority first' : 'Recent first'}</span
-							>{/snippet}
-						<button type="button" onclick={() => setQuery('sort', '')}
-							><span>Recent first</span>{#if sort === 'recent'}<Check
-									size={14}
-									aria-label="Current"
-								/>{/if}</button
-						>
-						<button type="button" onclick={() => setQuery('sort', 'priority')}
-							><span>Priority first</span>{#if sort === 'priority'}<Check
-									size={14}
-									aria-label="Current"
-								/>{/if}</button
-						>
-					</ActionMenu>
-				</div>
-			</div>
-			<div class="view-switch">
-				<Segmented
-					label="View"
-					value={view}
-					options={[
-						{ value: 'list', label: 'List' },
-						{ value: 'board', label: 'Board' }
-					]}
-					onchange={(value) => setQuery('view', value === 'board' ? 'board' : '')}
-				/>
-			</div>
-		</header>
-
-		<!-- Board padding only for the board itself: empty, loading and failure sit where List puts them. -->
-		<div class="body" class:board={view === 'board' && loaded && !!graph && !noWorkYet}>
-			{#if failure && graph}<FailureNotice
-					error={failure}
-					subject="Work"
-					stale
-					onretry={retryWork}
-				/>{:else if coordination && graph}<FailureNotice
-					error={coordination}
-					onretry={retryWork}
-				/>{/if}
-			{#if selectedGoalRow && loaded && graph}
-				{@const progress = goalProgress(selectedGoalRow.id)}
-				<section class="goal-head" aria-label="About this goal">
-					{#if goalEditing}
-						<form
-							class="goal-form"
-							onsubmit={(event) => {
-								event.preventDefault();
-								saveGoal();
-							}}
-						>
-							<label><span>Goal</span><input bind:value={goalTitle} required /></label>
-							<label
-								><span>Done when</span><input
-									bind:value={goalDoneWhen}
-									maxlength="400"
-									placeholder="What you will see when it is done"
-								/></label
-							>
-							<label><span>Due</span><input type="date" bind:value={goalDue} /></label>
-							<div class="goal-form-actions">
-								<button class="btn small primary" disabled={goalBusy || !goalTitle.trim()}
-									>{goalBusy ? 'Saving…' : 'Save'}</button
+				{#if selectedGoalRow && ownerAccess}
+					<div class="goal-standard-picker">
+						<ActionMenu label="Goal actions">
+							{#snippet trigger()}<span>Goal</span>{/snippet}
+							{#if !selectedGoalRow.closed_at}
+								<button type="button" onclick={addWork}><span>Add work…</span></button>
+								<button type="button" onclick={openGoalEdit}><span>Edit goal…</span></button>
+								{#each teamRows as team (team.id)}
+									<button
+										type="button"
+										disabled={goalBusy}
+										onclick={() =>
+											goalAction(
+												() => setGoalTeam(companyId, selectedGoalRow.id, team.id),
+												`${team.name} team delivers it`
+											)}
+										><span>Delivered by {team.name}</span
+										>{#if selectedGoalRow.team_id === team.id}<Check
+												size={14}
+												aria-label="Current"
+											/>{/if}</button
+									>
+								{/each}
+								{#if selectedGoalRow.team_id}
+									<button
+										type="button"
+										disabled={goalBusy}
+										onclick={() =>
+											goalAction(
+												() => setGoalTeam(companyId, selectedGoalRow.id, null),
+												'You hold this goal'
+											)}><span>Hold it yourself</span></button
+									>
+								{/if}
+								<button type="button" onclick={() => (confirmingClose = true)}
+									><span>Close goal…</span></button
 								>
-								<button class="btn small ghost" type="button" onclick={() => (goalEditing = false)}
-									>Cancel</button
+							{:else}
+								<button
+									type="button"
+									disabled={goalBusy}
+									onclick={() =>
+										goalAction(() => reopenGoal(companyId, selectedGoalRow.id), 'Goal reopened')}
+									><span>Reopen goal</span></button
+								>
+							{/if}
+						</ActionMenu>
+					</div>
+				{/if}
+				<div class="filters">
+					<div class="goal-standard-picker" title="Show the work one person owns">
+						<ActionMenu label="Owner">
+							{#snippet trigger()}<span>{ownerFilter ? ownerName(ownerFilter) : 'Anyone'}</span
+								>{/snippet}
+							<button type="button" onclick={() => setQuery('owner', '')}
+								><span>Anyone</span>{#if !ownerFilter}<Check
+										size={14}
+										aria-label="Current"
+									/>{/if}</button
+							>
+							{#each ownerOptions as option (option.id)}
+								<button type="button" onclick={() => setQuery('owner', option.id)}
+									><span>{option.name}</span>{#if ownerFilter === option.id}<Check
+											size={14}
+											aria-label="Current"
+										/>{/if}</button
+								>
+							{/each}
+						</ActionMenu>
+					</div>
+					{#if !stoppedView}
+						<div class="goal-standard-picker" title="Show work in one state">
+							<ActionMenu label="Status">
+								{#snippet trigger()}<span
+										>{statusFilter
+											? WORK_STATUS_LABEL[statusFilter as WorkRow['status']]
+											: 'Any status'}</span
+									>{/snippet}
+								<button type="button" onclick={() => setQuery('status', '')}
+									><span>Any status</span>{#if !statusFilter}<Check
+											size={14}
+											aria-label="Current"
+										/>{/if}</button
+								>
+								{#each STATUS_OPTIONS as option (option)}
+									<button type="button" onclick={() => setQuery('status', option)}
+										><span>{WORK_STATUS_LABEL[option]}</span>{#if statusFilter === option}<Check
+												size={14}
+												aria-label="Current"
+											/>{/if}</button
+									>
+								{/each}
+							</ActionMenu>
+						</div>
+					{/if}
+					<div class="goal-standard-picker" title="Order the work">
+						<ActionMenu label="Sort">
+							{#snippet trigger()}<span
+									>{sort === 'priority' ? 'Priority first' : 'Recent first'}</span
+								>{/snippet}
+							<button type="button" onclick={() => setQuery('sort', '')}
+								><span>Recent first</span>{#if sort === 'recent'}<Check
+										size={14}
+										aria-label="Current"
+									/>{/if}</button
+							>
+							<button type="button" onclick={() => setQuery('sort', 'priority')}
+								><span>Priority first</span>{#if sort === 'priority'}<Check
+										size={14}
+										aria-label="Current"
+									/>{/if}</button
+							>
+						</ActionMenu>
+					</div>
+				</div>
+				<div class="view-switch">
+					<Segmented
+						label="View"
+						value={view}
+						options={[
+							{ value: 'list', label: 'List' },
+							{ value: 'board', label: 'Board' }
+						]}
+						onchange={(value) => setQuery('view', value === 'board' ? 'board' : '')}
+					/>
+				</div>
+			</header>
+
+			<!-- Board padding only for the board itself: empty, loading and failure sit where List puts them. -->
+			<div class="body" class:board={view === 'board' && loaded && !!graph && !noWorkYet}>
+				{#if failure && graph}<FailureNotice
+						error={failure}
+						subject="Work"
+						stale
+						onretry={retryWork}
+					/>{:else if coordination && graph}<FailureNotice
+						error={coordination}
+						onretry={retryWork}
+					/>{/if}
+				{#if selectedGoalRow && loaded && graph}
+					{@const progress = goalProgress(selectedGoalRow.id)}
+					<section class="goal-head" aria-label="About this goal">
+						{#if goalEditing}
+							<form
+								class="goal-form"
+								onsubmit={(event) => {
+									event.preventDefault();
+									saveGoal();
+								}}
+							>
+								<label><span>Goal</span><input bind:value={goalTitle} required /></label>
+								<label
+									><span>Done when</span><input
+										bind:value={goalDoneWhen}
+										maxlength="400"
+										placeholder="What you will see when it is done"
+									/></label
+								>
+								<label><span>Due</span><input type="date" bind:value={goalDue} /></label>
+								<div class="goal-form-actions">
+									<button class="btn small primary" disabled={goalBusy || !goalTitle.trim()}
+										>{goalBusy ? 'Saving…' : 'Save'}</button
+									>
+									<button
+										class="btn small ghost"
+										type="button"
+										onclick={() => (goalEditing = false)}>Cancel</button
+									>
+								</div>
+							</form>
+						{:else}
+							{#if selectedGoalRow.body.trim() && selectedGoalRow.body.trim() !== selectedGoalRow.title}<p
+									class="goal-body"
+								>
+									{selectedGoalRow.body}
+								</p>{/if}
+							<p class="goal-facts">
+								<span
+									>{finishLine(selectedGoalRow)
+										? `Done when ${finishLine(selectedGoalRow)}`
+										: 'No finish line yet'}</span
+								>
+								<span>{progress.done} of {progress.total} done</span>
+								{#if dueLabel(selectedGoalRow)}<span>Due {dueLabel(selectedGoalRow)}</span>{/if}
+								{#if goalTeam(selectedGoalRow)}<span>{goalTeam(selectedGoalRow)}</span>{/if}
+								<!-- The facts a goal row's hover title carries, readable on touch once it is chosen. -->
+								{#if !ownerAccess}<span
+										>{standardLabel(goalStandard(selectedGoalRow))} quality bar</span
+									>{/if}
+								{#if ownerAccess && goalCost(selectedGoalRow.id)}<span
+										title="Metered model spend on this goal's work"
+										>{goalCost(selectedGoalRow.id)}</span
+									>{/if}
+								{#if selectedGoalRow.closed_at}<span>Closed</span>{/if}
+							</p>
+						{/if}
+						{#if confirmingClose}
+							<div class="goal-confirm" role="alertdialog" aria-label="Close this goal">
+								<span
+									>Close “{selectedGoalRow.title}”? Its work keeps running; you can reopen it.</span
+								>
+								<button
+									class="btn small danger"
+									type="button"
+									disabled={goalBusy}
+									onclick={() =>
+										goalAction(() => closeGoal(companyId, selectedGoalRow.id), 'Goal closed')}
+									>Close goal</button
+								>
+								<button
+									class="btn small ghost"
+									type="button"
+									onclick={() => (confirmingClose = false)}>Cancel</button
 								>
 							</div>
-						</form>
-					{:else}
-						{#if selectedGoalRow.body.trim() && selectedGoalRow.body.trim() !== selectedGoalRow.title}<p
-								class="goal-body"
-							>
-								{selectedGoalRow.body}
-							</p>{/if}
-						<p class="goal-facts">
-							<span
-								>{finishLine(selectedGoalRow)
-									? `Done when ${finishLine(selectedGoalRow)}`
-									: 'No finish line yet'}</span
-							>
-							<span>{progress.done} of {progress.total} done</span>
-							{#if dueLabel(selectedGoalRow)}<span>Due {dueLabel(selectedGoalRow)}</span>{/if}
-							{#if goalTeam(selectedGoalRow)}<span>{goalTeam(selectedGoalRow)}</span>{/if}
-							<!-- The facts a goal row's hover title carries, readable on touch once it is chosen. -->
-							{#if !ownerAccess}<span
-									>{standardLabel(goalStandard(selectedGoalRow))} quality bar</span
-								>{/if}
-							{#if ownerAccess && goalCost(selectedGoalRow.id)}<span
-									title="Metered model spend on this goal's work"
-									>{goalCost(selectedGoalRow.id)}</span
-								>{/if}
-							{#if selectedGoalRow.closed_at}<span>Closed</span>{/if}
-						</p>
-					{/if}
-					{#if confirmingClose}
-						<div class="goal-confirm" role="alertdialog" aria-label="Close this goal">
-							<span
-								>Close “{selectedGoalRow.title}”? Its work keeps running; you can reopen it.</span
-							>
-							<button
-								class="btn small danger"
-								type="button"
-								disabled={goalBusy}
-								onclick={() =>
-									goalAction(() => closeGoal(companyId, selectedGoalRow.id), 'Goal closed')}
-								>Close goal</button
-							>
-							<button
-								class="btn small ghost"
-								type="button"
-								onclick={() => (confirmingClose = false)}>Cancel</button
-							>
-						</div>
-					{/if}
-					{#if goalFailure}<p class="standard-failure" role="alert">{goalFailure}</p>{/if}
-				</section>
-			{/if}
-			{#if !graph && failure}
-				<FailureNotice error={failure} subject="Work" variant="page" onretry={retryWork} />
-			{:else if !graph && coordination && loaded}
-				<FailureNotice error={coordination} subject="Work" variant="page" onretry={retryWork} />
-			{:else if !loaded}
-				<Skeleton label="Loading work" variant="list" count={6} />
-			{:else if noWorkYet}
-				<Empty
-					page
-					icon={Kanban}
-					title="No work yet"
-					info="Tell Exec what you want. It turns that into work for the team, and it shows up here as it moves."
-				>
-					{#snippet action()}{#if ownerAccess}<button
-								class="btn small primary"
-								type="button"
-								onclick={addWork}>Tell Exec what you want</button
-							>{/if}{/snippet}
-				</Empty>
-			{:else if !goalWork.length && (search.trim() || filtered)}
-				<Empty compact title={emptyWorkTitle(selectedGoal, search, filtered)}>
-					{#snippet action()}<button class="btn small" type="button" onclick={clearSearch}
-							>{search.trim() ? 'Clear search' : 'Clear filters'}</button
-						>{/snippet}
-				</Empty>
-			{:else if view === 'board'}
-				<WorkBoard columns={boardColumns}>
-					{#snippet footer(column)}
-						{#if column.key === 'completed' && done.length > RECENT_DONE}<button
-								class="btn small ghost"
-								type="button"
-								onclick={() => (showAllDone = !showAllDone)}
-								>{showAllDone ? 'Show recent only' : `Show all ${done.length}`}</button
-							>{/if}
-					{/snippet}
-				</WorkBoard>
-			{:else}
-				{#each groups.filter((group) => group.rows.length) as group (group.key)}
-					<section class="group" aria-label={group.label}>
-						<h3>{group.label}<span>{group.rows.length}</span></h3>
-						<div class="rows">
-							{#each group.rows as work (work.id)}{@render row(work, group.tone)}{/each}
-						</div>
-					</section>
-				{/each}
-				{#if done.length}
-					<section class="group" aria-label="Done">
-						<div class="rows">
-							<Fold label="Done" count={done.length}>
-								{#each done as work (work.id)}{@render row(work, 'success')}{/each}
-							</Fold>
-						</div>
+						{/if}
+						{#if goalFailure}<p class="standard-failure" role="alert">{goalFailure}</p>{/if}
 					</section>
 				{/if}
-				{#if !goalWork.length}
-					<Empty compact title={emptyWorkTitle(selectedGoal)}>
-						{#snippet action()}{#if ownerAccess && selectedGoalRow && !selectedGoalRow.closed_at}<button
-									class="btn small"
+				{#if !graph && failure}
+					<FailureNotice error={failure} subject="Work" variant="page" onretry={retryWork} />
+				{:else if !graph && coordination && loaded}
+					<FailureNotice error={coordination} subject="Work" variant="page" onretry={retryWork} />
+				{:else if !loaded}
+					<Skeleton label="Loading work" variant="list" count={6} />
+				{:else if noWorkYet}
+					<Empty
+						page
+						icon={Kanban}
+						title="No work yet"
+						info="Tell Exec what you want. It turns that into work for the team, and it shows up here as it moves."
+					>
+						{#snippet action()}{#if ownerAccess}<button
+									class="btn small primary"
 									type="button"
-									onclick={addWork}>Add work</button
+									onclick={addWork}>Tell Exec what you want</button
 								>{/if}{/snippet}
 					</Empty>
+				{:else if !goalWork.length && (search.trim() || filtered)}
+					<Empty compact title={emptyWorkTitle(selectedGoal, search, filtered)}>
+						{#snippet action()}<button class="btn small" type="button" onclick={clearSearch}
+								>{search.trim() ? 'Clear search' : 'Clear filters'}</button
+							>{/snippet}
+					</Empty>
+				{:else if view === 'board'}
+					<WorkBoard columns={boardColumns}>
+						{#snippet footer(column)}
+							{#if column.key === 'completed' && done.length > RECENT_DONE}<button
+									class="btn small ghost"
+									type="button"
+									onclick={() => (showAllDone = !showAllDone)}
+									>{showAllDone ? 'Show recent only' : `Show all ${done.length}`}</button
+								>{/if}
+						{/snippet}
+					</WorkBoard>
+				{:else}
+					{#each groups.filter((group) => group.rows.length) as group (group.key)}
+						<section class="group" aria-label={group.label}>
+							<h3>{group.label}<span>{group.rows.length}</span></h3>
+							<div class="rows">
+								{#each group.rows as work (work.id)}{@render row(work, group.tone)}{/each}
+							</div>
+						</section>
+					{/each}
+					{#if done.length}
+						<section class="group" aria-label="Done">
+							<div class="rows">
+								<Fold label="Done" count={done.length}>
+									{#each done as work (work.id)}{@render row(work, 'success')}{/each}
+								</Fold>
+							</div>
+						</section>
+					{/if}
+					{#if !goalWork.length}
+						<Empty compact title={emptyWorkTitle(selectedGoal)}>
+							{#snippet action()}{#if ownerAccess && selectedGoalRow && !selectedGoalRow.closed_at}<button
+										class="btn small"
+										type="button"
+										onclick={addWork}>Add work</button
+									>{/if}{/snippet}
+						</Empty>
+					{/if}
 				{/if}
-			{/if}
+			</div>
 		</div>
-	</div>
-</SidebarShell>
+	</SidebarShell>
+</ResizableSidebar>
 
 <style>
 	.goal-standard-picker :global(summary) {

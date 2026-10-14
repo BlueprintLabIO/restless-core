@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resizePane } from '$lib/actions/resize-pane';
 	import { setTeamOwner as recordTeamOwner, disbandTeam } from '$lib/model/company-actions';
 	import TeamEditor from '$lib/components/TeamEditor.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
@@ -786,7 +787,19 @@
 		>People — {cockpit.view?.company.name ?? collaboration.view?.company.name ?? companyId}</title
 	></svelte:head
 >
-<div class="conversation-workspace" class:selected={explicitSelection}>
+<div
+	class="conversation-workspace"
+	class:selected={explicitSelection}
+	use:resizePane={{
+		key: `${companyId}:sidebar:people`,
+		label: 'Resize the People sidebar',
+		target: '.conversation-index',
+		variable: '--sidebar-width',
+		min: 200,
+		minOther: 420,
+		defaultSize: 264
+	}}
+>
 	<aside class="conversation-index" aria-label="Conversations">
 		<div class="people-head">
 			<h1>People</h1>

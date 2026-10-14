@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ResizableSidebar from '$lib/components/ResizableSidebar.svelte';
 	/* Company is a settings area: a titled, searchable section list beside one pane. Each row shows
 	 * its area's current value ("Connected", "4 keys"), amber when it waits on the owner and red when
 	 * it cannot be read, so the navigation is also a status summary. Where the area is too narrow for
@@ -58,45 +59,47 @@
 {#if desktopFocus}
 	<div class="company-focus">{@render children()}</div>
 {:else}
-	<SidebarShell label="Company sections" title="Company">
-		{#snippet top()}
-			<SidebarSearch bind:value={setup.query} placeholder="Search settings" />
-		{/snippet}
-		{#snippet nav()}
-			{#if !setup.query.trim()}<SidebarRow
-					href={overview}
-					label="Overview"
-					icon={LayoutGrid}
-					active={active(overview)}
-					problem={setup.todos.length > 0}
-					title={setup.todos.length ? `${setup.todos.length} to finish setting up` : undefined}
-				/>{/if}
-			{#each groups as group (group.label)}
-				<SidebarGroup label={group.label}>
-					{#each group.rows as row (row.key)}
-						<SidebarRow
-							href={row.href}
-							label={row.label}
-							icon={row.icon}
-							active={active(row.href)}
-							problem={row.readingTone === 'block'}
-							title={row.readingTone === 'block' && row.reading
-								? `${row.reading}${row.tooltip ? ` · ${row.tooltip}` : ''}`
-								: row.tooltip}
-						/>
-					{/each}
-				</SidebarGroup>
-			{:else}
-				<p class="company-none">No settings match.</p>
-			{/each}
-		{/snippet}
-		{#snippet narrow()}
-			{#if detail}<a class="company-back" href={overview}
-					><ArrowLeft size={14} strokeWidth={1.8} aria-hidden="true" />Company</a
-				>{/if}
-		{/snippet}
-		{@render children()}
-	</SidebarShell>
+	<ResizableSidebar area="company" label="Resize the Company sidebar">
+		<SidebarShell label="Company sections" title="Company">
+			{#snippet top()}
+				<SidebarSearch bind:value={setup.query} placeholder="Search settings" />
+			{/snippet}
+			{#snippet nav()}
+				{#if !setup.query.trim()}<SidebarRow
+						href={overview}
+						label="Overview"
+						icon={LayoutGrid}
+						active={active(overview)}
+						problem={setup.todos.length > 0}
+						title={setup.todos.length ? `${setup.todos.length} to finish setting up` : undefined}
+					/>{/if}
+				{#each groups as group (group.label)}
+					<SidebarGroup label={group.label}>
+						{#each group.rows as row (row.key)}
+							<SidebarRow
+								href={row.href}
+								label={row.label}
+								icon={row.icon}
+								active={active(row.href)}
+								problem={row.readingTone === 'block'}
+								title={row.readingTone === 'block' && row.reading
+									? `${row.reading}${row.tooltip ? ` · ${row.tooltip}` : ''}`
+									: row.tooltip}
+							/>
+						{/each}
+					</SidebarGroup>
+				{:else}
+					<p class="company-none">No settings match.</p>
+				{/each}
+			{/snippet}
+			{#snippet narrow()}
+				{#if detail}<a class="company-back" href={overview}
+						><ArrowLeft size={14} strokeWidth={1.8} aria-hidden="true" />Company</a
+					>{/if}
+			{/snippet}
+			{@render children()}
+		</SidebarShell>
+	</ResizableSidebar>
 {/if}
 
 <style>

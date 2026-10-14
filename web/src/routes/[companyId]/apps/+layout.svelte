@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ResizableSidebar from '$lib/components/ResizableSidebar.svelte';
 	/* Apps, ask first: the sidebar is where power users go straight to something. Ask (the
 	 * default), what waits on the owner, what is in use by kind, and everything to add by category.
 	 * Counts come from the same read as the page, so they agree. */
@@ -97,136 +98,138 @@
 	]);
 </script>
 
-<SidebarShell label="Apps" title="Apps">
-	{#snippet action()}
-		{#if owner}<SidebarHeadButton
-				href={`${index}?add=link`}
-				label="Add from a link: a service's MCP address, a plugin or skill on GitHub, or a command"
-				icon={Link2}
-			/>
-			<SidebarHeadButton
-				href={`${index}?add=skill`}
-				label="Write new know-how: instructions the company follows once you accept them"
-				icon={BookPlus}
-			/>{/if}
-	{/snippet}
-	{#snippet nav()}
-		<SidebarRow
-			href={href('ask')}
-			label="Ask"
-			icon={Sparkles}
-			active={current === 'ask'}
-			title="Say what the company should be able to do, or search your apps (press /)"
-		/>
-		<SidebarRow
-			href={href('waiting')}
-			label="Waiting on you"
-			icon={Inbox}
-			active={current === 'waiting'}
-			count={data.waiting}
-			todo={!!data.waiting}
-			title="Apps Exec asked for, and ones that need a sign-in or a decision"
-		/>
-		<SidebarGroup label="In use">
+<ResizableSidebar area="apps" label="Resize the Apps sidebar">
+	<SidebarShell label="Apps" title="Apps">
+		{#snippet action()}
+			{#if owner}<SidebarHeadButton
+					href={`${index}?add=link`}
+					label="Add from a link: a service's MCP address, a plugin or skill on GitHub, or a command"
+					icon={Link2}
+				/>
+				<SidebarHeadButton
+					href={`${index}?add=skill`}
+					label="Write new know-how: instructions the company follows once you accept them"
+					icon={BookPlus}
+				/>{/if}
+		{/snippet}
+		{#snippet nav()}
 			<SidebarRow
-				href={href('in-use')}
-				label="All in use"
-				icon={LayoutGrid}
-				active={current === 'in-use'}
-				count={data.inUse.length}
-				title="Everything the company can use, with what it may do"
+				href={href('ask')}
+				label="Ask"
+				icon={Sparkles}
+				active={current === 'ask'}
+				title="Say what the company should be able to do, or search your apps (press /)"
 			/>
-			{#each kinds as row (row.kind)}
-				<SidebarRow
-					href={href(row.kind)}
-					label={KIND_SECTION[row.kind]}
-					icon={KIND_ICONS[row.kind]}
-					active={current === row.kind}
-					count={row.count}
-					title={KIND_INFO[row.kind]}
-				/>
-			{/each}
-			{#if data.removed.length}
-				<SidebarRow
-					href={href('removed')}
-					label="Removed"
-					icon={ArchiveRestore}
-					active={current === 'removed'}
-					count={data.removed.length}
-					title="Know-how you removed. It is kept, so you can restore it."
-				/>
-			{/if}
-		</SidebarGroup>
-		<SidebarGroup label="Browse">
 			<SidebarRow
-				href={href('all')}
-				label="All apps"
-				icon={LayoutGrid}
-				active={current === 'all'}
-				count={data.browse.length}
+				href={href('waiting')}
+				label="Waiting on you"
+				icon={Inbox}
+				active={current === 'waiting'}
+				count={data.waiting}
+				todo={!!data.waiting}
+				title="Apps Exec asked for, and ones that need a sign-in or a decision"
 			/>
-			{#each categories as row (row.view)}
+			<SidebarGroup label="In use">
 				<SidebarRow
-					href={href(row.view)}
-					label={row.view}
-					icon={ICONS[row.view]}
-					active={current === row.view}
-					count={row.count}
+					href={href('in-use')}
+					label="All in use"
+					icon={LayoutGrid}
+					active={current === 'in-use'}
+					count={data.inUse.length}
+					title="Everything the company can use, with what it may do"
 				/>
-			{/each}
-		</SidebarGroup>
-	{/snippet}
-	{#snippet narrow()}
-		<div class="narrow-row">
-			<div class="views" role="group" aria-label="Apps">
-				{#each narrowViews as row (row.view)}
-					<a
-						class="view"
-						href={href(row.view)}
-						aria-current={current === row.view ? 'page' : undefined}>{row.label}</a
-					>
+				{#each kinds as row (row.kind)}
+					<SidebarRow
+						href={href(row.kind)}
+						label={KIND_SECTION[row.kind]}
+						icon={KIND_ICONS[row.kind]}
+						active={current === row.kind}
+						count={row.count}
+						title={KIND_INFO[row.kind]}
+					/>
 				{/each}
+				{#if data.removed.length}
+					<SidebarRow
+						href={href('removed')}
+						label="Removed"
+						icon={ArchiveRestore}
+						active={current === 'removed'}
+						count={data.removed.length}
+						title="Know-how you removed. It is kept, so you can restore it."
+					/>
+				{/if}
+			</SidebarGroup>
+			<SidebarGroup label="Browse">
+				<SidebarRow
+					href={href('all')}
+					label="All apps"
+					icon={LayoutGrid}
+					active={current === 'all'}
+					count={data.browse.length}
+				/>
+				{#each categories as row (row.view)}
+					<SidebarRow
+						href={href(row.view)}
+						label={row.view}
+						icon={ICONS[row.view]}
+						active={current === row.view}
+						count={row.count}
+					/>
+				{/each}
+			</SidebarGroup>
+		{/snippet}
+		{#snippet narrow()}
+			<div class="narrow-row">
+				<div class="views" role="group" aria-label="Apps">
+					{#each narrowViews as row (row.view)}
+						<a
+							class="view"
+							href={href(row.view)}
+							aria-current={current === row.view ? 'page' : undefined}>{row.label}</a
+						>
+					{/each}
+				</div>
+				<!-- Everything else the sidebar holds, so no view or way to add is desktop-only. -->
+				<span
+					class="more"
+					class:current={!!current && !narrowViews.some((row) => row.view === current)}
+				>
+					<ActionMenu label="More views and ways to add">
+						{#snippet trigger()}More{/snippet}
+						{#each kinds as row (row.kind)}
+							<a
+								href={href(row.kind)}
+								title={KIND_INFO[row.kind]}
+								aria-current={current === row.kind ? 'page' : undefined}
+								>{KIND_SECTION[row.kind]} <span class="n">{row.count}</span></a
+							>
+						{/each}
+						{#if data.removed.length}
+							<a href={href('removed')} aria-current={current === 'removed' ? 'page' : undefined}
+								>Removed <span class="n">{data.removed.length}</span></a
+							>
+						{/if}
+						{#each categories as row (row.view)}
+							<a href={href(row.view)} aria-current={current === row.view ? 'page' : undefined}
+								>{row.view} <span class="n">{row.count}</span></a
+							>
+						{/each}
+						{#if owner}<a
+								href={`${index}?add=link`}
+								title="A service's MCP address, a plugin or skill on GitHub, or a command"
+								>Add from a link</a
+							>
+							<a
+								href={`${index}?add=skill`}
+								title="Instructions the company follows once you accept them">Write new know-how</a
+							>{/if}
+					</ActionMenu>
+				</span>
 			</div>
-			<!-- Everything else the sidebar holds, so no view or way to add is desktop-only. -->
-			<span
-				class="more"
-				class:current={!!current && !narrowViews.some((row) => row.view === current)}
-			>
-				<ActionMenu label="More views and ways to add">
-					{#snippet trigger()}More{/snippet}
-					{#each kinds as row (row.kind)}
-						<a
-							href={href(row.kind)}
-							title={KIND_INFO[row.kind]}
-							aria-current={current === row.kind ? 'page' : undefined}
-							>{KIND_SECTION[row.kind]} <span class="n">{row.count}</span></a
-						>
-					{/each}
-					{#if data.removed.length}
-						<a href={href('removed')} aria-current={current === 'removed' ? 'page' : undefined}
-							>Removed <span class="n">{data.removed.length}</span></a
-						>
-					{/if}
-					{#each categories as row (row.view)}
-						<a href={href(row.view)} aria-current={current === row.view ? 'page' : undefined}
-							>{row.view} <span class="n">{row.count}</span></a
-						>
-					{/each}
-					{#if owner}<a
-							href={`${index}?add=link`}
-							title="A service's MCP address, a plugin or skill on GitHub, or a command"
-							>Add from a link</a
-						>
-						<a
-							href={`${index}?add=skill`}
-							title="Instructions the company follows once you accept them">Write new know-how</a
-						>{/if}
-				</ActionMenu>
-			</span>
-		</div>
-	{/snippet}
-	{@render children()}
-</SidebarShell>
+		{/snippet}
+		{@render children()}
+	</SidebarShell>
+</ResizableSidebar>
 
 <style>
 	/* Too narrow for the list: the same views as one row that scrolls sideways, its edge fading

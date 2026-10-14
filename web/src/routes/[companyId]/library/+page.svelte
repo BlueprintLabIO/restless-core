@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ResizableSidebar from '$lib/components/ResizableSidebar.svelte';
 	/* The Library: everything the company has written and made, in one place (S64). Native
 	 * documents and sheets open in their editors; the sites, images, PDFs, decks and recordings Work
 	 * produced on the company computer open in place, a deck as a slideshow. Files the owner adds or
@@ -1292,604 +1293,609 @@
 <CompanyTitle title="Library" {companyId} />
 
 <!-- The same sidebar as every area: a title, search, views, then the kinds of thing kept here. -->
-<SidebarShell label="Library" title="Library">
-	{#snippet top()}
-		<SidebarSearch bind:value={search} placeholder="Search files" />
-	{/snippet}
-	{#snippet nav()}
-		<SidebarRow
-			href={filterHref('all')}
-			label="All files"
-			icon={Library}
-			active={filter === 'all' && !collectionParam && !fileOpen && !uploadFile}
-			count={counts.all || null}
-		/>
-		<SidebarRow
-			href={filterHref('review')}
-			label="Needs your review"
-			icon={Eye}
-			active={filter === 'review' && !fileOpen && !uploadFile}
-			count={counts.review || null}
-			todo
-			title="Documents and outcomes waiting on your judgement"
-		/>
-		<SidebarGroup label="Kinds">
+<ResizableSidebar area="library" label="Resize the Library sidebar">
+	<SidebarShell label="Library" title="Library">
+		{#snippet top()}
+			<SidebarSearch bind:value={search} placeholder="Search files" />
+		{/snippet}
+		{#snippet nav()}
 			<SidebarRow
-				href={filterHref('docs')}
-				label="Documents"
-				icon={FileText}
-				active={filter === 'docs' && !fileOpen && !uploadFile}
-				count={counts.docs || null}
+				href={filterHref('all')}
+				label="All files"
+				icon={Library}
+				active={filter === 'all' && !collectionParam && !fileOpen && !uploadFile}
+				count={counts.all || null}
 			/>
 			<SidebarRow
-				href={filterHref('sheets')}
-				label="Sheets"
-				icon={Sheet}
-				active={filter === 'sheets' && !fileOpen && !uploadFile}
-				count={counts.sheets || null}
+				href={filterHref('review')}
+				label="Needs your review"
+				icon={Eye}
+				active={filter === 'review' && !fileOpen && !uploadFile}
+				count={counts.review || null}
+				todo
+				title="Documents and outcomes waiting on your judgement"
 			/>
-			{#each fileKinds as row (row.kind)}
+			<SidebarGroup label="Kinds">
 				<SidebarRow
-					href={filterHref(row.kind)}
-					label={LIBRARY_KIND_LABEL[row.kind]}
-					icon={KIND_ICON[row.kind]}
-					active={filter === row.kind && !fileOpen && !uploadFile}
-					count={row.total}
+					href={filterHref('docs')}
+					label="Documents"
+					icon={FileText}
+					active={filter === 'docs' && !fileOpen && !uploadFile}
+					count={counts.docs || null}
 				/>
-			{/each}
-			<SidebarRow
-				href={filterHref('yours')}
-				label="From you"
-				icon={Upload}
-				active={filter === 'yours' && !fileOpen && !uploadFile}
-				count={counts.yours || null}
-				title={YOURS_HINT}
-			/>
-		</SidebarGroup>
-		{#if collections.length}
-			<SidebarGroup label="Collections">
-				{#each collections as row (row.name)}
+				<SidebarRow
+					href={filterHref('sheets')}
+					label="Sheets"
+					icon={Sheet}
+					active={filter === 'sheets' && !fileOpen && !uploadFile}
+					count={counts.sheets || null}
+				/>
+				{#each fileKinds as row (row.kind)}
 					<SidebarRow
-						href={filterHref('all', row.name)}
-						label={row.name}
-						icon={Folder}
-						active={collectionParam === row.name && !fileOpen && !uploadFile}
+						href={filterHref(row.kind)}
+						label={LIBRARY_KIND_LABEL[row.kind]}
+						icon={KIND_ICON[row.kind]}
+						active={filter === row.kind && !fileOpen && !uploadFile}
 						count={row.total}
 					/>
 				{/each}
+				<SidebarRow
+					href={filterHref('yours')}
+					label="From you"
+					icon={Upload}
+					active={filter === 'yours' && !fileOpen && !uploadFile}
+					count={counts.yours || null}
+					title={YOURS_HINT}
+				/>
 			</SidebarGroup>
-		{/if}
-		{#if pinned.length}
-			<SidebarGroup label="Pinned" count={pinned.length}>
-				{#each pinned as entry (pinKey(entry))}
-					<SidebarRow
-						href={entry.href}
-						label={entry.title}
-						icon={Pin}
-						active={(isFile(entry) && entry.id === fileOpen?.id) ||
-							(entry.kind === 'upload' && entry.id === openUploadId)}
-						title={`${entry.title} · ${entry.owner}`}
-					/>
+			{#if collections.length}
+				<SidebarGroup label="Collections">
+					{#each collections as row (row.name)}
+						<SidebarRow
+							href={filterHref('all', row.name)}
+							label={row.name}
+							icon={Folder}
+							active={collectionParam === row.name && !fileOpen && !uploadFile}
+							count={row.total}
+						/>
+					{/each}
+				</SidebarGroup>
+			{/if}
+			{#if pinned.length}
+				<SidebarGroup label="Pinned" count={pinned.length}>
+					{#each pinned as entry (pinKey(entry))}
+						<SidebarRow
+							href={entry.href}
+							label={entry.title}
+							icon={Pin}
+							active={(isFile(entry) && entry.id === fileOpen?.id) ||
+								(entry.kind === 'upload' && entry.id === openUploadId)}
+							title={`${entry.title} · ${entry.owner}`}
+						/>
+					{/each}
+				</SidebarGroup>
+			{/if}
+		{/snippet}
+		{#snippet foot()}
+			<SidebarRow
+				href={filterHref('archived')}
+				label="Archived"
+				icon={ArchiveIcon}
+				active={filter === 'archived'}
+				count={counts.archived || null}
+				title="Taken out of every list. Restore anything here, or delete it for good."
+			/>
+		{/snippet}
+		{#snippet narrow()}
+			<!-- An open file has its own way back; the list's search and views step aside for it. -->
+			{#if !openFileId && !openUploadId && !openPath}<div class="library-narrow-search">
+					<SidebarSearch bind:value={search} placeholder="Search files" />
+				</div>{/if}
+			<nav
+				class="library-filters"
+				aria-label="Library"
+				hidden={!!(openFileId || openUploadId || openPath)}
+			>
+				{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(counts.yours ? [{ key: 'yours' as Filter, label: 'From you' }] : []), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : []), FILTERS.at(-1)!] as item (item.key)}
+					<a
+						href={filterHref(item.key)}
+						class:active={filter === item.key && !collectionParam}
+						aria-current={filter === item.key && !collectionParam ? 'page' : undefined}
+						>{item.label}</a
+					>
 				{/each}
-			</SidebarGroup>
-		{/if}
-	{/snippet}
-	{#snippet foot()}
-		<SidebarRow
-			href={filterHref('archived')}
-			label="Archived"
-			icon={ArchiveIcon}
-			active={filter === 'archived'}
-			count={counts.archived || null}
-			title="Taken out of every list. Restore anything here, or delete it for good."
-		/>
-	{/snippet}
-	{#snippet narrow()}
-		<!-- An open file has its own way back; the list's search and views step aside for it. -->
-		{#if !openFileId && !openUploadId && !openPath}<div class="library-narrow-search">
-				<SidebarSearch bind:value={search} placeholder="Search files" />
-			</div>{/if}
-		<nav
-			class="library-filters"
-			aria-label="Library"
-			hidden={!!(openFileId || openUploadId || openPath)}
-		>
-			{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(counts.yours ? [{ key: 'yours' as Filter, label: 'From you' }] : []), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : []), FILTERS.at(-1)!] as item (item.key)}
-				<a
-					href={filterHref(item.key)}
-					class:active={filter === item.key && !collectionParam}
-					aria-current={filter === item.key && !collectionParam ? 'page' : undefined}
-					>{item.label}</a
-				>
-			{/each}
-			{#each collections as row (row.name)}
-				<a
-					href={filterHref('all', row.name)}
-					class:active={collectionParam === row.name}
-					aria-current={collectionParam === row.name ? 'page' : undefined}>{row.name}</a
-				>
-			{/each}
-		</nav>
-	{/snippet}
-	{#if fileOpen}
-		{@const opensAs = fileOpen.id ? importKind(fileOpen.uri) : null}
-		<LibraryViewer
-			{companyId}
-			file={fileOpen}
-			owner={fileOpen.createdBy ? name(fileOpen.createdBy) : ''}
-			{backHref}
-			convert={opensAs && fileOpen
-				? {
-						label: opensAs === 'doc' ? 'Open as document' : 'Open as sheet',
-						run: () => convertFile(fileOpen!.id, fileOpen!.label)
-					}
-				: null}
-		/>
-	{:else if uploadFile && uploadResolver}
-		<LibraryViewer
-			{companyId}
-			file={uploadFile}
-			owner={name(uploadFile.createdBy)}
-			{backHref}
-			resolve={uploadResolver}
-		/>
-	{:else if openFileId && !loading && (attention.view || collaboration.view)}
-		{@const gone = replacedFile(artifacts, files, openFileId, libraryWorks)}
-		<!-- A link to a version that was replaced leads on to the one that replaced it. -->
-		<Empty
-			page
-			icon={FileX}
-			title={gone?.replacement
-				? `${gone.gone} was replaced`
-				: gone
-					? `${gone.gone} is no longer in the Library`
-					: 'This file is no longer in the Library'}
-			info={gone?.replacement
-				? `${gone.workTitle || 'Its Work'} made a newer version: ${gone.replacement.label}.`
-				: 'A newer version replaced it, it was archived, or the Work that made it was retired.'}
-		>
-			{#snippet action()}{#if gone?.replacement}<a
+				{#each collections as row (row.name)}
+					<a
+						href={filterHref('all', row.name)}
+						class:active={collectionParam === row.name}
+						aria-current={collectionParam === row.name ? 'page' : undefined}>{row.name}</a
+					>
+				{/each}
+			</nav>
+		{/snippet}
+		{#if fileOpen}
+			{@const opensAs = fileOpen.id ? importKind(fileOpen.uri) : null}
+			<LibraryViewer
+				{companyId}
+				file={fileOpen}
+				owner={fileOpen.createdBy ? name(fileOpen.createdBy) : ''}
+				{backHref}
+				convert={opensAs && fileOpen
+					? {
+							label: opensAs === 'doc' ? 'Open as document' : 'Open as sheet',
+							run: () => convertFile(fileOpen!.id, fileOpen!.label)
+						}
+					: null}
+			/>
+		{:else if uploadFile && uploadResolver}
+			<LibraryViewer
+				{companyId}
+				file={uploadFile}
+				owner={name(uploadFile.createdBy)}
+				{backHref}
+				resolve={uploadResolver}
+			/>
+		{:else if openFileId && !loading && (attention.view || collaboration.view)}
+			{@const gone = replacedFile(artifacts, files, openFileId, libraryWorks)}
+			<!-- A link to a version that was replaced leads on to the one that replaced it. -->
+			<Empty
+				page
+				icon={FileX}
+				title={gone?.replacement
+					? `${gone.gone} was replaced`
+					: gone
+						? `${gone.gone} is no longer in the Library`
+						: 'This file is no longer in the Library'}
+				info={gone?.replacement
+					? `${gone.workTitle || 'Its Work'} made a newer version: ${gone.replacement.label}.`
+					: 'A newer version replaced it, it was archived, or the Work that made it was retired.'}
+			>
+				{#snippet action()}{#if gone?.replacement}<a
+							class="btn small primary"
+							href={fileHref(gone.replacement.id)}>Open the newer version</a
+						>{/if}<a class="btn small" href={backHref}>Back to the Library</a>{/snippet}
+			</Empty>
+		{:else if uploadRow}
+			<Empty
+				page
+				icon={FileDown}
+				title={uploadRow.canonical_name}
+				info="Browsers cannot show this kind of file. Download it to open it on your computer."
+			>
+				{#snippet action()}<a
 						class="btn small primary"
-						href={fileHref(gone.replacement.id)}>Open the newer version</a
-					>{/if}<a class="btn small" href={backHref}>Back to the Library</a>{/snippet}
-		</Empty>
-	{:else if uploadRow}
-		<Empty
-			page
-			icon={FileDown}
-			title={uploadRow.canonical_name}
-			info="Browsers cannot show this kind of file. Download it to open it on your computer."
-		>
-			{#snippet action()}<a
-					class="btn small primary"
-					href={attachmentHref(companyId, uploadRow.attachment_id)}
-					download={uploadRow.canonical_name}>Download</a
-				><a class="btn small" href={backHref}>Back to the Library</a>{/snippet}
-		</Empty>
-	{:else if openUploadId && kept}
-		<Empty
-			page
-			icon={FileX}
-			title="This file is no longer kept"
-			info="It was deleted, or it is not one you added or sent."
-		>
-			{#snippet action()}<a class="btn small" href={backHref}>Back to the Library</a>{/snippet}
-		</Empty>
-	{:else if openPath && owner}
-		<Empty
-			page
-			icon={FileQuestion}
-			title="This is not a file the cockpit can open"
-			info={`${openPath} is not a file in the company's home folder.`}
-		>
-			{#snippet action()}<a class="btn small" href={backHref}>Back to the Library</a>{/snippet}
-		</Empty>
-	{:else}
-		<div
-			class="page"
-			class:dropping
-			role="region"
-			aria-label={filterLabel(filter)}
-			{ondragover}
-			{ondragleave}
-			{ondrop}
-		>
-			<header class="head">
-				<h1>{filterLabel(filter)}</h1>
-				<span class="head-count"
-					>{(!query && !collectionParam && !byParam && !sinceParam && filter === 'docs'
-						? counts.docs
-						: !query && !collectionParam && !byParam && !sinceParam && filter === 'all'
-							? counts.all
-							: shown.length) || ''}</span
-				>
-				{#if filter === 'yours' && keptUsage}<span
-						class="usage"
-						class:full={keptUsage.full}
-						title={keptUsage.detail}>{keptUsage.label}</span
-					>{/if}
-				<span class="spacer"></span>
-				{#if selecting}
-					{@const archivable = selectedEntries.filter(
-						(entry) => (isNative(entry) && entry.manage) || (isFile(entry) && owner)
-					)}
-					<span class="selection-count" aria-live="polite">{selected.length} selected</span>
-					<button
-						class="btn small"
-						type="button"
-						disabled={!archivable.length || !!archiveBusy}
-						title={filter === 'archived'
-							? 'Put the selected items back in the Library'
-							: 'Take the selected items out of the Library lists; restore them any time'}
-						onclick={() => void archiveMany(archivable, filter !== 'archived').then(stopSelecting)}
-						>{filter === 'archived' ? 'Restore' : 'Archive'}</button
+						href={attachmentHref(companyId, uploadRow.attachment_id)}
+						download={uploadRow.canonical_name}>Download</a
+					><a class="btn small" href={backHref}>Back to the Library</a>{/snippet}
+			</Empty>
+		{:else if openUploadId && kept}
+			<Empty
+				page
+				icon={FileX}
+				title="This file is no longer kept"
+				info="It was deleted, or it is not one you added or sent."
+			>
+				{#snippet action()}<a class="btn small" href={backHref}>Back to the Library</a>{/snippet}
+			</Empty>
+		{:else if openPath && owner}
+			<Empty
+				page
+				icon={FileQuestion}
+				title="This is not a file the cockpit can open"
+				info={`${openPath} is not a file in the company's home folder.`}
+			>
+				{#snippet action()}<a class="btn small" href={backHref}>Back to the Library</a>{/snippet}
+			</Empty>
+		{:else}
+			<div
+				class="page"
+				class:dropping
+				role="region"
+				aria-label={filterLabel(filter)}
+				{ondragover}
+				{ondragleave}
+				{ondrop}
+			>
+				<header class="head">
+					<h1>{filterLabel(filter)}</h1>
+					<span class="head-count"
+						>{(!query && !collectionParam && !byParam && !sinceParam && filter === 'docs'
+							? counts.docs
+							: !query && !collectionParam && !byParam && !sinceParam && filter === 'all'
+								? counts.all
+								: shown.length) || ''}</span
 					>
-					{#if filter !== 'archived'}
-						<button
-							class="btn small"
-							type="button"
-							disabled={!selectedEntries.length}
-							onclick={() => void pinMany(selectedEntries).then(stopSelecting)}>Pin</button
-						>
-						<button
-							class="btn small"
-							type="button"
-							disabled={!selectedEntries.filter(mayOrganise).length}
-							onclick={() => askOrganise('collection', selectedEntries.filter(mayOrganise))}
-							>Move to collection…</button
-						>
-					{/if}
-					<button class="btn small primary" type="button" onclick={stopSelecting}>Done</button>
-				{:else}
-					{#if shown.length}<button
-							class="btn small"
-							type="button"
-							title="Choose several items to archive, pin or file at once"
-							onclick={() => (selecting = true)}>Select</button
+					{#if filter === 'yours' && keptUsage}<span
+							class="usage"
+							class:full={keptUsage.full}
+							title={keptUsage.detail}>{keptUsage.label}</span
 						>{/if}
-					<!-- One action, the one this view is about; All offers every way to add behind one button. -->
-					{#if filter === 'docs' || filter === 'sheets'}
-						{@const kind = filter === 'docs' ? 'doc' : 'sheet'}
+					<span class="spacer"></span>
+					{#if selecting}
+						{@const archivable = selectedEntries.filter(
+							(entry) => (isNative(entry) && entry.manage) || (isFile(entry) && owner)
+						)}
+						<span class="selection-count" aria-live="polite">{selected.length} selected</span>
 						<button
-							class="btn small primary new"
+							class="btn small"
 							type="button"
-							title={kind === 'doc' ? 'Start an untitled document' : 'Start an untitled sheet'}
-							onclick={() => creator?.open(kind)}
-							><Plus size={14} strokeWidth={2} aria-hidden="true" /><span
-								>{kind === 'doc' ? 'New document' : 'New sheet'}</span
-							></button
+							disabled={!archivable.length || !!archiveBusy}
+							title={filter === 'archived'
+								? 'Put the selected items back in the Library'
+								: 'Take the selected items out of the Library lists; restore them any time'}
+							onclick={() =>
+								void archiveMany(archivable, filter !== 'archived').then(stopSelecting)}
+							>{filter === 'archived' ? 'Restore' : 'Archive'}</button
 						>
-					{:else if filter === 'yours'}
-						<button
-							class="btn small primary new"
-							type="button"
-							title="Add files from this device; you can also drop them here"
-							onclick={() => creator?.pick()}
-							><Upload size={14} strokeWidth={2} aria-hidden="true" /><span>Upload files</span
-							></button
-						>
-					{:else if filter !== 'archived'}
-						<div class="new-menu">
-							<ActionMenu label="New">
-								{#snippet trigger()}<span class="new-trigger"
-										><Plus size={14} strokeWidth={2} aria-hidden="true" /><span>New</span
-										><ChevronDown size={13} strokeWidth={2} aria-hidden="true" /></span
-									>{/snippet}
-								<button type="button" onclick={() => creator?.open('doc')}
-									><FileText size={14} strokeWidth={1.8} aria-hidden="true" />Document</button
-								>
-								<button
-									type="button"
-									title="A brief, plan, decision note, report or other kind, with its headings ready"
-									onclick={() => creator?.chooseTemplate()}
-									><LayoutTemplate size={14} strokeWidth={1.8} aria-hidden="true" />From a template…</button
-								>
-								<button type="button" onclick={() => creator?.open('sheet')}
-									><Sheet size={14} strokeWidth={1.8} aria-hidden="true" />Sheet</button
-								>
-								<button
-									type="button"
-									title={`Add files from this device; you can also drop them on the list. ${YOURS_HINT}`}
-									onclick={() => creator?.pick()}
-									><Upload size={14} strokeWidth={1.8} aria-hidden="true" />Upload files…</button
-								>
-							</ActionMenu>
-						</div>
-					{/if}
-				{/if}
-			</header>
-
-			<div class="body">
-				{#if documents.failure}<Notice
-						tone="danger"
-						title="Documents could not be read"
-						details={documents.failure.message}
-					>
-						{#snippet actions()}<button class="btn small" onclick={() => documents.refresh()}
-								>Retry</button
-							>{/snippet}
-					</Notice>{/if}
-				{#if sheetsFailure}<Notice
-						tone="warning"
-						title="Sheets could not be read"
-						details={sheetsFailure}
-					>
-						{#snippet actions()}<button class="btn small" onclick={() => void refreshSheets()}
-								>Retry</button
-							>{/snippet}
-					</Notice>{/if}
-				{#if archivedFailure && filter === 'archived'}<Notice
-						tone="warning"
-						title={archivedFailure}
-					>
-						{#snippet actions()}<button class="btn small" onclick={() => void loadArchived()}
-								>Retry</button
-							>{/snippet}
-					</Notice>{/if}
-				{#if keptFailure && (filter === 'yours' || filter === 'all')}<Notice
-						tone="warning"
-						title={keptFailure}
-					>
-						{#snippet actions()}<button class="btn small" onclick={() => void loadKept()}
-								>Retry</button
-							>{/snippet}
-					</Notice>{/if}
-				{#if searchesDocuments && docSearch.failure}<Notice
-						tone="warning"
-						title="Only titles are being searched"
-						details={docSearch.failure}
-					/>{/if}
-				{#if loading && !entries.length}
-					<Skeleton label="Loading the Library" variant="list" count={5} />
-				{:else if shown.length}
-					<div class="table-head" role="toolbar" aria-label="Sort and filter">
-						<button
-							type="button"
-							class="sort"
-							class:sorted={sort === 'name' || sort === 'name-desc'}
-							aria-label={sortLabel('name')}
-							title={sortTitle('name')}
-							onclick={() => sortBy('name')}
-							>Name{#if sort === 'name'}<ArrowUp
-									size={12}
-									strokeWidth={2}
-									aria-hidden="true"
-								/>{:else if sort === 'name-desc'}<ArrowDown
-									size={12}
-									strokeWidth={2}
-									aria-hidden="true"
-								/>{/if}</button
-						><select
-							class="facet"
-							class:set={!!byParam}
-							aria-label="Made by"
-							title="Who made it"
-							value={byParam}
-							onchange={(event) => setParam('by', event.currentTarget.value)}
-						>
-							<option value="">Anyone</option>
-							<option value="you">You</option>
-							<option value="others">Shared with you</option>
-							{#each makers as maker (maker)}<option value={maker}>{maker}</option>{/each}
-						</select><select
-							class="facet"
-							class:set={!!sinceParam}
-							aria-label="Updated"
-							title="When it last changed"
-							value={sinceParam}
-							onchange={(event) => setParam('since', event.currentTarget.value)}
-						>
-							<option value="">Any time</option>
-							<option value="1">Today</option>
-							<option value="7">Past week</option>
-							<option value="30">Past month</option>
-						</select><button
-							type="button"
-							class="sort"
-							class:sorted={!!sortParam && (sort === 'updated' || sort === 'oldest')}
-							aria-label={sortLabel('updated')}
-							title={sortTitle('updated')}
-							onclick={() => sortBy('updated')}
-							>Updated{#if sortParam === 'updated' || sort === 'oldest'}{#if sort === 'oldest'}<ArrowUp
-										size={12}
-										strokeWidth={2}
-										aria-hidden="true"
-									/>{:else}<ArrowDown
-										size={12}
-										strokeWidth={2}
-										aria-hidden="true"
-									/>{/if}{/if}</button
-						>
-					</div>
-					<div class="table" role="list" aria-label="Files">
-						{#each shown as entry (entry.kind + entry.id)}
-							<Item
-								role="listitem"
-								selected={selecting && selected.includes(pinKey(entry))}
-								onclick={selecting ? () => toggleSelected(entry) : undefined}
-								title={entry.title}
-								meta={entry.meta ??
-									(entry.editor ? `${entry.owner} · edited by ${entry.editor}` : entry.owner)}
-								href={selecting ? undefined : entry.href}
-								unread={entry.review}
-								dim={filter === 'archived'}
+						{#if filter !== 'archived'}
+							<button
+								class="btn small"
+								type="button"
+								disabled={!selectedEntries.length}
+								onclick={() => void pinMany(selectedEntries).then(stopSelecting)}>Pin</button
 							>
-								{#snippet leading()}{@const KindIcon =
-										KIND_ICON[
-											entry.kind
-										]}{#if selecting}{#if selected.includes(pinKey(entry))}<SquareCheck
+							<button
+								class="btn small"
+								type="button"
+								disabled={!selectedEntries.filter(mayOrganise).length}
+								onclick={() => askOrganise('collection', selectedEntries.filter(mayOrganise))}
+								>Move to collection…</button
+							>
+						{/if}
+						<button class="btn small primary" type="button" onclick={stopSelecting}>Done</button>
+					{:else}
+						{#if shown.length}<button
+								class="btn small"
+								type="button"
+								title="Choose several items to archive, pin or file at once"
+								onclick={() => (selecting = true)}>Select</button
+							>{/if}
+						<!-- One action, the one this view is about; All offers every way to add behind one button. -->
+						{#if filter === 'docs' || filter === 'sheets'}
+							{@const kind = filter === 'docs' ? 'doc' : 'sheet'}
+							<button
+								class="btn small primary new"
+								type="button"
+								title={kind === 'doc' ? 'Start an untitled document' : 'Start an untitled sheet'}
+								onclick={() => creator?.open(kind)}
+								><Plus size={14} strokeWidth={2} aria-hidden="true" /><span
+									>{kind === 'doc' ? 'New document' : 'New sheet'}</span
+								></button
+							>
+						{:else if filter === 'yours'}
+							<button
+								class="btn small primary new"
+								type="button"
+								title="Add files from this device; you can also drop them here"
+								onclick={() => creator?.pick()}
+								><Upload size={14} strokeWidth={2} aria-hidden="true" /><span>Upload files</span
+								></button
+							>
+						{:else if filter !== 'archived'}
+							<div class="new-menu">
+								<ActionMenu label="New">
+									{#snippet trigger()}<span class="new-trigger"
+											><Plus size={14} strokeWidth={2} aria-hidden="true" /><span>New</span
+											><ChevronDown size={13} strokeWidth={2} aria-hidden="true" /></span
+										>{/snippet}
+									<button type="button" onclick={() => creator?.open('doc')}
+										><FileText size={14} strokeWidth={1.8} aria-hidden="true" />Document</button
+									>
+									<button
+										type="button"
+										title="A brief, plan, decision note, report or other kind, with its headings ready"
+										onclick={() => creator?.chooseTemplate()}
+										><LayoutTemplate size={14} strokeWidth={1.8} aria-hidden="true" />From a
+										template…</button
+									>
+									<button type="button" onclick={() => creator?.open('sheet')}
+										><Sheet size={14} strokeWidth={1.8} aria-hidden="true" />Sheet</button
+									>
+									<button
+										type="button"
+										title={`Add files from this device; you can also drop them on the list. ${YOURS_HINT}`}
+										onclick={() => creator?.pick()}
+										><Upload size={14} strokeWidth={1.8} aria-hidden="true" />Upload files…</button
+									>
+								</ActionMenu>
+							</div>
+						{/if}
+					{/if}
+				</header>
+
+				<div class="body">
+					{#if documents.failure}<Notice
+							tone="danger"
+							title="Documents could not be read"
+							details={documents.failure.message}
+						>
+							{#snippet actions()}<button class="btn small" onclick={() => documents.refresh()}
+									>Retry</button
+								>{/snippet}
+						</Notice>{/if}
+					{#if sheetsFailure}<Notice
+							tone="warning"
+							title="Sheets could not be read"
+							details={sheetsFailure}
+						>
+							{#snippet actions()}<button class="btn small" onclick={() => void refreshSheets()}
+									>Retry</button
+								>{/snippet}
+						</Notice>{/if}
+					{#if archivedFailure && filter === 'archived'}<Notice
+							tone="warning"
+							title={archivedFailure}
+						>
+							{#snippet actions()}<button class="btn small" onclick={() => void loadArchived()}
+									>Retry</button
+								>{/snippet}
+						</Notice>{/if}
+					{#if keptFailure && (filter === 'yours' || filter === 'all')}<Notice
+							tone="warning"
+							title={keptFailure}
+						>
+							{#snippet actions()}<button class="btn small" onclick={() => void loadKept()}
+									>Retry</button
+								>{/snippet}
+						</Notice>{/if}
+					{#if searchesDocuments && docSearch.failure}<Notice
+							tone="warning"
+							title="Only titles are being searched"
+							details={docSearch.failure}
+						/>{/if}
+					{#if loading && !entries.length}
+						<Skeleton label="Loading the Library" variant="list" count={5} />
+					{:else if shown.length}
+						<div class="table-head" role="toolbar" aria-label="Sort and filter">
+							<button
+								type="button"
+								class="sort"
+								class:sorted={sort === 'name' || sort === 'name-desc'}
+								aria-label={sortLabel('name')}
+								title={sortTitle('name')}
+								onclick={() => sortBy('name')}
+								>Name{#if sort === 'name'}<ArrowUp
+										size={12}
+										strokeWidth={2}
+										aria-hidden="true"
+									/>{:else if sort === 'name-desc'}<ArrowDown
+										size={12}
+										strokeWidth={2}
+										aria-hidden="true"
+									/>{/if}</button
+							><select
+								class="facet"
+								class:set={!!byParam}
+								aria-label="Made by"
+								title="Who made it"
+								value={byParam}
+								onchange={(event) => setParam('by', event.currentTarget.value)}
+							>
+								<option value="">Anyone</option>
+								<option value="you">You</option>
+								<option value="others">Shared with you</option>
+								{#each makers as maker (maker)}<option value={maker}>{maker}</option>{/each}
+							</select><select
+								class="facet"
+								class:set={!!sinceParam}
+								aria-label="Updated"
+								title="When it last changed"
+								value={sinceParam}
+								onchange={(event) => setParam('since', event.currentTarget.value)}
+							>
+								<option value="">Any time</option>
+								<option value="1">Today</option>
+								<option value="7">Past week</option>
+								<option value="30">Past month</option>
+							</select><button
+								type="button"
+								class="sort"
+								class:sorted={!!sortParam && (sort === 'updated' || sort === 'oldest')}
+								aria-label={sortLabel('updated')}
+								title={sortTitle('updated')}
+								onclick={() => sortBy('updated')}
+								>Updated{#if sortParam === 'updated' || sort === 'oldest'}{#if sort === 'oldest'}<ArrowUp
+											size={12}
+											strokeWidth={2}
+											aria-hidden="true"
+										/>{:else}<ArrowDown
+											size={12}
+											strokeWidth={2}
+											aria-hidden="true"
+										/>{/if}{/if}</button
+							>
+						</div>
+						<div class="table" role="list" aria-label="Files">
+							{#each shown as entry (entry.kind + entry.id)}
+								<Item
+									role="listitem"
+									selected={selecting && selected.includes(pinKey(entry))}
+									onclick={selecting ? () => toggleSelected(entry) : undefined}
+									title={entry.title}
+									meta={entry.meta ??
+										(entry.editor ? `${entry.owner} · edited by ${entry.editor}` : entry.owner)}
+									href={selecting ? undefined : entry.href}
+									unread={entry.review}
+									dim={filter === 'archived'}
+								>
+									{#snippet leading()}{@const KindIcon =
+											KIND_ICON[
+												entry.kind
+											]}{#if selecting}{#if selected.includes(pinKey(entry))}<SquareCheck
+													size={15}
+													strokeWidth={1.8}
+													aria-label="Selected"
+												/>{:else}<Square
+													size={15}
+													strokeWidth={1.8}
+													aria-label="Not selected"
+												/>{/if}{:else}<KindIcon
 												size={15}
 												strokeWidth={1.8}
-												aria-label="Selected"
-											/>{:else}<Square
-												size={15}
-												strokeWidth={1.8}
-												aria-label="Not selected"
-											/>{/if}{:else}<KindIcon
-											size={15}
-											strokeWidth={1.8}
-											aria-label={entry.docKind ?? kindLabel(entry.kind)}
-										/>{/if}{/snippet}
-								{#snippet trailing()}
-									{#if entry.review}<span class="review">Needs review</span
-										>{:else if statusLabel(entry.status)}<Dot
-											show
-											tone={statusTone(entry.status)}
-											label={statusLabel(entry.status)}
-										/>{/if}
-									{#if entry.private}<span class="private" title={PRIVATE_HINT}
-											><Lock size={13} strokeWidth={1.8} aria-label="Private" /></span
-										>{/if}
-									<RelativeTime value={entry.updatedAt} />
-								{/snippet}
-								{#snippet actions()}
-									<ActionMenu label={`Actions for ${entry.title}`}>
-										{#if entry.href}<a href={entry.href}>Open</a>{/if}
-										{#if filter !== 'archived'}<button onclick={() => void togglePin(pinKey(entry))}
-												>{pins.includes(pinKey(entry)) ? 'Unpin' : 'Pin to the sidebar'}</button
+												aria-label={entry.docKind ?? kindLabel(entry.kind)}
+											/>{/if}{/snippet}
+									{#snippet trailing()}
+										{#if entry.review}<span class="review">Needs review</span
+											>{:else if statusLabel(entry.status)}<Dot
+												show
+												tone={statusTone(entry.status)}
+												label={statusLabel(entry.status)}
+											/>{/if}
+										{#if entry.private}<span class="private" title={PRIVATE_HINT}
+												><Lock size={13} strokeWidth={1.8} aria-label="Private" /></span
 											>{/if}
-										{#if isFile(entry) && filter !== 'archived' && savable(entry.id)}<button
-												onclick={() => void downloadFile(entry.id)}>Download</button
-											>{/if}
-										{#if (isFile(entry) || isNative(entry)) && filter !== 'archived'}<button
-												onclick={() => void copyLink(entry)}>Copy link</button
-											>{/if}
-										{#if filter !== 'archived' && convertsTo(entry)}<button
-												title="Make an editable copy; this file stays as it is"
-												onclick={() => void convert(entry)}
-												>{convertsTo(entry) === 'doc'
-													? 'Open as document'
-													: 'Open as sheet'}</button
-											>{/if}
-										{#if isNative(entry) && filter !== 'archived'}<button
-												title="A copy you own, with the same access"
-												onclick={() => void duplicate(entry)}>Duplicate</button
-											>{/if}
-										{#if isNative(entry) && entry.href && filter !== 'archived'}<a
-												href={`${entry.href}&inspect=share`}
-												title="Who can open it, and what they may do">Share…</a
-											>{/if}
-										{#if isNative(entry) && entry.manage && filter !== 'archived'}<a
-												href={`${entry.href}&rename=1`}
-												title="Open it with the title ready to change">Rename</a
-											>{/if}
-										{#if mayRenameFile(entry)}<button
-												title={entry.kind === 'upload'
-													? 'The name it shows in the Library; the file keeps its own'
-													: 'The name it shows everywhere; the file itself is unchanged'}
-												onclick={() => askOrganise('rename', [entry])}>Rename…</button
-											>{/if}
-										{#if mayOrganise(entry)}<button
-												title="File it in a collection in the sidebar"
-												onclick={() => askOrganise('collection', [entry])}
-												>{entry.collection ? 'Change collection…' : 'Move to collection…'}</button
-											>{/if}
-										{#if (isNative(entry) && entry.manage) || (isFile(entry) && owner)}
-											{#if filter === 'archived'}<button
-													disabled={!!archiveBusy}
-													onclick={() => void setArchived(entry, false)}>Restore</button
-												>{:else}<button
-													disabled={!!archiveBusy}
-													title="Out of the Library lists, kept under Archived; restore it any time."
-													onclick={() => void setArchived(entry, true)}>Archive</button
+										<RelativeTime value={entry.updatedAt} />
+									{/snippet}
+									{#snippet actions()}
+										<ActionMenu label={`Actions for ${entry.title}`}>
+											{#if entry.href}<a href={entry.href}>Open</a>{/if}
+											{#if filter !== 'archived'}<button
+													onclick={() => void togglePin(pinKey(entry))}
+													>{pins.includes(pinKey(entry)) ? 'Unpin' : 'Pin to the sidebar'}</button
 												>{/if}
-										{/if}
-										{#if entry.kind === 'upload'}<a
-												href={attachmentHref(companyId, entry.id)}
-												download={entry.title}>Download</a
-											>{#if owner || !entry.sent}<button
+											{#if isFile(entry) && filter !== 'archived' && savable(entry.id)}<button
+													onclick={() => void downloadFile(entry.id)}>Download</button
+												>{/if}
+											{#if (isFile(entry) || isNative(entry)) && filter !== 'archived'}<button
+													onclick={() => void copyLink(entry)}>Copy link</button
+												>{/if}
+											{#if filter !== 'archived' && convertsTo(entry)}<button
+													title="Make an editable copy; this file stays as it is"
+													onclick={() => void convert(entry)}
+													>{convertsTo(entry) === 'doc'
+														? 'Open as document'
+														: 'Open as sheet'}</button
+												>{/if}
+											{#if isNative(entry) && filter !== 'archived'}<button
+													title="A copy you own, with the same access"
+													onclick={() => void duplicate(entry)}>Duplicate</button
+												>{/if}
+											{#if isNative(entry) && entry.href && filter !== 'archived'}<a
+													href={`${entry.href}&inspect=share`}
+													title="Who can open it, and what they may do">Share…</a
+												>{/if}
+											{#if isNative(entry) && entry.manage && filter !== 'archived'}<a
+													href={`${entry.href}&rename=1`}
+													title="Open it with the title ready to change">Rename</a
+												>{/if}
+											{#if mayRenameFile(entry)}<button
+													title={entry.kind === 'upload'
+														? 'The name it shows in the Library; the file keeps its own'
+														: 'The name it shows everywhere; the file itself is unchanged'}
+													onclick={() => askOrganise('rename', [entry])}>Rename…</button
+												>{/if}
+											{#if mayOrganise(entry)}<button
+													title="File it in a collection in the sidebar"
+													onclick={() => askOrganise('collection', [entry])}
+													>{entry.collection ? 'Change collection…' : 'Move to collection…'}</button
+												>{/if}
+											{#if (isNative(entry) && entry.manage) || (isFile(entry) && owner)}
+												{#if filter === 'archived'}<button
+														disabled={!!archiveBusy}
+														onclick={() => void setArchived(entry, false)}>Restore</button
+													>{:else}<button
+														disabled={!!archiveBusy}
+														title="Out of the Library lists, kept under Archived; restore it any time."
+														onclick={() => void setArchived(entry, true)}>Archive</button
+													>{/if}
+											{/if}
+											{#if entry.kind === 'upload'}<a
+													href={attachmentHref(companyId, entry.id)}
+													download={entry.title}>Download</a
+												>{#if owner || !entry.sent}<button
+														class="danger"
+														title="Frees room for new files"
+														onclick={() => askDelete(entry)}>Delete…</button
+													>{/if}{/if}
+											{#if filter === 'archived' && isNative(entry) && entry.manage}<button
 													class="danger"
-													title="Frees room for new files"
-													onclick={() => askDelete(entry)}>Delete…</button
-												>{/if}{/if}
-										{#if filter === 'archived' && isNative(entry) && entry.manage}<button
-												class="danger"
-												onclick={() => askDelete(entry)}>Delete permanently…</button
-											>{/if}
-										{#if filter === 'archived' && isFile(entry) && owner}<button
-												class="danger"
-												title="Stops listing it; the file stays on the company computer"
-												onclick={() => askDelete(entry)}>Remove from the Library…</button
-											>{/if}
-									</ActionMenu>
-								{/snippet}
-							</Item>
-						{/each}
+													onclick={() => askDelete(entry)}>Delete permanently…</button
+												>{/if}
+											{#if filter === 'archived' && isFile(entry) && owner}<button
+													class="danger"
+													title="Stops listing it; the file stays on the company computer"
+													onclick={() => askDelete(entry)}>Remove from the Library…</button
+												>{/if}
+										</ActionMenu>
+									{/snippet}
+								</Item>
+							{/each}
+						</div>
+						{#if searchesDocuments && docSearch.hasMore}<button
+								class="more"
+								disabled={docSearch.loadingMore}
+								onclick={() => docSearch.loadMore()}
+								>{docSearch.loadingMore ? 'Loading…' : 'More matching documents'}</button
+							>{:else if !query && filter === 'archived' && archivedCursor}<button
+								class="more"
+								disabled={archivedLoadingMore}
+								onclick={() => void loadMoreArchived()}
+								>{archivedLoadingMore ? 'Loading…' : 'Load more archived documents'}</button
+							>{:else if !searchesDocuments && documents.hasMore && (filter === 'all' || filter === 'docs' || filter === 'review')}<button
+								class="more"
+								disabled={documents.loadingMore}
+								onclick={() => documents.loadMore()}
+								>{documents.loadingMore ? 'Loading…' : 'Load more documents'}</button
+							>{/if}
+					{:else if searchesDocuments && docSearch.loading}
+						<div class="searching"><Pending label="Searching inside documents" /></div>
+					{:else}
+						<Empty
+							title={byParam || sinceParam
+								? 'Nothing matches these filters'
+								: query
+									? 'Nothing matches that search'
+									: filter === 'review'
+										? 'Nothing is waiting for your review'
+										: filter === 'archived'
+											? 'Nothing is archived'
+											: filter === 'yours'
+												? 'Nothing from you yet'
+												: 'Nothing here yet'}
+							info={filter === 'yours'
+								? 'Files you add here or send in a conversation are kept here.'
+								: query && !searchesDocuments && filter !== 'archived'
+									? 'This view matches titles and file names. All files also searches inside documents.'
+									: 'Documents, sheets and everything the team makes, such as sites, decks and images, appear here as they work.'}
+						>
+							{#snippet action()}{#if byParam || sinceParam}<a
+										class="btn small"
+										href={filterHref(filter, collectionParam)}>Clear filters</a
+									>{/if}{#if query && !searchesDocuments && filter !== 'archived'}<a
+										class="btn small"
+										href={filterHref('all')}>Search all files</a
+									>{:else if !query && filter === 'yours'}<button
+										class="btn small"
+										type="button"
+										onclick={() => creator?.pick()}>Upload files</button
+									>{:else if !query && filter !== 'review' && filter !== 'archived'}<button
+										class="btn small"
+										type="button"
+										onclick={() => creator?.open(filter === 'sheets' ? 'sheet' : 'doc')}
+										>{filter === 'sheets' ? 'New sheet' : 'New document'}</button
+									>{/if}{#if !query && filter === 'archived' && archivedCursor}<button
+										class="btn small"
+										type="button"
+										onclick={() => void loadMoreArchived()}>Load more archived documents</button
+									>{/if}{#if !searchesDocuments && !query && documents.hasMore && (filter === 'all' || filter === 'docs' || filter === 'review')}<button
+										class="btn small"
+										type="button"
+										disabled={documents.loadingMore}
+										onclick={() => documents.loadMore()}>Load more documents</button
+									>{/if}{/snippet}
+						</Empty>
+					{/if}
+				</div>
+				{#if dropping}
+					<div class="drop-veil" aria-hidden="true">
+						<Upload size={20} strokeWidth={1.8} />
+						<span>Drop to add to the Library</span>
 					</div>
-					{#if searchesDocuments && docSearch.hasMore}<button
-							class="more"
-							disabled={docSearch.loadingMore}
-							onclick={() => docSearch.loadMore()}
-							>{docSearch.loadingMore ? 'Loading…' : 'More matching documents'}</button
-						>{:else if !query && filter === 'archived' && archivedCursor}<button
-							class="more"
-							disabled={archivedLoadingMore}
-							onclick={() => void loadMoreArchived()}
-							>{archivedLoadingMore ? 'Loading…' : 'Load more archived documents'}</button
-						>{:else if !searchesDocuments && documents.hasMore && (filter === 'all' || filter === 'docs' || filter === 'review')}<button
-							class="more"
-							disabled={documents.loadingMore}
-							onclick={() => documents.loadMore()}
-							>{documents.loadingMore ? 'Loading…' : 'Load more documents'}</button
-						>{/if}
-				{:else if searchesDocuments && docSearch.loading}
-					<div class="searching"><Pending label="Searching inside documents" /></div>
-				{:else}
-					<Empty
-						title={byParam || sinceParam
-							? 'Nothing matches these filters'
-							: query
-								? 'Nothing matches that search'
-								: filter === 'review'
-									? 'Nothing is waiting for your review'
-									: filter === 'archived'
-										? 'Nothing is archived'
-										: filter === 'yours'
-											? 'Nothing from you yet'
-											: 'Nothing here yet'}
-						info={filter === 'yours'
-							? 'Files you add here or send in a conversation are kept here.'
-							: query && !searchesDocuments && filter !== 'archived'
-								? 'This view matches titles and file names. All files also searches inside documents.'
-								: 'Documents, sheets and everything the team makes, such as sites, decks and images, appear here as they work.'}
-					>
-						{#snippet action()}{#if byParam || sinceParam}<a
-									class="btn small"
-									href={filterHref(filter, collectionParam)}>Clear filters</a
-								>{/if}{#if query && !searchesDocuments && filter !== 'archived'}<a
-									class="btn small"
-									href={filterHref('all')}>Search all files</a
-								>{:else if !query && filter === 'yours'}<button
-									class="btn small"
-									type="button"
-									onclick={() => creator?.pick()}>Upload files</button
-								>{:else if !query && filter !== 'review' && filter !== 'archived'}<button
-									class="btn small"
-									type="button"
-									onclick={() => creator?.open(filter === 'sheets' ? 'sheet' : 'doc')}
-									>{filter === 'sheets' ? 'New sheet' : 'New document'}</button
-								>{/if}{#if !query && filter === 'archived' && archivedCursor}<button
-									class="btn small"
-									type="button"
-									onclick={() => void loadMoreArchived()}>Load more archived documents</button
-								>{/if}{#if !searchesDocuments && !query && documents.hasMore && (filter === 'all' || filter === 'docs' || filter === 'review')}<button
-									class="btn small"
-									type="button"
-									disabled={documents.loadingMore}
-									onclick={() => documents.loadMore()}>Load more documents</button
-								>{/if}{/snippet}
-					</Empty>
 				{/if}
 			</div>
-			{#if dropping}
-				<div class="drop-veil" aria-hidden="true">
-					<Upload size={20} strokeWidth={1.8} />
-					<span>Drop to add to the Library</span>
-				</div>
-			{/if}
-		</div>
-	{/if}
-</SidebarShell>
+		{/if}
+	</SidebarShell>
+</ResizableSidebar>
 
 <LibraryNew bind:this={creator} {companyId} onuploaded={() => void uploaded()} />
 
