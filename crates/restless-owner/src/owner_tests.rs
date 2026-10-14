@@ -2732,6 +2732,7 @@ model = \"anthropic/claude-sonnet-5-5\"
             (Method::PUT, "/api/companies/aris/provider"),
             (Method::GET, "/api/companies/aris/vault"),
             (Method::POST, "/api/companies/aris/vault/secret"),
+            (Method::POST, "/api/companies/aris/vault/secret/delete"),
             (Method::GET, "/api/companies/aris/harness-auth"),
             (Method::GET, "/api/companies/aris/custom-harnesses"),
             (Method::POST, "/api/companies/aris/connections/connection-1"),

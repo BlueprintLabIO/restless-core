@@ -13,11 +13,35 @@ use super::{api_error, company_setup_view, OwnerState, RequestPrincipal};
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct StoreSecretInput {
+    #[serde(default)]
     binding: String,
     secret: String,
     revision: String,
     #[serde(default)]
     create: bool,
+    /// The owner confirmed that a new secret may take over an existing name.
+    #[serde(default)]
+    replace: bool,
+    /// Replace the value of a secret already in this company's vault, by its row, whether or not
+    /// a connection uses it. Its bindings stay as they are.
+    #[serde(default)]
+    reference: Option<String>,
+}
+
+/// A secret this company's vault owns: under `infisical:/companies/{company}/`, every path
+/// segment plain. Anything else (account connections, env, sign-ins) is not the Vault's to change.
+fn company_secret_reference(company: &str, reference: &str) -> bool {
+    let prefix = format!("infisical:/companies/{company}/");
+    reference.strip_prefix(&prefix).is_some_and(|rest| {
+        rest.split('/').all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+                && segment != "."
+                && segment != ".."
+        })
+    })
 }
 
 pub(super) async fn store_secret(
@@ -54,6 +78,17 @@ pub(super) async fn store_secret(
         );
     }
 
+    if let Some(reference) = input.reference.as_deref() {
+        if !company_secret_reference(&company, reference) {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "vault_reference",
+                "This secret is not stored in this company's vault.",
+            );
+        }
+        return store_and_confirm(reference, &input.secret, None).await;
+    }
+
     let binding = input.binding.trim();
     if binding.is_empty() || binding.starts_with("model.inference") {
         return api_error(
@@ -63,6 +98,13 @@ pub(super) async fn store_secret(
         );
     }
     let existing = config.credentials.get(binding).cloned();
+    if input.create && existing.is_some() && !input.replace {
+        return api_error(
+            StatusCode::CONFLICT,
+            "vault_exists",
+            format!("A secret named {binding} already exists. Saving would replace its value."),
+        );
+    }
     let reference = if let Some(reference) = existing {
         reference
     } else if input.create
@@ -96,17 +138,34 @@ pub(super) async fn store_secret(
         );
     }
 
-    if credential::store_reference(&reference, &input.secret)
-        .await
-        .is_err()
-    {
+    if new_binding {
+        // The binding is saved only once the value is confirmed below; a failed store leaves the
+        // company as it was.
+        let stored = store_and_confirm(&reference, &input.secret, Some(binding)).await;
+        if !stored.status().is_success() {
+            return stored;
+        }
+        config
+            .credentials
+            .insert(binding.to_string(), reference.clone());
+        if runtime::CompanyConfig::save(&state.daemon.root, &config).is_err() {
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "vault", "The secret was stored, but its company binding could not be saved. Retry after checking host storage.");
+        }
+        return stored;
+    }
+    store_and_confirm(&reference, &input.secret, Some(binding)).await
+}
+
+/// Store the value where the reference points, and answer only once Infisical confirms it.
+async fn store_and_confirm(reference: &str, secret: &str, binding: Option<&str>) -> Response {
+    if credential::store_reference(reference, secret).await.is_err() {
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "vault",
             "Could not save the secret in Infisical. Check the local Vault service and try again.",
         );
     }
-    let probe = credential::probe_reference(&reference).await;
+    let probe = credential::probe_reference(reference).await;
     if probe.status != credential::ProbeStatus::Present {
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -114,25 +173,104 @@ pub(super) async fn store_secret(
             "Infisical did not confirm the stored secret.",
         );
     }
-
-    if new_binding {
-        config
-            .credentials
-            .insert(binding.to_string(), reference.clone());
-        if runtime::CompanyConfig::save(&state.daemon.root, &config).is_err() {
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "vault", "The secret was stored, but its company binding could not be saved. Retry after checking host storage.");
-        }
-    }
-
-    let mut response = Json(serde_json::json!({
+    no_store(Json(serde_json::json!({
         "binding": binding,
         "reference": reference,
         "status": "present",
-    }))
-    .into_response();
+    })))
+}
+
+fn no_store(body: impl IntoResponse) -> Response {
+    let mut response = body.into_response();
     response.headers_mut().insert(
         axum::http::header::CACHE_CONTROL,
         axum::http::HeaderValue::from_static("no-store"),
     );
     response
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct DeleteSecretInput {
+    reference: String,
+    revision: String,
+}
+
+/// Delete a secret from this company's vault. Connections that used it lose their binding in the
+/// same step, so nothing keeps pointing at a value that is gone; the owner was shown them first.
+pub(super) async fn delete_secret(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<DeleteSecretInput>,
+) -> Response {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "vault",
+            "Only the owner can change the vault.",
+        );
+    }
+    if !company_secret_reference(&company, &input.reference) {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "vault_reference",
+            "This secret is not stored in this company's vault.",
+        );
+    }
+    let _write = state.charter_writes.lock().await;
+    let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
+    };
+    if company_setup_view(&config)["revision"].as_str() != Some(input.revision.as_str()) {
+        return api_error(
+            StatusCode::CONFLICT,
+            "vault_revision",
+            "Company settings changed. Refresh the Vault and try again.",
+        );
+    }
+    let unbound: Vec<String> = config
+        .credentials
+        .iter()
+        .filter(|(_, reference)| **reference == input.reference)
+        .map(|(name, _)| name.clone())
+        .collect();
+    if unbound.iter().any(|name| name.starts_with("model.inference")) {
+        return api_error(
+            StatusCode::CONFLICT,
+            "vault_in_use",
+            "A model connection uses this secret. Change the model connection in Intelligence first.",
+        );
+    }
+    if !credential::delete_reference(&input.reference).await {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "vault",
+            "Could not delete the secret in Infisical. Check the local Vault service and try again.",
+        );
+    }
+    if !unbound.is_empty() {
+        config.credentials.retain(|_, reference| *reference != input.reference);
+        if runtime::CompanyConfig::save(&state.daemon.root, &config).is_err() {
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "vault", "The secret was deleted, but the connections that used it could not be updated. Retry after checking host storage.");
+        }
+    }
+    no_store(Json(serde_json::json!({ "deleted": input.reference, "unbound": unbound })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::company_secret_reference;
+
+    #[test]
+    fn only_this_companys_vault_secrets_can_be_changed_by_reference() {
+        assert!(company_secret_reference("aris", "infisical:/companies/aris/stripe-key"));
+        assert!(company_secret_reference("aris", "infisical:/companies/aris/apps/mail_token"));
+        assert!(!company_secret_reference("aris", "infisical:/companies/other/stripe-key"));
+        assert!(!company_secret_reference("aris", "infisical:/companies/aris/../other/key"));
+        assert!(!company_secret_reference("aris", "infisical:/companies/aris/"));
+        assert!(!company_secret_reference("aris", "infisical:/companies/aris2/key"));
+        assert!(!company_secret_reference("aris", "env:STRIPE_KEY"));
+    }
 }

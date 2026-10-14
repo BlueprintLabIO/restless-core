@@ -60,9 +60,31 @@ export function readVault(company: string, signal?: AbortSignal) {
 	return ownerRequest<VaultView>(`${base(company)}/vault`, { signal });
 }
 
+/** Store a secret: a new name (`create`, with `replace` once the owner confirmed taking over an
+ * existing name), or a new value for a secret already in the vault, by its `reference`. */
 export function saveVaultSecret(
 	company: string,
-	body: { binding: string; secret: string; revision: string; create: boolean }
+	body:
+		| { binding: string; secret: string; revision: string; create: boolean; replace?: boolean }
+		| { reference: string; secret: string; revision: string }
 ) {
 	return ownerRequest<unknown>(`${base(company)}/vault/secret`, { method: 'POST', json: body });
+}
+
+/** Delete a secret from the company's vault; connections that used it lose it too. */
+export function deleteVaultSecret(company: string, body: { reference: string; revision: string }) {
+	return ownerRequest<{ deleted: string; unbound: string[] }>(
+		`${base(company)}/vault/secret/delete`,
+		{ method: 'POST', json: body }
+	);
+}
+
+/** Where a credential kept outside the vault lives, as an owner would say it. */
+export function referenceSource(reference: string): string {
+	if (reference.startsWith('env:')) return 'Set on the server running the company';
+	if (reference.startsWith('omp-oauth:')) return 'Signed in with an account';
+	if (reference.startsWith('hosted-model-relay:')) return 'Included with your plan';
+	if (reference.startsWith('infisical:/owner/')) return 'Your account’s connections';
+	if (reference.startsWith('infisical:')) return 'Secure storage outside this company';
+	return reference;
 }

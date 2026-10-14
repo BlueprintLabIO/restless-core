@@ -1454,6 +1454,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(owner_vault::store_secret),
         )
         .route(
+            "/companies/{company}/vault/secret/delete",
+            post(owner_vault::delete_secret),
+        )
+        .route(
             "/companies/{company}/intelligence/{actor}",
             axum::routing::put(update_agent_intelligence),
         )
