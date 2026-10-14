@@ -660,6 +660,9 @@ struct ImportDocumentMarkdownInput {
 struct CreateDocumentCommentInput {
     #[serde(default)]
     block_id: Option<String>,
+    /// The words in the block the comment is about, when a passage was selected.
+    #[serde(default)]
+    quote: Option<String>,
     content_json: serde_json::Value,
 }
 
@@ -1710,13 +1713,16 @@ async fn create_document_comment(
         }
     }
     match org
-        .create_document_comment_thread(restless_orgintel::NewDocumentCommentThread {
-            document_id: document,
-            actor_id: principal.actor_id(),
-            command_id,
-            block_id: input.block_id.as_deref(),
-            content_json: &input.content_json,
-        })
+        .create_document_comment_thread_on_words(
+            restless_orgintel::NewDocumentCommentThread {
+                document_id: document,
+                actor_id: principal.actor_id(),
+                command_id,
+                block_id: input.block_id.as_deref(),
+                content_json: &input.content_json,
+            },
+            input.quote.as_deref(),
+        )
         .await
     {
         Ok(comment) => document_json(StatusCode::CREATED, comment),

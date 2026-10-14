@@ -298,3 +298,45 @@ async fn a_duplicate_shows_the_images_it_was_made_with() {
     assert!(!sees(&org, secret, "casey").await);
     assert!(!sees(&org, secret, "blair").await);
 }
+
+#[tokio::test]
+async fn a_comment_on_selected_words_keeps_the_words_and_only_on_a_block() {
+    let Some(org) = company("docquote").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping comment quote scenario");
+        return;
+    };
+    let body = json!({"type":"doc","content":[{"type":"paragraph","attrs":{"block_id":"p"},"content":[{"type":"text","text":"Ship the price list on Friday"}]}]});
+    let document_id = private_document(&org, "alex", &body).await;
+    let comment = json!({"type":"doc","content":[{"type":"paragraph","attrs":{"block_id":"c"},"content":[{"type":"text","text":"Which Friday?"}]}]});
+    let input = |block_id| NewDocumentCommentThread {
+        document_id,
+        actor_id: "alex",
+        command_id: Uuid::new_v4(),
+        block_id,
+        content_json: &comment,
+    };
+    let created = org
+        .create_document_comment_thread_on_words(input(Some("p")), Some("  on Friday "))
+        .await
+        .unwrap();
+    assert_eq!(created.thread.thread.anchor_quote.as_deref(), Some("on Friday"));
+    let listed = org
+        .list_document_comment_threads(document_id, "alex", None, 10)
+        .await
+        .unwrap();
+    assert_eq!(
+        listed.items[0].thread.anchor_quote.as_deref(),
+        Some("on Friday")
+    );
+    // Words belong to a block; a whole-document comment cannot quote, nor can a quote run long.
+    assert!(matches!(
+        org.create_document_comment_thread_on_words(input(None), Some("on Friday"))
+            .await,
+        Err(DocumentError::Invalid(_))
+    ));
+    assert!(matches!(
+        org.create_document_comment_thread_on_words(input(Some("p")), Some(&"x".repeat(501)))
+            .await,
+        Err(DocumentError::Invalid(_))
+    ));
+}

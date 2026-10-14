@@ -643,6 +643,8 @@ pub struct DocumentCommentThreadRow {
     pub document_id: Uuid,
     pub anchored_version_id: Uuid,
     pub block_id: Option<String>,
+    /// The words in the block the comment is about, when a passage was selected.
+    pub anchor_quote: Option<String>,
     pub status: DocumentCommentStatus,
     pub created_by_actor_id: String,
     pub created_at: DateTime<Utc>,
@@ -3893,12 +3895,12 @@ fn version_view(version: DocumentVersionRow) -> DocumentResult<DocumentVersionVi
 }
 
 fn comment_thread_select() -> &'static str {
-    "SELECT id,document_id,anchored_version_id,block_id,status,created_by_actor_id,created_at,\
-            resolved_by_actor_id,resolved_at,version FROM native_document_comment_threads"
+    "SELECT id,document_id,anchored_version_id,block_id,anchor_quote,status,created_by_actor_id,\
+            created_at,resolved_by_actor_id,resolved_at,version FROM native_document_comment_threads"
 }
 
 fn comment_thread_columns() -> &'static str {
-    "id,document_id,anchored_version_id,block_id,status,created_by_actor_id,created_at,\
+    "id,document_id,anchored_version_id,block_id,anchor_quote,status,created_by_actor_id,created_at,\
      resolved_by_actor_id,resolved_at,version"
 }
 
@@ -6826,8 +6828,35 @@ impl OrgIntel {
         &self,
         input: NewDocumentCommentThread<'_>,
     ) -> DocumentResult<DocumentCommentThreadCreated> {
+        self.create_document_comment_thread_on_words(input, None)
+            .await
+    }
+
+    /// Start a thread on a block, narrowed to the words in it the comment is about.
+    pub async fn create_document_comment_thread_on_words(
+        &self,
+        input: NewDocumentCommentThread<'_>,
+        quote: Option<&str>,
+    ) -> DocumentResult<DocumentCommentThreadCreated> {
         let content = validated_comment_content(input.content_json)?;
         let block_id = input.block_id.map(validate_block_id).transpose()?;
+        let quote = quote
+            .map(str::trim)
+            .filter(|quote| !quote.is_empty())
+            .map(|quote| {
+                if block_id.is_none() {
+                    return Err(DocumentError::Invalid(
+                        "Only a comment on a block can point at words in it.".into(),
+                    ));
+                }
+                if quote.chars().count() > 500 || quote.contains('\0') {
+                    return Err(DocumentError::Invalid(
+                        "The quoted words must be at most 500 characters.".into(),
+                    ));
+                }
+                Ok(quote.to_string())
+            })
+            .transpose()?;
         let mentions = mentioned_actor_ids(&content)?;
         let fingerprint = request_fingerprint(
             "comment_thread_create",
@@ -6835,6 +6864,7 @@ impl OrgIntel {
                 "document_id": input.document_id,
                 "actor_id": input.actor_id,
                 "block_id": block_id,
+                "anchor_quote": quote,
                 "content_json": content.content_json,
             }),
         );
@@ -6932,8 +6962,8 @@ impl OrgIntel {
         let comment_id = Uuid::new_v4();
         let thread = sqlx::query_as::<_, DocumentCommentThreadRow>(&format!(
             "INSERT INTO native_document_comment_threads \
-             (id,document_id,anchored_version_id,block_id,created_by_actor_id) \
-             VALUES ($1,$2,$3,$4,$5) RETURNING {}",
+             (id,document_id,anchored_version_id,block_id,created_by_actor_id,anchor_quote) \
+             VALUES ($1,$2,$3,$4,$5,$6) RETURNING {}",
             comment_thread_columns()
         ))
         .bind(thread_id)
@@ -6941,6 +6971,7 @@ impl OrgIntel {
         .bind(current.id)
         .bind(&block_id)
         .bind(input.actor_id)
+        .bind(&quote)
         .fetch_one(&mut *tx)
         .await?;
         let first_comment = sqlx::query_as::<_, DocumentCommentRow>(&format!(

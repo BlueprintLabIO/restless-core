@@ -77,6 +77,8 @@
 	);
 	let online = $state(true);
 	let commentBlockId = $state<string | null>(null);
+	/* The words selected when the comment began, so the thread points at them, not the block. */
+	let commentQuote = $state<string | null>(null);
 	let documentDirty = $state(false);
 	const failure = $derived(shellPrincipal.failure ?? detail.failure ?? null);
 	const principalId = $derived(shellPrincipal.view?.actor_id ?? '');
@@ -124,12 +126,18 @@
 	);
 	const openThreads = $derived(threads.threads.filter((item) => item.thread.status === 'open'));
 	const commentedBlocks = $derived.by(() => {
-		const blocks = new Map<string, { threadId: string; count: number }>();
+		const blocks = new Map<string, { threadId: string; count: number; quotes: string[] }>();
 		for (const item of openThreads) {
 			const block = item.thread.block_id;
 			if (!block || item.anchor_state !== 'active') continue;
-			/* The newest thread on a block is the one its mark opens. */
-			blocks.set(block, { threadId: item.thread.id, count: (blocks.get(block)?.count ?? 0) + 1 });
+			/* The newest thread on a block is the one its mark opens; each quote is marked. */
+			const quotes = blocks.get(block)?.quotes ?? [];
+			blocks.set(block, {
+				threadId: item.thread.id,
+				count: (blocks.get(block)?.count ?? 0) + 1,
+				/* An empty quote is a thread on the whole block. */
+				quotes: [...quotes, item.thread.anchor_quote ?? '']
+			});
 		}
 		return blocks;
 	});
@@ -520,8 +528,9 @@
 	function closeInspector(): void {
 		void goto(documentHref(), { keepFocus: true, noScroll: true });
 	}
-	function openBlockComment(blockId: string | null): void {
+	function openBlockComment(blockId: string | null, quote: string | null = null): void {
 		commentBlockId = blockId;
+		commentQuote = blockId ? quote : null;
 		changePanel('comments');
 	}
 	function acceptDocument(target: DocumentTarget, view: DocumentReadView): void {
@@ -858,9 +867,13 @@
 					{online}
 					editing={documentDirty}
 					{commentBlockId}
+					{commentQuote}
 					ondismiss={closeInspector}
 					onpanelchange={changePanel}
-					oncommenttargetchange={(value: string | null) => (commentBlockId = value)}
+					oncommenttargetchange={(value: string | null) => {
+						commentBlockId = value;
+						if (!value) commentQuote = null;
+					}}
 					onaccept={acceptDocument}
 					onshowblock={showBlock}
 				/>

@@ -125,6 +125,8 @@
 		online?: boolean;
 		editing?: boolean;
 		commentBlockId?: string | null;
+		/** The words selected for a new block comment, when a passage was chosen. */
+		commentQuote?: string | null;
 		onpanelchange?: (panel: DocumentInspectorPanel) => void;
 		oncommenttargetchange?: (blockId: string | null) => void;
 		onaccept?: (target: DocumentTarget, view: DocumentReadView) => void;
@@ -147,6 +149,7 @@
 		online = true,
 		editing = false,
 		commentBlockId = null,
+		commentQuote = null,
 		onpanelchange = () => {},
 		oncommenttargetchange = () => {},
 		onaccept = () => {},
@@ -259,6 +262,7 @@
 				mode: 'thread';
 				target: DocumentTarget;
 				blockId: string | null;
+				quote: string | null;
 				contentJson: DocumentContent;
 		  }
 		| {
@@ -578,6 +582,7 @@
 			target,
 			mode,
 			blockId: mode === 'thread' ? commentBlockId : null,
+			quote: mode === 'thread' ? commentQuote : null,
 			threadId: mode === 'reply' ? selectedThreadId : null,
 			body,
 			picked
@@ -585,7 +590,13 @@
 		const attempt = pendingDocumentMutation(commentAttempt, semanticFingerprint, () => {
 			const contentJson = commentContent(body, knownActorIds, picked);
 			return mode === 'thread'
-				? { mode: 'thread' as const, target, blockId: commentBlockId, contentJson }
+				? {
+						mode: 'thread' as const,
+						target,
+						blockId: commentBlockId,
+						quote: commentBlockId ? commentQuote : null,
+						contentJson
+					}
 				: {
 						mode: 'reply' as const,
 						target: { ...target, threadId: selectedThreadId },
@@ -602,7 +613,8 @@
 					attempt.input.target.documentId,
 					attempt.input.blockId,
 					attempt.input.contentJson,
-					attempt.command.id
+					attempt.command.id,
+					attempt.input.quote
 				);
 				threads.acceptCreated(attempt.input.target, created);
 				if (isCurrentTarget(attempt.input.target)) {
@@ -1319,7 +1331,7 @@
 			{/if}
 
 			{#if composingThread}
-				{@const quote = blockQuote(commentBlockId)}
+				{@const quote = commentQuote ? quoteExcerpt(commentQuote) : blockQuote(commentBlockId)}
 				<div class="comment-target">
 					<span
 						>{#if commentBlockId && quote}<q>{quote}</q>{:else if commentBlockId}Commenting on a
@@ -1342,7 +1354,11 @@
 				<div class="thread-index" aria-label="Comment threads">
 					{#each shownThreads as item (item.thread.id)}
 						{@const quote =
-							item.anchor_state === 'orphaned' ? null : blockQuote(item.thread.block_id)}
+							item.anchor_state === 'orphaned'
+								? null
+								: item.thread.anchor_quote
+									? quoteExcerpt(item.thread.anchor_quote)
+									: blockQuote(item.thread.block_id)}
 						<button
 							type="button"
 							class:selected={selectedThreadId === item.thread.id}
@@ -1388,7 +1404,12 @@
 
 			{#if !composingThread && selectedThread}
 				{@const blockId = selectedThread.thread.block_id}
-				{@const quote = selectedThread.anchor_state === 'orphaned' ? null : blockQuote(blockId)}
+				{@const quote =
+					selectedThread.anchor_state === 'orphaned'
+						? null
+						: selectedThread.thread.anchor_quote
+							? quoteExcerpt(selectedThread.thread.anchor_quote)
+							: blockQuote(blockId)}
 				<div class="comment-thread">
 					<header>
 						<div>

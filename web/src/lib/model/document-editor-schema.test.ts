@@ -505,3 +505,24 @@ test('the outline lists headings, and an in-page link lands on its heading', (co
 	assert.equal(documentEditorSchema.documentAnchorTarget(doc, '#nowhere'), null);
 	assert.deepEqual(documentEditorSchema.documentCounts(doc), { words: 6, characters: 35 });
 });
+
+test('find within one block reports the document’s own positions', (context) => {
+	const document = new Y.Doc();
+	context.after(() => document.destroy());
+	const schema = getSchema(
+		documentEditorSchema.createDocumentEditorExtensions(document, {} as never, true)
+	);
+	const doc = schema.node('doc', null, [
+		schema.node('paragraph', { block_id: 'a' }, [schema.text('First line')]),
+		schema.node('bulletList', { block_id: 'b' }, [
+			schema.node('listItem', { block_id: 'c' }, [
+				schema.node('paragraph', { block_id: 'd' }, [schema.text('ship the price list')])
+			])
+		])
+	]);
+	const listPos = doc.child(0).nodeSize;
+	const [inList] = documentEditorSchema.findMatches(doc.child(1), 'price', 1, listPos);
+	assert.equal(doc.textBetween(inList.from, inList.to), 'price');
+	const [inParagraph] = documentEditorSchema.findMatches(doc.child(0), 'line', 1, 0);
+	assert.equal(doc.textBetween(inParagraph.from, inParagraph.to), 'line');
+});

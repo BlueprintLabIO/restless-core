@@ -121,9 +121,11 @@
 		 * and the company's owner, may retitle it. */
 		mayRename?: boolean;
 		onaccept?: (target: DocumentTarget, view: DocumentReadView) => void;
-		oncomment?: (blockId: string | null) => void;
-		/** Open comment threads by the block they are on: marked in the text, opened from the margin. */
-		commentedBlocks?: ReadonlyMap<string, { threadId: string; count: number }>;
+		/** Start a comment on a block, and on the words selected in it when there are some. */
+		oncomment?: (blockId: string | null, quote?: string | null) => void;
+		/** Open comment threads by the block they are on: marked in the text (the words each quotes,
+		 * where it quotes some), opened from the margin. */
+		commentedBlocks?: ReadonlyMap<string, { threadId: string; count: number; quotes?: string[] }>;
 		onopenthread?: (threadId: string) => void;
 		/** Copy a link that opens this document at a block. */
 		oncopyblocklink?: (blockId: string) => void;
@@ -750,7 +752,21 @@
 	 * selection too, though no caret), else the editor's own. */
 	function commentOnSelection(): void {
 		const instance = editorState.editor;
-		oncomment(selectedBlock() ?? (instance ? selectedDocumentBlockId(instance) : null));
+		const blockId = selectedBlock() ?? (instance ? selectedDocumentBlockId(instance) : null);
+		oncomment(blockId, blockId ? selectedWords(blockId) : null);
+	}
+
+	/** The words chosen inside one block, as the comment will quote them; null across blocks. */
+	function selectedWords(blockId: string): string | null {
+		const selection = window.getSelection();
+		if (!selection || selection.isCollapsed || !selection.rangeCount) return null;
+		const block = editorElement?.querySelector(
+			`.native-document-body > [data-block-id="${CSS.escape(blockId)}"]`
+		);
+		const range = selection.getRangeAt(0);
+		if (!block?.contains(range.startContainer) || !block.contains(range.endContainer)) return null;
+		const words = selection.toString().replace(/\s+/gu, ' ').trim();
+		return words && words.length <= 500 ? words : null;
 	}
 
 	function selectedBlock(): string | null {
@@ -764,9 +780,11 @@
 	}
 
 	/* Blocks with an open thread are marked in the text, and a mark in the margin opens it. */
-	let markedBlocks: ReadonlySet<string> = new Set();
+	let markedBlocks: ReadonlyMap<string, readonly string[]> = new Map();
 	$effect(() => {
-		markedBlocks = new Set(commentedBlocks.keys());
+		markedBlocks = new Map(
+			[...commentedBlocks].map(([block, thread]) => [block, thread.quotes ?? []])
+		);
 		/* Only the threads changing re-marks; the editor's own transactions must not. */
 		const instance = untrack(() => editorState.editor);
 		if (instance && !instance.isDestroyed)
@@ -2259,6 +2277,10 @@
 		}
 	}
 	/* A block with an open thread: a quiet wash in the text, and a mark in the margin that opens it. */
+	:global(.native-document-body .commented-words) {
+		border-bottom: 2px solid color-mix(in srgb, var(--highlight) 90%, var(--surface-attention));
+		background: color-mix(in srgb, var(--highlight) 45%, transparent);
+	}
 	:global(.native-document-body > .has-comments) {
 		box-shadow: inset 2px 0 0 color-mix(in srgb, var(--highlight) 90%, var(--surface-attention));
 		background: color-mix(in srgb, var(--highlight) 30%, transparent);

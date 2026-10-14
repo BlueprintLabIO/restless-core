@@ -927,20 +927,38 @@ export interface DocumentEditorHooks {
 	mentionKey?: (event: KeyboardEvent) => boolean;
 	/** Open the actions of the top-level block at a position, beside an anchor. */
 	blockMenu?: (target: { pos: number; anchor: DOMRect; fromKeyboard?: boolean }) => void;
-	/** The top-level blocks that have an open comment thread, marked in the text. */
-	commentedBlocks?: () => ReadonlySet<string>;
+	/** The top-level blocks that have an open comment thread, with the words each thread quotes,
+	 * marked in the text: the quoted words where they are still found, else the whole block. */
+	commentedBlocks?: () => ReadonlyMap<string, readonly string[]>;
 }
 
 /* Blocks with an open comment thread wear a quiet highlight, as commented text does in Notion.
  * The page says which blocks; it dispatches this key when the threads change. */
 export const commentMarksKey = new PluginKey<DecorationSet>('documentCommentMarks');
 
-function commentMarks(doc: ProseMirrorNode, blocks: ReadonlySet<string> | undefined) {
+function commentMarks(
+	doc: ProseMirrorNode,
+	blocks: ReadonlyMap<string, readonly string[]> | undefined
+) {
 	if (!blocks?.size) return DecorationSet.empty;
 	const marks: Decoration[] = [];
 	doc.forEach((node, offset) => {
-		if (blocks.has(node.attrs.block_id))
+		const quotes = blocks.get(node.attrs.block_id);
+		if (!quotes) return;
+		const words = quotes.flatMap((quote) => {
+			const text = quote.replace(/\s+/gu, ' ').trim();
+			const found = text ? findMatches(node, text, 1, offset)[0] : undefined;
+			return found ? [found] : [];
+		});
+		/* A thread without quoted words, or whose words have since changed, marks the block. */
+		if (words.length < quotes.length || !quotes.length)
 			marks.push(Decoration.node(offset, offset + node.nodeSize, { class: 'has-comments' }));
+		for (const match of words)
+			marks.push(
+				Decoration.inline(match.from, match.to, {
+					class: 'commented-words'
+				})
+			);
 	});
 	return DecorationSet.create(doc, marks);
 }
@@ -1045,14 +1063,18 @@ export interface FindMatch {
 }
 
 /** Every place the words occur, ignoring case, within one paragraph, heading, cell or line of code
- * at a time. A mention or reference is one character, so it is never matched by its label. */
-export function findMatches(doc: ProseMirrorNode, query: string, limit = 2_000): FindMatch[] {
+ * at a time. A mention or reference is one character, so it is never matched by its label. The
+ * root is the document, or one block of it at rootPos; positions are the document's. */
+export function findMatches(
+	root: ProseMirrorNode,
+	query: string,
+	limit = 2_000,
+	rootPos = -1
+): FindMatch[] {
 	const needle = query.toLocaleLowerCase();
 	if (!needle) return [];
 	const matches: FindMatch[] = [];
-	doc.descendants((node, pos) => {
-		if (matches.length >= limit) return false;
-		if (!node.isTextblock) return true;
+	const scan = (node: ProseMirrorNode, pos: number) => {
 		let text = '';
 		const at: number[] = [];
 		node.forEach((child, offset) => {
@@ -1066,14 +1088,19 @@ export function findMatches(doc: ProseMirrorNode, query: string, limit = 2_000):
 		const haystack = lower.length === text.length ? lower : text;
 		for (
 			let index = haystack.indexOf(needle);
-			index >= 0;
+			index >= 0 && matches.length < limit;
 			index = haystack.indexOf(needle, index + needle.length)
-		) {
+		)
 			matches.push({ from: at[index], to: at[index + needle.length - 1] + 1 });
-			if (matches.length >= limit) break;
-		}
-		return false;
-	});
+	};
+	if (root.isTextblock) scan(root, rootPos);
+	else
+		root.descendants((node, pos) => {
+			if (matches.length >= limit) return false;
+			if (!node.isTextblock) return true;
+			scan(node, rootPos + 1 + pos);
+			return false;
+		});
 	return matches;
 }
 

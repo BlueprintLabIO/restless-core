@@ -183,6 +183,8 @@ export interface DocumentCommentThreadRow {
 	document_id: string;
 	anchored_version_id: string;
 	block_id: string | null;
+	/** The words in the block the comment is about, when a passage was selected. */
+	anchor_quote?: string | null;
 	status: DocumentCommentStatus;
 	created_by_actor_id: string;
 	created_at: string;
@@ -633,11 +635,15 @@ export function createDocumentCommentThread(
 	document: string,
 	blockId: string | null,
 	contentJson: DocumentContent,
-	commandId: string
+	commandId: string,
+	quote: string | null = null
 ): Promise<DocumentCommentThreadCreated> {
 	return documentJson(
 		`${documentsPath(company, document)}/comments`,
-		mutation({ block_id: blockId, content_json: contentJson }, commandId)
+		mutation(
+			{ block_id: blockId, content_json: contentJson, ...(blockId && quote ? { quote } : {}) },
+			commandId
+		)
 	);
 }
 
