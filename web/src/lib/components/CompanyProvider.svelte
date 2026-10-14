@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Page, Section, Row, Item, Notice, Empty, Dot, Fold } from '$lib/ui/page';
+	import { Page, Section, Item, Notice, Empty, Dot, Fold } from '$lib/ui/page';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
@@ -23,7 +23,6 @@
 	} from '$lib/model/intelligence-events';
 	import { settingQuery } from '$lib/model/setting.svelte';
 	import {
-		createConnection,
 		grantCompanyConnection,
 		importConnection,
 		providerKey,
@@ -93,7 +92,6 @@
 	});
 	const reusableConnections = $derived(reusableSource.view?.connections ?? []);
 	/* Providers the plan's included AI serves; they take no key of the owner's own. */
-	const includedProviders = $derived(reusableSource.view?.includedProviders ?? []);
 	const accountScope = $derived(reusableSource.view?.scope ?? 'account');
 	const manageUrl = $derived(reusableSource.view?.manageUrl ?? '/account/connections');
 	let accountActionError = $state('');
@@ -106,14 +104,6 @@
 	let accountBusy = $state(false);
 	/* Only the first load shows a loading row; a refresh keeps the rows where they are. */
 	const accountLoading = $derived(reusableSource.loading);
-	let addConnectionOpen = $state(false);
-	let connectionLabel = $state('');
-	let connectionProvider = $state('anthropic');
-	let connectionModel = $state('');
-	let connectionCustomModel = $state(false);
-	let connectionModelTouched = $state(false);
-	let connectionMakeDefault = $state(false);
-	let connectionSecret = $state('');
 	let grantSelection = $state('');
 	let replaceGrantId = $state('');
 	let grantMakeDefault = $state(false);
@@ -293,20 +283,6 @@
 		replaceGrantId = '';
 		accountActionError = '';
 	}
-	function toggleAddConnection() {
-		addConnectionOpen = !addConnectionOpen;
-		if (addConnectionOpen) {
-			connectionModel = defaultModel(connectionProvider);
-			connectionCustomModel = false;
-			connectionModelTouched = false;
-			connectionMakeDefault = false;
-			accountActionError = '';
-		}
-	}
-	$effect(() => {
-		if (addConnectionOpen && !connectionModelTouched)
-			connectionModel = defaultModel(connectionProvider);
-	});
 	$effect(() => {
 		if (editorOpen && selected && !advancedModelTouched)
 			advancedModel = defaultModel(selected, mode === 'oauth' ? 'oauth' : 'api_key');
@@ -346,53 +322,6 @@
 			else settleTimer = setTimeout(() => void tick(), 2_000);
 		};
 		settleTimer = setTimeout(() => void tick(), 1_000);
-	}
-	async function createReusableConnection(event: SubmitEvent) {
-		event.preventDefault();
-		if (accountBusy) return;
-		if (!validModel(connectionProvider, connectionModel)) {
-			accountActionError = 'Choose a model from the list or enter its full provider/model ID.';
-			return;
-		}
-		accountBusy = true;
-		accountActionError = '';
-		try {
-			const created = await createConnection({
-				label: connectionLabel.trim(),
-				provider: connectionProvider,
-				secret: connectionSecret
-			});
-			if (!status || !created.id)
-				throw new Error(
-					'Connection saved, but could not enable it in this company yet. Choose it from Account API keys to finish.'
-				);
-			const grantResult = await requestGrant(
-				created.id,
-				connectionModel,
-				false,
-				connectionMakeDefault
-			);
-			connectionSecret = '';
-			connectionLabel = '';
-			connectionModel = '';
-			addConnectionOpen = false;
-			await Promise.all([refreshReusableConnections(), intelligence.refresh()]);
-			announceIntelligenceChange(companyId);
-			if (grantResult.replaceRequired) {
-				grantSelection = created.id;
-				replaceGrantId = created.id;
-				accountActionError = '';
-			} else {
-				providerSource.accept(grantResult.provider);
-				notice = 'Connection created and made available to this company.';
-			}
-			settle();
-		} catch (cause) {
-			connectionSecret = '';
-			accountActionError = failureSentence(cause, 'Could not save this connection.');
-		} finally {
-			accountBusy = false;
-		}
 	}
 	async function grantConnection(connection: ReusableConnection) {
 		if (!status || accountBusy) return;
@@ -547,17 +476,12 @@
 		count={reusableConnections.length || null}
 	>
 		{#snippet actions()}
-			{#if accountScope === 'account'}<button
-					class="btn small"
-					disabled={accountBusy}
-					aria-expanded={addConnectionOpen}
-					onclick={toggleAddConnection}>{addConnectionOpen ? 'Cancel' : 'Add API key'}</button
-				>{:else}<a
-					class="btn small"
-					href="/account/connections"
-					title="Sign-ins and API keys belong to your account, not to one company, so one sign-in can serve every company. Add or connect them in Account → AI accounts, then give each company access."
-					>AI accounts</a
-				>{/if}
+			<a
+				class="btn small"
+				href="/account/connections"
+				title="Sign-ins and API keys for AI models are added once, in your account, and then given to each company that should use them."
+				>{accountScope === 'account' ? 'Add in your account' : 'AI accounts'}</a
+			>
 		{/snippet}
 		{#if accountLoading}
 			<Empty compact title="Loading connections…" />
@@ -711,91 +635,6 @@
 				/>
 			{/each}
 
-			{#if addConnectionOpen && accountScope === 'account'}
-				<form class="add" onsubmit={createReusableConnection}>
-					<Row label="Provider">
-						<select
-							bind:value={connectionProvider}
-							aria-label="Provider"
-							onchange={() => {
-								connectionModel = defaultModel(connectionProvider);
-								connectionCustomModel = false;
-								connectionModelTouched = false;
-							}}
-							>{#each Object.entries(labels).filter(([id]) => id !== 'openai-codex' && !includedProviders.includes(id)) as [id, label]}<option
-									value={id}>{label}</option
-								>{/each}</select
-						>
-					</Row>
-					<Row label="Name">
-						<input
-							class="field"
-							bind:value={connectionLabel}
-							aria-label="Name"
-							placeholder="Anthropic team key"
-							required
-							maxlength="80"
-						/>
-					</Row>
-					<Row
-						label="API key"
-						info="One API key per provider is shared across companies. Each company still needs its own access. This saves the key; it does not test a sign-in."
-					>
-						<input
-							class="field"
-							type="password"
-							bind:value={connectionSecret}
-							aria-label="API key"
-							autocomplete="new-password"
-							placeholder="Paste API key"
-							required
-						/>
-					</Row>
-					<Row label="Model">
-						<select
-							value={connectionCustomModel ? '__custom' : connectionModel}
-							aria-label="Model"
-							onchange={(event) => {
-								connectionModelTouched = true;
-								connectionCustomModel = event.currentTarget.value === '__custom';
-								connectionModel = connectionCustomModel ? '' : event.currentTarget.value;
-							}}
-							><option value="">Choose a model…</option
-							>{#each modelChoices(connectionProvider) as model}<option
-									value={routeModel(connectionProvider, model.id)}>{model.name ?? model.id}</option
-								>{/each}<option value="__custom">Custom model ID…</option></select
-						>
-						{#if connectionCustomModel}<input
-								class="field"
-								aria-label="Full model ID"
-								placeholder={`${connectionProvider}/model-id`}
-								bind:value={connectionModel}
-							/>{/if}
-					</Row>
-					{#if status?.primary_provider !== 'unconfigured'}<Row label="Company default"
-							><input
-								type="checkbox"
-								aria-label="Make this the company default"
-								bind:checked={connectionMakeDefault}
-							/></Row
-						>{/if}
-					<div class="bar pad">
-						<button class="btn primary small" disabled={accountBusy}
-							>{accountBusy ? 'Saving…' : 'Save key'}</button
-						>
-						<button
-							class="btn small ghost"
-							type="button"
-							disabled={accountBusy}
-							onclick={() => {
-								addConnectionOpen = false;
-								connectionSecret = '';
-							}}>Cancel</button
-						>
-					</div>
-				</form>
-			{/if}
-
 			{#if accountScope === 'account' && otherCompanies.length}
 				<Fold label="Bring in a key from another company" bind:open={importOpen}>
 					<div class="import">
@@ -878,10 +717,11 @@
 						<button
 							class="btn small"
 							disabled={!status || busy}
+							title="Only for a key this company alone uses, or a host environment variable. Keys most companies share are added in Account → AI accounts."
 							onclick={() => {
 								choose('');
 								editorOpen = true;
-							}}>Add key</button
+							}}>Add company-only key</button
 						>
 					</div>
 					{#if status}
