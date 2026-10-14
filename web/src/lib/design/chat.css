@@ -614,6 +614,27 @@
 	white-space: nowrap;
 }
 
+.bridge-root .hc-menu-empty {
+	margin: 0;
+	padding: 7px 9px;
+	color: var(--text-tertiary);
+	font-size: var(--t-label);
+}
+
+.bridge-root .hc-guide {
+	display: inline-flex;
+	flex: none;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .hc-guide kbd {
+	display: inline-block;
+	min-width: 1.4em;
+	margin-right: 6px;
+	font: 600 var(--t-label) var(--font-mono);
+	text-align: center;
+}
+
 .bridge-root .hc-menu-description {
 	min-width: 0;
 	overflow: hidden;

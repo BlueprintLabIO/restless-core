@@ -21,6 +21,8 @@
 	import { composerKeyAction, nextComposerHeight } from '$lib/primitives/composer-keys';
 	import { sendButtonLabel, sendState } from '$lib/primitives/composer-layout';
 	import X from '@lucide/svelte/icons/x';
+	import SquareSlash from '@lucide/svelte/icons/square-slash';
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import { composerTrigger, filterComposerOptions } from '$lib/primitives/composer-menu';
 	import { skillLabel, type ComposerOption } from '$lib/model/skills';
 
@@ -134,6 +136,35 @@
 			const caret =
 				option.kind === 'skill' ? before.length : before.length + (option.insert ?? '').length;
 			inputEl?.setSelectionRange(caret, caret);
+		});
+	}
+
+	/* What the menu characters open, offered from a button so nobody has to know them. `/` opens
+	 * only at the start of a message, so it is offered while the field is empty. */
+	const triggerGuide = $derived(
+		(
+			[
+				['/', 'Commands and skills', ['command', 'skill']],
+				['$', 'Skills', ['skill']],
+				['#', 'Work, Goals and documents', ['reference']],
+				['@', 'People', ['person']]
+			] as const
+		).filter(
+			([trigger, , kinds]) =>
+				options.some((option) => (kinds as readonly string[]).includes(option.kind)) &&
+				(trigger !== '/' || !value.trim())
+		)
+	);
+	function insertTrigger(trigger: string) {
+		const caret = inputEl?.selectionStart ?? value.length;
+		const before = value.slice(0, caret);
+		const spacer = before && !/\s$/.test(before) ? ' ' : '';
+		value = `${before}${spacer}${trigger}${value.slice(caret)}`;
+		const next = before.length + spacer.length + 1;
+		queueMicrotask(() => {
+			inputEl?.focus();
+			inputEl?.setSelectionRange(next, next);
+			refreshMenu();
 		});
 	}
 
@@ -254,6 +285,11 @@
 	});
 
 	function onKeydown(event: KeyboardEvent) {
+		if (menu && event.key === 'Escape' && !composing) {
+			event.preventDefault();
+			menu = null;
+			return;
+		}
 		if (menu && menuItems.length > 0 && !composing) {
 			if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
 				event.preventDefault();
@@ -264,11 +300,6 @@
 			if (event.key === 'Enter' || event.key === 'Tab') {
 				event.preventDefault();
 				choose(menuItems[Math.min(highlighted, menuItems.length - 1)]);
-				return;
-			}
-			if (event.key === 'Escape') {
-				event.preventDefault();
-				menu = null;
 				return;
 			}
 		}
@@ -394,7 +425,13 @@
 		else refuseFiles();
 	}}
 >
-	{#if menu && menuItems.length > 0}
+	{#if menu && menuItems.length === 0}
+		<div class="hc-menu" role="status">
+			<p class="hc-menu-empty">
+				Nothing matches “{menu.trigger}{menu.query}”. Keep typing, or press Esc.
+			</p>
+		</div>
+	{:else if menu}
 		<div
 			class="hc-menu"
 			role="listbox"
@@ -429,10 +466,12 @@
 	     ONE AttachmentPicker, not two: the file <input> lives inside its button, and a
 	     chips-only instance would have no input to rebuild on remove — the × would silently
 	     do nothing. Its chips take a full-width row inside the toolbar instead. -->
-	{#if showHint && !(menu && menuItems.length > 0)}<span class="hc-hint" aria-hidden="true"
+	{#if showHint && !menu}<span class="hc-hint" aria-hidden="true"
 			>{interruptible
 				? 'Enter queues · Ctrl/Cmd+Enter interrupts'
-				: 'Enter sends · Shift+Enter adds a line'}</span
+				: options.length
+					? 'Enter sends · Shift+Enter adds a line · / $ # @ open menus'
+					: 'Enter sends · Shift+Enter adds a line'}</span
 		>{/if}
 	<div class="hc-field" data-send-state={sendability}>
 		{#if flareKey > 0}
@@ -512,6 +551,22 @@
 			}}></textarea>
 		<div class="hc-toolbar">
 			{#if allowAttachments}<AttachmentPicker bind:files {disabled} />{/if}
+			{#if triggerGuide.length && !disabled}
+				<span class="hc-guide"
+					><ActionMenu label="Commands, skills, Work and people"
+						>{#snippet trigger()}<SquareSlash
+								size={15}
+								strokeWidth={1.9}
+								aria-hidden="true"
+							/>{/snippet}
+						{#each triggerGuide as [trigger, label] (trigger)}
+							<button type="button" onclick={() => insertTrigger(trigger)}
+								><kbd>{trigger}</kbd> {label}</button
+							>
+						{/each}
+					</ActionMenu></span
+				>
+			{/if}
 			{#if controls}<div class="hc-slot">{@render controls()}</div>{/if}
 			<button
 				class="hc-voice"

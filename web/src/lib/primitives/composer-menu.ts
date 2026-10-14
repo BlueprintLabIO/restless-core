@@ -42,20 +42,23 @@ export function filterComposerOptions(
 		'#': ['reference'],
 		'@': ['person']
 	};
-	return options
-		.filter((option) => kinds[trigger].includes(option.kind))
-		.filter((option) => !(option.kind === 'skill' && selected.includes(option.name)))
-		.filter(
-			(option) =>
-				!query ||
-				option.name.includes(query) ||
-				option.label.toLowerCase().includes(query) ||
-				option.description.toLowerCase().includes(query)
-		)
-		.sort((left, right) => {
-			const rank = (option: ComposerOption) =>
-				(option.name.startsWith(query) ? 0 : 2) + (option.kind === 'command' ? 0 : 1);
-			return rank(left) - rank(right) || left.name.localeCompare(right.name);
-		})
-		.slice(0, 8);
+	return (
+		options
+			.filter((option) => kinds[trigger].includes(option.kind))
+			.filter((option) => !(option.kind === 'skill' && selected.includes(option.name)))
+			.filter(
+				(option) =>
+					!query ||
+					option.name.includes(query) ||
+					option.label.toLowerCase().includes(query) ||
+					option.description.toLowerCase().includes(query)
+			)
+			.sort((left, right) => {
+				const rank = (option: ComposerOption) =>
+					(option.name.startsWith(query) ? 0 : 2) + (option.kind === 'command' ? 0 : 1);
+				return rank(left) - rank(right) || left.name.localeCompare(right.name);
+			})
+			/* The menu scrolls; the cap only keeps a large skill library from rendering at once. */
+			.slice(0, 60)
+	);
 }

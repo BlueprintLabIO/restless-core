@@ -178,14 +178,16 @@ export const EXEC_COMMANDS: ComposerOption[] = [
 		kind: 'command',
 		name: 'goal',
 		label: '/goal',
-		description: 'Set a durable objective. Exec routes it to one accountable team.',
+		description:
+			'Set a durable objective; Exec routes it to one team. /goal lists open goals, /goal clear <number> closes one.',
 		insert: '/goal '
 	},
 	{
 		kind: 'command',
 		name: 'loop',
 		label: '/loop',
-		description: 'Have Exec check in on an interval, e.g. /loop 30m review inbound leads.',
+		description:
+			'Have Exec check in on an interval, e.g. /loop 30m review leads. /loop lists them, /loop stop <number> stops one.',
 		insert: '/loop '
 	}
 ];
