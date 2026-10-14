@@ -5,6 +5,8 @@
 export interface InboxOutcome {
 	text: string;
 	href?: string;
+	/** An accepted outcome: where it now lives, to open it from the confirmation. */
+	result?: { href: string; label: string };
 }
 
 let pending = $state<InboxOutcome | null>(null);

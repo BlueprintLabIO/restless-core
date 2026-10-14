@@ -223,9 +223,15 @@
 	}
 	let missingItemRedirect = $state('');
 	let resolvedHere = '';
-	let sent = $state<{ text: string; href?: string } | null>(null);
+	let sent = $state<{
+		text: string;
+		href?: string;
+		result?: { href: string; label: string };
+	} | null>(null);
 	$effect(() => {
 		if (!sent) return;
+		/* An accepted result stays until dismissed: it is the way to what was approved. */
+		if (sent.result) return;
 		const timer = setTimeout(() => (sent = null), 6000);
 		return () => clearTimeout(timer);
 	});
@@ -993,7 +999,8 @@
 		}}
 	>
 		{#if sent}<div class="attention-resolution-notice" role="status">
-				{sent.text}{#if sent.href}<a href={sent.href}>Open conversation</a>{/if}<button
+				{sent.text}{#if sent.result}<a href={sent.result.href}>{sent.result.label}</a
+					>{/if}{#if sent.href}<a href={sent.href}>Open conversation</a>{/if}<button
 					aria-label="Dismiss notification"
 					onclick={() => (sent = null)}>×</button
 				>

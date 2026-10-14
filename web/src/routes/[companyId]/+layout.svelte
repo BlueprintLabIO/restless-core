@@ -745,6 +745,8 @@
 	): Promise<string | null> {
 		if (!focusedReview) return 'This review is no longer outstanding.';
 		const lead = focusedReview.responsibleActor;
+		/* What was accepted lives with its Work, which shows the outcome and its files. */
+		const workId = focusedReview.workId;
 		try {
 			await reviewAction(companyId, focusedReview.source.reference, decision, feedback);
 			await attention.refresh();
@@ -754,7 +756,14 @@
 				text: decision === 'accept' ? 'Accepted' : `Changes sent to ${lead?.display ?? 'the lead'}`,
 				href: lead
 					? `/${encodeURIComponent(companyId)}/people?person=${encodeURIComponent(lead.id)}&view=people`
-					: undefined
+					: undefined,
+				result:
+					decision === 'accept' && workId
+						? {
+								href: `/${encodeURIComponent(companyId)}/work/${encodeURIComponent(workId)}`,
+								label: 'Open the result'
+							}
+						: undefined
 			});
 			return null;
 		} catch (cause) {
