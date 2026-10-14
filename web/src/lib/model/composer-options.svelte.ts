@@ -60,6 +60,50 @@ export function writeDraft(key: string, body: string) {
 	}
 }
 
+/* What an Exec command changed or showed, kept in the transcript on this device: a command is
+ * handled without a message, so the conversation record would otherwise not show it. */
+export interface CommandRecord {
+	id: string;
+	at: string;
+	command: string;
+	result: string;
+}
+const COMMAND_LOG_LIMIT = 40;
+export function readCommandLog(key: string): CommandRecord[] {
+	try {
+		const value = JSON.parse(localStorage.getItem(key) ?? '[]') as unknown;
+		return Array.isArray(value)
+			? value.filter(
+					(entry): entry is CommandRecord =>
+						!!entry &&
+						typeof entry.id === 'string' &&
+						typeof entry.at === 'string' &&
+						typeof entry.command === 'string' &&
+						typeof entry.result === 'string'
+				)
+			: [];
+	} catch {
+		return [];
+	}
+}
+export function appendCommandLog(
+	key: string,
+	log: CommandRecord[],
+	command: string,
+	result: string
+): CommandRecord[] {
+	const next = [
+		...log,
+		{ id: crypto.randomUUID(), at: new Date().toISOString(), command, result }
+	].slice(-COMMAND_LOG_LIMIT);
+	try {
+		localStorage.setItem(key, JSON.stringify(next));
+	} catch {
+		/* See writeDraft: the line still shows until the page reloads. */
+	}
+	return next;
+}
+
 /* What travels with a rail draft besides its text. Files cannot be stored, so only their names
  * are kept, to say they need attaching again after a reload. An uncertain send's command id is
  * kept with the exact text it was sent as, so resending after a reload cannot send it twice. */

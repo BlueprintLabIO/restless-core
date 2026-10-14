@@ -68,7 +68,10 @@
 	} from '$lib/model/rooms';
 	import { goto } from '$app/navigation';
 	import {
+		appendCommandLog,
 		composerOptions,
+		readCommandLog,
+		type CommandRecord,
 		readDraft,
 		readDraftExtras,
 		writeDraft,
@@ -336,6 +339,20 @@
 			(exchange) => at(exchange.created_at) > after && at(exchange.created_at) <= until
 		);
 	}
+	/* Command lines sit where they happened in time, like handoffs; only the Exec conversation has them. */
+	function commandsBefore(index: number): CommandRecord[] {
+		if (!execConversation) return [];
+		const previous = messages[windowStart + index - 1];
+		if (!previous && windowStart + index > 0) return [];
+		const after = previous ? at(previous.createdAt) : -Infinity;
+		const until = at(messages[windowStart + index].createdAt);
+		return commandLog.filter((line) => at(line.at) > after && at(line.at) <= until);
+	}
+	const commandsSinceLast = $derived.by(() => {
+		if (!execConversation) return [];
+		const last = visibleMessages.at(-1);
+		return last ? commandLog.filter((line) => at(line.at) > at(last.createdAt)) : commandLog;
+	});
 	const handoffsSinceLast = $derived.by(() => {
 		const last = visibleMessages.at(-1);
 		return last
@@ -521,12 +538,35 @@
 	let goalCreatedFor = $state('');
 	/* A command that stopped a loop or closed a goal can be put back from its notice. */
 	let noticeUndo = $state<{ notice: string; run: () => Promise<string> } | null>(null);
+	/* A notice is a moment, not a record: it leaves by itself (later when it offers Undo). What a
+	 * command did is kept as a line in the transcript instead. The note that a message waits for
+	 * Exec stays while that is true. */
+	$effect(() => {
+		const notice = askNotice;
+		if (!notice || notice === leftForLater) return;
+		const timer = setTimeout(
+			() => {
+				if (askNotice === notice) askNotice = '';
+			},
+			noticeUndo?.notice === notice ? 20_000 : 8_000
+		);
+		return () => clearTimeout(timer);
+	});
+	const commandLogKey = $derived(`restless:exec-commands:${companyId}`);
+	let commandLog = $state<CommandRecord[]>([]);
+	$effect(() => {
+		commandLog = readCommandLog(commandLogKey);
+	});
+	function recordCommand(command: string, result: string) {
+		commandLog = appendCommandLog(commandLogKey, commandLog, command, result);
+	}
 	async function undoCommand() {
 		const undo = noticeUndo;
 		if (!undo || undo.notice !== askNotice) return;
 		noticeUndo = null;
 		try {
 			askNotice = await undo.run();
+			recordCommand('Undo', askNotice);
 		} catch (cause) {
 			askError = failureSentence(cause, 'That could not be undone.');
 		}
@@ -1089,6 +1129,7 @@
 				} else {
 					askNotice = command.notice ?? '';
 					noticeUndo = command.undo ? { notice: askNotice, run: command.undo } : null;
+					if (askNotice) recordCommand(typed, askNotice);
 				}
 				return;
 			}
@@ -1183,6 +1224,15 @@
 	const providerAction = $derived(neverConnected ? 'Connect a model' : providerLabel);
 	holdQueries(() => [directRooms]);
 </script>
+
+{#snippet commandLines(lines: CommandRecord[])}
+	{#each lines as line (line.id)}
+		<p class="command-line" title={`${line.command} · ${shortTime(line.at)} · kept on this device`}>
+			<span class="command-name">{line.command}</span>
+			<span>{line.result}</span>
+		</p>
+	{/each}
+{/snippet}
 
 <aside
 	bind:this={railEl}
@@ -1400,6 +1450,7 @@
 							name={exchanges.name}
 							host={participantId}
 						/>
+						{@render commandLines(commandsBefore(i))}
 						{#if i === 0 || dayOf(message.createdAt) !== dayOf(visibleMessages[i - 1].createdAt)}
 							<div class="day-sep" aria-hidden="true">
 								<span>{dayLabel(message.createdAt)}</span>
@@ -1569,6 +1620,7 @@
 						{/if}
 					{/if}
 					<HandoffGroup exchanges={handoffsSinceLast} name={exchanges.name} host={participantId} />
+					{@render commandLines(commandsSinceLast)}
 					{#if receipt}<p class="receipt" role="status">
 							{#if retractable}<button
 									type="button"
@@ -1731,6 +1783,21 @@
 </aside>
 
 <style>
+	.command-line {
+		display: flex;
+		gap: 6px;
+		min-width: 0;
+		margin: 4px 0;
+		padding: 0 4px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		overflow-wrap: anywhere;
+	}
+	.command-name {
+		flex: none;
+		color: var(--text-secondary);
+		font-family: var(--font-mono);
+	}
 	.exr-undo {
 		margin-left: 6px;
 		padding: 0;
