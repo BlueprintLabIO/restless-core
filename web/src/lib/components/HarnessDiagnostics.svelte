@@ -8,6 +8,18 @@
 	function words(value: string) {
 		return value === 'incompatible' ? 'Configuration required' : value.replaceAll('_', ' ');
 	}
+	/* A wrong build is fixed by rebuilding the computer from the current release, which Health
+	 * offers when the doctor sees the drift. */
+	const rebuildOffered = $derived(
+		view?.computer.doctor.actions.some((action) => action.id === 'reconcile') ?? false
+	);
+	const mismatched = (option: {
+		status: string;
+		observed_build?: string;
+		expected_build: string;
+	}) =>
+		option.status === 'incompatible' ||
+		(!!option.observed_build && option.observed_build !== option.expected_build);
 	holdQueries(() => [source]);
 </script>
 
@@ -25,6 +37,21 @@
 					</div>
 					<span class="state-chip state-{option.status}">{words(option.status)}</span>
 					<p class="harness-detail">{option.detail}</p>
+					{#if mismatched(option)}
+						<p class="harness-fix">
+							{#if rebuildOffered}
+								<a class="btn small" href={`/${companyId}/company/doctor`}
+									>Rebuild the computer on Health</a
+								>
+							{:else}
+								<a
+									href={`/${companyId}/company/doctor`}
+									title="A release update rebuilds the computer with the required build. Health offers a rebuild when it sees the computer has drifted from its release."
+									>See Health</a
+								>
+							{/if}
+						</p>
+					{/if}
 					<details>
 						<summary>Authentication and limitations</summary>
 						<p>{option.authentication}</p>
