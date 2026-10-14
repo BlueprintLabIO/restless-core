@@ -104,6 +104,7 @@
 		isRetryableDocumentFailure,
 		pendingDocumentCommand,
 		updateDocumentMetadata,
+		DOCUMENT_KINDS,
 		type DocumentContent,
 		type DocumentKind,
 		type DocumentReadView,
@@ -1351,7 +1352,7 @@
 	}
 
 	async function saveTitle(retryHistoryAdvance = true): Promise<void> {
-		if (!titleDirty || !titleEditable || saving || conflict || !serverView) return;
+		if ((!titleDirty && !kindDirty) || !titleEditable || saving || conflict || !serverView) return;
 		if (!title.trim()) {
 			saveFailure = 'Give the document a title.';
 			return;
@@ -1361,7 +1362,7 @@
 		const input = {
 			expected_version: baseDocumentVersion,
 			title: title.trim(),
-			kind: source.kind,
+			kind,
 			visibility: source.visibility,
 			linked_room_id: source.linked_room_id,
 			inherit_room_visibility: source.inherit_room_visibility
@@ -1377,6 +1378,7 @@
 			serverView = accepted;
 			baseDocumentVersion = accepted.document.version;
 			titleDirty = title.trim() !== accepted.document.title;
+			kindDirty = kind !== accepted.document.kind;
 			metadataCommand = null;
 			onaccept(target, accepted);
 		} catch (cause) {
@@ -1550,7 +1552,22 @@
 							onclick={() => run((instance) => instance.chain().focus().redo().run())}>Redo</button
 						>{/if}{#if editor}<button type="button" onclick={() => openFind(canWriteLive)}
 							>{canWriteLive ? 'Find and replace' : 'Find'}</button
-						>{/if}{@render moreActions()}{#if countsLabel}<p class="menu-count">
+						>{/if}{@render moreActions()}{#if titleEditable && serverView}<label
+							class="menu-kind"
+							title="What kind of document this is; the Library groups documents by it"
+							>Kind<select
+								value={kind}
+								disabled={saving}
+								onchange={(event) => {
+									kind = event.currentTarget.value as DocumentKind;
+									updateMetadataDirty();
+									void saveTitle();
+								}}
+								>{#each DOCUMENT_KINDS as entry (entry.kind)}<option value={entry.kind}
+										>{entry.kind === 'freeform' ? 'Freeform' : entry.label}</option
+									>{/each}</select
+							></label
+						>{/if}{#if countsLabel}<p class="menu-count">
 							{countsLabel}
 						</p>{/if}</DocumentActions
 				>
@@ -2478,6 +2495,21 @@
 	.head-icon.active {
 		background: var(--wash-hover);
 		color: var(--ink);
+	}
+	.menu-kind {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		margin: 4px 0 0;
+		padding: 6px 10px;
+		border-top: 1px solid var(--border);
+		color: var(--text-secondary);
+		font: 500 var(--t-body) var(--font-ui);
+	}
+	.menu-kind select {
+		min-width: 0;
+		font: inherit;
 	}
 	.menu-count {
 		margin: 4px 0 0;

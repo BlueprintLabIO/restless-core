@@ -17,6 +17,8 @@
 		getDocument,
 		isRetryableDocumentFailure,
 		pendingDocumentCreation,
+		DOCUMENT_KINDS,
+		type DocumentKind,
 		type PendingDocumentCreation
 	} from '$lib/model/documents';
 	import { createSheet } from '$lib/model/sheets';
@@ -46,6 +48,8 @@
 		retry: boolean;
 	} | null>(null);
 	let documentAttempt: PendingDocumentCreation | null = null;
+	let documentKind: DocumentKind = 'freeform';
+	let templates: HTMLDialogElement | undefined = $state();
 	let sheetId = '';
 	let picker: HTMLInputElement | undefined = $state();
 	let uploading = $state(0);
@@ -63,12 +67,18 @@
 			: `${root}/sheets?sheet=${encodeURIComponent(id)}&new=1`;
 	}
 
-	/** Make one untitled document or sheet and open it. */
-	export async function open(target: Kind, retry = false) {
+	/** Offer the kinds of document, each with headings to start from. */
+	export function chooseTemplate() {
+		templates?.showModal();
+	}
+
+	/** Make one untitled document (blank, or a kind's headings) or sheet and open it. */
+	export async function open(target: Kind, retry = false, kind: DocumentKind = 'freeform') {
 		if (busy) return;
 		if (!retry) {
 			documentAttempt = null;
 			sheetId = '';
+			documentKind = kind;
 		}
 		const company = companyId;
 		busy = true;
@@ -78,7 +88,7 @@
 			if (target === 'doc') {
 				const attempt = pendingDocumentCreation(documentAttempt, {
 					title: UNTITLED.doc,
-					kind: 'freeform',
+					kind: documentKind,
 					visibility: 'company',
 					linked_room_id: null,
 					inherit_room_visibility: false,
@@ -219,7 +229,7 @@
 		if (failure.kind === 'upload') void upload(unsent, true);
 		else if (failure.kind === 'import') {
 			if (importFailed) void importFile(importFailed);
-		} else void open(failure.kind, true);
+		} else void open(failure.kind, true, documentKind);
 	}
 </script>
 
@@ -251,6 +261,37 @@
 	}}
 />
 
+<dialog bind:this={templates} class="templates" aria-labelledby="templates-title">
+	<header>
+		<h2 id="templates-title">New document</h2>
+		<button
+			type="button"
+			class="close"
+			aria-label="Close"
+			title="Close"
+			onclick={() => templates?.close()}><X size={14} strokeWidth={2} /></button
+		>
+	</header>
+	<div class="template-list">
+		{#each DOCUMENT_KINDS as entry (entry.kind)}
+			<button
+				type="button"
+				title={entry.headings.length
+					? `Starts with: ${entry.headings.join(', ')}`
+					: 'An empty page'}
+				disabled={busy}
+				onclick={() => {
+					templates?.close();
+					void open('doc', false, entry.kind);
+				}}
+				><strong>{entry.label}</strong>{#if entry.headings.length}<span
+						>{entry.headings.join(' · ')}</span
+					>{/if}</button
+			>
+		{/each}
+	</div>
+</dialog>
+
 {#if importing}
 	<div class="library-new-failure uploading">
 		<Pending label={`Importing ${importing}`} />
@@ -278,6 +319,56 @@
 <style>
 	.library-new-picker {
 		display: none;
+	}
+	.templates {
+		width: min(420px, calc(100vw - 32px));
+		padding: 0;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-lg);
+		background: var(--surface-raised);
+		color: var(--ink);
+		box-shadow: var(--shadow-float, var(--shadow-soft));
+	}
+	.templates::backdrop {
+		background: #0f172a40;
+	}
+	.templates header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 12px 12px 4px 16px;
+	}
+	.templates h2 {
+		margin: 0;
+		font-size: var(--t-body);
+		font-weight: 600;
+	}
+	.template-list {
+		display: grid;
+		padding: 4px 8px 10px;
+	}
+	.template-list button {
+		display: grid;
+		gap: 2px;
+		padding: 9px 10px;
+		border: 0;
+		border-radius: var(--radius-control);
+		background: transparent;
+		color: inherit;
+		text-align: left;
+		font: 500 var(--t-body) var(--font-ui);
+		cursor: pointer;
+	}
+	.template-list button:hover:not(:disabled),
+	.template-list button:focus-visible {
+		background: var(--wash-hover);
+	}
+	.template-list span {
+		overflow: hidden;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		white-space: nowrap;
+		text-overflow: ellipsis;
 	}
 	.library-new-failure {
 		position: fixed;

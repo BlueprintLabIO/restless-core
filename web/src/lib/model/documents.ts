@@ -1146,6 +1146,66 @@ export function emptyDocument(): DocumentContent {
 	return editorContent([newEditableBlock('paragraph')]);
 }
 
+/* What each kind of document is called, and the headings it starts with. A blank document is
+ * freeform; the rest are a short scaffold the owner, Exec or Staff fill in and change freely. */
+export const DOCUMENT_KINDS: readonly { kind: DocumentKind; label: string; headings: string[] }[] =
+	[
+		{ kind: 'freeform', label: 'Blank document', headings: [] },
+		{
+			kind: 'brief',
+			label: 'Brief',
+			headings: ['Goal', 'Background', 'What good looks like', 'Deadline']
+		},
+		{
+			kind: 'plan',
+			label: 'Plan',
+			headings: ['Outcome', 'Steps', 'Who does what', 'Risks', 'Timeline']
+		},
+		{
+			kind: 'decision_note',
+			label: 'Decision note',
+			headings: ['Decision', 'Context', 'Options considered', 'Why this one', 'Next steps']
+		},
+		{
+			kind: 'report',
+			label: 'Report',
+			headings: ['Summary', 'What we found', 'Numbers', 'Next steps']
+		},
+		{
+			kind: 'review',
+			label: 'Review',
+			headings: ['What went well', 'What didn’t', 'What we change']
+		},
+		{ kind: 'handbook', label: 'Handbook', headings: ['Purpose', 'How it works', 'Who to ask'] },
+		{
+			kind: 'operating_note',
+			label: 'Operating note',
+			headings: ['When this applies', 'Steps', 'Checks']
+		}
+	];
+
+export function documentKindLabel(kind: DocumentKind): string {
+	return DOCUMENT_KINDS.find((entry) => entry.kind === kind)?.label ?? 'Document';
+}
+
+/** A new body for a kind: its headings, each over an empty paragraph to type in. */
+export function templateDocument(kind: DocumentKind): DocumentContent {
+	const headings = DOCUMENT_KINDS.find((entry) => entry.kind === kind)?.headings ?? [];
+	if (!headings.length) return emptyDocument();
+	const id = () => `block-${crypto.randomUUID()}`;
+	return {
+		type: 'doc',
+		content: headings.flatMap((heading) => [
+			{
+				type: 'heading',
+				attrs: { block_id: id(), level: 2 },
+				content: [{ type: 'text', text: heading }]
+			},
+			{ type: 'paragraph', attrs: { block_id: id() } }
+		])
+	};
+}
+
 /** Someone picked from the mention menu: shown in the text as `@label`. */
 export interface CommentMention {
 	actor_id: string;
@@ -1219,7 +1279,7 @@ export function pendingDocumentCreation(
 ): PendingDocumentCreation {
 	return pendingDocumentMutation(current, JSON.stringify(semanticInput), () => ({
 		...semanticInput,
-		content_json: emptyDocument()
+		content_json: templateDocument(semanticInput.kind)
 	}));
 }
 

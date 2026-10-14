@@ -29,6 +29,7 @@
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import Pending from '$lib/ui/feedback/Pending.svelte';
 	import FileText from '@lucide/svelte/icons/file-text';
+	import LayoutTemplate from '@lucide/svelte/icons/layout-template';
 	import Sheet from '@lucide/svelte/icons/sheet';
 	import Library from '@lucide/svelte/icons/library';
 	import Plus from '@lucide/svelte/icons/plus';
@@ -96,6 +97,7 @@
 	import { searchComments, type CommentSearchHit } from '$lib/model/comment-search';
 	import {
 		deleteArchivedDocument,
+		documentKindLabel,
 		duplicateDocument,
 		getArchivedDocuments,
 		getDocument,
@@ -664,6 +666,8 @@
 		editor?: string;
 		/** The collection it is filed in, if any. */
 		collection?: string;
+		/** A document's kind, such as Decision note, when it is not freeform. */
+		docKind?: string;
 	};
 	const pinKey = (entry: Pick<Entry, 'kind' | 'id'>) => `${entry.kind}:${entry.id}`;
 	const isNative = (entry: Pick<Entry, 'kind'>) => entry.kind === 'doc' || entry.kind === 'sheet';
@@ -687,6 +691,12 @@
 		id: summary.document.id,
 		kind: 'doc',
 		title: summary.document.title || 'Untitled document',
+		...(summary.document.kind !== 'freeform'
+			? {
+					docKind: documentKindLabel(summary.document.kind),
+					also: documentKindLabel(summary.document.kind)
+				}
+			: {}),
 		href: `${root}/library/documents?document=${encodeURIComponent(summary.document.id)}`,
 		updatedAt: summary.document.updated_at,
 		owner: name(summary.document.owner_actor_id),
@@ -1572,6 +1582,12 @@
 								<button type="button" onclick={() => creator?.open('doc')}
 									><FileText size={14} strokeWidth={1.8} aria-hidden="true" />Document</button
 								>
+								<button
+									type="button"
+									title="A brief, plan, decision note, report or other kind, with its headings ready"
+									onclick={() => creator?.chooseTemplate()}
+									><LayoutTemplate size={14} strokeWidth={1.8} aria-hidden="true" />From a template…</button
+								>
 								<button type="button" onclick={() => creator?.open('sheet')}
 									><Sheet size={14} strokeWidth={1.8} aria-hidden="true" />Sheet</button
 								>
@@ -1716,7 +1732,7 @@
 											/>{/if}{:else}<KindIcon
 											size={15}
 											strokeWidth={1.8}
-											aria-label={kindLabel(entry.kind)}
+											aria-label={entry.docKind ?? kindLabel(entry.kind)}
 										/>{/if}{/snippet}
 								{#snippet trailing()}
 									{#if entry.review}<span class="review">Needs review</span
