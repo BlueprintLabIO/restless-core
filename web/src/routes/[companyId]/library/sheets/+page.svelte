@@ -408,7 +408,7 @@
 	/* Naming a version marks a moment the owner will want back, such as "Sent to bank". Left
 	 * blank, it is named for when it was saved. */
 	let namingVersion = $state(false);
-	let versionName = $state('');
+	let newVersionName = $state('');
 	let savingVersion = $state(false);
 	function nameVersion() {
 		namingVersion = true;
@@ -418,7 +418,7 @@
 	async function saveVersion() {
 		if (savingVersion) return;
 		savingVersion = true;
-		const title = versionName.trim() || formatMoment(new Date());
+		const title = newVersionName.trim() || formatMoment(new Date());
 		const saved = await act(
 			() =>
 				sheetJson(company, `/${sheet}/versions`, {
@@ -427,7 +427,7 @@
 				}),
 			() => {
 				namingVersion = false;
-				versionName = '';
+				newVersionName = '';
 				say(`Saved as “${title}”`);
 				if (panel === 'history') void loadVersions();
 			},
@@ -1033,7 +1033,7 @@
 									type="text"
 									maxlength="200"
 									placeholder="Version name (optional)"
-									bind:value={versionName}
+									bind:value={newVersionName}
 									disabled={savingVersion}
 								/>
 								<button type="submit" class="btn small primary" disabled={savingVersion || !ready}
@@ -1045,7 +1045,7 @@
 									disabled={savingVersion}
 									onclick={() => {
 										namingVersion = false;
-										versionName = '';
+										newVersionName = '';
 									}}>Cancel</button
 								>
 							</form>
