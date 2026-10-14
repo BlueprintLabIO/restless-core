@@ -746,6 +746,26 @@
 	);
 	const actorNameForHeader = $derived(directPerson?.display ?? directPartner ?? '');
 	const actorDisplay = $derived(directPerson?.display ?? directPartner ?? '');
+	/* An empty chat with an agent opens on who they are, what they are on, and a few asks. */
+	const agentIntro = $derived.by(() => {
+		const person = directPerson;
+		if (!person || !actorIsAgent(person.actor_id)) return null;
+		const led = teams.find((team) => team.lead_actor_id === person.actor_id);
+		const team = led ?? teams.find((candidate) => candidate.id === person.team_id);
+		const role = person.kind === 'exec' ? 'Runs the company' : person.role || '';
+		const about = [role, team ? `${led ? 'Leads' : 'In'} ${teamName(team.name, companyId)}` : '']
+			.filter(Boolean)
+			.join(' · ');
+		const work = (attention.view?.workGraph?.work ?? [])
+			.filter((item) => item.owner_id === person.actor_id && item.status === 'active')
+			.toSorted((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))[0];
+		const asks = [
+			work ? `Where are you with ${work.title}?` : 'What are you working on?',
+			led ? `What does ${teamName(led.name, companyId)} need from me?` : 'What is in your way?',
+			person.kind === 'exec' ? 'What should I decide this week?' : 'What would you do next?'
+		];
+		return { name: person.display, about, work, asks };
+	});
 	const hereNow = $derived(
 		!!directPerson &&
 			directPerson.kind === 'human' &&
@@ -1696,6 +1716,27 @@
 								name={exchanges.name}
 								host={directPartner}
 							/>
+						{:else if agentIntro}
+							<!-- Before the first message, say who this is and what they are on. -->
+							<div class="conversation-empty">
+								<strong>{agentIntro.name}</strong>
+								{#if agentIntro.about}<p>{agentIntro.about}</p>{/if}
+								{#if agentIntro.work}<p>
+										Working on <a
+											href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(agentIntro.work.id)}`}
+											>{agentIntro.work.title}</a
+										>
+									</p>{/if}
+								<div class="suggested-asks">
+									{#each agentIntro.asks as ask (ask)}
+										<button
+											type="button"
+											title="Puts this in the message box"
+											onclick={() => (composer = ask)}>{ask}</button
+										>
+									{/each}
+								</div>
+							</div>
 						{:else}
 							<div class="conversation-empty">
 								<strong>Nothing said yet.</strong>
@@ -2547,6 +2588,14 @@
 		max-width: 420px;
 		margin: 6px 0 0;
 		font-size: var(--t-body);
+	}
+
+	.suggested-asks {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 6px;
+		margin-top: 6px;
 	}
 
 	.conversation-empty button {
