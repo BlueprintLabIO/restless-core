@@ -30,7 +30,7 @@
 		documentQuery,
 		documentQueryKeys
 	} from '$lib/model/document-queries.svelte';
-	import { useQueryClient } from '@tanstack/svelte-query';
+	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { sameDocumentTarget, type DocumentTarget } from '$lib/model/document-cache';
 	import {
 		deleteArchivedDocument,
@@ -38,6 +38,7 @@
 		documentMarkdownDownload,
 		duplicateDocument,
 		getDocument,
+		getDocumentLinks,
 		getDocumentParticipants,
 		requestDocumentAccess,
 		setDocumentArchived,
@@ -373,6 +374,21 @@
 		}
 	}
 
+	/* What links here: the documents this person can open that link to this one, once each. */
+	const links = createQuery(() => ({
+		queryKey: ['document-links', companyId, documentId, principalId],
+		queryFn: ({ signal }) => getDocumentLinks(companyId, documentId, 50, signal),
+		enabled: Boolean(documentView && principalId),
+		staleTime: 30_000
+	}));
+	const backlinks = $derived.by(() => {
+		const seen = new Map<string, string>();
+		for (const link of links.data?.incoming_document_references ?? [])
+			if (!seen.has(link.source_document_id))
+				seen.set(link.source_document_id, link.source_document_title);
+		return [...seen].map(([id, title]) => ({ id, title }));
+	});
+
 	/* Following, and what others changed since this person last opened it. The notice says what
 	 * was true on arrival; opening the document, and leaving it, reads its changes. */
 	const forYou = useForYou();
@@ -698,6 +714,17 @@
 								: 'Take it out of the Library lists; restore it any time'}
 							onclick={() => void setArchived(!archived)}>{archived ? 'Restore' : 'Archive'}</button
 						>
+					{/if}
+					{#if backlinks.length}
+						<p class="menu-label" title="Documents you can open that link to this one">
+							Linked from
+						</p>
+						{#each backlinks.slice(0, 6) as link (link.id)}
+							<a
+								href={`/${encodeURIComponent(companyId)}/library/documents?document=${encodeURIComponent(link.id)}`}
+								>{link.title}</a
+							>
+						{/each}
 					{/if}
 					{#if mayDelete}
 						<button type="button" class="danger" onclick={() => void deleteForever()}

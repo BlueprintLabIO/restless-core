@@ -145,6 +145,21 @@
 		background: var(--surface-alt);
 		outline: 1px solid var(--border);
 	}
+	/* A quiet line of facts, such as who edited last, and a heading over a group of links. */
+	.document-actions :global(.menu-note) {
+		margin: 0 0 3px;
+		padding: 4px 10px 8px;
+		border-bottom: 1px solid var(--border);
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.document-actions :global(.menu-label) {
+		margin: 3px 0 0;
+		padding: 8px 10px 2px;
+		border-top: 1px solid var(--border);
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
 	.document-actions :global(button:disabled) {
 		opacity: 0.45;
 		cursor: not-allowed;

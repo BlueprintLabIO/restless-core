@@ -544,6 +544,36 @@ export function restoreDocumentVersion(
 	);
 }
 
+/** One reference between documents, named by the document it is written in. */
+export interface DocumentReferenceSummary {
+	source_document_id: string;
+	source_document_title: string;
+	source_named_version_id: string;
+	ordinal: number;
+	target_kind: string;
+	target_id: string;
+	label: string;
+}
+
+/** What a document links to, and the documents the reader can open that link to it. */
+export interface DocumentLinkSummary {
+	document_id: string;
+	linked_room_id: string | null;
+	outgoing: DocumentReferenceSummary[];
+	outgoing_truncated: boolean;
+	incoming_document_references: DocumentReferenceSummary[];
+	incoming_truncated: boolean;
+}
+
+export function getDocumentLinks(
+	company: string,
+	document: string,
+	limit = 50,
+	signal?: AbortSignal
+): Promise<DocumentLinkSummary> {
+	return documentJson(`${documentsPath(company, document)}/links?limit=${limit}`, { signal });
+}
+
 export function getDocumentParticipants(
 	company: string,
 	document: string,
