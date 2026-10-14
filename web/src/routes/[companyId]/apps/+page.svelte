@@ -31,9 +31,14 @@
 	} from '$lib/model/apps';
 	import { useAppsData, viewFrom, isKind, type AppsView } from '$lib/model/apps-data.svelte';
 	import AppMark from '$lib/primitives/AppMark.svelte';
+	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
+	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
 
 	const data = useAppsData();
 	const companyId = $derived(page.params.companyId ?? '');
+	/* An admin reads Apps beside the owner: adding, importing, writing or restoring is the owner's. */
+	const principal = $derived(companyPrincipalQuery(companyId));
+	const owner = $derived(hasOwnerSurfaceAccess(principal.view));
 	let notice = $state('');
 	let actionFailure = $state('');
 	let busy = $state('');
@@ -50,8 +55,10 @@
 	let skillSteps = $state('');
 
 	const view = $derived<AppsView>(viewFrom(page.url.searchParams.get('view')) ?? 'ask');
-	const linking = $derived(page.url.searchParams.get('add') === 'link' && !linkDismissed);
-	const writing = $derived(page.url.searchParams.get('add') === 'skill' && !skillDismissed);
+	const linking = $derived(owner && page.url.searchParams.get('add') === 'link' && !linkDismissed);
+	const writing = $derived(
+		owner && page.url.searchParams.get('add') === 'skill' && !skillDismissed
+	);
 	const route = (key: string) =>
 		`/${encodeURIComponent(companyId)}/apps/${encodeURIComponent(key)}`;
 	const failure = $derived(actionFailure || data.failure);
@@ -88,11 +95,11 @@
 	const options = $derived.by<Option[]>(() => {
 		if (!term) return [];
 		const mine = data.inUse.filter(matches).slice(0, 4);
-		const add = data.browse.filter(matches).slice(0, 4);
+		const add = owner ? data.browse.filter(matches).slice(0, 4) : [];
 		return [
 			...mine.map((app) => ({ id: `open:${app.key}`, kind: 'open' as const, app })),
 			...add.map((app) => ({ id: `add:${app.key}`, kind: 'add' as const, app })),
-			...(/^https?:\/\/\S+$/i.test(term)
+			...(owner && /^https?:\/\/\S+$/i.test(term)
 				? [{ id: 'link', kind: 'link' as const, value: term }]
 				: []),
 			...unlistedFor(term).map((service) => ({
@@ -248,12 +255,14 @@
 				await sendActorMessage(
 					companyId,
 					'exec',
-					`The company should be able to: ${value}. Find the app that does this and bring it to me to add, or tell me if nothing fits.`,
+					`The company should be able to: ${value}. Find the app that does this and bring it to ${owner ? 'me' : 'the owner'} to add, or tell me if nothing fits.`,
 					undefined,
 					[],
 					`/${companyId}/apps`
 				);
-				notice = `Asked Exec. Its answer comes to your conversation, and anything to add waits here.`;
+				notice = owner
+					? `Asked Exec. Its answer comes to your conversation, and anything to add waits here.`
+					: `Asked Exec. Its answer comes to your conversation; anything to add waits here for the owner.`;
 				query = '';
 			},
 			'Exec was not asked. Try again.'
@@ -343,13 +352,15 @@
 
 <Page
 	{title}
-	info={view === 'ask'
-		? 'Say what the company should be able to do, or type an app’s name. Exec finds what fits and brings it here to add. Each app shows what it may do, and asks you before it acts the first time.'
-		: view === 'removed'
-			? 'Know-how you removed. Agents no longer follow it; restoring it makes it company know-how again.'
-			: isKind(view)
-				? KIND_INFO[view]
-				: undefined}
+	info={view === 'ask' && !owner
+		? 'What the company can do with its apps, and how much it may do without asking. Search them, or ask Exec what would fit; adding an app is the owner’s.'
+		: view === 'ask'
+			? 'Say what the company should be able to do, or type an app’s name. Exec finds what fits and brings it here to add. Each app shows what it may do, and asks you before it acts the first time.'
+			: view === 'removed'
+				? 'Know-how you removed. Agents no longer follow it; restoring it makes it company know-how again.'
+				: isKind(view)
+					? KIND_INFO[view]
+					: undefined}
 >
 	{#if failure}<Notice
 			tone="danger"
@@ -548,7 +559,7 @@
 								title={request.work_title ? `For “${request.work_title}”` : undefined}
 								>{request.asker} asked</span
 							>
-							<a class="btn small primary" href={request.href(companyId)}>Add</a>
+							{#if owner}<a class="btn small primary" href={request.href(companyId)}>Add</a>{/if}
 						{/snippet}
 					</Item>
 				{/each}
@@ -646,13 +657,13 @@
 					<Item title={app.name} meta={app.description} href={route(app.key)} dim>
 						{#snippet leading()}{@render mark(app)}{/snippet}
 						{#snippet trailing()}
-							<button
-								class="btn small"
-								type="button"
-								disabled={!!busy}
-								onclick={() => void restore(app)}
-								>{busy === `restore:${app.key}` ? 'Restoring…' : 'Restore'}</button
-							>
+							{#if owner}<button
+									class="btn small"
+									type="button"
+									disabled={!!busy}
+									onclick={() => void restore(app)}
+									>{busy === `restore:${app.key}` ? 'Restoring…' : 'Restore'}</button
+								>{/if}
 						{/snippet}
 					</Item>
 				{:else}
@@ -668,23 +679,27 @@
 						{#snippet leading()}{@render mark(app)}{/snippet}
 						{#snippet trailing()}
 							<span class="level" title={app.howTip}>{connectTag(app)}</span>
-							<button
-								class="btn small"
-								type="button"
-								disabled={!!busy}
-								aria-label={`Add ${app.name}`}
-								title={app.catalogue?.auth === 'token'
-									? `Opens ${app.name} to choose or paste the token it uses, then adds it.`
-									: `Adds ${app.name} and checks it answers. Sign-in, then what it may do, come next.`}
-								onclick={() => void addCatalogue(app)}
-								>{busy === `add:${app.key}` ? 'Adding…' : 'Add'}</button
-							>
+							{#if owner}<button
+									class="btn small"
+									type="button"
+									disabled={!!busy}
+									aria-label={`Add ${app.name}`}
+									title={app.catalogue?.auth === 'token'
+										? `Opens ${app.name} to choose or paste the token it uses, then adds it.`
+										: `Adds ${app.name} and checks it answers. Sign-in, then what it may do, come next.`}
+									onclick={() => void addCatalogue(app)}
+									>{busy === `add:${app.key}` ? 'Adding…' : 'Add'}</button
+								>{/if}
 						{/snippet}
 					</Item>
 				{/each}
 			</Section>
 		{:else if view === 'all' || (!isKind(view) && !['ask', 'waiting', 'in-use', 'removed'].includes(view))}
-			<Empty compact title="Everything here is already added" info="Add one from a link instead." />
+			<Empty
+				compact
+				title="Everything here is already added"
+				info={owner ? 'Add one from a link instead.' : undefined}
+			/>
 		{/if}
 	{/if}
 </Page>

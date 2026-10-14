@@ -82,6 +82,7 @@
 
 	/* Who know-how can be given to: the company's teams and agents (owner only). */
 	const principal = $derived(companyPrincipalQuery(companyId));
+	/* An admin reads every app beside the owner; adding, allowing or changing one is the owner's. */
 	const owner = $derived(principal.view?.membership_role === 'owner');
 	const cockpit = $derived(cockpitQuery(companyId, () => owner));
 	const teams = $derived(cockpit.view?.teams ?? []);
@@ -439,7 +440,10 @@
 	}
 
 	const editable = (skill: SkillRow) =>
-		skill.source !== 'builtin' && skill.source !== 'project' && skill.disposition !== 'retired';
+		owner &&
+		skill.source !== 'builtin' &&
+		skill.source !== 'project' &&
+		skill.disposition !== 'retired';
 	const body = (text: string) => text.replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim();
 
 	async function saveSkill(skill: SkillRow) {
@@ -499,7 +503,9 @@
 					>Since {formatDay(connection.ended_at)}</span
 				>{/if}
 			<span class="spacer"></span>
-			{#if connection.status === 'awaiting_sign_in' || connection.failure === 'sign_in_required'}
+			{#if !owner}
+				<!-- An admin reads its state; signing in or checking it again is the owner's. -->
+			{:else if connection.status === 'awaiting_sign_in' || connection.failure === 'sign_in_required'}
 				<button
 					class="btn small primary"
 					type="button"
@@ -527,7 +533,7 @@
 					title={grant
 						? 'On: the company may use it as allowed below. Turn off to take that away at once and keep the sign-in.'
 						: 'Off: nothing is allowed, and the sign-in is kept. Turn on to allow exactly what it could do before.'}
-					disabled={!!busy}
+					disabled={!!busy || !owner}
 					onchange={() => void setOn(connection, !grant)}
 				/>
 				<span class="quiet">On</span>
@@ -539,7 +545,7 @@
 					title={connection.frozen
 						? 'Frozen: anything that changes something is refused at once. Reading still works.'
 						: 'Freeze to refuse every call that changes something, at once. Reading keeps working.'}
-					disabled={!!busy}
+					disabled={!!busy || !owner}
 					onchange={() =>
 						void act(
 							`freeze:${connection.name}`,
@@ -556,7 +562,7 @@
 					title={connection.browser
 						? 'It drives the company computer’s browser, with the sign-ins you made there. Turn off to take that away.'
 						: 'Let it drive the company computer’s browser and the sign-ins you made there, such as a marketplace account. Only for tools you trust with those accounts.'}
-					disabled={!!busy}
+					disabled={!!busy || !owner}
 					onchange={() =>
 						void act(
 							`browser:${connection.name}`,
@@ -574,7 +580,7 @@
 				class="last-output"
 				title="What it printed last. Exec and Staff see this too, and can fix what they can.">{connection.last_output.trim()}</pre>
 		{/if}
-		{#if connection.kind === 'remote'}
+		{#if owner && connection.kind === 'remote'}
 			<Fold
 				label={connection.auth_type === 'oauth'
 					? 'Change address or sign in again'
@@ -636,7 +642,7 @@
 			info="Each tool is either used freely, used with a receipt (and asks you before reaching anyone new), or asks you every time. Changes apply to the next call."
 		>
 			{#snippet actions()}
-				{#if !granted(connection) || dirty(connection)}
+				{#if owner && (!granted(connection) || dirty(connection))}
 					<select
 						aria-label="For how long"
 						title="How long it may do this. When it ends, it turns off on its own and keeps the sign-in."
@@ -678,7 +684,7 @@
 								<Segmented
 									label={`What ${tool.name} may do`}
 									value={classOf(connection, tool.name)}
-									disabled={!!busy}
+									disabled={!!busy || !owner}
 									options={(['reads', 'acts', 'reserved'] as ToolClass[]).map((value) => ({
 										value,
 										label: CLASS_LABEL[value].label,
@@ -761,7 +767,9 @@
 					>Scripts</span
 				>{/if}
 			<span class="spacer"></span>
-			{#if skill.disposition === 'candidate'}
+			{#if !owner}
+				<!-- An admin reads the know-how; accepting, giving or removing it is the owner's. -->
+			{:else if skill.disposition === 'candidate'}
 				<button
 					class="btn small primary"
 					type="button"
@@ -800,7 +808,7 @@
 						)}
 				/>
 				<span class="quiet">Everyone</span>
-				{#if owner && (teams.length || agents.length)}
+				{#if teams.length || agents.length}
 					<select
 						aria-label={`Give ${skillName(skill.name)} to a team or agent`}
 						title="Give it to one team or agent directly. They can use it even while it is off for everyone."
@@ -984,7 +992,7 @@
 			/>
 		{/snippet}
 		{#snippet actions()}
-			{#if app && (app.connections.some((connection) => connection.status !== 'disconnected') || (app.kind === 'bundle' && app.skills.some((skill) => skill.disposition !== 'retired')))}
+			{#if owner && app && (app.connections.some((connection) => connection.status !== 'disconnected') || (app.kind === 'bundle' && app.skills.some((skill) => skill.disposition !== 'retired')))}
 				<button
 					class="btn small ghost"
 					type="button"
@@ -1012,14 +1020,14 @@
 				<p class="request-line">
 					<span class="asked">{request.asker} asked</span><span class="reason"
 						>{request.reason}</span
-					><button
-						type="button"
-						class="link-button"
-						aria-expanded={declining}
-						title={`Not needed. ${request.asker} stops waiting on it; you can say why or what to use instead.`}
-						disabled={!!busy}
-						onclick={() => (declining = !declining)}>Not needed</button
-					>
+					>{#if owner}<button
+							type="button"
+							class="link-button"
+							aria-expanded={declining}
+							title={`Not needed. ${request.asker} stops waiting on it; you can say why or what to use instead.`}
+							disabled={!!busy}
+							onclick={() => (declining = !declining)}>Not needed</button
+						>{/if}
 				</p>
 				{#if declining}
 					<form
@@ -1058,7 +1066,9 @@
 				<div class="status">
 					<span title={app.howTip}>{app.how}</span>
 					<span class="spacer"></span>
-					{#if app.catalogue?.auth === 'token'}
+					{#if !owner}
+						<span class="quiet" title="Adding an app is the owner's.">Not added</span>
+					{:else if app.catalogue?.auth === 'token'}
 						<TokenPicker
 							{companyId}
 							app={app.catalogue.key}
@@ -1082,12 +1092,12 @@
 				<div class="status">
 					<span class="quiet">{pendingLink}</span>
 					<span class="spacer"></span>
-					<button
-						class="btn small primary"
-						type="button"
-						disabled={!!busy}
-						onclick={() => void add()}>{busy === 'add' ? 'Adding…' : 'Add'}</button
-					>
+					{#if owner}<button
+							class="btn small primary"
+							type="button"
+							disabled={!!busy}
+							onclick={() => void add()}>{busy === 'add' ? 'Adding…' : 'Add'}</button
+						>{/if}
 				</div>
 			</Section>
 		{:else if app}

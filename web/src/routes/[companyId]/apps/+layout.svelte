@@ -3,6 +3,8 @@
 	 * default), what waits on the owner, what is in use by kind, and everything to add by category.
 	 * Counts come from the same read as the page, so they agree. */
 	import { page } from '$app/state';
+	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
+	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
 	import Sparkles from '@lucide/svelte/icons/sparkles';
 	import Inbox from '@lucide/svelte/icons/inbox';
 	import Globe2 from '@lucide/svelte/icons/cloud';
@@ -46,6 +48,9 @@
 	const companyId = $derived(page.params.companyId ?? '');
 	const data = createAppsData(() => companyId);
 	provideAppsData(data);
+	/* An admin reads Apps beside the owner; adding apps or writing know-how is the owner's. */
+	const principal = $derived(companyPrincipalQuery(companyId));
+	const owner = $derived(hasOwnerSurfaceAccess(principal.view));
 
 	const ICONS: Record<string, typeof LayoutGrid> = {
 		Communication: MessageSquare,
@@ -94,16 +99,16 @@
 
 <SidebarShell label="Apps" title="Apps">
 	{#snippet action()}
-		<SidebarHeadButton
-			href={`${index}?add=link`}
-			label="Add from a link: a service's MCP address, a plugin or skill on GitHub, or a command"
-			icon={Link2}
-		/>
-		<SidebarHeadButton
-			href={`${index}?add=skill`}
-			label="Write new know-how: instructions the company follows once you accept them"
-			icon={BookPlus}
-		/>
+		{#if owner}<SidebarHeadButton
+				href={`${index}?add=link`}
+				label="Add from a link: a service's MCP address, a plugin or skill on GitHub, or a command"
+				icon={Link2}
+			/>
+			<SidebarHeadButton
+				href={`${index}?add=skill`}
+				label="Write new know-how: instructions the company follows once you accept them"
+				icon={BookPlus}
+			/>{/if}
 	{/snippet}
 	{#snippet nav()}
 		<SidebarRow
@@ -207,15 +212,15 @@
 							>{row.view} <span class="n">{row.count}</span></a
 						>
 					{/each}
-					<a
-						href={`${index}?add=link`}
-						title="A service's MCP address, a plugin or skill on GitHub, or a command"
-						>Add from a link</a
-					>
-					<a
-						href={`${index}?add=skill`}
-						title="Instructions the company follows once you accept them">Write new know-how</a
-					>
+					{#if owner}<a
+							href={`${index}?add=link`}
+							title="A service's MCP address, a plugin or skill on GitHub, or a command"
+							>Add from a link</a
+						>
+						<a
+							href={`${index}?add=skill`}
+							title="Instructions the company follows once you accept them">Write new know-how</a
+						>{/if}
 				</ActionMenu>
 			</span>
 		</div>
