@@ -391,15 +391,18 @@ export async function runExecCommand(
 	send: boolean;
 	/** Puts back what the command just stopped or closed; resolves to what it says then. */
 	undo?: () => Promise<string>;
+	/** The goal this command created before its words go to Exec: a retry must not create it again. */
+	createdGoal?: string;
 }> {
 	const command = parseComposerCommand(text);
 	if (!command) return { send: true };
 	switch (command.kind) {
 		case 'invalid':
 			return { error: command.message, send: false };
-		case 'goal-set':
-			await addGoal(company, command.objective);
-			return { send: true };
+		case 'goal-set': {
+			const goal = await addGoal(company, command.objective);
+			return { send: true, createdGoal: goal.goal_id };
+		}
 		case 'goal-show': {
 			const open = (await listGoals(company)).filter((goal) => !goal.closed_at);
 			return {

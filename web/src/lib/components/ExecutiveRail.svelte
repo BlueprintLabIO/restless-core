@@ -512,6 +512,9 @@
 	let contextFlare = $state(0);
 	let askError = $state('');
 	let askNotice = $state('');
+	/* The words of a `/goal` whose goal exists but whose message did not reach Exec: sending the
+	 * same words again only delivers the message, so a retry never makes a second goal. */
+	let goalCreatedFor = $state('');
 	/* A command that stopped a loop or closed a goal can be put back from its notice. */
 	let noticeUndo = $state<{ notice: string; run: () => Promise<string> } | null>(null);
 	async function undoCommand() {
@@ -1009,9 +1012,9 @@
 		const skills = composerSkills;
 		composer = '';
 		try {
-			const command: Awaited<ReturnType<typeof runCommand>> = typed
-				? await runCommand(typed)
-				: { send: true };
+			const command: Awaited<ReturnType<typeof runCommand>> =
+				typed && typed !== goalCreatedFor ? await runCommand(typed) : { send: true };
+			if (command.createdGoal) goalCreatedFor = typed;
 			if (!command.send) {
 				if (command.error) {
 					composer = sent;
@@ -1049,6 +1052,7 @@
 				newFocusPending = false;
 				retryCommandId = null;
 				retryBody = '';
+				goalCreatedFor = '';
 				askNotice = outcome.notice ?? leftForLater;
 			}
 		} catch (cause) {

@@ -1061,7 +1061,10 @@
 		const recipientActor = directPartner;
 		const targetConversation = actorConversation;
 		const skills = [...composerSkills];
-		if (typed && sendAsAccountableLead && recipientActor === 'exec' && ownerAccess) {
+		/* A retry of the same words already ran their command (a `/goal` made its goal): it only
+		 * delivers the message, so the goal is never created twice. */
+		const retrying = !!retryCommandId && retryBody === body;
+		if (typed && sendAsAccountableLead && recipientActor === 'exec' && ownerAccess && !retrying) {
 			const command = await runExecCommand(targetCompany, body).catch((cause) => ({
 				error: failureSentence(cause, 'That command did not run.'),
 				send: false,
