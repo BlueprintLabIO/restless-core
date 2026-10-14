@@ -282,11 +282,15 @@
 									>{/if}
 								{#each presets as m}<option value={m.id}
 										>{m.name}{'default' in m && m.default ? ' (recommended)' : ''}</option
-									>{/each}<option value="__custom">Custom model…</option>
+									>{/each}<option value="__custom">Custom model ID…</option>
 							</select></label
 						>
 						{#if custom}<label
-								><span>Model ID</span><input bind:value={model} required disabled={busy} /></label
+								><span>Full model ID</span><input
+									bind:value={model}
+									required
+									disabled={busy}
+								/></label
 							>{/if}
 						<div class="bar">
 							<button class="btn primary small" disabled={busy || !connection || !model.trim()}

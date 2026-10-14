@@ -1,6 +1,6 @@
 # Sprint 85 — The owner's 14 October list, fixed to the bar
 
-**Status:** landed except S85-21, which waits on the owner (which labels to use); each item's commit names it
+**Status:** landed; each item's commit names it (S85-21 took the spec's default labels)
 **Programme:** owner feedback; quality of the cockpit
 **Depends on:** Sprint 84 (seed, probes, motion checks). Every item is verified in the built-in browser on
 the Reno-scale seed, at desktop and phone width.

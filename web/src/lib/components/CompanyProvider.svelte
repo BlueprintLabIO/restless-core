@@ -609,7 +609,7 @@
 								</select></label
 							>
 							{#if grantCustomModels[item.id]}<label class="field-label"
-									><span>Model ID</span><input
+									><span>Full model ID</span><input
 										aria-label={`Full model ID for ${item.label}`}
 										placeholder={`${item.provider}/model-id`}
 										bind:value={grantModels[item.id]}
@@ -830,7 +830,7 @@
 								</select></label
 							>
 							{#if advancedCustomModel}<label class="field-label"
-									><span>Model ID</span><input
+									><span>Full model ID</span><input
 										placeholder={`${selected}/model-id`}
 										bind:value={advancedModel}
 										disabled={busy}
