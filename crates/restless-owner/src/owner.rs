@@ -1536,6 +1536,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(company_settings_api::save_spend_limit),
         )
         .route(
+            "/companies/{company}/company/spend-exact",
+            post(company_settings_api::resume_exact_spend),
+        )
+        .route(
             "/companies/{company}/company/activity",
             get(company_settings_api::governance_activity),
         )

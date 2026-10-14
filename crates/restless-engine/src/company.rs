@@ -200,6 +200,24 @@ struct SpendLimit {
     period_start: Option<DateTime<Utc>>,
     /// The share of the ceiling at which the Inbox warns.
     warning_percent: u8,
+    /// Spend since the company started, by actor and model, largest first.
+    by_actor: Vec<SpendShare>,
+    /// Model calls whose price never arrived, which make `accounted_usd` a lower bound.
+    unpriced: Vec<UnpricedCall>,
+}
+
+#[derive(Debug, Serialize)]
+struct SpendShare {
+    actor: String,
+    model: String,
+    spent_usd: f64,
+}
+
+#[derive(Debug, Serialize)]
+struct UnpricedCall {
+    actor: String,
+    model: String,
+    occurred_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize)]
@@ -412,6 +430,32 @@ pub async fn project(
             crate::spend::ModelBudgetState::Exhausted { .. } => "exhausted",
             crate::spend::ModelBudgetState::MeteringUnknown { .. } => "metering_unknown",
         },
+        by_actor: {
+            let mut shares: Vec<SpendShare> = daemon
+                .spend
+                .breakdown(&config.name)
+                .into_iter()
+                .map(|(actor, model, usd)| SpendShare {
+                    actor,
+                    model,
+                    spent_usd: round_usd(usd),
+                })
+                .collect();
+            shares.sort_by(|a, b| b.spent_usd.total_cmp(&a.spent_usd));
+            shares
+        },
+        unpriced: daemon
+            .spend
+            .unknown_requests(&config.name)
+            .into_iter()
+            .rev()
+            .take(20)
+            .map(|record| UnpricedCall {
+                actor: record.actor_id,
+                model: record.model,
+                occurred_at: record.occurred_at,
+            })
+            .collect(),
     };
 
     let now = Utc::now();

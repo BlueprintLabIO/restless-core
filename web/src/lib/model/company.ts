@@ -54,6 +54,10 @@ export interface CompanyView {
 			period_start?: string | null;
 			/** The share of the limit, in percent, at which the Inbox warns. */
 			warning_percent: number;
+			/** Spend since the company started, by actor and model, largest first. */
+			by_actor?: Array<{ actor: string; model: string; spent_usd: number }>;
+			/** Model calls that reported no price, newest first; they make the total a lower bound. */
+			unpriced?: Array<{ actor: string; model: string; occurred_at: string }>;
 		};
 		/** Native-harness use (Codex or Claude on their own sign-in) this UTC month. */
 		native: {
@@ -480,6 +484,11 @@ export function saveSpendLimit(
 	}
 ) {
 	return postCompany<CompanyView>(company, '/company/spend-limit', body);
+}
+
+/** Resume exact spend accounting after unpriced model calls; the answer is the company view. */
+export function resumeExactSpend(company: string) {
+	return postCompany<CompanyView>(company, '/company/spend-exact', {});
 }
 
 /** Pause or resume every outside action; the answer is the company view. */

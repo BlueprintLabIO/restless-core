@@ -226,6 +226,49 @@ pub(super) async fn save_spend_limit(
     Json(company_projection::project(&state.daemon, &config, false).await).into_response()
 }
 
+/// Resume exact spend accounting after the owner has seen which model calls reported no
+/// price, as `restless clear-poison` does. The unpriced calls stay in the spend record as the
+/// incident; from now on they no longer hold the total at a lower bound.
+pub(super) async fn resume_exact_spend(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+) -> impl IntoResponse {
+    if let Err(refusal) = require_authority_owner(&state, &company, &principal).await {
+        return refusal;
+    }
+    let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(e) => return api_error(StatusCode::NOT_FOUND, "company", format!("{e:#}")),
+    };
+    let unpriced = state.daemon.spend.unknown_requests(&company).len();
+    if let Err(e) = state
+        .daemon
+        .authority
+        .emit(
+            &company,
+            "spend_poison_cleared",
+            Some(principal.actor_id()),
+            serde_json::json!({ "unpriced_calls": unpriced }),
+        )
+        .await
+    {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "authority",
+            format!("The change could not be recorded: {e:#}"),
+        );
+    }
+    if let Err(e) = state.daemon.spend.clear_poison(&company) {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "spend",
+            format!("Exact accounting did not resume: {e:#}"),
+        );
+    }
+    Json(company_projection::project(&state.daemon, &config, false).await).into_response()
+}
+
 #[derive(Deserialize)]
 pub(super) struct RuntimePolicyInput {
     auto_sleep_after_minutes: Option<u16>,

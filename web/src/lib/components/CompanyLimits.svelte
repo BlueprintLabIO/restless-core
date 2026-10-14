@@ -13,7 +13,8 @@
 		saveRuntimePolicy as postRuntimePolicy,
 		saveSpendLimit as postSpendLimit,
 		saveOutsideActions,
-		savePaymentAllowance
+		savePaymentAllowance,
+		resumeExactSpend
 	} from '$lib/model/company';
 	import { approvalAction } from '$lib/model/attention';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
@@ -158,6 +159,30 @@
 			limitSaving = false;
 		}
 	}
+	/* Unpriced calls hold the total at a lower bound until the owner, having seen them, resumes
+	 * exact accounting; the calls stay on record as the incident. */
+	let resuming = $state(false),
+		resumeError = $state('');
+	async function resumeExact(unpriced: number) {
+		if (resuming) return;
+		const yes = await confirmAction({
+			title: 'Resume exact accounting?',
+			body: `${unpriced ? `The ${unpriced === 1 ? 'call' : `${unpriced} calls`} without a price stay${unpriced === 1 ? 's' : ''} on record but no longer count as unknown spend.` : 'Accounting was interrupted; the record of it stays.'} From now on the total is exact again, so it may understate what those calls cost.`,
+			action: 'Resume exact accounting'
+		});
+		if (!yes) return;
+		resuming = true;
+		resumeError = '';
+		try {
+			source.accept(await resumeExactSpend(companyId));
+			toast('Exact accounting resumed');
+		} catch (error) {
+			resumeError = failureSentence(error, 'Exact accounting did not resume.');
+		} finally {
+			resuming = false;
+		}
+	}
+	const who = (actor: string) => (actor === 'exec' ? 'Exec' : actor);
 	let revoking = $state(''),
 		revokeError = $state('');
 	async function revokeContact(party: string) {
@@ -335,9 +360,11 @@
 			<div class="meter-row">
 				<div class="meter-copy">
 					<strong
-						>{spend.status === 'metering_unknown' ? 'At least ' : ''}{money(
-							spend.accounted_usd
-						)}</strong
+						>{#if spend.status === 'metering_unknown'}<span
+								class="lower-bound"
+								title="Some model calls reported no price, so actual spend may be higher. Charged work continues until known spend reaches the limit."
+								>At least</span
+							>{' '}{/if}{money(spend.accounted_usd)}</strong
 					>
 					<span
 						>of {money(spend.ceiling_usd)}
@@ -360,6 +387,49 @@
 					<i style={`width: ${share}%`}></i>
 				</div>
 			</div>
+			{#if spend.status === 'metering_unknown'}
+				{@const unpriced = spend.unpriced ?? []}
+				<Notice
+					tone="warning"
+					title={unpriced.length
+						? `${unpriced.length === 1 ? 'One model call' : `${unpriced.length} model calls`} reported no price`
+						: 'Spend accounting was interrupted'}
+				>
+					The total is a lower bound. The limit still stops model work once known spend reaches it.
+					{#snippet actions()}<button
+							class="btn small"
+							type="button"
+							disabled={resuming}
+							onclick={() => void resumeExact(unpriced.length)}
+							>{resuming ? 'Resuming…' : 'Resume exact accounting…'}</button
+						>{/snippet}
+				</Notice>
+				{#if unpriced.length}<Fold label="Calls without a price" count={unpriced.length}>
+						{#each unpriced as call, index (index)}<Item
+								title={call.model}
+								meta={`${who(call.actor)} · ${new Date(call.occurred_at).toLocaleString()}`}
+							/>{/each}
+					</Fold>{/if}
+				{#if resumeError}<Notice tone="danger" title="Nothing changed">{resumeError}</Notice>{/if}
+			{/if}
+			{#if spend.by_actor?.length}
+				{@const total = spend.by_actor.reduce((sum, row) => sum + row.spent_usd, 0)}
+				<Fold
+					label={monthly ? 'By agent and model, all time' : 'By agent and model'}
+					count={spend.by_actor.length}
+				>
+					{#each spend.by_actor as row (`${row.actor}:${row.model}`)}<Item
+							title={who(row.actor)}
+							meta={row.model}
+						>
+							{#snippet trailing()}<span class="share"
+									>{money(row.spent_usd)} · {total > 0
+										? Math.round((row.spent_usd / total) * 100)
+										: 0}%</span
+								>{/snippet}
+						</Item>{/each}
+				</Fold>
+			{/if}
 			{#if editingLimit}
 				<form
 					class="inline-form"
@@ -788,6 +858,15 @@
 {/if}
 
 <style>
+	.lower-bound {
+		text-decoration: underline dotted;
+		text-underline-offset: 3px;
+		cursor: help;
+	}
+	.share {
+		font-variant-numeric: tabular-nums;
+		color: var(--text-secondary);
+	}
 	.meter-row {
 		display: grid;
 		gap: 10px;
