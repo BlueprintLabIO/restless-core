@@ -84,3 +84,20 @@ test('invalid final cell yields no accepted partial result; structural limits re
   const commands=Array.from({length:200},()=>({type:'ADD_COLUMNS_ROWS',sheetId:'Sheet1',dimension:'ROW',position:'after',base:0,quantity:50000}));
   await assert.rejects(execute({...blank,snapshot:base,revision:{type:'REMOTE_REVISION',version:1,serverRevisionId:base.revisionId,nextRevisionId:randomUUID(),clientId:randomUUID(),commands}}),/dimensions/);
 });
+test('restoring a saved version in place replays to its cells and worksheets', async () => {
+  const base=(await execute(blank)).workbook;
+  const first=await execute({...blank,snapshot:base,operation:{action:'set_cells',values:[['Item','Q1'],['Rent',{content:40,format:'0.00'}],['Total','=B2']]}});
+  const saved=first.workbook;
+  let messages=first.messages;
+  const later=[{action:'set_cells',values:[['Changed','Q1'],['Rent',99],[''],['Extra','x']]},{action:'create_worksheet',name:'Scratch'}];
+  for(const operation of later){const next=await execute({...blank,snapshot:base,messages,operation});messages=[...messages,...next.messages];}
+  const restore=await execute({...blank,snapshot:base,messages,operation:{action:'restore_workbook',workbook:saved}});
+  assert.equal(restore.result.worksheets,1);
+  const replayed=await execute({...blank,snapshot:base,messages:[...messages,...restore.messages],operation:{action:'snapshot'}});
+  const sheet=replayed.result.workbook.sheets;
+  assert.deepEqual(sheet.map(s=>s.id),saved.sheets.map(s=>s.id),'the worksheet added later is gone');
+  assert.deepEqual(sheet[0].cells,saved.sheets[0].cells);
+  assert.deepEqual(sheet[0].formats,saved.sheets[0].formats);
+  const again=await execute({...blank,snapshot:base,messages:[...messages,...restore.messages],operation:{action:'restore_workbook',workbook:saved}});
+  assert.equal(again.result.changed_cells,0,'restoring the same version again changes nothing');
+});

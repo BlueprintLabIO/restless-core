@@ -58,6 +58,10 @@ where
             post(restore),
         )
         .route(
+            "/companies/{company}/sheets/{sheet}/versions/{version}/revert",
+            post(revert),
+        )
+        .route(
             "/companies/{company}/sheets/{sheet}/collaboration",
             get(collaboration),
         )
@@ -614,6 +618,32 @@ async fn restore(
             version,
             id: i.id,
             title: i.title,
+        },
+    )
+    .await
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Revert {
+    expected_revision: String,
+    key: Uuid,
+}
+/// Put the sheet itself back as a saved version had it; Restore above makes a copy instead.
+async fn revert(
+    State(s): State<RoomApiState>,
+    RoomPrincipal(p): RoomPrincipal,
+    AxumPath((c, id, version)): AxumPath<(String, Uuid, Uuid)>,
+    Json(i): Json<Revert>,
+) -> Response<Body> {
+    run(
+        s,
+        p,
+        c,
+        SheetOperation::RestoreVersion {
+            sheet: id,
+            version,
+            expected_revision: i.expected_revision,
+            key: i.key,
         },
     )
     .await

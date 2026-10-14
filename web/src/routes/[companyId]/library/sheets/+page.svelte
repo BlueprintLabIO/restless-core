@@ -53,6 +53,8 @@
 		id: string;
 		title: string | null;
 		sequence: number;
+		/** Who saved it, or whose edits an autosave holds. */
+		actor_id: string;
 		created_at: string;
 	}
 	const company = $derived(page.params.companyId ?? '');
@@ -548,6 +550,50 @@
 				}),
 			(copy) => void goto(`${sheetHref(company, copy.id)}&rename=1`)
 		);
+	/* Restoring puts this sheet back as the version had it, for everyone and under its own link.
+	 * It saves a version first, as importing does, so History can always bring back what was there. */
+	async function restoreInPlace(version: Version) {
+		const yes = await confirmAction({
+			title: `Restore ${versionName(version)}?`,
+			body: 'Every tab’s cells, formulas and formatting go back to this version. A version of the sheet as it is now is saved first, so History can bring it back.',
+			action: 'Restore'
+		});
+		if (!yes) return;
+		const expected_revision = revision;
+		const kept = await act(
+			() =>
+				sheetJson(company, `/${sheet}/versions`, {
+					method: 'POST',
+					body: JSON.stringify({
+						key: crypto.randomUUID(),
+						expected_revision,
+						title: `Before restoring ${versionName(version)}`.slice(0, 200)
+					})
+				}),
+			undefined,
+			'The version wasn’t restored'
+		);
+		if (!kept) return;
+		await act(
+			() =>
+				sheetJson(company, `/${sheet}/versions/${version.id}/revert`, {
+					method: 'POST',
+					body: JSON.stringify({ key: crypto.randomUUID(), expected_revision })
+				}),
+			() => {
+				toast(`Restored ${versionName(version)}`);
+				void loadVersions();
+			},
+			'The version wasn’t restored'
+		);
+	}
+	const versionBy = (version: Version) =>
+		version.actor_id === 'daemon'
+			? ''
+			: version.actor_id === principal.view?.actor_id
+				? 'You'
+				: (directory.view?.people.find((person) => person.actor_id === version.actor_id)?.display ??
+					'');
 	const stateLabel = $derived(
 		saveState === 'saved'
 			? access === 'edit'
@@ -879,7 +925,9 @@
 							{#each versions as version (version.id)}
 								<Item
 									title={version.title ?? 'Autosave'}
-									meta={version.title ? 'Saved version' : null}
+									meta={[version.title ? 'Saved version' : '', versionBy(version)]
+										.filter(Boolean)
+										.join(' · ') || null}
 								>
 									{#snippet trailing()}<RelativeTime value={version.created_at} />{/snippet}
 									{#snippet actions()}
@@ -887,8 +935,16 @@
 											<button type="button" onclick={() => void showChanges(version)}
 												>What changed</button
 											>
-											<button type="button" onclick={() => recover(version)}
-												>Recover as a copy</button
+											{#if canManage || access === 'edit'}<button
+													type="button"
+													disabled={!ready}
+													title="Put this sheet back as it was; the current state is saved first"
+													onclick={() => void restoreInPlace(version)}>Restore this version</button
+												>{/if}
+											<button
+												type="button"
+												title="A new private sheet from this version; this one stays as it is"
+												onclick={() => recover(version)}>Recover as a copy</button
 											>
 											<button
 												type="button"

@@ -218,6 +218,53 @@ async function importWorkbook(source) {
   return new Model(data).exportData();
 }
 
+// Puts every worksheet back as a saved version had it, in place and as one
+// change in the log: worksheets the version lacked are removed, ones it had
+// return, and each cell's content, style and number format is set to the
+// version's. Merges, widths and other sheet settings stay as they are now.
+async function restoreWorkbook(model, saved) {
+  requireValue(saved && typeof saved === 'object' && !Array.isArray(saved) && Array.isArray(saved.sheets), 'Expected a saved version to restore');
+  boundWorkbook(saved);
+  const { revisionId: _saved, ...data } = saved;
+  const target = new Model(data);
+  const wanted = target.getters.getSheetIds();
+  requireValue(wanted.length > 0, 'The saved version has no worksheet');
+  for (const [index, sheetId] of wanted.entries()) {
+    if (model.getters.getSheetIds().includes(sheetId)) continue;
+    const name = target.getters.getSheetName(sheetId);
+    const free = !model.getters.getSheetIdByName(name);
+    dispatch(model, 'CREATE_SHEET', { sheetId, name: free ? name : model.getters.getNextSheetName(name), position: index });
+  }
+  for (const sheetId of model.getters.getSheetIds())
+    if (!wanted.includes(sheetId)) dispatch(model, 'DELETE_SHEET', { sheetId, sheetName: model.getters.getSheetName(sheetId) });
+  const commands = [];
+  let changed = 0;
+  for (const sheetId of wanted) {
+    const positions = new Map();
+    for (const source of [model, target])
+      for (const id of Object.keys(source.getters.getCells(sheetId))) {
+        const at = source.getters.getCellPosition(id);
+        positions.set(`${at.col}:${at.row}`, at);
+      }
+    const size = model.getters.getSheetSize(sheetId), need = target.getters.getSheetSize(sheetId);
+    for (const [dimension, have, end] of [['ROW', size.numberOfRows, need.numberOfRows], ['COL', size.numberOfCols, need.numberOfCols]])
+      if (end > have) commands.push({ type: 'ADD_COLUMNS_ROWS', sheetId, dimension, position: 'after', base: have - 1, quantity: end - have });
+    for (const { col, row } of positions.values()) {
+      const pos = { sheetId, col, row };
+      const now = model.getters.getCell(pos), then = target.getters.getCell(pos);
+      const same = (now?.content ?? '') === (then?.content ?? '')
+        && JSON.stringify(now?.style ?? null) === JSON.stringify(then?.style ?? null)
+        && (now?.format ?? '') === (then?.format ?? '');
+      if (same) continue;
+      changed++;
+      requireValue(changed <= MAX_EDIT_CELLS, `A restore can change at most ${count(MAX_EDIT_CELLS)} cells`);
+      commands.push({ type: 'UPDATE_CELL', ...pos, content: then?.content ?? '', style: then?.style ?? null, format: then?.format ?? '' });
+    }
+  }
+  await apply(model, commands);
+  return { changed_cells: changed, worksheets: wanted.length };
+}
+
 // Each request rebuilds from the immutable replay base and accepted log. This
 // stateless worker never owns a database credential or accepts client snapshots.
 export async function execute(input) {
@@ -264,7 +311,7 @@ export async function execute(input) {
   let result = null;
   if (op) {
     const sheetId = op.worksheet ?? model.getters.getSheetIds()[0];
-    if (op.action !== 'create_worksheet') requireValue(model.getters.getSheetIds().includes(sheetId), 'Worksheet is unavailable');
+    if (op.action !== 'create_worksheet' && op.action !== 'restore_workbook') requireValue(model.getters.getSheetIds().includes(sheetId), 'Worksheet is unavailable');
     switch (op.action) {
       case 'get_range': result = { rows: readRange(model, sheetId, op.range) }; break;
       case 'set_cells': result = { changed_cells: await fill(model, sheetId, position(op.start ?? 'A1'), op.values) }; break;
@@ -304,6 +351,7 @@ export async function execute(input) {
         result = { record_id: op.record_id }; break;
       }
       case 'snapshot': result = { workbook: model.exportData() }; break;
+      case 'restore_workbook': result = await restoreWorkbook(model, op.workbook); break;
       default: throw new Error('Unsupported sheet action');
     }
   }

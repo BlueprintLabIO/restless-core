@@ -346,6 +346,14 @@ pub enum SheetOperation {
         key: Uuid,
         title: String,
     },
+    /// Put the sheet back as a saved version had it, in place, as one edit in its history. The
+    /// caller saves a version first, so the state it replaces stays recoverable.
+    RestoreVersion {
+        sheet: Uuid,
+        version: Uuid,
+        expected_revision: String,
+        key: Uuid,
+    },
     /// A copy of the sheet as it reads now, owned by whoever duplicated it, with the same general
     /// access; its people and history stay with the original.
     Duplicate {
@@ -412,41 +420,32 @@ pub async fn execute(
             action,
         } => {
             anyhow::ensure!(!is_read_action(&action), "Use a sheet read for this action");
+            anyhow::ensure!(
+                action["action"] != "restore_workbook",
+                "Restore a saved version through restore_version"
+            );
             let request = json!({"expected_revision":expected_revision,"action":action});
+            edit(org, actor, sheet, &expected_revision, key, &request, action).await
+        }
+        SheetOperation::RestoreVersion {
+            sheet,
+            version,
+            expected_revision,
+            key,
+        } => {
+            // The receipt names the version, not its workbook, so a retry matches without
+            // storing a second copy of the workbook in the command record.
+            let request = json!({"expected_revision":expected_revision,
+                "action":{"action":"restore_version","version":version}});
             if let Some(result) = org
                 .sheet_command_result(sheet, actor, key, &request)
                 .await?
             {
                 return Ok(result);
             }
-            let state = org.sheet_state(sheet, actor, true, 0).await?;
-            anyhow::ensure!(
-                state.sheet.head_revision == expected_revision,
-                "sheet conflict: workbook changed; reread its revision"
-            );
-            let mut input = model_input(&state);
-            input["operation"] = action;
-            let output = model(input).await?;
-            let mut messages: Vec<Value> = serde_json::from_value(output["messages"].clone())?;
-            for message in &mut messages {
-                message["timestamp"] = json!(chrono::Utc::now().timestamp_millis());
-            }
-            let result =
-                json!({"revision_id":output["workbook"]["revisionId"],"result":output["result"]});
-            org.accept_sheet_messages(
-                sheet,
-                actor,
-                &expected_revision,
-                &messages,
-                &output["workbook"],
-                Some((key, &request, &result)),
-                None,
-            )
-            .await?;
-            Ok(org
-                .sheet_command_result(sheet, actor, key, &request)
-                .await?
-                .context("accepted sheet receipt missing")?)
+            let checkpoint = org.sheet_checkpoint(sheet, actor, version).await?;
+            let action = json!({"action":"restore_workbook","workbook":checkpoint["workbook"]});
+            edit(org, actor, sheet, &expected_revision, key, &request, action).await
         }
         SheetOperation::Share {
             sheet,
@@ -526,6 +525,48 @@ pub async fn execute(
                 .await?)
         }
     }
+}
+
+/// One edit through the model worker, accepted against the revision it was decided on and
+/// receipted under `request`, so a retried key returns the same result.
+async fn edit(
+    org: &OrgIntel,
+    actor: &str,
+    sheet: Uuid,
+    expected_revision: &str,
+    key: Uuid,
+    request: &Value,
+    action: Value,
+) -> Result<Value> {
+    if let Some(result) = org.sheet_command_result(sheet, actor, key, request).await? {
+        return Ok(result);
+    }
+    let state = org.sheet_state(sheet, actor, true, 0).await?;
+    anyhow::ensure!(
+        state.sheet.head_revision == expected_revision,
+        "sheet conflict: workbook changed; reread its revision"
+    );
+    let mut input = model_input(&state);
+    input["operation"] = action;
+    let output = model(input).await?;
+    let mut messages: Vec<Value> = serde_json::from_value(output["messages"].clone())?;
+    for message in &mut messages {
+        message["timestamp"] = json!(chrono::Utc::now().timestamp_millis());
+    }
+    let result = json!({"revision_id":output["workbook"]["revisionId"],"result":output["result"]});
+    org.accept_sheet_messages(
+        sheet,
+        actor,
+        expected_revision,
+        &messages,
+        &output["workbook"],
+        Some((key, request, &result)),
+        None,
+    )
+    .await?;
+    org.sheet_command_result(sheet, actor, key, request)
+        .await?
+        .context("accepted sheet receipt missing")
 }
 
 pub async fn accept_browser(
