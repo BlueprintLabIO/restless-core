@@ -1,9 +1,11 @@
 <script lang="ts">
 	/* Any route that fails to load or does not exist lands here, in the cockpit's
 	 * own frame rather than the framework's bare status text. The way back goes
-	 * to the company the address named when there is one. */
+	 * to the company the address named when there is one. What failed is never shown as raw text:
+	 * an unexpected client error's message is technical, not the owner's (model/failure.ts). */
 	import { page } from '$app/state';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
+	import { PRODUCT_NAME } from '$lib/brand/brand';
 
 	const missing = $derived(page.status === 404);
 	const companyId = $derived(page.params.companyId);
@@ -11,7 +13,7 @@
 </script>
 
 <svelte:head>
-	<title>{missing ? 'Not found' : 'Something went wrong'}</title>
+	<title>{missing ? 'Not found' : 'Something went wrong'} — {PRODUCT_NAME}</title>
 </svelte:head>
 
 <div class="bridge-root error-root">
@@ -23,7 +25,7 @@
 		<p>
 			{missing
 				? 'The address may be mistyped, or what it pointed to has moved.'
-				: (page.error?.message ?? 'Try again in a moment.')}
+				: 'Something went wrong while opening it. Try again in a moment.'}
 		</p>
 		<div class="error-actions">
 			{#if !missing}
