@@ -1907,6 +1907,15 @@ fn recommended_actions(doctor: &runtime::RuntimeDoctor) -> Vec<RecoveryAction> {
     }
 }
 
+/// The doctor's recommendation, plus a restart the owner asks for while the computer runs. Probes
+/// can pass while a desktop is frozen or an app is hung; restarting keeps files and the browser
+/// profile, so the owner's judgement is enough. A rebuild still waits for the doctor.
+fn owner_may_request(doctor: &runtime::RuntimeDoctor, action: RecoveryAction) -> bool {
+    recommended_actions(doctor).contains(&action)
+        || (action == RecoveryAction::Restart
+            && doctor.container == runtime::ContainerStatus::Running)
+}
+
 fn action_copy(action: RecoveryAction) -> DoctorAction {
     match action {
         RecoveryAction::Start => DoctorAction {
@@ -2125,7 +2134,7 @@ pub async fn recover(
     let before = runtime::doctor(&config.name)
         .await
         .context("inspect Company computer before recovery")?;
-    if !recommended_actions(&before).contains(&action) {
+    if !owner_may_request(&before, action) {
         bail!(
             "{} is not a current doctor recommendation; refresh Company computer before acting",
             action.as_str()
@@ -2388,6 +2397,28 @@ mod tests {
             )),
             vec![RecoveryAction::Reconcile]
         );
+    }
+
+    #[test]
+    fn the_owner_may_restart_a_running_computer_whose_probes_pass() {
+        let healthy = doctor(
+            runtime::ContainerStatus::Running,
+            runtime::ReconciliationStatus::Current,
+            Some("available"),
+            Some("available"),
+            Some("available"),
+        );
+        assert!(recommended_actions(&healthy).is_empty());
+        assert!(owner_may_request(&healthy, RecoveryAction::Restart));
+        assert!(!owner_may_request(&healthy, RecoveryAction::Reconcile));
+        let stopped = doctor(
+            runtime::ContainerStatus::Stopped,
+            runtime::ReconciliationStatus::Current,
+            None,
+            None,
+            None,
+        );
+        assert!(!owner_may_request(&stopped, RecoveryAction::Restart));
     }
 
     #[test]

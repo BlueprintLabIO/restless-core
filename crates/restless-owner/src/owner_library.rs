@@ -179,7 +179,7 @@ pub(super) async fn upload_attachments(
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "runtime",
-            "The company computer is stopped, so files cannot be added. Start it from Company → Health.",
+            "The company computer is stopped, so files cannot be added. Start it from Company → Computer.",
         );
     }
 

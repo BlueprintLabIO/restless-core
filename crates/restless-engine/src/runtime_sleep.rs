@@ -335,8 +335,30 @@ pub async fn wake_for(daemon: &Daemon, company: &str, reason: &str) -> bool {
     }
 }
 
+/// Whether this month's computer hours are used up, so no wake can start it until the owner raises
+/// or clears the limit. Read by the owner API to say so instead of "try again".
+pub async fn hours_used_up(daemon: &Daemon, company: &str) -> bool {
+    let Ok(config) = CompanyConfig::load(&daemon.root, company) else {
+        return false;
+    };
+    config.monthly_runtime_cap_hours.is_some()
+        && crate::runtime_usage::ensure_start_allowed(&runtime::state_root(), &config)
+            .await
+            .is_err()
+}
+
 async fn wake(daemon: &Daemon, config: &CompanyConfig, reason: &str) -> bool {
     let company = config.name.as_str();
+    // A used-up monthly limit is a setting, not a failure: refuse without the start backoff, so
+    // raising the limit lets the very next wake succeed.
+    if config.monthly_runtime_cap_hours.is_some()
+        && crate::runtime_usage::ensure_start_allowed(&runtime::state_root(), config)
+            .await
+            .is_err()
+    {
+        tracing::info!(company, reason, "company computer stays asleep: monthly hours used up");
+        return false;
+    }
     let backing_off = daemon
         .in_flight
         .lock()

@@ -14,6 +14,8 @@
 	import { issueDesktopTicket } from '$lib/model/attention';
 	import { DesktopControl } from '$lib/model/desktop-control.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { recoverCompany, sleepCompany } from '$lib/model/company';
 	import { browserTabClientId } from '$lib/model/browserTab';
 	import {
 		COMPANY_BROWSER_OPEN_EVENT,
@@ -73,8 +75,28 @@
 	const canAttach = $derived(runtimeBrowser?.status === 'available');
 	/* Asleep is designed, not broken: asking to enter wakes it. */
 	const asleep = $derived(!canAttach && view?.limits.runtime.asleep === true);
+	const container = $derived(view?.computer.runtime?.container ?? null);
+	/* Stopped by someone, not by the sleep policy: it starts only when asked. */
+	const stopped = $derived(container === 'Stopped' && !asleep);
+	/* A used-up monthly limit keeps it asleep: no wake can start it until the limit changes. */
+	const hoursUsedUp = $derived.by(() => {
+		const runtime = view?.limits.runtime;
+		return (
+			!canAttach &&
+			runtime?.monthly_runtime_cap_hours != null &&
+			runtime.usage?.remaining_seconds === 0
+		);
+	});
+	const limitsHref = $derived(`/${companyId}/company/resources#computer`);
+	/* Waking usually takes under a minute; this page keeps asking until then rather than failing. */
+	let wakeStarted = $state(0);
+	let wakeNow = $state(0);
 	const enterLabel = $derived.by(() => {
-		if (working === 'attach') return asleep ? 'Waking…' : 'Connecting…';
+		if (working === 'attach') {
+			if (!asleep) return 'Connecting…';
+			const seconds = wakeStarted ? Math.round((wakeNow - wakeStarted) / 1000) : 0;
+			return seconds >= 5 ? `Waking… ${seconds}s` : 'Waking…';
+		}
 		return asleep ? 'Wake and enter' : 'Enter computer';
 	});
 	/* The agent driving the shared browser right now: taking control pauses it. */
@@ -144,6 +166,29 @@
 		await goto(href, { noScroll: true });
 	}
 
+	/* A desktop still starting answers 503; keep asking for a bounded while instead of failing. */
+	async function ticketWhileWaking(): Promise<string> {
+		const deadline = Date.now() + 90_000;
+		wakeStarted = Date.now();
+		wakeNow = wakeStarted;
+		const tickTimer = setInterval(() => (wakeNow = Date.now()), 1_000);
+		try {
+			for (;;) {
+				try {
+					return await issueDesktopTicket(companyId, 'runtime-rescue', clientId);
+				} catch (cause) {
+					const failure = cause as { status?: number; code?: string | null };
+					const starting = failure.status === 503 && failure.code === 'desktop_starting';
+					if (!starting || Date.now() > deadline) throw cause;
+					await new Promise((resolve) => setTimeout(resolve, 3_000));
+				}
+			}
+		} finally {
+			clearInterval(tickTimer);
+			wakeStarted = 0;
+		}
+	}
+
 	async function attachDesktop(navigate = true) {
 		if (!clientId || working) return;
 		attachmentRecoveryAttempted = false;
@@ -151,7 +196,7 @@
 		working = 'attach';
 		error = '';
 		try {
-			desktopUrl = await issueDesktopTicket(companyId, 'runtime-rescue', clientId);
+			desktopUrl = await ticketWhileWaking();
 			control.lose();
 			signInPending = signIn;
 			if (navigate) await morphTo(`/${companyId}/company/computer?focus=desktop`);
@@ -276,6 +321,62 @@
 			error = failureSentence(cause, 'The computer session expired and couldn’t be restored.');
 		} finally {
 			attachmentRecoveryInFlight = false;
+		}
+	}
+
+	/* Restart is always the owner's to ask for: probes can pass while a desktop is frozen or an
+	 * app is hung. Files and the browser profile are kept. */
+	async function restartComputer() {
+		if (working) return;
+		const go = await confirmAction({
+			title: 'Restart the company computer?',
+			body: 'Running work pauses briefly and open windows close. Files and the browser profile are kept.',
+			action: 'Restart'
+		});
+		if (!go) return;
+		await runLifecycle('restart');
+	}
+
+	async function runLifecycle(action: 'start' | 'restart') {
+		working = action;
+		error = '';
+		const wasFocused = focus;
+		try {
+			if (control.owner) await control.release();
+			desktopUrl = '';
+			await recoverCompany(companyId, action);
+			toast(action === 'restart' ? 'The computer restarted.' : 'The computer started.');
+			await source.refresh();
+		} catch (cause) {
+			error = failureSentence(
+				cause,
+				action === 'restart' ? 'The computer could not restart.' : 'The computer could not start.'
+			);
+		} finally {
+			working = '';
+		}
+		if (wasFocused && !error) await attachDesktop(false);
+	}
+
+	async function sleepComputer() {
+		if (working) return;
+		working = 'sleep';
+		error = '';
+		try {
+			if (control.owner) await control.release();
+			const outcome = await sleepCompany(companyId);
+			toast(
+				outcome.message.endsWith('not running')
+					? 'The computer is not running.'
+					: 'The computer is asleep.'
+			);
+			desktopUrl = '';
+			await source.refresh();
+			if (focus) await morphTo(`/${companyId}/company/computer`);
+		} catch (cause) {
+			error = failureSentence(cause, 'The computer could not sleep now.');
+		} finally {
+			working = '';
 		}
 	}
 
@@ -417,6 +518,14 @@
 				<button
 					class="btn small"
 					type="button"
+					disabled={!!working}
+					title="Restarts a frozen desktop or hung app. Files and the browser profile are kept."
+					onclick={() => void restartComputer()}
+					>{working === 'restart' ? 'Restarting…' : 'Restart'}</button
+				>
+				<button
+					class="btn small"
+					type="button"
 					title="Leaves the live computer and restores the Company surface."
 					onclick={closeFocus}>Leave computer</button
 				>
@@ -455,19 +564,41 @@
 					<h1>Computer</h1>
 					<div
 						class="computer-portal-controller"
-						title={asleep
-							? 'It sleeps when nothing needs it, and wakes for messages, ready work and due schedules.'
-							: undefined}
+						title={hoursUsedUp
+							? 'The monthly hours limit stops it waking for messages, work or schedules until the limit is raised or the month ends.'
+							: asleep
+								? 'It sleeps when nothing needs it, and wakes for messages, ready work and due schedules.'
+								: undefined}
 					>
 						<span class="source-lamp status-{canAttach ? 'live' : 'stale'}" aria-hidden="true"
 						></span>
-						{asleep ? 'Asleep' : controllerLabel}
+						{hoursUsedUp
+							? 'Asleep · monthly hours used up'
+							: asleep
+								? 'Asleep'
+								: stopped
+									? 'Stopped'
+									: controllerLabel}
 					</div>
-					{#if canAttach || asleep}
+					{#if hoursUsedUp}
+						<a class="btn primary" href={limitsHref}>Raise the hours limit</a>
+						<p>It wakes again once the limit is raised or cleared, or next month.</p>
+					{:else if stopped}
+						<button
+							class="computer-enter"
+							type="button"
+							disabled={!!working}
+							onclick={() => void runLifecycle('start')}
+						>
+							<span>{working === 'start' ? 'Starting…' : 'Start computer'}</span>
+						</button>
+						<p>It keeps its files and browser profile while stopped.</p>
+					{:else if canAttach || asleep}
 						<button
 							class="computer-enter"
 							type="button"
 							disabled={!!working || !clientId}
+							title={asleep ? 'Waking usually takes under a minute.' : undefined}
 							onclick={() => attachDesktop()}
 						>
 							<span>{enterLabel}</span>
@@ -479,11 +610,33 @@
 						</p>
 					{:else}
 						<p class="computer-unavailable-copy">
-							The desktop hasn’t passed its live check yet, so it can’t be opened.
+							{container === 'Running'
+								? 'The desktop isn’t answering, so it can’t be opened.'
+								: 'The computer isn’t ready, so it can’t be opened.'}
 						</p>
 						<a class="btn primary" href={`/${companyId}/company/doctor`}>
 							<Activity size={14} strokeWidth={1.8} aria-hidden="true" /> See what needs fixing
 						</a>
+					{/if}
+					{#if container === 'Running'}
+						<div class="computer-portal-actions">
+							<button
+								class="btn small ghost"
+								type="button"
+								disabled={!!working}
+								title="Restarts a frozen desktop or hung app. Files and the browser profile are kept."
+								onclick={() => void restartComputer()}
+								>{working === 'restart' ? 'Restarting…' : 'Restart'}</button
+							>
+							<button
+								class="btn small ghost"
+								type="button"
+								disabled={!!working}
+								title="Sleeps now if nothing is running. It wakes for messages, ready work and due schedules."
+								onclick={() => void sleepComputer()}
+								>{working === 'sleep' ? 'Going to sleep…' : 'Sleep now'}</button
+							>
+						</div>
 					{/if}
 				</div>
 			</section>

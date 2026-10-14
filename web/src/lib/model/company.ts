@@ -339,6 +339,16 @@ export async function recoverCompany(
 	);
 }
 
+/** Put a quiet computer to sleep now; refused while work runs. */
+export async function sleepCompany(company: string): Promise<{ message: string }> {
+	return ownerResponse(
+		await fetch(`/api/companies/${encodeURIComponent(company)}/company/sleep`, {
+			method: 'POST',
+			credentials: 'same-origin'
+		})
+	);
+}
+
 export async function reviseCompanyCharter(
 	company: string,
 	markdown: string,

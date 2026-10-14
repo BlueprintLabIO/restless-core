@@ -223,7 +223,7 @@ fn review_target_availability(
         return (
             "unavailable",
             Some(
-                "The company computer is stopped, so this outcome cannot be opened. Start it from Company → Health."
+                "The company computer is stopped, so this outcome cannot be opened. Start it from Company → Computer."
                     .into(),
             ),
         );

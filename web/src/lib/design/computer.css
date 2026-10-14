@@ -103,6 +103,12 @@
 	pointer-events: none;
 }
 
+.bridge-root .computer-portal-actions {
+	display: flex;
+	gap: 6px;
+	margin-top: 18px;
+}
+
 .bridge-root .computer-portal-footer {
 	position: relative;
 	z-index: 3;

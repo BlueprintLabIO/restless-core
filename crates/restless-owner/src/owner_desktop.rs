@@ -116,13 +116,20 @@ pub(crate) async fn issue_ticket(
             Ok(runtime::ContainerStatus::Stopped) if !runtime::is_sleeping(&company) => api_error(
                 StatusCode::CONFLICT,
                 "runtime",
-                "The company computer is stopped. Start it from Company → Health.",
+                "The company computer is stopped. Start it from Company → Computer.",
             ),
             Ok(runtime::ContainerStatus::Absent) => api_error(
                 StatusCode::CONFLICT,
                 "runtime",
                 "This company has no computer yet. Company → Health can build it.",
             ),
+            _ if restless_engine::runtime_sleep::hours_used_up(&state.daemon, &company).await => {
+                api_error(
+                    StatusCode::CONFLICT,
+                    "runtime_hours",
+                    "This month's computer hours are used up, so it cannot wake. Raise or clear the limit in Company → Limits.",
+                )
+            }
             _ => api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "runtime",
@@ -136,8 +143,8 @@ pub(crate) async fn issue_ticket(
     if !desktop_answers(&company).await {
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
-            "runtime",
-            "The company computer's desktop is not ready yet. Try again in a moment.",
+            "desktop_starting",
+            "The company computer's desktop is still starting.",
         );
     }
     let current = match runtime::generation(&company).await {

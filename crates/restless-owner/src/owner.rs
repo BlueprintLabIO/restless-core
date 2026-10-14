@@ -1586,6 +1586,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(recover_company_computer),
         )
         .route(
+            "/companies/{company}/company/sleep",
+            post(sleep_company_computer),
+        )
+        .route(
             "/companies/{company}/company/authority-owner",
             get(company_authority_owner),
         )
@@ -6923,6 +6927,21 @@ async fn recover_company_computer(
     }
 }
 
+/// Put a quiet computer to sleep now. It refuses while work runs, so sleeping never cuts live work.
+async fn sleep_company_computer(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+) -> impl IntoResponse {
+    match restless_engine::runtime_sleep::sleep_now(&state.daemon, &company).await {
+        Ok(message) => Json(serde_json::json!({ "message": message })).into_response(),
+        Err(error) => api_error(
+            StatusCode::CONFLICT,
+            "runtime",
+            format!("{error:#}").replace(", or use `restless down` to stop it now", ""),
+        ),
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct AuthorityOwnerView {
     actor_id: String,
@@ -10376,7 +10395,7 @@ async fn attachment_runtime_ready(
         Ok(runtime::ContainerStatus::Stopped) if !runtime::is_sleeping(company) => api_error(
             StatusCode::CONFLICT,
             "runtime",
-            "The company computer is stopped, so files cannot be sent. Start it from Company → Health, or send the message without the file.",
+            "The company computer is stopped, so files cannot be sent. Start it from Company → Computer, or send the message without the file.",
         ),
         Ok(runtime::ContainerStatus::Absent) => api_error(
             StatusCode::CONFLICT,
@@ -10452,7 +10471,7 @@ async fn download_attachment(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "runtime",
-                "The company computer is stopped, so this file cannot be opened. Start it from Company → Health.",
+                "The company computer is stopped, so this file cannot be opened. Start it from Company → Computer.",
             );
         }
     }
@@ -11241,6 +11260,13 @@ async fn open_browser_link(
     if !restless_engine::runtime_sleep::wake_for(&state.daemon, &company, "the owner opened a link")
         .await
     {
+        if restless_engine::runtime_sleep::hours_used_up(&state.daemon, &company).await {
+            return api_error(
+                StatusCode::CONFLICT,
+                "runtime_hours",
+                "This month's computer hours are used up, so it cannot wake. Raise or clear the limit in Company → Limits.",
+            );
+        }
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "runtime",
