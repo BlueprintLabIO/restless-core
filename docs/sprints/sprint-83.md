@@ -107,7 +107,7 @@ The container has dockerd, Postgres 16, Chromium and the Rust/Node toolchains, b
 
 Each GitHub issue `UXG-NNN:` is closed with its commit.
 
-**How it was verified.** The final gate ran on `39e4ffb5` with a local test Postgres. Database-backed tests ran rather than skipping. Results:
+**How it was verified.** The final gate ran on `d2ccf2ef`, after the live-run fixes, with a local test Postgres. Database-backed tests ran rather than skipping. Results:
 
 | Check | Result |
 |---|---|
@@ -118,7 +118,7 @@ Each GitHub issue `UXG-NNN:` is closed with its commit.
 | `restless-owner` tests | 126 passed, 0 failed |
 | `restless-orgintel` tests | 240 passed, 0 failed |
 | `restless` tests | 27 passed, 0 failed |
-| `restless-engine` | 415 passed, 0 failed |
+| `restless-engine` | 418 passed, 0 failed |
 
 Fixing the engine failures that predated the sprint uncovered a real production deadlock:
 
@@ -146,25 +146,70 @@ Fixing the engine failures that predated the sprint uncovered a real production 
 
 ### Live check
 
-A `_test` company stack (`restless-dev audit_test --reconcile`) was attempted after the final gate. It did not come up, so **no screen of this sprint has been seen in a real browser yet**.
+**First attempt.** The containerised `_test` stack could not pull its pinned base images: Docker Hub answered `429`, and a registry mirror was not permitted. For that attempt only, `df` was shimmed past the stack's 30 GiB guard, because this container tops out near 29 GiB free, and real disk usage was monitored instead. Nothing in the repo was changed for it.
 
-What happened:
+**Native run.** The real stack then ran natively from `a29b70d0`, without Docker:
 
-- The cockpit (`npm run build`) and `restlessd` / `restless` built cleanly from `0881fa92`.
-- The document-service image could not be built: Docker Hub refused the pinned `node:24-trixie-slim` digest with `429 Too Many Requests`, the anonymous pull limit for the session's shared egress.
-- Using a registry mirror was not permitted in this environment, so the attempt stopped there. No company, container, volume or profile state was created, and the session's Docker daemon and test Postgres were stopped and removed.
+- `restlessd` and the cockpit it serves;
+- OrgIntel on a local Postgres 16 through `RESTLESS_PLANE_DATABASE_URL`;
+- the documents collaboration sidecar and the native sheets worker, both run with node;
+- a `live_test` company created without its computer.
 
-The disk guard also needed a workaround: the container tops out near 29 GiB free, under the stack's 30 GiB check. The attempt shimmed `df` for that one run and monitored real usage instead; nothing in the repo was changed for it.
+A real Chromium drove the cockpit at 1440×900 and 390×844.
 
-**First founder follow-up:** run `restless-dev <name>_test --reconcile` on the founder machine, then walk the high-severity items in a browser. Start with:
+**Passed live:**
 
-- the Inbox handover desktop (UXG-243 to UXG-248);
-- Brand & voice as a document (UXG-001 to UXG-007);
-- Work steering (UXG-039 to UXG-050);
-- Retry and Stop in the rail (UXG-191, UXG-192);
-- away mode with a deputy (UXG-314);
-- ownership handover (UXG-100);
-- company delete and export (UXG-180, UXG-182).
+- **Brand & voice:** one document; edit, remove, restore and export (UXG-001 to UXG-007).
+- **Inbox:** snooze choices, Set aside with Undo, Recently decided.
+- **Work:**
+  - edit title and priority, pause and resume, the stop-for-good warning;
+  - the Stopped view with Restore;
+  - filters kept in the URL across a reload.
+- **Library:** collections, rename, select mode, Word export.
+- **Document editor:** underline, colour, comment on a selection, outline, find and replace.
+- **Apps:** list rows, remove confirmation.
+- **Company:**
+  - the name card, charter editor and history, legal profile;
+  - schedules: weekday and monthly, edit prompt, Run now;
+  - monthly budget, Pause outside actions with resume;
+  - Activity grouped by day with search, archive confirmation, export download.
+- **Shell:** ⌘K "Ask Exec", the error and unknown-company pages.
+- **Home:** the spend line.
+- **Phone width:** no page scrolls sideways.
+
+**Defects found live and fixed.** The run found 18 defects; each fix was re-checked live before it was pushed.
+
+- **`e300ac25`:** the export download panicked the daemon.
+- **`d0f0a576`:** comment on a selection opened an empty panel, because blocks rendered `data-block_id` while every lookup read `data-block-id`. Find always said "No matches". The bubble covered the selection, and the colour swatches were all grey.
+- **`16346212`:** Work's forms rendered below the page, raw "paused/abandoned by owner" text replaced the outcome, and Pause was offered while a decision was pending.
+- **`5ed733e7`:** the rail named Apps "Inbox"; Interrupt was offered with no model; a raw Docker error appeared when writing know-how.
+- **`8a4e2a16`:** unstyled tooltips on Home and the account pages; touch menus squeezed to 44px; host paths leaked in the unknown-company error.
+- **`dc911169`:** Activity's actions overflowed on mobile.
+- **Seven smaller items, `a6bbfd58`..`d2ccf2ef`:**
+  - toasts covered the Inbox action bar;
+  - a placeholder looked like a filled value;
+  - raw locale dates;
+  - the document title had no label;
+  - mobile gutters were too narrow;
+  - the selection bubble was not repositioned;
+  - the Charter row showed the goal, not the purpose.
+
+**Not yet verified in a running app:**
+
+- **Needs a model** (no company credential here):
+  - Exec and Staff turns;
+  - the rail's Stop and Retry;
+  - owner-judgement handoffs;
+  - the budget warning firing.
+- **Needs the company computer image:**
+  - the handover desktop (UXG-242 to UXG-251);
+  - saving know-how and skill packages;
+  - schedules actually running.
+- **Needs a vault:** vault-backed connections.
+- **Needs a hosted or shared plane:** a second person, admin read-only views, invites, Sign out, room rename and mute.
+- **Needs an installed appliance:** backup on Home.
+
+These are the founder's first walk on their machine: `restless-dev <name>_test --reconcile`.
 
 ## Checklist
 
