@@ -621,6 +621,9 @@
 		() => accountableDirect,
 		() => ownerAccess && directPartner === 'exec'
 	);
+	/* Everyone in a conversation reacts and pins, as the server allows anyone who can read it;
+	 * turning a message into Work stays the owner's, since it asks the Exec. */
+	const mayReact = $derived(!!currentActorId);
 	const reactions = reactionsQuery(
 		() => companyId,
 		() =>
@@ -1482,7 +1485,7 @@
 							{message}
 							{companyId}
 							reactions={reactions.summaryFor(message.id)}
-							onreact={ownerAccess && message.id > 0
+							onreact={mayReact && message.id > 0
 								? (emoji, on) => void reactions.react(message.id, emoji, on)
 								: undefined}
 							continued={index > 0 &&
@@ -1509,7 +1512,7 @@
 							replies={threadSummary(message.id)}
 							onjump={message.id > 0 ? () => void copyMessageLink(message.id) : null}
 							pinned={reactions.pinned().has(message.id)}
-							onpin={ownerAccess && message.id > 0
+							onpin={mayReact && message.id > 0
 								? () => void reactions.react(message.id, PIN, !reactions.pinned().has(message.id))
 								: null}
 							onwork={ownerAccess && message.id > 0 && !message.deleted_at
@@ -1681,7 +1684,7 @@
 						{message}
 						{companyId}
 						reactions={reactions.summaryFor(message.id)}
-						onreact={ownerAccess && message.id > 0
+						onreact={mayReact && message.id > 0
 							? (emoji, on) => void reactions.react(message.id, emoji, on)
 							: undefined}
 						presentation={actorMessagesById.get(String(message.id))}
