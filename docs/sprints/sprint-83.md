@@ -143,7 +143,29 @@ Both engine failures also fail at the pre-sprint commit `d172070`:
 - **UXG-256, external links:** they now open in a new tab by default. Routing them through the company browser is an owner opt-in.
 - **UXG-030, web push:** works with the tab closed on hosted planes only, via VAPID signing with `ring`. It posts only to browser push services.
 
-**Not run live.** No agent ran a live company: there is no company model credential here. Only the screens below were exercised in a real browser, and only those named in *Live check* below.
+**Not run live.** No agent ran a live company: there is no company model credential here.
+
+### Live check
+
+A `_test` company stack (`restless-dev audit_test --reconcile`) was attempted after the final gate. It did not come up, so **no screen of this sprint has been seen in a real browser yet**.
+
+What happened:
+
+- The cockpit (`npm run build`) and `restlessd` / `restless` built cleanly from `0881fa92`.
+- The document-service image could not be built: Docker Hub refused the pinned `node:24-trixie-slim` digest with `429 Too Many Requests`, the anonymous pull limit for the session's shared egress.
+- Using a registry mirror was not permitted in this environment, so the attempt stopped there. No company, container, volume or profile state was created, and the session's Docker daemon and test Postgres were stopped and removed.
+
+The disk guard also needed a workaround: the container tops out near 29 GiB free, under the stack's 30 GiB check. The attempt shimmed `df` for that one run and monitored real usage instead; nothing in the repo was changed for it.
+
+**First founder follow-up:** run `restless-dev <name>_test --reconcile` on the founder machine, then walk the high-severity items in a browser. Start with:
+
+- the Inbox handover desktop (UXG-243 to UXG-248);
+- Brand & voice as a document (UXG-001 to UXG-007);
+- Work steering (UXG-039 to UXG-050);
+- Retry and Stop in the rail (UXG-191, UXG-192);
+- away mode with a deputy (UXG-314);
+- ownership handover (UXG-100);
+- company delete and export (UXG-180, UXG-182).
 
 ## Checklist
 
