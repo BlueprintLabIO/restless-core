@@ -117,6 +117,19 @@
 				: whole;
 		});
 	}
+	/* A revision reads as the message does: `@actor-id` as the person's name. */
+	function plainNames(text: string): string {
+		if (!nameFor) return text;
+		return text.replace(/(^|[\s(])@([\w-]+(?:[.:][\w-]+)*)/g, (whole, lead: string, id: string) => {
+			const name = nameFor!(id);
+			return name && name !== id ? `${lead}@${name}` : whole;
+		});
+	}
+	function mentionedIds(text: string): Set<string> {
+		return new Set(
+			[...text.matchAll(/(?:^|[\s(])@([\w-]+(?:[.:][\w-]+)*)/g)].map((match) => match[1])
+		);
+	}
 	const mentionNames = $derived(
 		mentions
 			.map((mention) => `@${nameFor?.(mention.mentioned_actor_id) ?? mention.mentioned_actor_id}`)
@@ -192,6 +205,15 @@
 			status >= 500
 		);
 	}
+
+	/* An edit changes the words, not who was asked: people named only in the edit are not told. */
+	const newlyNamed = $derived.by(() => {
+		if (!editing || !nameFor) return [];
+		const before = mentionedIds(message.body);
+		return [...mentionedIds(editBody)]
+			.filter((id) => !before.has(id) && nameFor!(id) !== id && nameFor!(id) !== 'You')
+			.map((id) => nameFor!(id));
+	});
 
 	function beginEdit() {
 		editBody = message.body;
@@ -291,13 +313,38 @@
 			<div class="edit-panel">
 				<label>
 					<span class="sr-only">Edit message</span>
-					<textarea bind:value={editBody} maxlength={65536} rows={3}></textarea>
+					<textarea
+						bind:value={editBody}
+						maxlength={65536}
+						rows={3}
+						aria-keyshortcuts="Escape Control+Enter Meta+Enter"
+						onkeydown={(event) => {
+							if (event.key === 'Escape') {
+								event.preventDefault();
+								event.stopPropagation();
+								if (!saving) cancelEdit();
+							} else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+								event.preventDefault();
+								void saveEdit();
+							}
+						}}></textarea>
 				</label>
+				{#if newlyNamed.length}<p class="edit-note">
+						Editing does not notify {newlyNamed.join(', ')}. Mention them in a reply to reach them.
+					</p>{/if}
 				<div class="edit-controls">
-					<button type="button" class="primary-action" disabled={saving} onclick={saveEdit}>
+					<button
+						type="button"
+						class="primary-action"
+						disabled={saving}
+						title="Save (Ctrl+Enter)"
+						onclick={saveEdit}
+					>
 						{saving ? 'Saving…' : editCommandId ? 'Retry save' : 'Save'}
 					</button>
-					<button type="button" disabled={saving} onclick={cancelEdit}>Cancel</button>
+					<button type="button" disabled={saving} title="Cancel (Esc)" onclick={cancelEdit}
+						>Cancel</button
+					>
 				</div>
 				{#if editError}<p class="action-error" role="alert">{editError}</p>{/if}
 			</div>
@@ -440,7 +487,7 @@
 								{formatMoment(revision.created_at)}
 							</time>
 						</header>
-						<p>{revision.body}</p>
+						<p>{plainNames(revision.body)}</p>
 					</article>
 				{/each}
 				{#if historyHasMore}
@@ -701,6 +748,11 @@
 
 	.edit-controls {
 		margin-top: 6px;
+	}
+	.edit-note {
+		margin: 4px 0 0;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
 	}
 
 	.edit-controls .primary-action {
