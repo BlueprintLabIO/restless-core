@@ -1,7 +1,18 @@
 <script lang="ts">
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
+	import CopyButton from '$lib/ui/controls/CopyButton.svelte';
 	import { failureSentence } from '$lib/model/failure';
-	import { downloadSharingSetup, prepareSharing, type SharingSetup } from '$lib/model/sharing';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
+	import {
+		activateSharing,
+		detectTailscale,
+		downloadSharingSetup,
+		prepareSharing,
+		prepareSharingHere,
+		sharingHere,
+		type SharingHere,
+		type SharingSetup
+	} from '$lib/model/sharing';
 	import X from '@lucide/svelte/icons/x';
 	let { companyId, onclose }: { companyId: string; onclose: () => void } = $props();
 	let dialog: HTMLDialogElement;
@@ -13,6 +24,92 @@
 	let busy = $state(false);
 	let failure = $state('');
 	let setup = $state<SharingSetup | null>(null);
+	/* Private access: the plane reads its own tailnet addresses, so the owner types none of them.
+	 * When Tailscale is not ready, the one step left is a person's (signing in), said as is. */
+	let detecting = $state(false);
+	let detected = $state(false);
+	let tailnetStep = $state('');
+	async function detect() {
+		if (detecting) return;
+		detecting = true;
+		tailnetStep = '';
+		try {
+			const addresses = await detectTailscale(companyId);
+			if (!active) return;
+			companyAddress = addresses.company_address;
+			accountAddress = addresses.account_address;
+			detected = true;
+		} catch (cause) {
+			if (active) {
+				detected = false;
+				tailnetStep = failureSentence(cause, 'Tailscale is not available on this computer.');
+			}
+		} finally {
+			if (active) detecting = false;
+		}
+	}
+	/* Preparing and activating on this computer: the account installer runs here with the
+	 * account and email credentials, which stay in private files on this computer. */
+	let databaseUrl = $state('');
+	let smtpHost = $state('');
+	let smtpPort = $state('');
+	let smtpSecure = $state(true);
+	let smtpUser = $state('');
+	let smtpPassword = $state('');
+	let smtpFrom = $state('');
+	let here = $state<SharingHere | null>(null);
+	async function readHere() {
+		try {
+			const next = await sharingHere(companyId);
+			if (active) here = next;
+		} catch {
+			/* The plane restarts during activation; the next read answers. */
+		}
+	}
+	async function prepareHere(event: SubmitEvent) {
+		event.preventDefault();
+		if (busy || !setup) return;
+		busy = true;
+		failure = '';
+		try {
+			here = await prepareSharingHere(companyId, {
+				plan: setup,
+				database_url: databaseUrl.trim(),
+				smtp: {
+					host: smtpHost.trim(),
+					port: smtpPort ? Number(smtpPort) : undefined,
+					secure: smtpSecure,
+					user: smtpUser.trim(),
+					password: smtpPassword,
+					from: smtpFrom.trim()
+				}
+			});
+			smtpPassword = '';
+			databaseUrl = '';
+		} catch (cause) {
+			if (active) failure = failureSentence(cause, 'Sharing could not be prepared here.');
+		} finally {
+			if (active) busy = false;
+		}
+	}
+	async function activate() {
+		if (busy) return;
+		const yes = await confirmAction({
+			title: 'Activate sharing?',
+			body: 'Running work finishes first, then the cockpit restarts with individual sign-in. It is unavailable for a minute; if activation fails, the previous settings come back.',
+			action: 'Activate'
+		});
+		if (!yes) return;
+		busy = true;
+		failure = '';
+		try {
+			here = await activateSharing(companyId);
+		} catch (cause) {
+			if (active) failure = failureSentence(cause, 'Sharing was not activated.');
+		} finally {
+			if (active) busy = false;
+		}
+	}
 	let active = true;
 	const close = () => dialog.close();
 	$effect(() => {
@@ -24,6 +121,17 @@
 			active = false;
 			dialog.close();
 		};
+	});
+	$effect(() => {
+		if (access === 'private' && !detected && !detecting && !tailnetStep) void detect();
+	});
+	$effect(() => {
+		if (!setup) return;
+		void readHere();
+		const timer = setInterval(() => {
+			if (here?.job?.state === 'running' || !here) void readHere();
+		}, 4000);
+		return () => clearInterval(timer);
 	});
 	async function prepare(event: SubmitEvent) {
 		event.preventDefault();
@@ -44,6 +152,7 @@
 			if (active) busy = false;
 		}
 	}
+	const JOB_WORDS = { 'prepare-sharing': 'Preparing', 'enable-sharing': 'Activating' } as const;
 </script>
 
 <dialog bind:this={dialog} class="sharing-dialog" {onclose} aria-labelledby="sharing-title">
@@ -58,8 +167,8 @@
 	{#if setup}
 		<div class="sharing-prepared">
 			<p>
-				Install this setup on the host, then sign in with <strong>{setup.owner_email}</strong>. Your
-				existing owner history stays with you.
+				Once sharing is active, sign in with <strong>{setup.owner_email}</strong>. Your existing
+				owner history stays with you.
 			</p>
 			<dl class="sharing-addresses">
 				<dt>Company</dt>
@@ -75,38 +184,113 @@
 				People join through an email invitation and their own account. The host must be online for
 				them to open the company.
 			</p>
-			<details class="sharing-install">
-				<summary>Host installation</summary>
-				<p>
-					The account service needs Node 24 or later, a separate accounts database and an email
-					service. Keep their credentials in private files on the host, then run:
+			{#if here?.job && here.job.state !== 'succeeded'}
+				<p class="sharing-note" role="status">
+					{here.job.state === 'running'
+						? `${JOB_WORDS[here.job.op]} on this computer…`
+						: `${JOB_WORDS[here.job.op]} did not finish.`}
 				</p>
-				<code
-					>restless appliance prepare-sharing --plan /path/to/restless-sharing-{setup.company}.json
-					--database-url-file /path/to/accounts.url --smtp-file /path/to/smtp.json --output
-					/path/to/accounts{setup.company_image
-						? ''
-						: ' --company-image repository@sha256:digest'}</code
-				>
-				<p>
-					The installer prepares the account service and HTTPS routing. It checks the existing
-					companies before preparing private configuration. Invitations become available after
-					authenticated entry is activated.
-				</p>
-				<p>
-					For private access, Tailscale is recommended: run
-					<code>restless appliance tailscale-addresses</code> for the two addresses, then activate
-					with
-					<code
-						>restless appliance enable-sharing --tailscale --environment
-						/path/to/accounts/core-entry.env</code
-					>. Without Tailscale, SSH can carry browser traffic through a SOCKS tunnel while
-					preserving the configured addresses and individual sign-in.
-				</p>
-			</details>
+				{#if here.job.state === 'failed' && here.job.detail}<pre class="sharing-log">{here.job
+							.detail}</pre>{/if}
+			{/if}
+			{#if here?.prepared}
+				<div class="sharing-step">
+					<div class="sharing-field-heading">
+						<strong>Start the account service</strong><InfoTip
+							text="The one step this computer cannot take for you: run the prepared account service under your usual process supervisor. It needs Node 24 or later."
+						/>
+					</div>
+					<code>{here.prepared.start_account_service}</code>
+					<CopyButton value={here.prepared.start_account_service} label="Copy" />
+				</div>
+				<div class="sharing-actions">
+					<button
+						class="btn primary"
+						type="button"
+						disabled={busy || here.job?.state === 'running'}
+						title="Checks the account service answers at its address, then restarts the cockpit with individual sign-in"
+						onclick={() => void activate()}>Activate sharing…</button
+					>
+				</div>
+			{:else if here?.job?.state !== 'running'}
+				<form class="sharing-here" onsubmit={prepareHere}>
+					<div class="sharing-field-heading">
+						<strong>Set up on this computer</strong><InfoTip
+							text="Accounts need their own database and an email server for verification and invitations. These stay in private files on this computer."
+						/>
+					</div>
+					<label for="sharing-database">Accounts database</label>
+					<input
+						id="sharing-database"
+						type="password"
+						autocomplete="off"
+						placeholder="postgres://…"
+						required
+						bind:value={databaseUrl}
+						disabled={busy}
+					/>
+					<label for="sharing-smtp-host">Email server</label>
+					<div class="sharing-pair">
+						<input
+							id="sharing-smtp-host"
+							type="text"
+							placeholder="smtp.example.com"
+							required
+							bind:value={smtpHost}
+							disabled={busy}
+						/><input
+							type="number"
+							aria-label="Email server port"
+							placeholder="465"
+							min="1"
+							max="65535"
+							bind:value={smtpPort}
+							disabled={busy}
+						/>
+					</div>
+					<label class="sharing-check"
+						><input type="checkbox" bind:checked={smtpSecure} disabled={busy} />Use TLS</label
+					>
+					<label for="sharing-smtp-user">Email sign-in</label>
+					<div class="sharing-pair">
+						<input
+							id="sharing-smtp-user"
+							type="text"
+							autocomplete="off"
+							placeholder="User"
+							bind:value={smtpUser}
+							disabled={busy}
+						/><input
+							type="password"
+							autocomplete="off"
+							aria-label="Email password"
+							placeholder="Password"
+							bind:value={smtpPassword}
+							disabled={busy}
+						/>
+					</div>
+					<label for="sharing-smtp-from">Invitations come from</label>
+					<input
+						id="sharing-smtp-from"
+						type="email"
+						placeholder="team@example.com"
+						required
+						bind:value={smtpFrom}
+						disabled={busy}
+					/>
+					<div class="sharing-actions">
+						<button class="btn primary" type="submit" disabled={busy}
+							>{busy ? 'Preparing…' : 'Prepare on this computer'}</button
+						>
+					</div>
+				</form>
+			{/if}
 			<div class="sharing-actions">
-				<button class="btn primary" type="button" onclick={() => downloadSharingSetup(setup!)}
-					>Download setup</button
+				<button
+					class="btn"
+					type="button"
+					title="For preparing the account service on another host"
+					onclick={() => downloadSharingSetup(setup!)}>Download setup</button
 				><button class="btn" type="button" onclick={() => (setup = null)}>Edit setup</button><button
 					class="btn"
 					type="button"
@@ -130,6 +314,20 @@
 					onclick={() => (access = 'https')}>HTTPS address</button
 				>
 			</div>
+			{#if access === 'private'}
+				{#if detecting}<p class="sharing-note" role="status">
+						Reading this computer's Tailscale addresses…
+					</p>
+				{:else if detected}<p class="sharing-note">
+						Filled in from this computer's Tailscale name.
+					</p>
+				{:else if tailnetStep}<p class="sharing-error" role="alert">
+						{tailnetStep}
+						<button class="btn small" type="button" onclick={() => void detect()}
+							>Check again</button
+						>
+					</p>{/if}
+			{/if}
 			<div class="sharing-field-heading">
 				<label for="sharing-company">Company address</label><InfoTip
 					text={access === 'private'
@@ -304,7 +502,6 @@
 	}
 	p,
 	li,
-	summary,
 	code {
 		font-size: var(--t-body);
 		line-height: 1.5;
@@ -315,17 +512,6 @@
 	ul {
 		margin: 0 0 16px;
 		padding-left: 20px;
-	}
-	.sharing-install {
-		margin-top: 16px;
-		padding-top: 12px;
-		border-top: 1px solid var(--border);
-	}
-	summary {
-		cursor: pointer;
-	}
-	.sharing-install p {
-		margin-top: 12px;
 	}
 	code {
 		display: block;
@@ -343,6 +529,31 @@
 	}
 	.sharing-error {
 		color: var(--state-danger);
+	}
+	.sharing-here,
+	.sharing-step {
+		display: grid;
+		gap: 8px;
+		margin-top: 16px;
+		padding-top: 12px;
+		border-top: 1px solid var(--border);
+	}
+	.sharing-pair {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 7rem);
+		gap: 8px;
+	}
+	.sharing-check input {
+		width: auto;
+	}
+	.sharing-log {
+		overflow: auto;
+		max-height: 10rem;
+		padding: 10px;
+		border-radius: var(--radius-control);
+		background: var(--surface-alt);
+		font: var(--t-label) var(--font-mono);
+		white-space: pre-wrap;
 	}
 	:focus-visible {
 		outline: 2px solid var(--focus-ring, var(--ink));

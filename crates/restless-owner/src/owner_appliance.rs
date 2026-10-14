@@ -39,7 +39,7 @@ fn refuse(message: impl Into<String>) -> Response<Body> {
 }
 
 /// The installed appliance on this computer, or why its lifecycle is not the cockpit's to run.
-fn local_appliance(state: &OwnerState) -> std::result::Result<(), Response<Body>> {
+pub(super) fn local_appliance(state: &OwnerState) -> std::result::Result<(), Response<Body>> {
     if state.entry.network().is_some() {
         return Err(refuse("A hosted plane is run by its host, not from here."));
     }
@@ -54,7 +54,7 @@ fn local_appliance(state: &OwnerState) -> std::result::Result<(), Response<Body>
 }
 
 /// The `restless` command beside this plane's own binary, as every release installs it.
-fn cli_beside_plane() -> Result<PathBuf> {
+pub(super) fn cli_beside_plane() -> Result<PathBuf> {
     let plane = std::env::current_exe().context("locate the running plane")?;
     let cli = plane.with_file_name("restless");
     if !cli.is_file() {
@@ -64,7 +64,7 @@ fn cli_beside_plane() -> Result<PathBuf> {
 }
 
 /// The job running now, or the last one with its outcome.
-fn read_job(root: &std::path::Path) -> Option<serde_json::Value> {
+pub(super) fn read_job(root: &std::path::Path) -> Option<serde_json::Value> {
     let job: ApplianceJob = serde_json::from_slice(&std::fs::read(root.join(JOB)).ok()?).ok()?;
     let code = std::fs::read_to_string(&job.exit)
         .ok()
@@ -93,13 +93,13 @@ fn read_job(root: &std::path::Path) -> Option<serde_json::Value> {
     }))
 }
 
-fn job_running(root: &std::path::Path) -> bool {
+pub(super) fn job_running(root: &std::path::Path) -> bool {
     read_job(root).is_some_and(|job| job["state"] == "running")
 }
 
 /// Start `restless <args>` as a job that outlives this plane's restart. Under systemd it is a
 /// transient user unit, outside the plane's own cgroup; under launchd a new process group.
-fn spawn_job(root: &std::path::Path, op: &str, cli: &std::path::Path, args: &[String]) -> Result<()> {
+pub(super) fn spawn_job(root: &std::path::Path, op: &str, cli: &std::path::Path, args: &[String]) -> Result<()> {
     let started = unix_now();
     let logs = root.join("logs");
     std::fs::create_dir_all(&logs)?;

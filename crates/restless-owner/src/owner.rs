@@ -1566,6 +1566,18 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/companies/{company}/sharing/setup",
             post(sharing_api::prepare_setup),
         )
+        .route(
+            "/companies/{company}/sharing/tailscale",
+            get(sharing_api::tailscale_addresses),
+        )
+        .route(
+            "/companies/{company}/sharing/here",
+            get(sharing_api::status).post(sharing_api::prepare_here),
+        )
+        .route(
+            "/companies/{company}/sharing/activate",
+            post(sharing_api::activate),
+        )
         .route("/companies/{company}/email-mandates/proposals", post(propose_email_mandate))
         .route("/companies/{company}/email-mandates/proposals/{proposal}/decision", post(decide_email_mandate))
         .route("/companies/{company}/cockpit", get(cockpit_view))

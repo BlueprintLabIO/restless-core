@@ -48,3 +48,69 @@ export function downloadSharingSetup(setup: SharingSetup) {
 	link.click();
 	setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+const sharingPath = (company: string, rest: string) =>
+	`/api/companies/${encodeURIComponent(company)}/sharing/${rest}`;
+
+/** This computer's tailnet addresses; a failure carries the one step a person must take. */
+export async function detectTailscale(
+	company: string
+): Promise<{ company_address: string; account_address: string }> {
+	return ownerJson(await fetch(sharingPath(company, 'tailscale'), { credentials: 'same-origin' }));
+}
+
+export interface SharingHere {
+	job: {
+		op: 'prepare-sharing' | 'enable-sharing';
+		state: 'running' | 'succeeded' | 'failed' | 'unknown';
+		detail: string | null;
+	} | null;
+	prepared: {
+		account_origin: string;
+		core_origin: string;
+		/** The one host step left: start the prepared account service. */
+		start_account_service: string;
+	} | null;
+}
+
+export async function sharingHere(company: string): Promise<SharingHere> {
+	return ownerJson(await fetch(sharingPath(company, 'here'), { credentials: 'same-origin' }));
+}
+
+/** Run the account installer on this computer; the credentials stay in private files here. */
+export async function prepareSharingHere(
+	company: string,
+	input: {
+		plan: SharingSetup;
+		database_url: string;
+		smtp: {
+			host: string;
+			port?: number;
+			secure: boolean;
+			user: string;
+			password: string;
+			from: string;
+		};
+	}
+): Promise<SharingHere> {
+	return ownerJson(
+		await fetch(sharingPath(company, 'here'), {
+			method: 'POST',
+			credentials: 'same-origin',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(input)
+		})
+	);
+}
+
+/** Activate individual sign-in; the cockpit restarts while it runs. */
+export async function activateSharing(company: string): Promise<SharingHere> {
+	return ownerJson(
+		await fetch(sharingPath(company, 'activate'), {
+			method: 'POST',
+			credentials: 'same-origin',
+			headers: { 'Content-Type': 'application/json' },
+			body: '{}'
+		})
+	);
+}
