@@ -1061,7 +1061,8 @@ impl OrgIntel {
         .await?)
     }
 
-    /// Bounded retention inventory for an active human company administrator.
+    /// Bounded retention inventory for an active human company administrator,
+    /// or with `only_sender` the files one person kept or sent (their own view).
     /// Membership role is server-derived and enforced by the HTTP boundary;
     /// this domain floor prevents a retired or service Actor from becoming an
     /// attachment-retention principal through an internal call.
@@ -1071,6 +1072,7 @@ impl OrgIntel {
         before: Option<(DateTime<Utc>, Uuid)>,
         limit: i64,
         include_purged: bool,
+        only_sender: Option<&str>,
     ) -> Result<OwnerAttachmentRetentionPage> {
         if !(1..=100).contains(&limit) {
             return Err(OrgIntelError::InvalidRoom(
@@ -1118,12 +1120,14 @@ impl OrgIntel {
                      WHERE (message_id IS NOT NULL OR kept_at IS NOT NULL) \
                        AND ($1 OR purged_at IS NULL) \
                        AND (created_at,attachment_id)<($2,$3) \
+                       AND ($5::text IS NULL OR sender_actor_id=$5) \
                      ORDER BY created_at DESC,attachment_id DESC LIMIT $4",
                 )
                 .bind(include_purged)
                 .bind(created_at)
                 .bind(attachment_id)
                 .bind(limit + 1)
+                .bind(only_sender)
                 .fetch_all(&mut *tx)
                 .await?
             }
@@ -1136,10 +1140,12 @@ impl OrgIntel {
                      FROM owner_attachments \
                      WHERE (message_id IS NOT NULL OR kept_at IS NOT NULL) \
                        AND ($1 OR purged_at IS NULL) \
+                       AND ($3::text IS NULL OR sender_actor_id=$3) \
                      ORDER BY created_at DESC,attachment_id DESC LIMIT $2",
                 )
                 .bind(include_purged)
                 .bind(limit + 1)
+                .bind(only_sender)
                 .fetch_all(&mut *tx)
                 .await?
             }

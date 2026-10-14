@@ -196,7 +196,7 @@ async fn a_room_message_carries_its_senders_files_to_participants_only() {
 
     // The attached file still counts as retained, against the same limits and purge path.
     let retained = org
-        .owner_attachment_retention_page("owner", None, 100, false)
+        .owner_attachment_retention_page("owner", None, 100, false, None)
         .await
         .unwrap();
     assert_eq!(retained.retained_files, 2);

@@ -98,7 +98,7 @@ async fn a_kept_file_outlives_staging_collection_and_opens_only_for_its_sender()
         .is_empty());
 
     let page = org
-        .owner_attachment_retention_page("owner", None, 100, false)
+        .owner_attachment_retention_page("owner", None, 100, false, None)
         .await
         .unwrap();
     assert_eq!(page.retained_files, 1);
@@ -132,7 +132,7 @@ async fn a_kept_file_outlives_staging_collection_and_opens_only_for_its_sender()
         .unwrap()
         .is_none());
     let page = org
-        .owner_attachment_retention_page("owner", None, 100, false)
+        .owner_attachment_retention_page("owner", None, 100, false, None)
         .await
         .unwrap();
     assert_eq!(page.retained_files, 0);

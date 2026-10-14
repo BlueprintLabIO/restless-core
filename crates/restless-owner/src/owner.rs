@@ -2174,6 +2174,8 @@ fn membership_boundary_violation(
         // Everyone attaches files to their messages and images to documents. The upload is kept
         // under the person who added it; reading it is decided where it is used.
         || is_attachment_upload_route(method, path)
+        // Each person lists and deletes the files they added; the handlers check whose.
+        || is_own_attachment_route(method, path)
         // Whoever may share a document or sheet may share it with an invitee; OrgIntel decides.
         || is_company_route_family(path, "pending-shares")
         // Change hints name a kind of change and carry nothing else; what a person refetches
@@ -2238,6 +2240,25 @@ fn is_attachment_upload_route(method: &Method, path: &str) -> bool {
     segments.next().is_some_and(|company| !company.is_empty())
         && segments.next() == Some("attachments")
         && segments.next().is_none()
+}
+
+fn is_own_attachment_route(method: &Method, path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/companies/") else {
+        return false;
+    };
+    let mut segments = rest.split('/');
+    if !segments.next().is_some_and(|company| !company.is_empty())
+        || segments.next() != Some("attachments")
+    {
+        return false;
+    }
+    match (segments.next(), segments.next()) {
+        (None, _) => *method == Method::GET,
+        (Some(attachment), None) => {
+            *method == Method::DELETE && Uuid::parse_str(attachment).is_ok()
+        }
+        _ => false,
+    }
 }
 
 /// A browser navigation to a page (not an API call, asset or health probe).
@@ -10324,13 +10345,8 @@ async fn list_retained_attachments(
     AxumPath(company): AxumPath<String>,
     Query(query): Query<AttachmentListQuery>,
 ) -> Response<Body> {
-    if principal.membership_role() != "owner" {
-        return api_error(
-            StatusCode::FORBIDDEN,
-            "membership_role",
-            "only the company membership owner may view retained attachment inventory",
-        );
-    }
+    // The owner sees every kept file; anyone else, the files they added or sent.
+    let only_sender = (principal.membership_role() != "owner").then(|| principal.actor_id());
     let (before, limit, include_purged) = match attachment_list_bounds(query) {
         Ok(bounds) => bounds,
         Err((error, message)) => return api_error(StatusCode::BAD_REQUEST, error, message),
@@ -10340,7 +10356,13 @@ async fn list_retained_attachments(
         Err(response) => return response,
     };
     match org
-        .owner_attachment_retention_page(principal.actor_id(), before, limit, include_purged)
+        .owner_attachment_retention_page(
+            principal.actor_id(),
+            before,
+            limit,
+            include_purged,
+            only_sender,
+        )
         .await
     {
         Ok(page) => Json(serde_json::json!({
@@ -10372,17 +10394,25 @@ async fn request_attachment_purge(
     AxumPath((company, attachment)): AxumPath<(String, Uuid)>,
     Json(input): Json<AttachmentPurgeInput>,
 ) -> Response<Body> {
-    if principal.membership_role() != "owner" {
-        return api_error(
-            StatusCode::FORBIDDEN,
-            "membership_role",
-            "only the company membership owner may change retained attachment policy",
-        );
-    }
     let org = match room_orgintel(&state, &principal, &company).await {
         Ok(org) => org,
         Err(response) => return response,
     };
+    // Anyone may delete a file they added to the Library themselves; any other kept file, and a
+    // file sent in a conversation, is the owner's to remove.
+    if principal.membership_role() != "owner" {
+        let own = matches!(
+            org.owner_attachment_for_actor(attachment, principal.actor_id()).await,
+            Ok(Some(record)) if record.message_id.is_none()
+        );
+        if !own {
+            return api_error(
+                StatusCode::FORBIDDEN,
+                "membership_role",
+                "only the company's owner, or the person who added it, may delete this file",
+            );
+        }
+    }
     let requested = match org
         .request_owner_attachment_purge(attachment, principal.actor_id(), &input.reason)
         .await

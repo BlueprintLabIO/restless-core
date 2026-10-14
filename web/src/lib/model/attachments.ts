@@ -1,6 +1,6 @@
-/* Files the owner keeps in the company: ones sent in a conversation and ones added straight to the
+/* Files a person keeps in the company: ones sent in a conversation and ones added straight to the
  * Library (S64). Both are the same retained attachments, under the same per-person and company
- * limits; the gateway lists them for the owner and serves each one by id. */
+ * limits; the gateway lists each person's own (the owner's, everyone's) and serves each one by id. */
 import { responseFailure } from './failure.ts';
 
 /** The most files one upload carries and the largest one file may be (the gateway's own caps). */

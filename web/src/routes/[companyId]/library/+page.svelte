@@ -160,15 +160,16 @@
 	const sheetsLoaded = $derived(sheetsQuery.data !== undefined || Boolean(sheetsQuery.error));
 	const refreshSheets = () => queryClient.invalidateQueries({ queryKey: sheetsKey });
 
-	/* Files the owner keeps: added here, or sent in a conversation. The inventory is the owner's;
-	 * the rows shown are the ones this person sent, which are the ones they can open. */
+	/* Files a person keeps: added here, or sent in a conversation. Everyone sees their own; the
+	 * owner's inventory holds everyone's, and the rows shown are still the ones this person sent,
+	 * which are the ones they can open. */
 	/* Held with the company it was read for, so switching companies never shows another's files. */
 	let keptRead = $state<{ company: string; inventory: AttachmentInventory } | null>(null);
 	const kept = $derived(keptRead?.company === companyId ? keptRead.inventory : null);
 	let keptFailure = $state('');
 	async function loadKept() {
 		const target = companyId;
-		if (!owner) return;
+		if (!principal.view) return;
 		try {
 			const inventory = await listRetainedAttachments(target);
 			if (target !== companyId) return;
@@ -180,9 +181,12 @@
 		}
 	}
 	$effect(() => {
-		if (owner) void loadKept();
+		if (principal.view) void loadKept();
 	});
 	const viewer = $derived(principal.view?.actor_id ?? '');
+	/* Who can open a kept file, said where files are added and listed. */
+	const YOURS_HINT =
+		'Files you add here or send in a conversation open only for you, and for whoever is in that conversation. To share one with the team, send it in a conversation, or open a Word, Excel or CSV file as a document or sheet and share that.';
 	const keptRows = $derived(
 		(kept?.attachments ?? []).filter((row) => !viewer || row.sender_actor_id === viewer)
 	);
@@ -1204,7 +1208,7 @@
 
 	/* Adding files: picked from the New menu, or dropped anywhere on the list. */
 	let dropping = $state(false);
-	const carriesFiles = (event: DragEvent) => owner && !!event.dataTransfer?.types.includes('Files');
+	const carriesFiles = (event: DragEvent) => !!event.dataTransfer?.types.includes('Files');
 	function ondragover(event: DragEvent) {
 		if (!carriesFiles(event) || filter === 'archived') return;
 		event.preventDefault();
@@ -1327,16 +1331,14 @@
 					count={row.total}
 				/>
 			{/each}
-			{#if owner}
-				<SidebarRow
-					href={filterHref('yours')}
-					label="From you"
-					icon={Upload}
-					active={filter === 'yours' && !fileOpen && !uploadFile}
-					count={counts.yours || null}
-					title="Files you added here or sent in a conversation"
-				/>
-			{/if}
+			<SidebarRow
+				href={filterHref('yours')}
+				label="From you"
+				icon={Upload}
+				active={filter === 'yours' && !fileOpen && !uploadFile}
+				count={counts.yours || null}
+				title={YOURS_HINT}
+			/>
 		</SidebarGroup>
 		{#if collections.length}
 			<SidebarGroup label="Collections">
@@ -1386,7 +1388,7 @@
 			aria-label="Library"
 			hidden={!!(openFileId || openUploadId || openPath)}
 		>
-			{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(owner && counts.yours ? [{ key: 'yours' as Filter, label: 'From you' }] : []), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : []), FILTERS.at(-1)!] as item (item.key)}
+			{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(counts.yours ? [{ key: 'yours' as Filter, label: 'From you' }] : []), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : []), FILTERS.at(-1)!] as item (item.key)}
 				<a
 					href={filterHref(item.key)}
 					class:active={filter === item.key && !collectionParam}
@@ -1573,12 +1575,12 @@
 								<button type="button" onclick={() => creator?.open('sheet')}
 									><Sheet size={14} strokeWidth={1.8} aria-hidden="true" />Sheet</button
 								>
-								{#if owner}<button
-										type="button"
-										title="Add files from this device; you can also drop them on the list"
-										onclick={() => creator?.pick()}
-										><Upload size={14} strokeWidth={1.8} aria-hidden="true" />Upload files…</button
-									>{/if}
+								<button
+									type="button"
+									title={`Add files from this device; you can also drop them on the list. ${YOURS_HINT}`}
+									onclick={() => creator?.pick()}
+									><Upload size={14} strokeWidth={1.8} aria-hidden="true" />Upload files…</button
+								>
 							</ActionMenu>
 						</div>
 					{/if}
@@ -1783,11 +1785,11 @@
 										{#if entry.kind === 'upload'}<a
 												href={attachmentHref(companyId, entry.id)}
 												download={entry.title}>Download</a
-											><button
-												class="danger"
-												title="Frees room for new files"
-												onclick={() => askDelete(entry)}>Delete…</button
-											>{/if}
+											>{#if owner || !entry.sent}<button
+													class="danger"
+													title="Frees room for new files"
+													onclick={() => askDelete(entry)}>Delete…</button
+												>{/if}{/if}
 										{#if filter === 'archived' && isNative(entry) && entry.manage}<button
 												class="danger"
 												onclick={() => askDelete(entry)}>Delete permanently…</button

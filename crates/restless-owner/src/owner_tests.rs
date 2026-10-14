@@ -2813,8 +2813,8 @@ model = \"anthropic/claude-sonnet-5-5\"
                 (Method::GET, "/api/companies/aris/changes"),
             ] { assert!(membership_boundary_violation(&method,path,&participant).is_none(), "{role} refused {method} {path}"); }
             assert!(membership_boundary_violation(&Method::POST,"/api/companies/aris/up",&participant).is_some());
-            // Adding a file is open; listing everyone's kept files is not.
-            assert!(membership_boundary_violation(&Method::GET,"/api/companies/aris/attachments",&participant).is_some());
+            // Adding a file is open, and so is listing: the handler lists only the person's own.
+            assert!(membership_boundary_violation(&Method::GET,"/api/companies/aris/attachments",&participant).is_none());
             // Only a message's reactions open, not the file previews beside them.
             for path in [
                 "/api/companies/aris/messages/42/reference",
@@ -2946,8 +2946,9 @@ model = \"anthropic/claude-sonnet-5-5\"
         assert!(
             membership_boundary_violation(&Method::POST, &attachment_path, &principal).is_some()
         );
+        // Deleting reaches the handler, which allows it only for a file the person added.
         assert!(
-            membership_boundary_violation(&Method::DELETE, &attachment_path, &principal).is_some()
+            membership_boundary_violation(&Method::DELETE, &attachment_path, &principal).is_none()
         );
         assert!(membership_boundary_violation(
             &Method::GET,
@@ -3851,7 +3852,7 @@ model = \"anthropic/claude-sonnet-5-5\"
     }
 
     #[tokio::test]
-    async fn attachment_inventory_is_owner_only_bounded_and_retention_truthful() {
+    async fn attachment_inventory_is_scoped_bounded_and_retention_truthful() {
         let Some(fixture) = RoomRouteFixture::new().await else {
             eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping attachment inventory scenario");
             return;
@@ -3927,11 +3928,22 @@ model = \"anthropic/claude-sonnet-5-5\"
         .unwrap();
 
         let collection = format!("/companies/{}/attachments", fixture.company);
-        let (status, denied) = room_request(
-            &fixture.app("exec", "member", &fixture.company),
+        // A member lists only the files they added or sent: none of the owner's.
+        let (status, own) = room_request(
+            &fixture.app("mallory", "member", &fixture.company),
             Method::GET,
             &collection,
             None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(own["attachments"].as_array().unwrap().len(), 0);
+        // Nor may they delete one of them.
+        let (status, denied) = room_request(
+            &fixture.app("mallory", "member", &fixture.company),
+            Method::DELETE,
+            format!("{collection}/{}", attachment_ids[0]),
+            Some(serde_json::json!({ "reason": "not mine" })),
         )
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
