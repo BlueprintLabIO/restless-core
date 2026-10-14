@@ -706,10 +706,18 @@ pub async fn agent_auth_for_model(
         .or_else(|| company_config.agent_intelligence.get("default"))
     {
         if let Some((provider, id, _)) = runtime::account_intelligence_route(&route.connection) {
-            if model != company_config.for_agent(actor).model
-                || !crate::model_connections::account_assignment_is_granted(&root, &company_config, provider, id)?
-            {
+            // An agent on an account route may run any model that connection's provider serves (its
+            // own earlier choice, or the company default's): the doctrine offers exactly that.
+            // Requiring the default's exact model failed every such agent with "no longer
+            // granted", even after a new key was granted (Sprint 86).
+            if !crate::model_connections::account_assignment_is_granted(&root, &company_config, provider, id)? {
                 anyhow::bail!(crate::model_connections::why_not_granted(&root, &company_config, provider, id));
+            }
+            if !model.starts_with(&format!("{provider}/")) {
+                anyhow::bail!(
+                    "This agent's model {model} is not served by the company's {provider} connection. \
+                     Choose its model again in Company › Intelligence."
+                );
             }
         }
     }

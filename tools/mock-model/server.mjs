@@ -69,8 +69,34 @@ function turnState(messages) {
 	return { text: '', toolResults };
 }
 
+/* The runtime ends each turn by asking for a JSON decision ("The turn is ending now … answer
+ * with JSON only", or for Work "Required keys: decision, reason"). Answer it the way a model
+ * that follows the protocol does, so a good reply is not reported as "couldn't reply". A scenario
+ * may set `completion` to choose the decision; otherwise "waiting" where it is offered (Exec),
+ * else "outcome_met" (Work). */
+function completionFor(text) {
+	if (!/answer with JSON only|Required keys: decision, reason/i.test(text)) return null;
+	const chosen = scenarioFile().completion;
+	const decision =
+		chosen?.decision ?? (/\bwaiting\b/.test(text) ? 'waiting' : 'outcome_met');
+	return {
+		text: JSON.stringify({ decision, reason: chosen?.reason ?? 'The mock turn finished.' })
+	};
+}
+
+function scenarioFile() {
+	if (!scenarioPath) return {};
+	try {
+		return JSON.parse(readFileSync(scenarioPath, 'utf8'));
+	} catch {
+		return {};
+	}
+}
+
 function chooseStep(messages) {
 	const { text, toolResults } = turnState(messages);
+	const completion = completionFor(text);
+	if (completion) return { step: completion, text };
 	for (const rule of scenario()) {
 		if (!new RegExp(rule.match ?? '.*', 'i').test(text)) continue;
 		const steps = rule.steps ?? [{ text: rule.reply ?? '' }];
