@@ -211,7 +211,11 @@ export async function removeConfirmedAttention(
 	void refreshAttention(client, companyId);
 }
 
-export function companiesQuery(enabled: QueryEnabled = true) {
+/** `background` keeps the list reading while the tab is hidden (desktop notifications). */
+export function companiesQuery(
+	enabled: QueryEnabled = true,
+	background: () => boolean = () => false
+) {
 	const query = createQuery(() => ({
 		queryKey: queryKeys.companies,
 		queryFn: getCompanies,
@@ -220,7 +224,7 @@ export function companiesQuery(enabled: QueryEnabled = true) {
 		gcTime: RETAIN_MS,
 		// The list carries each company's card, so it refreshes as often as the portfolio did.
 		refetchInterval: 30_000,
-		refetchIntervalInBackground: false
+		refetchIntervalInBackground: background()
 	}));
 	return {
 		get view() {

@@ -21,7 +21,7 @@
 	import { referenceOptions } from '$lib/model/composer-options.svelte';
 	import type ExecutiveRailView from '$lib/components/ExecutiveRail.svelte';
 	import { presence } from '$lib/model/presence.svelte';
-	import { desktopNotify } from '$lib/model/desktop-notify.svelte';
+	import { desktopNotify, notifyPortfolio } from '$lib/model/desktop-notify.svelte';
 	import { ASK_EXEC_EVENT } from '$lib/model/ask-exec';
 	import { cockpitContextPath, reviewAction } from '$lib/model/attention';
 	import { isOutcomeReview } from '$lib/model/attention-presentation';
@@ -168,7 +168,12 @@
 	const collaboration = $derived(
 		collaborationBootstrapQuery(companyId, () => (ownerAccess ? null : principal))
 	);
-	const companyCatalog = companiesQuery(() => ownerAccess);
+	/* With desktop notifications on, the list keeps reading while hidden: it is how the owner hears
+	 * about their other companies. */
+	const companyCatalog = companiesQuery(
+		() => ownerAccess,
+		() => desktopNotify.active
+	);
 	const companies = $derived(companyCatalog.view);
 	/* The rail keeps the owner's last choice per company, so a reload does not
 	 * open it only to close it again. Phones always start with the overlay
@@ -806,7 +811,8 @@
 				desktopNotify.show(
 					row.title,
 					messagePreview(row.last_message_preview),
-					() => void goto(row.href)
+					() => void goto(row.href),
+					{ company: companyName, tag: `${companyId}:room:${row.room_id}` }
 				);
 			}
 		}
@@ -938,7 +944,8 @@
 				desktopNotify.show(
 					item.title,
 					item.requestedAction || item.whatHappened,
-					() => void goto(`/${encodeURIComponent(companyId)}?item=${encodeURIComponent(item.id)}`)
+					() => void goto(`/${encodeURIComponent(companyId)}?item=${encodeURIComponent(item.id)}`),
+					{ company: companyName, tag: `${companyId}:item:${item.id}` }
 				);
 			}
 		}
@@ -958,12 +965,23 @@
 		if (forYou.status !== 'live') return;
 		const snapshot = { items: forYou.items, unread_count: forYou.unreadCount, next_before: null };
 		for (const item of newlyUnread(knownForYou, snapshot).slice(0, 3)) {
-			desktopNotify.show(forYouSentence(item), item.excerpt, () => {
-				void forYou.read([item.key]).catch(() => undefined);
-				void goto(item.href);
-			});
+			desktopNotify.show(
+				forYouSentence(item),
+				item.excerpt,
+				() => {
+					void forYou.read([item.key]).catch(() => undefined);
+					void goto(item.href);
+				},
+				{ company: companyName, tag: `${companyId}:for-you:${item.key}` }
+			);
 		}
 		knownForYou = unreadMarks(snapshot);
+	});
+
+	/* The owner's other companies: a rise in what waits there is said, named, from the portfolio. */
+	$effect(() => {
+		if (!ownerAccess || companyCatalog.status !== 'live') return;
+		notifyPortfolio(companies, companyId, (id) => void goto(`/${encodeURIComponent(id)}`));
 	});
 
 	/* Everyone gets the same quick actions over what they can see: make a document or sheet, ask

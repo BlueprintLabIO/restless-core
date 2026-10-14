@@ -62,10 +62,20 @@ class DesktopNotify {
 		}
 	}
 
-	/** Shows one notification when the cockpit is not in front. */
-	show(title: string, body: string, onclick: () => void) {
+	/**
+	 * Shows one notification when the cockpit is not in front. `company` names the company it is
+	 * about, so an owner of several can tell them apart; `tag` identifies the thing itself, so two
+	 * items that share a title do not replace each other while a repeat of one does.
+	 */
+	show(
+		title: string,
+		body: string,
+		onclick: () => void,
+		about: { company?: string; tag?: string } = {}
+	) {
 		if (!this.active || document.visibilityState === 'visible') return;
-		const notification = new Notification(title, { body, tag: title });
+		const heading = about.company ? `${about.company}: ${title}` : title;
+		const notification = new Notification(heading, { body, tag: about.tag ?? heading });
 		notification.onclick = () => {
 			window.focus();
 			onclick();
@@ -75,3 +85,38 @@ class DesktopNotify {
 }
 
 export const desktopNotify = new DesktopNotify();
+
+type PortfolioCompany = {
+	id: string;
+	name: string;
+	lifecycle_status: string;
+	card?: { decisions_waiting: number };
+};
+let knownWaiting: Map<string, number> | null = null;
+
+/**
+ * Every other company the owner runs taps them on the shoulder too: the portfolio list carries
+ * each company's waiting decisions, so a rise in one that is not open in this tab is said, named.
+ * The open company speaks for itself, item by item. The first reading only primes.
+ */
+export function notifyPortfolio(
+	companies: PortfolioCompany[],
+	openCompany: string,
+	open: (companyId: string) => void
+) {
+	const next = new Map<string, number>();
+	for (const company of companies) {
+		if (company.lifecycle_status !== 'active' || !company.card) continue;
+		const waiting = company.card.decisions_waiting;
+		next.set(company.id, waiting);
+		const before = knownWaiting?.get(company.id);
+		if (before === undefined || waiting <= before || company.id === openCompany) continue;
+		desktopNotify.show(
+			waiting === 1 ? '1 decision is waiting' : `${waiting} decisions are waiting`,
+			'Open the company to decide.',
+			() => open(company.id),
+			{ company: company.name, tag: `company:${company.id}:waiting` }
+		);
+	}
+	if (companies.length) knownWaiting = next;
+}
