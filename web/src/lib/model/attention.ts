@@ -372,6 +372,26 @@ export async function completeHandoffHumanStep(company: string, handoff: string)
 	if (!response.ok) throw await ownerError(response);
 }
 
+/** Hand an owner handoff to a member or admin: it leaves this Inbox and becomes theirs, with
+ * the note as context. Their "pass to owner" brings it back. */
+export async function delegateHandoff(
+	company: string,
+	handoff: string,
+	to: string,
+	note: string
+): Promise<void> {
+	const response = await fetch(
+		`/api/companies/${encodeURIComponent(company)}/handoffs/${encodeURIComponent(handoff)}/delegate`,
+		{
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			credentials: 'same-origin',
+			body: JSON.stringify({ to, note })
+		}
+	);
+	if (!response.ok) throw await ownerError(response);
+}
+
 export async function sendActorMessage(
 	company: string,
 	actor: string,

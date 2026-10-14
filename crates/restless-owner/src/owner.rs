@@ -1534,6 +1534,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(teams_api::pass_handoff_to_owner),
         )
         .route(
+            "/companies/{company}/handoffs/{handoff}/delegate",
+            post(teams_api::delegate_handoff),
+        )
+        .route(
             "/companies/{company}/tool-connections",
             get(tool_connections_api::list).post(tool_connections_api::add),
         )

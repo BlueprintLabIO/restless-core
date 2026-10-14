@@ -1217,8 +1217,8 @@ impl OrgIntel {
             ));
         }
         let mut tx = self.pool.begin().await?;
-        let candidate_work_id: Uuid = sqlx::query_scalar(
-            "SELECT work_id FROM owner_handoffs \
+        let (candidate_work_id, delegated_from): (Uuid, Option<String>) = sqlx::query_as(
+            "SELECT work_id, escalated_from FROM owner_handoffs \
              WHERE id=$1 AND state='pending' AND assigned_to=$2",
         )
         .bind(id)
@@ -1230,7 +1230,9 @@ impl OrgIntel {
         })?;
         let accountability = lock_work_accountability_in_tx(&mut tx, candidate_work_id).await?;
         let from_person = accountability.responsible_actor_id.as_deref() == Some(from_actor);
-        let next: Option<String> = if from_person {
+        // A handoff the owner handed to this person goes straight back to the owner.
+        let delegated = delegated_from.as_deref() == Some("owner");
+        let next: Option<String> = if from_person || delegated {
             None
         } else if from_actor == "exec" {
             accountability.responsible_actor_id.clone()
@@ -1290,6 +1292,48 @@ impl OrgIntel {
                 "no pending handoff is assigned to that actor".into(),
             ));
         }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// The owner hands a pending owner handoff to a member or admin of the company: it leaves the
+    /// owner's Inbox and becomes exactly that person's, with the owner's note as context. Their
+    /// "pass to owner" brings it straight back. Only a handoff waiting on the owner moves.
+    pub async fn delegate_handoff(&self, id: Uuid, to_actor: &str, note: &str) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        let member: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM actors a WHERE a.id=$1 AND a.retired_at IS NULL \
+             AND a.kind='human' AND EXISTS(SELECT 1 FROM human_principal_actor_bindings b \
+             WHERE b.actor_id=a.id AND b.membership_role IN ('member','admin') \
+             AND b.membership_status='active'))",
+        )
+        .bind(to_actor)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !member {
+            return Err(OrgIntelError::InvalidWork(
+                "a handoff can be handed only to an active member or admin of the company".into(),
+            ));
+        }
+        let changed = sqlx::query(
+            "UPDATE owner_handoffs SET assigned_to=$2, escalated_from='owner', escalated_at=now(), \
+             resolution=$3, delivered_at=NULL \
+             WHERE id=$1 AND state='pending' AND assigned_to IS NULL",
+        )
+        .bind(id)
+        .bind(to_actor)
+        .bind(note.trim())
+        .execute(&mut *tx)
+        .await?;
+        if changed.rows_affected() != 1 {
+            return Err(OrgIntelError::InvalidWork(
+                "only a pending handoff waiting on the owner can be handed on".into(),
+            ));
+        }
+        sqlx::query("INSERT INTO events (kind, actor_id, body) VALUES ('handoff_delegated','owner',$1)")
+            .bind(serde_json::json!({ "handoff_id": id, "to_actor": to_actor, "note": note.trim() }))
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(())
     }

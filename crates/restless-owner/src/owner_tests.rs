@@ -2838,6 +2838,8 @@ model = \"anthropic/claude-sonnet-5-5\"
         }
         // Only the owner says who owns a team.
         assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/teams/t-1/owner", &principal).is_some());
+        // Only the owner hands an Inbox item to someone else.
+        assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/handoffs/h-1/delegate", &principal).is_some());
         assert!(membership_boundary_violation(&Method::GET, "/api/companies/aris/work/w-1/resume", &principal).is_some());
         // They open the Work files they can see; the handlers check which.
         assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/library/open", &principal).is_none());

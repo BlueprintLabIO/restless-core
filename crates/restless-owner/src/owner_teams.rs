@@ -20,6 +20,14 @@ pub(super) struct ReasonInput {
 }
 
 #[derive(Debug, Deserialize)]
+pub(super) struct DelegateInput {
+    /// The member's or admin's actor id.
+    to: String,
+    #[serde(default)]
+    note: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub(super) struct GoalTeamInput {
     /// The team that delivers the goal; null hands it back to the owner.
     #[serde(default)]
@@ -146,6 +154,32 @@ pub(super) async fn pass_handoff_to_owner(
         Ok(()) => {
             Json(serde_json::json!({ "handoff_id": handoff, "passed_to": "owner" })).into_response()
         }
+        Err(error) => refused("handoff", error),
+    }
+}
+
+/// Hand an owner handoff to a member or admin: it becomes exactly their Inbox item. The owner's
+/// (or an admin's, acting with the owner's say); OrgIntel checks the person and the handoff.
+pub(super) async fn delegate_handoff(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, handoff)): AxumPath<(String, Uuid)>,
+    Json(input): Json<DelegateInput>,
+) -> Response<Body> {
+    if !matches!(principal.membership_role(), "owner" | "admin") {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "handoff",
+            "handing on an Inbox item is the owner's",
+        );
+    }
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org.delegate_handoff(handoff, input.to.trim(), input.note.trim()).await {
+        Ok(()) => Json(serde_json::json!({ "handoff_id": handoff, "handed_to": input.to.trim() }))
+            .into_response(),
         Err(error) => refused("handoff", error),
     }
 }

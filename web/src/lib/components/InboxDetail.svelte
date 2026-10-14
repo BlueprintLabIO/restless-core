@@ -16,6 +16,7 @@
 	import {
 		approvalAction,
 		completeHandoffHumanStep,
+		delegateHandoff,
 		resolveHandoffDecision
 	} from '$lib/model/attention';
 	import {
@@ -266,6 +267,36 @@
 		onleave?.();
 	}
 	const due = $derived(deadlineAt(item));
+	/* Hand to…: an owner handoff can become a member's or admin's own Inbox item. */
+	const delegates = $derived(
+		canSetAside && item.source.kind === 'owner_handoff' && !item.preparing
+			? (cockpit.view?.people ?? []).filter(
+					(person) => person.kind === 'human' && person.role !== 'owner'
+				)
+			: []
+	);
+	let handingTo = $state<{ actor_id: string; display: string } | null>(null);
+	let handNote = $state('');
+	$effect(() => {
+		void item.id;
+		untrack(() => {
+			handingTo = null;
+			handNote = '';
+		});
+	});
+	const handOn = () => {
+		const person = handingTo;
+		if (!person) return;
+		return run(
+			async () => {
+				await delegateHandoff(companyId, item.source.reference, person.actor_id, handNote);
+				await refreshAttention(client, companyId);
+			},
+			`Handed to ${person.display}. It is in their Inbox now.`,
+			'That was not handed on. Try again.',
+			`/${encodeURIComponent(companyId)}/people?person=${encodeURIComponent(person.actor_id)}&view=people`
+		);
+	};
 	const sendReply = () =>
 		replyReady &&
 		run(
@@ -437,6 +468,10 @@
 			{#if snoozed}<button onclick={() => void wakeInboxItem(client, companyId, item.id)}
 					>Wake now</button
 				>{:else}<SnoozeChoices onpick={snooze} />{/if}
+			{#each delegates as person (person.actor_id)}<button
+					title={`Hand this to ${person.display}: it leaves your Inbox and becomes theirs. They can pass it back.`}
+					onclick={() => (handingTo = person)}>Hand to {person.display}…</button
+				>{/each}
 			<button onclick={() => void copyInboxLink(companyId, item.id)}>Copy link</button>
 			<button onclick={copyReference}>Copy reference</button>
 		</ActionMenu>
@@ -539,7 +574,25 @@
 			</p>
 		{/if}
 
-		{#if declining}
+		{#if handingTo}
+			<textarea
+				bind:value={handNote}
+				{@attach (input) => input.focus()}
+				aria-label={`Note for ${handingTo.display}`}
+				maxlength={2000}
+				placeholder={`Anything ${handingTo.display} should know? Optional.`}
+				disabled={acting}
+				onkeydown={(event) => keys(event, handOn)}></textarea>
+			<div class="bar">
+				<button class="btn primary small" disabled={acting} onclick={handOn}
+					>{acting ? 'Handing on…' : `Hand to ${handingTo.display}`}</button
+				>
+				<button class="btn small ghost" disabled={acting} onclick={() => (handingTo = null)}
+					>Back</button
+				>
+				<span class="hint">⌘ ↵</span>
+			</div>
+		{:else if declining}
 			<textarea
 				bind:value={reason}
 				aria-label="Why not"
