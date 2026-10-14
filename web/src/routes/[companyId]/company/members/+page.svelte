@@ -210,6 +210,40 @@
 		);
 	}
 
+	/* The link stops working at once and cannot be revived, so cancelling asks first. */
+	async function cancelInvitation(invitation: IssuerInvitation) {
+		const yes = await confirmAction({
+			title: `Cancel the invitation to ${invitation.email}?`,
+			body: 'The link they were sent stops working. You can invite them again later.',
+			action: 'Cancel invitation',
+			danger: true
+		});
+		if (!yes) return;
+		void act(
+			`cancel:${invitation.id}`,
+			`invitations/${invitation.id}/cancel`,
+			{},
+			'Invitation cancelled.'
+		);
+	}
+
+	/* Pausing can be taken back, so it acts at once and offers Undo, which reinstates them. */
+	function pause(row: MemberRow) {
+		void act(
+			`suspend:${row.membership_id}`,
+			`members/${row.membership_id}/suspend`,
+			{},
+			`${row.name}’s access is paused.`,
+			() =>
+				act(
+					`reinstate:${row.membership_id}`,
+					`members/${row.membership_id}/reinstate`,
+					{},
+					`${row.name} can enter again.`
+				)
+		);
+	}
+
 	async function copy(invitation: IssuerInvitation) {
 		try {
 			await navigator.clipboard.writeText(invitation.link);
@@ -386,15 +420,8 @@
 											disabled={!!busy}
 											title="Email the invitation again"
 											onclick={() => resend(invitation)}>Resend invitation</button
-										><button
-											disabled={!!busy}
-											onclick={() =>
-												void act(
-													`cancel:${invitation.id}`,
-													`invitations/${invitation.id}/cancel`,
-													{},
-													'Invitation cancelled.'
-												)}>Cancel invitation</button
+										><button disabled={!!busy} onclick={() => void cancelInvitation(invitation)}
+											>Cancel invitation…</button
 										>{/if}</ActionMenu
 								>
 							{/if}
@@ -456,13 +483,7 @@
 								<ActionMenu label={`Access for ${row.name}`}
 									>{#if canSuspend && row.status === 'active' && !row.ending}<button
 											disabled={!!busy}
-											onclick={() =>
-												void act(
-													`suspend:${row.membership_id}`,
-													`members/${row.membership_id}/suspend`,
-													{},
-													`${row.name}’s access is paused.`
-												)}>Pause access</button
+											onclick={() => pause(row)}>Pause access</button
 										>{:else if row.status === 'suspended' && !row.ending}<button
 											disabled={!!busy}
 											onclick={() =>
