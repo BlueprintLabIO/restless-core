@@ -216,8 +216,11 @@
 			completing = '';
 		}
 	}
+	/* Stepping through the list with J/K replaces the address rather than adding history, so Back
+	 * leaves the Inbox instead of walking back through every item passed on the way. A click on a
+	 * row is a deliberate open and keeps its history entry. */
 	function select(target: AttentionItem) {
-		void goto(href(target.id), { keepFocus: true, noScroll: true }).then(() => {
+		void goto(href(target.id), { keepFocus: true, noScroll: true, replaceState: true }).then(() => {
 			const row = document.querySelector<HTMLElement>('.inbox-list [aria-current="true"]');
 			row?.focus();
 			row?.scrollIntoView({
