@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { useQueryClient } from '@tanstack/svelte-query';
+	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import { failureSentence } from '$lib/model/failure';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
@@ -166,7 +167,7 @@
 						</p>{/if}
 					{#if c.auth.desktop}<a
 							class="button"
-							href={`/${companyId}/company/computer?focus=desktop`}
+							href={`/${companyId}/company/computer?focus=desktop&task=harness-sign-in`}
 							>Continue Claude sign-in in company desktop →</a
 						>{/if}
 					<button class="btn small" disabled={!!busy} onclick={() => act(c, 'cancel')}
@@ -205,7 +206,7 @@
 					This harness signs in independently of direct provider connections. OAuth is managed by
 					the native CLI in this company computer’s private profile. API keys use a separate
 					Infisical entry and are passed to the native CLI. Native API usage is billed by the
-					provider and is not metered by Restless’s relay.
+					provider and is not metered by {PRODUCT_NAME}’s relay.
 				</p>
 			</details>
 		</article>
