@@ -13,6 +13,7 @@
 	import type { ForYouSource } from '$lib/model/for-you.svelte';
 	import { page } from '$app/state';
 	import AppliedChanges from './AppliedChanges.svelte';
+	import { targetHref } from '$lib/model/direction';
 
 	let {
 		source,
@@ -144,7 +145,15 @@
 			stacked
 			title={forYouSentence(item)}
 			meta={item.kind === 'applied' ? null : item.excerpt || null}
-			href={item.kind === 'applied' ? undefined : item.href}
+			href={item.kind === 'applied'
+				? item.direction_applied?.length === 1
+					? (targetHref(
+							companyId,
+							item.direction_applied[0].target,
+							item.direction_applied[0].applied_at
+						) ?? undefined)
+					: undefined
+				: item.href}
 			unread={item.unread}
 			onclick={() => open(item)}
 		>

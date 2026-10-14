@@ -5,7 +5,6 @@
 import { responseFailure } from './failure.ts';
 import type {
 	DirectionApplied,
-	DirectionAppliedPage,
 	DirectionDecisionInput,
 	DirectionDigest,
 	DirectionGrantList,
@@ -54,10 +53,6 @@ export function decideDirectionRequest(
 	return post(path(companyId, `requests/${encodeURIComponent(requestId)}/decision`), input);
 }
 
-export function directionApplied(companyId: string, since?: string): Promise<DirectionAppliedPage> {
-	return read(path(companyId, `applied${since ? `?since=${encodeURIComponent(since)}` : ''}`));
-}
-
 /** Put back what one applied change replaced. A change made on top since is never overwritten:
  * the answer says `changed_since` instead. */
 export function undoDirectionApplied(
@@ -97,15 +92,26 @@ export function targetPhrase(target: DirectionTarget | null): string {
 	}
 }
 
-/** Where a change can be opened, when it has a page of its own. */
-export function targetHref(companyId: string, target: DirectionTarget | null): string | null {
+/** Where a change can be opened, when it has a page of its own. Given when it was applied, a
+ * document opens on its versions showing what changed since just before, and a sheet on its
+ * history, so the change itself is what the page shows. */
+export function targetHref(
+	companyId: string,
+	target: DirectionTarget | null,
+	appliedAt?: string
+): string | null {
 	const company = `/${encodeURIComponent(companyId)}`;
 	if (!target) return null;
+	const before = appliedAt ? Date.parse(appliedAt) - 1000 : NaN;
 	switch (target.kind) {
 		case 'document':
-			return `${company}/library/documents?document=${encodeURIComponent(target.id)}`;
+			return `${company}/library/documents?document=${encodeURIComponent(target.id)}${
+				Number.isNaN(before)
+					? ''
+					: `&inspect=versions&since=${encodeURIComponent(new Date(before).toISOString())}`
+			}`;
 		case 'sheet':
-			return `${company}/library/sheets?sheet=${encodeURIComponent(target.id)}`;
+			return `${company}/library/sheets?sheet=${encodeURIComponent(target.id)}${appliedAt ? '&inspect=history' : ''}`;
 		case 'work':
 			return `${company}/work/${encodeURIComponent(target.id)}`;
 		case 'charter':

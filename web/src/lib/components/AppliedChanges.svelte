@@ -1,7 +1,8 @@
 <script lang="ts">
 	/* Changes Exec applied for other people without asking (S80 "act, then tell"): each in the
-	 * asker's words, what it touched, and Undo for a week. Undo never overwrites newer work; it
-	 * says so instead. */
+	 * asker's words, what it touched, and Undo for a week. Each opens the change it made (a
+	 * document's versions since just before, a sheet's history, or the page it touched). Undo
+	 * never overwrites newer work; it says so instead. */
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { targetHref, targetPhrase, undoDirectionApplied } from '$lib/model/direction';
@@ -45,10 +46,12 @@
 
 <ul class="applied-changes" aria-label="Changes applied for others">
 	{#each rows as change (change.id)}
-		{@const href = targetHref(companyId, change.target)}
+		{@const href = targetHref(companyId, change.target, change.applied_at)}
 		<li class:undone={change.undo.state === 'undone'}>
 			<span class="what">
-				<strong>{change.summary}</strong>
+				{#if href}<a class="summary" {href} title="Open the change it made"
+						><strong>{change.summary}</strong></a
+					>{:else}<strong>{change.summary}</strong>{/if}
 				<small
 					>{change.requester.name}{#if targetPhrase(change.target)}&nbsp;· {#if href}<a {href}
 								>{targetPhrase(change.target)}</a
@@ -115,8 +118,17 @@
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
-	small a {
+	small a,
+	a.summary {
 		color: inherit;
+	}
+	a.summary {
+		min-width: 0;
+		overflow: hidden;
+		text-decoration: none;
+	}
+	a.summary:hover strong {
+		text-decoration: underline;
 	}
 	.state {
 		flex: none;
