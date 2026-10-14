@@ -1,6 +1,6 @@
 # Sprint 87 — An app store that is never empty
 
-**Status:** in progress
+**Status:** landed (see the commits naming each item on main)
 **Programme:** capabilities; cold start
 **Depends on:** Sprint 83 (Apps I and II).
 
@@ -79,3 +79,14 @@ and rate limits before it is enabled, and that check is recorded in the source's
   it usable by the next turn.
 - Exec's `restless apps search` returns the same items, and its link opens the item.
 - Unit tests cover parsing of each source, using saved fixtures; no network is needed in CI.
+
+## As built
+
+- **Storage:** the catalogue is an in-memory snapshot per plane (`app_catalogue.rs`), refreshed
+  daily, not a table. Every company reads the same list, and a restart refetches it. There is
+  nothing to migrate.
+- **Skills:** a catalogue skill installs through `POST /companies/{c}/app-catalogue/install`, which
+  writes its files into the candidate folder. The web accepts one without scripts in the same click;
+  one with scripts goes through the usual candidate review.
+- **Browse:** registry services sit under "More", and catalogue know-how under Browse › Know-how.
+  Lists past 60 rows get a search box.

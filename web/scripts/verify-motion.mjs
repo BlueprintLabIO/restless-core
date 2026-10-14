@@ -7,8 +7,13 @@
 //
 // Journeys:
 //   open-latest   a long chat opens at its latest message, and so does switching chats and back
+//   stream        Exec streams a reply after tool calls: the reply keeps its width when it ends,
+//                 and no tool row flashes into view and away within half a second. Needs the
+//                 stack pointed at tools/mock-model (RESTLESS_ANTHROPIC_BASE_URL) with a model
+//                 connected; it sends one message ("watch me work"), so it writes to the
+//                 `_test` company's Exec conversation.
 //
-// It reads only.
+// open-latest reads only.
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 
@@ -76,6 +81,84 @@ await journey('open-latest', async (page) => {
 	const back = await distanceFromEnd(page);
 	assert(back.gap <= 48, `coming back to the Exec chat leaves ${back.gap}px below`);
 	return { first: first.gap, back: back.gap };
+});
+
+await journey('stream', async (page) => {
+	await page.goto(`${base}/${company}/people?person=exec`);
+	await page.locator('.exr-msgs').first().waitFor({ timeout: 20_000 });
+	await page.waitForTimeout(1500);
+	// Watch the chat from before the reply exists: elements that arrive and leave, and the width of
+	// the newest Exec message, sampled every 50 ms until it has been still for 3 s.
+	await page.evaluate(() => {
+		const root = document.querySelector('.exr-msgs');
+		const seen = new Map();
+		const flashes = [];
+		const watcher = new MutationObserver((records) => {
+			const now = performance.now();
+			for (const record of records) {
+				for (const node of record.addedNodes)
+					if (node instanceof HTMLElement && /tool|activity|step/i.test(node.className))
+						seen.set(node, now);
+				for (const node of record.removedNodes)
+					if (seen.has(node) && now - seen.get(node) < 500)
+						flashes.push(
+							`${node.className.toString().slice(0, 60)} ${Math.round(now - seen.get(node))}ms`
+						);
+			}
+		});
+		watcher.observe(root, { childList: true, subtree: true });
+		window.__motion = { flashes, widths: [] };
+		const sample = () => {
+			const replies = root.querySelectorAll(
+				'[data-message-sender]:not([data-message-sender="owner"])'
+			);
+			const last = replies[replies.length - 1];
+			if (last) window.__motion.widths.push(Math.round(last.getBoundingClientRect().width));
+			window.__motion.timer = setTimeout(sample, 50);
+		};
+		sample();
+	});
+	const form = new FormData();
+	form.set('body', 'Please watch me work and tell me where things stand.');
+	form.set('client_command_id', crypto.randomUUID());
+	const sent = await fetch(`${base}/api/companies/${company}/actors/exec/conversation`, {
+		method: 'POST',
+		headers: { Origin: base },
+		body: form
+	});
+	assert(sent.ok, `sending failed: ${sent.status}`);
+	// Wait for the reply to land and settle.
+	let settled = 0;
+	let last = -1;
+	for (let i = 0; i < 240 && settled < 60; i++) {
+		await page.waitForTimeout(50);
+		const widths = await page.evaluate(() => window.__motion.widths.length);
+		settled = widths === last ? settled + 1 : 0;
+		last = widths;
+		const text = await page.locator('.exr-msgs').innerText();
+		if (!text.includes('Here is where things stand')) settled = 0;
+	}
+	const motion = await page.evaluate(() => {
+		clearTimeout(window.__motion.timer);
+		return window.__motion;
+	});
+	assert(
+		(await page.locator('.exr-msgs').innerText()).includes('Here is where things stand'),
+		'the scripted reply never arrived: is the stack pointed at tools/mock-model with a model connected?'
+	);
+	const tail = motion.widths.slice(-20);
+	const finalWidth = tail.at(-1);
+	const streamingWidth =
+		motion.widths
+			.filter((width) => width > 0)
+			.slice(-40, -20)
+			.at(-1) ?? finalWidth;
+	assert.deepEqual(motion.flashes, [], 'tool rows flashed into view and away');
+	assert(
+		Math.abs((finalWidth ?? 0) - (streamingWidth ?? 0)) <= 4,
+		`the reply snapped from ${streamingWidth}px to ${finalWidth}px when it ended`
+	);
+	return { streamingWidth, finalWidth, samples: motion.widths.length };
 });
 
 await browser.close();

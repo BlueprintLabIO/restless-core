@@ -9,8 +9,8 @@
 //   node tools/mock-model/server.mjs --port 18080 --scenario tools/mock-model/scenarios/default.json
 //   RESTLESS_ANTHROPIC_BASE_URL=http://127.0.0.1:18080/v1 scripts/restless-dev <namespace>
 //
-// A scenario is a list of rules; the first whose `match` (a case-insensitive regular expression)
-// matches the latest person's text answers. A rule has `steps`, run one per model call: a step is
+// A scenario is a list of rules; of those whose `match` (a case-insensitive regular expression)
+// matches the latest person's text, the one matching latest in it answers. A rule has `steps`, run one per model call: a step is
 // `{ "tool": { "name": "...", "input": {...} } }`, which asks for a tool call, or `{ "text": "..." }`,
 // which ends the turn. The step taken is the number of tool results since that person's text, so
 // a rule with a tool step then a text step calls the tool, gets its result, then replies. A step may
@@ -97,9 +97,25 @@ function chooseStep(messages) {
 	const { text, toolResults } = turnState(messages);
 	const completion = completionFor(text);
 	if (completion) return { step: completion, text };
+	/* Exec's prompt carries older messages too, so the rule whose words appear latest wins: the
+	 * newest message decides, not the first rule an old one happens to match. */
+	let chosen = null;
+	let at = -1;
 	for (const rule of scenario()) {
-		if (!new RegExp(rule.match ?? '.*', 'i').test(text)) continue;
-		const steps = rule.steps ?? [{ text: rule.reply ?? '' }];
+		const pattern = new RegExp(rule.match ?? '.*', 'gi');
+		let match;
+		let last = -1;
+		while ((match = pattern.exec(text))) {
+			last = match.index;
+			if (match[0] === '') pattern.lastIndex++;
+		}
+		if (last > at) {
+			at = last;
+			chosen = rule;
+		}
+	}
+	if (chosen) {
+		const steps = chosen.steps ?? [{ text: chosen.reply ?? '' }];
 		return { step: steps[Math.min(toolResults, steps.length - 1)], text };
 	}
 	return { step: { text: `Mock reply: ${text.slice(0, 400)}` }, text };

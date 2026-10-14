@@ -1,6 +1,6 @@
 # Sprint 86 — Exec knows what happened, and says what is true
 
-**Status:** in progress
+**Status:** landed (see the commits naming each item on main)
 **Programme:** owner feedback; Exec quality
 **Depends on:** Sprint 82 (Exec works on the source of truth), Sprint 85.
 
@@ -69,3 +69,14 @@ can read images, and every change to a model connection is recorded and visible.
   builder). On one that doesn't, Exec is told so.
 - Seen live on the dev stack: change the ceiling, open the Exec context (`restless context show`),
   and see the line.
+
+## As built
+
+- **S86-02:** there is no new `restless library list`. The doctrine names the reads that already exist
+  for each cockpit page. Retiring an output is `restless work retire-artifact`, then read back
+  with `restless work graph`.
+- **S86-03:** granting a second connection for a provider replaces the first: one binding per
+  provider. That was the owner's "silently revoked" case. It is now recorded with the agents it
+  strands. A grant also clears that provider's credential cooldowns.
+- **S86-05:** besides the command guard, a provider error body streamed as reply text is dropped
+  from the live reply.

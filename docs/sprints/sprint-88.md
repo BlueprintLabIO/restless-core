@@ -1,6 +1,6 @@
 # Sprint 88 — People: everyone, their work and their chat, on one page
 
-**Status:** in progress (S88-01 landed in 263e23a9)
+**Status:** landed (S88-01 263e23a9, archived list 0a3e1a5d; S88-02..06 c1ef45b8..da57736f)
 **Programme:** owner feedback; quality of the cockpit
 **Depends on:** Sprint 85 (S85-02, one chat for every agent; S85-15, the Work sheet beside a chat).
 

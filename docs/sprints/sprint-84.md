@@ -1,6 +1,6 @@
 # Sprint 84 — A dogfood loop that sees what the owner sees
 
-**Status:** in progress
+**Status:** landed (see the commits naming each item on main)
 **Programme:** quality of the cockpit; process
 **Depends on:** Sprint 83 (the 210-story audit).
 

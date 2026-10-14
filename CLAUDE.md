@@ -289,6 +289,17 @@ This repo is built in sprints by two founders collaborating on the `main` branch
 - **Deletion is product progress.** After each sprint, identify abstractions, adapters, tables,
   protocols, and tests that no longer improve a live outcome. Removing them is part of completing the
   work, not optional cleanup (§16.5, §16.6).
+- **A UI change is done when the owner's path has been seen** (Sprint 84). Seed a `_test` company to
+  look like real use (`scripts/seed-reno-scale.mjs`: long names, 30 finished Work, reviews, long
+  threads), and point the stack at the scripted model (`tools/mock-model`, via
+  `RESTLESS_ANTHROPIC_BASE_URL`) so LLM features run with no model connection. Then:
+  - look at the change in the built-in browser at desktop and phone width;
+  - run `web/scripts/capture-surfaces.mjs` (clipping, sideways scroll, raw ids and commands);
+  - run `web/scripts/verify-motion.mjs` (open at the latest message, no snap or flash while
+    streaming);
+  - check the stories it touches in `docs/stories/README.md`.
+
+  Every problem the owner reports becomes a story there, with the check that now guards it.
 - **Stop tunnelling.** If internal types/states/invariants dominate while the target company behaviour
   stays vague, or test-count is being treated as progress, return to a real company run (§16.11).
 
