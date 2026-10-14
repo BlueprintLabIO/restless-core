@@ -19,7 +19,10 @@ export function presence(company: () => string) {
 				const response = await fetch(url, { method: 'POST' });
 				if (!response.ok) return;
 				const body = (await response.json()) as { present: PresentPerson[] };
-				if (!stopped) present = presentNow.people = body.present ?? [];
+				if (!stopped) {
+					present = body.present ?? [];
+					presentNow.people = present;
+				}
 			} catch {
 				/* Presence is a nicety; the cockpit works without it. */
 			}
@@ -36,7 +39,8 @@ export function presence(company: () => string) {
 			clearInterval(timer);
 			document.removeEventListener('visibilitychange', onVisible);
 			window.removeEventListener('pagehide', onLeave);
-			present = presentNow.people = [];
+			present = [];
+			presentNow.people = [];
 			void fetch(url, { method: 'DELETE', keepalive: true }).catch(() => {});
 		};
 	});

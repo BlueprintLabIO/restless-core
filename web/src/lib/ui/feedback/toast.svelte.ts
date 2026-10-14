@@ -1,3 +1,4 @@
+import { untrack } from 'svelte';
 /* One way to say a thing happened, with an Undo when it can be taken back. Every surface calls
  * toast() instead of growing its own notice; Toasts.svelte, mounted once at the root, shows them. */
 
@@ -88,10 +89,13 @@ const clearances = $state<{ list: { id: number; px: number }[] }>({ list: [] });
 export const toastClearance = () => Math.max(0, ...clearances.list.map((entry) => entry.px));
 export function clearOfToasts(node: HTMLElement) {
 	const id = next++;
-	const measure = () => {
-		const px = Math.max(0, Math.round(window.innerHeight - node.getBoundingClientRect().top));
-		clearances.list = [...clearances.list.filter((entry) => entry.id !== id), { id, px }];
-	};
+	/* Untracked: the attachment runs as an effect, so reading the list it writes would make it
+	 * depend on its own write and loop (effect_update_depth_exceeded on the Inbox). */
+	const measure = () =>
+		untrack(() => {
+			const px = Math.max(0, Math.round(window.innerHeight - node.getBoundingClientRect().top));
+			clearances.list = [...clearances.list.filter((entry) => entry.id !== id), { id, px }];
+		});
 	measure();
 	const observer = new ResizeObserver(measure);
 	observer.observe(node);
@@ -99,6 +103,8 @@ export function clearOfToasts(node: HTMLElement) {
 	return () => {
 		observer.disconnect();
 		window.removeEventListener('resize', measure);
-		clearances.list = clearances.list.filter((entry) => entry.id !== id);
+		untrack(() => {
+			clearances.list = clearances.list.filter((entry) => entry.id !== id);
+		});
 	};
 }
