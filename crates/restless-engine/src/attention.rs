@@ -1426,9 +1426,9 @@ async fn project_queue(
                 label: "Sign in again".into(),
                 role: "human_step",
                 consequence: format!("Opens {name} in Apps, where you sign in with the provider."),
-                next_state: "Its tools return to new agent sessions as soon as the sign-in completes.".into(),
-                // Company and connection names are validated slugs.
-                href: Some(format!("/{}/apps/c-{name}", config.name)),
+                next_state: "Its tools return as soon as the sign-in completes, and Exec resumes the work that failed meanwhile.".into(),
+                // Company and connection names are validated slugs; the app page leads back here.
+                href: Some(format!("/{0}/apps/c-{name}?return=%2F{0}", config.name)),
             }],
             preparing: false,
             can_continue: true,

@@ -27,6 +27,8 @@
 		restoredDecisions,
 		revokeGrant,
 		signIn,
+		rememberSignInReturn,
+		takeSignInReturn,
 		statusLabel,
 		type GrantedTool,
 		type ToolClass,
@@ -203,8 +205,20 @@
 		});
 	}
 
+	/* Where a sign-in began, so the owner gets back there once it completes: the Inbox's
+	 * "Sign in again" names it with ?return=. */
+	const returnTo = $derived(page.url.searchParams.get('return') ?? '');
+	let signedInReturn = $state('');
+	$effect(() => {
+		const name = app?.connections.find((connection) => connection.status === 'working')?.name;
+		if (name) {
+			const back = takeSignInReturn(companyId, name);
+			if (back) signedInReturn = back;
+		}
+	});
 	async function startSignIn(connection: ToolConnection) {
 		await act(`signin:${connection.name}`, async () => {
+			if (returnTo) rememberSignInReturn(companyId, connection.name, returnTo);
 			window.location.assign(await signIn(companyId, connection.name));
 		});
 	}
@@ -982,6 +996,11 @@
 		{/snippet}
 
 		<a class="back" href={appsHref}>Apps</a>
+		{#if signedInReturn}<Notice tone="success" title="Signed in">
+				{#snippet actions()}<a class="btn small primary" href={signedInReturn}
+						>Back to where you started</a
+					>{/snippet}
+			</Notice>{/if}
 		{#if failure}<Notice tone="danger" title="That change was not made" details={failure} />{/if}
 		{#if partial}<Notice tone="warning" title={partial} actions={retry} />{/if}
 		{#if notice}<Notice tone="success" title={notice} />{/if}

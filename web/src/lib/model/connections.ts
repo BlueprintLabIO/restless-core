@@ -187,6 +187,27 @@ export async function signIn(company: string, name: string): Promise<string> {
 	return url;
 }
 
+/* Where the owner was when a sign-in began (the Inbox, a conversation), kept across the
+ * provider's redirect so the app page can lead back there. Per tab, and only a cockpit path. */
+const returnKey = (company: string, name: string) => `sign-in-return:${company}:${name}`;
+export function rememberSignInReturn(company: string, name: string, path: string): void {
+	if (!path.startsWith(`/${encodeURIComponent(company)}`) || path.startsWith('//')) return;
+	try {
+		sessionStorage.setItem(returnKey(company, name), path);
+	} catch {
+		/* Without storage the app page simply has no way back to offer. */
+	}
+}
+export function takeSignInReturn(company: string, name: string): string {
+	try {
+		const path = sessionStorage.getItem(returnKey(company, name)) ?? '';
+		sessionStorage.removeItem(returnKey(company, name));
+		return path;
+	} catch {
+		return '';
+	}
+}
+
 /** Allow tools for everyone, until `expiresAt` when given. */
 export const grantTools = (
 	company: string,

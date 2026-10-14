@@ -338,6 +338,18 @@ pub(super) async fn oauth_callback(
             } else {
                 None
             };
+            // A sign-in renewed for an app the company already used: tell Exec, so Work that
+            // failed while it was signed out resumes without the owner having to ask.
+            if request.is_none() {
+                if let Ok(org) = state.daemon.orgintel.get(&company).await {
+                    let body = format!(
+                        "The owner signed in to {name}; its tools work now. Resume any Work that failed while {name} needed a sign-in."
+                    );
+                    if let Err(error) = org.send_message("owner", Some("exec"), &body).await {
+                        tracing::warn!(%error, "could not tell Exec about a renewed sign-in");
+                    }
+                }
+            }
             Redirect::to(&format!(
                 "{}{}",
                 app_path(&company, &name),
