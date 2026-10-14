@@ -50,10 +50,20 @@
 		judgementHolders,
 		workWaitingOnOwner
 	} from '$lib/model/attention-presentation';
-	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import { emptyWorkTitle } from '$lib/model/work-views';
-	import { dueLabel, finishLine, goalAbout, type Goal } from '$lib/work/goal';
+	import { dueLabel, finishLine, type Goal } from '$lib/work/goal';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
+	import Ban from '@lucide/svelte/icons/ban';
+	import {
+		blockerSentence,
+		closeGoal,
+		fetchWorkSpend,
+		priorityLabel,
+		reopenGoal,
+		setGoalDetails,
+		setGoalTeam
+	} from '$lib/model/work-actions';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
 
 	const companyId = $derived(page.params.companyId ?? '');
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
@@ -98,6 +108,11 @@
 	 * reloaded and reached again with Back. */
 	const selectedGoal = $derived(page.url.searchParams.get('goal') ?? '');
 	const view = $derived(page.url.searchParams.get('view') === 'board' ? 'board' : 'list');
+	/* Who does it, what state it is in, and whether priority leads: filters kept in the address. */
+	const ownerFilter = $derived(page.url.searchParams.get('owner') ?? '');
+	const statusFilter = $derived(page.url.searchParams.get('status') ?? '');
+	const sort = $derived(page.url.searchParams.get('sort') === 'priority' ? 'priority' : 'recent');
+	const stoppedView = $derived(selectedGoal === 'stopped');
 	function setQuery(key: string, value: string) {
 		const url = new URL(page.url);
 		if (value) url.searchParams.set(key, value);
@@ -135,12 +150,15 @@
 	const goalWork = $derived(
 		(graph?.work ?? []).filter(
 			(item) =>
-				item.status !== 'abandoned' &&
+				(stoppedView ? item.status === 'abandoned' : item.status !== 'abandoned') &&
+				(!ownerFilter || item.owner_id === ownerFilter) &&
+				(!statusFilter || item.status === statusFilter) &&
 				(!search.trim() ||
 					`${item.title} ${item.outcome}`
 						.toLocaleLowerCase()
 						.includes(search.trim().toLocaleLowerCase())) &&
 				(!selectedGoal ||
+					stoppedView ||
 					(selectedGoal === 'other'
 						? !item.goal_id
 						: selectedGoal === 'waiting'
@@ -157,6 +175,9 @@
 			(item) =>
 				item.status !== 'completed' && item.status !== 'abandoned' && waitingOnOwner.has(item.id)
 		).length
+	);
+	const stoppedCount = $derived(
+		(graph?.work ?? []).filter((item) => item.status === 'abandoned').length
 	);
 	const activeCount = $derived(
 		(graph?.work ?? []).filter((item) => item.status === 'active').length
@@ -203,6 +224,7 @@
 		...openGoals.map((goal) => ({ goal: goal.id, label: goal.title })),
 		...(otherOpen ? [{ goal: 'other', label: 'Other work' }] : []),
 		{ goal: 'archived', label: 'Archived' },
+		...(stoppedCount ? [{ goal: 'stopped', label: 'Stopped' }] : []),
 		...(archivedOpen ? closedGoals.map((goal) => ({ goal: goal.id, label: goal.title })) : [])
 	]);
 	/* Work with a decision or step waiting on the owner: what the Inbox shows for it. */
@@ -215,24 +237,29 @@
 			: '';
 	const byRecent = (a: WorkItem, b: WorkItem) =>
 		Date.parse(b.updated_at) - Date.parse(a.updated_at);
+	const bySort = $derived((a: WorkItem, b: WorkItem) =>
+		sort === 'priority' ? b.priority - a.priority || byRecent(a, b) : byRecent(a, b)
+	);
 	const groups = $derived([
 		{
 			key: 'owner',
 			label: 'Needs you',
 			tone: 'warning' as const,
-			rows: goalWork.filter((item) => item.status !== 'completed' && waitingOnOwner.has(item.id))
+			rows: goalWork
+				.filter((item) => item.status !== 'completed' && waitingOnOwner.has(item.id))
+				.toSorted(bySort)
 		},
-		...(['blocked', 'active', 'proposed'] as const).map((status) => ({
+		...(['blocked', 'active', 'proposed', 'abandoned'] as const).map((status) => ({
 			key: status,
 			label: WORK_STATUS_LABEL[status],
 			tone: (status === 'blocked' ? 'danger' : status === 'active' ? 'progress' : 'muted') as
 				'danger' | 'progress' | 'muted',
 			rows: goalWork
 				.filter((item) => item.status === status && !waitingOnOwner.has(item.id))
-				.toSorted(byRecent)
+				.toSorted(bySort)
 		}))
 	]);
-	const done = $derived(goalWork.filter((item) => item.status === 'completed').toSorted(byRecent));
+	const done = $derived(goalWork.filter((item) => item.status === 'completed').toSorted(bySort));
 	const openCount = $derived(goalWork.length - done.length);
 	const title = $derived(
 		selectedGoal === 'other'
@@ -243,7 +270,9 @@
 					? 'In progress'
 					: selectedGoal === 'archived'
 						? 'Archived'
-						: (goals.find((goal) => goal.id === selectedGoal)?.title ?? 'All work')
+						: stoppedView
+							? 'Stopped'
+							: (goals.find((goal) => goal.id === selectedGoal)?.title ?? 'All work')
 	);
 	/* The quality bar lives on the Goal; a piece of Work shows it only when it
 	 * holds itself to a different one. */
@@ -267,11 +296,6 @@
 			: '';
 		return owner ? `${team.name} team, owned by ${owner}` : `${team.name} team`;
 	}
-	const selectedGoalAbout = $derived(
-		selectedGoalRow
-			? [goalTeam(selectedGoalRow), goalAbout(selectedGoalRow)].filter(Boolean).join(' · ')
-			: ''
-	);
 	const overrides = $derived(
 		new Map(
 			((graph && 'standards' in graph ? graph.standards : undefined) ?? []).map((row) => [
@@ -337,6 +361,10 @@
 		const own = overrides.get(work.id);
 		return [
 			withOwner ? ownerName(work.owner_id) : '',
+			work.status === 'blocked' && !waitingOnOwner.has(work.id)
+				? blockerSentence(work.resolution, attemptOf(work)?.summary ?? '')
+				: '',
+			priorityLabel(work.priority),
 			waitingOnOwner.has(work.id) ? '' : holder(work),
 			own ? `${standardLabel(own)} bar` : '',
 			run && run !== 'running' ? run : '',
@@ -346,12 +374,15 @@
 			.join(' · ');
 	}
 	const boardColumns = $derived(
-		(['proposed', 'active', 'blocked', 'completed'] as const).map((status) => ({
+		(stoppedView
+			? (['abandoned'] as const)
+			: (['proposed', 'active', 'blocked', 'completed'] as const)
+		).map((status) => ({
 			key: status,
 			label: WORK_STATUS_LABEL[status],
 			items: goalWork
 				.filter((item) => item.status === status)
-				.toSorted(byRecent)
+				.toSorted(bySort)
 				.map((row) => ({
 					id: row.id,
 					title: row.title,
@@ -364,6 +395,92 @@
 				}))
 		}))
 	);
+	/* Filters: the people who own Work here, and the states it can be in. */
+	const ownerOptions = $derived(
+		[...new Set((graph?.work ?? []).map((item) => item.owner_id))]
+			.map((id) => ({ id, name: ownerName(id) }))
+			.toSorted((a, b) => a.name.localeCompare(b.name))
+	);
+	const STATUS_OPTIONS = ['blocked', 'active', 'proposed', 'completed'] as const;
+
+	/* Metered spend per Work, summed for a Goal. Owner only; unavailable says so. */
+	let workSpend = $state<Map<string, number> | 'unavailable' | null>(null);
+	$effect(() => {
+		if (!ownerAccess || !companyId) return;
+		let current = true;
+		fetchWorkSpend(companyId)
+			.then((rows) => {
+				if (current) workSpend = rows;
+			})
+			.catch(() => {
+				if (current) workSpend = 'unavailable';
+			});
+		return () => (current = false);
+	});
+	function goalCost(goalId: string): string {
+		if (workSpend === null) return '';
+		if (workSpend === 'unavailable') return 'Cost unavailable right now';
+		const spend = workSpend;
+		const total = (graph?.work ?? [])
+			.filter((item) => item.goal_id === goalId)
+			.reduce((sum, item) => sum + (spend.get(item.id) ?? 0), 0);
+		return total > 0 ? `$${total.toFixed(2)} spent` : 'Nothing metered yet';
+	}
+
+	/* The selected Goal's own menu: edit its words, who delivers it, close or reopen it. */
+	let goalEditing = $state(false);
+	let goalTitle = $state('');
+	let goalDoneWhen = $state('');
+	let goalDue = $state('');
+	let goalBusy = $state(false);
+	let goalFailure = $state('');
+	let confirmingClose = $state(false);
+	const goalDueOn = (goal: object) => (goal as { due_on?: string | null }).due_on ?? '';
+	function openGoalEdit() {
+		if (!selectedGoalRow) return;
+		goalTitle = selectedGoalRow.title;
+		goalDoneWhen = finishLine(selectedGoalRow);
+		goalDue = goalDueOn(selectedGoalRow);
+		goalFailure = '';
+		goalEditing = true;
+	}
+	async function goalAction(run: () => Promise<unknown>, done: string) {
+		if (goalBusy) return;
+		goalBusy = true;
+		goalFailure = '';
+		try {
+			await run();
+			toast(done);
+			goalEditing = false;
+			confirmingClose = false;
+			await cockpitProjection.refresh();
+		} catch (cause) {
+			goalFailure = failureSentence(cause, 'The Goal did not change.');
+		} finally {
+			goalBusy = false;
+		}
+	}
+	function saveGoal() {
+		const row = selectedGoalRow;
+		if (!row || !goalTitle.trim()) return;
+		const details: Parameters<typeof setGoalDetails>[2] = {};
+		if (goalTitle.trim() !== row.title) details.title = goalTitle.trim();
+		if (goalDoneWhen.trim() !== finishLine(row)) details.done_when = goalDoneWhen.trim();
+		const due = goalDueOn(row);
+		if (goalDue !== due) details.due_on = goalDue || null;
+		if (!Object.keys(details).length) {
+			goalEditing = false;
+			return;
+		}
+		void goalAction(() => setGoalDetails(companyId, row.id, details), 'Goal saved');
+	}
+	$effect(() => {
+		void selectedGoal;
+		goalEditing = false;
+		confirmingClose = false;
+		goalFailure = '';
+	});
+
 	holdQueries(() => [
 		principalProjection,
 		attentionProjection,
@@ -507,6 +624,14 @@
 			title="Goals that are closed, and their work"
 		/>
 		{#if archivedOpen}{#each closedGoals as goal (goal.id)}{@render goalRow(goal, true)}{/each}{/if}
+		{#if stoppedCount}<SidebarRow
+				href={viewHref(stoppedView ? '' : 'stopped')}
+				label="Stopped"
+				icon={Ban}
+				active={stoppedView}
+				count={stoppedCount}
+				title="Work that was stopped for good; open one to restore it"
+			/>{/if}
 	{/snippet}
 	{#snippet narrow()}
 		<div class="narrow-search"><SidebarSearch bind:value={search} placeholder="Search work" /></div>
@@ -528,7 +653,6 @@
 				{#if selectedGoal}<Target size={15} strokeWidth={1.8} aria-hidden="true" />{/if}
 				<h1>{title}</h1>
 				<span class="count" title="Open work">{loaded && openCount ? openCount : ''}</span>
-				{#if selectedGoalAbout}<InfoTip text={selectedGoalAbout} />{/if}
 				{#if selectedGoal}<button
 						class="clear"
 						type="button"
@@ -563,6 +687,120 @@
 				{#if standardFailure}<span class="standard-failure" role="alert">{standardFailure}</span
 					>{/if}
 			{/if}
+			{#if selectedGoalRow && ownerAccess}
+				<div class="goal-standard-picker">
+					<ActionMenu label="Goal actions">
+						{#snippet trigger()}<span>Goal</span>{/snippet}
+						{#if !selectedGoalRow.closed_at}
+							<button type="button" onclick={openGoalEdit}><span>Edit goal…</span></button>
+							{#each teamRows as team (team.id)}
+								<button
+									type="button"
+									disabled={goalBusy}
+									onclick={() =>
+										goalAction(
+											() => setGoalTeam(companyId, selectedGoalRow.id, team.id),
+											`${team.name} team delivers it`
+										)}
+									><span>Delivered by {team.name}</span
+									>{#if selectedGoalRow.team_id === team.id}<Check
+											size={14}
+											aria-label="Current"
+										/>{/if}</button
+								>
+							{/each}
+							{#if selectedGoalRow.team_id}
+								<button
+									type="button"
+									disabled={goalBusy}
+									onclick={() =>
+										goalAction(
+											() => setGoalTeam(companyId, selectedGoalRow.id, null),
+											'You hold this goal'
+										)}><span>Hold it yourself</span></button
+								>
+							{/if}
+							<button type="button" onclick={() => (confirmingClose = true)}
+								><span>Close goal…</span></button
+							>
+						{:else}
+							<button
+								type="button"
+								disabled={goalBusy}
+								onclick={() =>
+									goalAction(() => reopenGoal(companyId, selectedGoalRow.id), 'Goal reopened')}
+								><span>Reopen goal</span></button
+							>
+						{/if}
+					</ActionMenu>
+				</div>
+			{/if}
+			<div class="filters">
+				<div class="goal-standard-picker" title="Show the work one person owns">
+					<ActionMenu label="Owner">
+						{#snippet trigger()}<span>{ownerFilter ? ownerName(ownerFilter) : 'Anyone'}</span
+							>{/snippet}
+						<button type="button" onclick={() => setQuery('owner', '')}
+							><span>Anyone</span>{#if !ownerFilter}<Check
+									size={14}
+									aria-label="Current"
+								/>{/if}</button
+						>
+						{#each ownerOptions as option (option.id)}
+							<button type="button" onclick={() => setQuery('owner', option.id)}
+								><span>{option.name}</span>{#if ownerFilter === option.id}<Check
+										size={14}
+										aria-label="Current"
+									/>{/if}</button
+							>
+						{/each}
+					</ActionMenu>
+				</div>
+				{#if !stoppedView}
+					<div class="goal-standard-picker" title="Show work in one state">
+						<ActionMenu label="Status">
+							{#snippet trigger()}<span
+									>{statusFilter
+										? WORK_STATUS_LABEL[statusFilter as WorkRow['status']]
+										: 'Any status'}</span
+								>{/snippet}
+							<button type="button" onclick={() => setQuery('status', '')}
+								><span>Any status</span>{#if !statusFilter}<Check
+										size={14}
+										aria-label="Current"
+									/>{/if}</button
+							>
+							{#each STATUS_OPTIONS as option (option)}
+								<button type="button" onclick={() => setQuery('status', option)}
+									><span>{WORK_STATUS_LABEL[option]}</span>{#if statusFilter === option}<Check
+											size={14}
+											aria-label="Current"
+										/>{/if}</button
+								>
+							{/each}
+						</ActionMenu>
+					</div>
+				{/if}
+				<div class="goal-standard-picker" title="Order the work">
+					<ActionMenu label="Sort">
+						{#snippet trigger()}<span
+								>{sort === 'priority' ? 'Priority first' : 'Recent first'}</span
+							>{/snippet}
+						<button type="button" onclick={() => setQuery('sort', '')}
+							><span>Recent first</span>{#if sort === 'recent'}<Check
+									size={14}
+									aria-label="Current"
+								/>{/if}</button
+						>
+						<button type="button" onclick={() => setQuery('sort', 'priority')}
+							><span>Priority first</span>{#if sort === 'priority'}<Check
+									size={14}
+									aria-label="Current"
+								/>{/if}</button
+						>
+					</ActionMenu>
+				</div>
+			</div>
 			<div class="view-switch">
 				<Segmented
 					label="View"
@@ -587,6 +825,80 @@
 					error={coordination}
 					onretry={retryWork}
 				/>{/if}
+			{#if selectedGoalRow && loaded && graph}
+				{@const progress = goalProgress(selectedGoalRow.id)}
+				<section class="goal-head" aria-label="About this goal">
+					{#if goalEditing}
+						<form
+							class="goal-form"
+							onsubmit={(event) => {
+								event.preventDefault();
+								saveGoal();
+							}}
+						>
+							<label><span>Goal</span><input bind:value={goalTitle} required /></label>
+							<label
+								><span>Done when</span><input
+									bind:value={goalDoneWhen}
+									maxlength="400"
+									placeholder="What you will see when it is done"
+								/></label
+							>
+							<label><span>Due</span><input type="date" bind:value={goalDue} /></label>
+							<div class="goal-form-actions">
+								<button class="btn small primary" disabled={goalBusy || !goalTitle.trim()}
+									>{goalBusy ? 'Saving…' : 'Save'}</button
+								>
+								<button class="btn small ghost" type="button" onclick={() => (goalEditing = false)}
+									>Cancel</button
+								>
+							</div>
+						</form>
+					{:else}
+						{#if selectedGoalRow.body.trim() && selectedGoalRow.body.trim() !== selectedGoalRow.title}<p
+								class="goal-body"
+							>
+								{selectedGoalRow.body}
+							</p>{/if}
+						<p class="goal-facts">
+							<span
+								>{finishLine(selectedGoalRow)
+									? `Done when ${finishLine(selectedGoalRow)}`
+									: 'No finish line yet'}</span
+							>
+							<span>{progress.done} of {progress.total} done</span>
+							{#if dueLabel(selectedGoalRow)}<span>Due {dueLabel(selectedGoalRow)}</span>{/if}
+							{#if goalTeam(selectedGoalRow)}<span>{goalTeam(selectedGoalRow)}</span>{/if}
+							{#if ownerAccess && goalCost(selectedGoalRow.id)}<span
+									title="Metered model spend on this goal's work"
+									>{goalCost(selectedGoalRow.id)}</span
+								>{/if}
+							{#if selectedGoalRow.closed_at}<span>Closed</span>{/if}
+						</p>
+					{/if}
+					{#if confirmingClose}
+						<div class="goal-confirm" role="alertdialog" aria-label="Close this goal">
+							<span
+								>Close “{selectedGoalRow.title}”? Its work keeps running; you can reopen it.</span
+							>
+							<button
+								class="btn small danger"
+								type="button"
+								disabled={goalBusy}
+								onclick={() =>
+									goalAction(() => closeGoal(companyId, selectedGoalRow.id), 'Goal closed')}
+								>Close goal</button
+							>
+							<button
+								class="btn small ghost"
+								type="button"
+								onclick={() => (confirmingClose = false)}>Cancel</button
+							>
+						</div>
+					{/if}
+					{#if goalFailure}<p class="standard-failure" role="alert">{goalFailure}</p>{/if}
+				</section>
+			{/if}
 			{#if !graph && failure}
 				<FailureNotice error={failure} subject="Work" variant="page" onretry={retryWork} />
 			{:else if !graph && coordination && loaded}
@@ -746,7 +1058,64 @@
 	}
 	.view-switch {
 		display: flex;
+	}
+	.filters {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
 		margin-left: auto;
+	}
+	.goal-head {
+		display: grid;
+		gap: 6px;
+		margin: 0 0 14px;
+		padding: 2px 4px;
+	}
+	.body.board .goal-head {
+		margin: 0;
+		padding: 12px 16px;
+		border-bottom: 1px solid var(--border);
+	}
+	.goal-body {
+		margin: 0;
+		color: var(--ink);
+		white-space: pre-line;
+	}
+	.goal-facts {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px 14px;
+		margin: 0;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+	}
+	.goal-form {
+		display: grid;
+		gap: 8px;
+		max-width: 520px;
+	}
+	.goal-form label {
+		display: grid;
+		gap: 4px;
+	}
+	.goal-form label span {
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+	}
+	.goal-form input {
+		padding: 6px 10px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-control);
+		background: var(--surface-raised);
+		color: var(--ink);
+		font: inherit;
+	}
+	.goal-form-actions,
+	.goal-confirm {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 6px;
 	}
 	.body {
 		min-height: 0;

@@ -12,6 +12,8 @@ export function emptyWorkTitle(view: string): string {
 			return 'Nothing is archived.';
 		case 'other':
 			return 'No other work.';
+		case 'stopped':
+			return 'Nothing is stopped.';
 		default:
 			return 'No work under this goal yet';
 	}

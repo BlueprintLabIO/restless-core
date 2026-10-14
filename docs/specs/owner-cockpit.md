@@ -635,19 +635,18 @@ These are views over OrgIntel goals and Work nodes, not separate hard-coded enti
 
 ## 6.3 Work graph view
 
-**Default interaction**
+**Default interaction** (amended in Sprint 83, UXG-051)
 
-The first operational view is a horizontal graph rail on the calm main surface:
+The first operational view is a list grouped by what each item needs (needs you, waiting, in
+motion, next, done), with a board as the second view. Both filter by goal, owner, status and
+priority (sort) through the address, so a filtered view can be shared and reached again. A
+standalone graph canvas is not built: dogfood has not shown the owner reading Work as a graph, and
+the edges stay legible where they matter, on each Work's page (requires, hands over to, revision
+loop). Revisit a graph view only if a real run shows the owner losing the shape of a pipeline.
 
-```text
-producer --requires--> critic --requires--> publisher
-    ^----------revises-------------|
-```
-
-Each node shows revision/status, accountable actor, latest Attempt, prerequisites, returned review,
-artifact count and gate result. `requires` and `revises` must be visually distinct. The same
-repeatable-read OrgIntel projection backs both the CLI and SPA. A denser kanban or history view may be
-added only if dogfood needs it.
+Each Work page shows revision/status, accountable actor, every Attempt with its inputs and
+feedback, prerequisites, returned review, artifacts and gate results. The same repeatable-read
+OrgIntel projection backs both the CLI and SPA.
 
 Each card should show:
 
@@ -1311,7 +1310,7 @@ Required V0 elements:
 Required V0 elements:
 
 - goal hierarchy/navigation;
-- active Work graph with `requires` and `revises` edges;
+- `requires` and `revises` edges on each Work's page (no standalone graph canvas; see §6.3);
 - revisions, latest Attempts and exact upstream artifact inputs;
 - filter by goal, owner, status, and priority;
 - goal detail with success contract;
