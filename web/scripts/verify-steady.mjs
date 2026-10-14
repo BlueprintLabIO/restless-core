@@ -81,6 +81,12 @@ await journey('entry', async (page) => {
 		const url = new URL(request.url());
 		if (url.pathname.startsWith('/api/companies/')) api.push(url.pathname);
 	});
+	// A dev server compiles each module on its first request; production serves a built
+	// bundle. One warm-up visit keeps that compile out of what is measured.
+	await page.goto(`${base}/${company}`);
+	await page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+	await page.goto('about:blank');
+	api.length = 0;
 	await page.goto(`${base}/${company}`);
 	// The page is hidden until it settles, then revealed once.
 	await page.waitForSelector('.company-browser-link-capture:not(.first-paint-pending)', {
