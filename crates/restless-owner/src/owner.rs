@@ -5007,6 +5007,30 @@ async fn grant_owner_connection(
         Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "Could not verify provider access across the account."),
         Ok(false) => {}
     }
+    // What this grant replaces, and who still thinks with it: a second connection for the same
+    // provider takes the company's one binding, and agents assigned to the first then fail with
+    // "no longer granted" (14 October report). Name both in the record.
+    let replaced = existing_reference
+        .filter(|stored| *stored != &reference)
+        .and_then(|stored| {
+            registry
+                .connections
+                .iter()
+                .find(|other| &owner_connection_reference(other) == stored)
+        })
+        .map(|other| {
+            let route = format!("account:{}@{}", other.provider, other.id);
+            let stranded: Vec<String> = config
+                .agent_intelligence
+                .iter()
+                .filter(|(actor, assignment)| {
+                    assignment.connection == route
+                        && !(actor.as_str() == "default" && (input.make_default || !has_configured_default))
+                })
+                .map(|(actor, _)| actor.clone())
+                .collect();
+            serde_json::json!({"label": other.label, "agents": stranded})
+        });
     config.credentials.insert(binding, reference);
     if had_legacy_primary_reference {
         config.credentials.remove("model.inference");
@@ -5019,7 +5043,7 @@ async fn grant_owner_connection(
                 model: input.model.strip_prefix(&format!("{}/", connection.provider)).unwrap_or(&input.model).into(),
             },
         );
-        config.model = input.model;
+        config.model = input.model.clone();
     }
     if runtime::CompanyConfig::save(&state.daemon.root, &config).is_err() {
         return api_error(
@@ -5028,6 +5052,50 @@ async fn grant_owner_connection(
             "Could not grant this connection to the company.",
         );
     }
+    // A new credential for this provider: a cooldown the old one earned no longer applies.
+    if let Err(error) = state
+        .daemon
+        .authority
+        .clear_provider_credential_cooldowns(&config.name, &connection.provider)
+        .await
+    {
+        tracing::warn!(%error, "could not clear the replaced credential's cooldown");
+    }
+    // The record names agents as the owner knows them, never by id.
+    let replaced = match replaced {
+        Some(mut replaced) => {
+            if let Ok(org) = state.daemon.orgintel.get(&config.name).await {
+                let actors = org.list_actors().await.unwrap_or_default();
+                if let Some(agents) = replaced.get_mut("agents").and_then(serde_json::Value::as_array_mut) {
+                    for agent in agents.iter_mut() {
+                        let id = agent.as_str().unwrap_or_default().to_string();
+                        let name = if id == "default" {
+                            "agents on the company model".to_string()
+                        } else {
+                            actors.iter().find(|actor| actor.id == id).map(|actor| actor.display.clone()).unwrap_or(id)
+                        };
+                        *agent = serde_json::Value::String(name);
+                    }
+                }
+            }
+            Some(replaced)
+        }
+        None => None,
+    };
+    record_setting_change(
+        &state,
+        &config.name,
+        principal.actor_id(),
+        "model_connection_granted",
+        serde_json::json!({
+            "label": connection.label,
+            "provider": connection.provider,
+            "model": input.model,
+            "default": should_make_default,
+            "replaced": replaced,
+        }),
+    )
+    .await;
     Json(serde_json::json!({"connection": safe_connection_summary(connection, vec![serde_json::json!({"id":config.name,"name":config.display_name.clone().unwrap_or_else(|| company_display_name(&config.name))})]), "replaced_existing":has_different_existing, "made_default":should_make_default, "provider":provider_view(&config).await})).into_response()
 }
 
@@ -5102,6 +5170,14 @@ async fn revoke_owner_connection(
             "Could not remove this company grant.",
         );
     }
+    record_setting_change(
+        &state,
+        &company,
+        principal.actor_id(),
+        "model_connection_revoked",
+        serde_json::json!({"label": connection.label, "provider": connection.provider}),
+    )
+    .await;
     Json(serde_json::json!({"revoked":true,"provider":provider_view(&config).await}))
         .into_response()
 }
@@ -12547,13 +12623,27 @@ async fn update_agent_intelligence(
     .await;
     match result {
         Ok(()) => {
+            let name = if actor == "default" {
+                "Agents on the company model".to_string()
+            } else {
+                match state.daemon.orgintel.get(&company).await {
+                    Ok(org) => org
+                        .active_actor(&actor)
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(|person| person.display)
+                        .unwrap_or_else(|| actor.clone()),
+                    Err(_) => actor.clone(),
+                }
+            };
             record_setting_change(
                 &state,
                 &company,
                 principal.actor_id(),
                 "agent_model_changed",
                 serde_json::json!({
-                    "actor": actor,
+                    "actor": name,
                     "model": if input.reset { serde_json::Value::Null } else { input.model.trim().into() },
                 }),
             )

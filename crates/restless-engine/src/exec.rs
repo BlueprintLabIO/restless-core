@@ -709,7 +709,7 @@ pub async fn agent_auth_for_model(
             if model != company_config.for_agent(actor).model
                 || !crate::model_connections::account_assignment_is_granted(&root, &company_config, provider, id)?
             {
-                anyhow::bail!("This agent's account connection is no longer granted to the company");
+                anyhow::bail!(crate::model_connections::why_not_granted(&root, &company_config, provider, id));
             }
         }
     }

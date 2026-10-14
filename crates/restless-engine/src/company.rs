@@ -1554,6 +1554,8 @@ const SETTING_CHANGE_KINDS: &[&str] = &[
     "agent_model_changed",
     "reasoning_effort_changed",
     "brand_voice_changed",
+    "model_connection_granted",
+    "model_connection_revoked",
 ];
 
 #[derive(Debug, Serialize)]
@@ -1669,10 +1671,31 @@ pub async fn governance_activity(
 
 /// The owner-facing sentence for one setting or lifecycle record; `None` for the intermediate
 /// records (a requested charter revision, a recovery still running) that a later one settles.
-/// A model id as words: the part after the provider, with dashes as spaces.
+/// A model id as the cockpit names it: the part after the provider, words capitalised, a family
+/// acronym upper-cased and a version pair joined ("anthropic/claude-sonnet-5-5" is "Claude Sonnet
+/// 5.5"), as the web's `modelLabel` does.
 fn model_words(model: &str) -> String {
     let bare = model.rsplit('/').next().unwrap_or(model);
-    bare.replace('-', " ")
+    let parts: Vec<&str> = bare.split('-').filter(|part| !part.is_empty()).collect();
+    let digits = |part: &str| part.chars().all(|c| c.is_ascii_digit());
+    let mut words = Vec::new();
+    let mut index = 0;
+    while index < parts.len() {
+        let part = parts[index];
+        if digits(part) && parts.get(index + 1).is_some_and(|next| digits(next)) {
+            words.push(format!("{part}.{}", parts[index + 1]));
+            index += 2;
+            continue;
+        }
+        words.push(if matches!(part.to_ascii_lowercase().as_str(), "gpt" | "glm" | "oss") {
+            part.to_ascii_uppercase()
+        } else {
+            let mut chars = part.chars();
+            chars.next().map(|first| first.to_uppercase().chain(chars).collect()).unwrap_or_default()
+        });
+        index += 1;
+    }
+    words.join(" ")
 }
 
 /// One change a person made to the company's settings, newest first: who, when and what, in
@@ -1777,6 +1800,35 @@ fn setting_change_title(kind: &str, body: &serde_json::Value) -> Option<String> 
         "reasoning_effort_changed" => format!(
             "Agents think with {} effort",
             text("effort").unwrap_or("a different")
+        ),
+        "model_connection_granted" => {
+            let label = text("label").unwrap_or("A model connection");
+            let mut title = format!("{label} connected");
+            if body.get("default").and_then(serde_json::Value::as_bool) == Some(true) {
+                if let Some(model) = text("model") {
+                    title.push_str(&format!(" as the company model ({})", model_words(model)));
+                }
+            }
+            if let Some(replaced) = body.get("replaced").filter(|value| !value.is_null()) {
+                let old = replaced.get("label").and_then(serde_json::Value::as_str).unwrap_or("the earlier connection");
+                title.push_str(&format!(", replacing {old}"));
+                let agents: Vec<&str> = replaced
+                    .get("agents")
+                    .and_then(serde_json::Value::as_array)
+                    .map(|agents| agents.iter().filter_map(serde_json::Value::as_str).collect())
+                    .unwrap_or_default();
+                if !agents.is_empty() {
+                    title.push_str(&format!(
+                        "; {} still used it and must be given a model again",
+                        agents.join(", ")
+                    ));
+                }
+            }
+            title
+        }
+        "model_connection_revoked" => format!(
+            "{} removed from the company",
+            text("label").unwrap_or("A model connection")
         ),
         "brand_voice_changed" => match text("account").filter(|account| !account.trim().is_empty()) {
             Some(account) => format!("Brand & voice changed: {account}"),
@@ -2519,6 +2571,29 @@ fn format_minor(amount: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_replaced_connection_names_what_it_replaced_and_who_still_used_it() {
+        let title = setting_change_title(
+            "model_connection_granted",
+            &serde_json::json!({
+                "label": "Anthropic API key",
+                "provider": "anthropic",
+                "model": "anthropic/claude-sonnet-5-5",
+                "default": true,
+                "replaced": {"label": "Claude sign-in", "agents": ["Emeka"]}
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            title,
+            "Anthropic API key connected as the company model (Claude Sonnet 5.5), replacing Claude sign-in; Emeka still used it and must be given a model again"
+        );
+        assert_eq!(
+            setting_change_title("company_renamed", &serde_json::json!({"from": "S73 Test", "to": "Reno"})).unwrap(),
+            "Company renamed from S73 Test to Reno"
+        );
+    }
 
     fn record(body: serde_json::Value) -> crate::authority::AuthorityRecord {
         crate::authority::AuthorityRecord {

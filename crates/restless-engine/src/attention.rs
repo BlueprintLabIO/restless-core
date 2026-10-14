@@ -798,6 +798,90 @@ fn effect_outcome_item(outcome: EffectOutcome) -> AttentionItem {
     }
 }
 
+/// One item for each agent whose assigned account connection no longer reaches the company: the
+/// connection was removed, or another connection for the same provider was granted in its place.
+/// Each says which, and opens Company › Intelligence. Read from the company's own settings, so the
+/// item is there before any turn fails, and leaves once the agent has a model that works.
+async fn stranded_agent_items(config: &runtime::CompanyConfig, org: Option<&OrgIntel>) -> Vec<AttentionItem> {
+    let Ok(profile) = restless_contracts::appliance::MachineProfile::from_env() else {
+        return Vec::new();
+    };
+    let root = profile.state_root;
+    let names: std::collections::HashMap<String, String> = match org {
+        Some(org) => org
+            .list_actors()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|actor| (actor.id, actor.display))
+            .collect(),
+        None => Default::default(),
+    };
+    let mut items = Vec::new();
+    for (actor, assignment) in &config.agent_intelligence {
+        let Some((provider, id, _)) = runtime::account_intelligence_route(&assignment.connection) else {
+            continue;
+        };
+        if crate::model_connections::account_assignment_is_granted(&root, config, provider, id).unwrap_or(true) {
+            continue;
+        }
+        let who = if actor == "default" {
+            "Agents on the company model".to_string()
+        } else {
+            names.get(actor).cloned().unwrap_or_else(|| actor.clone())
+        };
+        let why = crate::model_connections::why_not_granted(&root, config, provider, id);
+        let now = chrono::Utc::now();
+        items.push(AttentionItem {
+            id: format!("config:stranded-agent:{actor}"),
+            work_id: None,
+            source: AttentionSource {
+                plane: "orgintel",
+                kind: "agent_model_unavailable".into(),
+                reference: actor.clone(),
+                party: None,
+                call_key: None,
+            },
+            category: "blocker".into(),
+            title: if actor == "default" {
+                format!("{who} can't think: their connection is gone")
+            } else {
+                format!("{who} can't think: their model connection is gone")
+            },
+            what_happened: why.clone(),
+            why_it_matters: format!("{who} cannot start any turn until this is fixed; their Work waits."),
+            recommendation: "Give them a model on a connection the company has, in Company › Intelligence.".into(),
+            requested_action: why,
+            if_no_action: "Their Work stays parked and nothing they own moves.".into(),
+            uncertainty: None,
+            deadline: None,
+            brief_status: "source-authored",
+            brief_author: None,
+            briefed_at: Some(now),
+            evidence: Vec::new(),
+            review_sources: Vec::new(),
+            responsible_actor: None,
+            runtime_attach: None,
+            review_target: None,
+            native_document: None,
+            direction_request: None,
+            charter_proposal: None,
+            actions: vec![AttentionAction {
+                id: "open-intelligence-provider".into(),
+                label: "Open Intelligence".into(),
+                role: "inspect",
+                consequence: "Opens the company's models and connections.".into(),
+                next_state: "Once the agent has a working model, this leaves the Inbox.".into(),
+                href: Some(format!("/{}/company/provider", config.name)),
+            }],
+            can_continue: false,
+            preparing: false,
+            created_at: now,
+        });
+    }
+    items
+}
+
 /// Open direction requests routed to `viewer` (the owner sees every one), and approved ones that
 /// failed to be carried out, as Inbox items: the
 /// request in the person's words, and Approve, Always allow and Decline in its detail (S80).
@@ -2304,6 +2388,10 @@ async fn project_queue(
             Ok(publications) => items.extend(publications),
             Err(error) => tracing::warn!(company = config.name, "publications unavailable: {error:#}"),
         }
+    }
+    // Owner-only: an agent whose model connection no longer reaches the company (Sprint 86).
+    if assignee.is_none() {
+        items.extend(stranded_agent_items(config, org).await);
     }
     if let Some(org) = org {
         match direction_items(authority, &config.name, org, assignee.unwrap_or("owner")).await {

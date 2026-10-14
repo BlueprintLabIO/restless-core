@@ -670,6 +670,21 @@ impl AuthorityStore {
         .await?)
     }
 
+    /// Forget a provider's credential cooldowns once the company has a different credential for
+    /// it: a 401 from a rejected key held every model of that provider back for a day, and
+    /// granting a new key did not lift it, so the company stayed blocked (Sprint 86).
+    pub async fn clear_provider_credential_cooldowns(&self, company: &str, provider: &str) -> Result<u64> {
+        Ok(sqlx::query(
+            "DELETE FROM restless_authority.model_cooldowns \
+             WHERE company=$1 AND kind='credential' AND model LIKE $2",
+        )
+        .bind(company)
+        .bind(format!("{provider}/%"))
+        .execute(&self.pool)
+        .await?
+        .rows_affected())
+    }
+
     pub async fn clear_model_cooldown(&self, company: &str, model: &str) -> Result<()> {
         sqlx::query("DELETE FROM restless_authority.model_cooldowns WHERE company=$1 AND model=$2")
             .bind(company)
@@ -1919,5 +1934,41 @@ mod authority_ownership_transfer_tests {
             .await
             .is_err());
         assert_eq!(store.current_authority_owner(&company).await.unwrap(), None);
+    }
+}
+
+#[cfg(test)]
+mod credential_cooldown_tests {
+    use super::*;
+
+    /// Sprint 86: a new key for a provider lifts the credential cooldowns its rejected key earned,
+    /// and nothing else: another provider's, and any non-credential cooldown, stay.
+    #[tokio::test]
+    async fn granting_a_new_key_clears_only_that_providers_credential_cooldowns() {
+        let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping credential cooldown scenario");
+            return;
+        };
+        let store = AuthorityStore::connect(&url).await.expect("connect Authority store");
+        let company = format!("cooldown{}", Uuid::new_v4().simple());
+        let later = chrono::Utc::now() + chrono::Duration::hours(24);
+        for (model, kind) in [
+            ("anthropic/claude-sonnet-5", "credential"),
+            ("anthropic/claude-opus-5-5", "credential"),
+            ("anthropic/claude-haiku-4-5", "rate_limit"),
+            ("openai/gpt-6", "credential"),
+        ] {
+            store.set_model_cooldown(&company, model, kind, "rejected", later).await.expect("set cooldown");
+        }
+        assert_eq!(store.clear_provider_credential_cooldowns(&company, "anthropic").await.unwrap(), 2);
+        let mut left: Vec<String> = store
+            .active_model_cooldowns(&company)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|cooldown| cooldown.model)
+            .collect();
+        left.sort();
+        assert_eq!(left, ["anthropic/claude-haiku-4-5", "openai/gpt-6"]);
     }
 }

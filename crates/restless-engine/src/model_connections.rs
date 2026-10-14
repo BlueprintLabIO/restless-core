@@ -40,6 +40,39 @@ pub fn account_assignment_is_granted(
     Ok(config.credentials.get(&format!("model.inference.{provider}")) == Some(&reference))
 }
 
+/// Why an agent's assigned connection no longer reaches the company, in the owner's words, with
+/// where to fix it. Replacing a provider's connection used to fail every agent still assigned to
+/// the old one with only "no longer granted", and nobody could tell who or what had done it.
+pub fn why_not_granted(
+    root: &std::path::Path,
+    config: &runtime::CompanyConfig,
+    provider: &str,
+    id: &str,
+) -> String {
+    let Ok(registry) = load_owner_connections(root) else {
+        return "This agent's model connection could not be checked. Try again in a moment.".into();
+    };
+    let Some(assigned) = registry.connections.iter().find(|connection| connection.provider == provider && connection.id == id) else {
+        return format!(
+            "This agent's {provider} connection was removed from the account. Give the agent another model in Company › Intelligence."
+        );
+    };
+    let current = config.credentials.get(&format!("model.inference.{provider}"));
+    match current.and_then(|reference| {
+        registry.connections.iter().find(|connection| &owner_connection_reference(connection) == reference)
+    }) {
+        Some(other) => format!(
+            "This agent still uses {}, but the company now uses {} for {provider}: granting it replaced the earlier one. \
+             Give the agent a model on {} in Company › Intelligence, or connect {} again.",
+            assigned.label, other.label, other.label, assigned.label
+        ),
+        None => format!(
+            "{} was removed from the company. Connect it again, or give the agent another model, in Company › Intelligence.",
+            assigned.label
+        ),
+    }
+}
+
 pub fn account_connection_matches(root: &std::path::Path, provider: &str, reference: &str) -> Result<bool> {
     let registry = load_owner_connections(root)?;
     Ok(registry.connections.iter().any(|connection| {
