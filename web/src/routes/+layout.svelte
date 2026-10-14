@@ -80,9 +80,16 @@
 			retryingNavigation = false;
 		}
 	}
+	/* Staying must hold: a newer navigation to the page on screen supersedes the stalled one, so
+	 * it can no longer finish later and move the person away mid-task. */
 	function stayOnCurrentPage() {
 		navigationStalled = false;
 		navigationDialog?.close();
+		void goto(`${page.url.pathname}${page.url.search}${page.url.hash}`, {
+			replaceState: true,
+			noScroll: true,
+			keepFocus: true
+		});
 	}
 	let restored = $state(false);
 	let restoredTimer: ReturnType<typeof setTimeout> | undefined;
@@ -277,6 +284,11 @@
 		class="app-navigation-error"
 		aria-labelledby="navigation-error-title"
 		aria-describedby="navigation-error-copy"
+		oncancel={(event) => {
+			/* Escape means staying, and staying cancels the move. */
+			event.preventDefault();
+			stayOnCurrentPage();
+		}}
 	>
 		<div class="app-navigation-error-mark" aria-hidden="true">!</div>
 		<h1 id="navigation-error-title">Restless is taking longer than expected</h1>
