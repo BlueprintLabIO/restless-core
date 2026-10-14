@@ -60,7 +60,15 @@
 		/** Where the chip goes in this cockpit, when that differs from the written link. */
 		href?: string;
 	};
-	const company = $derived(page.params?.companyId ?? '');
+	/* Rendered outside a page (a server render, a test), there is no route and so no company. */
+	function routeCompany(): string {
+		try {
+			return page.params?.companyId ?? '';
+		} catch {
+			return '';
+		}
+	}
+	const company = $derived(routeCompany());
 	const companyRoot = $derived(company ? `/${encodeURIComponent(company)}` : '');
 	/* A native document's exported references, `/__restless/reference/{kind}/{id}` and
 	 * `/__restless/actor/{id}`, name things in this company; they open where those things live. */
