@@ -136,7 +136,7 @@
 					class="kind"
 					bind:value={form.registration_identifier.kind}
 					aria-label="Registration number kind"
-					placeholder="ABN"
+					title="The kind of number, such as ABN, EIN or company number"
 					required
 					maxlength="40"
 					disabled={saving}
@@ -145,6 +145,7 @@
 					class="number"
 					bind:value={form.registration_identifier.value}
 					aria-label="Registration number"
+					title="The number itself, such as 12 345 678 901"
 					required
 					maxlength="80"
 					disabled={saving}
