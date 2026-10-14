@@ -1,4 +1,12 @@
 <script lang="ts">
+	import {
+		DIRECTORY_FILTERS,
+		directoryFilter,
+		statusWord,
+		type DirectoryFilter,
+		type StatusWord
+	} from '$lib/model/people-directory';
+	import { listArchivedAgents, type ArchivedAgent } from '$lib/model/agent-staffing';
 	import WorkDetail from '$lib/components/WorkDetail.svelte';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { setTeamOwner as recordTeamOwner, disbandTeam } from '$lib/model/company-actions';
@@ -8,9 +16,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
-	import Users from '@lucide/svelte/icons/users';
 	import BellOff from '@lucide/svelte/icons/bell-off';
-	import MessagesSquare from '@lucide/svelte/icons/messages-square';
 	import UserPlus from '@lucide/svelte/icons/user-plus';
 	import SidebarSearch from '$lib/ui/views/SidebarSearch.svelte';
 	import SidebarEmpty from '$lib/ui/views/SidebarEmpty.svelte';
@@ -153,7 +159,7 @@
 	);
 	const rooms = $derived(roomsQuery(companyId));
 	/* Groups you archived wait under Chats until you restore them; nobody else sees them. */
-	const archived = $derived(archivedRoomsQuery(companyId, () => view === 'chats'));
+	const archived = $derived(archivedRoomsQuery(companyId, () => !!principal.view?.actor_id));
 	const roomClient = useQueryClient();
 	let restoring = $state('');
 	async function restore(room: Room) {
@@ -517,8 +523,14 @@
 			];
 		});
 	});
-	function matchesDirectory(value: { display: string; role: string }, query: string) {
-		return !query || `${value.display} ${value.role}`.toLocaleLowerCase().includes(query);
+	/* Names, roles and what each person is working on (S88-02). */
+	function matchesDirectory(
+		value: { display: string; role: string; actor_id?: string },
+		query: string
+	) {
+		if (!query) return true;
+		const work = value.actor_id ? currentWorkTitle(value.actor_id) : '';
+		return `${value.display} ${value.role} ${work}`.toLocaleLowerCase().includes(query);
 	}
 	const directoryTeams = $derived.by(() => {
 		const query = search.trim().toLocaleLowerCase();
@@ -605,56 +617,99 @@
 		void goto(href('', room.id));
 	}
 
-	/* Two views of the same column, as before the 4 October merge: People is the directory with
-	 * what each person is doing; Chats is every conversation, newest first. The choice is
-	 * remembered per company; an old ?view= link still picks one. */
-	type PeopleView = 'people' | 'chats';
-	let preferredView = $state<PeopleView>('people');
-	$effect(() => {
-		try {
-			preferredView =
-				localStorage.getItem(`restless:${companyId}:people-view`) === 'chats' ? 'chats' : 'people';
-		} catch {
-			preferredView = 'people';
-		}
-	});
-	const view = $derived<PeopleView>(
-		(() => {
-			const requested = page.url.searchParams.get('view');
-			if (requested === 'chats' || requested === 'conversations') return 'chats';
-			if (requested === 'people') return 'people';
-			/* A group room lives in Chats; show it there so its row reads as the open one. */
-			if (selectedRoom && selectedRoom.kind !== 'direct') return 'chats';
-			return preferredView;
-		})()
-	);
-	function chooseView(next: PeopleView) {
-		preferredView = next;
-		try {
-			localStorage.setItem(`restless:${companyId}:people-view`, next);
-		} catch {
-			/* The choice still holds for this visit. */
-		}
-		if (page.url.searchParams.has('view')) {
-			const url = new URL(page.url);
-			url.searchParams.delete('view');
-			void goto(`${url.pathname}${url.search}`, {
-				replaceState: true,
-				noScroll: true,
-				keepFocus: true
-			});
-		}
+	/* One directory (S88-02): everyone, grouped, with group chats at the end. A filter narrows it
+	 * to who is working, who needs the person, or who was archived; ?show= keeps it in links. */
+	const filter = $derived<DirectoryFilter>(directoryFilter(page.url.searchParams.get('show')));
+	function chooseFilter(next: DirectoryFilter) {
+		const url = new URL(page.url);
+		if (next === 'everyone') url.searchParams.delete('show');
+		else url.searchParams.set('show', next);
+		void goto(`${url.pathname}${url.search}`, {
+			replaceState: true,
+			noScroll: true,
+			keepFocus: true
+		});
 	}
-	/* Arrow keys move between People and Chats, as between radios. */
-	function switchViewByKey(event: KeyboardEvent) {
-		if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+	/* Arrow keys move between the filters, as between radios. */
+	function switchFilterByKey(event: KeyboardEvent) {
+		const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.key];
+		if (!step) return;
 		event.preventDefault();
-		chooseView(view === 'people' ? 'chats' : 'people');
+		const at = DIRECTORY_FILTERS.findIndex((candidate) => candidate.key === filter);
+		const next =
+			DIRECTORY_FILTERS[(at + step + DIRECTORY_FILTERS.length) % DIRECTORY_FILTERS.length];
+		chooseFilter(next.key);
 		const group = (event.currentTarget as HTMLElement).parentElement;
 		requestAnimationFrame(() =>
 			group?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus()
 		);
 	}
+	/* What each agent is on: their own Work in motion, or for a lead, their team's. */
+	function currentWorkTitle(actorId: string): string {
+		const member = officeMember(actorId);
+		if (member?.work) return member.work.title;
+		const team = teams.find((candidate) => candidate.lead_actor_id === actorId);
+		const owners = new Set([
+			actorId,
+			...(team ? people.filter((p) => p.team_id === team.id).map((p) => p.actor_id) : [])
+		]);
+		return (
+			(attention.view?.workGraph?.work ?? [])
+				.filter(
+					(item) =>
+						owners.has(item.owner_id) && (item.status === 'active' || item.status === 'blocked')
+				)
+				.toSorted((x, y) => Date.parse(y.updated_at) - Date.parse(x.updated_at))[0]?.title ?? ''
+		);
+	}
+	/* A row: one status word, and one line, the current Work or else the role (S88-02). A
+	 * colleague keeps their presence line and has no status word. */
+	function directoryLine(actorId: string): { word: StatusWord | ''; text: string; hint: string } {
+		const person = people.find((candidate) => candidate.actor_id === actorId);
+		const line = personLine(actorId);
+		if (!person || person.kind === 'human')
+			return { word: '', text: line.text, hint: line.hint || line.text };
+		const ledTeam = teams.find((candidate) => candidate.lead_actor_id === actorId);
+		const role =
+			person.kind === 'exec'
+				? 'Runs the company'
+				: ledTeam
+					? `Leads ${teamName(ledTeam.name, companyId)}`
+					: person.role;
+		const text = currentWorkTitle(actorId) || role || line.text;
+		return { word: owner ? statusWord(line.tone) : '', text, hint: line.hint || line.text };
+	}
+	const filtered = $derived.by(() => {
+		if (filter === 'everyone' || filter === 'archived') return [];
+		const query = search.trim().toLocaleLowerCase();
+		return people
+			.filter((person) => person.kind !== 'human')
+			.filter((person) =>
+				filter === 'working'
+					? personLine(person.actor_id).tone === 'work'
+					: personStatus(person.actor_id).need !== null
+			)
+			.filter((person) => matchesDirectory(person, query));
+	});
+	const needsCount = $derived(
+		owner
+			? people.filter(
+					(person) => person.kind !== 'human' && personStatus(person.actor_id).need !== null
+				).length
+			: 0
+	);
+	/* Archived agents keep their history; their page offers Re-hire (S88-01, S88-03). */
+	let archivedAgents = $state<ArchivedAgent[]>([]);
+	$effect(() => {
+		if (!owner || filter !== 'archived') return;
+		let live = true;
+		void listArchivedAgents(companyId).then((agents) => {
+			if (live) archivedAgents = agents;
+		});
+		return () => {
+			live = false;
+		};
+	});
 	let manager = $state<{ open: () => void } | null>(null);
 
 	const recentGroups = $derived(
@@ -728,7 +783,6 @@
 			)
 			.toSorted((a, b) => Date.parse(b.at) - Date.parse(a.at));
 	});
-	const unreadChats = $derived(chats.filter((chat) => chat.unread).length);
 	/* Hiding a direct chat is this viewer's tidying, kept on this device: it comes back by itself
 	 * when someone writes again, and People still reaches the person. */
 	let hiddenChats = $state<Record<string, string>>({});
@@ -876,121 +930,29 @@
 		<div class="people-search">
 			<SidebarSearch
 				bind:value={search}
-				placeholder={view === 'chats' ? 'Search conversations' : 'Search people'}
+				placeholder="Search people and Work"
 				label="Search conversations and people"
 			/>
 		</div>
-		<!-- A view switch: one list replaced by the other, so radio semantics and arrow keys. -->
+		<!-- Filters over one list: radio semantics and arrow keys. -->
 		<div class="people-views" role="radiogroup" aria-label="Show">
-			<button
-				type="button"
-				role="radio"
-				aria-checked={view === 'people'}
-				tabindex={view === 'people' ? 0 : -1}
-				onkeydown={switchViewByKey}
-				onclick={() => chooseView('people')}><Users size={14} aria-hidden="true" />People</button
-			>
-			<button
-				type="button"
-				role="radio"
-				aria-checked={view === 'chats'}
-				tabindex={view === 'chats' ? 0 : -1}
-				onkeydown={switchViewByKey}
-				onclick={() => chooseView('chats')}
-				><MessagesSquare size={14} aria-hidden="true" />Chats{#if unreadChats}<b aria-hidden="true"
-						>{unreadChats}</b
-					><span class="sr-only">, {unreadChats} unread</span>{/if}</button
-			>
+			{#each DIRECTORY_FILTERS as choice (choice.key)}
+				{#if choice.key !== 'needs' || owner}{#if choice.key !== 'archived' || owner}<button
+							type="button"
+							role="radio"
+							aria-checked={filter === choice.key}
+							tabindex={filter === choice.key ? 0 : -1}
+							onkeydown={switchFilterByKey}
+							onclick={() => chooseFilter(choice.key)}
+							>{choice.label}{#if choice.key === 'needs' && needsCount}<b aria-hidden="true"
+									>{needsCount}</b
+								><span class="sr-only">, {needsCount}</span>{/if}</button
+						>{/if}{/if}
+			{/each}
 		</div>
 		<div class="entries">
-			{#snippet personMenu(person: DirectoryPerson)}
-				{@const work = officeMember(person.actor_id)?.work}
-				{@const membership = person.kind === 'human' ? membershipFor(person.actor_id) : null}
-				<span class="person-menu">
-					<ActionMenu label={`More for ${personName(person.display)}`}>
-						<button type="button" onclick={() => (profileId = person.actor_id)}>Profile</button>
-						{#if work}<a
-								href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(work.id)}`}
-								title={work.title}>Open current Work</a
-							>{/if}
-						{#if owner && person.kind === 'staff'}
-							<button type="button" onclick={() => askAbout('rebrief', person)}
-								>Ask Exec to re-brief…</button
-							>
-							<button type="button" onclick={() => askAbout('pause', person)}
-								>Ask Exec to pause…</button
-							>
-							<button type="button" onclick={() => askAbout('retire', person)}
-								>Ask Exec to retire…</button
-							>
-							<button type="button" onclick={() => askAbout('hire-like', person)}
-								>Ask Exec to add someone like this…</button
-							>
-						{/if}
-						{#if membership && issuerMembers}
-							{#if issuerMembers.viewer.role === 'owner' && membership.status === 'active'}
-								<button
-									type="button"
-									disabled={memberBusy}
-									onclick={() =>
-										setRole(membership, membership.role === 'admin' ? 'member' : 'admin')}
-									>{membership.role === 'admin' ? 'Make a member' : 'Make an admin'}</button
-								>
-							{/if}
-							<button
-								type="button"
-								disabled={memberBusy || membership.ending}
-								onclick={() => void removeMember(membership)}>Remove access…</button
-							>
-						{/if}
-					</ActionMenu>
-				</span>
-			{/snippet}
-			{#snippet directoryPerson(person: DirectoryPerson, kind: string)}
-				{@const line = personLine(person.actor_id)}
-				{@const isLead = kind === 'lead'}
-				<div class="person-row">
-					<a
-						class="directory-person {kind}"
-						href={href(person.actor_id)}
-						onclick={(event) => void openPerson(event, person.actor_id)}
-						aria-current={(!roomId && personId === person.actor_id) ||
-						selectedDirectActorId === person.actor_id
-							? 'page'
-							: undefined}
-					>
-						<span class="avatar"
-							>{person.kind === 'exec' ? 'E' : initials(person.display)}{#if line.tone === 'work'}<i
-									class="avatar-working"
-									title={`${personName(person.display)} is working`}
-									role="img"
-									aria-label="Working"
-								></i>{:else if person.kind === 'human' && hereNow.has(person.actor_id)}<i
-									class="avatar-working here"
-									title={`${personName(person.display)} has the cockpit open`}
-									role="img"
-									aria-label="Here now"
-								></i>{/if}</span
-						>
-						<span class="person-lines"
-							><span class="name"
-								>{personName(person.display)}{#if isLead}<span class="role-tag">{' · Lead'}</span
-									>{/if}</span
-							>{#if line.text}<small class="doing {line.tone}" title={line.hint || line.text}
-									>{line.text}</small
-								>{/if}</span
-						>{#if hasNew(person.actor_id) && personId !== person.actor_id}<span
-								class="new-dot"
-								title="Something new since you last looked"
-								role="img"
-								aria-label="New messages"
-							></span>{/if}
-					</a>
-					{@render personMenu(person)}
-				</div>
-			{/snippet}
-			{#if view === 'chats'}
-				{#each chats as chat (chat.key)}
+			{#snippet groupChats()}
+				{#each chats.filter((chat) => chat.group) as chat (chat.key)}
 					<div class="person-row">
 						<a
 							class="directory-person chat"
@@ -1040,10 +1002,9 @@
 						>
 					</div>
 				{:else}
-					{#if search.trim()}<p class="empty">No conversations match.</p>{:else}
-						<!-- Message Exec is beside it and a new group is the + above; this only says why it is empty. -->
-						<SidebarEmpty text="No conversations yet." />
-					{/if}
+					<p class="empty">
+						{search.trim() ? 'No group chats match.' : 'No group chats yet. Start one with +.'}
+					</p>
 				{/each}
 				{#if rooms.hasMore && !search.trim()}
 					<button
@@ -1090,7 +1051,96 @@
 						{/each}
 					</details>
 				{/if}
-			{:else}
+			{/snippet}
+			{#snippet personMenu(person: DirectoryPerson)}
+				{@const work = officeMember(person.actor_id)?.work}
+				{@const membership = person.kind === 'human' ? membershipFor(person.actor_id) : null}
+				<span class="person-menu">
+					<ActionMenu label={`More for ${personName(person.display)}`}>
+						<button type="button" onclick={() => (profileId = person.actor_id)}>Profile</button>
+						{#if work}<a
+								href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(work.id)}`}
+								title={work.title}>Open current Work</a
+							>{/if}
+						{#if owner && person.kind === 'staff'}
+							<button type="button" onclick={() => askAbout('rebrief', person)}
+								>Ask Exec to re-brief…</button
+							>
+							<button type="button" onclick={() => askAbout('pause', person)}
+								>Ask Exec to pause…</button
+							>
+							<button type="button" onclick={() => askAbout('retire', person)}
+								>Ask Exec to retire…</button
+							>
+							<button type="button" onclick={() => askAbout('hire-like', person)}
+								>Ask Exec to add someone like this…</button
+							>
+						{/if}
+						{#if membership && issuerMembers}
+							{#if issuerMembers.viewer.role === 'owner' && membership.status === 'active'}
+								<button
+									type="button"
+									disabled={memberBusy}
+									onclick={() =>
+										setRole(membership, membership.role === 'admin' ? 'member' : 'admin')}
+									>{membership.role === 'admin' ? 'Make a member' : 'Make an admin'}</button
+								>
+							{/if}
+							<button
+								type="button"
+								disabled={memberBusy || membership.ending}
+								onclick={() => void removeMember(membership)}>Remove access…</button
+							>
+						{/if}
+					</ActionMenu>
+				</span>
+			{/snippet}
+			{#snippet directoryPerson(person: DirectoryPerson, kind: string)}
+				{@const line = personLine(person.actor_id)}
+				{@const row = directoryLine(person.actor_id)}
+				{@const isLead = kind === 'lead'}
+				<div class="person-row">
+					<a
+						class="directory-person {kind}"
+						href={href(person.actor_id)}
+						onclick={(event) => void openPerson(event, person.actor_id)}
+						aria-current={(!roomId && personId === person.actor_id) ||
+						selectedDirectActorId === person.actor_id
+							? 'page'
+							: undefined}
+					>
+						<span class="avatar"
+							>{person.kind === 'exec' ? 'E' : initials(person.display)}{#if line.tone === 'work'}<i
+									class="avatar-working"
+									title={`${personName(person.display)} is working`}
+									role="img"
+									aria-label="Working"
+								></i>{:else if person.kind === 'human' && hereNow.has(person.actor_id)}<i
+									class="avatar-working here"
+									title={`${personName(person.display)} has the cockpit open`}
+									role="img"
+									aria-label="Here now"
+								></i>{/if}</span
+						>
+						<span class="person-lines"
+							><span class="name-line"
+								><span class="name"
+									>{personName(person.display)}{#if isLead}<span class="role-tag">{' · Lead'}</span
+										>{/if}</span
+								>{#if row.word}<span class="status-word {row.word.toLowerCase()}">{row.word}</span
+									>{/if}</span
+							>{#if row.text}<small class="doing" title={row.hint}>{row.text}</small>{/if}</span
+						>{#if hasNew(person.actor_id) && personId !== person.actor_id}<span
+								class="new-dot"
+								title="Something new since you last looked"
+								role="img"
+								aria-label="New messages"
+							></span>{/if}
+					</a>
+					{@render personMenu(person)}
+				</div>
+			{/snippet}
+			{#if filter === 'everyone'}
 				{#if execShown}
 					<section class="directory-section executive-section" aria-label="Executive">
 						{@render directoryPerson(directoryExec!, 'executive')}
@@ -1215,6 +1265,10 @@
 						{/each}
 					</section>
 				{/if}
+				<section class="directory-section chats-section" aria-label="Group chats">
+					<header class="team-directory-head"><span>Chats</span></header>
+					{@render groupChats()}
+				</section>
 				{#if owner && agents.length && !search.trim()}
 					{#if teamEdit?.mode === 'new'}
 						<section class="directory-section" aria-label="New team">
@@ -1249,6 +1303,48 @@
 							>{/if}
 					</SidebarEmpty>
 				{/if}
+			{:else if filter === 'archived'}
+				<section class="directory-section" aria-label="Archived agents">
+					{#each archivedAgents.filter((agent) => matchesDirectory(agent, search
+								.trim()
+								.toLocaleLowerCase())) as agent (agent.actor_id)}
+						<div class="person-row">
+							<a
+								class="directory-person archived"
+								href={href(agent.actor_id)}
+								aria-current={personId === agent.actor_id ? 'page' : undefined}
+							>
+								<span class="avatar" aria-hidden="true">{initials(agent.display)}</span>
+								<span class="person-lines"
+									><span class="name-line"
+										><span class="name">{personName(agent.display)}</span><span
+											class="status-word idle">Archived</span
+										></span
+									><small class="doing" title={agent.retirement_reason || agent.role}
+										>{agent.retirement_reason || agent.role}</small
+									></span
+								>
+							</a>
+						</div>
+					{:else}
+						<p class="empty">No archived agents.</p>
+					{/each}
+				</section>
+			{:else}
+				<section
+					class="directory-section"
+					aria-label={filter === 'working' ? 'Working' : 'Needs you'}
+				>
+					{#each filtered as person (person.actor_id)}
+						{@render directoryPerson(person, person.kind === 'exec' ? 'executive' : 'member')}
+					{:else}
+						<p class="empty">
+							{filter === 'working'
+								? 'Nobody is working right now.'
+								: 'Nobody needs you right now.'}
+						</p>
+					{/each}
+				</section>
 			{/if}
 			{#if search.trim()}
 				<!-- The server already limits hits to conversations this person can read, groups
@@ -1422,11 +1518,11 @@
 	}
 	/* A switch between two modes of the list, not an item in it: a two-part toggle with a raised
 	 * thumb, so it never reads as a second selection beside the open conversation. */
+	/* Four filters in one row at the narrowest sidebar: each takes what its word needs. */
 	.people-views {
-		display: grid;
+		display: flex;
 		flex: none;
-		grid-template-columns: 1fr 1fr;
-		gap: 2px;
+		gap: 0;
 		/* The track grows with its buttons, which take a larger tap target on touch screens. */
 		min-height: 34px;
 		margin-bottom: 8px;
@@ -1438,15 +1534,18 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		gap: 6px;
+		flex: 1 1 auto;
+		gap: 4px;
+		min-width: 0;
 		min-height: 28px;
-		padding: 0 8px;
+		padding: 0 4px;
 		border: 0;
 		border-radius: var(--radius-pane);
 		background: transparent;
 		color: var(--text-secondary);
 		font: inherit;
-		font-size: var(--t-body);
+		font-size: var(--t-label);
+		white-space: nowrap;
 		font-weight: 500;
 		cursor: pointer;
 		transition:
@@ -1470,15 +1569,15 @@
 		outline-offset: -2px;
 	}
 	.people-views b {
-		min-width: 18px;
-		height: 18px;
-		padding: 0 5px;
-		border-radius: 9px;
+		min-width: 16px;
+		height: 16px;
+		padding: 0 4px;
+		border-radius: 8px;
 		background: var(--intent-conversation);
 		color: var(--on-primary);
 		font-size: var(--t-label);
 		font-weight: 600;
-		line-height: 18px;
+		line-height: 16px;
 	}
 	.entries {
 		flex: 1 1 auto;
@@ -1692,8 +1791,31 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.doing.work {
+	.name-line {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+		min-width: 0;
+	}
+	.name-line .name {
+		flex: 0 1 auto;
+	}
+	/* One word, coloured by meaning (S88-02). */
+	.status-word {
+		flex: none;
+		margin-left: auto;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		font-weight: 600;
+	}
+	.status-word.working {
 		color: var(--intent-feedback);
+	}
+	.status-word.waiting {
+		color: var(--intent-authority);
+	}
+	.status-word.blocked {
+		color: var(--state-danger);
 	}
 	/* Under a lead, the team reads as the lead's: indented, one line each, the role beside the
 	 * name, so a team of nine is a short list rather than nine cards. */
@@ -1710,17 +1832,7 @@
 		border-radius: 5px;
 		font-size: var(--t-label);
 	}
-	.directory-person.teammate .person-lines {
-		display: flex;
-		align-items: baseline;
-		gap: 6px;
-	}
-	.directory-person.teammate .name {
-		flex: none;
-		max-width: 60%;
-	}
 	.directory-person.teammate .doing {
-		min-width: 0;
 		font-size: var(--t-label);
 	}
 	.doing.wait {
