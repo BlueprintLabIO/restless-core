@@ -70,8 +70,9 @@
 	} from '$lib/model/room-queries.svelte';
 	import { conversationUnread, messagePreview } from '$lib/model/rooms';
 	import { fetchAppRequests } from '$lib/model/app-requests';
-	import { CATALOGUE, buildApps } from '$lib/model/apps';
-	import type { CommandSearch } from '$lib/components/CommandMenu.svelte';
+	import { CATALOGUE, buildApps, type App } from '$lib/model/apps';
+	import { fetchSkillLibrary, monitorSchedules, type MonitoredSchedule } from '$lib/model/skills';
+	import type { CommandSearch, CommandSearchResult } from '$lib/components/CommandMenu.svelte';
 	import { searchDocuments } from '$lib/model/documents';
 	import { searchSheets, sheetJson, type SheetRow } from '$lib/model/sheets';
 	import { LIBRARY_KIND_LABEL, libraryFiles, type LibraryArtifact } from '$lib/model/library-files';
@@ -851,6 +852,8 @@
 	 * candidates are counted on the Apps page itself, not here, because reading
 	 * the skill library scans the company computer. */
 	let appsAttention = $state('');
+	/* The company's apps as the same check read them, so ⌘K opens what is connected. */
+	let companyApps = $state<App[]>([]);
 	$effect(() => {
 		if (!ownerAccess) return;
 		const id = companyId;
@@ -863,9 +866,9 @@
 					fetchAppRequests(id).catch(() => [])
 				]);
 				if (stopped) return;
-				const count =
-					buildApps(tools, null).mine.filter((app) => app.state === 'needs_you').length +
-					asked.length;
+				const mine = buildApps(tools, null).mine;
+				companyApps = mine;
+				const count = mine.filter((app) => app.state === 'needs_you').length + asked.length;
 				appsAttention = !count ? '' : count === 1 ? '1 app needs you' : `${count} apps need you`;
 			} catch {
 				/* A failed check leaves the dot as it was; Apps shows the failure. */
@@ -1031,6 +1034,14 @@
 				keywords: 'talk message chat',
 				run: () => askPerson('exec')
 			},
+			/* A member finds their own handoffs as the owner finds what needs them. */
+			...(ownerAccess ? [] : (collaboration.view?.attention.handoffs ?? [])).map((handoff) => ({
+				id: `handoff:${handoff.id}`,
+				group: 'Needs you',
+				label: handoff.requested_action,
+				hint: work.find((item) => item.id === handoff.work_id)?.title,
+				href: `${root}/work/${encodeURIComponent(handoff.work_id)}`
+			})),
 			...leads.map((lead) => ({
 				id: `action:ask:${lead.actor_id}`,
 				group: 'Actions',
@@ -1112,7 +1123,18 @@
 				keywords: 'connect connector integration plugin skill mcp tool',
 				href: `${root}/apps`
 			},
-			...CATALOGUE.map((entry) => ({
+			/* What the company already has opens; only what it lacks is offered to add. */
+			...companyApps.map((app) => ({
+				id: `app:open:${app.key}`,
+				group: 'Apps',
+				label: app.name,
+				hint: app.state === 'needs_you' ? 'Needs you' : app.category,
+				keywords: `open ${app.catalogue?.key ?? ''} ${app.description}`,
+				href: `${root}/apps/${encodeURIComponent(app.key)}`
+			})),
+			...CATALOGUE.filter(
+				(entry) => !companyApps.some((app) => app.catalogue?.key === entry.key)
+			).map((entry) => ({
 				id: `app:${entry.key}`,
 				group: 'Apps',
 				label: `Add ${entry.name}`,
@@ -1214,35 +1236,50 @@
 	);
 
 	/* ⌘K reaches the Library too: text inside documents on the server, and sheet titles and kept
-	 * file names from lists read at most every half minute while the menu is in use. */
+	 * file names from lists read at most every half minute while the menu is in use. The owner's
+	 * schedules and know-how come the same way. */
 	let libraryLists: {
 		company: string;
 		at: number;
 		sheets: SheetRow[];
 		kept: RetainedAttachment[];
+		schedules: MonitoredSchedule[];
+		knowHow: App[];
+		unreached: string[];
 	} | null = null;
 	/* The lists are small and shared by every keystroke, so a newer query does not cancel them; a
-	 * failed read is not remembered. */
+	 * failed read is not remembered, and is said beneath the results. */
 	async function libraryListsFor(company: string, owner: boolean) {
 		if (libraryLists?.company === company && Date.now() - libraryLists.at < 30_000)
 			return libraryLists;
-		let failed = false;
-		const [sheets, kept] = await Promise.all([
-			sheetJson<SheetRow[]>(company).catch(() => {
-				failed = true;
-				return [] as SheetRow[];
-			}),
+		const unreached: string[] = [];
+		const read = <T,>(what: string, value: Promise<T>, empty: T) =>
+			value.catch(() => {
+				unreached.push(what);
+				return empty;
+			});
+		const [sheets, kept, schedules, knowHow] = await Promise.all([
+			read('sheets', sheetJson<SheetRow[]>(company), [] as SheetRow[]),
 			owner
-				? listRetainedAttachments(company)
-						.then((inventory) => inventory.attachments)
-						.catch(() => {
-							failed = true;
-							return [] as RetainedAttachment[];
-						})
-				: Promise.resolve([] as RetainedAttachment[])
+				? read(
+						'kept files',
+						listRetainedAttachments(company).then((inventory) => inventory.attachments),
+						[] as RetainedAttachment[]
+					)
+				: ([] as RetainedAttachment[]),
+			owner ? read('schedules', monitorSchedules(company), [] as MonitoredSchedule[]) : [],
+			owner
+				? read(
+						'know-how',
+						fetchSkillLibrary(company).then((library) =>
+							buildApps([], library).mine.filter((app) => app.kind === 'skill')
+						),
+						[] as App[]
+					)
+				: []
 		]);
-		const lists = { company, at: Date.now(), sheets, kept };
-		if (!failed) libraryLists = lists;
+		const lists = { company, at: Date.now(), sheets, kept, schedules, knowHow, unreached };
+		if (!unreached.length) libraryLists = lists;
 		return lists;
 	}
 	const searchLibrary: CommandSearch = async (text, signal) => {
@@ -1253,21 +1290,30 @@
 		const words = text.toLocaleLowerCase().split(/\s+/).filter(Boolean);
 		const named = (value: string) =>
 			words.every((word) => value.toLocaleLowerCase().includes(word));
+		/* A source that could not be searched is named, so the menu never says "No match" for
+		 * something it could not look in. */
+		const unreached: string[] = [];
+		const tried = <T,>(what: string, value: Promise<T>, empty: T) =>
+			value.catch(() => {
+				if (!signal.aborted) unreached.push(what);
+				return empty;
+			});
 		const [documents, lists, messages, comments, inSheets] = await Promise.all([
-			searchDocuments(company, text, 0, signal).catch(() => null),
+			tried('documents', searchDocuments(company, text, 0, signal), null),
 			libraryListsFor(company, owner),
-			searchRoomMessages(company, text, null, 8, signal).catch(() => null),
-			searchComments(company, text, 6, signal).catch(() => []),
-			searchSheets(company, text, signal).catch(() => null)
+			tried('conversations', searchRoomMessages(company, text, null, 8, signal), null),
+			tried('comments', searchComments(company, text, 6, signal), []),
+			tried('sheets', searchSheets(company, text, signal), null)
 		]);
-		if (signal.aborted || company !== companyId) return [];
+		if (signal.aborted || company !== companyId) return { results: [], unreached: [] };
+		for (const what of lists.unreached) if (!unreached.includes(what)) unreached.push(what);
 		const conversationName = (roomId: string) => {
 			const direct = directChats.conversations.find((row) => row.room_id === roomId);
 			if (direct) return personName(direct.person_actor_id);
 			return groupChats.conversations.find((row) => row.room_id === roomId)?.title ?? '';
 		};
 		const flat = (value: string) => value.replace(/\s+/g, ' ').trim();
-		return [
+		const results: CommandSearchResult['results'] = [
 			...(messages?.messages ?? []).map((message) => {
 				const where = conversationName(message.room_id);
 				const who = message.from_actor === viewer ? 'You' : personName(message.from_actor);
@@ -1346,8 +1392,27 @@
 								hint: 'From you · downloads',
 								run: () => window.location.assign(attachmentHref(company, row.attachment_id))
 							}
-				)
+				),
+			...lists.schedules
+				.filter((item) => !item.schedule.cancelled_at && named(item.schedule.reason))
+				.map((item) => ({
+					id: `schedule:${item.schedule.id}`,
+					group: 'Schedules',
+					label: item.schedule.reason,
+					hint: item.schedule.paused_at ? 'Paused' : 'Schedule',
+					href: `${root}/company/schedules?schedule=${encodeURIComponent(item.schedule.id)}`
+				})),
+			...lists.knowHow
+				.filter((app) => named(`${app.name} ${app.description}`))
+				.map((app) => ({
+					id: `know-how:${app.key}`,
+					group: 'Know-how',
+					label: app.name,
+					hint: app.description,
+					href: `${root}/apps/${encodeURIComponent(app.key)}`
+				}))
 		];
+		return { results, unreached };
 	};
 
 	const childAllowed = $derived(mayOpenCompanyRoute(companyId, page.url.pathname, principal));
@@ -1463,6 +1528,7 @@
 			{commands}
 			recents={recentCommands}
 			search={principal ? searchLibrary : null}
+			ask={principal ? (query) => askPerson('exec', query) : null}
 			{viewerName}
 			{viewerRole}
 			present={others.present}

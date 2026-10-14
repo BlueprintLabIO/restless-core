@@ -12,8 +12,10 @@
 		shortcut?: boolean;
 	};
 	/** Results found elsewhere for what was typed, such as text inside documents. They are already
-	 * matched, so they are shown as found rather than filtered again. */
-	export type CommandSearch = (query: string, signal: AbortSignal) => Promise<Command[]>;
+	 * matched, so they are shown as found rather than filtered again. `unreached` names the sources
+	 * that could not be searched ("documents"), so the menu never reads their silence as no match. */
+	export type CommandSearchResult = { results: Command[]; unreached: string[] };
+	export type CommandSearch = (query: string, signal: AbortSignal) => Promise<CommandSearchResult>;
 </script>
 
 <script lang="ts">
@@ -25,19 +27,25 @@
 	import { goto } from '$app/navigation';
 	import Search from '@lucide/svelte/icons/search';
 	import CornerDownLeft from '@lucide/svelte/icons/corner-down-left';
+	import { composing } from '$lib/primitives/composer-keys';
 
 	let {
 		open = $bindable(false),
 		commands,
 		recents = [],
-		search = null
+		search = null,
+		ask = null
 	}: {
 		open?: boolean;
 		commands: Command[];
 		/** What this person opened lately, shown first before anything is typed. */
 		recents?: Command[];
 		search?: CommandSearch | null;
+		/** Hands the typed words to Exec: always offered last while something is typed. */
+		ask?: ((query: string) => void) | null;
 	} = $props();
+	/* What was typed and found nothing is a question; Exec is the one to ask. */
+	const ASK_ID = 'ask:exec';
 
 	let dialog: HTMLDialogElement | undefined = $state();
 	let input: HTMLInputElement | undefined = $state();
@@ -55,11 +63,13 @@
 	/* A short pause after typing, then one search; a newer query cancels the older one. Earlier
 	 * results stay until newer ones arrive, so the list does not flicker while typing. */
 	let found = $state<Command[]>([]);
+	let unreached = $state<string[]>([]);
 	let searching = $state(false);
 	$effect(() => {
 		const text = query.trim();
 		if (!open || !search || !text) {
 			found = [];
+			unreached = [];
 			searching = false;
 			return;
 		}
@@ -68,11 +78,15 @@
 		searching = true;
 		const timer = setTimeout(() => {
 			run(text, abort.signal)
-				.then((rows) => {
-					if (!abort.signal.aborted) found = rows;
+				.then((answer) => {
+					if (abort.signal.aborted) return;
+					found = answer.results;
+					unreached = answer.unreached;
 				})
 				.catch(() => {
-					if (!abort.signal.aborted) found = [];
+					if (abort.signal.aborted) return;
+					found = [];
+					unreached = ['the company'];
 				})
 				.finally(() => {
 					if (!abort.signal.aborted) searching = false;
@@ -121,13 +135,46 @@
 			group.total += 1;
 			groups.set(command.group, group);
 		}
-		return [...groups].map(([group, { items, total }]) => ({
+		const sections = [...groups].map(([group, { items, total }]) => ({
 			group,
 			items,
 			more: total - items.length
 		}));
+		const text = query.trim();
+		if (ask && text)
+			sections.push({
+				group: 'Ask',
+				items: [
+					{
+						id: ASK_ID,
+						group: 'Ask',
+						label: `Ask Exec about “${text}”`,
+						run: () => ask?.(text)
+					}
+				],
+				more: 0
+			});
+		return sections;
 	});
 	const flat = $derived(results.flatMap((group) => group.items));
+	/* Matches, not counting the standing offer to ask Exec. */
+	const matched = $derived(flat.filter((command) => command.id !== ASK_ID).length);
+	const unreachedLine = $derived(
+		unreached.length
+			? `Couldn’t search ${
+					unreached.length === 1
+						? unreached[0]
+						: `${unreached.slice(0, -1).join(', ')} and ${unreached.at(-1)}`
+				} right now.`
+			: ''
+	);
+	const emptyLine = $derived(
+		searching
+			? 'Searching…'
+			: unreachedLine
+				? `${unreachedLine} Nothing else matched “${query.trim()}”.`
+				: `No match for “${query.trim()}”.`
+	);
 
 	$effect(() => {
 		void query;
@@ -211,6 +258,8 @@
 			event.preventDefault();
 			move(-1);
 		} else if (event.key === 'Enter') {
+			/* Enter that confirms an input method's conversion is not a choice. */
+			if (composing(event)) return;
 			event.preventDefault();
 			choose(flat[active]);
 		}
@@ -256,9 +305,13 @@
 			<button type="button" class="command-cancel" onclick={close}>Cancel</button>
 		</label>
 		<p class="sr-only" role="status" aria-live="polite">
-			{flat.length ? `${flat.length} ${flat.length === 1 ? 'result' : 'results'}` : 'No results'}
+			{matched ? `${matched} ${matched === 1 ? 'result' : 'results'}` : 'No results'}
+			{unreachedLine}
 		</p>
 		<div class="command-results" id="command-results" role="listbox" bind:this={list}>
+			{#if open && query.trim() && !matched && results.length}
+				<p class="command-empty">{emptyLine}</p>
+			{/if}
 			<!-- The menu is in every company page; its results render only while it is open. -->
 			{#each open ? results : [] as section (section.group)}
 				<div class="command-group" role="group" aria-label={section.group}>
@@ -294,10 +347,11 @@
 					{/if}
 				</div>
 			{:else}
-				<p class="command-empty">
-					{searching ? 'Searching…' : `No match for “${query.trim()}”.`}
-				</p>
+				<p class="command-empty">{emptyLine}</p>
 			{/each}
+			{#if open && matched && unreachedLine && !searching}
+				<p class="command-unreached">{unreachedLine}</p>
+			{/if}
 		</div>
 		<footer class="command-foot" aria-hidden="true">
 			<span><kbd>↑</kbd><kbd>↓</kbd> move</span>
@@ -458,6 +512,12 @@
 		padding: 22px 12px;
 		color: var(--text-secondary);
 		text-align: center;
+	}
+	.command-unreached {
+		margin: 0;
+		padding: 8px 12px 4px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
 	}
 
 	.command-foot {

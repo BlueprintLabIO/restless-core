@@ -43,7 +43,8 @@
 		every = $state('1h'),
 		atLocal = $state('09:00'),
 		prompt = $state('');
-	let open = $state('');
+	/* ⌘K opens a schedule by its id. */
+	let open = $state(page.url.searchParams.get('schedule') ?? '');
 	let editing = $state(''),
 		editEvery = $state(''),
 		editTime = $state('');

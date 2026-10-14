@@ -58,6 +58,7 @@
 		commands = [],
 		recents = [],
 		search = null,
+		ask = null,
 		rail = null,
 		viewerName = '',
 		viewerRole = '',
@@ -90,6 +91,8 @@
 		recents?: Command[];
 		/** What the command menu finds beyond its commands, such as text inside documents. */
 		search?: CommandSearch | null;
+		/** Hands what was typed in the command menu to Exec, when nothing else answers it. */
+		ask?: ((query: string) => void) | null;
 		/** The signed-in person, for the profile circle. */
 		viewerName?: string;
 		viewerRole?: string;
@@ -453,7 +456,7 @@
 		</a>
 	{/snippet}
 
-	<CommandMenu bind:open={commandMenuOpen} commands={menuCommands} {recents} {search} />
+	<CommandMenu bind:open={commandMenuOpen} commands={menuCommands} {recents} {search} {ask} />
 
 	{#if !immersive}
 		<nav class="bridge-dock" aria-label="Company navigation">
