@@ -453,6 +453,14 @@ export function editRoomMessage(
 	});
 }
 
+/* A directive is a durable owner instruction meant to change how the company operates
+ * (owner-cockpit §7.4), as distinct from conversation. It travels as an ordinary message that
+ * opens with this marker, so every reader and the Exec see which it is. */
+export const DIRECTIVE_PREFIX = 'Directive: ';
+export function isDirective(body: string): boolean {
+	return body.startsWith(DIRECTIVE_PREFIX);
+}
+
 /* A mention travels as `@actor-id`, but people write and read names. While composing, a person
  * whose name is unique among those who could be named reads as `@Their Name`; sending turns it
  * back into the id. A shared name keeps its id, so nobody is asked by mistake. */

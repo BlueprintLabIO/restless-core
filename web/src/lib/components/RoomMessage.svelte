@@ -15,6 +15,7 @@
 	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
 	import type { MessageAttachment, ThreadMessage } from '$lib/model/view';
 	import {
+		isDirective,
 		readableMentions,
 		resolveReadableMentions,
 		type MentionPerson,
@@ -391,6 +392,11 @@
 			embedded
 		>
 			{#snippet headerExtra()}
+				{#if isDirective(message.body)}<span
+						class="lifecycle"
+						title="A standing instruction from the owner. The Exec sees it and may replan."
+						>directive</span
+					>{/if}
 				{#if message.edited_at}<span class="lifecycle">edited</span>{/if}
 				{#if mentions.length}
 					<span class="mention-receipt">

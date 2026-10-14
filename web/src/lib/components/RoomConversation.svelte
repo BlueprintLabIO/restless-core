@@ -44,6 +44,7 @@
 	import { conversationQuery, type ActiveAgentTurn } from '$lib/model/queries.svelte';
 	import {
 		cockpitContextPath,
+		sendActorMessage,
 		openAgentActivityStream,
 		type AgentActivityState
 	} from '$lib/model/attention';
@@ -67,6 +68,7 @@
 		deleteRoomMessage,
 		editRoomMessage,
 		resolveReadableMentions,
+		DIRECTIVE_PREFIX,
 		markRoomRead,
 		readRoomDraft,
 		roomDraftKey,
@@ -622,6 +624,13 @@
 	);
 	/* Exec or a team lead, for anyone in the company: the message goes to their conversation (as
 	 * the rail sends it), so its reply is followed live and selected skills travel with it. */
+	/* Only the owner gives directives, in a direct chat with an agent. */
+	let asDirective = $state(false);
+	const mayDirect = $derived(ownerAccess && !!directPartner && actorIsAgent(directPartner));
+	$effect(() => {
+		void selectedRoomId;
+		asDirective = false;
+	});
 	const accountableDirect = $derived(
 		!!directPerson &&
 			(directPerson.kind === 'exec' ||
@@ -1097,8 +1106,10 @@
 		const files = [...composerFiles];
 		const body =
 			typed || (files.length ? `Attached: ${files.map((file) => file.name).join(', ')}` : '');
-		/* The draft reads names; the message names people by id, which is what asks them. */
-		const wireBody = resolveReadableMentions(body, roster);
+		/* The draft reads names; the message names people by id, which is what asks them. A
+		 * directive opens with its marker, so the agent and the Exec read it as one. */
+		const directive = mayDirect && asDirective && parent === null;
+		const wireBody = `${directive ? DIRECTIVE_PREFIX : ''}${resolveReadableMentions(body, roster)}`;
 		if (
 			!body ||
 			!selectedRoomId ||
@@ -1232,6 +1243,20 @@
 				updatedAt: new Date().toISOString()
 			});
 			volatileFileDrafts.delete(targetDraft);
+			/* A directive to a lead or Staff member reaches the Exec too, which may replan. */
+			if (directive && recipientActor && recipientActor !== 'exec') {
+				void sendActorMessage(
+					targetCompany,
+					'exec',
+					`${DIRECTIVE_PREFIX}given to ${actorName(recipientActor)}. ${wireBody.slice(DIRECTIVE_PREFIX.length)}`
+				).catch((cause) => {
+					sendNotice = failureSentence(
+						cause,
+						'The directive was sent, but the Exec was not told. Tell the Exec directly.'
+					);
+				});
+			}
+			if (directive) asDirective = false;
 			if (!stillCurrent()) return;
 			composer = '';
 			composerFiles = [];
@@ -1900,6 +1925,18 @@
 						name={directPerson.display}
 					/>
 				{/if}
+				{#if mayDirect && threadRootId === null}
+					<button
+						type="button"
+						class="directive-toggle"
+						class:on={asDirective}
+						aria-pressed={asDirective}
+						title={asDirective
+							? 'Sends as a directive: a standing instruction that changes how the company works. The Exec sees it and may replan. Press again for an ordinary message.'
+							: 'Send as a directive: a standing instruction rather than conversation. The Exec sees it and may replan.'}
+						onclick={() => (asDirective = !asDirective)}>Directive</button
+					>
+				{/if}
 			{/snippet}
 		</Composer>
 		{#if answerableMention}
@@ -2079,6 +2116,20 @@
 		border-top: 1px solid var(--border);
 		color: var(--text-secondary);
 		font-size: var(--t-body);
+	}
+	.directive-toggle {
+		padding: 2px 8px;
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		background: transparent;
+		color: var(--text-secondary);
+		font: inherit;
+		font-size: var(--t-label);
+		cursor: pointer;
+	}
+	.directive-toggle.on {
+		border-color: var(--ink);
+		color: var(--ink);
 	}
 	.here-now {
 		color: var(--state-success);
