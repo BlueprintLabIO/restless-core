@@ -1960,10 +1960,9 @@
 		<h1 class="print-title">{title.trim() || 'Untitled'}</h1>
 		<!-- The title is the page's first line, as Notion's is: large, borderless, typed in place. -->
 		<div class="paper-title">
-			<label for="document-title">Document title</label>
 			<!-- A long title wraps, as Notion's does; it grows with its text and never takes a newline. -->
 			<textarea
-				id="document-title"
+				aria-label="Document title"
 				rows="1"
 				bind:this={titleInput}
 				onblur={() => void saveTitle()}
@@ -2218,14 +2217,6 @@
 		position: relative;
 		max-width: 840px;
 		margin: 0 auto var(--space-4);
-	}
-	.paper-title label {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		overflow: hidden;
-		clip: rect(0 0 0 0);
-		white-space: nowrap;
 	}
 	.paper-title textarea {
 		display: block;
