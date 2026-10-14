@@ -58,6 +58,8 @@ export interface CompanyView {
 			by_actor?: Array<{ actor: string; model: string; spent_usd: number }>;
 			/** Model calls that reported no price, newest first; they make the total a lower bound. */
 			unpriced?: Array<{ actor: string; model: string; occurred_at: string }>;
+			/** What the last seven days cost, for the weekly review. */
+			last_7_days_usd?: number;
 		};
 		/** Native-harness use (Codex or Claude on their own sign-in) this UTC month. */
 		native: {

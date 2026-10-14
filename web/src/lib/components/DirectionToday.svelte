@@ -10,9 +10,12 @@
 	let {
 		companyId,
 		requestsOnly = false,
+		weekly = false,
 		onrequests
 	}: {
 		companyId: string;
+		/** Offer last week's review on Mondays: the owner's weekly look back. */
+		weekly?: boolean;
 		/** The Inbox is showing only the waiting requests. */
 		requestsOnly?: boolean;
 		/** Filter the Inbox to the waiting requests, or back to everything. */
@@ -33,9 +36,10 @@
 	const plural = (count: number, one: string, many: string) =>
 		`${count} ${count === 1 ? one : many}`;
 	let showApplied = $state(false);
+	const monday = $derived(weekly && new Date().getDay() === 1);
 </script>
 
-{#if applied.length || waiting}
+{#if applied.length || waiting || monday}
 	<div class="direction-today">
 		<p role="status">
 			<span class="label">Today</span>
@@ -55,6 +59,12 @@
 					title={requestsOnly ? 'Show everything in the Inbox' : 'Show only these requests'}
 					onclick={() => onrequests?.(!requestsOnly)}
 					>{plural(waiting, 'request', 'requests')} waiting</button
+				>{/if}
+			{#if monday}{#if applied.length || waiting}<span aria-hidden="true">·</span>{/if}<a
+					class="clause"
+					href={`/${encodeURIComponent(companyId)}/company/week`}
+					title="What the company finished, decided, sent and spent last week; Exec can write it up"
+					>Last week’s review</a
 				>{/if}
 		</p>
 		{#if showApplied && applied.length}<AppliedChanges

@@ -342,6 +342,7 @@
 	<DirectionToday
 		{companyId}
 		{requestsOnly}
+		weekly={canSetAside}
 		onrequests={(only) => {
 			requestsOnly = only;
 			showTab('inbox');

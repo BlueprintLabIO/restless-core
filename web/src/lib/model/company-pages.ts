@@ -84,6 +84,13 @@ export const COMPANY_PAGES: CompanyPage[] = [
 		path: '/activity',
 		keywords: 'decisions history receipts effects external'
 	},
+	{
+		key: 'week',
+		group: 'Records',
+		label: 'Weekly review',
+		path: '/week',
+		keywords: 'week review summary finished decided spent report'
+	},
 	{ key: 'health', group: 'Records', label: 'Health', path: '/doctor', keywords: 'doctor diagnose' }
 ];
 

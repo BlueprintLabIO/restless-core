@@ -27,6 +27,7 @@ import Bell from '@lucide/svelte/icons/bell';
 import { telegramRequest } from '$lib/model/telegram';
 import History from '@lucide/svelte/icons/history';
 import HeartPulse from '@lucide/svelte/icons/heart-pulse';
+import CalendarRange from '@lucide/svelte/icons/calendar-range';
 import LinkIcon from '@lucide/svelte/icons/link';
 
 /** 'refused': this plane does not keep the area (a hosted plane's vault lives with the account). */
@@ -293,8 +294,18 @@ export function createCompanySetup(companyIdOf: () => string) {
 			if (target.key === 'overview') continue;
 			const setupRow = byKey.get(target.key);
 			const record =
-				target.key === 'activity' ? History : target.key === 'health' ? HeartPulse : null;
-			if (!setupRow && !(record && (owner || (admin && target.key === 'activity')))) continue;
+				target.key === 'activity'
+					? History
+					: target.key === 'week'
+						? CalendarRange
+						: target.key === 'health'
+							? HeartPulse
+							: null;
+			if (
+				!setupRow &&
+				!(record && (owner || (admin && (target.key === 'activity' || target.key === 'week'))))
+			)
+				continue;
 			let group = out.find((candidate) => candidate.label === target.group);
 			if (!group) out.push((group = { label: target.group, rows: [] }));
 			const health = view?.computer.doctor.status;
@@ -320,7 +331,9 @@ export function createCompanySetup(companyIdOf: () => string) {
 							tooltip:
 								target.key === 'health'
 									? 'Checks on the company computer, model and tools'
-									: 'Decisions, receipts and external actions',
+									: target.key === 'week'
+										? 'What the company finished, decided, sent and spent in the last seven days'
+										: 'Decisions, receipts and external actions',
 							...(target.key === 'health' && health
 								? health === 'healthy'
 									? { reading: 'Healthy', readingTone: 'work' as const }

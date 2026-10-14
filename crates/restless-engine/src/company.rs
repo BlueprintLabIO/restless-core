@@ -214,6 +214,8 @@ struct SpendLimit {
     by_actor: Vec<SpendShare>,
     /// Model calls whose price never arrived, which make `accounted_usd` a lower bound.
     unpriced: Vec<UnpricedCall>,
+    /// What the last seven days cost, for the weekly review.
+    last_7_days_usd: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -428,7 +430,16 @@ pub async fn project(
     let period = daemon.spend.period_spend(config);
     let budget = period.budget;
     let accounted_usd = period.accounted_micro_usd as f64 / 1_000_000.0;
+    let week_start = Utc::now() - chrono::Duration::days(7);
+    let last_7_days_micro: u64 = daemon
+        .spend
+        .records(&config.name)
+        .into_iter()
+        .filter(|record| record.occurred_at >= week_start)
+        .map(|record| record.cost_micro_usd)
+        .sum();
     let spend = SpendLimit {
+        last_7_days_usd: round_usd(last_7_days_micro as f64 / 1_000_000.0),
         period: config.spend_period.as_str(),
         period_start: period.period_start,
         warning_percent: period.warning_percent,
