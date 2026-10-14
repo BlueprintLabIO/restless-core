@@ -13,6 +13,7 @@
 	import { recoverCompany, type RecoveryAction } from '$lib/model/company';
 	import { companyQuery } from '$lib/model/queries.svelte';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
+	import { askExec } from '$lib/model/ask-exec';
 
 	const companyId = $derived(page.params.companyId ?? '');
 	const source = $derived(companyQuery(companyId));
@@ -111,6 +112,19 @@
 				: status === 'unknown'
 					? 'info'
 					: 'danger';
+	/* A check's dot: unclear is not broken, so only an unreachable check is red. */
+	const dotTone = (status: string) =>
+		status === 'unknown' ? 'neutral' : status === 'degraded' ? 'warning' : 'danger';
+	const statusWord = (status: string) =>
+		({ degraded: 'Needs attention', unknown: 'Unclear', unavailable: "Couldn't be checked" })[
+			status
+		] ?? status;
+	/* Exec can look into anything on the company computer; the draft names the check so the owner
+	 * only has to send it. */
+	const askAbout = (check: { label: string; summary: string }) =>
+		askExec(
+			`The "${check.label}" health check is failing: ${check.summary} Look into it, fix what you can and tell me what needs me.`
+		);
 	holdQueries(() => [source]);
 </script>
 
@@ -180,7 +194,10 @@
 						onclick={check.detail ? () => (open = open === check.id ? '' : check.id) : undefined}
 						selected={open === check.id}
 					>
-						{#snippet leading()}<Dot tone="danger" label={check.status} />{/snippet}
+						{#snippet leading()}<Dot
+								tone={dotTone(check.status)}
+								label={statusWord(check.status)}
+							/>{/snippet}
 						{#snippet trailing()}
 							{#if check.id === 'intelligence'}<a
 									class="btn small primary"
@@ -195,7 +212,16 @@
 										disabled={!!working}
 										onclick={() => recover(action.id, action.confirmation)}
 										>{working === action.id ? 'Working…' : action.label}</button
-									>{/each}{/if}
+									>{/each}{:else if check.source === 'authority' || check.source === 'orgintel'}<!-- Exec cannot reach a source the host cannot read; checking again is the step. --><button
+									class="btn small"
+									disabled={!!working}
+									onclick={recheck}>{working === 'recheck' ? 'Checking…' : 'Check again'}</button
+								>{:else if check.id === 'browser'}<a
+									class="btn small"
+									href={`/${companyId}/company/computer?focus=desktop`}>Open the desktop</a
+								>{:else}<button class="btn small" type="button" onclick={() => askAbout(check)}
+									>Ask Exec to look into this</button
+								>{/if}
 						{/snippet}
 						{#if open === check.id && check.detail}<p class="detail">{check.detail}</p>{/if}
 					</Item>
@@ -229,10 +255,10 @@
 		</Section>
 
 		<Section
-			title="Raw state"
-			info="The runtime and service state behind these checks, for diagnosis."
+			title="For support"
+			info="The technical state behind these checks, for anyone diagnosing a problem with you."
 		>
-			<Fold label="Show raw state">
+			<Fold label="Show technical details">
 				{#each view.resources.items as resource (resource.id)}
 					<Item title={resource.label} meta={`${resource.status} · ${resource.detail}`} />
 				{/each}
