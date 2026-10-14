@@ -15,6 +15,8 @@
  * model modules that use it, so they import it as './failure.ts'.
  */
 
+import { PRODUCT_NAME } from '../brand/brand.ts';
+
 export type FailureKind =
 	| 'offline'
 	| 'unreachable'
@@ -166,7 +168,7 @@ export function describeFailure(error: unknown, subject?: string): FailureView {
 				return {
 					kind: 'unavailable',
 					title: 'Not available yet',
-					detail: 'Restless needs a restart to finish updating before this can load.',
+					detail: `${PRODUCT_NAME} needs a restart to finish updating before this can load.`,
 					technical: said,
 					retryable: false
 				};

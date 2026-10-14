@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import { version } from '$service-worker';
+import { PRODUCT_NAME } from '$lib/brand/brand';
 
 const worker = self as unknown as ServiceWorkerGlobalScope;
 const SHELL_CACHE = `restless-shell-${version}`;
@@ -52,9 +53,9 @@ function navigationErrorResponse(): Response {
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1">
 		<meta name="theme-color" content="#eef1f5">
-		<title>Page unavailable · Restless</title>
+		<title>Page unavailable · ${PRODUCT_NAME}</title>
 		<style>
-			:root { color-scheme: light; font: 13px/1.5 'Inter Variable', system-ui, sans-serif; }
+			:root { color-scheme: light dark; font: 13px/1.5 'Inter Variable', system-ui, sans-serif; }
 			* { box-sizing: border-box; }
 			body { min-height: 100svh; margin: 0; display: grid; place-items: center; padding: 24px;
 				color: #17181c; background: #eef1f5; position: relative; isolation: isolate; }
@@ -69,12 +70,21 @@ function navigationErrorResponse(): Response {
 			a { display: inline-flex; margin-top: 20px; padding: 8px 12px; border-radius: 4px;
 				color: #f8fafc; background: #37435b; font-weight: 600; text-decoration: none; }
 			a:focus-visible { outline: 2px solid #48546c; outline-offset: 3px; }
+			@media (prefers-color-scheme: dark) {
+				body { color: #e6e8ee; background: #14171d; }
+				body::before { background: radial-gradient(ellipse at 28% 32%, #1d2533 0, transparent 45%),
+					radial-gradient(ellipse at 75% 72%, #241f30 0, transparent 42%); }
+				main { border-color: rgba(200, 208, 228, .14); background: rgba(28, 32, 40, .92); }
+				p { color: rgba(230, 232, 238, .7); }
+				h1 { color: #eef0f5; }
+				a { color: #14171d; background: #c9d2e3; }
+			}
 		</style>
 	</head>
 	<body>
 		<main role="alert">
 			<h1>This page didn’t load</h1>
-			<p>Restless couldn’t reach this page in time. Check your connection and try again.</p>
+			<p>${PRODUCT_NAME} couldn’t reach this page in time. Check your connection and try again.</p>
 			<a href="">Try again</a>
 		</main>
 	</body>

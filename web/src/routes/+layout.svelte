@@ -28,6 +28,7 @@
 	import { registerServiceWorkerWhereLocal } from '$lib/model/service-worker-registration';
 	import { knownPlaneOwner } from '$lib/model/known-role';
 	import { dev } from '$app/environment';
+	import { PRODUCT_NAME } from '$lib/brand/brand';
 
 	let { children } = $props();
 
@@ -254,6 +255,8 @@
 	}
 </script>
 
+<svelte:head><meta name="application-name" content={PRODUCT_NAME} /></svelte:head>
+
 <svelte:window bind:online ondragover={refuseStrayDragOver} ondrop={refuseStrayDrop} />
 
 {#if isLoading}
@@ -275,7 +278,7 @@
 		}}
 	>
 		<div class="app-navigation-error-mark" aria-hidden="true">!</div>
-		<h1 id="navigation-error-title">Restless is taking longer than expected</h1>
+		<h1 id="navigation-error-title">{PRODUCT_NAME} is taking longer than expected</h1>
 		<p id="navigation-error-copy">
 			This page hasn’t opened yet. Retry the move or stay here with your current page and any unsent
 			text.

@@ -14,7 +14,8 @@ const config = {
 		// Registered by the root layout only on a local appliance: on Cloud's one address a cockpit
 		// service worker would control Fleet's pages too (ADR 0007).
 		serviceWorker: { register: false },
-		prerender: { entries: [] },
+		// The web manifest is generated from the brand config (routes/manifest.webmanifest).
+		prerender: { entries: ['/manifest.webmanifest'] },
 		// An open tab learns that a new version was deployed and offers a calm reload (root layout).
 		version: { pollInterval: 5 * 60_000 },
 		alias: {

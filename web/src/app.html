@@ -61,7 +61,11 @@
 								);
 							if (room) {
 								var path = base + '/rooms/' + encodeURIComponent(room);
-								urls.push(path + '/messages?limit=50', path + '/participants', path + '/read-cursor');
+								urls.push(
+									path + '/messages?limit=50',
+									path + '/participants',
+									path + '/read-cursor'
+								);
 							}
 						} catch (error) {}
 					}
@@ -76,7 +80,6 @@
 				window.__restlessBoot = reads;
 			})();
 		</script>
-		<meta name="application-name" content="Restless" />
 		<meta name="mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-status-bar-style" content="default" />
