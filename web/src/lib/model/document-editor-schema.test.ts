@@ -17,6 +17,7 @@ test('the browser editor schema is the exact sidecar-compatible node and mark se
 		'bulletList',
 		'codeBlock',
 		'doc',
+		'file',
 		'hardBreak',
 		'heading',
 		'horizontalRule',
@@ -57,6 +58,7 @@ const SIDECAR_ATTRIBUTES: Record<string, string[]> = {
 	mention: ['actor_id', 'label'],
 	reference: ['id', 'kind', 'label'],
 	image: ['alt', 'attachment_id', 'block_id', 'caption', 'width'],
+	file: ['attachment_id', 'block_id', 'name'],
 	doc: [],
 	text: [],
 	hardBreak: []

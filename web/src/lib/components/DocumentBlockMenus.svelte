@@ -12,6 +12,7 @@
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import Copy from '@lucide/svelte/icons/copy';
+	import Paperclip from '@lucide/svelte/icons/paperclip';
 	import AtSign from '@lucide/svelte/icons/at-sign';
 	import FileText from '@lucide/svelte/icons/file-text';
 	import CircleDot from '@lucide/svelte/icons/circle-dot';
@@ -146,6 +147,12 @@
 		{ id: 'divider', label: 'Divider', icon: Minus, words: 'rule line hr separator' },
 		{ id: 'table', label: 'Table', icon: Table2, words: 'grid' },
 		{ id: 'image', label: 'Image', icon: ImageIcon, words: 'picture photo upload' },
+		{
+			id: 'file',
+			label: 'File',
+			icon: Paperclip,
+			words: 'attachment pdf contract upload document'
+		},
 		{ id: 'mention', label: 'Mention a person', icon: AtSign, words: 'person people at name' },
 		{
 			id: 'page',
@@ -233,9 +240,9 @@
 		if (item.turn) item.turn(chain).run();
 		else if (item.id === 'divider') chain.setHorizontalRule().run();
 		else if (item.id === 'table') chain.insertContent(documentTable()).run();
-		else if (item.id === 'image') {
+		else if (item.id === 'image' || item.id === 'file') {
 			chain.run();
-			pickImages(range.from);
+			pickImages(range.from, item.id === 'image');
 		} else if (item.id === 'mention' || item.id === 'page')
 			chain
 				.insertContent('@')
@@ -361,12 +368,15 @@
 		return false;
 	}
 
-	function pickImages(at: number): void {
+	let pickingImages = $state(true);
+	function pickImages(at: number, images = true): void {
 		imageAt = at;
-		if (imageInput) {
+		pickingImages = images;
+		void tick().then(() => {
+			if (!imageInput) return;
 			imageInput.value = '';
 			imageInput.click();
-		}
+		});
 	}
 
 	/* ---------- a block's own actions ---------- */
@@ -565,7 +575,7 @@
 	bind:this={imageInput}
 	class="image-input"
 	type="file"
-	accept={DOCUMENT_IMAGE_TYPES.join(',')}
+	accept={pickingImages ? DOCUMENT_IMAGE_TYPES.join(',') : undefined}
 	multiple
 	tabindex="-1"
 	aria-hidden="true"

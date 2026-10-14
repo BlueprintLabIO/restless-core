@@ -57,6 +57,11 @@ const nodes: Record<string, NodeSpec> = {
     atom: true,
     group: 'block',
   },
+  file: {
+    attrs: { block_id: { default: null }, attachment_id: {}, name: {} },
+    atom: true,
+    group: 'block',
+  },
   table: { attrs: blockId, content: 'tableRow+', group: 'block', isolating: true },
   tableRow: { attrs: blockId, content: '(tableCell | tableHeader)+' },
   tableCell: { attrs: blockId, content: 'block+', isolating: true },
@@ -201,6 +206,7 @@ function validateAttributes(type: string, value: unknown, state: ValidationState
       case 'mention': return ['actor_id', 'label'];
       case 'reference': return ['id', 'kind', 'label'];
       case 'image': return ['block_id', 'attachment_id', 'alt', 'width', 'caption'];
+      case 'file': return ['block_id', 'attachment_id', 'name'];
       case 'bulletList':
       case 'taskList':
       case 'listItem':
@@ -247,6 +253,11 @@ function validateAttributes(type: string, value: unknown, state: ValidationState
       attrs.width !== undefined && attrs.width !== null &&
       (!Number.isInteger(attrs.width) || (attrs.width as number) < 16 || (attrs.width as number) > 4_096)
     ) invalid();
+  }
+  if (type === 'file') {
+    // A file names a company file by its identity, as an image does.
+    if (typeof attrs.attachment_id !== 'string' || !ATTACHMENT_ID.test(attrs.attachment_id)) invalid();
+    boundedString(attrs.name, 255);
   }
   if (type === 'reference') {
     const kind = boundedString(attrs.kind, 32);

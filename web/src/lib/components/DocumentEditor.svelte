@@ -654,14 +654,13 @@
 	async function insertImages(files: File[], at: number): Promise<void> {
 		const instance = editorState.editor;
 		if (!instance || !canWriteLive) return;
-		const images = files.filter((file) => DOCUMENT_IMAGE_TYPES.includes(file.type));
-		if (!images.length) {
-			imageFailure = 'Only PNG, JPEG, GIF and WebP images can go in a document.';
-			return;
-		}
+		/* A picture shows in place; any other file (a contract, a quote) becomes a file block
+		 * that opens in the Library. */
+		const images = files.filter((file) => file.size > 0);
+		if (!images.length) return;
 		const large = images.find((file) => file.size > MAX_UPLOAD_BYTES);
 		if (large) {
-			imageFailure = `${large.name} is larger than ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB, the most one image can be.`;
+			imageFailure = `${large.name} is larger than ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB, the most one file can be.`;
 			return;
 		}
 		const { doc } = instance.state;
@@ -676,16 +675,26 @@
 			placeImages(
 				current,
 				typeof anchor === 'string' ? anchor : null,
-				added.map((file, index) => ({
-					type: 'image',
-					attrs: {
-						attachment_id: file.id,
-						alt: imageAltFromName(images[index]?.name ?? file.name)
-					}
-				}))
+				added.map((file, index) =>
+					DOCUMENT_IMAGE_TYPES.includes(images[index]?.type ?? file.media_type)
+						? {
+								type: 'image',
+								attrs: {
+									attachment_id: file.id,
+									alt: imageAltFromName(images[index]?.name ?? file.name)
+								}
+							}
+						: {
+								type: 'file',
+								attrs: {
+									attachment_id: file.id,
+									name: [...(images[index]?.name || file.name || 'File')].slice(0, 255).join('')
+								}
+							}
+				)
 			);
 		} catch (cause) {
-			imageFailure = failureSentence(cause, 'The image was not added.');
+			imageFailure = failureSentence(cause, 'The file was not added.');
 		} finally {
 			addingImages -= images.length;
 		}
@@ -1086,7 +1095,8 @@
 		const anchor = (event.target as Element | null)?.closest('a[href]');
 		if (!anchor || !editorElement.contains(anchor)) return;
 		event.preventDefault();
-		const reference = anchor.hasAttribute('data-native-reference');
+		const reference =
+			anchor.hasAttribute('data-native-reference') || Boolean(anchor.closest('[data-native-file]'));
 		const modified = event.metaKey || event.ctrlKey;
 		if (editorState.editor?.isEditable && !reference && !modified) return;
 		openHref(anchor.getAttribute('href') ?? '', modified);
@@ -1153,7 +1163,10 @@
 		}
 		hoverLink = {
 			href: anchor.getAttribute('href') ?? '',
-			pos: anchor.hasAttribute('data-native-reference') ? -1 : pos,
+			pos:
+				anchor.hasAttribute('data-native-reference') || anchor.closest('[data-native-file]')
+					? -1
+					: pos,
 			left: Math.max(8, Math.min(box.left - frame.left, frame.width - 280)),
 			top: box.bottom - frame.top + 4
 		};
@@ -1354,7 +1367,7 @@
 			{/if}
 			<span
 				>{addingImages
-					? 'Adding image…'
+					? 'Adding file…'
 					: saveProblem
 						? 'Not saved'
 						: writingOffline
@@ -2364,6 +2377,40 @@
 		background: var(--surface-raised);
 		color: var(--ink);
 		font: var(--t-body) var(--font-ui);
+	}
+	/* A file the document carries: its name, as a quiet card that opens it in the Library. */
+	:global(.native-document-body .native-file),
+	:global(.rendered-document [data-native-file]) {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 8px 12px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		background: var(--surface-alt);
+	}
+	:global(.native-document-body .native-file::before),
+	:global(.rendered-document [data-native-file]::before) {
+		content: '';
+		flex: none;
+		width: 14px;
+		height: 16px;
+		border: 1.5px solid var(--text-tertiary);
+		border-radius: 2px 6px 2px 2px;
+	}
+	:global(.native-document-body .native-file a),
+	:global(.rendered-document [data-native-file] a) {
+		min-width: 0;
+		overflow: hidden;
+		color: var(--ink);
+		font-weight: 500;
+		text-decoration: none;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	:global(.native-document-body .native-file.ProseMirror-selectednode) {
+		outline: 2px solid var(--intent-feedback);
+		outline-offset: 2px;
 	}
 	:global(.native-document-body .native-image figcaption),
 	:global(.rendered-document figcaption) {

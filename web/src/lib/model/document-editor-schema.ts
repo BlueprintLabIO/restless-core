@@ -50,7 +50,8 @@ const BLOCK_TYPES = [
 	'tableRow',
 	'tableCell',
 	'tableHeader',
-	'image'
+	'image',
+	'file'
 ] as const;
 
 /* The documents sidecar stores only what the company schema allows and refuses the whole body
@@ -754,7 +755,8 @@ export interface DocumentEditorHooks {
 	requestLink?: () => void;
 	/** A web address, when it is a page in this cockpit with a known title, as a reference to it. */
 	resolveReference?: (href: string) => { kind: string; id: string; label: string } | null;
-	/** Image files pasted or dropped at a position: the page uploads them and places them there. */
+	/** Files pasted or dropped at a position: the page uploads them and places them there, a
+	 * picture as an image and anything else as a file. */
 	uploadImages?: (files: File[], at: number) => void;
 	/** After a paste: pictures found in it to upload and place at a position, and what was lost. */
 	pasted?: (images: string[], lost: string[], at: number) => void;
@@ -1148,6 +1150,7 @@ export function documentImageSrc(companyId: string, attachmentId: string): strin
 
 const ATTACHMENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 const MAX_IMAGE_ALT = 300;
+const MAX_FILE_NAME = 255;
 /** The raster types the attachment route shows in place. */
 export const DOCUMENT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 
@@ -1164,17 +1167,82 @@ export function imageAltFromName(name: string): string {
 	return [...alt].slice(0, MAX_IMAGE_ALT).join('');
 }
 
-/** A named version's rendered page shows its images from the company that holds them. */
-export function withDocumentImages(html: string, companyId: string): string {
-	return html.replace(/<img data-attachment-id="([0-9a-f-]{36})"/gu, (whole, id: string) =>
-		ATTACHMENT_ID.test(id)
-			? `<img src="${documentImageSrc(companyId, id)}" loading="lazy" data-attachment-id="${id}"`
-			: whole
-	);
+/** Where a file a document carries opens: its preview in the Library. */
+export function documentFileHref(companyId: string, attachmentId: string): string {
+	return `/${encodeURIComponent(companyId)}/library?upload=${encodeURIComponent(attachmentId)}`;
 }
 
+/** A named version's rendered page shows its images from the company that holds them, and links
+ * its files to their Library preview. */
+export function withDocumentImages(html: string, companyId: string): string {
+	return html
+		.replace(/<img data-attachment-id="([0-9a-f-]{36})"/gu, (whole, id: string) =>
+			ATTACHMENT_ID.test(id)
+				? `<img src="${documentImageSrc(companyId, id)}" loading="lazy" data-attachment-id="${id}"`
+				: whole
+		)
+		.replace(
+			/(<div[^>]* data-native-file="true" data-attachment-id="([0-9a-f-]{36})">)([^<]*)<\/div>/gu,
+			(whole, open: string, id: string, name: string) =>
+				ATTACHMENT_ID.test(id)
+					? `${open}<a href="${documentFileHref(companyId, id)}">${name}</a></div>`
+					: whole
+		);
+}
+
+/* A file is a block that names a company file other than a picture (a contract, a quote, a sheet)
+ * and opens it in the Library's preview. */
+function fileExtension(hooks: DocumentEditorHooks) {
+	return Node.create({
+		name: 'file',
+		group: 'block',
+		atom: true,
+		draggable: true,
+		selectable: true,
+		addAttributes: () => ({
+			...BLOCK_ID,
+			attachment_id: {
+				default: null,
+				parseHTML: (element: HTMLElement) =>
+					attachmentIdFrom(element.getAttribute('data-attachment-id')),
+				renderHTML: (attributes: Record<string, unknown>) =>
+					typeof attributes.attachment_id === 'string'
+						? { 'data-attachment-id': attributes.attachment_id }
+						: {}
+			},
+			name: {
+				default: null,
+				parseHTML: (element: HTMLElement) => bounded(element.textContent, MAX_FILE_NAME),
+				renderHTML: () => ({})
+			}
+		}),
+		parseHTML: () => [
+			{
+				tag: 'div[data-native-file="true"]',
+				getAttrs: (element: HTMLElement) =>
+					attachmentIdFrom(element.getAttribute('data-attachment-id')) &&
+					bounded(element.textContent, MAX_FILE_NAME)
+						? {}
+						: false
+			}
+		],
+		renderHTML: ({ node, HTMLAttributes }) => {
+			const id = attachmentIdFrom(node.attrs.attachment_id);
+			const name = String(node.attrs.name ?? '');
+			return [
+				'div',
+				mergeAttributes(HTMLAttributes, { 'data-native-file': 'true', class: 'native-file' }),
+				id && hooks.companyId
+					? ['a', { href: documentFileHref(hooks.companyId, id), title: `Open ${name}` }, name]
+					: ['span', {}, name]
+			];
+		}
+	});
+}
+
+/* Any file can go in a document: a picture as an image, anything else as a file block. */
 function imageFiles(list: FileList | null | undefined): File[] {
-	return [...(list ?? [])].filter((file) => DOCUMENT_IMAGE_TYPES.includes(file.type));
+	return [...(list ?? [])];
 }
 
 /** What a paste from Word, Google Docs or a web page brings that the schema cannot hold as is. */
@@ -1599,6 +1667,7 @@ export function createDocumentEditorExtensions(
 		colourMark('textColor'),
 		alignmentExtension,
 		imageExtension(hooks),
+		fileExtension(hooks),
 		slashMenuExtension(hooks),
 		blockHandleExtension(hooks),
 		commentMarksExtension(hooks),
@@ -1763,6 +1832,13 @@ function projectedAttributes(
 			}
 			if (source.caption !== null && source.caption !== undefined)
 				attrs.caption = string(source.caption, 'image caption', MAX_IMAGE_ALT);
+			break;
+		}
+		case 'file': {
+			const id = string(source.attachment_id, 'file', 36);
+			if (!ATTACHMENT_ID.test(id)) invalid('file is invalid.');
+			attrs.attachment_id = id;
+			attrs.name = string(source.name, 'file name', MAX_FILE_NAME);
 			break;
 		}
 		case 'reference': {

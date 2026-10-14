@@ -197,6 +197,12 @@ function block(node: DocumentNode, writer: Writer, context: Context): string {
 				.join('');
 			return `<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="0" w:type="auto"/><w:tblBorders><w:top w:val="single" w:sz="4" w:color="auto"/><w:left w:val="single" w:sz="4" w:color="auto"/><w:bottom w:val="single" w:sz="4" w:color="auto"/><w:right w:val="single" w:sz="4" w:color="auto"/><w:insideH w:val="single" w:sz="4" w:color="auto"/><w:insideV w:val="single" w:sz="4" w:color="auto"/></w:tblBorders></w:tblPr>${grid}${body}</w:tbl><w:p/>`;
 		}
+		case 'file':
+			/* The file is not carried; its name says what it was. */
+			return paragraph(
+				'',
+				`<w:r><w:t xml:space="preserve">${escape(`📎 ${String(node.attrs?.name ?? 'File')}`)}</w:t></w:r>`
+			);
 		case 'image': {
 			/* The picture itself is not carried; its caption is. */
 			const caption = String(node.attrs?.caption ?? '').trim();

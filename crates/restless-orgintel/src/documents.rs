@@ -1100,6 +1100,7 @@ fn node_allowed(node_type: &str, expected: ChildRule) -> bool {
                 | "horizontalRule"
                 | "table"
                 | "image"
+                | "file"
         ),
         ChildRule::Inline => matches!(node_type, "text" | "hardBreak" | "mention" | "reference"),
         ChildRule::ListItem => node_type == "listItem",
@@ -1141,6 +1142,7 @@ fn validate_node_attrs(
         "mention" => &["actor_id", "label"][..],
         "reference" => &["kind", "id", "label"][..],
         "image" => &["block_id", "attachment_id", "alt", "width", "caption"][..],
+        "file" => &["block_id", "attachment_id", "name"][..],
         "bulletList" | "taskList" | "blockquote" | "horizontalRule" | "table"
         | "listItem" | "tableRow" | "tableCell" | "tableHeader" => &["block_id"][..],
         "doc" | "hardBreak" => &[][..],
@@ -1256,6 +1258,27 @@ fn validate_node_attrs(
                     .get("label")
                     .ok_or_else(|| DocumentError::Invalid("reference needs label".into()))?,
                 300,
+            )?;
+        }
+        "file" => {
+            let attachment_id = attrs
+                .get("attachment_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| DocumentError::Invalid("file needs attachment_id".into()))?;
+            if Uuid::parse_str(attachment_id)
+                .map(|id| id.to_string() != attachment_id)
+                .unwrap_or(true)
+            {
+                return Err(DocumentError::Invalid(
+                    "file attachment_id must be a lowercase UUID".into(),
+                ));
+            }
+            bounded_string(
+                "file name",
+                attrs
+                    .get("name")
+                    .ok_or_else(|| DocumentError::Invalid("file needs name".into()))?,
+                255,
             )?;
         }
         "image" => {
@@ -1604,7 +1627,10 @@ fn encode_markdown_semantic_nodes(value: &mut Value, company_key: &str) -> Docum
         return Ok(());
     }
     if let Some(node) = value.as_object_mut() {
-        if node.get("type").and_then(Value::as_str) == Some("image") {
+        if matches!(
+            node.get("type").and_then(Value::as_str),
+            Some("image" | "file")
+        ) {
             if let Some(attrs) = node.get_mut("attrs").and_then(Value::as_object_mut) {
                 let id = attrs
                     .get("attachment_id")
@@ -1922,6 +1948,9 @@ fn markdown_body_to_document(body: &str) -> DocumentResult<Value> {
         } else if let Some(image) = markdown_image(line)? {
             index += 1;
             image
+        } else if let Some(file) = markdown_file(line)? {
+            index += 1;
+            file
         } else if line.trim() == "---" {
             index += 1;
             json!({"type":"horizontalRule","attrs":{}})
@@ -2055,6 +2084,41 @@ fn markdown_body_to_document(body: &str) -> DocumentResult<Value> {
 
 /// An image line as an export writes it: `![alt](/api/companies/{company}/attachments/{id})`,
 /// or relative to the company's API root, `![alt](attachments/{id})`. Anything else is text.
+/// A line that is only a link to a company file, `[name](attachments/<id>)`, is a file block.
+fn markdown_file(line: &str) -> DocumentResult<Option<Value>> {
+    let Some(rest) = line.trim().strip_prefix('[') else {
+        return Ok(None);
+    };
+    let Some((name, target)) = rest.rsplit_once("](") else {
+        return Ok(None);
+    };
+    let Some(target) = target.strip_suffix(')') else {
+        return Ok(None);
+    };
+    let path = match target.strip_prefix("/api/companies/") {
+        Some(scoped) => match scoped.split_once('/') {
+            Some((company, path)) if !company.is_empty() => path,
+            _ => return Ok(None),
+        },
+        None => target,
+    };
+    let Some(id) = path.strip_prefix("attachments/") else {
+        return Ok(None);
+    };
+    match Uuid::parse_str(id) {
+        Ok(parsed) if parsed.to_string() == id => {}
+        _ => return Ok(None),
+    }
+    let name = unescape_markdown(name)?;
+    if name.trim().is_empty() || name.chars().count() > 255 {
+        return Ok(None);
+    }
+    Ok(Some(json!({
+        "type": "file",
+        "attrs": {"attachment_id": id, "name": name}
+    })))
+}
+
 fn markdown_image(line: &str) -> DocumentResult<Option<Value>> {
     let Some(rest) = line.trim().strip_prefix("![") else {
         return Ok(None);
@@ -2798,6 +2862,15 @@ fn render_node(value: &Value) -> DocumentResult<String> {
                 "<figure{block}><img data-attachment-id=\"{id}\" alt=\"{alt}\"{width}>{caption}</figure>"
             ))
         }
+        // A file names the company file it carries, as an image does; the page links it.
+        "file" => {
+            let attrs = &object["attrs"];
+            let id = escape_html_attribute(attrs["attachment_id"].as_str().unwrap_or_default());
+            let name = escape_html(attrs["name"].as_str().unwrap_or_default());
+            Ok(format!(
+                "<div{block} data-native-file=\"true\" data-attachment-id=\"{id}\">{name}</div>"
+            ))
+        }
         "mention" => {
             let attrs = &object["attrs"];
             let actor = escape_html_attribute(attrs["actor_id"].as_str().unwrap_or_default());
@@ -3033,6 +3106,19 @@ fn render_markdown_block(value: &Value, depth: usize) -> DocumentResult<String> 
             ))
         }
         "table" => render_markdown_table(children),
+        "file" => {
+            let attrs = &object["attrs"];
+            let src = attrs["src"].as_str().map(str::to_string).unwrap_or_else(|| {
+                format!(
+                    "attachments/{}",
+                    attrs["attachment_id"].as_str().unwrap_or_default()
+                )
+            });
+            Ok(format!(
+                "[{}]({src})",
+                escape_markdown_text(attrs["name"].as_str().unwrap_or_default())
+            ))
+        }
         other => Err(DocumentError::Corrupt(format!(
             "stored block {other:?} cannot be projected to Markdown"
         ))),
@@ -3262,6 +3348,10 @@ fn collect_plain_text(value: &Value, output: &mut String) -> DocumentResult<()> 
             output.push_str(object["attrs"]["label"].as_str().unwrap_or_default());
         }
         "reference" => output.push_str(object["attrs"]["label"].as_str().unwrap_or_default()),
+        "file" => {
+            output.push_str(object["attrs"]["name"].as_str().unwrap_or_default());
+            output.push('\n');
+        }
         "image" => {
             output.push_str(object["attrs"]["alt"].as_str().unwrap_or_default());
             if let Some(caption) = object["attrs"]["caption"].as_str() {
@@ -9054,6 +9144,29 @@ mod tests {
             "block_id":"chart","attachment_id":id,"caption":"  "
         }}]});
         assert!(validate_document_json(&blank).is_err());
+    }
+
+    #[test]
+    fn a_file_block_names_a_company_file_and_survives_markdown() {
+        let id = "0b7d9c1e-3f4a-4b5c-8d6e-7f8091a2b3c4";
+        let document = json!({"type":"doc","content":[{"type":"file","attrs":{
+            "block_id":"lease","attachment_id":id,"name":"Signed <lease>.pdf"
+        }}]});
+        let validated = validate_document_json(&document).unwrap();
+        assert!(validated.rendered_html.contains(&format!(
+            "<div data-block-id=\"lease\" data-native-file=\"true\" data-attachment-id=\"{id}\">Signed &lt;lease&gt;.pdf</div>"
+        )));
+        let line = validated.markdown.lines().find(|line| line.starts_with('[')).unwrap();
+        let file = markdown_file(line).unwrap().unwrap();
+        assert_eq!(file["attrs"]["name"], "Signed <lease>.pdf");
+        for attrs in [
+            json!({"block_id":"x","attachment_id":"../secret","name":"a"}),
+            json!({"block_id":"x","attachment_id":id}),
+            json!({"block_id":"x","attachment_id":id,"name":"a","src":"https://elsewhere"}),
+        ] {
+            let body = json!({"type":"doc","content":[{"type":"file","attrs":attrs}]});
+            assert!(validate_document_json(&body).is_err());
+        }
     }
 
     #[test]

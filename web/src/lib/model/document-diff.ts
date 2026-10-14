@@ -17,6 +17,10 @@ const LABELS: Record<string, string> = {
 
 function blockText(node: DocumentNode): string {
 	const text = documentText(node).trim();
+	if (!text && node.type === 'file' && typeof node.attrs?.name === 'string')
+		return `The file ${node.attrs.name}`;
+	if (!text && node.type === 'image' && typeof node.attrs?.caption === 'string')
+		return `An image: ${node.attrs.caption}`;
 	return text || LABELS[node.type] || '';
 }
 
