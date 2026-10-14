@@ -68,6 +68,8 @@
 		createDocumentCommentThread,
 		deleteDocumentComment,
 		documentBlockText,
+		documentFileName,
+		documentMarkdownDownload,
 		editDocumentComment,
 		getDocument,
 		reopenDocumentCommentThread,
@@ -94,6 +96,7 @@
 	import { composerTrigger } from '$lib/primitives/composer-menu';
 	import { versionChanges } from '$lib/model/document-diff';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import { withDocumentImages } from '$lib/model/document-editor-schema';
 
 	export type DocumentInspectorPanel = 'comments' | 'review' | 'versions';
 
@@ -206,6 +209,32 @@
 	let restoringVersionId = $state('');
 	let restoreCommand = $state<PendingDocumentCommand | null>(null);
 	let selectedVersionId = $state('');
+	/* A previewed version reads as the page it was; what it changed is one click away. */
+	let previewMode = $state<'page' | 'changes'>('page');
+	async function downloadVersion(format: 'docx' | 'md'): Promise<void> {
+		const detail = versionDetail.version;
+		if (!detail) return;
+		const title = `${view.document.title || 'Document'} (version ${detail.version.version_number})`;
+		try {
+			const blob =
+				format === 'md'
+					? new Blob([documentMarkdownDownload(title, detail.markdown)], {
+							type: 'text/markdown;charset=utf-8'
+						})
+					: (await import('$lib/model/document-docx')).documentDocx(
+							view.document.title,
+							detail.version.content_json
+						);
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = documentFileName(title, format);
+			link.click();
+			setTimeout(() => URL.revokeObjectURL(url), 1_000);
+		} catch (cause) {
+			versionFailure = failureSentence(cause, 'This version could not be downloaded.');
+		}
+	}
 	let versionFailure = $state('');
 	let versionNotice = $state('');
 	let commentAttempt = $state<PendingDocumentMutation<CommentMutationInput> | null>(null);
@@ -1385,8 +1414,7 @@
 											onreact={(emoji, on) => void reactTo(comment.id, emoji, on)}
 										/>{/if}{#if own && editingCommentId !== comment.id}<ActionMenu
 											label="Comment actions"
-											><button type="button" onclick={() => startEdit(comment)}>Edit</button
-											><button
+											><button type="button" onclick={() => startEdit(comment)}>Edit</button><button
 												type="button"
 												class="danger"
 												onclick={() => {
@@ -1418,8 +1446,10 @@
 											}
 										}}></textarea>
 									<div class="edit-actions">
-										<button type="button" class="btn small ghost" onclick={() => (editingCommentId = '')}
-											>Cancel</button
+										<button
+											type="button"
+											class="btn small ghost"
+											onclick={() => (editingCommentId = '')}>Cancel</button
 										>
 										<button
 											type="submit"
@@ -1771,6 +1801,27 @@
 					{#if versionDetail.version}
 						<header>
 							<strong>Version {versionDetail.version.version.version_number}</strong>
+							<div class="thread-filter" role="group" aria-label="Show">
+								<button
+									type="button"
+									aria-pressed={previewMode === 'page'}
+									title="The document as it read in this version"
+									onclick={() => (previewMode = 'page')}>Page</button
+								><button
+									type="button"
+									aria-pressed={previewMode === 'changes'}
+									title="What this version changed"
+									onclick={() => (previewMode = 'changes')}>Changes</button
+								>
+							</div>
+							<ActionMenu label="Download this version">
+								<button type="button" onclick={() => void downloadVersion('docx')}
+									>Download as Word</button
+								>
+								<button type="button" onclick={() => void downloadVersion('md')}
+									>Download as Markdown</button
+								>
+							</ActionMenu>
 							{#if versionDetail.version.version.id !== view.current_version.version.id && canJudge}
 								<button
 									type="button"
@@ -1782,7 +1833,11 @@
 								>
 							{/if}
 						</header>
-						{#if olderVersions.length > 1}
+						{#if previewMode === 'page'}
+							<div class="version-page rendered-document">
+								{@html withDocumentImages(versionDetail.version.rendered_html, companyId)}
+							</div>
+						{:else if olderVersions.length > 1}
 							<label class="compare-with"
 								>Compare with
 								<select
@@ -1797,7 +1852,9 @@
 								</select></label
 							>
 						{/if}
-						{#if changes === null}
+						{#if previewMode === 'page'}
+							<!-- The page reads above. -->
+						{:else if changes === null}
 							<Skeleton label="Comparing with the version before" count={3} />
 						{:else if changes.length}
 							<p class="diff-scope">
@@ -1813,7 +1870,8 @@
 										{#if change.kind === 'changed'}
 											{#each change.words as part, index (index)}{#if part.op === 'added'}<ins
 														>{part.text}</ins
-													>{:else if part.op === 'removed'}<del>{part.text}</del>{:else}{part.text}{/if}{/each}
+													>{:else if part.op === 'removed'}<del>{part.text}</del
+													>{:else}{part.text}{/if}{/each}
 										{:else if change.kind === 'added'}
 											<ins>{change.text}</ins>
 										{:else}
@@ -2383,6 +2441,41 @@
 		gap: var(--space-2);
 		padding: 6px 9px;
 		border-bottom: 1px solid var(--border);
+	}
+	/* The version as a page: the saved body, read only, in the panel's width. */
+	.version-page {
+		max-height: 420px;
+		padding: 10px 12px;
+		overflow: auto;
+		color: var(--ink);
+		font: var(--t-body) / 1.55 var(--font-ui);
+		overflow-wrap: anywhere;
+	}
+	.version-page :global(:is(h1, h2, h3, h4, h5, h6)) {
+		margin: 0.9em 0 0.35em;
+		font-size: var(--t-body);
+		font-weight: 600;
+	}
+	.version-page :global(> :first-child) {
+		margin-top: 0;
+	}
+	.version-page :global(p) {
+		margin: 0 0 0.6em;
+	}
+	.version-page :global(:is(ul, ol)) {
+		margin: 0 0 0.6em;
+		padding-left: 1.3em;
+	}
+	.version-page :global(img) {
+		max-width: 100%;
+		height: auto;
+	}
+	.version-page :global(table) {
+		border-collapse: collapse;
+	}
+	.version-page :global(:is(th, td)) {
+		padding: 3px 6px;
+		border: 1px solid var(--border);
 	}
 	/* What a version changed: added words in a quiet green, removed ones struck through. */
 	.compare-with {
