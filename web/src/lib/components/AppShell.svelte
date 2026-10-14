@@ -404,14 +404,16 @@
 				<span class="tb-search-label">Search</span>
 				<kbd aria-hidden="true">{menuShortcut}</kbd>
 			</button>
-			<ProfileMenu
-				name={viewerName}
-				role={viewerRole}
-				{present}
-				owner={canSwitchCompanies}
-				{companyId}
-				onshortcuts={() => shortcuts?.open()}
-			/>
+			<!-- The avatar keeps its place before the name is known, and shows the right letter
+			     once, rather than a placeholder letter that changes. -->
+			{#if viewerName}<ProfileMenu
+					name={viewerName}
+					role={viewerRole}
+					{present}
+					owner={canSwitchCompanies}
+					{companyId}
+					onshortcuts={() => shortcuts?.open()}
+				/>{:else}<span class="tb-profile-slot" aria-hidden="true"></span>{/if}
 			{#if execHref}
 				<a
 					class="tb-exec"

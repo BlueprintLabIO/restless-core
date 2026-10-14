@@ -2480,3 +2480,11 @@ html[data-pane-resizing] .bridge-exrail {
 .bridge-root .attention-archived:hover {
 	background: var(--wash-hover);
 }
+/* The avatar keeps its place before the viewer is named (AppShell). */
+.tb-profile-slot {
+	flex: none;
+	width: 28px;
+	height: 28px;
+	border-radius: 50%;
+	background: var(--surface-alt);
+}
