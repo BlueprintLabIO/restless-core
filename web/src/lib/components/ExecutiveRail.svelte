@@ -28,6 +28,8 @@
 	import { followChat } from '$lib/actions/follow-chat';
 	import IntelligenceChip from './IntelligenceChip.svelte';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import { copyText } from '$lib/model/copy-text';
+	import { conversationMarkdown, saveConversationToLibrary } from '$lib/model/conversation-export';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import Check from '@lucide/svelte/icons/check';
 	import SquarePen from '@lucide/svelte/icons/square-pen';
@@ -287,6 +289,23 @@
 			askNotice = 'Link to that message copied.';
 		} catch {
 			askError = 'The link could not be copied.';
+		}
+	}
+	async function copyConversation() {
+		const copied = await copyText(conversationMarkdown(messages, participantName));
+		if (copied) askNotice = 'Conversation copied.';
+		else askError = 'The conversation could not be copied.';
+	}
+	let savingConversation = $state(false);
+	async function keepConversation() {
+		if (savingConversation) return;
+		savingConversation = true;
+		try {
+			await goto(await saveConversationToLibrary(companyId, messages, participantName));
+		} catch (cause) {
+			askError = failureSentence(cause, 'The conversation was not saved to the Library.');
+		} finally {
+			savingConversation = false;
 		}
 	}
 	function turnIntoWork(message: ThreadMessage) {
@@ -1358,6 +1377,23 @@
 							more={hasEarlier}
 							onsearchall={directRoom && isDirectTopic ? searchAll : null}
 						/>
+					{/if}
+					{#if messages.length}
+						<ActionMenu label="Conversation actions"
+							><button
+								type="button"
+								title={hasEarlier
+									? `Copies the ${messages.length} loaded messages; show earlier messages to include them`
+									: 'Copies the whole conversation as text'}
+								onclick={() => void copyConversation()}>Copy conversation</button
+							>{#if canOperate}<button
+									type="button"
+									disabled={savingConversation}
+									title="Keep the loaded messages as a Library document only you can open until you share it"
+									onclick={() => void keepConversation()}
+									>{savingConversation ? 'Saving…' : 'Save to Library'}</button
+								>{/if}</ActionMenu
+						>
 					{/if}
 					{#if !review && !workContext && !wide}
 						<a
