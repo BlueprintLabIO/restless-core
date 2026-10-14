@@ -118,6 +118,8 @@
 		requestedCommentId?: string;
 		/** Asking again for the thread already in the address opens it again. */
 		threadRequest?: number;
+		/** Each new value opens History ready to name a version, from the document's … menu. */
+		nameVersionRequest?: number;
 		/** History opens on what changed after this moment: when the person last looked. */
 		changesSince?: string;
 		people?: PersonReference[];
@@ -146,6 +148,7 @@
 		requestedThreadId = '',
 		requestedCommentId = '',
 		threadRequest = 0,
+		nameVersionRequest = 0,
 		changesSince = '',
 		people = [],
 		viewerActorId = '',
@@ -1235,6 +1238,19 @@
 			if (isCurrentTarget(target)) restoringVersionId = '';
 		}
 	}
+
+	let answeredNameRequest = 0;
+	$effect(() => {
+		const request = nameVersionRequest;
+		if (!request || request === answeredNameRequest || panel !== 'versions') return;
+		answeredNameRequest = request;
+		untrack(() => {
+			namingVersion = true;
+			versionFailure = '';
+			versionNotice = '';
+		});
+		void tick().then(() => window.document.getElementById('document-version-name')?.focus());
+	});
 
 	async function saveVersion(): Promise<void> {
 		if (!online || !canResolveDocument || savingVersion) return;

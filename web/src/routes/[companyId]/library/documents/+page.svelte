@@ -145,6 +145,7 @@
 	/* A margin mark opens its thread, even when that thread is already in the address and the
 	 * person has since looked at another. */
 	let threadRequest = $state(0);
+	let nameVersionRequest = $state(0);
 	function openThread(threadId: string): void {
 		const url = page.url.searchParams;
 		if (url.get('inspect') === 'comments' && url.get('thread') === threadId) {
@@ -731,6 +732,14 @@
 						>
 					{/if}
 					{#if documentView.access === 'edit'}
+						<button
+							type="button"
+							title="Keep what the document holds now under a name, such as the version you sent"
+							onclick={() => {
+								nameVersionRequest += 1;
+								changePanel('versions');
+							}}>Save version…</button
+						>
 						<button type="button" onclick={() => changePanel('review')}>Request review…</button>
 					{:else}
 						<button
@@ -863,6 +872,7 @@
 					requestedThreadId={page.url.searchParams.get('thread') ?? ''}
 					requestedCommentId={page.url.searchParams.get('comment') ?? ''}
 					{threadRequest}
+					{nameVersionRequest}
 					changesSince={page.url.searchParams.get('since') ?? ''}
 					{people}
 					viewerActorId={principalId}

@@ -405,21 +405,37 @@
 			},
 			archived ? 'The sheet wasn’t archived' : 'The sheet wasn’t restored'
 		);
-	const saveVersion = () =>
-		act(
+	/* Naming a version marks a moment the owner will want back, such as "Sent to bank". Left
+	 * blank, it is named for when it was saved. */
+	let namingVersion = $state(false);
+	let versionName = $state('');
+	let savingVersion = $state(false);
+	function nameVersion() {
+		namingVersion = true;
+		showPanel('history');
+		void tick().then(() => document.getElementById('sheet-version-name')?.focus());
+	}
+	async function saveVersion() {
+		if (savingVersion) return;
+		savingVersion = true;
+		const title = versionName.trim() || formatMoment(new Date());
+		const saved = await act(
 			() =>
 				sheetJson(company, `/${sheet}/versions`, {
 					method: 'POST',
-					body: JSON.stringify({
-						key: crypto.randomUUID(),
-						expected_revision: revision,
-						title: formatMoment(new Date())
-					})
+					body: JSON.stringify({ key: crypto.randomUUID(), expected_revision: revision, title })
 				}),
 			() => {
+				namingVersion = false;
+				versionName = '';
+				say(`Saved as “${title}”`);
 				if (panel === 'history') void loadVersions();
-			}
+			},
+			'The version wasn’t saved'
 		);
+		savingVersion = false;
+		return saved;
+	}
 	/* A failed read is said inside History, with Retry, rather than as a Loading… that never ends. */
 	async function loadVersions() {
 		const mine = epoch;
@@ -839,7 +855,12 @@
 						onclick={() => importInput?.click()}>Import as a new sheet…</button
 					>
 					{#if access === 'edit'}
-						<button type="button" disabled={!ready} onclick={saveVersion}>Save version</button>
+						<button
+							type="button"
+							disabled={!ready}
+							title="Keep the sheet as it is now under a name, such as the version you sent"
+							onclick={nameVersion}>Save version…</button
+						>
 					{/if}
 					{#if canManage}
 						{#if row.archived_at}
@@ -997,6 +1018,47 @@
 				</div>
 			{:else if panel === 'history'}
 				<div class="side-body">
+					{#if access === 'edit'}
+						{#if namingVersion}
+							<form
+								class="name-version"
+								onsubmit={(event) => {
+									event.preventDefault();
+									void saveVersion();
+								}}
+							>
+								<label for="sheet-version-name" class="sr-only">Version name</label>
+								<input
+									id="sheet-version-name"
+									type="text"
+									maxlength="200"
+									placeholder="Version name (optional)"
+									bind:value={versionName}
+									disabled={savingVersion}
+								/>
+								<button type="submit" class="btn small primary" disabled={savingVersion || !ready}
+									>{savingVersion ? 'Saving…' : 'Save'}</button
+								>
+								<button
+									type="button"
+									class="btn small"
+									disabled={savingVersion}
+									onclick={() => {
+										namingVersion = false;
+										versionName = '';
+									}}>Cancel</button
+								>
+							</form>
+						{:else}
+							<button
+								type="button"
+								class="btn small name-version-open"
+								disabled={!ready}
+								title="Keep the sheet as it is now under a name, such as the version you sent"
+								onclick={nameVersion}>Save version…</button
+							>
+						{/if}
+					{/if}
 					{#if versionsFailed && versions === null}
 						<Notice tone="danger" title="History could not be read">
 							{versionsFailed}
@@ -1239,6 +1301,19 @@
 	.close:hover {
 		background: var(--wash-hover);
 		color: var(--ink);
+	}
+	.name-version {
+		display: flex;
+		gap: 6px;
+		margin-bottom: 10px;
+	}
+	.name-version input {
+		flex: 1;
+		min-width: 0;
+	}
+	.name-version-open {
+		align-self: flex-start;
+		margin-bottom: 10px;
 	}
 	.side-body {
 		min-height: 0;
