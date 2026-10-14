@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { truncatedTitle } from '../truncated-title';
 	/* One row in any list: Inbox, Work, Library, schedules, skills, activity.
 	 *
 	 * Leading mark, a single-line title, quiet inline meta, and a trailing area
@@ -70,8 +71,8 @@
 			>{/if}
 		{#if leading}<span class="item-leading">{@render leading()}</span>{/if}
 		<span class="item-main">
-			<span class="item-title" {title}>{title}</span>
-			{#if meta}<span class="item-meta" title={meta}>{meta}</span>{/if}
+			<span class="item-title" use:truncatedTitle={title}>{title}</span>
+			{#if meta}<span class="item-meta" use:truncatedTitle={meta}>{meta}</span>{/if}
 		</span>
 		{#if trailing}<span class="item-trailing">{@render trailing()}</span>{/if}
 		{#if actions}<span class="item-actions">{@render actions()}</span>{/if}
