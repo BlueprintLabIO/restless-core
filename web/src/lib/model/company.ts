@@ -285,6 +285,21 @@ export interface CharterRevisionOutcome {
 
 const ownerResponse = ownerJson;
 
+/** A page of the governance record: receipts, outbound email and owner setting changes (source
+ * `owner_setting`), newest first, older than `before`. */
+export async function getGovernanceActivity(
+	company: string,
+	before?: number
+): Promise<{ items: CompanyExternalAction[]; next_before?: number }> {
+	const query = before == null ? '' : `?before=${before}`;
+	return ownerResponse(
+		await fetch(`/api/companies/${encodeURIComponent(company)}/company/activity${query}`, {
+			credentials: 'same-origin',
+			cache: 'no-store'
+		})
+	);
+}
+
 export async function getCompany(company: string, probeCredentials = false): Promise<CompanyView> {
 	const query = probeCredentials ? '?probe_credentials=true' : '';
 	return ownerResponse<CompanyView>(

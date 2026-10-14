@@ -3,17 +3,19 @@
 	/* One timeline of what was decided and what reached the outside world: your
 	 * recorded decisions and the company's governed external effects, newest
 	 * first, filterable. Internal chats, builds and edits stay with their Work. */
-	import { formatRelative, formatMoment } from '$lib/ui/time';
+	import { formatMoment, formatDay, formatClock } from '$lib/ui/time';
 	import { Page, Section, Item, Notice, Empty, Segmented, Dot } from '$lib/ui/page';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { page } from '$app/state';
 	import { untrack } from 'svelte';
 	import { attentionQuery, companyQuery } from '$lib/model/queries.svelte';
 	import { fetchDecisionHistory } from '$lib/model/attention';
+	import { getGovernanceActivity, type CompanyExternalAction } from '$lib/model/company';
 	import { failureSentence } from '$lib/model/failure';
 	import type { DecisionContinuation } from '$lib/model/view';
 	import CircleCheck from '@lucide/svelte/icons/circle-check';
 	import Send from '@lucide/svelte/icons/send';
+	import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? '');
@@ -22,9 +24,13 @@
 	$effect(() => company.attach());
 	const graph = $derived(attention.view?.workGraph ?? null);
 	/* The Inbox's "Recently decided" arrives with ?show=decisions. */
-	let filter = $state<'all' | 'decisions' | 'external'>(
+	let filter = $state<'all' | 'decisions' | 'external' | 'changes'>(
 		page.url.searchParams.get('show') === 'decisions' ? 'decisions' : 'all'
 	);
+	let search = $state('');
+	let person = $state('');
+	/* One day, as YYYY-MM-DD from the date field; empty shows every day. */
+	let day = $state('');
 	let open = $state('');
 
 	/* Decision history is read a page at a time, apart from the Inbox poll: every answered
@@ -59,6 +65,56 @@
 			historyReading = false;
 		}
 	}
+	/* The governance record (receipts, email, the owner's setting changes) is paged too, so
+	 * nothing older than one page silently drops out. */
+	let governance = $state<CompanyExternalAction[]>([]);
+	let governanceNext = $state<number | undefined>(undefined);
+	let governanceLoaded = $state(false);
+	let governanceFailure = $state<unknown>(null);
+	let governanceReading = $state(false);
+	async function readGovernance(before?: number) {
+		const target = companyId;
+		governanceReading = true;
+		try {
+			const result = await getGovernanceActivity(target, before);
+			if (target !== companyId) return;
+			if (!governanceLoaded || before != null) governanceNext = result.next_before;
+			const byId = new Map(governance.map((row) => [row.id, row]));
+			for (const row of result.items) byId.set(row.id, row);
+			governance = [...byId.values()];
+			governanceFailure = null;
+			governanceLoaded = true;
+		} catch (cause) {
+			if (target === companyId) governanceFailure = cause;
+		} finally {
+			governanceReading = false;
+		}
+	}
+	$effect(() => {
+		const target = companyId;
+		untrack(() => {
+			governance = [];
+			governanceNext = undefined;
+			governanceLoaded = false;
+			governanceFailure = null;
+			void readGovernance();
+		});
+		return () => void target;
+	});
+	const reading = $derived(historyReading || governanceReading);
+	const hasEarlier = $derived(
+		(filter !== 'external' && filter !== 'changes' && !!historyNext) ||
+			(filter !== 'decisions' && governanceNext != null)
+	);
+	async function readEarlier() {
+		await Promise.all([
+			filter !== 'external' && filter !== 'changes' && historyNext
+				? readHistory(historyNext)
+				: null,
+			filter !== 'decisions' && governanceNext != null ? readGovernance(governanceNext) : null
+		]);
+	}
+
 	$effect(() => {
 		const target = companyId;
 		/* An answer leaves the Inbox and lands here; read the newest page again when it does. */
@@ -100,7 +156,7 @@
 				};
 		  }
 		| {
-				kind: 'external';
+				kind: 'external' | 'change';
 				id: string;
 				title: string;
 				summary: string;
@@ -134,28 +190,98 @@
 			}
 		}))
 	);
-	const externalAvailable = $derived(company.view?.external_actions.status === 'available');
+	/* Payments and effects still awaiting a result come from the company view, which always holds
+	 * all of them; everything else comes from the paged record. */
+	const externalAvailable = $derived(governanceLoaded);
 	const external = $derived<Entry[]>(
-		externalAvailable
-			? (company.view?.external_actions.items ?? []).map((item) => ({
-					kind: 'external',
-					id: item.id,
-					title: item.title,
-					summary: `${words(item.effect_class)}${item.party ? ` · ${item.party}` : ''}`,
-					at: String(item.observed_at),
-					state: item.state,
-					evidence: item.evidence,
-					detail: item.detail ?? null,
-					actor: item.actor ?? 'source record'
-				}))
-			: []
+		[
+			...(company.view?.external_actions.status === 'available'
+				? company.view.external_actions.items.filter(
+						(item) => item.id.startsWith('intent:') || item.id.startsWith('payment:')
+					)
+				: []),
+			...governance
+		].map((item) => ({
+			kind: item.source === 'owner_setting' ? 'change' : 'external',
+			id: item.id,
+			title: item.title,
+			summary:
+				item.source === 'owner_setting'
+					? 'Setting changed'
+					: `${words(item.effect_class)}${item.party ? ` · ${item.party}` : ''}`,
+			at: String(item.observed_at),
+			state: item.state,
+			evidence: item.evidence,
+			detail: item.detail ?? null,
+			actor: item.actor ?? 'source record'
+		}))
 	);
-	const entries = $derived(
-		[...(filter !== 'external' ? decisions : []), ...(filter !== 'decisions' ? external : [])].sort(
-			(a, b) => Date.parse(b.at) - Date.parse(a.at)
-		)
+	const who = (entry: Entry) =>
+		entry.kind === 'decision' ? entry.detail.followUpName : entry.actor;
+	const people = $derived([...new Set([...decisions, ...external].map(who))].sort());
+	const localDay = (at: string) => {
+		const date = new Date(at);
+		return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+	};
+	const entries = $derived.by(() => {
+		const q = search.trim().toLocaleLowerCase();
+		return [
+			...(filter === 'all' || filter === 'decisions' ? decisions : []),
+			...external.filter(
+				(entry) =>
+					filter === 'all' ||
+					(filter === 'external' && entry.kind === 'external') ||
+					(filter === 'changes' && entry.kind === 'change')
+			)
+		]
+			.filter(
+				(entry) =>
+					(!person || who(entry) === person) &&
+					(!day || localDay(entry.at) === day) &&
+					(!q || `${entry.title} ${entry.summary} ${who(entry)}`.toLocaleLowerCase().includes(q))
+			)
+			.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+	});
+	/* Grouped under day headings, so "what happened yesterday" is a heading, not hovering. */
+	function dayHeading(key: string): string {
+		const today = localDay(new Date().toISOString());
+		const yesterday = localDay(new Date(Date.now() - 86_400_000).toISOString());
+		if (key === today) return 'Today';
+		if (key === yesterday) return 'Yesterday';
+		return formatDay(`${key}T12:00:00`);
+	}
+	const days = $derived.by(() => {
+		const out: { key: string; entries: Entry[] }[] = [];
+		for (const entry of entries) {
+			const key = localDay(entry.at);
+			const last = out.at(-1);
+			if (last?.key === key) last.entries.push(entry);
+			else out.push({ key, entries: [entry] });
+		}
+		return out;
+	});
+	/* A chosen day older than what is loaded reads earlier pages until it is reached. */
+	let seeking = 0;
+	$effect(() => {
+		if (!day || reading || !hasEarlier || seeking >= 10) return;
+		const oldest = [...decisions, ...external].reduce(
+			(min, entry) => (entry.at < min ? entry.at : min),
+			'9999'
+		);
+		if (oldest !== '9999' && localDay(oldest) <= day) return;
+		seeking += 1;
+		untrack(() => void readEarlier());
+	});
+	$effect(() => {
+		day;
+		seeking = 0;
+	});
+	const filtered = $derived(!!(search.trim() || person || day));
+	const loaded = $derived(
+		!!company.view &&
+			(historyLoaded || !!historyFailure) &&
+			(governanceLoaded || !!governanceFailure)
 	);
-	const loaded = $derived(!!company.view && (historyLoaded || !!historyFailure));
 
 	function words(value: string): string {
 		return value.replaceAll('_', ' ');
@@ -180,7 +306,6 @@
 				: state === 'unknown'
 					? 'warning'
 					: 'neutral';
-	const when = (value: string) => formatRelative(value, '');
 	holdQueries(() => [attention, company]);
 </script>
 
@@ -200,7 +325,8 @@
 			options={[
 				{ value: 'all', label: 'All' },
 				{ value: 'decisions', label: 'Decisions' },
-				{ value: 'external', label: 'External' }
+				{ value: 'external', label: 'External' },
+				{ value: 'changes', label: 'Changes' }
 			]}
 			onchange={(value) => (filter = value)}
 		/>
@@ -225,8 +351,45 @@
 		{#if !externalAvailable && filter !== 'decisions'}<Notice
 				tone="warning"
 				title="External activity is unavailable right now"
-				details="Authority is not answering, so external history is not being shown as empty."
-			/>{/if}
+				details={governanceFailure
+					? failureSentence(governanceFailure, 'Authority is not answering.')
+					: 'Authority is not answering, so external history is not being shown as empty.'}
+			>
+				{#snippet actions()}<button
+						class="btn small"
+						disabled={governanceReading}
+						onclick={() => void readGovernance()}>Retry</button
+					>{/snippet}
+			</Notice>{/if}
+		<div class="filters" role="search">
+			<SlidersHorizontal size={14} strokeWidth={1.8} aria-hidden="true" />
+			<input
+				type="search"
+				class="text"
+				placeholder="Search activity"
+				aria-label="Search activity"
+				bind:value={search}
+			/>
+			<select aria-label="Person" bind:value={person}>
+				<option value="">Anyone</option>
+				{#each people as name (name)}<option value={name}>{name}</option>{/each}
+			</select>
+			<input
+				type="date"
+				aria-label="Day"
+				bind:value={day}
+				max={localDay(new Date().toISOString())}
+			/>
+			{#if filtered}<button
+					class="btn small ghost"
+					type="button"
+					onclick={() => {
+						search = '';
+						person = '';
+						day = '';
+					}}>Clear</button
+				>{/if}
+		</div>
 		{#if historyFailure && filter !== 'external'}<Notice
 				tone="warning"
 				title="Decisions could not be read"
@@ -238,102 +401,119 @@
 						onclick={() => void readHistory()}>Retry</button
 					>{/snippet}
 			</Notice>{/if}
-		<Section count={entries.length || null}>
-			{#each entries as entry (entry.kind + entry.id)}
-				<Item
-					title={entry.title}
-					meta={entry.summary}
-					onclick={() => (open = open === entry.id ? '' : entry.id)}
-					selected={open === entry.id}
-				>
-					{#snippet leading()}
-						{#if entry.kind === 'decision'}<CircleCheck size={15} strokeWidth={1.8} />{:else}<Send
-								size={15}
-								strokeWidth={1.8}
-							/>{/if}
-					{/snippet}
-					{#snippet trailing()}
-						{#if entry.kind === 'external'}<Dot
-								show
-								tone={stateTone(entry.state)}
-								label={words(entry.state)}
-							/>{/if}
-						<time title={formatMoment(entry.at)}>{when(entry.at)}</time>
-					{/snippet}
-					{#if open === entry.id}
-						<dl class="facts">
-							{#if entry.kind === 'decision'}
-								<div>
-									<dt>Your decision</dt>
-									<dd>{entry.summary}</dd>
-								</div>
-								{#if entry.detail.unlocked}<div>
-										<dt>What it unlocked</dt>
-										<dd>{entry.detail.unlocked}</dd>
-									</div>{/if}
-								{#if entry.detail.state}<div>
-										<dt>Where it stands</dt>
-										<dd>{entry.detail.state}</dd>
-									</div>{/if}
-								{#if entry.detail.outcome}<div>
-										<dt>What happened</dt>
-										<dd>{entry.detail.outcome}</dd>
-									</div>{/if}
-								{#if entry.detail.responsible}<div>
-										<dt>{entry.detail.responsibleLabel}</dt>
-										<dd>{entry.detail.responsible}</dd>
-									</div>{/if}
-								<div class="follow-up">
-									<a
-										class="btn small"
-										href={`/${encodeURIComponent(companyId)}/people?person=${encodeURIComponent(entry.detail.followUpId)}&view=people`}
-										title="Change or add to your answer: a message in your conversation with them"
-										>Follow up with {entry.detail.followUpName}</a
-									>
-									{#if entry.detail.workId}<a
+		{#each days as group (group.key)}
+			<Section title={dayHeading(group.key)} count={group.entries.length}>
+				{#each group.entries as entry (entry.kind + entry.id)}
+					<Item
+						title={entry.title}
+						meta={entry.summary}
+						onclick={() => (open = open === entry.id ? '' : entry.id)}
+						selected={open === entry.id}
+					>
+						{#snippet leading()}
+							{#if entry.kind === 'decision'}<CircleCheck
+									size={15}
+									strokeWidth={1.8}
+								/>{:else if entry.kind === 'change'}<SlidersHorizontal
+									size={15}
+									strokeWidth={1.8}
+								/>{:else}<Send size={15} strokeWidth={1.8} />{/if}
+						{/snippet}
+						{#snippet trailing()}
+							{#if entry.kind === 'external'}<Dot
+									show
+									tone={stateTone(entry.state)}
+									label={words(entry.state)}
+								/>{/if}
+							<time datetime={entry.at} title={formatMoment(entry.at)}>{formatClock(entry.at)}</time
+							>
+						{/snippet}
+						{#if open === entry.id}
+							<dl class="facts">
+								{#if entry.kind === 'decision'}
+									<div>
+										<dt>Your decision</dt>
+										<dd>{entry.summary}</dd>
+									</div>
+									{#if entry.detail.unlocked}<div>
+											<dt>What it unlocked</dt>
+											<dd>{entry.detail.unlocked}</dd>
+										</div>{/if}
+									{#if entry.detail.state}<div>
+											<dt>Where it stands</dt>
+											<dd>{entry.detail.state}</dd>
+										</div>{/if}
+									{#if entry.detail.outcome}<div>
+											<dt>What happened</dt>
+											<dd>{entry.detail.outcome}</dd>
+										</div>{/if}
+									{#if entry.detail.responsible}<div>
+											<dt>{entry.detail.responsibleLabel}</dt>
+											<dd>{entry.detail.responsible}</dd>
+										</div>{/if}
+									<div class="follow-up">
+										<a
 											class="btn small"
-											href={`/${companyId}/work/${entry.detail.workId}`}>Open work</a
-										>{/if}
-								</div>
-							{:else}
-								<div>
-									<dt>Evidence</dt>
-									<dd title={evidenceExplanation(entry.evidence)}>
-										{words(entry.evidence)} · {evidenceExplanation(entry.evidence)}
-									</dd>
-								</div>
-								<div>
-									<dt>By</dt>
-									<dd>{entry.actor}</dd>
-								</div>
-								{#if entry.detail}<div>
-										<dt>Detail</dt>
-										<dd>{entry.detail}</dd>
-									</div>{/if}
-							{/if}
-						</dl>
-					{/if}
-				</Item>
-			{:else}
+											href={`/${encodeURIComponent(companyId)}/people?person=${encodeURIComponent(entry.detail.followUpId)}&view=people`}
+											title="Change or add to your answer: a message in your conversation with them"
+											>Follow up with {entry.detail.followUpName}</a
+										>
+										{#if entry.detail.workId}<a
+												class="btn small"
+												href={`/${companyId}/work/${entry.detail.workId}`}>Open work</a
+											>{/if}
+									</div>
+								{:else if entry.kind === 'change'}
+									<div>
+										<dt>By</dt>
+										<dd>{entry.actor}</dd>
+									</div>
+									<div>
+										<dt>When</dt>
+										<dd>{formatMoment(entry.at)}</dd>
+									</div>
+								{:else}
+									<div>
+										<dt>Evidence</dt>
+										<dd title={evidenceExplanation(entry.evidence)}>
+											{words(entry.evidence)} · {evidenceExplanation(entry.evidence)}
+										</dd>
+									</div>
+									<div>
+										<dt>By</dt>
+										<dd>{entry.actor}</dd>
+									</div>
+									{#if entry.detail}<div>
+											<dt>Detail</dt>
+											<dd>{entry.detail}</dd>
+										</div>{/if}
+								{/if}
+							</dl>
+						{/if}
+					</Item>
+				{/each}
+			</Section>
+		{:else}
+			<Section>
 				<Empty
 					compact
-					title={filter === 'external'
-						? 'No external activity yet'
-						: filter === 'decisions'
-							? 'No decisions recorded yet'
-							: 'Nothing recorded yet'}
-					info="Messages sent, forms submitted, payments made and decisions you record appear here."
+					title={filtered
+						? 'Nothing matches'
+						: filter === 'external'
+							? 'No external activity yet'
+							: filter === 'decisions'
+								? 'No decisions recorded yet'
+								: filter === 'changes'
+									? 'No setting changes yet'
+									: 'Nothing recorded yet'}
+					info="Messages sent, forms submitted, payments made, settings you change and decisions you record appear here."
 				/>
-			{/each}
-		</Section>
-		{#if historyNext && filter !== 'external'}
+			</Section>
+		{/each}
+		{#if hasEarlier}
 			<div class="earlier">
-				<button
-					class="btn small"
-					disabled={historyReading}
-					title="Older answers and approvals, a page at a time"
-					onclick={() => void readHistory(historyNext)}
-					>{historyReading ? 'Reading…' : 'Show earlier decisions'}</button
+				<button class="btn small" disabled={reading} onclick={() => void readEarlier()}
+					>{reading ? 'Reading…' : 'Show earlier'}</button
 				>
 			</div>
 		{/if}
@@ -370,6 +550,18 @@
 	}
 	.facts .btn {
 		justify-self: start;
+	}
+	.filters {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-2);
+		margin-bottom: var(--space-3);
+		color: var(--text-tertiary);
+	}
+	.filters .text {
+		flex: 1 1 180px;
+		min-width: 0;
 	}
 	.earlier {
 		display: flex;

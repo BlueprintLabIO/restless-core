@@ -16,6 +16,8 @@ use crate::authority::AuthorityStore;
 
 pub const PAUSED: &str = "outside_actions_paused";
 pub const RESUMED: &str = "outside_actions_resumed";
+/// What one pause froze, recorded after the gate is already up.
+const FROZE: &str = "outside_actions_froze";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Pause {
@@ -37,8 +39,15 @@ pub async fn current(authority: &AuthorityStore, company: &str) -> Result<Option
     if resumed.first().is_some_and(|resume| resume.id > pause.id) {
         return Ok(None);
     }
+    let froze = authority
+        .recent_records_matching(company, FROZE, "pause_id", &pause.id.to_string(), 1)
+        .await?;
+    let body = froze
+        .first()
+        .map(|record| record.body.clone())
+        .unwrap_or_default();
     let names = |field: &str| -> Vec<String> {
-        pause.body[field]
+        body[field]
             .as_array()
             .map(|values| {
                 values
@@ -71,13 +80,8 @@ pub async fn pause(authority: &AuthorityStore, company: &str, by: &str) -> Resul
         return Ok(pause);
     }
     // The gate goes up first, so nothing slips through while freezes apply.
-    authority
-        .emit(
-            company,
-            PAUSED,
-            Some(by),
-            serde_json::json!({ "frozen_connections": [], "frozen_currencies": [] }),
-        )
+    let pause_id = authority
+        .emit(company, PAUSED, Some(by), serde_json::json!({}))
         .await?;
     let pool = authority.pool();
     let mut frozen_connections = Vec::new();
@@ -100,9 +104,10 @@ pub async fn pause(authority: &AuthorityStore, company: &str, by: &str) -> Resul
     authority
         .emit(
             company,
-            PAUSED,
+            FROZE,
             Some(by),
             serde_json::json!({
+                "pause_id": pause_id.to_string(),
                 "frozen_connections": frozen_connections,
                 "frozen_currencies": frozen_currencies,
             }),

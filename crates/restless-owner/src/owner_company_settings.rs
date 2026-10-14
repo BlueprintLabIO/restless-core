@@ -865,3 +865,46 @@ pub(super) async fn save_payment_allowance(
     }
     Json(company_projection::project(&state.daemon, &config, false).await).into_response()
 }
+
+#[derive(Deserialize)]
+pub(super) struct ActivityQuery {
+    #[serde(default)]
+    before: Option<i64>,
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
+/// A page of the governance record for Activity: receipts, outbound email and the owner's own
+/// setting and lifecycle changes, newest first, older than `before`.
+pub(super) async fn governance_activity(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+    Query(query): Query<ActivityQuery>,
+) -> impl IntoResponse {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "activity",
+            "Only the owner can read the company's governance record.",
+        );
+    }
+    if let Err(e) = runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        return api_error(StatusCode::NOT_FOUND, "company", format!("{e:#}"));
+    }
+    match company_projection::governance_activity(
+        &state.daemon,
+        &company,
+        query.before,
+        query.limit.unwrap_or(50),
+    )
+    .await
+    {
+        Ok(page) => Json(page).into_response(),
+        Err(e) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "authority",
+            format!("Activity could not be read: {e:#}"),
+        ),
+    }
+}

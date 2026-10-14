@@ -932,6 +932,44 @@ impl AuthorityStore {
         .with_context(|| format!("read recent Authority {kind} records for {company}"))
     }
 
+    /// A page of records of any of `kinds`, newest first, older than the record id `before`.
+    pub async fn records_of_kinds_page(
+        &self,
+        company: &str,
+        kinds: &[&str],
+        before: Option<i64>,
+        limit: i64,
+    ) -> Result<Vec<(String, AuthorityRecord)>> {
+        let kinds = kinds.iter().map(|kind| kind.to_string()).collect::<Vec<_>>();
+        let rows: Vec<(String, i64, Option<String>, serde_json::Value, DateTime<Utc>)> =
+            sqlx::query_as(
+                "SELECT kind, id, actor_id, body, created_at FROM restless_authority.records \
+                 WHERE company = $1 AND kind = ANY($2) AND ($3::BIGINT IS NULL OR id < $3) \
+                 ORDER BY id DESC LIMIT $4",
+            )
+            .bind(company)
+            .bind(&kinds)
+            .bind(before)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await
+            .with_context(|| format!("read a page of Authority records for {company}"))?;
+        Ok(rows
+            .into_iter()
+            .map(|(kind, id, actor_id, body, created_at)| {
+                (
+                    kind,
+                    AuthorityRecord {
+                        id,
+                        actor_id,
+                        body,
+                        created_at,
+                    },
+                )
+            })
+            .collect())
+    }
+
     /// The newest records of one kind whose body has `field` equal to `value`, newest first.
     pub async fn recent_records_matching(
         &self,

@@ -1388,6 +1388,183 @@ fn actions(authority: Option<&AuthorityProjection>) -> ExternalActions {
     }
 }
 
+/// Owner setting changes and lifecycle acts that Activity lists beside external actions.
+const SETTING_CHANGE_KINDS: &[&str] = &[
+    "company_spend_limit_changed",
+    "company_runtime_policy_changed",
+    "company_native_limit_changed",
+    "company_harness_policy_changed",
+    "legal_profile_changed",
+    "mandate_revision",
+    "lifecycle",
+    crate::outside_actions::PAUSED,
+    crate::outside_actions::RESUMED,
+    "money_envelope_changed",
+    "financial_effects_frozen",
+    "financial_effects_unfrozen",
+    "connection_frozen",
+    "connection_unfrozen",
+    "approval_revoked",
+];
+
+#[derive(Debug, Serialize)]
+pub struct ActivityPage {
+    items: Vec<ExternalActionRow>,
+    /// Pass back as `before` for the next older page; absent at the beginning of history.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_before: Option<i64>,
+}
+
+/// One page of the governance record for Activity, newest first: external receipts, outbound
+/// email and the owner's setting and lifecycle changes. Payments and in-flight intents stay on
+/// the company view, which always carries all of them.
+pub async fn governance_activity(
+    daemon: &Daemon,
+    company: &str,
+    before: Option<i64>,
+    limit: i64,
+) -> Result<ActivityPage> {
+    let limit = limit.clamp(1, 200);
+    let mut kinds = vec!["effect", "email_send_reserved"];
+    kinds.extend_from_slice(SETTING_CHANGE_KINDS);
+    let records = daemon
+        .authority
+        .records_of_kinds_page(company, &kinds, before, limit)
+        .await?;
+    let reconciled_receipts = daemon
+        .authority
+        .records_of_kind(company, "effect_reconciled")
+        .await?
+        .into_iter()
+        .filter_map(|row| row.body.get("receipt_id")?.as_str().map(str::to_string))
+        .collect::<BTreeSet<_>>();
+    let next_before = (records.len() as i64 == limit)
+        .then(|| records.last().map(|(_, row)| row.id))
+        .flatten();
+    let mut items = Vec::new();
+    for (kind, row) in &records {
+        match kind.as_str() {
+            "effect" => items.push(action_from_receipt(row, &reconciled_receipts)),
+            "email_send_reserved" => {
+                let Some(permit_id) = row.body.get("permit_id").and_then(serde_json::Value::as_str)
+                else {
+                    continue;
+                };
+                let status = daemon
+                    .authority
+                    .find_record(company, "email_send_status", "permit_id", permit_id)
+                    .await?;
+                let outcome = status
+                    .as_ref()
+                    .and_then(|record| record.body.get("outcome"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("unknown");
+                let (state, evidence, detail) = match outcome {
+                    "confirmed_sent" => ("succeeded", "provider_confirmed", "Resend accepted the email; delivery is unconfirmed."),
+                    "confirmed_not_sent" => ("failed", "provider_confirmed", "Resend did not accept the email."),
+                    _ => ("unknown", "authority_recorded", "The email send outcome needs reconciliation; do not retry."),
+                };
+                items.push(ExternalActionRow {
+                    id: format!("email:{permit_id}"),
+                    title: "Outbound email".into(),
+                    effect_class: "customer-contact.email".into(),
+                    source: "authority_provider",
+                    state: state.into(),
+                    evidence,
+                    actor: Some("exec".into()),
+                    party: row
+                        .body
+                        .get("recipient")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned),
+                    receipt_ref: status
+                        .as_ref()
+                        .and_then(|record| record.body.get("provider_ref"))
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned),
+                    detail: Some(detail.into()),
+                    observed_at: status
+                        .as_ref()
+                        .map(|record| record.created_at)
+                        .unwrap_or(row.created_at),
+                });
+            }
+            _ => {
+                if let Some(title) = setting_change_title(kind, &row.body) {
+                    items.push(ExternalActionRow {
+                        id: format!("change:{}", row.id),
+                        title,
+                        effect_class: kind.clone(),
+                        source: "owner_setting",
+                        state: "completed".into(),
+                        evidence: "authority_recorded",
+                        actor: row.actor_id.clone(),
+                        party: None,
+                        receipt_ref: None,
+                        detail: None,
+                        observed_at: row.created_at,
+                    });
+                }
+            }
+        }
+    }
+    Ok(ActivityPage { items, next_before })
+}
+
+/// The owner-facing sentence for one setting or lifecycle record; `None` for the intermediate
+/// records (a requested charter revision, a recovery still running) that a later one settles.
+fn setting_change_title(kind: &str, body: &serde_json::Value) -> Option<String> {
+    let text = |field: &str| body.get(field).and_then(serde_json::Value::as_str);
+    Some(match kind {
+        "company_spend_limit_changed" => {
+            let ceiling = body
+                .get("ceiling")
+                .map(|value| match value {
+                    serde_json::Value::String(text) => text.clone(),
+                    other => other.to_string(),
+                })
+                .unwrap_or_default();
+            let monthly = text("period") == Some("monthly");
+            format!(
+                "Spend limit set to ${ceiling}{}",
+                if monthly { " a month" } else { "" }
+            )
+        }
+        "company_runtime_policy_changed" => "Computer limits changed".into(),
+        "company_native_limit_changed" => "Native harness limits changed".into(),
+        "company_harness_policy_changed" => "Agent harness changed".into(),
+        "legal_profile_changed" => "Legal profile updated".into(),
+        "mandate_revision" => match text("state") {
+            Some("succeeded") => "Charter revised".into(),
+            Some("failed") => "Charter revision failed".into(),
+            _ => return None,
+        },
+        "lifecycle" => match (text("state"), text("action")) {
+            (Some("archived"), _) => "Company archived".into(),
+            (_, None) if body.get("restored_from").is_some() => "Company restored".into(),
+            (Some("succeeded"), Some(action)) => format!("Company computer {action} completed"),
+            (Some("failed"), Some(action)) => format!("Company computer {action} failed"),
+            _ => return None,
+        },
+        crate::outside_actions::PAUSED => "Outside actions paused".into(),
+        crate::outside_actions::RESUMED => "Outside actions resumed".into(),
+        "money_envelope_changed" => {
+            format!("{} payment allowance changed", text("currency").unwrap_or(""))
+        }
+        "financial_effects_frozen" => format!("{} payments frozen", text("currency").unwrap_or("")),
+        "financial_effects_unfrozen" => {
+            format!("{} payments unfrozen", text("currency").unwrap_or(""))
+        }
+        "connection_frozen" => format!("{} frozen", text("connection").unwrap_or("An app")),
+        "connection_unfrozen" => format!("{} unfrozen", text("connection").unwrap_or("An app")),
+        "approval_revoked" => format!(
+            "Approval revoked for {}",
+            text("party").unwrap_or("a contact")
+        ),
+        _ => return None,
+    })
+}
+
 fn action_from_receipt(
     row: &crate::authority::AuthorityRecord,
     reconciled_receipts: &BTreeSet<String>,
