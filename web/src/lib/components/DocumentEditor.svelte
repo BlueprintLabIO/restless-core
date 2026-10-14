@@ -77,6 +77,9 @@
 		updateDocumentImage,
 		documentAnchorTarget,
 		documentCounts,
+		documentSize,
+		documentSizeLimitLabel,
+		type DocumentSizeMeasure,
 		documentOutline,
 		findKey,
 		replaceDocumentFind,
@@ -195,7 +198,9 @@
 	let unsyncedChanges = $state(0);
 	/* What the documents service says about keeping this body: nothing while it stores it,
 	 * "invalid" while it refuses something in it, "unavailable" while its storage is down. */
-	let storeProblem = $state<'' | 'invalid' | 'unavailable'>('');
+	let storeProblem = $state<'' | 'invalid' | 'too_large' | 'unavailable'>('');
+	/* Which size cap the body passed, when the service says it is too large. */
+	let tooLargeBy = $state<DocumentSizeMeasure>('bytes');
 
 	const editor = $derived(editorState.editor);
 	// Metadata refreshes replace view without changing the live editing session.
@@ -537,12 +542,24 @@
 				onStateless: ({ payload }) => {
 					if (disposed) return;
 					try {
-						const message = JSON.parse(payload) as { type?: unknown; status?: unknown };
+						const message = JSON.parse(payload) as {
+							type?: unknown;
+							status?: unknown;
+							measure?: unknown;
+						};
 						if (message.type !== 'restless.save') return;
 						storeProblem =
-							message.status === 'invalid' || message.status === 'unavailable'
+							message.status === 'invalid' ||
+							message.status === 'too_large' ||
+							message.status === 'unavailable'
 								? message.status
 								: '';
+						if (
+							message.measure === 'bytes' ||
+							message.measure === 'nodes' ||
+							message.measure === 'characters'
+						)
+							tooLargeBy = message.measure;
 					} catch {
 						/* Not a message for this page. */
 					}
@@ -1205,10 +1222,14 @@
 	/* Words and characters, for the document and for the selection; counted shortly after typing
 	 * pauses rather than on every key. */
 	let counts = $state<{ words: number; characters: number; selected: boolean } | null>(null);
+	/* How close the body is to the most it can save; a writer is warned from 80%. */
+	let size = $state<{ measure: DocumentSizeMeasure; share: number } | null>(null);
+	let sizeDismissed = $state(false);
 	$effect(() => {
 		const instance = editorState.editor;
 		if (!instance) {
 			counts = null;
+			size = null;
 			return;
 		}
 		const timer = setTimeout(() => {
@@ -1218,6 +1239,7 @@
 				...documentCounts(instance.state.doc, empty ? 0 : from, empty ? undefined : to),
 				selected: !empty
 			};
+			if (canWriteLive) size = documentSize(instance.state.doc);
 		}, 400);
 		return () => clearTimeout(timer);
 	});
@@ -1773,14 +1795,28 @@
 	{#if saveProblem}
 		<div class="editor-error" role="alert">
 			<span
-				>{saveProblem === 'invalid'
-					? 'Your latest change can’t be saved: it holds something documents can’t keep. Undo it to keep saving.'
-					: 'Recent edits aren’t being saved right now. Keep this page open; your next edit saves them once storage is back.'}</span
-			>{#if saveProblem === 'invalid' && canWriteLive}<button
+				>{saveProblem === 'too_large'
+					? `This document is too large to save: a document holds up to ${documentSizeLimitLabel(tooLargeBy)}. Undo the latest change, or move a section into a new document; until then edits aren’t saved.`
+					: saveProblem === 'invalid'
+						? 'Your latest change can’t be saved: it holds something documents can’t keep. Undo it to keep saving.'
+						: 'Recent edits aren’t being saved right now. Keep this page open; your next edit saves them once storage is back.'}</span
+			>{#if (saveProblem === 'invalid' || saveProblem === 'too_large') && canWriteLive}<button
 					type="button"
 					class="btn small"
 					onclick={() => run((instance) => instance.chain().focus().undo().run())}>Undo</button
 				>{/if}
+		</div>
+	{/if}
+
+	{#if !saveProblem && canWriteLive && size && size.share >= 0.8 && !sizeDismissed}
+		<div class="editor-note" role="status">
+			<span
+				>This document is near its size limit: {Math.min(99, Math.floor(size.share * 100))}% of the {documentSizeLimitLabel(
+					size.measure
+				)} a document can hold. Move a section into a new document before it stops saving.</span
+			><button type="button" class="btn small" onclick={() => (sizeDismissed = true)}
+				>Dismiss</button
+			>
 		</div>
 	{/if}
 

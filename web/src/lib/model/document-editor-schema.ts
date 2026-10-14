@@ -1056,6 +1056,51 @@ export function documentCounts(
 	};
 }
 
+/* The caps the documents service keeps a body within (services/native-documents-collaboration,
+ * document-codec.ts). Past any of them a change is not saved. */
+export const DOCUMENT_SIZE_LIMITS = {
+	bytes: 1_000_000,
+	nodes: 20_000,
+	characters: 500_000
+} as const;
+export type DocumentSizeMeasure = keyof typeof DOCUMENT_SIZE_LIMITS;
+
+/** How a cap reads to the owner. */
+export function documentSizeLimitLabel(measure: DocumentSizeMeasure): string {
+	const limit = DOCUMENT_SIZE_LIMITS[measure].toLocaleString('en');
+	return measure === 'bytes'
+		? '1 MB of content'
+		: measure === 'nodes'
+			? `${limit} paragraphs, list items and other pieces`
+			: `${limit} characters`;
+}
+
+/** The share of its tightest cap a body uses, and which cap that is. The JSON size is measured
+ * only when the cheaper counts suggest it could matter. */
+export function documentSize(doc: ProseMirrorNode): {
+	measure: DocumentSizeMeasure;
+	share: number;
+} {
+	let nodes = 1;
+	let characters = 0;
+	doc.descendants((node) => {
+		nodes += 1;
+		if (node.isText) characters += [...(node.text ?? '')].length;
+	});
+	const shares: Record<DocumentSizeMeasure, number> = {
+		nodes: nodes / DOCUMENT_SIZE_LIMITS.nodes,
+		characters: characters / DOCUMENT_SIZE_LIMITS.characters,
+		bytes: 0
+	};
+	if ((characters * 1.2 + nodes * 80) / DOCUMENT_SIZE_LIMITS.bytes > 0.5)
+		shares.bytes =
+			new TextEncoder().encode(JSON.stringify(doc.toJSON())).length / DOCUMENT_SIZE_LIMITS.bytes;
+	const measure = (Object.keys(shares) as DocumentSizeMeasure[]).reduce((a, b) =>
+		shares[b] > shares[a] ? b : a
+	);
+	return { measure, share: shares[measure] };
+}
+
 /** One occurrence of what Find looks for: a range of document positions. */
 export interface FindMatch {
 	from: number;

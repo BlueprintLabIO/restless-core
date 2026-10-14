@@ -10,7 +10,7 @@ import { applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awarene
 import { bodyView, prepareBodyEdit, checkedBodyUpdate, BodyEditConflict, InvalidBodyEdit } from './body-edits.js';
 
 import type { CollaborationConfig } from './config.js';
-import { DocumentCodecError } from './document-codec.js';
+import { DocumentCodecError, DocumentTooLargeError, type DocumentSizeMeasure } from './document-codec.js';
 import { DocumentCheckpointChangedError } from './store-errors.js';
 import {
   AUTHENTICATION_CLOSE_CODE,
@@ -72,10 +72,12 @@ const MAX_CURSOR_JSON_BYTES = 1024;
  * acknowledges an update once it is applied in memory, not once it is stored, so without this an
  * editor keeps reading "Saved" while every store fails. It never carries content or detail. */
 export const SAVE_STATUS_MESSAGE = 'restless.save';
-export type SaveStatus = 'invalid' | 'unavailable' | 'saved';
+export type SaveStatus = 'invalid' | 'too_large' | 'unavailable' | 'saved';
+type Unsaved = { status: Exclude<SaveStatus, 'saved'>; measure?: DocumentSizeMeasure };
 
-function saveStatus(status: SaveStatus): string {
-  return JSON.stringify({ type: SAVE_STATUS_MESSAGE, status });
+/** A body past a size cap names the cap it passed, never its content. */
+function saveStatus(status: SaveStatus, measure?: DocumentSizeMeasure): string {
+  return JSON.stringify({ type: SAVE_STATUS_MESSAGE, status, ...(measure ? { measure } : {}) });
 }
 
 export interface CollaborationServerDependencies {
@@ -219,7 +221,7 @@ export class NativeDocumentsCollaborationServer {
   private lastReadinessStatus: string | undefined;
   private readinessProbeSequence = 0;
   /** Loaded documents whose latest store failed, until one succeeds or the document unloads. */
-  private readonly unsaved = new Map<string, Exclude<SaveStatus, 'saved'>>();
+  private readonly unsaved = new Map<string, Unsaved>();
   /** Per document, the writers whose changes arrived since its last store. */
   private readonly editors = new Map<string, Set<string>>();
 
@@ -343,7 +345,7 @@ export class NativeDocumentsCollaborationServer {
         }
         this.scheduleLease(context.session.lease, connection);
         const unsaved = this.unsaved.get(documentName);
-        if (unsaved) connection.sendStateless(saveStatus(unsaved));
+        if (unsaved) connection.sendStateless(saveStatus(unsaved.status, unsaved.measure));
       },
       beforeHandleMessage: async ({ context, documentName, update }) => {
         if (!context.session || collaborationDocumentName(context.session.target) !== documentName) {
@@ -438,9 +440,9 @@ export class NativeDocumentsCollaborationServer {
         const target = documentTarget(this.config.companyId, documentName);
         const state = Y.encodeStateAsUpdate(document);
         if (state.byteLength > MAX_YJS_STATE_BYTES) {
-          // Too large to keep: the editor must undo, as for content the schema refuses.
-          this.unsaved.set(documentName, 'invalid');
-          document.broadcastStateless(saveStatus('invalid'));
+          // Too large to keep: the editor must undo, or move part of it to another document.
+          this.unsaved.set(documentName, { status: 'too_large', measure: 'bytes' });
+          document.broadcastStateless(saveStatus('too_large', 'bytes'));
           throw new Error('native Documents durable state exceeds the released limit');
         }
         try {
@@ -452,11 +454,15 @@ export class NativeDocumentsCollaborationServer {
           if (writers?.size) await this.store.noteEditors?.(target, [...writers]).catch(() => undefined);
         } catch (error) {
           if (!(error instanceof DocumentCheckpointChangedError)) {
-            // The body stays in memory and every later store retries it. Say so plainly: content
-            // the company schema refuses needs the editor to undo it; anything else is ours.
-            const status = error instanceof DocumentCodecError ? 'invalid' : 'unavailable';
-            this.unsaved.set(documentName, status);
-            document.broadcastStateless(saveStatus(status));
+            // The body stays in memory and every later store retries it. Say so plainly: a body
+            // past a size cap, or content the company schema refuses, needs the editor to undo
+            // it; anything else is ours.
+            const unsaved: Unsaved =
+              error instanceof DocumentTooLargeError
+                ? { status: 'too_large', measure: error.measure }
+                : { status: error instanceof DocumentCodecError ? 'invalid' : 'unavailable' };
+            this.unsaved.set(documentName, unsaved);
+            document.broadcastStateless(saveStatus(unsaved.status, unsaved.measure));
           }
           if (error instanceof DocumentCheckpointChangedError) {
             // Core moved the immutable checkpoint while this Y.Doc was live.

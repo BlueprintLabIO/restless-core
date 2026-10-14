@@ -105,8 +105,24 @@ export class DocumentCodecError extends Error {
   }
 }
 
+/** Which cap a body passed: its JSON size, its node count, or its text length. */
+export type DocumentSizeMeasure = 'bytes' | 'nodes' | 'characters';
+
+/** A body that is well formed but past a size cap. Editors are told which cap, so the owner reads
+ * "too large" rather than "holds something documents can't keep". */
+export class DocumentTooLargeError extends DocumentCodecError {
+  constructor(readonly measure: DocumentSizeMeasure) {
+    super();
+    this.name = 'DocumentTooLargeError';
+  }
+}
+
 function invalid(): never {
   throw new DocumentCodecError();
+}
+
+function tooLarge(measure: DocumentSizeMeasure): never {
+  throw new DocumentTooLargeError(measure);
 }
 
 function object(value: unknown): JsonObject {
@@ -276,7 +292,7 @@ function validateAttributes(type: string, value: unknown, state: ValidationState
 function validateNode(value: unknown, depth: number, state: ValidationState, topLevel: boolean): void {
   if (depth > MAX_DOCUMENT_DEPTH) invalid();
   state.nodes += 1;
-  if (state.nodes > MAX_DOCUMENT_NODES) invalid();
+  if (state.nodes > MAX_DOCUMENT_NODES) tooLarge('nodes');
   const node = object(value);
   const type = node.type;
   if (typeof type !== 'string') invalid();
@@ -284,7 +300,7 @@ function validateNode(value: unknown, depth: number, state: ValidationState, top
     exactKeys(node, ['type', 'text', 'marks']);
     if (typeof node.text !== 'string' || node.text.includes('\0')) invalid();
     state.textCharacters += [...node.text].length;
-    if (state.textCharacters > MAX_DOCUMENT_TEXT_CHARACTERS) invalid();
+    if (state.textCharacters > MAX_DOCUMENT_TEXT_CHARACTERS) tooLarge('characters');
     validateMarks(node.marks);
     return;
   }
@@ -301,7 +317,7 @@ function validateNode(value: unknown, depth: number, state: ValidationState, top
 function validateProjection(value: unknown): JsonObject {
   const projection = object(value);
   const encoded = JSON.stringify(projection);
-  if (Buffer.byteLength(encoded) > MAX_DOCUMENT_BYTES) invalid();
+  if (Buffer.byteLength(encoded) > MAX_DOCUMENT_BYTES) tooLarge('bytes');
   validateNode(projection, 0, { nodes: 0, textCharacters: 0, blockIds: new Set() }, false);
   try {
     documentSchema.nodeFromJSON(projection).check();
@@ -317,7 +333,8 @@ export function stateFromProjection(value: unknown): Uint8Array {
     const document = prosemirrorJSONToYDoc(documentSchema, projection, PROSEMIRROR_FRAGMENT_NAME);
     const state = Y.encodeStateAsUpdate(document);
     document.destroy();
-    if (state.byteLength < 2 || state.byteLength > MAX_YJS_STATE_BYTES) invalid();
+    if (state.byteLength < 2) invalid();
+    if (state.byteLength > MAX_YJS_STATE_BYTES) tooLarge('bytes');
     return state;
   } catch (error) {
     if (error instanceof DocumentCodecError) throw error;
@@ -326,7 +343,8 @@ export function stateFromProjection(value: unknown): Uint8Array {
 }
 
 export function projectionFromState(state: Uint8Array): JsonObject {
-  if (!(state instanceof Uint8Array) || state.byteLength < 2 || state.byteLength > MAX_YJS_STATE_BYTES) invalid();
+  if (!(state instanceof Uint8Array) || state.byteLength < 2) invalid();
+  if (state.byteLength > MAX_YJS_STATE_BYTES) tooLarge('bytes');
   const document = new Y.Doc();
   try {
     Y.applyUpdate(document, state);

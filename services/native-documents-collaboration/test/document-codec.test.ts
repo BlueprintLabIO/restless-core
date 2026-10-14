@@ -5,6 +5,7 @@ import * as Y from 'yjs';
 
 import {
   DocumentCodecError,
+  DocumentTooLargeError,
   PROSEMIRROR_FRAGMENT_NAME,
   projectionFromState,
   stateFromProjection,
@@ -156,4 +157,21 @@ test('colours and alignment are names from the company palette', () => {
   ]) {
     assert.throws(() => stateFromProjection(body), DocumentCodecError, JSON.stringify(body));
   }
+});
+
+test('a body past a size cap is refused as too large, naming the cap', () => {
+  const paragraph = (index: number, text: string) => ({
+    type: 'paragraph',
+    attrs: { block_id: `p${index}` },
+    content: [{ type: 'text', text }],
+  });
+  const long = { type: 'doc', content: Array.from({ length: 6 }, (_, index) => paragraph(index, 'x'.repeat(90_000))) };
+  assert.throws(() => stateFromProjection(long), (error: unknown) =>
+    error instanceof DocumentTooLargeError && error.measure === 'characters' && error instanceof DocumentCodecError);
+  const many = { type: 'doc', content: Array.from({ length: 10_001 }, (_, index) => paragraph(index, 'y')) };
+  assert.throws(() => stateFromProjection(many), (error: unknown) =>
+    error instanceof DocumentTooLargeError && error.measure === 'nodes');
+  // A malformed body is still plainly invalid, not too large.
+  assert.throws(() => stateFromProjection({ type: 'doc', content: [{ type: 'paragraph' }] }), (error: unknown) =>
+    error instanceof DocumentCodecError && !(error instanceof DocumentTooLargeError));
 });
