@@ -18,12 +18,16 @@
 		items: BoardItem[];
 		/** Shown when the column has no items. Omit for a silent empty column. */
 		emptyNote?: string;
+		/** Stacked first when the board is one column on a narrow pane: what most needs a look. */
+		lead?: boolean;
 	};
 </script>
 
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import { listFlip, listIn, listOut } from '../motion';
+
+	const id = $props.id();
 
 	let {
 		columns,
@@ -37,10 +41,14 @@
 	} = $props();
 </script>
 
-<div class="work-board" aria-label={label}>
+<!-- A region of column sections, each named by its heading; a card reads as its own words. -->
+<div class="work-board" role="region" aria-label={label} style:--columns={columns.length}>
 	{#each columns as column (column.key)}
-		<section class="board-column">
-			<header><span>{column.label}</span><b>{column.items.length}</b></header>
+		<section class="board-column" class:lead={column.lead} aria-labelledby={`${id}-${column.key}`}>
+			<header>
+				<h2 id={`${id}-${column.key}`}>{column.label}</h2>
+				<b>{column.items.length}</b>
+			</header>
 			{#each column.items as item (item.id)}
 				<a
 					class="board-item status-{item.status}"
@@ -49,14 +57,13 @@
 					in:listIn
 					out:listOut
 					href={item.href}
-					aria-label={`Open Work: ${item.title}${item.needsYou ? ' (needs you)' : ''}`}
 				>
 					{#if item.needsYou}<span class="needs-you-badge">Needs you</span>{/if}
 					<strong style:view-transition-name={`work-title-${item.id}`}>{item.title}</strong>
 					{#if item.signal}<p>{item.signal}</p>{/if}
 					<footer>
 						<span>{item.ownerName}</span>
-						{#if item.revision > 1}<span title="Revision">R{item.revision}</span>{/if}
+						{#if item.revision > 1}<span>Revision {item.revision}</span>{/if}
 					</footer>
 				</a>
 			{:else}
@@ -76,7 +83,7 @@
 		min-height: 0;
 		display: grid;
 		/* Four columns fit beside the full-width sidebar and the Exec rail; a narrower pane scrolls. */
-		grid-template-columns: repeat(4, minmax(150px, 1fr));
+		grid-template-columns: repeat(var(--columns, 4), minmax(150px, 1fr));
 		overflow: auto;
 	}
 
@@ -110,6 +117,10 @@
 		margin-bottom: 10px;
 		color: var(--ink);
 		font-weight: 600;
+	}
+	.board-column > header h2 {
+		margin: 0;
+		font: inherit;
 	}
 	.board-column > header b {
 		color: var(--text-tertiary);
@@ -205,6 +216,9 @@
 		.board-column {
 			border-right: 0;
 			border-bottom: 1px solid var(--border);
+		}
+		.board-column.lead {
+			order: -1;
 		}
 		/* Stacked, a full-width tone bar reads as a stray rule; the tone moves to a
 		 * status dot beside the column name, like the dots on cards. */

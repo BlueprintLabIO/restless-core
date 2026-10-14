@@ -1,9 +1,9 @@
 <script lang="ts">
 	/* Work: the company's goals and the work under them.
 	 *
-	 * The side panel lists goals only; choosing one narrows the list and choosing
-	 * it again shows everything. Work without a goal is a group in the list, not
-	 * a peer of the goals. List is the default view, grouped by what each item
+	 * The side panel lists goals as links; choosing one narrows the list and
+	 * "All work" shows everything. Work without a goal is "No goal" here and on
+	 * every Work page. List is the default view, grouped by what each item
 	 * needs; Board is the second view. Both read the same rows. */
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
@@ -13,6 +13,7 @@
 	import { WORK_STATUS_LABEL, runStateLabel } from '$lib/work/status';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import { untrack } from 'svelte';
 	import X from '@lucide/svelte/icons/x';
 	import Kanban from '@lucide/svelte/icons/kanban';
 	import Target from '@lucide/svelte/icons/target';
@@ -41,6 +42,7 @@
 	import WorkBoard from '$lib/ui/views/WorkBoard.svelte';
 	import { askExec } from '$lib/model/ask-exec';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import CopyButton from '$lib/ui/controls/CopyButton.svelte';
 	import Check from '@lucide/svelte/icons/check';
 	import { STANDARDS, setGoalStandard, standardLabel } from '$lib/model/standards';
 	import type { OutcomeStandard } from '$lib/model/company';
@@ -50,12 +52,13 @@
 		judgementHolders,
 		workWaitingOnOwner
 	} from '$lib/model/attention-presentation';
-	import { emptyWorkTitle } from '$lib/model/work-views';
+	import { emptyWorkTitle, matchesSearch } from '$lib/model/work-views';
 	import { dueLabel, finishLine, type Goal } from '$lib/work/goal';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import Ban from '@lucide/svelte/icons/ban';
 	import {
 		blockerSentence,
+		steerWork,
 		closeGoal,
 		fetchWorkSpend,
 		priorityLabel,
@@ -120,7 +123,29 @@
 		url.searchParams.delete('lens');
 		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
 	}
-	const chooseGoal = (id: string) => setQuery('goal', selectedGoal === id ? '' : id);
+	/* The search is in the address too, written as the owner pauses typing. */
+	const urlSearch = $derived(page.url.searchParams.get('q') ?? '');
+	let search = $state('');
+	let searchTimer: ReturnType<typeof setTimeout> | undefined;
+	$effect(() => {
+		const next = urlSearch;
+		if (next !== untrack(() => search.trim())) search = next;
+	});
+	function typeSearch(value: string) {
+		search = value;
+		clearTimeout(searchTimer);
+		searchTimer = setTimeout(() => {
+			if (search.trim() !== urlSearch) setQuery('q', search.trim());
+		}, 250);
+	}
+	const filtered = $derived(!!ownerFilter || !!statusFilter);
+	function clearSearch() {
+		clearTimeout(searchTimer);
+		search = '';
+		const url = new URL(page.url);
+		for (const key of ['q', 'owner', 'status']) url.searchParams.delete(key);
+		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+	}
 
 	const graph = $derived(
 		ownerAccess ? (attention?.workGraph ?? null) : (collaboration?.work_graph ?? null)
@@ -143,20 +168,50 @@
 			'Suggest two or three Goals for the company from what you know so far, each with what done looks like.'
 		);
 	const people = $derived(ownerAccess ? (cockpit?.people ?? []) : (collaboration?.people ?? []));
+	/* Asking Exec for work: in an open goal the composer starts with that goal, and each Work that
+	 * appears afterwards is confirmed with a way to open it. */
+	let watchedWork = $state<Set<string> | null>(null);
+	function addWork() {
+		watchedWork = new Set((graph?.work ?? []).map((item) => item.id));
+		askExec(
+			selectedGoalRow && !selectedGoalRow.closed_at
+				? `Add work toward “${selectedGoalRow.title}”: `
+				: undefined
+		);
+	}
+	$effect(() => {
+		const rows = graph?.work ?? [];
+		const known = untrack(() => watchedWork);
+		if (!known) return;
+		const added = rows.filter((item) => !known.has(item.id));
+		if (!added.length) return;
+		watchedWork = new Set(rows.map((item) => item.id));
+		for (const item of added)
+			toast(`Work added: ${item.title}`, {
+				action: { label: 'Open', run: () => goto(workHref(item.id)) }
+			});
+	});
 	const noWorkYet = $derived(!!graph && graph.work.length === 0 && goals.length === 0);
-	let search = $state('');
 	/* "other" is the Work that serves no Goal: a peer of the Goals, kept small. "waiting" and
 	 * "active" are views across every Goal: what waits on the owner, and what is moving. */
 	const goalWork = $derived(
 		(graph?.work ?? []).filter(
 			(item) =>
-				(stoppedView ? item.status === 'abandoned' : item.status !== 'abandoned') &&
+				/* A search also finds stopped Work, so nothing the owner looks for is hidden. */
+				(stoppedView
+					? item.status === 'abandoned'
+					: item.status !== 'abandoned' || !!search.trim()) &&
 				(!ownerFilter || item.owner_id === ownerFilter) &&
 				(!statusFilter || item.status === statusFilter) &&
-				(!search.trim() ||
-					`${item.title} ${item.outcome}`
-						.toLocaleLowerCase()
-						.includes(search.trim().toLocaleLowerCase())) &&
+				matchesSearch(search, [
+					item.title,
+					item.outcome,
+					ownerName(item.owner_id),
+					goals.find((goal) => goal.id === item.goal_id)?.title,
+					...(graph?.artifacts ?? [])
+						.filter((artifact) => artifact.work_id === item.id)
+						.map((artifact) => artifact.label)
+				]) &&
 				(!selectedGoal ||
 					stoppedView ||
 					(selectedGoal === 'other'
@@ -217,18 +272,23 @@
 		{ goal: '', label: 'All work' },
 		...(graph?.work.length
 			? [
-					{ goal: 'waiting', label: 'Waiting on you' },
+					{ goal: 'waiting', label: 'Needs you' },
 					{ goal: 'active', label: 'In progress' }
 				]
 			: []),
 		...openGoals.map((goal) => ({ goal: goal.id, label: goal.title })),
-		...(otherOpen ? [{ goal: 'other', label: 'Other work' }] : []),
+		...(otherOpen ? [{ goal: 'other', label: 'No goal' }] : []),
 		{ goal: 'archived', label: 'Archived' },
 		...(stoppedCount ? [{ goal: 'stopped', label: 'Stopped' }] : []),
 		...(archivedOpen ? closedGoals.map((goal) => ({ goal: goal.id, label: goal.title })) : [])
 	]);
-	/* Work with a decision or step waiting on the owner: what the Inbox shows for it. */
-	const waitingOnOwner = $derived(workWaitingOnOwner(ownerAccess ? (attention?.items ?? []) : []));
+	/* Work with a decision or step waiting on the viewer: what their Inbox shows for it. For the
+	 * owner that is the company queue; for a team's owner, the handoffs passed to them. */
+	const waitingOnOwner = $derived(
+		ownerAccess
+			? workWaitingOnOwner(attention?.items ?? [])
+			: new Set((collaboration?.attention.handoffs ?? []).map((handoff) => handoff.work_id))
+	);
 	/* Judgement a lead or Exec still holds before it reaches the owner. */
 	const heldBy = $derived(judgementHolders(graph && 'handoffs' in graph ? graph.handoffs : []));
 	const holder = (work: WorkItem) =>
@@ -263,9 +323,9 @@
 	const openCount = $derived(goalWork.length - done.length);
 	const title = $derived(
 		selectedGoal === 'other'
-			? 'Other work'
+			? 'No goal'
 			: selectedGoal === 'waiting'
-				? 'Waiting on you'
+				? 'Needs you'
 				: selectedGoal === 'active'
 					? 'In progress'
 					: selectedGoal === 'archived'
@@ -348,12 +408,28 @@
 			actorId.replaceAll('-', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 		);
 	}
-	function workHref(workId: string): string {
+	function workHref(workId: string, talk = ''): string {
 		const query = new URLSearchParams();
 		if (selectedGoal) query.set('goal', selectedGoal);
 		if (view === 'board') query.set('view', 'board');
+		if (urlSearch) query.set('q', urlSearch);
+		if (talk) query.set('talk', talk);
 		const search = query.toString();
 		return `/${encodeURIComponent(companyId)}/work/${encodeURIComponent(workId)}${search ? `?${search}` : ''}`;
+	}
+	/* Resume from the row: no reason is asked for here; the Work page takes one when there is one. */
+	let resuming = $state(new Set<string>());
+	async function quickResume(work: WorkItem) {
+		resuming = new Set([...resuming, work.id]);
+		try {
+			await steerWork(companyId, work.id, 'resume', 'Resumed by the owner from the Work list');
+			toast(`Resumed: ${work.title}`);
+			retryWork();
+		} catch (cause) {
+			toast(failureSentence(cause, 'That Work did not resume.'), { tone: 'failure' });
+		} finally {
+			resuming = new Set([...resuming].filter((id) => id !== work.id));
+		}
 	}
 	function meta(work: WorkItem, withOwner = true): string {
 		const run = runStateLabel(attemptOf(work)?.state);
@@ -367,22 +443,31 @@
 			priorityLabel(work.priority),
 			waitingOnOwner.has(work.id) ? '' : holder(work),
 			own ? `${standardLabel(own)} bar` : '',
-			run && run !== 'running' ? run : '',
+			/* A run's state only when it adds to the Work's own: it failed or was sent back. */
+			['failed', 'changes_requested'].includes(attemptOf(work)?.state ?? '') ? run : '',
 			count ? `${count} ${count === 1 ? 'output' : 'outputs'}` : ''
 		]
 			.filter(Boolean)
 			.join(' · ');
 	}
+	/* The board shows recent Done, as the list folds it; the column's footer shows the rest. */
+	const RECENT_DONE = 8;
+	let showAllDone = $state(false);
 	const boardColumns = $derived(
 		(stoppedView
 			? (['abandoned'] as const)
-			: (['proposed', 'active', 'blocked', 'completed'] as const)
+			: goalWork.some((item) => item.status === 'abandoned')
+				? (['proposed', 'active', 'blocked', 'completed', 'abandoned'] as const)
+				: (['proposed', 'active', 'blocked', 'completed'] as const)
 		).map((status) => ({
 			key: status,
 			label: WORK_STATUS_LABEL[status],
+			/* Stacked on a narrow pane, blocked Work comes first rather than below every card. */
+			lead: status === 'blocked',
 			items: goalWork
 				.filter((item) => item.status === status)
 				.toSorted(bySort)
+				.slice(0, status === 'completed' && !showAllDone ? RECENT_DONE : undefined)
 				.map((row) => ({
 					id: row.id,
 					title: row.title,
@@ -495,7 +580,7 @@
 	{@const progress = goalProgress(goal.id)}
 	{@const reading = goalReading(goal.id)}
 	<SidebarRow
-		onclick={() => chooseGoal(goal.id)}
+		href={viewHref(goal.id)}
 		label={goal.title}
 		active={selectedGoal === goal.id}
 		sub={indent ? undefined : reading.text}
@@ -536,19 +621,39 @@
 					: holder(work) || WORK_STATUS_LABEL[work.status]}
 			/>{/snippet}
 		{#snippet trailing()}<RelativeTime value={work.updated_at} />{/snippet}
+		{#snippet actions()}
+			{#if ownerAccess && work.status === 'blocked' && !waitingOnOwner.has(work.id)}<button
+					class="btn small"
+					type="button"
+					disabled={resuming.has(work.id)}
+					title="Let this Work continue"
+					onclick={() => quickResume(work)}>Resume</button
+				>{/if}
+			{#if ownerAccess}<a
+					class="btn small ghost"
+					href={workHref(work.id, 'exec')}
+					title="Open this Work and talk about it with the Exec">Discuss</a
+				>{/if}
+			<CopyButton
+				value={new URL(workHref(work.id), page.url).href}
+				label="Copy link to this Work"
+			/>
+		{/snippet}
 	</Item>
 {/snippet}
 
 <SidebarShell label="Goals" title="Work">
 	{#snippet action()}
 		{#if ownerAccess}<SidebarHeadButton
-				label="Tell Exec what you want"
+				label={selectedGoalRow && !selectedGoalRow.closed_at
+					? 'Add work toward this goal'
+					: 'Tell Exec what you want'}
 				icon={Sparkles}
-				onclick={() => askExec()}
+				onclick={addWork}
 			/>{/if}
 	{/snippet}
 	{#snippet top()}
-		<SidebarSearch bind:value={search} placeholder="Search work" />
+		<SidebarSearch bind:value={() => search, typeSearch} placeholder="Search work" />
 	{/snippet}
 	{#snippet nav()}
 		<SidebarRow
@@ -565,7 +670,7 @@
 		{#if loaded && graph && graph.work.length}
 			<SidebarRow
 				href={viewHref('waiting')}
-				label="Waiting on you"
+				label="Needs you"
 				icon={InboxIcon}
 				active={selectedGoal === 'waiting'}
 				count={waitingCount}
@@ -602,8 +707,8 @@
 					</SidebarEmpty>
 				{/each}
 				{#if otherOpen}<SidebarRow
-						onclick={() => chooseGoal('other')}
-						label="Other work"
+						href={viewHref('other')}
+						label="No goal"
 						icon={CircleDashed}
 						active={selectedGoal === 'other'}
 						count={otherOpen}
@@ -616,7 +721,7 @@
 	{/snippet}
 	{#snippet foot()}
 		<SidebarRow
-			href={viewHref(selectedGoal === 'archived' ? '' : 'archived')}
+			href={viewHref('archived')}
 			label="Archived"
 			icon={ArchiveIcon}
 			active={selectedGoal === 'archived'}
@@ -625,7 +730,7 @@
 		/>
 		{#if archivedOpen}{#each closedGoals as goal (goal.id)}{@render goalRow(goal, true)}{/each}{/if}
 		{#if stoppedCount}<SidebarRow
-				href={viewHref(stoppedView ? '' : 'stopped')}
+				href={viewHref('stopped')}
 				label="Stopped"
 				icon={Ban}
 				active={stoppedView}
@@ -634,7 +739,9 @@
 			/>{/if}
 	{/snippet}
 	{#snippet narrow()}
-		<div class="narrow-search"><SidebarSearch bind:value={search} placeholder="Search work" /></div>
+		<div class="narrow-search">
+			<SidebarSearch bind:value={() => search, typeSearch} placeholder="Search work" />
+		</div>
 		{#if loaded && graph && !noWorkYet}
 			<nav class="views" aria-label="Goals">
 				{#each narrowViews as item (item.goal)}
@@ -692,6 +799,7 @@
 					<ActionMenu label="Goal actions">
 						{#snippet trigger()}<span>Goal</span>{/snippet}
 						{#if !selectedGoalRow.closed_at}
+							<button type="button" onclick={addWork}><span>Add work…</span></button>
 							<button type="button" onclick={openGoalEdit}><span>Edit goal…</span></button>
 							{#each teamRows as team (team.id)}
 								<button
@@ -869,6 +977,10 @@
 							<span>{progress.done} of {progress.total} done</span>
 							{#if dueLabel(selectedGoalRow)}<span>Due {dueLabel(selectedGoalRow)}</span>{/if}
 							{#if goalTeam(selectedGoalRow)}<span>{goalTeam(selectedGoalRow)}</span>{/if}
+							<!-- The facts a goal row's hover title carries, readable on touch once it is chosen. -->
+							{#if !ownerAccess}<span
+									>{standardLabel(goalStandard(selectedGoalRow))} quality bar</span
+								>{/if}
 							{#if ownerAccess && goalCost(selectedGoalRow.id)}<span
 									title="Metered model spend on this goal's work"
 									>{goalCost(selectedGoalRow.id)}</span
@@ -915,11 +1027,26 @@
 					{#snippet action()}{#if ownerAccess}<button
 								class="btn small primary"
 								type="button"
-								onclick={askExec}>Tell Exec what you want</button
+								onclick={addWork}>Tell Exec what you want</button
 							>{/if}{/snippet}
 				</Empty>
+			{:else if !goalWork.length && (search.trim() || filtered)}
+				<Empty compact title={emptyWorkTitle(selectedGoal, search, filtered)}>
+					{#snippet action()}<button class="btn small" type="button" onclick={clearSearch}
+							>{search.trim() ? 'Clear search' : 'Clear filters'}</button
+						>{/snippet}
+				</Empty>
 			{:else if view === 'board'}
-				<WorkBoard columns={boardColumns} />
+				<WorkBoard columns={boardColumns}>
+					{#snippet footer(column)}
+						{#if column.key === 'completed' && done.length > RECENT_DONE}<button
+								class="btn small ghost"
+								type="button"
+								onclick={() => (showAllDone = !showAllDone)}
+								>{showAllDone ? 'Show recent only' : `Show all ${done.length}`}</button
+							>{/if}
+					{/snippet}
+				</WorkBoard>
 			{:else}
 				{#each groups.filter((group) => group.rows.length) as group (group.key)}
 					<section class="group" aria-label={group.label}>
@@ -939,7 +1066,13 @@
 					</section>
 				{/if}
 				{#if !goalWork.length}
-					<Empty compact title={emptyWorkTitle(selectedGoal)} />
+					<Empty compact title={emptyWorkTitle(selectedGoal)}>
+						{#snippet action()}{#if ownerAccess && selectedGoalRow && !selectedGoalRow.closed_at}<button
+									class="btn small"
+									type="button"
+									onclick={addWork}>Add work</button
+								>{/if}{/snippet}
+					</Empty>
 				{/if}
 			{/if}
 		</div>

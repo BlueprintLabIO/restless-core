@@ -52,7 +52,7 @@
 			if (work.status === 'completed' && now - updated < RECENT_MS)
 				[state, tone] = ['Done', 'done'];
 			else if (work.status === 'blocked') [state, tone] = ['Blocked', 'blocked'];
-			else if (work.status === 'active' && waiting) [state, tone] = ['Waiting on you', 'waiting'];
+			else if (work.status === 'active' && waiting) [state, tone] = ['Needs you', 'waiting'];
 			else if (work.status === 'active' && holder) [state, tone] = [`With ${name(holder)}`, ''];
 			else if (work.status === 'active' && running)
 				[state, tone] = [`On it since ${formatMoment(running.started_at)}`, 'moving'];
