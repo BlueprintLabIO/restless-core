@@ -36,6 +36,19 @@ mod tests {
             eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Sheets database integration");
             return;
         };
+        // The worker needs the pinned engine installed beside it
+        // (`npm --prefix services/native-sheets ci`, as `restless-dev` does).
+        if std::env::var_os("RESTLESS_SHEETS_WORKER").is_none()
+            && !PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../services/native-sheets/node_modules/@odoo/o-spreadsheet")
+                .is_dir()
+        {
+            eprintln!(
+                "pinned spreadsheet engine not installed; skipping Sheets integration \
+                 (run `npm --prefix services/native-sheets ci`)"
+            );
+            return;
+        }
         let _owned_worker = SHEET_TEST_LOCK.lock().await;
         reset_test_worker().await;
         assert!(
