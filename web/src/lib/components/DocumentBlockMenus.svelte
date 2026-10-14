@@ -12,6 +12,10 @@
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import Copy from '@lucide/svelte/icons/copy';
+	import AtSign from '@lucide/svelte/icons/at-sign';
+	import FileText from '@lucide/svelte/icons/file-text';
+	import CircleDot from '@lucide/svelte/icons/circle-dot';
+	import UserRound from '@lucide/svelte/icons/user-round';
 	import Heading1 from '@lucide/svelte/icons/heading-1';
 	import Heading2 from '@lucide/svelte/icons/heading-2';
 	import Heading3 from '@lucide/svelte/icons/heading-3';
@@ -30,13 +34,19 @@
 	import {
 		DOCUMENT_IMAGE_TYPES,
 		documentTable,
+		mentionMenuKey,
 		slashMenuKey,
+		type DocumentSuggestion,
 		type SlashMenuState
 	} from '$lib/model/document-editor-schema';
 
 	interface Props {
 		editor: Editor | null;
 		slash: SlashMenuState | null;
+		/** The "@" menu, while it is open. */
+		mention?: SlashMenuState | null;
+		/** Whom and what "@" offers. */
+		suggestions?: readonly DocumentSuggestion[];
 		/** Image files chosen for a position: the page uploads and places them. */
 		onimages: (files: File[], at: number) => void;
 		/** Start a comment thread on a block. */
@@ -45,7 +55,15 @@
 		onlink?: (blockId: string) => void;
 	}
 
-	let { editor, slash, onimages, oncomment, onlink }: Props = $props();
+	let {
+		editor,
+		slash,
+		mention = null,
+		suggestions = [],
+		onimages,
+		oncomment,
+		onlink
+	}: Props = $props();
 
 	type Chain = ReturnType<Editor['chain']>;
 	interface BlockChoice {
@@ -127,7 +145,8 @@
 		...KINDS,
 		{ id: 'divider', label: 'Divider', icon: Minus, words: 'rule line hr separator' },
 		{ id: 'table', label: 'Table', icon: Table2, words: 'grid' },
-		{ id: 'image', label: 'Image', icon: ImageIcon, words: 'picture photo upload' }
+		{ id: 'image', label: 'Image', icon: ImageIcon, words: 'picture photo upload' },
+		{ id: 'mention', label: 'Mention a person', icon: AtSign, words: 'person people at name' }
 	];
 
 	/* ---------- "/" ---------- */
@@ -211,7 +230,112 @@
 		else if (item.id === 'image') {
 			chain.run();
 			pickImages(range.from);
+		} else if (item.id === 'mention')
+			chain
+				.insertContent('@')
+				.command(({ tr }) => {
+					tr.setMeta(mentionMenuKey, { from: range.from, query: '' });
+					return true;
+				})
+				.run();
+	}
+
+	/* ---------- "@" ---------- */
+
+	let mentionIndex = $state(0);
+	let mentionPanel = $state<HTMLDivElement>();
+	let mentionPlace = $state<{ left: number; top: number } | null>(null);
+	const SUGGESTION_ICONS = { actor: UserRound, document: FileText, work: CircleDot };
+
+	/* Names that start with what was typed first, then names that contain it. */
+	const mentionItems = $derived.by(() => {
+		const query = (mention?.query ?? '').trim().toLowerCase();
+		return suggestions
+			.filter((item) => !query || item.label.toLowerCase().includes(query))
+			.toSorted(
+				(left, right) =>
+					Number(!left.label.toLowerCase().startsWith(query)) -
+						Number(!right.label.toLowerCase().startsWith(query)) ||
+					Number(left.kind !== 'actor') - Number(right.kind !== 'actor')
+			)
+			.slice(0, 8);
+	});
+
+	$effect(() => {
+		void mention?.query;
+		mentionIndex = 0;
+	});
+
+	$effect(() => {
+		const state = mention;
+		const panel = mentionPanel;
+		const open = Boolean(state && editor && mentionItems.length);
+		if (!panel) return;
+		if (!open) {
+			if (panel.matches(':popover-open')) panel.hidePopover();
+			mentionPlace = null;
+			return;
 		}
+		if (!panel.matches(':popover-open')) panel.showPopover();
+		if (!state || !editor) return;
+		let coords: { left: number; top: number; bottom: number };
+		try {
+			coords = editor.view.coordsAtPos(state.from);
+		} catch {
+			mentionPlace = null;
+			return;
+		}
+		const height = panel.offsetHeight;
+		const width = panel.offsetWidth;
+		mentionPlace = {
+			left: Math.max(8, Math.min(coords.left, innerWidth - width - 8)),
+			top:
+				coords.bottom + height + 8 > innerHeight
+					? Math.max(8, coords.top - height - 4)
+					: coords.bottom + 4
+		};
+	});
+
+	/* A person becomes a mention; a document or Work becomes a chip that opens it. */
+	function chooseMention(item: DocumentSuggestion): void {
+		const state = mention;
+		if (!editor || !state) return;
+		const node =
+			item.kind === 'actor'
+				? { type: 'mention', attrs: { actor_id: item.id, label: item.label.slice(0, 200) } }
+				: {
+						type: 'reference',
+						attrs: { kind: item.kind, id: item.id, label: item.label.slice(0, 300) }
+					};
+		editor
+			.chain()
+			.focus()
+			.command(({ tr }) => {
+				tr.setMeta(mentionMenuKey, null);
+				return true;
+			})
+			.insertContentAt({ from: state.from, to: state.from + 1 + state.query.length }, [
+				node,
+				{ type: 'text', text: ' ' }
+			])
+			.run();
+	}
+
+	/** The "@" menu's keys, while it is open; true when it used the key. */
+	export function mentionKey(event: KeyboardEvent): boolean {
+		const items = mentionItems;
+		if (!mention || !items.length || composing(event)) return false;
+		if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+			const step = event.key === 'ArrowDown' ? 1 : -1;
+			mentionIndex = (mentionIndex + step + items.length) % items.length;
+			return true;
+		}
+		if (event.key === 'Enter' || event.key === 'Tab') {
+			const item = items[Math.min(mentionIndex, items.length - 1)];
+			if (item) chooseMention(item);
+			return true;
+		}
+		return false;
 	}
 
 	/** The "/" menu's keys, while it is open; true when it used the key. */
@@ -474,6 +598,37 @@
 </div>
 
 <div
+	bind:this={mentionPanel}
+	popover="manual"
+	class="block-menu slash-menu"
+	role="listbox"
+	aria-label="Mention"
+	style:left={mentionPlace ? `${mentionPlace.left}px` : undefined}
+	style:top={mentionPlace ? `${mentionPlace.top}px` : undefined}
+	style:visibility={mentionPlace ? undefined : 'hidden'}
+>
+	{#each mentionItems as item, index (`${item.kind}:${item.id}`)}
+		{@const Icon = SUGGESTION_ICONS[item.kind]}
+		<button
+			type="button"
+			role="option"
+			tabindex="-1"
+			aria-selected={index === mentionIndex}
+			class:active={index === mentionIndex}
+			title={item.kind === 'actor'
+				? 'Names them here. To ask them something, comment so it reaches them.'
+				: `A link to this ${item.kind === 'work' ? 'Work' : 'document'} that shows its title`}
+			onmousedown={(event) => event.preventDefault()}
+			onmouseenter={() => (mentionIndex = index)}
+			onclick={() => chooseMention(item)}
+			><Icon size={16} strokeWidth={1.8} aria-hidden="true" /><span class="suggestion-label"
+				>{item.label}</span
+			></button
+		>
+	{/each}
+</div>
+
+<div
 	bind:this={blockPanel}
 	popover="manual"
 	class="block-menu"
@@ -610,6 +765,12 @@
 	}
 	.block-menu button.back {
 		color: var(--text-secondary);
+	}
+	.suggestion-label {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.block-menu kbd {
 		margin-left: auto;

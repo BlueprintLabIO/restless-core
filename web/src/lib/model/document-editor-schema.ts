@@ -715,6 +715,10 @@ export interface DocumentEditorHooks {
 	slashChange?: (state: SlashMenuState | null) => void;
 	/** A key pressed while the "/" menu is open; true when the menu used it. */
 	slashKey?: (event: KeyboardEvent) => boolean;
+	/** The "@" menu opened, changed or closed. */
+	mentionChange?: (state: SlashMenuState | null) => void;
+	/** A key pressed while the "@" menu is open; true when the menu used it. */
+	mentionKey?: (event: KeyboardEvent) => boolean;
 	/** Open the actions of the top-level block at a position, beside an anchor. */
 	blockMenu?: (target: { pos: number; anchor: DOMRect; fromKeyboard?: boolean }) => void;
 	/** The top-level blocks that have an open comment thread, marked in the text. */
@@ -1000,6 +1004,13 @@ function imageExtension(hooks: DocumentEditorHooks) {
 	});
 }
 
+/** Someone or something the "@" menu can name in place: a person, a document or Work. */
+export interface DocumentSuggestion {
+	kind: 'actor' | 'document' | 'work';
+	id: string;
+	label: string;
+}
+
 /** The "/" menu while it is open: where its slash is and what has been typed after it. */
 export interface SlashMenuState {
 	from: number;
@@ -1013,16 +1024,17 @@ export const slashMenuKey = new PluginKey<SlashMenuState | null>('documentSlashM
 export function nextSlashMenuState(
 	state: EditorState,
 	previous: SlashMenuState | null,
-	mapped: number
+	mapped: number,
+	trigger = '/'
 ): SlashMenuState | null {
 	if (!previous) return null;
 	const { selection, doc } = state;
 	if (!selection.empty || mapped < 0 || mapped >= doc.content.size) return null;
 	const head = selection.from;
-	if (head <= mapped || doc.textBetween(mapped, mapped + 1) !== '/') return null;
+	if (head <= mapped || doc.textBetween(mapped, mapped + 1) !== trigger) return null;
 	if (doc.resolve(mapped).parent !== selection.$from.parent) return null;
 	const query = doc.textBetween(mapped + 1, head);
-	if (query.length > 24 || /^\s|\s\s/u.test(query)) return null;
+	if (query.length > (trigger === '/' ? 24 : 40) || /^\s|\s\s/u.test(query)) return null;
 	return { from: mapped, query };
 }
 
@@ -1037,51 +1049,62 @@ export function slashOpensMenu(state: EditorState): boolean {
 	return /\s/u.test(before);
 }
 
+/* Typing "@" the same way opens a menu of people and pages to name in place. */
+export const mentionMenuKey = new PluginKey<SlashMenuState | null>('documentMentionMenu');
+
 /* Typing "/" at the start of a line, or after a space, opens a menu of blocks; a slash anywhere
- * else is a slash. The page draws the menu and handles its keys; Escape, or deleting the slash,
- * closes it. */
+ * else is a slash. "@" works the same way for people and pages. The page draws each menu and
+ * handles its keys; Escape, or deleting the character, closes it. */
+function triggerMenuPlugin(
+	trigger: '/' | '@',
+	key: PluginKey<SlashMenuState | null>,
+	change: ((state: SlashMenuState | null) => void) | undefined,
+	onKey: ((event: KeyboardEvent) => boolean) | undefined
+) {
+	return new Plugin<SlashMenuState | null>({
+		key,
+		state: {
+			init: () => null,
+			apply: (tr, value, _old, state) => {
+				const meta = tr.getMeta(key) as SlashMenuState | null | undefined;
+				if (meta !== undefined) return meta;
+				return value
+					? nextSlashMenuState(state, value, tr.mapping.map(value.from, -1), trigger)
+					: null;
+			}
+		},
+		props: {
+			handleTextInput: (view, from, to, text) => {
+				if (text !== trigger || !change || !slashOpensMenu(view.state)) return false;
+				view.dispatch(
+					view.state.tr.insertText(trigger, from, to).setMeta(key, { from, query: '' })
+				);
+				return true;
+			},
+			handleKeyDown: (view, event) => {
+				if (!key.getState(view.state)) return false;
+				if (event.key === 'Escape') {
+					view.dispatch(view.state.tr.setMeta(key, null));
+					return true;
+				}
+				return onKey?.(event) ?? false;
+			}
+		},
+		view: () => ({
+			update: (view) => change?.(key.getState(view.state) ?? null),
+			destroy: () => change?.(null)
+		})
+	});
+}
+
 function slashMenuExtension(hooks: DocumentEditorHooks) {
 	return Extension.create({
 		name: 'documentSlashMenu',
 		priority: 10_000,
-		addProseMirrorPlugins() {
-			return [
-				new Plugin<SlashMenuState | null>({
-					key: slashMenuKey,
-					state: {
-						init: () => null,
-						apply: (tr, value, _old, state) => {
-							const meta = tr.getMeta(slashMenuKey) as SlashMenuState | null | undefined;
-							if (meta !== undefined) return meta;
-							return value
-								? nextSlashMenuState(state, value, tr.mapping.map(value.from, -1))
-								: null;
-						}
-					},
-					props: {
-						handleTextInput: (view, from, to, text) => {
-							if (text !== '/' || !hooks.slashChange || !slashOpensMenu(view.state)) return false;
-							view.dispatch(
-								view.state.tr.insertText('/', from, to).setMeta(slashMenuKey, { from, query: '' })
-							);
-							return true;
-						},
-						handleKeyDown: (view, event) => {
-							if (!slashMenuKey.getState(view.state)) return false;
-							if (event.key === 'Escape') {
-								view.dispatch(view.state.tr.setMeta(slashMenuKey, null));
-								return true;
-							}
-							return hooks.slashKey?.(event) ?? false;
-						}
-					},
-					view: () => ({
-						update: (view) => hooks.slashChange?.(slashMenuKey.getState(view.state) ?? null),
-						destroy: () => hooks.slashChange?.(null)
-					})
-				})
-			];
-		}
+		addProseMirrorPlugins: () => [
+			triggerMenuPlugin('/', slashMenuKey, hooks.slashChange, hooks.slashKey),
+			triggerMenuPlugin('@', mentionMenuKey, hooks.mentionChange, hooks.mentionKey)
+		]
 	});
 }
 

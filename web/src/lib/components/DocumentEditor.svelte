@@ -64,6 +64,7 @@
 		safeHref,
 		selectedDocumentBlockId,
 		withDocumentImages,
+		type DocumentSuggestion,
 		type SlashMenuState
 	} from '$lib/model/document-editor-schema';
 	import {
@@ -107,6 +108,8 @@
 		onopenthread?: (threadId: string) => void;
 		/** Copy a link that opens this document at a block. */
 		oncopyblocklink?: (blockId: string) => void;
+		/** Whom and what "@" offers to name in the text. */
+		suggestions?: readonly DocumentSuggestion[];
 		ondirtychange?: (dirty: boolean) => void;
 		onleavechange?: (ready: boolean) => void;
 	}
@@ -128,6 +131,7 @@
 		commentedBlocks = new Map(),
 		onopenthread = () => {},
 		oncopyblocklink,
+		suggestions = [],
 		ondirtychange = () => {},
 		onleavechange = () => {}
 	}: Props = $props();
@@ -523,6 +527,8 @@
 									uploadImages: (files, at) => void insertImages(files, at),
 									slashChange: setSlash,
 									slashKey: (event) => menus?.slashKey(event) ?? false,
+									mentionChange: setMention,
+									mentionKey: (event) => menus?.mentionKey(event) ?? false,
 									blockMenu: (target) => menus?.openBlockMenu(target),
 									commentedBlocks: () => markedBlocks
 								}
@@ -615,6 +621,11 @@
 	function setSlash(next: SlashMenuState | null): void {
 		if (next?.from === slash?.from && next?.query === slash?.query) return;
 		slash = next;
+	}
+	let mention = $state<SlashMenuState | null>(null);
+	function setMention(next: SlashMenuState | null): void {
+		if (next?.from === mention?.from && next?.query === mention?.query) return;
+		mention = next;
 	}
 
 	/* Images: pasted, dropped or picked files become company files (the Library's own upload),
@@ -1372,6 +1383,8 @@
 			bind:this={menus}
 			{editor}
 			{slash}
+			{mention}
+			{suggestions}
 			onimages={(files, at) => void insertImages(files, at)}
 			oncomment={(blockId) => oncomment(blockId)}
 			onlink={oncopyblocklink}

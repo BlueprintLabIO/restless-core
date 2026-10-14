@@ -78,6 +78,12 @@
 	const failure = $derived(shellPrincipal.failure ?? detail.failure ?? null);
 	const principalId = $derived(shellPrincipal.view?.actor_id ?? '');
 	const people = $derived((ownerAccess ? cockpit.view?.people : collaboration.view?.people) ?? []);
+	/* Whom "@" offers in the text: the company's people and Staff, by the names they go by. */
+	const suggestions = $derived(
+		people
+			.filter((person) => person.kind !== 'system' && person.display)
+			.map((person) => ({ kind: 'actor' as const, id: person.actor_id, label: person.display }))
+	);
 	/* Anyone who can open it sees who else can; its creator, the company's owner and the Exec
 	 * change that. Anyone who may edit it retitles, archives and restores it; the company's owner
 	 * may do that to anything they can read. */
@@ -581,6 +587,7 @@
 				{commentedBlocks}
 				onopenthread={openThread}
 				oncopyblocklink={(blockId) => void copyBlockLink(blockId)}
+				{suggestions}
 				ondirtychange={(value) => (documentDirty = value)}
 			>
 				{#snippet leading()}<LibraryCrumb
