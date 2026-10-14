@@ -82,6 +82,7 @@
 		type RetainedAttachment
 	} from '$lib/model/attachments';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
+	import { keepCountInTitle } from '$lib/model/title-count';
 	import { forYouSentence, newlyUnread, unreadMarks } from '$lib/model/for-you';
 	import { forYouSource, provideForYou } from '$lib/model/for-you.svelte';
 
@@ -840,6 +841,10 @@
 						: tab
 		);
 	});
+
+	/* The tab title leads with what needs the person, from the same count as the Inbox badge. */
+	const needsYouCount = $derived(tabs.find((tab) => tab.key === 'attention')?.badge ?? 0);
+	$effect(() => keepCountInTitle(needsYouCount));
 
 	/* The Apps dot: a sign-in to renew, a tool to review, or an app Exec asked
 	 * for. Checked on arrival, on every move and once a minute. Know-how

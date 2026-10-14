@@ -588,7 +588,9 @@
 	holdQueries(() => [leadConversation, identity, collaboration]);
 </script>
 
-<svelte:head><title>Inbox — {view?.company.name ?? companyId}</title></svelte:head>
+<svelte:head
+	><title>{view?.company.name ? `Inbox — ${view.company.name}` : 'Inbox'}</title></svelte:head
+>
 <h1 class="sr-title">Inbox</h1>
 
 {#if focusedReview}
