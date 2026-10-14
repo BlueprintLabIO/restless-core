@@ -144,10 +144,10 @@ export function skillInUse(title: string | null | undefined): string | null {
 export type ParsedCommand =
 	| { kind: 'goal-set'; objective: string }
 	| { kind: 'goal-show' }
-	| { kind: 'goal-clear' }
+	| { kind: 'goal-clear'; target: string }
 	| { kind: 'loop-set'; every: string; prompt: string }
 	| { kind: 'loop-show' }
-	| { kind: 'loop-clear' }
+	| { kind: 'loop-clear'; target: string }
 	| { kind: 'invalid'; message: string };
 
 /** Interpret one Exec composer command, or null for ordinary text. */
@@ -158,11 +158,13 @@ export function parseComposerCommand(text: string): ParsedCommand | null {
 	const rest = (match[2] ?? '').trim();
 	if (match[1] === 'goal') {
 		if (!rest) return { kind: 'goal-show' };
-		if (rest === 'clear') return { kind: 'goal-clear' };
+		const clear = rest.match(/^(?:clear|close)(?:\s+([\s\S]*))?$/i);
+		if (clear) return { kind: 'goal-clear', target: (clear[1] ?? '').trim() };
 		return { kind: 'goal-set', objective: rest };
 	}
 	if (!rest) return { kind: 'loop-show' };
-	if (rest === 'clear' || rest === 'stop') return { kind: 'loop-clear' };
+	const stop = rest.match(/^(?:clear|stop)(?:\s+([\s\S]*))?$/i);
+	if (stop) return { kind: 'loop-clear', target: (stop[1] ?? '').trim() };
 	const loop = rest.match(/^(\d+\s*(?:s|m|h|d|min|mins|minutes?|hours?|days?)?)\s+([\s\S]+)$/i);
 	if (!loop) {
 		return {
@@ -186,6 +188,33 @@ export function addGoal(
 
 export function closeGoal(company: string, goal: string): Promise<{ closed: boolean }> {
 	return call(company, `/goals/${encodeURIComponent(goal)}/close`, { method: 'POST' });
+}
+
+export function reopenGoal(company: string, goal: string): Promise<{ reopened: boolean }> {
+	return call(company, `/goals/${encodeURIComponent(goal)}/reopen`, { method: 'POST' });
+}
+
+/** Which of `rows` a `/goal clear` or `/loop stop` target names: its number in the listing,
+ * words from its title, or `all`. Nothing named chooses the only row; otherwise null asks. */
+export function pickTargets<T>(
+	rows: readonly T[],
+	target: string,
+	title: (row: T) => string,
+	allowAll: boolean
+): T[] | null {
+	const wanted = target.trim().toLowerCase();
+	if (!wanted) return rows.length === 1 ? [rows[0]] : null;
+	if (wanted === 'all') return allowAll ? [...rows] : null;
+	if (/^\d+$/.test(wanted)) {
+		const row = rows[Number(wanted) - 1];
+		return row ? [row] : null;
+	}
+	const matches = rows.filter((row) => title(row).toLowerCase().includes(wanted));
+	return matches.length === 1 ? matches : null;
+}
+
+function numbered(titles: string[]): string {
+	return titles.map((title, index) => `${index + 1}. ${title}`).join(' · ');
 }
 
 export async function listLoops(company: string): Promise<ScheduleRow[]> {
@@ -299,7 +328,13 @@ export function describeInterval(seconds: number): string {
 export async function runExecCommand(
 	company: string,
 	text: string
-): Promise<{ notice?: string; error?: string; send: boolean }> {
+): Promise<{
+	notice?: string;
+	error?: string;
+	send: boolean;
+	/** Puts back what the command just stopped or closed; resolves to what it says then. */
+	undo?: () => Promise<string>;
+}> {
 	const command = parseComposerCommand(text);
 	if (!command) return { send: true };
 	switch (command.kind) {
@@ -312,17 +347,30 @@ export async function runExecCommand(
 			const open = (await listGoals(company)).filter((goal) => !goal.closed_at);
 			return {
 				notice: open.length
-					? `Open goals: ${open.map((goal) => goal.title).join('; ')}`
+					? `Open goals: ${numbered(open.map((goal) => goal.title))}`
 					: 'No open goals. Set one with /goal <objective>.',
 				send: false
 			};
 		}
 		case 'goal-clear': {
 			const open = (await listGoals(company)).filter((goal) => !goal.closed_at);
-			const latest = open.at(-1);
-			if (!latest) return { notice: 'There is no open goal to clear.', send: false };
-			await closeGoal(company, latest.id);
-			return { notice: `Closed the goal “${latest.title}”. Its work is unchanged.`, send: false };
+			if (!open.length) return { notice: 'There is no open goal to clear.', send: false };
+			const chosen = pickTargets(open, command.target, (goal) => goal.title, false);
+			if (!chosen)
+				return {
+					notice: `Which goal? ${numbered(open.map((goal) => goal.title))}. Close one with /goal clear <number>.`,
+					send: false
+				};
+			const goal = chosen[0];
+			await closeGoal(company, goal.id);
+			return {
+				notice: `Closed the goal “${goal.title}”. Its work is unchanged.`,
+				send: false,
+				undo: async () => {
+					await reopenGoal(company, goal.id);
+					return `Reopened the goal “${goal.title}”.`;
+				}
+			};
 		}
 		case 'loop-set': {
 			const loop = await addLoop(company, command.every, command.prompt);
@@ -337,24 +385,49 @@ export async function runExecCommand(
 			const loops = await listLoops(company);
 			return {
 				notice: loops.length
-					? loops
-							.map(
-								(loop) => `Every ${describeInterval(loop.interval_seconds ?? 0)}: ${loop.reason}`
-							)
-							.join(' · ')
+					? numbered(loops.map(loopTitle))
 					: 'No loops are running. Start one with /loop 30m <what to check>.',
 				send: false
 			};
 		}
 		case 'loop-clear': {
 			const loops = await listLoops(company);
-			await Promise.all(loops.map((loop) => cancelLoop(company, loop.id)));
+			if (!loops.length) return { notice: 'No loops are running.', send: false };
+			const chosen = pickTargets(loops, command.target, loopTitle, true);
+			if (!chosen)
+				return {
+					notice: `Which loop? ${numbered(loops.map(loopTitle))}. Stop one with /loop stop <number>, or every one with /loop stop all.`,
+					send: false
+				};
+			await Promise.all(chosen.map((loop) => cancelLoop(company, loop.id)));
 			return {
-				notice: loops.length
-					? `Stopped ${loops.length} loop${loops.length === 1 ? '' : 's'}.`
-					: 'No loops were running.',
-				send: false
+				notice:
+					chosen.length === 1
+						? `Stopped the loop “${loopTitle(chosen[0])}”.`
+						: `Stopped all ${chosen.length} loops.`,
+				send: false,
+				undo: async () => {
+					await Promise.all(chosen.map((loop) => restartLoop(company, loop)));
+					return chosen.length === 1
+						? 'The loop is running again.'
+						: 'The loops are running again.';
+				}
 			};
 		}
 	}
+}
+
+function loopTitle(loop: ScheduleRow): string {
+	const when =
+		loop.local_time && loop.timezone
+			? `Weekdays at ${loop.local_time}`
+			: `Every ${describeInterval(loop.interval_seconds ?? 0)}`;
+	return `${when}: ${loop.reason}`;
+}
+
+/** A stopped loop started again with the same cadence and words (under a new id). */
+function restartLoop(company: string, loop: ScheduleRow): Promise<unknown> {
+	return loop.local_time && loop.timezone
+		? addWeekdaySchedule(company, loop.local_time.slice(0, 5), loop.timezone, loop.reason)
+		: addLoop(company, `${loop.interval_seconds ?? 0}s`, loop.reason);
 }

@@ -13,7 +13,9 @@ test('/goal and /loop become Restless primitives while prose stays prose', () =>
 		objective: 'Ship the pricing page'
 	});
 	assert.deepEqual(parseComposerCommand('/goal'), { kind: 'goal-show' });
-	assert.deepEqual(parseComposerCommand('/goal clear'), { kind: 'goal-clear' });
+	assert.deepEqual(parseComposerCommand('/goal clear'), { kind: 'goal-clear', target: '' });
+	assert.deepEqual(parseComposerCommand('/goal clear 2'), { kind: 'goal-clear', target: '2' });
+	assert.deepEqual(parseComposerCommand('/loop stop all'), { kind: 'loop-clear', target: 'all' });
 	assert.deepEqual(parseComposerCommand('/loop 30m review inbound leads'), {
 		kind: 'loop-set',
 		every: '30m',
@@ -87,6 +89,19 @@ test('$ offers only skills and hides ones already selected', () => {
 		),
 		['grill-me']
 	);
+});
+
+test('/goal clear and /loop stop act only on what was named, never on all by default', () => {
+	const rows = ['Ship pricing', 'Hire a designer', 'Review leads'];
+	const title = (row: string) => row;
+	assert.equal(skills.pickTargets(rows, '', title, true), null, 'several rows: ask which');
+	assert.deepEqual(skills.pickTargets(['Only one'], '', title, true), ['Only one']);
+	assert.deepEqual(skills.pickTargets(rows, '2', title, true), ['Hire a designer']);
+	assert.deepEqual(skills.pickTargets(rows, 'pricing', title, true), ['Ship pricing']);
+	assert.equal(skills.pickTargets(rows, 'e', title, true), null, 'ambiguous words ask');
+	assert.deepEqual(skills.pickTargets(rows, 'all', title, true), rows);
+	assert.equal(skills.pickTargets(rows, 'all', title, false), null, 'goals close one at a time');
+	assert.equal(skills.pickTargets(rows, '9', title, true), null);
 });
 
 test('a skill applied in a tool call reads as that skill', () => {

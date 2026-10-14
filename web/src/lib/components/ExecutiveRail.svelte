@@ -304,9 +304,7 @@
 	);
 
 	/* Returns a notice for commands handled without a message, or send: true. */
-	async function runCommand(
-		text: string
-	): Promise<{ notice?: string; error?: string; send: boolean }> {
+	async function runCommand(text: string): ReturnType<typeof runExecCommand> {
 		return commandsAllowed ? runExecCommand(companyId, text) : { send: true };
 	}
 
@@ -456,6 +454,18 @@
 	let contextFlare = $state(0);
 	let askError = $state('');
 	let askNotice = $state('');
+	/* A command that stopped a loop or closed a goal can be put back from its notice. */
+	let noticeUndo = $state<{ notice: string; run: () => Promise<string> } | null>(null);
+	async function undoCommand() {
+		const undo = noticeUndo;
+		if (!undo || undo.notice !== askNotice) return;
+		noticeUndo = null;
+		try {
+			askNotice = await undo.run();
+		} catch (cause) {
+			askError = failureSentence(cause, 'That could not be undone.');
+		}
+	}
 	let reviewError = $state('');
 	let reviewFeedback = $state('');
 	let deciding = $state(false);
@@ -917,6 +927,7 @@
 					askError = command.error;
 				} else {
 					askNotice = command.notice ?? '';
+					noticeUndo = command.undo ? { notice: askNotice, run: command.undo } : null;
 				}
 				return;
 			}
@@ -1506,7 +1517,12 @@
 						<p class="exr-error" role="alert">{askError}</p>
 					{/if}
 					{#if askNotice}
-						<p class="exr-notice" role="status">{askNotice}</p>
+						<p class="exr-notice" role="status">
+							{askNotice}{#if noticeUndo?.notice === askNotice}
+								<button type="button" class="exr-undo" onclick={() => void undoCommand()}
+									>Undo</button
+								>{/if}
+						</p>
 					{/if}
 				</form>
 			</div>
@@ -1515,6 +1531,17 @@
 </aside>
 
 <style>
+	.exr-undo {
+		margin-left: 6px;
+		padding: 0;
+		border: 0;
+		background: none;
+		color: var(--ink);
+		font: inherit;
+		font-weight: 600;
+		text-decoration: underline;
+		cursor: pointer;
+	}
 	.jump-anchor {
 		position: relative;
 		height: 0;
