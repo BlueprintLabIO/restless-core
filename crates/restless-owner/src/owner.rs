@@ -5739,8 +5739,24 @@ async fn company_setup(
     }
 }
 
+/// Record a change a person made to the company's settings, so it shows in Activity and Exec
+/// learns of it before its next turn (Sprint 86). The setting is already saved: a failure here is
+/// logged, never reported as a failed save.
+async fn record_setting_change(
+    state: &OwnerState,
+    company: &str,
+    by: &str,
+    kind: &str,
+    body: serde_json::Value,
+) {
+    if let Err(error) = state.daemon.authority.emit(company, kind, Some(by), body).await {
+        tracing::warn!(%error, kind, "a settings change was saved but not recorded");
+    }
+}
+
 async fn update_company_setup(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
     Json(input): Json<CompanySetupInput>,
 ) -> Response<Body> {
@@ -5749,6 +5765,11 @@ async fn update_company_setup(
         Ok(config) => config,
         Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
     };
+    let named_before = config
+        .display_name
+        .clone()
+        .unwrap_or_else(|| company_display_name(&config.name));
+    let model_before = config.model.clone();
     if company_setup_view(&config)["revision"].as_str() != Some(input.revision.as_str()) {
         return api_error(
             StatusCode::CONFLICT,
@@ -5777,7 +5798,19 @@ async fn update_company_setup(
         }
         config.display_name = Some(input.display_name.trim().to_string());
         return match runtime::CompanyConfig::save(&state.daemon.root, &config) {
-            Ok(()) => Json(company_setup_view(&config)).into_response(),
+            Ok(()) => {
+                if named_before != input.display_name.trim() {
+                    record_setting_change(
+                        &state,
+                        &company,
+                        principal.actor_id(),
+                        "company_renamed",
+                        serde_json::json!({"from": named_before, "to": input.display_name.trim()}),
+                    )
+                    .await;
+                }
+                Json(company_setup_view(&config)).into_response()
+            }
             Err(error) => api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "company_setup",
@@ -5845,6 +5878,26 @@ async fn update_company_setup(
             "company_setup",
             format!("Settings saved, but the executive model could not be updated: {error:#}"),
         );
+    }
+    if named_before != input.display_name.trim() {
+        record_setting_change(
+            &state,
+            &company,
+            principal.actor_id(),
+            "company_renamed",
+            serde_json::json!({"from": named_before, "to": input.display_name.trim()}),
+        )
+        .await;
+    }
+    if model_before != selected_model && !selected_model.is_empty() {
+        record_setting_change(
+            &state,
+            &company,
+            principal.actor_id(),
+            "company_model_changed",
+            serde_json::json!({"from": model_before, "to": selected_model}),
+        )
+        .await;
     }
     match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => Json(company_setup_view(&config)).into_response(),
@@ -12334,6 +12387,7 @@ struct AgentIntelligenceInput {
 }
 async fn update_agent_intelligence(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath((company, actor)): AxumPath<(String, String)>,
     Json(input): Json<AgentIntelligenceInput>,
 ) -> Response<Body> {
@@ -12492,10 +12546,21 @@ async fn update_agent_intelligence(
     }
     .await;
     match result {
-        Ok(()) => Json(
-            serde_json::json!({"saved":true,"revision":company_setup_view(&config)["revision"]}),
-        )
-        .into_response(),
+        Ok(()) => {
+            record_setting_change(
+                &state,
+                &company,
+                principal.actor_id(),
+                "agent_model_changed",
+                serde_json::json!({
+                    "actor": actor,
+                    "model": if input.reset { serde_json::Value::Null } else { input.model.trim().into() },
+                }),
+            )
+            .await;
+            Json(serde_json::json!({"saved":true,"revision":company_setup_view(&config)["revision"]}))
+                .into_response()
+        }
         Err(error) => api_error(StatusCode::BAD_REQUEST, "intelligence", error.to_string()),
     }
 }
@@ -12511,6 +12576,7 @@ struct ReasoningEffortInput {
 /// one company setting; the model stays per agent.
 async fn update_reasoning_effort(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
     Json(input): Json<ReasoningEffortInput>,
 ) -> Response<Body> {
@@ -12536,10 +12602,18 @@ async fn update_reasoning_effort(
             "Choose low, medium, high, xhigh or max effort.",
         );
     }
-    config.reasoning_effort = input.effort;
+    config.reasoning_effort = input.effort.clone();
     if let Err(error) = runtime::CompanyConfig::save(&state.daemon.root, &config) {
         return api_error(StatusCode::BAD_REQUEST, "intelligence", error.to_string());
     }
+    record_setting_change(
+        &state,
+        &company,
+        principal.actor_id(),
+        "reasoning_effort_changed",
+        serde_json::json!({"effort": input.effort}),
+    )
+    .await;
     Json(serde_json::json!({"saved":true,"revision":company_setup_view(&config)["revision"]}))
         .into_response()
 }

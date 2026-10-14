@@ -119,6 +119,10 @@ pub struct ContextSnapshot {
     /// uses it, how it is billed and its list price. Rendered by the Exec
     /// wake from company config, billing and the model catalog.
     pub staffing_routes: String,
+    /// What people changed in the company's settings lately, newest first, one line each:
+    /// "2h ago · Yail: Spend limit set to $200". Exec reads it so it never carries on as if a
+    /// limit, a name or a model were still what it last saw (Sprint 86).
+    pub people_changes: Vec<String>,
 }
 
 /// The assembled prompt pair and its content digest (sha256, hex). Standing
@@ -410,10 +414,22 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         .map(crate::mentions::MentionContext::prompt)
         .unwrap_or_else(|| "(none)".into());
 
-    let signals = if snapshot.org_signals.is_empty() {
+    let changes = if snapshot.people_changes.is_empty() {
         String::new()
     } else {
         let mut block = String::from(
+            "\n# Changed by people [fact — what you last saw may be out of date; do not ask them to repeat it]\n",
+        );
+        for change in &snapshot.people_changes {
+            block.push_str(&format!("- {change}\n"));
+        }
+        block
+    };
+    let signals = if snapshot.org_signals.is_empty() {
+        changes
+    } else {
+        let mut block = changes;
+        block.push_str(
             "\n# What looks wrong [observation — check these before planning new work]\n",
         );
         for signal in &snapshot.org_signals {
@@ -882,6 +898,7 @@ mod tests {
             effect_ledger: "customer-contact.email 3 · GBP 27.00 moved".into(),
             org_signals: vec!["\"ship the thing\" is blocked and waiting on someone".into()],
             staffing_routes: "- openai/gpt-6-sol — used by Exec — metered".into(),
+            people_changes: Vec::new(),
         }
     }
 
@@ -1036,6 +1053,21 @@ mod tests {
             true,
         );
         assert_eq!(owner_turn.len(), 2);
+    }
+
+    #[test]
+    fn exec_is_told_what_people_changed_and_nothing_when_nothing_did() {
+        let quiet = assemble(&snapshot());
+        assert!(!quiet.system_prompt.contains("# Changed by people"));
+        let mut changed = snapshot();
+        changed.people_changes = vec![
+            "2h ago · The owner: Spend limit set to $200".into(),
+            "2h ago · The owner: Company renamed from S73 Test to Reno".into(),
+        ];
+        let package = assemble(&changed);
+        assert!(package.system_prompt.contains("# Changed by people"));
+        assert!(package.system_prompt.contains("- 2h ago · The owner: Spend limit set to $200"));
+        assert!(package.system_prompt.contains("Company renamed from S73 Test to Reno"));
     }
 
     #[test]

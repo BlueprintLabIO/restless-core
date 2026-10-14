@@ -1,0 +1,24 @@
+{
+	"rules": [
+		{
+			"match": "long reply",
+			"steps": [
+				{
+					"delay_ms": 15,
+					"text": "Here is a long reply so the chat can be watched while it streams.\n\n1. **First,** the reply grows a word at a time, the way a real model answers.\n2. **Then** a list, so wrapping and widths change as it arrives.\n3. **Last,** a table and a code block.\n\n| Part | State |\n|---|---|\n| Copy | Ready |\n| Layout | Reviewing |\n\n```\nnpm run check\n```\n\nThat is the end of the reply."
+				}
+			]
+		},
+		{
+			"match": "use a tool",
+			"steps": [
+				{ "tool": { "name": "bash", "input": { "command": "restless work list" } } },
+				{ "text": "I looked at the Work list. Two pieces are in motion and one is waiting on you." }
+			]
+		},
+		{
+			"match": "fail",
+			"steps": [{ "error": 529, "message": "Overloaded" }]
+		}
+	]
+}

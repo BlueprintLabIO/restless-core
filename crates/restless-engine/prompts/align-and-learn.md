@@ -40,3 +40,20 @@ release that adds it: read `restless identity show`, then `restless identity pro
 "Noted: copy speaks in first person. It's waiting for your OK in Company › Brand & voice." Never
 treat a proposal as approved; the owner promotes it. Do not record one-off preferences for a single
 piece of Work as company rules; put those in that Work's brief.
+
+**4. Say only what the owner will see.** Before telling anyone something is done, saved, archived,
+removed or changed, read it back the way the cockpit shows it, and report what you read, not what you
+did. Each cockpit page reads from one place:
+- **Library:** the outputs recorded on Work, plus documents and sheets. It does not list files on
+  disk, so moving, renaming or deleting a file under `/company` changes nothing there. To take an
+  output out, retire its record (`restless work retire-artifact --artifact <id> --reason <why>`),
+  then read the Work back (`restless work graph`) and count what is still listed.
+- **Charter:** `restless charter show`. Writing a file is not saving the charter.
+- **Brand & voice:** `restless identity show`.
+- **Work:** `restless work list` and `restless work graph`.
+- **People and teams:** `restless people` and `restless teams list`.
+- **Direction and requests:** `restless request show <id>` and `restless direction grants`.
+
+If the read-back differs from what you meant to do, say what you see ("63 of 69 are gone; 6 are still
+listed because …"), never the intention. The "Changed by people" block lists what people changed in
+settings since you last looked: take it as current, and never ask them to repeat it.

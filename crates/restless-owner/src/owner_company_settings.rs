@@ -110,6 +110,16 @@ pub(super) async fn save_identity(
     )
     .await
     .into_response();
+    if promoted.status().is_success() {
+        super::record_setting_change(
+            &state,
+            &company,
+            principal.actor_id(),
+            "brand_voice_changed",
+            serde_json::json!({"account": change_account}),
+        )
+        .await;
+    }
     if let (true, Some(amended)) = (promoted.status().is_success(), input.amends_proposal) {
         // The amended proposal is now settled by the owner's own version. If this
         // record fails it stays pending, visibly based on an older version.

@@ -184,8 +184,16 @@ fn key_check_request(provider: &str) -> Option<(&'static str, &'static str)> {
     })
 }
 
-/// Ask the provider whether it accepts this key. Spends no tokens.
+/// Ask the provider whether it accepts this key. Spends no tokens. When the gateway relays
+/// Anthropic to another base URL (a scripted test model, `tools/mock-model`), the key is checked
+/// there too, the same place every turn will go.
 pub async fn check_api_key(provider: &str, key: &str) -> KeyCheck {
+    if provider == "anthropic" {
+        if let Ok(base) = std::env::var("RESTLESS_ANTHROPIC_BASE_URL") {
+            let url = format!("{}/models?limit=1", base.trim_end_matches('/'));
+            return check_api_key_at(&url, "x-api-key", key).await;
+        }
+    }
     match key_check_request(provider) {
         Some((url, style)) => check_api_key_at(url, style, key).await,
         None => KeyCheck::Unverified,

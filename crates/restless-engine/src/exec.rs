@@ -1472,7 +1472,39 @@ async fn gather_snapshot(
         .into_iter()
         .filter(|item| item.dismissed_at >= week_ago)
         .collect();
+    // What people changed in settings in the last three days: a raised limit, a new name, another
+    // model. Exec otherwise carries on as if what it last saw still held (14 October report).
+    let people_changes = {
+        let since = chrono::Utc::now() - chrono::Duration::days(3);
+        let names: std::collections::HashMap<String, (String, String)> = org
+            .list_actors()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|actor| (actor.id.clone(), (actor.display, actor.actor_class)))
+            .collect();
+        crate::company::recent_setting_changes(authority, &config.name, since, 20)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|change| {
+                // People only: an agent's own changes are already in its history.
+                let by = change.by.as_deref().unwrap_or("owner");
+                by != "exec" && names.get(by).is_none_or(|(_, class)| class != "agent")
+            })
+            .take(10)
+            .map(|change| {
+                let by = change.by.as_deref().unwrap_or("owner");
+                let who = match names.get(by) {
+                    Some((display, _)) if by != "owner" => display.clone(),
+                    _ => "The owner".to_string(),
+                };
+                format!("{} · {who}: {}", ago(change.at), change.title)
+            })
+            .collect()
+    };
     Ok(ContextSnapshot {
+        people_changes,
         company: config.name.clone(),
         company_display: config
             .display_name
@@ -1858,5 +1890,16 @@ mod tests {
             report.retry_after_seconds,
             Some(CONTINUE_WAKE_DELAY_SECONDS)
         );
+    }
+}
+
+/// "just now", "40m ago", "5h ago", "2d ago": how long since a change, for Exec's context.
+fn ago(at: chrono::DateTime<chrono::Utc>) -> String {
+    let minutes = (chrono::Utc::now() - at).num_minutes().max(0);
+    match minutes {
+        0..=1 => "just now".into(),
+        2..=59 => format!("{minutes}m ago"),
+        60..=1439 => format!("{}h ago", minutes / 60),
+        _ => format!("{}d ago", minutes / 1440),
     }
 }

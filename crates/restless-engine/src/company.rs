@@ -1549,6 +1549,11 @@ const SETTING_CHANGE_KINDS: &[&str] = &[
     "connection_frozen",
     "connection_unfrozen",
     "approval_revoked",
+    "company_renamed",
+    "company_model_changed",
+    "agent_model_changed",
+    "reasoning_effort_changed",
+    "brand_voice_changed",
 ];
 
 #[derive(Debug, Serialize)]
@@ -1664,6 +1669,43 @@ pub async fn governance_activity(
 
 /// The owner-facing sentence for one setting or lifecycle record; `None` for the intermediate
 /// records (a requested charter revision, a recovery still running) that a later one settles.
+/// A model id as words: the part after the provider, with dashes as spaces.
+fn model_words(model: &str) -> String {
+    let bare = model.rsplit('/').next().unwrap_or(model);
+    bare.replace('-', " ")
+}
+
+/// One change a person made to the company's settings, newest first: who, when and what, in
+/// the words Activity shows (Sprint 86).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SettingChange {
+    pub at: chrono::DateTime<chrono::Utc>,
+    pub by: Option<String>,
+    pub title: String,
+}
+
+/// The most recent setting changes since `since`, at most `limit`, newest first.
+pub async fn recent_setting_changes(
+    authority: &crate::authority::AuthorityStore,
+    company: &str,
+    since: chrono::DateTime<chrono::Utc>,
+    limit: i64,
+) -> Result<Vec<SettingChange>> {
+    Ok(authority
+        .records_of_kinds_page(company, SETTING_CHANGE_KINDS, None, limit, None)
+        .await?
+        .into_iter()
+        .filter(|(_, row)| row.created_at >= since)
+        .filter_map(|(kind, row)| {
+            Some(SettingChange {
+                at: row.created_at,
+                by: row.actor_id.clone(),
+                title: setting_change_title(&kind, &row.body)?,
+            })
+        })
+        .collect())
+}
+
 fn setting_change_title(kind: &str, body: &serde_json::Value) -> Option<String> {
     let text = |field: &str| body.get(field).and_then(serde_json::Value::as_str);
     Some(match kind {
@@ -1712,6 +1754,34 @@ fn setting_change_title(kind: &str, body: &serde_json::Value) -> Option<String> 
             "Approval revoked for {}",
             text("party").unwrap_or("a contact")
         ),
+        "company_renamed" => format!(
+            "Company renamed from {} to {}",
+            text("from").unwrap_or("its old name"),
+            text("to").unwrap_or("a new name")
+        ),
+        "company_model_changed" => format!(
+            "Company model changed to {}",
+            text("to").map(model_words).unwrap_or_else(|| "another model".into())
+        ),
+        "agent_model_changed" => match text("model") {
+            Some(model) => format!(
+                "{} now thinks with {}",
+                text("actor").unwrap_or("An agent"),
+                model_words(model)
+            ),
+            None => format!(
+                "{} back on the company model",
+                text("actor").unwrap_or("An agent")
+            ),
+        },
+        "reasoning_effort_changed" => format!(
+            "Agents think with {} effort",
+            text("effort").unwrap_or("a different")
+        ),
+        "brand_voice_changed" => match text("account").filter(|account| !account.trim().is_empty()) {
+            Some(account) => format!("Brand & voice changed: {account}"),
+            None => "Brand & voice changed".into(),
+        },
         _ => return None,
     })
 }
