@@ -171,6 +171,45 @@ if (seeded[0].n === 0) {
 	}
 }
 
+// Revisions and a stopped piece of Work, so the Library has something to retire (S85-12): each
+// client's site version N revises version N-1 (the edge runs from the newer Work to the older), and
+// one early landing page was stopped with its files still recorded.
+const { rows: revising } = await db.query("SELECT count(*)::int AS n FROM work_edges WHERE kind = 'revises'");
+if (revising[0].n === 0) {
+	const { rows: sites } = await db.query(
+		"SELECT id, title FROM work WHERE title ~ ' concept website, version [0-9]+:'"
+	);
+	const byClient = new Map();
+	for (const site of sites) {
+		const [, client, version] = site.title.match(/^(.*) concept website, version (\d+):/);
+		byClient.set(`${client}|${version}`, site.id);
+	}
+	for (const [key, id] of byClient) {
+		const [client, version] = key.split('|');
+		const older = byClient.get(`${client}|${Number(version) - 1}`);
+		if (older)
+			await db.query("INSERT INTO work_edges (from_work_id, to_work_id, kind) VALUES ($1, $2, 'revises')", [id, older]);
+	}
+}
+const { rows: stopped } = await db.query("SELECT count(*)::int AS n FROM work WHERE status = 'abandoned'");
+if (stopped[0].n === 0) {
+	const id = randomUUID();
+	await db.query(
+		`INSERT INTO work (id, owner_id, title, outcome, status, resolution, created_at, updated_at, priority, commissioned_by, goal_id)
+		 VALUES ($1,'studio-design',$2,$3,'abandoned','Stopped: the owner chose the before-and-after direction instead',$4,$4,1,'exec',$5)`,
+		[id, "Reno's first landing page: quiet editorial, cream paper and a clay accent", "Reno's first landing page.", ago(12), goal?.id ?? null]
+	);
+	for (const output of ['index.html', 'desktop-1440.png']) {
+		const uri = `/company/outputs/reno-first-landing/${output}`;
+		await db.query(
+			`INSERT INTO artifact_refs (id, kind, uri, created_by, created_at, work_id, label, digest)
+			 VALUES ($1,$2,$3,'studio-design',$4,$5,$6,$7)`,
+			[randomUUID(), output.endsWith('.png') ? 'image' : 'site', uri, ago(12), id,
+				output === 'index.html' ? "Reno's first landing page.html" : output, createHash('sha256').update(uri).digest('hex')]
+		);
+	}
+}
+
 // ---------------------------------------------------------------- conversation
 console.log('conversation');
 const { rows: talked } = await db.query("SELECT count(*)::int AS n FROM messages WHERE body LIKE '%[seed]%'");
