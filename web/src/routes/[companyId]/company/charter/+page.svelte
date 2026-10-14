@@ -47,7 +47,7 @@
 				{#snippet actions()}<button class="btn small" onclick={() => source.refresh()}>Retry</button
 					>{/snippet}
 			</Notice>{/if}
-		<Section title="Company">
+		<Section id="name" title="Company">
 			<Row label="Name">
 				{#key `${companyId}:${nameVersion}`}<CompanyNameField {companyId} />{/key}
 				<CopyCompanySetting

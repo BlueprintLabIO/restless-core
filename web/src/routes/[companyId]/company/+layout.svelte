@@ -14,7 +14,6 @@
 	import SidebarSearch from '$lib/ui/views/SidebarSearch.svelte';
 
 	let { children } = $props();
-	let query = $state('');
 	const companyId = $derived(page.params.companyId ?? '');
 	const overview = $derived(`/${companyId}/company`);
 	const detail = $derived(page.url.pathname !== overview);
@@ -28,19 +27,7 @@
 	provideCompanySetup(setup);
 
 	/* The navigation: the overview, then the sections the overview also lists. */
-	const groups = $derived.by(() => {
-		const out = setup.sections;
-		const q = query.trim().toLocaleLowerCase();
-		if (!q) return out;
-		return out
-			.map((group) => ({
-				...group,
-				rows: group.rows.filter((row) =>
-					`${group.label} ${row.label} ${row.reading ?? ''}`.toLocaleLowerCase().includes(q)
-				)
-			}))
-			.filter((group) => group.rows.length);
-	});
+	const groups = $derived(setup.matching);
 	const active = (href: string) =>
 		href === overview ? page.url.pathname === overview : page.url.pathname.startsWith(href);
 
@@ -73,10 +60,10 @@
 {:else}
 	<SidebarShell label="Company sections" title="Company">
 		{#snippet top()}
-			<SidebarSearch bind:value={query} placeholder="Search settings" />
+			<SidebarSearch bind:value={setup.query} placeholder="Search settings" />
 		{/snippet}
 		{#snippet nav()}
-			{#if !query.trim()}<SidebarRow
+			{#if !setup.query.trim()}<SidebarRow
 					href={overview}
 					label="Overview"
 					icon={LayoutGrid}

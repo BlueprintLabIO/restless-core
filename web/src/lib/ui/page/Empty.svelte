@@ -4,6 +4,7 @@
 	 * the middle, a soft icon, a short title, one line of what will appear here, and the action. */
 	import type { Component, Snippet } from 'svelte';
 	import Inbox from '@lucide/svelte/icons/inbox';
+	import InfoTip from '../controls/InfoTip.svelte';
 
 	let {
 		title,
@@ -33,9 +34,10 @@
 		{#if action}<div class="page-action">{@render action()}</div>{/if}
 	</div>
 {:else}
-	<div class="empty" class:compact title={info}>
+	<div class="empty" class:compact>
 		<span class="empty-icon" aria-hidden="true"><Icon size={16} strokeWidth={1.6} /></span>
 		<p>{title}</p>
+		{#if info}<InfoTip text={info} />{/if}
 		{#if action}<div class="empty-action">{@render action()}</div>{/if}
 	</div>
 {/if}

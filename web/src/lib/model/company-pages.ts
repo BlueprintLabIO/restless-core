@@ -24,14 +24,14 @@ export const COMPANY_PAGES: CompanyPage[] = [
 		group: 'About',
 		label: 'Charter',
 		path: '/charter',
-		keywords: 'mission name purpose quality legal profile direction'
+		keywords: 'mission name rename logo purpose quality legal profile direction'
 	},
 	{
 		key: 'identity',
 		group: 'About',
 		label: 'Brand & voice',
 		path: '/identity',
-		keywords: 'identity voice brand tone look style'
+		keywords: 'identity voice brand tone look style logo colours colors'
 	},
 	{
 		key: 'members',
@@ -60,7 +60,8 @@ export const COMPANY_PAGES: CompanyPage[] = [
 		group: 'Operations',
 		label: 'Limits',
 		path: '/resources',
-		keywords: 'spend budget authority email payments tools mcp telegram notifications'
+		keywords:
+			'spend budget authority email payments allowance pause freeze outside actions tools mcp telegram notifications'
 	},
 	{
 		key: 'computer',

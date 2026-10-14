@@ -332,12 +332,42 @@ export function createCompanySetup(companyIdOf: () => string) {
 		return out;
 	});
 
+	/* The settings search, shared by the section list and the narrow overview that stands in for
+	 * it: a section matches on its group, label, current value or the words owners type for it. */
+	let query = $state('');
+	const matching = $derived.by(() => {
+		const q = query.trim().toLocaleLowerCase();
+		if (!q) return sections;
+		const words = (key: string) =>
+			COMPANY_PAGES.find((candidate) => candidate.key === key)?.keywords ?? '';
+		return sections
+			.map((group) => ({
+				...group,
+				rows: group.rows.filter((row) =>
+					`${group.label} ${row.label} ${row.reading ?? ''} ${words(row.key)}`
+						.toLocaleLowerCase()
+						.includes(q)
+				)
+			}))
+			.filter((group) => group.rows.length);
+	});
+
 	return {
 		get companyId() {
 			return companyId;
 		},
 		get sections() {
 			return sections;
+		},
+		get query() {
+			return query;
+		},
+		set query(value: string) {
+			query = value;
+		},
+		/** The sections the settings search leaves; every section when it is empty. */
+		get matching() {
+			return matching;
 		},
 		get owner() {
 			return owner;

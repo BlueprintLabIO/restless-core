@@ -5,6 +5,8 @@
 	import { formatMoney } from '$lib/ui/time';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { Page, Section, Item } from '$lib/ui/page';
+	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
+	import SidebarSearch from '$lib/ui/views/SidebarSearch.svelte';
 	import { useCompanySetup } from '$lib/model/company-setup-rows.svelte';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 
@@ -41,6 +43,9 @@
 	title={setup.entry?.name ?? 'Company'}
 	info="How this company is set up. The sections beside it show each area's current value."
 >
+	{#snippet actions()}{#if setup.owner}<a class="btn small" href={`${setup.href('charter')}#name`}
+				>Name & logo</a
+			>{/if}{/snippet}
 	{#if setup.owner}
 		<p class="company-facts">
 			<a
@@ -54,10 +59,8 @@
 						? 'Needs attention'
 						: 'Checking…'}</a
 			>
-			{#if spendLine}<span aria-hidden="true">·</span><a
-					href={setup.href('limits')}
-					title={spendWhy}>{spendLine}</a
-				>{/if}
+			{#if spendLine}<span aria-hidden="true">·</span><a href={setup.href('limits')}>{spendLine}</a
+				><InfoTip text={spendWhy} />{/if}
 			{#if working != null}<span aria-hidden="true">·</span><a
 					href={`/${companyId}/people`}
 					title="People working for this company right now"
@@ -86,7 +89,9 @@
 	{/if}
 
 	<div class="setup-all">
-		{#each setup.sections as group (group.label)}
+		<!-- Where the section list steps out, its search comes here. -->
+		<SidebarSearch bind:value={setup.query} placeholder="Search settings" />
+		{#each setup.matching as group (group.label)}
 			<Section title={group.label} group>
 				{#each group.rows as row (row.key)}
 					{@const Icon = row.icon}
@@ -98,6 +103,8 @@
 					</Item>
 				{/each}
 			</Section>
+		{:else}
+			<p class="company-done">No settings match.</p>
 		{/each}
 	</div>
 </Page>
