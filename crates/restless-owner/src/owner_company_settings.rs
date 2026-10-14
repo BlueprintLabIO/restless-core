@@ -889,7 +889,10 @@ pub(super) async fn governance_activity(
             "Only the owner can read the company's governance record.",
         );
     }
-    if let Err(e) = runtime::CompanyConfig::load(&state.daemon.root, &company) {
+    // An archived company's record stays readable: it is how the owner looks back at it.
+    if let Err(e) = runtime::CompanyConfig::load(&state.daemon.root, &company)
+        .or_else(|_| runtime::CompanyConfig::load_archived(&state.daemon.root, &company))
+    {
         return api_error(StatusCode::NOT_FOUND, "company", format!("{e:#}"));
     }
     match company_projection::governance_activity(
@@ -907,4 +910,155 @@ pub(super) async fn governance_activity(
             format!("Activity could not be read: {e:#}"),
         ),
     }
+}
+
+/// Everything the company holds, as one zip: charter, settings, the governance record, work and
+/// the company computer's files. Built on request and removed once sent.
+pub(super) async fn export_company(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "export",
+            "Only the owner can export the company.",
+        );
+    }
+    let path = match restless_engine::company_lifecycle::export(&state.daemon, &company).await {
+        Ok(path) => path,
+        Err(e) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "export",
+                format!("The export could not be made: {e:#}"),
+            )
+        }
+    };
+    let file = match tokio::fs::File::open(&path).await {
+        Ok(file) => file,
+        Err(e) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "export",
+                format!("The export could not be read: {e}"),
+            )
+        }
+    };
+    let length = file.metadata().await.map(|meta| meta.len()).ok();
+    let stream = futures_util::stream::unfold(Some((file, path)), |state| async move {
+        use tokio::io::AsyncReadExt as _;
+        let (mut file, path) = state?;
+        let mut buffer = vec![0u8; 64 * 1024];
+        match file.read(&mut buffer).await {
+            Ok(0) => {
+                let _ = tokio::fs::remove_file(&path).await;
+                None
+            }
+            Ok(read) => {
+                buffer.truncate(read);
+                Some((Ok::<_, std::io::Error>(buffer), Some((file, path))))
+            }
+            Err(error) => {
+                let _ = tokio::fs::remove_file(&path).await;
+                Some((Err(error), None))
+            }
+        }
+    });
+    let mut response = Response::new(Body::from_stream(stream));
+    let headers = response.headers_mut();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/zip"),
+    );
+    if let Ok(value) = axum::http::HeaderValue::from_str(&format!(
+        "attachment; filename=\"{company}-export-{}.zip\"",
+        chrono::Utc::now().format("%Y-%m-%d")
+    )) {
+        headers.insert(axum::http::header::CONTENT_DISPOSITION, value);
+    }
+    if let Some(length) = length {
+        headers.insert(axum::http::header::CONTENT_LENGTH, length.into());
+    }
+    headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    response
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct DeleteCompanyInput {
+    confirm_name: String,
+}
+
+/// Permanently delete an archived company once the owner has typed its name.
+pub(super) async fn delete_company(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<DeleteCompanyInput>,
+) -> Response<Body> {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "delete",
+            "Only the owner can delete the company.",
+        );
+    }
+    let _write = state.charter_writes.lock().await;
+    match restless_engine::company_lifecycle::delete(
+        &state.daemon,
+        &company,
+        &input.confirm_name,
+        principal.actor_id(),
+    )
+    .await
+    {
+        Ok(message) => Json(serde_json::json!({ "company": company, "deleted": true, "message": message }))
+            .into_response(),
+        Err(e) => api_error(StatusCode::CONFLICT, "delete", format!("{e:#}")),
+    }
+}
+
+/// An archived company, read-only: its name, charter and when it was archived. Its governance
+/// record pages through `/company/activity`; everything else is in the export.
+pub(super) async fn archived_company(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "archived",
+            "Only the owner can open an archived company.",
+        );
+    }
+    let config = match runtime::CompanyConfig::load_archived(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(_) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                "No archived company of that name.",
+            )
+        }
+    };
+    let archived_at = state
+        .daemon
+        .authority
+        .recent_records_matching(&company, "lifecycle", "state", "archived", 1)
+        .await
+        .ok()
+        .and_then(|records| records.first().map(|record| record.created_at));
+    Json(serde_json::json!({
+        "id": company,
+        "name": restless_engine::company_lifecycle::confirmation_name(&config),
+        "charter": config.mission,
+        "archived_at": archived_at,
+    }))
+    .into_response()
 }

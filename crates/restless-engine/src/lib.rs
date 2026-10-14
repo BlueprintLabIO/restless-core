@@ -20,6 +20,7 @@ pub mod codex;
 pub mod collaboration_doctor;
 pub mod company;
 pub mod company_bootstrap;
+pub mod company_lifecycle;
 pub mod connections;
 pub mod coordination;
 pub mod context;

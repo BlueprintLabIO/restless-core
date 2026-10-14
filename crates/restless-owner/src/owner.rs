@@ -1477,6 +1477,18 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         )
         .route("/companies/{company}/archive", post(archive_company))
         .route("/companies/{company}/restore", post(restore_company))
+        .route(
+            "/companies/{company}/archived-summary",
+            get(company_settings_api::archived_company),
+        )
+        .route(
+            "/companies/{company}/delete",
+            post(company_settings_api::delete_company),
+        )
+        .route(
+            "/companies/{company}/export",
+            get(company_settings_api::export_company),
+        )
         .route("/companies/{company}/attention", get(attention_view))
         .route("/companies/{company}/direction/requests", get(direction_api::requests))
         .route(

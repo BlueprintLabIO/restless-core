@@ -10,6 +10,10 @@ export type ConfirmRequest = {
 	action: string;
 	/** The act removes or revokes something. */
 	danger?: boolean;
+	/** For the gravest acts: the person types this exactly before the act's button enables. */
+	typeToConfirm?: string;
+	/** A safer step to offer first, such as downloading an export. */
+	offer?: { label: string; href: string; download?: boolean };
 };
 
 type Pending = ConfirmRequest & { id: number; answer: (yes: boolean) => void };

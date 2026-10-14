@@ -5032,6 +5032,16 @@ pub async fn create_local_company_inner(
         runtime::validate_company_model_selection(&model)?;
     }
     let _guard = CREATION.lock().await;
+    if crate::company_lifecycle::was_deleted(&daemon.root, &config.name) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            format!(
+                "A deleted company used the name {}. Choose another name.",
+                config.name
+            ),
+        )
+        .into());
+    }
     for directory in ["companies", "archived-companies"] {
         if daemon
             .root

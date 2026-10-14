@@ -7,6 +7,12 @@
 	let dialog: HTMLDialogElement | undefined = $state();
 	let cancel: HTMLButtonElement | undefined = $state();
 	const pending = $derived(confirmation.pending);
+	let typed = $state('');
+	$effect(() => {
+		pending;
+		typed = '';
+	});
+	const ready = $derived(!pending?.typeToConfirm || typed.trim() === pending.typeToConfirm);
 
 	$effect(() => {
 		if (!dialog) return;
@@ -27,6 +33,17 @@
 	{#if pending}
 		<h2 id="confirm-title">{pending.title}</h2>
 		{#if pending.body}<p id="confirm-body">{pending.body}</p>{/if}
+		{#if pending.offer}<p>
+				<a
+					class="btn small"
+					href={pending.offer.href}
+					download={pending.offer.download ? '' : undefined}>{pending.offer.label}</a
+				>
+			</p>{/if}
+		{#if pending.typeToConfirm}<label class="typed"
+				>Type <strong>{pending.typeToConfirm}</strong> to confirm
+				<input bind:value={typed} autocomplete="off" spellcheck="false" />
+			</label>{/if}
 		<div class="actions">
 			<button
 				bind:this={cancel}
@@ -39,6 +56,7 @@
 				class="btn small"
 				class:danger={pending.danger}
 				class:primary={!pending.danger}
+				disabled={!ready}
 				onclick={() => pending.answer(true)}>{pending.action}</button
 			>
 		</div>
@@ -67,6 +85,17 @@
 	p {
 		margin: 0 0 14px;
 		color: var(--text-secondary);
+	}
+	.typed {
+		display: grid;
+		gap: 6px;
+		margin: 0 0 14px;
+		color: var(--text-secondary);
+		font-size: var(--t-body);
+	}
+	.typed strong {
+		color: var(--ink);
+		overflow-wrap: anywhere;
 	}
 	.actions {
 		display: flex;

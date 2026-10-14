@@ -93,6 +93,39 @@ export function restoreCompany(company: string): Promise<void> {
 	return changeCompanyLifecycle(company, 'restore');
 }
 
+/** Permanently delete an archived company; `confirmName` is its name as the owner typed it. */
+export async function deleteCompany(company: string, confirmName: string): Promise<void> {
+	const response = await fetch(`/api/companies/${encodeURIComponent(company)}/delete`, {
+		method: 'POST',
+		credentials: 'same-origin',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ confirm_name: confirmName })
+	});
+	if (!response.ok) throw await responseFailure(response);
+}
+
+/** The download of everything a company holds: charter, settings, governance record and files. */
+export function companyExportHref(company: string): string {
+	return `/api/companies/${encodeURIComponent(company)}/export`;
+}
+
+export interface ArchivedCompany {
+	id: string;
+	name: string;
+	charter: string;
+	archived_at: string | null;
+}
+
+/** An archived company, read-only. */
+export async function getArchivedCompany(company: string): Promise<ArchivedCompany> {
+	const response = await fetch(`/api/companies/${encodeURIComponent(company)}/archived-summary`, {
+		credentials: 'same-origin',
+		cache: 'no-store'
+	});
+	if (!response.ok) throw await responseFailure(response);
+	return response.json();
+}
+
 export async function getCockpit(company: string, probeCredentials = false): Promise<CockpitView> {
 	const query = probeCredentials ? '?probe_credentials=true' : '';
 	const response = await bootFetch(

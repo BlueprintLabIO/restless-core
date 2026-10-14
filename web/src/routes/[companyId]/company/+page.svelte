@@ -9,6 +9,13 @@
 	import SidebarSearch from '$lib/ui/views/SidebarSearch.svelte';
 	import { useCompanySetup } from '$lib/model/company-setup-rows.svelte';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
+	import Download from '@lucide/svelte/icons/download';
+	import Archive from '@lucide/svelte/icons/archive';
+	import { goto } from '$app/navigation';
+	import { archiveCompany, companyExportHref } from '$lib/model/cockpit';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { failureSentence } from '$lib/model/failure';
 
 	const setup = useCompanySetup();
 	const companyId = $derived(setup.companyId);
@@ -35,6 +42,30 @@
 			: against;
 	});
 	const working = $derived(setup.working);
+
+	let archiving = $state(false);
+	async function archive() {
+		if (archiving) return;
+		const name = setup.entry?.name ?? 'this company';
+		if (
+			!(await confirmAction({
+				title: `Archive ${name}?`,
+				body: 'Exec, Staff and schedules stop, and its computer is shut down. Files, history and settings are kept, and you can restore it at any time from your companies.',
+				action: 'Archive company'
+			}))
+		)
+			return;
+		archiving = true;
+		try {
+			await archiveCompany(companyId);
+			toast(`${name} archived`);
+			await goto('/');
+		} catch (cause) {
+			toast(failureSentence(cause, 'Company could not be archived.'), { tone: 'failure' });
+		} finally {
+			archiving = false;
+		}
+	}
 </script>
 
 <CompanyTitle title="Company" {companyId} />
@@ -107,6 +138,21 @@
 			<p class="company-done">No settings match.</p>
 		{/each}
 	</div>
+
+	{#if setup.owner}
+		<Section
+			title="Export and archive"
+			info="Take everything the company holds with you, or stop it for now. Archived companies can be restored, opened read-only or deleted from your companies."
+			group
+		>
+			<Item title="Download export" href={companyExportHref(companyId)} download>
+				{#snippet leading()}<Download size={15} strokeWidth={1.8} aria-hidden="true" />{/snippet}
+			</Item>
+			<Item title={archiving ? 'Archiving…' : 'Archive company'} onclick={archive}>
+				{#snippet leading()}<Archive size={15} strokeWidth={1.8} aria-hidden="true" />{/snippet}
+			</Item>
+		</Section>
+	{/if}
 </Page>
 
 <style>

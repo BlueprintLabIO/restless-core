@@ -11,6 +11,7 @@
 		label,
 		meta,
 		href,
+		download = false,
 		onclick,
 		selected = false,
 		unread = false,
@@ -28,6 +29,8 @@
 		label?: string;
 		meta?: string | null;
 		href?: string;
+		/** The link saves a file rather than opening a page. */
+		download?: boolean;
 		onclick?: (event: MouseEvent) => void;
 		selected?: boolean;
 		unread?: boolean;
@@ -56,8 +59,12 @@
 	class:interactive={!!href || !!onclick}
 >
 	<div class="item-row">
-		{#if href}<a class="item-hit" {href} aria-current={selected ? 'true' : undefined} {onclick}
-				><span class="sr-only">{label ?? title}</span></a
+		{#if href}<a
+				class="item-hit"
+				{href}
+				download={download ? '' : undefined}
+				aria-current={selected ? 'true' : undefined}
+				{onclick}><span class="sr-only">{label ?? title}</span></a
 			>{:else if onclick}<button class="item-hit" type="button" {onclick}
 				><span class="sr-only">{label ?? title}</span></button
 			>{/if}

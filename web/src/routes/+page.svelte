@@ -1,6 +1,12 @@
 <script lang="ts">
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
-	import { archiveCompany, restoreCompany } from '$lib/model/cockpit';
+	import {
+		archiveCompany,
+		companyExportHref,
+		deleteCompany,
+		restoreCompany
+	} from '$lib/model/cockpit';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import CompanyPortfolio from '$lib/ui/views/CompanyPortfolio.svelte';
@@ -78,10 +84,19 @@
 		return value?.startsWith('/') && !value.startsWith('//') ? value : '';
 	}
 
-	/* Archiving says so on the shared toast, with Undo; restoring and failures say so there too. */
+	/* Archiving stops the company, so it says what that means first; the toast then offers Undo.
+	 * Restoring and failures say so on the toast too. */
 	let busy = $state('');
-	async function archive(id: string) {
+	async function archive(id: string, name: string) {
 		if (busy) return;
+		if (
+			!(await confirmAction({
+				title: `Archive ${name}?`,
+				body: 'Exec, Staff and schedules stop, and its computer is shut down. Files, history and settings are kept, and you can restore it at any time.',
+				action: 'Archive company'
+			}))
+		)
+			return;
 		busy = id;
 		try {
 			await archiveCompany(id);
@@ -89,6 +104,31 @@
 			toast('Company archived', { undo: () => restore(id) });
 		} catch (cause) {
 			toast(failureSentence(cause, 'Company could not be archived.'), { tone: 'failure' });
+		} finally {
+			busy = '';
+		}
+	}
+	/* Deleting is for good, so it asks for the name and offers the export first. */
+	async function remove(id: string, name: string) {
+		if (busy) return;
+		if (
+			!(await confirmAction({
+				title: `Delete ${name} permanently?`,
+				body: 'Its computer, files, work, conversations and settings are removed and cannot be recovered. The record of outside actions and approvals is kept with your account. Download an export first if you may need anything.',
+				action: 'Delete permanently',
+				danger: true,
+				typeToConfirm: name,
+				offer: { label: 'Download export', href: companyExportHref(id), download: true }
+			}))
+		)
+			return;
+		busy = id;
+		try {
+			await deleteCompany(id, name);
+			await companyCatalog.refresh();
+			toast(`${name} deleted`);
+		} catch (cause) {
+			toast(failureSentence(cause, 'Company could not be deleted.'), { tone: 'failure' });
 		} finally {
 			busy = '';
 		}
@@ -115,7 +155,8 @@
 					logoUrl: company.logo_url,
 					status: 'Archived',
 					tone: 'waiting',
-					entry: null,
+					/* Opens read-only: its charter and record, with Restore, Export and Delete. */
+					entry: { href: `/archived/${encodeURIComponent(company.id)}` },
 					dormant: true
 				}))
 			: []
@@ -182,13 +223,16 @@
 				{#if loaded}<CreateCompany />{/if}
 			{/snippet}
 			{#snippet rowActions(company)}<ActionMenu label={`${company.name} options`}
-					>{#if archivedSet.has(company.id)}<button
+					>{#if archivedSet.has(company.id)}<a href={`/archived/${encodeURIComponent(company.id)}`}
+							>Open read-only</a
+						><button disabled={!!busy} onclick={() => restore(company.id)}>Restore company</button
+						><a href={companyExportHref(company.id)} download>Download export</a><button
 							disabled={!!busy}
-							onclick={() => restore(company.id)}>Restore company</button
+							onclick={() => remove(company.id, company.name)}>Delete permanently</button
 						>{:else}<a href={`/${company.id}`}>Open</a><a href={`/${company.id}/company`}>Company</a
 						><a href={`/${company.id}/company/provider`}>Intelligence</a><button
 							disabled={!!busy}
-							onclick={() => archive(company.id)}>Archive company</button
+							onclick={() => archive(company.id, company.name)}>Archive company</button
 						>{/if}</ActionMenu
 				>{/snippet}
 			{#snippet footer()}
