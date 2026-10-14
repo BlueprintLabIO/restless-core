@@ -96,6 +96,11 @@
 		}
 	}
 	let showSnoozed = $state(false);
+	/* The Today line's "requests waiting" shows only those requests until it is pressed again. */
+	let requestsOnly = $state(false);
+	$effect(() => {
+		if (requestsOnly && !items.some((item) => item.directionRequest)) requestsOnly = false;
+	});
 	let completing = $state('');
 	let clock = $state(Date.now());
 
@@ -117,7 +122,12 @@
 
 	const snoozedCount = $derived(items.filter((item) => snoozedUntil(item) > clock).length);
 	const visible = $derived(
-		inboxOrder(items.filter((item) => showSnoozed || snoozedUntil(item) <= clock))
+		inboxOrder(
+			items.filter(
+				(item) =>
+					(showSnoozed || snoozedUntil(item) <= clock) && (!requestsOnly || !!item.directionRequest)
+			)
+		)
 	);
 	$effect(() => {
 		const rows = visible;
@@ -153,6 +163,7 @@
 	$effect(() => {
 		companyId;
 		showSnoozed = false;
+		requestsOnly = false;
 	});
 	onMount(() => {
 		const timer = setInterval(() => (clock = Date.now()), 30_000);
@@ -303,7 +314,14 @@
 			>
 		</ActionMenu>
 	</header>
-	<DirectionToday {companyId} />
+	<DirectionToday
+		{companyId}
+		{requestsOnly}
+		onrequests={(only) => {
+			requestsOnly = only;
+			showTab('inbox');
+		}}
+	/>
 
 	<div class="inbox-list" role="tabpanel">
 		{#if tab === 'for-you' && forYou}
@@ -381,7 +399,11 @@
 			{/each}
 			{#if loaded && !visible.length && !(coordination && !items.length)}
 				<p class="empty">
-					{items.length ? 'Everything here is snoozed.' : 'No decisions waiting on you.'}
+					{requestsOnly
+						? 'No requests waiting on you.'
+						: items.length
+							? 'Everything here is snoozed.'
+							: 'No decisions waiting on you.'}
 				</p>
 			{:else if !loaded && !failure}
 				<div class="waiting" aria-label="Loading the Inbox"><i></i><i></i><i></i></div>
