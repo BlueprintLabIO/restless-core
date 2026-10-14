@@ -29,6 +29,22 @@
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import { goalAbout } from '$lib/work/goal';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
+	import { attentionTitle, isOutcomeReview } from '$lib/model/attention-presentation';
+	import { reviewAction } from '$lib/model/attention';
+	import type { AttentionItem } from '$lib/model/view';
+	import {
+		PRIORITIES,
+		blockerSentence,
+		fetchWorkFeedback,
+		fetchWorkSpend,
+		priorityLabel,
+		reassignWork,
+		reopenWork,
+		setWorkDetails,
+		steerWork,
+		type WorkFeedback,
+		type WorkSteer
+	} from '$lib/model/work-actions';
 
 	/* The authoring contract deliberately separates a human opening from the
 	 * exact actor contract with one blank line. Respect that declared boundary;
@@ -40,7 +56,9 @@
 	const workId = $derived(page.params.workId ?? '');
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
 	const ownerAccess = $derived(principalProjection.view?.membership_role === 'owner');
-	const attentionProjection = $derived(attentionQuery(companyId, () => ownerAccess));
+	/* Everyone's attention: the owner's is the company queue, anyone else's what is assigned to
+	 * them. The decision on this Work is shown here, not only in the Inbox. */
+	const attentionProjection = $derived(attentionQuery(companyId, () => !!principalProjection.view));
 	const cockpitProjection = $derived(cockpitQuery(companyId, () => ownerAccess));
 	const collaborationProjection = $derived(
 		collaborationBootstrapQuery(companyId, () => (ownerAccess ? null : principalProjection.view))
@@ -104,31 +122,69 @@
 				'owner_person' in workTeam &&
 				workTeam.owner_person === principalProjection.view?.actor_id)
 	);
-	let steering = $state<'' | 'resume' | 'abandon'>('');
+	/* One open form at a time: steer the Work, send it back, move it, or edit what it is. */
+	type Steering = '' | WorkSteer | 'reopen' | 'reassign';
+	let steering = $state<Steering>('');
 	let steerReason = $state('');
 	let steerBusy = $state(false);
 	let steerFailure = $state('');
-	async function steer(action: 'resume' | 'abandon') {
-		if (!work || steerBusy || !steerReason.trim()) return;
+	let moveTo = $state('');
+	const STEER: Record<
+		Exclude<Steering, ''>,
+		{ placeholder: string; submit: string; done: string; warning?: string }
+	> = {
+		resume: {
+			placeholder: 'What changed, so it can continue',
+			submit: 'Resume this Work',
+			done: 'Resumed'
+		},
+		pause: {
+			placeholder: 'Why it should wait',
+			submit: 'Pause this Work',
+			done: 'Paused. Resume continues it.'
+		},
+		abandon: {
+			placeholder: 'Why it should stop for good',
+			submit: 'Stop for good',
+			done: 'Stopped for good',
+			warning: 'Nobody works on it again. It moves to Stopped, where it can be restored.'
+		},
+		restore: {
+			placeholder: 'Why it should continue',
+			submit: 'Restore this Work',
+			done: 'Restored'
+		},
+		reopen: {
+			placeholder: 'What should change',
+			submit: 'Send back for changes',
+			done: 'Sent back for changes'
+		},
+		reassign: {
+			placeholder: 'Why they should take it',
+			submit: 'Move this Work',
+			done: 'Moved'
+		}
+	};
+	function openSteer(action: Exclude<Steering, ''>, person = '') {
+		moveTo = person;
+		steerFailure = '';
+		steering = steering === action && !person ? '' : action;
+	}
+	async function steer() {
+		const action = steering;
+		if (!work || !action || steerBusy || !steerReason.trim()) return;
 		steerBusy = true;
 		steerFailure = '';
 		try {
-			const response = await fetch(
-				`/api/companies/${encodeURIComponent(companyId)}/work/${encodeURIComponent(work.id)}/${action}`,
-				{
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ reason: steerReason.trim() })
-				}
-			);
-			if (!response.ok) {
-				const detail = (await response.json().catch(() => null)) as { message?: string } | null;
-				throw new Error(detail?.message ?? 'That was not recorded. Try again.');
-			}
-			if (action === 'resume') celebrate(document.activeElement);
-			toast(action === 'resume' ? 'Resumed' : 'Stopped');
+			const reason = steerReason.trim();
+			if (action === 'reopen') await reopenWork(companyId, work.id, reason);
+			else if (action === 'reassign') await reassignWork(companyId, work.id, moveTo, reason);
+			else await steerWork(companyId, work.id, action, reason);
+			if (action === 'resume' || action === 'restore') celebrate(document.activeElement);
+			toast(action === 'reassign' ? `Moved to ${ownerName(moveTo)}` : STEER[action].done);
 			steering = '';
 			steerReason = '';
+			feedbackVersion += 1;
 			retryWork();
 		} catch (cause) {
 			steerFailure = failureSentence(cause, 'That was not recorded.');
@@ -136,6 +192,142 @@
 			steerBusy = false;
 		}
 	}
+
+	/* Edit what the Work is: its title, brief and expected output. */
+	let editing = $state(false);
+	let editTitle = $state('');
+	let editOutcome = $state('');
+	let editExpected = $state('');
+	let editBusy = $state(false);
+	let editFailure = $state('');
+	function openEdit() {
+		if (!work) return;
+		editTitle = work.title;
+		editOutcome = work.outcome;
+		editExpected = work.expected_artifact ?? '';
+		editFailure = '';
+		editing = !editing;
+	}
+	async function saveEdit() {
+		if (!work || editBusy || !editTitle.trim()) return;
+		const details: Parameters<typeof setWorkDetails>[2] = {};
+		if (editTitle.trim() !== work.title) details.title = editTitle.trim();
+		if (editOutcome.trim() !== work.outcome.trim()) details.outcome = editOutcome.trim();
+		if (editExpected.trim() !== (work.expected_artifact ?? '').trim())
+			details.expected_artifact = editExpected.trim();
+		if (!Object.keys(details).length) {
+			editing = false;
+			return;
+		}
+		await changeDetails(details, 'Saved');
+		if (!editFailure) editing = false;
+	}
+	/* Priority and Goal change in place, from the facts beside the Work. */
+	let detailFailure = $state('');
+	async function changeDetails(details: Parameters<typeof setWorkDetails>[2], done: string) {
+		if (!work || editBusy) return;
+		editBusy = true;
+		editFailure = '';
+		detailFailure = '';
+		try {
+			await setWorkDetails(companyId, work.id, details);
+			toast(done);
+			retryWork();
+		} catch (cause) {
+			const sentence = failureSentence(cause, 'That change was not saved.');
+			if (editing) editFailure = sentence;
+			else detailFailure = sentence;
+		} finally {
+			editBusy = false;
+		}
+	}
+	const movable = $derived(
+		maySteer && !!work && work.status !== 'completed' && work.status !== 'abandoned'
+	);
+	/* Who could take this Work: the company's agents, and for a team's person only that team. */
+	const candidates = $derived(
+		people.filter(
+			(person) =>
+				(person.kind === 'staff' || person.kind === 'exec') &&
+				person.actor_id !== work?.owner_id &&
+				(ownerAccess || person.team_id === workTeam?.id)
+		)
+	);
+
+	/* The decision waiting on this Work, answered here or opened in the Inbox. */
+	const pending = $derived(
+		(attentionProjection.view?.items ?? []).filter(
+			(item) => item.workId === workId && !item.preparing
+		)
+	);
+	const inboxHref = (item: AttentionItem) =>
+		`/${encodeURIComponent(companyId)}?${isOutcomeReview(item) ? 'review' : 'item'}=${encodeURIComponent(item.id)}`;
+	let changesFor = $state('');
+	let changesText = $state('');
+	let reviewBusy = $state(false);
+	let reviewFailure = $state('');
+	async function decide(item: AttentionItem, decision: 'accept' | 'request_changes') {
+		if (reviewBusy || (decision === 'request_changes' && !changesText.trim())) return;
+		reviewBusy = true;
+		reviewFailure = '';
+		try {
+			await reviewAction(
+				companyId,
+				item.source.reference,
+				decision,
+				decision === 'request_changes' ? changesText.trim() : ''
+			);
+			if (decision === 'accept') celebrate(document.activeElement);
+			toast(
+				decision === 'accept'
+					? 'Accepted'
+					: `Changes sent to ${item.responsibleActor?.display ?? 'the lead'}`
+			);
+			changesFor = '';
+			changesText = '';
+			feedbackVersion += 1;
+			void attentionProjection.reload();
+			retryWork();
+		} catch (cause) {
+			reviewFailure = failureSentence(cause, 'The review decision was not recorded.');
+		} finally {
+			reviewBusy = false;
+		}
+	}
+
+	/* Feedback given to this Work and the spend it ran up. Owner only; a failure says so. */
+	let feedbackVersion = $state(0);
+	let feedback = $state<WorkFeedback[] | null>(null);
+	let feedbackFailed = $state(false);
+	$effect(() => {
+		const id = workId;
+		void feedbackVersion;
+		if (!ownerAccess || !id) return;
+		let current = true;
+		fetchWorkFeedback(companyId, id)
+			.then((rows) => {
+				if (current) [feedback, feedbackFailed] = [rows, false];
+			})
+			.catch(() => {
+				if (current) feedbackFailed = true;
+			});
+		return () => (current = false);
+	});
+	let spend = $state<number | null | 'unavailable'>(null);
+	$effect(() => {
+		const id = workId;
+		void feedbackVersion;
+		if (!ownerAccess || !id) return;
+		let current = true;
+		fetchWorkSpend(companyId)
+			.then((rows) => {
+				if (current) spend = rows.get(id) ?? 0;
+			})
+			.catch(() => {
+				if (current) spend = 'unavailable';
+			});
+		return () => (current = false);
+	});
 	const goalInfo = $derived(goal ? goalAbout(goal) : '');
 	/* The bar this Work is held to: its own, else its Goal's. */
 	const ownStandard = $derived(
@@ -169,6 +361,28 @@
 			.toSorted((a, b) => a.attempt_no - b.attempt_no)
 	);
 	const latestAttempt = $derived(attempts.at(-1) ?? null);
+	const blocker = $derived(
+		work?.status === 'blocked' ? blockerSentence(work.resolution, latestAttempt?.summary) : ''
+	);
+	/* What each run read: the outputs it took as input, and the feedback it was given. */
+	function attemptInputs(attemptId: string): string[] {
+		if (!graph || !('attempt_inputs' in graph)) return [];
+		return graph.attempt_inputs
+			.filter((input) => input.attempt_id === attemptId)
+			.flatMap((input) => {
+				const artifact = graph.artifacts.find((row) => row.id === input.artifact_ref_id);
+				return artifact ? [artifactLabel(artifact)] : [];
+			});
+	}
+	const feedbackFor = (attemptId: string | null) =>
+		(feedback ?? []).filter((row) => row.attempt_id === attemptId);
+	const topology = $derived(
+		work && isOwnerWork(work)
+			? work.producing_topology === 'locally_closing_parallel_unit'
+				? 'One unit of a parallel batch'
+				: 'One worker end to end'
+			: ''
+	);
 	const activity = $derived(
 		ownerAccess && work && latestAttempt?.state === 'running'
 			? workActivityStream(companyId, work.owner_id, workId)
@@ -374,11 +588,6 @@
 		return 'href' in artifact ? artifact.href : artifact.uri;
 	}
 
-	function attemptModel(): string | null {
-		if (!latestAttempt || !('model' in latestAttempt)) return null;
-		return typeof latestAttempt.model === 'string' ? latestAttempt.model : null;
-	}
-
 	function canOpenOutsideCompany(uri: string): boolean {
 		try {
 			const parsed = new URL(uri);
@@ -420,7 +629,10 @@
 			<nav class="work-crumbs" aria-label="Breadcrumb">
 				<a href={backHref()}>Work</a>
 				<i aria-hidden="true">/</i>
-				<span>{goal?.title ?? 'Unassigned'}</span>
+				{#if goal}<a
+						href={`/${encodeURIComponent(companyId)}/work?goal=${encodeURIComponent(goal.id)}`}
+						>{goal.title}</a
+					>{:else}<span>Unassigned</span>{/if}
 				{#if goalInfo}<InfoTip text={goalInfo} />{/if}
 			</nav>
 			<div class="work-title-row">
@@ -435,20 +647,49 @@
 					<i aria-hidden="true"></i>
 					<span>{unverifiedCompletion ? 'Done · unverified' : workStatusLabel(work.status)}</span>
 				</div>
-				{#if maySteer && (work.status === 'blocked' || work.status === 'active')}
+				{#if maySteer}
 					<div class="work-steer">
 						{#if work.status === 'blocked'}<button
 								class="btn small"
 								type="button"
 								aria-expanded={steering === 'resume'}
-								onclick={() => (steering = steering === 'resume' ? '' : 'resume')}>Resume…</button
+								onclick={() => openSteer('resume')}>Resume…</button
+							>{/if}
+						{#if work.status === 'proposed' || work.status === 'active'}<button
+								class="btn small ghost"
+								type="button"
+								title="Hold this Work; Resume continues it"
+								aria-expanded={steering === 'pause'}
+								onclick={() => openSteer('pause')}>Pause…</button
+							>{/if}
+						{#if work.status === 'completed' && !pending.length}<button
+								class="btn small"
+								type="button"
+								title="Send this Work back with the change you want; it reaches the next run"
+								aria-expanded={steering === 'reopen'}
+								onclick={() => openSteer('reopen')}>Request changes…</button
+							>{/if}
+						{#if work.status === 'abandoned'}<button
+								class="btn small"
+								type="button"
+								title="Bring this Work back; it continues where it stopped"
+								aria-expanded={steering === 'restore'}
+								onclick={() => openSteer('restore')}>Restore…</button
 							>{/if}
 						<button
 							class="btn small ghost"
 							type="button"
-							aria-expanded={steering === 'abandon'}
-							onclick={() => (steering = steering === 'abandon' ? '' : 'abandon')}>Stop…</button
+							title="Rename this Work or change its brief"
+							aria-expanded={editing}
+							onclick={openEdit}>Edit…</button
 						>
+						{#if work.status !== 'completed' && work.status !== 'abandoned'}<button
+								class="btn small ghost"
+								type="button"
+								title="Retire this Work; nobody works on it again unless it is restored"
+								aria-expanded={steering === 'abandon'}
+								onclick={() => openSteer('abandon')}>Stop for good…</button
+							>{/if}
 					</div>
 				{/if}
 				{#if ownerAccess}
@@ -465,35 +706,130 @@
 					</div>
 				{/if}
 			</div>
+			{#if blocker}<p class="work-blocker" title="Why this Work is waiting">{blocker}</p>{/if}
 		</header>
+
+		{#if pending.length}
+			<section class="work-pending" aria-label="Waiting on you">
+				{#each pending as item (item.id)}
+					<div class="pending-item">
+						<div class="pending-copy">
+							<strong>{attentionTitle(item)}</strong>
+							{#if item.requestedAction}<p>{item.requestedAction}</p>{/if}
+							{#if item.reviewTarget}<a
+									class="pending-target"
+									href={inboxHref(item)}
+									title={item.reviewTarget.uri}
+									>Open {item.reviewTarget.label || 'the prepared outcome'}</a
+								>{/if}
+						</div>
+						<div class="pending-actions">
+							{#if isOutcomeReview(item)}
+								<button
+									class="btn small primary"
+									type="button"
+									disabled={reviewBusy}
+									title="Accept the prepared outcome; this Work is done"
+									onclick={() => decide(item, 'accept')}>Accept</button
+								>
+								<button
+									class="btn small"
+									type="button"
+									aria-expanded={changesFor === item.id}
+									onclick={() => (changesFor = changesFor === item.id ? '' : item.id)}
+									>Request changes…</button
+								>
+								<a class="btn small ghost" href={inboxHref(item)}>Review</a>
+							{:else}
+								<a class="btn small primary" href={inboxHref(item)}>Open in Inbox</a>
+							{/if}
+						</div>
+						{#if changesFor === item.id}
+							<form
+								class="work-steer-form"
+								onsubmit={(event) => {
+									event.preventDefault();
+									void decide(item, 'request_changes');
+								}}
+							>
+								<!-- svelte-ignore a11y_autofocus -->
+								<textarea
+									bind:value={changesText}
+									rows="2"
+									autofocus
+									aria-label="What should change"
+									placeholder="What should change"></textarea>
+								<div class="steer-actions">
+									<button class="btn small primary" disabled={reviewBusy || !changesText.trim()}
+										>{reviewBusy ? 'Recording…' : 'Send changes'}</button
+									>
+									<button class="btn small ghost" type="button" onclick={() => (changesFor = '')}
+										>Cancel</button
+									>
+								</div>
+							</form>
+						{/if}
+					</div>
+				{/each}
+				{#if reviewFailure}<p class="steer-failure" role="alert">{reviewFailure}</p>{/if}
+			</section>
+		{/if}
+
+		{#if editing && work}
+			<form
+				class="work-steer-form work-edit-form"
+				onsubmit={(event) => {
+					event.preventDefault();
+					void saveEdit();
+				}}
+			>
+				<label><span>Title</span><input bind:value={editTitle} maxlength="200" required /></label>
+				<label><span>Brief</span><textarea bind:value={editOutcome} rows="6"></textarea></label>
+				<label
+					><span>Expected output</span><input
+						bind:value={editExpected}
+						placeholder="What it should produce"
+					/></label
+				>
+				{#if editFailure}<p class="steer-failure" role="alert">{editFailure}</p>{/if}
+				<div class="steer-actions">
+					<button class="btn small primary" disabled={editBusy || !editTitle.trim()}
+						>{editBusy ? 'Saving…' : 'Save'}</button
+					>
+					<button class="btn small ghost" type="button" onclick={() => (editing = false)}
+						>Cancel</button
+					>
+				</div>
+			</form>
+		{/if}
 
 		{#if steering && work}
 			<form
 				class="work-steer-form"
 				onsubmit={(event) => {
 					event.preventDefault();
-					void steer(steering as 'resume' | 'abandon');
+					void steer();
 				}}
 			>
+				{#if steering === 'reassign'}<p class="steer-note">
+						Move this Work to <strong>{ownerName(moveTo)}</strong>
+					</p>{/if}
 				<!-- svelte-ignore a11y_autofocus -->
 				<textarea
 					bind:value={steerReason}
 					rows="2"
 					autofocus
-					aria-label={steering === 'resume' ? 'What changed' : 'Why it should stop'}
-					placeholder={steering === 'resume'
-						? 'What changed, so it can continue'
-						: 'Why it should stop'}></textarea>
+					aria-label={STEER[steering].placeholder}
+					placeholder={STEER[steering].placeholder}></textarea>
+				{#if STEER[steering].warning}<p class="steer-note" role="note">
+						{STEER[steering].warning}
+					</p>{/if}
 				{#if steerFailure}<p class="steer-failure" role="alert">{steerFailure}</p>{/if}
 				<div class="steer-actions">
 					<button
 						class="btn small {steering === 'abandon' ? 'danger' : 'primary'}"
 						disabled={steerBusy || !steerReason.trim()}
-						>{steerBusy
-							? 'Recording…'
-							: steering === 'resume'
-								? 'Resume this Work'
-								: 'Stop this Work'}</button
+						>{steerBusy ? 'Recording…' : STEER[steering].submit}</button
 					>
 					<button class="btn small ghost" type="button" onclick={() => (steering = '')}
 						>Cancel</button
@@ -705,25 +1041,52 @@
 
 							<section class="work-detail-section">
 								<div class="detail-section-head">
-									<span class="detail-label">Latest run</span>
-									{#if latestAttempt}
-										<small
-											>Attempt {latestAttempt.attempt_no} · revision {latestAttempt.revision}</small
-										>
-									{/if}
+									<span class="detail-label">Runs</span>
+									{#if work && isOwnerWork(work)}<small
+											title="How this Work is produced, and how many runs each revision allows"
+											>{topology}{work.attempt_limit
+												? ` · up to ${work.attempt_limit} run${work.attempt_limit === 1 ? '' : 's'} a revision`
+												: ''}</small
+										>{/if}
 								</div>
-								{#if latestAttempt}
-									<strong class="attempt-state state-{latestAttempt.state}"
-										>{latestAttempt.state.replaceAll('_', ' ')}</strong
-									>
-									<p>{latestAttempt.summary || 'This run has not recorded a summary yet.'}</p>
-									<div class="attempt-meta">
-										<span>Started {displayDate(latestAttempt.started_at)}</span>
-										{#if ownerAccess}<span>{attemptModel() || 'Model not recorded'}</span>{/if}
+								{#each attempts.toReversed() as attempt (attempt.id)}
+									{@const inputs = attemptInputs(attempt.id)}
+									{@const notes = feedbackFor(attempt.id)}
+									<div class="attempt-row">
+										<div class="attempt-head">
+											<strong class="attempt-state state-{attempt.state}"
+												>{runStateLabel(attempt.state)}</strong
+											>
+											<small>Attempt {attempt.attempt_no} · revision {attempt.revision}</small>
+										</div>
+										<p>{attempt.summary || 'This run has not recorded a summary yet.'}</p>
+										<div class="attempt-meta">
+											<span>Started {displayDate(attempt.started_at)}</span>
+											{#if ownerAccess && 'model' in attempt && attempt.model}<span
+													>{attempt.model}</span
+												>{/if}
+										</div>
+										{#if inputs.length}<p class="attempt-io">
+												<span>Read</span>{inputs.join(' · ')}
+											</p>{/if}
+										{#each notes as note (note.message_id)}<p class="attempt-io">
+												<span>Feedback from {ownerName(note.from_actor)}</span>{note.body}
+											</p>{/each}
 									</div>
 								{:else}
 									<p class="detail-empty">No run has started yet.</p>
+								{/each}
+								{#if feedbackFor(null).length}
+									<div class="attempt-row">
+										<div class="attempt-head"><strong>For the next run</strong></div>
+										{#each feedbackFor(null) as note (note.message_id)}<p class="attempt-io">
+												<span>Feedback from {ownerName(note.from_actor)}</span>{note.body}
+											</p>{/each}
+									</div>
 								{/if}
+								{#if feedbackFailed}<p class="detail-empty">
+										Feedback for this Work could not be read right now.
+									</p>{/if}
 							</section>
 
 							<section class="contribution-trace">
@@ -754,19 +1117,97 @@
 
 				<div class="work-detail-rail">
 					<dl class="work-properties" aria-label="Work properties">
+						{#snippet mover(label: string)}
+							{#if movable && candidates.length}
+								<ActionMenu label={`Move this Work from ${label}`}>
+									{#snippet trigger()}<span class="standard-face">{label}</span>{/snippet}
+									{#each candidates as person (person.actor_id)}
+										<button type="button" onclick={() => openSteer('reassign', person.actor_id)}
+											><span>{person.display}</span></button
+										>
+									{/each}
+								</ActionMenu>
+							{:else}{label}{/if}
+						{/snippet}
 						<dt title="The lead accountable for integrating the whole outcome">Lead</dt>
-						<dd>{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)}</dd>
+						<dd class="standard-cell">
+							{#if workIsLeadOwned}{@render mover(
+									accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)
+								)}{:else}{accountableLead?.display ??
+									ownerName(accountableLeadId ?? work.owner_id)}{/if}
+						</dd>
 						{#if !workIsLeadOwned}
 							<dt title="The Staff member doing this work under the lead">Staff</dt>
-							<dd>{ownerName(work.owner_id)}</dd>
+							<dd class="standard-cell">{@render mover(ownerName(work.owner_id))}</dd>
 						{/if}
 						<dt>Goal</dt>
-						<dd>
-							{#if goal}<a
+						<dd class="standard-cell">
+							{#if maySteer && goals.length}
+								<ActionMenu label="Goal">
+									{#snippet trigger()}<span class="standard-face"
+											>{goal?.title ?? 'Unassigned'}</span
+										>{/snippet}
+									{#each goals.filter((row) => !row.closed_at || row.id === goal?.id) as option (option.id)}
+										<button
+											type="button"
+											disabled={editBusy}
+											onclick={() => changeDetails({ goal_id: option.id }, 'Moved to the Goal')}
+											><span>{option.title}</span>{#if option.id === goal?.id}<Check
+													size={14}
+													aria-label="Current"
+												/>{/if}</button
+										>
+									{/each}
+									<button
+										type="button"
+										disabled={editBusy || !goal}
+										onclick={() => changeDetails({ goal_id: null }, 'Taken out of its Goal')}
+										><span>No goal</span>{#if !goal}<Check
+												size={14}
+												aria-label="Current"
+											/>{/if}</button
+									>
+								</ActionMenu>
+							{:else if goal}<a
 									href={`/${encodeURIComponent(companyId)}/work?goal=${encodeURIComponent(goal.id)}`}
 									>{goal.title}</a
 								>{:else}<span class="muted">Unassigned</span>{/if}
 						</dd>
+						<dt title="Higher priority Work is picked up first">Priority</dt>
+						<dd class="standard-cell">
+							{#if maySteer}
+								<ActionMenu label="Priority">
+									{#snippet trigger()}<span class="standard-face"
+											>{priorityLabel(work.priority).replace(' priority', '') || 'Normal'}</span
+										>{/snippet}
+									{#each PRIORITIES as option (option.value)}
+										<button
+											type="button"
+											disabled={editBusy}
+											onclick={() =>
+												changeDetails({ priority: option.value }, `${option.label} priority`)}
+											><span>{option.label}</span
+											>{#if Math.sign(work.priority) === option.value}<Check
+													size={14}
+													aria-label="Current"
+												/>{/if}</button
+										>
+									{/each}
+								</ActionMenu>
+							{:else}{priorityLabel(work.priority).replace(' priority', '') || 'Normal'}{/if}
+							{#if detailFailure}<span class="standard-failure" role="alert">{detailFailure}</span
+								>{/if}
+						</dd>
+						{#if ownerAccess && spend !== null}
+							<dt title="Metered model spend on this Work so far">Cost</dt>
+							<dd>
+								{spend === 'unavailable'
+									? 'Unavailable right now'
+									: spend > 0
+										? `$${spend.toFixed(2)}`
+										: 'Nothing metered yet'}
+							</dd>
+						{/if}
 						<dt
 							title="How far this Work should go before it is called done. Set on its Goal; a piece of Work can hold itself to its own."
 						>
@@ -898,6 +1339,95 @@
 	.steer-actions {
 		display: flex;
 		gap: 6px;
+	}
+	.work-blocker {
+		margin: 4px 0 0;
+		color: var(--text-secondary);
+		font-size: var(--t-body);
+	}
+	.work-pending {
+		display: grid;
+		gap: 8px;
+		max-width: 720px;
+		margin: 0 0 12px;
+	}
+	.pending-item {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-start;
+		gap: 10px 16px;
+		padding: 12px 14px;
+		border: 1px solid color-mix(in srgb, var(--intent-authority) 45%, var(--border-strong));
+		border-radius: var(--radius-lg);
+		background: var(--surface-raised);
+	}
+	.pending-copy {
+		display: grid;
+		flex: 1 1 260px;
+		gap: 4px;
+		min-width: 0;
+	}
+	.pending-copy p {
+		margin: 0;
+		color: var(--text-secondary);
+	}
+	.pending-target {
+		font-size: var(--t-label);
+	}
+	.pending-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+	}
+	.pending-item > .work-steer-form {
+		flex-basis: 100%;
+		margin: 0;
+	}
+	.work-edit-form label {
+		display: grid;
+		gap: 4px;
+	}
+	.work-edit-form label span {
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+	}
+	.work-edit-form input {
+		padding: 6px 10px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-control);
+		background: var(--surface-raised);
+		color: var(--ink);
+		font: inherit;
+	}
+	.steer-note {
+		margin: 0;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+	}
+	.work-steer {
+		flex-wrap: wrap;
+	}
+	.attempt-row + .attempt-row {
+		margin-top: 10px;
+		padding-top: 10px;
+		border-top: 1px solid var(--border);
+	}
+	.attempt-head {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+	}
+	.attempt-head small {
+		color: var(--text-tertiary);
+	}
+	.attempt-io {
+		margin: 4px 0 0;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+	}
+	.attempt-io span {
+		margin-right: 6px;
+		color: var(--text-tertiary);
 	}
 	.steer-failure {
 		margin: 0;

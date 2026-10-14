@@ -1433,6 +1433,174 @@ impl OrgIntel {
         tx.commit().await?;
         Ok(())
     }
+
+    /// Hold unsettled Work without retiring it. Paused Work is blocked with the
+    /// reason as its resolution, so the ordinary `resume` undoes it. A live
+    /// Attempt must be stopped first, as for abandonment.
+    pub async fn pause_work(&self, work_id: Uuid, by: &str, reason: &str) -> Result<()> {
+        if reason.trim().is_empty() {
+            return Err(OrgIntelError::InvalidWork(
+                "pausing Work needs a reason the team can act on".into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        let status = admit_work_steer(&mut tx, work_id, by).await?;
+        if !matches!(status, WorkStatus::Proposed | WorkStatus::Active) {
+            return Err(OrgIntelError::InvalidWork(
+                "only Work that is planned or in progress can be paused".into(),
+            ));
+        }
+        let (running, pending): (bool, bool) = sqlx::query_as(
+            "SELECT EXISTS(SELECT 1 FROM work_attempts WHERE work_id=$1 AND state='running'), \
+                    EXISTS(SELECT 1 FROM owner_handoffs WHERE work_id=$1 AND state='pending')",
+        )
+        .bind(work_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if running {
+            return Err(OrgIntelError::InvalidWork(
+                "someone is working on this right now; pause it once the current run ends".into(),
+            ));
+        }
+        if pending {
+            return Err(OrgIntelError::InvalidWork(
+                "this Work is waiting on a decision; answer or decline it instead".into(),
+            ));
+        }
+        sqlx::query(
+            "UPDATE work SET status='blocked', resolution=$2, updated_at=now() WHERE id=$1",
+        )
+        .bind(work_id)
+        .bind(format!("paused by {by}: {}", reason.trim()))
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("INSERT INTO events (kind, actor_id, body) VALUES ('work_paused',$1,$2)")
+            .bind(by)
+            .bind(serde_json::json!({ "work_id": work_id, "reason": reason.trim() }))
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Bring stopped Work back. It returns in progress, with one more Attempt
+    /// allowed if its old allowance was spent, exactly as a resume grants.
+    pub async fn restore_work(&self, work_id: Uuid, by: &str, reason: &str) -> Result<()> {
+        if reason.trim().is_empty() {
+            return Err(OrgIntelError::InvalidWork(
+                "restoring Work needs the reason it should continue".into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        let status = admit_work_steer(&mut tx, work_id, by).await?;
+        if status != WorkStatus::Abandoned {
+            return Err(OrgIntelError::InvalidWork(
+                "only stopped Work can be restored".into(),
+            ));
+        }
+        let exhausted: bool = sqlx::query_scalar(
+            "SELECT attempt_limit IS NOT NULL AND (SELECT count(*) FROM work_attempts \
+             WHERE work_id=$1 AND revision=work.revision AND state <> 'superseded') \
+             >= attempt_limit FROM work WHERE id=$1",
+        )
+        .bind(work_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlx::query(
+            "UPDATE work SET status='active', resolution=$2, updated_at=now(), \
+                    attempt_limit=CASE WHEN $3 AND attempt_limit IS NOT NULL \
+                                             AND attempt_limit < 2147483647 \
+                                       THEN attempt_limit + 1 ELSE attempt_limit END \
+             WHERE id=$1",
+        )
+        .bind(work_id)
+        .bind(format!("restored by {by}: {}", reason.trim()))
+        .bind(exhausted)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("INSERT INTO events (kind, actor_id, body) VALUES ('work_restored',$1,$2)")
+            .bind(by)
+            .bind(serde_json::json!({
+                "work_id": work_id,
+                "reason": reason.trim(),
+                "attempt_limit_extended": exhausted,
+            }))
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Send done Work back with feedback. This is the same revision a review's
+    /// "request changes" makes: the feedback becomes input to the next Attempt,
+    /// the lead is told, and the Work waits for the lead to resume it.
+    pub async fn reopen_work(&self, work_id: Uuid, by: &str, feedback: &str) -> Result<()> {
+        let feedback = feedback.trim();
+        if feedback.is_empty() {
+            return Err(OrgIntelError::InvalidWork(
+                "sending Work back needs the change you want".into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        let status = admit_work_steer(&mut tx, work_id, by).await?;
+        if status != WorkStatus::Completed {
+            return Err(OrgIntelError::InvalidWork(
+                "only done Work can be sent back for changes".into(),
+            ));
+        }
+        sqlx::query(
+            "INSERT INTO actors (id, kind, actor_class, role, display) \
+             VALUES ('owner','owner','human','owner','The Owner') \
+             ON CONFLICT (id) DO NOTHING",
+        )
+        .execute(&mut *tx)
+        .await?;
+        invalidate_from(&mut tx, work_id, by, feedback).await?;
+        sqlx::query("UPDATE work SET updated_at=now() WHERE id=$1")
+            .bind(work_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("INSERT INTO events (kind, actor_id, body) VALUES ('work_reopened',$1,$2)")
+            .bind(by)
+            .bind(serde_json::json!({ "work_id": work_id, "feedback": feedback }))
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+}
+
+/// Lock one Work and admit `by` to steer it: the owner, the Exec, the Work's
+/// owner, its lead, or the person who owns its team. Returns its status.
+pub(crate) async fn admit_work_steer(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    work_id: Uuid,
+    by: &str,
+) -> Result<WorkStatus> {
+    let row = sqlx::query("SELECT owner_id, status FROM work WHERE id=$1 FOR UPDATE")
+        .bind(work_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| OrgIntelError::InvalidWork(format!("Work {work_id} does not exist")))?;
+    let owner_id: String = row.get("owner_id");
+    let status: WorkStatus = row.get("status");
+    let accountability = crate::actors::lock_work_accountability_in_tx(tx, work_id).await?;
+    if accountability.owner_id != owner_id || accountability.status != status {
+        return Err(OrgIntelError::InvalidWork(
+            "Work accountability changed while this change was being admitted".into(),
+        ));
+    }
+    let allowed = by == "owner"
+        || by == "exec"
+        || by == owner_id
+        || accountability.lead_actor_id.as_deref() == Some(by)
+        || accountability.responsible_actor_id.as_deref() == Some(by);
+    if !allowed {
+        return Err(OrgIntelError::InvalidWork(format!(
+            "{by:?} is not the Work owner, its lead, the person who owns its team, the Exec, or the owner"
+        )));
+    }
+    Ok(status)
 }
 
 /// Materialise the supervisory review side of a qualified produced outcome in

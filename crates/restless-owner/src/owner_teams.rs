@@ -223,3 +223,203 @@ pub(super) async fn abandon_work(
         Err(error) => refused("work", error),
     }
 }
+
+/// Hold Work without retiring it; Resume undoes it. The owner, or the person who owns the
+/// Work's team.
+pub(super) async fn pause_work(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, work)): AxumPath<(String, Uuid)>,
+    Json(input): Json<ReasonInput>,
+) -> Response<Body> {
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .pause_work(work, handoff_resolver(&principal), input.reason.trim())
+        .await
+    {
+        Ok(()) => Json(serde_json::json!({ "work_id": work, "paused": true })).into_response(),
+        Err(error) => refused("work", error),
+    }
+}
+
+/// Bring stopped Work back. The owner, or the person who owns the Work's team.
+pub(super) async fn restore_work(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, work)): AxumPath<(String, Uuid)>,
+    Json(input): Json<ReasonInput>,
+) -> Response<Body> {
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .restore_work(work, handoff_resolver(&principal), input.reason.trim())
+        .await
+    {
+        Ok(()) => Json(serde_json::json!({ "work_id": work, "restored": true })).into_response(),
+        Err(error) => refused("work", error),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct FeedbackInput {
+    #[serde(default)]
+    feedback: String,
+}
+
+/// Send done Work back with the change wanted. The feedback reaches the next Attempt.
+pub(super) async fn reopen_work(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, work)): AxumPath<(String, Uuid)>,
+    Json(input): Json<FeedbackInput>,
+) -> Response<Body> {
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .reopen_work(work, handoff_resolver(&principal), input.feedback.trim())
+        .await
+    {
+        Ok(()) => Json(serde_json::json!({ "work_id": work, "reopened": true })).into_response(),
+        Err(error) => refused("work", error),
+    }
+}
+
+/// An absent field leaves that part alone; a null `goal_id` takes the Work out of its Goal.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct WorkDetailsInput {
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    outcome: Option<String>,
+    #[serde(default)]
+    expected_artifact: Option<String>,
+    #[serde(default)]
+    priority: Option<i16>,
+    #[serde(default, deserialize_with = "present")]
+    goal_id: Option<Option<Uuid>>,
+}
+
+fn present<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<Option<Uuid>>, D::Error> {
+    Option::<Uuid>::deserialize(deserializer).map(Some)
+}
+
+/// Correct a Work's title, brief, expected output, priority or Goal.
+pub(super) async fn set_work_details(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, work)): AxumPath<(String, Uuid)>,
+    Json(input): Json<WorkDetailsInput>,
+) -> Response<Body> {
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    let edit = restless_orgintel::WorkDetailsEdit {
+        work_id: work,
+        title: input.title.as_deref(),
+        outcome: input.outcome.as_deref(),
+        expected_artifact: input.expected_artifact.as_deref(),
+        priority: input.priority.map(|priority| priority.clamp(-1, 1)),
+        goal_id: input.goal_id,
+    };
+    match org
+        .update_work_details(handoff_resolver(&principal), edit)
+        .await
+    {
+        Ok(()) => Json(serde_json::json!({ "work_id": work, "updated": true })).into_response(),
+        Err(error) => refused("work", error),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct WorkOwnerInput {
+    person: String,
+    #[serde(default)]
+    reason: String,
+}
+
+/// Move unsettled Work to someone else. The owner moves any; the person who owns a team moves
+/// Work between its members. OrgIntel decides.
+pub(super) async fn reassign_work(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, work)): AxumPath<(String, Uuid)>,
+    Json(input): Json<WorkOwnerInput>,
+) -> Response<Body> {
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    let by = handoff_resolver(&principal);
+    if by == "owner" {
+        // The owner is an actor OrgIntel admits as a coordinator; make sure it is recorded.
+        if let Err(error) = org
+            .ensure_actor("owner", "owner", "owner", "The Owner")
+            .await
+        {
+            return refused("work", error);
+        }
+    }
+    match org
+        .reassign_work(work, input.person.trim(), by, input.reason.trim())
+        .await
+    {
+        Ok(previous) => Json(serde_json::json!({
+            "work_id": work,
+            "owner_id": input.person.trim(),
+            "previous_owner_id": previous,
+        }))
+        .into_response(),
+        Err(error) => refused("work", error),
+    }
+}
+
+/// The feedback linked to one Work, and which Attempt read each message. Owner only.
+pub(super) async fn work_feedback(
+    State(state): State<OwnerState>,
+    AxumPath((company, work)): AxumPath<(String, Uuid)>,
+) -> Response<Body> {
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org.work_feedback(work).await {
+        Ok(feedback) => Json(serde_json::json!({ "feedback": feedback })).into_response(),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "orgintel",
+            error.plain_message(),
+        ),
+    }
+}
+
+/// What each piece of Work has cost in metered model spend, from the exact request records.
+/// Owner only, like the rest of spend.
+pub(super) async fn work_spend(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    let mut by_work: std::collections::BTreeMap<Uuid, u64> = Default::default();
+    for record in state.daemon.spend.records(&company) {
+        if let Some(work_id) = record.work_id {
+            *by_work.entry(work_id).or_default() += record.cost_micro_usd;
+        }
+    }
+    let work: Vec<_> = by_work
+        .into_iter()
+        .map(|(work_id, micro)| {
+            serde_json::json!({ "work_id": work_id, "spent_usd": micro as f64 / 1_000_000.0 })
+        })
+        .collect();
+    Json(serde_json::json!({ "work": work })).into_response()
+}

@@ -91,6 +91,27 @@ impl OrgIntel {
         Ok(closed)
     }
 
+    /// Open a closed Goal again. Its Work is untouched, as when it closed.
+    pub async fn reopen_goal(&self, goal_id: Uuid, reopened_by: &str) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        let reopened =
+            sqlx::query("UPDATE goals SET closed_at=NULL WHERE id=$1 AND closed_at IS NOT NULL")
+                .bind(goal_id)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected()
+                == 1;
+        if reopened {
+            sqlx::query("INSERT INTO events (kind, actor_id, body) VALUES ('goal_reopened',$1,$2)")
+                .bind(reopened_by)
+                .bind(serde_json::json!({ "goal_id": goal_id }))
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(reopened)
+    }
+
     pub async fn list_goals(&self) -> Result<Vec<GoalRow>> {
         Ok(sqlx::query_as(
             "SELECT id, title, body, created_by, created_at, closed_at, outcome_standard, done_when, due_on, \
@@ -272,6 +293,111 @@ impl OrgIntel {
         .await?;
         tx.commit().await?;
         Ok(previous)
+    }
+
+    /// Correct what a piece of Work is: its title, brief, expected output,
+    /// priority or Goal. Each part changes only when given; `goal_id` of
+    /// `Some(None)` takes it out of any Goal. The same people who may resume or
+    /// stop the Work may edit it. A brief cannot change under a running
+    /// Attempt, whose inputs are already frozen; title, priority and Goal can.
+    pub async fn update_work_details(&self, by: &str, edit: WorkDetailsEdit<'_>) -> Result<()> {
+        let title = edit.title.map(str::trim);
+        let outcome = edit.outcome.map(str::trim);
+        let expected = edit.expected_artifact.map(str::trim);
+        if title.is_some_and(|title| title.is_empty() || title.chars().count() > 200) {
+            return Err(OrgIntelError::InvalidWork(
+                "a Work title needs between 1 and 200 characters".into(),
+            ));
+        }
+        if outcome.is_some_and(|text| text.is_empty() || text.chars().count() > 20_000) {
+            return Err(OrgIntelError::InvalidWork(
+                "a Work brief needs between 1 and 20,000 characters".into(),
+            ));
+        }
+        if expected.is_some_and(|text| text.chars().count() > 2_000) {
+            return Err(OrgIntelError::InvalidWork(
+                "keep the expected output under 2,000 characters".into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        let status = crate::attempts::admit_work_steer(&mut tx, edit.work_id, by).await?;
+        let brief_changes = outcome.is_some() || expected.is_some();
+        if brief_changes {
+            if matches!(status, WorkStatus::Completed | WorkStatus::Abandoned) {
+                return Err(OrgIntelError::InvalidWork(
+                    "settled Work keeps the brief it was done to; send it back for changes instead"
+                        .into(),
+                ));
+            }
+            let running: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM work_attempts WHERE work_id=$1 AND state='running')",
+            )
+            .bind(edit.work_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if running {
+                return Err(OrgIntelError::InvalidWork(
+                    "someone is working to this brief right now; send a correction in chat, or edit it once the run ends"
+                        .into(),
+                ));
+            }
+        }
+        if let Some(Some(goal_id)) = edit.goal_id {
+            let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM goals WHERE id=$1)")
+                .bind(goal_id)
+                .fetch_one(&mut *tx)
+                .await?;
+            if !exists {
+                return Err(OrgIntelError::InvalidWork(format!(
+                    "Goal {goal_id} does not exist in this company"
+                )));
+            }
+        }
+        sqlx::query(
+            "UPDATE work SET title=COALESCE($2,title), outcome=COALESCE($3,outcome), \
+                    expected_artifact=COALESCE($4,expected_artifact), \
+                    priority=COALESCE($5,priority), \
+                    goal_id=CASE WHEN $6 THEN $7 ELSE goal_id END, updated_at=now() \
+             WHERE id=$1",
+        )
+        .bind(edit.work_id)
+        .bind(title)
+        .bind(outcome)
+        .bind(expected)
+        .bind(edit.priority)
+        .bind(edit.goal_id.is_some())
+        .bind(edit.goal_id.flatten())
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("INSERT INTO events (kind, actor_id, body) VALUES ('work_updated',$1,$2)")
+            .bind(by)
+            .bind(serde_json::json!({
+                "work_id": edit.work_id,
+                "title": title,
+                "outcome_changed": outcome.is_some(),
+                "expected_artifact": expected,
+                "priority": edit.priority,
+                "goal_id": edit.goal_id,
+            }))
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// The feedback linked to one Work, oldest first, with the Attempt that
+    /// took each message as input, if one has.
+    pub async fn work_feedback(&self, work_id: Uuid) -> Result<Vec<WorkFeedbackRow>> {
+        Ok(sqlx::query_as(
+            "SELECT m.id AS message_id, m.from_actor, m.to_actor, m.body, m.created_at, \
+                    (SELECT af.attempt_id FROM work_attempt_feedback af \
+                      WHERE af.message_id=m.id LIMIT 1) AS attempt_id \
+             FROM work_feedback f JOIN messages m ON m.id=f.message_id \
+             WHERE f.work_id=$1 ORDER BY m.id",
+        )
+        .bind(work_id)
+        .fetch_all(&self.pool)
+        .await?)
     }
 
     // ---- Work graph ----

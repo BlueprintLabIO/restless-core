@@ -439,6 +439,28 @@ pub struct GoalRow {
     pub team_id: Option<Uuid>,
 }
 
+/// One owner edit of a Work node; `None` leaves that part as it is.
+#[derive(Debug, Clone, Copy)]
+pub struct WorkDetailsEdit<'a> {
+    pub work_id: Uuid,
+    pub title: Option<&'a str>,
+    pub outcome: Option<&'a str>,
+    pub expected_artifact: Option<&'a str>,
+    pub priority: Option<i16>,
+    pub goal_id: Option<Option<Uuid>>,
+}
+
+/// One feedback message linked to a Work, and the Attempt that read it.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct WorkFeedbackRow {
+    pub message_id: i64,
+    pub from_actor: String,
+    pub to_actor: Option<String>,
+    pub body: String,
+    pub created_at: DateTime<Utc>,
+    pub attempt_id: Option<Uuid>,
+}
+
 #[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
 pub struct WorkRow {
     pub id: Uuid,

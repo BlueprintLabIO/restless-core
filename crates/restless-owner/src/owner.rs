@@ -1352,6 +1352,14 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(teams_api::set_goal_team),
         )
         .route(
+            "/companies/{company}/goals/{goal}/details",
+            post(skills_api::set_goal_details),
+        )
+        .route(
+            "/companies/{company}/goals/{goal}/reopen",
+            post(skills_api::reopen_goal),
+        )
+        .route(
             "/companies/{company}/teams/{team}/owner",
             get(teams_api::team_owner_history).post(teams_api::set_team_owner),
         )
@@ -1363,6 +1371,31 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/companies/{company}/work/{work}/abandon",
             post(teams_api::abandon_work),
         )
+        .route(
+            "/companies/{company}/work/{work}/pause",
+            post(teams_api::pause_work),
+        )
+        .route(
+            "/companies/{company}/work/{work}/restore",
+            post(teams_api::restore_work),
+        )
+        .route(
+            "/companies/{company}/work/{work}/reopen",
+            post(teams_api::reopen_work),
+        )
+        .route(
+            "/companies/{company}/work/{work}/details",
+            post(teams_api::set_work_details),
+        )
+        .route(
+            "/companies/{company}/work/{work}/owner",
+            post(teams_api::reassign_work),
+        )
+        .route(
+            "/companies/{company}/work/{work}/feedback",
+            get(teams_api::work_feedback),
+        )
+        .route("/companies/{company}/work-spend", get(teams_api::work_spend))
         .route(
             "/companies/{company}/goals/{goal}/standard",
             post(skills_api::set_goal_standard),
@@ -2292,7 +2325,8 @@ fn is_team_owner_action(method: &Method, path: &str) -> bool {
     let tail: Vec<&str> = segments.collect();
     matches!(
         tail.as_slice(),
-        ["work", work, "resume" | "abandon"] if !work.is_empty()
+        ["work", work, "resume" | "abandon" | "pause" | "restore" | "reopen" | "details" | "owner"]
+            if !work.is_empty()
     ) || matches!(tail.as_slice(), ["goals", goal, "team"] if !goal.is_empty())
 }
 

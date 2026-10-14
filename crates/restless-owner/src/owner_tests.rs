@@ -2832,6 +2832,11 @@ model = \"anthropic/claude-sonnet-5-5\"
             // The person who owns a team runs its Work and goals.
             "/api/companies/aris/work/w-1/resume",
             "/api/companies/aris/work/w-1/abandon",
+            "/api/companies/aris/work/w-1/pause",
+            "/api/companies/aris/work/w-1/restore",
+            "/api/companies/aris/work/w-1/reopen",
+            "/api/companies/aris/work/w-1/details",
+            "/api/companies/aris/work/w-1/owner",
             "/api/companies/aris/goals/g-1/team",
         ] {
             assert!(membership_boundary_violation(&Method::POST, path, &principal).is_none(), "{path}");
@@ -2840,6 +2845,15 @@ model = \"anthropic/claude-sonnet-5-5\"
         assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/teams/t-1/owner", &principal).is_some());
         // Only the owner hands an Inbox item to someone else.
         assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/handoffs/h-1/delegate", &principal).is_some());
+        // Goal wording, closing and reopening, a Work's feedback and spend stay with the owner.
+        for path in [
+            "/api/companies/aris/goals/g-1/details",
+            "/api/companies/aris/goals/g-1/reopen",
+        ] {
+            assert!(membership_boundary_violation(&Method::POST, path, &principal).is_some(), "{path}");
+        }
+        assert!(membership_boundary_violation(&Method::GET, "/api/companies/aris/work/w-1/feedback", &principal).is_some());
+        assert!(membership_boundary_violation(&Method::GET, "/api/companies/aris/work-spend", &principal).is_some());
         assert!(membership_boundary_violation(&Method::GET, "/api/companies/aris/work/w-1/resume", &principal).is_some());
         // They open the Work files they can see; the handlers check which.
         assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/library/open", &principal).is_none());

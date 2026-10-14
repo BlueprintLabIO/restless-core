@@ -237,6 +237,77 @@ pub(super) async fn close_goal(
     }
 }
 
+/// An absent field leaves that part alone; a null `due_on` clears the date.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct GoalDetailsInput {
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    done_when: Option<String>,
+    #[serde(default, deserialize_with = "present_date")]
+    due_on: Option<Option<chrono::NaiveDate>>,
+}
+
+fn present_date<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<Option<chrono::NaiveDate>>, D::Error> {
+    Option::<chrono::NaiveDate>::deserialize(deserializer).map(Some)
+}
+
+/// Rename an open Goal, or say what done looks like and by when.
+pub(super) async fn set_goal_details(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, goal)): AxumPath<(String, Uuid)>,
+    Json(input): Json<GoalDetailsInput>,
+) -> Response<Body> {
+    if let Some(refusal) = owner_only(&principal) {
+        return refusal;
+    }
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .set_goal_details(
+            goal,
+            input.title.as_deref(),
+            input.done_when.as_deref(),
+            input.due_on,
+            principal.actor_id(),
+        )
+        .await
+    {
+        Ok(true) => Json(json!({ "goal_id": goal, "updated": true })).into_response(),
+        Ok(false) => api_error(
+            StatusCode::NOT_FOUND,
+            "goal",
+            "that Goal is closed or does not exist; reopen it first",
+        ),
+        Err(error) => orgintel_error(error),
+    }
+}
+
+/// Open a closed Goal again.
+pub(super) async fn reopen_goal(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, goal)): AxumPath<(String, Uuid)>,
+) -> Response<Body> {
+    if let Some(refusal) = owner_only(&principal) {
+        return refusal;
+    }
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org.reopen_goal(goal, principal.actor_id()).await {
+        Ok(reopened) => Json(json!({ "goal_id": goal, "reopened": reopened })).into_response(),
+        Err(error) => orgintel_error(error),
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct StandardInput {
