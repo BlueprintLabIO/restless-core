@@ -177,6 +177,22 @@
 		background: white;
 		color: #252525;
 	}
+	/* The engine draws its grid, headers and controls in fixed light colours. In the dark theme
+	 * the whole editor is turned dark by inverting lightness while keeping hue, so a fill or a
+	 * coloured figure keeps its colour family. Pictures, charts, colour swatches and the comment
+	 * marks are turned back by the exact inverse, so they show their true colours. */
+	:global(:root[data-theme='dark']) .native-sheet-surface {
+		background: #131313;
+		color-scheme: light;
+	}
+	:global(:root[data-theme='dark']) .native-sheet-surface :global(.sheet-owl-root) {
+		filter: invert(1) hue-rotate(180deg) contrast(0.85);
+	}
+	:global(:root[data-theme='dark'])
+		.native-sheet-surface
+		:global(:is(.o-figure, .o-color-picker, .sheet-comment-marks)) {
+		filter: contrast(1.1765) hue-rotate(180deg) invert(1);
+	}
 	.sheet-notice {
 		padding: 10px 12px;
 	}
