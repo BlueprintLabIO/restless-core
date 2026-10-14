@@ -483,8 +483,9 @@
 		url.searchParams.delete('talk');
 		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
 	});
-	/* People opens the Exec and team leads in this same conversation, full
-	 * width, instead of a second copy of it: one conversation, two sizes. */
+	/* People opens every agent (the Exec, team leads and their staff) in this same conversation,
+	 * full width, instead of a second copy of it: one conversation, two sizes. Talking to a staff
+	 * member reads exactly like talking to their lead. Colleagues keep their room. */
 	const wideActor = $derived.by(() => {
 		if (!principal || page.url.searchParams.has('room')) return '';
 		const path = page.url.pathname;
@@ -492,7 +493,11 @@
 		const person = page.url.searchParams.get('person') ?? '';
 		if (person === 'exec') return person;
 		const teams = ownerAccess ? cockpit?.teams : collaboration.view?.teams;
-		return teams?.some((team) => team.lead_actor_id === person) ? person : '';
+		if (teams?.some((team) => team.lead_actor_id === person)) return person;
+		const people = ownerAccess ? cockpit?.people : collaboration.view?.people;
+		return people?.some((candidate) => candidate.actor_id === person && candidate.kind === 'staff')
+			? person
+			: '';
 	});
 	const railActorId = $derived(
 		wideActor || (focusedAttention?.responsibleActor?.id ?? chosenTopic?.actorId ?? 'exec')
@@ -1732,7 +1737,7 @@
 			execHref={!!principal &&
 			(page.url.pathname === `/${companyId}/people` ||
 				page.url.pathname.startsWith(`/${companyId}/people/`))
-				? `/${companyId}/people?person=exec`
+				? `/${companyId}/people?person=${encodeURIComponent(railActorId)}`
 				: null}
 			execName={railActorName}
 			execLive={railConnected}

@@ -26,6 +26,7 @@
 	 * chat inside the outcome surface. */
 
 	import { followChat } from '$lib/actions/follow-chat';
+	import { initials } from '$lib/model/initials';
 	import IntelligenceChip from './IntelligenceChip.svelte';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import { copyText } from '$lib/model/copy-text';
@@ -1326,10 +1327,12 @@
 					<div class="exr-who topic-switch">
 						<ActionMenu label="Switch conversation">
 							{#snippet trigger()}<span class="topic-face"
-									><SemanticMark
-										meaning={participantId === 'exec' ? 'executive' : 'work'}
-										size="small"
-									/><span class="topic-text"
+									>{#if participantId === 'exec'}<SemanticMark
+											meaning="executive"
+											size="small"
+										/>{:else}<span class="exr-initials" aria-hidden="true"
+											>{initials(participantName)}</span
+										>{/if}<span class="topic-text"
 										><strong class="exr-name">{participantName}</strong>{#if topicLabel}<span
 												class="topic-label">{topicLabel}</span
 											>{/if}</span
@@ -1353,7 +1356,12 @@
 					</div>
 				{:else}
 					<div class="exr-who">
-						<SemanticMark meaning={review || workContext ? 'work' : 'executive'} size="small" />
+						{#if review || workContext || participantId === 'exec'}<SemanticMark
+								meaning={review || workContext ? 'work' : 'executive'}
+								size="small"
+							/>{:else}<span class="exr-initials" aria-hidden="true"
+								>{initials(participantName)}</span
+							>{/if}
 						<strong class="exr-name">{participantName}</strong>
 					</div>
 				{/if}
@@ -2212,6 +2220,21 @@
 		margin-top: var(--space-4);
 	}
 
+	/* An agent's own two letters, as in People: never Exec's mark on someone else's chat. */
+	.exr-initials {
+		display: inline-grid;
+		place-items: center;
+		flex: none;
+		width: 24px;
+		height: 24px;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--surface-subtle, var(--surface));
+		color: var(--ink-secondary, var(--ink));
+		font-size: 11px;
+		font-weight: 600;
+		letter-spacing: 0.01em;
+	}
 	.exr-head-primary {
 		min-width: 0;
 		flex: 1 1 auto;

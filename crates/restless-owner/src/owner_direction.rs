@@ -119,7 +119,7 @@ pub(super) async fn decide(
         Ok(decided) => {
             // An approved request is Exec's to carry out at once: wake it with the request.
             if decided.state == restless_engine::direction::RequestState::Approved {
-                wake_exec_for(&state, &company, acting(&principal).id, &decided).await;
+                wake_exec_for(&state, &company, &decided).await;
             } else if decided.state == restless_engine::direction::RequestState::Declined {
                 tell_declined(&org, &decided).await;
             }
@@ -144,11 +144,10 @@ async fn tell_declined(org: &restless_orgintel::OrgIntel, request: &restless_eng
     }
 }
 
-/// Tell Exec, as the person who decided, so it carries the request out on its next wake.
+/// Tell Exec to carry an approved request out on its next wake.
 async fn wake_exec_for(
     state: &OwnerState,
     company: &str,
-    decider: &str,
     request: &restless_engine::direction::DirectionRequest,
 ) {
     let body = format!(
@@ -160,7 +159,9 @@ async fn wake_exec_for(
         request.id,
     );
     if let Ok(org) = state.daemon.orgintel.get(company).await {
-        if let Err(error) = org.send_message(decider, Some("exec"), &body).await {
+        // From the daemon, not the decider: it is Exec's work order, and the person who decided
+        // must not find a command and an id in their own chat under their name.
+        if let Err(error) = org.send_message("daemon", Some("exec"), &body).await {
             tracing::warn!(%error, "could not tell Exec about an approved request");
         }
     }
