@@ -11,7 +11,7 @@
 				[`${mod} K`, 'Search and jump'],
 				[`${mod} J`, 'Show or hide the Exec'],
 				[`${mod} Z`, 'Undo the last action, while its Undo is showing'],
-				['G then I / W / L / P / C', 'Go to Inbox, Work, Library, People, Company'],
+				['G then I / W / L / P / A / C', 'Go to Inbox, Work, Library, People, Apps, Company'],
 				['?', 'These shortcuts']
 			]
 		},
@@ -41,9 +41,18 @@
 			title: 'Inbox',
 			keys: [
 				['J / K', 'Next or previous item, on into For you'],
-				['R', 'Reply'],
-				['E', 'Mark done'],
-				['H', 'Snooze']
+				['R', 'Answer: the reply box, or the first answer button'],
+				['C', 'Discuss with whoever asked'],
+				['E', 'Mark a step done, with Undo'],
+				['H', 'Snooze'],
+				[`${mod} .`, 'Copy the item’s link']
+			]
+		},
+		{
+			title: 'Requests',
+			keys: [
+				['Y', 'Approve, with Undo'],
+				['N', 'Decline, with an optional reason']
 			]
 		},
 		{
