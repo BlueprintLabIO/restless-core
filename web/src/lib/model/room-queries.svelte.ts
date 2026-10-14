@@ -180,6 +180,24 @@ export function roomsQuery(companyId: string) {
 	};
 }
 
+/** Group rooms whose title matches, across every page, for Chats search. */
+export function roomTitleSearchQuery(companyId: string, search: string) {
+	const normalized = search.trim();
+	const query = createQuery(() => ({
+		queryKey: roomQueryKeys.roomSearch(companyId, normalized),
+		queryFn: ({ signal }: { signal: AbortSignal }) =>
+			searchRooms(companyId, normalized, null, 30, signal),
+		enabled: normalized.length > 0,
+		staleTime: ROOM_STALE_MS,
+		gcTime: ROOM_RETAIN_MS
+	}));
+	return {
+		get rooms() {
+			return normalized ? (query.data?.rooms ?? []) : [];
+		}
+	};
+}
+
 function olderSearchCursor(page: RoomMessageSearchPage): number | undefined {
 	return page.has_more && page.next_before_message_id !== null
 		? page.next_before_message_id

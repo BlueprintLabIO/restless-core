@@ -46,7 +46,8 @@
 		roomsQuery,
 		recentDirectConversationsQuery,
 		recentGroupConversationsQuery,
-		roomMessageSearchQuery
+		roomMessageSearchQuery,
+		roomTitleSearchQuery
 	} from '$lib/model/room-queries.svelte';
 	import { conversationUnread, messagePreview, restoreRoom, type Room } from '$lib/model/rooms';
 	import { useQueryClient } from '@tanstack/svelte-query';
@@ -143,6 +144,9 @@
 		return () => clearTimeout(timer);
 	});
 	const messageSearch = $derived(roomMessageSearchQuery(companyId, debouncedSearch));
+	/* Chats loads group rooms a page at a time; a search also asks the server, so a group on a
+	 * page not loaded yet is still found. */
+	const roomTitleSearch = $derived(roomTitleSearchQuery(companyId, debouncedSearch));
 	function directPerson(room: Room) {
 		if (room.kind !== 'direct' || !principal.view) return undefined;
 		return people.find((p) => {
@@ -610,7 +614,8 @@
 			];
 		});
 		const spoken = new Map(recentGroups.conversations.map((group) => [group.room_id, group]));
-		const groups = rooms.rooms
+		const loaded = new Set(rooms.rooms.map((room) => room.id));
+		const groups = [...rooms.rooms, ...roomTitleSearch.rooms.filter((room) => !loaded.has(room.id))]
 			.filter((room) => room.kind !== 'direct' && !room.archived_at)
 			.map((room) => {
 				const latest = spoken.get(room.id);
@@ -917,6 +922,24 @@
 						<SidebarEmpty text="No conversations yet." />
 					{/if}
 				{/each}
+				{#if rooms.hasMore && !search.trim()}
+					<button
+						type="button"
+						class="btn small ghost more-chats"
+						disabled={rooms.loadingMore}
+						{@attach (button) => {
+							/* Older groups load as the list scrolls to its end; the button stays for keys. */
+							const observer = new IntersectionObserver((entries) => {
+								if (entries.some((entry) => entry.isIntersecting) && !rooms.loadingMore)
+									void rooms.loadMore();
+							});
+							observer.observe(button);
+							return () => observer.disconnect();
+						}}
+						onclick={() => void rooms.loadMore()}
+						>{rooms.loadingMore ? 'Loading…' : 'Show older groups'}</button
+					>
+				{/if}
 				{#if archived.rooms.length && !search.trim()}
 					<details class="archived-chats">
 						<summary
@@ -1315,6 +1338,10 @@
 		color: var(--text-tertiary);
 		font-style: normal;
 		font-weight: 400;
+	}
+	.more-chats {
+		display: block;
+		margin: var(--space-2) auto;
 	}
 	.archived-chats {
 		margin-top: 8px;
