@@ -1,7 +1,10 @@
 import { App, Component, xml } from '@odoo/owl';
 import {
+	CommandResult,
+	CorePlugin,
 	Model,
 	Spreadsheet,
+	UIPlugin,
 	helpers,
 	registries
 } from '@odoo/o-spreadsheet/dist/o_spreadsheet.esm.js';
@@ -58,6 +61,54 @@ function addCommentMenu() {
 		isReadonlyAllowed: true,
 		execute: () => commentRequest?.()
 	});
+}
+/* The server keeps at most 30 tabs. A new or duplicated tab past that is refused here, before the
+ * grid shows it, and the person is told why; refused by the server instead, it would cost the
+ * edits queued behind it. Like the comment menu, the refusal speaks for the sheet opened last. */
+const MAX_TABS = 30;
+let tabLimitReached: (() => void) | undefined;
+/* After a refused change, the edits queued behind it are applied again on the reopened sheet as
+ * one change. Each command is checked on its own: one that needed the refused change is dropped. */
+let replayed: { applied: number; dropped: number } = { applied: 0, dropped: 0 };
+let pluginAdded = false;
+function addPlugin() {
+	if (pluginAdded) return;
+	pluginAdded = true;
+	// The engine checks a shared (core) command only with core plugins. This one keeps no state.
+	class RestlessTabLimit extends CorePlugin {
+		allowDispatch(cmd: any) {
+			if (
+				(cmd.type === 'CREATE_SHEET' || cmd.type === 'DUPLICATE_SHEET') &&
+				this.getters.getSheetIds().length >= MAX_TABS
+			) {
+				tabLimitReached?.();
+				return CommandResult.CancelledForUnknownReason;
+			}
+			return CommandResult.Success;
+		}
+	}
+	registries.corePluginRegistry.add('restless_tab_limit', RestlessTabLimit);
+	class RestlessSheetPlugin extends UIPlugin {
+		handle(cmd: any) {
+			if (cmd.type !== 'RESTLESS_REPLAY') return;
+			for (const command of cmd.commands as any[]) {
+				const result = this.dispatch(command.type, command);
+				if (result.isSuccessful) replayed.applied++;
+				else replayed.dropped++;
+			}
+		}
+	}
+	registries.featurePluginRegistry.add('restless_sheet', RestlessSheetPlugin);
+}
+/* Commands whose undoing moves nothing else: a later edit means the same cells without them.
+ * A new tab qualifies too, since an edit inside it simply has nowhere to land. */
+function independent(command: { type: string }) {
+	return (
+		command.type === 'CREATE_SHEET' ||
+		command.type === 'DUPLICATE_SHEET' ||
+		registries.inverseCommandRegistry.get(command.type) ===
+			registries.inverseCommandRegistry.get('UPDATE_CELL')
+	);
 }
 /** A cell to mark as carrying a comment thread. */
 export interface SheetMark {
@@ -162,7 +213,16 @@ export function mountSheet(
 	comment: () => void = () => {}
 ) {
 	addCommentMenu();
+	addPlugin();
 	commentRequest = comment;
+	const refuseTab = () =>
+		queueMicrotask(() =>
+			tell({
+				title: `A sheet can have up to ${MAX_TABS} tabs`,
+				text: 'Delete a tab you no longer need, or start a new sheet for the rest.'
+			})
+		);
+	tabLimitReached = refuseTab;
 	const shortcut = (event: KeyboardEvent) => {
 		if (
 			(event.ctrlKey || event.metaKey) &&
@@ -275,7 +335,7 @@ export function mountSheet(
 			if (message.type === 'REMOTE_REVISION') {
 				const cells = message.commands?.length ?? 0;
 				if (cells > MAX_REVISION_COMMANDS || messageBytes(text) > MAX_MESSAGE_BYTES) {
-					// Never sent: reopening drops it locally, with the pending edits queued behind it.
+					// Never sent: reopening drops it locally; edits queued behind it are applied again.
 					queueMicrotask(() =>
 						reload({
 							title: 'That change is too large to save at once',
@@ -292,6 +352,32 @@ export function mountSheet(
 		},
 		leave() {}
 	};
+	function withLost(details: string | undefined, lost: number) {
+		const note = `${lost.toLocaleString()} later ${lost === 1 ? 'edit' : 'edits'} made after it ${lost === 1 ? 'was' : 'were'} lost too.`;
+		return details ? `${details}\n${note}` : note;
+	}
+	/* The kept edits go in as one new change, so the owner can undo them together. */
+	function replay(kept: NonNullable<typeof carried>) {
+		replayed = { applied: 0, dropped: 0 };
+		if (access === 'edit') model.dispatch('RESTLESS_REPLAY', { commands: kept.commands });
+		const { applied, dropped } = replayed;
+		const edits = `${kept.edits.toLocaleString()} ${kept.edits === 1 ? 'edit' : 'edits'} you made after it`;
+		const one = kept.edits === 1;
+		tell({
+			...kept.notice,
+			text: `${kept.notice.text} ${applied ? `The ${edits} ${one ? 'was' : 'were'} kept and ${one ? 'is' : 'are'} saving.` : `The ${edits} could not be kept.`}`,
+			details:
+				[
+					kept.notice.details,
+					dropped && applied
+						? `${dropped.toLocaleString()} cell ${dropped === 1 ? 'change' : 'changes'} needed it and ${dropped === 1 ? 'was' : 'were'} dropped.`
+						: '',
+					kept.lost ? withLost(undefined, kept.lost) : ''
+				]
+					.filter(Boolean)
+					.join('\n') || undefined
+		});
+	}
 	function accepted(sequence: number, message: UpstreamMessage) {
 		if (sequence <= cursor) return;
 		receive?.(message);
@@ -329,10 +415,49 @@ export function mountSheet(
 		showFaces([]);
 		status({ state: 'error', message, access: 'read', denied });
 	}
+	/** Say something once, over the sheet as it is now. */
+	function tell(notice: NonNullable<EditorStatus['notice']>) {
+		if (disposed || blocked || !model) return;
+		status({
+			state: pending.size ? 'saving' : 'saved',
+			access,
+			revision: model.exportData().revisionId,
+			worksheet: model.getters.getActiveSheetId(),
+			sheet: row,
+			notice
+		});
+	}
+	/* The engine sends one change at a time, so the refused one heads its queue and every edit
+	 * after it waits behind. Those later edits are kept to apply again on the reopened sheet,
+	 * unless the refused change moved cells or tabs they were made against. */
+	let carried:
+		| { commands: any[]; edits: number; lost: number; notice: NonNullable<EditorStatus['notice']> }
+		| undefined;
+	function carryQueue(notice: NonNullable<EditorStatus['notice']>) {
+		const session = model?.session;
+		const queue: UpstreamMessage[] = session?.pendingMessages ?? [];
+		const commandsOf = (message: UpstreamMessage): any[] =>
+			session?.revisions?.get?.(message.nextRevisionId)?.commands ?? message.commands ?? [];
+		const [refused, ...later] = queue;
+		const edits = later.filter((message) => message.type === 'REMOTE_REVISION');
+		const safe = !refused || commandsOf(refused).every(independent);
+		if (!edits.length || !safe) return { commands: [], edits: 0, lost: later.length, notice };
+		return {
+			notice,
+			commands: edits.flatMap(commandsOf),
+			edits: edits.length,
+			// An undo or redo of something else cannot be carried across sessions.
+			lost: later.length - edits.length
+		};
+	}
 	/* A change the server refused, or one too large to send, must not take the editor down with
-	 * it: the sheet reopens as a fresh session at its saved state and the owner is told once. */
+	 * it: the sheet reopens as a fresh session at its saved state, the edits queued behind it are
+	 * applied again where they still fit, and the owner is told once what was kept and lost. */
 	function reload(notice: NonNullable<EditorStatus['notice']>) {
 		if (disposed || blocked) return;
+		carried = access === 'edit' ? carryQueue(notice) : undefined;
+		if (carried && !carried.edits && carried.lost)
+			notice = { ...notice, details: withLost(notice.details, carried.lost) };
 		const previous = socket;
 		socket = undefined;
 		previous?.close();
@@ -476,6 +601,8 @@ export function mountSheet(
 							return;
 						}
 						if (access === 'edit') fitColumnsOnce(model, sheet);
+						if (carried?.edits) replay(carried);
+						carried = undefined;
 						gridChanged();
 					} else for (const m of state.messages) accepted(m.sequence, m.message);
 					model.updateMode(access === 'edit' ? 'normal' : 'readonly');
@@ -538,6 +665,7 @@ export function mountSheet(
 			element.removeEventListener('keydown', leave, true);
 			element.removeEventListener('pointerdown', pointer, true);
 			if (commentRequest === comment) commentRequest = undefined;
+			if (tabLimitReached === refuseTab) tabLimitReached = undefined;
 			clearTimeout(timer);
 			socket?.close();
 			app?.destroy();
