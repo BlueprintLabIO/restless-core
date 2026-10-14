@@ -827,6 +827,9 @@
 			);
 			return { kind: 'company', label: companyPage?.label ?? 'Company' };
 		}
+		/* Apps is its own surface; falling through would tag a message sent from it as the Inbox. */
+		if (path === `${root}/apps` || path.startsWith(`${root}/apps/`))
+			return { kind: 'apps', label: 'Apps' };
 		const item = url.searchParams.get('item');
 		const title = item ? liveNeedsYou.find((candidate) => candidate.id === item)?.title : '';
 		return { kind: 'inbox', label: title || 'Inbox' };

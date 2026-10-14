@@ -202,6 +202,17 @@ pub(super) async fn create(
         "{}/{name}",
         restless_contracts::skill_package::CANDIDATE_ROOT
     );
+    // The know-how is written to the company computer's skill folder. Writing it is real demand,
+    // so a computer that slept wakes; one the owner stopped says so instead of a Docker error.
+    if !restless_engine::runtime_sleep::wake_for(&state.daemon, &company, "someone wrote know-how")
+        .await
+    {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "runtime",
+            "The company computer is stopped, so know-how cannot be saved. Start it from Company → Computer.",
+        );
+    }
     let observed = match crate::skills::write_skill_md(&company, &dir, &name, &input.skill_md).await
     {
         Ok(observed) => observed,
