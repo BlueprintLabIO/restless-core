@@ -1,15 +1,19 @@
 <script lang="ts">
 	import { formatDay } from '$lib/ui/time';
 	import { onMount } from 'svelte';
-	import { Section, Item, Notice, Empty } from '$lib/ui/page';
+	import { Section, Item, Notice, Empty, Segmented } from '$lib/ui/page';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
+	import { copyText } from '$lib/model/copy-text';
 	import { failureSentence } from '$lib/model/failure';
 	import { planeStatus } from '$lib/model/appliance';
 	import {
-		claudeCodeCommand,
+		MCP_CLIENTS,
+		clientSetup,
 		fetchTokens,
 		issueToken,
 		revokeToken,
-		type AccessToken
+		type AccessToken,
+		type McpClient
 	} from '$lib/model/mcp-access';
 
 	let tokens = $state<AccessToken[] | null>(null);
@@ -18,8 +22,13 @@
 	let loadFailed = $state(false);
 	let label = $state('');
 	let busy = $state(false);
-	let fresh = $state<{ label: string; command: string } | null>(null);
+	/* The secret is shown once; it lives only here until the owner is done with it. */
+	let fresh = $state<{ label: string; origin: string; secret: string } | null>(null);
+	let client = $state<McpClient>('claude-code');
 	let copied = $state(false);
+	let copyFailed = $state(false);
+	let revoking = $state('');
+	const setup = $derived(fresh ? clientSetup(client, fresh.origin, fresh.secret) : '');
 
 	async function load() {
 		try {
@@ -37,15 +46,14 @@
 		failure = null;
 		loadFailed = false;
 		copied = false;
+		copyFailed = false;
 		try {
 			const issued = await issueToken(label.trim());
 			fresh = {
 				label: issued.token.label,
 				// An MCP client is not a browser: on Cloud it talks to the plane's own address.
-				command: claudeCodeCommand(
-					(await planeStatus())?.plane_origin ?? window.location.origin,
-					issued.secret
-				)
+				origin: (await planeStatus())?.plane_origin ?? window.location.origin,
+				secret: issued.secret
 			};
 			label = '';
 			await load();
@@ -57,20 +65,47 @@
 	}
 
 	async function revoke(token: AccessToken) {
+		const yes = await confirmAction({
+			title: `Revoke ${token.label}?`,
+			body: 'The app using this token stops reaching your companies at once. This cannot be undone; you can create a new token instead.',
+			action: 'Revoke',
+			danger: true
+		});
+		if (!yes) return;
 		failure = null;
 		loadFailed = false;
+		revoking = token.id;
 		try {
 			await revokeToken(token.id);
 			await load();
 		} catch (error) {
 			failure = failureSentence(error);
+		} finally {
+			revoking = '';
 		}
 	}
 
 	async function copy() {
 		if (!fresh) return;
-		await navigator.clipboard.writeText(fresh.command);
-		copied = true;
+		copied = await copyText(setup);
+		copyFailed = !copied;
+	}
+
+	/* Done forgets the only copy of the secret, so it asks when it was never copied. */
+	async function done() {
+		if (
+			!copied &&
+			!(await confirmAction({
+				title: 'Close without copying?',
+				body: 'The token is shown only once. If you have not saved it, you will need to create a new one.',
+				action: 'Close',
+				danger: true
+			}))
+		)
+			return;
+		fresh = null;
+		copied = false;
+		copyFailed = false;
 	}
 
 	const when = (iso?: string | null) => formatDay(iso, 'never');
@@ -99,15 +134,25 @@
 
 	{#if fresh}
 		<div class="fresh" role="status">
-			<p
-				title="Shown once. Run it in a terminal to add Restless to Claude Code; other apps take the same URL and header."
-			>
-				Run this to connect <strong>{fresh.label}</strong>
+			<p title="Shown once. Copy it now: the token cannot be shown again.">
+				Connect <strong>{fresh.label}</strong>
 			</p>
-			<code>{fresh.command}</code>
+			<Segmented
+				label="App"
+				value={client}
+				options={MCP_CLIENTS}
+				onchange={(value) => {
+					client = value;
+					copied = false;
+				}}
+			/>
+			<code title={MCP_CLIENTS.find((row) => row.value === client)?.title}>{setup}</code>
+			{#if copyFailed}<p class="copy-failed" role="alert">
+					Copying was blocked here. Select the text above and copy it yourself.
+				</p>{/if}
 			<div class="fresh-actions">
 				<button class="btn small" type="button" onclick={copy}>{copied ? 'Copied' : 'Copy'}</button>
-				<button class="btn small ghost" type="button" onclick={() => (fresh = null)}>Done</button>
+				<button class="btn small ghost" type="button" onclick={done}>Done</button>
 			</div>
 		</div>
 	{/if}
@@ -117,8 +162,11 @@
 			{#each tokens as token (token.id)}
 				<Item title={token.label} meta={`Last used ${when(token.last_used_at)}`}>
 					{#snippet actions()}
-						<button class="btn small ghost" type="button" onclick={() => revoke(token)}
-							>Revoke</button
+						<button
+							class="btn small ghost"
+							type="button"
+							disabled={!!revoking}
+							onclick={() => revoke(token)}>{revoking === token.id ? 'Revoking…' : 'Revoke'}</button
 						>
 					{/snippet}
 				</Item>
@@ -164,6 +212,12 @@
 		background: var(--surface-pane);
 		font-size: 0.85em;
 		white-space: pre;
+	}
+	.copy-failed {
+		color: var(--danger);
+	}
+	.fresh code {
+		user-select: all;
 	}
 	.fresh-actions {
 		display: flex;
