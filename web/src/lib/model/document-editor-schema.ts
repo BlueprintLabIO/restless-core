@@ -1954,7 +1954,11 @@ export function createDocumentEditorExtensions(
 		findExtension,
 		emptyLineHintExtension(),
 		blockIdentityExtension,
-		UniqueID.extend({ addProseMirrorPlugins: () => [] }).configure({
+		/* UniqueID would render `data-block_id`; every block lookup reads `data-block-id`. */
+		UniqueID.extend({
+			addProseMirrorPlugins: () => [],
+			addGlobalAttributes: () => [{ types: [...BLOCK_TYPES], attributes: BLOCK_ID }]
+		}).configure({
 			attributeName: 'block_id',
 			types: [...BLOCK_TYPES],
 			filterTransaction: (transaction) => !isChangeOrigin(transaction),

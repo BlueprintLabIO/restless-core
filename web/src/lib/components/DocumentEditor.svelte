@@ -203,6 +203,8 @@
 	/* Which size cap the body passed, when the service says it is too large. */
 	let tooLargeBy = $state<DocumentSizeMeasure>('bytes');
 
+	/* One identity for the editor's whole life. A value that depends on what the document holds
+	 * reads `editorState.editor` instead, which each transaction replaces. */
 	const editor = $derived(editorState.editor);
 	// Metadata refreshes replace view without changing the live editing session.
 	// Track primitive identity/access so polling cannot tear down the editor.
@@ -1019,7 +1021,11 @@
 	let findQuery = $state('');
 	let replaceText = $state('');
 	let findInput = $state<HTMLInputElement>();
-	const findState = $derived(editor ? findKey.getState(editor.state) : undefined);
+	/* Read through `editorState`, which every transaction replaces; `editor` keeps one identity,
+	 * so a value derived from it alone would never see a new match count. */
+	const findState = $derived(
+		editorState.editor ? findKey.getState(editorState.editor.state) : undefined
+	);
 	function openFind(withReplace: boolean): void {
 		const instance = editorState.editor;
 		if (!instance) return;
@@ -1086,7 +1092,7 @@
 	let linkDraft = $state('');
 	let linkProblem = $state('');
 	let linkInput = $state<HTMLInputElement>();
-	const linkActive = $derived(Boolean(editor?.isActive('link')));
+	const linkActive = $derived(Boolean(editorState.editor?.isActive('link')));
 
 	function openLinkBar(): void {
 		const instance = editorState.editor;
@@ -1217,7 +1223,7 @@
 		if (pos !== null) goToPosition(pos);
 	}
 	let outlineOpen = $state(false);
-	const outline = $derived(editor ? documentOutline(editor.state.doc) : []);
+	const outline = $derived(editorState.editor ? documentOutline(editorState.editor.state.doc) : []);
 	const outlineTop = $derived(Math.min(...outline.map((entry) => entry.level)));
 
 	/* Words and characters, for the document and for the selection; counted shortly after typing
@@ -1294,7 +1300,7 @@
 		if (href) openHref(href, true);
 	}
 
-	const inTable = $derived(editor ? inDocumentTable(editor) : false);
+	const inTable = $derived(editorState.editor ? inDocumentTable(editorState.editor) : false);
 	/* A touch screen has no pointer to hover a block's grip with: a small button beside the block
 	 * the caret is in opens its actions (move, duplicate, delete, copy a link) instead. */
 	const touch = browser && window.matchMedia('(hover: none)').matches;
@@ -1326,7 +1332,9 @@
 		touchGrip = { pos, top: box.top - frame.top, left: Math.max(2, box.left - frame.left - 30) };
 	});
 	/* A selected image: its size, its description for screen readers, and an optional caption. */
-	const selectedImage = $derived(editor ? selectedDocumentImage(editor) : null);
+	const selectedImage = $derived(
+		editorState.editor ? selectedDocumentImage(editorState.editor) : null
+	);
 	let imageAlt = $state('');
 	let imageCaption = $state('');
 	let imageFor = -1;
@@ -2127,6 +2135,7 @@
 								class="swatch text"
 								class:active={textColour === color}
 								data-text-color={color}
+								style:color={`var(--doc-text-${color})`}
 								aria-label={`${colourName(color)} text`}
 								title={`${colourName(color)} text`}
 								onmousedown={(event) => event.preventDefault()}
@@ -2338,11 +2347,13 @@
 		border-radius: 8px;
 		background: var(--surface-raised);
 		box-shadow: 0 6px 22px #18243a1f;
-		transform: translate(-50%, -100%);
+		/* `translate`, not `transform`: the entrance animation owns `transform`
+		 * and would otherwise drop the bubble onto the chosen text. */
+		translate: -50% -100%;
 		animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
 	}
 	.selection-bubble.below {
-		transform: translate(-50%, 0);
+		translate: -50% 0;
 	}
 	/* The palette opens under the bubble's buttons, inside the same raised card. */
 	.selection-bubble {

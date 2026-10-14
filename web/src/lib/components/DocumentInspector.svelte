@@ -205,7 +205,9 @@
 	);
 	let selectedThreadId = $state('');
 	let selectedProposalId = $state('');
-	let selectionDocumentId = $state('');
+	/* Starts at the open document: a reset on mount would drop the comment target the
+	 * editor just chose, and the selected words with it. */
+	let selectionDocumentId = $state(untrack(() => documentId));
 	let composingThread = $state(false);
 	let commentText = $state('');
 	let commentBusy = $state(false);
