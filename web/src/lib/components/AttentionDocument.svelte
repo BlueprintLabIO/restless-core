@@ -108,6 +108,16 @@
 			busy = false;
 		}
 	}
+	/* What was asked, and by whom: the editor alone does not say what the agent wants changed. */
+	const asker = $derived(
+		collaboration.view?.people.find((person) => person.actor_id === request.requested_by_actor_id)
+			?.display ??
+			(request.requested_by_actor_id === 'exec'
+				? 'Exec'
+				: request.requested_by_actor_id
+						.replaceAll('-', ' ')
+						.replace(/\b\w/g, (letter) => letter.toUpperCase()))
+	);
 	holdQueries(() => [shell, collaboration]);
 </script>
 
@@ -155,6 +165,17 @@
 			</button>
 		{/if}
 	{/snippet}
+	{#if request.summary.trim()}
+		<p
+			class="request-line print-hide"
+			title={request.kind === 'review'
+				? `${asker} asked you to review this version`
+				: `${asker} asked you to work on this document together`}
+		>
+			<strong>{asker}</strong>
+			<span>{request.summary}</span>
+		</p>
+	{/if}
 	{#if request.kind === 'review' && !editLive}
 		<header>
 			<h1>{detail.view?.document.title ?? request.title}</h1>
@@ -348,5 +369,23 @@
 	}
 	.document-unavailable {
 		padding: 24px;
+	}
+	.request-line {
+		display: flex;
+		gap: 8px;
+		margin: 0;
+		padding: 8px 16px;
+		border-bottom: 1px solid var(--border);
+		color: var(--text-secondary);
+		font-size: var(--t-body);
+	}
+	.request-line strong {
+		flex: none;
+		color: var(--ink);
+		font-weight: 600;
+	}
+	.request-line span {
+		min-width: 0;
+		overflow-wrap: anywhere;
 	}
 </style>
