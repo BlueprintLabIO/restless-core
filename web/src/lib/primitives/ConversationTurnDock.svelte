@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { turnFailureReason, turnStopped } from '$lib/model/turn-failure';
+	import { turnFailureFix, turnFailureReason, turnStopped } from '$lib/model/turn-failure';
+	import { page } from '$app/state';
 	import Check from '@lucide/svelte/icons/check';
 	import CircleAlert from '@lucide/svelte/icons/circle-alert';
 	import type { ActiveAgentTurn } from '$lib/model/queries.svelte';
@@ -107,6 +108,12 @@
 		}
 		return items;
 	});
+	const failure = $derived.by(() => {
+		if (phase !== 'failed' || stopped) return '';
+		const reason = turnFailureReason(turn.live?.error);
+		return reason ? reason.charAt(0).toUpperCase() + reason.slice(1) : '';
+	});
+	const failureFix = $derived(phase === 'failed' ? turnFailureFix(turn.live?.error) : null);
 	const startedAt = $derived(new Date(turn.live?.startedAt ?? turn.since).getTime());
 	// A completed turn is historical activity, not an ongoing stopwatch.
 	const endedAt = $derived(new Date(turn.live?.updatedAt ?? turn.since).getTime());
@@ -147,11 +154,8 @@
 					return /queued/i.test(turn.live?.error ?? '')
 						? 'Stopped · your newer message is next'
 						: 'Stopped · your message is kept';
-				/* Say why, in one line; the full reason is in the detail. */
-				const reason = turnFailureReason(turn.live?.error);
-				return reason
-					? `${participantName} couldn't reply: ${reason}`
-					: `${participantName} couldn't reply`;
+				/* Why, and where to fix it, are the line under this one, in view (S85-06). */
+				return `${participantName} couldn't reply`;
 			}
 			case 'queued':
 				return turn.transport === 'connecting'
@@ -265,6 +269,20 @@
 				>{/if}
 			<span class="turn-chevron" aria-hidden="true">⌄</span>
 		</button>
+		{#if failure}
+			<!-- What happened and what to do, as a sentence with the fix as a link. The runtime's own
+		     words stay in the title, for whoever looks into it; never in view (S85-06). -->
+			<p class="reply-failure" role="status" title={turn.live?.error ?? undefined}>
+				{#if failureFix && failure.includes(failureFix.label)}{failure.slice(
+						0,
+						failure.indexOf(failureFix.label)
+					)}<a href={`/${encodeURIComponent(page.params.companyId ?? '')}/${failureFix.path}`}
+						>{failureFix.label}</a
+					>{failure.slice(
+						failure.indexOf(failureFix.label) + failureFix.label.length
+					)}{:else}{failure}{/if}
+			</p>
+		{/if}
 		{#if touchedWork}<a
 				class="turn-action"
 				href={touchedWork}
@@ -326,12 +344,6 @@
 					</article>
 				{:else if allActivity.length === 0 && phase !== 'failed'}
 					<p class="turn-awaiting">The first live update will appear here.</p>
-				{/if}
-
-				{#if phase === 'failed' && turn.live?.error && !stopped}
-					<p class="reply-error" title="What the runtime reported, for whoever looks into it">
-						{turn.live.error}
-					</p>
 				{/if}
 			</div>
 		</div>
@@ -679,20 +691,26 @@
 		animation: turn-caret 850ms steps(2, jump-none) infinite;
 	}
 
-	.turn-awaiting,
-	.reply-error {
+	.turn-awaiting {
 		margin: 0;
 		padding: 10px 14px 12px 40px;
+		color: var(--text-tertiary);
 		font-size: var(--t-label);
 		line-height: 1.45;
 	}
 
-	.turn-awaiting {
-		color: var(--text-tertiary);
+	/* Under the quiet status line, in view: what happened and the link that fixes it. */
+	.reply-failure {
+		margin: 0;
+		padding: 0 14px 8px 34px;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		line-height: 1.45;
 	}
-
-	.reply-error {
-		color: var(--danger);
+	.reply-failure a {
+		color: var(--ink);
+		text-decoration: underline;
+		text-underline-offset: 2px;
 	}
 
 	@keyframes turn-pixel-on {

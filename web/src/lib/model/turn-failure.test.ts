@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { turnFailureReason } from './turn-failure.ts';
+import { turnFailureFix, turnFailureReason } from './turn-failure.ts';
 
 test('a refused key names the key and where to fix it, not the transport', () => {
 	const reason = turnFailureReason(
@@ -34,4 +34,31 @@ test('anything else keeps its first sentence without the runtime prefixes', () =
 		'The workspace is read-only.'
 	);
 	assert.equal(turnFailureReason(''), '');
+});
+
+test('the company spend ceiling reads as a sentence with where to raise it, never the raw id', () => {
+	const raw =
+		'[budget] company_01a1099254287140b24b3202429a3f01 has spent $100.00 of its $100.00 ceiling; the owner must raise it before charged work continues';
+	const reason = turnFailureReason(raw);
+	assert.equal(
+		reason,
+		'the company has reached its $100.00 spend limit. Raise it in Company → Limits.'
+	);
+	assert.doesNotMatch(reason, /company_|\[budget\]/);
+	assert.deepEqual(turnFailureFix(raw), {
+		label: 'Company → Limits',
+		path: 'company/resources#spend'
+	});
+	assert.match(
+		turnFailureReason(
+			'[budget] acme has used 40 of its 40 native-harness turns this month; raise it'
+		),
+		/native-harness allowance/
+	);
+});
+
+test('a fix is offered only where the cockpit has a page for it', () => {
+	assert.equal(turnFailureFix('Authentication failed')?.label, 'Company → Intelligence');
+	assert.equal(turnFailureFix('request timed out'), null);
+	assert.equal(turnFailureFix(''), null);
 });
