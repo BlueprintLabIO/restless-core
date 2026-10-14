@@ -29,6 +29,7 @@
 		documentCommentThreadsQuery,
 		documentQuery,
 		documentQueryKeys,
+		documentReviewsQuery,
 		documentsQuery
 	} from '$lib/model/document-queries.svelte';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
@@ -102,6 +103,25 @@
 			.filter((work) => work.title.trim())
 			.map((work) => ({ kind: 'work' as const, id: work.id, label: work.title }))
 	]);
+	/* The Work this document was produced for: one its review was bound to, or one whose outputs
+	 * name it. The header links to it, so the job and the document are one click apart. */
+	const documentReviews = documentReviewsQuery(
+		() => companyId,
+		() => documentId
+	);
+	const graph = $derived(
+		ownerAccess ? attentionView.view?.workGraph : collaboration.view?.work_graph
+	);
+	const producedFor = $derived.by(() => {
+		if (!documentId || !graph) return null;
+		const ids = [
+			...documentReviews.workIds,
+			...graph.artifacts
+				.filter((artifact) => artifact.work_id && artifact.uri?.includes(documentId))
+				.map((artifact) => artifact.work_id as string)
+		];
+		return ids.map((id) => graph.work.find((work) => work.id === id)).find(Boolean) ?? null;
+	});
 	/* Anyone who can open it sees who else can; its creator, the company's owner and the Exec
 	 * change that. Anyone who may edit it retitles, archives and restores it; the company's owner
 	 * may do that to anything they can read. */
@@ -625,6 +645,12 @@
 							title={PRIVATE_HINT}><Lock size={13} strokeWidth={1.8} aria-label="Private" /></span
 						>{/if}{/snippet}
 				{#snippet actions()}
+					{#if producedFor}<a
+							class="btn small ghost for-work"
+							href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(producedFor.id)}`}
+							title={`Produced for this Work: ${producedFor.title}. Opens its lead, attempts and review.`}
+							>{producedFor.title}</a
+						>{/if}
 					{#if !documentView.document.linked_room_id}
 						<button
 							type="button"
@@ -1088,5 +1114,11 @@
 			box-shadow: 0 -10px 32px #18243a24;
 			animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
 		}
+	}
+	.for-work {
+		max-width: 220px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 </style>

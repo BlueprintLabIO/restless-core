@@ -450,6 +450,14 @@ export function documentReviewsQuery(companyId: QueryId, documentId: QueryId) {
 				? uniqueById(data.pages.flatMap((page) => page.items).map((item) => item.review))
 				: [];
 		},
+		/** Every Work a review of this document was bound to, newest first. */
+		get workIds(): string[] {
+			const data = readableData(query);
+			const ids = (data?.pages.flatMap((page) => page.items) ?? [])
+				.map((item) => item.work_dependency?.work_id)
+				.filter((id): id is string => !!id);
+			return [...new Set(ids)];
+		},
 		/** The Work a review is bound to, if any: only that review can be sent back for changes. */
 		dependencyOf(reviewId: string) {
 			const data = readableData(query);
