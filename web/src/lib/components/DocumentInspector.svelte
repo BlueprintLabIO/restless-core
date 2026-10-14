@@ -84,6 +84,7 @@
 		requestDocumentReviewChanges,
 		resolveDocumentCommentThread,
 		restoreDocumentVersion,
+		saveDocumentVersion,
 		type CommentMention,
 		type DocumentCommentRow,
 		type DocumentNode,
@@ -223,6 +224,11 @@
 	let restoringVersionId = $state('');
 	let restoreCommand = $state<PendingDocumentCommand | null>(null);
 	let selectedVersionId = $state('');
+	/* Naming a version marks a moment the owner will want back, such as "the version I sent". */
+	let namingVersion = $state(false);
+	let versionName = $state('');
+	let savingVersion = $state(false);
+	let saveCommand = $state<PendingDocumentCommand | null>(null);
 	/* A previewed version reads as the page it was; what it changed is one click away. */
 	let previewMode = $state<'page' | 'changes'>('page');
 	async function downloadVersion(format: 'docx' | 'md'): Promise<void> {
@@ -1227,6 +1233,35 @@
 		}
 	}
 
+	async function saveVersion(): Promise<void> {
+		if (!online || !canResolveDocument || savingVersion) return;
+		const target = { companyId, documentId };
+		const reason = versionName.trim() || 'Saved version';
+		const command = pendingDocumentCommand(saveCommand, JSON.stringify({ target, reason }));
+		saveCommand = command;
+		savingVersion = true;
+		versionFailure = '';
+		versionNotice = '';
+		try {
+			await saveDocumentVersion(target.companyId, target.documentId, reason, command.id);
+			saveCommand = null;
+			const saved = await getDocument(target.companyId, target.documentId);
+			if (isCurrentTarget(target)) {
+				namingVersion = false;
+				versionName = '';
+				versionNotice = `Saved as “${reason}”.`;
+				onaccept(target, saved);
+			}
+			await invalidateDocument(client, target.companyId, target.documentId);
+		} catch (cause) {
+			if (!isCurrentTarget(target)) return;
+			versionFailure = failureSentence(cause, 'The version was not saved.');
+			if (!isRetryableDocumentFailure(cause)) saveCommand = null;
+		} finally {
+			if (isCurrentTarget(target)) savingVersion = false;
+		}
+	}
+
 	function proposalLabel(proposal: DocumentRevisionProposalSummary): string {
 		if (proposal.scope !== 'block' || !proposal.block_id) return 'Whole document';
 		const quote = blockQuote(proposal.block_id);
@@ -1844,7 +1879,54 @@
 				>
 					History
 				</h2>
+				{#if canJudge && !namingVersion}<button
+						type="button"
+						class="flat-action"
+						disabled={!online || editing}
+						title={editing
+							? 'Wait for edits to finish saving'
+							: 'Keep what the document holds now under a name, such as the version you sent'}
+						onclick={() => {
+							namingVersion = true;
+							versionFailure = '';
+							versionNotice = '';
+						}}>Save version…</button
+					>{/if}
 			</header>
+			{#if namingVersion}
+				<form
+					class="name-version"
+					onsubmit={(event) => {
+						event.preventDefault();
+						void saveVersion();
+					}}
+				>
+					<label for="document-version-name" class="sr-only">Version name</label>
+					<input
+						id="document-version-name"
+						type="text"
+						maxlength="500"
+						placeholder="Version name (optional)"
+						bind:value={versionName}
+						disabled={savingVersion}
+					/>
+					<button
+						type="submit"
+						class="flat-action"
+						disabled={savingVersion || !online || !canResolveDocument}
+						>{savingVersion ? 'Saving…' : 'Save'}</button
+					>
+					<button
+						type="button"
+						class="flat-action"
+						disabled={savingVersion}
+						onclick={() => {
+							namingVersion = false;
+							versionName = '';
+						}}>Cancel</button
+					>
+				</form>
+			{/if}
 			{#if editing && canJudge}<p class="pending-draft">Waiting for edits to finish saving.</p>{/if}
 			{#if versionFailure}<p class="inline-error" role="alert">{versionFailure}</p>{/if}
 			{#if versionNotice}<p class="inline-notice" role="status">{versionNotice}</p>{/if}
@@ -2051,6 +2133,15 @@
 	}
 	.inspector-head h2 {
 		margin: 0;
+	}
+	.name-version {
+		display: flex;
+		gap: var(--space-2);
+		padding: var(--space-3) var(--space-4) 0;
+	}
+	.name-version input {
+		flex: 1;
+		min-width: 0;
 	}
 	.flat-action {
 		display: inline-flex;

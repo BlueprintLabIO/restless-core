@@ -635,8 +635,12 @@ struct RemoveDocumentParticipantInput {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CreateDocumentVersionInput {
-    expected_current_version_id: Uuid,
-    content_json: serde_json::Value,
+    /// Both absent: name what the live document holds now, as `document checkpoint` does from
+    /// a fresh `document read`. The cockpit names a version this way; it has no snapshot file.
+    #[serde(default)]
+    expected_current_version_id: Option<Uuid>,
+    #[serde(default)]
+    content_json: Option<serde_json::Value>,
     reason: String,
 }
 
@@ -1434,52 +1438,80 @@ async fn create_document_version(
         Ok(org) => org,
         Err(response) => return response,
     };
-    let mut result = org
-        .create_named_document_version(restless_orgintel::NewNamedDocumentVersion {
+    let root = match &state.source {
+        RoomOrgIntelSource::Daemon(daemon) => Some(&daemon.root),
+        #[cfg(test)]
+        RoomOrgIntelSource::Fixed { .. } => None,
+    };
+    // Read the live body: once to name it when the caller sent no snapshot, and again
+    // before a retry, because browser sync acknowledges Yjs delivery, not the sidecar's
+    // debounced PostgreSQL save. A real content/version mismatch still conflicts.
+    let read_payload = serde_json::json!({"action":"read"});
+    let live_body = |root| {
+        state.native_documents_proxy.agent_body(
+            root,
+            &org,
+            principal.actor_id(),
+            document,
+            &state.document_collaboration_issuer,
+            &read_payload,
+        )
+    };
+    let unavailable = || {
+        document_api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "document_collaboration_unavailable",
+            "Live document persistence is unavailable. Keep this tab open and retry the same save.",
+        )
+    };
+    let (expected, content) = match (input.expected_current_version_id, input.content_json) {
+        (Some(expected), Some(content)) => (expected, content),
+        (None, None) => {
+            let Some(root) = root else {
+                return unavailable();
+            };
+            let read = match live_body(root).await {
+                Ok(read) => read,
+                Err(error) => {
+                    tracing::warn!(%error, %document, "could not read live body to name a version");
+                    return unavailable();
+                }
+            };
+            let checkpoint = read
+                .get("checkpoint_id")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|id| Uuid::parse_str(id).ok());
+            match (checkpoint, read.get("content_json").filter(|v| v.is_object())) {
+                (Some(checkpoint), Some(content)) => (checkpoint, content.clone()),
+                _ => return unavailable(),
+            }
+        }
+        _ => {
+            return document_api_error(
+                StatusCode::BAD_REQUEST,
+                "invalid_document_version",
+                "Send both the expected version and its content, or neither to name the live document.",
+            )
+        }
+    };
+    let create = || {
+        org.create_named_document_version(restless_orgintel::NewNamedDocumentVersion {
             command_id,
             document_id: document,
             actor_id: principal.actor_id(),
-            expected_current_version_id: input.expected_current_version_id,
-            content_json: &input.content_json,
+            expected_current_version_id: expected,
+            content_json: &content,
             reason: &input.reason,
         })
-        .await;
+    };
+    let mut result = create().await;
     if matches!(&result, Err(restless_orgintel::DocumentError::Conflict(_))) {
-        // Browser sync acknowledges Yjs delivery, not the sidecar's debounced
-        // PostgreSQL save. Flush the existing live body before retrying Core's
-        // guarded checkpoint; a real content/version mismatch still conflicts.
-        let root = match &state.source {
-            RoomOrgIntelSource::Daemon(daemon) => Some(&daemon.root),
-            #[cfg(test)]
-            RoomOrgIntelSource::Fixed { .. } => None,
-        };
         if let Some(root) = root {
-            if let Err(error) = state
-                .native_documents_proxy
-                .agent_body(
-                    root,
-                    &org,
-                    principal.actor_id(),
-                    document,
-                    &state.document_collaboration_issuer,
-                    &serde_json::json!({"action":"read"}),
-                )
-                .await
-            {
+            if let Err(error) = live_body(root).await {
                 tracing::warn!(%error, %document, "could not persist live body before checkpoint retry");
-                return document_api_error(StatusCode::SERVICE_UNAVAILABLE, "document_collaboration_unavailable",
-                    "Live document persistence is unavailable. Keep this tab open and retry the same save.");
+                return unavailable();
             }
-            result = org
-                .create_named_document_version(restless_orgintel::NewNamedDocumentVersion {
-                    command_id,
-                    document_id: document,
-                    actor_id: principal.actor_id(),
-                    expected_current_version_id: input.expected_current_version_id,
-                    content_json: &input.content_json,
-                    reason: &input.reason,
-                })
-                .await;
+            result = create().await;
         }
     }
     match result {

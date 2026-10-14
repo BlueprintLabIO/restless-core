@@ -332,12 +332,6 @@ export interface UpdateDocumentMetadataInput {
 	inherit_room_visibility: boolean;
 }
 
-export interface CreateDocumentVersionInput {
-	expected_current_version_id: string;
-	content_json: DocumentContent;
-	reason: string;
-}
-
 export interface DocumentError extends Error {
 	status: number;
 	code: string | null;
@@ -529,6 +523,19 @@ export function getDocumentVersion(
 	return documentJson(
 		`${documentsPath(company, document)}/versions/${encodeURIComponent(version)}`,
 		{ signal }
+	);
+}
+
+/** Name what the live document holds now, as a version in its history. */
+export function saveDocumentVersion(
+	company: string,
+	document: string,
+	reason: string,
+	commandId: string
+): Promise<DocumentCommandResult> {
+	return documentJson(
+		`${documentsPath(company, document)}/versions`,
+		mutation({ reason }, commandId)
 	);
 }
 
