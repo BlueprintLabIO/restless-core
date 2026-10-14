@@ -15,6 +15,7 @@
 	import HandoffGroup from '$lib/primitives/HandoffGroup.svelte';
 	import { agentExchangesQuery, type AgentExchange } from '$lib/model/exchanges.svelte';
 	import IntelligenceChip from '$lib/components/IntelligenceChip.svelte';
+	import PersonProfile from '$lib/components/PersonProfile.svelte';
 	import { composerOptions, referenceOptions } from '$lib/model/composer-options.svelte';
 	import { runExecCommand } from '$lib/model/skills';
 	import { PIN, reactionsQuery } from '$lib/model/reactions.svelte';
@@ -555,6 +556,8 @@
 			: undefined
 	);
 	const directPerson = $derived(people.find((person) => person.actor_id === directPartner) ?? null);
+	/* The person's profile opens from their name in the header. */
+	let profileOpen = $state(false);
 	/* Handoffs between this agent and others appear where they happened. */
 	const exchanges = agentExchangesQuery(
 		() => companyId,
@@ -1276,10 +1279,14 @@
 					<!-- The conversation's name is its heading, so a screen reader can jump to it. -->
 					<h2 class="room-heading">
 						{#if directPerson}
-							<span class="room-contact"
+							<button
+								type="button"
+								class="room-contact"
+								title={`${directPerson.display}: role, team, current Work and recent outputs`}
+								onclick={() => (profileOpen = true)}
 								><span class="person-avatar" aria-hidden="true"
 									>{initials(directPerson.display)}</span
-								><strong>{directPerson.display}</strong></span
+								><strong>{directPerson.display}</strong></button
 							>
 						{:else}<strong>{roomLabel(selectedRoomId)}</strong>{/if}
 					</h2>
@@ -1817,6 +1824,12 @@
 	</form>
 {/snippet}
 
+{#if profileOpen && directPerson}<PersonProfile
+		{companyId}
+		actorId={directPerson.actor_id}
+		onclose={() => (profileOpen = false)}
+	/>{/if}
+
 <style>
 	.mention-gap {
 		display: flex;
@@ -1934,6 +1947,11 @@
 		background: transparent;
 		color: var(--ink);
 		font: inherit;
+		cursor: pointer;
+	}
+	.room-contact:hover strong {
+		text-decoration: underline;
+		text-underline-offset: 3px;
 	}
 	.person-avatar {
 		display: grid;

@@ -11,7 +11,26 @@
 	import SidebarSearch from '$lib/ui/views/SidebarSearch.svelte';
 	import SidebarEmpty from '$lib/ui/views/SidebarEmpty.svelte';
 	import type { SidebarTone } from '$lib/ui/views/SidebarRow.svelte';
-	import { getCoreMembers, getIssuerMembers, type IssuerInvitation } from '$lib/model/members';
+	import {
+		AlreadyMember,
+		changeMembership,
+		getCoreMembers,
+		getIssuerMembers,
+		inviteToCompany,
+		IssuerSessionMissing,
+		mayManage,
+		type CoreMembersView,
+		type IssuerInvitation,
+		type IssuerMember,
+		type IssuerMembersView
+	} from '$lib/model/members';
+	import { mayManageCompanySetup } from '$lib/model/company-access';
+	import { parseInviteEmails } from '$lib/model/invite-emails';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import PersonProfile from '$lib/components/PersonProfile.svelte';
+	import { askExec, staffDraft, type StaffAsk } from '$lib/model/ask-exec';
+	import { projectOfficeMembers } from '$lib/office/projection';
 	import RoomConversation from '$lib/components/RoomConversation.svelte';
 	import RoomManager from '$lib/components/RoomManager.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
@@ -164,10 +183,20 @@
 			need: need?.source.kind === 'conversation_owner_need' ? 'reply' : need ? 'attention' : null
 		} as const;
 	}
+	/* The office floor's reading of each agent: presence, current Work and step. People shows the
+	 * same, so the two never disagree about what someone is doing. */
+	const officeMembers = $derived(
+		owner && cockpit.view && attention.view?.workGraph
+			? projectOfficeMembers(companyId, cockpit.view, attention.view.workGraph)
+			: []
+	);
+	function officeMember(actorId: string) {
+		return officeMembers.find((member) => member.actorId === actorId) ?? null;
+	}
 	/* Each person's second line: what they need from the owner, what is stuck, or what they are
 	 * producing right now (their own Work, or for a lead, their team's), coloured by which. Someone
 	 * with none of these shows their role; a lead shows what its team is for. */
-	function personLine(actorId: string): { text: string; tone: SidebarTone } {
+	function personLine(actorId: string): { text: string; tone: SidebarTone; hint?: string } {
 		const person = people.find((candidate) => candidate.actor_id === actorId);
 		const ledTeam = teams.find((candidate) => candidate.lead_actor_id === actorId);
 		const fallback = {
@@ -185,6 +214,18 @@
 		const status = personStatus(actorId);
 		if (status.need === 'reply') return { text: 'Waiting for your reply', tone: 'wait' };
 		if (status.need === 'attention') return { text: 'Needs your attention', tone: 'wait' };
+		const member = ledTeam ? null : officeMember(actorId);
+		if (member) {
+			const hint = [member.presenceLabel, member.work?.title, member.currentStep]
+				.filter(Boolean)
+				.join(' · ');
+			if (member.presence === 'waiting' && member.work)
+				return { text: `Blocked: ${member.work.title}`, tone: 'block', hint };
+			if ((member.presence === 'observed' || member.presence === 'in-motion') && member.work)
+				return { text: member.work.title, tone: 'work', hint };
+			if (member.presence === 'observed') return { text: 'Working', tone: 'work', hint };
+			return { ...fallback, hint };
+		}
 		const team = teams.find((candidate) => candidate.lead_actor_id === actorId);
 		const members = new Set(
 			team
@@ -206,25 +247,167 @@
 		return fallback;
 	}
 
-	/* Invitations still waiting, from the account plane that issues them. A local company has none;
-	 * without an account session there is nothing to show, not an error. */
-	let invitations = $state<IssuerInvitation[]>([]);
-	let invitationsFor = '';
+	/* Who is in the company and who is invited, from the account plane that issues access. Owners
+	 * and admins manage both here, with the same rules as Company › Members (members.ts). A local
+	 * company has no issuer; without an account session there is nothing to show, not an error. */
+	const canManageMembers = $derived(mayManageCompanySetup(principal.view));
+	let coreMembers = $state<CoreMembersView | null>(null);
+	let issuerMembers = $state<IssuerMembersView | null>(null);
+	let membersFor = '';
+	async function loadMembers(target = companyId) {
+		try {
+			const core = await getCoreMembers(target);
+			const issuer =
+				core.mode === 'network' && core.issuer && core.company_id
+					? await getIssuerMembers(core.issuer, core.company_id).catch(() => null)
+					: null;
+			if (target !== companyId) return;
+			coreMembers = core;
+			issuerMembers = issuer;
+		} catch {
+			if (target === companyId) issuerMembers = null;
+		}
+	}
 	$effect(() => {
 		const target = companyId;
-		if (!owner || invitationsFor === target) return;
-		invitationsFor = target;
-		void getCoreMembers(target)
-			.then((core) =>
-				core.issuer && core.company_id ? getIssuerMembers(core.issuer, core.company_id) : null
-			)
-			.then((issuer) => {
-				if (target === companyId) invitations = issuer?.invitations ?? [];
-			})
-			.catch(() => {
-				if (target === companyId) invitations = [];
-			});
+		if (!canManageMembers || membersFor === target) return;
+		membersFor = target;
+		void loadMembers(target);
 	});
+	const invitations = $derived<IssuerInvitation[]>(issuerMembers?.invitations ?? []);
+	function membershipFor(actorId: string): IssuerMember | null {
+		const core = coreMembers?.members.find((member) => member.actor_id === actorId);
+		if (!core || !issuerMembers) return null;
+		const found = issuerMembers.members.find(
+			(member) => member.membership_id === core.membership_id && member.status !== 'removed'
+		);
+		return found && mayManage(issuerMembers.viewer, found) ? found : null;
+	}
+	let memberBusy = $state(false);
+	async function memberChange(
+		rest: string,
+		body: Record<string, unknown>,
+		done: string,
+		undo?: () => unknown
+	): Promise<void> {
+		if (!coreMembers?.issuer || !coreMembers.company_id || memberBusy) return;
+		memberBusy = true;
+		try {
+			const result = await changeMembership<{ ending?: boolean }>(
+				coreMembers.issuer,
+				coreMembers.company_id,
+				rest,
+				body
+			);
+			toast(result.ending ? 'Ending access. The company confirms it shortly.' : done, { undo });
+		} catch (cause) {
+			toast(
+				cause instanceof IssuerSessionMissing
+					? 'Sign in to your account under Company › Members, then try again.'
+					: failureSentence(cause, 'That change was not made.'),
+				{ tone: 'failure' }
+			);
+		} finally {
+			memberBusy = false;
+			await loadMembers();
+		}
+	}
+	function setRole(member: IssuerMember, role: 'admin' | 'member') {
+		const path = `members/${member.membership_id}/role`;
+		const said = (next: 'admin' | 'member') =>
+			`${member.name} is ${next === 'admin' ? 'now an admin' : 'now a member'}.`;
+		const previous = member.role === 'admin' ? 'admin' : 'member';
+		void memberChange(path, { role }, said(role), () =>
+			memberChange(path, { role: previous }, said(previous))
+		);
+	}
+	async function removeMember(member: IssuerMember) {
+		const yes = await confirmAction({
+			title: `Remove ${member.name}’s access?`,
+			body: 'They lose access at once. What they made stays with the company, and you can invite them again.',
+			action: 'Remove access',
+			danger: true
+		});
+		if (yes)
+			void memberChange(
+				`members/${member.membership_id}/remove`,
+				{},
+				`${member.name} no longer has access.`
+			);
+	}
+	function mayChangeInvitation(invite: IssuerInvitation): boolean {
+		return issuerMembers?.viewer.role === 'owner' || invite.role === 'member';
+	}
+	async function copyInvitation(invite: IssuerInvitation) {
+		try {
+			await navigator.clipboard.writeText(invite.link);
+			toast(`Invitation link for ${invite.email} copied.`);
+		} catch {
+			toast('The link could not be copied. Open Company › Members to copy it.', {
+				tone: 'failure'
+			});
+		}
+	}
+	async function cancelInvitation(invite: IssuerInvitation) {
+		const yes = await confirmAction({
+			title: `Cancel the invitation to ${invite.email}?`,
+			body: 'The link they were sent stops working. You can invite them again later.',
+			action: 'Cancel invitation',
+			danger: true
+		});
+		if (yes) void memberChange(`invitations/${invite.id}/cancel`, {}, 'Invitation cancelled.');
+	}
+	/* Invite from People: one or several addresses, as Members does. Where the company is not shared
+	 * yet, Invite goes to Members, which sets sharing up. */
+	const invitesReady = $derived(coreMembers?.mode === 'network' && !!issuerMembers);
+	let inviting = $state(false);
+	let inviteEmails = $state('');
+	let inviteBusy = $state(false);
+	let inviteFailure = $state('');
+	async function sendInvites(event: SubmitEvent) {
+		event.preventDefault();
+		if (inviteBusy) return;
+		const { emails, invalid } = parseInviteEmails(inviteEmails);
+		if (!emails.length) {
+			inviteFailure = invalid.length ? `Not an email address: ${invalid.join(', ')}.` : '';
+			return;
+		}
+		inviteBusy = true;
+		inviteFailure = '';
+		const kept: string[] = [];
+		let sent = 0;
+		for (const email of emails) {
+			try {
+				await inviteToCompany(companyId, email);
+				sent += 1;
+			} catch (cause) {
+				if (cause instanceof AlreadyMember) toast(cause.message);
+				else {
+					kept.push(email);
+					inviteFailure ||= failureSentence(cause, 'The invitation was not sent.');
+				}
+			}
+		}
+		inviteBusy = false;
+		inviteEmails = [...kept, ...invalid].join(', ');
+		if (invalid.length) inviteFailure ||= `Not an email address: ${invalid.join(', ')}.`;
+		if (sent) toast(sent === 1 ? 'Invitation sent.' : `${sent} invitations sent.`);
+		if (!kept.length && !invalid.length) inviting = false;
+		await loadMembers();
+	}
+	/* The Exec hires, briefs, pauses and retires Staff; People hands it a draft to finish. */
+	let profileId = $state('');
+	function askAbout(ask: StaffAsk, person: DirectoryPerson) {
+		const team = teams.find((candidate) => candidate.id === person.team_id);
+		profileId = '';
+		askExec(
+			staffDraft(
+				ask,
+				{ display: personName(person.display), role: person.role },
+				team ? teamName(team.name, companyId) : ''
+			)
+		);
+	}
 	/* Unread comes from the server read cursor, so it is the same on every device. The open
 	 * conversation advances that cursor itself (RoomConversation, or the rail for the Exec and
 	 * leads). */
@@ -503,6 +686,21 @@
 	<aside class="conversation-index" aria-label="Conversations">
 		<div class="people-head">
 			<h1>People</h1>
+			{#if canManageMembers}
+				{#if invitesReady}<button
+						type="button"
+						class="btn small room-manage-trigger invite-trigger"
+						aria-expanded={inviting}
+						title="Invite people to the company"
+						onclick={() => (inviting = !inviting)}
+						><UserPlus size={15} aria-hidden="true" /><span>Invite people</span></button
+					>{:else}<a
+						class="btn small room-manage-trigger invite-trigger"
+						href={`/${encodeURIComponent(companyId)}/company/members`}
+						title="Invite people to the company: sharing is set up under Members first"
+						><UserPlus size={15} aria-hidden="true" /><span>Invite people</span></a
+					>{/if}
+			{/if}
 			<RoomManager
 				bind:this={manager}
 				{companyId}
@@ -513,6 +711,29 @@
 				contactIds={contacts.map((p) => p.actor_id)}
 			/>
 		</div>
+		{#if inviting && invitesReady}
+			<form class="people-invite" onsubmit={sendInvites}>
+				<input
+					aria-label="Emails to invite"
+					type="text"
+					inputmode="email"
+					autocomplete="off"
+					spellcheck="false"
+					placeholder="colleague@example.com"
+					title="Paste several addresses, separated by commas or spaces. They join as members; change access afterwards."
+					required
+					bind:value={inviteEmails}
+					{@attach (input) => input.focus()}
+					onkeydown={(event) => {
+						if (event.key === 'Escape') inviting = false;
+					}}
+				/>
+				<button class="btn small primary" type="submit" disabled={inviteBusy}
+					>{inviteBusy ? 'Sending…' : 'Invite'}</button
+				>
+				{#if inviteFailure}<p class="empty" role="alert">{inviteFailure}</p>{/if}
+			</form>
+		{/if}
 		<div class="people-search">
 			<SidebarSearch
 				bind:value={search}
@@ -538,37 +759,84 @@
 			>
 		</div>
 		<div class="entries">
+			{#snippet personMenu(person: DirectoryPerson)}
+				{@const work = officeMember(person.actor_id)?.work}
+				{@const membership = person.kind === 'human' ? membershipFor(person.actor_id) : null}
+				<span class="person-menu">
+					<ActionMenu label={`More for ${personName(person.display)}`}>
+						<button type="button" onclick={() => (profileId = person.actor_id)}>Profile</button>
+						{#if work}<a
+								href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(work.id)}`}
+								title={work.title}>Open current Work</a
+							>{/if}
+						{#if owner && person.kind === 'staff'}
+							<button type="button" onclick={() => askAbout('rebrief', person)}
+								>Ask Exec to re-brief…</button
+							>
+							<button type="button" onclick={() => askAbout('pause', person)}
+								>Ask Exec to pause…</button
+							>
+							<button type="button" onclick={() => askAbout('retire', person)}
+								>Ask Exec to retire…</button
+							>
+							<button type="button" onclick={() => askAbout('hire-like', person)}
+								>Ask Exec to add someone like this…</button
+							>
+						{/if}
+						{#if membership && issuerMembers}
+							{#if issuerMembers.viewer.role === 'owner' && membership.status === 'active'}
+								<button
+									type="button"
+									disabled={memberBusy}
+									onclick={() =>
+										setRole(membership, membership.role === 'admin' ? 'member' : 'admin')}
+									>{membership.role === 'admin' ? 'Make a member' : 'Make an admin'}</button
+								>
+							{/if}
+							<button
+								type="button"
+								disabled={memberBusy || membership.ending}
+								onclick={() => void removeMember(membership)}>Remove access…</button
+							>
+						{/if}
+					</ActionMenu>
+				</span>
+			{/snippet}
 			{#snippet directoryPerson(person: DirectoryPerson, kind: string)}
 				{@const line = personLine(person.actor_id)}
 				{@const isLead = kind === 'lead'}
-				<a
-					class="directory-person {kind}"
-					href={href(person.actor_id)}
-					onclick={(event) => void openPerson(event, person.actor_id)}
-					aria-current={(!roomId && personId === person.actor_id) ||
-					selectedDirectActorId === person.actor_id
-						? 'page'
-						: undefined}
-				>
-					<span class="avatar"
-						>{person.kind === 'exec' ? 'E' : initials(person.display)}{#if line.tone === 'work'}<i
-								class="avatar-working"
-								title={`${personName(person.display)} is working`}
-								aria-label="Working"
-							></i>{/if}</span
+				<div class="person-row">
+					<a
+						class="directory-person {kind}"
+						href={href(person.actor_id)}
+						onclick={(event) => void openPerson(event, person.actor_id)}
+						aria-current={(!roomId && personId === person.actor_id) ||
+						selectedDirectActorId === person.actor_id
+							? 'page'
+							: undefined}
 					>
-					<span class="person-lines"
-						><span class="name"
-							>{personName(person.display)}{#if isLead}<span class="role-tag">{' · Lead'}</span
+						<span class="avatar"
+							>{person.kind === 'exec' ? 'E' : initials(person.display)}{#if line.tone === 'work'}<i
+									class="avatar-working"
+									title={`${personName(person.display)} is working`}
+									aria-label="Working"
+								></i>{/if}</span
+						>
+						<span class="person-lines"
+							><span class="name"
+								>{personName(person.display)}{#if isLead}<span class="role-tag">{' · Lead'}</span
+									>{/if}</span
+							>{#if line.text}<small class="doing {line.tone}" title={line.hint || line.text}
+									>{line.text}</small
 								>{/if}</span
-						>{#if line.text}<small class="doing {line.tone}" title={line.text}>{line.text}</small
-							>{/if}</span
-					>{#if hasNew(person.actor_id) && personId !== person.actor_id}<span
-							class="new-dot"
-							title="Something new since you last looked"
-							aria-label="New messages"
-						></span>{/if}
-				</a>
+						>{#if hasNew(person.actor_id) && personId !== person.actor_id}<span
+								class="new-dot"
+								title="Something new since you last looked"
+								aria-label="New messages"
+							></span>{/if}
+					</a>
+					{@render personMenu(person)}
+				</div>
 			{/snippet}
 			{#if view === 'chats'}
 				{#each chats as chat (chat.key)}
@@ -688,18 +956,42 @@
 							{@render directoryPerson(colleague, 'colleague')}
 						{/each}
 						{#each shownInvitations as invite (invite.id)}
-							<a
-								class="directory-person colleague invited"
-								href={`/${encodeURIComponent(companyId)}/company/members`}
-								title="Manage the invitation in Members"
-							>
-								<span class="avatar">{invite.email.slice(0, 1).toUpperCase()}</span>
-								<span class="person-lines"
-									><span class="name">{invite.email}</span><small class="doing"
-										>Invited · link expires {inviteExpiry(invite.expires_at)}</small
-									></span
-								>
-							</a>
+							<div class="person-row">
+								<div class="directory-person colleague invited">
+									<span class="avatar">{invite.email.slice(0, 1).toUpperCase()}</span>
+									<span class="person-lines"
+										><span class="name">{invite.email}</span><small class="doing"
+											>Invited · link expires {inviteExpiry(invite.expires_at)}</small
+										></span
+									>
+								</div>
+								<span class="person-menu">
+									<ActionMenu label={`Invitation to ${invite.email}`}>
+										{#if coreMembers?.issuer?.invitation_delivery.includes('link')}<button
+												type="button"
+												onclick={() => void copyInvitation(invite)}>Copy invitation link</button
+											>{/if}
+										{#if mayChangeInvitation(invite)}
+											<button
+												type="button"
+												disabled={memberBusy}
+												title="Email the invitation again"
+												onclick={() =>
+													void memberChange(
+														'invitations',
+														{ email: invite.email, role: invite.role, resend: true },
+														`Invitation sent to ${invite.email} again.`
+													)}>Resend invitation</button
+											>
+											<button
+												type="button"
+												disabled={memberBusy}
+												onclick={() => void cancelInvitation(invite)}>Cancel invitation…</button
+											>
+										{/if}
+									</ActionMenu>
+								</span>
+							</div>
 						{/each}
 					</section>
 				{/if}
@@ -785,6 +1077,30 @@
 		{/if}
 	</section>
 </div>
+{#if profileId}
+	{@const profiled = people.find((person) => person.actor_id === profileId)}
+	<PersonProfile {companyId} actorId={profileId} onclose={() => (profileId = '')}>
+		{#snippet actions()}
+			<a class="btn small primary" href={href(profileId)} onclick={() => (profileId = '')}
+				>Message</a
+			>
+			{#if owner && profiled?.kind === 'staff'}
+				<button type="button" class="btn small" onclick={() => askAbout('rebrief', profiled)}
+					>Re-brief…</button
+				>
+				<button type="button" class="btn small" onclick={() => askAbout('pause', profiled)}
+					>Pause…</button
+				>
+				<button type="button" class="btn small" onclick={() => askAbout('retire', profiled)}
+					>Retire…</button
+				>
+				<button type="button" class="btn small" onclick={() => askAbout('hire-like', profiled)}
+					>Add someone like this…</button
+				>
+			{/if}
+		{/snippet}
+	</PersonProfile>
+{/if}
 
 <style>
 	.conversation-workspace {
@@ -992,6 +1308,57 @@
 		background: var(--surface-raised);
 		color: var(--text-secondary);
 		font: inherit;
+	}
+	/* Each row keeps its menu beside the link, shown on hover or focus (always on touch). */
+	.person-row {
+		position: relative;
+	}
+	.person-menu {
+		position: absolute;
+		top: 8px;
+		right: 4px;
+		opacity: 0;
+		transition: opacity var(--motion-state) var(--ease-standard);
+	}
+	.person-row:hover .person-menu,
+	.person-row:focus-within .person-menu,
+	.person-menu:has(:global(details[open])) {
+		opacity: 1;
+	}
+	@media (hover: none) {
+		.person-menu {
+			opacity: 1;
+		}
+	}
+	.person-row:hover .directory-person,
+	.person-row:focus-within .directory-person {
+		padding-right: 34px;
+	}
+	.directory-person.teammate + .person-menu {
+		top: 3px;
+	}
+	.people-invite {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		gap: 6px;
+		padding: 4px 2px 6px 8px;
+	}
+	.people-invite input {
+		min-width: 0;
+		padding: 5px 8px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		background: var(--surface-raised);
+		color: var(--ink);
+		font: inherit;
+	}
+	.people-invite .empty {
+		grid-column: 1 / -1;
+		padding: 0;
+	}
+	.people-head :global(.invite-trigger) {
+		margin-left: auto;
+		margin-right: 6px;
 	}
 	/* A person: their name, then what they are doing in its colour; the selected one raised. */
 	.directory-person {
