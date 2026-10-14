@@ -24,7 +24,13 @@ export function tooltips(root: HTMLElement) {
 	tip.className = 'bridge-tooltip';
 	tip.setAttribute('popover', 'manual');
 	tip.setAttribute('aria-hidden', 'true');
-	root.append(tip);
+	/* The tip's look and colours live under `.bridge-tokens`; account pages host this action
+	 * outside one, where the tip drew as a bare browser popover. */
+	const layer = document.createElement('div');
+	layer.className = 'bridge-tokens';
+	layer.style.display = 'contents';
+	layer.append(tip);
+	root.append(layer);
 
 	let target: HTMLElement | null = null;
 	let text = '';
@@ -171,7 +177,7 @@ export function tooltips(root: HTMLElement) {
 			window.removeEventListener('scroll', hide, true);
 			window.removeEventListener('keydown', key, true);
 			window.removeEventListener('blur', hide);
-			tip.remove();
+			layer.remove();
 		}
 	};
 }

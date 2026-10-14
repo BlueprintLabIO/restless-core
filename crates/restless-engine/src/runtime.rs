@@ -764,8 +764,16 @@ impl CompanyConfig {
 
     fn load_from(path: PathBuf, name: &str) -> Result<Self> {
         validate_company_name(name)?;
-        let raw = std::fs::read_to_string(&path)
-            .with_context(|| format!("no company config at {}", path.display()))?;
+        let raw = match std::fs::read_to_string(&path) {
+            Ok(raw) => raw,
+            // Owner surfaces show this; a host path means nothing there and discloses the layout.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                bail!("There is no company called {name}.")
+            }
+            Err(error) => {
+                return Err(error).with_context(|| format!("read {}", path.display()));
+            }
+        };
         let config: Self =
             toml::from_str(&raw).with_context(|| format!("parse {}", path.display()))?;
         if config.name != name {

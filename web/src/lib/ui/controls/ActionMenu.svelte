@@ -99,7 +99,7 @@
 	onpointerenter={() => (reached = true)}
 	onfocusin={() => (reached = true)}
 >
-	<summary aria-label={label} title={label}
+	<summary aria-label={label} title={label} class:labelled={!!trigger}
 		>{#if trigger}{@render trigger()}{:else}<Ellipsis size={16} aria-hidden="true" />{/if}</summary
 	>
 	<div bind:this={panel} popover="manual" class="action-menu-panel">
@@ -197,6 +197,13 @@
 			width: 44px;
 			height: 44px;
 			padding: 0;
+		}
+		/* A trigger that shows a value, such as a Goal, keeps the touch size but not the icon's
+		 * square: squeezed to 44px its words broke a letter at a time over the next row. */
+		.action-menu > summary.labelled {
+			width: auto;
+			min-width: 44px;
+			padding: 0 8px;
 		}
 		.action-menu-panel :global(:is(button, a)) {
 			min-height: 44px;
