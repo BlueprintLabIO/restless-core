@@ -2231,7 +2231,7 @@
 		border-radius: 6px;
 		background: var(--surface-subtle, var(--surface));
 		color: var(--ink-secondary, var(--ink));
-		font-size: 11px;
+		font-size: var(--t-label);
 		font-weight: 600;
 		letter-spacing: 0.01em;
 	}
