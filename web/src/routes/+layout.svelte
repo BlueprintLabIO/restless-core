@@ -262,22 +262,6 @@
 	</div>
 {/if}
 
-{#if !online && connection.lost}
-	<div class="app-banner" role="status" aria-live="polite" transition:fade={{ duration: 160 }}>
-		You're offline.
-	</div>
-{:else if connection.lost}
-	<div class="app-banner" role="status" aria-live="polite" transition:fade={{ duration: 160 }}>
-		<span class="app-banner-dot" aria-hidden="true"></span>
-		Connection lost. Reconnecting…
-		<button type="button" onclick={reconnectNow}>Retry now</button>
-	</div>
-{:else if restored}
-	<div class="app-banner" role="status" aria-live="polite" transition:fade={{ duration: 160 }}>
-		Reconnected.
-	</div>
-{/if}
-
 {#if navigationStalled}
 	<dialog
 		bind:this={navigationDialog}
@@ -307,7 +291,42 @@
 
 <QueryClientProvider client={queryClient}>
 	{@render children()}
-	<Toasts />
+	<Toasts>
+		{#snippet below()}
+			<!-- The connection banner shares the toasts' region: above the phone dock, never under
+			     an Undo. -->
+			{#if !online && connection.lost}
+				<div
+					class="app-banner"
+					role="status"
+					aria-live="polite"
+					transition:fade={{ duration: 160 }}
+				>
+					You're offline.
+				</div>
+			{:else if connection.lost}
+				<div
+					class="app-banner"
+					role="status"
+					aria-live="polite"
+					transition:fade={{ duration: 160 }}
+				>
+					<span class="app-banner-dot" aria-hidden="true"></span>
+					Connection lost. Reconnecting…
+					<button type="button" onclick={reconnectNow}>Retry now</button>
+				</div>
+			{:else if restored}
+				<div
+					class="app-banner"
+					role="status"
+					aria-live="polite"
+					transition:fade={{ duration: 160 }}
+				>
+					Reconnected.
+				</div>
+			{/if}
+		{/snippet}
+	</Toasts>
 	<ConfirmDialog />
 </QueryClientProvider>
 
@@ -341,11 +360,6 @@
 		}
 	}
 	.app-banner {
-		position: fixed;
-		left: 50%;
-		bottom: 18px;
-		transform: translateX(-50%);
-		z-index: var(--z-app);
 		padding: 8px 14px;
 		border-radius: 6px;
 		font-size: var(--t-body);

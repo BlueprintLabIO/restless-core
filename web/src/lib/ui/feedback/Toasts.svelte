@@ -1,7 +1,12 @@
 <script lang="ts">
-	/* The one place toasts appear: bottom centre, above the dock on a phone. */
+	/* The one place toasts appear: bottom centre, above the dock on a phone. The app's connection
+	 * banner (`below`) stacks under them in the same region, so neither covers the other or the
+	 * dock. */
+	import type { Snippet } from 'svelte';
 	import X from '@lucide/svelte/icons/x';
 	import { dismissToast, holdToast, toasts, undoLatest, type Toast } from './toast.svelte';
+
+	let { below }: { below?: Snippet } = $props();
 
 	async function undo(item: Toast) {
 		dismissToast(item.id);
@@ -34,43 +39,46 @@
 
 <svelte:window {onkeydown} />
 
-<div class="toasts bridge-tokens" aria-live="polite">
-	{#each toasts.list as item (item.id)}
-		<div
-			class="toast"
-			class:failure={item.tone === 'failure'}
-			role={item.tone === 'failure' ? 'alert' : undefined}
-			onmouseenter={() => holdToast(item.id, true)}
-			onmouseleave={() => holdToast(item.id, false)}
-			onfocusin={() => holdToast(item.id, true)}
-			onfocusout={() => holdToast(item.id, false)}
-		>
-			<span>{item.text}</span>
-			{#if item.undo}<button
-					type="button"
-					class="undo"
-					title={`Undo (${undoKeys})`}
-					aria-keyshortcuts={isMac ? 'Meta+Z' : 'Control+Z'}
-					onclick={() => void undo(item)}>Undo</button
-				>{/if}
-			{#if item.action}<button type="button" class="undo" onclick={() => void act(item)}
-					>{item.action.label}</button
-				>{/if}
-			<button
-				type="button"
-				class="close"
-				aria-label="Dismiss"
-				title="Dismiss"
-				onclick={() => dismissToast(item.id)}><X size={14} aria-hidden="true" /></button
+<div class="toasts bridge-tokens">
+	<div class="toast-list" aria-live="polite">
+		{#each toasts.list as item (item.id)}
+			<div
+				class="toast"
+				class:failure={item.tone === 'failure'}
+				role={item.tone === 'failure' ? 'alert' : undefined}
+				onmouseenter={() => holdToast(item.id, true)}
+				onmouseleave={() => holdToast(item.id, false)}
+				onfocusin={() => holdToast(item.id, true)}
+				onfocusout={() => holdToast(item.id, false)}
 			>
-		</div>
-	{/each}
+				<span>{item.text}</span>
+				{#if item.undo}<button
+						type="button"
+						class="undo"
+						title={`Undo (${undoKeys})`}
+						aria-keyshortcuts={isMac ? 'Meta+Z' : 'Control+Z'}
+						onclick={() => void undo(item)}>Undo</button
+					>{/if}
+				{#if item.action}<button type="button" class="undo" onclick={() => void act(item)}
+						>{item.action.label}</button
+					>{/if}
+				<button
+					type="button"
+					class="close"
+					aria-label="Dismiss"
+					title="Dismiss"
+					onclick={() => dismissToast(item.id)}><X size={14} aria-hidden="true" /></button
+				>
+			</div>
+		{/each}
+	</div>
+	{@render below?.()}
 </div>
 
 <style>
 	.toasts {
 		position: fixed;
-		z-index: 90;
+		z-index: var(--z-app);
 		left: 50%;
 		bottom: calc(16px + env(safe-area-inset-bottom));
 		display: grid;
@@ -79,6 +87,14 @@
 		max-width: calc(100vw - 32px);
 		transform: translateX(-50%);
 		pointer-events: none;
+	}
+	.toast-list {
+		display: grid;
+		gap: 6px;
+	}
+	.toasts > :global(:not(.toast-list)) {
+		justify-self: center;
+		pointer-events: auto;
 	}
 	@media (max-width: 760px) {
 		.toasts {
