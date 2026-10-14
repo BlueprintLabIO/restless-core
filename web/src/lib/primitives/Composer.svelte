@@ -17,6 +17,7 @@
 	import Mic from '@lucide/svelte/icons/mic';
 	import Square from '@lucide/svelte/icons/square';
 	import AttachmentPicker from '$lib/primitives/AttachmentPicker.svelte';
+	import AttachmentTray from '$lib/primitives/AttachmentTray.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import { composerKeyAction, nextComposerHeight } from '$lib/primitives/composer-keys';
 	import { sendButtonLabel, sendState } from '$lib/primitives/composer-layout';
@@ -463,9 +464,8 @@
 	{/if}
 	<!-- The field: one border on the wrapper, the textarea transparent above a compact toolbar.
 	     The rows are explicit so narrow rails never wrap one action into an accidental third row.
-	     ONE AttachmentPicker, not two: the file <input> lives inside its button, and a
-	     chips-only instance would have no input to rebuild on remove — the × would silently
-	     do nothing. Its chips take a full-width row inside the toolbar instead. -->
+	     The chosen files are a row of thumbnails above the text; the bound list is the truth, so
+	     removing one there needs no file input. -->
 	{#if showHint && !menu}<span class="hc-hint" aria-hidden="true"
 			>{interruptible
 				? 'Enter queues · Ctrl/Cmd+Enter interrupts'
@@ -515,6 +515,7 @@
 				{/each}
 			</div>
 		{/if}
+		{#if allowAttachments}<AttachmentTray bind:files {disabled} />{/if}
 		<textarea
 			bind:this={inputEl}
 			class="hc-input"

@@ -1,6 +1,6 @@
 <script lang="ts">
-	/* The composer's attach control: a 📎 button backed by a real file input,
-	 * plus chips for the chosen files. Nothing leaves the browser until Send. */
+	/* The composer's attach control: a 📎 button backed by a real file input. The chosen files show
+	 * in the composer's AttachmentTray; nothing leaves the browser until Send. */
 
 	let {
 		files = $bindable<File[]>([]),
@@ -19,33 +19,9 @@
 		if (picked.length) files = [...files, ...picked];
 		if (inputEl) inputEl.value = '';
 	}
-
-	function removeAt(index: number) {
-		files = files.filter((_, i) => i !== index);
-	}
-
-	function fmtSize(bytes: number): string {
-		if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-		return `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
-	}
 </script>
 
 <div class="attachment-picker">
-	{#if files.length > 0}
-		<div class="attach-chips">
-			{#each files as file, i (`${file.name}:${i}`)}
-				<span class="attach-chip" title={`${file.name} · ${fmtSize(file.size)}`}>
-					<span class="attach-chip-name">{file.name}</span>
-					<button
-						type="button"
-						class="attach-x"
-						aria-label="Remove {file.name}"
-						onclick={() => removeAt(i)}>×</button
-					>
-				</span>
-			{/each}
-		</div>
-	{/if}
 	<button
 		class="attach-btn"
 		class:off={disabled}
