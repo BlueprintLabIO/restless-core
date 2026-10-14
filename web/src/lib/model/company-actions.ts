@@ -123,8 +123,7 @@ export function readMessageReference<T>(company: string, message: string, path: 
 /** An attachment's bytes, for an in-place preview. */
 export async function readAttachmentBytes(href: string): Promise<Response> {
 	const response = await fetch(href, { credentials: 'same-origin' });
-	if (!response.ok)
-		throw Object.assign(new Error('The file could not be read.'), { status: response.status });
+	if (!response.ok) throw await responseFailure(response);
 	return response;
 }
 

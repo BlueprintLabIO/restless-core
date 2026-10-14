@@ -10,7 +10,7 @@
 	import type { MessageAttachment } from '$lib/model/view';
 	import { textFormat, type TextFormat } from '$lib/model/file-text';
 	import { officeFormat } from '$lib/model/library-files';
-	import { failureSentence } from '$lib/model/failure';
+	import { failureSentence, type OwnerFailure } from '$lib/model/failure';
 	import TextPreview from './TextPreview.svelte';
 	import OfficePreview from '$lib/components/OfficePreview.svelte';
 
@@ -86,6 +86,26 @@
 	const readBytes = (attachment: MessageAttachment): Promise<Response> =>
 		readAttachmentBytes(hrefOf(attachment) ?? '');
 
+	/* An image that will not load says why, never a blank frame (S85-08): the bytes are gone, the
+	 * company computer is stopped, or the read failed. The <img> carries no reason, so ask again. */
+	let unshown = $state<Record<string, true>>({});
+	function unreadable(cause: unknown): string {
+		const failure = cause as OwnerFailure;
+		if (failure?.status === 404) return 'This file is no longer available.';
+		if (failure?.code === 'runtime' && failure.serverMessage) return failure.serverMessage;
+		if (failure?.status && failure.status >= 500) return 'The image could not be shown. Try again.';
+		return failureSentence(cause, 'The image could not be shown.');
+	}
+	function explain(attachment: MessageAttachment) {
+		void readBytes(attachment)
+			.then(() => {
+				if (previewing === attachment) failure = 'The image could not be shown.';
+			})
+			.catch((cause) => {
+				if (previewing === attachment) failure = unreadable(cause);
+			});
+	}
+
 	function open(event: MouseEvent, attachment: MessageAttachment) {
 		const preview = previewOf(attachment);
 		if (
@@ -130,7 +150,13 @@
 					title="{attachment.name} · {fmtSize(attachment.sizeBytes)}"
 					onclick={(event) => open(event, attachment)}
 				>
-					<img src={inlineHref(attachment)} alt={attachment.name} loading="lazy" />
+					{#if unshown[attachment.uploadId]}<span class="attach-img-missing">Can’t show</span
+						>{:else}<img
+							src={inlineHref(attachment)}
+							alt={attachment.name}
+							loading="lazy"
+							onerror={() => (unshown[attachment.uploadId] = true)}
+						/>{/if}
 				</a>
 			{:else}
 				<a
@@ -161,7 +187,7 @@
 		{#if previewing}
 			<header>
 				<strong title={previewing.name}>{previewing.name}</strong>
-				{#if kind === 'image' || kind === 'pdf'}<a
+				{#if (kind === 'image' && !failure) || kind === 'pdf'}<a
 						class="icon"
 						href={inlineHref(previewing)}
 						target="_blank"
@@ -169,12 +195,12 @@
 						title="Open in a new tab"
 						aria-label="Open in a new tab"><ExternalLink size={15} aria-hidden="true" /></a
 					>{/if}
-				<a
-					class="icon"
-					href={hrefOf(previewing)}
-					title={`Download ${previewing.name}`}
-					aria-label="Download"><Download size={15} aria-hidden="true" /></a
-				>
+				{#if !(kind === 'image' && failure)}<a
+						class="icon"
+						href={hrefOf(previewing)}
+						title={`Download ${previewing.name}`}
+						aria-label="Download"><Download size={15} aria-hidden="true" /></a
+					>{/if}
 				<button
 					class="icon"
 					type="button"
@@ -184,8 +210,13 @@
 				>
 			</header>
 			<div class="body" class:framed={kind === 'pdf' || kind === 'office'}>
-				{#if kind === 'image'}
-					<div class="image"><img src={inlineHref(previewing)} alt={previewing.name} /></div>
+				{#if kind === 'image' && failure}
+					<p class="failure" role="alert">{failure}</p>
+				{:else if kind === 'image'}
+					{@const shown = previewing}
+					<div class="image">
+						<img src={inlineHref(shown)} alt={shown.name} onerror={() => explain(shown)} />
+					</div>
 				{:else if kind === 'pdf'}
 					<!-- The browser's PDF reader refuses a sandboxed frame; the gateway serves a PDF in place
 				     only after checking it is one, and a PDF runs no page script. -->
@@ -288,6 +319,15 @@
 		height: 100%;
 		border: 0;
 		background: white;
+	}
+	.attach-img-missing {
+		display: grid;
+		place-items: center;
+		height: 100%;
+		padding: 6px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		text-align: center;
 	}
 	.quiet,
 	.failure {
