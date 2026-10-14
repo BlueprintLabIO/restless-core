@@ -54,6 +54,7 @@
 	import { conversationUnread, messagePreview, restoreRoom, type Room } from '$lib/model/rooms';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { presentNow } from '$lib/model/presence.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { getContext, type Snippet } from 'svelte';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
@@ -83,6 +84,8 @@
 	}
 	const everyone = $derived((owner ? cockpit.view?.people : collaboration.view?.people) ?? []);
 	const humanColleagues = $derived(everyone.filter((person) => person.kind === 'human'));
+	/* Colleagues with the cockpit open right now, from the shell's presence heartbeat. */
+	const hereNow = $derived(new Set(presentNow.people.map((person) => person.actor_id)));
 	function teamOwnerName(id: string): string {
 		if (id === principal.view?.actor_id) return 'you';
 		return personName(everyone.find((person) => person.actor_id === id)?.display ?? 'a colleague');
@@ -224,7 +227,9 @@
 				person?.kind === 'exec'
 					? 'Ready when you are'
 					: person?.kind === 'human'
-						? 'Colleague'
+						? hereNow.has(actorId)
+							? 'Here now'
+							: 'Colleague'
 						: ledTeam
 							? ledTeam.brief.trim() || `Leads ${teamName(ledTeam.name, companyId)}`
 							: (person?.role ?? ''),
@@ -883,6 +888,11 @@
 									class="avatar-working"
 									title={`${personName(person.display)} is working`}
 									aria-label="Working"
+								></i>{:else if person.kind === 'human' && hereNow.has(person.actor_id)}<i
+									class="avatar-working here"
+									title={`${personName(person.display)} has the cockpit open`}
+									role="img"
+									aria-label="Here now"
 								></i>{/if}</span
 						>
 						<span class="person-lines"
@@ -1653,6 +1663,9 @@
 		border: 2px solid var(--bg-app);
 		border-radius: 50%;
 		background: var(--intent-feedback);
+	}
+	.avatar-working.here {
+		background: var(--state-success);
 	}
 	.conversation-empty {
 		flex: 1;

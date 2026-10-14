@@ -83,8 +83,10 @@
 	{#if shown.length}
 		<div class="facepile" aria-label={`Also here: ${present.map((p) => p.display).join(', ')}`}>
 			{#each shown as person (person.actor_id)}
-				<span class="face other" title={`${person.display} is here`}
-					>{initials(person.display)}</span
+				<a
+					class="face other"
+					href={`/${encodeURIComponent(companyId)}/people?person=${encodeURIComponent(person.actor_id)}`}
+					title={`${person.display} is here. Message them`}>{initials(person.display)}</a
 				>
 			{/each}
 			{#if present.length > 3}<span
@@ -172,6 +174,15 @@
 		border: 2px solid var(--surface-pane);
 		background: color-mix(in srgb, var(--intent-conversation) 18%, var(--surface-raised));
 		color: var(--ink);
+	}
+	a.face.other {
+		text-decoration: none;
+	}
+	a.face.other:hover,
+	a.face.other:focus-visible {
+		position: relative;
+		z-index: 1;
+		border-color: var(--intent-conversation);
 	}
 	.profile :global(summary) {
 		width: auto;

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { presentNow } from '$lib/model/presence.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { onDestroy, tick, untrack } from 'svelte';
@@ -736,6 +737,11 @@
 	);
 	const actorNameForHeader = $derived(directPerson?.display ?? directPartner ?? '');
 	const actorDisplay = $derived(directPerson?.display ?? directPartner ?? '');
+	const hereNow = $derived(
+		!!directPerson &&
+			directPerson.kind === 'human' &&
+			presentNow.people.some((person) => person.actor_id === directPerson.actor_id)
+	);
 	const canExtendDirect = $derived(
 		participantProjection?.status === 'live' &&
 			participants.some((p) => p.actor_id === currentActorId) &&
@@ -1379,7 +1385,10 @@
 								onclick={() => (profileOpen = true)}
 								><span class="person-avatar" aria-hidden="true"
 									>{initials(directPerson.display)}</span
-								><strong>{directPerson.display}</strong></button
+								><strong>{directPerson.display}</strong>{#if hereNow}<small
+										class="here-now"
+										title={`${directPerson.display} has the cockpit open now`}>Here now</small
+									>{/if}</button
 							>
 						{:else}<strong>{roomLabel(selectedRoomId)}</strong>{/if}
 					</h2>
@@ -2070,6 +2079,11 @@
 		border-top: 1px solid var(--border);
 		color: var(--text-secondary);
 		font-size: var(--t-body);
+	}
+	.here-now {
+		color: var(--state-success);
+		font-size: var(--t-label);
+		font-weight: 400;
 	}
 	.room-contact:hover strong {
 		text-decoration: underline;
