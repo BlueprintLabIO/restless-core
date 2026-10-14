@@ -22,6 +22,7 @@
 		feedback = null,
 		empty = null,
 		footer = null,
+		after = null,
 		rowActions = null,
 		now = Date.now()
 	}: {
@@ -34,6 +35,8 @@
 		feedback?: Snippet | null;
 		empty?: Snippet | null;
 		footer?: Snippet | null;
+		/** Host bands below the list, such as account-wide use. */
+		after?: Snippet | null;
 		/** The card's menu: secondary routes such as Archive, Compute or Service. */
 		rowActions?: Snippet<[CompanyPortfolioEntry]> | null;
 		/** The clock relative times are read against; injectable for fixtures. */
@@ -111,6 +114,7 @@
 			</div>
 		{/if}
 		{#if footer}<footer class="portfolio-footer">{@render footer()}</footer>{/if}
+		{#if after}{@render after()}{/if}
 	</main>
 {/if}
 

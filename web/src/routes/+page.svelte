@@ -18,6 +18,7 @@
 	import { page } from '$app/state';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import CreateCompany from '$lib/components/CreateCompany.svelte';
+	import HomeAccount from '$lib/components/HomeAccount.svelte';
 	import AccountFrame from '$lib/components/AccountFrame.svelte';
 	import { getApplianceStatus, planeLabel, type ApplianceStatus } from '$lib/model/appliance';
 	import ApplianceRepair from '$lib/components/ApplianceRepair.svelte';
@@ -254,6 +255,9 @@
 							? 'Hide archived'
 							: `Show archived (${archivedCompanies.length})`}</button
 					>{/if}
+			{/snippet}
+			{#snippet after()}
+				<HomeAccount companies={activeCompanies} {appliance} />
 			{/snippet}
 			{#snippet before()}
 				{#if appliance?.state === 'recovering'}
