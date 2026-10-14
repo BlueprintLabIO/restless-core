@@ -38,10 +38,13 @@ export function createAppsData(companyId: () => string) {
 	let library = $state<SkillLibrary | null>(null);
 	let requests = $state<AppRequest[]>([]);
 	let failure = $state('');
+	/* A part that did not load is said, never shown as nothing. */
+	let partial = $state('');
 
 	async function load() {
 		const id = companyId();
 		failure = '';
+		partial = '';
 		const [tools, skills, asked] = await Promise.allSettled([
 			fetchConnections(id),
 			fetchSkillLibrary(id),
@@ -50,7 +53,12 @@ export function createAppsData(companyId: () => string) {
 		if (tools.status === 'fulfilled') connections = tools.value;
 		else failure = failureSentence(tools.reason, 'Apps could not be read.');
 		if (skills.status === 'fulfilled') library = skills.value;
-		requests = asked.status === 'fulfilled' ? asked.value : [];
+		if (asked.status === 'fulfilled') requests = asked.value;
+		const missing = [
+			skills.status === 'rejected' ? 'know-how' : '',
+			asked.status === 'rejected' ? 'Exec’s requests' : ''
+		].filter(Boolean);
+		if (missing.length) partial = `Couldn’t load ${missing.join(' or ')}`;
 	}
 
 	$effect(() => {
@@ -84,6 +92,10 @@ export function createAppsData(companyId: () => string) {
 		},
 		get failure() {
 			return failure;
+		},
+		/** What part could not be read this time, in owner words; empty when everything loaded. */
+		get partial() {
+			return partial;
 		},
 		get requests() {
 			return requests;

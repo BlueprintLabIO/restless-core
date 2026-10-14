@@ -8,7 +8,7 @@
  * a local tool, know-how or a bundle) organises the power-user views, and the
  * mechanism behind it (MCP, CLI, skill, plugin) is explained on hover. */
 
-import type { SkillLibrary, SkillRow } from './skills';
+import type { SkillAssignmentRow, SkillLibrary, SkillRow } from './skills';
 import type { ToolConnection } from './connections';
 
 export type AppCategory =
@@ -351,25 +351,28 @@ export const APP_KINDS: AppKind[] = ['service', 'local', 'skill', 'bundle'];
 export const KIND_LABEL: Record<AppKind, string> = {
 	service: 'Service',
 	local: 'Local tool',
-	skill: 'Skill',
+	skill: 'Know-how',
 	bundle: 'Bundle'
 };
 
 export const KIND_SECTION: Record<AppKind, string> = {
 	service: 'Services',
 	local: 'Local tools',
-	skill: 'Skills',
+	skill: 'Know-how',
 	bundle: 'Bundles'
 };
+
+/** Where a local tool really runs: a fresh worker built from the company computer's image. */
+export const LOCAL_INFO =
+	'A program, such as a command-line (CLI) tool or a local MCP server, run in its own sandbox built from the company computer’s image, with its own data folder.';
 
 /** One sentence each, on hover: what it is, and what it can and cannot do. */
 export const KIND_INFO: Record<AppKind, string> = {
 	service:
 		'An online service the company reaches through its MCP server. You sign in once, then choose what the company may do with it.',
-	local:
-		'A program run on your machine, such as a command-line (CLI) tool or a local MCP server, outside the company computer.',
+	local: LOCAL_INFO,
 	skill:
-		'A skill: instructions (and sometimes scripts) the company follows. It grants no access, spending or sign-in.',
+		'Instructions (and sometimes scripts) the company follows, known as a skill. It grants no access, spending or sign-in.',
 	bundle: 'A plugin: services, tools and know-how that came together from one source.'
 };
 
@@ -430,8 +433,17 @@ function connectionState(connection: ToolConnection): { state: AppState; attenti
 	return { state: 'in_use' };
 }
 
-function skillState(skill: SkillRow): { state: AppState; attention?: string } {
+/** Know-how turned off for everyone reads as off, or as given to the few it was given to. */
+function skillState(
+	skill: SkillRow,
+	assignments: SkillAssignmentRow[] = []
+): { state: AppState; attention?: string } {
 	if (skill.disposition === 'candidate') return { state: 'needs_you', attention: 'Review' };
+	const mine = assignments.filter((row) => row.skill_name === skill.name);
+	if (mine.some((row) => row.scope === 'company' && !row.enabled)) {
+		const given = mine.filter((row) => row.scope !== 'company' && row.enabled).length;
+		return { state: 'paused', attention: given ? `Given to ${given}` : 'Off' };
+	}
 	return { state: 'in_use' };
 }
 
@@ -446,7 +458,7 @@ export function builtIn(app: App): boolean {
 	);
 }
 
-function skillApp(skill: SkillRow): App {
+function skillApp(skill: SkillRow, assignments: SkillAssignmentRow[] = []): App {
 	return {
 		key: `s-${skill.name}`,
 		kind: 'skill',
@@ -455,10 +467,10 @@ function skillApp(skill: SkillRow): App {
 		how: 'Know-how, nothing to sign in to',
 		howTip:
 			skill.source === 'builtin'
-				? 'A skill that ships with Restless: instructions the company follows. It grants no access.'
-				: 'A skill: instructions (and sometimes scripts) the company follows. It grants no credential, spending or approval.',
+				? 'Know-how that comes with Restless (a skill): instructions the company follows. It grants no access.'
+				: 'Know-how (a skill): instructions, and sometimes scripts, the company follows. It grants no credential, spending or approval.',
 		category: 'Know-how',
-		...skillState(skill),
+		...skillState(skill, assignments),
 		connections: [],
 		skills: [skill]
 	};
@@ -491,7 +503,7 @@ export function buildApps(
 				key: `p-${encodeURIComponent(url)}`,
 				kind: 'bundle',
 				name,
-				description: 'A bundle of connections and know-how.',
+				description: 'A bundle of services and know-how.',
 				how: 'Sign-in and know-how',
 				howTip: `A plugin from ${url}: its MCP servers became connections and its skills became company know-how.`,
 				category: 'Know-how',
@@ -523,11 +535,12 @@ export function buildApps(
 					? `${connection.tools.length} tools from ${connection.server_name ?? connection.name}.`
 					: 'A connected service.'),
 			how:
-				entry?.how ?? (connection.kind === 'local' ? 'Runs on your plane' : 'Connected by address'),
+				entry?.how ??
+				(connection.kind === 'local' ? 'Runs in its own sandbox' : 'Connected by address'),
 			howTip:
 				entry?.howTip ??
 				(connection.kind === 'local'
-					? `A local MCP server (${connection.command ?? 'command'}), run on your plane outside the company computer.`
+					? `Runs ${connection.command ?? 'a command'} in its own sandbox built from the company computer’s image, with its own data folder.`
 					: `An MCP server at ${connection.endpoint ?? 'its address'}.`),
 			category: entry?.category ?? 'Engineering',
 			state,
@@ -545,11 +558,14 @@ export function buildApps(
 			bundle.skills.push(skill);
 			continue;
 		}
-		mine.push(skillApp(skill));
+		mine.push(skillApp(skill, library?.assignments));
 	}
 
 	for (const app of plugins.values()) {
-		const parts = [...app.connections.map(connectionState), ...app.skills.map(skillState)];
+		const parts = [
+			...app.connections.map(connectionState),
+			...app.skills.map((skill) => skillState(skill, library?.assignments))
+		];
 		const worst = parts.sort((a, b) => RANK[a.state] - RANK[b.state])[0];
 		app.state = worst?.state ?? 'in_use';
 		app.attention = worst?.attention;
@@ -586,7 +602,15 @@ export function buildApps(
 /** What the company may do with an app, in a few words, and why on hover. */
 export function appLevel(app: App): { label: string; info: string } {
 	if (app.kind === 'skill' && !app.connections.length)
-		return { label: 'Know-how', info: 'Instructions the company follows. It grants no access.' };
+		return app.state === 'paused' && app.attention
+			? {
+					label: app.attention,
+					info:
+						app.attention === 'Off'
+							? 'Off for everyone. No agent uses it until you turn it on or give it to someone.'
+							: 'Off for everyone except the people and teams it was given to.'
+				}
+			: { label: 'Know-how', info: 'Instructions the company follows. It grants no access.' };
 	const classes = app.connections.flatMap((connection) =>
 		connection.grants.flatMap((grant) => grant.tools.map((tool) => tool.class))
 	);
@@ -666,4 +690,11 @@ export function nameForLink(value: string): string {
 			.replace(/^-+|-+$/g, '')
 			.slice(0, 40) || 'app'
 	);
+}
+
+/** How a catalogued app connects, in two words, so a chooser sees it before adding. */
+export function connectTag(app: App): string {
+	if (app.catalogue?.auth === 'token') return 'Token';
+	if (app.how.startsWith('Sign in')) return 'Sign in';
+	return 'No sign-in';
 }

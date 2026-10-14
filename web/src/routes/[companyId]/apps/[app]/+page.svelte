@@ -45,7 +45,8 @@
 		type SkillPackage,
 		type SkillRow
 	} from '$lib/model/skills';
-	import { buildApps, nameForLink, skillName, type App } from '$lib/model/apps';
+	import { LOCAL_INFO, buildApps, nameForLink, skillName, type App } from '$lib/model/apps';
+	import { cockpitQuery, companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import AppMark from '$lib/primitives/AppMark.svelte';
 	import { declineAppRequest, fetchAppRequests, type AppRequest } from '$lib/model/app-requests';
 
@@ -74,6 +75,19 @@
 	let editing = $state<Record<string, { text: string; digest: string }>>({});
 	let declining = $state(false);
 	let declineReason = $state('');
+	/* Parts that could not be read: said, never shown as missing. */
+	let partial = $state('');
+
+	/* Who know-how can be given to: the company's teams and agents (owner only). */
+	const principal = $derived(companyPrincipalQuery(companyId));
+	const owner = $derived(principal.view?.membership_role === 'owner');
+	const cockpit = $derived(cockpitQuery(companyId, () => owner));
+	const teams = $derived(cockpit.view?.teams ?? []);
+	const agents = $derived(cockpit.view?.people ?? []);
+	const holderName = (scope: string, id: string) =>
+		scope === 'team'
+			? (teams.find((team) => team.id === id)?.name ?? id)
+			: (agents.find((person) => person.actor_id === id)?.display ?? skillName(id));
 
 	async function loadReceipts(connection: ToolConnection) {
 		receipts[connection.name] = await fetchReceipts(
@@ -93,17 +107,26 @@
 
 	async function load() {
 		failure = '';
+		partial = '';
 		try {
+			const missing: string[] = [];
 			const [tools, skills] = await Promise.all([
 				fetchConnections(companyId),
-				fetchSkillLibrary(companyId).catch(() => null)
+				fetchSkillLibrary(companyId).catch(() => {
+					missing.push('know-how');
+					return library;
+				})
 			]);
 			connections = tools;
 			library = skills;
 			if (requestId) {
-				const requests = await fetchAppRequests(companyId).catch(() => []);
-				request = requests.find((row) => row.handoff_id === requestId) ?? null;
+				const requests = await fetchAppRequests(companyId).catch(() => {
+					missing.push('the request');
+					return null;
+				});
+				if (requests) request = requests.find((row) => row.handoff_id === requestId) ?? null;
 			}
+			partial = missing.length ? `Couldn’t load ${missing.join(' or ')}` : '';
 			/* History is kept whatever the app's state: a broken app still shows what it did. */
 			await Promise.all([
 				...(app?.connections ?? [])
@@ -360,6 +383,20 @@
 		});
 	}
 
+	const givenTo = (skill: SkillRow) =>
+		library?.assignments.filter(
+			(row) => row.skill_name === skill.name && row.scope !== 'company' && row.enabled
+		) ?? [];
+	async function give(skill: SkillRow, holder: string) {
+		const [scope, id] = holder.split(':', 2) as ['team' | 'actor', string];
+		if (!id) return;
+		await act(
+			`give:${skill.name}`,
+			() => assignSkill(companyId, skill.name, scope, id, true),
+			`${skillName(skill.name)} was given to ${holderName(scope, id)}.`
+		);
+	}
+
 	const offForEveryone = (skill: SkillRow) =>
 		library?.assignments.some(
 			(row) => row.skill_name === skill.name && row.scope === 'company' && !row.enabled
@@ -416,13 +453,17 @@
 
 <CompanyTitle title={app?.name ?? 'App'} {companyId} />
 
+{#snippet retry()}<button class="btn small" type="button" onclick={() => void load()}
+		>Try again</button
+	>{/snippet}
+
 {#snippet service(connection: ToolConnection)}
 	{@const grant = liveGrant(connection)}
 	<Section
 		title={app && app.connections.length > 1 ? connection.name : 'Status'}
 		info={connection.endpoint
 			? `An MCP server at ${connection.endpoint}. The sign-in stays on your plane, never in the company computer.`
-			: `Runs ${connection.command ?? ''} in its own sandbox from the company computer's image, with its own data folder.`}
+			: `Runs ${connection.command ?? 'a command'}. ${LOCAL_INFO}`}
 	>
 		<div class="status">
 			<span title={connection.account ? `Signed in as ${connection.account}` : undefined}
@@ -745,6 +786,45 @@
 						)}
 				/>
 				<span class="quiet">Everyone</span>
+				{#if owner && (teams.length || agents.length)}
+					<select
+						aria-label={`Give ${skillName(skill.name)} to a team or agent`}
+						title="Give it to one team or agent directly. They can use it even while it is off for everyone."
+						value=""
+						disabled={!!busy}
+						onchange={(event) => {
+							const holder = event.currentTarget.value;
+							event.currentTarget.value = '';
+							void give(skill, holder);
+						}}
+					>
+						<option value="" disabled>Give to…</option>
+						{#if teams.length}
+							<optgroup label="Teams">
+								{#each teams as team (team.id)}
+									<option
+										value={`team:${team.id}`}
+										disabled={givenTo(skill).some(
+											(row) => row.scope === 'team' && row.scope_id === team.id
+										)}>{team.name}</option
+									>
+								{/each}
+							</optgroup>
+						{/if}
+						{#if agents.length}
+							<optgroup label="Agents">
+								{#each agents as person (person.actor_id)}
+									<option
+										value={`actor:${person.actor_id}`}
+										disabled={givenTo(skill).some(
+											(row) => row.scope === 'actor' && row.scope_id === person.actor_id
+										)}>{person.display}</option
+									>
+								{/each}
+							</optgroup>
+						{/if}
+					</select>
+				{/if}
 				{#if skill.source !== 'builtin'}<button
 						class="btn small ghost"
 						type="button"
@@ -773,6 +853,38 @@
 				>
 			{/if}
 		</div>
+		{#if skill.disposition === 'accepted' && (offForEveryone(skill) || givenTo(skill).length)}
+			<div class="status holders">
+				{#if offForEveryone(skill) && !givenTo(skill).length}
+					<span class="quiet"
+						>Off. No agent uses it until you turn it on or give it to someone.</span
+					>
+				{:else}
+					<span class="quiet">{offForEveryone(skill) ? 'Only' : 'Also given to'}</span>
+					{#each givenTo(skill) as row (`${row.scope}:${row.scope_id}`)}
+						<span class="badge holder"
+							>{holderName(row.scope, row.scope_id)}{#if owner}<button
+									type="button"
+									class="unassign"
+									aria-label={`Take ${skillName(skill.name)} back from ${holderName(row.scope, row.scope_id)}`}
+									title="Take it back. They then follow the setting for everyone."
+									disabled={!!busy}
+									onclick={() =>
+										void act(`give:${skill.name}`, () =>
+											assignSkill(
+												companyId,
+												skill.name,
+												row.scope as 'team' | 'actor',
+												row.scope_id,
+												null
+											)
+										)}>×</button
+								>{/if}</span
+						>
+					{/each}
+				{/if}
+			</div>
+		{/if}
 		{#if edit}
 			<form
 				class="skill-edit"
@@ -828,10 +940,22 @@
 	{#if failure}<Notice tone="danger" title="This app could not be read" details={failure} />
 	{:else}<Skeleton label="Reading the app…" variant="page" count={3} />{/if}
 {:else if !app && !pendingLink}
-	<Page title="App not found">
-		<Notice tone="warning" title="This app is not here" details="It may have been removed." />
-		<a class="btn small" href={appsHref}>All apps</a>
-	</Page>
+	{#if partial}
+		<Page title="App">
+			<Notice
+				tone="warning"
+				title={partial}
+				details="This app may be among what did not load. Nothing was removed."
+				actions={retry}
+			/>
+			<a class="btn small" href={appsHref}>All apps</a>
+		</Page>
+	{:else}
+		<Page title="App not found">
+			<Notice tone="warning" title="This app is not here" details="It may have been removed." />
+			<a class="btn small" href={appsHref}>All apps</a>
+		</Page>
+	{/if}
 {:else}
 	<Page
 		title={app?.name ?? linkName}
@@ -859,6 +983,7 @@
 
 		<a class="back" href={appsHref}>Apps</a>
 		{#if failure}<Notice tone="danger" title="That change was not made" details={failure} />{/if}
+		{#if partial}<Notice tone="warning" title={partial} actions={retry} />{/if}
 		{#if notice}<Notice tone="success" title={notice} />{/if}
 		{#if request}
 			<div
@@ -918,7 +1043,7 @@
 						<TokenPicker
 							{companyId}
 							app={app.catalogue.key}
-							action={`Add ${app.name}`}
+							action="Add"
 							busy={busy === 'add'}
 							onchoose={(credential) => add(credential)}
 						/>
@@ -928,7 +1053,7 @@
 							type="button"
 							disabled={!!busy}
 							title="Adds it and checks it answers. You then sign in if it needs one, and choose what it may do."
-							onclick={() => void add()}>{busy === 'add' ? 'Adding…' : `Add ${app.name}`}</button
+							onclick={() => void add()}>{busy === 'add' ? 'Adding…' : 'Add'}</button
 						>
 					{/if}
 				</div>
@@ -1152,6 +1277,25 @@
 		border: 1px solid var(--border-strong);
 		border-radius: 999px;
 		font-size: var(--t-body);
+	}
+	.holders {
+		padding-top: 0;
+	}
+	.holder {
+		display: inline-flex;
+		gap: 4px;
+		align-items: center;
+	}
+	.unassign {
+		padding: 0 2px;
+		border: 0;
+		background: none;
+		color: var(--text-tertiary);
+		cursor: pointer;
+		font: inherit;
+	}
+	.unassign:hover {
+		color: var(--ink);
 	}
 	@container page (max-width: 560px) {
 		.tools li {

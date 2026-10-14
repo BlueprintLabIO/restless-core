@@ -144,8 +144,8 @@
 	const triggerGuide = $derived(
 		(
 			[
-				['/', 'Commands and skills', ['command', 'skill']],
-				['$', 'Skills', ['skill']],
+				['/', 'Commands and know-how', ['command', 'skill']],
+				['$', 'Know-how', ['skill']],
 				['#', 'Work, Goals and documents', ['reference']],
 				['@', 'People', ['person']]
 			] as const
@@ -436,7 +436,7 @@
 			class="hc-menu"
 			role="listbox"
 			aria-label={menu.trigger === '$'
-				? 'Skills'
+				? 'Know-how'
 				: menu.trigger === '#'
 					? 'Work, Goals and documents'
 					: menu.trigger === '@'

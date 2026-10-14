@@ -25,6 +25,7 @@
 	import SidebarGroup from '$lib/ui/views/SidebarGroup.svelte';
 	import SidebarRow from '$lib/ui/views/SidebarRow.svelte';
 	import SidebarHeadButton from '$lib/ui/views/SidebarHeadButton.svelte';
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import {
 		APP_KINDS,
 		BROWSE_CATEGORIES,
@@ -171,14 +172,52 @@
 		</SidebarGroup>
 	{/snippet}
 	{#snippet narrow()}
-		<div class="views" role="group" aria-label="Apps">
-			{#each narrowViews as row (row.view)}
-				<a
-					class="view"
-					href={href(row.view)}
-					aria-current={current === row.view ? 'page' : undefined}>{row.label}</a
-				>
-			{/each}
+		<div class="narrow-row">
+			<div class="views" role="group" aria-label="Apps">
+				{#each narrowViews as row (row.view)}
+					<a
+						class="view"
+						href={href(row.view)}
+						aria-current={current === row.view ? 'page' : undefined}>{row.label}</a
+					>
+				{/each}
+			</div>
+			<!-- Everything else the sidebar holds, so no view or way to add is desktop-only. -->
+			<span
+				class="more"
+				class:current={!!current && !narrowViews.some((row) => row.view === current)}
+			>
+				<ActionMenu label="More views and ways to add">
+					{#snippet trigger()}More{/snippet}
+					{#each kinds as row (row.kind)}
+						<a
+							href={href(row.kind)}
+							title={KIND_INFO[row.kind]}
+							aria-current={current === row.kind ? 'page' : undefined}
+							>{KIND_SECTION[row.kind]} <span class="n">{row.count}</span></a
+						>
+					{/each}
+					{#if data.removed.length}
+						<a href={href('removed')} aria-current={current === 'removed' ? 'page' : undefined}
+							>Removed <span class="n">{data.removed.length}</span></a
+						>
+					{/if}
+					{#each categories as row (row.view)}
+						<a href={href(row.view)} aria-current={current === row.view ? 'page' : undefined}
+							>{row.view} <span class="n">{row.count}</span></a
+						>
+					{/each}
+					<a
+						href={`${index}?add=link`}
+						title="A service's MCP address, a plugin or skill on GitHub, or a command"
+						>Add from a link</a
+					>
+					<a
+						href={`${index}?add=skill`}
+						title="Instructions the company follows once you accept them">Write new know-how</a
+					>
+				</ActionMenu>
+			</span>
 		</div>
 	{/snippet}
 	{@render children()}
@@ -187,10 +226,17 @@
 <style>
 	/* Too narrow for the list: the same views as one row that scrolls sideways, its edge fading
 	 * so the rest read as more rather than cut off. */
-	.views {
+	.narrow-row {
 		display: flex;
 		gap: 6px;
+		align-items: center;
 		padding: 12px 16px 0;
+	}
+	.views {
+		display: flex;
+		flex: 1;
+		min-width: 0;
+		gap: 6px;
 		overflow-x: auto;
 		scrollbar-width: none;
 		mask-image: linear-gradient(to right, black 85%, transparent);
@@ -210,6 +256,25 @@
 		color: var(--text-secondary);
 		font-size: var(--t-body);
 		text-decoration: none;
+	}
+	.more :global(.action-menu > summary) {
+		width: auto;
+		height: 28px;
+		padding: 0 11px;
+		border: 1px solid var(--border);
+		border-radius: 14px;
+		background: var(--surface);
+		font-size: var(--t-body);
+	}
+	.more.current :global(.action-menu > summary) {
+		border-color: var(--border-strong);
+		color: var(--ink);
+		font-weight: 600;
+	}
+	.more :global(.n) {
+		margin-left: auto;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
 	}
 	/* The selected view is raised, as it is in the sidebar and the top navigation. */
 	.view[aria-current='page'] {

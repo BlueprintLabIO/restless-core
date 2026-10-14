@@ -23,13 +23,13 @@
 		appLevel,
 		builtIn,
 		classifyLink,
+		connectTag,
 		nameForLink,
 		unlistedFor,
 		type App,
 		type UnlistedService
 	} from '$lib/model/apps';
 	import { useAppsData, viewFrom, isKind, type AppsView } from '$lib/model/apps-data.svelte';
-	import AppTile from './AppTile.svelte';
 	import AppMark from '$lib/primitives/AppMark.svelte';
 
 	const data = useAppsData();
@@ -55,6 +55,15 @@
 	const route = (key: string) =>
 		`/${encodeURIComponent(companyId)}/apps/${encodeURIComponent(key)}`;
 	const failure = $derived(actionFailure || data.failure);
+	let retrying = $state(false);
+	async function retry() {
+		retrying = true;
+		try {
+			await data.load();
+		} finally {
+			retrying = false;
+		}
+	}
 
 	const TITLES: Record<string, string> = {
 		ask: 'Apps',
@@ -201,11 +210,11 @@
 						);
 					if (result.import.skills.length)
 						parts.push(
-							`${result.import.skills.length} skill${result.import.skills.length === 1 ? '' : 's'} for you to review`
+							`${result.import.skills.length === 1 ? 'one piece' : `${result.import.skills.length} pieces`} of know-how for you to review`
 						);
 					notice = `${result.import.plugin} added${parts.length ? `: ${parts.join(' and ')}` : ''}.`;
 					skippedImport = result.import.skipped;
-					/* Its services and skills wait on the owner; Exec adds the skills shortly. */
+					/* Its services and know-how wait on the owner; Exec adds the know-how shortly. */
 					reviewHref =
 						result.import.connections.length || result.import.skills.length
 							? `/${encodeURIComponent(companyId)}/apps?view=waiting`
@@ -239,12 +248,12 @@
 				await sendActorMessage(
 					companyId,
 					'exec',
-					`The company should be able to: ${value}. Find the app that does this and bring it to me to turn on, or tell me if nothing fits.`,
+					`The company should be able to: ${value}. Find the app that does this and bring it to me to add, or tell me if nothing fits.`,
 					undefined,
 					[],
 					`/${companyId}/apps`
 				);
-				notice = `Asked Exec. Its answer comes to your conversation, and anything to turn on waits here.`;
+				notice = `Asked Exec. Its answer comes to your conversation, and anything to add waits here.`;
 				query = '';
 			},
 			'Exec was not asked. Try again.'
@@ -269,10 +278,6 @@
 		} else if (event.key === 'Enter') {
 			event.preventDefault();
 			choose(options[highlighted]);
-		} else if (event.key === 'Tab' && !event.shiftKey) {
-			// Tab hands the words to Exec even when a name matched.
-			event.preventDefault();
-			choose(options[options.length - 1]);
 		} else if (event.key === 'Escape') {
 			query = '';
 		}
@@ -318,6 +323,13 @@
 
 <CompanyTitle {title} {companyId} />
 
+{#snippet retryAction()}<button
+		class="btn small"
+		type="button"
+		disabled={retrying}
+		onclick={() => void retry()}>{retrying ? 'Trying…' : 'Try again'}</button
+	>{/snippet}
+
 {#snippet review()}<a class="btn small" href={reviewHref}>Review</a>{/snippet}
 
 {#snippet mark(app: App, size: 24 | 32 | 40 = 24)}
@@ -332,7 +344,7 @@
 <Page
 	{title}
 	info={view === 'ask'
-		? 'Say what the company should be able to do, or type an app’s name. Exec finds what fits and brings it here to turn on. Each app shows what it may do, and asks you before it acts the first time.'
+		? 'Say what the company should be able to do, or type an app’s name. Exec finds what fits and brings it here to add. Each app shows what it may do, and asks you before it acts the first time.'
 		: view === 'removed'
 			? 'Know-how you removed. Agents no longer follow it; restoring it makes it company know-how again.'
 			: isKind(view)
@@ -343,6 +355,12 @@
 			tone="danger"
 			title={actionFailure ? actionFailure : 'Apps could not be read'}
 			details={actionFailure ? null : failure}
+		/>{/if}
+	{#if !failure && data.partial}<Notice
+			tone="warning"
+			title={data.partial}
+			details="What did load is shown. Nothing was removed."
+			actions={retryAction}
 		/>{/if}
 	{#if notice}<Notice
 			tone="success"
@@ -477,7 +495,7 @@
 										? 'Open'
 										: busy === `add:${option.app.key}`
 											? 'Adding…'
-											: 'Turn on'}</span
+											: 'Add'}</span
 								>
 							{:else if option.kind === 'unlisted'}
 								<span class="ask-glyph" aria-hidden="true"
@@ -498,7 +516,7 @@
 								<span class="ask-glyph exec-mark" aria-hidden="true">E</span>
 								<span>Ask Exec: <strong>“{option.value}”</strong></span>
 								<span class="ask-go"
-									>{busy === 'ask' ? 'Asking…' : options.length > 1 ? 'Tab' : '↵'}</span
+									>{busy === 'ask' ? 'Asking…' : index === highlighted ? '↵' : ''}</span
 								>
 							{/if}
 						</li>
@@ -530,7 +548,7 @@
 								title={request.work_title ? `For “${request.work_title}”` : undefined}
 								>{request.asker} asked</span
 							>
-							<a class="btn small primary" href={request.href(companyId)}>Turn on</a>
+							<a class="btn small primary" href={request.href(companyId)}>Add</a>
 						{/snippet}
 					</Item>
 				{/each}
@@ -577,8 +595,9 @@
 			</Section>
 			{#if included.length}
 				<p class="included">
-					Plus <a href="?view=skill">{included.length} skill{included.length === 1 ? '' : 's'}</a> that
-					come with Restless.
+					Plus <a href="?view=skill" title="Skills: instructions agents follow"
+						>{included.length === 1 ? 'one piece' : `${included.length} pieces`} of know-how</a
+					> that come with Restless.
 				</p>
 			{/if}
 		{/if}
@@ -643,17 +662,27 @@
 		{/if}
 
 		{#if tiles.length}
-			<div class="grid">
+			<Section>
 				{#each tiles as app (app.key)}
-					<AppTile
-						{app}
-						href={route(app.key)}
-						busy={busy === `add:${app.key}`}
-						disabled={!!busy}
-						onadd={() => void addCatalogue(app)}
-					/>
+					<Item title={app.name} meta={app.description} href={route(app.key)}>
+						{#snippet leading()}{@render mark(app)}{/snippet}
+						{#snippet trailing()}
+							<span class="level" title={app.howTip}>{connectTag(app)}</span>
+							<button
+								class="btn small"
+								type="button"
+								disabled={!!busy}
+								aria-label={`Add ${app.name}`}
+								title={app.catalogue?.auth === 'token'
+									? `Opens ${app.name} to choose or paste the token it uses, then adds it.`
+									: `Adds ${app.name} and checks it answers. Sign-in, then what it may do, come next.`}
+								onclick={() => void addCatalogue(app)}
+								>{busy === `add:${app.key}` ? 'Adding…' : 'Add'}</button
+							>
+						{/snippet}
+					</Item>
 				{/each}
-			</div>
+			</Section>
 		{:else if view === 'all' || (!isKind(view) && !['ask', 'waiting', 'in-use', 'removed'].includes(view))}
 			<Empty compact title="Everything here is already added" info="Add one from a link instead." />
 		{/if}
@@ -813,11 +842,6 @@
 		margin: -6px 0 0;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
-	}
-	.grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-		gap: 10px;
 	}
 
 	/* The power-user table: one row per app, its kind and permission at a glance. */
