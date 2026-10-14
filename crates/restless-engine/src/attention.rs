@@ -124,6 +124,12 @@ pub struct DecisionContinuation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub responsible_actor: Option<AttentionActorRef>,
     pub observed_at: DateTime<Utc>,
+    /// The Inbox item this answered, so an old link to it can say what happened.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub item_id: Option<String>,
+    /// Who decided, when the record names them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decided_by: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2788,6 +2794,8 @@ fn handoff_decisions(
                 ),
                 responsible_actor,
                 observed_at: handoff.resolved_at.expect("filtered above"),
+                item_id: Some(format!("orgintel:handoff:{}", handoff.id)),
+                decided_by: None,
             })
         })
         .collect()
@@ -2813,6 +2821,14 @@ async fn authority_decisions(
             .and_then(|request| request.actor_id.as_deref())
             .and_then(|actor| actors.get(actor))
             .cloned()
+    };
+    let decider = |record: &crate::authority::AuthorityRecord| {
+        record.actor_id.as_deref().map(|actor| {
+            actors
+                .get(actor)
+                .map(|known| known.display.clone())
+                .unwrap_or_else(|| if actor == "owner" { "The owner".into() } else { actor.to_string() })
+        })
     };
     let mut rows = Vec::new();
     for kind in approval::DECISION_KINDS {
@@ -2863,6 +2879,18 @@ async fn authority_decisions(
                 observed_outcome: String::new(),
                 responsible_actor: prepared_by(request),
                 observed_at: record.created_at,
+                item_id: request.map(|request| {
+                    format!(
+                        "authority:approval:{}:{party}",
+                        request
+                            .body
+                            .get("effect_class")
+                            .or_else(|| request.body.get("capability"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("external effect")
+                    )
+                }),
+                decided_by: decider(&record),
             });
         }
     }
@@ -2933,6 +2961,8 @@ async fn authority_decisions(
                 observed_outcome: String::new(),
                 responsible_actor: prepared_by(request),
                 observed_at: record.created_at,
+                item_id: Some(format!("authority:tool-call:{key}")),
+                decided_by: decider(&record),
             });
         }
     }
@@ -2963,6 +2993,12 @@ async fn authority_decisions(
             observed_outcome: String::new(),
             responsible_actor: actors.get("exec").cloned(),
             observed_at: record.created_at,
+            item_id: record
+                .body
+                .get("proposal_id")
+                .and_then(Value::as_str)
+                .map(|id| format!("authority:email_mandate_proposal:{id}")),
+            decided_by: decider(&record),
         });
     }
     Ok(rows)

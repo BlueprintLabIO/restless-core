@@ -47,7 +47,11 @@
 	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
 	import { startFixHref, startLinkLabel } from '$lib/model/company-start';
 	import { browserTabClientId } from '$lib/model/browserTab';
-	import { issueDesktopTicket, issueReviewTicket } from '$lib/model/attention';
+	import {
+		fetchDecisionHistory,
+		issueDesktopTicket,
+		issueReviewTicket
+	} from '$lib/model/attention';
 	import { DesktopControl } from '$lib/model/desktop-control.svelte';
 	import { dropComputerFile } from '$lib/model/computer-files';
 	import { takeInboxOutcome } from '$lib/model/inbox-outcome.svelte';
@@ -204,6 +208,19 @@
 			(selectedItemId ? null : ((visibleItems ?? items)[0] ?? null))
 	);
 	let missingNotice = $state('');
+	let missingDecisionHref = $state('');
+	let explaining = '';
+	async function explainMissing(company: string, itemId: string) {
+		explaining = itemId;
+		const history = await fetchDecisionHistory(company).catch(() => null);
+		const decision = history?.decisions.find((row) => row.itemId === itemId);
+		if (!decision || explaining !== itemId || !missingNotice) return;
+		const what = decision.recordedDecision.trim() || 'It was decided.';
+		missingNotice = decision.decidedBy
+			? `${decision.decidedBy} already decided “${decision.title}”: ${what}`
+			: `“${decision.title}” was already decided: ${what}`;
+		missingDecisionHref = `/${encodeURIComponent(company)}/company/activity?show=decisions&open=${encodeURIComponent(decision.id)}`;
+	}
 	let missingItemRedirect = $state('');
 	let resolvedHere = '';
 	let sent = $state<{ text: string; href?: string } | null>(null);
@@ -230,6 +247,9 @@
 				resolvedHere === selectedItemId
 					? ''
 					: 'That item has been resolved or is no longer in the Inbox.';
+			missingDecisionHref = '';
+			/* An old link to an item someone already answered says who decided and what. */
+			if (resolvedHere !== selectedItemId) void explainMissing(companyId, selectedItemId);
 			const previousIndex = Math.max(0, previousItemOrder.indexOf(selectedItemId));
 			const next = (visibleItems ?? items)[
 				Math.min(previousIndex, (visibleItems ?? items).length - 1)
@@ -973,7 +993,8 @@
 				>
 			</div>{/if}
 		{#if missingNotice}<div class="attention-resolution-notice" role="status">
-				{missingNotice}<button
+				{missingNotice}{#if missingDecisionHref}
+					<a href={missingDecisionHref}>See it in Activity</a>{/if}<button
 					aria-label="Dismiss notification"
 					onclick={() => (missingNotice = '')}>×</button
 				>

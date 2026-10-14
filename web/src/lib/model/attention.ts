@@ -133,6 +133,8 @@ type WireContinuation = {
 	observed_outcome: string;
 	responsible_actor?: DecisionContinuation['responsibleActor'];
 	observed_at: string;
+	item_id?: string;
+	decided_by?: string;
 };
 
 export async function getAttention(company: string): Promise<AttentionView> {
@@ -261,7 +263,9 @@ export async function fetchDecisionHistory(
 			currentState: continuation.current_state,
 			observedOutcome: continuation.observed_outcome,
 			responsibleActor: continuation.responsible_actor,
-			observedAt: continuation.observed_at
+			observedAt: continuation.observed_at,
+			itemId: continuation.item_id,
+			decidedBy: continuation.decided_by
 		})),
 		nextBefore: wire.next_before
 	};

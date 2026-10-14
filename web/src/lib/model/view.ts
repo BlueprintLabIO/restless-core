@@ -120,6 +120,10 @@ export interface DecisionContinuation {
 		role: string;
 	};
 	observedAt: Date | string;
+	/** The Inbox item this answered, so an old link to it can say what happened. */
+	itemId?: string;
+	/** Who decided, when the record names them. */
+	decidedBy?: string;
 }
 
 export type NeedsYouItem = AttentionItem;
