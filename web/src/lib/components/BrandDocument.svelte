@@ -38,6 +38,7 @@
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import CompanyLogoField from '$lib/components/CompanyLogoField.svelte';
 	import X from '@lucide/svelte/icons/x';
+	import Pencil from '@lucide/svelte/icons/pencil';
 	import Plus from '@lucide/svelte/icons/plus';
 	import './document-print.css';
 
@@ -144,6 +145,89 @@
 				?.querySelector<HTMLTextAreaElement>('textarea, input:not([type=color])')
 				?.focus()
 		);
+	}
+
+	/* Each section is a list: one statement is edited, added or removed in place and saved at
+	 * once as a new version. `inline` is the row being written; `add:<pillar>` is a new one. */
+	let inline = $state<string | null>(null);
+	let inlineText = $state('');
+	let inlineSaving = $state(false);
+	const inlineChanges = $derived(canManage && !editing && !previewing);
+
+	function startInline(key: string, text: string) {
+		inline = key;
+		inlineText = text;
+		error = '';
+		notice = '';
+		void tick().then(() =>
+			documentElement?.querySelector<HTMLTextAreaElement>('textarea.inline-text')?.focus()
+		);
+	}
+
+	async function saveInline(
+		change: { kind: 'edit' | 'remove'; id: string } | { kind: 'add'; pillar: Pillar },
+		text = inlineText
+	) {
+		if (inlineSaving) return;
+		const body = text.trim();
+		if (change.kind !== 'remove' && !body) {
+			inline = null;
+			return;
+		}
+		const label = (pillar: Pillar) =>
+			IDENTITY_PILLARS.find((item) => item.key === pillar)?.label.toLowerCase() ?? pillar;
+		let statements = current.map((item, index) => draftStatement(item, `${item.id}-${index}`));
+		let account = '';
+		if (change.kind === 'add') {
+			statements = [...statements, { ...blank(change.pillar), text: body }];
+			account = `Added to ${label(change.pillar)}`;
+		} else {
+			const target = statements.find((item) => item.id === change.id);
+			if (!target) return;
+			if (change.kind === 'edit') {
+				if (target.text.trim() === body) {
+					inline = null;
+					return;
+				}
+				target.text = body;
+				account = `Edited a ${label(target.pillar)} statement`;
+			} else {
+				statements = statements.filter((item) => item.id !== change.id);
+				account = `Removed a ${label(target.pillar)} statement`;
+			}
+		}
+		inlineSaving = true;
+		error = '';
+		try {
+			await saveCompanyIdentity(companyId, {
+				expected_release: view.current_release?.id ?? null,
+				statements: identityStatementsPayload(statements),
+				change_account: account
+			});
+			inline = null;
+			notice =
+				change.kind === 'remove'
+					? 'Removed. An earlier version can bring it back.'
+					: 'Saved. New work will use it.';
+			await onSaved();
+		} catch (cause) {
+			error = failureSentence(cause, 'That change was not saved.');
+		} finally {
+			inlineSaving = false;
+		}
+	}
+
+	function inlineKeys(
+		event: KeyboardEvent,
+		change: { kind: 'edit'; id: string } | { kind: 'add'; pillar: Pillar }
+	) {
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			inline = null;
+		} else if (event.key === 'Enter' && !event.shiftKey) {
+			event.preventDefault();
+			void saveInline(change);
+		}
 	}
 
 	function remove(statement: DraftStatement) {
@@ -318,9 +402,16 @@
 				<button type="button" onclick={downloadMarkdown}>Download as Markdown</button>
 				<button type="button" onclick={() => void print()}>Print or save as PDF</button>
 			</ActionMenu>
-			{#if canManage}<button class="btn small" type="button" onclick={() => open(current)}
-					>Edit</button
+			{#if canManage}<button
+					class="btn small"
+					type="button"
+					title="Edit every section at once, including colours, type and imagery"
+					onclick={() => open(current)}>Edit all</button
 				>{/if}
+		{:else if canManage}
+			<button class="btn small" type="button" disabled={drafting} onclick={askExec}
+				>{drafting ? 'Asking Exec…' : 'Ask Exec to draft'}</button
+			>
 		{/if}
 	{/snippet}
 	{#if error}<Notice tone="danger" title="That was not saved">{error}</Notice>{/if}
@@ -499,7 +590,7 @@
 				onkeydown={keys}
 			/>
 		</div>
-	{:else if view.current_release || changes}
+	{:else if view.current_release || changes || canManage}
 		<article class="brand-doc document-print" bind:this={documentElement}>
 			<h1 class="print-title">Brand & voice</h1>
 			{#each IDENTITY_PILLARS as pillar (pillar.key)}
@@ -537,17 +628,94 @@
 						{/if}
 					{/each}
 					{#each items.filter((item) => !item.token) as item (`${item.change}:${item.id}`)}
-						<div
-							class="statement"
-							class:added={item.change === 'added'}
-							class:removed={item.change === 'removed'}
-							title={`${item.change === 'added' ? 'Suggested addition · ' : item.change === 'removed' ? 'Suggested removal · ' : ''}${attribution(item.evidence)}`}
-						>
-							{#if item.evidence?.polarity === 'negative'}<span class="avoid">Avoid</span>{/if}
-							<Markdown text={item.text} />
-						</div>
+						{#if inline === `edit:${item.id}` && item.id}
+							{@const id = item.id}
+							<div class="statement-edit inline">
+								<textarea
+									class="inline-text"
+									bind:value={inlineText}
+									aria-label={`Edit ${pillar.label.toLowerCase()} statement`}
+									maxlength="16000"
+									disabled={inlineSaving}
+									onkeydown={(event) => inlineKeys(event, { kind: 'edit', id })}></textarea>
+								<div class="inline-actions">
+									<button class="btn small" type="button" onclick={() => (inline = null)}
+										>Cancel</button
+									>
+									<button
+										class="btn primary small"
+										type="button"
+										disabled={inlineSaving}
+										onclick={() => saveInline({ kind: 'edit', id })}
+										>{inlineSaving ? 'Saving…' : 'Save'}</button
+									>
+								</div>
+							</div>
+						{:else}
+							<div
+								class="statement"
+								class:editable={inlineChanges && item.change === '' && item.id}
+								class:added={item.change === 'added'}
+								class:removed={item.change === 'removed'}
+								title={`${item.change === 'added' ? 'Suggested addition · ' : item.change === 'removed' ? 'Suggested removal · ' : ''}${attribution(item.evidence)}`}
+							>
+								{#if item.evidence?.polarity === 'negative'}<span class="avoid">Avoid</span>{/if}
+								<Markdown text={item.text} />
+								{#if inlineChanges && item.change === '' && item.id}
+									{@const id = item.id}
+									<span class="row-actions print-hide">
+										<button
+											class="icon-button"
+											type="button"
+											aria-label="Edit"
+											title="Edit"
+											onclick={() => startInline(`edit:${id}`, item.text)}
+											><Pencil size={14} /></button
+										>
+										<button
+											class="icon-button"
+											type="button"
+											aria-label="Remove"
+											title="Remove"
+											disabled={inlineSaving}
+											onclick={() => saveInline({ kind: 'remove', id })}><X size={14} /></button
+										>
+									</span>
+								{/if}
+							</div>
+						{/if}
 					{/each}
-					{#if !items.length && !(pillar.key === 'visual' && logoUrl)}<p class="empty">
+					{#if inline === `add:${pillar.key}`}
+						<div class="statement-edit inline">
+							<textarea
+								class="inline-text"
+								bind:value={inlineText}
+								aria-label={`New ${pillar.label.toLowerCase()} statement`}
+								placeholder={pillar.hint}
+								maxlength="16000"
+								disabled={inlineSaving}
+								onkeydown={(event) => inlineKeys(event, { kind: 'add', pillar: pillar.key })}
+							></textarea>
+							<div class="inline-actions">
+								<button class="btn small" type="button" onclick={() => (inline = null)}
+									>Cancel</button
+								>
+								<button
+									class="btn primary small"
+									type="button"
+									disabled={inlineSaving}
+									onclick={() => saveInline({ kind: 'add', pillar: pillar.key })}
+									>{inlineSaving ? 'Saving…' : 'Add'}</button
+								>
+							</div>
+						</div>
+					{:else if inlineChanges}
+						<button
+							class="btn small ghost add print-hide"
+							type="button"
+							onclick={() => startInline(`add:${pillar.key}`, '')}><Plus size={14} />Add</button
+						>
+					{:else if !items.length && !(pillar.key === 'visual' && logoUrl)}<p class="empty">
 							Not written
 						</p>{/if}
 				</section>
@@ -593,7 +761,42 @@
 		font-weight: 600;
 	}
 	.statement {
+		position: relative;
 		overflow-wrap: anywhere;
+	}
+	.statement.editable {
+		margin: 0 -8px;
+		padding: 2px 64px 2px 8px;
+		border-radius: var(--radius-sm, 6px);
+	}
+	.statement.editable:hover,
+	.statement.editable:focus-within {
+		background: var(--surface-hover, rgba(0, 0, 0, 0.03));
+	}
+	.row-actions {
+		position: absolute;
+		top: 2px;
+		right: 4px;
+		display: none;
+		gap: 2px;
+	}
+	.statement.editable:hover .row-actions,
+	.statement.editable:focus-within .row-actions {
+		display: inline-flex;
+	}
+	.statement-edit.inline {
+		display: grid;
+		gap: 6px;
+	}
+	.statement-edit.inline textarea {
+		width: 100%;
+		min-height: 64px;
+		resize: vertical;
+	}
+	.inline-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 6px;
 	}
 	.statement :global(.md > :first-child) {
 		margin-top: 0;

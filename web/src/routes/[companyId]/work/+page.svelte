@@ -26,7 +26,6 @@
 	import SidebarGroup from '$lib/ui/views/SidebarGroup.svelte';
 	import SidebarRow from '$lib/ui/views/SidebarRow.svelte';
 	import SidebarSearch from '$lib/ui/views/SidebarSearch.svelte';
-	import SidebarHeadButton from '$lib/ui/views/SidebarHeadButton.svelte';
 	import SidebarEmpty from '$lib/ui/views/SidebarEmpty.svelte';
 	import type { SidebarTone } from '$lib/ui/views/SidebarRow.svelte';
 	import InboxIcon from '@lucide/svelte/icons/inbox';
@@ -643,15 +642,6 @@
 {/snippet}
 
 <SidebarShell label="Goals" title="Work">
-	{#snippet action()}
-		{#if ownerAccess}<SidebarHeadButton
-				label={selectedGoalRow && !selectedGoalRow.closed_at
-					? 'Add work toward this goal'
-					: 'Tell Exec what you want'}
-				icon={Sparkles}
-				onclick={addWork}
-			/>{/if}
-	{/snippet}
 	{#snippet top()}
 		<SidebarSearch bind:value={() => search, typeSearch} placeholder="Search work" />
 	{/snippet}

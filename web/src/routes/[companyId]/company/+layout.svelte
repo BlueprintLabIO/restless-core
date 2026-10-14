@@ -68,8 +68,7 @@
 					label="Overview"
 					icon={LayoutGrid}
 					active={active(overview)}
-					reading={setup.todos.length ? `${setup.todos.length} to finish` : 'All set'}
-					readingTone={setup.todos.length ? 'wait' : 'work'}
+					problem={setup.todos.length > 0}
 					title={setup.todos.length ? `${setup.todos.length} to finish setting up` : undefined}
 				/>{/if}
 			{#each groups as group (group.label)}
@@ -80,9 +79,10 @@
 							label={row.label}
 							icon={row.icon}
 							active={active(row.href)}
-							reading={row.reading}
-							readingTone={row.readingTone}
-							title={row.tooltip}
+							problem={row.readingTone === 'block'}
+							title={row.readingTone === 'block' && row.reading
+								? `${row.reading}${row.tooltip ? ` · ${row.tooltip}` : ''}`
+								: row.tooltip}
 						/>
 					{/each}
 				</SidebarGroup>

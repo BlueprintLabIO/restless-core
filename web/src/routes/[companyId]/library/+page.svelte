@@ -22,7 +22,6 @@
 	import SidebarRow from '$lib/ui/views/SidebarRow.svelte';
 	import SidebarGroup from '$lib/ui/views/SidebarGroup.svelte';
 	import SidebarSearch from '$lib/ui/views/SidebarSearch.svelte';
-	import SidebarHeadButton from '$lib/ui/views/SidebarHeadButton.svelte';
 	import LibraryViewer from '$lib/components/LibraryViewer.svelte';
 	import { personName } from '$lib/model/initials';
 	import LibraryNew from '$lib/components/LibraryNew.svelte';
@@ -1294,9 +1293,6 @@
 
 <!-- The same sidebar as every area: a title, search, views, then the kinds of thing kept here. -->
 <SidebarShell label="Library" title="Library">
-	{#snippet action()}
-		<SidebarHeadButton label="New document" icon={Plus} onclick={() => creator?.open('doc')} />
-	{/snippet}
 	{#snippet top()}
 		<SidebarSearch bind:value={search} placeholder="Search files" />
 	{/snippet}

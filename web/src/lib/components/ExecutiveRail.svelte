@@ -84,8 +84,6 @@
 	import HandoffGroup from '$lib/primitives/HandoffGroup.svelte';
 	import AppRequestCards from './AppRequestCards.svelte';
 	import { fetchSetAside } from '$lib/model/attention';
-	import WorkInFlight from './WorkInFlight.svelte';
-	import MyRequests from './MyRequests.svelte';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import { MAX_UPLOAD_BYTES, MAX_UPLOAD_FILES } from '$lib/model/attachments';
 
@@ -1778,16 +1776,11 @@
 							></a
 						>{/if}
 				{:else}
-					{#if participantId === 'exec'}<WorkInFlight
-							{companyId}
-							owner={membershipRole === 'owner'}
-						/>{/if}
 					{#if membershipRole === 'owner' || membershipRole === 'admin'}<AppRequestCards
 							{companyId}
 							actor={participantId}
 							readOnly={membershipRole !== 'owner'}
 						/>{/if}
-					{#if participantId === 'exec'}<MyRequests {companyId} />{/if}
 				{/if}
 				<form class="exr-composer" onsubmit={submitAsk}>
 					{#if quoting}
