@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
 	coordinationFailure,
+	inboxOrder,
 	judgementHolders,
 	workWaitingOnOwner
 } from './attention-presentation.ts';
@@ -35,4 +36,27 @@ test('unavailable coordination reads as a failure, never as an empty company', (
 	assert.ok(failure);
 	assert.equal(describeFailure(failure).kind, 'unavailable');
 	assert.match(describeFailure(failure).detail, /coordination is unavailable/);
+});
+
+test('the Inbox puts blockers, then the soonest deadline, then held Work before age', () => {
+	const order = inboxOrder([
+		item({ id: 'old-question', category: 'decision', canContinue: true, createdAt: '2026-10-01' }),
+		item({ id: 'holds-work', category: 'decision', canContinue: false, createdAt: '2026-10-10' }),
+		item({
+			id: 'due-friday',
+			category: 'approval',
+			canContinue: true,
+			deadline: '2026-10-16T17:00:00Z',
+			createdAt: '2026-10-13'
+		}),
+		item({
+			id: 'due-today',
+			category: 'approval',
+			canContinue: true,
+			deadline: '2026-10-14T17:00:00Z',
+			createdAt: '2026-10-14'
+		}),
+		item({ id: 'blocker', category: 'blocker', canContinue: false, createdAt: '2026-10-14' })
+	]).map((row) => row.id);
+	assert.deepEqual(order, ['blocker', 'due-today', 'due-friday', 'holds-work', 'old-question']);
 });

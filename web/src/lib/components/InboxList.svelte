@@ -1,6 +1,6 @@
 <script lang="ts">
 	/* The Inbox: everything that needs the owner, as one list. Blocking items
-	 * first, then the oldest ask. No categories to file into; the kind is an
+	 * first, then what is due soonest, then the oldest ask. No categories to file into; the kind is an
 	 * icon with a tooltip. Rows carry their own quick actions, J/K walks the
 	 * list on into For you, and what the owner opened or snoozed is kept on the
 	 * server, so every device agrees. */
@@ -18,30 +18,31 @@
 	import { Item } from '$lib/ui/page';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
-	import {
-		completeHandoffHumanStep,
-		dismissAttention,
-		restoreAttention
-	} from '$lib/model/attention';
+	import { completeHandoffHumanStep } from '$lib/model/attention';
 	import SetAsideList from './SetAside.svelte';
+	import SnoozeChoices from './SnoozeChoices.svelte';
+	import {
+		copyInboxLink,
+		inboxItemHref,
+		inboxMarksKey,
+		markInbox,
+		setAsideInboxItem,
+		snoozeInboxItem,
+		wakeInboxItem
+	} from './inbox-actions';
 	import { celebrate } from '$lib/ui/celebrate';
 	import ForYou from './ForYou.svelte';
 	import DirectionToday from './DirectionToday.svelte';
 	import { useForYou } from '$lib/model/for-you.svelte';
-	import {
-		getInboxMarks,
-		setInboxMarks,
-		withMarks,
-		type InboxMark,
-		type InboxMarkChange
-	} from '$lib/model/for-you';
+	import { getInboxMarks, type InboxMarkChange } from '$lib/model/for-you';
 	import { refreshAttention } from '$lib/model/queries.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import {
 		attentionAsker,
 		attentionKindLabel,
 		attentionTitle,
-		inboxOrder
+		inboxOrder,
+		snoozeChoices
 	} from '$lib/model/attention-presentation';
 	import type { AttentionItem } from '$lib/model/view';
 
@@ -99,9 +100,8 @@
 	let clock = $state(Date.now());
 
 	/* What this person opened and snoozed, on every device. */
-	const marksKey = () => ['inbox-marks', companyId] as const;
 	const marksQuery = createQuery(() => ({
-		queryKey: marksKey(),
+		queryKey: inboxMarksKey(companyId),
 		queryFn: () => getInboxMarks(companyId),
 		enabled: Boolean(companyId),
 		staleTime: 10_000,
@@ -112,37 +112,8 @@
 		const until = marks.get(item.id)?.snoozed_until;
 		return until ? Date.parse(until) : 0;
 	};
-	async function mark(changes: InboxMarkChange[], quiet = false) {
-		const key = marksKey();
-		client.setQueryData<InboxMark[]>(key, (data) => withMarks(data ?? [], changes));
-		try {
-			await setInboxMarks(companyId, changes);
-		} catch (cause) {
-			/* A seen mark that did not stick only leaves a dot; it is tried again next time. */
-			if (!quiet) toast(failureSentence(cause, 'That was not kept.'), { tone: 'failure' });
-		} finally {
-			void client.invalidateQueries({ queryKey: key });
-		}
-	}
-
-	async function notNeeded(item: AttentionItem) {
-		try {
-			await dismissAttention(companyId, item.id);
-			toast('Set aside', {
-				undo: async () => {
-					try {
-						await restoreAttention(companyId, item.id);
-					} catch (cause) {
-						toast(failureSentence(cause, 'That was not restored.'), { tone: 'failure' });
-					}
-					await refreshAttention(client, companyId);
-				}
-			});
-		} catch (cause) {
-			toast(failureSentence(cause, 'That was not set aside.'), { tone: 'failure' });
-		}
-		await refreshAttention(client, companyId);
-	}
+	const mark = (changes: InboxMarkChange[], quiet = false) =>
+		markInbox(client, companyId, changes, quiet);
 
 	const snoozedCount = $derived(items.filter((item) => snoozedUntil(item) > clock).length);
 	const visible = $derived(
@@ -154,7 +125,7 @@
 	});
 
 	const stamp = (item: AttentionItem) => String(item.briefedAt ?? item.createdAt);
-	const href = (id: string) => `/${encodeURIComponent(companyId)}?item=${encodeURIComponent(id)}`;
+	const href = (id: string) => inboxItemHref(companyId, id);
 	const canDecline = (item: AttentionItem) =>
 		item.actions.some(
 			(action) =>
@@ -206,23 +177,11 @@
 		const target = others[Math.min(index, others.length - 1)];
 		return target ? href(target.id) : `/${companyId}`;
 	}
-	function snooze(item: AttentionItem) {
-		void mark([
-			{ item_id: item.id, snoozed_until: new Date(Date.now() + 3_600_000).toISOString() }
-		]);
-		toast('Snoozed for an hour', {
-			undo: () => mark([{ item_id: item.id, snoozed_until: null }])
-		});
+	function snooze(item: AttentionItem, until = snoozeChoices()[0].until) {
+		snoozeInboxItem(client, companyId, item.id, until);
 		if (selectedId === item.id) void goto(next(item), { noScroll: true });
 	}
-	async function copy(item: AttentionItem) {
-		try {
-			await navigator.clipboard.writeText(new URL(href(item.id), location.origin).href);
-			toast('Link copied');
-		} catch {
-			toast('Could not copy the link', { tone: 'failure' });
-		}
-	}
+	const copy = (item: AttentionItem) => copyInboxLink(companyId, item.id);
 	async function done(item: AttentionItem) {
 		if (completing || !canComplete(item)) return;
 		completing = item.id;
@@ -404,15 +363,16 @@
 								>{/if}
 							{#if canDecline(item)}<a href={`${href(item.id)}&decline=1`}>Not doing this…</a>{/if}
 							{#if snoozedNow}
-								<button onclick={() => void mark([{ item_id: item.id, snoozed_until: null }])}
+								<button onclick={() => void wakeInboxItem(client, companyId, item.id)}
 									>Wake now</button
 								>
 							{:else}
-								<button onclick={() => snooze(item)}>Snooze for an hour <kbd>H</kbd></button>
+								<SnoozeChoices shortcut onpick={(until) => snooze(item, until)} />
 							{/if}
 							{#if canSetAside}<button
 									title="Not needed: off your Inbox, kept under Set aside. Whoever asked stops waiting."
-									onclick={() => void notNeeded(item)}>Not needed</button
+									onclick={() => void setAsideInboxItem(client, companyId, item.id)}
+									>Set aside</button
 								>{/if}
 							<button onclick={() => copy(item)}>Copy link</button>
 						</ActionMenu>

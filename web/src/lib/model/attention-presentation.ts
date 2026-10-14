@@ -50,13 +50,53 @@ export function attentionAsker(item: AttentionItem): string {
 	);
 }
 
-/** One list: what blocks the company first, then the oldest ask first, so
- * nothing waits behind newer noise. */
+/** When an item is needed by, when its deadline reads as a moment; a free-text deadline
+ * ("before the launch") orders with the undated items and prints as written. */
+export function deadlineAt(item: Pick<AttentionItem, 'deadline'>): number | null {
+	const at = item.deadline ? Date.parse(item.deadline) : NaN;
+	return Number.isNaN(at) ? null : at;
+}
+
+/** One list, by consequence: what blocks the company first, then what is due soonest, then
+ * what holds Work still while it waits, then the oldest ask, so nothing urgent sits behind
+ * older, lower-stakes questions. */
 export function inboxOrder(items: AttentionItem[]): AttentionItem[] {
 	const blocking = (item: AttentionItem) => (item.category === 'blocker' ? 0 : 1);
+	const due = (item: AttentionItem) => deadlineAt(item) ?? Infinity;
+	const holding = (item: AttentionItem) => (item.canContinue ? 1 : 0);
 	return [...items].sort(
-		(a, b) => blocking(a) - blocking(b) || +new Date(a.createdAt) - +new Date(b.createdAt)
+		(a, b) =>
+			blocking(a) - blocking(b) ||
+			(due(a) === due(b) ? 0 : due(a) < due(b) ? -1 : 1) ||
+			holding(a) - holding(b) ||
+			+new Date(a.createdAt) - +new Date(b.createdAt)
 	);
+}
+
+/** Snooze presets: later today, tomorrow morning, next Monday morning. */
+export function snoozeChoices(now = new Date()): { label: string; until: Date }[] {
+	const morning = (days: number) => {
+		const at = new Date(now);
+		at.setDate(at.getDate() + days);
+		at.setHours(9, 0, 0, 0);
+		return at;
+	};
+	const later = new Date(now.getTime() + 3 * 3_600_000);
+	const choices = [
+		{ label: 'Tomorrow morning', until: morning(1) },
+		{ label: 'Next week', until: morning((8 - now.getDay()) % 7 || 7) }
+	];
+	/* Late in the day, "later today" would land tomorrow: tomorrow morning covers it. */
+	return later.getDate() === now.getDate()
+		? [{ label: 'Later today', until: later }, ...choices]
+		: choices;
+}
+
+/** A picked day (`YYYY-MM-DD`, from a date input) as nine in the morning there. */
+export function snoozeDay(day: string): Date | null {
+	const [year, month, date] = day.split('-').map(Number);
+	if (!year || !month || !date) return null;
+	return new Date(year, month - 1, date, 9, 0, 0, 0);
 }
 
 /** The Work waiting on the owner is the Work the Inbox asks about once its step is prepared.

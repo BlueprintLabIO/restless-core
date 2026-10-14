@@ -11,7 +11,7 @@
 	 * away until asked for. */
 	import { failureSentence } from '$lib/model/failure';
 	import { untrack } from 'svelte';
-	import { useQueryClient } from '@tanstack/svelte-query';
+	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import type { AttentionItem } from '$lib/model/view';
 	import {
 		approvalAction,
@@ -26,8 +26,18 @@
 	import {
 		attentionAsker,
 		attentionKindLabel,
-		attentionTitle
+		attentionTitle,
+		deadlineAt
 	} from '$lib/model/attention-presentation';
+	import { getInboxMarks } from '$lib/model/for-you';
+	import SnoozeChoices from './SnoozeChoices.svelte';
+	import {
+		copyInboxLink,
+		inboxMarksKey,
+		setAsideInboxItem,
+		snoozeInboxItem,
+		wakeInboxItem
+	} from './inbox-actions';
 	import HoldApprove from '$lib/ui/controls/HoldApprove.svelte';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
@@ -35,7 +45,6 @@
 	import { Fold, Notice } from '$lib/ui/page';
 	import { formatMoment } from '$lib/ui/time';
 	import { fetchAppRequests, type AppRequest } from '$lib/model/app-requests';
-	import { dismissAttention } from '$lib/model/attention';
 	import { initials } from '$lib/model/initials';
 	import { companyFileLinks, type CompanyFileLink } from '$lib/model/inbox-files';
 	import type { LibraryArtifact } from '$lib/model/library-files';
@@ -46,8 +55,10 @@
 		artifacts = [],
 		declining: startDeclining = false,
 		workOwnerId,
+		canSetAside = true,
 		onopenDocument,
-		onresolved
+		onresolved,
+		onleave
 	}: {
 		companyId: string;
 		item: AttentionItem;
@@ -60,6 +71,10 @@
 		onopenDocument?: () => Promise<unknown>;
 		/** Where the answer went, for the page to confirm after the item leaves. */
 		onresolved?: (sent: { text: string; href?: string }) => void;
+		/** Setting an item aside is the owner's: it answers for the whole company queue. */
+		canSetAside?: boolean;
+		/** The item was snoozed or set aside here: the page moves on to the next one. */
+		onleave?: () => void;
 	} = $props();
 
 	const client = useQueryClient();
@@ -224,17 +239,33 @@
 		}
 	}
 
-	/* Not needed: off the Inbox until it is raised again, and whoever asked is told so in their
-	 * conversation. It grants and declines nothing. */
-	const dismiss = () =>
-		run(
-			async () => {
-				await dismissAttention(companyId, item.id);
-				await refreshAttention(client, companyId);
-			},
-			'Set aside. It is under Set aside in your Inbox if you want it back.',
-			'That was not dismissed. Try again.'
-		);
+	/* Set aside: off the Inbox until it is raised again, with Undo, and whoever asked is told so
+	 * in their conversation. It grants and declines nothing. The list's row menu does the same. */
+	async function setAside() {
+		if (acting) return;
+		acting = true;
+		try {
+			if (await setAsideInboxItem(client, companyId, item.id)) onleave?.();
+		} finally {
+			acting = false;
+		}
+	}
+	/* Snooze and wake from the item itself, as the row menu does: on a phone the list is hidden. */
+	const marks = createQuery(() => ({
+		queryKey: inboxMarksKey(companyId),
+		queryFn: () => getInboxMarks(companyId),
+		enabled: Boolean(companyId),
+		staleTime: 10_000
+	}));
+	const snoozed = $derived.by(() => {
+		const until = marks.data?.find((mark) => mark.item_id === item.id)?.snoozed_until;
+		return !!until && Date.parse(until) > Date.now();
+	});
+	function snooze(until: Date) {
+		snoozeInboxItem(client, companyId, item.id, until);
+		onleave?.();
+	}
+	const due = $derived(deadlineAt(item));
 	const sendReply = () =>
 		replyReady &&
 		run(
@@ -368,19 +399,27 @@
 				<span aria-hidden="true">·</span>
 				<RelativeTime value={item.createdAt} />
 				{#if item.deadline}<span aria-hidden="true">·</span><span class="deadline"
-						>Needed by {item.deadline}</span
+						>Needed {#if due !== null}<RelativeTime value={due} />{:else}by {item.deadline}{/if}</span
+					>{/if}
+				{#if !item.preparing}<span aria-hidden="true">·</span><span
+						class="continues"
+						class:held={!item.canContinue}
+						title={item.ifNoAction ? `If nothing happens: ${item.ifNoAction}` : undefined}
+						>{item.canContinue
+							? 'Work keeps going meanwhile'
+							: 'Work is paused until you answer'}</span
 					>{/if}
 			</p>
 		</div>
-		<button
-			type="button"
-			class="btn ghost small dismiss"
-			disabled={acting}
-			title={item.responsibleActor
-				? `Not needed. Off your Inbox and kept under Set aside; ${asker} stops waiting on it.`
-				: 'Not needed. Off your Inbox and kept under Set aside, until it comes up again.'}
-			onclick={() => void dismiss()}>Dismiss</button
-		>
+		{#if canSetAside}<button
+				type="button"
+				class="btn ghost small dismiss"
+				disabled={acting}
+				title={item.responsibleActor
+					? `Not needed. Off your Inbox and kept under Set aside; ${asker} stops waiting on it.`
+					: 'Not needed. Off your Inbox and kept under Set aside, until it comes up again.'}
+				onclick={() => void setAside()}>Set aside</button
+			>{/if}
 		<ActionMenu label="More">
 			{#if discuss}<a href={`${base}&conversation=${encodeURIComponent(item.id)}`}>Discuss</a>{/if}
 			<a href={conversationHref}>Open conversation with {asker}</a>
@@ -395,6 +434,10 @@
 					data-open-externally={ownBrowser(extra)}
 					title={`${extra.consequence} ${extra.nextState}`}>{extra.label}</a
 				>{/each}
+			{#if snoozed}<button onclick={() => void wakeInboxItem(client, companyId, item.id)}
+					>Wake now</button
+				>{:else}<SnoozeChoices onpick={snooze} />{/if}
+			<button onclick={() => void copyInboxLink(companyId, item.id)}>Copy link</button>
 			<button onclick={copyReference}>Copy reference</button>
 		</ActionMenu>
 	</header>
@@ -609,12 +652,19 @@
 							onapprove={() => void approve()}
 						/>
 					{/key}
-					{#if grantAlways}<button
-							class="btn small"
-							disabled={acting}
-							title={`${grantAlways.consequence} ${grantAlways.nextState}`}
-							onclick={() => approve(true)}>{grantAlways.label}</button
-						>{/if}
+					{#if grantAlways}
+						{#key `${item.id}:${attempt}:always`}
+							<HoldApprove
+								small
+								completeLabel="Saving approval…"
+								armedLabel="press again to always allow"
+								label={`Hold to ${grantAlways.label.toLowerCase()}`}
+								disabled={acting}
+								title={`${grantAlways.consequence} ${grantAlways.nextState} It will stop asking before this tool acts, until you revoke it.`}
+								onapprove={() => void approve(true)}
+							/>
+						{/key}
+					{/if}
 					{#if decline}<button
 							class="btn small"
 							disabled={acting}
@@ -761,6 +811,9 @@
 	}
 	.deadline {
 		color: var(--intent-authority);
+	}
+	.continues.held {
+		color: var(--text-secondary);
 	}
 	.body {
 		min-height: 0;

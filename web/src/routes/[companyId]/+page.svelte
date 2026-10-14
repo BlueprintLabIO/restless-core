@@ -921,8 +921,9 @@
 			<div class="desktop-stage">
 				{#snippet offlineDesktop()}
 					<div class="outcome-offline">
-						<span class="mono">LIVE OUTCOME UNAVAILABLE</span>
-						<h2>The review and lead conversation are still available.</h2>
+						<h2 title="The review and the lead conversation are still available beside it.">
+							The live outcome is unavailable.
+						</h2>
 						<Markdown text={focusItem?.whatHappened ?? ''} />
 						{#each (focusItem?.evidence ?? []).filter((entry) => entry.uri) as evidence}
 							<a class="evidence-link" href={evidence.uri} target="_blank" rel="noreferrer"
@@ -1153,6 +1154,19 @@
 			{item}
 			{artifacts}
 			workOwnerId={graph?.work.find((work) => work.id === item.workId)?.owner_id}
+			canSetAside={owner}
+			onleave={() => {
+				/* Snoozed or set aside here: on to the next item, as the list does. */
+				resolvedHere = item.id;
+				const rows = visibleItems ?? items;
+				const others = rows.filter((row) => row.id !== item.id);
+				const index = Math.max(
+					0,
+					rows.findIndex((row) => row.id === item.id)
+				);
+				const next = others[Math.min(index, others.length - 1)];
+				void goto(next ? itemHref(next.id) : baseHref, { noScroll: true });
+			}}
 			declining={page.url.searchParams.get('decline') === '1'}
 			onopenDocument={async () => {
 				const result = await source.reload();
@@ -1659,11 +1673,6 @@
 		background:
 			radial-gradient(circle at 35% 40%, var(--intent-conversation-soft), transparent 44%),
 			var(--glass-pane-strong);
-	}
-	.outcome-offline > .mono {
-		font-size: var(--t-label);
-		letter-spacing: 0.1em;
-		color: var(--intent-authority);
 	}
 	.outcome-offline h2 {
 		max-width: 520px;
