@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { Page, Section, Item, Notice, Empty, Dot, Fold } from '$lib/ui/page';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
+	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import Pending from '$lib/ui/feedback/Pending.svelte';
@@ -879,15 +881,16 @@
 					: 'Bundled suggestions'}
 		>
 			<div class="pad bar">
-				<span
-					class="quiet"
-					title="Restless checks models.dev hourly and keeps the last good catalog. Saved model choices are never changed automatically."
+				<span class="quiet"
 					>{catalog.failed
 						? catalog.updatedAt
 							? 'Using the cached model catalog'
 							: 'Using bundled model suggestions'
 						: 'Model list is current'}</span
 				>
+				<InfoTip
+					text={`${PRODUCT_NAME} checks models.dev hourly and keeps the last good catalog. Saved model choices are never changed automatically.`}
+				/>
 				<span class="spacer"></span>
 				<button class="btn small" disabled={catalog.pending} onclick={() => catalog.refresh()}
 					>Refresh models</button
