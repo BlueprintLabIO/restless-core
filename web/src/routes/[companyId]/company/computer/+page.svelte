@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { requestDisplayLease } from '$lib/model/company-actions';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { formatRelative, formatMoment } from '$lib/ui/time';
 	import { failureSentence } from '$lib/model/failure';
@@ -249,19 +250,11 @@
 			while (displaySizePending && clientId && desktopUrl) {
 				const size = displaySizePending;
 				displaySizePending = undefined;
-				const response = await fetch(
-					`/api/companies/${encodeURIComponent(companyId)}/desktop/display-lease`,
-					{
-						method: 'POST',
-						headers: { 'content-type': 'application/json' },
-						body: JSON.stringify({
-							client_id: clientId,
-							width: size.width,
-							height: size.height
-						}),
-						credentials: 'same-origin'
-					}
-				);
+				const response = await requestDisplayLease(companyId, {
+					client_id: clientId,
+					width: size.width,
+					height: size.height
+				});
 				if (response.status === 401) {
 					canResize = false;
 					displaySizePending = undefined;

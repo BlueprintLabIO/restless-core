@@ -1,46 +1,21 @@
 <script lang="ts">
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { Section, Row, Item, Notice, Empty } from '$lib/ui/page';
-	import { describeFailure, failureSentence, responseFailure } from '$lib/model/failure';
+	import { describeFailure, failureSentence } from '$lib/model/failure';
 	import { refreshAttention } from '$lib/model/queries.svelte';
+	import { settingQuery } from '$lib/model/setting.svelte';
+	import {
+		emailMandatesKey,
+		proposeEmailMandate,
+		readEmailMandates,
+		revokeEmailMandate,
+		type EmailMandate
+	} from '$lib/model/email-mandates';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 
 	let { companyId }: { companyId: string } = $props();
 	const queryClient = useQueryClient();
-
-	type EmailMandate = {
-		id: string;
-		purpose: string;
-		audience_guidance: string;
-		sender: string;
-		sender_name?: string | null;
-		max_per_day: number;
-		max_total: number;
-		timezone: string;
-		expires_at: string;
-		created_at: string;
-		revoked_at?: string | null;
-		usage?: {
-			mandate_id: string;
-			usage_day: string;
-			used_today: number;
-			used_total: number;
-			limit_per_day: number;
-			limit_total: number;
-		};
-		recent_decisions?: {
-			permit_id: string;
-			recipient: string;
-			effect_key: string;
-			issued_at: string;
-			rationale: string;
-			evidence_refs: string[];
-			outcome: string;
-			provider_ref?: string | null;
-			provider_detail?: string | null;
-		}[];
-	};
 
 	type Draft = {
 		purpose: string;
@@ -53,10 +28,19 @@
 		expires_at: string;
 	};
 
-	let mandates = $state<EmailMandate[]>([]);
-	let loading = $state(true);
-	let loadError = $state('');
-	let loadRetryable = $state(true);
+	const source = settingQuery({
+		key: () => emailMandatesKey(companyId),
+		read: (signal) => readEmailMandates(companyId, signal)
+	});
+	const mandates = $derived(source.view ?? []);
+	const loading = $derived(source.loading);
+	const loadError = $derived(
+		source.failure && !source.view
+			? failureSentence(source.failure, 'Email authority couldn’t be loaded.')
+			: ''
+	);
+	const loadRetryable = $derived(source.failure ? describeFailure(source.failure).retryable : true);
+	const loadMandates = () => void source.refresh();
 	let saving = $state(false);
 	let revoking = $state<string | null>(null);
 	let error = $state('');
@@ -76,55 +60,6 @@
 		};
 	}
 
-	function endpoint() {
-		return `/api/companies/${encodeURIComponent(companyId)}/mandates/email`;
-	}
-
-	function proposalEndpoint() {
-		return `/api/companies/${encodeURIComponent(companyId)}/email-mandates/proposals`;
-	}
-
-	async function responseBody(response: Response): Promise<Record<string, unknown>> {
-		try {
-			return (await response.json()) as Record<string, unknown>;
-		} catch {
-			return {};
-		}
-	}
-
-	function messageFrom(body: Record<string, unknown>, fallback: string): string {
-		return typeof body.message === 'string'
-			? body.message
-			: typeof body.error === 'string'
-				? body.error
-				: fallback;
-	}
-
-	async function loadMandates(signal?: AbortSignal) {
-		loading = true;
-		loadError = '';
-		try {
-			const response = await fetch(endpoint(), { signal });
-			if (!response.ok) throw await responseFailure(response);
-			const body = await responseBody(response);
-			if (!Array.isArray(body.mandates))
-				throw new Error('The email mandate response was incomplete.');
-			mandates = body.mandates as EmailMandate[];
-		} catch (cause) {
-			if (cause instanceof DOMException && cause.name === 'AbortError') return;
-			loadError = failureSentence(cause, 'Email authority couldn’t be loaded.');
-			loadRetryable = describeFailure(cause).retryable;
-		} finally {
-			if (!signal?.aborted) loading = false;
-		}
-	}
-
-	$effect(() => {
-		const controller = new AbortController();
-		void loadMandates(controller.signal);
-		return () => controller.abort();
-	});
-
 	function beginCreate() {
 		draft = emptyDraft();
 		error = '';
@@ -142,33 +77,21 @@
 		}
 		saving = true;
 		try {
-			const response = await fetch(proposalEndpoint(), {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					proposal: {
-						purpose: draft.purpose.trim(),
-						audience_guidance: draft.audience_guidance.trim(),
-						sender: draft.sender.trim(),
-						sender_name: draft.sender_name.trim() || null,
-						max_per_day: daily,
-						max_total: total,
-						timezone: draft.timezone.trim(),
-						expires_at: new Date(draft.expires_at).toISOString()
-					}
-				})
+			await proposeEmailMandate(companyId, {
+				purpose: draft.purpose.trim(),
+				audience_guidance: draft.audience_guidance.trim(),
+				sender: draft.sender.trim(),
+				sender_name: draft.sender_name.trim() || null,
+				max_per_day: daily,
+				max_total: total,
+				timezone: draft.timezone.trim(),
+				expires_at: new Date(draft.expires_at).toISOString()
 			});
-			const body = await responseBody(response);
-			if (!response.ok)
-				throw new Error(messageFrom(body, 'The email mandate proposal could not be submitted.'));
 			await refreshAttention(queryClient, companyId);
 			editing = false;
 			toast('Sent to your Inbox. It authorizes nothing until you approve it there');
 		} catch (cause) {
-			error =
-				cause instanceof Error
-					? cause.message
-					: 'The email mandate proposal could not be submitted.';
+			error = failureSentence(cause, 'The email mandate proposal could not be submitted.');
 		} finally {
 			saving = false;
 		}
@@ -186,18 +109,11 @@
 		error = '';
 		revoking = mandate.id;
 		try {
-			const response = await fetch(`${endpoint()}/${encodeURIComponent(mandate.id)}/revoke`, {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ reason: 'Revoked by owner in Access & limits.' })
-			});
-			const body = await responseBody(response);
-			if (!response.ok)
-				throw new Error(messageFrom(body, 'The email mandate could not be revoked.'));
-			mandates = mandates.filter((item) => item.id !== mandate.id);
+			await revokeEmailMandate(companyId, mandate.id, 'Revoked by owner in Access & limits.');
+			source.accept(mandates.filter((item) => item.id !== mandate.id));
 			toast('Email mandate revoked');
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'The email mandate could not be revoked.';
+			error = failureSentence(cause, 'The email mandate could not be revoked.');
 		} finally {
 			revoking = null;
 		}
@@ -249,7 +165,7 @@
 			{#snippet actions()}{#if loadRetryable}<button
 						class="btn small"
 						type="button"
-						onclick={() => void loadMandates()}>Retry</button
+						onclick={loadMandates}>Retry</button
 					>{/if}{/snippet}
 		</Notice>
 	{:else if loading}

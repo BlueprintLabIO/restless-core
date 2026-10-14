@@ -242,6 +242,49 @@ async function daemonCommand(request) {
 }
 const direction = (operation) => daemonCommand({ cmd: "direction-operation", company, direction_operation: operation });
 
+/* After a role change ends a session, that person's open cockpit tab re-enters through the
+ * account by itself (session-reentry.ts). The test's own visit to the account can land in the
+ * middle of that navigation and be cancelled by it; it is retried, and every attempt is logged so
+ * a page that is truly stuck still fails here. */
+async function enterAccounts(who) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await who.page.goto(`${accounts}/`, { timeout: 10000 });
+      if (attempt > 1) console.log(`${who.key}: reached the account on attempt ${attempt}`);
+      return;
+    } catch (error) {
+      console.log(`${who.key}: visit to the account interrupted (attempt ${attempt}) at ${who.page.url()}`);
+      if (attempt >= 3) throw error;
+      await pause(1000);
+    }
+  }
+}
+
+/* Sprint 82: entering the cockpit reveals once, settled, and no message that was shown vanishes.
+ * Each role enters its company and the visible regions are watched from the reveal on. */
+async function steadyEntry(who, role) {
+  await who.page.addInitScript(() => { window.__restlessStrict = true; });
+  await who.page.goto("about:blank");
+  await who.page.goto(`${core}/${company}`);
+  await who.page.waitForSelector(".company-browser-link-capture:not(.first-paint-pending)", { timeout: 20000 });
+  const states = await who.page.evaluate(async () => {
+    const text = () => [...document.querySelectorAll("main, aside, nav, header")]
+      .map((node) => node.innerText.replace(/\s+/g, " ").trim()).join(" || ");
+    const seen = [text()];
+    const until = performance.now() + 4000;
+    while (performance.now() < until) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const now = text();
+      if (now !== seen.at(-1)) seen.push(now);
+    }
+    return seen;
+  });
+  const violations = await who.page.evaluate(() => window.__restlessViolations ?? []);
+  assert.deepEqual(violations, [], `${role}: no shown message vanished`);
+  // One change is allowed: the office canvas replacing its own loading line.
+  assert(states.length <= 2, `${role}: the cockpit changed ${states.length - 1} times after it appeared:\n${states.join("\n---\n")}`);
+}
+
 // Account site, driven exactly as a person would: create, verify by email, sign in.
 async function createAccount(who, start = "/") {
   const { page } = who;
@@ -843,6 +886,9 @@ try {
   alice.page.off("request", noteRequest);
   assert.deepEqual([...new Set(refused)], [], "a member's screens make no refused requests");
   pass("a member sees the company floor, and her everyday screens make no request she is refused");
+  await steadyEntry(alice, "member");
+  await steadyEntry(owner, "owner");
+  pass("the cockpit appears once, settled, for the owner and a member");
 
   // 9h. An admin runs the day to day: the owner makes Bob an admin from Members. His screens,
   //     Company settings included, make no request he is refused; a member who tries what an
@@ -859,7 +905,7 @@ try {
     "Bob's session from before the change ends",
     30,
   );
-  await bob.page.goto(`${accounts}/`);
+  await enterAccounts(bob);
   await bob.page.locator("#company").waitFor({ state: "visible" });
   await openCompany(bob);
   assert.equal(bob.principal.membership_role, "admin", "Bob comes back an admin");
@@ -878,6 +924,7 @@ try {
   }
   bob.page.off("response", watchAdmin);
   assert.deepEqual([...new Set(adminRefused)], [], "an admin's screens make no refused requests");
+  await steadyEntry(bob, "admin");
   const memberTries = await alice.context.request.fetch(`${core}${base}/company/logo`, {
     method: "DELETE",
     headers: { Origin: core },
@@ -973,6 +1020,42 @@ try {
     pass("direction: act then tell with Undo, ask first with Approve and Done, always allow until revoked, make owner, one answer wins, the digest counts, and a member sees only her own");
   }
 
+
+  // 9j. The work is the surface (S82): Exec works on the real charter. The owner's own direction
+  //     saves it; anyone else's becomes a draft only the owner sees, on Company › Charter and as
+  //     the Inbox item itself; publishing it is the owner's save. A request for one's own
+  //     direction is refused: it is Direct.
+  {
+    const alicePerson = alice.principal.actor_id;
+    let refusedApply = "";
+    await direction({ operation: "charter_apply", requester: alicePerson, markdown: "# Alice's charter", source_message: null })
+      .catch((error) => { refusedApply = String(error.message); });
+    assert.match(refusedApply, /Only .* sets the charter/, "a member's direction cannot set the charter");
+    const draftText = `# Multiplayer\n\nWe build games together (${randomUUID().slice(0, 6)}).\n`;
+    const proposed = await direction({ operation: "charter_propose", requester: alicePerson, markdown: draftText, reason: "Alice suggested it", source_message: null });
+    assert(proposed.proposal_id, "a draft is recorded");
+    const ownerCharter = await coreApi(owner, `${base}/company/charter`);
+    assert.equal(ownerCharter.proposal?.id, proposed.proposal_id, "the owner sees the draft on the charter");
+    assert.equal((await coreApi(alice, `${base}/company/charter`)).proposal, null, "a member never sees an unpublished draft");
+    assert.equal((await coreApi(bob, `${base}/company/charter`)).proposal, null, "nor does an admin");
+    const ownerInbox = await coreApi(owner, `${base}/attention`);
+    assert(ownerInbox.items.some((item) => item.charter_proposal?.id === proposed.proposal_id), "the draft is an item in the owner's Inbox");
+    await coreApi(owner, `${base}/company/charter`, {
+      method: "POST",
+      body: { markdown: draftText, base_revision: ownerCharter.current_revision, proposal_id: proposed.proposal_id },
+    });
+    const published = await coreApi(owner, `${base}/company/charter`);
+    assert.equal(published.proposal, null, "publishing closes the draft");
+    assert(published.revisions.some((revision) => revision.markdown === draftText && revision.revision === published.current_revision), "the draft is the charter");
+    const after = await coreApi(owner, `${base}/attention`);
+    assert(!after.items.some((item) => item.charter_proposal), "the draft leaves the Inbox");
+    let selfRequest = "";
+    await direction({ operation: "request_file", requester: owner.principal.actor_id, class: null, team: null, summary: "Set the charter", change: "The charter text", reason: "" })
+      .catch((error) => { selfRequest = String(error.message); });
+    assert.match(selfRequest, /Direct/, "the owner is never asked to approve their own direction");
+    pass("the charter: a member's direction becomes a draft only the owner sees and publishes from the Inbox, and the owner's own direction never becomes a request");
+  }
+
   // Taking it back is as immediate: his admin session ends, and he is a member again.
   await owner.page.goto(`${core}/${company}/company/members`);
   await bobAccess.waitFor({ timeout: 30000 });
@@ -984,7 +1067,7 @@ try {
     "Bob's admin session ends when the role is taken back",
     30,
   );
-  await bob.page.goto(`${accounts}/`);
+  await enterAccounts(bob);
   await bob.page.locator("#company").waitFor({ state: "visible" });
   await openCompany(bob);
   assert.equal(bob.principal.membership_role, "member", "Bob comes back a member");

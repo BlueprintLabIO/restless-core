@@ -6,34 +6,20 @@
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import { formatMoment } from '$lib/ui/time';
+	import { charterQuery } from '$lib/model/charter.svelte';
 
 	let { companyId }: { companyId: string } = $props();
 
-	type Revision = { revision: string; markdown: string; saved_at: string | null };
-	let current = $state<Revision | null>(null);
-	let failure = $state<Error | null>(null);
-	let attempt = $state(0);
-
-	$effect(() => {
-		const company = companyId;
-		void attempt;
-		failure = null;
-		let stopped = false;
-		fetch(`/api/companies/${encodeURIComponent(company)}/company/charter`, { cache: 'no-store' })
-			.then(async (response) => {
-				if (!response.ok) throw new Error('The charter could not be read. Try again.');
-				const body: { current_revision: string; revisions: Revision[] } = await response.json();
-				if (stopped) return;
-				current = body.revisions.find((revision) => revision.revision === body.current_revision) ??
-					body.revisions[0] ?? { revision: body.current_revision, markdown: '', saved_at: null };
-			})
-			.catch((cause) => {
-				if (!stopped) failure = cause instanceof Error ? cause : new Error(String(cause));
-			});
-		return () => {
-			stopped = true;
-		};
+	const charter = charterQuery(() => companyId);
+	const current = $derived.by(() => {
+		const body = charter.record;
+		if (!body) return null;
+		return (
+			body.revisions.find((revision) => revision.revision === body.current_revision) ??
+			body.revisions[0] ?? { revision: body.current_revision, markdown: '', saved_at: null }
+		);
 	});
+	const failure = $derived(charter.failure);
 </script>
 
 {#if current}
@@ -60,7 +46,7 @@
 		error={failure}
 		subject="the charter"
 		variant="block"
-		onretry={() => (attempt += 1)}
+		onretry={() => void charter.refresh()}
 	/>
 {:else}
 	<Skeleton label="Reading the charter…" variant="page" count={3} />

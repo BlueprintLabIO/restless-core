@@ -5,6 +5,7 @@
 	import { failureSentence } from '$lib/model/failure';
 	import { companiesQuery } from '$lib/model/queries.svelte';
 	import {
+		readLogoImage,
 		prepareLogo,
 		removeCompanyLogo,
 		uploadCompanyLogo,
@@ -61,11 +62,7 @@
 	async function remove() {
 		if (busy) return;
 		const company = companyId;
-		const previous = logoUrl
-			? await fetch(logoUrl, { credentials: 'same-origin' })
-					.then((response) => (response.ok ? response.blob() : null))
-					.catch(() => null)
-			: null;
+		const previous = logoUrl ? await readLogoImage(logoUrl) : null;
 		if (
 			!previous &&
 			!(await confirmAction({

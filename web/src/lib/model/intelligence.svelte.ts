@@ -1,3 +1,4 @@
+import { ownerRequest } from './setting.svelte';
 import { ownerJson } from './failure';
 import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 export type IntelligenceConnection = {
@@ -84,4 +85,16 @@ export function intelligenceQuery(company: string, enabled: () => boolean = () =
 		},
 		refresh: () => client.invalidateQueries({ queryKey: ['intelligence', company] })
 	};
+}
+
+/** Choose the model an agent (or the company default) uses from its next session. */
+export function assignModel(
+	company: string,
+	actor: string,
+	body: { connection: string; model: string; reset: boolean; revision: string }
+) {
+	return ownerRequest<unknown>(
+		`/api/companies/${encodeURIComponent(company)}/intelligence/${encodeURIComponent(actor)}`,
+		{ method: 'PUT', json: body }
+	);
 }

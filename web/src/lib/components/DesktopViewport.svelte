@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolveDesktopRoute } from '$lib/model/company-actions';
 	import { failureSentence } from '$lib/model/failure';
 	import { onDestroy, onMount, tick, untrack } from 'svelte';
 	import type { Snippet } from 'svelte';
@@ -185,7 +186,7 @@
 			// Resolve the one-use ticket once. Reconnects reuse the authorized
 			// same-origin client route and its server-issued WebSocket lease path.
 			if (!resolvedClientUrl) {
-				const response = await fetch(route, { credentials: 'same-origin', redirect: 'follow' });
+				const response = await resolveDesktopRoute(route);
 				if (!active || current !== generation) return;
 				if (!response.ok)
 					throw new Error(`Desktop connection returned ${response.status}. Reattach to continue.`);

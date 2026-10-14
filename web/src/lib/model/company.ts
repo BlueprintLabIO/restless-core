@@ -350,3 +350,87 @@ export async function getBrowserStatus(company: string): Promise<BrowserStatus> 
 		})
 	);
 }
+
+/** The company's setup as the name editor holds it: the name, plus the mission and model sent
+ * back exactly as the server holds them, so a rename can never change either. */
+export type CompanySetup = {
+	display_name: string;
+	mission: string;
+	model: string;
+	revision: string;
+};
+
+export async function readCompanySetup(company: string): Promise<CompanySetup> {
+	return ownerResponse<CompanySetup>(
+		await fetch(`/api/companies/${encodeURIComponent(company)}/setup`, {
+			cache: 'no-store',
+			credentials: 'same-origin'
+		})
+	);
+}
+
+export async function saveCompanySetup(
+	company: string,
+	setup: CompanySetup
+): Promise<{ revision: string }> {
+	return ownerResponse<{ revision: string }>(
+		await fetch(`/api/companies/${encodeURIComponent(company)}/setup`, {
+			method: 'PUT',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(setup),
+			credentials: 'same-origin'
+		})
+	);
+}
+
+const companyApi = (company: string) => `/api/companies/${encodeURIComponent(company)}`;
+
+async function postCompany<T>(company: string, path: string, body: unknown): Promise<T> {
+	return ownerResponse<T>(
+		await fetch(`${companyApi(company)}${path}`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(body),
+			credentials: 'same-origin'
+		})
+	);
+}
+
+/** Native harness usage limits per month; the answer is the company view. */
+export function saveNativeLimit(
+	company: string,
+	body: {
+		monthly_turn_limit: number | null;
+		monthly_token_limit: number | null;
+		expected_monthly_turn_limit: number | null;
+		expected_monthly_token_limit: number | null;
+	}
+) {
+	return postCompany<CompanyView>(company, '/company/native-limit', body);
+}
+
+/** When the company computer sleeps, and its monthly runtime cap; the answer is the company view. */
+export function saveRuntimePolicy(
+	company: string,
+	body: {
+		auto_sleep_after_minutes: number | null;
+		expected_auto_sleep_after_minutes: number | null;
+		monthly_runtime_cap_hours: number | null;
+		expected_monthly_runtime_cap_hours: number | null;
+	}
+) {
+	return postCompany<CompanyView>(company, '/company/runtime-policy', body);
+}
+
+/** The monthly spend ceiling; the answer is the company view. */
+export function saveSpendLimit(
+	company: string,
+	body: { ceiling: string; expected_ceiling: unknown }
+) {
+	return postCompany<CompanyView>(company, '/company/spend-limit', body);
+}
+
+/** Preview or apply copying setup sections from another company. */
+export function copyCompanySetup<T>(company: string, preview: boolean, body: unknown) {
+	return postCompany<T>(company, `/copy-setup${preview ? '/preview' : ''}`, body);
+}

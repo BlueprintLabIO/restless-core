@@ -2,7 +2,7 @@
 	/* Which model this agent thinks with, one click from where the owner talks
 	 * to it. Choosing another model of the same connection applies to its next
 	 * session; everything else lives in Company › Intelligence. */
-	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
+	import { assignModel, intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { effortLabel, modelLabel } from '$lib/model/intelligence-labels';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
 	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
@@ -24,7 +24,9 @@
 	const catalog = modelCatalog(() => allowed);
 	const source = $derived(intelligenceQuery(companyId, () => allowed));
 	const agent = $derived(source.view?.agents.find((row) => row.id === actorId) ?? null);
-	const assignment = $derived(agent?.assignment ?? source.view?.default ?? source.view?.base_default ?? null);
+	const assignment = $derived(
+		agent?.assignment ?? source.view?.default ?? source.view?.base_default ?? null
+	);
 	const connection = $derived(
 		source.view?.connections.find((row) => row.id === assignment?.connection) ?? null
 	);
@@ -50,21 +52,12 @@
 		busy = true;
 		failure = '';
 		try {
-			const response = await fetch(
-				`/api/companies/${encodeURIComponent(companyId)}/intelligence/${encodeURIComponent(actorId)}`,
-				{
-					method: 'PUT',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({
-						connection: assignment.connection,
-						model,
-						reset: false,
-						revision: source.view.revision
-					})
-				}
-			);
-			const body = await response.json();
-			if (!response.ok) throw new Error(body.message ?? 'Could not change the model.');
+			await assignModel(companyId, actorId, {
+				connection: assignment.connection,
+				model,
+				reset: false,
+				revision: source.view.revision
+			});
 			announceIntelligenceChange(companyId);
 		} catch (cause) {
 			failure = failureSentence(cause, 'Could not change the model.');

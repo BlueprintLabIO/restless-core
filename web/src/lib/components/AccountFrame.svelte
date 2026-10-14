@@ -4,6 +4,7 @@
 	 * A settings page lists settings' own sections in the page (`settings` receives them). On Cloud
 	 * the account service owns Profile, Security, Plan and Support, so they sit in the same list
 	 * (ADR 0007). Locally the account is this computer, so the menu says which appliance it is. */
+	import { readAccountConnections } from '$lib/model/account-connections';
 	import type { Snippet } from 'svelte';
 	import { page } from '$app/state';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
@@ -56,9 +57,9 @@
 		const path = page.url.pathname;
 		if (!status?.hosted || !accountHome || !ACCOUNT_RETURNS.has(path)) return;
 		const controller = new AbortController();
-		void fetch('/api/connections', { credentials: 'same-origin', signal: controller.signal })
-			.then((response) => (response.ok ? response.json() : null))
-			.then((body: { scope?: string } | null) => {
+		void readAccountConnections(controller.signal)
+			.catch(() => null)
+			.then((body) => {
 				if (body?.scope !== 'company') return;
 				// Once per page and minute, so a failed entry cannot loop.
 				const key = `account-reentry:${path}`;

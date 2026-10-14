@@ -7,6 +7,11 @@
 	import { Section, Row, Item, Notice, Fold } from '$lib/ui/page';
 	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
 	import { companyQuery } from '$lib/model/queries.svelte';
+	import {
+		saveNativeLimit as postNativeLimit,
+		saveRuntimePolicy as postRuntimePolicy,
+		saveSpendLimit as postSpendLimit
+	} from '$lib/model/company';
 	import { approvalAction } from '$lib/model/attention';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
@@ -46,21 +51,12 @@
 		nativeError = '';
 		nativeNotice = '';
 		try {
-			const response = await fetch(
-				`/api/companies/${encodeURIComponent(companyId)}/company/native-limit`,
-				{
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({
-						monthly_turn_limit: nativeTurns === '' ? null : Number(nativeTurns),
-						monthly_token_limit: nativeTokens === '' ? null : Number(nativeTokens),
-						expected_monthly_turn_limit: baseNativeTurns,
-						expected_monthly_token_limit: baseNativeTokens
-					})
-				}
-			);
-			const result = await response.json();
-			if (!response.ok) throw new Error(result.message ?? 'Native limits could not be saved.');
+			const result = await postNativeLimit(companyId, {
+				monthly_turn_limit: nativeTurns === '' ? null : Number(nativeTurns),
+				monthly_token_limit: nativeTokens === '' ? null : Number(nativeTokens),
+				expected_monthly_turn_limit: baseNativeTurns,
+				expected_monthly_token_limit: baseNativeTokens
+			});
 			source.accept(result);
 			editingNative = false;
 			nativeNotice = 'Native limits saved.';
@@ -85,22 +81,12 @@
 		runtimeError = '';
 		runtimeNotice = '';
 		try {
-			const response = await fetch(
-				`/api/companies/${encodeURIComponent(companyId)}/company/runtime-policy`,
-				{
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({
-						auto_sleep_after_minutes: autoSleepMinutes === '' ? null : Number(autoSleepMinutes),
-						expected_auto_sleep_after_minutes: baseAutoSleepMinutes,
-						monthly_runtime_cap_hours:
-							monthlyRuntimeHours === '' ? null : Number(monthlyRuntimeHours),
-						expected_monthly_runtime_cap_hours: baseMonthlyRuntimeHours
-					})
-				}
-			);
-			const result = await response.json();
-			if (!response.ok) throw new Error(result.message ?? 'Runtime limits could not be saved.');
+			const result = await postRuntimePolicy(companyId, {
+				auto_sleep_after_minutes: autoSleepMinutes === '' ? null : Number(autoSleepMinutes),
+				expected_auto_sleep_after_minutes: baseAutoSleepMinutes,
+				monthly_runtime_cap_hours: monthlyRuntimeHours === '' ? null : Number(monthlyRuntimeHours),
+				expected_monthly_runtime_cap_hours: baseMonthlyRuntimeHours
+			});
 			source.accept(result);
 			editingRuntime = false;
 			runtimeNotice = 'Runtime limits saved.';
@@ -130,13 +116,10 @@
 		}
 		editingLimit = false;
 		try {
-			const r = await fetch(`/api/companies/${encodeURIComponent(companyId)}/company/spend-limit`, {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ ceiling: limit, expected_ceiling: baseLimit })
+			const result = await postSpendLimit(companyId, {
+				ceiling: limit,
+				expected_ceiling: baseLimit
 			});
-			const result = await r.json();
-			if (!r.ok) throw new Error(result.message ?? 'The limit could not be saved.');
 			source.accept(result);
 			toast('Spend limit saved');
 		} catch (e) {

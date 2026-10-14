@@ -3,7 +3,7 @@
 	import { failureSentence } from '$lib/model/failure';
 	import { onMount } from 'svelte';
 	import { getCompanies, type CompanyCatalogEntry } from '$lib/model/cockpit';
-	import { renameInAccount } from '$lib/model/company';
+	import { copyCompanySetup, renameInAccount } from '$lib/model/company';
 
 	type Change = {
 		label?: string;
@@ -93,28 +93,20 @@
 		busy = true;
 		error = '';
 		try {
-			const response = await fetch(
-				`/api/companies/${encodeURIComponent(companyId)}/copy-setup${kind === 'preview' ? '/preview' : ''}`,
+			const body = await copyCompanySetup<Preview & { copied?: boolean; setup?: Partial<Preview> }>(
+				companyId,
+				kind === 'preview',
 				{
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({
-						source,
-						sections: [setting],
-						...(kind === 'apply' && preview
-							? {
-									source_revision: preview.source_revision,
-									target_revision: preview.target_revision
-								}
-							: {})
-					})
+					source,
+					sections: [setting],
+					...(kind === 'apply' && preview
+						? {
+								source_revision: preview.source_revision,
+								target_revision: preview.target_revision
+							}
+						: {})
 				}
 			);
-			const body = await response.json();
-			if (!response.ok)
-				throw new Error(
-					body.message ?? `Could not ${kind === 'preview' ? 'preview' : 'copy'} this setting.`
-				);
 			if (kind === 'preview') preview = body;
 			else {
 				// On Cloud the account owns the name, so it takes the name the copy actually made.

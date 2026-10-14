@@ -1,37 +1,40 @@
 <script lang="ts">
 	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
-	import { onMount } from 'svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
+	import { settingQuery } from '$lib/model/setting.svelte';
+	import {
+		customHarnessesKey,
+		harnessAction,
+		readCustomHarnesses,
+		saveCustomHarness,
+		type HarnessConfig as Config,
+		type HarnessRow as Row
+	} from '$lib/model/custom-harnesses';
 	let { companyId }: { companyId: string } = $props();
-	type Config = {
-		name: string;
-		adapter: string;
-		install: string;
-		command: string[];
-		setup_command: string[];
-		environment: Record<string, string>;
-		credentials?: Record<string, string>;
-	};
-	type Row = {
-		id: string;
-		config: Config;
-		installation: { state: string; message?: string };
-		checking?: boolean;
-		discovery?: {
-			state: string;
-			message?: string;
-			checked_at?: string;
-			models?: { id: string; name: string }[];
-		};
-	};
-	type View = { revision: string; harnesses: Row[]; presets: (Config & { id: string })[] };
-	let view = $state<View | null>(null),
-		error = $state(''),
+	/* Installing or checking models is quick to change, so it is read every few seconds; an
+	 * installed harness is looked at again every half minute for new models; otherwise only on
+	 * change. */
+	const source = settingQuery({
+		key: () => customHarnessesKey(companyId),
+		read: (signal) => readCustomHarnesses(companyId, signal),
+		poll: (current) =>
+			current?.harnesses.some((row) => row.checking || row.installation.state === 'installing')
+				? 3_000
+				: current?.harnesses.some((row) => row.installation.state === 'installed')
+					? 30_000
+					: false
+	});
+	const view = $derived(source.view);
+	let actionError = $state(''),
 		notice = $state(''),
 		busy = $state('');
+	const error = $derived(
+		actionError ||
+			(source.failure ? failureSentence(source.failure, 'Could not load harnesses.') : '')
+	);
 	let adding = $state(false),
 		preset = $state('hermes'),
 		name = $state(''),
@@ -42,62 +45,25 @@
 	let keyFor = $state(''),
 		keyName = $state('OPENROUTER_API_KEY'),
 		secret = $state('');
-	const endpoint = $derived(`/api/companies/${companyId}/custom-harnesses`);
 	const intelligence = $derived(intelligenceQuery(companyId));
-	async function refresh() {
-		const scope = companyId;
-		try {
-			const response = await fetch(endpoint);
-			const result = await response.json();
-			if (!response.ok) throw new Error(result.message ?? 'Could not load harnesses.');
-			if (scope === companyId) {
-				const changed =
-					JSON.stringify(view?.harnesses.map((row) => row.discovery)) !==
-					JSON.stringify(result.harnesses.map((row: Row) => row.discovery));
-				view = result;
-				error = '';
-				if (changed) void intelligence.refresh();
-			}
-		} catch (cause) {
-			if (scope === companyId) error = failureSentence(cause, 'Could not load harnesses.');
-		}
-	}
+	const refresh = () => source.refresh();
+	/* New models found by a harness change what every model picker offers. */
+	let discovered = '';
+	$effect(() => {
+		const now = JSON.stringify(view?.harnesses.map((row) => row.discovery) ?? null);
+		if (discovered && now !== discovered) void intelligence.refresh();
+		discovered = now;
+	});
 	$effect(() => {
 		companyId;
-		view = null;
-		error = '';
+		actionError = '';
 		adding = false;
 		keyFor = '';
 		secret = '';
-		void refresh();
-	});
-	onMount(() => {
-		let lastPoll = 0,
-			polling = false;
-		const timer = setInterval(() => {
-			if (document.hidden || polling || !view) return;
-			const active = view.harnesses.some(
-				(row) => row.checking || row.installation.state === 'installing'
-			);
-			const installed = view.harnesses.some((row) => row.installation.state === 'installed');
-			if (!active && (!installed || Date.now() - lastPoll < 30000)) return;
-			polling = true;
-			lastPoll = Date.now();
-			void refresh().finally(() => {
-				polling = false;
-			});
-		}, 3000);
-		return () => clearInterval(timer);
 	});
 	async function action(rowId: string, action: string, fields: Record<string, unknown> = {}) {
 		if (!view) return null;
-		const response = await fetch(`${endpoint}/${encodeURIComponent(rowId)}`, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ action, revision: view.revision, ...fields })
-		});
-		const result = await response.json();
-		if (!response.ok) throw new Error(result.message ?? 'Could not complete this action.');
+		const result = await harnessAction(companyId, rowId, view.revision, action, fields);
 		await refresh();
 		await intelligence.refresh();
 		announceIntelligenceChange(companyId);
@@ -106,19 +72,18 @@
 	async function operate(row: Row, operation: string) {
 		if (busy) return;
 		busy = row.id;
-		error = '';
+		actionError = '';
 		notice = '';
 		try {
 			const result = await action(row.id, operation);
-			if (operation === 'setup' && result?.state === 'setup_opened') {
+			if (operation === 'setup' && result?.state === 'setup_opened' && result.href) {
 				notice = `${row.config.name} setup is open in the company computer. Models refresh automatically after signing in.`;
 				window.location.assign(result.href);
 			} else if (operation === 'install') {
 				notice = `Installing ${row.config.name}…`;
-				setTimeout(() => void refresh(), 1000);
 			}
 		} catch (cause) {
-			error = failureSentence(cause, 'Could not complete this action.');
+			actionError = failureSentence(cause, 'Could not complete this action.');
 		} finally {
 			busy = '';
 		}
@@ -126,7 +91,7 @@
 	async function add() {
 		if (!view || busy) return;
 		busy = 'add';
-		error = '';
+		actionError = '';
 		try {
 			const chosen = view.presets.find((p) => p.id === preset);
 			const config: Config = chosen
@@ -155,20 +120,13 @@
 			const selectedId = chosen?.id ?? id;
 			if (view.harnesses.some((row) => row.id === selectedId))
 				throw new Error('This harness is already configured. Use its existing card.');
-			const response = await fetch(`${endpoint}/${encodeURIComponent(selectedId)}`, {
-				method: 'PUT',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ revision: view.revision, config })
-			});
-			const result = await response.json();
-			if (!response.ok) throw new Error(result.message ?? 'Could not save harness.');
+			await saveCustomHarness(companyId, selectedId, view.revision, config);
 			await refresh();
 			await action(selectedId, 'install');
 			adding = false;
 			notice = `Installing ${config.name}…`;
-			setTimeout(() => void refresh(), 1000);
 		} catch (cause) {
-			error = failureSentence(cause, 'Could not add harness.');
+			actionError = failureSentence(cause, 'Could not add harness.');
 		} finally {
 			busy = '';
 		}
@@ -176,7 +134,7 @@
 	async function saveKey() {
 		if (busy) return;
 		busy = keyFor;
-		error = '';
+		actionError = '';
 		try {
 			await action(keyFor, 'api_key', { environment_name: keyName, secret });
 			secret = '';
@@ -184,7 +142,7 @@
 			keyFor = '';
 			notice = 'Harness key saved in Vault.';
 		} catch (cause) {
-			error = failureSentence(cause, 'Could not save key.');
+			actionError = failureSentence(cause, 'Could not save key.');
 		} finally {
 			busy = '';
 		}
@@ -221,7 +179,7 @@
 			disabled={!view || !!busy}
 			onclick={() => {
 				adding = !adding;
-				error = '';
+				actionError = '';
 			}}>+ Add harness</button
 		>
 	</header>
@@ -230,7 +188,7 @@
 			<button
 				class="btn small"
 				onclick={() => {
-					error = '';
+					actionError = '';
 					void refresh();
 				}}>Retry</button
 			>

@@ -4,7 +4,7 @@
 	 * as the server holds them so a name edit can never change either. A draft
 	 * survives a reload, and a stale revision is reported instead of overwriting. */
 	import { failureSentence } from '$lib/model/failure';
-	import { renameInAccount } from '$lib/model/company';
+	import { readCompanySetup, renameInAccount, saveCompanySetup } from '$lib/model/company';
 	import { beforeNavigate } from '$app/navigation';
 	import { getContext, onMount } from 'svelte';
 	import { attentionQuery, companiesQuery, companyQuery } from '$lib/model/queries.svelte';
@@ -16,7 +16,6 @@
 	const attention = $derived(attentionQuery(companyId));
 	const company = $derived(companyQuery(companyId));
 	const catalog = companiesQuery();
-	const endpoint = $derived(`/api/companies/${encodeURIComponent(companyId)}/setup`);
 	const draftKey = $derived(`restless-settings:name:${companyId}`);
 	let name = $state('');
 	let stored: Omit<Settings, 'display_name'> = { mission: '', model: '', revision: '' };
@@ -29,11 +28,7 @@
 	let inFlight: Promise<boolean> | null = null;
 	const dirty = $derived(ready && name.trim() !== savedName);
 
-	async function read(): Promise<Settings> {
-		const response = await fetch(endpoint, { cache: 'no-store' });
-		if (!response.ok) throw new Error('Could not load the company name. Reload to try again.');
-		return response.json();
-	}
+	const read = (): Promise<Settings> => readCompanySetup(companyId);
 
 	onMount(() => {
 		let active = true;
@@ -89,14 +84,7 @@
 		inFlight = (async () => {
 			try {
 				await renameInAccount(companyId, next);
-				const response = await fetch(endpoint, {
-					method: 'PUT',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ display_name: next, ...stored })
-				});
-				const body = await response.json();
-				if (!response.ok)
-					throw new Error(body.message ?? 'The name was not saved. Your edit is kept.');
+				const body = await saveCompanySetup(companyId, { display_name: next, ...stored });
 				stored = { ...stored, revision: body.revision };
 				savedName = next;
 				saveState = 'saved';
@@ -122,34 +110,32 @@
 	holdQueries(() => [attention, company]);
 </script>
 
-
-	<span class="name-field">
-		<input
-			aria-label="Company name"
-			bind:value={name}
-			oninput={queue}
-			onblur={() => void save()}
-			maxlength="120"
-			autocomplete="organization"
-			disabled={!ready}
-			aria-invalid={!!error}
-		/>
-		<span
-			class="name-state"
-			class:failed={!!error}
-			role="status"
-			aria-live="polite"
-			title={error || undefined}
-			>{error
-				? 'Not saved'
-				: saving
-					? 'Saving…'
-					: saveState === 'saved' && !dirty
-						? 'Saved'
-						: ''}</span
-		>
-	</span>
-
+<span class="name-field">
+	<input
+		aria-label="Company name"
+		bind:value={name}
+		oninput={queue}
+		onblur={() => void save()}
+		maxlength="120"
+		autocomplete="organization"
+		disabled={!ready}
+		aria-invalid={!!error}
+	/>
+	<span
+		class="name-state"
+		class:failed={!!error}
+		role="status"
+		aria-live="polite"
+		title={error || undefined}
+		>{error
+			? 'Not saved'
+			: saving
+				? 'Saving…'
+				: saveState === 'saved' && !dirty
+					? 'Saved'
+					: ''}</span
+	>
+</span>
 
 <style>
 	.name-field {

@@ -4,6 +4,7 @@
 	 * a Word or Excel file is read here, and other presentable files open on the
 	 * isolated review origin. Every file can be downloaded or opened in the
 	 * Library. */
+	import { readMessageReference } from '$lib/model/company-actions';
 	import X from '@lucide/svelte/icons/x';
 	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import Download from '@lucide/svelte/icons/download';
@@ -45,14 +46,12 @@
 		loading = true;
 		dialog.showModal();
 		try {
-			const response = await fetch(
-				`/api/companies/${encodeURIComponent(companyId)}/messages/${encodeURIComponent(messageId)}/reference?path=${encodeURIComponent(filePath)}`
-			);
-			const body = await response.json();
-			if (!response.ok)
-				throw Object.assign(new Error(body.message ?? 'The file could not be opened.'), {
-					status: response.status
-				});
+			const body = await readMessageReference<{
+				url?: unknown;
+				kind?: string;
+				markdown: string;
+				format?: string;
+			}>(companyId, messageId, filePath);
 			frame = typeof body.url === 'string' ? body.url : null;
 			if (body.kind === 'text')
 				text = {
@@ -70,8 +69,11 @@
 <dialog bind:this={dialog} aria-label={label} class="reference-preview">
 	<header>
 		<strong title={path}>{label}</strong>
-		{#if savedHref}<a class="icon" href={savedHref} title={`Download ${label}`} aria-label="Download"
-				><Download size={15} aria-hidden="true" /></a
+		{#if savedHref}<a
+				class="icon"
+				href={savedHref}
+				title={`Download ${label}`}
+				aria-label="Download"><Download size={15} aria-hidden="true" /></a
 			>{/if}
 		{#if frame && viewable}<a
 				class="icon"

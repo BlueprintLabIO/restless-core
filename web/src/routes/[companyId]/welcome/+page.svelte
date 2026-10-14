@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { readCompanySetup, saveCompanySetup } from '$lib/model/company';
 	import { settleQuietly } from '$lib/transition';
 	/* Meeting a new owner. The company exists already (its computer starts while you talk), but
 	 * it has no charter: Exec gets to know the owner one question at a time, large and calm,
@@ -177,16 +178,9 @@
 		} catch {
 			return;
 		}
-		const endpoint = `/api/companies/${encodeURIComponent(companyId)}/setup`;
-		const current = await fetch(endpoint, { cache: 'no-store' }).then((response) =>
-			response.ok ? response.json() : null
-		);
+		const current = await readCompanySetup(companyId).catch(() => null);
 		if (!current) return;
-		await fetch(endpoint, {
-			method: 'PUT',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ ...current, display_name: name })
-		}).catch(() => null);
+		await saveCompanySetup(companyId, { ...current, display_name: name }).catch(() => null);
 	}
 
 	/* The conversation glides into the Exec rail as the company appears behind it. */

@@ -104,6 +104,30 @@ function scanRefreshes(dir) {
 	}
 }
 scanRefreshes(resolve('src'));
+
+/* Views never call the network themselves: a read goes through a model query so every screen
+ * agrees and a slow read cannot land over a save; a write goes through a model function. */
+const viewFetches = [];
+function scanFetches(dir) {
+	for (const entry of readdirSync(dir, { withFileTypes: true })) {
+		const path = join(dir, entry.name);
+		if (entry.isDirectory()) scanFetches(path);
+		else if (/\.(svelte|ts)$/.test(entry.name) && !/\.test\.ts$/.test(entry.name)) {
+			const source = readFileSync(path, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+			if (/(?<![\w.])fetch\s*\(/.test(source)) viewFetches.push(relative(process.cwd(), path));
+		}
+	}
+}
+for (const dir of ['src/lib/components', 'src/lib/primitives', 'src/routes'])
+	scanFetches(resolve(dir));
+if (viewFetches.length) {
+	console.error('\nA view calls the network itself:\n');
+	for (const file of viewFetches) console.error('  ' + file);
+	console.error(
+		'\nRead through a model query (settingQuery) and write through a model function in src/lib/model.\n'
+	);
+	process.exit(1);
+}
 if (blanketRefreshes.length) {
 	console.error('\nA refresh of everything outside the model layer:\n');
 	for (const call of blanketRefreshes) console.error('  ' + call);

@@ -6,22 +6,18 @@
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import { formatRelative } from '$lib/ui/time';
 	import { failureSentence } from '$lib/model/failure';
-	import { onMount } from 'svelte';
+	import { settingQuery } from '$lib/model/setting.svelte';
+	import { readVault, saveVaultSecret, vaultKey } from '$lib/model/harness-auth';
 	let { companyId }: { companyId: string } = $props();
-	type Secret = { name: string; path: string; reference: string; updated_at: string | null };
-	type Reference = { name: string; reference: string };
-	type Vault = {
-		status: string;
-		secrets: Secret[] | null;
-		references: Reference[];
-		revision: string;
-		message?: string;
-	};
+	const source = settingQuery({
+		key: () => vaultKey(companyId),
+		read: (signal) => readVault(companyId, signal)
+	});
+	const view = $derived(source.view);
 	let adding = $state(false),
 		newSecret = $state(true);
-	let view = $state<Vault | null>(null),
-		busy = $state(false),
-		error = $state(''),
+	let busy = $state(false),
+		saveError = $state(''),
 		search = $state(''),
 		binding = $state(''),
 		secret = $state(''),
@@ -49,52 +45,35 @@
 				.join(', ') || 'No configured connection'
 		);
 	}
-	async function refresh() {
-		busy = true;
-		error = '';
-		try {
-			const r = await fetch(`/api/companies/${companyId}/vault`, {
-				cache: 'no-store',
-				credentials: 'same-origin'
-			});
-			if (!r.ok) throw new Error('Could not read the company vault.');
-			view = await r.json();
-		} catch (e) {
-			error = failureSentence(e, 'Could not read the vault.');
-		} finally {
-			busy = false;
-		}
-	}
+	const error = $derived(
+		saveError ||
+			(source.failure ? failureSentence(source.failure, 'Could not read the vault.') : '')
+	);
+	const refresh = () => source.refresh();
 	async function saveSecret(event: SubmitEvent) {
 		event.preventDefault();
 		if (!view || !binding || !secret) return;
 		busy = true;
-		error = '';
+		saveError = '';
 		notice = '';
 		try {
-			const r = await fetch(`/api/companies/${companyId}/vault/secret`, {
-				method: 'POST',
-				cache: 'no-store',
-				credentials: 'same-origin',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ binding, secret, revision: view.revision, create: newSecret })
+			await saveVaultSecret(companyId, {
+				binding,
+				secret,
+				revision: view.revision,
+				create: newSecret
 			});
-			const result = await r.json().catch(() => null);
-			if (!r.ok) throw new Error(result?.message ?? 'Could not save the secret.');
 			notice = 'Secret stored securely';
 			adding = false;
 			binding = '';
 			await refresh();
 		} catch (e) {
-			error = failureSentence(e, 'Could not save the secret.');
+			saveError = failureSentence(e, 'Could not save the secret.');
 		} finally {
 			secret = '';
 			busy = false;
 		}
 	}
-	onMount(() => {
-		void refresh();
-	});
 </script>
 
 <CompanyTitle title="Vault" {companyId} />
@@ -122,7 +101,7 @@
 						? 'Connected'
 						: view?.status === 'unavailable'
 							? 'Unavailable'
-							: busy
+							: source.loading
 								? 'Checking…'
 								: 'Not set up'}
 			/>

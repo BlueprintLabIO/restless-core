@@ -446,6 +446,66 @@ await journey('settings', async (page) => {
 	return out;
 });
 
+await journey('screens', async (page) => {
+	// Every settings screen that now reads and writes through the model layer opens without a
+	// page error or a server failure, and a save on one of them sticks.
+	const failures = [];
+	page.on('response', (response) => {
+		const url = new URL(response.url());
+		if (url.pathname.startsWith('/api/') && response.status() >= 500)
+			failures.push(`${response.status()} ${response.request().method()} ${url.pathname}`);
+	});
+	const opened = {};
+	for (const path of [
+		`/${company}/company/provider`,
+		'/account/connections',
+		`/${company}/company/vault`,
+		`/${company}/company/resources`,
+		`/${company}/company/doctor`,
+		`/${company}/company/charter`,
+		`/${company}/company/members`,
+		`/${company}/people`,
+		`/${company}/library`,
+		`/${company}/work`
+	]) {
+		await page.goto(`${base}${path}`);
+		await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => {});
+		await page.waitForTimeout(800);
+		// Rendered: the main region holds the screen, not a blank or a loading line.
+		const text = (
+			await page
+				.locator('main')
+				.first()
+				.innerText()
+				.catch(() => '')
+		).trim();
+		opened[path] = text.length > 40 ? text.split(/\n/).slice(0, 2).join(' · ') : '';
+	}
+	assert.deepEqual(failures, [], `screens: server failures ${failures.join(', ')}`);
+	const blank = Object.entries(opened).filter(([, heading]) => !heading);
+	assert.deepEqual(
+		blank,
+		[],
+		`screens: nothing rendered on ${blank.map(([path]) => path).join(', ')}`
+	);
+
+	// The spend limit, saved through the model and shown from the save's own answer.
+	await page.goto(`${base}/${company}/company/resources`);
+	await page.getByRole('button', { name: 'Edit limit', exact: true }).click();
+	const field = page.locator('#spend-limit');
+	const before = await field.inputValue();
+	const next = before === '37' ? '38' : '37';
+	await field.fill(next);
+	const states = await statesAfter(page, () =>
+		page.getByRole('button', { name: 'Save', exact: true }).first().click()
+	);
+	await page.reload();
+	await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => {});
+	const shown = await page.locator('main').innerText();
+	assert(shown.includes(next), `screens: the saved limit ${next} shows after a reload`);
+	return { opened, limitSave: states.slice(1).map((state, index) => delta(states[index], state)) };
+});
+
 await browser.close();
 console.log(JSON.stringify(report, null, 2));
 process.exit(report.every((entry) => entry.ok) ? 0 : 1);

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { readStartupDoctor } from '$lib/model/company-actions';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { formatRelative, formatMoment } from '$lib/ui/time';
 	import { Page, Section, Item, Notice, Dot, Fold } from '$lib/ui/page';
@@ -27,9 +28,7 @@
 		let timer: ReturnType<typeof setTimeout>;
 		const read = async () => {
 			try {
-				const r = await fetch(`/api/companies/${companyId}/startup-doctor`);
-				if (!r.ok) throw new Error(`Startup check could not be read (${r.status}).`);
-				const result = await r.json();
+				const result = await readStartupDoctor<typeof startup>(companyId);
 				if (!stopped) {
 					startup = result;
 					startupError = '';

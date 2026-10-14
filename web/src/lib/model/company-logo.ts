@@ -68,3 +68,10 @@ export async function removeCompanyLogo(company: string): Promise<LogoChange> {
 	if (!response.ok) throw await responseFailure(response);
 	return response.json();
 }
+
+/** The current logo's image, kept so removing it can be undone; null when it cannot be read. */
+export async function readLogoImage(url: string): Promise<Blob | null> {
+	return fetch(url, { credentials: 'same-origin' })
+		.then((response) => (response.ok ? response.blob() : null))
+		.catch(() => null);
+}

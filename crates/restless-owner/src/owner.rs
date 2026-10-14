@@ -6469,6 +6469,7 @@ async fn decide_company_identity_migration(
 
 async fn company_charter_history(
     State(state): State<OwnerState>,
+    principal: Option<Extension<RequestPrincipal>>,
     AxumPath(company): AxumPath<String>,
 ) -> Response<Body> {
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
@@ -6520,7 +6521,14 @@ async fn company_charter_history(
             }),
         );
     }
-    let proposal = match state.daemon.orgintel.get(&company).await {
+    // A draft waits for the owner; everyone else reads only the published charter.
+    let owner_reads = principal
+        .as_ref()
+        .is_none_or(|Extension(principal)| principal.membership_role() == "owner");
+    let proposal = if !owner_reads {
+        None
+    } else {
+        match state.daemon.orgintel.get(&company).await {
         Ok(org) => match restless_engine::direction_authority::Names::read(&org).await {
             Ok(names) => restless_engine::direction_authority::charter_proposal(&state.daemon.authority, &company, &names, &current)
                 .await
@@ -6529,6 +6537,7 @@ async fn company_charter_history(
             Err(_) => None,
         },
         Err(_) => None,
+        }
     };
     Json(serde_json::json!({ "current_revision": current, "revisions": revisions, "proposal": proposal }))
         .into_response()

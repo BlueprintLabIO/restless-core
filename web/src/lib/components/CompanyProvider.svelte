@@ -4,7 +4,7 @@
 	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import Pending from '$lib/ui/feedback/Pending.svelte';
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
 	const catalog = modelCatalog();
 	import HarnessConnections from './HarnessConnections.svelte';
@@ -21,7 +21,21 @@
 		watchIntelligenceChanges,
 		affectsCompany
 	} from '$lib/model/intelligence-events';
-	import { getCompanies, type CompanyCatalogEntry } from '$lib/model/cockpit';
+	import { settingQuery } from '$lib/model/setting.svelte';
+	import {
+		createConnection,
+		grantCompanyConnection,
+		importConnection,
+		providerKey,
+		readProvider,
+		readReusableConnections,
+		reusableConnectionsKey,
+		revokeCompanyConnection,
+		saveProvider,
+		type ProviderConnection as Connection,
+		type ProviderStatus,
+		type ReusableConnection
+	} from '$lib/model/provider';
 	import { getApplianceStatus } from '$lib/model/appliance';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	let { companyId }: { companyId: string } = $props();
@@ -41,23 +55,6 @@
 	const connectionIssue = $derived(setupIssue && !needsAnotherModel(setupIssue) ? setupIssue : '');
 	const intelligence = $derived(intelligenceQuery(companyId));
 	let editorOpen = $state(false);
-	type Connection = {
-		provider: string;
-		reference: string | null;
-		credential_status: string;
-		credential_detail: string | null;
-		gateway_loaded: boolean;
-		shareable_api_key?: boolean;
-	};
-	type ProviderStatus = {
-		revision: string;
-		primary_provider: string;
-		connections: Connection[];
-		infisical_configured: boolean;
-		infisical_status: string;
-		infisical_detail: string | null;
-		startup_issue: string | null;
-	};
 	const labels: Record<string, string> = {
 		anthropic: 'Anthropic',
 		openai: 'OpenAI',
@@ -72,7 +69,11 @@
 		moonshot: 'Moonshot',
 		litellm: 'OpenAI-compatible gateway'
 	};
-	let status = $state<ProviderStatus | null>(null);
+	const providerSource = settingQuery<ProviderStatus>({
+		key: () => providerKey(companyId),
+		read: (signal) => readProvider(companyId, signal)
+	});
+	const status = $derived(providerSource.view);
 	let selected = $state('');
 	let advancedModel = $state('');
 	let advancedCustomModel = $state(false);
@@ -86,24 +87,25 @@
 	let refreshing = $state(false);
 	let edited = false;
 	let editor = $state<HTMLElement>();
-	let requestSequence = 0;
-	type ReusableConnection = {
-		id: string;
-		label: string;
-		provider: string;
-		kind?: 'api_key' | 'oauth';
-		status?: 'present' | 'absent' | 'invalid' | 'checking';
-		detail?: string | null;
-		companies: { id: string; name: string; in_use?: boolean }[];
-	};
-	let reusableConnections = $state<ReusableConnection[]>([]);
+	const reusableSource = settingQuery({
+		key: () => reusableConnectionsKey(companyId),
+		read: (signal) => readReusableConnections(signal)
+	});
+	const reusableConnections = $derived(reusableSource.view?.connections ?? []);
 	/* Providers the plan's included AI serves; they take no key of the owner's own. */
-	let includedProviders = $state<string[]>([]);
-	let accountScope = $state<'account' | 'company'>('account');
-	let manageUrl = $state('/account/connections');
-	let accountError = $state('');
+	const includedProviders = $derived(reusableSource.view?.includedProviders ?? []);
+	const accountScope = $derived(reusableSource.view?.scope ?? 'account');
+	const manageUrl = $derived(reusableSource.view?.manageUrl ?? '/account/connections');
+	let accountActionError = $state('');
+	const accountError = $derived(
+		accountActionError ||
+			(reusableSource.failure
+				? failureSentence(reusableSource.failure, 'Could not load reusable connections.')
+				: '')
+	);
 	let accountBusy = $state(false);
-	let accountLoading = $state(false);
+	/* Only the first load shows a loading row; a refresh keeps the rows where they are. */
+	const accountLoading = $derived(reusableSource.loading);
 	let addConnectionOpen = $state(false);
 	let connectionLabel = $state('');
 	let connectionProvider = $state('anthropic');
@@ -117,14 +119,13 @@
 	let grantMakeDefault = $state(false);
 	let grantModels = $state<Record<string, string>>({});
 	let grantCustomModels = $state<Record<string, boolean>>({});
-	let companies = $state<CompanyCatalogEntry[]>([]);
+	const companies = $derived(reusableSource.view?.companies ?? []);
 	const otherCompanies = $derived(companies.filter((company) => company.id !== companyId));
 	let importOpen = $state(false);
 	let importSource = $state('');
 	let importProviders = $state<Connection[]>([]);
 	let importProvider = $state('');
 	let importLabel = $state('');
-	const endpoint = $derived(`/api/companies/${encodeURIComponent(companyId)}/provider`);
 	const connection = $derived(status?.connections.find((c) => c.provider === selected));
 	const savedCount = $derived(status?.connections.filter((c) => c.reference).length ?? 0);
 	/* Company-only keys stay folded until the company has one or one is being
@@ -163,15 +164,18 @@
 			row?.reference ?? (mode === 'oauth' ? `omp-oauth:${provider}` : defaultReference(provider));
 	}
 	async function refresh() {
-		const sequence = ++requestSequence;
 		refreshing = true;
 		try {
-			const response = await fetch(endpoint, { cache: 'no-store' });
-			const body = await response.json();
-			if (sequence !== requestSequence) return;
-			if (!response.ok) throw new Error(body.message ?? 'Could not read connections.');
-			status = body;
-			error = '';
+			await providerSource.refresh();
+		} finally {
+			refreshing = false;
+		}
+	}
+	/* The editor follows the saved state unless the owner is changing it. */
+	$effect(() => {
+		const body = providerSource.view;
+		if (!body) return;
+		untrack(() => {
 			if (!selected && !editorOpen) {
 				choose(body.primary_provider === 'unconfigured' ? '' : body.primary_provider);
 			} else if (!edited && !busy) {
@@ -179,13 +183,13 @@
 				choose(selected);
 				notice = previousNotice;
 			}
-		} catch (cause) {
-			if (sequence === requestSequence)
-				error = failureSentence(cause, 'Could not read connections.');
-		} finally {
-			if (sequence === requestSequence) refreshing = false;
-		}
-	}
+		});
+	});
+	const providerError = $derived(
+		providerSource.failure
+			? failureSentence(providerSource.failure, 'Could not read connections.')
+			: ''
+	);
 	function selectMode() {
 		edited = true;
 		secret = '';
@@ -208,24 +212,17 @@
 		busy = true;
 		error = '';
 		notice = '';
-		++requestSequence;
 		try {
-			const response = await fetch(endpoint, {
-				method: 'PUT',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					provider: selected,
-					model: advancedModel.slice(selected.length + 1),
-					reference,
-					secret: secret || undefined,
-					revision: status.revision,
-					disconnect
-				})
+			const saved = await saveProvider(companyId, {
+				provider: selected,
+				model: advancedModel.slice(selected.length + 1),
+				reference,
+				secret: secret || undefined,
+				revision: status.revision,
+				disconnect
 			});
 			secret = '';
-			const body = await response.json();
-			if (!response.ok) throw new Error(body.message ?? 'Could not save this connection.');
-			status = body;
+			providerSource.accept(saved);
 			await intelligence.refresh();
 			announceIntelligenceChange(companyId);
 			editorOpen = false;
@@ -255,32 +252,7 @@
 					? 'warning'
 					: 'neutral';
 	}
-	/* Only the first load shows a loading row; a refresh keeps the rows where they are. */
-	async function refreshReusableConnections() {
-		accountLoading = reusableConnections.length === 0;
-		accountError = '';
-		try {
-			const [connectionResponse, companyRows] = await Promise.all([
-				fetch('/api/connections', { cache: 'no-store' }),
-				getCompanies()
-			]);
-			const body = await connectionResponse.json();
-			if (!connectionResponse.ok)
-				throw new Error(body.message ?? 'Could not load reusable connections.');
-			reusableConnections = body.connections ?? [];
-			includedProviders = body.included_providers ?? [];
-			accountScope = body.scope === 'company' ? 'company' : 'account';
-			manageUrl =
-				accountScope === 'company'
-					? (body.manage_url ?? '/account/connections')
-					: '/account/connections';
-			companies = companyRows.filter((company) => company.lifecycle_status === 'active');
-		} catch (cause) {
-			accountError = failureSentence(cause, 'Could not load reusable connections.');
-		} finally {
-			accountLoading = false;
-		}
-	}
+	const refreshReusableConnections = () => reusableSource.refresh();
 	function modelChoices(provider: string, kind: 'api_key' | 'oauth' = 'api_key') {
 		return catalog.models(provider, kind);
 	}
@@ -319,7 +291,7 @@
 		grantSelection = connection.id;
 		grantMakeDefault = !(intelligence.view?.default ?? intelligence.view?.base_default);
 		replaceGrantId = '';
-		accountError = '';
+		accountActionError = '';
 	}
 	function toggleAddConnection() {
 		addConnectionOpen = !addConnectionOpen;
@@ -328,7 +300,7 @@
 			connectionCustomModel = false;
 			connectionModelTouched = false;
 			connectionMakeDefault = false;
-			accountError = '';
+			accountActionError = '';
 		}
 	}
 	$effect(() => {
@@ -349,29 +321,12 @@
 		const connection = reusableConnections.find((row) => row.id === id);
 		if (!connection || !validModel(connection.provider, model))
 			throw new Error('Choose a model from the list or enter its full provider/model ID.');
-		const response = await fetch(
-			`/api/companies/${encodeURIComponent(companyId)}/connections/${encodeURIComponent(id)}`,
-			{
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					model,
-					make_default: makeDefault,
-					revision: status.revision,
-					...(replaceExisting ? { replace_existing: true } : {})
-				})
-			}
-		);
-		const body = await response.json();
-		if (
-			response.status === 409 &&
-			(body.code ?? body.error) === 'provider_conflict' &&
-			!replaceExisting
-		)
-			return { replaceRequired: true as const };
-		if (!response.ok)
-			throw new Error(body.message ?? 'Could not use this connection in the company.');
-		return { replaceRequired: false as const, provider: body.provider };
+		return grantCompanyConnection(companyId, id, {
+			model,
+			make_default: makeDefault,
+			revision: status.revision,
+			...(replaceExisting ? { replace_existing: true } : {})
+		});
 	}
 	/* A key just added is checked and its company restarts on it, for some seconds. Until that has
 	 * settled the row says so steadily, instead of passing through "Key unavailable". */
@@ -396,24 +351,17 @@
 		event.preventDefault();
 		if (accountBusy) return;
 		if (!validModel(connectionProvider, connectionModel)) {
-			accountError = 'Choose a model from the list or enter its full provider/model ID.';
+			accountActionError = 'Choose a model from the list or enter its full provider/model ID.';
 			return;
 		}
 		accountBusy = true;
-		accountError = '';
+		accountActionError = '';
 		try {
-			const response = await fetch('/api/connections', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					label: connectionLabel.trim(),
-					provider: connectionProvider,
-					secret: connectionSecret
-				})
+			const created = await createConnection({
+				label: connectionLabel.trim(),
+				provider: connectionProvider,
+				secret: connectionSecret
 			});
-			const body = await response.json();
-			if (!response.ok) throw new Error(body.message ?? 'Could not save this connection.');
-			const created = body.connection ?? body;
 			if (!status || !created.id)
 				throw new Error(
 					'Connection saved, but could not enable it in this company yet. Choose it from Account API keys to finish.'
@@ -433,15 +381,15 @@
 			if (grantResult.replaceRequired) {
 				grantSelection = created.id;
 				replaceGrantId = created.id;
-				accountError = '';
+				accountActionError = '';
 			} else {
-				status = grantResult.provider;
+				providerSource.accept(grantResult.provider);
 				notice = 'Connection created and made available to this company.';
 			}
 			settle();
 		} catch (cause) {
 			connectionSecret = '';
-			accountError = failureSentence(cause, 'Could not save this connection.');
+			accountActionError = failureSentence(cause, 'Could not save this connection.');
 		} finally {
 			accountBusy = false;
 		}
@@ -449,7 +397,7 @@
 	async function grantConnection(connection: ReusableConnection) {
 		if (!status || accountBusy) return;
 		accountBusy = true;
-		accountError = '';
+		accountActionError = '';
 		try {
 			const result = await requestGrant(
 				connection.id,
@@ -459,17 +407,17 @@
 			);
 			if (result.replaceRequired) {
 				replaceGrantId = connection.id;
-				accountError = '';
+				accountActionError = '';
 				return;
 			}
-			status = result.provider;
+			providerSource.accept(result.provider);
 			grantSelection = '';
 			replaceGrantId = '';
 			settle();
 			await Promise.all([refreshReusableConnections(), intelligence.refresh()]);
 			announceIntelligenceChange(companyId);
 		} catch (cause) {
-			accountError = failureSentence(cause, 'Could not use this connection in the company.');
+			accountActionError = failureSentence(cause, 'Could not use this connection in the company.');
 		} finally {
 			accountBusy = false;
 		}
@@ -477,23 +425,15 @@
 	async function revokeConnection(connection: ReusableConnection) {
 		if (!status || accountBusy) return;
 		accountBusy = true;
-		accountError = '';
+		accountActionError = '';
 		try {
-			const response = await fetch(
-				`/api/companies/${encodeURIComponent(companyId)}/connections/${encodeURIComponent(connection.id)}`,
-				{
-					method: 'DELETE',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ revision: status.revision })
-				}
+			providerSource.accept(
+				await revokeCompanyConnection(companyId, connection.id, status.revision)
 			);
-			const body = await response.json();
-			if (!response.ok) throw new Error(body.message ?? 'Could not remove this company’s access.');
-			status = body.provider;
 			await Promise.all([refreshReusableConnections(), intelligence.refresh()]);
 			announceIntelligenceChange(companyId);
 		} catch (cause) {
-			accountError = failureSentence(cause, 'Could not remove this company’s access.');
+			accountActionError = failureSentence(cause, 'Could not remove this company’s access.');
 		} finally {
 			accountBusy = false;
 		}
@@ -503,39 +443,28 @@
 		importProvider = '';
 		if (!importSource || importSource === companyId) return;
 		try {
-			const response = await fetch(`/api/companies/${encodeURIComponent(importSource)}/provider`, {
-				cache: 'no-store'
-			});
-			const body = await response.json();
-			if (!response.ok) throw new Error(body.message ?? 'Could not inspect that company.');
+			const body = await readProvider(importSource);
 			importProviders = (body.connections ?? []).filter(
 				(row: Connection) => row.shareable_api_key && row.credential_status === 'present'
 			);
 			importProvider = importProviders[0]?.provider ?? '';
-			accountError = importProviders.length
+			accountActionError = importProviders.length
 				? ''
 				: 'No available API-key connections were found in that company.';
 		} catch (cause) {
-			accountError = failureSentence(cause, 'Could not inspect that company.');
+			accountActionError = failureSentence(cause, 'Could not inspect that company.');
 		}
 	}
 	async function importReusableConnection() {
 		if (accountBusy || !importSource || !importProvider) return;
 		accountBusy = true;
-		accountError = '';
+		accountActionError = '';
 		try {
-			const response = await fetch('/api/connections/import', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					source_company: importSource,
-					provider: importProvider,
-					label: importLabel.trim() || `${labels[importProvider] ?? importProvider} API`
-				})
+			const imported = await importConnection({
+				source_company: importSource,
+				provider: importProvider,
+				label: importLabel.trim() || `${labels[importProvider] ?? importProvider} API`
 			});
-			const body = await response.json();
-			if (!response.ok) throw new Error(body.message ?? 'Could not make this connection reusable.');
-			const imported = body.connection ?? body;
 			await refreshReusableConnections();
 			if (!status || !imported.id)
 				throw new Error(
@@ -550,20 +479,18 @@
 			if (grantResult.replaceRequired) {
 				grantSelection = imported.id;
 				replaceGrantId = imported.id;
-				accountError = '';
+				accountActionError = '';
 			} else {
-				status = grantResult.provider;
+				providerSource.accept(grantResult.provider);
 				notice = 'Connection imported and made available to this company.';
 			}
 		} catch (cause) {
-			accountError = failureSentence(cause, 'Could not make this connection reusable.');
+			accountActionError = failureSentence(cause, 'Could not make this connection reusable.');
 		} finally {
 			accountBusy = false;
 		}
 	}
 	onMount(() => {
-		void refresh();
-		void refreshReusableConnections();
 		const stopWatching = watchIntelligenceChanges((changed) => {
 			if (!affectsCompany(changed, companyId)) return;
 			void refresh();
@@ -571,7 +498,6 @@
 		}, true);
 		return () => {
 			stopWatching();
-			++requestSequence;
 			secret = '';
 		};
 	});
@@ -606,6 +532,11 @@
 		</Notice>
 	{/if}
 	{#if error}<Notice tone="danger" title="That change was not saved" details={error} />{/if}
+	{#if providerError && !status}<Notice
+			tone="danger"
+			title="Could not read this company’s connections"
+			details={providerError}
+		/>{/if}
 	{#if notice}<Notice tone="success" title={notice} />{/if}
 
 	<AgentIntelligence {companyId} />

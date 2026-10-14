@@ -1,7 +1,11 @@
 <script lang="ts">
 	import { connectionLabel, modelLabel } from '$lib/model/intelligence-labels';
 	import { failureSentence } from '$lib/model/failure';
-	import { intelligenceQuery, type IntelligenceAgent } from '$lib/model/intelligence.svelte';
+	import {
+		assignModel,
+		intelligenceQuery,
+		type IntelligenceAgent
+	} from '$lib/model/intelligence.svelte';
 	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
 	import { Section, Item, Notice, Empty } from '$lib/ui/page';
@@ -147,16 +151,12 @@
 		busy = true;
 		error = '';
 		try {
-			const response = await fetch(
-				`/api/companies/${companyId}/intelligence/${encodeURIComponent(editing)}`,
-				{
-					method: 'PUT',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ connection, model, reset, revision: source.view.revision })
-				}
-			);
-			const body = await response.json();
-			if (!response.ok) throw new Error(body.message ?? 'Could not save assignment.');
+			await assignModel(companyId, editing, {
+				connection,
+				model,
+				reset,
+				revision: source.view.revision
+			});
 			await source.refresh();
 			announceIntelligenceChange(companyId);
 			editing = '';

@@ -734,8 +734,28 @@ export function companyChangeStream(companyId: () => string, enabled: QueryEnabl
 		const company = companyId();
 		if (!company || !queryEnabled(enabled) || typeof EventSource === 'undefined') return;
 		const source = new EventSource(`/api/companies/${encodeURIComponent(company)}/changes`);
-		source.onopen = () => (changes.live = true);
-		source.onerror = () => (changes.live = false);
+		/* The stream ends when the session does (a role change, removal, an update). Ask at once
+		 * whether this person may still be here, so a lapsed session re-enters within a second
+		 * instead of at the next slow poll; once it is back, catch up on any hint it missed. */
+		let dropped = false;
+		source.onopen = () => {
+			changes.live = true;
+			if (!dropped) return;
+			dropped = false;
+			void client.invalidateQueries({
+				predicate: (query) =>
+					query.queryKey.includes(company) &&
+					!ROOM_STREAM_OWNED.has(String(query.queryKey[0])) &&
+					hintTouches(['resync'], query.queryKey),
+				refetchType: 'active'
+			});
+		};
+		source.onerror = () => {
+			changes.live = false;
+			if (dropped) return;
+			dropped = true;
+			void client.invalidateQueries({ queryKey: queryKeys.principal(company) });
+		};
 		source.addEventListener('change', (event) => {
 			/* A hint names what kind of thing changed, and only queries that kind can affect
 			 * refetch: a teammate's message never reloads settings, the principal or model

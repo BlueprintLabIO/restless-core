@@ -5,6 +5,7 @@
 	 * sends in a conversation are kept here under From you. One table, filtered from the side,
 	 * sorted from its head. A new document or sheet is made untitled and opens straight into its
 	 * editor; a dropped file is added as it is. */
+	import { readArchivedLibrary, setLibraryArchived } from '$lib/model/company-actions';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { Item, Notice, Empty, Dot } from '$lib/ui/page';
@@ -192,14 +193,7 @@
 		const [docs, sheetRows, artifacts] = await Promise.all([
 			getArchivedDocuments(target, null, 50).catch(() => null),
 			sheetJson<SheetRow[]>(target, '-archived').catch(() => null),
-			owner
-				? fetch(`/api/companies/${encodeURIComponent(target)}/library/archived`, {
-						credentials: 'same-origin',
-						cache: 'no-store'
-					})
-						.then((response) => (response.ok ? response.json() : null))
-						.catch(() => null)
-				: Promise.resolve(null)
+			owner ? readArchivedLibrary<{ artifacts: unknown[] }>(target) : Promise.resolve(null)
 		]);
 		if (target !== companyId) return;
 		if (docs) {
@@ -237,18 +231,7 @@
 		if (archiveBusy) return;
 		archiveBusy = entry.id;
 		try {
-			const [path, body] =
-				entry.kind === 'doc'
-					? [`${api}/documents/${encodeURIComponent(entry.id)}/archive`, { archived }]
-					: entry.kind === 'sheet'
-						? [`${api}/sheets/${encodeURIComponent(entry.id)}/archive`, { archived }]
-						: [`${api}/library/archive`, { artifact_id: entry.id, archived }];
-			const response = await fetch(path, {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				credentials: 'same-origin',
-				body: JSON.stringify(body)
-			});
+			const response = await setLibraryArchived(companyId, entry, archived);
 			if (!response.ok) {
 				toast(
 					failureSentence(

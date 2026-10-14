@@ -8,6 +8,24 @@
 	import { onMount, untrack } from 'svelte';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import { getCompanies, type CompanyCatalogEntry } from '$lib/model/cockpit';
+	import { settingQuery } from '$lib/model/setting.svelte';
+	import { readHarnessAuth } from '$lib/model/harness-auth';
+	import {
+		accountConnectionsKey,
+		addApiKeyConnection,
+		companyHasDefaultModel,
+		companyProviderRevision,
+		completeSignInCallback,
+		grantAccountConnection,
+		importCompanyCodexSignIn,
+		readAccountConnections,
+		readSignInJob,
+		removeAccountConnection,
+		revokeAccountConnection,
+		startOAuthSignIn,
+		type AccountConnection,
+		type CompanyUse
+	} from '$lib/model/account-connections';
 	import { accountGrantFix } from '$lib/model/company-start';
 	import { page } from '$app/state';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
@@ -21,17 +39,6 @@
 	void planeStatus().then((value) => (plane = value));
 	const callbackId = $props.id();
 	const catalog = modelCatalog();
-	type CompanyUse = { id: string; name: string; in_use?: boolean };
-	type AccountConnection = {
-		id: string;
-		label: string;
-		provider: string;
-		kind?: 'api_key' | 'oauth';
-		account_identity?: string;
-		status?: 'present' | 'absent' | 'invalid' | 'checking';
-		detail?: string | null;
-		companies: CompanyUse[];
-	};
 	type NativeSignIn = {
 		companyId: string;
 		companyName: string;
@@ -51,9 +58,23 @@
 		['moonshot', 'Moonshot'],
 		['litellm', 'OpenAI-compatible gateway']
 	];
-	let connections = $state<AccountConnection[]>([]);
+	const source = settingQuery({
+		key: () => accountConnectionsKey,
+		read: async (signal) => {
+			try {
+				return await readAccountConnections(signal);
+			} catch (cause) {
+				// A hosted session that lapsed re-enters through the account's door.
+				reenterIfLapsed((cause as { status?: number })?.status);
+				throw cause;
+			}
+		},
+		poll: (current) =>
+			current?.connections.some((connection) => connection.status === 'checking') ? 3_000 : false
+	});
+	const connections = $derived(source.view?.connections ?? []);
 	/* Providers the plan's included AI serves; they take no key of the owner's own. */
-	let includedProviders = $state<string[]>([]);
+	const includedProviders = $derived(source.view?.includedProviders ?? []);
 	let codexSaved = $derived(
 		connections.some(
 			(connection) => connection.kind === 'oauth' && connection.provider === 'openai-codex'
@@ -96,10 +117,17 @@
 				connection.status === 'checking'
 		)
 	);
-	let accountScope = $state<'account' | 'company'>('account');
-	let manageUrl = $state('/account/connections');
-	let loading = $state(true);
-	let error = $state('');
+	const accountScope = $derived(source.view?.scope ?? 'account');
+	const manageUrl = $derived(source.view?.manageUrl ?? '/account/connections');
+	/* Only the first load shows a skeleton; a background read keeps the page as it is. */
+	const loading = $derived(source.loading);
+	let actionError = $state('');
+	const error = $derived(
+		actionError ||
+			(source.failure && !source.view
+				? failureSentence(source.failure, 'Could not load account connections.')
+				: '')
+	);
 	let addOpen = $state(false);
 	let busy = $state(false);
 	let label = $state('');
@@ -129,73 +157,34 @@
 	let replaceRequired = $state(false);
 	let busyCompany = $state(false);
 	let confirmRevocation = $state('');
-	let statusRefreshTimer: ReturnType<typeof setTimeout> | undefined;
-	let statusRefreshAttempts = 0;
-	let refreshSequence = 0;
 
-	async function refresh() {
-		const sequence = ++refreshSequence;
-		/* Only the first load shows a skeleton; a background refresh (status checks, another tab's
-		 * change) keeps the page as it is. */
-		if (!connections.length) loading = true;
-		error = '';
-		try {
-			const response = await fetch('/api/connections', { cache: 'no-store' });
-			if (reenterIfLapsed(response.status)) return;
-			const body = await response.json();
-			if (sequence !== refreshSequence) return;
-			if (!response.ok) throw new Error(body.message ?? 'Could not load account connections.');
-			const previouslySignedIn = new Set(
-				connections
-					.filter((item) => item.kind === 'oauth' && item.status === 'present')
-					.map((item) => item.provider)
-			);
-			/* An unchanged answer leaves the rows alone, so an open editor (its model menu
-			 * included) is not re-rendered under the person's pointer. */
-			const next: AccountConnection[] = body.connections ?? [];
-			if (JSON.stringify(next) !== JSON.stringify($state.snapshot(connections))) connections = next;
-			const included: string[] = body.included_providers ?? [];
-			if (included.join() !== includedProviders.join()) includedProviders = included;
-			if (
-				connections.some(
-					(item) =>
-						item.kind === 'oauth' &&
-						item.status === 'present' &&
-						!previouslySignedIn.has(item.provider)
-				)
-			)
-				void catalog.refreshConnected();
-			accountScope = body.scope === 'company' ? 'company' : 'account';
-			manageUrl = body.manage_url ?? '/account/connections';
-			if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
-			if (connections.some((connection) => connection.status === 'checking')) {
-				statusRefreshAttempts = Math.min(statusRefreshAttempts + 1, 12);
-				const delay = Math.min(2500 * 2 ** Math.floor(statusRefreshAttempts / 3), 30_000);
-				statusRefreshTimer = setTimeout(() => void refresh(), delay);
-			} else {
-				statusRefreshAttempts = 0;
-				statusRefreshTimer = undefined;
-			}
-		} catch (cause) {
-			if (sequence === refreshSequence)
-				error = failureSentence(cause, 'Could not load account connections.');
-		} finally {
-			if (sequence === refreshSequence) loading = false;
-		}
-	}
+	const refresh = () => source.refresh();
+	/* A sign-in that just completed brings its models into every picker. */
+	let signedIn = '';
+	$effect(() => {
+		const now = connections
+			.filter((item) => item.kind === 'oauth' && item.status === 'present')
+			.map((item) => item.provider)
+			.sort()
+			.join();
+		if (
+			signedIn &&
+			now !== signedIn &&
+			now.split(',').some((p) => p && !signedIn.split(',').includes(p))
+		)
+			void catalog.refreshConnected();
+		signedIn = now;
+	});
 	async function refreshNativeSignIns(rows: CompanyCatalogEntry[]) {
 		nativeLoading = true;
 		const results = await Promise.allSettled(
 			rows.map(async (company) => {
-				const response = await fetch(
-					`/api/companies/${encodeURIComponent(company.id)}/harness-auth`,
-					{ cache: 'no-store' }
-				);
-				if (!response.ok) throw new Error(`Could not check ${company.name}.`);
-				const body = await response.json();
-				return (body.connections ?? [])
-					.filter((connection: { mode: string }) => connection.mode === 'oauth')
-					.map((connection: { harness: string; auth: { state: string } }) => ({
+				const rows = await readHarnessAuth(company.id).catch(() => {
+					throw new Error(`Could not check ${company.name}.`);
+				});
+				return rows
+					.filter((connection) => connection.mode === 'oauth')
+					.map((connection) => ({
 						companyId: company.id,
 						companyName: company.name,
 						harness: connection.harness,
@@ -229,20 +218,13 @@
 	async function importCompanyCodex(companyId: string) {
 		if (importingCompany) return;
 		importingCompany = companyId;
-		error = '';
+		actionError = '';
 		try {
-			const response = await fetch('/api/connections/import/company-codex', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ company: companyId })
-			});
-			const body = await response.json();
-			if (!response.ok)
-				throw new Error(body.message ?? 'Could not use this sign-in for the account.');
+			await importCompanyCodexSignIn(companyId);
 			await refresh();
 			announceIntelligenceChange();
 		} catch (cause) {
-			error = failureSentence(cause, 'Could not use this sign-in for the account.');
+			actionError = failureSentence(cause, 'Could not use this sign-in for the account.');
 		} finally {
 			importingCompany = '';
 		}
@@ -257,16 +239,9 @@
 			danger: true
 		});
 		if (!yes) return;
-		error = '';
+		actionError = '';
 		try {
-			const response = await fetch(`/api/connections/${encodeURIComponent(item.id)}`, {
-				method: 'DELETE'
-			});
-			const body = (await response.json().catch(() => ({}))) as {
-				message?: string;
-				vault_deleted?: boolean;
-			};
-			if (!response.ok) throw new Error(body.message ?? 'Could not remove this connection.');
+			const body = await removeAccountConnection(item.id);
 			if (managingId === item.id) managingId = '';
 			await refresh();
 			announceIntelligenceChange();
@@ -276,22 +251,16 @@
 					: `${item.label} removed`
 			);
 		} catch (cause) {
-			error = failureSentence(cause, 'Could not remove this connection.');
+			actionError = failureSentence(cause, 'Could not remove this connection.');
 		}
 	}
 	async function create(event: SubmitEvent) {
 		event.preventDefault();
 		if (busy) return;
 		busy = true;
-		error = '';
+		actionError = '';
 		try {
-			const response = await fetch('/api/connections', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ label: label.trim(), provider, secret })
-			});
-			const body = await response.json();
-			if (!response.ok) throw new Error(body.message ?? 'Could not save this connection.');
+			const body = await addApiKeyConnection({ label: label.trim(), provider, secret });
 			label = '';
 			secret = '';
 			addOpen = false;
@@ -304,7 +273,7 @@
 				);
 		} catch (cause) {
 			secret = '';
-			error = failureSentence(cause, 'Could not save this connection.');
+			actionError = failureSentence(cause, 'Could not save this connection.');
 		} finally {
 			busy = false;
 		}
@@ -318,9 +287,7 @@
 		oauthCallback = '';
 		oauthState = '';
 		try {
-			const response = await fetch(`/api/connections/oauth/${provider}`, { method: 'POST' });
-			const body = await response.json();
-			if (!response.ok) throw new Error(body.message ?? 'Could not start sign-in.');
+			const body = await startOAuthSignIn(provider);
 			oauthJob = body.job;
 			oauthState = 'starting';
 			void pollSignIn(body.job);
@@ -333,16 +300,7 @@
 		callbackBusy = true;
 		oauthMessage = '';
 		try {
-			const response = await fetch(
-				`/api/connections/oauth/jobs/${encodeURIComponent(oauthJob)}/callback`,
-				{
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ callback_url: oauthCallback.trim() })
-				}
-			);
-			const body = await response.json();
-			if (!response.ok) throw new Error(body.message ?? 'Could not finish Claude sign-in.');
+			await completeSignInCallback(oauthJob, oauthCallback.trim());
 			oauthCallback = '';
 			oauthState = 'completing';
 		} catch (cause) {
@@ -354,11 +312,7 @@
 	async function pollSignIn(job: string) {
 		for (let attempt = 0; attempt < 300 && oauthJob === job; attempt++) {
 			try {
-				const response = await fetch(`/api/connections/oauth/jobs/${encodeURIComponent(job)}`, {
-					cache: 'no-store'
-				});
-				const body = await response.json();
-				if (!response.ok) throw new Error(body.message ?? 'Could not check sign-in.');
+				const body = await readSignInJob(job);
 				oauthState = body.state;
 				oauthUrl = body.url ?? '';
 				oauthCode = body.code ?? '';
@@ -437,51 +391,37 @@
 	async function grant(item: AccountConnection, companyId: string, replace = false) {
 		if (busyCompany || !validModel(item.provider, selectedModel)) return;
 		busyCompany = true;
-		error = '';
+		actionError = '';
 		try {
 			let revision = companyRevisions[companyId];
 			if (!revision) {
-				const stateResponse = await fetch(
-					`/api/companies/${encodeURIComponent(companyId)}/provider`,
-					{ cache: 'no-store' }
-				);
-				const state = await stateResponse.json();
-				if (!stateResponse.ok)
-					throw new Error(state.message ?? 'Could not load this company’s connection settings.');
-				revision = state.revision;
+				revision = await companyProviderRevision(companyId);
 				companyRevisions = { ...companyRevisions, [companyId]: revision };
 			}
-			const response = await fetch(
-				`/api/companies/${encodeURIComponent(companyId)}/connections/${encodeURIComponent(item.id)}`,
-				{
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({
-						model: selectedModel,
-						make_default: selectedMakeDefault,
-						revision,
-						...(replace ? { replace_existing: true } : {})
-					})
+			let body: Awaited<ReturnType<typeof grantAccountConnection>>;
+			try {
+				body = await grantAccountConnection(companyId, item.id, {
+					model: selectedModel,
+					make_default: selectedMakeDefault,
+					revision,
+					...(replace ? { replace_existing: true } : {})
+				});
+			} catch (cause) {
+				const failure = cause as { status?: number; code?: string };
+				if (failure?.status === 409 && failure.code === 'provider_conflict' && !replace) {
+					replaceRequired = true;
+					selectedCompany = companyId;
+					return;
 				}
-			);
-			const body = await response.json();
-			if (
-				response.status === 409 &&
-				(body.code ?? body.error) === 'provider_conflict' &&
-				!replace
-			) {
-				replaceRequired = true;
-				selectedCompany = companyId;
-				return;
+				throw cause;
 			}
-			if (!response.ok) throw new Error(body.message ?? 'Could not grant this company access.');
 			companyRevisions = { ...companyRevisions, [companyId]: body.provider?.revision ?? revision };
 			await refresh();
 			announceIntelligenceChange(companyId);
 			selectedCompany = '';
 			replaceRequired = false;
 		} catch (cause) {
-			error = failureSentence(cause, 'Could not grant this company access.');
+			actionError = failureSentence(cause, 'Could not grant this company access.');
 		} finally {
 			busyCompany = false;
 		}
@@ -489,35 +429,17 @@
 	async function revoke(item: AccountConnection, company: CompanyUse) {
 		if (busyCompany) return;
 		busyCompany = true;
-		error = '';
+		actionError = '';
 		try {
 			let revision = companyRevisions[company.id];
-			if (!revision) {
-				const stateResponse = await fetch(
-					`/api/companies/${encodeURIComponent(company.id)}/provider`,
-					{ cache: 'no-store' }
-				);
-				const state = await stateResponse.json();
-				if (!stateResponse.ok)
-					throw new Error(state.message ?? 'Could not load this company’s connection settings.');
-				revision = state.revision;
-			}
-			const response = await fetch(
-				`/api/companies/${encodeURIComponent(company.id)}/connections/${encodeURIComponent(item.id)}`,
-				{
-					method: 'DELETE',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ revision })
-				}
-			);
-			const body = await response.json();
-			if (!response.ok) throw new Error(body.message ?? 'Could not remove this company’s access.');
+			if (!revision) revision = await companyProviderRevision(company.id);
+			const body = await revokeAccountConnection(company.id, item.id, revision);
 			companyRevisions = { ...companyRevisions, [company.id]: body.provider?.revision ?? revision };
 			confirmRevocation = '';
 			await refresh();
 			announceIntelligenceChange(company.id);
 		} catch (cause) {
-			error = failureSentence(cause, 'Could not remove this company’s access.');
+			actionError = failureSentence(cause, 'Could not remove this company’s access.');
 		} finally {
 			busyCompany = false;
 		}
@@ -532,15 +454,10 @@
 		selectedMakeDefault = false;
 		replaceRequired = false;
 		/* A company with no default takes the first connection it is given as its default. */
-		void fetch(`/api/companies/${encodeURIComponent(companyId)}/intelligence`, {
-			cache: 'no-store'
-		})
-			.then((response) => (response.ok ? response.json() : null))
-			.then((view: { default?: unknown; base_default?: unknown } | null) => {
-				if (view && managingId === item.id && selectedCompany === companyId)
-					selectedMakeDefault = !(view.default ?? view.base_default);
-			})
-			.catch(() => {});
+		void companyHasDefaultModel(companyId).then((hasDefault) => {
+			if (hasDefault !== null && managingId === item.id && selectedCompany === companyId)
+				selectedMakeDefault = !hasDefault;
+		});
 		requestAnimationFrame(() =>
 			document
 				.querySelector(`[data-connection="${CSS.escape(item.id)}"]`)
@@ -607,7 +524,6 @@
 	);
 
 	onMount(() => {
-		void refresh();
 		const stopWatching = watchIntelligenceChanges(() => void refresh(), true);
 		void getCompanies()
 			.then((rows) => {
@@ -619,10 +535,7 @@
 				nativeError = 'Company sign-ins could not be loaded.';
 				nativeLoading = false;
 			});
-		return () => {
-			if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
-			stopWatching();
-		};
+		return () => stopWatching();
 	});
 </script>
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { setTeamOwner as recordTeamOwner } from '$lib/model/company-actions';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { initials, personName, teamName } from '$lib/model/initials';
 	import { page } from '$app/state';
@@ -67,22 +68,15 @@
 	let teamOwnerError = $state('');
 	async function setTeamOwner(teamId: string, person: string) {
 		teamOwnerError = '';
-		const response = await fetch(
-			`/api/companies/${encodeURIComponent(companyId)}/teams/${encodeURIComponent(teamId)}/owner`,
-			{
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					person: person || null,
-					reason: person
-						? 'Appointed by the owner from People'
-						: 'Handed back to the owner from People'
-				})
-			}
-		);
-		if (!response.ok) {
-			const detail = (await response.json().catch(() => null)) as { message?: string } | null;
-			teamOwnerError = detail?.message ?? 'Who owns the team did not change. Try again.';
+		try {
+			await recordTeamOwner(
+				companyId,
+				teamId,
+				person || null,
+				person ? 'Appointed by the owner from People' : 'Handed back to the owner from People'
+			);
+		} catch (cause) {
+			teamOwnerError = failureSentence(cause, 'Who owns the team did not change. Try again.');
 		}
 		void cockpit.refresh();
 	}
@@ -502,9 +496,7 @@
 
 <svelte:head
 	><title
-		>People — {cockpit.view?.company.name ??
-			collaboration.view?.company.name ??
-			companyId}</title
+		>People — {cockpit.view?.company.name ?? collaboration.view?.company.name ?? companyId}</title
 	></svelte:head
 >
 <div class="conversation-workspace" class:selected={explicitSelection}>

@@ -72,7 +72,16 @@
 	const orgintelAvailable = $derived(
 		(sourceHealth.orgintel ?? cockpit?.source_health.orgintel ?? '') === 'available'
 	);
-	const signalUnavailable = $derived(!runtimeAvailable || !orgintelAvailable || !!error);
+	/* Offline is said only once a source has answered that it is down: a health not yet read,
+	 * or a computer still starting, is not news, and saying so for a moment was a flicker. */
+	const settling = (status: string) => [, 'unknown', 'checking', 'starting'].includes(status);
+	const runtimeStatus = $derived(sourceHealth.runtime ?? cockpit?.source_health.runtime ?? '');
+	const orgintelStatus = $derived(sourceHealth.orgintel ?? cockpit?.source_health.orgintel ?? '');
+	const signalUnavailable = $derived(
+		!!error ||
+			(!orgintelAvailable && !settling(orgintelStatus)) ||
+			(!runtimeAvailable && !settling(runtimeStatus))
+	);
 	const signalTitle = $derived(
 		error ||
 			(!orgintelAvailable

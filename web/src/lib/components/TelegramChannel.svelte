@@ -4,30 +4,30 @@
 	 * refuses everyone else, and this section then stays hidden. */
 	import { Section, Row, Dot, Notice } from '$lib/ui/page';
 	import { failureSentence } from '$lib/model/failure';
-	import { onMount } from 'svelte';
+	import { useQueryClient } from '@tanstack/svelte-query';
+	import { saveSetting, settingQuery } from '$lib/model/setting.svelte';
+	import { telegramKey, telegramRequest, type TelegramView } from '$lib/model/telegram';
 
 	let { companyId }: { companyId: string } = $props();
-	type Link = {
-		token_reference: string;
-		bot_username: string;
-		pairing_code: string | null;
-		code_expires_at: string | null;
-		paired_at: string | null;
-	};
-	type Channel = {
-		configured: boolean;
-		paired: boolean;
-		local_links: boolean;
-		link?: Link;
-		pair_url?: string;
-	};
-
-	let view = $state<Channel | null>(null);
-	let hidden = $state(false);
+	const client = useQueryClient();
+	/* While a code is out, notice the pairing as soon as the bot sees it. */
+	const source = settingQuery<TelegramView>({
+		key: () => telegramKey(companyId),
+		read: () => telegramRequest(companyId, 'GET'),
+		poll: (current) => (current?.pair_url && !current.paired ? 4_000 : false)
+	});
+	const view = $derived(source.view);
+	const hidden = $derived(!source.loading && !source.failure && source.view === null);
 	let reference = $state('');
 	let busy = $state(false);
-	let error = $state('');
-	const endpoint = $derived(`/api/companies/${encodeURIComponent(companyId)}/telegram`);
+	let actionError = $state('');
+	const error = $derived(
+		actionError ||
+			(source.failure ? failureSentence(source.failure, 'Telegram did not respond.') : '')
+	);
+	$effect(() => {
+		if (view?.link && !reference) reference = view.link.token_reference;
+	});
 	const waiting = $derived(!!view?.pair_url && !view.paired);
 	/* Pairing stores this page's address for the links Telegram sends; once a
 	 * code is out or a chat is paired, the stored address decides. */
@@ -40,31 +40,15 @@
 	const stored = $derived(!!view?.paired || waiting);
 	const localLinks = $derived(stored ? !!view?.local_links : pageLocal);
 
-	async function call(method: string, body?: unknown) {
-		const response = await fetch(endpoint, {
-			method,
-			cache: 'no-store',
-			credentials: 'same-origin',
-			headers: body ? { 'content-type': 'application/json' } : undefined,
-			body: body ? JSON.stringify(body) : undefined
-		});
-		if (response.status === 403) {
-			hidden = true;
-			return;
-		}
-		const result = await response.json().catch(() => null);
-		if (!response.ok) throw new Error(result?.message ?? 'Telegram is unavailable.');
-		view = result;
-		if (view?.link && !reference) reference = view.link.token_reference;
-	}
-
-	async function act(method: string, body?: unknown) {
+	async function act(method: 'POST' | 'DELETE', body?: unknown) {
 		busy = true;
-		error = '';
+		actionError = '';
 		try {
-			await call(method, body);
+			await saveSetting(client, telegramKey(companyId), () =>
+				telegramRequest(companyId, method, body)
+			);
 		} catch (e) {
-			error = failureSentence(e, 'Telegram did not respond.');
+			actionError = failureSentence(e, 'Telegram did not respond.');
 		} finally {
 			busy = false;
 		}
@@ -74,15 +58,6 @@
 		event.preventDefault();
 		void act('POST', { token_reference: reference.trim(), cockpit_origin: location.origin });
 	}
-
-	onMount(() => void act('GET'));
-
-	/* While a code is out, notice the pairing as soon as the bot sees it. */
-	$effect(() => {
-		if (!waiting) return;
-		const timer = setInterval(() => void call('GET').catch(() => {}), 4000);
-		return () => clearInterval(timer);
-	});
 </script>
 
 {#if !hidden}

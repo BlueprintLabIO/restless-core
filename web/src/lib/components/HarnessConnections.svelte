@@ -1,96 +1,60 @@
 <script lang="ts">
+	import { useQueryClient } from '@tanstack/svelte-query';
 	import { failureSentence } from '$lib/model/failure';
-	import { onMount } from 'svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
+	import { saveSetting, settingQuery } from '$lib/model/setting.svelte';
+	import {
+		harnessAuthAction,
+		harnessAuthKey,
+		readHarnessAuth,
+		type HarnessConnection as Connection
+	} from '$lib/model/harness-auth';
 	let { companyId }: { companyId: string } = $props();
+	const client = useQueryClient();
 	const intelligence = $derived(intelligenceQuery(companyId));
-	type Connection = {
-		harness: string;
-		configured?: boolean;
-		mode: string;
-		model: string;
-		auth: {
-			state: string;
-			message?: string;
-			verification_url?: string;
-			user_code?: string;
-			desktop?: boolean;
-			account?: { email?: string };
-		};
-	};
-	let connections = $state<Connection[]>([]);
+	/* A sign-in finishes in another tab or on another device, so the states are read every few
+	 * seconds while this is open. */
+	const source = settingQuery({
+		key: () => harnessAuthKey(companyId),
+		read: (signal) => readHarnessAuth(companyId, signal),
+		poll: () => 5_000
+	});
+	const connections = $derived(source.view ?? []);
+	const readError = $derived(source.failure ? failureSentence(source.failure) : '');
 	let keys = $state<Record<string, string>>({});
 	let busy = $state('');
 	let error = $state('');
-	let readError = $state('');
-	let refreshSequence = 0;
 
-	async function refresh() {
-		const sequence = ++refreshSequence;
-		const response = await fetch(`/api/companies/${companyId}/harness-auth`);
-		if (!response.ok) throw new Error('Could not read harness authentication.');
-		const data = await response.json();
-		if (sequence !== refreshSequence) return;
-		readError = '';
-		const before = connections.map((c) => c.auth.state).join();
-		connections = data.connections;
-		if (before !== connections.map((c) => c.auth.state).join()) {
-			await intelligence.refresh();
+	/* A sign-in that completed changes which models every picker offers. */
+	let states = '';
+	$effect(() => {
+		const now = connections.map((c) => c.auth.state).join();
+		if (states && now !== states) {
+			void intelligence.refresh();
 			announceIntelligenceChange(companyId);
 		}
-	}
-	onMount(() => {
-		let stopped = false;
-		let timer: ReturnType<typeof setTimeout>;
-		let polling = false;
-		const poll = async () => {
-			if (polling) return;
-			polling = true;
-			clearTimeout(timer);
-			try {
-				if (!busy && document.visibilityState === 'visible') await refresh();
-			} catch (cause) {
-				if (!stopped) readError = failureSentence(cause);
-			} finally {
-				polling = false;
-				if (!stopped) timer = setTimeout(poll, 5000);
-			}
-		};
-		const onVisibilityChange = () => {
-			if (document.visibilityState !== 'visible' || busy) return;
-			void poll();
-		};
-		document.addEventListener('visibilitychange', onVisibilityChange);
-		void poll();
-		return () => {
-			stopped = true;
-			clearTimeout(timer);
-			document.removeEventListener('visibilitychange', onVisibilityChange);
-		};
+		states = now;
 	});
+
 	async function act(c: Connection, action: string) {
 		if (busy) return;
 		busy = c.harness;
-		++refreshSequence;
 		error = '';
 		try {
-			const response = await fetch(`/api/companies/${companyId}/harness-auth/${c.harness}`, {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					action,
-					model: c.model,
-					...(action === 'api_key' ? { secret: keys[c.harness] } : {})
-				})
-			});
-			const data = await response.json();
-			if (!response.ok) throw new Error(data.message ?? 'Harness settings could not be saved.');
+			await saveSetting<Connection[], Connection>(
+				client,
+				harnessAuthKey(companyId),
+				() =>
+					harnessAuthAction(companyId, c.harness, {
+						action,
+						model: c.model,
+						...(action === 'api_key' ? { secret: keys[c.harness] } : {})
+					}),
+				(current, row) => (current ?? []).map((item) => (item.harness === c.harness ? row : item))
+			);
 			if (action === 'api_key') keys[c.harness] = '';
-			connections = connections.map((row) => (row.harness === c.harness ? data : row));
-			await intelligence.refresh();
-			announceIntelligenceChange(companyId);
 		} catch (cause) {
 			error = failureSentence(cause, 'Harness settings could not be saved.');
 		} finally {

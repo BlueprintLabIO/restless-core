@@ -3,6 +3,7 @@
 	 * card. Opening one shows it in place (an image whole, a PDF in the browser's reader, a Word or
 	 * Excel file read by the cockpit, a note as text); anything else downloads. The gateway serves an
 	 * image or PDF in place only when asked (`inline=1`) and only after checking its bytes. */
+	import { readAttachmentBytes } from '$lib/model/company-actions';
 	import Download from '@lucide/svelte/icons/download';
 	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import X from '@lucide/svelte/icons/x';
@@ -71,7 +72,8 @@
 		/* The gateway shows a PDF in place only when it was stored as one. */
 		if (attachment.mediaType === 'application/pdf') return 'pdf';
 		if (officeFormat(attachment.name)) return 'office';
-		if (textFormat(attachment.name) && attachment.sizeBytes <= MAX_TEXT_PREVIEW_BYTES) return 'text';
+		if (textFormat(attachment.name) && attachment.sizeBytes <= MAX_TEXT_PREVIEW_BYTES)
+			return 'text';
 		return null;
 	}
 
@@ -81,12 +83,8 @@
 	let failure = $state('');
 	const kind = $derived(previewing ? previewOf(previewing) : null);
 
-	async function readBytes(attachment: MessageAttachment): Promise<Response> {
-		const response = await fetch(hrefOf(attachment), { credentials: 'same-origin' });
-		if (!response.ok)
-			throw Object.assign(new Error('The file could not be read.'), { status: response.status });
-		return response;
-	}
+	const readBytes = (attachment: MessageAttachment): Promise<Response> =>
+		readAttachmentBytes(hrefOf(attachment) ?? '');
 
 	function open(event: MouseEvent, attachment: MessageAttachment) {
 		const preview = previewOf(attachment);
@@ -145,70 +143,72 @@
 					<span class="a-kind">{extOf(attachment.name)}</span>
 					<span class="af-main">
 						<span class="a-name">{attachment.name}</span>
-						<span class="a-meta">{fileDescription(attachment)} · {fmtSize(attachment.sizeBytes)}</span>
+						<span class="a-meta"
+							>{fileDescription(attachment)} · {fmtSize(attachment.sizeBytes)}</span
+						>
 					</span>
 				</a>
 			{/if}
 		{/each}
 	</div>
 
-<dialog
-	bind:this={dialog}
-	class="attachment-preview"
-	aria-label={previewing?.name ?? 'Attachment'}
-	onclose={() => (previewing = null)}
->
-	{#if previewing}
-		<header>
-			<strong title={previewing.name}>{previewing.name}</strong>
-			{#if kind === 'image' || kind === 'pdf'}<a
+	<dialog
+		bind:this={dialog}
+		class="attachment-preview"
+		aria-label={previewing?.name ?? 'Attachment'}
+		onclose={() => (previewing = null)}
+	>
+		{#if previewing}
+			<header>
+				<strong title={previewing.name}>{previewing.name}</strong>
+				{#if kind === 'image' || kind === 'pdf'}<a
+						class="icon"
+						href={inlineHref(previewing)}
+						target="_blank"
+						rel="noopener"
+						title="Open in a new tab"
+						aria-label="Open in a new tab"><ExternalLink size={15} aria-hidden="true" /></a
+					>{/if}
+				<a
 					class="icon"
-					href={inlineHref(previewing)}
-					target="_blank"
-					rel="noopener"
-					title="Open in a new tab"
-					aria-label="Open in a new tab"><ExternalLink size={15} aria-hidden="true" /></a
-				>{/if}
-			<a
-				class="icon"
-				href={hrefOf(previewing)}
-				title={`Download ${previewing.name}`}
-				aria-label="Download"><Download size={15} aria-hidden="true" /></a
-			>
-			<button
-				class="icon"
-				type="button"
-				aria-label="Close"
-				title="Close"
-				onclick={() => dialog?.close()}><X size={16} strokeWidth={2} /></button
-			>
-		</header>
-		<div class="body" class:framed={kind === 'pdf' || kind === 'office'}>
-			{#if kind === 'image'}
-				<div class="image"><img src={inlineHref(previewing)} alt={previewing.name} /></div>
-			{:else if kind === 'pdf'}
-				<!-- The browser's PDF reader refuses a sandboxed frame; the gateway serves a PDF in place
+					href={hrefOf(previewing)}
+					title={`Download ${previewing.name}`}
+					aria-label="Download"><Download size={15} aria-hidden="true" /></a
+				>
+				<button
+					class="icon"
+					type="button"
+					aria-label="Close"
+					title="Close"
+					onclick={() => dialog?.close()}><X size={16} strokeWidth={2} /></button
+				>
+			</header>
+			<div class="body" class:framed={kind === 'pdf' || kind === 'office'}>
+				{#if kind === 'image'}
+					<div class="image"><img src={inlineHref(previewing)} alt={previewing.name} /></div>
+				{:else if kind === 'pdf'}
+					<!-- The browser's PDF reader refuses a sandboxed frame; the gateway serves a PDF in place
 				     only after checking it is one, and a PDF runs no page script. -->
-				<iframe src={`${inlineHref(previewing)}#view=FitH`} title={previewing.name}></iframe>
-			{:else if kind === 'office'}
-				{@const shown = previewing}
-				<OfficePreview
-					format={officeFormat(shown.name) ?? 'docx'}
-					name={shown.name}
-					source={hrefOf(shown)}
-					load={() => readBytes(shown).then((response) => response.arrayBuffer())}
-					downloadHref={hrefOf(shown)}
-				/>
-			{:else if failure}
-				<p class="failure" role="alert">{failure}</p>
-			{:else if text}
-				<TextPreview text={text.body} format={text.format} />
-			{:else}
-				<p class="quiet">Opening…</p>
-			{/if}
-		</div>
-	{/if}
-</dialog>
+					<iframe src={`${inlineHref(previewing)}#view=FitH`} title={previewing.name}></iframe>
+				{:else if kind === 'office'}
+					{@const shown = previewing}
+					<OfficePreview
+						format={officeFormat(shown.name) ?? 'docx'}
+						name={shown.name}
+						source={hrefOf(shown)}
+						load={() => readBytes(shown).then((response) => response.arrayBuffer())}
+						downloadHref={hrefOf(shown)}
+					/>
+				{:else if failure}
+					<p class="failure" role="alert">{failure}</p>
+				{:else if text}
+					<TextPreview text={text.body} format={text.format} />
+				{:else}
+					<p class="quiet">Opening…</p>
+				{/if}
+			</div>
+		{/if}
+	</dialog>
 {/if}
 
 <style>

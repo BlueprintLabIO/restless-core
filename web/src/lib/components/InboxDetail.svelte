@@ -9,6 +9,7 @@
 	 * a note that reaches the company with the decision. Files the item points
 	 * at open in the Library. Context and the rest of the evidence are folded
 	 * away until asked for. */
+	import { decideEmailMandateProposal } from '$lib/model/company-actions';
 	import { failureSentence } from '$lib/model/failure';
 	import { untrack } from 'svelte';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
@@ -370,19 +371,7 @@
 	const decideMandate = (decision: 'approve' | 'decline') =>
 		run(
 			async () => {
-				const response = await fetch(
-					`/api/companies/${encodeURIComponent(companyId)}/email-mandates/proposals/${encodeURIComponent(item.source.reference)}/decision`,
-					{
-						method: 'POST',
-						headers: { 'content-type': 'application/json' },
-						credentials: 'same-origin',
-						body: JSON.stringify({ decision })
-					}
-				);
-				if (!response.ok) {
-					const body = await response.json().catch(() => null);
-					throw new Error(body?.message ?? 'The mandate decision was not recorded.');
-				}
+				await decideEmailMandateProposal(companyId, item.source.reference, decision);
 				await refreshAttention(client, companyId);
 			},
 			decision === 'approve' ? 'Mandate approved' : 'Mandate declined',

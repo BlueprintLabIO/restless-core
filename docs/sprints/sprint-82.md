@@ -285,18 +285,68 @@ way Linear's inbox does:
   passes.
 - Screenshots of the Inbox and the charter item were taken at 1440, 1024 and 390 px.
 
+### Second pass: every view onto the model layer, and every role
+
+The first cut fixed the jank centrally and left 21 views calling the network themselves. This pass
+moves all of them onto one data layer.
+
+- **`lib/model/setting.svelte.ts`** has three helpers:
+  - `settingQuery` is a cached read with an optional data-dependent poll: fast only while
+    something is installing or a sign-in is being checked.
+  - `saveSetting` writes a save's answer into the cache.
+  - `ownerRequest` is the one JSON request helper.
+- **Moved onto `settingQuery` and model functions:**
+  - email authority, custom harnesses, harness sign-in, the vault and Telegram;
+  - the company name, logo, intelligence picker and chip, copy-from-company, and limits;
+  - the model provider screen (`CompanyProvider`, onto `lib/model/provider.ts`);
+  - account connections (`AccountConnections`, onto `lib/model/account-connections.ts`);
+  - the shared charter, the Library, People, Work and the computer;
+  - the desktop viewer, the doctor, the Inbox detail, reference previews and attachments.
+
+  Each screen's own read, poll timer and sequence guard is gone; the cache does those jobs.
+- **Lint:** `check-ui-boundary.mjs` now fails on any `fetch(` in `lib/components`,
+  `lib/primitives` or `routes`. A planted call is caught.
+- **The charter draft is owner-only.** The charter read returns Exec's draft only to the owner;
+  members and admins read only the published charter.
+- **Two flickers the role checks found:**
+  - The owner's cockpit was revealed before the company list arrived, so the setup notice and the
+    Company badge appeared just after. The reveal now waits for every read still waiting for its
+    first answer, not only the company's own.
+  - The office floor said "Live view offline" for a moment while the computer's health was still
+    unknown or starting. It now says so only once a source has answered that it is down.
+
+- **A lapsed session is noticed at once again.** Hints no longer reload the principal, so an open
+  tab whose session ended (a role change, removal) noticed only at its next slow poll. When the
+  company change stream drops, the tab now re-reads its principal immediately, and once the stream
+  is back it catches up on any hint it missed. The multiplayer smoke found this: the same journey
+  passed on the pre-sprint web and failed on this one until the fix.
+
+**Verification:**
+- **Every role:** `scripts/multiplayer-smoke` (owner and two members, one later made admin, over
+  real network entry) now also checks:
+  - the cockpit appears once, settled, with no shown message vanishing, for owner, member and
+    admin;
+  - a member's charter `apply` is refused; her `propose` makes a draft that the owner sees and
+    the member and admin do not;
+  - the draft is an Inbox item; publishing it makes it the charter and closes the item;
+  - the owner's own direction is never filed as a request.
+- The multiplayer smoke passes all 28 steps. After a role change, the person's open tab re-enters
+  through the account by itself, and the test's own visit to the account can land in the middle of
+  it; the test retries that visit and logs each attempt. One retry was needed, and the second
+  attempt reached the account.
+- **`verify-steady.mjs`** gains `screens`: the ten settings and workspace screens open with no
+  page error and no server failure. A spend-limit save changes only the limit and its "saved"
+  time, and holds after a reload.
+- The full suite passes together (entry, hints, answer, charter, settings, screens). The entry
+  journey now sees no change at all after the reveal.
+
 ### Not done or not verified
 
-- **Admin and member journeys were not run on the dev stack**, which has only the owner. The
-  member cockpit entry is checked on Cloud after the deploy (see below).
 - **No model was connected on the dev stack.** The answer journey stands in a ready model route
   and intercepts the conversation. An Exec turn that follows the new charter doctrine needs a
   model; the next real charter request on Cloud is that check.
+- **The owner's view on Cloud** needs the owner's sign-in; the in-app browser holds a member's.
 - **The Cloud direct-link hop** (`/company_…` → `/account?return=` → back) is a Cloud gateway
   change: mint the company session before serving the app. It is not in this Core change.
-- **Raw `fetch` in settings components** (21 files) is unchanged. The jank came from blanket
-  refetches and stale reads landing over writes, and both are now fixed centrally. A component
-  that loads its own data without a cache cannot be overwritten by a stale shared read.
-- **The `CharterProposal` database scenario has no Rust test.** The live charter journey covers
-  it against the real stack.
-
+- **The `CharterProposal` database scenario has no Rust test.** The live charter journey and the
+  multiplayer smoke cover it against the real stack.
