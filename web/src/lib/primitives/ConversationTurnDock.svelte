@@ -69,14 +69,23 @@
 		void phase;
 		actionError = '';
 	});
+	/* Thinking is never in the summary line or its count; it is folded into the live notes. */
 	const visibleActivity = $derived(
 		(turn.live?.activity ?? []).filter((item) => item.kind !== 'thinking')
+	);
+	const allActivity = $derived(turn.live?.activity ?? []);
+	/* A turn can end without a message: it acted quietly. Say so, and open the Work it touched. */
+	const quiet = $derived(phase === 'complete' && turn.live?.completedMessageId === null);
+	const touchedWork = $derived(
+		quiet && turn.live?.workId && turn.live.company
+			? `/${encodeURIComponent(turn.live.company)}/work/${encodeURIComponent(turn.live.workId)}`
+			: null
 	);
 	const timeline = $derived.by((): TimelineItem[] => {
 		const characters = Array.from(reply);
 		const items: TimelineItem[] = [];
 		let cursor = 0;
-		for (const [index, activity] of visibleActivity.entries()) {
+		for (const [index, activity] of allActivity.entries()) {
 			const requested = Number.isFinite(activity.replyOffset) ? activity.replyOffset : 0;
 			const offset = Math.max(cursor, Math.min(characters.length, requested));
 			if (offset > cursor) {
@@ -130,8 +139,8 @@
 			case 'responding':
 				return `${participantName} is replying`;
 			case 'complete':
-				/* Done is not news: the reply itself says so. */
-				return 'Replied';
+				/* Done is not news: the reply itself says so. A turn with no message says that. */
+				return quiet ? 'Seen, no reply' : 'Replied';
 			case 'failed': {
 				/* Stopping is not failing: what was done is kept, and the message stays. */
 				if (turnStopped(turn.live?.error))
@@ -256,6 +265,11 @@
 				>{/if}
 			<span class="turn-chevron" aria-hidden="true">⌄</span>
 		</button>
+		{#if touchedWork}<a
+				class="turn-action"
+				href={touchedWork}
+				title={`${participantName} worked on this instead of replying`}>Open Work</a
+			>{/if}
 		{#if action}<button
 				type="button"
 				class="turn-action"
@@ -287,6 +301,13 @@
 							{#each timeline as item (item.id)}
 								{#if item.kind === 'text'}
 									<div class="streamed-copy"><Markdown text={item.text} streaming={working} /></div>
+								{:else if item.activity.kind === 'thinking'}
+									<details class="trace-thinking">
+										<summary>{item.activity.label || 'Thinking'}</summary>
+										{#if item.activity.detail && item.activity.detail !== item.activity.label}
+											<p>{item.activity.detail}</p>
+										{/if}
+									</details>
 								{:else}
 									<div class="trace-row" class:active={item.activity.status === 'active'}>
 										<span class="trace-state" aria-hidden="true"></span>
@@ -303,7 +324,7 @@
 						</div>
 						{#if working}<span class="stream-caret" aria-hidden="true"></span>{/if}
 					</article>
-				{:else if visibleActivity.length === 0 && phase !== 'failed'}
+				{:else if allActivity.length === 0 && phase !== 'failed'}
 					<p class="turn-awaiting">The first live update will appear here.</p>
 				{/if}
 
@@ -360,6 +381,7 @@
 		background: var(--surface);
 		color: var(--ink);
 		font: 500 var(--t-label) var(--font-ui);
+		text-decoration: none;
 		cursor: pointer;
 	}
 	.turn-action:hover:not(:disabled) {
@@ -523,6 +545,21 @@
 		gap: 7px;
 	}
 
+	/* Thinking stays folded: a quiet line the owner opens to see where the reply is heading. */
+	.trace-thinking {
+		padding: 2px 7px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.trace-thinking summary {
+		cursor: pointer;
+	}
+	.trace-thinking p {
+		margin: 4px 0 0;
+		color: var(--text-secondary);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
 	.trace-row {
 		position: relative;
 		display: grid;
