@@ -2321,13 +2321,14 @@
 		.conversation-workspace.with-work {
 			grid-template-columns: minmax(0, 1fr);
 		}
-		/* On a phone the Work toggle swaps the chat for the panel; Back returns (S88-05). */
+		/* On a phone the Work toggle swaps the chat for the panel in the same column; Back returns
+		 * (S88-05). */
 		.work-sheet {
-			position: fixed;
-			inset: 0;
-			z-index: 30;
 			border-radius: 0;
 			background: var(--surface-raised);
+		}
+		.selected.with-work .conversation-main {
+			display: none;
 		}
 		.work-sheet-back {
 			display: flex;
