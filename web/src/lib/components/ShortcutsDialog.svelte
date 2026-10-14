@@ -56,6 +56,10 @@
 			]
 		},
 		{
+			title: 'Computer',
+			keys: [['Shift Esc', 'Leave the live desktop for its controls; every other key goes to it']]
+		},
+		{
 			title: 'For you',
 			keys: [
 				['J / K', 'Next or previous item'],

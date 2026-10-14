@@ -6,6 +6,7 @@
 	import Maximize2 from '@lucide/svelte/icons/maximize-2';
 	import Minimize2 from '@lucide/svelte/icons/minimize-2';
 	import Clipboard from '@lucide/svelte/icons/clipboard';
+	import Keyboard from '@lucide/svelte/icons/keyboard';
 
 	type Rfb = {
 		scaleViewport: boolean;
@@ -21,6 +22,7 @@
 		removeEventListener: (type: string, listener: EventListener) => void;
 		disconnect: () => void;
 		clipboardPasteFrom: (text: string) => void;
+		sendKey: (keysym: number, code: string | null, down?: boolean) => void;
 	};
 	type RfbConstructor = new (target: HTMLElement, url: string) => Rfb;
 	type Status = 'connecting' | 'connected' | 'reconnecting' | 'error';
@@ -29,6 +31,28 @@
 	const MAX_CLIPS = 8;
 	const MAX_CLIP_LENGTH = 64000;
 	const MAX_DESKTOP_FRAMEBUFFER = { width: 3840, height: 2160 };
+	/* X11 keysyms for the keys a phone keyboard lacks. */
+	const KEY = {
+		Escape: 0xff1b,
+		Tab: 0xff09,
+		Return: 0xff0d,
+		BackSpace: 0xff08,
+		Left: 0xff51,
+		Up: 0xff52,
+		Right: 0xff53,
+		Down: 0xff54,
+		Control: 0xffe3,
+		Alt: 0xffe9
+	} as const;
+	const EXTRA_KEYS: { label: string; name: string; keysym: number; code: string }[] = [
+		{ label: 'Esc', name: 'Escape', keysym: KEY.Escape, code: 'Escape' },
+		{ label: 'Tab', name: 'Tab', keysym: KEY.Tab, code: 'Tab' },
+		{ label: '←', name: 'Left arrow', keysym: KEY.Left, code: 'ArrowLeft' },
+		{ label: '↑', name: 'Up arrow', keysym: KEY.Up, code: 'ArrowUp' },
+		{ label: '↓', name: 'Down arrow', keysym: KEY.Down, code: 'ArrowDown' },
+		{ label: '→', name: 'Right arrow', keysym: KEY.Right, code: 'ArrowRight' },
+		{ label: 'Enter', name: 'Enter', keysym: KEY.Return, code: 'Enter' }
+	];
 
 	let {
 		src = '',
@@ -88,6 +112,11 @@
 	let resizeFrame = 0;
 	let physicalResize = $state(false);
 	let reportDisplaySize: (() => void) | undefined;
+	let keyboardOpen = $state(false);
+	let keyboardInput = $state<HTMLInputElement>();
+	let ctrlLatched = $state(false);
+	let altLatched = $state(false);
+	let focusAnnouncement = $state('');
 
 	function report(next: Status, detail = '') {
 		status = next;
@@ -299,6 +328,13 @@
 			'keyup'
 		] as const;
 		for (const name of inputEvents) display.addEventListener(name, captureActivity, true);
+		const announceFocus = () => {
+			focusAnnouncement =
+				'Keys now go to the company computer. Press Shift and Escape to return to the desktop controls.';
+		};
+		const clearAnnouncement = () => (focusAnnouncement = '');
+		display.addEventListener('focusin', announceFocus);
+		display.addEventListener('focusout', clearAnnouncement);
 		untrack(() => {
 			clearTimeout(retryTimer);
 			rfb?.disconnect();
@@ -309,6 +345,8 @@
 		return () => {
 			if (current === generation) generation += 1;
 			for (const name of inputEvents) display.removeEventListener(name, captureActivity, true);
+			display.removeEventListener('focusin', announceFocus);
+			display.removeEventListener('focusout', clearAnnouncement);
 			clearTimeout(retryTimer);
 			untrack(() => {
 				rfb?.disconnect();
@@ -493,6 +531,91 @@
 		onactivity?.();
 	}
 
+	/* A phone has no hardware keys: a hidden input raises the soft keyboard and its text is sent
+	 * to the computer as key presses, with Ctrl and Alt latched from the extra-keys row. */
+	async function mayType(): Promise<boolean> {
+		if (!rfb || status !== 'connected') return false;
+		if (interactive) return true;
+		if (!onclaim || claiming) return false;
+		claiming = true;
+		try {
+			const granted = await onclaim();
+			await tick();
+			return granted && interactive && !!rfb;
+		} finally {
+			claiming = false;
+		}
+	}
+
+	function press(keysym: number, code: string | null) {
+		const client = rfb;
+		if (!client) return;
+		const ctrl = ctrlLatched;
+		const alt = altLatched;
+		if (ctrl) client.sendKey(KEY.Control, 'ControlLeft', true);
+		if (alt) client.sendKey(KEY.Alt, 'AltLeft', true);
+		client.sendKey(keysym, code, true);
+		client.sendKey(keysym, code, false);
+		if (alt) client.sendKey(KEY.Alt, 'AltLeft', false);
+		if (ctrl) client.sendKey(KEY.Control, 'ControlLeft', false);
+		ctrlLatched = false;
+		altLatched = false;
+		onactivity?.();
+	}
+
+	function charKeysym(char: string): number {
+		const point = char.codePointAt(0) ?? 0;
+		return point < 0x100 ? point : 0x01000000 + point;
+	}
+
+	async function sendExtraKey(keysym: number, code: string) {
+		if (await mayType()) press(keysym, code);
+		keyboardInput?.focus();
+	}
+
+	async function pasteKey() {
+		if (!(await mayType())) return;
+		ctrlLatched = true;
+		press(charKeysym('v'), 'KeyV');
+		keyboardInput?.focus();
+	}
+
+	async function openKeyboard() {
+		keyboardOpen = !keyboardOpen;
+		if (!keyboardOpen) return;
+		await tick();
+		keyboardInput?.focus();
+	}
+
+	/* The input keeps one space so a soft keyboard's delete still reports itself on an empty line. */
+	const SENTINEL = ' ';
+
+	async function forwardTyping(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const typed = event as InputEvent;
+		const text = typed.data ?? input.value.slice(SENTINEL.length);
+		const kind = typed.inputType;
+		input.value = SENTINEL;
+		if (!(await mayType())) return;
+		if (kind === 'deleteContentBackward') press(KEY.BackSpace, 'Backspace');
+		else if (kind === 'insertLineBreak') press(KEY.Return, 'Enter');
+		else for (const char of text) press(charKeysym(char), null);
+	}
+
+	function forwardKeyboardKey(event: KeyboardEvent) {
+		/* Keys that produce no input event on a soft keyboard. */
+		const keys: Record<string, [number, string]> = {
+			Enter: [KEY.Return, 'Enter'],
+			Backspace: [KEY.BackSpace, 'Backspace'],
+			Tab: [KEY.Tab, 'Tab'],
+			Escape: [KEY.Escape, 'Escape']
+		};
+		const mapped = keys[event.key];
+		if (!mapped) return;
+		event.preventDefault();
+		void mayType().then((ok) => ok && press(...mapped));
+	}
+
 	async function toggleFullscreen() {
 		if (!target) return;
 		try {
@@ -583,7 +706,7 @@
 				onactivity?.();
 				rememberClip('manual', text);
 				clipboardDraft = '';
-				clipboardFeedback = 'Sent to the computer. Press Ctrl+V in the company app.';
+				clipboardFeedback = 'Sent to the computer. Press Ctrl+V, or Paste on the keyboard row.';
 			} catch {
 				clipboardFeedback = 'Could not send the text. Try again.';
 			}
@@ -610,7 +733,7 @@
 		}
 		rfb.clipboardPasteFrom(clip.text);
 		onactivity?.();
-		clipboardFeedback = 'Sent to the computer. Press Ctrl+V in the company app.';
+		clipboardFeedback = 'Sent to the computer. Press Ctrl+V, or Paste on the keyboard row.';
 	}
 
 	function retryConnection() {
@@ -639,7 +762,12 @@
 	{#if src}
 		<div bind:this={screen} class="desktop-screen" aria-label={title}></div>
 		<div class="desktop-tools" aria-label="Desktop controls">
-			<span class="desktop-live" role="status">
+			<span class="sr-only" aria-live="polite">{focusAnnouncement}</span>
+			<span
+				class="desktop-live"
+				role="status"
+				title="Inside the desktop every key goes to the computer. Shift+Esc returns to these controls."
+			>
 				{status === 'connected'
 					? interactive
 						? 'You’re using the computer'
@@ -651,6 +779,16 @@
 							: 'Connecting'}
 			</span>
 			<div class="desktop-tool-actions">
+				<button
+					type="button"
+					class="desktop-keyboard-toggle"
+					title="Type on the computer from this device’s keyboard"
+					aria-label="Keyboard"
+					aria-pressed={keyboardOpen}
+					onclick={() => void openKeyboard()}
+				>
+					<Keyboard size={14} />
+				</button>
 				<button
 					type="button"
 					title="Open clipboard panel"
@@ -670,6 +808,54 @@
 				</button>
 			</div>
 		</div>
+		{#if keyboardOpen}
+			<div class="desktop-keys" role="group" aria-label="Keys for the company computer">
+				<input
+					bind:this={keyboardInput}
+					class="desktop-key-input"
+					aria-label="Type on the company computer"
+					autocomplete="off"
+					autocapitalize="off"
+					spellcheck="false"
+					enterkeyhint="send"
+					value={SENTINEL}
+					onfocus={(event) => event.currentTarget.setSelectionRange(1, 1)}
+					oninput={(event) => void forwardTyping(event)}
+					onkeydown={forwardKeyboardKey}
+				/>
+				<button
+					type="button"
+					aria-pressed={ctrlLatched}
+					title="Hold Ctrl for the next key"
+					onclick={() => {
+						ctrlLatched = !ctrlLatched;
+						keyboardInput?.focus();
+					}}>Ctrl</button
+				>
+				<button
+					type="button"
+					aria-pressed={altLatched}
+					title="Hold Alt for the next key"
+					onclick={() => {
+						altLatched = !altLatched;
+						keyboardInput?.focus();
+					}}>Alt</button
+				>
+				{#each EXTRA_KEYS as key (key.code)}
+					<button
+						type="button"
+						aria-label={key.name}
+						title={key.name}
+						onclick={() => void sendExtraKey(key.keysym, key.code)}>{key.label}</button
+					>
+				{/each}
+				<button
+					type="button"
+					title="Paste what the clipboard panel sent (Ctrl+V)"
+					onclick={() => void pasteKey()}>Paste</button
+				>
+			</div>
+		{/if}
 		{#if clipboardPanelOpen}
 			<div
 				bind:this={clipboardPanel}
@@ -1125,6 +1311,48 @@
 	@media (max-width: 360px) {
 		.clipboard-panel-actions button {
 			font-size: var(--t-label);
+		}
+	}
+	.desktop-keys {
+		position: relative;
+		z-index: 2;
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		overflow-x: auto;
+		padding: 4px max(8px, env(safe-area-inset-right)) 4px max(8px, env(safe-area-inset-left));
+		border-top: 1px solid var(--border);
+		background: var(--surface-pane);
+	}
+	.desktop-keys button {
+		flex: 0 0 auto;
+		min-width: 40px;
+		min-height: 36px;
+		padding: 0 10px;
+		border: 1px solid var(--control-edge);
+		border-radius: 6px;
+		color: var(--ink);
+		background: var(--surface-alt);
+		font: var(--t-label) var(--font-ui);
+		cursor: pointer;
+	}
+	.desktop-keys button[aria-pressed='true'] {
+		border-color: var(--intent-conversation);
+		background: color-mix(in srgb, var(--intent-conversation) 14%, var(--surface));
+	}
+	/* Kept focusable and on screen so the soft keyboard rises, but out of the way. */
+	.desktop-key-input {
+		flex: 0 0 1px;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		border: 0;
+		opacity: 0;
+	}
+	/* A hardware keyboard types into the desktop directly. */
+	@media (pointer: fine) {
+		.desktop-keyboard-toggle:not([aria-pressed='true']) {
+			display: none !important;
 		}
 	}
 	.desktop-viewport-empty {
