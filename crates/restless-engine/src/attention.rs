@@ -562,6 +562,238 @@ fn ledger_spend_stopped_item(config: &CompanyConfig, spend: &crate::spend::Spend
     ))
 }
 
+/// How long a failed or unknown outside action stays in the Inbox; older ones live in Activity.
+const EFFECT_OUTCOME_WINDOW_DAYS: i64 = 14;
+/// An intent with no receipt this long after it started is an unknown outcome, not one in flight.
+const EFFECT_UNKNOWN_AFTER_MINUTES: i64 = 10;
+
+/// A call the owner allowed, or a payment the owner approved, that then failed or whose outcome
+/// is unknown. One item each, with the Work it served; it clears when a later run succeeds or the
+/// owner sets it aside.
+async fn effect_outcome_items(
+    config: &CompanyConfig,
+    authority: &crate::authority::AuthorityStore,
+    actors: &HashMap<String, AttentionActorRef>,
+) -> Result<Vec<AttentionItem>> {
+    let since = Utc::now() - chrono::Duration::days(EFFECT_OUTCOME_WINDOW_DAYS);
+    let company = config.name.as_str();
+    let activity = format!("/{company}/company/activity?show=external");
+    let mut items = Vec::new();
+    let mut seen = HashSet::new();
+    for approved in authority.records_of_kind(company, "tool_call_approved").await? {
+        if approved.created_at < since {
+            continue;
+        }
+        let Some(key) = approved.body.get("call_key").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        if !seen.insert(key.to_string()) {
+            continue;
+        }
+        let receipt = authority.find_record(company, "effect", "idempotency_key", key).await?;
+        let intent = authority
+            .find_record(company, "effect_intent", "idempotency_key", key)
+            .await?;
+        let execution = |record: &crate::authority::AuthorityRecord| {
+            record.body.get("execution_no").and_then(serde_json::Value::as_u64).unwrap_or(0)
+        };
+        let unknown_intent = intent.as_ref().filter(|intent| {
+            receipt.as_ref().is_none_or(|receipt| execution(intent) > execution(receipt))
+                && intent.created_at < Utc::now() - chrono::Duration::minutes(EFFECT_UNKNOWN_AFTER_MINUTES)
+        });
+        let (unknown, record) = match (unknown_intent, receipt.as_ref()) {
+            (Some(intent), _) => (true, intent),
+            (None, Some(receipt)) => {
+                let failed = receipt.body.get("success") == Some(&serde_json::Value::Bool(false))
+                    || receipt.body.get("outcome").map(crate::reconcile::outcome_of)
+                        == Some(crate::reconcile::Outcome::Failed);
+                let unknown = receipt.body.get("outcome").map(crate::reconcile::outcome_of)
+                    == Some(crate::reconcile::Outcome::Unknown);
+                if !failed && !unknown {
+                    continue;
+                }
+                (unknown && !failed, receipt)
+            }
+            (None, None) => continue,
+        };
+        let field = |name: &str| {
+            record
+                .body
+                .get(name)
+                .or_else(|| approved.body.get(name))
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        };
+        let tool = field("tool").unwrap_or("The call");
+        let what = field("purpose").map_or_else(|| format!("{tool} call"), str::to_owned);
+        let actor = record.actor_id.as_deref().unwrap_or("exec");
+        let detail = record
+            .body
+            .pointer("/outcome/result")
+            .or_else(|| record.body.pointer("/outcome/stderr"))
+            .map(|value| match value {
+                serde_json::Value::String(text) => text.clone(),
+                other => other.to_string(),
+            })
+            .filter(|text| !text.trim().is_empty())
+            .map(|text| text.chars().take(1_200).collect::<String>());
+        let work_id = body_work_id(&record.body).or_else(|| body_work_id(&approved.body));
+        let entry = if unknown_intent.is_some() {
+            format!("intent:{}", record.id)
+        } else {
+            record.body.get("id").and_then(serde_json::Value::as_str).unwrap_or_default().to_string()
+        };
+        items.push(effect_outcome_item(
+            EffectOutcome {
+                id: format!("authority:effect_outcome:{key}"),
+                reference: key.to_string(),
+                kind: "effect_outcome",
+                title: if unknown {
+                    format!("Did it happen? {what}")
+                } else {
+                    format!("Failed after you allowed it: {what}")
+                },
+                what_happened: if unknown {
+                    format!("You allowed this {tool} call. It started, but no result came back, so nobody knows whether it reached the other side.")
+                } else {
+                    format!("You allowed this {tool} call. It ran and failed.")
+                },
+                unknown,
+                detail,
+                work_id,
+                actor: actors.get(actor).cloned(),
+                activity: format!("{activity}&open={}", encode_component(&entry)),
+                at: record.created_at,
+            },
+        ));
+    }
+    for payment in crate::finance::payments(authority, company).await? {
+        use crate::finance::PaymentState;
+        if payment.updated_at < since
+            || !matches!(payment.state, PaymentState::Failed | PaymentState::Unknown | PaymentState::Blocked)
+        {
+            continue;
+        }
+        let unknown = payment.state == PaymentState::Unknown;
+        let amount = format!(
+            "{} {} to {}",
+            format_minor(payment.request.amount_minor),
+            payment.request.currency,
+            payment.request.provider_beneficiary_ref
+        );
+        items.push(effect_outcome_item(
+            EffectOutcome {
+                id: format!("authority:payment_outcome:{}", payment.request.idempotency_key),
+                reference: payment.request.idempotency_key.clone(),
+                kind: "payment_outcome",
+                title: if unknown {
+                    format!("Did it happen? Payment of {amount}")
+                } else {
+                    format!("Payment of {amount} did not go through")
+                },
+                what_happened: format!(
+                    "{}. The payment provider reports it {}.",
+                    payment.request.purpose.trim_end_matches('.'),
+                    payment.state.as_str()
+                ),
+                unknown,
+                detail: payment.raw_provider_status.clone(),
+                work_id: Some(payment.request.work_id),
+                actor: actors.get(&payment.request.requesting_actor).cloned(),
+                activity: format!(
+                    "{activity}&open={}",
+                    encode_component(&format!("payment:{}", payment.request.idempotency_key))
+                ),
+                at: payment.updated_at,
+            },
+        ));
+    }
+    Ok(items)
+}
+
+struct EffectOutcome {
+    id: String,
+    reference: String,
+    kind: &'static str,
+    title: String,
+    what_happened: String,
+    unknown: bool,
+    detail: Option<String>,
+    work_id: Option<uuid::Uuid>,
+    actor: Option<AttentionActorRef>,
+    activity: String,
+    at: DateTime<Utc>,
+}
+
+fn effect_outcome_item(outcome: EffectOutcome) -> AttentionItem {
+    // The Work it served opens from the item itself; the receipt lives in Activity.
+    let actions = vec![AttentionAction {
+        id: "open-activity".into(),
+        label: "Open in Activity".into(),
+        role: "inspect",
+        consequence: "Shows the recorded receipt for this outside action.".into(),
+        next_state: "Nothing changes until you decide.".into(),
+        href: Some(outcome.activity),
+    }];
+    AttentionItem {
+        id: outcome.id,
+        work_id: outcome.work_id,
+        source: AttentionSource {
+            plane: "authority",
+            kind: outcome.kind.into(),
+            reference: outcome.reference,
+            party: None,
+            call_key: None,
+        },
+        category: "risk".into(),
+        title: outcome.title,
+        what_happened: outcome.what_happened,
+        why_it_matters: if outcome.unknown {
+            "An outside action with an unknown result is not retried blindly: running it again could send or pay twice.".into()
+        } else {
+            "What you allowed did not happen, and the work that depended on it may be waiting.".into()
+        },
+        recommendation: if outcome.unknown {
+            "Check with the other side whether it happened, then tell Exec so it retries or moves on.".into()
+        } else {
+            "Ask Exec to fix and retry it, or set it aside to drop it.".into()
+        },
+        requested_action: if outcome.unknown {
+            "Find out whether it happened, then tell Exec.".into()
+        } else {
+            "Retry through Exec, or drop it.".into()
+        },
+        if_no_action: "Nothing is retried on its own; the work that needed it stays where it is.".into(),
+        uncertainty: outcome.unknown.then(|| "No result was recorded, so it may or may not have happened.".into()),
+        deadline: None,
+        brief_status: "source-observed",
+        brief_author: None,
+        briefed_at: None,
+        evidence: outcome
+            .detail
+            .map(|content| AttentionEvidence {
+                label: "What came back".into(),
+                uri: None,
+                content: Some(content),
+                kind: "runtime-observation",
+            })
+            .into_iter()
+            .collect(),
+        review_sources: Vec::new(),
+        responsible_actor: outcome.actor,
+        runtime_attach: None,
+        review_target: None,
+        native_document: None,
+        direction_request: None,
+        charter_proposal: None,
+        actions,
+        can_continue: true,
+        preparing: false,
+        created_at: outcome.at,
+    }
+}
+
 /// Open direction requests routed to `viewer` (the owner sees every one), and approved ones that
 /// failed to be carried out, as Inbox items: the
 /// request in the person's words, and Approve, Always allow and Decline in its detail (S80).
@@ -859,7 +1091,7 @@ async fn project_queue(
         evidence.extend(draft_attachments(&command));
         items.push(AttentionItem {
             id: format!("authority:approval:{}:{}", capability, party),
-            work_id: None,
+            work_id: body_work_id(&event.body),
             source: AttentionSource {
                 plane: "authority",
                 kind: "approval_required".into(),
@@ -934,7 +1166,7 @@ async fn project_queue(
             .unwrap_or_else(|| prepared_by.to_string());
         items.push(AttentionItem {
             id: format!("authority:tool-call:{key}"),
-            work_id: None,
+            work_id: body_work_id(&event.body),
             source: AttentionSource {
                 plane: "authority",
                 kind: "approval_required".into(),
@@ -2001,6 +2233,10 @@ async fn project_queue(
             }
         }
     }
+    match effect_outcome_items(config, authority, &actors).await {
+        Ok(outcomes) => items.extend(outcomes),
+        Err(error) => tracing::warn!(%error, "outside-action outcomes unavailable"),
+    }
     if let Some(warning) = spend.and_then(|spend| spend_warning_item(config, spend)) {
         items.push(warning);
     }
@@ -2350,7 +2586,7 @@ async fn authority_decisions(
             };
             rows.push(DecisionContinuation {
                 id: format!("authority:{}", record.id),
-                work_id: None,
+                work_id: request.and_then(|request| body_work_id(&request.body)),
                 title: format!("First contact with {party}"),
                 recorded_decision: with_owner_note(decision, note.as_deref()),
                 what_it_unlocked: unlocked,
@@ -2400,7 +2636,7 @@ async fn authority_decisions(
             };
             rows.push(DecisionContinuation {
                 id: format!("authority:{}", record.id),
-                work_id: None,
+                work_id: request.and_then(|request| body_work_id(&request.body)),
                 title,
                 recorded_decision: with_owner_note(
                     if record.body.get("tool_acts") == Some(&Value::Bool(true)) {
@@ -2728,6 +2964,17 @@ fn human_step_title(category: restless_orgintel::OwnerHandoffCategory) -> &'stat
             "A decision needs your judgement"
         }
     }
+}
+
+fn encode_component(value: &str) -> String {
+    url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+
+/// The Work an Authority record says it served, when it says so.
+fn body_work_id(body: &serde_json::Value) -> Option<uuid::Uuid> {
+    body.get("work_id")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|id| uuid::Uuid::parse_str(id).ok())
 }
 
 fn format_minor(amount: i64) -> String {

@@ -210,6 +210,8 @@ export interface CompanyExternalAction {
 	party?: string;
 	receipt_ref?: string;
 	detail?: string;
+	/** The Work this action served, when its record says so. */
+	work_id?: string;
 	observed_at: string;
 }
 

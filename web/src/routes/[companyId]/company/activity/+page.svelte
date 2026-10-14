@@ -23,15 +23,17 @@
 	const company = $derived(companyQuery(companyId));
 	$effect(() => company.attach());
 	const graph = $derived(attention.view?.workGraph ?? null);
-	/* The Inbox's "Recently decided" arrives with ?show=decisions. */
+	/* The Inbox's "Recently decided" arrives with ?show=decisions; a link to one entry (an
+	 * outside action that failed, a decision someone else made) with ?q= and ?open=. */
+	const shown = page.url.searchParams.get('show');
 	let filter = $state<'all' | 'decisions' | 'external' | 'changes'>(
-		page.url.searchParams.get('show') === 'decisions' ? 'decisions' : 'all'
+		shown === 'decisions' || shown === 'external' || shown === 'changes' ? shown : 'all'
 	);
-	let search = $state('');
+	let search = $state(page.url.searchParams.get('q') ?? '');
 	let person = $state('');
 	/* One day, as YYYY-MM-DD from the date field; empty shows every day. */
 	let day = $state('');
-	let open = $state('');
+	let open = $state(page.url.searchParams.get('open') ?? '');
 
 	/* Decision history is read a page at a time, apart from the Inbox poll: every answered
 	 * item and every approval or decline, however old, one "Show earlier" away. */
@@ -165,6 +167,7 @@
 				evidence: string;
 				detail: string | null;
 				actor: string;
+				workId?: string;
 		  };
 
 	const decisions = $derived<Entry[]>(
@@ -213,7 +216,8 @@
 			state: item.state,
 			evidence: item.evidence,
 			detail: item.detail ?? null,
-			actor: item.actor ?? 'source record'
+			actor: item.actor ?? 'source record',
+			workId: item.work_id
 		}))
 	);
 	const who = (entry: Entry) =>
@@ -486,6 +490,13 @@
 									{#if entry.detail}<div>
 											<dt>Detail</dt>
 											<dd>{entry.detail}</dd>
+										</div>{/if}
+									{#if entry.workId}<div class="follow-up">
+											<a
+												class="btn small"
+												href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(entry.workId)}`}
+												>Open work</a
+											>
 										</div>{/if}
 								{/if}
 							</dl>

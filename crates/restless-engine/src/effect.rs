@@ -341,6 +341,7 @@ pub async fn request_effect(
                     "draft_digest": draft,
                     "reason": reason,
                     "prepared_command": command_document,
+                    "work_id": serving_work(org, actor).await,
                 }),
             )
             .await?;
@@ -373,6 +374,7 @@ pub async fn request_effect(
     let slot = effect_child_slot(&container).await;
     let _slot = slot.lock().await;
     let (child_argv, staging_dir) = stage_declared_artifacts(&container, &argv, &artifacts).await?;
+    let work = serving_work(org, actor).await;
     let intent = serde_json::json!({
         "idempotency_key": key,
         "execution_no": execution_no,
@@ -383,6 +385,7 @@ pub async fn request_effect(
         "artifacts": artifacts,
         "command": command_document,
         "started_at": Utc::now(),
+        "work_id": work,
     });
     match authority
         .claim_effect_intent(&config.name, actor, intent)
@@ -435,13 +438,12 @@ pub async fn request_effect(
         arguments: None,
         parties: Vec::new(),
     };
+    let mut record = serde_json::to_value(&receipt)?;
+    if let Some(work_id) = work {
+        record["work_id"] = serde_json::json!(work_id);
+    }
     authority
-        .emit(
-            &config.name,
-            "effect",
-            Some(actor),
-            serde_json::to_value(&receipt)?,
-        )
+        .emit(&config.name, "effect", Some(actor), record)
         .await?;
     if let Some(earlier_key) = repeat {
         authority.emit(&config.name, "effect_repeat_party", Some(actor), serde_json::json!({
@@ -449,6 +451,15 @@ pub async fn request_effect(
         })).await?;
     }
     Ok(receipt)
+}
+
+/// The Work an actor's effect serves: its one running attempt, if it has exactly one. The owner
+/// sees it beside the approval and the receipt; it never enters the command or its digest.
+async fn serving_work(org: Option<&restless_orgintel::OrgIntel>, actor: &str) -> Option<Uuid> {
+    let attempts = org?.list_running_work_attempts().await.ok()?;
+    let mut serving = attempts.iter().filter(|attempt| attempt.actor_id == actor);
+    let first = serving.next()?;
+    serving.next().is_none().then_some(first.work_id)
 }
 
 /// The idempotency rule every governed effect shares: a successful receipt
@@ -1022,6 +1033,7 @@ where
                             "purpose": purpose,
                             "reason": reason,
                             "prepared_command": command_document,
+                            "work_id": call_work,
                         }),
                     )
                     .await?;
@@ -1067,6 +1079,7 @@ where
                         "draft_digest": command_digest,
                         "reason": reason,
                         "prepared_command": command_document,
+                        "work_id": call_work,
                     }),
                 )
                 .await?;
@@ -1107,6 +1120,7 @@ where
         "purpose": purpose,
         "command": command_document,
         "started_at": Utc::now(),
+        "work_id": call_work,
     });
     if !authority
         .claim_effect_intent(&config.name, actor, intent)

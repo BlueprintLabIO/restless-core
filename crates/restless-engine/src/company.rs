@@ -287,6 +287,9 @@ struct ExternalActionRow {
     receipt_ref: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     detail: Option<String>,
+    /// The Work this action served, when its record says so.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_id: Option<String>,
     observed_at: DateTime<Utc>,
 }
 
@@ -1363,6 +1366,7 @@ fn actions(authority: Option<&AuthorityProjection>) -> ExternalActions {
                     "Execution {} has durable intent but no result receipt.",
                     execution_no(&row.body)
                 )),
+                work_id: body_work_id(&row.body),
                 observed_at: row.created_at,
             }),
     );
@@ -1396,6 +1400,7 @@ fn actions(authority: Option<&AuthorityProjection>) -> ExternalActions {
             receipt_ref: status.and_then(|record| record.body.get("provider_ref"))
                 .and_then(serde_json::Value::as_str).map(str::to_owned),
             detail: Some(detail.into()),
+            work_id: None,
             observed_at: status.map(|record| record.created_at).unwrap_or(reservation.created_at),
         })
     }));
@@ -1422,6 +1427,7 @@ fn actions(authority: Option<&AuthorityProjection>) -> ExternalActions {
                 payment.request.currency,
                 payment.request.source_account_ref
             )),
+            work_id: Some(payment.request.work_id.to_string()),
             observed_at: payment.updated_at,
         }
     }));
@@ -1527,6 +1533,7 @@ pub async fn governance_activity(
                         .and_then(serde_json::Value::as_str)
                         .map(str::to_owned),
                     detail: Some(detail.into()),
+                    work_id: None,
                     observed_at: status
                         .as_ref()
                         .map(|record| record.created_at)
@@ -1546,6 +1553,7 @@ pub async fn governance_activity(
                         party: None,
                         receipt_ref: None,
                         detail: None,
+                        work_id: None,
                         observed_at: row.created_at,
                     });
                 }
@@ -1678,8 +1686,15 @@ fn action_from_receipt(
             .and_then(|outcome| outcome.get("status"))
             .and_then(serde_json::Value::as_str)
             .map(|status| format!("Reported outcome: {status}")),
+        work_id: body_work_id(&row.body),
         observed_at: row.created_at,
     }
+}
+
+fn body_work_id(body: &serde_json::Value) -> Option<String> {
+    body.get("work_id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
 }
 
 fn company_doctor(
