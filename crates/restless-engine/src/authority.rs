@@ -112,19 +112,36 @@ impl AuthorityStore {
             .await
             .context("connect Authority store")?;
         // Several daemon/test callers may open the one installation-wide
-        // Authority store concurrently. PostgreSQL's `IF NOT EXISTS` DDL is
-        // not race-free: concurrent schema/type creation can still collide in
-        // system catalogues. A transaction-scoped advisory lock serializes
-        // only this short, idempotent bootstrap and releases automatically on
-        // every error path.
-        let mut bootstrap = pool.begin().await.context("begin Authority bootstrap")?;
-        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        // Authority store concurrently, and PostgreSQL's `IF NOT EXISTS` DDL is
+        // not race-free against itself. One session-level advisory lock
+        // serializes every caller's schema bootstrap.
+        //
+        // The DDL deliberately runs as autocommit statements, not one
+        // transaction. A no-op `ALTER TABLE` or `CREATE INDEX IF NOT EXISTS`
+        // still takes a strong table lock; held to the end of a transaction,
+        // those locks deadlocked against live admissions that lock the same
+        // tables in another order. Each statement is idempotent, so a partial
+        // bootstrap is completed by the next caller.
+        let mut serializer = pool.acquire().await.context("acquire schema serializer")?;
+        sqlx::query("SELECT pg_advisory_lock($1)")
             .bind(0x5253_544c_4155_5448_i64)
-            .execute(&mut *bootstrap)
+            .execute(&mut *serializer)
             .await
-            .context("serialize Authority bootstrap")?;
+            .context("serialize Authority schema bootstrap")?;
+        let bootstrap_result = Self::bootstrap_schema(&mut serializer, &pool).await;
+        sqlx::query("SELECT pg_advisory_unlock($1)")
+            .bind(0x5253_544c_4155_5448_i64)
+            .execute(&mut *serializer)
+            .await
+            .context("release Authority schema bootstrap lock")?;
+        bootstrap_result?;
+        Ok(Self { pool })
+    }
+
+    /// Idempotent Authority schema DDL. The caller holds the bootstrap lock.
+    async fn bootstrap_schema(bootstrap: &mut sqlx::PgConnection, pool: &PgPool) -> Result<()> {
         // Fixed identifiers only. No company or request data is interpolated.
-        // Runs on the locked transaction, not the bare pool -- an unlocked
+        // Runs on the locked connection, not the bare pool -- an unlocked
         // connection here would race every other caller's unlocked DDL.
         sqlx::query("CREATE SCHEMA IF NOT EXISTS restless_authority")
             .execute(&mut *bootstrap)
@@ -257,8 +274,6 @@ impl AuthorityStore {
                 .await
                 .with_context(|| format!("index {name}"))?;
         }
-        // Was a second transaction with its own advisory lock (7310026); merged
-        // into the one above since a single caller always acquired both in order.
         sqlx::query(
             "CREATE UNIQUE INDEX IF NOT EXISTS authority_company_identity_decision \
              ON restless_authority.records \
@@ -433,40 +448,14 @@ impl AuthorityStore {
         .execute(&mut *bootstrap)
         .await
         .context("create model cooldowns")?;
-        // Commit before the other modules' ensure_schema(&pool) calls: they run
-        // on a separate session that can't see these objects until it commits.
-        bootstrap
-            .commit()
-            .await
-            .context("complete Authority bootstrap")?;
-        // Each ensure_schema below still runs its own unguarded `&pool` DDL, and
-        // `CREATE TABLE IF NOT EXISTS` isn't race-free against pg_type catalogue
-        // collisions -- serialize them with a session-level lock (no single
-        // transaction spans these four independent calls to scope it to).
-        let mut serializer = pool.acquire().await.context("acquire schema serializer")?;
-        sqlx::query("SELECT pg_advisory_lock($1)")
-            .bind(0x5253_544c_4155_5448_i64)
-            .execute(&mut *serializer)
-            .await
-            .context("serialize dependent-module Authority schema bootstrap")?;
-        let ensure_result = async {
-            crate::legal::ensure_schema(&pool).await?;
-            crate::finance::ensure_schema(&pool).await?;
-            crate::airwallex::ensure_schema(&pool).await?;
-            crate::connections::ensure_schema(&pool).await?;
-            crate::telegram::ensure_schema(&pool).await?;
-            crate::member_access::ensure_schema(&pool).await?;
-            crate::direction_authority::ensure_schema(&pool).await?;
-            Ok::<_, anyhow::Error>(())
-        }
-        .await;
-        sqlx::query("SELECT pg_advisory_unlock($1)")
-            .bind(0x5253_544c_4155_5448_i64)
-            .execute(&mut *serializer)
-            .await
-            .context("release dependent-module Authority schema bootstrap lock")?;
-        ensure_result?;
-        Ok(Self { pool })
+        crate::legal::ensure_schema(pool).await?;
+        crate::finance::ensure_schema(pool).await?;
+        crate::airwallex::ensure_schema(pool).await?;
+        crate::connections::ensure_schema(pool).await?;
+        crate::telegram::ensure_schema(pool).await?;
+        crate::member_access::ensure_schema(pool).await?;
+        crate::direction_authority::ensure_schema(pool).await?;
+        Ok(())
     }
 
     pub fn pool(&self) -> &PgPool {
