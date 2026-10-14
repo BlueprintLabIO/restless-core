@@ -3,6 +3,7 @@
  * Each returns what its view needs: a parsed answer, or the raw response where the view decides by
  * status (the company computer's leases).
  */
+import { responseFailure } from './failure';
 import { ownerRequest } from './setting.svelte';
 
 const api = (company: string) => `/api/companies/${encodeURIComponent(company)}`;
@@ -91,4 +92,11 @@ export async function readAttachmentBytes(href: string): Promise<Response> {
 	if (!response.ok)
 		throw Object.assign(new Error('The file could not be read.'), { status: response.status });
 	return response;
+}
+
+/** The bytes of a file at a same-origin address (an upload's download link). */
+export async function readFileBytes(href: string): Promise<ArrayBuffer> {
+	const response = await fetch(href, { credentials: 'same-origin', cache: 'no-store' });
+	if (!response.ok) throw await responseFailure(response);
+	return response.arrayBuffer();
 }

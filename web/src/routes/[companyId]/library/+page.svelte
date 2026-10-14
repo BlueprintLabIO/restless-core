@@ -5,7 +5,11 @@
 	 * sends in a conversation are kept here under From you. One table, filtered from the side,
 	 * sorted from its head. A new document or sheet is made untitled and opens straight into its
 	 * editor; a dropped file is added as it is. */
-	import { readArchivedLibrary, setLibraryArchived } from '$lib/model/company-actions';
+	import {
+		readArchivedLibrary,
+		readFileBytes,
+		setLibraryArchived
+	} from '$lib/model/company-actions';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { Item, Notice, Empty, Dot } from '$lib/ui/page';
@@ -379,12 +383,7 @@
 		try {
 			let bytes: ArrayBuffer;
 			if (entry.kind === 'upload') {
-				const response = await fetch(attachmentHref(companyId, entry.id), {
-					credentials: 'same-origin',
-					cache: 'no-store'
-				});
-				if (!response.ok) throw await responseFailure(response);
-				bytes = await response.arrayBuffer();
+				bytes = await readFileBytes(attachmentHref(companyId, entry.id));
 			} else {
 				const file = files.find((candidate) => candidate.id === entry.id);
 				if (!file) return;
