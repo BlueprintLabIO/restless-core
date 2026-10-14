@@ -36,7 +36,8 @@ export interface EditorStatus {
 	notice?: { title: string; text: string; details?: string };
 }
 type UpstreamMessage = Record<string, any>;
-/** The cell a person has selected: the tab by the grid's id and name, the cell as A1. */
+/** The cells a person has selected: the tab by the grid's id and name, the cell as A1 or the
+ * range as A1:C3. */
 export interface SheetSelection {
 	worksheet: string;
 	name: string;
@@ -137,9 +138,11 @@ function drawMarks(model: any, element: HTMLElement, marks: readonly SheetMark[]
 	for (const mark of marks) {
 		if (mark.worksheet !== sheetId || seen.has(mark.cell)) continue;
 		seen.add(mark.cell);
+		// A range is marked at its top right cell, where a single cell is marked.
 		let position: { col: number; row: number };
 		try {
-			position = helpers.toCartesian(mark.cell);
+			const zone = helpers.toZone(mark.cell);
+			position = { col: zone.right, row: zone.top };
 		} catch {
 			continue;
 		}
@@ -293,13 +296,17 @@ export function mountSheet(
 	function gridChanged() {
 		if (!model) return;
 		const { col, row } = model.getters.getActivePosition();
+		const zone = model.getters.getSelectedZone();
 		const worksheet = model.getters.getActiveSheetId();
 		const tabs: Record<string, string> = {};
 		for (const id of model.getters.getSheetIds()) tabs[id] = model.getters.getSheetName(id);
+		const single = !zone || (zone.left === zone.right && zone.top === zone.bottom);
 		const value = {
 			worksheet,
 			name: tabs[worksheet] ?? '',
-			cell: helpers.toXC(col, row),
+			cell: single
+				? helpers.toXC(col, row)
+				: `${helpers.toXC(zone.left, zone.top)}:${helpers.toXC(zone.right, zone.bottom)}`,
 			tabs
 		};
 		const key = JSON.stringify(value);
@@ -643,15 +650,18 @@ export function mountSheet(
 	connect();
 	return {
 		getModel: () => model,
-		/** Show a cell: its tab, selected, scrolled into view. False if the tab is gone. */
+		/** Show a cell or range: its tab, selected, scrolled into view. False if the tab is gone. */
 		select(worksheet: string, cell: string): boolean {
 			if (!model || !model.getters.getSheetIds().includes(worksheet)) return false;
 			const active = model.getters.getActiveSheetId();
 			if (active !== worksheet)
 				model.dispatch('ACTIVATE_SHEET', { sheetIdFrom: active, sheetIdTo: worksheet });
-			const { col, row } = helpers.toCartesian(cell);
-			model.selection.selectCell(col, row);
-			model.dispatch('SCROLL_TO_CELL', { col, row });
+			const zone = helpers.toZone(cell);
+			const at = { col: zone.left, row: zone.top };
+			if (zone.left === zone.right && zone.top === zone.bottom)
+				model.selection.selectCell(at.col, at.row);
+			else model.selection.selectZone({ cell: at, zone });
+			model.dispatch('SCROLL_TO_CELL', at);
 			return true;
 		},
 		/** The cells to mark as carrying a comment thread. */

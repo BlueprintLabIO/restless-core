@@ -1,5 +1,5 @@
 <script lang="ts">
-	/* A sheet's comments, in its side panel: a new comment goes on the selected cell; each thread
+	/* A sheet's comments, in its side panel: a new comment goes on the selected cell or range; each thread
 	 * names its cell and shows it when chosen; replies, mentions, edit and delete of one's own
 	 * comments, and resolve. Resolved threads wait behind their own tab. */
 	import { tick } from 'svelte';
@@ -260,7 +260,7 @@
 					onsend={start}
 				/>
 			{:else}
-				<p class="quiet">Select a cell to comment on it.</p>
+				<p class="quiet">Select a cell or range to comment on it.</p>
 			{/if}
 		</section>
 	{:else if comments}
@@ -291,7 +291,7 @@
 			title={show === 'open' ? 'No open comments' : 'Nothing resolved'}
 			info={show === 'open'
 				? may
-					? 'Select a cell and comment on it. People you @mention hear about it.'
+					? 'Select a cell or range and comment on it. People you @mention hear about it.'
 					: 'Comments on its cells appear here.'
 				: 'Resolved threads wait here, and can be reopened.'}
 		/>

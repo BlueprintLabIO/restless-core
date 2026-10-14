@@ -701,6 +701,7 @@ impl OrgIntel {
             sequence += 1;
             sqlx::query("INSERT INTO native_sheet_messages(sheet_id,sequence,revision_id,actor_id,message) VALUES($1,$2,$3,$4,$5)")
                 .bind(id).bind(sequence).bind(&head).bind(actor).bind(message).execute(&mut *tx).await?;
+            crate::sheet_comments::follow_structure(&mut tx, id, message).await?;
         }
         if workbook["revisionId"].as_str() != Some(&head) {
             return Err(SheetError::Invalid(

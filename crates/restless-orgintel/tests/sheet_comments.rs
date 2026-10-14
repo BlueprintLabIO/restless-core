@@ -236,6 +236,55 @@ async fn people_comment_on_a_cell_reply_mention_and_resolve() {
                 sheet_id: deals,
                 thread_id: Some(thread)
             }));
+
+    // A thread may cover a range, and follows rows inserted above it, and back on undo.
+    let range = Uuid::new_v4();
+    let ranged = org
+        .create_sheet_comment_thread(deals, "alex", range, "Sheet1", "d4:b2", "Totals?", &[])
+        .await
+        .unwrap();
+    assert_eq!(ranged.cell, "B2:D4");
+    let cell_of = |threads: Vec<restless_orgintel::SheetCommentThread>, id: Uuid| {
+        threads.into_iter().find(|t| t.id == id).unwrap().cell
+    };
+    let inserted = Uuid::new_v4().to_string();
+    let client = Uuid::new_v4().to_string();
+    org.accept_sheet_messages(
+        deals,
+        "owner",
+        "r0",
+        &[
+            json!({"type":"REMOTE_REVISION","version":1,"serverRevisionId":"r0",
+            "nextRevisionId":inserted,"clientId":client,"commands":[{"type":"ADD_COLUMNS_ROWS",
+            "sheetId":"Sheet1","dimension":"ROW","base":0,"position":"before","quantity":2}]}),
+        ],
+        &json!({ "revisionId": inserted }),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let threads = org.sheet_comments(deals, "owner").await.unwrap().threads;
+    assert_eq!(cell_of(threads.clone(), range), "B4:D6");
+    assert_eq!(cell_of(threads, thread), "B5");
+    let undone = Uuid::new_v4().to_string();
+    org.accept_sheet_messages(
+        deals,
+        "owner",
+        &inserted,
+        &[
+            json!({"type":"REVISION_UNDONE","version":1,"serverRevisionId":inserted,
+            "nextRevisionId":undone,"undoneRevisionId":inserted}),
+        ],
+        &json!({ "revisionId": undone }),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let threads = org.sheet_comments(deals, "owner").await.unwrap().threads;
+    assert_eq!(cell_of(threads.clone(), range), "B2:D4");
+    assert_eq!(cell_of(threads, thread), "B3");
 }
 
 #[tokio::test]
