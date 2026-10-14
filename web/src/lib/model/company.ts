@@ -89,6 +89,13 @@ export interface CompanyView {
 			} | null;
 		};
 		money_envelopes: MoneyEnvelope[];
+		/** The owner's company-wide pause of outside actions, while it is in force. */
+		outside_actions_paused?: {
+			paused_at: string;
+			paused_by: string | null;
+			frozen_connections: string[];
+			frozen_currencies: string[];
+		} | null;
 	};
 	harnesses: {
 		coordination: AgentHarness;
@@ -446,6 +453,24 @@ export function saveSpendLimit(
 	}
 ) {
 	return postCompany<CompanyView>(company, '/company/spend-limit', body);
+}
+
+/** Pause or resume every outside action; the answer is the company view. */
+export function saveOutsideActions(company: string, paused: boolean) {
+	return postCompany<CompanyView>(company, '/company/outside-actions', { paused });
+}
+
+/** Change a payment allowance's limits (minor units) or freeze it; the answer is the company view. */
+export function savePaymentAllowance(
+	company: string,
+	body: {
+		currency: string;
+		per_payment_limit_minor: number;
+		aggregate_limit_minor: number;
+		frozen: boolean;
+	}
+) {
+	return postCompany<CompanyView>(company, '/company/payment-allowance', body);
 }
 
 /** Preview or apply copying setup sections from another company. */

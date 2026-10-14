@@ -4807,6 +4807,7 @@ pub async fn send_mandated_email(
     // A missing binding must not consume a permit or daily allowance.
     let config = runtime::CompanyConfig::load(&daemon.root, company)?;
     let key = credential::resolve(&config, "resend.production").await?;
+    crate::outside_actions::ensure_running(&daemon.authority, company).await?;
     daemon
         .authority
         .reserve_email_send(

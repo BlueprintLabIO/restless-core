@@ -5,13 +5,15 @@
 	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
 	import EmailMandates from '$lib/components/EmailMandates.svelte';
-	import { Section, Row, Item, Notice, Fold } from '$lib/ui/page';
+	import { Section, Row, Item, Notice, Fold, Toggle } from '$lib/ui/page';
 	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
 	import { companyQuery } from '$lib/model/queries.svelte';
 	import {
 		saveNativeLimit as postNativeLimit,
 		saveRuntimePolicy as postRuntimePolicy,
-		saveSpendLimit as postSpendLimit
+		saveSpendLimit as postSpendLimit,
+		saveOutsideActions,
+		savePaymentAllowance
 	} from '$lib/model/company';
 	import { approvalAction } from '$lib/model/attention';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
@@ -177,6 +179,83 @@
 			revokeError = failureSentence(error, 'The approval could not be revoked.');
 		} finally {
 			revoking = '';
+		}
+	}
+	/* One switch for every outside action. Pausing asks first because it stops replies and
+	 * payments mid-flight; resuming does not, since it only restores what the pause froze. */
+	let pausing = $state(false),
+		pauseError = $state('');
+	async function setPaused(paused: boolean) {
+		if (pausing) return;
+		if (
+			paused &&
+			!(await confirmAction({
+				title: 'Pause all outside actions?',
+				body: 'Nothing reaches anyone outside the company (no emails, app actions, deploys or payments) until you resume. Work inside the company carries on and outside steps wait, prepared.',
+				action: 'Pause outside actions',
+				danger: true
+			}))
+		)
+			return;
+		pausing = true;
+		pauseError = '';
+		try {
+			source.accept(await saveOutsideActions(companyId, paused));
+			toast(paused ? 'Outside actions paused' : 'Outside actions resumed');
+		} catch (error) {
+			pauseError = failureSentence(
+				error,
+				paused ? 'Outside actions could not be paused.' : 'Outside actions could not be resumed.'
+			);
+		} finally {
+			pausing = false;
+		}
+	}
+
+	/* A payment allowance edits in place: its limits in the currency's units, and a freeze. */
+	let allowanceCurrency = $state(''),
+		allowanceEach = $state(''),
+		allowanceTotal = $state(''),
+		allowanceFrozen = $state(false),
+		allowanceSaving = $state(false),
+		allowanceError = $state('');
+	function editAllowance(envelope: {
+		currency: string;
+		per_payment_limit_minor: number;
+		aggregate_limit_minor: number;
+		frozen: boolean;
+	}) {
+		allowanceCurrency = envelope.currency;
+		allowanceEach = String(envelope.per_payment_limit_minor / 100);
+		allowanceTotal = String(envelope.aggregate_limit_minor / 100);
+		allowanceFrozen = envelope.frozen;
+		allowanceError = '';
+	}
+	async function saveAllowance() {
+		if (allowanceSaving) return;
+		const each = Math.round(Number(allowanceEach) * 100);
+		const total = Math.round(Number(allowanceTotal) * 100);
+		if (!(each > 0) || !(total > 0) || each > total) {
+			allowanceError = 'Enter positive amounts, with each payment no more than the total.';
+			return;
+		}
+		allowanceSaving = true;
+		allowanceError = '';
+		try {
+			source.accept(
+				await savePaymentAllowance(companyId, {
+					currency: allowanceCurrency,
+					per_payment_limit_minor: each,
+					aggregate_limit_minor: total,
+					frozen: allowanceFrozen
+				})
+			);
+			toast(`${allowanceCurrency} allowance saved`);
+			allowanceCurrency = '';
+		} catch (error) {
+			allowanceError = failureSentence(error, 'The allowance could not be saved.');
+		} finally {
+			allowanceSaving = false;
 		}
 	}
 	const money = formatMoney;
@@ -395,6 +474,30 @@
 			title="Authority"
 			info="What the company may do on its own, what it asks you first, and what it can never do. Every action is still checked before it runs."
 		>
+			{@const paused = view.limits.outside_actions_paused}
+			<Row
+				label="Outside actions"
+				info="Pausing stops every email, app action, deploy and payment from reaching anyone outside the company, and freezes each app and payment allowance. Resuming lifts exactly what the pause froze."
+			>
+				<span class:reached={!!paused}>{paused ? 'Paused' : 'Allowed'}</span>
+				<Toggle
+					checked={!paused}
+					label="Allow outside actions"
+					disabled={pausing}
+					onchange={(next) => void setPaused(!next)}
+				/>
+			</Row>
+			{#if paused}<Notice tone="warning" title="Outside actions are paused">
+					Since {new Date(paused.paused_at).toLocaleString()}. Outside steps wait, prepared, until
+					you resume.
+					{#snippet actions()}<button
+							class="btn small"
+							type="button"
+							disabled={pausing}
+							onclick={() => void setPaused(false)}>{pausing ? 'Resuming…' : 'Resume'}</button
+						>{/snippet}
+				</Notice>{/if}
+			{#if pauseError}<Notice tone="danger" title="Nothing changed">{pauseError}</Notice>{/if}
 			<Fold label="May do on its own" count={view.limits.independently.length}>
 				{#each view.limits.independently as item (item.title)}<Item
 						title={item.title}
@@ -433,18 +536,71 @@
 				>{/if}
 			<Row
 				label="Payment allowances"
-				info="Payments you have authorised. Separate from the model budget."
+				info="Payments you have authorised, per currency. Separate from the model budget. Changing the limits starts a new total; freezing one stops new payments in that currency."
 			>
-				{#if view.limits.money_envelopes.length}
-					{#each view.limits.money_envelopes as envelope (envelope.currency)}<span
-							>{envelope.currency}: {minor(envelope.per_payment_limit_minor, envelope.currency)} each
-							·
-							{minor(envelope.aggregate_limit_minor, envelope.currency)} total{envelope.frozen
-								? ' · frozen'
-								: ''}</span
-						>{/each}
-				{:else}<span class="none">None</span>{/if}
+				{#if !view.limits.money_envelopes.length}<span class="none">None</span>{/if}
 			</Row>
+			{#each view.limits.money_envelopes as envelope (envelope.currency)}
+				{#if allowanceCurrency === envelope.currency}
+					<form
+						class="inline-form"
+						onsubmit={(event) => {
+							event.preventDefault();
+							void saveAllowance();
+						}}
+					>
+						<strong>{envelope.currency}</strong>
+						<label for="allowance-each">Each payment up to</label>
+						<input
+							id="allowance-each"
+							type="text"
+							inputmode="decimal"
+							required
+							bind:value={allowanceEach}
+							disabled={allowanceSaving}
+						/>
+						<label for="allowance-total">In total</label>
+						<input
+							id="allowance-total"
+							type="text"
+							inputmode="decimal"
+							required
+							bind:value={allowanceTotal}
+							disabled={allowanceSaving}
+						/>
+						<label class="check"
+							><input
+								type="checkbox"
+								bind:checked={allowanceFrozen}
+								disabled={allowanceSaving}
+							/>Frozen</label
+						>
+						<button class="btn primary small" disabled={allowanceSaving}
+							>{allowanceSaving ? 'Saving…' : 'Save'}</button
+						>
+						<button
+							class="btn small ghost"
+							type="button"
+							disabled={allowanceSaving}
+							onclick={() => (allowanceCurrency = '')}>Cancel</button
+						>
+					</form>
+				{:else}
+					<Item
+						title={envelope.currency}
+						meta={`${minor(envelope.per_payment_limit_minor, envelope.currency)} each · ${minor(envelope.aggregate_limit_minor, envelope.currency)} total${envelope.frozen ? ' · frozen' : ''}`}
+					>
+						{#snippet actions()}<button
+								class="btn small"
+								type="button"
+								onclick={() => editAllowance(envelope)}>Edit</button
+							>{/snippet}
+					</Item>
+				{/if}
+			{/each}
+			{#if allowanceError}<Notice tone="danger" title="The allowance was not saved"
+					>{allowanceError}</Notice
+				>{/if}
 		</Section>
 		<EmailMandates {companyId} />
 	{:else if section === 'computer'}
@@ -609,6 +765,14 @@
 	}
 	.inline-form input {
 		width: 120px;
+	}
+	.inline-form .check {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.inline-form .check input {
+		width: auto;
 	}
 	.inline-form input.percent {
 		width: 72px;

@@ -321,6 +321,7 @@ pub async fn reserve(
 ) -> Result<Reservation> {
     validate_intent(&mut input)?;
     let fingerprint = intent_fingerprint(&input)?;
+    crate::outside_actions::ensure_running(store, company).await?;
     let mut tx = store.pool().begin().await?;
 
     if let Some(row) = sqlx::query(

@@ -731,3 +731,137 @@ pub(super) async fn save_legal_profile(
     }
     Json(company_projection::project(&state.daemon, &config, false).await).into_response()
 }
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct OutsideActionsInput {
+    paused: bool,
+}
+
+/// The owner's one switch for every outside action: pause freezes connections and
+/// payment allowances and closes the effect gate; resume undoes exactly that.
+pub(super) async fn save_outside_actions(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<OutsideActionsInput>,
+) -> impl IntoResponse {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "outside_actions",
+            "Only the owner can pause or resume outside actions.",
+        );
+    }
+    let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(e) => return api_error(StatusCode::NOT_FOUND, "company", format!("{e:#}")),
+    };
+    let authority = &state.daemon.authority;
+    let result = if input.paused {
+        restless_engine::outside_actions::pause(authority, &company, principal.actor_id())
+            .await
+            .map(|_| ())
+    } else {
+        restless_engine::outside_actions::resume(authority, &company, principal.actor_id()).await
+    };
+    if let Err(e) = result {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "outside_actions",
+            format!(
+                "{} did not finish: {e:#}",
+                if input.paused {
+                    "The pause"
+                } else {
+                    "Resuming"
+                }
+            ),
+        );
+    }
+    Json(company_projection::project(&state.daemon, &config, false).await).into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct PaymentAllowanceInput {
+    currency: String,
+    per_payment_limit_minor: i64,
+    aggregate_limit_minor: i64,
+    frozen: bool,
+}
+
+/// Change an existing payment allowance's limits or freeze it. The account and
+/// payees stay as the provider connection set them; Authority validates the rest.
+pub(super) async fn save_payment_allowance(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<PaymentAllowanceInput>,
+) -> impl IntoResponse {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "payment_allowance",
+            "Only the owner can change payment allowances.",
+        );
+    }
+    let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(e) => return api_error(StatusCode::NOT_FOUND, "company", format!("{e:#}")),
+    };
+    let authority = &state.daemon.authority;
+    let current = match restless_engine::finance::envelopes(authority, &company).await {
+        Ok(envelopes) => envelopes.into_iter().find(|envelope| {
+            envelope
+                .limits
+                .currency
+                .eq_ignore_ascii_case(&input.currency)
+        }),
+        Err(e) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "authority",
+                format!("{e:#}"),
+            )
+        }
+    };
+    let Some(current) = current else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "payment_allowance",
+            "No payment allowance exists for that currency.",
+        );
+    };
+    let unchanged_limits = current.limits.per_payment_limit_minor == input.per_payment_limit_minor
+        && current.limits.aggregate_limit_minor == input.aggregate_limit_minor;
+    let saved = if unchanged_limits {
+        if current.limits.frozen == input.frozen {
+            Ok(current)
+        } else {
+            restless_engine::finance::set_frozen(
+                authority,
+                &company,
+                &current.limits.currency,
+                input.frozen,
+                principal.actor_id(),
+            )
+            .await
+        }
+    } else {
+        let mut limits = current.limits.clone();
+        limits.per_payment_limit_minor = input.per_payment_limit_minor;
+        limits.aggregate_limit_minor = input.aggregate_limit_minor;
+        limits.frozen = input.frozen;
+        restless_engine::finance::set_envelope(authority, &company, limits, principal.actor_id())
+            .await
+    };
+    if let Err(e) = saved {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "payment_allowance",
+            format!("The allowance was not saved: {e:#}"),
+        );
+    }
+    Json(company_projection::project(&state.daemon, &config, false).await).into_response()
+}

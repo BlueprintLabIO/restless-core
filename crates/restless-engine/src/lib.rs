@@ -49,6 +49,7 @@ pub mod model_catalog;
 pub mod model_connections;
 pub mod model_gateway;
 pub mod native_harness;
+pub mod outside_actions;
 pub mod owner_config;
 pub mod owner_brief;
 pub mod owner_cell_readiness;

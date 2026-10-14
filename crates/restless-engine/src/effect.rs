@@ -306,6 +306,8 @@ pub async fn request_effect(
     if let Some(receipt) = replay {
         return Ok(receipt);
     }
+    // A replay reaches nobody; anything new waits while the owner has paused.
+    crate::outside_actions::ensure_running(authority, &config.name).await?;
 
     let repeat = match party.as_deref() {
         Some(party) => prior_effect_on(authority, &config.name, effect_class, party, key).await?,
@@ -993,6 +995,8 @@ where
     if let Some(receipt) = replay {
         return Ok(receipt);
     }
+    // A replay reaches nobody; anything new waits while the owner has paused.
+    crate::outside_actions::ensure_running(authority, &config.name).await?;
 
     if call.reserved {
         match tool_call_decision(authority, &config.name, key, &command_digest).await? {

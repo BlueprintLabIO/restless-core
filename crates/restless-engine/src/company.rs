@@ -146,6 +146,8 @@ struct Limits {
     native: NativeLimit,
     runtime: RuntimeLimit,
     money_envelopes: Vec<finance::MoneyEnvelope>,
+    /// The owner's company-wide pause of outside actions, while in force.
+    outside_actions_paused: Option<crate::outside_actions::Pause>,
 }
 
 #[derive(Debug, Serialize)]
@@ -323,6 +325,7 @@ struct AuthorityProjection {
     payments: Vec<finance::PaymentIntent>,
     cooldowns: Vec<crate::authority::ModelCooldown>,
     publications: Vec<crate::authority::AuthorityRecord>,
+    outside_actions: Option<crate::outside_actions::Pause>,
 }
 
 pub async fn project(
@@ -532,6 +535,9 @@ pub async fn project(
             .as_ref()
             .map(|value| value.envelopes.clone())
             .unwrap_or_default(),
+        outside_actions_paused: authority
+            .as_ref()
+            .and_then(|value| value.outside_actions.clone()),
     };
 
     let resources = resources(
@@ -750,6 +756,7 @@ async fn read_authority(daemon: &Daemon, company: &str) -> Result<AuthorityProje
         payments,
         cooldowns,
         publications,
+        outside_actions,
     ) = tokio::try_join!(
         approval::approved_parties(&daemon.authority, company),
         daemon.authority.records_of_kind(company, "effect"),
@@ -765,6 +772,7 @@ async fn read_authority(daemon: &Daemon, company: &str) -> Result<AuthorityProje
         finance::payments(&daemon.authority, company),
         daemon.authority.active_model_cooldowns(company),
         publication_records(&daemon.authority, company),
+        crate::outside_actions::current(&daemon.authority, company),
     )?;
     Ok(AuthorityProjection {
         approved_parties,
@@ -779,6 +787,7 @@ async fn read_authority(daemon: &Daemon, company: &str) -> Result<AuthorityProje
         payments,
         cooldowns,
         publications,
+        outside_actions,
     })
 }
 

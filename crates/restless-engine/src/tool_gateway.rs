@@ -1314,6 +1314,40 @@ mod tests {
             .unwrap();
         assert_eq!(fake.sends.load(Ordering::SeqCst), 2);
 
+        // The company-wide pause freezes the connection and closes the effect
+        // gate; resume reopens both and nothing was sent in between.
+        crate::outside_actions::pause(&authority, &company, "owner")
+            .await
+            .unwrap();
+        assert!(connections::require(&pool, &company, "mail").await.unwrap().frozen);
+        assert!(crate::outside_actions::ensure_running(&authority, &company)
+            .await
+            .is_err());
+        let refused = caller.call("mail__send", args(fresh.clone())).await.unwrap();
+        assert!(is_error(&refused), "{}", text_of(&refused));
+        crate::outside_actions::resume(&authority, &company, "owner")
+            .await
+            .unwrap();
+        assert!(!connections::require(&pool, &company, "mail").await.unwrap().frozen);
+        crate::outside_actions::ensure_running(&authority, &company)
+            .await
+            .unwrap();
+        // A connection the owner froze on its own stays frozen through a pause and resume.
+        connections::set_frozen(&pool, &authority, &company, "mail", true, "owner")
+            .await
+            .unwrap();
+        crate::outside_actions::pause(&authority, &company, "owner")
+            .await
+            .unwrap();
+        crate::outside_actions::resume(&authority, &company, "owner")
+            .await
+            .unwrap();
+        assert!(connections::require(&pool, &company, "mail").await.unwrap().frozen);
+        connections::set_frozen(&pool, &authority, &company, "mail", false, "owner")
+            .await
+            .unwrap();
+        assert_eq!(fake.sends.load(Ordering::SeqCst), 2);
+
         // A drain for an update or restart refuses acts with nothing sent; reads still work.
         // Every act that ran gave its lease back, or no drain could ever finish.
         assert_eq!(lifecycle.active(), 0);
