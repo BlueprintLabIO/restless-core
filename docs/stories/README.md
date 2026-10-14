@@ -49,3 +49,6 @@ The 210 stories of the 14 October audit are in
 | US-240 | core | I want never to be told to run a command. Exec's replies name pages, not shell commands. | S86-05 | unit |
 | US-241 | core | I want to find a skill or tool to add. I search Apps, find items from well-known registries, and install one deliberately. | S87 | browser + unit |
 | US-242 | core | I want Exec's suggestions to be installable. Its suggestion opens the item in Apps. | S87-05 | browser |
+| US-243 | core | I want to see everyone at a glance: what each is doing, and who needs me. People is a directory with a status word and current Work per person. | S88-02 | browser on seed |
+| US-244 | core | I want to check in with someone and talk to them in one place. Their page has their work and model above our chat. | S88-03 | browser |
+| US-245 | full | I want to let an agent go, and bring them back later. Archive and Re-hire on their page keep their history. | S88-01 | API test + browser |
