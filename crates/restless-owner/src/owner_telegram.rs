@@ -143,12 +143,21 @@ pub(super) async fn start(
         }
     }
     let reference = reference.as_str();
+    // Pairing from this computer's own address would give links a phone cannot open; when the
+    // plane is also reachable on the network, links use that address instead.
+    let origin = match state.entry.network() {
+        Some(network) if telegram::loopback_origin(&input.cockpit_origin) => format!(
+            "https://{}",
+            network.public_host().unwrap_or_else(|| network.host())
+        ),
+        _ => input.cockpit_origin.clone(),
+    };
     match telegram::start_pairing(
         state.daemon.authority.pool(),
         &company,
         reference,
         &username,
-        &input.cockpit_origin,
+        &origin,
         principal.actor_id(),
     )
     .await

@@ -186,19 +186,16 @@ impl Bot {
         &self,
         chat_id: i64,
         text: &str,
-        buttons: Option<Uuid>,
+        buttons: Option<(Uuid, &Binding)>,
     ) -> std::result::Result<i64, CallError> {
         let mut body = serde_json::json!({
             "chat_id": chat_id,
             "text": text,
             "link_preview_options": {"is_disabled": true},
         });
-        if let Some(delivery) = buttons {
-            let id = delivery.simple();
-            body["reply_markup"] = serde_json::json!({"inline_keyboard": [[
-                {"text": "Approve", "callback_data": format!("y:{id}")},
-                {"text": "Decline", "callback_data": format!("n:{id}")},
-            ]]});
+        if let Some((delivery, binding)) = buttons {
+            let id = delivery.simple().to_string();
+            body["reply_markup"] = serde_json::json!({"inline_keyboard": binding.buttons(&id)});
         }
         let sent = self.call("sendMessage", body).await?;
         sent["message_id"]
@@ -390,6 +387,30 @@ pub enum Binding {
     EmailMandate {
         proposal: Uuid,
     },
+    /// A payee request: approve adds the payee to the allowance.
+    Payee {
+        proposal: i64,
+    },
+    /// An outcome the owner reviews. The phone may accept it; changes are asked for in the
+    /// cockpit, where the outcome can be seen and the request written.
+    Review {
+        handoff: Uuid,
+    },
+}
+
+impl Binding {
+    /// The buttons a message carries: approve and decline, or accept alone for a review.
+    fn buttons(&self, id: &str) -> serde_json::Value {
+        match self {
+            Self::Review { .. } => serde_json::json!([[
+                {"text": "Accept", "callback_data": format!("y:{id}")},
+            ]]),
+            _ => serde_json::json!([[
+                {"text": "Approve", "callback_data": format!("y:{id}")},
+                {"text": "Decline", "callback_data": format!("n:{id}")},
+            ]]),
+        }
+    }
 }
 
 /// One message ready for a paired chat.
@@ -453,6 +474,15 @@ pub async fn outgoing(
         ("authority", "email_mandate_proposal") => Some(Binding::EmailMandate {
             proposal: item.source.reference.parse()?,
         }),
+        ("authority", "payee_proposal") => Some(Binding::Payee {
+            proposal: item.source.reference.parse()?,
+        }),
+        (_, "owner_handoff") if item.category == "review" => item
+            .source
+            .reference
+            .parse()
+            .ok()
+            .map(|handoff| Binding::Review { handoff }),
         _ => None,
     };
     // `?review=` opens an owner handoff's outcome, whose controls answer that
@@ -540,7 +570,7 @@ pub async fn deliver(pool: &PgPool, bot: &Bot, link: &Link, items: Vec<Outgoing>
             continue;
         }
         match bot
-            .send(chat_id, &item.text, item.binding.is_some().then_some(id))
+            .send(chat_id, &item.text, item.binding.as_ref().map(|binding| (id, binding)))
             .await
         {
             Ok(message_id) => {
@@ -720,6 +750,27 @@ async fn decide_inner(
                 }
                 .to_string()
             }),
+        Binding::Payee { proposal } => {
+            crate::finance::decide_payee(authority, &company, &principal, *proposal, approve, None)
+                .await
+                .map(|()| if approve { "approved the payee" } else { "declined the payee" }.to_string())
+        }
+        Binding::Review { handoff } if approve => match org.as_ref() {
+            Some(org) => org
+                .decide_review_as(
+                    *handoff,
+                    "owner",
+                    restless_orgintel::OwnerReviewDecision::Accepted,
+                    "",
+                )
+                .await
+                .map(|()| "accepted the outcome".to_string())
+                .map_err(anyhow::Error::from),
+            None => Err(anyhow::anyhow!("the company's records are unavailable right now")),
+        },
+        Binding::Review { .. } => Err(anyhow::anyhow!(
+            "ask for changes in the cockpit, where you can write what should change"
+        )),
     };
     match outcome {
         Ok(message) => Ok(Answer::Decided(message)),
@@ -790,6 +841,12 @@ async fn still_pending(
             .await?
             .iter()
             .any(|record| record.body["id"].as_str() == Some(proposal.to_string().as_str())),
+        Binding::Payee { proposal } => crate::finance::pending_payee_proposals(authority, company)
+            .await?
+            .iter()
+            .any(|(record, _)| record.id == *proposal),
+        // OrgIntel refuses a review that was already decided.
+        Binding::Review { .. } => true,
     })
 }
 
