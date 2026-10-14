@@ -791,6 +791,7 @@ pub async fn start(
         endpoints.broker_bind.as_str(),
     ];
     let mut broker_command = Command::new(&omp);
+    anthropic_reroute(&mut broker_command);
     if !discover_llama_cpp {
         broker_command.env("LLAMA_CPP_BASE_URL", DISABLED_LOCAL_DISCOVERY_URL);
     }
@@ -897,6 +898,7 @@ pub async fn start(
     )
     .await?;
     let mut gateway_command = Command::new(&omp);
+    anthropic_reroute(&mut gateway_command);
     gateway_command
         .current_dir(root)
         .env("OMP_PROFILE", &endpoints.gateway_profile)
@@ -1393,6 +1395,17 @@ fn direct_responses_routes(
         );
     }
     Ok(routes)
+}
+
+/// Send OMP's Anthropic traffic where the relay sends it. With `RESTLESS_ANTHROPIC_BASE_URL` set
+/// (a scripted test model, `tools/mock-model`), the credential broker and the gateway would
+/// otherwise still call api.anthropic.com, so a turn bypassed the mock and a test key met a real
+/// 401. OMP reads `ANTHROPIC_BASE_URL` as an origin, without the `/v1`.
+fn anthropic_reroute(command: &mut Command) {
+    if let Ok(base) = std::env::var("RESTLESS_ANTHROPIC_BASE_URL") {
+        let origin = base.trim_end_matches('/').trim_end_matches("/v1").to_string();
+        command.env("ANTHROPIC_BASE_URL", origin);
+    }
 }
 
 fn direct_anthropic_routes(
