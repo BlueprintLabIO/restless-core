@@ -21,7 +21,10 @@
 	const company = $derived(companyQuery(companyId));
 	$effect(() => company.attach());
 	const graph = $derived(attention.view?.workGraph ?? null);
-	let filter = $state<'all' | 'decisions' | 'external'>('all');
+	/* The Inbox's "Recently decided" arrives with ?show=decisions. */
+	let filter = $state<'all' | 'decisions' | 'external'>(
+		page.url.searchParams.get('show') === 'decisions' ? 'decisions' : 'all'
+	);
 	let open = $state('');
 
 	/* Decision history is read a page at a time, apart from the Inbox poll: every answered
@@ -90,6 +93,9 @@
 					outcome: string;
 					responsible: string;
 					responsibleLabel: string;
+					/** Who to follow up with: whoever holds it now, or Exec for an approval. */
+					followUpId: string;
+					followUpName: string;
 					workId?: string;
 				};
 		  }
@@ -122,6 +128,8 @@
 				responsible:
 					decision.responsibleActor?.display ?? (decision.workId ? 'No further owner' : ''),
 				responsibleLabel: decision.workId ? 'Responsible now' : 'Prepared by',
+				followUpId: decision.responsibleActor?.id ?? 'exec',
+				followUpName: decision.responsibleActor?.display ?? 'Exec',
 				workId: decision.workId
 			}
 		}))
@@ -275,10 +283,18 @@
 										<dt>{entry.detail.responsibleLabel}</dt>
 										<dd>{entry.detail.responsible}</dd>
 									</div>{/if}
-								{#if entry.detail.workId}<a
+								<div class="follow-up">
+									<a
 										class="btn small"
-										href={`/${companyId}/work/${entry.detail.workId}`}>Open work</a
-									>{/if}
+										href={`/${encodeURIComponent(companyId)}/people?person=${encodeURIComponent(entry.detail.followUpId)}&view=people`}
+										title="Change or add to your answer: a message in your conversation with them"
+										>Follow up with {entry.detail.followUpName}</a
+									>
+									{#if entry.detail.workId}<a
+											class="btn small"
+											href={`/${companyId}/work/${entry.detail.workId}`}>Open work</a
+										>{/if}
+								</div>
 							{:else}
 								<div>
 									<dt>Evidence</dt>
@@ -325,6 +341,11 @@
 </Page>
 
 <style>
+	.follow-up {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
 	.facts {
 		display: grid;
 		gap: 10px;

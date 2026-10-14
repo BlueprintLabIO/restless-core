@@ -5,6 +5,7 @@
 	 * list on into For you, and what the owner opened or snoozed is kept on the
 	 * server, so every device agrees. */
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { onMount, tick, untrack } from 'svelte';
 	import CircleCheck from '@lucide/svelte/icons/circle-check';
 	import Eye from '@lucide/svelte/icons/eye';
@@ -32,6 +33,7 @@
 	} from './inbox-actions';
 	import { celebrate } from '$lib/ui/celebrate';
 	import ForYou from './ForYou.svelte';
+	import MyRequests from './MyRequests.svelte';
 	import DirectionToday from './DirectionToday.svelte';
 	import { useForYou } from '$lib/model/for-you.svelte';
 	import { getInboxMarks, type InboxMarkChange } from '$lib/model/for-you';
@@ -82,7 +84,11 @@
 	const tabKey = () => `restless:inbox-tab:${companyId}`;
 	$effect(() => {
 		try {
-			tab = localStorage.getItem(tabKey()) === 'for-you' ? 'for-you' : 'inbox';
+			tab =
+				page.url.searchParams.get('tab') === 'for-you' ||
+				localStorage.getItem(tabKey()) === 'for-you'
+					? 'for-you'
+					: 'inbox';
 		} catch {
 			tab = 'inbox';
 		}
@@ -325,6 +331,7 @@
 
 	<div class="inbox-list" role="tabpanel">
 		{#if tab === 'for-you' && forYou}
+			<MyRequests {companyId} all />
 			<ForYou
 				bind:this={forYouList}
 				source={forYou}
@@ -410,6 +417,12 @@
 			{/if}
 			{#if canSetAside}<div class="set-aside-slot">
 					<SetAsideList {companyId} version={items.length} />
+					<a
+						class="decided"
+						href={`/${encodeURIComponent(companyId)}/company/activity?show=decisions`}
+						title="What you answered lately, and where each stands. Follow up on one from there."
+						>Recently decided</a
+					>
 				</div>{/if}
 		{/if}
 	</div>
@@ -417,7 +430,20 @@
 
 <style>
 	.set-aside-slot {
+		display: grid;
+		justify-items: start;
 		margin: 12px 8px 8px;
+	}
+	.decided {
+		padding: 6px 8px;
+		border-radius: var(--radius-control);
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		text-decoration: none;
+	}
+	.decided:hover {
+		background: var(--wash-hover);
+		color: var(--text-secondary);
 	}
 	.inbox {
 		display: grid;

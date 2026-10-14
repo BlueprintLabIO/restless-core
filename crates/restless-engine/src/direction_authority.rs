@@ -315,7 +315,8 @@ impl Acting<'_> {
     }
 }
 
-/// Answer a request, once. `decider` must be whoever it is routed to, or the owner.
+/// Answer a request, once. `decider` must be whoever it is routed to, or the owner. The person
+/// who asked may withdraw their own open request (a decline in their own name), never approve it.
 pub async fn decide(
     authority: &AuthorityStore,
     org: &OrgIntel,
@@ -331,7 +332,14 @@ pub async fn decide(
         return Err(DirectionError::Missing("That request is not there.".into()));
     };
     let owner = company_owner(authority, company).await?;
-    if !acting.owner && decider != current.routed_to.actor_id && decider != owner && decider != "owner" {
+    let withdrawing =
+        decider == current.requester.actor_id && input.decision == DirectionDecisionKind::Decline;
+    if !withdrawing
+        && !acting.owner
+        && decider != current.routed_to.actor_id
+        && decider != owner
+        && decider != "owner"
+    {
         return Err(DirectionError::NotYours(format!(
             "{} decides this request.",
             current.routed_to.name
@@ -1366,6 +1374,46 @@ mod tests {
             undo(&f.authority, &f.org, &f.company, &names, id, "owner").await.unwrap().undo,
             UndoState::Undone { .. }
         ));
+        f.done().await;
+    }
+
+    /// The person who asked may withdraw a pending request, but never approve their own.
+    #[tokio::test]
+    async fn a_requester_may_withdraw_but_never_approve_their_own_request() {
+        let Some(f) = fixture("w").await else { return };
+        let names = f.names().await;
+        let team = f.studio.to_string();
+        let filed = file_request(&f.authority, &f.company, &names, "exec", RequestInput {
+            requester: "human-bodhi",
+            class: Some(DirectionClass::Staffing),
+            team: Some(&team),
+            summary: "Give the designer a stronger model",
+            change: "Set designer-ui's model to the strongest model",
+            reason: "Drafts come back text-heavy",
+            source_message: None,
+        })
+        .await
+        .unwrap();
+        let input = |decision| DirectionDecisionInput {
+            decision,
+            reason: Some("Withdrawn".into()),
+            always_allow: None,
+            make_team_owner: None,
+        };
+        assert!(matches!(
+            decide(&f.authority, &f.org, &f.company, &names, filed.id, "human-bodhi", &input(DirectionDecisionKind::Approve)).await,
+            Err(DirectionError::NotYours(_))
+        ));
+        assert!(matches!(
+            decide(&f.authority, &f.org, &f.company, &names, filed.id, "human-bianca", &input(DirectionDecisionKind::Decline)).await,
+            Err(DirectionError::NotYours(_))
+        ));
+        let withdrawn = decide(&f.authority, &f.org, &f.company, &names, filed.id, "human-bodhi", &input(DirectionDecisionKind::Decline))
+            .await
+            .unwrap();
+        assert_eq!(withdrawn.state, RequestState::Declined);
+        assert_eq!(withdrawn.decision.unwrap().by.actor_id, "human-bodhi");
+        assert!(requests(&f.authority, &f.company, &names, "owner", false).await.unwrap().is_empty());
         f.done().await;
     }
 
