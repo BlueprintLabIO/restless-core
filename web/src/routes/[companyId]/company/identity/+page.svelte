@@ -7,20 +7,20 @@
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
-	import IdentityEditor from '$lib/components/IdentityEditor.svelte';
+	import BrandDocument from '$lib/components/BrandDocument.svelte';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { page } from '$app/state';
 	import { identityQuery } from '$lib/model/queries.svelte';
-	import FileQuestion from '@lucide/svelte/icons/file-question';
 	import GitBranch from '@lucide/svelte/icons/git-branch';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import {
+		IDENTITY_PILLARS,
 		decideIdentityMigration,
-		promoteIdentityProposal,
-		rejectIdentityProposal,
+		releaseEvidence,
+		saveCompanyIdentity,
 		type IdentityDriftFindingRow,
-		type IdentityEvidenceRow,
 		type IdentityMigrationDisposition,
-		type IdentityProposalRow
+		type IdentityReleaseRow
 	} from '$lib/model/identity';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
@@ -30,15 +30,6 @@
 	const canManage = $derived(mayManageCompanySetup(principal.view));
 	const source = $derived(identityQuery(companyId));
 	const view = $derived(source.view);
-	const currentEvidence = $derived.by(() => {
-		if (!view) return [];
-		const ids = new Set(
-			view.release_evidence
-				.filter((link) => link.release_id === view.current_release?.id)
-				.map((link) => link.evidence_id)
-		);
-		return view.evidence.filter((item) => ids.has(item.id));
-	});
 	const staleBindings = $derived(view?.bindings.filter((binding) => binding.stale_at).length ?? 0);
 	const openDrift = $derived.by(() => {
 		if (!view) return [];
@@ -97,20 +88,12 @@
 		];
 		return reviews;
 	});
-	const PILLARS = [
-		['truth', 'Truth'],
-		['voice', 'Voice'],
-		['visual', 'Visual language'],
-		['culture', 'Culture']
-	] as const;
 	const DISPOSITIONS: { value: IdentityMigrationDisposition; label: string; title: string }[] = [
 		{ value: 'retain', label: 'Keep', title: 'Keep the artifact as it is.' },
 		{ value: 'revise', label: 'Revise', title: 'Have the artifact revised to the new identity.' },
 		{ value: 'retire', label: 'Retire', title: 'Stop using the artifact.' }
 	];
 
-	let deciding = $state<string | null>(null);
-	let decisionText = $state('');
 	let migrationFinding = $state<string | null>(null);
 	let migrationDisposition = $state<IdentityMigrationDisposition>('revise');
 	let migrationRationale = $state('');
@@ -121,34 +104,37 @@
 	function firstOf(...findings: string[]): string {
 		return findings.find((finding) => finding.trim()) ?? '';
 	}
-	function evidenceFor(proposal: IdentityProposalRow): IdentityEvidenceRow[] {
-		if (!view) return [];
-		const ids = new Set(
-			view.proposal_evidence
-				.filter((link) => link.proposal_id === proposal.id)
-				.map((link) => link.evidence_id)
-		);
-		return view.evidence.filter((item) => ids.has(item.id));
-	}
-
-	async function decide(proposal: IdentityProposalRow, decision: 'promote' | 'reject') {
-		if (!decisionText.trim() || saving) return;
+	/* Restoring makes an earlier version current again as a new, attributed
+	 * version; every statement keeps its original evidence and attribution. */
+	async function restore(release: IdentityReleaseRow) {
+		if (!view || saving) return;
+		const label = formatMoment(release.effective_from);
+		if (
+			!(await confirmAction({
+				title: 'Restore this version?',
+				body: `New work will use the version from ${label}. The current version stays in the history.`,
+				action: 'Restore'
+			}))
+		)
+			return;
 		saving = true;
 		failure = '';
 		notice = '';
 		try {
-			if (decision === 'promote') {
-				await promoteIdentityProposal(companyId, proposal.id, decisionText);
-				notice = 'Promoted. New work will use this version; earlier work keeps its own.';
-			} else {
-				await rejectIdentityProposal(companyId, proposal.id, decisionText);
-				notice = 'Rejected. Its evidence stays available.';
-			}
-			deciding = null;
-			decisionText = '';
+			await saveCompanyIdentity(companyId, {
+				expected_release: view.current_release?.id ?? null,
+				statements: releaseEvidence(view, release.id).map((item) => ({
+					id: item.id,
+					pillar: item.pillar,
+					text: item.statement,
+					visual: null
+				})),
+				change_account: `Restored the version from ${label}`
+			});
+			notice = 'Restored. New work will use it; earlier work keeps its own version.';
 			await source.refresh();
 		} catch (cause) {
-			failure = failureSentence(cause, 'The identity decision was not recorded.');
+			failure = failureSentence(cause, 'The version was not restored.');
 		} finally {
 			saving = false;
 		}
@@ -193,73 +179,8 @@
 	info="How the company looks and sounds. Every site, deck and message the team makes starts from it. Exec proposes changes from your feedback; only you approve them."
 >
 	{#if view}
-		{#if failure}<Notice
-				tone="danger"
-				title="That decision was not recorded"
-				details={failure}
-			/>{/if}
+		{#if failure}<Notice tone="danger" title="That was not recorded" details={failure} />{/if}
 		{#if notice}<Notice tone="success" title={notice} />{/if}
-
-		{#if view.pending_proposals.length}
-			<Section
-				title={canManage ? 'Waiting for your decision' : 'Proposals'}
-				count={view.pending_proposals.length}
-				info="Promoting makes a proposal the current version. Rejecting keeps its evidence without banning it."
-			>
-				{#each view.pending_proposals as proposal (proposal.id)}
-					{@const evidence = evidenceFor(proposal)}
-					<Item
-						title={proposal.rationale}
-						meta={`${proposal.created_by} · ${evidence.length} statement${evidence.length === 1 ? '' : 's'}`}
-						onclick={() => {
-							deciding = deciding === proposal.id ? null : proposal.id;
-							decisionText = '';
-						}}
-						selected={deciding === proposal.id}
-						unread
-					>
-						{#snippet leading()}<FileQuestion size={15} strokeWidth={1.8} />{/snippet}
-						{#snippet trailing()}<time title={formatMoment(proposal.created_at)}
-								>{when(proposal.created_at)}</time
-							>{/snippet}
-						{#if canManage && deciding === proposal.id}
-							<div class="decision">
-								<ul class="statements">
-									{#each evidence as item (item.id)}<li>
-											<span class="kind">{sentence(item.pillar)}</span>{item.statement}
-										</li>{/each}
-								</ul>
-								<textarea
-									bind:value={decisionText}
-									aria-label="Your reason"
-									placeholder="Your reason, sent with the decision"></textarea>
-								<div class="decision-bar">
-									<button
-										class="btn primary small"
-										type="button"
-										disabled={saving || !decisionText.trim()}
-										onclick={() => decide(proposal, 'promote')}
-										>{saving ? 'Recording…' : 'Promote'}</button
-									>
-									<button
-										class="btn small"
-										type="button"
-										disabled={saving || !decisionText.trim()}
-										onclick={() => decide(proposal, 'reject')}>Reject</button
-									>
-									<button
-										class="btn small ghost"
-										type="button"
-										disabled={saving}
-										onclick={() => (deciding = null)}>Cancel</button
-									>
-								</div>
-							</div>
-						{/if}
-					</Item>
-				{/each}
-			</Section>
-		{/if}
 
 		{#if openDrift.length}
 			<Section
@@ -318,7 +239,7 @@
 			</Section>
 		{/if}
 
-		{#if canManage}<IdentityEditor {companyId} {view} onSaved={() => source.refresh()} />{/if}
+		<BrandDocument {companyId} {view} {canManage} onSaved={() => source.refresh()} />
 
 		{#if view.current_release}
 			<Section
@@ -342,37 +263,6 @@
 				<Row label="What changed" stack>
 					<span class="change">{view.current_release.change_account}</span>
 				</Row>
-			</Section>
-		{/if}
-
-		{#if currentEvidence.length}
-			<Section
-				title="Released statements"
-				count={currentEvidence.length}
-				info="Every statement in the current version, with its kind and source."
-			>
-				{#each PILLARS as [key, label] (key)}
-					{@const items = currentEvidence.filter((item) => item.pillar === key)}
-					<Fold {label} count={items.length}>
-						{#if items.length}
-							<ul class="statements">
-								{#each items as item (item.id)}
-									<li class:negative={item.polarity === 'negative'}>
-										<span
-											class="kind"
-											title={item.source === 'owner_identity_editor'
-												? 'Your direction'
-												: `${item.author_id} · ${item.evidence_locator}`}
-											>{sentence(item.statement_kind)}{item.polarity === 'negative'
-												? ' · avoid'
-												: ''}</span
-										>{item.statement}
-									</li>
-								{/each}
-							</ul>
-						{:else}<p class="fold-empty">Nothing released for {label.toLowerCase()}.</p>{/if}
-					</Fold>
-				{/each}
 			</Section>
 		{/if}
 
@@ -402,14 +292,26 @@
 						label={release.change_account}
 						hint={`${release.id === view.current_release?.id ? 'Current · ' : ''}${when(release.effective_from)}`}
 					>
+						{@const statements = releaseEvidence(view, release.id)}
 						<ul class="statements">
-							{#each view.release_evidence.filter((link) => link.release_id === release.id) as link (link.evidence_id)}
-								{@const evidence = view.evidence.find((item) => item.id === link.evidence_id)}
-								{#if evidence}<li>
-										<span class="kind">{sentence(evidence.pillar)}</span>{evidence.statement}
-									</li>{/if}
+							{#each IDENTITY_PILLARS as pillar (pillar.key)}
+								{#each statements.filter((item) => item.pillar === pillar.key) as evidence (evidence.id)}<li
+									>
+										<span class="kind">{pillar.label}</span>{evidence.statement}
+									</li>{/each}
 							{/each}
 						</ul>
+						{#if canManage && release.id !== view.current_release?.id}
+							<div class="restore">
+								<button
+									class="btn small"
+									type="button"
+									disabled={saving}
+									title="Make this version current again, as a new version"
+									onclick={() => restore(release)}>Restore this version</button
+								>
+							</div>
+						{/if}
 					</Fold>
 				{/each}
 			</Section>
@@ -456,27 +358,19 @@
 		font-size: var(--t-body);
 		line-height: 1.55;
 	}
-	.decision .statements {
-		padding: 0;
-	}
 	.statements li {
 		display: grid;
 		gap: 2px;
 		overflow-wrap: anywhere;
 		white-space: pre-wrap;
 	}
-	.statements li.negative {
-		color: var(--text-secondary);
-	}
 	.kind {
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 		white-space: normal;
 	}
-	.fold-empty {
-		margin: 0;
+	.restore {
 		padding: 0 16px 14px 40px;
-		color: var(--text-tertiary);
 	}
 	.change {
 		color: var(--text-secondary);

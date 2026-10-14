@@ -29,15 +29,35 @@ fn release_select() -> &'static str {
 }
 
 impl OrgIntel {
-    /// Stage the owner's four authored pillars without discarding independently
-    /// attributed evidence. Promotion still uses the normal owner/Authority path.
+    /// Stage the owner's next identity version as one document. Every statement
+    /// in it is either kept (with its attribution), edited (owner evidence that
+    /// supersedes the original) or new owner guidance. Released statements the
+    /// owner leaves out are retired from the new version only: evidence, earlier
+    /// releases and Work bindings stay untouched. Promotion still uses the normal
+    /// owner/Authority path.
     pub async fn propose_owner_identity(
         &self,
         actor: &str,
         expected: Option<Uuid>,
-        sections: &[(IdentityPillar, &str)],
+        statements: &[OwnerIdentityStatement<'_>],
+        rationale: &str,
     ) -> Result<Uuid> {
         nonempty("author", actor)?;
+        if statements.len() > 500 {
+            return Err(OrgIntelError::InvalidWork(
+                "An identity version can hold at most 500 statements.".into(),
+            ));
+        }
+        let rationale = match rationale.trim() {
+            "" => "Owner edited company identity",
+            text => text,
+        };
+        let kept: Vec<Uuid> = statements.iter().filter_map(|s| s.keep).collect();
+        if kept.iter().collect::<BTreeSet<_>>().len() != kept.len() {
+            return Err(OrgIntelError::InvalidWork(
+                "Each existing statement can appear only once.".into(),
+            ));
+        }
         let mut tx = self.pool.begin().await?;
         sqlx::query("SELECT pg_advisory_xact_lock(814221)")
             .execute(&mut *tx)
@@ -51,54 +71,183 @@ impl OrgIntel {
             return Err(OrgIntelError::InvalidWork("Identity changed while you were editing. Reload the saved identity before trying again.".into()));
         }
         let existing = sqlx::query_as::<_, IdentityEvidenceRow>(&format!(
-            "{} WHERE id IN (SELECT evidence_id FROM company_identity_release_evidence WHERE release_id=$1)", evidence_select()
-        )).bind(current).fetch_all(&mut *tx).await?;
-        let mut ids: Vec<Uuid> = existing
-            .iter()
-            .filter(|e| e.source != "owner_identity_editor")
-            .map(|e| e.id)
-            .collect();
-        for (pillar, text) in sections {
-            let text = text.trim();
+            "{} WHERE id = ANY($1)",
+            evidence_select()
+        ))
+        .bind(&kept)
+        .fetch_all(&mut *tx)
+        .await?;
+        if existing.len() != kept.len() {
+            return Err(OrgIntelError::InvalidWork(
+                "A statement you edited no longer exists. Reload the saved identity before trying again.".into(),
+            ));
+        }
+        let details = sqlx::query_as::<_, VisualEvidenceDetailRow>(
+            "SELECT evidence_id,kind,channel,purpose,rationale,semantic_role,value,reduced_motion_replacement,\
+             product_truth_locator,origin,licence,framework,dependencies,adaptation_status,accessibility_notes \
+             FROM company_visual_evidence_details WHERE evidence_id = ANY($1)",
+        )
+        .bind(&kept)
+        .fetch_all(&mut *tx)
+        .await?;
+        let mut ids = Vec::new();
+        for statement in statements {
+            let token = match statement.visual {
+                Some(token) => {
+                    if !matches!(
+                        token.kind,
+                        VisualEvidenceKind::SemanticToken
+                            | VisualEvidenceKind::TypographyRole
+                            | VisualEvidenceKind::ImageryDirection
+                    ) {
+                        return Err(OrgIntelError::InvalidWork(
+                            "Visual settings are colours, typefaces or reference images.".into(),
+                        ));
+                    }
+                    let (role, value) = (token.role.trim(), token.value.trim());
+                    if role.is_empty() || value.is_empty() {
+                        return Err(OrgIntelError::InvalidWork(
+                            "Each visual setting needs a name and a value.".into(),
+                        ));
+                    }
+                    if role.len() > 200 || value.len() > 2000 {
+                        return Err(OrgIntelError::InvalidWork(
+                            "A visual setting is too long.".into(),
+                        ));
+                    }
+                    Some((token.kind, role, value))
+                }
+                None => None,
+            };
+            let generated;
+            let text = match (statement.text.trim(), token) {
+                ("", Some((_, role, value))) => {
+                    generated = format!("{role}: {value}");
+                    generated.as_str()
+                }
+                (text, _) => text,
+            };
             if text.len() > 16000 {
                 return Err(OrgIntelError::InvalidWork(
-                    "Each identity section must be at most 16,000 bytes.".into(),
+                    "Each identity statement must be at most 16,000 bytes.".into(),
                 ));
             }
             if text.is_empty() {
                 continue;
             }
-            let previous = existing
-                .iter()
-                .find(|e| e.source == "owner_identity_editor" && e.pillar == *pillar);
-            if let Some(previous) = previous.filter(|e| e.statement == text) {
-                ids.push(previous.id);
-                continue;
+            let previous = statement
+                .keep
+                .and_then(|id| existing.iter().find(|e| e.id == id));
+            let previous_detail =
+                previous.and_then(|e| details.iter().find(|d| d.evidence_id == e.id));
+            if let Some(previous) = previous {
+                let same_token = match (token, previous_detail) {
+                    (None, _) => true,
+                    (Some((kind, role, value)), Some(detail)) => {
+                        detail.kind == kind
+                            && detail.semantic_role.as_deref() == Some(role)
+                            && detail.value.as_deref() == Some(value)
+                    }
+                    (Some(_), None) => false,
+                };
+                if previous.statement == text && same_token {
+                    ids.push(previous.id);
+                    continue;
+                }
             }
             let id = Uuid::new_v4();
-            let key = format!(
+            let pillar = match (previous, token) {
+                (_, Some(_)) => IdentityPillar::Visual,
+                (Some(previous), None) => previous.pillar,
+                (None, None) => statement.pillar,
+            };
+            let owner_key = format!(
                 "owner.{}",
                 serde_json::to_value(pillar)
                     .expect("pillar serializes")
                     .as_str()
                     .unwrap()
             );
-            sqlx::query("INSERT INTO company_identity_evidence (id,pillar,statement_kind,claim_key,statement,author_id,source,authority,scope,observed_at,evidence_locator,polarity,status,supersedes_evidence_id) VALUES ($1,$2,'guidance',$3,$4,$5,'owner_identity_editor','owner','company',now(),$6,'neutral','active',$7)")
-                .bind(id).bind(pillar).bind(key).bind(text).bind(actor)
-                .bind(format!("owner-identity:{id}"))
-                .bind(previous.map(|e|e.id)).execute(&mut *tx).await?;
+            // An edit keeps what the statement is about (its kind, claim, scope
+            // and reach) and becomes the owner's own words.
+            let kind = match (previous, token) {
+                (Some(previous), None) => previous.statement_kind,
+                _ => IdentityStatementKind::Guidance,
+            };
+            let claim_key = previous.map_or(owner_key, |e| e.claim_key.clone());
+            sqlx::query(
+                "INSERT INTO company_identity_evidence \
+                 (id,pillar,statement_kind,claim_key,statement,author_id,source,authority,scope,\
+                  observed_at,evidence_locator,polarity,status,channel,audience,supersedes_evidence_id,\
+                  exception_expires_at,exception_indefinite) \
+                 VALUES ($1,$2,$3,$4,$5,$6,'owner_identity_editor','owner',$7,now(),$8,$9,'active',$10,$11,$12,$13,$14)",
+            )
+            .bind(id)
+            .bind(pillar)
+            .bind(kind)
+            .bind(claim_key)
+            .bind(text)
+            .bind(actor)
+            .bind(previous.map_or("company", |e| e.scope.as_str()))
+            .bind(format!("owner-identity:{id}"))
+            .bind(previous.map_or(IdentityPolarity::Neutral, |e| e.polarity))
+            .bind(previous.and_then(|e| e.channel.as_deref()))
+            .bind(previous.and_then(|e| e.audience.as_deref()))
+            .bind(previous.map(|e| e.id))
+            .bind(previous.and_then(|e| (kind == IdentityStatementKind::Exception).then_some(e.exception_expires_at).flatten()))
+            .bind(previous.is_some_and(|e| kind == IdentityStatementKind::Exception && e.exception_indefinite))
+            .execute(&mut *tx)
+            .await?;
+            if let Some((kind, role, value)) = token {
+                sqlx::query(
+                    "INSERT INTO company_visual_evidence_details \
+                     (evidence_id,kind,purpose,rationale,semantic_role,value,accessibility_notes) \
+                     VALUES ($1,$2,$3,'Set by the owner in Brand & voice',$3,$4,\
+                             'Check contrast and legibility wherever it is used.')",
+                )
+                .bind(id)
+                .bind(kind)
+                .bind(role)
+                .bind(value)
+                .execute(&mut *tx)
+                .await?;
+            } else if let Some(previous) = previous {
+                // The classification of the original travels with the edit.
+                sqlx::query(
+                    "INSERT INTO company_visual_evidence_details \
+                     (evidence_id,kind,channel,purpose,rationale,semantic_role,value,reduced_motion_replacement,\
+                      product_truth_locator,origin,licence,framework,dependencies,adaptation_status,accessibility_notes) \
+                     SELECT $1,kind,channel,purpose,rationale,semantic_role,value,reduced_motion_replacement,\
+                      product_truth_locator,origin,licence,framework,dependencies,adaptation_status,accessibility_notes \
+                     FROM company_visual_evidence_details WHERE evidence_id=$2",
+                )
+                .bind(id)
+                .bind(previous.id)
+                .execute(&mut *tx)
+                .await?;
+                sqlx::query(
+                    "INSERT INTO company_voice_evidence_details \
+                     (evidence_id,kind,judgement_reason,named_author,channel,audience) \
+                     SELECT $1,kind,judgement_reason,named_author,channel,audience \
+                     FROM company_voice_evidence_details WHERE evidence_id=$2",
+                )
+                .bind(id)
+                .bind(previous.id)
+                .execute(&mut *tx)
+                .await?;
+            }
             ids.push(id);
         }
         if ids.is_empty() {
             return Err(OrgIntelError::InvalidWork(
-                "Add at least one identity section before saving.".into(),
+                "Add at least one identity statement before saving.".into(),
             ));
         }
         let proposal = Uuid::new_v4();
-        sqlx::query("INSERT INTO company_identity_proposals (id,created_by,rationale,expected_predecessor) VALUES ($1,$2,'Owner edited company identity',$3)")
-            .bind(proposal).bind(actor).bind(expected).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO company_identity_proposals (id,created_by,rationale,expected_predecessor) VALUES ($1,$2,$3,$4)")
+            .bind(proposal).bind(actor).bind(rationale).bind(expected).execute(&mut *tx).await?;
         for id in ids {
-            sqlx::query("INSERT INTO company_identity_proposal_evidence (proposal_id,evidence_id) VALUES ($1,$2)").bind(proposal).bind(id).execute(&mut *tx).await?;
+            sqlx::query("INSERT INTO company_identity_proposal_evidence (proposal_id,evidence_id) VALUES ($1,$2) ON CONFLICT DO NOTHING").bind(proposal).bind(id).execute(&mut *tx).await?;
         }
         tx.commit().await?;
         Ok(proposal)

@@ -5,8 +5,18 @@
 use chrono::{Duration, Utc};
 use restless_orgintel::{
     IdentityBriefRequest, IdentityEvidenceStatus, IdentityPillar, IdentityPolarity,
-    IdentityStatementKind, NewIdentityEvidence, NewWork, OrgIntel, WorkspaceSpec,
+    IdentityStatementKind, NewIdentityEvidence, NewWork, OrgIntel, OwnerIdentityStatement,
+    OwnerVisualToken, VisualEvidenceKind, WorkspaceSpec,
 };
+
+fn say(keep: Option<uuid::Uuid>, pillar: IdentityPillar, text: &str) -> OwnerIdentityStatement<'_> {
+    OwnerIdentityStatement {
+        keep,
+        pillar,
+        text,
+        visual: None,
+    }
+}
 
 async fn work(org: &OrgIntel, title: &str) -> uuid::Uuid {
     org.add_work(NewWork {
@@ -331,9 +341,10 @@ async fn owner_editor_preserves_history_evidence_and_rejects_stale_drafts() {
             "owner",
             None,
             &[
-                (IdentityPillar::Truth, "We build tools"),
-                (IdentityPillar::Voice, "Direct and clear"),
+                say(None, IdentityPillar::Truth, "We build tools"),
+                say(None, IdentityPillar::Voice, "Direct and clear"),
             ],
+            "",
         )
         .await
         .unwrap();
@@ -350,7 +361,8 @@ async fn owner_editor_preserves_history_evidence_and_rejects_stale_drafts() {
         .propose_owner_identity(
             "owner",
             None,
-            &[(IdentityPillar::Truth, "Stale replacement")]
+            &[say(None, IdentityPillar::Truth, "Stale replacement")],
+            "",
         )
         .await
         .is_err());
@@ -402,14 +414,25 @@ async fn owner_editor_preserves_history_evidence_and_rejects_stale_drafts() {
         )
         .await
         .unwrap();
+    let owner_truth = before
+        .evidence
+        .iter()
+        .find(|e| e.statement == "We build tools")
+        .unwrap()
+        .id;
     let next = org
         .propose_owner_identity(
             "owner",
             Some(with_fact),
             &[
-                (IdentityPillar::Truth, "We build useful tools"),
-                (IdentityPillar::Voice, ""),
+                say(
+                    Some(owner_truth),
+                    IdentityPillar::Truth,
+                    "We build useful tools",
+                ),
+                say(Some(independent), IdentityPillar::Truth, "Founded in 2026"),
             ],
+            "",
         )
         .await
         .unwrap();
@@ -426,12 +449,12 @@ async fn owner_editor_preserves_history_evidence_and_rejects_stale_drafts() {
         .collect();
     assert!(
         current.contains(&independent),
-        "editing preserves separately attributed facts"
+        "an unchanged statement keeps its own attribution"
     );
     assert_eq!(
         current.len(),
         2,
-        "cleared owner voice is removed only from the new release"
+        "a statement left out is removed only from the new release"
     );
     assert_eq!(
         snapshot
@@ -446,6 +469,167 @@ async fn owner_editor_preserves_history_evidence_and_rejects_stale_drafts() {
         .evidence
         .iter()
         .any(|e| e.statement == "We build useful tools" && e.supersedes_evidence_id.is_some()));
+
+    // UXG-001: the owner corrects a statement they did not write and retires
+    // another. The correction supersedes the original and keeps its claim; the
+    // retired statement leaves only the new version.
+    let useful = snapshot
+        .evidence
+        .iter()
+        .find(|e| e.statement == "We build useful tools")
+        .unwrap()
+        .id;
+    let corrected = org
+        .propose_owner_identity(
+            "owner",
+            Some(latest),
+            &[say(
+                Some(independent),
+                IdentityPillar::Truth,
+                "Founded in 2025",
+            )],
+            "Corrected the founding year",
+        )
+        .await
+        .unwrap();
+    let after = org
+        .promote_identity_proposal(
+            corrected,
+            "owner",
+            "owner",
+            "authority:4",
+            "Corrected the founding year",
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    let snapshot = org.company_identity_snapshot().await.unwrap();
+    let current: Vec<_> = snapshot
+        .release_evidence
+        .iter()
+        .filter(|e| e.release_id == after)
+        .map(|e| e.evidence_id)
+        .collect();
+    assert_eq!(current.len(), 1);
+    let correction = snapshot
+        .evidence
+        .iter()
+        .find(|e| e.id == current[0])
+        .unwrap();
+    assert_eq!(correction.statement, "Founded in 2025");
+    assert_eq!(correction.supersedes_evidence_id, Some(independent));
+    assert_eq!(correction.claim_key, "founded");
+    assert_eq!(correction.statement_kind, IdentityStatementKind::Fact);
+    assert_eq!(correction.source, "owner_identity_editor");
+    assert!(!current.contains(&useful) && !current.contains(&independent));
+    assert!(
+        snapshot.evidence.iter().any(|e| e.id == independent),
+        "the original evidence stays for history"
+    );
+
+    // UXG-004: restoring an earlier version keeps every statement as it was.
+    let restore_ids: Vec<_> = snapshot
+        .release_evidence
+        .iter()
+        .filter(|e| e.release_id == latest)
+        .map(|e| e.evidence_id)
+        .collect();
+    let restore: Vec<_> = restore_ids
+        .iter()
+        .map(|id| {
+            let e = snapshot.evidence.iter().find(|e| e.id == *id).unwrap();
+            say(Some(*id), e.pillar, &e.statement)
+        })
+        .collect();
+    let restored = org
+        .propose_owner_identity("owner", Some(after), &restore, "Restored")
+        .await
+        .unwrap();
+    let restored = org
+        .promote_identity_proposal(
+            restored,
+            "owner",
+            "owner",
+            "authority:5",
+            "Restored",
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    let mut back: Vec<_> = org
+        .company_identity_snapshot()
+        .await
+        .unwrap()
+        .release_evidence
+        .iter()
+        .filter(|e| e.release_id == restored)
+        .map(|e| e.evidence_id)
+        .collect();
+    let mut expected = restore_ids.clone();
+    back.sort();
+    expected.sort();
+    assert_eq!(
+        back, expected,
+        "restore reuses the earlier evidence exactly"
+    );
+
+    // UXG-006: a colour is structured visual evidence; changing it supersedes it.
+    let colour = |value| OwnerIdentityStatement {
+        keep: None,
+        pillar: IdentityPillar::Visual,
+        text: "",
+        visual: Some(OwnerVisualToken {
+            kind: VisualEvidenceKind::SemanticToken,
+            role: "Primary",
+            value,
+        }),
+    };
+    let first_colour = org
+        .propose_owner_identity("owner", Some(restored), &[colour("#112233")], "")
+        .await
+        .unwrap();
+    let with_colour = org
+        .promote_identity_proposal(
+            first_colour,
+            "owner",
+            "owner",
+            "authority:6",
+            "Colour",
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    let snapshot = org.company_identity_snapshot().await.unwrap();
+    let token = snapshot
+        .evidence
+        .iter()
+        .find(|e| e.statement == "Primary: #112233")
+        .unwrap()
+        .id;
+    let detail = snapshot
+        .visual_evidence_details
+        .iter()
+        .find(|d| d.evidence_id == token)
+        .unwrap();
+    assert_eq!(detail.value.as_deref(), Some("#112233"));
+    let changed = OwnerIdentityStatement {
+        keep: Some(token),
+        ..colour("#445566")
+    };
+    org.propose_owner_identity("owner", Some(with_colour), &[changed], "")
+        .await
+        .unwrap();
+    let snapshot = org.company_identity_snapshot().await.unwrap();
+    let replacement = snapshot
+        .evidence
+        .iter()
+        .find(|e| e.statement == "Primary: #445566")
+        .unwrap();
+    assert_eq!(replacement.supersedes_evidence_id, Some(token));
+    assert!(snapshot
+        .visual_evidence_details
+        .iter()
+        .any(|d| d.evidence_id == replacement.id && d.value.as_deref() == Some("#445566")));
     org.drop_schema().await.unwrap();
 }
 
@@ -460,11 +644,21 @@ async fn concurrent_first_identity_saves_cannot_both_become_current() {
         .await
         .unwrap();
     let a = org
-        .propose_owner_identity("owner", None, &[(IdentityPillar::Voice, "First tab")])
+        .propose_owner_identity(
+            "owner",
+            None,
+            &[say(None, IdentityPillar::Voice, "First tab")],
+            "",
+        )
         .await
         .unwrap();
     let b = org
-        .propose_owner_identity("owner", None, &[(IdentityPillar::Voice, "Second tab")])
+        .propose_owner_identity(
+            "owner",
+            None,
+            &[say(None, IdentityPillar::Voice, "Second tab")],
+            "",
+        )
         .await
         .unwrap();
     let (a, b) = tokio::join!(

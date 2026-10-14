@@ -1,14 +1,39 @@
 //! Owner-authored company settings; source-owned history remains immutable.
 use super::*;
-use restless_orgintel::IdentityPillar;
+use restless_orgintel::{
+    IdentityPillar, OwnerIdentityStatement, OwnerVisualToken, VisualEvidenceKind,
+};
 
 #[derive(Deserialize)]
 pub(super) struct IdentityInput {
     expected_release: Option<Uuid>,
-    truth: String,
-    voice: String,
-    visual: String,
-    culture: String,
+    /// The whole next version, pillar by pillar. Existing statements are named by
+    /// `id`; anything released that is left out is retired from the new version.
+    statements: Vec<IdentityStatementInput>,
+    #[serde(default)]
+    change_account: String,
+    /// A pending proposal the owner accepted with their own edits. It is closed
+    /// once the edited version is current.
+    #[serde(default)]
+    amends_proposal: Option<Uuid>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct IdentityStatementInput {
+    #[serde(default)]
+    id: Option<Uuid>,
+    pillar: IdentityPillar,
+    #[serde(default)]
+    text: String,
+    #[serde(default)]
+    visual: Option<IdentityVisualInput>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct IdentityVisualInput {
+    kind: VisualEvidenceKind,
+    role: String,
+    value: String,
 }
 
 pub(super) async fn save_identity(
@@ -35,14 +60,31 @@ pub(super) async fn save_identity(
             )
         }
     };
-    let sections = [
-        (IdentityPillar::Truth, input.truth.as_str()),
-        (IdentityPillar::Voice, input.voice.as_str()),
-        (IdentityPillar::Visual, input.visual.as_str()),
-        (IdentityPillar::Culture, input.culture.as_str()),
-    ];
+    let statements: Vec<OwnerIdentityStatement<'_>> = input
+        .statements
+        .iter()
+        .map(|s| OwnerIdentityStatement {
+            keep: s.id,
+            pillar: s.pillar,
+            text: &s.text,
+            visual: s.visual.as_ref().map(|v| OwnerVisualToken {
+                kind: v.kind,
+                role: &v.role,
+                value: &v.value,
+            }),
+        })
+        .collect();
+    let change_account = match input.change_account.trim() {
+        "" => "Owner edited company identity",
+        text => text,
+    };
     let proposal = match org
-        .propose_owner_identity(principal.actor_id(), input.expected_release, &sections)
+        .propose_owner_identity(
+            principal.actor_id(),
+            input.expected_release,
+            &statements,
+            change_account,
+        )
         .await
     {
         Ok(id) => id,
@@ -58,16 +100,30 @@ pub(super) async fn save_identity(
         }
     };
     // The staged proposal remains reviewable if Authority is unavailable.
-    promote_company_identity(
+    let promoted = promote_company_identity(
         State(state.clone()),
-        Extension(principal),
-        AxumPath((company, proposal)),
+        Extension(principal.clone()),
+        AxumPath((company.clone(), proposal)),
         Json(IdentityPromotionInput {
-            change_account: "Owner edited company identity".into(),
+            change_account: change_account.into(),
         }),
     )
     .await
-    .into_response()
+    .into_response();
+    if let (true, Some(amended)) = (promoted.status().is_success(), input.amends_proposal) {
+        // The amended proposal is now settled by the owner's own version. If this
+        // record fails it stays pending, visibly based on an older version.
+        let _ = reject_company_identity(
+            State(state.clone()),
+            Extension(principal),
+            AxumPath((company, amended)),
+            Json(IdentityRejectionInput {
+                rationale: "Accepted with the owner's edits as a new version.".into(),
+            }),
+        )
+        .await;
+    }
+    promoted
 }
 
 #[derive(Deserialize)]

@@ -1862,6 +1862,26 @@ pub struct IdentityEvidenceRow {
     pub created_at: DateTime<Utc>,
 }
 
+/// One statement of the owner's next identity version. `keep` names existing
+/// evidence: unchanged text keeps it with its attribution, changed text
+/// supersedes it with owner evidence. A released statement the owner leaves out
+/// is retired from the new version; its evidence and history stay.
+#[derive(Debug, Clone, Copy)]
+pub struct OwnerIdentityStatement<'a> {
+    pub keep: Option<Uuid>,
+    pub pillar: IdentityPillar,
+    pub text: &'a str,
+    pub visual: Option<OwnerVisualToken<'a>>,
+}
+
+/// A structured visual setting (a colour, a typeface role or a reference image).
+#[derive(Debug, Clone, Copy)]
+pub struct OwnerVisualToken<'a> {
+    pub kind: VisualEvidenceKind,
+    pub role: &'a str,
+    pub value: &'a str,
+}
+
 pub struct NewIdentityEvidence<'a> {
     pub pillar: IdentityPillar,
     pub statement_kind: IdentityStatementKind,
