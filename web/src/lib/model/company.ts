@@ -93,6 +93,8 @@ export interface CompanyView {
 			} | null;
 		};
 		money_envelopes: MoneyEnvelope[];
+		/** The payment provider as the owner recorded it; whether it works is a live check. */
+		payment_provider?: PaymentProvider | null;
 		/** The owner's company-wide pause of outside actions, while it is in force. */
 		outside_actions_paused?: {
 			paused_at: string;
@@ -506,9 +508,65 @@ export function savePaymentAllowance(
 		per_payment_limit_minor: number;
 		aggregate_limit_minor: number;
 		frozen: boolean;
+		/** Creating an allowance names the account it pays from. */
+		source_account_ref?: string;
+		/** The payees it may pay; absent keeps them. */
+		beneficiary_refs?: string[];
 	}
 ) {
 	return postCompany<CompanyView>(company, '/company/payment-allowance', body);
+}
+
+export interface PaymentProvider {
+	environment: 'sandbox' | 'live';
+	api_version: string;
+	client_id: string;
+	account_ref: string;
+	approval_url: string;
+	read_scopes: string[];
+	submit_scopes: string[];
+	approval_workflow_observed: boolean;
+	observed_at?: string | null;
+	updated_at: string;
+	keys_bound: boolean;
+}
+
+/** What connecting or checking the payment provider found: the probe only when it passed. */
+export interface PaymentRailResult {
+	company: CompanyView;
+	probe?: { observed_at: string; account_ref: string; environment: string };
+	probe_error?: string;
+}
+
+export function savePaymentRail(
+	company: string,
+	body: {
+		environment: 'sandbox' | 'live';
+		api_version: string;
+		client_id: string;
+		account_ref: string;
+		approval_url: string;
+		read_scopes: string[];
+		submit_scopes: string[];
+		approval_workflow_observed: boolean;
+		read_key?: string;
+		submit_key?: string;
+	}
+) {
+	return postCompany<PaymentRailResult>(company, '/company/payment-rail', body);
+}
+
+export function probePaymentRail(company: string) {
+	return postCompany<PaymentRailResult>(company, '/company/payment-rail/probe', {});
+}
+
+/** The owner's answer to a payee request from the Inbox. */
+export function decidePayee(company: string, proposal: string, approve: boolean, note?: string) {
+	return postCompany<{ decided: boolean }>(
+		company,
+		`/company/payees/${encodeURIComponent(proposal)}/decide`,
+		{ approve, note }
+	);
 }
 
 /** Preview or apply copying setup sections from another company. */

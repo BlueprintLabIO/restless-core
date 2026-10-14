@@ -301,6 +301,169 @@ pub async fn set_frozen(
     Ok(envelope)
 }
 
+/// Replace the payees one allowance may pay, keeping its limits and running total. Each is an
+/// existing beneficiary in the payment provider; Authority checks every payment against the list.
+pub async fn set_payees(
+    store: &crate::authority::AuthorityStore,
+    company: &str,
+    currency: &str,
+    payees: Vec<String>,
+    owner: &str,
+) -> Result<MoneyEnvelope> {
+    let currency = normalise_currency(currency)?;
+    let mut payees = payees
+        .into_iter()
+        .map(|payee| payee.trim().to_string())
+        .filter(|payee| !payee.is_empty())
+        .collect::<Vec<_>>();
+    payees.dedup();
+    if payees.is_empty() {
+        bail!("a payment allowance needs at least one payee; freeze it to stop payments instead");
+    }
+    if payees.iter().any(|payee| payee.len() > 200 || payee.chars().any(char::is_control)) {
+        bail!("a payee is one provider beneficiary reference of at most 200 characters");
+    }
+    let row = sqlx::query(
+        "UPDATE restless_authority.money_envelopes SET beneficiary_refs=$3, updated_by=$4, updated_at=now() \
+         WHERE company=$1 AND currency=$2 RETURNING *",
+    )
+    .bind(company)
+    .bind(&currency)
+    .bind(serde_json::to_value(&payees)?)
+    .bind(owner)
+    .fetch_optional(store.pool())
+    .await?
+    .context("no payment allowance exists for that currency")?;
+    let envelope = envelope_from_row(&row)?;
+    store
+        .emit(
+            company,
+            "money_envelope_changed",
+            Some(owner),
+            serde_json::json!({"currency": currency, "beneficiary_refs": payees}),
+        )
+        .await?;
+    Ok(envelope)
+}
+
+pub const PAYEE_PROPOSED_KIND: &str = "payee_proposed";
+pub const PAYEE_DECIDED_KIND: &str = "payee_decided";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PayeeProposalInput {
+    pub currency: String,
+    /// The beneficiary as the payment provider names it; it must already exist there.
+    pub beneficiary_ref: String,
+    /// Who they are and why the company needs to pay them.
+    pub reason: String,
+    #[serde(default)]
+    pub work_id: Option<Uuid>,
+}
+
+/// A company actor asks the owner to let an allowance pay one more payee. The owner answers in
+/// the Inbox; nothing is payable until then.
+pub async fn propose_payee(
+    store: &crate::authority::AuthorityStore,
+    company: &str,
+    actor: &str,
+    mut input: PayeeProposalInput,
+) -> Result<i64> {
+    input.currency = normalise_currency(&input.currency)?;
+    input.beneficiary_ref = input.beneficiary_ref.trim().to_string();
+    input.reason = input.reason.trim().to_string();
+    if input.beneficiary_ref.is_empty()
+        || input.beneficiary_ref.len() > 200
+        || input.beneficiary_ref.chars().any(char::is_control)
+    {
+        bail!("name the payee by its provider beneficiary reference (at most 200 characters)");
+    }
+    if input.reason.is_empty() || input.reason.len() > 2_000 {
+        bail!("say who the payee is and why the company needs to pay them (at most 2,000 characters)");
+    }
+    let envelope = envelopes(store, company)
+        .await?
+        .into_iter()
+        .find(|envelope| envelope.limits.currency == input.currency)
+        .with_context(|| format!("there is no {} payment allowance; ask the owner to set one up first", input.currency))?;
+    if envelope.limits.beneficiary_refs.contains(&input.beneficiary_ref) {
+        bail!("{} is already a payee of the {} allowance", input.beneficiary_ref, input.currency);
+    }
+    if pending_payee_proposals(store, company).await?.iter().any(|(_, pending)| {
+        pending.currency == input.currency && pending.beneficiary_ref == input.beneficiary_ref
+    }) {
+        bail!("this payee is already waiting for the owner's answer");
+    }
+    store
+        .emit(company, PAYEE_PROPOSED_KIND, Some(actor), serde_json::to_value(&input)?)
+        .await
+}
+
+/// Payee proposals the owner has not answered, by record.
+pub async fn pending_payee_proposals(
+    store: &crate::authority::AuthorityStore,
+    company: &str,
+) -> Result<Vec<(crate::authority::AuthorityRecord, PayeeProposalInput)>> {
+    let decided = store
+        .records_of_kind(company, PAYEE_DECIDED_KIND)
+        .await?
+        .into_iter()
+        .filter_map(|record| record.body.get("proposal").and_then(serde_json::Value::as_i64))
+        .collect::<std::collections::HashSet<_>>();
+    Ok(store
+        .records_of_kind(company, PAYEE_PROPOSED_KIND)
+        .await?
+        .into_iter()
+        .filter(|record| !decided.contains(&record.id))
+        .filter_map(|record| {
+            let input = serde_json::from_value(record.body.clone()).ok()?;
+            Some((record, input))
+        })
+        .collect())
+}
+
+/// The owner's answer: approving adds the payee to the allowance, keeping its limits.
+pub async fn decide_payee(
+    store: &crate::authority::AuthorityStore,
+    company: &str,
+    owner: &str,
+    proposal: i64,
+    approve: bool,
+    note: Option<&str>,
+) -> Result<()> {
+    let (_, pending) = pending_payee_proposals(store, company)
+        .await?
+        .into_iter()
+        .find(|(record, _)| record.id == proposal)
+        .context("this payee request was already answered or no longer exists")?;
+    if approve {
+        let envelope = envelopes(store, company)
+            .await?
+            .into_iter()
+            .find(|envelope| envelope.limits.currency == pending.currency)
+            .context("the payment allowance for this currency no longer exists")?;
+        let mut payees = envelope.limits.beneficiary_refs;
+        if !payees.contains(&pending.beneficiary_ref) {
+            payees.push(pending.beneficiary_ref.clone());
+        }
+        set_payees(store, company, &pending.currency, payees, owner).await?;
+    }
+    store
+        .emit(
+            company,
+            PAYEE_DECIDED_KIND,
+            Some(owner),
+            serde_json::json!({
+                "proposal": proposal,
+                "approve": approve,
+                "currency": pending.currency,
+                "beneficiary_ref": pending.beneficiary_ref,
+                "note": note.map(str::trim).filter(|note| !note.is_empty()),
+            }),
+        )
+        .await?;
+    Ok(())
+}
+
 pub async fn envelopes(
     store: &crate::authority::AuthorityStore,
     company: &str,
@@ -726,6 +889,52 @@ mod tests {
             idempotency_key: key.into(),
             requesting_actor: "exec".into(),
         }
+    }
+
+    /// A payee is added only by the owner's answer, and adding one keeps the allowance's limits
+    /// and running total.
+    #[tokio::test]
+    async fn a_payee_joins_an_allowance_only_on_the_owners_approval() {
+        let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping payee scenario");
+            return;
+        };
+        let company = format!("payee_{}_test", Uuid::new_v4().simple());
+        let store = crate::authority::AuthorityStore::connect(&database_url).await.unwrap();
+        set_envelope(
+            &store,
+            &company,
+            MoneyEnvelopeInput {
+                source_account_ref: "wallet-aud".into(),
+                currency: "AUD".into(),
+                beneficiary_refs: vec!["beneficiary-1".into()],
+                per_payment_limit_minor: 1_000,
+                aggregate_limit_minor: 5_000,
+                frozen: false,
+            },
+            "owner",
+        )
+        .await
+        .unwrap();
+        let before = envelopes(&store, &company).await.unwrap().remove(0);
+        let proposal = |beneficiary: &str| PayeeProposalInput {
+            currency: "aud".into(),
+            beneficiary_ref: beneficiary.into(),
+            reason: "The printer for the open day.".into(),
+            work_id: None,
+        };
+        let declined = propose_payee(&store, &company, "exec", proposal("beneficiary-2")).await.unwrap();
+        decide_payee(&store, &company, "owner", declined, false, None).await.unwrap();
+        assert_eq!(envelopes(&store, &company).await.unwrap()[0].limits.beneficiary_refs, ["beneficiary-1"]);
+        let asked = propose_payee(&store, &company, "exec", proposal("beneficiary-2")).await.unwrap();
+        assert!(propose_payee(&store, &company, "exec", proposal("beneficiary-2")).await.is_err());
+        decide_payee(&store, &company, "owner", asked, true, None).await.unwrap();
+        assert!(decide_payee(&store, &company, "owner", asked, true, None).await.is_err());
+        let after = &envelopes(&store, &company).await.unwrap()[0];
+        assert_eq!(after.limits.beneficiary_refs, ["beneficiary-1", "beneficiary-2"]);
+        assert_eq!(after.period_started_at, before.period_started_at);
+        assert_eq!(after.limits.aggregate_limit_minor, 5_000);
+        store.delete_test_company(&company).await.unwrap();
     }
 
     #[test]

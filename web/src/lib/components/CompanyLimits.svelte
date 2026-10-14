@@ -5,6 +5,7 @@
 	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
 	import EmailMandates from '$lib/components/EmailMandates.svelte';
+	import PaymentRail from '$lib/components/PaymentRail.svelte';
 	import { Section, Row, Item, Notice, Fold, Toggle } from '$lib/ui/page';
 	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
 	import { companyQuery } from '$lib/model/queries.svelte';
@@ -271,6 +272,7 @@
 		allowanceEach = $state(''),
 		allowanceTotal = $state(''),
 		allowanceFrozen = $state(false),
+		allowancePayees = $state(''),
 		allowanceSaving = $state(false),
 		allowanceError = $state('');
 	function editAllowance(envelope: {
@@ -278,8 +280,10 @@
 		per_payment_limit_minor: number;
 		aggregate_limit_minor: number;
 		frozen: boolean;
+		beneficiary_refs: string[];
 	}) {
 		allowanceCurrency = envelope.currency;
+		allowancePayees = envelope.beneficiary_refs.join('\n');
 		allowanceEach = String(envelope.per_payment_limit_minor / 100);
 		allowanceTotal = String(envelope.aggregate_limit_minor / 100);
 		allowanceFrozen = envelope.frozen;
@@ -301,7 +305,11 @@
 					currency: allowanceCurrency,
 					per_payment_limit_minor: each,
 					aggregate_limit_minor: total,
-					frozen: allowanceFrozen
+					frozen: allowanceFrozen,
+					beneficiary_refs: allowancePayees
+						.split(/[\n,]/)
+						.map((payee) => payee.trim())
+						.filter(Boolean)
 				})
 			);
 			toast(`${allowanceCurrency} allowance saved`);
@@ -711,6 +719,16 @@
 							bind:value={allowanceTotal}
 							disabled={allowanceSaving}
 						/>
+						<label
+							for="allowance-payees"
+							title="Beneficiaries set up with the provider; one per line">Payees</label
+						>
+						<textarea
+							id="allowance-payees"
+							rows="2"
+							required
+							bind:value={allowancePayees}
+							disabled={allowanceSaving}></textarea>
 						<label class="check"
 							><input
 								type="checkbox"
@@ -731,7 +749,7 @@
 				{:else}
 					<Item
 						title={envelope.currency}
-						meta={`${minor(envelope.per_payment_limit_minor, envelope.currency)} each · ${minor(envelope.aggregate_limit_minor, envelope.currency)} total${envelope.frozen ? ' · frozen' : ''}`}
+						meta={`${minor(envelope.per_payment_limit_minor, envelope.currency)} each · ${minor(envelope.aggregate_limit_minor, envelope.currency)} total · ${envelope.beneficiary_refs.length === 1 ? '1 payee' : `${envelope.beneficiary_refs.length} payees`}${envelope.frozen ? ' · frozen' : ''}`}
 					>
 						{#snippet actions()}<button
 								class="btn small"
@@ -744,6 +762,7 @@
 			{#if allowanceError}<Notice tone="danger" title="The allowance was not saved"
 					>{allowanceError}</Notice
 				>{/if}
+			<PaymentRail {companyId} {view} onview={(next) => source.accept(next)} />
 		</Section>
 		<EmailMandates {companyId} />
 	{:else if section === 'computer'}

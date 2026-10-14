@@ -10,6 +10,7 @@
 	 * at open in the Library. Context and the rest of the evidence are folded
 	 * away until asked for. */
 	import { decideEmailMandateProposal } from '$lib/model/company-actions';
+	import { decidePayee } from '$lib/model/company';
 	import { failureSentence } from '$lib/model/failure';
 	import { untrack } from 'svelte';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
@@ -135,6 +136,8 @@
 	const decline = $derived(action('decline'));
 	const approveMandate = $derived(action('approve-email-mandate'));
 	const declineMandate = $derived(action('decline-email-mandate'));
+	const approvePayee = $derived(action('approve-payee'));
+	const declinePayee = $derived(action('decline-payee'));
 	const record = $derived(action('record-decision'));
 	const open = $derived(action('open-outcome'));
 	const review = $derived(item.actions.some((candidate) => candidate.id === 'accept-review'));
@@ -375,6 +378,7 @@
 	 * which comes back here; a plain decline tells it not to go ahead. */
 	const sendApprovalNote = () => {
 		if (declineMandate && !grant) return decideMandate('decline', reason);
+		if (declinePayee) return answerPayee(false, reason);
 		const changes = approvalNote === 'changes';
 		if (changes && !reason.trim()) return;
 		return run(
@@ -406,6 +410,16 @@
 					? 'Mandate declined. Exec has your note.'
 					: 'Mandate declined',
 			'The mandate decision was not recorded. Try again.'
+		);
+	const answerPayee = (approve: boolean, note = '') =>
+		run(
+			async () => {
+				await decidePayee(companyId, item.source.reference, approve, note);
+				await refreshAttention(client, companyId);
+			},
+			approve ? 'Payee approved' : note.trim() ? 'Declined. Exec has your note.' : 'Declined',
+			'The payee decision was not recorded. Try again.',
+			execHref
 		);
 	async function openDocument() {
 		if (acting || !onopenDocument) return;
@@ -790,6 +804,23 @@
 							disabled={acting}
 							title="Decline, with an optional note for Exec"
 							onclick={() => (approvalNote = 'decline')}>{declineMandate.label}…</button
+						>{/if}
+				{:else if approvePayee}
+					{#key `${item.id}:${attempt}`}
+						<HoldApprove
+							small
+							completeLabel="Saving approval…"
+							label="Hold to approve payee"
+							disabled={acting}
+							title={`${approvePayee.consequence} ${approvePayee.nextState}`}
+							onapprove={() => void answerPayee(true)}
+						/>
+					{/key}
+					{#if declinePayee}<button
+							class="btn small"
+							disabled={acting}
+							title="Decline, with an optional note for Exec"
+							onclick={() => (approvalNote = 'decline')}>{declinePayee.label}…</button
 						>{/if}
 				{:else if documentRequest && (item.nativeDocument || onopenDocument)}
 					{#if item.nativeDocument}<a class="btn primary small" href={base} title={item.ifNoAction}

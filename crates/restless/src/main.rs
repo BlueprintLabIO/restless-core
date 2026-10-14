@@ -2128,6 +2128,21 @@ enum FinanceCommand {
         #[arg(long, requires = "approval_workflow_observed")]
         observed_at: Option<String>,
     },
+    /// Exec only: ask the owner to let an allowance pay one more payee (an existing provider
+    /// beneficiary). The owner answers in the Inbox.
+    ProposePayee {
+        #[arg(long)]
+        currency: String,
+        /// The beneficiary reference as the payment provider names it.
+        #[arg(long)]
+        beneficiary: String,
+        /// Who they are and why the company needs to pay them.
+        #[arg(long)]
+        reason: String,
+        /// The Work that needs the payment.
+        #[arg(long)]
+        work: Option<String>,
+    },
     /// Live-observe current provider balances with the read-only key.
     Balances,
     /// Live-probe both scoped connections without moving money.
@@ -2888,6 +2903,20 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                     "submit_scopes": submit_scopes,
                     "approval_workflow_observed": approval_workflow_observed,
                     "observed_at": observed_at,
+                }).to_string(),
+            }),
+            FinanceCommand::ProposePayee {
+                currency,
+                beneficiary,
+                reason,
+                work,
+            } => serde_json::json!({
+                "cmd": "finance-payee-propose", "company": company,
+                "body": serde_json::json!({
+                    "currency": currency,
+                    "beneficiary_ref": beneficiary,
+                    "reason": reason,
+                    "work_id": work,
                 }).to_string(),
             }),
             FinanceCommand::Balances => serde_json::json!({

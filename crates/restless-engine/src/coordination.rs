@@ -1263,6 +1263,19 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
             },
             None => Response::err("finance-reserve needs an exact payment intent"),
         },
+        "finance-payee-propose" => match request.common.body.as_deref() {
+            Some(body) => match serde_json::from_str::<finance::PayeeProposalInput>(body) {
+                Ok(input) => match finance::propose_payee(&daemon.authority, company, "exec", input).await {
+                    Ok(id) => Response::ok(serde_json::json!({
+                        "proposal": id,
+                        "status": "waiting for the owner in the Inbox",
+                    })),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("invalid payee proposal: {error}")),
+            },
+            None => Response::err("finance-payee-propose needs a payee proposal"),
+        },
         "finance-submit" => match (
             runtime::CompanyConfig::load(&daemon.root, company),
             request.authority.key.as_deref(),

@@ -850,6 +850,12 @@ pub(super) struct PaymentAllowanceInput {
     per_payment_limit_minor: i64,
     aggregate_limit_minor: i64,
     frozen: bool,
+    /// Creating an allowance names the provider account it pays from.
+    #[serde(default)]
+    source_account_ref: Option<String>,
+    /// The payees it may pay: existing beneficiaries in the provider. Absent keeps them.
+    #[serde(default)]
+    beneficiary_refs: Option<Vec<String>>,
 }
 
 /// Change an existing payment allowance's limits or freeze it. The account and
@@ -888,11 +894,70 @@ pub(super) async fn save_payment_allowance(
         }
     };
     let Some(current) = current else {
-        return api_error(
-            StatusCode::NOT_FOUND,
-            "payment_allowance",
-            "No payment allowance exists for that currency.",
-        );
+        // A new allowance: the account it pays from, its payees and limits, in one record.
+        let (Some(source_account_ref), Some(beneficiary_refs)) =
+            (input.source_account_ref.clone(), input.beneficiary_refs.clone())
+        else {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "payment_allowance",
+                "No payment allowance exists for that currency. Name the account it pays from and at least one payee to create one.",
+            );
+        };
+        let created = restless_engine::finance::set_envelope(
+            authority,
+            &company,
+            restless_engine::finance::MoneyEnvelopeInput {
+                source_account_ref: source_account_ref.trim().to_string(),
+                currency: input.currency.clone(),
+                beneficiary_refs,
+                per_payment_limit_minor: input.per_payment_limit_minor,
+                aggregate_limit_minor: input.aggregate_limit_minor,
+                frozen: input.frozen,
+            },
+            principal.actor_id(),
+        )
+        .await;
+        if let Err(e) = created {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "payment_allowance",
+                format!("The allowance was not created: {e:#}"),
+            );
+        }
+        return Json(company_projection::project(&state.daemon, &config, false).await)
+            .into_response();
+    };
+    if let Some(payees) = input
+        .beneficiary_refs
+        .clone()
+        .filter(|payees| *payees != current.limits.beneficiary_refs)
+    {
+        if let Err(e) = restless_engine::finance::set_payees(
+            authority,
+            &company,
+            &current.limits.currency,
+            payees,
+            principal.actor_id(),
+        )
+        .await
+        {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "payment_allowance",
+                format!("The payees were not saved: {e:#}"),
+            );
+        }
+    }
+    let current = match restless_engine::finance::envelopes(authority, &company).await {
+        Ok(envelopes) => match envelopes
+            .into_iter()
+            .find(|envelope| envelope.limits.currency == current.limits.currency)
+        {
+            Some(current) => current,
+            None => current,
+        },
+        Err(_) => current,
     };
     let unchanged_limits = current.limits.per_payment_limit_minor == input.per_payment_limit_minor
         && current.limits.aggregate_limit_minor == input.aggregate_limit_minor;
@@ -1122,4 +1187,214 @@ pub(super) async fn archived_company(
         "archived_at": archived_at,
     }))
     .into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct PaymentRailInput {
+    environment: restless_engine::airwallex::Environment,
+    api_version: String,
+    client_id: String,
+    account_ref: String,
+    approval_url: String,
+    read_scopes: Vec<String>,
+    submit_scopes: Vec<String>,
+    /// The owner set up the provider's own approval step for transfers.
+    approval_workflow_observed: bool,
+    /// Keys are stored in this company's vault at the paths the payment adapter reads; absent
+    /// keeps the stored one.
+    #[serde(default)]
+    read_key: Option<String>,
+    #[serde(default)]
+    submit_key: Option<String>,
+}
+
+#[derive(Serialize)]
+struct PaymentRailResult {
+    company: serde_json::Value,
+    /// The live check against the provider, never assumed: present only when it passed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    probe: Option<restless_engine::airwallex::ConnectionProbe>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    probe_error: Option<String>,
+}
+
+async fn payment_rail_result(state: &OwnerState, config: &runtime::CompanyConfig) -> Response<Body> {
+    let (probe, probe_error) =
+        match restless_engine::airwallex::probe_connection(config, &state.daemon.authority).await {
+            Ok(probe) => (Some(probe), None),
+            Err(e) => (None, Some(format!("{e:#}"))),
+        };
+    let company = serde_json::to_value(company_projection::project(&state.daemon, config, false).await)
+        .unwrap_or_default();
+    Json(PaymentRailResult {
+        company,
+        probe,
+        probe_error,
+    })
+    .into_response()
+}
+
+/// Connect the payment provider from the web: its keys go to the vault paths the adapter reads,
+/// the account evidence to Authority, and the connection is then checked live.
+pub(super) async fn save_payment_rail(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<PaymentRailInput>,
+) -> Response<Body> {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "payment_rail",
+            "Only the owner can connect the payment provider.",
+        );
+    }
+    let _write = state.charter_writes.lock().await;
+    let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(e) => return api_error(StatusCode::NOT_FOUND, "company", format!("{e:#}")),
+    };
+    let mut bound = false;
+    for (binding, suffix, key) in [
+        ("finance.airwallex.read", "read", input.read_key.as_deref()),
+        ("finance.airwallex.submit", "submit", input.submit_key.as_deref()),
+    ] {
+        let reference = format!("infisical:/companies/{company}/finance/airwallex/{suffix}/api-key");
+        if let Some(key) = key.map(str::trim).filter(|key| !key.is_empty()) {
+            if restless_engine::credential::store_reference(&reference, key).await.is_err()
+                || restless_engine::credential::probe_reference(&reference).await.status
+                    != restless_engine::credential::ProbeStatus::Present
+            {
+                return api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "payment_rail",
+                    "The key could not be saved in the vault. Check the local Vault service and try again.",
+                );
+            }
+            if config.credentials.get(binding) != Some(&reference) {
+                config.credentials.insert(binding.to_string(), reference);
+                bound = true;
+            }
+        } else if !config.credentials.contains_key(binding) {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "payment_rail",
+                "Enter both the read-only key and the payments key.",
+            );
+        }
+    }
+    if bound {
+        if let Err(e) = runtime::CompanyConfig::save(&state.daemon.root, &config) {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "payment_rail",
+                format!("The keys were stored, but the company could not be updated: {e:#}"),
+            );
+        }
+    }
+    let connection = restless_engine::airwallex::ConnectionInput {
+        environment: input.environment,
+        api_version: input.api_version.trim().to_string(),
+        client_id: input.client_id.trim().to_string(),
+        account_ref: input.account_ref.trim().to_string(),
+        approval_url: input.approval_url.trim().to_string(),
+        read_scopes: input.read_scopes,
+        submit_scopes: input.submit_scopes,
+        approval_workflow_observed: input.approval_workflow_observed,
+        observed_at: input.approval_workflow_observed.then(Utc::now),
+    };
+    if let Err(e) = restless_engine::airwallex::set_connection(
+        &state.daemon.authority,
+        &company,
+        connection,
+        principal.actor_id(),
+    )
+    .await
+    {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "payment_rail",
+            format!("The connection was not saved: {e:#}"),
+        );
+    }
+    drop(_write);
+    payment_rail_result(&state, &config).await
+}
+
+/// Check the saved payment connection live, without moving money.
+pub(super) async fn probe_payment_rail(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "payment_rail",
+            "Only the owner can check the payment provider.",
+        );
+    }
+    let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(e) => return api_error(StatusCode::NOT_FOUND, "company", format!("{e:#}")),
+    };
+    payment_rail_result(&state, &config).await
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct PayeeDecisionInput {
+    approve: bool,
+    #[serde(default)]
+    note: Option<String>,
+}
+
+/// The owner answers a payee request from the Inbox; Exec hears the answer either way.
+pub(super) async fn decide_payee(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, proposal)): AxumPath<(String, i64)>,
+    Json(input): Json<PayeeDecisionInput>,
+) -> Response<Body> {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "payee",
+            "Only the owner can approve payees.",
+        );
+    }
+    let pending = restless_engine::finance::pending_payee_proposals(&state.daemon.authority, &company)
+        .await
+        .ok()
+        .and_then(|pending| pending.into_iter().find(|(record, _)| record.id == proposal));
+    if let Err(e) = restless_engine::finance::decide_payee(
+        &state.daemon.authority,
+        &company,
+        principal.actor_id(),
+        proposal,
+        input.approve,
+        input.note.as_deref(),
+    )
+    .await
+    {
+        return api_error(StatusCode::CONFLICT, "payee", format!("{e:#}"));
+    }
+    if let (Some((record, payee)), Ok(org)) = (pending, state.daemon.orgintel.get(&company).await) {
+        let asker = record.actor_id.unwrap_or_else(|| "exec".into());
+        let mut body = format!(
+            "{} {} {} as a {} payee.",
+            principal.actor_id(),
+            if input.approve { "approved" } else { "declined" },
+            payee.beneficiary_ref,
+            payee.currency
+        );
+        if let Some(note) = input.note.as_deref().map(str::trim).filter(|note| !note.is_empty()) {
+            body.push_str(&format!(" “{note}”"));
+        }
+        if let Err(error) = org.send_message(principal.actor_id(), Some(&asker), &body).await {
+            tracing::warn!(%error, "could not tell the asker about a payee decision");
+        }
+    }
+    Json(serde_json::json!({"decided": true})).into_response()
 }

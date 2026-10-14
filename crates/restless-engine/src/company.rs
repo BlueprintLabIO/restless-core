@@ -146,8 +146,18 @@ struct Limits {
     native: NativeLimit,
     runtime: RuntimeLimit,
     money_envelopes: Vec<finance::MoneyEnvelope>,
+    /// The payment provider connection as the owner recorded it, and whether both of its keys
+    /// are bound. Whether it works now is a live check, not this record.
+    payment_provider: Option<PaymentProvider>,
     /// The owner's company-wide pause of outside actions, while in force.
     outside_actions_paused: Option<crate::outside_actions::Pause>,
+}
+
+#[derive(Debug, Serialize)]
+struct PaymentProvider {
+    #[serde(flatten)]
+    connection: airwallex::Connection,
+    keys_bound: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -582,6 +592,14 @@ pub async fn project(
             .as_ref()
             .map(|value| value.envelopes.clone())
             .unwrap_or_default(),
+        payment_provider: authority
+            .as_ref()
+            .and_then(|value| value.provider.clone())
+            .map(|connection| PaymentProvider {
+                connection,
+                keys_bound: config.credentials.contains_key("finance.airwallex.read")
+                    && config.credentials.contains_key("finance.airwallex.submit"),
+            }),
         outside_actions_paused: authority
             .as_ref()
             .and_then(|value| value.outside_actions.clone()),

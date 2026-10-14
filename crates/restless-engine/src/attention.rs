@@ -2233,6 +2233,69 @@ async fn project_queue(
             }
         }
     }
+    match crate::finance::pending_payee_proposals(authority, &config.name).await {
+        Ok(proposals) => {
+            for (record, proposal) in proposals {
+                let asker = record.actor_id.as_deref().unwrap_or("exec");
+                items.push(AttentionItem {
+                    id: format!("authority:payee:{}", record.id),
+                    work_id: proposal.work_id,
+                    source: AttentionSource {
+                        plane: "authority",
+                        kind: "payee_proposal".into(),
+                        reference: record.id.to_string(),
+                        party: None,
+                        call_key: None,
+                    },
+                    category: "approval".into(),
+                    title: format!("Add a payee: {}", proposal.beneficiary_ref),
+                    what_happened: proposal.reason.clone(),
+                    why_it_matters: format!(
+                        "Approving lets the company pay {} from the {} allowance, within its limits.",
+                        proposal.beneficiary_ref, proposal.currency
+                    ),
+                    recommendation: "Approve if you know them and the company should pay them; each payment still waits for your confirmation with the provider.".into(),
+                    requested_action: format!("Approve or decline {} as a {} payee.", proposal.beneficiary_ref, proposal.currency),
+                    if_no_action: "Nothing can be paid to them.".into(),
+                    uncertainty: None,
+                    deadline: None,
+                    brief_status: "source-authored",
+                    brief_author: actors.get(asker).cloned(),
+                    briefed_at: Some(record.created_at),
+                    evidence: Vec::new(),
+                    review_sources: Vec::new(),
+                    responsible_actor: None,
+                    runtime_attach: None,
+                    review_target: None,
+                    native_document: None,
+                    direction_request: None,
+                    charter_proposal: None,
+                    actions: vec![
+                        AttentionAction {
+                            id: "approve-payee".into(),
+                            label: "Approve payee".into(),
+                            role: "decision",
+                            consequence: "Adds them to the allowance's payees; its limits stay as they are.".into(),
+                            next_state: "The company may prepare a payment to them.".into(),
+                            href: None,
+                        },
+                        AttentionAction {
+                            id: "decline-payee".into(),
+                            label: "Decline".into(),
+                            role: "decision",
+                            consequence: "They are not added; the company is told.".into(),
+                            next_state: "Nothing can be paid to them.".into(),
+                            href: None,
+                        },
+                    ],
+                    can_continue: true,
+                    preparing: false,
+                    created_at: record.created_at,
+                });
+            }
+        }
+        Err(error) => tracing::warn!(%error, "payee proposals unavailable"),
+    }
     match effect_outcome_items(config, authority, &actors).await {
         Ok(outcomes) => items.extend(outcomes),
         Err(error) => tracing::warn!(%error, "outside-action outcomes unavailable"),

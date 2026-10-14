@@ -815,7 +815,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "credential-promote" => &["capability", "body"],
         "credential-verify-model" => &["model", "apply"],
         "finance-freeze" => &["state", "apply"],
-        "finance-reserve" => &["body"],
+        "finance-reserve" | "finance-payee-propose" => &["body"],
         "finance-submit" | "finance-reconcile" => &["key"],
         "wake" => &["reason"],
         "people" => &["include_retired"],
@@ -1321,6 +1321,7 @@ pub const OWNER_ONLY: &[&str] = &[
 /// administrative path and cannot impersonate Exec through these commands.
 const COMPANY_EXEC_ONLY: &[&str] = &[
     "mandate-permit",
+    "finance-payee-propose",
     "email-send",
     "email-observe",
     "schedule-link-work",
@@ -1674,6 +1675,7 @@ mod tests {
             "finance-balances",
             "finance-probe",
             "finance-reserve",
+            "finance-payee-propose",
             "finance-submit",
             "finance-reconcile",
             "orgintel-init",

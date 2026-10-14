@@ -604,6 +604,9 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          and optional declared attachments. A mandate covers one first email per recipient; once \
          they write back, each message they send allows one reply in that thread. The permit JSON names sender, recipient, \
          payload_sha256, effect_key, rationale, evidence_refs and an expiry within five minutes. \
+         To pay a supplier who is not yet a payee of a payment allowance, ask the owner with \
+         `restless finance propose-payee --currency <c> --beneficiary <provider ref> --reason <why> --work <id>`; \
+         they answer in the Inbox. \
          Reconcile prior sends and unknown outcomes before proposing; never retry an uncertain \
          external effect. A provider-accepted send is not proof of delivery. Use `restless email \
          observe -c <company>` for typed, host-side, read-only inbound/outbound/suppression metadata; \

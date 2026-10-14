@@ -1595,6 +1595,18 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(company_settings_api::save_payment_allowance),
         )
         .route(
+            "/companies/{company}/company/payment-rail",
+            post(company_settings_api::save_payment_rail),
+        )
+        .route(
+            "/companies/{company}/company/payment-rail/probe",
+            post(company_settings_api::probe_payment_rail),
+        )
+        .route(
+            "/companies/{company}/company/payees/{proposal}/decide",
+            post(company_settings_api::decide_payee),
+        )
+        .route(
             "/companies/{company}/company/legal",
             get(company_settings_api::legal_profile).put(company_settings_api::save_legal_profile),
         )
