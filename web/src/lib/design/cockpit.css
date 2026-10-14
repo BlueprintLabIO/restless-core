@@ -2210,6 +2210,25 @@
 	background: color-mix(in srgb, var(--highlight) 62%, transparent);
 }
 
+.bridge-root .exec-context-drop {
+	display: grid;
+	place-items: center;
+	flex: none;
+	width: 18px;
+	height: 18px;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-control);
+	background: transparent;
+	color: var(--text-tertiary);
+	cursor: pointer;
+}
+
+.bridge-root .exec-context-drop:hover {
+	background: var(--surface-hover);
+	color: var(--ink);
+}
+
 .bridge-root .exec-context-chip.off {
 	border-color: var(--border);
 	background: transparent;

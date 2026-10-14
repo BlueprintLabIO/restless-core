@@ -992,6 +992,34 @@
 		composerFocusKey += 1;
 	}
 
+	/* Text selected on the main surface travels with the next message as a quote, so "explain
+	 * this" names exactly what the owner means. The selection is kept while the composer has
+	 * focus (which would clear it on the page), until it is sent, dropped, or the page changes. */
+	let railEl = $state<HTMLElement | null>(null);
+	let selection = $state<{ excerpt: string; label: string } | null>(null);
+	$effect(() => {
+		void contextLabel;
+		selection = null;
+	});
+	$effect(() => {
+		if (!open || review || workContext) return;
+		const capture = () => {
+			const current = window.getSelection();
+			if (!current || current.isCollapsed) return;
+			const node = current.anchorNode;
+			const element = node instanceof Element ? node : (node?.parentElement ?? null);
+			if (!element || railEl?.contains(element)) return;
+			const text = current.toString().replace(/\s+/g, ' ').trim();
+			if (text.length < 2) return;
+			selection = {
+				excerpt: text.length > 1_200 ? `${text.slice(0, 1_200)}…` : text,
+				label: contextLabel
+			};
+		};
+		document.addEventListener('selectionchange', capture);
+		return () => document.removeEventListener('selectionchange', capture);
+	});
+
 	function toggleContext() {
 		includeContext = !includeContext;
 		if (includeContext) contextFlare += 1;
@@ -1034,7 +1062,11 @@
 		askNotice = '';
 		const sent = composer;
 		const quoted = quoting;
-		const outgoing = quoted ? `> ${quoted.author}: ${quoted.excerpt}\n\n${text}` : text;
+		const selected = includeContext && !review && !workContext ? selection : null;
+		const quotedText = quoted ? `> ${quoted.author}: ${quoted.excerpt}\n\n${text}` : text;
+		const outgoing = selected
+			? `> Selected in ${selected.label}: ${selected.excerpt}\n\n${quotedText}`
+			: quotedText;
 		const skills = composerSkills;
 		composer = '';
 		try {
@@ -1074,6 +1106,7 @@
 				composerFiles = [];
 				composerSkills = [];
 				quoting = null;
+				if (selected && selection === selected) selection = null;
 				fieldValues = {};
 				newFocusPending = false;
 				retryCommandId = null;
@@ -1143,6 +1176,7 @@
 </script>
 
 <aside
+	bind:this={railEl}
 	id="bridge-exrail"
 	class="bridge-exrail"
 	class:open
@@ -1645,8 +1679,21 @@
 										onclick={toggleContext}
 									>
 										<MatrixGlyph rows={GLYPHS.work} size={8} />
-										<span>{includeContext ? contextLabel : `Link ${contextLabel}`}</span>
+										<span title={includeContext && selection ? `“${selection.excerpt}”` : undefined}
+											>{includeContext
+												? selection
+													? `Selection in ${selection.label}`
+													: contextLabel
+												: `Link ${contextLabel}`}</span
+										>
 									</button>
+									{#if includeContext && selection}<button
+											type="button"
+											class="exec-context-drop"
+											aria-label="Send without the selection"
+											title="Send without the selection"
+											onclick={() => (selection = null)}><X size={11} aria-hidden="true" /></button
+										>{/if}
 								</div>
 							{/if}
 						{/snippet}
