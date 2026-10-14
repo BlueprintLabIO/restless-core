@@ -1,4 +1,5 @@
 <script lang="ts">
+	import WorkDetail from '$lib/components/WorkDetail.svelte';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { setTeamOwner as recordTeamOwner, disbandTeam } from '$lib/model/company-actions';
 	import TeamEditor from '$lib/components/TeamEditor.svelte';
@@ -183,6 +184,24 @@
 		selectedRoom ? (directPerson(selectedRoom)?.actor_id ?? '') : ''
 	);
 	const explicitSelection = $derived(!!roomId || page.url.searchParams.has('person'));
+	/* A piece of Work opens in a side sheet beside its agent's chat (S85-15). Opened without a
+	 * chat named, the chat is the agent doing the Work, once the sheet knows who that is. */
+	const workId = $derived(page.url.searchParams.get('work') ?? '');
+	function openOwnerChat(ownerId: string) {
+		if (roomId || page.url.searchParams.has('person') || !ownerId) return;
+		const url = new URL(page.url);
+		url.searchParams.set('person', ownerId);
+		void goto(`${url.pathname}${url.search}`, {
+			replaceState: true,
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+	function closeWork() {
+		const url = new URL(page.url);
+		url.searchParams.delete('work');
+		void goto(`${url.pathname}${url.search}`, { keepFocus: true, noScroll: true });
+	}
 	let search = $state('');
 	let debouncedSearch = $state('');
 	$effect(() => {
@@ -558,7 +577,8 @@
 		return `${url.pathname}${url.search}${url.hash}`;
 	}
 	$effect(() => {
-		if (explicitSelection || !owner || recent.status === 'unknown') return;
+		/* Opening a piece of Work names its own chat: the agent doing it. */
+		if (explicitSelection || workId || !owner || recent.status === 'unknown') return;
 		if (!window.matchMedia('(min-width: 761px)').matches) return;
 		/* Reopen the latest conversation; with none yet, the welcome invites the first one. */
 		const latest = rows[0]?.person;
@@ -790,6 +810,7 @@
 <div
 	class="conversation-workspace"
 	class:selected={explicitSelection}
+	class:with-work={!!workId}
 	use:resizePane={{
 		key: `${companyId}:sidebar:people`,
 		label: 'Resize the People sidebar',
@@ -1295,6 +1316,16 @@
 			</div>
 		{/if}
 	</section>
+	{#if workId}
+		<aside class="work-sheet" aria-label="Work">
+			{#key workId}<WorkDetail
+					{companyId}
+					{workId}
+					onclose={closeWork}
+					onowner={openOwnerChat}
+				/>{/key}
+		</aside>
+	{/if}
 </div>
 {#if profileId}
 	{@const profiled = people.find((person) => person.actor_id === profileId)}
@@ -1845,9 +1876,42 @@
 	.back {
 		display: none;
 	}
+	.conversation-workspace.with-work {
+		grid-template-columns:
+			var(--sidebar-width, 264px) minmax(0, 1fr)
+			var(--work-sheet-width, 460px);
+	}
+	.work-sheet {
+		position: relative;
+		min-width: 0;
+		min-height: 0;
+		overflow: hidden;
+		display: flex;
+	}
+	.work-sheet > :global(*) {
+		flex: 1;
+		min-width: 0;
+	}
+	/* Narrower, the conversation list steps aside for the chat and the sheet. */
+	@media (max-width: 1180px) {
+		.conversation-workspace.with-work {
+			grid-template-columns: minmax(0, 1fr) var(--work-sheet-width, 420px);
+		}
+		.with-work .conversation-index {
+			display: none;
+		}
+	}
 	@media (max-width: 760px) {
-		.conversation-workspace {
+		.conversation-workspace,
+		.conversation-workspace.with-work {
 			grid-template-columns: minmax(0, 1fr);
+		}
+		/* On a phone the sheet covers the chat; closing it returns there. */
+		.work-sheet {
+			position: fixed;
+			inset: 0;
+			z-index: 30;
+			background: var(--surface-raised);
 		}
 		.conversation-main {
 			display: none;
