@@ -95,7 +95,7 @@ export async function listRetainedAttachments(
 
 /* fetch cannot report how much of an upload has gone, so the bytes go through XMLHttpRequest. A
  * lost connection rejects as fetch would, so failures read the same everywhere. */
-function postFiles(
+export function postFiles(
 	url: string,
 	form: FormData,
 	onSent: (bytes: number) => void

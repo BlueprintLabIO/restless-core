@@ -1514,6 +1514,7 @@
 			onclose={wide ? null : () => (execRailOpen = false)}
 			focusRequest={railFocusRequest}
 			draftRequest={railDraft}
+			uploadProgress={railConversation.uploadProgress}
 			references={ownerAccess
 				? referenceOptions(
 						companyId,

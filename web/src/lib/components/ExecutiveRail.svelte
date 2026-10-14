@@ -57,6 +57,7 @@
 	import WorkInFlight from './WorkInFlight.svelte';
 	import MyRequests from './MyRequests.svelte';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
+	import { MAX_UPLOAD_BYTES, MAX_UPLOAD_FILES } from '$lib/model/attachments';
 
 	let {
 		messages = [],
@@ -92,7 +93,8 @@
 		focusRequest = 0,
 		draftRequest = null,
 		wide = false,
-		focusMessage = 0
+		focusMessage = 0,
+		uploadProgress = null
 	}: {
 		messages?: ThreadMessage[];
 		participantName?: string;
@@ -163,6 +165,8 @@
 		wide?: boolean;
 		/** A message a link points at; the conversation scrolls to it. */
 		focusMessage?: number;
+		/** How much of a sending message's files has gone, 0 to 1, while they go. */
+		uploadProgress?: number | null;
 	} = $props();
 	let focusedFor = 0;
 	$effect(() => {
@@ -834,6 +838,14 @@
 			typed || (files.length ? `Attached: ${files.map((file) => file.name).join(', ')}` : '');
 		if (!text || sending || deciding || !onask || needsProvider || connectionStatus !== 'available')
 			return;
+		/* The same limits the server holds, said before anything is sent. */
+		const tooLarge = files.find((file) => file.size > MAX_UPLOAD_BYTES);
+		if (tooLarge || files.length > MAX_UPLOAD_FILES) {
+			askError = tooLarge
+				? `${tooLarge.name} is larger than ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB, the most one file can be.`
+				: `Attach at most ${MAX_UPLOAD_FILES} files to one message.`;
+			return;
+		}
 		scrollReset += 1;
 		sending = true;
 		askError = '';
@@ -1425,6 +1437,11 @@
 								{/if}
 							{/snippet}
 						</Composer>
+						{#if uploadProgress !== null && sending}
+							<p class="exr-notice" role="status">
+								Uploading… {Math.round(uploadProgress * 100)}%
+							</p>
+						{/if}
 						{#if askError}
 							<p class="exr-error" role="alert">{askError}</p>
 						{/if}

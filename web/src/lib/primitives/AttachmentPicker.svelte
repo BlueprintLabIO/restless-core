@@ -50,8 +50,8 @@
 		class="attach-btn"
 		class:off={disabled}
 		type="button"
-		title="Attach images, PDFs, Word, Excel or PowerPoint files (up to 6, 5 MB each)"
-		aria-label="Attach images, PDFs, Word, Excel or PowerPoint files (up to 6, 5 MB each)"
+		title="Attach files (up to 6, 5 MB each)"
+		aria-label="Attach files (up to 6, 5 MB each)"
 		{disabled}
 		onclick={() => inputEl?.click()}
 	>

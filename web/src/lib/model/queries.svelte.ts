@@ -424,6 +424,8 @@ export function conversationQuery(
 	let live = $state<AgentActivityState | null>(null);
 	let transport = $state<ActivityTransport>('idle');
 	let pending = $state<ThreadMessage | null>(null);
+	/* How much of a message's files has gone, while they go. */
+	let uploadProgress = $state<number | null>(null);
 	/* A sent message keeps the key it was drawn with once its saved id arrives. */
 	const sentKeys = new Map<string, string>();
 	let followingMessageId = $state<number | null>(null);
@@ -555,6 +557,9 @@ export function conversationQuery(
 		get working() {
 			return turnWorking(this.activeTurn);
 		},
+		get uploadProgress() {
+			return uploadProgress;
+		},
 		refresh: () => refresh(query),
 		attach(): () => void {
 			return () => {
@@ -620,7 +625,8 @@ export function conversationQuery(
 					outcomeStandard,
 					attentionId,
 					clientCommandId,
-					skills
+					skills,
+					files.length ? (fraction) => (uploadProgress = fraction) : undefined
 				);
 				uncertainCommand = null;
 			} catch (error) {
@@ -639,6 +645,8 @@ export function conversationQuery(
 					uncertainCommand = null;
 				}
 				throw error;
+			} finally {
+				uploadProgress = null;
 			}
 			sentKeys.set(String(result.messageId), optimisticId);
 			/* The saved message goes straight into the conversation. A read already in flight

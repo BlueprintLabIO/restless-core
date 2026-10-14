@@ -10,6 +10,7 @@ import type {
 } from './generated/conversation';
 import { responseFailure } from './failure.ts';
 import { bootFetch } from './boot-fetch.ts';
+import { postFiles } from './attachments.ts';
 
 export type {
 	AgentActivityPhase,
@@ -423,7 +424,8 @@ export async function sendActorMessage(
 	outcomeStandard?: OutcomeStandard,
 	attentionId?: string,
 	clientCommandId: string = crypto.randomUUID(),
-	skills: string[] = []
+	skills: string[] = [],
+	onProgress?: (fraction: number) => void
 ): Promise<MessageSendResult> {
 	const form = new FormData();
 	form.set('client_command_id', clientCommandId);
@@ -436,14 +438,13 @@ export async function sendActorMessage(
 	if (outcomeStandard) form.set('outcome_standard', outcomeStandard);
 	for (const skill of skills) form.append('skills', skill);
 	for (const file of files) form.append('attachments', file, file.name);
-	const response = await fetch(
-		`/api/companies/${encodeURIComponent(company)}/actors/${encodeURIComponent(actor)}/conversation`,
-		{
-			method: 'POST',
-			body: form,
-			credentials: 'same-origin'
-		}
-	);
+	const url = `/api/companies/${encodeURIComponent(company)}/actors/${encodeURIComponent(actor)}/conversation`;
+	/* Files go with the message; only XMLHttpRequest can say how much of them has gone. */
+	const total = files.reduce((sum, file) => sum + file.size, 0);
+	const response =
+		files.length && onProgress
+			? await postFiles(url, form, (sent) => onProgress(Math.min(1, sent / Math.max(1, total))))
+			: await fetch(url, { method: 'POST', body: form, credentials: 'same-origin' });
 	if (!response.ok) throw await ownerError(response);
 	const result = (await response.json()) as ConversationSendResponse;
 	return {
