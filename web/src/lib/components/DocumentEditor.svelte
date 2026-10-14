@@ -1536,16 +1536,16 @@
 			{@render actions?.()}
 			{#if moreActions}
 				<DocumentActions
-					>{#if editor && canWriteLive}<!-- A touch screen has no keyboard shortcut for these. -->
+					>{#if editor && canWriteLive}<!-- On every device, for whoever does not know the shortcut. -->
 						<button
 							type="button"
-							class="touch-only"
+							title={keys('⌘Z', 'Ctrl+Z')}
 							disabled={!editor.can().undo()}
 							onclick={() => run((instance) => instance.chain().focus().undo().run())}>Undo</button
 						>
 						<button
 							type="button"
-							class="touch-only"
+							title={keys('⌘⇧Z', 'Ctrl+Shift+Z or Ctrl+Y')}
 							disabled={!editor.can().redo()}
 							onclick={() => run((instance) => instance.chain().focus().redo().run())}>Redo</button
 						>{/if}{#if editor}<button type="button" onclick={() => openFind(canWriteLive)}
@@ -2372,14 +2372,6 @@
 		height: 18px;
 		margin: 0 2px;
 		background: var(--border);
-	}
-	.touch-only {
-		display: none;
-	}
-	@media (hover: none) {
-		.touch-only {
-			display: block;
-		}
 	}
 	/* A block with an open thread: a quiet wash in the text, and a mark in the margin that opens it. */
 	:global(.native-document-body .commented-words) {
