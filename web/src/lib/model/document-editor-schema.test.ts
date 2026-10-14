@@ -441,3 +441,26 @@ test('colours and alignment keep only the named palette the sidecar keeps', () =
 	);
 	assert.throws(() => projectDocumentContent(body([], { align: 'left' }) as never));
 });
+
+test('a paste from Word or Google Docs splits merged cells, lifts out its pictures and names what it lost', async () => {
+	const { JSDOM } = await import('jsdom');
+	const parser = new new JSDOM('').window.DOMParser();
+	const prepared = documentEditorSchema.preparePastedHtml(
+		`<table><tr><td colspan="2">Price</td><td rowspan="2">Note</td></tr><tr><td>A</td><td>B</td></tr></table>
+		<p>Logo <img src="data:image/png;base64,AAAA"> and <img src="https://example.com/a.png"></p>
+		<ol type="a"><li>first</li></ol>`,
+		parser
+	);
+	const grid = new JSDOM(prepared.html).window.document;
+	assert.deepEqual(
+		[...grid.querySelectorAll('tr')].map((row) => row.children.length),
+		[3, 3],
+		'every row is as wide as the grid'
+	);
+	assert.equal(grid.querySelector('[colspan], [rowspan], img'), null);
+	assert.deepEqual(prepared.images, ['data:image/png;base64,AAAA', 'https://example.com/a.png']);
+	assert.deepEqual(prepared.lost, [
+		'merged cells (split into a plain grid)',
+		'list numbering styles'
+	]);
+});

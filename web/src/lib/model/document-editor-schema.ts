@@ -711,6 +711,8 @@ export interface DocumentEditorHooks {
 	requestLink?: () => void;
 	/** Image files pasted or dropped at a position: the page uploads them and places them there. */
 	uploadImages?: (files: File[], at: number) => void;
+	/** After a paste: pictures found in it to upload and place at a position, and what was lost. */
+	pasted?: (images: string[], lost: string[], at: number) => void;
 	/** The "/" menu opened, changed or closed. */
 	slashChange?: (state: SlashMenuState | null) => void;
 	/** A key pressed while the "/" menu is open; true when the menu used it. */
@@ -915,6 +917,79 @@ function imageFiles(list: FileList | null | undefined): File[] {
 	return [...(list ?? [])].filter((file) => DOCUMENT_IMAGE_TYPES.includes(file.type));
 }
 
+/** What a paste from Word, Google Docs or a web page brings that the schema cannot hold as is. */
+export interface PreparedPaste {
+	html: string;
+	/** Pictures inside the pasted content (data: or web addresses), in order, to upload. */
+	images: string[];
+	/** Plain words for anything that could not be kept. */
+	lost: string[];
+}
+
+/* Pasted HTML is made to fit the company schema before it is parsed: merged table cells are
+ * split into a plain grid (the text stays in the first cell), pictures are taken out to be
+ * uploaded as company files, and what cannot be kept is named rather than silently dropped. */
+export function preparePastedHtml(html: string, parser: DOMParser): PreparedPaste {
+	const document = parser.parseFromString(html, 'text/html');
+	const lost = new Set<string>();
+	const images: string[] = [];
+	let merged = false;
+	for (const table of document.querySelectorAll('table')) {
+		const rows = [...table.querySelectorAll(':scope > tr, :scope > * > tr')];
+		const carried: number[][] = rows.map(() => []);
+		rows.forEach((row, rowIndex) => {
+			let column = 0;
+			for (const cell of [...row.children]) {
+				if (!/^T[DH]$/u.test(cell.tagName)) continue;
+				while (carried[rowIndex].includes(column)) column += 1;
+				const span = Math.min(20, Math.max(1, Number(cell.getAttribute('colspan')) || 1));
+				const down = Math.min(50, Math.max(1, Number(cell.getAttribute('rowspan')) || 1));
+				cell.removeAttribute('colspan');
+				cell.removeAttribute('rowspan');
+				if (span > 1 || down > 1) merged = true;
+				for (let extra = 1; extra < span; extra += 1)
+					cell.after(document.createElement(cell.tagName.toLowerCase()));
+				for (let below = 1; below < down && rowIndex + below < rows.length; below += 1)
+					for (let at = column; at < column + span; at += 1) carried[rowIndex + below].push(at);
+				column += span;
+			}
+		});
+		/* A cell a merge above covered becomes an empty cell in the grid. */
+		rows.forEach((row, rowIndex) => {
+			for (const at of carried[rowIndex].toSorted((left, right) => left - right)) {
+				const cells = [...row.children].filter((cell) => /^T[DH]$/u.test(cell.tagName));
+				const filler = document.createElement('td');
+				if (at >= cells.length) row.append(filler);
+				else cells[at].before(filler);
+			}
+		});
+	}
+	if (merged) lost.add('merged cells (split into a plain grid)');
+	for (const image of document.querySelectorAll('img')) {
+		if (image.closest('figure[data-attachment-id]')) continue;
+		const source = image.getAttribute('src') ?? '';
+		if (/^data:image\//iu.test(source) || /^https?:\/\//iu.test(source)) images.push(source);
+		else lost.add('pictures that were not inside the copy');
+		image.remove();
+	}
+	for (const list of document.querySelectorAll(
+		'ol[type], ol[style*="list-style"], ul[style*="list-style"]'
+	)) {
+		const type = list.getAttribute('type') ?? '';
+		const style = (list as HTMLElement).style?.listStyleType ?? '';
+		if ((type && type !== '1') || (style && !['decimal', 'disc', 'none', ''].includes(style)))
+			lost.add('list numbering styles');
+	}
+	if (document.querySelector('iframe, video, audio, object, embed, svg, canvas'))
+		lost.add('embedded media');
+	return { html: document.body.innerHTML, images, lost: [...lost] };
+}
+
+/** Whether a clipboard's HTML carries words, not only a picture of them. */
+function htmlHasText(html: string): boolean {
+	return /<(p|h[1-6]|li|td|th|span|div)\b[^>]*>[^<\s]/iu.test(html);
+}
+
 /* An image is a block that names a company file; the page supplies its address. A copied image
  * pastes back as itself; an image pasted from elsewhere arrives as a file and is uploaded. */
 function imageExtension(hooks: DocumentEditorHooks) {
@@ -982,12 +1057,26 @@ function imageExtension(hooks: DocumentEditorHooks) {
 				new Plugin({
 					key: new PluginKey('documentImageFiles'),
 					props: {
+						/* Word and Excel put a picture of the copied text on the clipboard beside the
+						 * text itself: the text wins. */
 						handlePaste: (view, event) => {
+							const html = event.clipboardData?.getData('text/html') ?? '';
+							if (htmlHasText(html)) return false;
 							const files = imageFiles(event.clipboardData?.files);
 							if (!files.length || !hooks.uploadImages || !view.editable) return false;
 							event.preventDefault();
 							hooks.uploadImages(files, view.state.selection.from);
 							return true;
+						},
+						transformPastedHTML: (html, view) => {
+							if (typeof DOMParser === 'undefined' || !view.editable) return html;
+							const prepared = preparePastedHtml(html, new DOMParser());
+							if (prepared.images.length || prepared.lost.length)
+								/* Once the words are in, the pictures go after them. */
+								setTimeout(() =>
+									hooks.pasted?.(prepared.images, prepared.lost, view.state.selection.from)
+								);
+							return prepared.html;
 						},
 						handleDrop: (view, event, _slice, moved) => {
 							const files = moved ? [] : imageFiles(event.dataTransfer?.files);

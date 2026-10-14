@@ -525,6 +525,7 @@
 									companyId: routeCompany,
 									requestLink: () => openLinkBar(),
 									uploadImages: (files, at) => void insertImages(files, at),
+									pasted: (images, lost, at) => void placePasted(images, lost, at),
 									slashChange: setSlash,
 									slashKey: (event) => menus?.slashKey(event) ?? false,
 									mentionChange: setMention,
@@ -672,6 +673,37 @@
 		} finally {
 			addingImages -= images.length;
 		}
+	}
+
+	/* A paste from Word, Google Docs or the web: its pictures become company files after the
+	 * pasted words, and anything that could not be kept is named once. */
+	let pasteNote = $state('');
+	async function placePasted(images: string[], lost: string[], at: number): Promise<void> {
+		const files: File[] = [];
+		let missed = 0;
+		for (const [index, source] of images.entries()) {
+			try {
+				const response = await fetch(source, { mode: 'cors', credentials: 'omit' });
+				const blob = await response.blob();
+				if (!response.ok || !DOCUMENT_IMAGE_TYPES.includes(blob.type)) throw new Error();
+				files.push(
+					new File([blob], `Pasted picture ${index + 1}.${blob.type.split('/')[1]}`, {
+						type: blob.type
+					})
+				);
+			} catch {
+				missed += 1;
+			}
+		}
+		const notes = [...lost];
+		if (missed)
+			notes.push(
+				missed === 1
+					? 'a picture the source would not share (save it and drop it in)'
+					: `${missed} pictures the source would not share (save them and drop them in)`
+			);
+		pasteNote = notes.length ? `Pasted. Not kept: ${notes.join('; ')}.` : '';
+		if (files.length) await insertImages(files, at);
 	}
 
 	/** In place of the empty block they were put in, after any other block, or at the end. */
@@ -1287,6 +1319,16 @@
 		</div>
 	{/if}
 
+	{#if pasteNote}
+		<div class="editor-note" role="status">
+			<span>{pasteNote}</span><button
+				type="button"
+				class="btn small"
+				onclick={() => (pasteNote = '')}>Dismiss</button
+			>
+		</div>
+	{/if}
+
 	{#if imageFailure}
 		<div class="editor-error" role="alert">
 			<span>{imageFailure}</span><button
@@ -1858,6 +1900,16 @@
 		border-bottom: 1px solid color-mix(in srgb, var(--state-danger) 25%, var(--border));
 		background: var(--state-danger-soft);
 		color: var(--state-danger);
+	}
+	.editor-note {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
+		padding: var(--space-2) var(--space-4);
+		border-bottom: 1px solid var(--border);
+		background: var(--surface-alt);
+		color: var(--text-secondary);
 	}
 	.collaboration-error > div {
 		display: flex;
