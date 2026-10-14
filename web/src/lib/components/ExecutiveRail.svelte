@@ -229,10 +229,8 @@
 			message.from === 'you' ? 'You' : message.author || participantName,
 			message.text
 		);
-		if (participantId === 'exec' && !review && !workContext) {
-			composer = draft;
-			composerFocusKey += 1;
-		} else askExec(draft);
+		if (participantId === 'exec' && !review && !workContext) handIn(draft);
+		else askExec(draft);
 	}
 
 	/* Handoffs between agents appear where they happened in time. */
@@ -365,13 +363,26 @@
 			fieldValues = {};
 		});
 	});
+	/* Text handed in from elsewhere (Ask Exec, Turn into Work, Edit) joins what the owner was
+	 * writing instead of replacing it; an unsent draft is never discarded. */
+	function handIn(text: string) {
+		const current = untrack(() => composer);
+		const handed = text.trim();
+		if (!handed) return;
+		if (!current.trim() || current.includes(handed)) composer = current.trim() ? current : text;
+		else {
+			composer = `${current.trimEnd()}\n\n${text}`;
+			askNotice = 'Added below what you were writing.';
+		}
+		untrack(() => (composerFocusKey += 1));
+	}
 	/* After the saved draft loads, so a requested draft is not overwritten by it. */
 	let appliedDraft = 0;
 	$effect(() => {
 		if (!draftRequest || draftRequest.key === appliedDraft) return;
 		appliedDraft = draftRequest.key;
-		composer = draftRequest.text;
-		untrack(() => (composerFocusKey += 1));
+		const text = draftRequest.text;
+		untrack(() => handIn(text));
 	});
 	$effect(() => {
 		const key = draftKey,
@@ -572,10 +583,7 @@
 				messageNumericId(last.id),
 				crypto.randomUUID()
 			);
-			if (restore) {
-				composer = last.text;
-				composerFocusKey += 1;
-			}
+			if (restore) handIn(last.text);
 			onrefreshConversation?.();
 		} catch (cause) {
 			askError = failureSentence(
