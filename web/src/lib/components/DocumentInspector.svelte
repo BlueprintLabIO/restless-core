@@ -33,6 +33,7 @@
 	import ReactionAdd from '$lib/primitives/ReactionAdd.svelte';
 	import { documentCommentReactionsQuery } from '$lib/model/document-comment-reactions.svelte';
 	import { failureSentence } from '$lib/model/failure';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import Check from '@lucide/svelte/icons/check';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
@@ -138,6 +139,9 @@
 		/** Show a block in the document; without it the inspector scrolls the document itself. */
 		onshowblock?: (blockId: string) => void;
 		ondismiss?: () => void;
+		/** A Work-bound document: a comment can go to that Work as a change request. The answer
+		 * says where it went. */
+		onchangerequest?: (request: { quote: string | null; text: string }) => Promise<string>;
 	}
 
 	let {
@@ -161,7 +165,8 @@
 		oncommenttargetchange = () => {},
 		onaccept = () => {},
 		onshowblock,
-		ondismiss
+		ondismiss,
+		onchangerequest
 	}: Props = $props();
 
 	const client = useQueryClient();
@@ -660,6 +665,24 @@
 			if (!isRetryableDocumentFailure(cause)) commentAttempt = null;
 		} finally {
 			if (isCurrentTarget(target)) commentBusy = false;
+		}
+	}
+
+	/* "Please change this" in a comment becomes a revision of the Work, not just a reply. */
+	let sendingChange = $state(false);
+	async function sendChangeRequest(quote: string | null): Promise<void> {
+		if (!onchangerequest || sendingChange) return;
+		const text = (threadMessages?.comments ?? [])
+			.map((comment) => `${actorName(comment.author_actor_id)}: ${comment.plain_text}`)
+			.join('\n');
+		if (!text.trim()) return;
+		sendingChange = true;
+		try {
+			toast(await onchangerequest({ quote, text }));
+		} catch (error) {
+			toast(failureSentence(error, 'The change request was not sent.'), { tone: 'failure' });
+		} finally {
+			sendingChange = false;
 		}
 	}
 
@@ -1480,6 +1503,16 @@
 									class="flat-action"
 									title="Scroll the document to this passage"
 									onclick={() => showBlock(blockId)}>Show</button
+								>
+							{/if}
+							{#if selectedThread.thread.status === 'open' && onchangerequest}
+								<button
+									type="button"
+									class="flat-action"
+									title="Send this thread to the Work as a change request, so a revision follows rather than a reply"
+									disabled={!online || sendingChange}
+									onclick={() => void sendChangeRequest(quote)}
+									>{sendingChange ? 'Sending…' : 'Send as change request'}</button
 								>
 							{/if}
 							{#if selectedThread.thread.status === 'open' && canComment}

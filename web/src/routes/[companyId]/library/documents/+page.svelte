@@ -24,6 +24,7 @@
 	import { tick } from 'svelte';
 	import { Notice } from '$lib/ui/page';
 	import { askExec } from '$lib/model/ask-exec';
+	import { reviewAction, sendActorMessage } from '$lib/model/attention';
 	import { failureKind, failureSentence } from '$lib/model/failure';
 	import {
 		documentCommentThreadsQuery,
@@ -122,6 +123,29 @@
 		];
 		return ids.map((id) => graph.work.find((work) => work.id === id)).find(Boolean) ?? null;
 	});
+	/* A comment asking for a change goes to the Work as a revision: the open outcome review is
+	 * sent back with it, or, with none open, its lead gets it in the Work's conversation. */
+	async function requestChange(request: { quote: string | null; text: string }): Promise<string> {
+		const work = producedFor;
+		if (!work || !documentView) throw new Error('This document is not tied to a Work any more.');
+		const feedback = [
+			`On “${documentView.document.title || 'Untitled'}”${request.quote ? `, at “${request.quote}”` : ''}:`,
+			request.text
+		].join('\n');
+		const handoffs = ownerAccess ? (attentionView.view?.workGraph?.handoffs ?? []) : [];
+		const review = handoffs.find(
+			(handoff) =>
+				handoff.work_id === work.id &&
+				handoff.state === 'pending' &&
+				handoff.category === 'owner_judgement'
+		);
+		if (review && ownerAccess) {
+			await reviewAction(companyId, review.id, 'request_changes', feedback);
+			return 'Sent back for changes';
+		}
+		await sendActorMessage(companyId, work.owner_id, `Please revise: ${feedback}`, work.id);
+		return 'Change request sent to the Work’s lead';
+	}
 	/* Anyone who can open it sees who else can; its creator, the company's owner and the Exec
 	 * change that. Anyone who may edit it retitles, archives and restores it; the company's owner
 	 * may do that to anything they can read. */
@@ -915,6 +939,7 @@
 					}}
 					onaccept={acceptDocument}
 					onshowblock={showBlock}
+					onchangerequest={producedFor ? requestChange : undefined}
 				/>
 			{/if}
 		</section>
