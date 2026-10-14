@@ -181,6 +181,35 @@
 			revoking = '';
 		}
 	}
+	/* Approving a contact ahead of the first ask carries the same weight as approving one in the
+	 * Inbox: the address is checked, then confirmed before anything is granted. */
+	let addingContact = $state(false),
+		newContact = $state(''),
+		granting = $state(false),
+		grantError = $state('');
+	async function approveContact() {
+		const party = newContact.trim();
+		if (granting || !party) return;
+		const yes = await confirmAction({
+			title: `Approve ${party}?`,
+			body: 'The company may contact them without asking you first. Revoke the approval here at any time.',
+			action: 'Approve'
+		});
+		if (!yes) return;
+		granting = true;
+		grantError = '';
+		try {
+			await approvalAction(companyId, 'grant', party);
+			await source.refresh();
+			toast(`${party} is approved`);
+			newContact = '';
+			addingContact = false;
+		} catch (error) {
+			grantError = failureSentence(error, 'The contact could not be approved.');
+		} finally {
+			granting = false;
+		}
+	}
 	/* One switch for every outside action. Pausing asks first because it stops replies and
 	 * payments mid-flight; resuming does not, since it only restores what the pause froze. */
 	let pausing = $state(false),
@@ -518,10 +547,54 @@
 			</Fold>
 			<Row
 				label="Approved contacts"
-				info="Added when you approve a first contact in the Inbox. Revoke one to be asked again before the company contacts them."
+				info="Added when you approve a first contact in the Inbox, or here ahead of the first ask. Revoke one to be asked again before the company contacts them."
 			>
 				{#if !view.limits.approved_parties.length}<span class="none">None</span>{/if}
+				{#if !addingContact}<button
+						class="btn small ghost"
+						type="button"
+						onclick={() => {
+							grantError = '';
+							addingContact = true;
+						}}>Approve a contact…</button
+					>{/if}
 			</Row>
+			{#if addingContact}
+				<form
+					class="inline-form"
+					onsubmit={(event) => {
+						event.preventDefault();
+						void approveContact();
+					}}
+				>
+					<label for="approve-contact" class="sr-only">Email address or contact</label>
+					<input
+						id="approve-contact"
+						type="text"
+						required
+						placeholder="name@example.com"
+						bind:value={newContact}
+						disabled={granting}
+						title="The address the company may contact without asking you first"
+					/>
+					<button class="btn primary small" disabled={granting || !newContact.trim()}
+						>{granting ? 'Approving…' : 'Approve…'}</button
+					>
+					<button
+						class="btn small ghost"
+						type="button"
+						disabled={granting}
+						onclick={() => {
+							addingContact = false;
+							newContact = '';
+							grantError = '';
+						}}>Cancel</button
+					>
+				</form>
+			{/if}
+			{#if grantError}<Notice tone="danger" title="The contact was not approved"
+					>{grantError}</Notice
+				>{/if}
 			{#each view.limits.approved_parties as party (party)}<Item title={party}>
 					{#snippet actions()}<button
 							class="btn small"
