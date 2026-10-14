@@ -205,6 +205,73 @@ function fitColumnsOnce(model: any, sheet: string) {
 			});
 	}
 }
+const escapeHtml = (text: string) =>
+	text.replace(
+		/[&<>"']/gu,
+		(c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!
+	);
+const PRINT_CELLS = 50_000;
+/* The selected range, when more than one cell is selected, else every used cell of the tab, as a
+ * table that keeps the grid's widths, alignment, bold, italic and colours. Hidden rows and
+ * columns stay hidden. A tab with nothing in it has nothing to print. */
+function printableTab(model: any, title: string): string | null {
+	const sheetId = model.getters.getActiveSheetId();
+	const tab = model.getters.getSheetName(sheetId);
+	const selected = model.getters.getSelectedZone();
+	let zone = selected;
+	if (!zone || (zone.left === zone.right && zone.top === zone.bottom)) {
+		let right = -1,
+			bottom = -1;
+		for (const cellId of Object.keys(model.getters.getCells(sheetId) ?? {})) {
+			const { col, row } = model.getters.getCellPosition(cellId);
+			right = Math.max(right, col);
+			bottom = Math.max(bottom, row);
+		}
+		if (right < 0) return null;
+		zone = { left: 0, top: 0, right, bottom };
+	}
+	const cols: number[] = [];
+	for (let col = zone.left; col <= zone.right; col++)
+		if (!model.getters.isColHidden(sheetId, col)) cols.push(col);
+	const rows: number[] = [];
+	for (let row = zone.top; row <= zone.bottom; row++)
+		if (!model.getters.isRowHidden(sheetId, row)) rows.push(row);
+	rows.splice(Math.max(1, Math.floor(PRINT_CELLS / Math.max(1, cols.length))));
+	const widths = cols
+		.map((col) => `<col style="width:${Math.round(model.getters.getColSize(sheetId, col))}px">`)
+		.join('');
+	const body = rows
+		.map((row) => {
+			const cells = cols.map((col) => {
+				const position = { sheetId, col, row };
+				const value = model.getters.getEvaluatedCell(position);
+				const style = model.getters.getCellComputedStyle(position) ?? {};
+				const css = [
+					style.bold ? 'font-weight:700' : '',
+					style.italic ? 'font-style:italic' : '',
+					style.strikethrough ? 'text-decoration:line-through' : '',
+					style.textColor ? `color:${style.textColor}` : '',
+					style.fillColor ? `background:${style.fillColor}` : '',
+					`text-align:${style.align ?? (value.type === 'number' ? 'right' : 'left')}`
+				]
+					.filter(Boolean)
+					.join(';');
+				return `<td style="${escapeHtml(css)}">${escapeHtml(String(value.formattedValue ?? ''))}</td>`;
+			});
+			return `<tr>${cells.join('')}</tr>`;
+		})
+		.join('');
+	const heading = escapeHtml(title === tab ? title : `${title} · ${tab}`);
+	return `<!doctype html><html><head><meta charset="utf-8"><title>${heading}</title><style>
+@page { margin: 14mm 12mm; @bottom-right { content: counter(page) " / " counter(pages); font: 9pt system-ui, sans-serif; color: #666; } }
+body { margin: 0; font: 10pt system-ui, -apple-system, "Segoe UI", sans-serif; color: #111; }
+h1 { margin: 0 0 8px; font-size: 12pt; font-weight: 600; }
+table { border-collapse: collapse; table-layout: fixed; }
+td { padding: 2px 5px; border: 1px solid #d0d0d0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; vertical-align: bottom; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+tr { break-inside: avoid; }
+</style></head><body><h1>${heading}</h1><table>${widths}${body}</table></body></html>`;
+}
+
 export function mountSheet(
 	element: HTMLDivElement,
 	company: string,
@@ -691,6 +758,30 @@ export function mountSheet(
 				model.selection.selectCell(at.col, at.row);
 			else model.selection.selectZone({ cell: at, zone });
 			model.dispatch('SCROLL_TO_CELL', at);
+			return true;
+		},
+		/** Print the selected range, or the tab's used cells, as a plain table: what the browser's
+		 * own print of the canvas grid cannot do. Saving as PDF is the print dialog's choice. */
+		print(title: string): boolean {
+			if (!model) return false;
+			const html = printableTab(model, title);
+			if (!html) return false;
+			const frame = document.createElement('iframe');
+			frame.setAttribute('aria-hidden', 'true');
+			frame.style.cssText = 'position:fixed;width:0;height:0;border:0;visibility:hidden';
+			document.body.append(frame);
+			const view = frame.contentWindow;
+			if (!view) {
+				frame.remove();
+				return false;
+			}
+			view.document.open();
+			view.document.write(html);
+			view.document.close();
+			view.addEventListener('afterprint', () => frame.remove(), { once: true });
+			setTimeout(() => frame.remove(), 60_000);
+			view.focus();
+			view.print();
 			return true;
 		},
 		/** The cells to mark as carrying a comment thread. */

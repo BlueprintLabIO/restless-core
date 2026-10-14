@@ -31,12 +31,17 @@
 				getModel(): any;
 				select(worksheet: string, cell: string): boolean;
 				mark(value: readonly SheetMark[]): void;
+				print(title: string): boolean;
 				destroy(): void;
 		  }
 		| undefined = $state.raw();
 	/** The live workbook model, for downloading it; undefined until the sheet has opened. */
 	export function getModel(): any {
 		return editor?.getModel();
+	}
+	/** Print the selection or the tab's used cells; false when there is nothing to print. */
+	export function print(title: string): boolean {
+		return editor?.print(title) ?? false;
 	}
 	/** Show a cell, on its tab; false when the sheet is not open or the tab is gone. */
 	export function select(worksheet: string, cell: string): boolean {

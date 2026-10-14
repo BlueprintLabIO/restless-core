@@ -291,6 +291,11 @@
 			(blob) => saveFile(title, 'xlsx', blob),
 			'The workbook wasn’t downloaded'
 		);
+	/* Let the menu close first; an empty tab with nothing selected has nothing to print. */
+	const printSheet = () =>
+		requestAnimationFrame(() => {
+			if (!editor?.print(title)) say('Nothing on this tab to print');
+		});
 	const exportCsv = () =>
 		act(
 			() =>
@@ -839,6 +844,12 @@
 					>
 					<button type="button" disabled={!ready} onclick={exportCsv}
 						>Download this tab as CSV</button
+					>
+					<button
+						type="button"
+						disabled={!ready}
+						title="This tab, or the selected cells, as a page; the print dialog can save it as a PDF"
+						onclick={printSheet}>Print or save as PDF</button
 					>
 					{#if access === 'edit'}
 						<button
