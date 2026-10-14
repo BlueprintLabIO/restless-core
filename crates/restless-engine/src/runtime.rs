@@ -1427,6 +1427,114 @@ pub struct RuntimeDoctor {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub browser: Option<BrowserDoctor>,
     pub collaboration_tools: Vec<CollaborationToolDoctor>,
+    /// Disk, memory and CPU pressure inside a running computer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resources: Option<ResourceDoctor>,
+}
+
+/// What the computer has left: free space on the company volume, memory against its limit,
+/// processes the kernel killed for memory since it started, and how long work waited for CPU.
+/// Each field is absent when this host does not expose it.
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+pub struct ResourceDoctor {
+    pub disk_free_bytes: Option<u64>,
+    pub disk_total_bytes: Option<u64>,
+    pub memory_used_bytes: Option<u64>,
+    pub memory_limit_bytes: Option<u64>,
+    pub oom_kills: Option<u64>,
+    /// Share of the last minute some work waited for CPU (cgroup v2 PSI `some avg60`).
+    pub cpu_pressure_percent: Option<f64>,
+}
+
+impl ResourceDoctor {
+    /// Parse the probe's `key value` lines; anything missing stays unknown.
+    pub fn parse(text: &str) -> Self {
+        let mut doctor = Self::default();
+        for line in text.lines() {
+            let mut parts = line.split_whitespace();
+            let (Some(key), Some(value)) = (parts.next(), parts.next()) else {
+                continue;
+            };
+            match key {
+                "disk_total_kb" => doctor.disk_total_bytes = value.parse::<u64>().ok().map(|kb| kb * 1024),
+                "disk_free_kb" => doctor.disk_free_bytes = value.parse::<u64>().ok().map(|kb| kb * 1024),
+                "memory_current" => doctor.memory_used_bytes = value.parse().ok(),
+                "memory_max" => doctor.memory_limit_bytes = value.parse().ok(),
+                "oom_kill" => doctor.oom_kills = value.parse().ok(),
+                "cpu_some_avg60" => doctor.cpu_pressure_percent = value.parse().ok(),
+                _ => {}
+            }
+        }
+        doctor
+    }
+
+    /// The plain sentence for the first resource that is running low, if any.
+    pub fn pressure(&self) -> Option<String> {
+        if let (Some(free), Some(total)) = (self.disk_free_bytes, self.disk_total_bytes) {
+            if total > 0 && (free < 1024 * 1024 * 1024 || free * 10 < total) {
+                return Some(format!(
+                    "Company files have {} free of {}. Ask Exec to clear old downloads and build output, or a build or download may fail.",
+                    human_bytes(free),
+                    human_bytes(total)
+                ));
+            }
+        }
+        if self.oom_kills.unwrap_or(0) > 0 {
+            return Some(format!(
+                "{} process{} ran out of memory and was stopped since the computer started. Restart the computer to clear it, and ask Exec to run fewer heavy jobs at once.",
+                self.oom_kills.unwrap_or(0),
+                if self.oom_kills == Some(1) { "" } else { "es" }
+            ));
+        }
+        if let (Some(used), Some(limit)) = (self.memory_used_bytes, self.memory_limit_bytes) {
+            if limit > 0 && used * 10 > limit * 9 {
+                return Some(format!(
+                    "Memory is nearly full ({} of {}). Restart the computer if apps slow down or close.",
+                    human_bytes(used),
+                    human_bytes(limit)
+                ));
+            }
+        }
+        if self.cpu_pressure_percent.is_some_and(|share| share >= 80.0) {
+            return Some(
+                "The processor has been busy for most of the last minute, so work is slow. It eases when the running jobs finish."
+                    .into(),
+            );
+        }
+        None
+    }
+}
+
+fn human_bytes(bytes: u64) -> String {
+    const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
+    let gib = bytes as f64 / GIB;
+    if gib >= 1.0 {
+        format!("{gib:.1} GB")
+    } else {
+        format!("{:.0} MB", bytes as f64 / (1024.0 * 1024.0))
+    }
+}
+
+/// One read of the computer's disk, memory, OOM and CPU pressure; bounded, never fatal.
+async fn resource_doctor(company: &str) -> Option<ResourceDoctor> {
+    const PROBE: &str = r#"set -- $(df -Pk /company 2>/dev/null | tail -n 1)
+[ -n "$2" ] && echo "disk_total_kb $2" && echo "disk_free_kb $4"
+[ -r /sys/fs/cgroup/memory.current ] && echo "memory_current $(cat /sys/fs/cgroup/memory.current)"
+m=$(cat /sys/fs/cgroup/memory.max 2>/dev/null); [ -n "$m" ] && [ "$m" != max ] && echo "memory_max $m"
+grep -s '^oom_kill ' /sys/fs/cgroup/memory.events
+sed -n 's/^some avg10=[^ ]* avg60=\([^ ]*\).*/cpu_some_avg60 \1/p' /sys/fs/cgroup/cpu.pressure 2>/dev/null
+true"#;
+    let output = tokio::time::timeout(
+        Duration::from_secs(5),
+        docker_observe(&["exec", &container_name(company), "sh", "-c", PROBE]),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    output
+        .status
+        .success()
+        .then(|| ResourceDoctor::parse(&String::from_utf8_lossy(&output.stdout)))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2105,12 +2213,15 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
             .is_none_or(|value| value.status != "available");
 
     let mut collaboration_tools = Vec::new();
+    let mut resources = None;
     if container == ContainerStatus::Running {
-        let (document, room) = tokio::join!(
+        let (document, room, observed) = tokio::join!(
             collaboration_tool_doctor(company, "document"),
             collaboration_tool_doctor(company, "room"),
+            resource_doctor(company),
         );
         collaboration_tools.extend([document, room]);
+        resources = observed;
     }
     Ok(RuntimeDoctor {
         collaboration_tools,
@@ -2132,6 +2243,7 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
         coordination,
         supervisor,
         browser,
+        resources,
     })
 }
 

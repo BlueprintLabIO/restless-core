@@ -1818,6 +1818,17 @@ fn company_doctor(
                     detail: Some("Checks the installation only, not agent permissions, editing, delivery or model replies.".into()),
                 });
             }
+            if let Some(resources) = doctor.resources.as_ref() {
+                let pressure = resources.pressure();
+                checks.push(DoctorCheck {
+                    id: "resources",
+                    label: "Disk, memory and processor",
+                    source: "runtime",
+                    status: if pressure.is_some() { "degraded" } else { "healthy" },
+                    summary: pressure.unwrap_or_else(|| "Enough room to work.".into()),
+                    detail: None,
+                });
+            }
         }
     } else {
         checks.push(DoctorCheck {
@@ -2382,6 +2393,7 @@ mod tests {
                     installed: true,
                 })
                 .collect(),
+            resources: None,
             company: "company_test".into(),
             container,
             volume: "restless-vol-company_test".into(),
@@ -2456,6 +2468,19 @@ mod tests {
             )),
             vec![RecoveryAction::Reconcile]
         );
+    }
+
+    #[test]
+    fn resource_probe_names_a_full_disk_and_memory_kills() {
+        let roomy = runtime::ResourceDoctor::parse(
+            "disk_total_kb 104857600\ndisk_free_kb 52428800\nmemory_current 1073741824\nmemory_max 4294967296\noom_kill 0\ncpu_some_avg60 3.10\n",
+        );
+        assert_eq!(roomy.cpu_pressure_percent, Some(3.1));
+        assert_eq!(roomy.pressure(), None);
+        let full = runtime::ResourceDoctor::parse("disk_total_kb 104857600\ndisk_free_kb 524288\n");
+        assert!(full.pressure().is_some_and(|sentence| sentence.starts_with("Company files have")));
+        let killed = runtime::ResourceDoctor::parse("oom_kill 2\n");
+        assert!(killed.pressure().is_some_and(|sentence| sentence.contains("ran out of memory")));
     }
 
     #[test]
