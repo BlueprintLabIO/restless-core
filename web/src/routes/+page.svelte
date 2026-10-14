@@ -229,8 +229,8 @@
 				<h2>No companies yet</h2>
 				<p>
 					{archivedCompanies.length
-						? 'Use New company to start one.'
-						: 'Tell Exec what to build with New company.'}
+						? 'Use Start a company to begin a new one.'
+						: 'Use Start a company and tell Exec what to build.'}
 				</p>
 			{/snippet}
 		</CompanyPortfolio>
