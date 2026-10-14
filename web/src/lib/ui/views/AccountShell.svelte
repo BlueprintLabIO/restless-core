@@ -3,6 +3,7 @@
 	import ChevronsUpDown from '@lucide/svelte/icons/chevrons-up-down';
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import Plus from '@lucide/svelte/icons/plus';
+	import SearchIcon from '@lucide/svelte/icons/search';
 	import { dismissable } from '../controls/dismissable';
 	import type { AccountGroup, AccountTab } from '../account';
 
@@ -21,6 +22,7 @@
 		account = null,
 		accountMenu = null,
 		footer = null,
+		onsearch = null,
 		children
 	}: {
 		brandName?: string;
@@ -35,6 +37,8 @@
 		/** Pinned to the rail's foot when it is open, such as what is left of a monthly allowance.
 		 * A collapsed rail and a phone's top bar leave it out; the same facts live on Home. */
 		footer?: Snippet | null;
+		/** Opens search and jump (⌘K), when the page offers it. */
+		onsearch?: (() => void) | null;
 		children: Snippet;
 	} = $props();
 
@@ -70,7 +74,22 @@
 		collapsed = !collapsed;
 		remember();
 	}
+	const searchKeys =
+		typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
+			? '⌘K'
+			: 'Ctrl K';
 	function keydown(event: KeyboardEvent) {
+		if (
+			onsearch &&
+			!event.defaultPrevented &&
+			event.key.toLowerCase() === 'k' &&
+			(event.metaKey || event.ctrlKey) &&
+			!event.altKey
+		) {
+			event.preventDefault();
+			onsearch();
+			return;
+		}
 		if (event.key.toLowerCase() === 'b' && (event.metaKey || event.ctrlKey) && !event.altKey) {
 			const target = event.target as HTMLElement | null;
 			if (target?.closest('input, textarea, [contenteditable]')) return;
@@ -167,6 +186,7 @@
 	class:resizing
 	style:--account-rail-w={collapsed ? '56px' : `${width}px`}
 >
+	<a class="account-skip" href="#account-content">Skip to content</a>
 	<header class="account-bar">
 		<div class="account-head">
 			<a class="account-brand" href={homeHref} title={collapsed ? brandName : undefined}
@@ -176,6 +196,18 @@
 			>
 		</div>
 		<nav class="account-tabs" aria-label="Account navigation">
+			{#if onsearch}
+				<button
+					class="account-tab"
+					type="button"
+					title={`Search and jump · ${searchKeys}`}
+					aria-keyshortcuts="Meta+K Control+K"
+					onclick={onsearch}
+					><SearchIcon size={16} strokeWidth={1.75} aria-hidden="true" /><span
+						class="account-tab-label">Search</span
+					></button
+				>
+			{/if}
 			{#each tabs as tab (tab.href ?? tab.label)}
 				{@render row(tab, 'tab')}
 				{#if tab.items?.length && !collapsed}
@@ -231,7 +263,7 @@
 					<span class="account-name">{account.name}</span>
 					<ChevronsUpDown size={14} strokeWidth={1.75} aria-hidden="true" />
 				</summary>
-				<div class="account-menu-panel" role="menu">
+				<div class="account-menu-panel">
 					<div class="account-menu-who">
 						<strong>{account.name}</strong>
 						{#if account.detail}<small>{account.detail}</small>{/if}
@@ -260,10 +292,33 @@
 			onpointercancel={edgeUp}
 		></div>
 	</header>
-	<div class="account-page">{@render children()}</div>
+	<div class="account-page" id="account-content" tabindex="-1">{@render children()}</div>
 </div>
 
 <style>
+	/* Keyboard users reach the page before the rail. Hidden until focused. */
+	.account-skip {
+		position: absolute;
+		top: var(--space-2);
+		left: var(--space-2);
+		z-index: var(--z-palette);
+		padding: 6px 12px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-control);
+		background: var(--surface-raised);
+		box-shadow: var(--shadow-lift);
+		color: var(--ink);
+		font-size: var(--t-body);
+		font-weight: 600;
+		text-decoration: none;
+		transform: translateY(-160%);
+	}
+	.account-skip:focus-visible {
+		transform: none;
+	}
+	.account-page:focus {
+		outline: none;
+	}
 	.account-shell {
 		display: grid;
 		grid-template-columns: var(--account-rail-w, 240px) minmax(0, 1fr);

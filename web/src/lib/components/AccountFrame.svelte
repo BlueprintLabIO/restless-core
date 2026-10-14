@@ -16,6 +16,7 @@
 	import { getApplianceStatus, planeLabel, type ApplianceStatus } from '$lib/model/appliance';
 	import { companiesQuery } from '$lib/model/queries.svelte';
 	import { forgetThisBrowser } from '$lib/model/sign-out';
+	import CommandMenu, { type Command } from '$lib/components/CommandMenu.svelte';
 
 	let {
 		appliance = null,
@@ -134,6 +135,26 @@
 			]
 		}
 	]);
+	/* Search and jump (⌘K) outside a company: open any company, Home or a settings page. A
+	 * company's own documents and Work are searched from inside it. */
+	let searchOpen = $state(false);
+	const commands = $derived<Command[]>([
+		...catalog.view
+			.filter((company) => company.lifecycle_status === 'active')
+			.map((company) => ({
+				id: `company:${company.id}`,
+				group: 'Companies',
+				label: company.name,
+				hint: company.card?.decisions_waiting
+					? `${company.card.decisions_waiting} waiting`
+					: undefined,
+				href: `/${encodeURIComponent(company.id)}`
+			})),
+		{ id: 'home', group: 'Go to', label: 'Home', hint: 'Your companies', href: home },
+		{ id: 'connections', group: 'Settings', label: 'Connections', href: '/account/connections' },
+		{ id: 'ai-apps', group: 'Settings', label: 'AI apps', href: '/account/ai-apps' },
+		{ id: 'appearance', group: 'Settings', label: 'Appearance', href: '/account/appearance' }
+	]);
 	/* Settings' own list, shown in the page beside the section. */
 	const settingsNav = $derived<AccountGroup[]>([
 		{
@@ -158,6 +179,7 @@
 	homeHref={home}
 	{tabs}
 	{groups}
+	onsearch={() => (searchOpen = !searchOpen)}
 	account={{
 		name: status?.viewer_name || 'You',
 		detail: status?.hosted ? profile : `${profile} · this computer`
@@ -178,3 +200,4 @@
 	{/snippet}
 	{#if settingsPage}{@render settingsPage(settingsNav)}{:else}{@render children?.()}{/if}
 </AccountShell>
+<CommandMenu bind:open={searchOpen} {commands} />
