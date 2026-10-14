@@ -9,7 +9,7 @@
 	 * that positions them is defined on :root (see design/base.css). */
 
 	import '$lib/design/index.css';
-	import { navigating, page } from '$app/state';
+	import { navigating, page, updated } from '$app/state';
 	import { beforeNavigate, goto, onNavigate } from '$app/navigation';
 	import {
 		MutationCache,
@@ -145,6 +145,18 @@
 		)
 	);
 	onMount(() => installTripwire(queryClient));
+	/* A tab left open across a deploy is told once, at a moment the person chooses; drafts are
+	 * already kept per conversation, so reloading loses nothing. Until then, the next move to
+	 * another page loads the new version with a full load rather than a chunk the deploy removed. */
+	let toldUpdated = false;
+	$effect(() => {
+		if (!updated.current || toldUpdated) return;
+		toldUpdated = true;
+		toast('A new version is ready.', {
+			persist: true,
+			action: { label: 'Reload', run: () => window.location.reload() }
+		});
+	});
 
 	/* On Cloud's one address, Home, Profile, Security, Plan and Support are the account service's
 	 * pages: a link to one leaves this app with a full load instead of being routed here. Whether
@@ -154,6 +166,17 @@
 	let accountHere = false;
 	beforeNavigate((navigation) => {
 		const to = navigation.to?.url;
+		if (
+			updated.current &&
+			to &&
+			!navigation.willUnload &&
+			to.origin === window.location.origin &&
+			to.pathname !== window.location.pathname
+		) {
+			navigation.cancel();
+			window.location.assign(to.href);
+			return;
+		}
 		if (
 			!to ||
 			to.origin !== window.location.origin ||

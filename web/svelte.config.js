@@ -15,6 +15,8 @@ const config = {
 		// service worker would control Fleet's pages too (ADR 0007).
 		serviceWorker: { register: false },
 		prerender: { entries: [] },
+		// An open tab learns that a new version was deployed and offers a calm reload (root layout).
+		version: { pollInterval: 5 * 60_000 },
 		alias: {
 			$lib: 'src/lib'
 		}
