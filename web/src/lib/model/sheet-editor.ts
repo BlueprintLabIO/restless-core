@@ -14,6 +14,8 @@ import bootstrapCss from 'bootstrap/dist/css/bootstrap.min.css?inline';
 import fontCss from 'font-awesome/css/font-awesome.min.css?inline';
 import type { SheetRow } from './sheets';
 import { sheetFaces, type PageFace } from './page-faces.ts';
+import { MAX_UPLOAD_BYTES, attachmentHref, uploadAttachments } from './attachments.ts';
+import { failureSentence } from './failure.ts';
 
 class Root extends Component {
 	static template = xml`<Spreadsheet model="props.model"/>`;
@@ -385,6 +387,32 @@ export function mountSheet(
 					.join('\n') || undefined
 		});
 	}
+	/* Pictures inserted in the grid are kept as company files, as a document's are; the workbook
+	 * holds where each is served. A picture taken out stays kept: earlier versions still show it. */
+	const pictures = {
+		async upload(file: File): Promise<string> {
+			try {
+				if (file.size > MAX_UPLOAD_BYTES)
+					throw new Error(
+						`${file.name} is larger than ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB, the most one file can be.`
+					);
+				const [added] = await uploadAttachments(company, [file]);
+				return `${attachmentHref(company, added.id)}?inline=1`;
+			} catch (cause) {
+				tell({
+					title: 'The picture was not added',
+					text: failureSentence(cause, 'It could not be kept. Try again.')
+				});
+				throw cause;
+			}
+		},
+		async delete() {},
+		async getFile(path: string): Promise<Blob> {
+			const response = await fetch(path, { credentials: 'same-origin' });
+			if (!response.ok) throw new Error('The picture could not be read.');
+			return response.blob();
+		}
+	};
 	function accepted(sequence: number, message: UpstreamMessage) {
 		if (sequence <= cursor) return;
 		receive?.(message);
@@ -593,7 +621,8 @@ export function mountSheet(
 							{
 								transportService: transport,
 								client: { id: clientId, name: 'You' },
-								mode: access === 'edit' ? 'normal' : 'readonly'
+								mode: access === 'edit' ? 'normal' : 'readonly',
+								external: { fileStore: pictures }
 							},
 							state.messages.map((m: { message: UpstreamMessage }) => m.message)
 						);
