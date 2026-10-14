@@ -721,19 +721,35 @@
 			{#if search.trim()}
 				<!-- The server already limits hits to conversations this person can read, groups
 				     included. -->
-				{#each messageSearch.messages as message (message.id)}
-					{@const place = searchPlace(message.room_id)}
-					<a class="search-result" href={searchHref(message)}
-						><strong
-							>{speaker(message.from_actor) || message.from_actor}{#if place}<span
-									class="search-place">{` · ${place}`}</span
-								>{/if}</strong
-						><span>{message.snippet}</span></a
-					>
-				{/each}
-				{#if messageSearch.hasMore}<button class="more" onclick={() => messageSearch.loadMore()}
-						>More messages</button
-					>{/if}
+				<section class="directory-section message-hits" aria-label="Messages" aria-live="polite">
+					<header class="team-directory-head">
+						<span>Messages</span>{#if messageSearch.messages.length}<em
+								>{messageSearch.messages.length}{messageSearch.hasMore ? '+' : ''}</em
+							>{/if}
+					</header>
+					{#if search.trim() !== debouncedSearch || (messageSearch.status === 'unknown' && !messageSearch.failure)}
+						<p class="empty">Searching messages…</p>
+					{:else if !messageSearch.failure}
+						{#each messageSearch.messages as message (message.id)}
+							{@const place = searchPlace(message.room_id)}
+							<a class="search-result" href={searchHref(message)}
+								><strong
+									>{speaker(message.from_actor) || 'Someone'}{#if place}<span class="search-place"
+											>{` · ${place}`}</span
+										>{/if}</strong
+								><span>{message.snippet}</span></a
+							>
+						{:else}
+							<p class="empty">No messages match.</p>
+						{/each}
+						{#if messageSearch.hasMore}<button
+								class="more"
+								disabled={messageSearch.loadingMore}
+								onclick={() => messageSearch.loadMore()}
+								>{messageSearch.loadingMore ? 'Loading…' : 'More messages'}</button
+							>{/if}
+					{/if}
+				</section>
 			{/if}
 			{#if recent.failure || messageSearch.failure}
 				<FailureNotice
@@ -1185,6 +1201,9 @@
 		color: var(--intent-conversation);
 		padding: 12px;
 		cursor: pointer;
+	}
+	.message-hits {
+		margin-top: 12px;
 	}
 	.search-result {
 		display: grid;
