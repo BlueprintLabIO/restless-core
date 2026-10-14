@@ -801,6 +801,149 @@ function commentMarksExtension(hooks: DocumentEditorHooks) {
 	});
 }
 
+/** One occurrence of what Find looks for: a range of document positions. */
+export interface FindMatch {
+	from: number;
+	to: number;
+}
+
+/** Every place the words occur, ignoring case, within one paragraph, heading, cell or line of code
+ * at a time. A mention or reference is one character, so it is never matched by its label. */
+export function findMatches(doc: ProseMirrorNode, query: string, limit = 2_000): FindMatch[] {
+	const needle = query.toLocaleLowerCase();
+	if (!needle) return [];
+	const matches: FindMatch[] = [];
+	doc.descendants((node, pos) => {
+		if (matches.length >= limit) return false;
+		if (!node.isTextblock) return true;
+		let text = '';
+		const at: number[] = [];
+		node.forEach((child, offset) => {
+			const piece = child.isText ? (child.text ?? '') : '\uFFFC';
+			for (let index = 0; index < piece.length; index += 1)
+				at.push(pos + 1 + offset + (child.isText ? index : 0));
+			text += piece;
+		});
+		const lower = text.toLocaleLowerCase();
+		/* Lower-casing can change a string's length in rare scripts; then match it as written. */
+		const haystack = lower.length === text.length ? lower : text;
+		for (
+			let index = haystack.indexOf(needle);
+			index >= 0;
+			index = haystack.indexOf(needle, index + needle.length)
+		) {
+			matches.push({ from: at[index], to: at[index + needle.length - 1] + 1 });
+			if (matches.length >= limit) break;
+		}
+		return false;
+	});
+	return matches;
+}
+
+export interface FindState {
+	query: string;
+	matches: FindMatch[];
+	current: number;
+}
+
+export const findKey = new PluginKey<FindState>('documentFind');
+
+function findDecorations(doc: ProseMirrorNode, state: FindState): DecorationSet {
+	if (!state.matches.length) return DecorationSet.empty;
+	return DecorationSet.create(
+		doc,
+		state.matches.map((match, index) =>
+			Decoration.inline(match.from, match.to, {
+				class: index === state.current ? 'find-match current' : 'find-match'
+			})
+		)
+	);
+}
+
+/* Find and replace: the page's find bar says what to look for; matches are marked in the text and
+ * a replacement is an ordinary edit, so it reaches everyone editing as any other change does. */
+const findExtension = Extension.create({
+	name: 'documentFind',
+	addProseMirrorPlugins() {
+		return [
+			new Plugin<FindState>({
+				key: findKey,
+				state: {
+					init: () => ({ query: '', matches: [], current: 0 }),
+					apply: (tr, value, _old, state) => {
+						const meta = tr.getMeta(findKey) as Partial<FindState> | undefined;
+						if (!meta && !tr.docChanged) return value;
+						const query = meta?.query ?? value.query;
+						const matches =
+							meta?.query !== undefined || tr.docChanged
+								? findMatches(state.doc, query)
+								: value.matches;
+						const wanted = meta?.current ?? value.current;
+						return {
+							query,
+							matches,
+							current: matches.length ? Math.min(Math.max(0, wanted), matches.length - 1) : 0
+						};
+					}
+				},
+				props: {
+					decorations: (state) => {
+						const value = findKey.getState(state);
+						return value ? findDecorations(state.doc, value) : null;
+					}
+				}
+			})
+		];
+	}
+});
+
+/** Look for these words, starting at the match nearest the caret. */
+export function setDocumentFind(editor: Editor, query: string): void {
+	const { view } = editor;
+	const matches = findMatches(view.state.doc, query);
+	const from = view.state.selection.from;
+	const current = Math.max(
+		0,
+		matches.findIndex((match) => match.to >= from)
+	);
+	view.dispatch(view.state.tr.setMeta(findKey, { query, current }));
+	revealFind(editor);
+}
+
+/** Go to the next or previous match, round from the end to the start. */
+export function stepDocumentFind(editor: Editor, step: 1 | -1): void {
+	const value = findKey.getState(editor.state);
+	if (!value?.matches.length) return;
+	const current = (value.current + step + value.matches.length) % value.matches.length;
+	editor.view.dispatch(editor.state.tr.setMeta(findKey, { current }));
+	revealFind(editor);
+}
+
+function revealFind(editor: Editor): void {
+	const value = findKey.getState(editor.state);
+	const match = value?.matches[value.current];
+	if (!match) return;
+	const tr = editor.state.tr.setSelection(
+		TextSelection.create(editor.state.doc, match.from, match.to)
+	);
+	editor.view.dispatch(tr.scrollIntoView());
+}
+
+/** Replace the current match, or every match, with the replacement. */
+export function replaceDocumentFind(editor: Editor, replacement: string, all: boolean): number {
+	const value = findKey.getState(editor.state);
+	if (!value?.matches.length || !editor.isEditable) return 0;
+	const targets = all ? value.matches : [value.matches[value.current]];
+	const tr = editor.state.tr;
+	for (const match of [...targets].reverse()) {
+		if (replacement) tr.insertText(replacement, match.from, match.to);
+		else tr.delete(match.from, match.to);
+	}
+	editor.view.dispatch(tr.setMeta(findKey, { current: value.current }));
+	if (!all) revealFind(editor);
+	return targets.length;
+}
+
 /* The line being written, while it is empty, says how to make anything else: the toolbar is gone,
  * so "/" is the way in. */
 function emptyLineHintExtension() {
@@ -1331,6 +1474,7 @@ export function createDocumentEditorExtensions(
 		slashMenuExtension(hooks),
 		blockHandleExtension(hooks),
 		commentMarksExtension(hooks),
+		findExtension,
 		emptyLineHintExtension(),
 		blockIdentityExtension,
 		UniqueID.extend({ addProseMirrorPlugins: () => [] }).configure({

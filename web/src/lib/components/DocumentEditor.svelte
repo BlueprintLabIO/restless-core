@@ -30,6 +30,9 @@
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 	import Strikethrough from '@lucide/svelte/icons/strikethrough';
 	import UnderlineIcon from '@lucide/svelte/icons/underline';
+	import ChevronUp from '@lucide/svelte/icons/chevron-up';
+	import ChevronDown from '@lucide/svelte/icons/chevron-down';
+	import XIcon from '@lucide/svelte/icons/x';
 	import Baseline from '@lucide/svelte/icons/baseline';
 	import TextAlignStart from '@lucide/svelte/icons/text-align-start';
 	import TextAlignCenter from '@lucide/svelte/icons/text-align-center';
@@ -60,6 +63,10 @@
 		imageAltFromName,
 		inDocumentTable,
 		linkFromInput,
+		findKey,
+		replaceDocumentFind,
+		setDocumentFind,
+		stepDocumentFind,
 		referenceFromPath,
 		runDocumentTableAction,
 		safeHref,
@@ -889,7 +896,61 @@
 		};
 	});
 	const mayComment = $derived(view.access === 'comment' || view.access === 'edit');
+
+	/* Find (⌘F) and replace (⌘⇧H) inside the document, through every part of it, rendered or not. */
+	let findOpen = $state(false);
+	let replaceOpen = $state(false);
+	let findQuery = $state('');
+	let replaceText = $state('');
+	let findInput = $state<HTMLInputElement>();
+	const findState = $derived(editor ? findKey.getState(editor.state) : undefined);
+	function openFind(withReplace: boolean): void {
+		const instance = editorState.editor;
+		if (!instance) return;
+		const { from, to, empty } = instance.state.selection;
+		const chosen = empty ? '' : instance.state.doc.textBetween(from, to, ' ');
+		if (chosen && chosen.length <= 200 && !chosen.includes('\n')) findQuery = chosen;
+		findOpen = true;
+		replaceOpen = withReplace && canWriteLive;
+		setDocumentFind(instance, findQuery);
+		void tick().then(() => {
+			findInput?.focus();
+			findInput?.select();
+		});
+	}
+	function closeFind(): void {
+		findOpen = false;
+		replaceOpen = false;
+		const instance = editorState.editor;
+		if (instance && !instance.isDestroyed) {
+			instance.view.dispatch(instance.state.tr.setMeta(findKey, { query: '' }));
+			instance.commands.focus();
+		}
+	}
+	function findKeys(event: KeyboardEvent): void {
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			closeFind();
+		} else if (event.key === 'Enter' && !composing(event)) {
+			event.preventDefault();
+			const instance = editorState.editor;
+			if (instance) stepDocumentFind(instance, event.shiftKey ? -1 : 1);
+		}
+	}
 	function formatKeys(event: KeyboardEvent): void {
+		const mod = event.metaKey || event.ctrlKey;
+		const key = event.key.toLowerCase();
+		if (
+			mod &&
+			!event.altKey &&
+			editorState.editor &&
+			sectionElement?.contains(document.activeElement ?? null) &&
+			((key === 'f' && !event.shiftKey) || (key === 'h' && event.shiftKey))
+		) {
+			event.preventDefault();
+			openFind(key === 'h');
+			return;
+		}
 		if (
 			(event.metaKey || event.ctrlKey) &&
 			event.shiftKey &&
@@ -1324,6 +1385,96 @@
 				{#if linkProblem}<p class="link-problem" role="alert">{linkProblem}</p>{/if}
 			</form>
 		{/if}
+	{/if}
+
+	{#if findOpen && editor}
+		<div class="find-bar" role="search" aria-label="Find in document">
+			<input
+				bind:this={findInput}
+				bind:value={findQuery}
+				type="search"
+				placeholder="Find in document"
+				aria-label="Find"
+				autocomplete="off"
+				spellcheck="false"
+				oninput={() => editorState.editor && setDocumentFind(editorState.editor, findQuery)}
+				onkeydown={findKeys}
+			/>
+			<span class="find-count" aria-live="polite"
+				>{findQuery
+					? findState?.matches.length
+						? `${findState.current + 1} of ${findState.matches.length}`
+						: 'No matches'
+					: ''}</span
+			>
+			<button
+				type="button"
+				class="link-icon"
+				aria-label="Previous match"
+				title="Previous match (Shift+Enter)"
+				disabled={!findState?.matches.length}
+				onclick={() => editorState.editor && stepDocumentFind(editorState.editor, -1)}
+				><ChevronUp size={15} strokeWidth={1.8} /></button
+			>
+			<button
+				type="button"
+				class="link-icon"
+				aria-label="Next match"
+				title="Next match (Enter)"
+				disabled={!findState?.matches.length}
+				onclick={() => editorState.editor && stepDocumentFind(editorState.editor, 1)}
+				><ChevronDown size={15} strokeWidth={1.8} /></button
+			>
+			{#if canWriteLive && !replaceOpen}
+				<button type="button" class="btn small" onclick={() => (replaceOpen = true)}
+					>Replace…</button
+				>
+			{/if}
+			<button
+				type="button"
+				class="link-icon"
+				aria-label="Close find"
+				title="Close (Esc)"
+				onclick={closeFind}><XIcon size={15} strokeWidth={1.8} /></button
+			>
+			{#if replaceOpen && canWriteLive}
+				<div class="replace-row">
+					<input
+						bind:value={replaceText}
+						type="text"
+						placeholder="Replace with"
+						aria-label="Replace with"
+						autocomplete="off"
+						spellcheck="false"
+						onkeydown={(event) => {
+							if (event.key === 'Escape') {
+								event.preventDefault();
+								closeFind();
+							} else if (event.key === 'Enter' && !composing(event) && editorState.editor) {
+								event.preventDefault();
+								replaceDocumentFind(editorState.editor, replaceText, false);
+							}
+						}}
+					/>
+					<button
+						type="button"
+						class="btn small"
+						disabled={!findState?.matches.length}
+						onclick={() =>
+							editorState.editor && replaceDocumentFind(editorState.editor, replaceText, false)}
+						>Replace</button
+					>
+					<button
+						type="button"
+						class="btn small"
+						disabled={!findState?.matches.length}
+						onclick={() =>
+							editorState.editor && replaceDocumentFind(editorState.editor, replaceText, true)}
+						>Replace all</button
+					>
+				</div>
+			{/if}
+		</div>
 	{/if}
 
 	{#if saveProblem}
@@ -1928,6 +2079,50 @@
 	.link-icon:hover {
 		background: var(--wash-hover);
 		color: var(--ink);
+	}
+	.find-bar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 4px;
+		padding: 6px var(--space-4);
+		border-bottom: 1px solid var(--border);
+		background: var(--surface);
+	}
+	.find-bar input {
+		flex: 1 1 200px;
+		min-width: 0;
+		height: 30px;
+		padding: 0 9px;
+		border: 1px solid var(--control-edge);
+		border-radius: var(--radius-control);
+		background: var(--surface-raised);
+		color: var(--ink);
+		font: var(--t-body) var(--font-ui);
+	}
+	.find-count {
+		min-width: 64px;
+		color: var(--text-tertiary);
+		font: var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
+		text-align: right;
+	}
+	.replace-row {
+		flex-basis: 100%;
+		display: flex;
+		gap: 4px;
+	}
+	.link-icon:disabled {
+		opacity: 0.4;
+		cursor: default;
+	}
+	:global(.native-document-body .find-match) {
+		border-radius: 2px;
+		background: color-mix(in srgb, var(--highlight) 55%, transparent);
+	}
+	:global(.native-document-body .find-match.current) {
+		background: color-mix(in srgb, var(--surface-attention) 45%, transparent);
+		outline: 1px solid var(--surface-attention);
 	}
 	.link-card {
 		position: absolute;

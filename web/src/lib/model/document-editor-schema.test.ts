@@ -453,3 +453,25 @@ test('colours and alignment keep only the named palette the sidecar keeps', () =
 	);
 	assert.throws(() => projectDocumentContent(body([], { align: 'left' }) as never));
 });
+
+test('find walks every block, ignores case, and never matches a chip by its label', (context) => {
+	const document = new Y.Doc();
+	context.after(() => document.destroy());
+	const schema = getSchema(
+		documentEditorSchema.createDocumentEditorExtensions(document, {} as never, true)
+	);
+	const doc = schema.node('doc', null, [
+		schema.node('paragraph', { block_id: 'a' }, [
+			schema.text('Acme sells to '),
+			schema.node('mention', { actor_id: 'x', label: 'Acme' }),
+			schema.text(' and ACME')
+		]),
+		schema.node('heading', { block_id: 'b', level: 2 }, [schema.text('acme')])
+	]);
+	const found = documentEditorSchema.findMatches(doc, 'acme');
+	assert.deepEqual(
+		found.map((match) => doc.textBetween(match.from, match.to)),
+		['Acme', 'ACME', 'acme']
+	);
+	assert.deepEqual(documentEditorSchema.findMatches(doc, ''), []);
+});
