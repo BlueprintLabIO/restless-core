@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
@@ -9,6 +10,7 @@
 		customHarnessesKey,
 		harnessAction,
 		readCustomHarnesses,
+		removeCustomHarness,
 		saveCustomHarness,
 		type HarnessConfig as Config,
 		type HarnessRow as Row
@@ -143,6 +145,75 @@
 			notice = 'Harness key saved in Vault.';
 		} catch (cause) {
 			actionError = failureSentence(cause, 'Could not save key.');
+		} finally {
+			busy = '';
+		}
+	}
+	/* Editing an existing harness: its name and commands, saved in place. */
+	let editing = $state(''),
+		editName = $state(''),
+		editInstall = $state(''),
+		editCommand = $state(''),
+		editSetup = $state('');
+	function beginEdit(row: Row) {
+		editing = editing === row.id ? '' : row.id;
+		editName = row.config.name;
+		editInstall = row.config.install;
+		editCommand = JSON.stringify(row.config.command);
+		editSetup = JSON.stringify(row.config.setup_command);
+		keyFor = '';
+	}
+	async function saveEdit(row: Row) {
+		if (!view || busy) return;
+		busy = row.id;
+		actionError = '';
+		notice = '';
+		try {
+			const command = JSON.parse(editCommand) as string[];
+			await saveCustomHarness(companyId, row.id, view.revision, {
+				...row.config,
+				name: editName.trim(),
+				install: editInstall,
+				command,
+				setup_command: JSON.parse(editSetup || '[]') as string[]
+			});
+			const reinstall = editInstall !== row.config.install;
+			editing = '';
+			await refresh();
+			if (reinstall) await action(row.id, 'install');
+			else await intelligence.refresh();
+			notice = reinstall
+				? `${editName.trim()} saved. Installing it again…`
+				: `${editName.trim()} saved.`;
+		} catch (cause) {
+			actionError =
+				cause instanceof SyntaxError
+					? 'The commands must be JSON arrays, such as ["agent", "acp"].'
+					: failureSentence(cause, 'Could not save this harness.');
+		} finally {
+			busy = '';
+		}
+	}
+	async function remove(row: Row) {
+		if (!view || busy) return;
+		const yes = await confirmAction({
+			title: `Remove ${row.config.name}?`,
+			body: 'Its models stop being offered to agents. Any agent still using it must be moved to another model first. Its saved keys stay in the Vault.',
+			action: 'Remove',
+			danger: true
+		});
+		if (!yes) return;
+		busy = row.id;
+		actionError = '';
+		notice = '';
+		try {
+			await removeCustomHarness(companyId, row.id, view.revision);
+			await refresh();
+			await intelligence.refresh();
+			announceIntelligenceChange(companyId);
+			notice = `${row.config.name} removed.`;
+		} catch (cause) {
+			actionError = failureSentence(cause, 'Could not remove this harness.');
 		} finally {
 			busy = '';
 		}
@@ -283,7 +354,49 @@
 						disabled={!!busy || row.installation.state === 'installing'}
 						onclick={() => operate(row, 'install')}>Install</button
 					>{/if}
+				<button
+					class="btn small ghost"
+					disabled={!!busy || row.installation.state === 'installing'}
+					aria-expanded={editing === row.id}
+					onclick={() => beginEdit(row)}>Edit</button
+				>
+				<button
+					class="btn small ghost"
+					disabled={!!busy || row.installation.state === 'installing'}
+					onclick={() => void remove(row)}>Remove</button
+				>
 			</div>
+			{#if editing === row.id}<form
+					class="editor"
+					onsubmit={(event) => {
+						event.preventDefault();
+						void saveEdit(row);
+					}}
+				>
+					<label>Name<input bind:value={editName} required /></label>
+					<label title="Changing it installs the harness again."
+						>Install command<textarea bind:value={editInstall} required rows="3"></textarea></label
+					>
+					<label
+						title={'Use ${SYSTEM_PROMPT_FILE} where this harness accepts a system-instruction file.'}
+						>ACP command (JSON array)<textarea bind:value={editCommand} rows="2" required
+						></textarea></label
+					>
+					<label
+						>Native setup command (JSON array)<textarea bind:value={editSetup} rows="2"
+						></textarea></label
+					>
+					<div class="actions">
+						<button class="btn small" type="submit" disabled={!!busy}
+							>{busy === row.id ? 'Saving…' : 'Save'}</button
+						><button
+							class="btn small"
+							type="button"
+							disabled={!!busy}
+							onclick={() => (editing = '')}>Cancel</button
+						>
+					</div>
+				</form>{/if}
 			{#if keyFor === row.id}<form
 					class="editor"
 					onsubmit={(event) => {

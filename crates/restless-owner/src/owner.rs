@@ -1348,7 +1348,9 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         )
         .route(
             "/companies/{company}/custom-harnesses/{harness}",
-            axum::routing::put(custom_harnesses::save).post(custom_harnesses::action),
+            axum::routing::put(custom_harnesses::save)
+                .post(custom_harnesses::action)
+                .delete(custom_harnesses::remove),
         )
         .route("/companies/{company}/intelligence", get(intelligence_view))
         .route(

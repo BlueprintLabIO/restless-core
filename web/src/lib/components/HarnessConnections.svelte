@@ -5,6 +5,7 @@
 	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import { saveSetting, settingQuery } from '$lib/model/setting.svelte';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import {
 		harnessAuthAction,
 		harnessAuthKey,
@@ -60,6 +61,22 @@
 		} finally {
 			busy = '';
 		}
+	}
+	/* Disconnecting a sign-in an agent runs on stops that agent, so it asks first. */
+	async function disconnect(c: Connection) {
+		const name = c.harness === 'codex' ? 'Codex' : 'Claude';
+		if (
+			!(await confirmAction({
+				title: `Disconnect company-only ${name}?`,
+				body: isInUse(c.harness)
+					? `Agents running on it stop working until you sign in again or choose another model for them.`
+					: 'No agent uses it now. You can sign in again at any time.',
+				action: 'Disconnect',
+				danger: isInUse(c.harness)
+			}))
+		)
+			return;
+		await act(c, 'disconnect');
 	}
 	function status(state: string) {
 		return (
@@ -133,7 +150,7 @@
 				>{#if c.mode !== 'disconnected'}<button
 						class="btn small"
 						disabled={!!busy}
-						onclick={() => act(c, 'disconnect')}>Disconnect</button
+						onclick={() => void disconnect(c)}>Disconnect</button
 					>{/if}
 			</div>
 			{#if ['starting', 'waiting'].includes(c.auth.state)}

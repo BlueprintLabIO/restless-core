@@ -170,3 +170,58 @@ pub(super) async fn action(
         Err(e) => api_error(StatusCode::BAD_REQUEST, "harness", e.to_string()),
     }
 }
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct RemoveInput {
+    revision: String,
+}
+
+/// Remove a custom harness from the company's settings. An agent whose model runs on it would
+/// lose its intelligence, so removal is refused while any agent route still names it. Its
+/// installed files stay on the company computer until it is replaced.
+pub(super) async fn remove(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, id)): AxumPath<(String, String)>,
+    Json(input): Json<RemoveInput>,
+) -> Response<Body> {
+    if let Some(error) = authorize(&state, &principal) {
+        return error;
+    }
+    let _write = state.charter_writes.lock().await;
+    let result: Result<Value> = async {
+        let config = runtime::CompanyConfig::load(&state.daemon.root, &company)?;
+        let mut registry = custom_harness::load(&state.daemon.root, &company)?;
+        if custom_harness::revision(&registry) != input.revision {
+            bail!("Settings changed. Refresh and try again.");
+        }
+        let harness = registry.get(&id).context("This harness is already removed")?;
+        let route = format!("harness:custom:{id}");
+        let users: Vec<&str> = config
+            .agent_intelligence
+            .iter()
+            .filter(|(_, assignment)| assignment.connection == route)
+            .map(|(agent, _)| agent.as_str())
+            .collect();
+        if !users.is_empty() {
+            bail!(
+                "{} is still the model for {}. Choose another model for them first.",
+                harness.name,
+                users.join(", ")
+            );
+        }
+        if custom_harness::status(&company, &id).await.ok().is_some_and(|status| status["state"] == "installing") {
+            bail!("Wait for this installation to finish before removing it.");
+        }
+        registry.remove(&id);
+        custom_harness::save(&state.daemon.root, &company, &registry)?;
+        custom_harness::invalidate_probe(&state.daemon.root, &company, &id)?;
+        Ok(json!({"removed":true,"revision":custom_harness::revision(&registry)}))
+    }
+    .await;
+    match result {
+        Ok(value) => Json(value).into_response(),
+        Err(e) => api_error(StatusCode::BAD_REQUEST, "harness", e.to_string()),
+    }
+}

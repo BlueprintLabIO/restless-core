@@ -61,3 +61,11 @@ export function saveCustomHarness(
 		json: { revision, config }
 	});
 }
+
+/** Remove a harness from the company's settings; refused while an agent's model runs on it. */
+export function removeCustomHarness(company: string, id: string, revision: string) {
+	return ownerRequest<unknown>(`${endpoint(company)}/${encodeURIComponent(id)}`, {
+		method: 'DELETE',
+		json: { revision }
+	});
+}
