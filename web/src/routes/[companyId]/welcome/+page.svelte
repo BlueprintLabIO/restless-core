@@ -40,6 +40,10 @@
 	const catalog = companiesQuery();
 	const entry = $derived(catalog.view.find((candidate) => candidate.id === companyId));
 	const cannotStart = $derived(entry?.unstartable_reason ?? '');
+	/* Intelligence, with the way back here once a model is connected. */
+	const connectHref = $derived(
+		`/${companyId}/company/provider?return=${encodeURIComponent(`/${companyId}/welcome`)}`
+	);
 	/* A new company starts with a generated name, such as "Hopeful Piano". */
 	const currentName = $derived(entry?.name ?? '');
 	const messages = $derived(conversation.messages);
@@ -289,10 +293,19 @@
 		{:else if waiting}
 			<div class="thinking" role="status">
 				<i aria-hidden="true"></i>{#if cannotStart}<span
-						>I can’t reply until I have a model to think with. <a
-							href={`/${companyId}/company/provider`}>Connect one</a
+						>I can’t reply until I have a model to think with. <a href={connectHref}>Connect one</a
 						>, and I’ll pick up right here.</span
 					>{:else if slow}<span>Mm, thinking…</span>{/if}
+			</div>
+		{:else if cannotStart && !reply}
+			<!-- No model yet: connecting one comes before the first question, not after an answer. -->
+			<div class="ask" aria-live="polite">
+				<p class="hello">Hi, I’m Exec.</p>
+				<h1>Before we start, I need a model to think with.</h1>
+				<div class="go">
+					<a class="primary" href={connectHref}>Connect one</a>
+					<span>It takes a minute, and I’ll bring you back here.</span>
+				</div>
 			</div>
 		{:else}
 			<div class="ask" aria-live="polite">
@@ -303,7 +316,7 @@
 			</div>
 		{/if}
 
-		{#if (!waiting || stalled) && !starting}
+		{#if (!waiting || stalled) && !starting && !(cannotStart && !reply)}
 			<form
 				class="answer"
 				onsubmit={(event) => {
@@ -563,6 +576,11 @@
 		font-size: var(--t-head);
 		font-weight: 400;
 		cursor: pointer;
+	}
+	.go a.primary {
+		display: inline-flex;
+		align-items: center;
+		text-decoration: none;
 	}
 	.go .quiet {
 		height: 52px;

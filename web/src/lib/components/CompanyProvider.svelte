@@ -16,6 +16,7 @@
 	import ModelFallbacks from './ModelFallbacks.svelte';
 	import CopyCompanySetting from './CopyCompanySetting.svelte';
 	import { companiesQuery } from '$lib/model/queries.svelte';
+	import { page } from '$app/state';
 	import { needsAnotherModel, startLinkLabel } from '$lib/model/company-start';
 	import { modelLabel } from '$lib/model/intelligence-labels';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
@@ -53,6 +54,11 @@
 	const setupIssue = $derived(
 		catalogProjection.view.find((company) => company.id === companyId)?.unstartable_reason
 	);
+	/* Arriving from the welcome interview: once Exec can think, the way back is the first thing. */
+	const returnTo = $derived.by(() => {
+		const path = page.url.searchParams.get('return') ?? '';
+		return path.startsWith(`/${companyId}/`) && !path.startsWith('//') ? path : '';
+	});
 	/* A model the connection does not serve is fixed in Models; the connection itself is fine. */
 	const connectionIssue = $derived(setupIssue && !needsAnotherModel(setupIssue) ? setupIssue : '');
 	const intelligence = $derived(intelligenceQuery(companyId));
@@ -455,6 +461,12 @@
 		>
 	{/snippet}
 
+	{#if returnTo && !setupIssue && catalogProjection.view.length}
+		<Notice tone="success" title="Exec can think now">
+			{#snippet actions()}<a class="btn small primary" href={returnTo}>Back to the welcome</a
+				>{/snippet}
+		</Notice>
+	{/if}
 	{#if setupIssue}
 		<Notice tone="warning" title={startLinkLabel(setupIssue)} details={setupIssue}>
 			{#snippet actions()}<a
