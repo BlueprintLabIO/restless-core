@@ -84,6 +84,7 @@
 	import Square from '@lucide/svelte/icons/square';
 	import SquareCheck from '@lucide/svelte/icons/square-check';
 	import { documentSearch } from '$lib/model/document-search.svelte';
+	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import {
 		duplicateSheet,
 		searchSheets,
@@ -136,29 +137,27 @@
 		owner ? (cockpit.view?.people ?? []) : (collaboration.view?.people ?? [])
 	);
 
-	let sheets = $state<SheetRow[]>([]);
-	let sheetsFailure = $state('');
-	let sheetsLoaded = $state(false);
-	/* Loads once per company: a refreshed identity must not blank the list back to loading. */
-	let sheetsFor = '';
-	$effect(() => {
-		const target = companyId;
-		if (!principal.view || sheetsFor === target) return;
-		sheetsFor = target;
-		sheetsLoaded = false;
-		sheetsFailure = '';
-		void sheetJson<SheetRow[]>(target)
-			.then((rows) => {
-				if (target === companyId) sheets = rows;
-			})
-			.catch((cause) => {
-				if (target === companyId)
-					sheetsFailure = cause instanceof Error ? cause.message : 'Sheets are unavailable';
-			})
-			.finally(() => {
-				if (target === companyId) sheetsLoaded = true;
-			});
-	});
+	/* Sheets refresh as documents do, so one a teammate or Staff makes appears without a reload.
+	 * Keyed by the viewer's cache partition: one person's list is never shown to another. */
+	const queryClient = useQueryClient();
+	const sheetsKey = $derived(['library-sheets', companyId, principal.view?.cache_partition ?? '']);
+	const sheetsQuery = createQuery(() => ({
+		queryKey: sheetsKey,
+		queryFn: () => sheetJson<SheetRow[]>(companyId),
+		enabled: Boolean(principal.view),
+		staleTime: 5_000,
+		refetchInterval: 15_000
+	}));
+	const sheets = $derived(sheetsQuery.data ?? []);
+	const sheetsFailure = $derived(
+		sheetsQuery.error
+			? sheetsQuery.error instanceof Error
+				? sheetsQuery.error.message
+				: 'Sheets are unavailable'
+			: ''
+	);
+	const sheetsLoaded = $derived(sheetsQuery.data !== undefined || Boolean(sheetsQuery.error));
+	const refreshSheets = () => queryClient.invalidateQueries({ queryKey: sheetsKey });
 
 	/* Files the owner keeps: added here, or sent in a conversation. The inventory is the owner's;
 	 * the rows shown are the ones this person sent, which are the ones they can open. */
@@ -210,14 +209,24 @@
 	let archivedSheets = $state<SheetRow[]>([]);
 	let archivedArtifacts = $state<LibraryArtifact[]>([]);
 	let archiveBusy = $state('');
+	/* What part of Archived could not be read, so an empty view is never mistaken for nothing. */
+	let archivedFailure = $state('');
 	async function loadArchived() {
 		const target = companyId;
+		const failed: string[] = [];
 		const [docs, sheetRows, artifacts] = await Promise.all([
-			getArchivedDocuments(target, null, 50).catch(() => null),
-			sheetJson<SheetRow[]>(target, '-archived').catch(() => null),
-			owner ? readArchivedLibrary<{ artifacts: unknown[] }>(target) : Promise.resolve(null)
+			getArchivedDocuments(target, null, 50).catch(() => (failed.push('documents'), null)),
+			sheetJson<SheetRow[]>(target, '-archived').catch(() => (failed.push('sheets'), null)),
+			owner
+				? readArchivedLibrary<{ artifacts: unknown[] }>(target).catch(
+						() => (failed.push('files'), null)
+					)
+				: Promise.resolve(null)
 		]);
 		if (target !== companyId) return;
+		archivedFailure = failed.length
+			? `Archived ${failed.join(' and ').replace(/ and (?=.* and )/u, ', ')} could not be read`
+			: '';
 		if (docs) {
 			archivedDocs = docs.items;
 			archivedCursor = docs.next_cursor;
@@ -250,8 +259,7 @@
 		if (principal.view) void loadArchived();
 	});
 	async function refreshAfterArchive() {
-		sheets = await sheetJson<SheetRow[]>(companyId).catch(() => sheets);
-		await Promise.all([documents.refresh(), attention.refresh(), loadArchived()]);
+		await Promise.all([refreshSheets(), documents.refresh(), attention.refresh(), loadArchived()]);
 	}
 	/* Archiving or restoring a selection: one request each, one sentence for all of them. */
 	async function archiveMany(list: Entry[], archived: boolean) {
@@ -300,7 +308,7 @@
 				undo: archived ? () => setArchived(entry, false) : undefined
 			});
 			if (entry.kind === 'sheet') {
-				sheets = await sheetJson<SheetRow[]>(companyId).catch(() => sheets);
+				await refreshSheets();
 			} else if (entry.kind === 'doc') {
 				await documents.refresh();
 			} else {
@@ -1038,7 +1046,28 @@
 					? 'Oldest first; click for newest first'
 					: 'Sort by last update, newest first';
 
-	const loading = $derived(documents.status === 'unknown' || !sheetsLoaded);
+	/* The list is not a table, so the sort says its state in its name, not in aria-sort. */
+	const sortLabel = (column: 'name' | 'updated') =>
+		column === 'name'
+			? sort === 'name'
+				? 'Name, sorted A to Z'
+				: sort === 'name-desc'
+					? 'Name, sorted Z to A'
+					: 'Sort by name'
+			: sort === 'oldest'
+				? 'Updated, oldest first'
+				: sort === 'updated' && !(searchesDocuments && !sortParam)
+					? 'Updated, newest first'
+					: 'Sort by last update';
+
+	/* Files arrive with the Work they came from; until that is read, a kind view is loading, not
+	 * empty. */
+	const filesLoaded = $derived(
+		owner
+			? Boolean(attention.view || attention.failure)
+			: Boolean(collaboration.view || collaboration.failure)
+	);
+	const loading = $derived(documents.status === 'unknown' || !sheetsLoaded || !filesLoaded);
 	const FILTERS: { key: Filter; label: string }[] = [
 		{ key: 'all', label: 'All files' },
 		{ key: 'review', label: 'Needs your review' },
@@ -1567,7 +1596,19 @@
 						tone="warning"
 						title="Sheets could not be read"
 						details={sheetsFailure}
-					/>{/if}
+					>
+						{#snippet actions()}<button class="btn small" onclick={() => void refreshSheets()}
+								>Retry</button
+							>{/snippet}
+					</Notice>{/if}
+				{#if archivedFailure && filter === 'archived'}<Notice
+						tone="warning"
+						title={archivedFailure}
+					>
+						{#snippet actions()}<button class="btn small" onclick={() => void loadArchived()}
+								>Retry</button
+							>{/snippet}
+					</Notice>{/if}
 				{#if keptFailure && (filter === 'yours' || filter === 'all')}<Notice
 						tone="warning"
 						title={keptFailure}
@@ -1584,11 +1625,12 @@
 				{#if loading && !entries.length}
 					<Skeleton label="Loading the Library" variant="list" count={5} />
 				{:else if shown.length}
-					<div class="table-head">
+					<div class="table-head" role="toolbar" aria-label="Sort and filter">
 						<button
 							type="button"
 							class="sort"
 							class:sorted={sort === 'name' || sort === 'name-desc'}
+							aria-label={sortLabel('name')}
 							title={sortTitle('name')}
 							onclick={() => sortBy('name')}
 							>Name{#if sort === 'name'}<ArrowUp
@@ -1624,10 +1666,11 @@
 							<option value="1">Today</option>
 							<option value="7">Past week</option>
 							<option value="30">Past month</option>
-						</select><span aria-hidden="true">Owner</span><button
+						</select><button
 							type="button"
 							class="sort"
 							class:sorted={!!sortParam && (sort === 'updated' || sort === 'oldest')}
+							aria-label={sortLabel('updated')}
 							title={sortTitle('updated')}
 							onclick={() => sortBy('updated')}
 							>Updated{#if sortParam === 'updated' || sort === 'oldest'}{#if sort === 'oldest'}<ArrowUp
@@ -2071,9 +2114,6 @@
 	}
 	.table-head > :first-child {
 		margin-right: auto;
-	}
-	.table-head span {
-		display: none;
 	}
 	/* The column names sort the list; they stay as quiet as the labels they replace. */
 	.sort {
