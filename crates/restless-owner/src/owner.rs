@@ -515,13 +515,6 @@ struct RoomEventQuery {
     limit: Option<i64>,
 }
 
-#[derive(Debug, Deserialize, Default)]
-#[serde(deny_unknown_fields)]
-struct MentionPageQuery {
-    after_created_event_id: Option<i64>,
-    limit: Option<i64>,
-}
-
 /// An explicit interruption does not manufacture a second owner message.
 /// `cancelled` means the durable input was consumed; `interrupted` says a
 /// currently-supervised process also received cancellation.
@@ -1084,7 +1077,6 @@ where
     RoomApiState: FromRef<S>,
 {
     Router::<S>::new()
-        .route("/companies/{company}/mentions", get(list_my_mentions))
         .route(
             "/companies/{company}/rooms",
             get(list_rooms).post(create_room),
@@ -1399,7 +1391,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         )
         .route(
             "/companies/{company}/teams/{team}/owner",
-            get(teams_api::team_owner_history).post(teams_api::set_team_owner),
+            post(teams_api::set_team_owner),
         )
         .route(
             "/companies/{company}/work/{work}/resume",
@@ -8752,34 +8744,6 @@ async fn deliver_room_message(
             };
             (status, Json(result)).into_response()
         }
-        Err(error) => room_error(error),
-    }
-}
-
-async fn list_my_mentions(
-    State(state): State<RoomApiState>,
-    RoomPrincipal(principal): RoomPrincipal,
-    AxumPath(company): AxumPath<String>,
-    Query(query): Query<MentionPageQuery>,
-) -> Response<Body> {
-    let after_created_event_id = query.after_created_event_id.unwrap_or(0);
-    let limit = query.limit.unwrap_or(50);
-    if after_created_event_id < 0 || !(1..=100).contains(&limit) {
-        return api_error(
-            StatusCode::BAD_REQUEST,
-            "mention_cursor",
-            "after_created_event_id must be non-negative and limit must be between 1 and 100",
-        );
-    }
-    let org = match room_orgintel(&state, &principal, &company).await {
-        Ok(org) => org,
-        Err(response) => return response,
-    };
-    match org
-        .pending_message_mentions_for_actor(principal.actor_id(), after_created_event_id, limit)
-        .await
-    {
-        Ok(mentions) => Json(serde_json::json!({ "mentions": mentions })).into_response(),
         Err(error) => room_error(error),
     }
 }

@@ -91,21 +91,6 @@ pub(super) async fn set_team_owner(
     }
 }
 
-/// Who has owned a team, newest first: the record of each appointment and who made it.
-pub(super) async fn team_owner_history(
-    State(state): State<OwnerState>,
-    AxumPath((company, team)): AxumPath<(String, Uuid)>,
-) -> Response<Body> {
-    let org = match org_for(&state, &company).await {
-        Ok(org) => org,
-        Err(response) => return response,
-    };
-    match org.team_responsibility_history(team).await {
-        Ok(events) => Json(events).into_response(),
-        Err(error) => api_error(StatusCode::BAD_REQUEST, "team_owner", error.plain_message()),
-    }
-}
-
 /// Put a goal under a team, or back with the owner. The owner and Exec organise freely; a
 /// person moves goals only between teams they own.
 pub(super) async fn set_goal_team(

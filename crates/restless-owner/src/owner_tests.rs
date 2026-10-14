@@ -720,25 +720,27 @@
         assert_eq!(retry["created"], false);
         assert_eq!(retry["mentions"][0]["id"], mention_id);
 
-        let mentions_path = format!("/companies/{}/mentions", fixture.company);
+        // Another company's session cannot read this company's conversation.
         let (status, _) =
-            room_request(&other_company_alice, Method::GET, &mentions_path, None).await;
+            room_request(&other_company_alice, Method::GET, &messages_path, None).await;
         assert_eq!(status, StatusCode::FORBIDDEN);
-        let (status, bob_attention) = room_request(&bob, Method::GET, &mentions_path, None).await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(bob_attention["mentions"].as_array().unwrap().len(), 1);
+        // Pending mentions reach a person through For you; read them at their source here.
+        let pending = |actor: &'static str| {
+            let org = fixture.org.clone();
+            async move {
+                org.pending_message_mentions_for_actor(actor, 0, 50)
+                    .await
+                    .unwrap()
+            }
+        };
+        let bob_attention = pending("bob").await;
+        assert_eq!(bob_attention.len(), 1);
+        assert_eq!(bob_attention[0].message.body, "Should we ship?");
         assert_eq!(
-            bob_attention["mentions"][0]["message"]["body"],
-            "Should we ship?"
-        );
-        assert_eq!(
-            bob_attention["mentions"][0]["mention"]["thread_root_message_id"],
+            bob_attention[0].mention.thread_root_message_id,
             message_id
         );
-        let (status, alice_attention) =
-            room_request(&alice, Method::GET, &mentions_path, None).await;
-        assert_eq!(status, StatusCode::OK);
-        assert!(alice_attention["mentions"].as_array().unwrap().is_empty());
+        assert!(pending("alice").await.is_empty());
 
         // An ordinary reply does not implicitly clear a mention.
         let reply_path = format!(
@@ -757,9 +759,7 @@
         .await;
         assert_eq!(status, StatusCode::CREATED);
         assert!(ordinary["resolved_mention"].is_null());
-        let (status, still_pending) = room_request(&bob, Method::GET, &mentions_path, None).await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(still_pending["mentions"].as_array().unwrap().len(), 1);
+        assert_eq!(pending("bob").await.len(), 1);
 
         let (status, forged_resolution) = room_request(
             &alice,
@@ -792,25 +792,13 @@
             resolved["resolved_mention"]["resolution_message_id"],
             resolved["message"]["id"]
         );
-        let (status, cleared) = room_request(&bob, Method::GET, &mentions_path, None).await;
-        assert_eq!(status, StatusCode::OK);
-        assert!(cleared["mentions"].as_array().unwrap().is_empty());
+        assert!(pending("bob").await.is_empty());
 
         let (status, page) = room_request(&alice, Method::GET, &messages_path, None).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(page["mentions"].as_array().unwrap().len(), 1);
         assert_eq!(page["mentions"][0]["id"], mention_id);
         assert!(page["mentions"][0]["resolved_at"].is_string());
-
-        for query in [
-            "?after_created_event_id=-1",
-            "?limit=0",
-            "?limit=101",
-            "?unexpected=true",
-        ] {
-            let response = room_get_response(&bob, format!("{mentions_path}{query}"), None).await;
-            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        }
     }
 
     #[tokio::test]
