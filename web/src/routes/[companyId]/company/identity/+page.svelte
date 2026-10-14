@@ -94,7 +94,8 @@
 		{ value: 'retire', label: 'Retire', title: 'Stop using the artifact.' }
 	];
 
-	let migrationFinding = $state<string | null>(null);
+	/* The Inbox opens one affected artifact's decision with ?drift=. */
+	let migrationFinding = $state<string | null>(page.url.searchParams.get('drift'));
 	let migrationDisposition = $state<IdentityMigrationDisposition>('revise');
 	let migrationRationale = $state('');
 	let saving = $state(false);

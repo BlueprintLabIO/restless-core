@@ -2099,6 +2099,63 @@ async fn project_queue(
     }
 
     if let Some(org) = org {
+        // A corrected brand fact made produced work stale: the owner decides what happens to it.
+        match org.undecided_identity_drift().await {
+            Ok(findings) => {
+                for (finding, work_id, label) in findings {
+                    let artifact = if label.trim().is_empty() { finding.dependency.clone() } else { label };
+                    items.push(AttentionItem {
+                        id: format!("orgintel:identity_drift:{}", finding.id),
+                        work_id,
+                        source: AttentionSource {
+                            plane: "orgintel",
+                            kind: "identity_drift".into(),
+                            reference: finding.id.to_string(),
+                            party: None,
+                            call_key: None,
+                        },
+                        category: "decision".into(),
+                        title: format!("A brand change affects {artifact}"),
+                        what_happened: format!(
+                            "A newer brand and voice changed something this depends on: {}.",
+                            finding.dependency.trim_end_matches('.')
+                        ),
+                        why_it_matters: finding.consequence.clone(),
+                        recommendation: "Decide whether to revise it, keep it as it is, or retire it.".into(),
+                        requested_action: "Choose what happens to this artifact.".into(),
+                        if_no_action: "It stays as it was made, under the earlier brand.".into(),
+                        uncertainty: None,
+                        deadline: None,
+                        brief_status: "source-observed",
+                        brief_author: None,
+                        briefed_at: None,
+                        evidence: Vec::new(),
+                        review_sources: Vec::new(),
+                        responsible_actor: None,
+                        runtime_attach: None,
+                        review_target: None,
+                        native_document: None,
+                        direction_request: None,
+                        charter_proposal: None,
+                        actions: vec![AttentionAction {
+                            id: "decide-identity-drift".into(),
+                            label: "Decide on Brand & voice".into(),
+                            role: "inspect",
+                            consequence: "Opens the affected artifact's decision on Brand & voice.".into(),
+                            next_state: "Recording a decision clears this item.".into(),
+                            href: Some(format!(
+                                "/{}/company/identity?drift={}",
+                                config.name, finding.id
+                            )),
+                        }],
+                        can_continue: true,
+                        preparing: false,
+                        created_at: finding.created_at,
+                    });
+                }
+            }
+            Err(error) => tracing::warn!(%error, "brand drift attention unavailable"),
+        }
         let contacts = conversation_actors
             .iter()
             .filter_map(|id| actors.get(id).cloned())

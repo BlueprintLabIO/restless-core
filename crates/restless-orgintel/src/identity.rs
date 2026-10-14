@@ -592,6 +592,33 @@ impl OrgIntel {
         Ok(binding)
     }
 
+    /// Drift findings nobody has decided, each with the Work and label of the artifact it
+    /// affects: the owner meets them in the Inbox as well as on Brand & voice.
+    pub async fn undecided_identity_drift(
+        &self,
+    ) -> Result<Vec<(IdentityDriftFindingRow, Option<Uuid>, String)>> {
+        let findings = sqlx::query_as::<_, IdentityDriftFindingRow>(
+            "SELECT f.id,f.artifact_ref_id,f.from_release_id,f.to_release_id,f.kind,f.old_evidence_id,\
+             f.new_evidence_id,f.dependency,f.consequence,f.created_at \
+             FROM company_identity_drift_findings f \
+             WHERE NOT EXISTS (SELECT 1 FROM company_identity_migration_decisions d WHERE d.drift_finding_id=f.id) \
+             ORDER BY f.created_at,f.id",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        let mut out = Vec::with_capacity(findings.len());
+        for finding in findings {
+            let artifact: Option<(Option<Uuid>, String)> =
+                sqlx::query_as("SELECT work_id,label FROM artifact_refs WHERE id=$1")
+                    .bind(finding.artifact_ref_id)
+                    .fetch_optional(&self.pool)
+                    .await?;
+            let (work, label) = artifact.unwrap_or((None, String::new()));
+            out.push((finding, work, label));
+        }
+        Ok(out)
+    }
+
     pub async fn company_identity_snapshot(&self) -> Result<CompanyIdentitySnapshot> {
         let current_release = sqlx::query_as::<_, IdentityReleaseRow>(&format!(
             "{} WHERE id=(SELECT release_id FROM company_identity_current_release WHERE singleton=TRUE)",
