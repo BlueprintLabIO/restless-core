@@ -128,6 +128,13 @@ export class AlreadyMember extends Error {
 	}
 }
 
+/** Whether this company can send email invitations now: only once sharing is set up does it have
+ * an account issuer to send them. */
+export async function emailInvitesReady(company: string): Promise<boolean> {
+	const core = await getCoreMembers(company);
+	return core.mode === 'network' && !!core.issuer && !!core.company_id;
+}
+
 /** Invite someone by email from anywhere in the company, Share included: Core names the issuer
  * and the issuer decides whether this person may invite. An email that belongs to an active member
  * throws AlreadyMember with their Actor, so Share adds them rather than inviting them again. */

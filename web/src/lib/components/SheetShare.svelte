@@ -9,7 +9,7 @@
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import { mayManageCompanySetup } from '$lib/model/company-access';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
-	import { AlreadyMember, inviteToCompany } from '$lib/model/members';
+	import { AlreadyMember, emailInvitesReady, inviteToCompany } from '$lib/model/members';
 	import { FORMER_MEMBER, invitedFromShare, shareRows } from '$lib/model/share-people';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import {
@@ -81,6 +81,18 @@
 		shareRows(sharing?.people ?? [], { owner, viewer: viewerId, nameOf: display })
 	);
 	const canInvite = $derived(!!sharing?.may_manage && mayManageCompanySetup(principalSource.view));
+	/* Email invitations go out only once sharing is set up; until then the panel says where. */
+	let invitesReady = $state<{ company: string; ready: boolean } | null>(null);
+	$effect(() => {
+		const target = company;
+		if (!canInvite || invitesReady?.company === target) return;
+		void emailInvitesReady(target)
+			.then((ready) => {
+				if (target === company) invitesReady = { company: target, ready };
+			})
+			.catch(() => undefined);
+	});
+	const invitesFor = $derived(invitesReady?.company === company ? invitesReady.ready : null);
 	const directory = $derived(people.filter((person) => person.actor_id !== owner));
 	const link = $derived(
 		typeof location === 'undefined' ? '' : new URL(sheetHref(company, sheet), location.origin).href
@@ -270,7 +282,10 @@
 		{link}
 		ongeneral={setGeneral}
 		onadd={(actorId, access) => void add(actorId, access as SheetLevel)}
-		oninvite={canInvite ? invite : undefined}
+		oninvite={canInvite && invitesFor ? invite : undefined}
+		inviteSetupHref={canInvite && invitesFor === false
+			? `/${encodeURIComponent(company)}/company/members`
+			: undefined}
 		{pending}
 		onpendingaccess={setPendingAccess}
 		onpendingremove={removePending}

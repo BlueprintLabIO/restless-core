@@ -11,7 +11,7 @@
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import { mayManageCompanySetup } from '$lib/model/company-access';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
-	import { AlreadyMember, inviteToCompany } from '$lib/model/members';
+	import { AlreadyMember, emailInvitesReady, inviteToCompany } from '$lib/model/members';
 	import { FORMER_MEMBER, invitedFromShare, shareRows } from '$lib/model/share-people';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import {
@@ -75,6 +75,18 @@
 	const viewerId = $derived(principalSource.view?.actor_id ?? '');
 	/* Whoever may share it and may invite to the company can invite by email from here. */
 	const canInvite = $derived(mayManage && mayManageCompanySetup(principalSource.view));
+	/* Email invitations go out only once sharing is set up; until then the panel says where. */
+	let invitesReady = $state<{ company: string; ready: boolean } | null>(null);
+	$effect(() => {
+		const target = companyId;
+		if (!canInvite || invitesReady?.company === target) return;
+		void emailInvitesReady(target)
+			.then((ready) => {
+				if (target === companyId) invitesReady = { company: target, ready };
+			})
+			.catch(() => undefined);
+	});
+	const invitesFor = $derived(invitesReady?.company === companyId ? invitesReady.ready : null);
 	const nameOf = (actorId: string) =>
 		people.find((candidate) => candidate.actor_id === actorId)?.display ?? FORMER_MEMBER;
 	const shared = $derived(
@@ -287,7 +299,10 @@
 			onadd={add}
 			onaccess={setAccess}
 			onremove={remove}
-			oninvite={canInvite ? invite : undefined}
+			oninvite={canInvite && invitesFor ? invite : undefined}
+			inviteSetupHref={canInvite && invitesFor === false
+				? `/${encodeURIComponent(companyId)}/company/members`
+				: undefined}
 			{pending}
 			onpendingaccess={setPendingAccess}
 			onpendingremove={removePending}

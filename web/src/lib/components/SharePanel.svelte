@@ -38,7 +38,8 @@
 		oninvite,
 		pending = [],
 		onpendingaccess,
-		onpendingremove
+		onpendingremove,
+		inviteSetupHref
 	}: {
 		general: GeneralAccess;
 		generalOptions: ReadonlyArray<{ value: GeneralAccess; label: string }>;
@@ -72,11 +73,17 @@
 		pending?: ReadonlyArray<{ email: string; access: string }>;
 		onpendingaccess?: (email: string, access: string) => void;
 		onpendingremove?: (email: string) => void;
+		/** Where email invitations are turned on, when this person could invite but the company
+		 * cannot send invitations yet. */
+		inviteSetupHref?: string;
 	} = $props();
 
 	let query = $state('');
 	let active = $state(0);
 	let inviting = $state(false);
+	/* Inviting by email makes someone a member of the whole company, not a guest on this one item,
+	 * so the panel says so and asks once before the invitation goes. */
+	let confirmingInvite = $state('');
 	const listId = $props.id();
 	/* People are added at the highest level unless chosen otherwise, as in Notion. */
 	let grant = $state(highestLevel());
@@ -131,7 +138,10 @@
 		if (!oninvite || inviting) return;
 		inviting = true;
 		try {
-			if (await oninvite(email, grant)) query = '';
+			if (await oninvite(email, grant)) {
+				query = '';
+				confirmingInvite = '';
+			}
 		} finally {
 			inviting = false;
 		}
@@ -140,7 +150,7 @@
 	function choose(option: Option | undefined): void {
 		if (!option) return;
 		if (option.kind === 'person') add(option.actor_id);
-		else void invite(option.email);
+		else confirmingInvite = option.email;
 	}
 
 	/* Up and Down move through the matches, Enter takes the highlighted one, as in Notion. */
@@ -204,7 +214,10 @@
 			<input
 				type="search"
 				bind:value={query}
-				oninput={() => (active = 0)}
+				oninput={() => {
+					active = 0;
+					confirmingInvite = '';
+				}}
 				placeholder={oninvite ? 'Name or email' : 'Add people by name'}
 				aria-label={oninvite ? 'Add people by name or email' : 'Add people by name'}
 				autocomplete="off"
@@ -240,27 +253,52 @@
 								tabindex="-1"
 								disabled={busy || inviting}
 								title={option.kind === 'invite'
-									? 'Adds them if they are in the company; otherwise invites them, and shares this when they join.'
+									? 'Invites them to the company as a member, and shares this when they join.'
 									: undefined}
 								onmousedown={(event) => event.preventDefault()}
 								onmouseenter={() => (active = index)}
 								onclick={() => choose(option)}
 								>{option.kind === 'person'
 									? option.display
-									: inviting
-										? `Sharing with ${option.email}…`
-										: `Share with ${option.email}`}</button
+									: `Invite ${option.email} to the company…`}</button
 							>
 						</li>
 					{:else}
 						<li class="none">
-							{looksLikeEmail(query) && !oninvite
-								? 'Not in the company yet. An admin can invite them from Members.'
-								: 'Nobody else by that name'}
+							{#if looksLikeEmail(query) && !oninvite && inviteSetupHref}Not in the company yet.
+								Inviting by email needs sharing turned on for this company. <a
+									href={inviteSetupHref}>Set up sharing</a
+								>{:else if looksLikeEmail(query) && !oninvite}Not in the company yet. An admin can
+								invite them from Members.{:else}Nobody else by that name{/if}
 						</li>
 					{/each}
 				</ul>
 			{/if}
+		</div>
+	{/if}
+
+	{#if confirmingInvite}
+		<div class="invite-confirm" role="alertdialog" aria-label="Invite to the company">
+			<p>
+				<strong>{confirmingInvite}</strong> joins the company as a member. Members can open
+				everything shared with the company, not only this. It is shared with them at
+				{levelLabel(grant).toLowerCase()} when they join.
+			</p>
+			<div class="invite-actions">
+				<button
+					type="button"
+					class="btn small"
+					disabled={inviting}
+					onclick={() => (confirmingInvite = '')}>Cancel</button
+				>
+				<button
+					type="button"
+					class="btn small primary"
+					disabled={inviting || busy}
+					onclick={() => void invite(confirmingInvite)}
+					>{inviting ? 'Inviting…' : 'Invite as member'}</button
+				>
+			</div>
 		</div>
 	{/if}
 
@@ -426,6 +464,23 @@
 	.matches .none {
 		padding: 6px 8px;
 		color: var(--text-tertiary);
+	}
+	.invite-confirm {
+		display: grid;
+		gap: 10px;
+		padding: 10px 12px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		background: var(--surface-raised);
+	}
+	.invite-confirm p {
+		margin: 0;
+		overflow-wrap: anywhere;
+	}
+	.invite-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 6px;
 	}
 	.share-error {
 		margin: 0;
