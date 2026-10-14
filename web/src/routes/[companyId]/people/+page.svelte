@@ -1640,8 +1640,9 @@
 		{#if headerPerson?.archived}
 			<div class="archived-page">
 				<p>
-					{personName(headerPerson.display)} is archived{headerPerson.reason
-						? `: ${headerPerson.reason}`
+					{personName(headerPerson.display)} is archived{/* The default reason only repeats it. */ headerPerson.reason &&
+					!/^archived by /i.test(headerPerson.reason)
+						? `: ${headerPerson.reason}.`
 						: '.'}
 					Their chat and Work stay in history. Re-hire them to talk to them again.
 				</p>
