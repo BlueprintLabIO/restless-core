@@ -44,6 +44,8 @@ export interface CompanySetupRow {
 	unavailable: boolean;
 	/** What the owner would do, when `todo` is set: "Write the charter". */
 	task?: string;
+	/** The value is a problem the owner should see (the desktop failed its check). */
+	alert?: boolean;
 }
 
 /** One row of the Company sections, as the sidebar and the overview both show it. */
@@ -169,15 +171,40 @@ export function createCompanySetup(companyIdOf: () => string) {
 		if (proposals) return `${plural(proposals, 'proposal')} waiting`;
 		return value.current_release ? 'Published' : 'Not set yet';
 	});
+	/* A spend ceiling always exists, so the row reads how much of it is used; a pause of outside
+	 * actions outranks it. */
+	const limitsPaused = $derived(!!view?.limits.outside_actions_paused);
 	const limits = $derived.by(() => {
 		if (!view) return source.failure ? 'Unavailable right now' : '…';
-		/* The rules themselves are on the page; the row says only whether any exist. */
-		return view.limits.asks_owner.length ? 'Asks you first' : 'Not set';
+		if (view.limits.status !== 'available') return 'Unavailable right now';
+		if (limitsPaused) return 'Outside actions paused';
+		const spend = view.limits.spend;
+		const share = Math.round((spend.accounted_usd / Math.max(spend.ceiling_usd, 0.01)) * 100);
+		return `${Math.min(share, 100)}% of ${spend.period === 'monthly' ? 'monthly ' : ''}budget used`;
+	});
+	/* The computer as last observed: the container's state, and whether its desktop passed its
+	 * live check; the monthly usage reading stands in when no runtime check was read. */
+	const computerFailing = $derived.by(() => {
+		const runtime = view?.computer.runtime;
+		return (
+			!view?.limits.runtime.asleep &&
+			runtime?.container === 'Running' &&
+			!!runtime.browser &&
+			runtime.browser.status !== 'available'
+		);
 	});
 	const computer = $derived.by(() => {
 		if (!view) return source.failure ? 'Unavailable right now' : '…';
-		const runtime = view.limits.runtime;
-		return runtime.asleep ? 'Asleep' : 'Running';
+		if (view.limits.runtime.asleep) return 'Asleep';
+		const container = view.computer.runtime?.container;
+		if (container === 'Running') return computerFailing ? 'Desktop not responding' : 'Running';
+		if (container === 'Stopped') return 'Stopped';
+		if (container === 'Absent') return 'Not created yet';
+		const usage = view.limits.runtime.usage?.status;
+		if (usage === 'running') return 'Running';
+		if (usage === 'stopped') return 'Stopped';
+		if (usage === 'absent') return 'Not created yet';
+		return 'Unavailable right now';
 	});
 	const modelMissing = $derived(!!entry?.unstartable_reason || model === 'Not chosen yet');
 
@@ -230,9 +257,9 @@ export function createCompanySetup(companyIdOf: () => string) {
 				counted(schedules, 'active schedule', 'Nothing scheduled'),
 				CalendarClock
 			),
-			row('limits', 'Limits', limits, Gauge),
+			{ ...row('limits', 'Limits', limits, Gauge), alert: limitsPaused },
 			row('members', 'Members', counted(members, 'person', 'Only you', 'people'), Users),
-			row('computer', 'Computer', computer, Monitor)
+			{ ...row('computer', 'Computer', computer, Monitor), alert: computerFailing }
 		]
 			/* Everyone sees the sections that describe the company; the owner also sees the ones
 			 * that hold its money, keys, model and computer. Only the owner is asked to finish setup. */
@@ -268,7 +295,8 @@ export function createCompanySetup(companyIdOf: () => string) {
 							todo: setupRow.todo,
 							tooltip: setupRow.todo && setupRow.task ? setupRow.task : setupRow.value,
 							reading: setupRow.value,
-							readingTone: setupRow.unavailable ? 'block' : setupRow.todo ? 'wait' : ''
+							readingTone:
+								setupRow.unavailable || setupRow.alert ? 'block' : setupRow.todo ? 'wait' : ''
 						}
 					: {
 							key: target.key,
