@@ -479,10 +479,15 @@ impl AuthorityStore {
         proposer: &str,
         proposal: NewEmailMandate,
         judgement_note: Option<&str>,
+        replaces: Option<Uuid>,
     ) -> Result<Uuid> {
         let proposal = mandate::canonicalize_new_mandate(proposal)?;
         let id = Uuid::new_v4();
-        let body = serde_json::json!({"id":id,"proposal":proposal,"judgement_note":judgement_note});
+        let mut body = serde_json::json!({"id":id,"proposal":proposal,"judgement_note":judgement_note});
+        // A change to the current mandate names it; approving the change replaces it.
+        if let Some(replaces) = replaces {
+            body["replaces"] = serde_json::json!(replaces);
+        }
         sqlx::query("INSERT INTO restless_authority.records (company,kind,actor_id,body) VALUES ($1,'email_mandate_proposal',$2,$3)")
             .bind(company).bind(proposer).bind(body).execute(&self.pool).await?;
         Ok(id)
@@ -544,6 +549,11 @@ impl AuthorityStore {
         let proposal: NewEmailMandate = serde_json::from_value(body["proposal"].clone())?;
         let mandate = if approve {
             mandate::lock_company(&mut tx, company).await?;
+            // An approved change retires the mandate it changes in the same transaction, so
+            // there is never a moment with both or neither.
+            if let Some(replaces) = body["replaces"].as_str().and_then(|id| Uuid::parse_str(id).ok()) {
+                mandate::revoke_in_transaction(&mut tx, company, owner, replaces, "Replaced by an approved change.").await?;
+            }
             Some(mandate::grant_in_transaction(&mut tx, company, owner, proposal).await?)
         } else { None };
         let decision_body = serde_json::json!({"proposal_id":proposal_id,"decision":if approve {"approve"} else {"decline"},"mandate_id":mandate.as_ref().map(|m|m.id),"owner_note":owner_note});

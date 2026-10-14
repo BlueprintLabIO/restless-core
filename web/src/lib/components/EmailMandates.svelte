@@ -45,7 +45,12 @@
 	let revoking = $state<string | null>(null);
 	let error = $state('');
 	let editing = $state(false);
+	/* The mandate a change is proposed for; null for a new one. */
+	let replacing = $state<EmailMandate | null>(null);
 	let draft = $state<Draft>(emptyDraft());
+	const current = $derived(
+		mandates.find((item) => !item.revoked_at && Date.parse(item.expires_at) > Date.now()) ?? null
+	);
 
 	function emptyDraft(): Draft {
 		return {
@@ -62,6 +67,31 @@
 
 	function beginCreate() {
 		draft = emptyDraft();
+		replacing = null;
+		error = '';
+		editing = true;
+	}
+
+	/* A datetime-local value in the viewer's own time. */
+	function localInput(iso: string): string {
+		const date = new Date(iso);
+		if (Number.isNaN(date.valueOf())) return '';
+		const offset = date.getTimezoneOffset() * 60_000;
+		return new Date(date.valueOf() - offset).toISOString().slice(0, 16);
+	}
+
+	function beginChange(mandate: EmailMandate) {
+		draft = {
+			purpose: mandate.purpose,
+			audience_guidance: mandate.audience_guidance,
+			sender: mandate.sender,
+			sender_name: mandate.sender_name ?? '',
+			max_per_day: String(mandate.max_per_day),
+			max_total: String(mandate.max_total),
+			timezone: mandate.timezone,
+			expires_at: localInput(mandate.expires_at)
+		};
+		replacing = mandate;
 		error = '';
 		editing = true;
 	}
@@ -77,19 +107,27 @@
 		}
 		saving = true;
 		try {
-			await proposeEmailMandate(companyId, {
-				purpose: draft.purpose.trim(),
-				audience_guidance: draft.audience_guidance.trim(),
-				sender: draft.sender.trim(),
-				sender_name: draft.sender_name.trim() || null,
-				max_per_day: daily,
-				max_total: total,
-				timezone: draft.timezone.trim(),
-				expires_at: new Date(draft.expires_at).toISOString()
-			});
+			await proposeEmailMandate(
+				companyId,
+				{
+					purpose: draft.purpose.trim(),
+					audience_guidance: draft.audience_guidance.trim(),
+					sender: draft.sender.trim(),
+					sender_name: draft.sender_name.trim() || null,
+					max_per_day: daily,
+					max_total: total,
+					timezone: draft.timezone.trim(),
+					expires_at: new Date(draft.expires_at).toISOString()
+				},
+				replacing?.id ?? null
+			);
 			await refreshAttention(queryClient, companyId);
 			editing = false;
-			toast('Sent to your Inbox. It authorizes nothing until you approve it there');
+			toast(
+				replacing
+					? 'Sent to your Inbox. The current mandate holds until you approve the change there'
+					: 'Sent to your Inbox. It authorizes nothing until you approve it there'
+			);
 		} catch (cause) {
 			error = failureSentence(cause, 'The email mandate proposal could not be submitted.');
 		} finally {
@@ -153,9 +191,10 @@
 		{#if !editing}<button
 				class="btn small"
 				type="button"
-				disabled={loading ||
-					loadError !== '' ||
-					mandates.some((item) => Date.parse(item.expires_at) > Date.now())}
+				disabled={loading || loadError !== '' || current !== null}
+				title={current
+					? 'One mandate at a time. Propose changes to the current one, or revoke it first.'
+					: undefined}
 				onclick={beginCreate}>Add mandate</button
 			>{/if}
 	{/snippet}
@@ -192,6 +231,12 @@
 					>
 				{/snippet}
 				{#snippet actions()}
+					{#if current?.id === mandate.id && !editing}<button
+							class="btn small ghost"
+							type="button"
+							title="Prefilled from this mandate. It keeps working until you approve the change in the Inbox."
+							onclick={() => beginChange(mandate)}>Propose changes</button
+						>{/if}
 					{#if !mandate.revoked_at}<button
 							class="btn small"
 							type="button"
@@ -344,7 +389,11 @@
 			</Row>
 			<div class="form-bar">
 				<button class="btn primary small" type="submit" disabled={saving}
-					>{saving ? 'Submitting…' : 'Request approval'}</button
+					>{saving
+						? 'Submitting…'
+						: replacing
+							? 'Request approval for changes'
+							: 'Request approval'}</button
 				>
 				<button
 					class="btn small ghost"

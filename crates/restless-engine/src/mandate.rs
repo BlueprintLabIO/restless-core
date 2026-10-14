@@ -335,7 +335,20 @@ pub async fn revoke(
     }
     let mut tx = pool.begin().await?;
     lock_company(&mut tx, company).await?;
-    let (_, version) = current_root(&mut tx, company, mandate_id).await?;
+    revoke_in_transaction(&mut tx, company, owner_actor_id, mandate_id, reason).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Revoke one current mandate inside a transaction that already holds the company lock.
+pub async fn revoke_in_transaction(
+    tx: &mut Transaction<'_, Postgres>,
+    company: &str,
+    owner_actor_id: &str,
+    mandate_id: Uuid,
+    reason: &str,
+) -> Result<()> {
+    let (_, version) = current_root(tx, company, mandate_id).await?;
     sqlx::query(
         "INSERT INTO restless_authority.records (company,kind,actor_id,body) \
          VALUES ($1,'email_mandate_revoked',$2,$3)",
@@ -348,9 +361,8 @@ pub async fn revoke(
         "reason": reason.trim(),
         "revoked_at": Utc::now(),
     }))
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
-    tx.commit().await?;
     Ok(())
 }
 
@@ -822,4 +834,68 @@ pub async fn record_status(
     .await?;
     tx.commit().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod replace_tests {
+    use crate::authority::AuthorityStore;
+
+    use super::*;
+
+    fn proposal(per_day: u32) -> NewEmailMandate {
+        NewEmailMandate {
+            purpose: "Invite past clients to the open day".into(),
+            audience_guidance: "People who bought in the last two years".into(),
+            sender: "hello@example.com".into(),
+            sender_name: None,
+            max_per_day: per_day,
+            max_total: 100,
+            timezone: "UTC".into(),
+            expires_at: Utc::now() + chrono::Duration::days(30),
+        }
+    }
+
+    /// Changing a mandate is a proposal like any other: until approved the current mandate
+    /// holds; approving replaces it, so exactly one mandate is ever current.
+    #[tokio::test]
+    async fn an_approved_change_replaces_the_current_mandate_and_nothing_else() {
+        let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping mandate replacement scenario");
+            return;
+        };
+        let authority = AuthorityStore::connect(&database_url).await.unwrap();
+        let company = format!("mandate_replace_{}", Uuid::new_v4().simple());
+        let first = authority
+            .propose_email_mandate(&company, "exec", proposal(5), None, None)
+            .await
+            .unwrap();
+        let current = authority
+            .decide_email_mandate_proposal(&company, "owner", first, true, None)
+            .await
+            .unwrap()
+            .unwrap();
+        // A second new mandate is still refused while one is current.
+        let rival = authority
+            .propose_email_mandate(&company, "exec", proposal(6), None, None)
+            .await
+            .unwrap();
+        assert!(authority
+            .decide_email_mandate_proposal(&company, "owner", rival, true, None)
+            .await
+            .is_err());
+        let change = authority
+            .propose_email_mandate(&company, "owner", proposal(10), None, Some(current.id))
+            .await
+            .unwrap();
+        assert_eq!(list(authority.pool(), &company).await.unwrap()[0].id, current.id);
+        let replaced = authority
+            .decide_email_mandate_proposal(&company, "owner", change, true, None)
+            .await
+            .unwrap()
+            .unwrap();
+        let listed = list(authority.pool(), &company).await.unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, replaced.id);
+        assert_eq!(listed[0].max_per_day, 10);
+    }
 }

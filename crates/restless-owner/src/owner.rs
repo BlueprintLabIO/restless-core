@@ -6068,6 +6068,9 @@ struct EmailMandateProposalInput {
     proposal: mandate::NewEmailMandate,
     #[serde(default)]
     judgement_note: Option<String>,
+    /// The current mandate this proposal changes; approving it replaces that one.
+    #[serde(default)]
+    replaces: Option<Uuid>,
 }
 
 #[derive(Deserialize)]
@@ -6086,7 +6089,7 @@ async fn propose_email_mandate(
     if input.judgement_note.as_deref().is_some_and(|note| note.len() > 2_000) {
         return api_error(StatusCode::BAD_REQUEST, "email_mandate", "judgement note is too long");
     }
-    match state.daemon.authority.propose_email_mandate(&company, principal.actor_id(), input.proposal, input.judgement_note.as_deref()).await {
+    match state.daemon.authority.propose_email_mandate(&company, principal.actor_id(), input.proposal, input.judgement_note.as_deref(), input.replaces).await {
         Ok(proposal_id) => Json(serde_json::json!({"proposal_id":proposal_id,"status":"pending"})).into_response(),
         Err(error) => api_error(StatusCode::BAD_REQUEST, "email_mandate", format!("invalid mandate proposal: {error:#}")),
     }

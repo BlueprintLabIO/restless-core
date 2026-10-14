@@ -57,10 +57,15 @@ export async function readEmailMandates(company: string, signal?: AbortSignal) {
 	return body.mandates as EmailMandate[];
 }
 
-export function proposeEmailMandate(company: string, proposal: EmailMandateProposal) {
+/** `replaces` names the current mandate a change is for; approving the change replaces it. */
+export function proposeEmailMandate(
+	company: string,
+	proposal: EmailMandateProposal,
+	replaces: string | null = null
+) {
 	return ownerRequest<unknown>(`${base(company)}/email-mandates/proposals`, {
 		method: 'POST',
-		json: { proposal }
+		json: { proposal, ...(replaces ? { replaces } : {}) }
 	});
 }
 

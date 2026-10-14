@@ -1755,7 +1755,11 @@ async fn project_queue(
             id: format!("authority:email_mandate_proposal:{proposal_id}"), work_id: None,
             source: AttentionSource { plane: "authority", kind: "email_mandate_proposal".into(), reference: proposal_id.to_string(), party: None, call_key: None },
             category: "approval".into(), title: "Review proposed email mandate".into(),
-            what_happened: format!("{proposer} proposed permission to send email within the exact limits below."),
+            what_happened: if record.body["replaces"].is_string() {
+                format!("{proposer} proposed changing the current email mandate to the exact limits below. Approving replaces the current one.")
+            } else {
+                format!("{proposer} proposed permission to send email within the exact limits below.")
+            },
             why_it_matters: "Approving grants a real sending mandate to the company.".into(),
             recommendation: "Approve only if you accept this mandate's purpose, audience and limits. For each proposed send, Exec must judge whether the recipient and message fit; its judgment can be wrong. The host enforces the daily cap, total cap and expiry.".into(),
             requested_action: format!("Review purpose “{}”, sender {}, {} per day, {} total, expires {}. Approve or decline.", proposal.purpose, proposal.sender, proposal.max_per_day, proposal.max_total, proposal.expires_at.format("%Y-%m-%d")),
