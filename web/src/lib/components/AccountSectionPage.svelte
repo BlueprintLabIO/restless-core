@@ -18,9 +18,9 @@
 	const SECTIONS: Record<Id, AccountSection> = {
 		connections: {
 			id: 'connections',
-			title: 'Connections',
+			title: 'AI accounts',
 			tooltip:
-				'Connect a model account once, then give individual companies access. Each company keeps its own model choice.'
+				'Connect an AI model account (Anthropic, OpenAI and others) once, then give individual companies access. Each company keeps its own model choice. Services such as Stripe are added in each company’s Apps.'
 		},
 		'ai-apps': {
 			id: 'ai-apps',

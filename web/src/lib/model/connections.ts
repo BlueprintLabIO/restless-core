@@ -1,4 +1,5 @@
-/* Connected tools (Sprint 57). The owner adds an MCP server by URL, command or
+/* Connected tools (Sprint 57): the services an app connects, such as Stripe. Not the account's
+ * AI model accounts (account-connections.ts). The owner adds an MCP server by URL, command or
  * plugin bundle; Restless probes it and the owner grants each observed tool a
  * class. Authority owns every rule here; this module only reads and asks. */
 

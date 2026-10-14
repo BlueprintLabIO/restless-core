@@ -119,7 +119,7 @@
 					label: 'Settings',
 					href: '/account/connections',
 					active: settings,
-					tooltip: 'Connections, AI apps and appearance',
+					tooltip: 'AI accounts, AI apps and appearance',
 					icon: Settings
 				},
 				...(issuer
@@ -151,7 +151,7 @@
 				href: `/${encodeURIComponent(company.id)}`
 			})),
 		{ id: 'home', group: 'Go to', label: 'Home', hint: 'Your companies', href: home },
-		{ id: 'connections', group: 'Settings', label: 'Connections', href: '/account/connections' },
+		{ id: 'connections', group: 'Settings', label: 'AI accounts', href: '/account/connections' },
 		{ id: 'ai-apps', group: 'Settings', label: 'AI apps', href: '/account/ai-apps' },
 		{ id: 'appearance', group: 'Settings', label: 'Appearance', href: '/account/appearance' }
 	]);
@@ -168,7 +168,7 @@
 		...(issuer ? [{ label: 'Billing', items: issued('Plan & credit', 'billing') }] : []),
 		{
 			label: 'Integrations',
-			items: [own('Connections', '/account/connections'), own('AI apps', '/account/ai-apps')]
+			items: [own('AI accounts', '/account/connections'), own('AI apps', '/account/ai-apps')]
 		},
 		...(issuer ? [{ label: 'Help', items: issued('Support', 'support') }] : [])
 	]);

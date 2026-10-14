@@ -518,7 +518,7 @@
 			}}
 		/>
 		<a class="btn small" href={manageUrl}
-			>{accountScope === 'company' ? 'Open account' : 'Account connections'}
+			>{accountScope === 'company' ? 'Open account' : 'AI accounts'}
 			<span aria-hidden="true">↗</span></a
 		>
 	{/snippet}
@@ -542,8 +542,8 @@
 	<AgentIntelligence {companyId} />
 
 	<Section
-		title="Connections"
-		info="Sign-ins and API keys belong to your account, not to one company, so one sign-in can serve every company. Add or connect them in Account → Connections, then give each company access. A company uses only the connections you give it."
+		title="AI accounts"
+		info="Sign-ins and API keys for AI models belong to your account, not to one company, so one sign-in can serve every company. Add or connect them in Account → AI accounts, then give each company access. A company uses only the connections you give it."
 		count={reusableConnections.length || null}
 	>
 		{#snippet actions()}
@@ -555,8 +555,8 @@
 				>{:else}<a
 					class="btn small"
 					href="/account/connections"
-					title="Sign-ins and API keys belong to your account, not to one company, so one sign-in can serve every company. Add or connect them in Account → Connections, then give each company access."
-					>Account connections</a
+					title="Sign-ins and API keys belong to your account, not to one company, so one sign-in can serve every company. Add or connect them in Account → AI accounts, then give each company access."
+					>AI accounts</a
 				>{/if}
 		{/snippet}
 		{#if accountLoading}
@@ -988,7 +988,7 @@
 							<label
 								class="field-label"
 								title={mode === 'oauth'
-									? 'Kept for compatibility. Give reusable sign-ins from Account → Connections.'
+									? 'Kept for compatibility. Give reusable sign-ins from Account → AI accounts.'
 									: undefined}
 								><span>Reference</span><input
 									bind:value={reference}

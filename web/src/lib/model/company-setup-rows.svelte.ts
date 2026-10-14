@@ -67,7 +67,7 @@ export interface CompanySectionGroup {
 /* Model sign-ins and API keys are the account's, shared out to companies, so Intelligence is
  * followed by the way to them. */
 export const MODEL_CONNECTIONS_WHY =
-	'Sign-ins and API keys belong to your account, not to one company, so one sign-in can serve every company. Add or connect them in Account → Connections, then give each company access.';
+	'Sign-ins and API keys belong to your account, not to one company, so one sign-in can serve every company. Add or connect them in Account → AI accounts, then give each company access.';
 
 const KEY = Symbol('company-setup-rows');
 
