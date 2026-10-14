@@ -13,8 +13,15 @@
 	import { planeStatus } from '$lib/model/appliance';
 	import { isLocalHost } from '$lib/model/reenter';
 	import { forgetThisBrowser } from '$lib/model/sign-out';
-	import { readEmailNotify, setEmailNotify } from '$lib/model/email-notify';
 	import { linkPreference, setCompanyBrowserLinks } from '$lib/model/link-preference.svelte';
+	import {
+		disablePush,
+		enablePush,
+		pushSupported,
+		readNotifyPreferences,
+		saveNotifyPreferences,
+		type NotifyPreferences
+	} from '$lib/model/notify-preferences';
 	import { failureSentence } from '$lib/model/failure';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 
@@ -31,7 +38,7 @@
 		present?: PresentPerson[];
 		/** The owner reaches their Account pages from here; members do not have them. */
 		owner?: boolean;
-		/** The company whose email preference the menu shows. */
+		/** The company whose email and push preferences the menu shows. */
 		companyId?: string;
 		onshortcuts: () => void;
 	} = $props();
@@ -53,31 +60,63 @@
 		});
 	});
 	const shown = $derived(present.slice(0, 3));
-	/* Email reaches this person with every tab closed; desktop notifications only this device. */
-	let email = $state<boolean | null>(null);
+	/* Email reaches this person with every tab closed; desktop notifications reach this device, and
+	 * where the plane pushes, with the cockpit closed too. */
+	let prefs = $state<NotifyPreferences | null>(null);
+	const pushKey = $derived(pushSupported() ? (prefs?.push_key ?? null) : null);
 	$effect(() => {
 		const company = companyId;
-		email = null;
+		prefs = null;
 		if (!company) return;
 		let current = true;
-		void readEmailNotify(company)
-			.then((value) => current && (email = value))
+		void readNotifyPreferences(company)
+			.then((value) => {
+				if (!current) return;
+				prefs = value;
+				/* A browser that already notifies stays subscribed for this company too. */
+				if (desktopNotify.active && value.push_key && pushSupported())
+					void enablePush(company, value.push_key).catch(() => undefined);
+			})
 			.catch(() => undefined);
 		return () => {
 			current = false;
 		};
 	});
-	async function toggleEmail() {
-		if (email === null || !companyId) return;
-		const next = !email;
-		email = next;
+	async function toggleDesktop() {
+		await desktopNotify.toggle();
+		if (!pushKey || !companyId) return;
 		try {
-			email = await setEmailNotify(companyId, next);
+			if (desktopNotify.active) await enablePush(companyId, pushKey);
+			else await disablePush(companyId);
 		} catch (cause) {
-			email = !next;
-			toast(failureSentence(cause, 'Your email choice was not saved.'), { tone: 'failure' });
+			toast(
+				failureSentence(
+					cause,
+					'This browser could not be reached with the cockpit closed; it is notified while the cockpit is open.'
+				),
+				{ tone: 'failure' }
+			);
 		}
 	}
+	async function save(change: { email?: boolean; digest?: string }, failure: string) {
+		if (!prefs || !companyId) return;
+		const before = prefs;
+		prefs = {
+			...prefs,
+			...(change.email === undefined ? {} : { email: change.email }),
+			...(change.digest === undefined ? {} : { digest: change.digest || null })
+		};
+		try {
+			prefs = await saveNotifyPreferences(companyId, change);
+		} catch (cause) {
+			prefs = before;
+			toast(failureSentence(cause, failure), { tone: 'failure' });
+		}
+	}
+	const toggleEmail = () =>
+		prefs && save({ email: !prefs.email }, 'Your email choice was not saved.');
+	const toggleDigest = () =>
+		prefs && save({ digest: prefs.digest ? '' : '08:00' }, 'Your digest choice was not saved.');
 </script>
 
 <div class="profile">
@@ -120,21 +159,49 @@
 				type="button"
 				title={desktopNotify.blocked
 					? BLOCKED_HINT
-					: 'Notify this device when something needs you while the cockpit is in the background'}
-				onclick={() => void desktopNotify.toggle()}
+					: pushKey
+						? 'Notify this device when something needs you, even with the cockpit closed'
+						: 'Notify this device when something needs you while the cockpit is in the background'}
+				onclick={() => void toggleDesktop()}
 				><span>Desktop notifications</span>{#if desktopNotify.active}<Check
 						size={14}
 						aria-label="On"
 					/>{:else if desktopNotify.blocked}<small class="blocked">Blocked</small>{/if}</button
 			>
 		{/if}
-		{#if email !== null && emailDelivered}
+		{#if prefs && emailDelivered}
 			<button
 				type="button"
 				title="Email me when something needs me and I have not seen it here, even with every tab closed. Applies on every device."
 				onclick={() => void toggleEmail()}
-				><span>Email notifications</span>{#if email}<Check size={14} aria-label="On" />{/if}</button
+				><span>Email notifications</span>{#if prefs.email}<Check
+						size={14}
+						aria-label="On"
+					/>{/if}</button
 			>
+			{#if prefs.email}
+				<button
+					type="button"
+					title="One email a day with what still needs you, instead of one as each thing happens"
+					onclick={() => void toggleDigest()}
+					><span>Daily email digest</span>{#if prefs.digest}<Check
+							size={14}
+							aria-label="On"
+						/>{/if}</button
+				>
+				{#if prefs.digest}
+					<label class="digest" title="When the daily email arrives, in your time zone">
+						<span>Arrives at</span>
+						<input
+							type="time"
+							value={prefs.digest}
+							onchange={(event) =>
+								event.currentTarget.value &&
+								void save({ digest: event.currentTarget.value }, 'Your digest time was not saved.')}
+						/>
+					</label>
+				{/if}
+			{/if}
 		{/if}
 		{#if owner}
 			<button
@@ -222,6 +289,22 @@
 	.sign-out {
 		display: grid;
 		border-top: 1px solid var(--border);
+	}
+	.digest {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		padding: 4px 10px;
+		color: var(--text-secondary);
+	}
+	.digest input {
+		font: inherit;
+		color: var(--ink);
+		background: transparent;
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		padding: 2px 4px;
 	}
 	kbd,
 	.blocked {

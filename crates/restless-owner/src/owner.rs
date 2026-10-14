@@ -180,6 +180,8 @@ struct OwnerState {
     native_documents_proxy: crate::documents_service::NativeDocumentsProxy,
     capacity_activity: capacity_activity::CapacityActivityService,
     plane_readiness: plane_readiness::PlaneReadinessService,
+    /// The plane's Web Push signer, on a hosted plane where people are identified.
+    web_push: Option<crate::web_push::WebPush>,
 }
 
 /// The Room API depends only on company-scoped OrgIntel access. Keeping that
@@ -197,6 +199,8 @@ struct RoomApiState {
         crate::document_collaboration_token::DocumentCollaborationTokenIssuer,
     document_collaboration_issuer: Arc<str>,
     native_documents_proxy: crate::documents_service::NativeDocumentsProxy,
+    /// What browsers subscribe with, when this plane pushes.
+    push_key: Option<Arc<str>>,
 }
 
 #[derive(Clone)]
@@ -220,6 +224,10 @@ impl FromRef<OwnerState> for RoomApiState {
             document_collaboration_tokens: state.document_collaboration_tokens.clone(),
             document_collaboration_issuer: state.document_collaboration_issuer.clone(),
             native_documents_proxy: state.native_documents_proxy.clone(),
+            push_key: state
+                .web_push
+                .as_ref()
+                .map(|push| push.public_key().into()),
         }
     }
 }
@@ -273,6 +281,7 @@ impl RoomApiState {
                 ),
             document_collaboration_issuer: "http://127.0.0.1:7788".into(),
             native_documents_proxy: crate::documents_service::NativeDocumentsProxy::disabled_for_test(),
+            push_key: None,
         }
     }
 }
@@ -1253,6 +1262,11 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
                 plane_readiness::PlaneReadinessService::Disabled,
             )
         };
+    // Web Push reaches people with the cockpit closed; only a hosted plane knows who they are.
+    let web_push = match entry.network_coordinates() {
+        Some(_) => Some(crate::web_push::WebPush::open(&daemon.root).context("open Web Push key")?),
+        None => None,
+    };
     let state = OwnerState {
         daemon,
         charter_writes: Arc::new(tokio::sync::Mutex::new(())),
@@ -1267,9 +1281,11 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         native_documents_proxy,
         capacity_activity,
         plane_readiness,
+        web_push,
     };
 
     telegram_api::spawn(state.clone());
+    notification_delivery_api::spawn_push(state.clone());
 
     // Resume a first native sign-in across a daemon restart. Explicit defaults
     // always win; the same write lock fences competing completed logins.
@@ -2245,8 +2261,9 @@ fn membership_boundary_violation(
         || is_company_route_family(path, "for-you")
         // What each person opened and snoozed in their own Inbox.
         || is_company_route_family(path, "inbox-marks")
-        // Each person's own choice of email.
+        // Each person's own choice of email, and the browsers they asked to be pushed to.
         || is_company_route_family(path, "notification-preferences")
+        || is_company_route_family(path, "push-subscription")
         // Direction (S80): a person's own requests and changes, and what is routed to them to
         // decide or undo; the store checks each against the person asking.
         || is_company_route_family(path, "direction")

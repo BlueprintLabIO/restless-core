@@ -7,3 +7,4 @@ use restless_engine::*;
 
 pub mod owner;
 pub mod company_projection;
+pub mod web_push;

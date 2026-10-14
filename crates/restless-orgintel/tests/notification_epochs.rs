@@ -1,7 +1,7 @@
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use restless_orgintel::{
-    CompanyAccessIdentity, HumanAccessContext, NewOwnerHandoff, NewRoomMessageMention, NewWork,
-    OrgIntel, OwnerHandoffCategory, RoomKind, WorkspaceSpec,
+    CompanyAccessIdentity, EmailDigest, HumanAccessContext, NewOwnerHandoff, NewRoomMessageMention,
+    NewWork, OrgIntel, OwnerHandoffCategory, RoomKind, WorkspaceSpec,
 };
 use sqlx::{Connection as _, PgConnection};
 use uuid::Uuid;
@@ -181,4 +181,88 @@ async fn email_is_on_until_a_person_turns_it_off() {
     assert!(org.email_opted_out().await.unwrap().contains("owner"));
     org.set_email_notifications("owner", true).await.unwrap();
     assert!(org.email_opted_out().await.unwrap().is_empty());
+}
+
+/// A daily digest holds email until the person's local time, and a browser pushes each notice once,
+/// only to the person who subscribed it last.
+#[tokio::test]
+async fn digest_and_push_subscriptions_belong_to_one_person() {
+    let Some((org, _)) = company("notification_push").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping push subscription scenario");
+        return;
+    };
+    let digest = EmailDigest {
+        at: chrono::NaiveTime::from_hms_opt(8, 0, 0).unwrap(),
+        time_zone: "America/New_York".into(),
+    };
+    assert!(org
+        .set_email_digest(
+            "owner",
+            Some(&EmailDigest {
+                time_zone: "Mars/Base".into(),
+                ..digest.clone()
+            })
+        )
+        .await
+        .is_err());
+    org.set_email_digest("owner", Some(&digest)).await.unwrap();
+    assert_eq!(
+        org.email_digest("owner").await.unwrap(),
+        Some(digest.clone())
+    );
+    assert!(org.email_notifications("owner").await.unwrap());
+    assert_eq!(
+        org.email_digests().await.unwrap().get("owner"),
+        Some(&digest)
+    );
+    // 11:30 UTC on 14 Oct is 07:30 in New York (EDT): the last release was 8:00 the day before.
+    let now = "2026-10-14T11:30:00Z".parse::<DateTime<Utc>>().unwrap();
+    assert_eq!(
+        digest.last_release(now).unwrap(),
+        "2026-10-13T12:00:00Z".parse::<DateTime<Utc>>().unwrap()
+    );
+    let later = "2026-10-14T12:30:00Z".parse::<DateTime<Utc>>().unwrap();
+    assert_eq!(
+        digest.last_release(later).unwrap(),
+        "2026-10-14T12:00:00Z".parse::<DateTime<Utc>>().unwrap()
+    );
+    org.set_email_digest("owner", None).await.unwrap();
+    assert!(org.email_digests().await.unwrap().is_empty());
+
+    org.subscribe_push("owner", "https://push.example/a", "p", "s")
+        .await
+        .unwrap();
+    let first = org.push_subscriptions().await.unwrap();
+    assert!(org
+        .claim_push("https://push.example/a", "intent-1")
+        .await
+        .unwrap());
+    assert!(!org
+        .claim_push("https://push.example/a", "intent-1")
+        .await
+        .unwrap());
+    // Someone else cannot unsubscribe the owner's browser.
+    org.unsubscribe_push("exec", "https://push.example/a")
+        .await
+        .unwrap();
+    assert_eq!(org.push_subscriptions().await.unwrap().len(), 1);
+    // The same person subscribing again keeps when they started.
+    org.subscribe_push("owner", "https://push.example/a", "p2", "s2")
+        .await
+        .unwrap();
+    assert_eq!(
+        org.push_subscriptions().await.unwrap()[0].created_at,
+        first[0].created_at
+    );
+    // Another person signing in on that browser starts afresh.
+    org.subscribe_push("exec", "https://push.example/a", "p3", "s3")
+        .await
+        .unwrap();
+    let moved = org.push_subscriptions().await.unwrap();
+    assert_eq!(moved[0].actor_id, "exec");
+    assert!(moved[0].created_at > first[0].created_at);
+    org.forget_push_endpoint("https://push.example/a")
+        .await
+        .unwrap();
+    assert!(org.push_subscriptions().await.unwrap().is_empty());
 }

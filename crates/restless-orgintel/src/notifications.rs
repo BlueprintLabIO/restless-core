@@ -68,6 +68,52 @@ pub struct HandoffNotificationPresentation {
     pub source_user_id: Option<String>,
 }
 
+/// A person's daily email time: what is owed waits until the next one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct EmailDigest {
+    pub at: chrono::NaiveTime,
+    /// An IANA time zone, such as `Europe/London`.
+    pub time_zone: String,
+}
+
+impl EmailDigest {
+    pub fn zone(&self) -> Option<chrono_tz::Tz> {
+        self.time_zone.parse().ok()
+    }
+
+    /// The most recent digest time at or before `now`: anything that happened by then is due.
+    pub fn last_release(&self, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+        use chrono::TimeZone as _;
+        let zone = self.zone()?;
+        let at = |date: chrono::NaiveDate| {
+            let local = date.and_time(self.at);
+            // A time skipped by a clock change happens an hour later that day.
+            zone.from_local_datetime(&local)
+                .earliest()
+                .or_else(|| {
+                    zone.from_local_datetime(&(local + chrono::Duration::hours(1)))
+                        .earliest()
+                })
+                .map(|time| time.with_timezone(&Utc))
+        };
+        let today = now.with_timezone(&zone).date_naive();
+        match at(today)? {
+            release if release <= now => Some(release),
+            _ => at(today - chrono::Duration::days(1)),
+        }
+    }
+}
+
+/// One browser that asked to be pushed what needs this person.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct PushSubscription {
+    pub endpoint: String,
+    pub actor_id: String,
+    pub p256dh: String,
+    pub auth: String,
+    pub created_at: DateTime<Utc>,
+}
+
 impl OrgIntel {
     /// Whether this person wants email for what needs them; yes until they say no.
     pub async fn email_notifications(&self, actor_id: &str) -> Result<bool> {
@@ -101,6 +147,146 @@ impl OrgIntel {
         .await?
         .into_iter()
         .collect())
+    }
+
+    /// This person's daily email time, if they asked for one batch a day.
+    pub async fn email_digest(&self, actor_id: &str) -> Result<Option<EmailDigest>> {
+        let row: Option<(Option<chrono::NaiveTime>, Option<String>)> = sqlx::query_as(
+            "SELECT digest_at, digest_time_zone FROM notification_preferences WHERE actor_id=$1",
+        )
+        .bind(actor_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.and_then(|(at, zone)| {
+            Some(EmailDigest {
+                at: at?,
+                time_zone: zone?,
+            })
+        }))
+    }
+
+    /// Ask for email once a day at a local time, or (`None`) as things happen.
+    pub async fn set_email_digest(
+        &self,
+        actor_id: &str,
+        digest: Option<&EmailDigest>,
+    ) -> Result<()> {
+        if let Some(digest) = digest.filter(|digest| digest.zone().is_none()) {
+            return Err(OrgIntelError::InvalidContext(format!(
+                "unknown time zone {:?}",
+                digest.time_zone
+            )));
+        }
+        sqlx::query(
+            "INSERT INTO notification_preferences (actor_id,digest_at,digest_time_zone,updated_at) \
+             VALUES ($1,$2,$3,now()) ON CONFLICT (actor_id) DO UPDATE SET \
+             digest_at=EXCLUDED.digest_at, digest_time_zone=EXCLUDED.digest_time_zone, updated_at=now()",
+        )
+        .bind(actor_id)
+        .bind(digest.map(|digest| digest.at))
+        .bind(digest.map(|digest| digest.time_zone.as_str()))
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Everyone who asked for a daily batch, so the delivery projection can hold their email.
+    pub async fn email_digests(&self) -> Result<std::collections::HashMap<String, EmailDigest>> {
+        let rows: Vec<(String, chrono::NaiveTime, String)> = sqlx::query_as(
+            "SELECT actor_id, digest_at, digest_time_zone FROM notification_preferences \
+             WHERE email AND digest_at IS NOT NULL AND digest_time_zone IS NOT NULL",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(actor, at, time_zone)| (actor, EmailDigest { at, time_zone }))
+            .collect())
+    }
+
+    /// Keep this browser for this person. A browser someone else subscribed becomes theirs and
+    /// starts afresh, so it is never told what was owed to the person before.
+    pub async fn subscribe_push(
+        &self,
+        actor_id: &str,
+        endpoint: &str,
+        p256dh: &str,
+        auth: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO push_subscriptions (endpoint,actor_id,p256dh,auth) VALUES ($1,$2,$3,$4) \
+             ON CONFLICT (endpoint) DO UPDATE SET actor_id=EXCLUDED.actor_id, \
+             p256dh=EXCLUDED.p256dh, auth=EXCLUDED.auth, created_at=CASE \
+             WHEN push_subscriptions.actor_id=EXCLUDED.actor_id THEN push_subscriptions.created_at \
+             ELSE now() END",
+        )
+        .bind(endpoint)
+        .bind(actor_id)
+        .bind(p256dh)
+        .bind(auth)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Stop pushing to this person's browser. Someone else's browser is left alone.
+    pub async fn unsubscribe_push(&self, actor_id: &str, endpoint: &str) -> Result<()> {
+        sqlx::query("DELETE FROM push_subscriptions WHERE endpoint=$1 AND actor_id=$2")
+            .bind(endpoint)
+            .bind(actor_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// The push service no longer knows this browser.
+    pub async fn forget_push_endpoint(&self, endpoint: &str) -> Result<()> {
+        sqlx::query("DELETE FROM push_subscriptions WHERE endpoint=$1")
+            .bind(endpoint)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn push_subscriptions(&self) -> Result<Vec<PushSubscription>> {
+        Ok(sqlx::query_as(
+            "SELECT endpoint, actor_id, p256dh, auth, created_at FROM push_subscriptions \
+             ORDER BY created_at",
+        )
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    /// Claim one notice for one browser before sending it; false when it was already claimed.
+    pub async fn claim_push(&self, endpoint: &str, intent_id: &str) -> Result<bool> {
+        Ok(sqlx::query(
+            "INSERT INTO push_deliveries (endpoint,intent_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+        )
+        .bind(endpoint)
+        .bind(intent_id)
+        .execute(&self.pool)
+        .await?
+        .rows_affected()
+            == 1)
+    }
+
+    /// A send that failed gives its claim back for the next pass.
+    pub async fn release_push(&self, endpoint: &str, intent_id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM push_deliveries WHERE endpoint=$1 AND intent_id=$2")
+            .bind(endpoint)
+            .bind(intent_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Claims older than anything still pushed are history.
+    pub async fn prune_push_deliveries(&self, before: DateTime<Utc>) -> Result<()> {
+        sqlx::query("DELETE FROM push_deliveries WHERE created_at < $1")
+            .bind(before)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     /// Current unresolved direct mentions owed to hosted human Actors.

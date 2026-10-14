@@ -422,6 +422,21 @@ async fn projected_intents(
             .intents
             .retain(|intent| !opted_out.contains(&intent.recipient.actor_id));
     }
+    // Someone who asked for a daily batch is owed only what happened by their last digest time;
+    // the rest appears together at the next one, minus anything they opened meanwhile.
+    let digests = org.email_digests().await?;
+    if !digests.is_empty() {
+        let now = Utc::now();
+        let released = digests
+            .into_iter()
+            .filter_map(|(actor, digest)| Some((actor, digest.last_release(now)?)))
+            .collect::<HashMap<_, _>>();
+        projection.intents.retain(|intent| {
+            released
+                .get(&intent.recipient.actor_id)
+                .map_or(true, |release| intent.occurred_at <= *release)
+        });
+    }
     Ok(projection)
 }
 
@@ -685,6 +700,134 @@ fn for_you_intent(
         for_you_api::href(company, item),
         item.at,
     )
+}
+
+const PUSH_TICK: Duration = Duration::from_secs(15);
+/// Older notices are history, not news, and a pass pushes at most this many to one browser.
+const PUSH_WITHIN: chrono::Duration = chrono::Duration::hours(24);
+const PUSH_PER_PASS: usize = 10;
+
+/// Push what needs each person to the browsers they subscribed, on a hosted plane where people
+/// are identified. It reads the same projection that drives email and the cockpit's Inbox.
+pub(super) fn spawn_push(state: OwnerState) {
+    let (Some(push), Some((_, _, host))) =
+        (state.web_push.clone(), state.entry.network_coordinates())
+    else {
+        return;
+    };
+    let subject = format!("https://{host}");
+    tokio::spawn(async move {
+        let http = match reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+        {
+            Ok(http) => http,
+            Err(error) => {
+                tracing::warn!("Web Push disabled: {error:#}");
+                return;
+            }
+        };
+        loop {
+            tokio::time::sleep(PUSH_TICK).await;
+            let companies = match crate::configured_companies(&state.daemon.root) {
+                Ok(companies) => companies,
+                Err(error) => {
+                    tracing::warn!("Web Push could not list companies: {error:#}");
+                    continue;
+                }
+            };
+            for company in companies {
+                if let Err(error) = push_company(&state, &push, &http, &subject, &company).await {
+                    tracing::warn!(%company, "Web Push deferred: {error:#}");
+                }
+            }
+        }
+    });
+}
+
+async fn push_company(
+    state: &OwnerState,
+    push: &crate::web_push::WebPush,
+    http: &reqwest::Client,
+    subject: &str,
+    company: &str,
+) -> Result<()> {
+    let org = state.daemon.orgintel.get(company).await?;
+    let subscriptions = org.push_subscriptions().await?;
+    if subscriptions.is_empty() {
+        return Ok(());
+    }
+    let Some(identity) = org.company_access_identity().await? else {
+        return Ok(());
+    };
+    let now = Utc::now();
+    org.prune_push_deliveries(now - PUSH_WITHIN * 2).await?;
+    let projection = owed_intents(state, &org, company, identity).await?;
+    let config = runtime::CompanyConfig::load(&state.daemon.root, company)?;
+    let display = config.display_name.clone().unwrap_or(config.name.clone());
+    for subscription in &subscriptions {
+        let mut sent = 0;
+        // Only what arose after this browser subscribed, so subscribing never replays a backlog.
+        for intent in projection.intents.iter().filter(|intent| {
+            intent.recipient.actor_id == subscription.actor_id
+                && intent.occurred_at >= subscription.created_at
+                && intent.occurred_at > now - PUSH_WITHIN
+        }) {
+            if sent >= PUSH_PER_PASS {
+                break;
+            }
+            if !org
+                .claim_push(&subscription.endpoint, &intent.intent_id)
+                .await?
+            {
+                continue;
+            }
+            let payload = serde_json::to_vec(&push_payload(company, &display, intent))?;
+            match push
+                .send(
+                    http,
+                    &subscription.endpoint,
+                    &subscription.p256dh,
+                    &subscription.auth,
+                    subject,
+                    &payload,
+                )
+                .await
+            {
+                Ok(crate::web_push::Sent::Accepted) => sent += 1,
+                Ok(crate::web_push::Sent::Gone) => {
+                    org.forget_push_endpoint(&subscription.endpoint).await?;
+                    break;
+                }
+                Err(error) => {
+                    // A repeat is harmless: the browser replaces a notice that has the same tag.
+                    org.release_push(&subscription.endpoint, &intent.intent_id)
+                        .await?;
+                    tracing::warn!(%company, actor = %subscription.actor_id, "Web Push not sent: {error:#}");
+                    break;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// What the browser shows. The tag matches the one the open cockpit gives the same item, so a
+/// notice the page already showed is replaced rather than repeated.
+fn push_payload(company: &str, display: &str, intent: &NotificationIntent) -> serde_json::Value {
+    let tag = match (intent.object.kind, intent.object.id.strip_prefix("orgintel:for-you:")) {
+        (_, Some(key)) => format!("{company}:for-you:{key}"),
+        ("attention" | "review" | "authority", None) => {
+            format!("{company}:item:{}", intent.object.id)
+        }
+        (_, None) => format!("{company}:{}", intent.object.id),
+    };
+    serde_json::json!({
+        "title": display,
+        "body": intent.summary,
+        "url": intent.deep_link_path,
+        "tag": tag,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]

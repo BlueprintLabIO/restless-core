@@ -38,6 +38,10 @@ where
             "/companies/{company}/notification-preferences",
             get(notification_preferences).put(set_notification_preferences),
         )
+        .route(
+            "/companies/{company}/push-subscription",
+            axum::routing::put(subscribe_push).delete(unsubscribe_push),
+        )
         .layer(DefaultBodyLimit::max(16 * 1024))
 }
 
@@ -546,10 +550,17 @@ async fn set_inbox_marks(
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NotificationPreferencesInput {
-    email: bool,
+    #[serde(default)]
+    email: Option<bool>,
+    /// `HH:MM` for one email a day at that local time, or empty for email as things happen.
+    #[serde(default)]
+    digest: Option<String>,
+    /// The IANA time zone the digest time is in.
+    #[serde(default)]
+    time_zone: Option<String>,
 }
 
-/// This person's own choice of email for what needs them.
+/// This person's own choice of email, and the key their browsers subscribe to pushes with.
 async fn notification_preferences(
     State(state): State<RoomApiState>,
     RoomPrincipal(principal): RoomPrincipal,
@@ -559,8 +570,30 @@ async fn notification_preferences(
         Ok(org) => org,
         Err(response) => return no_store(response),
     };
-    match org.email_notifications(principal.actor_id()).await {
-        Ok(email) => no_store(Json(serde_json::json!({ "email": email })).into_response()),
+    preferences_response(&state, &org, principal.actor_id()).await
+}
+
+async fn preferences_response(
+    state: &RoomApiState,
+    org: &restless_orgintel::OrgIntel,
+    actor_id: &str,
+) -> Response<Body> {
+    let read = async {
+        Ok::<_, restless_orgintel::OrgIntelError>((
+            org.email_notifications(actor_id).await?,
+            org.email_digest(actor_id).await?,
+        ))
+    };
+    match read.await {
+        Ok((email, digest)) => no_store(
+            Json(serde_json::json!({
+                "email": email,
+                "digest": digest.as_ref().map(|digest| digest.at.format("%H:%M").to_string()),
+                "time_zone": digest.map(|digest| digest.time_zone),
+                "push_key": state.push_key.as_deref(),
+            }))
+            .into_response(),
+        ),
         Err(error) => no_store(api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "orgintel",
@@ -579,11 +612,133 @@ async fn set_notification_preferences(
         Ok(org) => org,
         Err(response) => return no_store(response),
     };
+    let digest = match input.digest.as_deref().map(str::trim) {
+        None => None,
+        Some("") => Some(None),
+        Some(at) => match (
+            chrono::NaiveTime::parse_from_str(at, "%H:%M"),
+            input.time_zone.as_deref().map(str::trim),
+        ) {
+            (Ok(at), Some(time_zone)) => {
+                let digest = restless_orgintel::EmailDigest {
+                    at,
+                    time_zone: time_zone.to_string(),
+                };
+                if digest.zone().is_none() {
+                    return no_store(api_error(
+                        StatusCode::BAD_REQUEST,
+                        "time_zone",
+                        "that time zone is not one this plane knows",
+                    ));
+                }
+                Some(Some(digest))
+            }
+            _ => {
+                return no_store(api_error(
+                    StatusCode::BAD_REQUEST,
+                    "digest",
+                    "a digest needs a time as HH:MM and a time zone",
+                ))
+            }
+        },
+    };
+    let actor = principal.actor_id();
+    let write = async {
+        if let Some(email) = input.email {
+            org.set_email_notifications(actor, email).await?;
+        }
+        if let Some(digest) = &digest {
+            org.set_email_digest(actor, digest.as_ref()).await?;
+        }
+        Ok::<_, restless_orgintel::OrgIntelError>(())
+    };
+    match write.await {
+        Ok(()) => preferences_response(&state, &org, actor).await,
+        Err(error) => no_store(api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "orgintel",
+            error.to_string(),
+        )),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct PushKeys {
+    p256dh: String,
+    auth: String,
+}
+
+/// A browser's `PushSubscription.toJSON()`; only the endpoint is needed to unsubscribe.
+#[derive(Debug, Deserialize)]
+struct PushSubscriptionInput {
+    endpoint: String,
+    #[serde(default)]
+    keys: Option<PushKeys>,
+}
+
+/// Push what needs this person to this browser, with the cockpit closed.
+async fn subscribe_push(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<PushSubscriptionInput>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return no_store(response),
+    };
+    if state.push_key.is_none() {
+        return no_store(api_error(
+            StatusCode::NOT_FOUND,
+            "push_unavailable",
+            "this plane does not send pushes",
+        ));
+    }
+    let Some(keys) = input
+        .keys
+        .filter(|keys| crate::web_push::valid_keys(&keys.p256dh, &keys.auth))
+    else {
+        return no_store(api_error(
+            StatusCode::BAD_REQUEST,
+            "push_subscription",
+            "the subscription's keys are missing or malformed",
+        ));
+    };
+    if crate::web_push::push_service(&input.endpoint).is_none() {
+        return no_store(api_error(
+            StatusCode::BAD_REQUEST,
+            "push_subscription",
+            "the subscription does not name a browser push service",
+        ));
+    }
     match org
-        .set_email_notifications(principal.actor_id(), input.email)
+        .subscribe_push(principal.actor_id(), &input.endpoint, &keys.p256dh, &keys.auth)
         .await
     {
-        Ok(()) => no_store(Json(serde_json::json!({ "email": input.email })).into_response()),
+        Ok(()) => no_store(Json(serde_json::json!({ "subscribed": true })).into_response()),
+        Err(error) => no_store(api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "orgintel",
+            error.to_string(),
+        )),
+    }
+}
+
+async fn unsubscribe_push(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<PushSubscriptionInput>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return no_store(response),
+    };
+    match org
+        .unsubscribe_push(principal.actor_id(), &input.endpoint)
+        .await
+    {
+        Ok(()) => no_store(Json(serde_json::json!({ "subscribed": false })).into_response()),
         Err(error) => no_store(api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "orgintel",

@@ -3037,6 +3037,7 @@ dependencies = [
  "restless-contracts",
  "restless-engine",
  "restless-orgintel",
+ "ring",
  "rmcp",
  "serde",
  "serde_json",
