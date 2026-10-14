@@ -30,7 +30,7 @@
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { parseInviteEmails } from '$lib/model/invite-emails';
 
-	const companyId = $derived(page.params.companyId ?? 'aris');
+	const companyId = $derived(page.params.companyId ?? '');
 	/* Everyone sees who is in the company; owners and admins invite and change people. */
 	const principalSource = $derived(companyPrincipalQuery(companyId));
 	const principal = $derived(principalSource.view);

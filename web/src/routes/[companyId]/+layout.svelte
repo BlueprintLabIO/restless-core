@@ -89,7 +89,7 @@
 
 	let { children } = $props();
 
-	const companyId = $derived(page.params.companyId ?? 'aris');
+	const companyId = $derived(page.params.companyId ?? '');
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
 	const entry = firstPaint(() => companyId);
 	const principal = $derived(principalProjection.view);

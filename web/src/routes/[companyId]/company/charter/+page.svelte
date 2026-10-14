@@ -15,7 +15,7 @@
 	import Target from '@lucide/svelte/icons/target';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
-	const companyId = $derived(page.params.companyId ?? 'aris');
+	const companyId = $derived(page.params.companyId ?? '');
 	const source = $derived(companyQuery(companyId));
 	/* Everyone reads the charter; the owner edits it, from the owner's company view. */
 	const principal = $derived(companyPrincipalQuery(companyId));

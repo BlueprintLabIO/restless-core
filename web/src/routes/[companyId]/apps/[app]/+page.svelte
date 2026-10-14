@@ -36,7 +36,7 @@
 	import { fetchAppRequests, type AppRequest } from '$lib/model/app-requests';
 	import { dismissAttention } from '$lib/model/attention';
 
-	const companyId = $derived(page.params.companyId ?? 'aris');
+	const companyId = $derived(page.params.companyId ?? '');
 	const key = $derived(decodeURIComponent(page.params.app ?? ''));
 	const requestId = $derived(page.url.searchParams.get('request'));
 	const appsHref = $derived(`/${encodeURIComponent(companyId)}/apps`);

@@ -23,7 +23,7 @@
 		type ScheduleTestReport
 	} from '$lib/model/skills';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
-	const companyId = $derived(page.params.companyId ?? 'aris');
+	const companyId = $derived(page.params.companyId ?? '');
 	/* Owners and admins run the schedules; everyone else sees them. */
 	const principal = $derived(companyPrincipalQuery(companyId));
 	const canManage = $derived(mayManageCompanySetup(principal.view));

@@ -24,7 +24,7 @@
 	} from '$lib/model/identity';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
-	const companyId = $derived(page.params.companyId ?? 'aris');
+	const companyId = $derived(page.params.companyId ?? '');
 	/* Owners and admins decide the company identity; everyone else reads it. */
 	const principal = $derived(companyPrincipalQuery(companyId));
 	const canManage = $derived(mayManageCompanySetup(principal.view));

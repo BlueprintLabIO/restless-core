@@ -55,7 +55,7 @@
 	import { dueLabel, finishLine, goalAbout, type Goal } from '$lib/work/goal';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
-	const companyId = $derived(page.params.companyId ?? 'aris');
+	const companyId = $derived(page.params.companyId ?? '');
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
 	const ownerAccess = $derived(principalProjection.view?.membership_role === 'owner');
 	const attentionProjection = $derived(attentionQuery(companyId, () => ownerAccess));

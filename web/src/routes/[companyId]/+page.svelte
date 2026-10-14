@@ -63,7 +63,7 @@
 	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
-	const companyId = $derived(page.params.companyId ?? 'aris');
+	const companyId = $derived(page.params.companyId ?? '');
 
 	/* The shared source, not a second poller. `loaded` is the distinction this
 	 * surface was missing: before it existed, `items` was `[]` both when the

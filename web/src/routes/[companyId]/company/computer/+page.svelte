@@ -26,7 +26,7 @@
 		startViewTransition?: (update: () => void | Promise<void>) => { finished: Promise<void> };
 	};
 
-	const companyId = $derived(page.params.companyId ?? 'aris');
+	const companyId = $derived(page.params.companyId ?? '');
 	const source = $derived(companyQuery(companyId));
 	const attention = $derived(attentionQuery(companyId));
 	const browserProjection = $derived(browserStatusQuery(companyId));

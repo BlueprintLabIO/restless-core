@@ -29,7 +29,7 @@
 	import AppMark from '$lib/primitives/AppMark.svelte';
 
 	const data = useAppsData();
-	const companyId = $derived(page.params.companyId ?? 'aris');
+	const companyId = $derived(page.params.companyId ?? '');
 	let notice = $state('');
 	let actionFailure = $state('');
 	let busy = $state('');

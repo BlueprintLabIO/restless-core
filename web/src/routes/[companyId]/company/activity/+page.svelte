@@ -16,7 +16,7 @@
 	import Send from '@lucide/svelte/icons/send';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
-	const companyId = $derived(page.params.companyId ?? 'aris');
+	const companyId = $derived(page.params.companyId ?? '');
 	const attention = $derived(attentionQuery(companyId));
 	const company = $derived(companyQuery(companyId));
 	$effect(() => company.attach());

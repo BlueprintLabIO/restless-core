@@ -15,7 +15,7 @@
 
 	let { children } = $props();
 	let query = $state('');
-	const companyId = $derived(page.params.companyId ?? 'aris');
+	const companyId = $derived(page.params.companyId ?? '');
 	const overview = $derived(`/${companyId}/company`);
 	const detail = $derived(page.url.pathname !== overview);
 	/* The desktop and the Company browser take the area's full width; the section

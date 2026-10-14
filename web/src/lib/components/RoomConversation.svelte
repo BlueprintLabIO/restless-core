@@ -74,7 +74,7 @@
 	const SEARCH_DEBOUNCE_MS = 250;
 
 	const queryClient = useQueryClient();
-	const companyId = $derived(page.params.companyId ?? 'aris');
+	const companyId = $derived(page.params.companyId ?? '');
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
 	const cockpitProjection = $derived(
 		cockpitQuery(companyId, () => principalProjection.view?.membership_role === 'owner')

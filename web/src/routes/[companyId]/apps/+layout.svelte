@@ -40,7 +40,7 @@
 	} from '$lib/model/apps-data.svelte';
 
 	let { children } = $props();
-	const companyId = $derived(page.params.companyId ?? 'aris');
+	const companyId = $derived(page.params.companyId ?? '');
 	const data = createAppsData(() => companyId);
 	provideAppsData(data);
 

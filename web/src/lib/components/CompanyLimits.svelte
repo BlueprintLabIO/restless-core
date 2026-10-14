@@ -13,7 +13,7 @@
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	let { section = 'spend' }: { section?: 'spend' | 'authority' | 'computer' } = $props();
-	const companyId = $derived(page.params.companyId ?? 'aris');
+	const companyId = $derived(page.params.companyId ?? '');
 	const source = $derived(companyQuery(companyId));
 	$effect(() => source.attach());
 	const view = $derived(source.view);

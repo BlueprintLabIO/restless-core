@@ -52,7 +52,7 @@
 	const OUTCOME_CLAMP_CHARS = 460;
 	let outcomeExpanded = $state(false);
 
-	const companyId = $derived(page.params.companyId ?? 'aris');
+	const companyId = $derived(page.params.companyId ?? '');
 	const workId = $derived(page.params.workId ?? '');
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
 	const ownerAccess = $derived(principalProjection.view?.membership_role === 'owner');
