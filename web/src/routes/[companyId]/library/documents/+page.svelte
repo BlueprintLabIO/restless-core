@@ -64,6 +64,9 @@
 	const companyId = $derived(page.params.companyId ?? '');
 	const shellPrincipal = $derived(companyPrincipalQuery(companyId));
 	const ownerAccess = $derived(shellPrincipal.view?.membership_role === 'owner');
+	/* A guest (UXG-070) reads, discusses and, where they may, edits what was shared with them:
+	 * nothing that shares it on, copies, files or reviews it for the company. */
+	const guest = $derived(shellPrincipal.view?.membership_role === 'guest');
 	const collaboration = $derived(collaborationBootstrapQuery(companyId, () => shellPrincipal.view));
 	const cockpit = $derived(cockpitQuery(companyId, () => ownerAccess));
 	const documentId = $derived(page.url.searchParams.get('document') ?? '');
@@ -108,7 +111,7 @@
 	 * name it. The header links to it, so the job and the document are one click apart. */
 	const documentReviews = documentReviewsQuery(
 		() => companyId,
-		() => documentId
+		() => (guest ? '' : documentId)
 	);
 	const graph = $derived(
 		ownerAccess ? attentionView.view?.workGraph : collaboration.view?.work_graph
@@ -153,8 +156,10 @@
 		Boolean(documentView && principalId && documentView.document.owner_actor_id === principalId)
 	);
 	const sharing = $derived(inspectorValue === 'share');
-	const mayRename = $derived(ownerAccess || ownsDocument || documentView?.access === 'edit');
-	const mayArchive = $derived(ownerAccess || documentView?.access === 'edit');
+	const mayRename = $derived(
+		ownerAccess || ownsDocument || (!guest && documentView?.access === 'edit')
+	);
+	const mayArchive = $derived(ownerAccess || (!guest && documentView?.access === 'edit'));
 	const archived = $derived(documentView?.document.status === 'archived');
 	/* An archived document's creator, or the company's owner, deletes it for good. */
 	const mayDelete = $derived(archived && (ownerAccess || ownsDocument));
@@ -675,29 +680,31 @@
 							title={`Produced for this Work: ${producedFor.title}. Opens its lead, attempts and review.`}
 							>{producedFor.title}</a
 						>{/if}
-					{#if !documentView.document.linked_room_id}
+					{#if !guest}
+						{#if !documentView.document.linked_room_id}
+							<button
+								type="button"
+								class="btn small discuss"
+								title="Talk it through with Exec beside this document. Where you may share it, Exec can then comment, and you can let Exec edit."
+								onclick={() => void discuss()}>Discuss</button
+							>
+						{:else}
+							<a
+								class="btn small discuss"
+								href={`/${encodeURIComponent(companyId)}/people?${documentView.document.linked_room_id ? `room=${encodeURIComponent(documentView.document.linked_room_id)}` : 'person=exec'}&document=${encodeURIComponent(documentView.document.id)}`}
+								title="Talk it through with Exec, with this document alongside">Discuss</a
+							>
+						{/if}
 						<button
 							type="button"
-							class="btn small discuss"
-							title="Talk it through with Exec beside this document. Where you may share it, Exec can then comment, and you can let Exec edit."
-							onclick={() => void discuss()}>Discuss</button
-						>
-					{:else}
-						<a
-							class="btn small discuss"
-							href={`/${encodeURIComponent(companyId)}/people?${documentView.document.linked_room_id ? `room=${encodeURIComponent(documentView.document.linked_room_id)}` : 'person=exec'}&document=${encodeURIComponent(documentView.document.id)}`}
-							title="Talk it through with Exec, with this document alongside">Discuss</a
+							class="btn small share"
+							class:active={sharing}
+							aria-expanded={sharing}
+							title="Who can open it, and at what level, Exec and Staff included"
+							onclick={() => (sharing ? closeInspector() : changePanel('share'))}>Share</button
 						>
 					{/if}
-					<button
-						type="button"
-						class="btn small share"
-						class:active={sharing}
-						aria-expanded={sharing}
-						title="Who can open it, and at what level, Exec and Staff included"
-						onclick={() => (sharing ? closeInspector() : changePanel('share'))}>Share</button
-					>
-					{#if follow?.id === documentView.document.id}
+					{#if follow?.id === documentView.document.id && !guest}
 						<button
 							type="button"
 							class="btn small follow"
@@ -709,7 +716,7 @@
 							>{follow.following ? 'Following' : 'Follow'}</button
 						>
 					{/if}
-					{#if documentView.access !== 'edit' && !ownerAccess && !archived}
+					{#if documentView.access !== 'edit' && !ownerAccess && !archived && !guest}
 						<button
 							type="button"
 							class="btn small ask"
@@ -758,30 +765,34 @@
 					>
 					<button type="button" onclick={printDocument}>Print or save as PDF</button>
 					<button type="button" onclick={() => void copyLink()}>Copy link</button>
-					<button
-						type="button"
-						title="A copy you own, with the same access"
-						onclick={() => void duplicate()}>Duplicate</button
-					>
-					{#if !documentView.document.linked_room_id}
-						<button type="button" class="narrow-only" onclick={() => void discuss()}
-							>Discuss with Exec</button
+					{#if !guest}
+						<button
+							type="button"
+							title="A copy you own, with the same access"
+							onclick={() => void duplicate()}>Duplicate</button
+						>
+						{#if !documentView.document.linked_room_id}
+							<button type="button" class="narrow-only" onclick={() => void discuss()}
+								>Discuss with Exec</button
+							>
+						{/if}
+						<button type="button" class="narrow-only" onclick={() => changePanel('share')}
+							>Share…</button
 						>
 					{/if}
-					<button type="button" class="narrow-only" onclick={() => changePanel('share')}
-						>Share…</button
-					>
-					{#if follow?.id === documentView.document.id}
+					{#if follow?.id === documentView.document.id && !guest}
 						<button type="button" class="narrow-only" onclick={() => void toggleFollow()}
 							>{follow.following ? 'Unfollow' : 'Follow'}</button
 						>
 					{/if}
-					{#if documentView.access !== 'edit' && !ownerAccess && !archived && asked !== documentView.document.id}
+					{#if documentView.access !== 'edit' && !ownerAccess && !archived && !guest && asked !== documentView.document.id}
 						<button type="button" class="narrow-only" onclick={() => void askForAccess('edit')}
 							>Ask to edit</button
 						>
 					{/if}
-					{#if documentView.access === 'edit'}
+					{#if guest}
+						<!-- Versions, reviews and proposals are the company's to keep and decide. -->
+					{:else if documentView.access === 'edit'}
 						<button
 							type="button"
 							title="Keep what the document holds now under a name, such as the version you sent"

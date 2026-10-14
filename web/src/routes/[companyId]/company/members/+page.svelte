@@ -57,6 +57,11 @@
 	let loadVersion = 0;
 
 	const rows = $derived(issuer && core ? joinMembers(core.members, issuer.members) : []);
+	/* Guests (UXG-070) are outside the company: each was given only the items shared with them,
+	 * so they are listed apart from the people in it. */
+	const people = $derived(rows.filter((row) => row.role !== 'guest'));
+	const guests = $derived(rows.filter((row) => row.role === 'guest'));
+	const coreGuest = (member: { membership_role: string }) => member.membership_role === 'guest';
 	const viewer = $derived(issuer?.viewer);
 	const ending = $derived(rows.some((row) => row.ending));
 	const linkInvites = $derived(core?.issuer?.invitation_delivery.includes('link') ?? false);
@@ -368,7 +373,7 @@
 	}
 
 	function roleLabel(role: MembershipRole): string {
-		return { owner: 'Owner', admin: 'Admin', member: 'Member' }[role];
+		return { owner: 'Owner', admin: 'Admin', member: 'Member', guest: 'Guest' }[role];
 	}
 
 	function seen(row: MemberRow): string {
@@ -429,8 +434,10 @@
 			</Item>
 		</Section>
 	{:else if !canManage}
-		<Section title="People" count={core.members.length}>
-			{#each core.members as member (member.actor_id)}
+		{@const inCompany = core.members.filter((member) => !coreGuest(member))}
+		{@const outside = core.members.filter(coreGuest)}
+		<Section title="People" count={inCompany.length}>
+			{#each inCompany as member (member.actor_id)}
 				{@const self = member.actor_id === principal?.actor_id}
 				<Item
 					title={`${member.display}${self ? ' (you)' : ''}`}
@@ -441,6 +448,15 @@
 				</Item>
 			{/each}
 		</Section>
+		{#if outside.length}
+			<Section title="Guests" count={outside.length}>
+				{#each outside as member (member.actor_id)}
+					<Item title={member.display} meta="Guest">
+						{#snippet leading()}{@render avatar(member.display)}{/snippet}
+					</Item>
+				{/each}
+			</Section>
+		{/if}
 	{:else if core.issuer_unavailable}
 		<Notice
 			tone="warning"
@@ -517,11 +533,11 @@
 					>
 						{#snippet leading()}<Mail size={15} strokeWidth={1.8} />{/snippet}
 						{#snippet actions()}
-							{#if linkInvites || viewer.role === 'owner' || invitation.role === 'member'}
+							{#if linkInvites || viewer.role === 'owner' || invitation.role !== 'admin'}
 								<ActionMenu label={`Invitation to ${invitation.email}`}
 									>{#if linkInvites}<button onclick={() => void copy(invitation)}
 											>Copy invitation link</button
-										>{/if}{#if viewer.role === 'owner' || invitation.role === 'member'}<button
+										>{/if}{#if viewer.role === 'owner' || invitation.role !== 'admin'}<button
 											disabled={!!busy}
 											title="Email the invitation again"
 											onclick={() => resend(invitation)}>Resend invitation</button
@@ -536,90 +552,101 @@
 			</Section>
 		{/if}
 
-		<Section title="People" count={rows.length}>
-			{#each rows as row (row.membership_id)}
-				{@const manageable = mayManage(viewer, row) && row.status !== 'removed'}
-				<Item
-					title={`${row.name}${row.membership_id === viewer.membership_id ? ' (you)' : ''}`}
-					meta={`${row.email} · ${seen(row)}`}
-					dim={row.status !== 'active'}
-				>
-					{#snippet leading()}{@render avatar(row.name)}{/snippet}
-					{#snippet trailing()}
-						{#if row.ending}<span
-								class="state pending"
-								title="New entry is already blocked. Open sessions close as soon as the company confirms."
-								>Ending access</span
-							>{:else if row.status === 'suspended'}<span class="state">Paused</span>{/if}
-						{#if manageable && viewer.role === 'owner' && row.status === 'active'}
-							<select
-								class="role"
-								aria-label={`Access for ${row.name}`}
-								value={row.role}
-								disabled={!!busy}
-								onchange={(event) => changeRole(row, event.currentTarget)}
-							>
-								<option value="member">Member</option>
-								<option value="admin">Admin</option>
-							</select>
-						{:else}<span>{roleLabel(row.role)}</span>{/if}
-					{/snippet}
-					{#snippet actions()}
-						{#if row.membership_id === viewer.membership_id && viewer.role !== 'owner'}
-							{@render leaveActions()}
-						{:else if manageable}
-							{#if confirming === row.membership_id}
-								<button
-									class="btn small danger"
-									type="button"
-									disabled={!!busy}
-									title="Their past work stays in the company"
-									onclick={() =>
-										void act(
-											`remove:${row.membership_id}`,
-											`members/${row.membership_id}/remove`,
-											{},
-											`${row.name} no longer has access.`
-										)}>Remove access</button
-								><button class="btn small ghost" type="button" onclick={() => (confirming = '')}
-									>Keep</button
-								>
-							{:else}
-								<ActionMenu label={`Access for ${row.name}`}
-									>{#if canSuspend && row.status === 'active' && !row.ending}<button
-											disabled={!!busy}
-											onclick={() => pause(row)}>Pause access</button
-										>{:else if row.status === 'suspended' && !row.ending}<button
-											disabled={!!busy}
-											onclick={() =>
-												void act(
-													`reinstate:${row.membership_id}`,
-													`members/${row.membership_id}/reinstate`,
-													{},
-													`${row.name} can enter again.`
-												)}>Reinstate</button
-										>{/if}{#if viewer.role === 'owner' && row.status === 'active' && !row.ending}<button
-											disabled={!!busy || !row.actor}
-											title={row.actor
-												? 'Hand them the company: they approve money, keys and the charter, and you become an admin'
-												: 'They need to open the company once before they can own it'}
-											onclick={() => void handOver(row)}>Make owner…</button
-										>{/if}<button
-										disabled={!!busy || row.ending}
-										onclick={() => (confirming = row.membership_id)}>Remove…</button
-									></ActionMenu
-								>
-							{/if}
-						{/if}
-					{/snippet}
-				</Item>
+		<Section title="People" count={people.length}>
+			{#each people as row (row.membership_id)}
+				{@render memberRow(row, viewer)}
 			{:else}
 				<Empty compact title="Nobody else has access yet" />
 			{/each}
 		</Section>
+		{#if guests.length}
+			<Section title="Guests" count={guests.length}>
+				{#each guests as row (row.membership_id)}
+					{@render memberRow(row, viewer)}
+				{/each}
+			</Section>
+		{/if}
 	{/if}
 	{#if principalSource.view?.membership_role === 'owner'}<StandingPermissions {companyId} />{/if}
 </Page>
+
+{#snippet memberRow(row: MemberRow, viewer: IssuerMembersView['viewer'])}
+	{@const manageable = mayManage(viewer, row) && row.status !== 'removed'}
+	<Item
+		title={`${row.name}${row.membership_id === viewer.membership_id ? ' (you)' : ''}`}
+		meta={`${row.email} · ${seen(row)}`}
+		dim={row.status !== 'active'}
+	>
+		{#snippet leading()}{@render avatar(row.name)}{/snippet}
+		{#snippet trailing()}
+			{#if row.ending}<span
+					class="state pending"
+					title="New entry is already blocked. Open sessions close as soon as the company confirms."
+					>Ending access</span
+				>{:else if row.status === 'suspended'}<span class="state">Paused</span>{/if}
+			{#if manageable && viewer.role === 'owner' && row.status === 'active' && row.role !== 'guest'}
+				<select
+					class="role"
+					aria-label={`Access for ${row.name}`}
+					value={row.role}
+					disabled={!!busy}
+					onchange={(event) => changeRole(row, event.currentTarget)}
+				>
+					<option value="member">Member</option>
+					<option value="admin">Admin</option>
+				</select>
+			{:else}<span>{roleLabel(row.role)}</span>{/if}
+		{/snippet}
+		{#snippet actions()}
+			{#if row.membership_id === viewer.membership_id && viewer.role !== 'owner'}
+				{@render leaveActions()}
+			{:else if manageable}
+				{#if confirming === row.membership_id}
+					<button
+						class="btn small danger"
+						type="button"
+						disabled={!!busy}
+						title="Their past work stays in the company"
+						onclick={() =>
+							void act(
+								`remove:${row.membership_id}`,
+								`members/${row.membership_id}/remove`,
+								{},
+								`${row.name} no longer has access.`
+							)}>Remove access</button
+					><button class="btn small ghost" type="button" onclick={() => (confirming = '')}
+						>Keep</button
+					>
+				{:else}
+					<ActionMenu label={`Access for ${row.name}`}
+						>{#if canSuspend && row.status === 'active' && !row.ending}<button
+								disabled={!!busy}
+								onclick={() => pause(row)}>Pause access</button
+							>{:else if row.status === 'suspended' && !row.ending}<button
+								disabled={!!busy}
+								onclick={() =>
+									void act(
+										`reinstate:${row.membership_id}`,
+										`members/${row.membership_id}/reinstate`,
+										{},
+										`${row.name} can enter again.`
+									)}>Reinstate</button
+							>{/if}{#if viewer.role === 'owner' && row.status === 'active' && !row.ending && row.role !== 'guest'}<button
+								disabled={!!busy || !row.actor}
+								title={row.actor
+									? 'Hand them the company: they approve money, keys and the charter, and you become an admin'
+									: 'They need to open the company once before they can own it'}
+								onclick={() => void handOver(row)}>Make owner…</button
+							>{/if}<button
+							disabled={!!busy || row.ending}
+							onclick={() => (confirming = row.membership_id)}>Remove…</button
+						></ActionMenu
+					>
+				{/if}
+			{/if}
+		{/snippet}
+	</Item>
+{/snippet}
 
 {#if sharingOpen && core?.mode === 'local'}<SharingSetup
 		{companyId}

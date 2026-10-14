@@ -969,9 +969,11 @@ fn validate_claims(
         || claims.membership_id.trim().is_empty()
         || claims.membership_id.len() > 512
         || claims.membership_version < 0
+        // A guest (UXG-070) is admitted only to what is shared with them by name; the owner
+        // boundary allows them nothing else.
         || !matches!(
             claims.membership_role.as_str(),
-            "owner" | "admin" | "member"
+            "owner" | "admin" | "member" | "guest"
         )
         || claims.company_id.is_nil()
         || claims.cell_id.is_nil()
@@ -1078,9 +1080,11 @@ fn validate_membership_control_claims(
         || claims.membership_id.trim().is_empty()
         || claims.membership_id.len() > 512
         || claims.membership_version < 0
+        // A guest (UXG-070) is admitted only to what is shared with them by name; the owner
+        // boundary allows them nothing else.
         || !matches!(
             claims.membership_role.as_str(),
-            "owner" | "admin" | "member"
+            "owner" | "admin" | "member" | "guest"
         )
         || claims.company_id.is_nil()
         || claims.cell_id.is_nil()

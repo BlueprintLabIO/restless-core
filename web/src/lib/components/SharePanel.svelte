@@ -37,6 +37,7 @@
 		onaccess,
 		onremove,
 		oninvite,
+		guestInvites = false,
 		pending = [],
 		onpendingaccess,
 		onpendingremove,
@@ -68,8 +69,11 @@
 		onadd: (actorId: string, access: string) => void;
 		onaccess: (actorId: string, access: string) => void;
 		onremove: (actorId: string) => void;
-		/** Invite someone who is not in the company yet, by email. Given only to people who may. */
-		oninvite?: (email: string, access: string) => Promise<boolean>;
+		/** Invite someone who is not in the company yet, by email. Given only to people who may.
+		 * As a guest they are given only this; as a member they join the whole company. */
+		oninvite?: (email: string, access: string, role: 'guest' | 'member') => Promise<boolean>;
+		/** The company's account service can invite a guest for one item (UXG-070). */
+		guestInvites?: boolean;
 		/** Invited people this waits for, with the level they get when they join. */
 		pending?: ReadonlyArray<{ email: string; access: string }>;
 		onpendingaccess?: (email: string, access: string) => void;
@@ -82,9 +86,12 @@
 	let query = $state('');
 	let active = $state(0);
 	let inviting = $state(false);
-	/* Inviting by email makes someone a member of the whole company, not a guest on this one item,
-	 * so the panel says so and asks once before the invitation goes. */
+	/* Someone outside the company is shared only this, as a guest, by default. Inviting them to
+	 * the company as a member is the explicit alternative, since a member opens everything shared
+	 * with the company. The panel asks once before either goes. */
 	let confirmingInvite = $state('');
+	let inviteAs = $state<'guest' | 'member'>('guest');
+	const asGuest = $derived(guestInvites && inviteAs === 'guest');
 	const listId = $props.id();
 	/* People are added at the highest level unless chosen otherwise, as in Notion. */
 	let grant = $state(highestLevel());
@@ -139,7 +146,7 @@
 		if (!oninvite || inviting) return;
 		inviting = true;
 		try {
-			if (await oninvite(email, grant)) {
+			if (await oninvite(email, grant, asGuest ? 'guest' : 'member')) {
 				query = '';
 				confirmingInvite = '';
 			}
@@ -151,7 +158,10 @@
 	function choose(option: Option | undefined): void {
 		if (!option) return;
 		if (option.kind === 'person') add(option.actor_id);
-		else confirmingInvite = option.email;
+		else {
+			inviteAs = 'guest';
+			confirmingInvite = option.email;
+		}
 	}
 
 	/* Up and Down move through the matches, Enter takes the highlighted one, as in Notion. */
@@ -254,14 +264,18 @@
 								tabindex="-1"
 								disabled={busy || inviting}
 								title={option.kind === 'invite'
-									? 'Invites them to the company as a member, and shares this when they join.'
+									? guestInvites
+										? 'Shares only this with them. You can invite them to the company instead.'
+										: 'Invites them to the company as a member, and shares this when they join.'
 									: undefined}
 								onmousedown={(event) => event.preventDefault()}
 								onmouseenter={() => (active = index)}
 								onclick={() => choose(option)}
 								>{option.kind === 'person'
 									? option.display
-									: `Invite ${option.email} to the company…`}</button
+									: guestInvites
+										? `Share with ${option.email}…`
+										: `Invite ${option.email} to the company…`}</button
 							>
 						</li>
 					{:else}
@@ -279,11 +293,35 @@
 	{/if}
 
 	{#if confirmingInvite}
-		<div class="invite-confirm" role="alertdialog" aria-label="Invite to the company">
+		<div
+			class="invite-confirm"
+			role="alertdialog"
+			aria-label={guestInvites ? `Share with ${confirmingInvite}` : 'Invite to the company'}
+		>
+			{#if guestInvites}
+				<fieldset class="invite-as">
+					<legend class="sr-only">How to share with {confirmingInvite}</legend>
+					<label
+						title="They open only this, at the level you chose. Nothing else in the company: not its people, Work or anything shared with everyone."
+						><input type="radio" bind:group={inviteAs} value="guest" disabled={inviting} />
+						Share only this item (guest)</label
+					>
+					<label
+						title="They join the company as a member and can open everything shared with the company, not only this."
+						><input type="radio" bind:group={inviteAs} value="member" disabled={inviting} />
+						Invite to the company as a member</label
+					>
+				</fieldset>
+			{/if}
 			<p>
-				<strong>{confirmingInvite}</strong> joins the company as a member. Members can open
-				everything shared with the company, not only this. It is shared with them at
-				{levelLabel(grant).toLowerCase()} when they join.
+				{#if asGuest}
+					<strong>{confirmingInvite}</strong> sees only this, nothing else in the company.
+					{levelLabel(grant)} once they sign in.
+				{:else}
+					<strong>{confirmingInvite}</strong> joins the company as a member. Members can open
+					everything shared with the company, not only this. It is shared with them at
+					{levelLabel(grant).toLowerCase()} when they join.
+				{/if}
 			</p>
 			<div class="invite-actions">
 				<button
@@ -297,7 +335,13 @@
 					class="btn small primary"
 					disabled={inviting || busy}
 					onclick={() => void invite(confirmingInvite)}
-					>{inviting ? 'Inviting…' : 'Invite as member'}</button
+					>{inviting
+						? asGuest
+							? 'Sharing…'
+							: 'Inviting…'
+						: asGuest
+							? 'Share'
+							: 'Invite as member'}</button
 				>
 			</div>
 		</div>
@@ -344,9 +388,7 @@
 		{#each pending as row (row.email)}
 			<li class:managed={canManage}>
 				<!-- The address may be cut short on a phone; that they are invited never is. -->
-				<span
-					class="name invitee"
-					title={`${row.email}: invited to the company; gets this when they join`}
+				<span class="name invitee" title={`${row.email}: invited; gets this when they sign in`}
 					><span class="address">{row.email}</span><span class="you">invited</span></span
 				>
 				{#if canManage && onpendingaccess && onpendingremove}
@@ -477,6 +519,21 @@
 	.invite-confirm p {
 		margin: 0;
 		overflow-wrap: anywhere;
+	}
+	.invite-as {
+		display: grid;
+		gap: 2px;
+		margin: 0;
+		padding: 0;
+		border: 0;
+	}
+	.invite-as label {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		min-height: 32px;
+		color: var(--ink);
+		cursor: pointer;
 	}
 	.invite-actions {
 		display: flex;

@@ -446,7 +446,7 @@ impl OrgIntel {
             ));
         }
         if context.membership_id.trim().is_empty()
-            || !matches!(context.membership_role, "owner" | "admin" | "member")
+            || !matches!(context.membership_role, "owner" | "admin" | "member" | "guest")
             || context.membership_version < 0
         {
             return Err(OrgIntelError::PrincipalBindingConflict(
@@ -571,6 +571,9 @@ impl OrgIntel {
                     && context.membership_version == prior_membership_version
                     && (context.membership_role != prior_membership_role
                         || prior_membership_status != "active"))
+                // The same membership never moves between guest and member (UXG-070).
+                || (context.membership_id == prior_membership_id
+                    && crosses_guest_boundary(&prior_membership_role, context.membership_role))
             {
                 return Err(OrgIntelError::CompanyAccessMismatch(
                     "entry assertion carries stale or conflicting membership state".into(),
@@ -622,16 +625,21 @@ impl OrgIntel {
                 "owner".to_string()
             } else {
                 let actor_id = format!("human-{}", Uuid::new_v4().simple());
+                let guest = context.membership_role == "guest";
                 sqlx::query(
                     "INSERT INTO actors (id,kind,actor_class,role,display) \
-                     VALUES ($1,'human','human','company-member','Company member')",
+                     VALUES ($1,'human','human',$2,$3)",
                 )
                 .bind(&actor_id)
+                .bind(if guest { "company-guest" } else { "company-member" })
+                .bind(if guest { "Guest" } else { "Company member" })
                 .execute(&mut *tx)
                 .await?;
                 // Tell Exec once, in the same transaction, so a new colleague
-                // is never admitted without the organisation hearing of it.
-                let exec_exists: bool =
+                // is never admitted without the organisation hearing of it. A
+                // guest is not a colleague: they came for what was shared with
+                // them, and the organisation has no place to give them.
+                let exec_exists: bool = !guest &&
                     sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM actors WHERE id='exec')")
                         .fetch_one(&mut *tx)
                         .await?;
@@ -727,6 +735,35 @@ impl OrgIntel {
         })
     }
 
+    /// Who a guest (UXG-070) works with, so the items shared with them name people: the owners
+    /// of, the people on, and the authors of comments on the documents and sheets shared with them
+    /// by name, themselves included. Nobody else in the company.
+    pub async fn guest_collaborators(
+        &self,
+        actor_id: &str,
+    ) -> Result<std::collections::HashSet<String>> {
+        let rows: Vec<String> = sqlx::query_scalar(
+            "WITH docs AS (SELECT document_id FROM native_document_participants \
+                            WHERE actor_id=$1 AND removed_at IS NULL), \
+                  sheets AS (SELECT sheet_id FROM native_sheet_participants WHERE actor_id=$1) \
+             SELECT $1::text \
+             UNION SELECT owner_actor_id FROM native_documents WHERE id IN (SELECT document_id FROM docs) \
+             UNION SELECT actor_id FROM native_document_participants \
+                    WHERE removed_at IS NULL AND document_id IN (SELECT document_id FROM docs) \
+             UNION SELECT author_actor_id FROM native_document_comments \
+                    WHERE document_id IN (SELECT document_id FROM docs) \
+             UNION SELECT owner_actor_id FROM native_sheets WHERE id IN (SELECT sheet_id FROM sheets) \
+             UNION SELECT actor_id FROM native_sheet_participants \
+                    WHERE sheet_id IN (SELECT sheet_id FROM sheets) \
+             UNION SELECT author_actor_id FROM native_sheet_comments \
+                    WHERE sheet_id IN (SELECT sheet_id FROM sheets)",
+        )
+        .bind(actor_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().collect())
+    }
+
     /// Humans who have entered this company, newest access state first.
     pub async fn human_members(&self) -> Result<Vec<HumanMemberRow>> {
         Ok(sqlx::query_as::<_, (String, String, String, String, String, i64, DateTime<Utc>, DateTime<Utc>)>(
@@ -781,7 +818,7 @@ impl OrgIntel {
             || context.plane_hostname.len() > 253
             || context.membership_id.trim().is_empty()
             || context.membership_id.len() > 512
-            || !matches!(context.membership_role, "owner" | "admin" | "member")
+            || !matches!(context.membership_role, "owner" | "admin" | "member" | "guest")
             || context.membership_version < 0
             || context.assertion_version != MEMBERSHIP_CONTROL_CONTRACT_VERSION
             || context.assertion_id.is_nil()
@@ -909,6 +946,13 @@ impl OrgIntel {
                     }
                     (MembershipControlOutcome::AlreadyApplied, status, version)
                 } else {
+                    // A guest is given only what is shared with them. Becoming a member is a new
+                    // membership by invitation, never a change to the guest's own (UXG-070).
+                    if crosses_guest_boundary(&role, context.membership_role) {
+                        return Err(OrgIntelError::CompanyAccessMismatch(
+                            "a membership control cannot turn a guest into a member or back".into(),
+                        ));
+                    }
                     sqlx::query(
                         "UPDATE human_principal_actor_bindings \
                          SET membership_role=$4,membership_status=$5,membership_version=$6, \
@@ -1078,4 +1122,10 @@ impl OrgIntel {
         .fetch_one(&self.pool)
         .await?)
     }
+}
+
+/// A guest opens only what is shared with them by name. One membership never turns from a guest
+/// into a member (or back): the company invites the person again instead (UXG-070).
+fn crosses_guest_boundary(prior: &str, next: &str) -> bool {
+    (prior == "guest") != (next == "guest")
 }

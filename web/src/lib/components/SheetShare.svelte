@@ -9,8 +9,13 @@
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import { mayManageCompanySetup } from '$lib/model/company-access';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
-	import { AlreadyMember, emailInvitesReady, inviteToCompany } from '$lib/model/members';
-	import { FORMER_MEMBER, invitedFromShare, shareRows } from '$lib/model/share-people';
+	import { AlreadyMember, emailInvites, inviteToCompany } from '$lib/model/members';
+	import {
+		FORMER_MEMBER,
+		invitedFromShare,
+		sharedWithGuest,
+		shareRows
+	} from '$lib/model/share-people';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import {
 		cancelPendingShare,
@@ -82,17 +87,19 @@
 	);
 	const canInvite = $derived(!!sharing?.may_manage && mayManageCompanySetup(principalSource.view));
 	/* Email invitations go out only once sharing is set up; until then the panel says where. */
-	let invitesReady = $state<{ company: string; ready: boolean } | null>(null);
+	let invitesReady = $state<{ company: string; ready: boolean; guests: boolean } | null>(null);
 	$effect(() => {
 		const target = company;
 		if (!canInvite || invitesReady?.company === target) return;
-		void emailInvitesReady(target)
-			.then((ready) => {
-				if (target === company) invitesReady = { company: target, ready };
+		void emailInvites(target)
+			.then(({ ready, guests }) => {
+				if (target === company) invitesReady = { company: target, ready, guests };
 			})
 			.catch(() => undefined);
 	});
 	const invitesFor = $derived(invitesReady?.company === company ? invitesReady.ready : null);
+	/* Someone outside the company is shared only this, as a guest, unless invited as a member. */
+	const guestInvites = $derived(invitesReady?.company === company && invitesReady.guests);
 	const directory = $derived(people.filter((person) => person.actor_id !== owner));
 	const link = $derived(
 		typeof location === 'undefined' ? '' : new URL(sheetHref(company, sheet), location.origin).href
@@ -174,12 +181,12 @@
 		});
 	}
 
-	async function invite(email: string, access: string): Promise<boolean> {
+	async function invite(email: string, access: string, role: 'guest' | 'member'): Promise<boolean> {
 		failure = '';
 		try {
-			await inviteToCompany(company, email);
+			await inviteToCompany(company, email, role);
 			await shareWithInvitee(company, { sheet }, email, access);
-			toast(invitedFromShare(email));
+			toast(role === 'guest' ? sharedWithGuest(email) : invitedFromShare(email));
 			void load({ company, sheet }).catch(() => undefined);
 			return true;
 		} catch (cause) {
@@ -283,6 +290,7 @@
 		ongeneral={setGeneral}
 		onadd={(actorId, access) => void add(actorId, access as SheetLevel)}
 		oninvite={canInvite && invitesFor ? invite : undefined}
+		{guestInvites}
 		inviteSetupHref={canInvite && invitesFor === false
 			? `/${encodeURIComponent(company)}/company/members`
 			: undefined}

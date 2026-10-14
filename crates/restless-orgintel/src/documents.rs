@@ -3590,7 +3590,8 @@ async fn require_document_judgement_actor(
             .bind(actor_id)
             .fetch_optional(&mut **tx)
             .await?;
-            if locked_class.as_deref() == Some("human") {
+            // A guest edits what was shared with them but judges nothing for the company.
+            if locked_class.as_deref() == Some("human") && !is_guest(tx, actor_id).await? {
                 Ok(())
             } else {
                 Err(DocumentError::Unavailable)
@@ -3807,7 +3808,11 @@ async fn access_in_transaction(
     // People in the company are teammates: a company document's general access says what each
     // may do with it. An explicit participant grant above still wins, either way. Exec and Staff
     // see a document only once it is shared with them. The list query must agree.
-    if visibility == DocumentVisibility::Company && actor_class == "human" {
+    // A guest is not a teammate: they open only what is shared with them by name (UXG-070).
+    if visibility == DocumentVisibility::Company
+        && actor_class == "human"
+        && !is_guest(tx, actor_id).await?
+    {
         return Ok(Some(company_access));
     }
 
@@ -3836,6 +3841,21 @@ async fn access_in_transaction(
     }
 
     Ok(None)
+}
+
+/// A guest (UXG-070) is someone outside the company given only the items shared with them by
+/// name. What the company shares with everyone, and judgement on its behalf, never reaches them.
+pub(crate) async fn is_guest(
+    tx: &mut Transaction<'_, Postgres>,
+    actor_id: &str,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM human_principal_actor_bindings \
+         WHERE actor_id=$1 AND membership_role='guest')",
+    )
+    .bind(actor_id)
+    .fetch_one(&mut **tx)
+    .await
 }
 
 async fn require_access(
@@ -4940,7 +4960,8 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(DocumentError::Unavailable)?;
-        let is_human = actor_class == "human";
+        // Company documents are found by the company's people, not by a guest (UXG-070).
+        let is_human = actor_class == "human" && !is_guest(&mut tx, &actor_id).await?;
         let mut hits = sqlx::query_as::<_, DocumentSearchHit>(
             "WITH search_query AS (SELECT websearch_to_tsquery('simple',$2) AS terms) \
              SELECT projection.document_id,projection.named_version_id,projection.title,\
@@ -5087,7 +5108,7 @@ impl OrgIntel {
         .bind(document_id.to_string())
         .bind(document_id)
         .bind(actor_id)
-        .bind(actor_class == "human")
+        .bind(actor_class == "human" && !is_guest(&mut tx, actor_id).await?)
         .bind(limit + 1)
         .fetch_all(&mut *tx)
         .await?;
@@ -5315,6 +5336,8 @@ impl OrgIntel {
                       WHEN p.access='comment' THEN 'comment'::native_document_access \
                       WHEN p.access='read' THEN 'read'::native_document_access \
                       WHEN d.visibility='company' AND a.actor_class='human' \
+                        AND NOT EXISTS(SELECT 1 FROM human_principal_actor_bindings guest \
+                          WHERE guest.actor_id=a.id AND guest.membership_role='guest') \
                         THEN d.company_access \
                       ELSE 'read'::native_document_access END AS access,\
                     (SELECT COALESCE(\
@@ -5332,7 +5355,9 @@ impl OrgIntel {
                AND (NOT $6 OR d.status='archived') \
                AND ($3::timestamptz IS NULL OR (d.updated_at,d.id)<($3,$4)) \
                AND (d.owner_actor_id=$1 OR p.actor_id IS NOT NULL \
-                    OR (d.visibility='company' AND a.actor_class='human') \
+                    OR (d.visibility='company' AND a.actor_class='human' \
+                        AND NOT EXISTS(SELECT 1 FROM human_principal_actor_bindings guest \
+                          WHERE guest.actor_id=a.id AND guest.membership_role='guest')) \
                     OR (d.visibility='participants' AND d.inherit_room_visibility \
                         AND EXISTS(\
                           SELECT 1 FROM rooms room \

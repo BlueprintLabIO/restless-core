@@ -159,7 +159,10 @@ pub(crate) async fn access(
     } else {
         // People in the company get a company sheet's general access; an explicit grant still
         // wins, and Exec and Staff see a sheet only once it is shared with them.
-        explicit.or_else(|| (visibility == "company" && class == "human").then_some(company_access))
+        // A guest opens only what is shared with them by name (UXG-070).
+        let teammate = class == "human"
+            && !crate::documents::is_guest(tx, actor).await.map_err(SheetError::Database)?;
+        explicit.or_else(|| (visibility == "company" && teammate).then_some(company_access))
     };
     let grant = grant.ok_or(SheetError::Unavailable)?;
     if edit && grant != "edit" {

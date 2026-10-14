@@ -351,6 +351,32 @@ try {
       (m) => m.membership_id === leaverEntry.membership_id,
     ));
     console.log("PASS a member leaves on their own; the owner cannot leave");
+
+    // A guest (UXG-070) is invited for one shared item: they enter with the guest role, see
+    // nothing of the membership API, invite nobody, and no role change makes them a member.
+    assert(metadata.roles.includes("guest"));
+    const guestInvite = (await cockpit("invitations", {
+      cookie: owner.cookie,
+      body: { email: "accountant@issuer.test", role: "guest" },
+    })).data.invitation;
+    assert.equal(guestInvite.role, "guest");
+    assert(messages.some((m) => m.to === "accountant@issuer.test" && /only what was shared with you/.test(m.text)));
+    await pause(10_000); // Better Auth's sign-up rate limit window
+    const accountant = await signup("Accountant", "accountant@issuer.test");
+    await call("/api/invitations/accept", { body: { id: guestInvite.id }, cookie: accountant.cookie });
+    const guestEntry = decode((await call("/api/enter", { body: {}, cookie: accountant.cookie })).data.assertion);
+    assert.equal(guestEntry.membership_role, "guest");
+    await cockpit("members", { cookie: accountant.cookie, expected: 403 });
+    await cockpit("invitations", { cookie: accountant.cookie, body: { email: "x3@issuer.test", role: "guest" }, expected: 403 });
+    await cockpit(`members/${guestEntry.membership_id}/role`, { cookie: owner.cookie, body: { role: "member" }, expected: 409 });
+    const guestRow = (await cockpit("members", { cookie: owner.cookie })).data.members.find(
+      (m) => m.membership_id === guestEntry.membership_id,
+    );
+    assert.equal(guestRow.role, "guest");
+    await cockpit(`members/${guestEntry.membership_id}/remove`, { cookie: owner.cookie, body: {} });
+    assert.equal(coreState.get(guestEntry.membership_id)?.status, "removed");
+    await call("/api/enter", { body: {}, cookie: accountant.cookie, expected: 403 });
+    console.log("PASS a guest enters only as a guest, manages nothing, and is removed like a member");
   } finally {
     await new Promise((resolve) => restartedServer.close(resolve));
     await restarted.close();

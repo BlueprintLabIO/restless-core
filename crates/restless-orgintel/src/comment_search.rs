@@ -58,7 +58,9 @@ impl OrgIntel {
                AND (\
                  document.owner_actor_id=$1 \
                  OR participant.actor_id IS NOT NULL \
-                 OR (document.visibility='company' AND viewer.actor_class='human') \
+                 OR (document.visibility='company' AND viewer.actor_class='human' \
+                     AND NOT EXISTS(SELECT 1 FROM human_principal_actor_bindings guest \
+                       WHERE guest.actor_id=viewer.id AND guest.membership_role='guest')) \
                  OR (\
                    document.visibility='participants' \
                    AND document.inherit_room_visibility \

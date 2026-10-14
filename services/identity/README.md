@@ -146,6 +146,14 @@ change cannot be changed from **Members**. Anyone but the owner may leave the
 company from their own row (`POST members/self/leave`); leaving is the same
 versioned removal an administrator would make.
 
+A **guest** is someone outside the company given one document or sheet. Owners
+and administrators invite guests, usually from an item's **Share** panel. A guest
+opens only the items shared with them by name, at the access each share gives,
+and none of the company's own pages: not what the company shares with everyone,
+not the Inbox, Work, People, Apps, conversations or settings, and not this
+member list. A guest cannot invite anyone or change a role, and no role change
+makes a guest a member: remove them and invite them to the company instead.
+
 Each role change, suspension, reinstatement and removal advances the
 membership's version, so Core accepts the newest state and refuses an older
 handoff. Suspension and removal are delivered to Core from a durable outbox. New

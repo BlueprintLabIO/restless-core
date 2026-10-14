@@ -3,7 +3,8 @@
 export declare const ISSUER_CONTRACT_VERSION: 1;
 export declare const ADMIN_PREFIX: string;
 
-export type MembershipRole = 'owner' | 'admin' | 'member';
+/** A guest (issuer 1.3.0) is given only the items shared with them, never the company. */
+export type MembershipRole = 'owner' | 'admin' | 'member' | 'guest';
 export type MembershipStatus = 'active' | 'suspended' | 'removed';
 
 export declare class Refusal extends Error {
@@ -125,6 +126,11 @@ export declare function createIssuer(options: {
   placement: Placement;
   store: MembershipStore;
   invitationLink(invitationId: string): string;
+  /**
+   * Issuer 1.3.0: the host's Better Auth roles and Store accept `guest`. Owners and admins may then
+   * invite a guest, who sees nothing here and is never promoted by a role change.
+   */
+  guests?: boolean;
 }): {
   /** Answer an issuer route, or null so the host serves its own. */
   handle(request: Request): Promise<Response | null>;

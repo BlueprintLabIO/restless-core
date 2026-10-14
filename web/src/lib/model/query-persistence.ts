@@ -18,7 +18,8 @@ const STORE_NAME = 'partitions';
 
 type QueryKey = readonly unknown[];
 
-export type CompanyMembershipRole = 'owner' | 'admin' | 'member';
+/** A guest (UXG-070) is given only the documents and sheets shared with them. */
+export type CompanyMembershipRole = 'owner' | 'admin' | 'member' | 'guest';
 
 export interface CompanyPrincipal {
 	actor_id: string;
@@ -497,7 +498,7 @@ export async function getCompanyPrincipal(
 	if (
 		!actorId ||
 		!membershipRole ||
-		!['owner', 'admin', 'member'].includes(membershipRole) ||
+		!['owner', 'admin', 'member', 'guest'].includes(membershipRole) ||
 		!cachePartition
 	) {
 		throw Object.assign(new Error('The company principal response is invalid.'), {

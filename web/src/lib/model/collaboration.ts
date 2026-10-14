@@ -189,7 +189,7 @@ function oneOf<T extends string>(value: unknown, values: readonly T[]): T {
 	return parsed as T;
 }
 
-const MEMBERSHIP_ROLES = ['owner', 'admin', 'member'] as const;
+const MEMBERSHIP_ROLES = ['owner', 'admin', 'member', 'guest'] as const;
 const WORK_STATUSES = ['proposed', 'active', 'blocked', 'completed', 'abandoned'] as const;
 const EDGE_KINDS = ['requires', 'revises'] as const;
 const ATTEMPT_STATES = [

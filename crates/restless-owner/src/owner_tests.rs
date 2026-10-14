@@ -2817,6 +2817,134 @@ model = \"anthropic/claude-sonnet-5-5\"
         }
     }
 
+    /// A guest (UXG-070) is someone outside the company given one document or sheet. The boundary
+    /// admits them to that item's routes and the shell needed to open it and sign out, and refuses
+    /// every company surface a member reaches, so "Company can view…" content, the Inbox, Work,
+    /// People, Apps, settings, conversations and spend stay closed to them.
+    #[test]
+    fn a_guest_reaches_only_shared_item_routes_and_the_shell() {
+        let identity = |role: &str| crate::entry::VerifiedIdentity {
+            user: "user-1".into(),
+            issuer: Some("https://cloud.restless.test".into()),
+            owner: "owner-1".into(),
+            scope: crate::entry::CompanyScope::Company { company: "aris".into() },
+            role: role.into(),
+            actor: Some("human-1".into()),
+            company_id: Some(Uuid::new_v4()),
+            cell_id: Some(Uuid::new_v4()),
+            membership_id: Some("membership-1".into()),
+            membership_version: Some(1),
+            display_name: None,
+        };
+        let guest = RequestPrincipal::from_verified(&identity("guest")).unwrap();
+        let member = RequestPrincipal::from_verified(&identity("member")).unwrap();
+        let doc = "/api/companies/aris/documents/7f1c2a4e-3b5d-4c6e-8f90-1a2b3c4d5e6f";
+        let sheet = "/api/companies/aris/sheets/7f1c2a4e-3b5d-4c6e-8f90-1a2b3c4d5e6f";
+        let admitted = [
+            (Method::GET, "/".to_string()),
+            (Method::GET, "/aris/library/documents".to_string()),
+            (Method::GET, "/_app/immutable/start.js".to_string()),
+            (Method::POST, "/entry/logout".to_string()),
+            (Method::GET, "/api/companies/aris/principal".to_string()),
+            (Method::GET, "/api/companies/aris/collaboration/bootstrap".to_string()),
+            (Method::GET, "/api/companies/aris/documents".to_string()),
+            (Method::GET, "/api/companies/aris/sheets".to_string()),
+            (Method::GET, "/api/companies/aris/attachments/7f1c2a4e-3b5d-4c6e-8f90-1a2b3c4d5e6f".to_string()),
+            (Method::GET, doc.to_string()),
+            (Method::GET, format!("{doc}/collaboration")),
+            (Method::POST, format!("{doc}/collaboration/token")),
+            (Method::GET, format!("{doc}/comments")),
+            (Method::POST, format!("{doc}/comments")),
+            (Method::POST, format!("{doc}/comments/thread-1/replies")),
+            (Method::POST, format!("{doc}/comments/thread-1/resolve")),
+            (Method::GET, format!("{doc}/versions")),
+            (Method::GET, sheet.to_string()),
+            (Method::GET, format!("{sheet}/collaboration")),
+            (Method::POST, format!("{sheet}/operations")),
+            (Method::GET, format!("{sheet}/comments")),
+        ];
+        for (method, path) in &admitted {
+            assert!(membership_boundary_violation(method, path, &guest).is_none(), "guest refused {method} {path}");
+        }
+        let refused = [
+            // Everything a member reaches about the company.
+            (Method::GET, "/api/companies/aris/attention".to_string()),
+            (Method::GET, "/api/companies/aris/inbox-marks".to_string()),
+            (Method::GET, "/api/companies/aris/for-you".to_string()),
+            (Method::GET, "/api/companies/aris/members".to_string()),
+            (Method::GET, "/api/companies/aris/presence".to_string()),
+            (Method::GET, "/api/companies/aris/rooms".to_string()),
+            (Method::GET, "/api/companies/aris/direct-conversations".to_string()),
+            (Method::GET, "/api/companies/aris/group-conversations".to_string()),
+            (Method::GET, "/api/companies/aris/room-messages/search".to_string()),
+            (Method::GET, "/api/companies/aris/actors/exec/conversation".to_string()),
+            (Method::POST, "/api/companies/aris/actors/exec/conversation/messages".to_string()),
+            (Method::GET, "/api/companies/aris/actors/exec/activity".to_string()),
+            (Method::GET, "/api/companies/aris/company/charter".to_string()),
+            (Method::GET, "/api/companies/aris/company/identity".to_string()),
+            (Method::GET, "/api/companies/aris/schedules".to_string()),
+            (Method::GET, "/api/companies/aris/skills".to_string()),
+            (Method::GET, "/api/companies/aris/intelligence".to_string()),
+            (Method::GET, "/api/companies/aris/company/spend".to_string()),
+            (Method::GET, "/api/companies/aris/tool-connections".to_string()),
+            (Method::GET, "/api/companies/aris/library-items".to_string()),
+            (Method::GET, "/api/companies/aris/library-pins".to_string()),
+            (Method::GET, "/api/companies/aris/library/content".to_string()),
+            (Method::GET, "/api/companies/aris/comment-search".to_string()),
+            (Method::GET, "/api/companies/aris/changes".to_string()),
+            (Method::GET, "/api/companies/aris/direction".to_string()),
+            (Method::GET, "/api/companies/aris/pending-shares".to_string()),
+            (Method::GET, "/api/companies/aris/attachments".to_string()),
+            (Method::POST, "/api/companies/aris/attachments".to_string()),
+            (Method::GET, "/api/mcp-access".to_string()),
+            (Method::GET, "/api/companies".to_string()),
+            (Method::GET, "/desktop/aris".to_string()),
+            // Search across the company, and making or listing what is not shared with them.
+            (Method::GET, "/api/companies/aris/documents/search".to_string()),
+            (Method::GET, "/api/companies/aris/sheets/search".to_string()),
+            (Method::GET, "/api/companies/aris/sheets-archived".to_string()),
+            (Method::POST, "/api/companies/aris/documents".to_string()),
+            (Method::POST, "/api/companies/aris/sheets".to_string()),
+            // On a shared item: sharing it on, copying, archiving, deleting, renaming, reviewing.
+            (Method::GET, format!("{doc}/participants")),
+            (Method::PUT, format!("{doc}/participants/human-2")),
+            (Method::PATCH, doc.to_string()),
+            (Method::DELETE, doc.to_string()),
+            (Method::POST, format!("{doc}/duplicate")),
+            (Method::POST, format!("{doc}/archive")),
+            (Method::POST, format!("{doc}/follow")),
+            (Method::GET, format!("{doc}/access-requests")),
+            (Method::POST, format!("{doc}/access-requests")),
+            (Method::GET, format!("{doc}/reviews")),
+            (Method::POST, format!("{doc}/proposals/p-1/accept")),
+            (Method::POST, format!("{doc}/versions")),
+            (Method::POST, format!("{doc}/versions/v-1/restore")),
+            (Method::POST, format!("{doc}/imports/markdown")),
+            (Method::GET, format!("{sheet}/participants")),
+            (Method::PATCH, sheet.to_string()),
+            (Method::DELETE, sheet.to_string()),
+            (Method::POST, format!("{sheet}/duplicate")),
+            (Method::POST, format!("{sheet}/archive")),
+            (Method::POST, format!("{sheet}/versions/v-1/restore")),
+            // An item route needs a real item id.
+            (Method::GET, "/api/companies/aris/documents/not-an-id".to_string()),
+        ];
+        for (method, path) in &refused {
+            let refusal = membership_boundary_violation(method, path, &guest);
+            assert!(refusal.is_some(), "guest reached {method} {path}");
+            assert_eq!(refusal.unwrap().status, StatusCode::FORBIDDEN);
+        }
+        // The guest list is their own: a member's access is unchanged by it.
+        for (method, path) in [
+            (Method::GET, "/api/companies/aris/attention"),
+            (Method::GET, "/api/companies/aris/members"),
+            (Method::GET, "/api/companies/aris/documents/search"),
+            (Method::POST, "/api/companies/aris/documents"),
+        ] {
+            assert!(membership_boundary_violation(&method, path, &member).is_none(), "member refused {method} {path}");
+        }
+    }
+
     /// Handing the company on (UXG-100) stays behind the owner boundary: an admin or member never
     /// reaches the Authority transfer, so only the owner can start it.
     #[test]

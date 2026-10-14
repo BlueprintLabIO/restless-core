@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS restless_membership_state (
   organization_id text NOT NULL,
   user_id text NOT NULL,
   company_id uuid NOT NULL,
-  role text NOT NULL CHECK (role IN ('owner','admin','member')),
+  role text NOT NULL CHECK (role IN ('owner','admin','member','guest')),
   status text NOT NULL CHECK (status IN ('active','suspended','removed')),
   version bigint NOT NULL CHECK (version >= 1),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS restless_membership_controls (
   membership_id text NOT NULL REFERENCES restless_membership_state(membership_id),
   company_id uuid NOT NULL,
   user_id text NOT NULL,
-  role text NOT NULL CHECK (role IN ('owner','admin','member')),
+  role text NOT NULL CHECK (role IN ('owner','admin','member','guest')),
   status text NOT NULL CHECK (status IN ('active','suspended','removed')),
   version bigint NOT NULL CHECK (version >= 1),
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -47,6 +47,18 @@ ALTER TABLE restless_membership_controls
 ALTER TABLE restless_membership_controls
   ADD CONSTRAINT restless_membership_controls_status_check
   CHECK (status IN ('active','suspended','removed'));
+-- A guest (issuer 1.3.0) is given only the items shared with them; an install made before widens
+-- the role checks it was created with.
+ALTER TABLE restless_membership_state
+  DROP CONSTRAINT IF EXISTS restless_membership_state_role_check;
+ALTER TABLE restless_membership_state
+  ADD CONSTRAINT restless_membership_state_role_check
+  CHECK (role IN ('owner','admin','member','guest'));
+ALTER TABLE restless_membership_controls
+  DROP CONSTRAINT IF EXISTS restless_membership_controls_role_check;
+ALTER TABLE restless_membership_controls
+  ADD CONSTRAINT restless_membership_controls_role_check
+  CHECK (role IN ('owner','admin','member','guest'));
 `;
 
 export async function createSqlMembershipStore({

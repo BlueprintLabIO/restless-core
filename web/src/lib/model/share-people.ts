@@ -47,3 +47,8 @@ export function shareRows(
 export function invitedFromShare(email: string): string {
 	return `Invited ${email}. It is shared with them when they join.`;
 }
+
+/** Sharing one item with someone outside the company: they are a guest and see only it. */
+export function sharedWithGuest(email: string): string {
+	return `Shared with ${email}. They see only this once they sign in.`;
+}

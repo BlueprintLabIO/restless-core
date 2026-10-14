@@ -2743,6 +2743,156 @@ mod tests {
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
+    /// UXG-070: a guest (someone outside the company, entered with the `guest` membership role)
+    /// opens exactly the document and sheet shared with them, at the access each share gives, and
+    /// nothing the company shares with everyone. Revoking the share takes it away.
+    #[tokio::test]
+    async fn a_guest_opens_only_what_is_shared_with_them_until_it_is_revoked() {
+        let Some(fixture) = DocumentRouteFixture::new().await else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping guest access scenario");
+            return;
+        };
+        let identity = fixture.org.company_access_identity().await.unwrap().unwrap();
+        let now = chrono::Utc::now();
+        let binding = fixture
+            .org
+            .consume_human_access_context(restless_orgintel::HumanAccessContext {
+                display_name: Some("Outside Accountant"),
+                issuer: "https://accounts.example.test",
+                subject: "accountant",
+                company_id: identity.company_id,
+                cell_id: identity.cell_id,
+                membership_id: "membership-guest",
+                membership_role: "guest",
+                membership_version: 1,
+                assertion_id: Uuid::new_v4(),
+                issued_at: now,
+                expires_at: now + chrono::Duration::seconds(60),
+            })
+            .await
+            .expect("a guest enters");
+        assert_eq!(binding.membership_role, "guest");
+        let guest_actor = binding.actor_id.clone();
+        let guest = fixture.app(&guest_actor, "guest", &fixture.company);
+        let owner = fixture.app("owner", "owner", &fixture.company);
+        let alice = fixture.app("alice", "member", &fixture.company);
+        let documents = format!("/companies/{}/documents", fixture.company);
+
+        let mut paths = Vec::new();
+        for (title, general_access) in [("Books", None), ("Handbook", Some("edit")), ("Plan", Some("view"))] {
+            let (status, created) = request_json(
+                &owner,
+                Method::POST,
+                &documents,
+                Some(Uuid::new_v4()),
+                Some(create_body(title)),
+            )
+            .await;
+            assert_eq!(status, StatusCode::CREATED);
+            let path = format!("{documents}/{}", uuid_field(&created, "document_id"));
+            if let Some(general_access) = general_access {
+                let (status, _) = request_json(
+                    &owner,
+                    Method::PATCH,
+                    &path,
+                    Some(Uuid::new_v4()),
+                    Some(serde_json::json!({"expected_version": 1, "general_access": general_access})),
+                )
+                .await;
+                assert_eq!(status, StatusCode::OK);
+            }
+            paths.push(path);
+        }
+        let [books, handbook, plan] = [&paths[0], &paths[1], &paths[2]];
+        let (status, _) = request_json(
+            &owner,
+            Method::PUT,
+            format!("{books}/participants/{guest_actor}"),
+            Some(Uuid::new_v4()),
+            Some(serde_json::json!({"expected_document_version": 1, "access": "comment"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "the owner shares Books with the guest");
+
+        // Exactly the shared document, at the access given; the company's documents stay closed.
+        let (status, read) = request_json(&guest, Method::GET, books, None, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(read["access"], "comment");
+        for path in [handbook, plan] {
+            let (status, _) = request_json(&guest, Method::GET, path, None, None).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "a guest cannot open {path}");
+            let (status, _) = request_json(&alice, Method::GET, path, None, None).await;
+            assert_eq!(status, StatusCode::OK, "a member still opens {path}");
+        }
+        let (_, listed) = request_json(&guest, Method::GET, &documents, None, None).await;
+        let titles: Vec<&str> = listed["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["document"]["title"].as_str().unwrap())
+            .collect();
+        assert_eq!(titles, ["Books"]);
+        // The live editing session is issued from the same decision.
+        assert_eq!(
+            fixture.org.document_access_for_actor(uuid_tail(handbook), &guest_actor).await.unwrap(),
+            None
+        );
+        // Comment access is not edit.
+        let (status, _) = request_json(
+            &guest,
+            Method::PUT,
+            format!("{books}/participants/alice"),
+            Some(Uuid::new_v4()),
+            Some(serde_json::json!({"expected_document_version": 2, "access": "read"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "a guest shares nothing on");
+
+        // Sheets follow the same rule.
+        let ledger = Uuid::new_v4();
+        let roster = Uuid::new_v4();
+        let workbook = serde_json::json!({"revisionId": "r0"});
+        fixture.org.create_sheet(ledger, "owner", "Ledger", "participants", &workbook).await.unwrap();
+        fixture.org.create_sheet(roster, "owner", "Roster", "company", &workbook).await.unwrap();
+        fixture.org.set_sheet_general_access(roster, "owner", "edit").await.unwrap();
+        fixture.org.share_sheet(ledger, "owner", &guest_actor, Some("read")).await.unwrap();
+        let sheets: Vec<String> = fixture
+            .org
+            .list_sheets(&guest_actor)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|sheet| sheet.title)
+            .collect();
+        assert_eq!(sheets, ["Ledger"]);
+        assert_eq!(fixture.org.sheet_state(ledger, &guest_actor, false, 0).await.unwrap().access, "read");
+        assert!(fixture.org.sheet_state(ledger, &guest_actor, true, 0).await.is_err(), "read is not edit");
+        assert!(!fixture.org.sheet_readable(roster, &guest_actor).await.unwrap());
+        assert!(fixture.org.sheet_readable(roster, "alice").await.unwrap());
+
+        // Revoking the share takes it away.
+        let (status, _) = request_json(
+            &owner,
+            Method::DELETE,
+            format!("{books}/participants/{guest_actor}"),
+            Some(Uuid::new_v4()),
+            Some(serde_json::json!({"expected_document_version": 2})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = request_json(&guest, Method::GET, books, None, None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (_, listed) = request_json(&guest, Method::GET, &documents, None, None).await;
+        assert!(listed["items"].as_array().unwrap().is_empty());
+        fixture.org.share_sheet(ledger, "owner", &guest_actor, None).await.unwrap();
+        assert!(fixture.org.list_sheets(&guest_actor).await.unwrap().is_empty());
+        assert!(!fixture.org.sheet_readable(ledger, &guest_actor).await.unwrap());
+    }
+
+    fn uuid_tail(path: &str) -> Uuid {
+        Uuid::parse_str(path.rsplit('/').next().unwrap()).unwrap()
+    }
+
     /// General access goes through the same PATCH, for whoever may manage sharing, and every
     /// read and list then says it.
     #[tokio::test]

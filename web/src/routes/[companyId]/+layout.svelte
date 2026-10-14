@@ -2,6 +2,7 @@
 	import { reenterIfLapsed } from '$lib/model/reenter';
 	import { firstPaint } from '$lib/model/first-paint.svelte';
 	import WelcomeTour from '$lib/components/WelcomeTour.svelte';
+	import GuestShell from '$lib/components/GuestShell.svelte';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { prefetchOnIntent } from '$lib/model/prefetch';
 	import { describeFailure, failureSentence } from '$lib/model/failure';
@@ -102,7 +103,10 @@
 	const companyId = $derived(page.params.companyId ?? '');
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
 	const entry = firstPaint(() => companyId);
-	const principal = $derived(principalProjection.view);
+	/* A guest (UXG-070) is given only the documents and sheets shared with them: GuestShell is
+	 * their whole cockpit, and nothing below reads the company for them. */
+	const guest = $derived(principalProjection.view?.membership_role === 'guest');
+	const principal = $derived(guest ? null : principalProjection.view);
 	const ownerAccess = $derived(hasOwnerSurfaceAccess(principal));
 	/* For you, for the owner and every member: the Inbox lists it, the Inbox tab counts what is
 	 * unread, and with desktop notifications on it keeps reading while the cockpit is hidden. */
@@ -222,7 +226,10 @@
 	 * same endpoint on two clocks. The badge can no longer disagree with the
 	 * queue it is counting. Members hear the same change hints, so a page shared
 	 * with them or a reply to them appears without waiting for the next poll. */
-	companyChangeStream(() => companyId);
+	companyChangeStream(
+		() => companyId,
+		() => !guest
+	);
 	/* Everyone's Inbox is the same projection (the owner's is the company queue), so the badge and
 	 * the notifier read it for members too. */
 	const attention = $derived(attentionQuery(companyId, () => !!principal));
@@ -253,6 +260,7 @@
 	);
 	const cockpit = $derived(cockpitProjection.view);
 	const startupReady = $derived.by(() => {
+		if (guest) return true;
 		if (!principal) return false;
 		if (!ownerAccess) return Boolean(collaboration.view);
 		return Boolean(attention.view && cockpit);
@@ -1033,7 +1041,7 @@
 	/* Owner-only destinations for the command menu. Collaborators keep the
 	 * surface moves the shell adds for everyone. */
 	/* Others in this company's cockpit, and the signed-in person's circle. */
-	const others = presence(() => companyId);
+	const others = presence(() => (guest ? '' : companyId));
 	let railFocusRequest = $state(0);
 	let railDraft = $state<{ text: string; key: number } | null>(null);
 	/* Asking someone opens their conversation with the composer ready. Where the page has no side
@@ -1075,7 +1083,7 @@
 					(ownerAccess ? 'Owner' : 'Member'))
 	);
 	const viewerRole = $derived(
-		`${{ owner: 'Owner', admin: 'Admin', member: 'Member' }[principal?.membership_role ?? 'member'] ?? 'Member'} · ${companyName || companyId}`
+		`${{ owner: 'Owner', admin: 'Admin', member: 'Member', guest: 'Guest' }[principal?.membership_role ?? 'member'] ?? 'Member'} · ${companyName || companyId}`
 	);
 
 	/* Desktop notifications: tell this device about anything new that needs
@@ -1710,7 +1718,9 @@
 	}}
 	use:prefetchOnIntent={{ client: queryClient, company: () => companyId }}
 >
-	{#if welcoming && childAllowed}
+	{#if guest}
+		<GuestShell {companyId}>{@render children()}</GuestShell>
+	{:else if welcoming && childAllowed}
 		{@render children()}
 	{:else}
 		<AppShell

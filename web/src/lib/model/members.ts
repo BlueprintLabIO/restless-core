@@ -3,7 +3,8 @@
 
 import { ownerJson } from './failure.ts';
 
-export type MembershipRole = 'owner' | 'admin' | 'member';
+/** A guest (UXG-070) is someone outside the company given only the items shared with them. */
+export type MembershipRole = 'owner' | 'admin' | 'member' | 'guest';
 export type MembershipStatus = 'active' | 'suspended' | 'removed';
 
 export interface IssuerMetadata {
@@ -128,20 +129,33 @@ export class AlreadyMember extends Error {
 	}
 }
 
-/** Whether this company can send email invitations now: only once sharing is set up does it have
- * an account issuer to send them. */
-export async function emailInvitesReady(company: string): Promise<boolean> {
+/** Whether this company can send email invitations now (only once sharing is set up does it have
+ * an account issuer to send them), and whether its issuer can invite a guest for one item. */
+export async function emailInvites(company: string): Promise<{ ready: boolean; guests: boolean }> {
 	const core = await getCoreMembers(company);
-	return core.mode === 'network' && !!core.issuer && !!core.company_id;
+	const ready = core.mode === 'network' && !!core.issuer && !!core.company_id;
+	return { ready, guests: ready && issuerInvitesGuests(core.issuer) };
+}
+
+/** The configured issuer says it knows the guest role; an older one invites members only. */
+export function issuerInvitesGuests(issuer: IssuerMetadata | null | undefined): boolean {
+	return !!issuer?.roles.includes('guest');
 }
 
 /** Invite someone by email from anywhere in the company, Share included: Core names the issuer
  * and the issuer decides whether this person may invite. An email that belongs to an active member
- * throws AlreadyMember with their Actor, so Share adds them rather than inviting them again. */
-export async function inviteToCompany(company: string, email: string): Promise<IssuerInvitation> {
+ * throws AlreadyMember with their Actor, so Share adds them rather than inviting them again. A
+ * guest is given only what is then shared with them; a member joins the whole company. */
+export async function inviteToCompany(
+	company: string,
+	email: string,
+	role: 'member' | 'guest' = 'member'
+): Promise<IssuerInvitation> {
 	const core = await getCoreMembers(company);
 	if (core.mode !== 'network' || !core.issuer || !core.company_id)
 		throw new Error('Turn on sharing under Company, Members before inviting people.');
+	if (role === 'guest' && !issuerInvitesGuests(core.issuer))
+		throw new Error('This company’s account service cannot invite guests yet.');
 	const known = await getIssuerMembers(core.issuer, core.company_id).catch(() => null);
 	const wanted = email.trim().toLowerCase();
 	const found = known?.members.find(
@@ -154,23 +168,23 @@ export async function inviteToCompany(company: string, email: string): Promise<I
 		core.issuer,
 		core.company_id,
 		'invitations',
-		{ email, role: 'member' }
+		{ email, role }
 	);
 	return result.invitation;
 }
 
 export function joinMembers(core: CoreMember[], issuer: IssuerMember[]): MemberRow[] {
 	const actors = new Map(core.map((member) => [member.membership_id, member]));
-	const order: Record<MembershipRole, number> = { owner: 0, admin: 1, member: 2 };
+	const order: Record<MembershipRole, number> = { owner: 0, admin: 1, member: 2, guest: 3 };
 	return issuer
 		.map((member) => ({ ...member, actor: actors.get(member.membership_id) }))
 		.sort((a, b) => order[a.role] - order[b.role] || a.name.localeCompare(b.name));
 }
 
-/** Owners manage everyone but themselves; admins manage members only. */
+/** Owners manage everyone but themselves; admins manage members and guests. */
 export function mayManage(viewer: IssuerMembersView['viewer'], target: IssuerMember): boolean {
 	if (target.role === 'owner' || target.membership_id === viewer.membership_id) return false;
-	return viewer.role === 'owner' || target.role === 'member';
+	return viewer.role === 'owner' || target.role === 'member' || target.role === 'guest';
 }
 
 /** Who holds root Authority now: approvals, money, keys and the charter answer to them. */

@@ -6,6 +6,7 @@ import { betterAuth } from "better-auth";
 import { getMigrations } from "better-auth/db/migration";
 import { toNodeHandler } from "better-auth/node";
 import { organization } from "better-auth/plugins";
+import { defaultAc, defaultRoles } from "better-auth/plugins/organization/access";
 import pg from "pg";
 import { createIssuer, failure, json, readJson, refuse } from "./issuer.mjs";
 import { createSqlMembershipStore, MEMBERSHIP_SCHEMA } from "./membership-sql.mjs";
@@ -26,6 +27,12 @@ const ASSETS = new Map([
   ["/app.js", ["app.js", "text/javascript; charset=utf-8"]],
   ["/style.css", ["style.css", "text/css; charset=utf-8"]],
 ]);
+// A guest is given only the items shared with them (issuer 1.3.0). In Better Auth they hold no
+// organisation permission at all: they cannot invite, change or remove anyone.
+const ORGANIZATION_ROLES = {
+  ...defaultRoles,
+  guest: defaultAc.newRole({ organization: [], member: [], invitation: [], team: [], ac: [] }),
+};
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -89,12 +96,20 @@ export async function createSelfHostedIssuer(
     plugins: [
       organization({
         allowUserToCreateOrganization: false,
+        ac: defaultAc,
+        roles: ORGANIZATION_ROLES,
         organizationLimit: companies.length,
-        sendInvitationEmail: async ({ email, id, organization }) =>
+        sendInvitationEmail: async ({ email, id, organization, role }) =>
           mail.send({
             to: email,
-            subject: `Join ${organization.name} on Restless`,
-            text: `You have been invited to ${organization.name}. Sign in with this email address to accept:\n\n${invitationLink(id)}`,
+            subject:
+              role === "guest"
+                ? `Something was shared with you in ${organization.name} on Restless`
+                : `Join ${organization.name} on Restless`,
+            text:
+              role === "guest"
+                ? `${organization.name} shared something with you on Restless. You will see only what was shared with you. Sign in with this email address to open it:\n\n${invitationLink(id)}`
+                : `You have been invited to ${organization.name}. Sign in with this email address to accept:\n\n${invitationLink(id)}`,
           }),
       }),
     ],
@@ -122,6 +137,7 @@ export async function createSelfHostedIssuer(
     placement,
     store,
     invitationLink,
+    guests: true,
   });
   const assets = new Map(
     await Promise.all(

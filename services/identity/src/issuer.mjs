@@ -69,10 +69,15 @@ export function failure(error, headers = {}) {
 export function authorizeChange(viewer, change, target) {
   if (target.role === "owner" || target.membership_id === viewer.membership_id)
     refuse(403, "You cannot change the company owner or yourself here.");
-  if (viewer.role === "admin" && target.role !== "member")
+  // An admin manages members and guests; an admin is the owner's to change.
+  if (viewer.role === "admin" && !["member", "guest"].includes(target.role))
     refuse(403, "Only the owner can change an admin.");
   if (change.verb === "role") {
     if (viewer.role !== "owner") refuse(403, "Only the owner can change roles.");
+    // A guest opens only what was shared with them. Joining the company is a separate, explicit
+    // invitation, never a role change on the guest's account.
+    if (target.role === "guest")
+      refuse(409, "A guest stays a guest. Remove them, then invite them to the company as a member.");
     if (!["member", "admin"].includes(change.role))
       refuse(400, "Choose member or admin access.");
     if (target.status !== "active")
@@ -114,6 +119,7 @@ export function authorizeOwnershipTransfer(viewer, current, target) {
   if (current.role !== "owner") refuse(403, "Only the owner can make someone else the owner.");
   if (target.membership_id === current.membership_id)
     refuse(409, "You are already the owner.");
+  if (target.role === "guest") refuse(409, "A guest cannot be made the owner.");
   if (!["admin", "member"].includes(target.role))
     refuse(409, "This person is already the owner.");
   if (target.status !== "active")
@@ -132,8 +138,10 @@ export function authorizeOwnershipTransfer(viewer, current, target) {
  *   transferOwnership?(companyId, fromMembershipId, toMembershipId, { authorize }) -> { ending },
  * }
  * @param options.invitationLink (invitationId) -> absolute URL the invitee opens to accept
+ * @param options.guests         true when the host's Better Auth and Store know the `guest` role
+ *                               (issuer 1.3.0): someone given only the items shared with them
  */
-export function createIssuer({ auth, origin, placement, store, invitationLink }) {
+export function createIssuer({ auth, origin, placement, store, invitationLink, guests = false }) {
   if (typeof auth?.api?.getSession !== "function")
     throw Error("A Better Auth instance is required");
   if (typeof placement?.resolve !== "function")
@@ -148,7 +156,7 @@ export function createIssuer({ auth, origin, placement, store, invitationLink })
     issuer: origin,
     admin_api: origin + "/api/admin/v1",
     account_url: origin + "/",
-    roles: ["owner", "admin", "member"],
+    roles: guests ? ["owner", "admin", "member", "guest"] : ["owner", "admin", "member"],
     terminal_statuses: ["suspended", "removed"],
     invitation_delivery: ["email", "link"],
     role_changes: "owner",
@@ -212,12 +220,17 @@ export function createIssuer({ auth, origin, placement, store, invitationLink })
     const viewer = await store.membership(companyId, user.id);
     if (!viewer || viewer.status !== "active")
       refuse(403, "You do not currently have access to this company.");
+    // A guest opens only what was shared with them: not who is in the company, and nothing here
+    // but leaving.
+    const leaving = request.method === "POST" && rest === "members/self/leave";
+    if (viewer.role === "guest" && !leaving)
+      refuse(403, "Guests see only what is shared with them.");
     // Everyone in the company sees who is in it; owners and admins change it.
     if (request.method === "GET" && rest === "members")
       return adminView(request, companyId, viewer);
     // Anyone but the owner may leave. It is their own removal: the same versioned change and
     // Core control as an admin removing them, so entry closes the same way.
-    if (request.method === "POST" && rest === "members/self/leave") {
+    if (leaving) {
       if (!/^application\/json\b/i.test(request.headers.get("content-type") ?? ""))
         refuse(415, "Membership changes must be JSON.");
       const change = { verb: "remove" };
@@ -242,8 +255,10 @@ export function createIssuer({ auth, origin, placement, store, invitationLink })
     const organizationId = viewer.organization_id;
 
     if (rest === "invitations") {
-      if (!["member", "admin"].includes(input.role))
-        refuse(400, "Choose member or admin access.");
+      // A guest is invited only for the items shared with them; owners and admins may do that.
+      const roles = guests ? ["member", "admin", "guest"] : ["member", "admin"];
+      if (!roles.includes(input.role))
+        refuse(400, guests ? "Choose guest, member or admin access." : "Choose member or admin access.");
       if (input.role === "admin" && viewer.role !== "owner")
         refuse(403, "Only the owner can invite an admin.");
       const invitation = await auth.api.createInvitation({
@@ -274,7 +289,7 @@ export function createIssuer({ auth, origin, placement, store, invitationLink })
         })
       ).find((candidate) => candidate.id === match[1]);
       if (!invitation) refuse(404, "Invitation not found.");
-      if (invitation.role !== "member" && viewer.role !== "owner")
+      if (!["member", "guest"].includes(invitation.role) && viewer.role !== "owner")
         refuse(403, "Only the owner can cancel an admin invitation.");
       await auth.api.cancelInvitation({
         headers: sessionHeaders(request),

@@ -360,6 +360,9 @@ async fn collaboration_bootstrap(
     };
 
     let actor_id = principal.actor_id().to_string();
+    if principal.membership_role() == "guest" {
+        return guest_bootstrap(&principal, source, &company, actor_id).await;
+    }
     let projected = tokio::try_join!(
         source.org.company_access_identity(),
         source.org.list_actors(),
@@ -561,6 +564,80 @@ async fn collaboration_bootstrap(
                 .collect(),
             work_graph,
             attention: MemberAttentionView { handoffs },
+            source_health: MemberSourceHealth {
+                orgintel: "available",
+            },
+            refreshed_at: Utc::now(),
+        }),
+    )
+        .into_response()
+}
+
+/// What a guest (UXG-070) is told about the company: its name and the identity its live document
+/// service needs, and only the people on the documents and sheets shared with them, so a comment
+/// is attributed by name. Never its mission, teams, goals, Work, other people or Inbox.
+async fn guest_bootstrap(
+    principal: &RequestPrincipal,
+    source: CompanySource,
+    company: &str,
+    actor_id: String,
+) -> Response<Body> {
+    let projected = tokio::try_join!(
+        source.org.company_access_identity(),
+        source.org.list_actors(),
+        source.org.guest_collaborators(&actor_id),
+    );
+    let (identity, actors, collaborators) = match projected {
+        Ok(projected) => projected,
+        Err(error) => {
+            tracing::error!(%error, %company, %actor_id, "guest collaboration projection unavailable");
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "collaboration_unavailable",
+                "company collaboration is temporarily unavailable",
+            );
+        }
+    };
+    let people = actors
+        .iter()
+        .filter(|actor| actor.actor_class != "service" && collaborators.contains(&actor.id))
+        .map(|actor| MemberPersonView {
+            actor_id: actor.id.clone(),
+            kind: actor.kind.clone(),
+            actor_class: actor.actor_class.clone(),
+            role: actor.role.clone(),
+            display: actor.display.clone(),
+            team_id: None,
+            session_running: false,
+        })
+        .collect();
+    (
+        [(CACHE_CONTROL, HeaderValue::from_static("no-store"))],
+        Json(MemberBootstrapView {
+            schema_version: "member-collaboration.v1",
+            principal: MemberPrincipalView {
+                actor_id,
+                membership_role: principal.membership_role().to_string(),
+                cache_partition: principal.cache_partition().to_string(),
+            },
+            company: MemberCompanyView {
+                id: source.handle,
+                company_id: identity.map(|identity| identity.company_id),
+                name: source.display,
+                mission: String::new(),
+            },
+            people,
+            teams: Vec::new(),
+            goals: Vec::new(),
+            work_graph: MemberWorkGraphView {
+                work: Vec::new(),
+                edges: Vec::new(),
+                attempts: Vec::new(),
+                artifacts: Vec::new(),
+            },
+            attention: MemberAttentionView {
+                handoffs: Vec::new(),
+            },
             source_health: MemberSourceHealth {
                 orgintel: "available",
             },
@@ -932,6 +1009,39 @@ mod tests {
                 "owner_brief",
             ],
         );
+
+        // A guest (UXG-070) is told the company's name and identity and the people on what is
+        // shared with them, and nothing of its mission, teams, goals, Work or other people.
+        org.ensure_actor("dana", "human", "company-guest", "Dana").await.unwrap();
+        let ledger = Uuid::new_v4();
+        org.create_sheet(ledger, "bob", "Ledger", "participants", &serde_json::json!({"revisionId": "r0"}))
+            .await
+            .unwrap();
+        org.share_sheet(ledger, "bob", "dana", Some("read")).await.unwrap();
+        let guest = routes::<MemberCollaborationState>()
+            .layer(axum::Extension(principal("dana", "guest", &company)))
+            .with_state(state.clone());
+        let response = guest
+            .oneshot(Request::builder().uri(&path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["principal"]["membership_role"], "guest");
+        assert_eq!(body["company"]["company_id"], company_id.to_string());
+        assert_eq!(body["company"]["mission"], "");
+        let mut people = body["people"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|person| person["actor_id"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        people.sort_unstable();
+        assert_eq!(people, ["bob", "dana"]);
+        for empty in [&body["teams"], &body["goals"], &body["work_graph"]["work"], &body["work_graph"]["artifacts"], &body["attention"]["handoffs"]] {
+            assert!(empty.as_array().unwrap().is_empty());
+        }
 
         let cross_company = app
             .oneshot(

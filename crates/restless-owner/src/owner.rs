@@ -2289,6 +2289,15 @@ fn membership_boundary_violation(
     path: &str,
     principal: &RequestPrincipal,
 ) -> Option<BoundaryRefusal> {
+    // A guest has an allow-list of their own and nothing from the chain below, so no route a
+    // member reaches is ever open to a guest by default.
+    if principal.membership_role() == "guest" {
+        return (!guest_may_reach(method, path)).then_some(BoundaryRefusal {
+            status: StatusCode::FORBIDDEN,
+            code: "membership_role",
+            message: "A guest opens only what is shared with them.",
+        });
+    }
     if principal.membership_role() == "owner"
         // Static shell/assets are not company data and remain governed by the
         // outer Host/Origin/session boundary. Every API and desktop route is
@@ -2379,6 +2388,70 @@ fn membership_boundary_violation(
         code: "membership_role",
         message,
     })
+}
+
+/// What a guest (UXG-070) may reach: someone outside the company given only the documents and
+/// sheets shared with them by name. Deny by default. A guest reaches the cockpit shell, their own
+/// principal, sign-out, the collaboration bootstrap (its guest projection names the company and
+/// only the people on their items), the document and sheet lists (which answer only what is
+/// shared with them),
+/// images shown in a document they can read, and the routes of one document or sheet that read,
+/// discuss and edit it, whose handlers check the share and the access it gives. Never the
+/// company's people, Work, conversations, Inbox, Apps, settings, spend or search, nor sharing,
+/// creating, copying, archiving, reviewing or following.
+fn guest_may_reach(method: &Method, path: &str) -> bool {
+    !is_owner_data_surface(path)
+        || path == "/entry/logout"
+        || is_company_principal_route(path)
+        // Answered for a guest with the company's name and the people on their items only.
+        || is_company_collaboration_bootstrap_route(method, path)
+        || is_attachment_download_route(method, path)
+        || guest_item_route(method, path)
+}
+
+fn guest_item_route(method: &Method, path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/companies/") else {
+        return false;
+    };
+    let segments: Vec<&str> = rest.split('/').collect();
+    let read = matches!(*method, Method::GET | Method::HEAD);
+    let post = *method == Method::POST;
+    let (family, tail) = match segments.as_slice() {
+        [company, family] if !company.is_empty() => return read && matches!(*family, "documents" | "sheets"),
+        [company, family, item, tail @ ..]
+            if !company.is_empty() && Uuid::parse_str(item).is_ok() =>
+        {
+            (*family, tail)
+        }
+        _ => return false,
+    };
+    match (family, tail) {
+        ("documents", []) => read,
+        ("documents", ["collaboration"]) => read,
+        ("documents", ["collaboration", "token"]) => post,
+        ("documents", ["links"]) => read,
+        ("documents", ["versions"]) => read,
+        ("documents", ["versions", _]) => read,
+        ("documents", ["versions", _, "export", "markdown"]) => read,
+        ("documents", ["comments"]) => read || post,
+        ("documents", ["comments", _, "replies"]) => read || post,
+        ("documents", ["comments", _, "resolve" | "reopen"]) => post,
+        ("documents", ["comments", _, "replies", _]) => {
+            matches!(*method, Method::PATCH | Method::DELETE)
+        }
+        ("documents", ["comment-reactions"]) => read || post,
+        ("documents", ["proposals"]) => read,
+        ("documents", ["proposals", _]) => read,
+        ("sheets", []) => read,
+        ("sheets", ["collaboration"]) => read,
+        ("sheets", ["operations"]) => post,
+        ("sheets", ["versions"]) => read,
+        ("sheets", ["versions", _]) => read,
+        ("sheets", ["comments"]) => read || post,
+        ("sheets", ["comments", _, "replies" | "resolve"]) => post,
+        ("sheets", ["comments", _, _]) => matches!(*method, Method::PATCH | Method::DELETE),
+        _ => false,
+    }
 }
 
 fn is_company_collaboration_bootstrap_route(method: &Method, path: &str) -> bool {
