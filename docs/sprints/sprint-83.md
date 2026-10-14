@@ -99,15 +99,15 @@ The container has dockerd, Postgres 16, Chromium and the Rust/Node toolchains, b
 
 ## Results — 14 October 2026
 
-**All 325 items have a disposition on `main`: 320 fixed, 1 already fixed, 3 deleted, 1 won't fix.**
+**All 325 items have a disposition on `main`: 321 fixed, 1 already fixed, 3 deleted.**
 
 - **Already fixed:** UXG-038, closed by WP02's `1458575`.
 - **Deleted (dead machinery):** UXG-125, UXG-264, UXG-304.
-- **Won't fix:** UXG-189. `AccountHome` is not dead: it ships in `@restless/ui` for Restless Cloud's Home.
+- **UXG-189, first closed as won't fix:** `AccountHome` is not dead; it ships in `@restless/ui` for Restless Cloud's Home. The owner problem was fixed instead (`5190f546`): the real Home now shows each company's spend against its limit and this computer's last backup.
 
 Each GitHub issue `UXG-NNN:` is closed with its commit.
 
-**How it was verified.** The final gate ran on `0881fa92` with a local test Postgres. Database-backed tests ran rather than skipping. Results:
+**How it was verified.** The final gate ran on `39e4ffb5` with a local test Postgres. Database-backed tests ran rather than skipping. Results:
 
 | Check | Result |
 |---|---|
@@ -118,18 +118,17 @@ Each GitHub issue `UXG-NNN:` is closed with its commit.
 | `restless-owner` tests | 126 passed, 0 failed |
 | `restless-orgintel` tests | 240 passed, 0 failed |
 | `restless` tests | 27 passed, 0 failed |
-| `restless-engine --lib` | 411 passed, 2 failed |
+| `restless-engine` | 415 passed, 0 failed |
 
-Both engine failures also fail at the pre-sprint commit `d172070`:
+Fixing the engine failures that predated the sprint uncovered a real production deadlock:
 
-- `concurrent_lost_response_replays_one_durable_receipt` is a parallel-load flake. It passes alone, and its sibling bootstrap tests flake the same way at `d172070`.
-- `detached_review_copy_keeps_completed_source_commit_and_status_unchanged` depends on the environment's reviewer identity.
-
-`native_sheets_*` tests need `npm ci` in `services/native-sheets`; with it they pass.
+- `f1257573`: `AuthorityStore::connect` ran its schema statements in one transaction. Under concurrent company admission, that took table locks in the opposite order from the admission, which deadlocked in production as well as in tests. The statements now commit one at a time under one session lock.
+- `66bd7f90`: the review-copy test now skips only its reviewer probe when the process can bypass file permissions, as root can. Run as `nobody`, the full probe passes.
+- `a0c37530`: the sheets integration test skips with the install command when the pinned spreadsheet engine is absent.
 
 **Regressions this sprint introduced, all caught by the gate and repaired:**
 
-- `b1232117` (UXG-313) admitted admins to the owner's whole company view, `GET /company`. That view includes credential probes and configuration. `0881fa92` restored owner-only access. Admins now read spend through a narrow `GET /company/spend`. Trade-off: admins no longer see payments still awaiting a result on Activity.
+- `b1232117` (UXG-313) admitted admins to the owner's whole company view, `GET /company`. That view includes credential probes and configuration. `0881fa92` restored owner-only access. Admins now read spend through a narrow `GET /company/spend`. Activity's payments and pending effects through `GET /company/activity/payments` (`39e4ffb5`) show admins display fields only, without the paying account or transfer reference.
 - `26c08c4c` (UXG-314, away mode) let every admin past the membership boundary for `approvals/grant|decline`. `0283b24a` makes the handler admit only the named deputy of an away in force, before any side effect, for single decisions. New tests cover the deputy cases.
 - Migrations 0101–0108 landed without moving `release::SCHEMA_VERSION`. `6476c777` declares 108. The same commit makes the CLI-spelling check read `direction.rs`; that check had been red since Sprint 80.
 - `5f65c4b` tracked a `web/node_modules` symlink, which blocked rebases. `f86afd9` untracked it and ignores links.
@@ -398,7 +397,7 @@ Status lives only here; the audit README's checklist points to this one.
 - [x] [UXG-186](../audits/user-story-gap-audit-2026-10-14/issues/UXG-186-make-the-company-sidebar-s-computer-and-limits-values-truthf.md) Make the Company sidebar's Computer and Limits values truthful — medium — **Fixed** `45dd6398`
 - [x] [UXG-187](../audits/user-story-gap-audit-2026-10-14/issues/UXG-187-keep-settings-search-on-phones-and-narrow-panes.md) Keep settings search on phones and narrow panes — low — **Fixed** `3d7b4ea4`
 - [x] [UXG-188](../audits/user-story-gap-audit-2026-10-14/issues/UXG-188-read-the-brand-name-from-config-in-the-model-catalog-tooltip.md) Read the brand name from config in the model-catalog tooltip — low — **Fixed** `62bd4da0`
-- [x] [UXG-189](../audits/user-story-gap-audit-2026-10-14/issues/UXG-189-wire-up-or-delete-the-unused-accounthome-view.md) Wire up or delete the unused AccountHome view — low — **Won't fix (AccountHome ships in @restless/ui for Cloud)** `-`
+- [x] [UXG-189](../audits/user-story-gap-audit-2026-10-14/issues/UXG-189-wire-up-or-delete-the-unused-accounthome-view.md) Wire up or delete the unused AccountHome view — low — **Fixed** `5190f546`
 - [x] [UXG-190](../audits/user-story-gap-audit-2026-10-14/issues/UXG-190-stop-hiding-needed-company-explanations-in-hover-only-titles.md) Stop hiding needed Company explanations in hover-only titles — low — **Fixed** `3d7b4ea4`
 
 ### WP14 — Exec chat I
