@@ -928,6 +928,31 @@
 		return Number.isFinite(value) ? value : 0;
 	}
 
+	/* A screen reader hears each new reply as it lands, not only that one arrived. History that
+	 * loads, or a conversation switched to, is not read out. */
+	let announcement = $state('');
+	let announcedThrough = -1;
+	let announcedKey = '';
+	$effect(() => {
+		const key = `${companyId}:${participantId}:${currentTopicKey}`;
+		const last = messages.at(-1);
+		const id = last ? messageNumericId(last.id) : 0;
+		if (key !== announcedKey || conversationStatus === 'unknown') {
+			announcedKey = key;
+			announcedThrough = conversationStatus === 'unknown' ? -1 : id;
+			announcement = '';
+			return;
+		}
+		if (announcedThrough < 0) {
+			announcedThrough = id;
+			return;
+		}
+		if (!last || id <= announcedThrough) return;
+		announcedThrough = id;
+		if (last.from !== 'you')
+			announcement = `${last.author || participantName}: ${excerptOf(last.intent?.summary || last.text)}`;
+	});
+
 	function firstMessageNumericId(messageId: string): number {
 		const value = Number(messageId.split(':')[0]);
 		return Number.isFinite(value) ? value : 0;
@@ -1290,6 +1315,7 @@
 				</p>
 			{/if}
 			<div class="exr-chat">
+				<p class="sr-only" aria-live="polite">{announcement}</p>
 				<div
 					class="exr-msgs"
 					bind:this={scrollEl}
