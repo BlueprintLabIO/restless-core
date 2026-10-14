@@ -365,13 +365,9 @@
 		owner ? (attention.view?.workGraph?.work ?? []) : (collaboration.view?.work_graph.work ?? [])
 	);
 	const files = $derived(libraryFiles(artifacts, libraryWorks));
-	/* Files of stopped or revised Work have moved on: Archived, not the default views (S85-12). */
-	const retiredWork = $derived(
-		retiredWorkIds(
-			libraryWorks,
-			(owner ? attention.view?.workGraph?.edges : collaboration.view?.work_graph.edges) ?? []
-		)
-	);
+	/* Files of stopped Work have moved on: Archived, not the default views (S85-12). A replaced
+	 * output is marked superseded on itself, and libraryFiles leaves it out. */
+	const retiredWork = $derived(retiredWorkIds(libraryWorks));
 	const isRetired = (file: LibraryFile) => !!file.workId && retiredWork.has(file.workId);
 	/* Archived Work files still open, read only, so the owner can see what one is before
 	 * restoring it. */

@@ -112,18 +112,29 @@ test('a replaced file with nothing newer says so', () => {
 	assert.equal(found?.gone, 'Draft');
 });
 
-test('stopped Work and Work a newer Work revises are retired; the rest stay', () => {
-	const retired = retiredWorkIds(
+test("stopped Work is retired; a reviewer's revises edge retires nothing", () => {
+	const retired = retiredWorkIds([
+		{ id: 'site', status: 'completed' },
+		{ id: 'review', status: 'completed' },
+		{ id: 'abandoned', status: 'abandoned' }
+	]);
+	assert.deepEqual([...retired], ['abandoned']);
+});
+
+test('an output a newer one superseded leaves the Library', () => {
+	const files = libraryFiles(
 		[
-			{ id: 'site-v1', status: 'completed' },
-			{ id: 'site-v2', status: 'completed' },
-			{ id: 'abandoned', status: 'abandoned' },
-			{ id: 'live', status: 'active' }
+			record({
+				id: 'old',
+				uri: '/company/outputs/site-v1/index.html',
+				superseded_at: '2026-10-12T00:00:00Z'
+			}),
+			record({ id: 'new', uri: '/company/outputs/site-v2/index.html' })
 		],
-		[
-			{ from_work_id: 'site-v2', to_work_id: 'site-v1', kind: 'revises' },
-			{ from_work_id: 'live', to_work_id: 'site-v2', kind: 'requires' }
-		]
+		[{ id: 'w1', title: 'Site' }]
 	);
-	assert.deepEqual([...retired].sort(), ['abandoned', 'site-v1']);
+	assert.deepEqual(
+		files.map((file) => file.id),
+		['new']
+	);
 });

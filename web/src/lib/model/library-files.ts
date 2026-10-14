@@ -16,6 +16,8 @@ export interface LibraryArtifact {
 	work_id: string | null;
 	state: string;
 	created_at: string;
+	/** Set when a newer output replaced this one; it leaves the default views. */
+	superseded_at?: string | null;
 }
 
 export interface LibraryFile {
@@ -169,7 +171,7 @@ export function libraryFiles(
 	for (const artifact of [...artifacts].sort(
 		(a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)
 	)) {
-		if (artifact.state !== 'available' || !artifact.work_id) continue;
+		if (artifact.state !== 'available' || artifact.superseded_at || !artifact.work_id) continue;
 		const kind = libraryKind(artifact);
 		if (!kind) continue;
 		const named = artifact.label.trim() && !namesNothing(artifact.label.trim());
@@ -391,16 +393,9 @@ export function forgetLocalPins(company: string) {
 	}
 }
 
-/** The Work whose files have moved on (S85-12): Work that was stopped, and Work a newer Work
- * revises. Their files leave the Library's default views for Archived, so the Library matches
- * what Exec says it retired; a link to one still opens it. */
-export function retiredWorkIds(
-	works: readonly { id: string; status: string }[],
-	edges: readonly { from_work_id: string; to_work_id: string; kind: string }[] = []
-): Set<string> {
-	const retired = new Set(
-		works.filter((work) => work.status === 'abandoned').map((work) => work.id)
-	);
-	for (const edge of edges) if (edge.kind === 'revises') retired.add(edge.to_work_id);
-	return retired;
+/** Work whose files have moved on to Archived: stopped Work. A `revises` edge runs from a reviewer
+ * to the Work it may send back, not from a newer version, so it retires nothing; a replaced output
+ * is marked superseded on the output itself (S85-12). */
+export function retiredWorkIds(works: readonly { id: string; status: string }[]): Set<string> {
+	return new Set(works.filter((work) => work.status === 'abandoned').map((work) => work.id));
 }
