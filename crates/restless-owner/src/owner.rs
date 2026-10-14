@@ -657,6 +657,10 @@ struct ControlRequest {
     client_id: String,
     #[serde(default)]
     lease_id: Option<String>,
+    /// The cockpit released control because the owner went quiet, not because
+    /// they finished: the lease ends, but nobody is told to resume.
+    #[serde(default)]
+    idle: bool,
 }
 
 
@@ -11418,14 +11422,41 @@ async fn optional_session_ended(session_lease: Option<&SessionLease>) {
     }
 }
 
-async fn browser_status(AxumPath(company): AxumPath<String>) -> impl IntoResponse {
+async fn browser_status(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+) -> impl IntoResponse {
     match runtime::cockpit_browser_health(&company).await {
-        Ok((_, browser)) => Json(serde_json::json!({
-            "generation": runtime::generation(&company).await.ok().flatten(),
-            "browser": browser,
-            "control": runtime::read_browser_control(&company).await.ok().flatten(),
-        }))
-        .into_response(),
+        Ok((_, browser)) => {
+            // The agent driving the shared browser right now, so a viewer sees who
+            // they would pause. Only its name and Work leave the runtime, never its ticket.
+            let agent = match live_browser_agent_session(&state, &company).await {
+                Some(session) if session.expires_at > Utc::now() => {
+                    let display = match state.daemon.orgintel.get(&company).await {
+                        Ok(org) => org.list_actors().await.ok().and_then(|actors| {
+                            actors
+                                .into_iter()
+                                .find(|actor| actor.id == session.actor)
+                                .map(|actor| actor.display)
+                        }),
+                        Err(_) => None,
+                    };
+                    Some(serde_json::json!({
+                        "actor": session.actor,
+                        "display": display,
+                        "work_id": session.work_id,
+                    }))
+                }
+                _ => None,
+            };
+            Json(serde_json::json!({
+                "generation": runtime::generation(&company).await.ok().flatten(),
+                "browser": browser,
+                "control": runtime::read_browser_control(&company).await.ok().flatten(),
+                "agent": agent,
+            }))
+            .into_response()
+        }
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "runtime",
@@ -11573,7 +11604,12 @@ async fn return_control(
     // Runtime lease. The command key is derived from this owner lease, so a
     // retry after a lost response cannot create a duplicate wake.
     let mut resumed_exact_attempt = false;
-    if let (Some(work_id), Some(attempt_id)) = (work_id, attempt_id) {
+    let exact = if input.idle {
+        None
+    } else {
+        work_id.zip(attempt_id)
+    };
+    if let Some((work_id, attempt_id)) = exact {
         let org = match state.daemon.orgintel.get(&company).await {
             Ok(org) => org,
             Err(error) => {
@@ -11661,7 +11697,7 @@ async fn return_control(
     drop(control_guard);
     // A running producer receives durable Work feedback through its existing
     // safe-checkpoint path. Other attachments retain the generic actor notice.
-    if !resumed_exact_attempt {
+    if !resumed_exact_attempt && !input.idle {
         if let Some(requesting_actor) = requesting_actor {
             if let Ok(org) = state.daemon.orgintel.get(&company).await {
                 let _ = org

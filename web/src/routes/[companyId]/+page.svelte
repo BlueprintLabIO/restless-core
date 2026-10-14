@@ -47,8 +47,8 @@
 	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
 	import { startFixHref, startLinkLabel } from '$lib/model/company-start';
 	import { browserTabClientId } from '$lib/model/browserTab';
-	import { getBrowserStatus } from '$lib/model/company';
-	import { browserControl, issueDesktopTicket, issueReviewTicket } from '$lib/model/attention';
+	import { issueDesktopTicket, issueReviewTicket } from '$lib/model/attention';
+	import { DesktopControl } from '$lib/model/desktop-control.svelte';
 	import { takeInboxOutcome } from '$lib/model/inbox-outcome.svelte';
 	import { companyFileLinks, workFileLinks } from '$lib/model/inbox-files';
 	import {
@@ -89,11 +89,7 @@
 	let error = $state('');
 	let focusItem = $state<AttentionItem | null>(null);
 	let desktopUrl = $state('');
-	let controller = $state<'observer' | 'owner'>('observer');
 	let autoClaimPending = $state(false);
-	let lastDesktopActivity = $state(0);
-	let lastLeaseRenewal = $state(0);
-	let activityRenewing = $state(false);
 	let conversationError = $state('');
 	let messageDraft = $state('');
 	/* A direction typed to the person on a handover survives a reload, per company and item. */
@@ -108,7 +104,10 @@
 	let messageFiles = $state<File[]>([]);
 	let sendingMessage = $state(false);
 	let clientId = $state('');
-	let controlLeaseId = $state('');
+	const control = new DesktopControl(
+		() => companyId,
+		() => clientId
+	);
 	let reviewUrl = $state('');
 	let reviewError = $state('');
 	let reviewRequestKey = $state('');
@@ -327,7 +326,7 @@
 			focusAttachKey = '';
 			focusItem = null;
 			desktopUrl = '';
-			controller = 'observer';
+			control.lose();
 			/* A handover failure belongs to the computer view, not to the Inbox left behind. */
 			error = '';
 			return;
@@ -338,7 +337,7 @@
 				focusAttachKey = '';
 				focusItem = null;
 				desktopUrl = '';
-				controller = 'observer';
+				control.lose();
 			}
 			return;
 		}
@@ -424,18 +423,7 @@
 
 	onMount(() => {
 		void browserTabClientId(companyId).then((id) => (clientId = id));
-		const idleRelease = window.setInterval(() => {
-			if (
-				controller === 'owner' &&
-				lastDesktopActivity > 0 &&
-				Date.now() - lastDesktopActivity >= 60_000
-			) {
-				void returnControl(true);
-			}
-		}, 5_000);
-		return () => {
-			window.clearInterval(idleRelease);
-		};
+		return control.watch();
 	});
 
 	/* Actions still refresh immediately after a write — the poll is a floor, not
@@ -466,39 +454,19 @@
 		);
 	}
 
-	function observedDesktopUrl(): string {
-		return `/desktop/${encodeURIComponent(companyId)}/observe`;
-	}
-
-	function controlledDesktopUrl(): string {
-		return `/desktop/${encodeURIComponent(companyId)}/control?client_id=${encodeURIComponent(clientId)}`;
-	}
-
-	async function syncFocusedControl() {
-		if (!focusItem || !desktopUrl || !clientId) return;
-		try {
-			const status = await getBrowserStatus(companyId);
-			if (status.control?.controller === 'owner' && status.control.client_id === clientId) {
-				controller = 'owner';
-				const controlled = controlledDesktopUrl();
-				if (desktopUrl !== controlled) desktopUrl = controlled;
-			} else if (controller === 'owner') {
-				controller = 'observer';
-				desktopUrl = observedDesktopUrl();
-			}
-			if (autoClaimPending) {
-				autoClaimPending = false;
-				await takeControl(true);
-			}
-		} catch (cause) {
-			if (focusItem) error = failureSentence(cause, 'Browser control state is unavailable.');
-		}
+	/* The prepared step is the owner's to do: once the desktop connects, this tab takes control
+	 * so the first keystroke lands. The connection never changes afterwards; control only flips who
+	 * may type, so returning control keeps the agent's resumption in view. */
+	async function desktopConnected() {
+		if (!focusItem || !desktopUrl || !clientId || !autoClaimPending) return;
+		autoClaimPending = false;
+		await control.take(true);
 	}
 
 	async function attachPreparedComputer(item: AttentionItem) {
 		error = '';
 		focusItem = item;
-		controller = 'observer';
+		control.lose();
 		conversationError = '';
 		messageDraft = readDraft(handoverDraftKey(item.id));
 		messageFiles = [];
@@ -519,54 +487,13 @@
 		}
 	}
 
-	async function takeControl(silent = false) {
-		if (!focusItem || !clientId) return;
-		error = '';
-		try {
-			const control = await browserControl(companyId, 'take', clientId);
-			controlLeaseId = control.lease_id ?? '';
-			controller = 'owner';
-			desktopUrl = controlledDesktopUrl();
-			lastDesktopActivity = Date.now();
-			lastLeaseRenewal = Date.now();
-		} catch (cause) {
-			if (!silent) error = failureSentence(cause, 'Control is held elsewhere.');
-		}
-	}
-
-	async function returnControl(automatic = false) {
-		if (!focusItem || !clientId) return;
-		error = '';
-		try {
-			await browserControl(companyId, 'return', clientId, controlLeaseId);
-			controlLeaseId = '';
-			controller = 'observer';
-			desktopUrl = observedDesktopUrl();
-			lastDesktopActivity = 0;
-		} catch (cause) {
-			if (!automatic) error = failureSentence(cause, 'Control could not be returned.');
-		}
-	}
-
-	function desktopActivity() {
-		const now = Date.now();
-		lastDesktopActivity = now;
-		if (controller !== 'owner') {
-			void takeControl();
-			return;
-		}
-		if (activityRenewing || now - lastLeaseRenewal < 8_000) return;
-		activityRenewing = true;
-		lastLeaseRenewal = now;
-		void browserControl(companyId, 'heartbeat', clientId, controlLeaseId)
-			.catch((cause) => {
-				if (!focusItem) return;
-				controller = 'observer';
-				desktopUrl = observedDesktopUrl();
-				error = failureSentence(cause, 'Desktop control expired.');
-			})
-			.finally(() => (activityRenewing = false));
-	}
+	/* What the owner needs to know about the computer before acting: nothing when it is ready. */
+	const browserReadiness = $derived.by(() => {
+		const health = view?.sourceHealth.browser;
+		if (health === 'available') return '';
+		if (health === 'unavailable') return 'Computer not ready';
+		return 'Checking the computer';
+	});
 
 	/* Finish the human step from the computer itself: the sign-in is done here, so Mark done is
 	 * here too, with the same Undo window as everywhere else. */
@@ -591,7 +518,7 @@
 	}
 
 	async function closePreparedComputer(item: AttentionItem | null = focusItem) {
-		if (controller === 'owner') await returnControl();
+		if (control.owner) await control.release();
 		focusItem = null;
 		desktopUrl = '';
 		focusAttachKey = '';
@@ -826,7 +753,7 @@
 	<div class="browser-focus">
 		<header class="handover-rail">
 			<div class="handover-context">
-				<span class="live-mark" class:owner={controller === 'owner'}></span>
+				<span class="live-mark" class:owner={control.owner}></span>
 				<div>
 					<strong>{focusItem.title}</strong>
 					<span class="handover-request" title="Exact action requested by the responsible actor"
@@ -836,26 +763,43 @@
 			</div>
 			<div class="handover-state">
 				{#if focusItem.runtimeAttach && desktopUrl}
-					<span
-						class="mono"
-						title="Control changes keyboard and pointer ownership only; it does not complete this handoff."
-						>{view?.sourceHealth.browser ?? 'unknown'} · {controller === 'owner'
-							? 'You control'
-							: 'Observe only'}</span
-					>
-					{#if controller === 'observer'}
+					{#if browserReadiness}
+						<span
+							class="handover-readiness"
+							title={`The company computer reports “${view?.sourceHealth.browser ?? 'unknown'}”. The view reconnects when it is ready.`}
+							>{browserReadiness}</span
+						>
+					{/if}
+					{#if control.idleSeconds}
+						<span class="handover-idle" role="status">Handing back in {control.idleSeconds}s</span>
 						<button
 							class="btn small primary"
 							type="button"
+							title="Keeps control with you. Quiet control is handed back after a minute without telling the agent to resume."
+							onclick={() => control.stillHere()}>Still here</button
+						>
+					{/if}
+					<span
+						title="Control changes keyboard and pointer ownership only; it does not complete this handoff."
+						>{control.owner ? 'You control' : 'Observe only'}</span
+					>
+					{#if !control.owner}
+						<button
+							class="btn small primary"
+							type="button"
+							disabled={!!control.working}
 							title="Pauses company automation and gives this tab sole keyboard and pointer control."
-							onclick={() => takeControl()}>Take control</button
+							onclick={() => control.take()}
+							>{control.working === 'control' ? 'Taking control…' : 'Take control'}</button
 						>
 					{:else}
 						<button
 							class="btn small"
 							type="button"
+							disabled={!!control.working}
 							title="Returns input to the responsible actor. The source condition is checked separately."
-							onclick={() => returnControl()}>Return control</button
+							onclick={() => control.release()}
+							>{control.working === 'return' ? 'Returning…' : 'Return control'}</button
 						>
 					{/if}
 				{:else}
@@ -864,7 +808,7 @@
 				{#if focusStep && !focusItem.preparing}
 					<button
 						class="btn small"
-						class:primary={controller === 'owner' || !desktopUrl}
+						class:primary={control.owner || !desktopUrl}
 						type="button"
 						disabled={finishingStep}
 						title={`${focusItem.ifNoAction ? `${focusItem.ifNoAction}. ` : ''}${focusStep.consequence} Undo stays available for a few seconds.`}
@@ -880,7 +824,9 @@
 				>
 			</div>
 		</header>
-		{#if error}<div class="focus-error">{error}</div>{/if}
+		{#if error || control.error}<div class="focus-error" role="alert">
+				{error || control.error}
+			</div>{/if}
 		<div
 			class="browser-workspace"
 			use:resizePane={{
@@ -907,9 +853,9 @@
 							>{requestingActorName}</strong
 						>
 					</div>
-					<span class="controller-badge" class:owner={controller === 'owner' && !!desktopUrl}>
+					<span class="controller-badge" class:owner={control.owner && !!desktopUrl}>
 						{desktopUrl
-							? controller === 'owner'
+							? control.owner
 								? 'You control'
 								: `${requestingActorName} observes`
 							: 'Chat open'}
@@ -989,8 +935,11 @@
 						src={desktopUrl}
 						title="Live company browser"
 						offline={offlineDesktop}
-						onload={syncFocusedControl}
-						onactivity={desktopActivity}
+						interactive={control.owner}
+						canResize={control.owner}
+						onclaim={() => control.take()}
+						onload={() => void desktopConnected()}
+						onactivity={() => control.activity()}
 					/>
 				{/if}
 			</div>
@@ -1605,9 +1554,13 @@
 		gap: 1px;
 		min-width: 0;
 	}
-	.handover-state .mono {
+	.handover-state > span {
 		font-size: var(--t-label);
 		color: var(--text-tertiary);
+	}
+	.handover-state > .handover-idle {
+		color: var(--ink);
+		font-variant-numeric: tabular-nums;
 	}
 	.handover-context strong {
 		overflow: hidden;

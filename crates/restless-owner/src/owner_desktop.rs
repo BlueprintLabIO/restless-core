@@ -747,9 +747,17 @@ pub(crate) async fn claim_desktop_display_lease(
         .get(&company)
         .cloned()
         .filter(|lease| lease.expires_at > now);
+    // Looking must not change what a working agent sees: while an agent drives
+    // the browser, only the tab that took control may resize the desktop.
+    let agent_working = !controlling_here
+        && runtime::read_browser_agent_session(&company)
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|session| session.company == company && session.expires_at > Utc::now());
     let can_resize = if controlling_here {
         true
-    } else if other_controller {
+    } else if other_controller || agent_working {
         false
     } else {
         match current {

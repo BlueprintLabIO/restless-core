@@ -267,6 +267,8 @@ export interface BrowserStatus {
 		requesting_actor?: string;
 		expires_at?: string;
 	} | null;
+	/** The agent driving the shared browser right now, if any. */
+	agent?: { actor: string; display?: string | null; work_id?: string | null } | null;
 }
 
 export type RecoveryAction = 'start' | 'restart' | 'reconcile';

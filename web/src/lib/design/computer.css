@@ -440,6 +440,21 @@
 	border-radius: 0;
 }
 
+.bridge-root .company-desktop-focus .computer-task {
+	padding: 10px 14px;
+	border-bottom: 1px solid var(--border);
+	background: var(--surface-alt);
+	color: var(--ink);
+	font: var(--t-label) var(--font-ui);
+}
+
+.bridge-root .desktop-focus-actions .computer-idle {
+	color: var(--ink);
+	font: var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
 .bridge-root .company-desktop-focus .desktop-viewport {
 	grid-row: 3;
 	min-height: 0;

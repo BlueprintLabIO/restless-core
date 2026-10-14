@@ -587,12 +587,18 @@ export async function browserControl(
 	company: string,
 	action: 'take' | 'heartbeat' | 'return',
 	clientId: string,
-	leaseId?: string
+	leaseId?: string,
+	/** A return because the owner went quiet, not because they finished: the agent keeps waiting. */
+	idle = false
 ): Promise<{ lease_id?: string }> {
 	const response = await fetch(`/api/companies/${encodeURIComponent(company)}/browser/${action}`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ client_id: clientId, ...(leaseId ? { lease_id: leaseId } : {}) }),
+		body: JSON.stringify({
+			client_id: clientId,
+			...(leaseId ? { lease_id: leaseId } : {}),
+			...(idle ? { idle: true } : {})
+		}),
 		credentials: 'same-origin'
 	});
 	if (!response.ok) throw await ownerError(response);

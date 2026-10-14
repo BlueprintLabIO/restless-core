@@ -11,7 +11,9 @@
 	import Monitor from '@lucide/svelte/icons/monitor';
 	import { desktopWindows, focusDesktopWindow, type DesktopWindow } from '$lib/model/desktop';
 	import DesktopViewport from '$lib/components/DesktopViewport.svelte';
-	import { browserControl, issueDesktopTicket } from '$lib/model/attention';
+	import { issueDesktopTicket } from '$lib/model/attention';
+	import { DesktopControl } from '$lib/model/desktop-control.svelte';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { browserTabClientId } from '$lib/model/browserTab';
 	import {
 		COMPANY_BROWSER_OPEN_EVENT,
@@ -38,19 +40,21 @@
 	const focusMode = $derived(page.url.searchParams.get('focus'));
 	const focus = $derived(focusMode === 'desktop' || focusMode === 'browser');
 	const browserFocus = $derived(focusMode === 'browser');
+	/* A harness sign-in opened in the company browser: bring it forward and hand this tab control. */
+	const signIn = $derived(page.url.searchParams.get('task') === 'harness-sign-in');
 
 	let clientId = $state('');
-	let controlLeaseId = $state('');
 	let desktopUrl = $state('');
 	const browserStatus = $derived(browserProjection.view);
-	let controller = $state<'observer' | 'owner'>('observer');
-	let controlRequested = $state(false);
+	const control = new DesktopControl(
+		() => companyId,
+		() => clientId,
+		() => void browserProjection.refresh()
+	);
 	let canResize = $state(false);
 	let working = $state('');
 	let error = $state('');
-	let lastDesktopActivity = $state(0);
-	let lastLeaseRenewal = $state(0);
-	let activityRenewing = $state(false);
+	let signInPending = false;
 	let displaySizeTimer: ReturnType<typeof setTimeout> | undefined;
 	let displaySizePending: { width: number; height: number } | undefined;
 	let displaySizeRenewing = false;
@@ -73,18 +77,19 @@
 		if (working === 'attach') return asleep ? 'Waking…' : 'Connecting…';
 		return asleep ? 'Wake and enter' : 'Enter computer';
 	});
+	/* The agent driving the shared browser right now: taking control pauses it. */
+	const agentName = $derived.by(() => {
+		const agent = browserStatus?.agent;
+		return agent ? agent.display || agent.actor : '';
+	});
 	const controllerLabel = $derived.by(() => {
-		if (working === 'control') return 'Taking control…';
-		if (controller === 'owner') return 'You control';
-		const control = browserStatus?.control;
-		if (control?.controller === 'owner') {
-			return control.client_id === clientId ? 'Viewing only' : 'Another owner tab controls';
+		if (control.working === 'control') return 'Taking control…';
+		if (control.owner) return 'You control';
+		const lease = browserStatus?.control;
+		if (lease?.controller === 'owner' && lease.client_id !== clientId) {
+			return 'Another owner tab controls';
 		}
-		if (control?.controller === 'agent') {
-			return control.requesting_actor
-				? `${control.requesting_actor} controls`
-				: 'A company actor controls';
-		}
+		if (agentName) return `${agentName} is working`;
 		if (browserStatus) return 'Viewing only';
 		return runtimeBrowser?.controller === 'unclaimed'
 			? 'Viewing only'
@@ -106,17 +111,9 @@
 			.catch((cause) => {
 				error = failureSentence(cause, 'The desktop session could not be opened.');
 			});
-		const idleRelease = window.setInterval(() => {
-			if (
-				controller === 'owner' &&
-				lastDesktopActivity > 0 &&
-				Date.now() - lastDesktopActivity >= 60_000
-			) {
-				void returnControl(true);
-			}
-		}, 5_000);
+		const stopWatch = control.watch();
 		return () => {
-			window.clearInterval(idleRelease);
+			stopWatch();
 			clearTimeout(displaySizeTimer);
 			window.removeEventListener(COMPANY_BROWSER_OPEN_EVENT, browserRequest);
 		};
@@ -128,15 +125,10 @@
 		// Apply a newly observed lease, not an old snapshot when a local action
 		// changes the controller. That used to reconnect three times per takeover.
 		untrack(() => {
-			if (
-				controlRequested &&
-				current.control?.controller === 'owner' &&
-				current.control.client_id === clientId
-			) {
-				controller = 'owner';
-			} else if (controller === 'owner') {
-				controller = 'observer';
-				controlLeaseId = '';
+			const held =
+				current.control?.controller === 'owner' && current.control.client_id === clientId;
+			if (control.owner && !held && !control.working) {
+				control.lose();
 				canResize = false;
 			}
 		});
@@ -160,7 +152,8 @@
 		error = '';
 		try {
 			desktopUrl = await issueDesktopTicket(companyId, 'runtime-rescue', clientId);
-			controller = 'observer';
+			control.lose();
+			signInPending = signIn;
 			if (navigate) await morphTo(`/${companyId}/company/computer?focus=desktop`);
 			await browserProjection.refresh();
 		} catch (cause) {
@@ -184,7 +177,7 @@
 		try {
 			desktopUrl = await openCompanyBrowser(companyId, intent.url);
 			rememberCompanyBrowserDestination(companyId, intent.url);
-			controller = 'observer';
+			control.lose();
 			await browserProjection.refresh();
 		} catch (cause) {
 			error = failureSentence(cause, 'The Company browser could not open this page.');
@@ -195,46 +188,26 @@
 
 	async function claimControl(): Promise<boolean> {
 		if (!clientId) return false;
-		if (controller === 'owner') return true;
-		if (working) return false;
-		working = 'control';
-		error = '';
-		try {
-			const control = await browserControl(companyId, 'take', clientId);
-			controlLeaseId = control.lease_id ?? '';
-			controlRequested = true;
-			controller = 'owner';
-			lastDesktopActivity = Date.now();
-			lastLeaseRenewal = Date.now();
-			void browserProjection.refresh();
-			void refreshWindows();
-			return true;
-		} catch (cause) {
-			error = failureSentence(cause, 'Control is held elsewhere.');
-			void browserProjection.refresh();
-			return false;
-		} finally {
-			working = '';
+		if (control.owner) return true;
+		if (working || control.working) return false;
+		/* Joining in while an agent is mid-task pauses it: ask once, not on every click. */
+		if (agentName) {
+			const go = await confirmAction({
+				title: `Pause ${agentName}?`,
+				body: `${agentName} is using the computer. Taking control pauses it until you hand control back.`,
+				action: 'Take control'
+			});
+			if (!go) return false;
 		}
+		error = '';
+		const granted = await control.take();
+		if (granted) void refreshWindows();
+		return granted;
 	}
 
-	async function returnControl(automatic = false) {
-		if (!clientId || working) return;
-		working = 'return';
-		error = '';
-		try {
-			await browserControl(companyId, 'return', clientId, controlLeaseId);
-			controlLeaseId = '';
-			controlRequested = false;
-			controller = 'observer';
-			canResize = false;
-			lastDesktopActivity = 0;
-			await browserProjection.refresh();
-		} catch (cause) {
-			if (!automatic) error = failureSentence(cause, 'Control could not be returned.');
-		} finally {
-			working = '';
-		}
+	async function returnControl() {
+		await control.release();
+		if (!control.owner) canResize = false;
 	}
 
 	function requestDisplayResize(width: number, height: number) {
@@ -307,7 +280,7 @@
 	}
 
 	async function closeFocus() {
-		if (controller === 'owner') await returnControl();
+		if (control.owner) await returnControl();
 		// Entering may have woken the computer: read it again so the entrance does not say asleep.
 		void source.refresh();
 		await morphTo(`/${companyId}/company/computer`);
@@ -315,6 +288,19 @@
 
 	async function desktopReady() {
 		await Promise.all([browserProjection.refresh(), refreshWindows()]);
+		if (signInPending) {
+			signInPending = false;
+			await bringSignInForward();
+		}
+	}
+
+	/* The sign-in page opened in the company browser. Take control for this tab and put that
+	 * window in front, so the owner lands on the step rather than hunting for it. */
+	async function bringSignInForward() {
+		if (!(await control.take())) return;
+		await refreshWindows();
+		const browserWindow = windows.find((window) => /chrom/i.test(`${window.app} ${window.title}`));
+		if (browserWindow && !browserWindow.active) await selectWindow(browserWindow.id);
 	}
 
 	async function refreshWindows() {
@@ -337,11 +323,11 @@
 	}
 
 	async function selectWindow(id: string) {
-		if (!id || windowCompany !== companyId || controller !== 'owner' || working) return;
+		if (!id || windowCompany !== companyId || !control.owner || working) return;
 		working = 'window';
 		error = '';
 		try {
-			await focusDesktopWindow(companyId, id, clientId, controlLeaseId);
+			await focusDesktopWindow(companyId, id, clientId, control.leaseId);
 			desktopActivity();
 			await refreshWindows();
 		} catch (cause) {
@@ -352,23 +338,8 @@
 	}
 
 	function desktopActivity() {
-		const now = Date.now();
-		lastDesktopActivity = now;
-		if (controller !== 'owner') return;
-		if (now - lastWindowRefresh > 5_000) void refreshWindows();
-		if (activityRenewing || now - lastLeaseRenewal < 8_000) return;
-		activityRenewing = true;
-		lastLeaseRenewal = now;
-		void browserControl(companyId, 'heartbeat', clientId, controlLeaseId)
-			.then(() => browserProjection.refresh())
-			.catch((cause) => {
-				controller = 'observer';
-				controlRequested = false;
-				controlLeaseId = '';
-				canResize = false;
-				error = failureSentence(cause, 'Desktop control expired.');
-			})
-			.finally(() => (activityRenewing = false));
+		control.activity();
+		if (control.owner && Date.now() - lastWindowRefresh > 5_000) void refreshWindows();
 	}
 
 	const when = (value?: Date | string) => formatRelative(value, 'Not yet');
@@ -385,17 +356,14 @@
 				<h1>{browserFocus ? 'Company browser' : 'Computer'}</h1>
 				<span
 					class="computer-control-state"
-					class:controlled={controller === 'owner'}
+					class:controlled={control.owner}
 					title="One person or agent controls the shared computer at a time. Inactive control is released after one minute."
 				>
-					<i
-						class="source-lamp status-{controller === 'owner' ? 'live' : 'stale'}"
-						aria-hidden="true"
-					></i>
+					<i class="source-lamp status-{control.owner ? 'live' : 'stale'}" aria-hidden="true"></i>
 					{controllerLabel}
 				</span>
 			</div>
-			{#if controller === 'owner' && windowCompany === companyId && windows.length > 1}
+			{#if control.owner && windowCompany === companyId && windows.length > 1}
 				<div
 					class="computer-app-switcher"
 					title={windowsError || 'Bring an open application to the front'}
@@ -427,14 +395,23 @@
 						data-open-externally>Open externally</a
 					>
 				{/if}
-				{#if controller === 'owner'}
+				{#if control.idleSeconds}
+					<span class="computer-idle" role="status">Releasing in {control.idleSeconds}s</span>
+					<button
+						class="btn small primary"
+						type="button"
+						title="Keeps control with you. Quiet control is released after a minute without telling the agent to resume."
+						onclick={() => control.stillHere()}>Still here</button
+					>
+				{/if}
+				{#if control.owner}
 					<button
 						class="btn small"
 						type="button"
-						disabled={!!working}
+						disabled={!!working || !!control.working}
 						title="Returns input to the company actor. It does not complete Work or an owner decision."
 						onclick={() => returnControl()}
-						>{working === 'return' ? 'Releasing…' : 'Release control'}</button
+						>{control.working === 'return' ? 'Releasing…' : 'Release control'}</button
 					>
 				{/if}
 				<button
@@ -446,13 +423,19 @@
 			</div>
 		</header>
 		<div class="desktop-notices">
-			{#if error}<div class="computer-error" role="alert">{error}</div>{/if}
+			{#if error || control.error}<div class="computer-error" role="alert">
+					{error || control.error}
+				</div>{/if}
+			{#if signIn}<div class="computer-task" role="status">
+					Finish the Claude sign-in in the company browser. Settings shows the account once it
+					completes.
+				</div>{/if}
 		</div>
 		<DesktopViewport
 			src={desktopUrl}
 			title="Live Company computer"
-			interactive={controller === 'owner'}
-			canResize={canResize || controller === 'owner'}
+			interactive={control.owner}
+			canResize={canResize || control.owner}
 			onclaim={claimControl}
 			ondisplayresize={requestDisplayResize}
 			onload={() => void desktopReady()}
