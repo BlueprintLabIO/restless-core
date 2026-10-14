@@ -1,6 +1,6 @@
 # Sprint 83 — Close the owner gaps
 
-**Status:** in progress
+**Status:** landed (every item has a disposition on `main`; live verification limits are below)
 **Programme:** owner feedback; quality of the cockpit
 **Depends on:** Sprint 82 (steady data layer, the work is the surface). Every fix starts from `origin/main` after it.
 
@@ -97,6 +97,54 @@ Each package is owned by one agent at a time and lands as small verified commits
 
 The container has dockerd, Postgres 16, Chromium and the Rust/Node toolchains, but no company model credential (`GPT_BASE_URL` / `GPT_API_KEY` are unset). A `_test` company can therefore show every screen, but not Exec or Staff turns. Model-dependent items say "not run live" in their commit until a credential is provided. Any `_test` company, container or daemon started is torn down in the same turn (`restless-reap --check`).
 
+## Results — 14 October 2026
+
+**All 325 items have a disposition on `main`: 320 fixed, 1 already fixed, 3 deleted, 1 won't fix.**
+
+- **Already fixed:** UXG-038, closed by WP02's `1458575`.
+- **Deleted (dead machinery):** UXG-125, UXG-264, UXG-304.
+- **Won't fix:** UXG-189. `AccountHome` is not dead: it ships in `@restless/ui` for Restless Cloud's Home.
+
+Each GitHub issue `UXG-NNN:` is closed with its commit.
+
+**How it was verified.** The final gate ran on `0881fa92` with a local test Postgres. Database-backed tests ran rather than skipping. Results:
+
+| Check | Result |
+|---|---|
+| `svelte-check` | 0 errors, 0 warnings |
+| `check-type`, `check-ui-boundary`, `check-document-search` | pass |
+| `node --test` web model tests | 34/34 files pass |
+| `cargo check --workspace --tests` | 0 warnings |
+| `restless-owner` tests | 126 passed, 0 failed |
+| `restless-orgintel` tests | 240 passed, 0 failed |
+| `restless` tests | 27 passed, 0 failed |
+| `restless-engine --lib` | 411 passed, 2 failed |
+
+Both engine failures also fail at the pre-sprint commit `d172070`:
+
+- `concurrent_lost_response_replays_one_durable_receipt` is a parallel-load flake. It passes alone, and its sibling bootstrap tests flake the same way at `d172070`.
+- `detached_review_copy_keeps_completed_source_commit_and_status_unchanged` depends on the environment's reviewer identity.
+
+`native_sheets_*` tests need `npm ci` in `services/native-sheets`; with it they pass.
+
+**Regressions this sprint introduced, all caught by the gate and repaired:**
+
+- `b1232117` (UXG-313) admitted admins to the owner's whole company view, `GET /company`. That view includes credential probes and configuration. `0881fa92` restored owner-only access. Admins now read spend through a narrow `GET /company/spend`. Trade-off: admins no longer see payments still awaiting a result on Activity.
+- `26c08c4c` (UXG-314, away mode) let every admin past the membership boundary for `approvals/grant|decline`. `0283b24a` makes the handler admit only the named deputy of an away in force, before any side effect, for single decisions. New tests cover the deputy cases.
+- Migrations 0101–0108 landed without moving `release::SCHEMA_VERSION`. `6476c777` declares 108. The same commit makes the CLI-spelling check read `direction.rs`; that check had been red since Sprint 80.
+- `5f65c4b` tracked a `web/node_modules` symlink, which blocked rebases. `f86afd9` untracked it and ignores links.
+
+**Product calls made inside the sprint.** Founders may override any of them.
+
+- **UXG-100, company ownership transfer:** an owner-only "Make owner…" behind a typed-name confirmation. Core moves Authority first, then the identity issuer swaps the owner and admin roles atomically. A failed second step is finished by retrying. Between the two steps, nobody can decide approvals (ADR 0012, decision 7).
+- **UXG-180, permanent company deletion:** a new irreversible path. It is limited to the owner and archived companies, needs the exact typed name (checked on the server) and offers an export first. Authority records are kept, and a tombstone blocks reuse of the name.
+- **UXG-206 / UXG-313, admin visibility:** admins read Activity, spend, Apps, agent handoffs and app requests, read-only. Goals and the owner's set-aside list stay owner-only.
+- **UXG-070, item-scoped guest sharing:** not built, because the issuer has only owner, admin and member roles. Share now warns before an email invite grants company membership.
+- **UXG-256, external links:** they now open in a new tab by default. Routing them through the company browser is an owner opt-in.
+- **UXG-030, web push:** works with the tab closed on hosted planes only, via VAPID signing with `ring`. It posts only to browser push services.
+
+**Not run live.** No agent ran a live company: there is no company model credential here. Only the screens below were exercised in a real browser, and only those named in *Live check* below.
+
 ## Checklist
 
 Status lives only here; the audit README's checklist points to this one.
@@ -139,7 +187,7 @@ Status lives only here; the audit README's checklist points to this one.
 - [x] [UXG-027](../audits/user-story-gap-audit-2026-10-14/issues/UXG-027-give-a-failed-direction-request-a-way-forward.md) Give a failed direction request a way forward — medium — **Fixed** `35850cf`
 - [x] [UXG-028](../audits/user-story-gap-audit-2026-10-14/issues/UXG-028-notify-members-not-just-owners-of-new-inbox-items.md) Notify members, not just owners, of new Inbox items — medium — **Fixed** `9a51a22`
 - [x] [UXG-029](../audits/user-story-gap-audit-2026-10-14/issues/UXG-029-reconsider-the-pixel-office-as-the-clear-inbox-home.md) Reconsider the pixel office as the clear-Inbox home — medium — **Fixed** `2d47878`
-- [ ] [UXG-030](../audits/user-story-gap-audit-2026-10-14/issues/UXG-030-add-notifications-that-work-with-the-tab-closed-and-an-email.md) Add notifications that work with the tab closed, and an email preference — medium
+- [x] [UXG-030](../audits/user-story-gap-audit-2026-10-14/issues/UXG-030-add-notifications-that-work-with-the-tab-closed-and-an-email.md) Add notifications that work with the tab closed, and an email preference — medium — **Fixed** `6283281`
 - [x] [UXG-031](../audits/user-story-gap-audit-2026-10-14/issues/UXG-031-make-the-shortcuts-sheet-list-every-key-that-works.md) Make the shortcuts sheet list every key that works — low — **Fixed** `591ce3a`
 - [x] [UXG-032](../audits/user-story-gap-audit-2026-10-14/issues/UXG-032-stop-e-meaning-mark-done-in-the-inbox-but-mark-read-in-for-y.md) Stop E meaning "mark done" in the Inbox but "mark read" in For you — medium — **Fixed** `b574912`
 - [x] [UXG-033](../audits/user-story-gap-audit-2026-10-14/issues/UXG-033-make-the-inbox-badge-match-the-list.md) Make the Inbox badge match the list — low — **Fixed** `9a51a22`
@@ -224,7 +272,7 @@ Status lives only here; the audit README's checklist points to this one.
 
 - [x] [UXG-098](../audits/user-story-gap-audit-2026-10-14/issues/UXG-098-add-invite-and-member-management-to-people.md) Add invite and member management to People — medium — **Fixed** `e8632bf`
 - [x] [UXG-099](../audits/user-story-gap-audit-2026-10-14/issues/UXG-099-confirm-or-offer-undo-for-cancelling-invitations-and-pausing.md) Confirm or offer Undo for cancelling invitations and pausing access — medium — **Fixed** `4b0588a`
-- [ ] [UXG-100](../audits/user-story-gap-audit-2026-10-14/issues/UXG-100-support-transferring-company-ownership.md) Support transferring company ownership — medium
+- [x] [UXG-100](../audits/user-story-gap-audit-2026-10-14/issues/UXG-100-support-transferring-company-ownership.md) Support transferring company ownership — medium — **Fixed** `0dfed789`
 - [x] [UXG-101](../audits/user-story-gap-audit-2026-10-14/issues/UXG-101-give-the-owner-a-way-to-hire-retire-pause-or-re-brief-ai-sta.md) Give the owner a way to hire, retire, pause or re-brief AI staff — high — **Fixed** `e8632bf`
 - [x] [UXG-102](../audits/user-story-gap-audit-2026-10-14/issues/UXG-102-build-the-actor-profile-the-spec-requires.md) Build the actor profile the spec requires — high — **Fixed** `e8632bf`
 - [x] [UXG-103](../audits/user-story-gap-audit-2026-10-14/issues/UXG-103-confirm-model-changes-and-say-when-they-take-effect.md) Confirm model changes and say when they take effect — low — **Fixed** `1feae2a`
@@ -235,25 +283,25 @@ Status lives only here; the audit README's checklist points to this one.
 - [x] [UXG-108](../audits/user-story-gap-audit-2026-10-14/issues/UXG-108-make-room-rename-and-archive-discoverable.md) Make room rename and archive discoverable — medium — **Fixed** `9717e44`
 - [x] [UXG-109](../audits/user-story-gap-audit-2026-10-14/issues/UXG-109-let-a-room-owner-leave-or-hand-over-a-group.md) Let a room owner leave or hand over a group — low — **Fixed** `9717e44`
 - [x] [UXG-110](../audits/user-story-gap-audit-2026-10-14/issues/UXG-110-let-archived-groups-be-read-without-restoring-and-allow-hidi.md) Let archived groups be read without restoring, and allow hiding DMs — low — **Fixed** `53e396d`
-- [ ] [UXG-111](../audits/user-story-gap-audit-2026-10-14/issues/UXG-111-add-keyboard-shortcuts-to-message-editing-and-re-parse-menti.md) Add keyboard shortcuts to message editing and re-parse mentions on edit — medium
+- [x] [UXG-111](../audits/user-story-gap-audit-2026-10-14/issues/UXG-111-add-keyboard-shortcuts-to-message-editing-and-re-parse-menti.md) Add keyboard shortcuts to message editing and re-parse mentions on edit — medium — **Fixed** `3fc3f2da`
 - [x] [UXG-112](../audits/user-story-gap-audit-2026-10-14/issues/UXG-112-label-people-message-search-and-give-it-loading-and-empty-st.md) Label People message search and give it loading and empty states — medium — **Fixed** `8821300`
 
 ### WP09 — People II
 
-- [ ] [UXG-113](../audits/user-story-gap-audit-2026-10-14/issues/UXG-113-show-group-rooms-beyond-the-first-page-in-chats.md) Show group rooms beyond the first page in Chats — medium
-- [ ] [UXG-114](../audits/user-story-gap-audit-2026-10-14/issues/UXG-114-give-admins-and-members-the-mention-picker.md) Give admins and members the @mention picker — high
-- [ ] [UXG-115](../audits/user-story-gap-audit-2026-10-14/issues/UXG-115-show-readable-names-in-mentions-while-composing.md) Show readable names in mentions while composing — low
-- [ ] [UXG-116](../audits/user-story-gap-audit-2026-10-14/issues/UXG-116-add-per-room-mute-and-notification-preferences.md) Add per-room mute and notification preferences — medium
-- [ ] [UXG-117](../audits/user-story-gap-audit-2026-10-14/issues/UXG-117-let-a-non-technical-owner-connect-telegram-without-typing-a.md) Let a non-technical owner connect Telegram without typing a Vault reference — high
-- [ ] [UXG-118](../audits/user-story-gap-audit-2026-10-14/issues/UXG-118-confirm-before-unpairing-telegram-and-let-the-owner-filter-w.md) Confirm before unpairing Telegram and let the owner filter what it sends — low
-- [ ] [UXG-119](../audits/user-story-gap-audit-2026-10-14/issues/UXG-119-show-loading-error-states-and-scope-for-standing-permissions.md) Show loading/error states and scope for standing permissions — medium
-- [ ] [UXG-120](../audits/user-story-gap-audit-2026-10-14/issues/UXG-120-allow-editing-an-email-mandate-and-explain-why-add-mandate-i.md) Allow editing an email mandate and explain why Add mandate is disabled — medium
-- [ ] [UXG-121](../audits/user-story-gap-audit-2026-10-14/issues/UXG-121-confirm-team-owner-changes-and-keep-the-select-truthful-on-f.md) Confirm team-owner changes and keep the select truthful on failure — medium
-- [ ] [UXG-122](../audits/user-story-gap-audit-2026-10-14/issues/UXG-122-show-which-human-colleagues-are-online-in-people.md) Show which human colleagues are online in People — medium
-- [ ] [UXG-123](../audits/user-story-gap-audit-2026-10-14/issues/UXG-123-make-the-people-chats-switch-an-accessible-tablist.md) Make the People/Chats switch an accessible tablist — low
-- [ ] [UXG-124](../audits/user-story-gap-audit-2026-10-14/issues/UXG-124-distinguish-a-message-from-a-directive-in-chat.md) Distinguish a message from a directive in chat — medium
-- [ ] [UXG-125](../audits/user-story-gap-audit-2026-10-14/issues/UXG-125-expose-or-delete-unused-people-room-endpoints.md) Expose or delete unused people/room endpoints — low
-- [ ] [UXG-126](../audits/user-story-gap-audit-2026-10-14/issues/UXG-126-show-what-an-agent-dm-is-about-before-the-first-message.md) Show what an agent DM is about before the first message — low
+- [x] [UXG-113](../audits/user-story-gap-audit-2026-10-14/issues/UXG-113-show-group-rooms-beyond-the-first-page-in-chats.md) Show group rooms beyond the first page in Chats — medium — **Fixed** `2f028963`
+- [x] [UXG-114](../audits/user-story-gap-audit-2026-10-14/issues/UXG-114-give-admins-and-members-the-mention-picker.md) Give admins and members the @mention picker — high — **Fixed** `3fc3f2da`
+- [x] [UXG-115](../audits/user-story-gap-audit-2026-10-14/issues/UXG-115-show-readable-names-in-mentions-while-composing.md) Show readable names in mentions while composing — low — **Fixed** `3fc3f2da`
+- [x] [UXG-116](../audits/user-story-gap-audit-2026-10-14/issues/UXG-116-add-per-room-mute-and-notification-preferences.md) Add per-room mute and notification preferences — medium — **Fixed** `c617c316`
+- [x] [UXG-117](../audits/user-story-gap-audit-2026-10-14/issues/UXG-117-let-a-non-technical-owner-connect-telegram-without-typing-a.md) Let a non-technical owner connect Telegram without typing a Vault reference — high — **Fixed** `a232871a`
+- [x] [UXG-118](../audits/user-story-gap-audit-2026-10-14/issues/UXG-118-confirm-before-unpairing-telegram-and-let-the-owner-filter-w.md) Confirm before unpairing Telegram and let the owner filter what it sends — low — **Fixed** `a232871a`
+- [x] [UXG-119](../audits/user-story-gap-audit-2026-10-14/issues/UXG-119-show-loading-error-states-and-scope-for-standing-permissions.md) Show loading/error states and scope for standing permissions — medium — **Fixed** `e704ad43`
+- [x] [UXG-120](../audits/user-story-gap-audit-2026-10-14/issues/UXG-120-allow-editing-an-email-mandate-and-explain-why-add-mandate-i.md) Allow editing an email mandate and explain why Add mandate is disabled — medium — **Fixed** `4a1f4589`
+- [x] [UXG-121](../audits/user-story-gap-audit-2026-10-14/issues/UXG-121-confirm-team-owner-changes-and-keep-the-select-truthful-on-f.md) Confirm team-owner changes and keep the select truthful on failure — medium — **Fixed** `45146cbe`
+- [x] [UXG-122](../audits/user-story-gap-audit-2026-10-14/issues/UXG-122-show-which-human-colleagues-are-online-in-people.md) Show which human colleagues are online in People — medium — **Fixed** `96eadc48`
+- [x] [UXG-123](../audits/user-story-gap-audit-2026-10-14/issues/UXG-123-make-the-people-chats-switch-an-accessible-tablist.md) Make the People/Chats switch an accessible tablist — low — **Fixed** `bb2234a1`
+- [x] [UXG-124](../audits/user-story-gap-audit-2026-10-14/issues/UXG-124-distinguish-a-message-from-a-directive-in-chat.md) Distinguish a message from a directive in chat — medium — **Fixed** `58ef90f1`
+- [x] [UXG-125](../audits/user-story-gap-audit-2026-10-14/issues/UXG-125-expose-or-delete-unused-people-room-endpoints.md) Expose or delete unused people/room endpoints — low — **Deleted** `489bb12c`
+- [x] [UXG-126](../audits/user-story-gap-audit-2026-10-14/issues/UXG-126-show-what-an-agent-dm-is-about-before-the-first-message.md) Show what an agent DM is about before the first message — low — **Fixed** `f91dfc18`
 
 ### WP10 — Apps I
 
@@ -275,61 +323,61 @@ Status lives only here; the audit README's checklist points to this one.
 
 ### WP11 — Apps II
 
-- [ ] [UXG-142](../audits/user-story-gap-audit-2026-10-14/issues/UXG-142-make-a-disabled-skill-a-visible-state-and-expose-per-agent-t.md) Make a disabled skill a visible state and expose per-agent/team assignment — medium
-- [ ] [UXG-143](../audits/user-story-gap-audit-2026-10-14/issues/UXG-143-remove-technical-terms-from-the-model-choice.md) Remove technical terms from the model choice — medium
-- [ ] [UXG-144](../audits/user-story-gap-audit-2026-10-14/issues/UXG-144-pick-one-place-to-add-model-keys-and-sign-ins.md) Pick one place to add model keys and sign-ins — medium
-- [ ] [UXG-145](../audits/user-story-gap-audit-2026-10-14/issues/UXG-145-use-one-verb-for-adding-an-app.md) Use one verb for adding an app — low
-- [ ] [UXG-146](../audits/user-story-gap-audit-2026-10-14/issues/UXG-146-show-couldn-t-load-instead-of-hiding-skills-or-saying-not-fo.md) Show "couldn't load" instead of hiding skills or saying "not found" — medium
-- [ ] [UXG-147](../audits/user-story-gap-audit-2026-10-14/issues/UXG-147-stop-tab-from-sending-a-message-to-exec-in-the-apps-ask-box.md) Stop Tab from sending a message to Exec in the Apps ask box — medium
-- [ ] [UXG-148](../audits/user-story-gap-audit-2026-10-14/issues/UXG-148-name-model-connections-differently-from-app-connections.md) Name model "Connections" differently from app connections — medium
-- [ ] [UXG-149](../audits/user-story-gap-audit-2026-10-14/issues/UXG-149-confirm-token-revoke-and-handle-copy-failures-in-ai-apps.md) Confirm token revoke and handle copy failures in AI apps — low
-- [ ] [UXG-150](../audits/user-story-gap-audit-2026-10-14/issues/UXG-150-make-appearance-follow-the-tooltip-rule-and-radio-keyboard-b.md) Make Appearance follow the tooltip rule and radio keyboard behaviour — low
-- [ ] [UXG-151](../audits/user-story-gap-audit-2026-10-14/issues/UXG-151-make-all-apps-views-and-add-from-link-reachable-on-mobile.md) Make all Apps views and "add from link" reachable on mobile — medium
-- [ ] [UXG-152](../audits/user-story-gap-audit-2026-10-14/issues/UXG-152-use-one-list-form-for-apps-instead-of-tiles-cards-in-browse.md) Use one list form for Apps instead of tiles/cards in Browse — medium
-- [ ] [UXG-153](../audits/user-story-gap-audit-2026-10-14/issues/UXG-153-let-custom-harnesses-be-edited-and-removed-confirm-harness-d.md) Let custom harnesses be edited and removed; confirm harness disconnect — low
-- [ ] [UXG-154](../audits/user-story-gap-audit-2026-10-14/issues/UXG-154-settle-naming-of-know-how-vs-skills-and-describe-local-tools.md) Settle naming of know-how vs skills and describe local tools accurately — low
-- [ ] [UXG-155](../audits/user-story-gap-audit-2026-10-14/issues/UXG-155-let-the-owner-change-a-company-s-model-from-account-access.md) Let the owner change a company's model from Account access — low
+- [x] [UXG-142](../audits/user-story-gap-audit-2026-10-14/issues/UXG-142-make-a-disabled-skill-a-visible-state-and-expose-per-agent-t.md) Make a disabled skill a visible state and expose per-agent/team assignment — medium — **Fixed** `8af2cf20`
+- [x] [UXG-143](../audits/user-story-gap-audit-2026-10-14/issues/UXG-143-remove-technical-terms-from-the-model-choice.md) Remove technical terms from the model choice — medium — **Fixed** `b75e185c`
+- [x] [UXG-144](../audits/user-story-gap-audit-2026-10-14/issues/UXG-144-pick-one-place-to-add-model-keys-and-sign-ins.md) Pick one place to add model keys and sign-ins — medium — **Fixed** `e3f59125`
+- [x] [UXG-145](../audits/user-story-gap-audit-2026-10-14/issues/UXG-145-use-one-verb-for-adding-an-app.md) Use one verb for adding an app — low — **Fixed** `8af2cf20`
+- [x] [UXG-146](../audits/user-story-gap-audit-2026-10-14/issues/UXG-146-show-couldn-t-load-instead-of-hiding-skills-or-saying-not-fo.md) Show "couldn't load" instead of hiding skills or saying "not found" — medium — **Fixed** `8af2cf20`
+- [x] [UXG-147](../audits/user-story-gap-audit-2026-10-14/issues/UXG-147-stop-tab-from-sending-a-message-to-exec-in-the-apps-ask-box.md) Stop Tab from sending a message to Exec in the Apps ask box — medium — **Fixed** `8af2cf20`
+- [x] [UXG-148](../audits/user-story-gap-audit-2026-10-14/issues/UXG-148-name-model-connections-differently-from-app-connections.md) Name model "Connections" differently from app connections — medium — **Fixed** `8f003c40`
+- [x] [UXG-149](../audits/user-story-gap-audit-2026-10-14/issues/UXG-149-confirm-token-revoke-and-handle-copy-failures-in-ai-apps.md) Confirm token revoke and handle copy failures in AI apps — low — **Fixed** `486f8550`
+- [x] [UXG-150](../audits/user-story-gap-audit-2026-10-14/issues/UXG-150-make-appearance-follow-the-tooltip-rule-and-radio-keyboard-b.md) Make Appearance follow the tooltip rule and radio keyboard behaviour — low — **Fixed** `e1b8e470`
+- [x] [UXG-151](../audits/user-story-gap-audit-2026-10-14/issues/UXG-151-make-all-apps-views-and-add-from-link-reachable-on-mobile.md) Make all Apps views and "add from link" reachable on mobile — medium — **Fixed** `8af2cf20`
+- [x] [UXG-152](../audits/user-story-gap-audit-2026-10-14/issues/UXG-152-use-one-list-form-for-apps-instead-of-tiles-cards-in-browse.md) Use one list form for Apps instead of tiles/cards in Browse — medium — **Fixed** `8af2cf20`
+- [x] [UXG-153](../audits/user-story-gap-audit-2026-10-14/issues/UXG-153-let-custom-harnesses-be-edited-and-removed-confirm-harness-d.md) Let custom harnesses be edited and removed; confirm harness disconnect — low — **Fixed** `2f9bc99a`
+- [x] [UXG-154](../audits/user-story-gap-audit-2026-10-14/issues/UXG-154-settle-naming-of-know-how-vs-skills-and-describe-local-tools.md) Settle naming of know-how vs skills and describe local tools accurately — low — **Fixed** `8af2cf20`
+- [x] [UXG-155](../audits/user-story-gap-audit-2026-10-14/issues/UXG-155-let-the-owner-change-a-company-s-model-from-account-access.md) Let the owner change a company's model from Account access — low — **Fixed** `9cef7dd5`
 
 ### WP12 — Company I
 
-- [ ] [UXG-156](../audits/user-story-gap-audit-2026-10-14/issues/UXG-156-let-the-owner-name-the-company-when-creating-it.md) Let the owner name the company when creating it — medium
-- [ ] [UXG-157](../audits/user-story-gap-audit-2026-10-14/issues/UXG-157-report-a-failed-rename-during-onboarding-instead-of-dropping.md) Report a failed rename during onboarding instead of dropping it — high
-- [ ] [UXG-158](../audits/user-story-gap-audit-2026-10-14/issues/UXG-158-use-a-multi-line-answer-box-on-the-welcome-page.md) Use a multi-line answer box on the welcome page — low
-- [ ] [UXG-159](../audits/user-story-gap-audit-2026-10-14/issues/UXG-159-make-the-empty-portfolio-text-match-the-real-button.md) Make the empty-portfolio text match the real button — low
-- [ ] [UXG-160](../audits/user-story-gap-audit-2026-10-14/issues/UXG-160-provide-a-way-back-into-an-unfinished-welcome-conversation.md) Provide a way back into an unfinished welcome conversation — medium
-- [ ] [UXG-161](../audits/user-story-gap-audit-2026-10-14/issues/UXG-161-cover-all-six-surfaces-in-the-tour-and-make-it-keyboard-frie.md) Cover all six surfaces in the tour and make it keyboard-friendly and replayable — low
-- [ ] [UXG-162](../audits/user-story-gap-audit-2026-10-14/issues/UXG-162-offer-a-non-technical-charter-editor-with-a-preview.md) Offer a non-technical charter editor with a preview — medium
-- [ ] [UXG-163](../audits/user-story-gap-audit-2026-10-14/issues/UXG-163-make-charter-history-findable-comparable-and-restorable.md) Make charter history findable, comparable and restorable — medium
-- [ ] [UXG-164](../audits/user-story-gap-audit-2026-10-14/issues/UXG-164-let-the-owner-add-or-edit-the-legal-profile.md) Let the owner add or edit the legal profile — medium
-- [ ] [UXG-165](../audits/user-story-gap-audit-2026-10-14/issues/UXG-165-support-specific-weekdays-monthly-schedules-and-a-company-ti.md) Support specific weekdays, monthly schedules and a company time zone — medium
-- [ ] [UXG-166](../audits/user-story-gap-audit-2026-10-14/issues/UXG-166-allow-editing-what-a-schedule-asks-exec-to-do.md) Allow editing what a schedule asks Exec to do — high
-- [ ] [UXG-167](../audits/user-story-gap-audit-2026-10-14/issues/UXG-167-use-the-same-friendly-cadence-control-when-editing-a-schedul.md) Use the same friendly cadence control when editing a schedule — medium
-- [ ] [UXG-168](../audits/user-story-gap-audit-2026-10-14/issues/UXG-168-add-run-now-and-rename-test-trigger.md) Add "Run now" and rename "Test trigger" — low
-- [ ] [UXG-169](../audits/user-story-gap-audit-2026-10-14/issues/UXG-169-add-budget-periods-categories-and-early-warnings.md) Add budget periods, categories and early warnings — high
-- [ ] [UXG-170](../audits/user-story-gap-audit-2026-10-14/issues/UXG-170-warn-before-lowering-the-spend-limit-below-current-spend.md) Warn before lowering the spend limit below current spend — medium
-- [ ] [UXG-171](../audits/user-story-gap-audit-2026-10-14/issues/UXG-171-let-the-owner-delete-a-vault-secret-and-replace-any-secret-f.md) Let the owner delete a Vault secret and replace any secret from its row — high
-- [ ] [UXG-172](../audits/user-story-gap-audit-2026-10-14/issues/UXG-172-warn-when-a-new-secret-name-overwrites-an-existing-one-and-h.md) Warn when a new secret name overwrites an existing one, and hide raw references — medium
+- [x] [UXG-156](../audits/user-story-gap-audit-2026-10-14/issues/UXG-156-let-the-owner-name-the-company-when-creating-it.md) Let the owner name the company when creating it — medium — **Fixed** `c44c291b`
+- [x] [UXG-157](../audits/user-story-gap-audit-2026-10-14/issues/UXG-157-report-a-failed-rename-during-onboarding-instead-of-dropping.md) Report a failed rename during onboarding instead of dropping it — high — **Fixed** `735a3e29`
+- [x] [UXG-158](../audits/user-story-gap-audit-2026-10-14/issues/UXG-158-use-a-multi-line-answer-box-on-the-welcome-page.md) Use a multi-line answer box on the welcome page — low — **Fixed** `735a3e29`
+- [x] [UXG-159](../audits/user-story-gap-audit-2026-10-14/issues/UXG-159-make-the-empty-portfolio-text-match-the-real-button.md) Make the empty-portfolio text match the real button — low — **Fixed** `c44c291b`
+- [x] [UXG-160](../audits/user-story-gap-audit-2026-10-14/issues/UXG-160-provide-a-way-back-into-an-unfinished-welcome-conversation.md) Provide a way back into an unfinished welcome conversation — medium — **Fixed** `735a3e29`
+- [x] [UXG-161](../audits/user-story-gap-audit-2026-10-14/issues/UXG-161-cover-all-six-surfaces-in-the-tour-and-make-it-keyboard-frie.md) Cover all six surfaces in the tour and make it keyboard-friendly and replayable — low — **Fixed** `274154a2`
+- [x] [UXG-162](../audits/user-story-gap-audit-2026-10-14/issues/UXG-162-offer-a-non-technical-charter-editor-with-a-preview.md) Offer a non-technical charter editor with a preview — medium — **Fixed** `b4e0f2cb`
+- [x] [UXG-163](../audits/user-story-gap-audit-2026-10-14/issues/UXG-163-make-charter-history-findable-comparable-and-restorable.md) Make charter history findable, comparable and restorable — medium — **Fixed** `b4e0f2cb`
+- [x] [UXG-164](../audits/user-story-gap-audit-2026-10-14/issues/UXG-164-let-the-owner-add-or-edit-the-legal-profile.md) Let the owner add or edit the legal profile — medium — **Fixed** `1fd4ebb8`
+- [x] [UXG-165](../audits/user-story-gap-audit-2026-10-14/issues/UXG-165-support-specific-weekdays-monthly-schedules-and-a-company-ti.md) Support specific weekdays, monthly schedules and a company time zone — medium — **Fixed** `dc09cc48`
+- [x] [UXG-166](../audits/user-story-gap-audit-2026-10-14/issues/UXG-166-allow-editing-what-a-schedule-asks-exec-to-do.md) Allow editing what a schedule asks Exec to do — high — **Fixed** `dc09cc48`
+- [x] [UXG-167](../audits/user-story-gap-audit-2026-10-14/issues/UXG-167-use-the-same-friendly-cadence-control-when-editing-a-schedul.md) Use the same friendly cadence control when editing a schedule — medium — **Fixed** `dc09cc48`
+- [x] [UXG-168](../audits/user-story-gap-audit-2026-10-14/issues/UXG-168-add-run-now-and-rename-test-trigger.md) Add "Run now" and rename "Test trigger" — low — **Fixed** `dc09cc48`
+- [x] [UXG-169](../audits/user-story-gap-audit-2026-10-14/issues/UXG-169-add-budget-periods-categories-and-early-warnings.md) Add budget periods, categories and early warnings — high — **Fixed** `a8b7c123`
+- [x] [UXG-170](../audits/user-story-gap-audit-2026-10-14/issues/UXG-170-warn-before-lowering-the-spend-limit-below-current-spend.md) Warn before lowering the spend limit below current spend — medium — **Fixed** `a8b7c123`
+- [x] [UXG-171](../audits/user-story-gap-audit-2026-10-14/issues/UXG-171-let-the-owner-delete-a-vault-secret-and-replace-any-secret-f.md) Let the owner delete a Vault secret and replace any secret from its row — high — **Fixed** `45e5a0ac`
+- [x] [UXG-172](../audits/user-story-gap-audit-2026-10-14/issues/UXG-172-warn-when-a-new-secret-name-overwrites-an-existing-one-and-h.md) Warn when a new secret name overwrites an existing one, and hide raw references — medium — **Fixed** `45e5a0ac`
 
 ### WP13 — Company II
 
-- [ ] [UXG-173](../audits/user-story-gap-audit-2026-10-14/issues/UXG-173-give-every-failing-health-check-a-next-step.md) Give every failing health check a next step — medium
-- [ ] [UXG-174](../audits/user-story-gap-audit-2026-10-14/issues/UXG-174-use-consistent-tones-and-plain-language-on-health.md) Use consistent tones and plain language on Health — low
-- [ ] [UXG-175](../audits/user-story-gap-audit-2026-10-14/issues/UXG-175-let-activity-filter-by-date-person-and-text-and-group-by-day.md) Let Activity filter by date, person and text, and group by day — medium
-- [ ] [UXG-176](../audits/user-story-gap-audit-2026-10-14/issues/UXG-176-page-external-actions-and-include-owner-setting-changes-in-a.md) Page external actions and include owner setting changes in Activity — medium
-- [ ] [UXG-177](../audits/user-story-gap-audit-2026-10-14/issues/UXG-177-put-company-name-and-logo-where-owners-look-for-them.md) Put company name and logo where owners look for them — medium
-- [ ] [UXG-178](../audits/user-story-gap-audit-2026-10-14/issues/UXG-178-show-why-the-name-or-logo-didn-t-save-not-just-not-saved.md) Show why the name or logo didn't save, not just "Not saved" — medium
-- [ ] [UXG-179](../audits/user-story-gap-audit-2026-10-14/issues/UXG-179-explain-what-archiving-a-company-does-before-doing-it.md) Explain what archiving a company does before doing it — medium
-- [ ] [UXG-180](../audits/user-story-gap-audit-2026-10-14/issues/UXG-180-add-permanent-deletion-of-a-company.md) Add permanent deletion of a company — medium
-- [ ] [UXG-181](../audits/user-story-gap-audit-2026-10-14/issues/UXG-181-let-the-owner-open-an-archived-company-read-only-and-archive.md) Let the owner open an archived company read-only and archive from inside Company — low
-- [ ] [UXG-182](../audits/user-story-gap-audit-2026-10-14/issues/UXG-182-add-company-data-export.md) Add company data export — medium
-- [ ] [UXG-183](../audits/user-story-gap-audit-2026-10-14/issues/UXG-183-keep-the-current-area-when-switching-companies-and-add-new-c.md) Keep the current area when switching companies, and add New company to the switcher — low
-- [ ] [UXG-184](../audits/user-story-gap-audit-2026-10-14/issues/UXG-184-copy-a-full-setup-to-another-company-not-one-setting-at-a-ti.md) Copy a full setup to another company, not one setting at a time — low
-- [ ] [UXG-185](../audits/user-story-gap-audit-2026-10-14/issues/UXG-185-add-a-company-wide-freeze-of-outside-actions-and-payment-all.md) Add a company-wide freeze of outside actions and payment-allowance controls — high
-- [ ] [UXG-186](../audits/user-story-gap-audit-2026-10-14/issues/UXG-186-make-the-company-sidebar-s-computer-and-limits-values-truthf.md) Make the Company sidebar's Computer and Limits values truthful — medium
-- [ ] [UXG-187](../audits/user-story-gap-audit-2026-10-14/issues/UXG-187-keep-settings-search-on-phones-and-narrow-panes.md) Keep settings search on phones and narrow panes — low
-- [ ] [UXG-188](../audits/user-story-gap-audit-2026-10-14/issues/UXG-188-read-the-brand-name-from-config-in-the-model-catalog-tooltip.md) Read the brand name from config in the model-catalog tooltip — low
-- [ ] [UXG-189](../audits/user-story-gap-audit-2026-10-14/issues/UXG-189-wire-up-or-delete-the-unused-accounthome-view.md) Wire up or delete the unused AccountHome view — low
-- [ ] [UXG-190](../audits/user-story-gap-audit-2026-10-14/issues/UXG-190-stop-hiding-needed-company-explanations-in-hover-only-titles.md) Stop hiding needed Company explanations in hover-only titles — low
+- [x] [UXG-173](../audits/user-story-gap-audit-2026-10-14/issues/UXG-173-give-every-failing-health-check-a-next-step.md) Give every failing health check a next step — medium — **Fixed** `f39360e4`
+- [x] [UXG-174](../audits/user-story-gap-audit-2026-10-14/issues/UXG-174-use-consistent-tones-and-plain-language-on-health.md) Use consistent tones and plain language on Health — low — **Fixed** `f39360e4`
+- [x] [UXG-175](../audits/user-story-gap-audit-2026-10-14/issues/UXG-175-let-activity-filter-by-date-person-and-text-and-group-by-day.md) Let Activity filter by date, person and text, and group by day — medium — **Fixed** `42ebfcaf`
+- [x] [UXG-176](../audits/user-story-gap-audit-2026-10-14/issues/UXG-176-page-external-actions-and-include-owner-setting-changes-in-a.md) Page external actions and include owner setting changes in Activity — medium — **Fixed** `42ebfcaf`
+- [x] [UXG-177](../audits/user-story-gap-audit-2026-10-14/issues/UXG-177-put-company-name-and-logo-where-owners-look-for-them.md) Put company name and logo where owners look for them — medium — **Fixed** `3d7b4ea4`
+- [x] [UXG-178](../audits/user-story-gap-audit-2026-10-14/issues/UXG-178-show-why-the-name-or-logo-didn-t-save-not-just-not-saved.md) Show why the name or logo didn't save, not just "Not saved" — medium — **Fixed** `8caca4d9`
+- [x] [UXG-179](../audits/user-story-gap-audit-2026-10-14/issues/UXG-179-explain-what-archiving-a-company-does-before-doing-it.md) Explain what archiving a company does before doing it — medium — **Fixed** `63ea94ef`
+- [x] [UXG-180](../audits/user-story-gap-audit-2026-10-14/issues/UXG-180-add-permanent-deletion-of-a-company.md) Add permanent deletion of a company — medium — **Fixed** `63ea94ef`
+- [x] [UXG-181](../audits/user-story-gap-audit-2026-10-14/issues/UXG-181-let-the-owner-open-an-archived-company-read-only-and-archive.md) Let the owner open an archived company read-only and archive from inside Company — low — **Fixed** `63ea94ef`
+- [x] [UXG-182](../audits/user-story-gap-audit-2026-10-14/issues/UXG-182-add-company-data-export.md) Add company data export — medium — **Fixed** `63ea94ef`
+- [x] [UXG-183](../audits/user-story-gap-audit-2026-10-14/issues/UXG-183-keep-the-current-area-when-switching-companies-and-add-new-c.md) Keep the current area when switching companies, and add New company to the switcher — low — **Fixed** `a8c776d9`
+- [x] [UXG-184](../audits/user-story-gap-audit-2026-10-14/issues/UXG-184-copy-a-full-setup-to-another-company-not-one-setting-at-a-ti.md) Copy a full setup to another company, not one setting at a time — low — **Fixed** `a8c776d9`
+- [x] [UXG-185](../audits/user-story-gap-audit-2026-10-14/issues/UXG-185-add-a-company-wide-freeze-of-outside-actions-and-payment-all.md) Add a company-wide freeze of outside actions and payment-allowance controls — high — **Fixed** `7d70a204`
+- [x] [UXG-186](../audits/user-story-gap-audit-2026-10-14/issues/UXG-186-make-the-company-sidebar-s-computer-and-limits-values-truthf.md) Make the Company sidebar's Computer and Limits values truthful — medium — **Fixed** `45dd6398`
+- [x] [UXG-187](../audits/user-story-gap-audit-2026-10-14/issues/UXG-187-keep-settings-search-on-phones-and-narrow-panes.md) Keep settings search on phones and narrow panes — low — **Fixed** `3d7b4ea4`
+- [x] [UXG-188](../audits/user-story-gap-audit-2026-10-14/issues/UXG-188-read-the-brand-name-from-config-in-the-model-catalog-tooltip.md) Read the brand name from config in the model-catalog tooltip — low — **Fixed** `62bd4da0`
+- [x] [UXG-189](../audits/user-story-gap-audit-2026-10-14/issues/UXG-189-wire-up-or-delete-the-unused-accounthome-view.md) Wire up or delete the unused AccountHome view — low — **Won't fix (AccountHome ships in @restless/ui for Cloud)** `-`
+- [x] [UXG-190](../audits/user-story-gap-audit-2026-10-14/issues/UXG-190-stop-hiding-needed-company-explanations-in-hover-only-titles.md) Stop hiding needed Company explanations in hover-only titles — low — **Fixed** `3d7b4ea4`
 
 ### WP14 — Exec chat I
 
@@ -349,77 +397,77 @@ Status lives only here; the audit README's checklist points to this one.
 
 ### WP15 — Exec chat II
 
-- [ ] [UXG-204](../audits/user-story-gap-audit-2026-10-14/issues/UXG-204-stop-a-failed-goal-send-from-creating-a-duplicate-goal-on-re.md) Stop a failed /goal send from creating a duplicate goal on retry — medium
-- [ ] [UXG-205](../audits/user-story-gap-audit-2026-10-14/issues/UXG-205-record-command-results-in-the-conversation-instead-of-a-ling.md) Record command results in the conversation instead of a lingering status line — low
-- [ ] [UXG-206](../audits/user-story-gap-audit-2026-10-14/issues/UXG-206-give-admins-operators-and-members-the-rail-context-the-owner.md) Give admins, operators and members the rail context the owner gets — medium
-- [ ] [UXG-207](../audits/user-story-gap-audit-2026-10-14/issues/UXG-207-show-live-progress-when-talking-to-a-staff-member-or-an-agen.md) Show live progress when talking to a Staff member or an agent in a group room — medium
-- [ ] [UXG-208](../audits/user-story-gap-audit-2026-10-14/issues/UXG-208-say-seen-no-reply-instead-of-replied-when-exec-s-turn-ends-w.md) Say "Seen, no reply" instead of "Replied" when Exec's turn ends without a message — medium
-- [ ] [UXG-209](../audits/user-story-gap-audit-2026-10-14/issues/UXG-209-announce-new-exec-replies-to-screen-readers.md) Announce new Exec replies to screen readers — medium
-- [ ] [UXG-210](../audits/user-story-gap-audit-2026-10-14/issues/UXG-210-let-a-selection-on-the-main-surface-travel-with-the-message.md) Let a selection on the main surface travel with the message to Exec — medium
-- [ ] [UXG-211](../audits/user-story-gap-audit-2026-10-14/issues/UXG-211-show-on-a-sent-message-which-screen-it-was-linked-to.md) Show on a sent message which screen it was linked to — low
-- [ ] [UXG-212](../audits/user-story-gap-audit-2026-10-14/issues/UXG-212-let-the-owner-cancel-a-pending-new-conversation-and-see-wher.md) Let the owner cancel a pending new conversation and see where earlier ones began — low
-- [ ] [UXG-213](../audits/user-story-gap-audit-2026-10-14/issues/UXG-213-let-the-owner-copy-or-export-a-whole-conversation.md) Let the owner copy or export a whole conversation — low
-- [ ] [UXG-214](../audits/user-story-gap-audit-2026-10-14/issues/UXG-214-show-the-current-model-on-the-composer-chip-and-allow-effort.md) Show the current model on the composer chip and allow effort to be chosen there — low
-- [ ] [UXG-215](../audits/user-story-gap-audit-2026-10-14/issues/UXG-215-let-the-expanded-turn-dock-show-exec-s-thinking-collapsed-by.md) Let the expanded turn dock show Exec's thinking, collapsed by default — low
+- [x] [UXG-204](../audits/user-story-gap-audit-2026-10-14/issues/UXG-204-stop-a-failed-goal-send-from-creating-a-duplicate-goal-on-re.md) Stop a failed /goal send from creating a duplicate goal on retry — medium — **Fixed** `fbad5707`
+- [x] [UXG-205](../audits/user-story-gap-audit-2026-10-14/issues/UXG-205-record-command-results-in-the-conversation-instead-of-a-ling.md) Record command results in the conversation instead of a lingering status line — low — **Fixed** `1e1552c8`
+- [x] [UXG-206](../audits/user-story-gap-audit-2026-10-14/issues/UXG-206-give-admins-operators-and-members-the-rail-context-the-owner.md) Give admins, operators and members the rail context the owner gets — medium — **Fixed** `9f1074b8`
+- [x] [UXG-207](../audits/user-story-gap-audit-2026-10-14/issues/UXG-207-show-live-progress-when-talking-to-a-staff-member-or-an-agen.md) Show live progress when talking to a Staff member or an agent in a group room — medium — **Fixed** `32d2bce3`
+- [x] [UXG-208](../audits/user-story-gap-audit-2026-10-14/issues/UXG-208-say-seen-no-reply-instead-of-replied-when-exec-s-turn-ends-w.md) Say "Seen, no reply" instead of "Replied" when Exec's turn ends without a message — medium — **Fixed** `2421a59c`
+- [x] [UXG-209](../audits/user-story-gap-audit-2026-10-14/issues/UXG-209-announce-new-exec-replies-to-screen-readers.md) Announce new Exec replies to screen readers — medium — **Fixed** `1562e56f`
+- [x] [UXG-210](../audits/user-story-gap-audit-2026-10-14/issues/UXG-210-let-a-selection-on-the-main-surface-travel-with-the-message.md) Let a selection on the main surface travel with the message to Exec — medium — **Fixed** `2d0a0511`
+- [x] [UXG-211](../audits/user-story-gap-audit-2026-10-14/issues/UXG-211-show-on-a-sent-message-which-screen-it-was-linked-to.md) Show on a sent message which screen it was linked to — low — **Fixed** `30f9b015`
+- [x] [UXG-212](../audits/user-story-gap-audit-2026-10-14/issues/UXG-212-let-the-owner-cancel-a-pending-new-conversation-and-see-wher.md) Let the owner cancel a pending new conversation and see where earlier ones began — low — **Fixed** `e3073b40`
+- [x] [UXG-213](../audits/user-story-gap-audit-2026-10-14/issues/UXG-213-let-the-owner-copy-or-export-a-whole-conversation.md) Let the owner copy or export a whole conversation — low — **Fixed** `a0b8be67`
+- [x] [UXG-214](../audits/user-story-gap-audit-2026-10-14/issues/UXG-214-show-the-current-model-on-the-composer-chip-and-allow-effort.md) Show the current model on the composer chip and allow effort to be chosen there — low — **Fixed** `a4f2894f`
+- [x] [UXG-215](../audits/user-story-gap-audit-2026-10-14/issues/UXG-215-let-the-expanded-turn-dock-show-exec-s-thinking-collapsed-by.md) Let the expanded turn dock show Exec's thinking, collapsed by default — low — **Fixed** `2421a59c`
 
 ### WP16 — Editors I
 
-- [ ] [UXG-216](../audits/user-story-gap-audit-2026-10-14/issues/UXG-216-add-underline-highlight-text-colour-and-alignment-to-documen.md) Add underline, highlight, text colour and alignment to document formatting — high
-- [ ] [UXG-217](../audits/user-story-gap-audit-2026-10-14/issues/UXG-217-keep-images-formatting-and-merged-cells-when-pasting-from-wo.md) Keep images, formatting and merged cells when pasting from Word or Google Docs — high
-- [ ] [UXG-218](../audits/user-story-gap-audit-2026-10-14/issues/UXG-218-let-writers-mention-people-in-the-document-body.md) Let writers @mention people in the document body — high
-- [ ] [UXG-219](../audits/user-story-gap-audit-2026-10-14/issues/UXG-219-insert-links-to-documents-work-and-files-as-titled-chips-and.md) Insert links to documents, Work and files as titled chips, and show where links go — medium
-- [ ] [UXG-220](../audits/user-story-gap-audit-2026-10-14/issues/UXG-220-add-find-and-replace-in-documents.md) Add find and replace in documents — medium
-- [ ] [UXG-221](../audits/user-story-gap-audit-2026-10-14/issues/UXG-221-show-an-outline-of-headings-and-make-in-page-links-work.md) Show an outline of headings, and make in-page "#" links work — medium
-- [ ] [UXG-222](../audits/user-story-gap-audit-2026-10-14/issues/UXG-222-show-word-and-character-count.md) Show word and character count — low
-- [ ] [UXG-223](../audits/user-story-gap-audit-2026-10-14/issues/UXG-223-let-documents-carry-files-other-than-images.md) Let documents carry files other than images — medium
-- [ ] [UXG-224](../audits/user-story-gap-audit-2026-10-14/issues/UXG-224-allow-resizing-describing-and-captioning-images.md) Allow resizing, describing and captioning images — medium
-- [ ] [UXG-225](../audits/user-story-gap-audit-2026-10-14/issues/UXG-225-extend-document-tables-rows-above-columns-left-header-row-wi.md) Extend document tables: rows above, columns left, header row, widths — medium
-- [ ] [UXG-226](../audits/user-story-gap-audit-2026-10-14/issues/UXG-226-let-blocks-be-moved-duplicated-and-deleted-without-the-hover.md) Let blocks be moved, duplicated and deleted without the hover grip — medium
-- [ ] [UXG-227](../audits/user-story-gap-audit-2026-10-14/issues/UXG-227-anchor-document-comments-to-the-selected-words-not-the-whole.md) Anchor document comments to the selected words, not the whole block — medium
-- [ ] [UXG-228](../audits/user-story-gap-audit-2026-10-14/issues/UXG-228-keep-editors-editable-through-brief-connection-drops.md) Keep editors editable through brief connection drops — high
+- [x] [UXG-216](../audits/user-story-gap-audit-2026-10-14/issues/UXG-216-add-underline-highlight-text-colour-and-alignment-to-documen.md) Add underline, highlight, text colour and alignment to document formatting — high — **Fixed** `61517392`
+- [x] [UXG-217](../audits/user-story-gap-audit-2026-10-14/issues/UXG-217-keep-images-formatting-and-merged-cells-when-pasting-from-wo.md) Keep images, formatting and merged cells when pasting from Word or Google Docs — high — **Fixed** `90efe0b9`
+- [x] [UXG-218](../audits/user-story-gap-audit-2026-10-14/issues/UXG-218-let-writers-mention-people-in-the-document-body.md) Let writers @mention people in the document body — high — **Fixed** `33c5739f`
+- [x] [UXG-219](../audits/user-story-gap-audit-2026-10-14/issues/UXG-219-insert-links-to-documents-work-and-files-as-titled-chips-and.md) Insert links to documents, Work and files as titled chips, and show where links go — medium — **Fixed** `01da69e6`
+- [x] [UXG-220](../audits/user-story-gap-audit-2026-10-14/issues/UXG-220-add-find-and-replace-in-documents.md) Add find and replace in documents — medium — **Fixed** `3aa1204a`
+- [x] [UXG-221](../audits/user-story-gap-audit-2026-10-14/issues/UXG-221-show-an-outline-of-headings-and-make-in-page-links-work.md) Show an outline of headings, and make in-page "#" links work — medium — **Fixed** `e6cb3c6e`
+- [x] [UXG-222](../audits/user-story-gap-audit-2026-10-14/issues/UXG-222-show-word-and-character-count.md) Show word and character count — low — **Fixed** `e6cb3c6e`
+- [x] [UXG-223](../audits/user-story-gap-audit-2026-10-14/issues/UXG-223-let-documents-carry-files-other-than-images.md) Let documents carry files other than images — medium — **Fixed** `e0108bfa`
+- [x] [UXG-224](../audits/user-story-gap-audit-2026-10-14/issues/UXG-224-allow-resizing-describing-and-captioning-images.md) Allow resizing, describing and captioning images — medium — **Fixed** `d5bc97df`
+- [x] [UXG-225](../audits/user-story-gap-audit-2026-10-14/issues/UXG-225-extend-document-tables-rows-above-columns-left-header-row-wi.md) Extend document tables: rows above, columns left, header row, widths — medium — **Fixed** `b061044c`
+- [x] [UXG-226](../audits/user-story-gap-audit-2026-10-14/issues/UXG-226-let-blocks-be-moved-duplicated-and-deleted-without-the-hover.md) Let blocks be moved, duplicated and deleted without the hover grip — medium — **Fixed** `eb46e60d`
+- [x] [UXG-227](../audits/user-story-gap-audit-2026-10-14/issues/UXG-227-anchor-document-comments-to-the-selected-words-not-the-whole.md) Anchor document comments to the selected words, not the whole block — medium — **Fixed** `0637d5a1`
+- [x] [UXG-228](../audits/user-story-gap-audit-2026-10-14/issues/UXG-228-keep-editors-editable-through-brief-connection-drops.md) Keep editors editable through brief connection drops — high — **Fixed** `3727e9cd`
 
 ### WP17 — Editors II
 
-- [ ] [UXG-229](../audits/user-story-gap-audit-2026-10-14/issues/UXG-229-don-t-strand-a-co-editor-s-unsaved-edits-when-someone-restor.md) Don't strand a co-editor's unsaved edits when someone restores a version — medium
-- [ ] [UXG-230](../audits/user-story-gap-audit-2026-10-14/issues/UXG-230-say-plainly-when-a-document-is-too-large-to-save-and-warn-be.md) Say plainly when a document is too large to save, and warn before it gets there — medium
-- [ ] [UXG-231](../audits/user-story-gap-audit-2026-10-14/issues/UXG-231-stop-a-refused-sheet-change-from-discarding-every-edit-queue.md) Stop a refused sheet change from discarding every edit queued behind it — high
-- [ ] [UXG-232](../audits/user-story-gap-audit-2026-10-14/issues/UXG-232-let-writers-save-and-name-a-version-from-the-editor.md) Let writers save and name a version from the editor — medium
-- [ ] [UXG-233](../audits/user-story-gap-audit-2026-10-14/issues/UXG-233-offer-templates-and-use-the-document-kinds-when-starting-a-d.md) Offer templates and use the document kinds when starting a document — medium
-- [ ] [UXG-234](../audits/user-story-gap-audit-2026-10-14/issues/UXG-234-show-undo-and-redo-on-desktop-too.md) Show Undo and Redo on desktop too — low
-- [ ] [UXG-235](../audits/user-story-gap-audit-2026-10-14/issues/UXG-235-let-sheet-comments-cover-a-range-and-follow-their-cell-when.md) Let sheet comments cover a range and follow their cell when rows move — medium
-- [ ] [UXG-236](../audits/user-story-gap-audit-2026-10-14/issues/UXG-236-allow-pictures-in-sheets.md) Allow pictures in sheets — low
-- [ ] [UXG-237](../audits/user-story-gap-audit-2026-10-14/issues/UXG-237-add-print-save-as-pdf-for-sheets.md) Add Print / save as PDF for sheets — low
-- [ ] [UXG-238](../audits/user-story-gap-audit-2026-10-14/issues/UXG-238-follow-the-dark-theme-in-the-sheet-grid.md) Follow the dark theme in the sheet grid — low
-- [ ] [UXG-239](../audits/user-story-gap-audit-2026-10-14/issues/UXG-239-use-the-company-s-locale-and-currency-for-sheet-formats.md) Use the company's locale and currency for sheet formats — low
-- [ ] [UXG-240](../audits/user-story-gap-audit-2026-10-14/issues/UXG-240-make-sheet-editing-on-a-phone-a-deliberate-tested-path.md) Make sheet editing on a phone a deliberate, tested path — low
-- [ ] [UXG-241](../audits/user-story-gap-audit-2026-10-14/issues/UXG-241-add-page-breaks-and-page-numbers-to-printed-documents.md) Add page breaks and page numbers to printed documents — low
+- [x] [UXG-229](../audits/user-story-gap-audit-2026-10-14/issues/UXG-229-don-t-strand-a-co-editor-s-unsaved-edits-when-someone-restor.md) Don't strand a co-editor's unsaved edits when someone restores a version — medium — **Fixed** `10b2b19a`
+- [x] [UXG-230](../audits/user-story-gap-audit-2026-10-14/issues/UXG-230-say-plainly-when-a-document-is-too-large-to-save-and-warn-be.md) Say plainly when a document is too large to save, and warn before it gets there — medium — **Fixed** `1aebb0e0`
+- [x] [UXG-231](../audits/user-story-gap-audit-2026-10-14/issues/UXG-231-stop-a-refused-sheet-change-from-discarding-every-edit-queue.md) Stop a refused sheet change from discarding every edit queued behind it — high — **Fixed** `0e9c83fe`
+- [x] [UXG-232](../audits/user-story-gap-audit-2026-10-14/issues/UXG-232-let-writers-save-and-name-a-version-from-the-editor.md) Let writers save and name a version from the editor — medium — **Fixed** `b76b08f2`
+- [x] [UXG-233](../audits/user-story-gap-audit-2026-10-14/issues/UXG-233-offer-templates-and-use-the-document-kinds-when-starting-a-d.md) Offer templates and use the document kinds when starting a document — medium — **Fixed** `7f24f926`
+- [x] [UXG-234](../audits/user-story-gap-audit-2026-10-14/issues/UXG-234-show-undo-and-redo-on-desktop-too.md) Show Undo and Redo on desktop too — low — **Fixed** `20e9f9cc`
+- [x] [UXG-235](../audits/user-story-gap-audit-2026-10-14/issues/UXG-235-let-sheet-comments-cover-a-range-and-follow-their-cell-when.md) Let sheet comments cover a range and follow their cell when rows move — medium — **Fixed** `1806adbb`
+- [x] [UXG-236](../audits/user-story-gap-audit-2026-10-14/issues/UXG-236-allow-pictures-in-sheets.md) Allow pictures in sheets — low — **Fixed** `5a85611a`
+- [x] [UXG-237](../audits/user-story-gap-audit-2026-10-14/issues/UXG-237-add-print-save-as-pdf-for-sheets.md) Add Print / save as PDF for sheets — low — **Fixed** `6697d0a1`
+- [x] [UXG-238](../audits/user-story-gap-audit-2026-10-14/issues/UXG-238-follow-the-dark-theme-in-the-sheet-grid.md) Follow the dark theme in the sheet grid — low — **Fixed** `6b90f6d8`
+- [x] [UXG-239](../audits/user-story-gap-audit-2026-10-14/issues/UXG-239-use-the-company-s-locale-and-currency-for-sheet-formats.md) Use the company's locale and currency for sheet formats — low — **Fixed** `478fcd27`
+- [x] [UXG-240](../audits/user-story-gap-audit-2026-10-14/issues/UXG-240-make-sheet-editing-on-a-phone-a-deliberate-tested-path.md) Make sheet editing on a phone a deliberate, tested path — low — **Fixed** `5ef8186a`
+- [x] [UXG-241](../audits/user-story-gap-audit-2026-10-14/issues/UXG-241-add-page-breaks-and-page-numbers-to-printed-documents.md) Add page breaks and page numbers to printed documents — low — **Fixed** `7a07c23a`
 
 ### WP18 — Company computer
 
-- [ ] [UXG-242](../audits/user-story-gap-audit-2026-10-14/issues/UXG-242-let-the-owner-restart-a-running-computer-that-looks-healthy.md) Let the owner restart a running computer that looks healthy but is stuck — high
-- [ ] [UXG-243](../audits/user-story-gap-audit-2026-10-14/issues/UXG-243-make-the-inbox-handover-desktop-accept-the-owner-s-keyboard.md) Make the Inbox handover desktop accept the owner's keyboard and pointer — high
-- [ ] [UXG-244](../audits/user-story-gap-audit-2026-10-14/issues/UXG-244-keep-the-handover-desktop-connected-after-returning-control.md) Keep the handover desktop connected after returning control — high
-- [ ] [UXG-245](../audits/user-story-gap-audit-2026-10-14/issues/UXG-245-stop-a-60-second-pause-from-telling-the-agent-the-owner-has.md) Stop a 60-second pause from telling the agent the owner has finished — high
-- [ ] [UXG-246](../audits/user-story-gap-audit-2026-10-14/issues/UXG-246-show-when-an-agent-is-using-the-computer-and-who-before-the.md) Show when an agent is using the computer, and who, before the owner's click takes over — medium
-- [ ] [UXG-247](../audits/user-story-gap-audit-2026-10-14/issues/UXG-247-stop-a-viewer-from-resizing-the-shared-desktop-while-an-agen.md) Stop a viewer from resizing the shared desktop while an agent works in it — medium
-- [ ] [UXG-248](../audits/user-story-gap-audit-2026-10-14/issues/UXG-248-let-a-phone-user-type-into-the-live-desktop.md) Let a phone user type into the live desktop — high
-- [ ] [UXG-249](../audits/user-story-gap-audit-2026-10-14/issues/UXG-249-tell-keyboard-users-how-to-leave-the-live-desktop.md) Tell keyboard users how to leave the live desktop — medium
-- [ ] [UXG-250](../audits/user-story-gap-audit-2026-10-14/issues/UXG-250-let-the-owner-see-and-download-files-that-exist-only-on-the.md) Let the owner see and download files that exist only on the company computer — high
-- [ ] [UXG-251](../audits/user-story-gap-audit-2026-10-14/issues/UXG-251-let-the-owner-drop-a-file-into-the-live-desktop-during-a-han.md) Let the owner drop a file into the live desktop during a handover — medium
-- [ ] [UXG-252](../audits/user-story-gap-audit-2026-10-14/issues/UXG-252-say-when-the-monthly-hours-limit-is-why-the-computer-will-no.md) Say when the monthly hours limit is why the computer will not wake — medium
-- [ ] [UXG-253](../audits/user-story-gap-audit-2026-10-14/issues/UXG-253-show-wake-progress-and-keep-trying-instead-of-failing-after.md) Show wake progress and keep trying instead of failing after 20 seconds — medium
-- [ ] [UXG-254](../audits/user-story-gap-audit-2026-10-14/issues/UXG-254-surface-disk-memory-and-cpu-pressure-on-the-company-computer.md) Surface disk, memory and CPU pressure on the company computer — medium
-- [ ] [UXG-255](../audits/user-story-gap-audit-2026-10-14/issues/UXG-255-point-every-computer-is-stopped-message-at-the-place-that-ca.md) Point every "computer is stopped" message at the place that can start it — low
-- [ ] [UXG-256](../audits/user-story-gap-audit-2026-10-14/issues/UXG-256-let-people-choose-where-an-external-link-opens-and-stop-rout.md) Let people choose where an external link opens, and stop routing members to a page they cannot open — medium
-- [ ] [UXG-257](../audits/user-story-gap-audit-2026-10-14/issues/UXG-257-show-how-schedules-interact-with-computer-sleep-and-the-mont.md) Show how schedules interact with computer sleep and the monthly hours limit — medium
-- [ ] [UXG-258](../audits/user-story-gap-audit-2026-10-14/issues/UXG-258-prove-a-chosen-model-answers-before-saving-it.md) Prove a chosen model answers before saving it — medium
-- [ ] [UXG-259](../audits/user-story-gap-audit-2026-10-14/issues/UXG-259-bring-the-claude-harness-sign-in-window-forward-with-control.md) Bring the Claude harness sign-in window forward, with control, instead of opening the bare desktop — medium
-- [ ] [UXG-260](../audits/user-story-gap-audit-2026-10-14/issues/UXG-260-offer-a-fix-when-installed-agent-software-does-not-match-the.md) Offer a fix when installed agent software does not match the required build — low
-- [ ] [UXG-261](../audits/user-story-gap-audit-2026-10-14/issues/UXG-261-preview-powerpoint-outcomes-in-the-cockpit-like-word-and-exc.md) Preview PowerPoint outcomes in the cockpit like Word and Excel — medium
-- [ ] [UXG-262](../audits/user-story-gap-audit-2026-10-14/issues/UXG-262-read-the-brand-name-from-config-in-the-harness-billing-note.md) Read the brand name from config in the harness billing note — low
-- [ ] [UXG-263](../audits/user-story-gap-audit-2026-10-14/issues/UXG-263-move-telegram-out-of-the-limits-page.md) Move Telegram out of the Limits page — low
-- [ ] [UXG-264](../audits/user-story-gap-audit-2026-10-14/issues/UXG-264-delete-the-never-rendered-authority-page-and-keep-the-harnes.md) Delete the never-rendered authority page and keep the harness anchor when redirecting — low
-- [ ] [UXG-265](../audits/user-story-gap-audit-2026-10-14/issues/UXG-265-replace-the-raw-browser-health-word-in-the-handover-header.md) Replace the raw browser health word in the handover header — low
+- [x] [UXG-242](../audits/user-story-gap-audit-2026-10-14/issues/UXG-242-let-the-owner-restart-a-running-computer-that-looks-healthy.md) Let the owner restart a running computer that looks healthy but is stuck — high — **Fixed** `90828b31`
+- [x] [UXG-243](../audits/user-story-gap-audit-2026-10-14/issues/UXG-243-make-the-inbox-handover-desktop-accept-the-owner-s-keyboard.md) Make the Inbox handover desktop accept the owner's keyboard and pointer — high — **Fixed** `5357c0e3`
+- [x] [UXG-244](../audits/user-story-gap-audit-2026-10-14/issues/UXG-244-keep-the-handover-desktop-connected-after-returning-control.md) Keep the handover desktop connected after returning control — high — **Fixed** `5357c0e3`
+- [x] [UXG-245](../audits/user-story-gap-audit-2026-10-14/issues/UXG-245-stop-a-60-second-pause-from-telling-the-agent-the-owner-has.md) Stop a 60-second pause from telling the agent the owner has finished — high — **Fixed** `5357c0e3`
+- [x] [UXG-246](../audits/user-story-gap-audit-2026-10-14/issues/UXG-246-show-when-an-agent-is-using-the-computer-and-who-before-the.md) Show when an agent is using the computer, and who, before the owner's click takes over — medium — **Fixed** `5357c0e3`
+- [x] [UXG-247](../audits/user-story-gap-audit-2026-10-14/issues/UXG-247-stop-a-viewer-from-resizing-the-shared-desktop-while-an-agen.md) Stop a viewer from resizing the shared desktop while an agent works in it — medium — **Fixed** `5357c0e3`
+- [x] [UXG-248](../audits/user-story-gap-audit-2026-10-14/issues/UXG-248-let-a-phone-user-type-into-the-live-desktop.md) Let a phone user type into the live desktop — high — **Fixed** `bf7fbd8a`
+- [x] [UXG-249](../audits/user-story-gap-audit-2026-10-14/issues/UXG-249-tell-keyboard-users-how-to-leave-the-live-desktop.md) Tell keyboard users how to leave the live desktop — medium — **Fixed** `bf7fbd8a`
+- [x] [UXG-250](../audits/user-story-gap-audit-2026-10-14/issues/UXG-250-let-the-owner-see-and-download-files-that-exist-only-on-the.md) Let the owner see and download files that exist only on the company computer — high — **Fixed** `40b88fef`
+- [x] [UXG-251](../audits/user-story-gap-audit-2026-10-14/issues/UXG-251-let-the-owner-drop-a-file-into-the-live-desktop-during-a-han.md) Let the owner drop a file into the live desktop during a handover — medium — **Fixed** `40b88fef`
+- [x] [UXG-252](../audits/user-story-gap-audit-2026-10-14/issues/UXG-252-say-when-the-monthly-hours-limit-is-why-the-computer-will-no.md) Say when the monthly hours limit is why the computer will not wake — medium — **Fixed** `90828b31`
+- [x] [UXG-253](../audits/user-story-gap-audit-2026-10-14/issues/UXG-253-show-wake-progress-and-keep-trying-instead-of-failing-after.md) Show wake progress and keep trying instead of failing after 20 seconds — medium — **Fixed** `90828b31`
+- [x] [UXG-254](../audits/user-story-gap-audit-2026-10-14/issues/UXG-254-surface-disk-memory-and-cpu-pressure-on-the-company-computer.md) Surface disk, memory and CPU pressure on the company computer — medium — **Fixed** `99f41f83`
+- [x] [UXG-255](../audits/user-story-gap-audit-2026-10-14/issues/UXG-255-point-every-computer-is-stopped-message-at-the-place-that-ca.md) Point every "computer is stopped" message at the place that can start it — low — **Fixed** `90828b31`
+- [x] [UXG-256](../audits/user-story-gap-audit-2026-10-14/issues/UXG-256-let-people-choose-where-an-external-link-opens-and-stop-rout.md) Let people choose where an external link opens, and stop routing members to a page they cannot open — medium — **Fixed** `f16d46c4`
+- [x] [UXG-257](../audits/user-story-gap-audit-2026-10-14/issues/UXG-257-show-how-schedules-interact-with-computer-sleep-and-the-mont.md) Show how schedules interact with computer sleep and the monthly hours limit — medium — **Fixed** `063632bd`
+- [x] [UXG-258](../audits/user-story-gap-audit-2026-10-14/issues/UXG-258-prove-a-chosen-model-answers-before-saving-it.md) Prove a chosen model answers before saving it — medium — **Fixed** `38a32cb8`
+- [x] [UXG-259](../audits/user-story-gap-audit-2026-10-14/issues/UXG-259-bring-the-claude-harness-sign-in-window-forward-with-control.md) Bring the Claude harness sign-in window forward, with control, instead of opening the bare desktop — medium — **Fixed** `70d54d58`
+- [x] [UXG-260](../audits/user-story-gap-audit-2026-10-14/issues/UXG-260-offer-a-fix-when-installed-agent-software-does-not-match-the.md) Offer a fix when installed agent software does not match the required build — low — **Fixed** `56ab7943`
+- [x] [UXG-261](../audits/user-story-gap-audit-2026-10-14/issues/UXG-261-preview-powerpoint-outcomes-in-the-cockpit-like-word-and-exc.md) Preview PowerPoint outcomes in the cockpit like Word and Excel — medium — **Fixed** `fe0c8f1f`
+- [x] [UXG-262](../audits/user-story-gap-audit-2026-10-14/issues/UXG-262-read-the-brand-name-from-config-in-the-harness-billing-note.md) Read the brand name from config in the harness billing note — low — **Fixed** `70d54d58`
+- [x] [UXG-263](../audits/user-story-gap-audit-2026-10-14/issues/UXG-263-move-telegram-out-of-the-limits-page.md) Move Telegram out of the Limits page — low — **Fixed** `94a2cca0`
+- [x] [UXG-264](../audits/user-story-gap-audit-2026-10-14/issues/UXG-264-delete-the-never-rendered-authority-page-and-keep-the-harnes.md) Delete the never-rendered authority page and keep the harness anchor when redirecting — low — **Deleted** `9e815ce5`
+- [x] [UXG-265](../audits/user-story-gap-audit-2026-10-14/issues/UXG-265-replace-the-raw-browser-health-word-in-the-handover-header.md) Replace the raw browser health word in the handover header — low — **Fixed** `5357c0e3`
 
 ### WP19 — Shell
 
@@ -451,41 +499,41 @@ Status lives only here; the audit README's checklist points to this one.
 
 ### WP20 — Endpoint & CLI parity
 
-- [ ] [UXG-291](../audits/user-story-gap-audit-2026-10-14/issues/UXG-291-let-the-owner-authorise-a-prepared-publication-from-the-cock.md) Let the owner authorise a prepared publication from the cockpit — high
-- [ ] [UXG-292](../audits/user-story-gap-audit-2026-10-14/issues/UXG-292-let-the-owner-invite-revoke-and-stop-a-live-publication-with.md) Let the owner invite, revoke and stop a live publication without the terminal — medium
-- [ ] [UXG-293](../audits/user-story-gap-audit-2026-10-14/issues/UXG-293-offer-appliance-backup-and-restore-in-the-product-with-a-las.md) Offer appliance backup and restore in the product, with a last-backup indicator — high
-- [ ] [UXG-294](../audits/user-story-gap-audit-2026-10-14/issues/UXG-294-show-the-running-release-and-allow-update-and-rollback-from.md) Show the running release and allow update and rollback from the cockpit — medium
-- [ ] [UXG-295](../audits/user-story-gap-audit-2026-10-14/issues/UXG-295-replace-terminal-commands-in-appliance-repair-banners-with-a.md) Replace terminal commands in appliance repair banners with actions — medium
-- [ ] [UXG-296](../audits/user-story-gap-audit-2026-10-14/issues/UXG-296-activate-sharing-and-tailscale-addresses-without-leaving-the.md) Activate sharing and Tailscale addresses without leaving the cockpit — high
-- [ ] [UXG-297](../audits/user-story-gap-audit-2026-10-14/issues/UXG-297-let-the-owner-save-a-named-version-of-a-document-as-they-can.md) Let the owner save a named version of a document as they can a sheet — medium
-- [ ] [UXG-298](../audits/user-story-gap-audit-2026-10-14/issues/UXG-298-break-model-spend-down-by-agent-and-model.md) Break model spend down by agent and model — medium
-- [ ] [UXG-299](../audits/user-story-gap-audit-2026-10-14/issues/UXG-299-explain-at-least-spend-and-let-the-owner-clear-a-spend-poiso.md) Explain "At least" spend and let the owner clear a spend poison — medium
-- [ ] [UXG-300](../audits/user-story-gap-audit-2026-10-14/issues/UXG-300-let-the-owner-create-rename-re-lead-and-disband-teams.md) Let the owner create, rename, re-lead and disband teams — medium
-- [ ] [UXG-301](../audits/user-story-gap-audit-2026-10-14/issues/UXG-301-show-schedule-run-history-and-let-the-owner-recover-a-skippe.md) Show schedule run history and let the owner recover a skipped run — medium
-- [ ] [UXG-302](../audits/user-story-gap-audit-2026-10-14/issues/UXG-302-let-the-owner-choose-fallback-models.md) Let the owner choose fallback models — low
-- [ ] [UXG-303](../audits/user-story-gap-audit-2026-10-14/issues/UXG-303-allow-pre-approving-a-contact-from-approved-contacts.md) Allow pre-approving a contact from Approved contacts — low
-- [ ] [UXG-304](../audits/user-story-gap-audit-2026-10-14/issues/UXG-304-surface-or-delete-the-structured-decisions-record-route.md) Surface or delete the structured decisions record route — low
-- [ ] [UXG-305](../audits/user-story-gap-audit-2026-10-14/issues/UXG-305-prune-unused-client-contracts-left-after-the-route-parity-ch.md) Prune unused client contracts left after the route parity check — low
+- [x] [UXG-291](../audits/user-story-gap-audit-2026-10-14/issues/UXG-291-let-the-owner-authorise-a-prepared-publication-from-the-cock.md) Let the owner authorise a prepared publication from the cockpit — high — **Fixed** `7fd34bd`
+- [x] [UXG-292](../audits/user-story-gap-audit-2026-10-14/issues/UXG-292-let-the-owner-invite-revoke-and-stop-a-live-publication-with.md) Let the owner invite, revoke and stop a live publication without the terminal — medium — **Fixed** `7fd34bd`
+- [x] [UXG-293](../audits/user-story-gap-audit-2026-10-14/issues/UXG-293-offer-appliance-backup-and-restore-in-the-product-with-a-las.md) Offer appliance backup and restore in the product, with a last-backup indicator — high — **Fixed** `152b70b`
+- [x] [UXG-294](../audits/user-story-gap-audit-2026-10-14/issues/UXG-294-show-the-running-release-and-allow-update-and-rollback-from.md) Show the running release and allow update and rollback from the cockpit — medium — **Fixed** `152b70b`
+- [x] [UXG-295](../audits/user-story-gap-audit-2026-10-14/issues/UXG-295-replace-terminal-commands-in-appliance-repair-banners-with-a.md) Replace terminal commands in appliance repair banners with actions — medium — **Fixed** `152b70b`
+- [x] [UXG-296](../audits/user-story-gap-audit-2026-10-14/issues/UXG-296-activate-sharing-and-tailscale-addresses-without-leaving-the.md) Activate sharing and Tailscale addresses without leaving the cockpit — high — **Fixed** `86ce85d`
+- [x] [UXG-297](../audits/user-story-gap-audit-2026-10-14/issues/UXG-297-let-the-owner-save-a-named-version-of-a-document-as-they-can.md) Let the owner save a named version of a document as they can a sheet — medium — **Fixed** `4e136f9`
+- [x] [UXG-298](../audits/user-story-gap-audit-2026-10-14/issues/UXG-298-break-model-spend-down-by-agent-and-model.md) Break model spend down by agent and model — medium — **Fixed** `223a919`
+- [x] [UXG-299](../audits/user-story-gap-audit-2026-10-14/issues/UXG-299-explain-at-least-spend-and-let-the-owner-clear-a-spend-poiso.md) Explain "At least" spend and let the owner clear a spend poison — medium — **Fixed** `223a919`
+- [x] [UXG-300](../audits/user-story-gap-audit-2026-10-14/issues/UXG-300-let-the-owner-create-rename-re-lead-and-disband-teams.md) Let the owner create, rename, re-lead and disband teams — medium — **Fixed** `5e0cb20`
+- [x] [UXG-301](../audits/user-story-gap-audit-2026-10-14/issues/UXG-301-show-schedule-run-history-and-let-the-owner-recover-a-skippe.md) Show schedule run history and let the owner recover a skipped run — medium — **Fixed** `5c82b08`
+- [x] [UXG-302](../audits/user-story-gap-audit-2026-10-14/issues/UXG-302-let-the-owner-choose-fallback-models.md) Let the owner choose fallback models — low — **Fixed** `31773c5`
+- [x] [UXG-303](../audits/user-story-gap-audit-2026-10-14/issues/UXG-303-allow-pre-approving-a-contact-from-approved-contacts.md) Allow pre-approving a contact from Approved contacts — low — **Fixed** `fd67c2a`
+- [x] [UXG-304](../audits/user-story-gap-audit-2026-10-14/issues/UXG-304-surface-or-delete-the-structured-decisions-record-route.md) Surface or delete the structured decisions record route — low — **Deleted** `0d2e7ca`
+- [x] [UXG-305](../audits/user-story-gap-audit-2026-10-14/issues/UXG-305-prune-unused-client-contracts-left-after-the-route-parity-ch.md) Prune unused client contracts left after the route parity check — low — **Fixed** `4e136f9`
 
 ### WP21 — Journeys
 
-- [ ] [UXG-306](../audits/user-story-gap-audit-2026-10-14/issues/UXG-306-tell-the-owner-when-the-model-budget-stops-the-company.md) Tell the owner when the model budget stops the company — high
-- [ ] [UXG-307](../audits/user-story-gap-audit-2026-10-14/issues/UXG-307-resume-stalled-work-when-the-owner-raises-the-spend-limit.md) Resume stalled work when the owner raises the spend limit — medium
-- [ ] [UXG-308](../audits/user-story-gap-audit-2026-10-14/issues/UXG-308-bring-a-failed-or-uncertain-approved-action-back-to-the-owne.md) Bring a failed or uncertain approved action back to the owner — high
-- [ ] [UXG-309](../audits/user-story-gap-audit-2026-10-14/issues/UXG-309-surface-failed-and-skipped-scheduled-runs-outside-the-schedu.md) Surface failed and skipped scheduled runs outside the Schedules page — medium
-- [ ] [UXG-310](../audits/user-story-gap-audit-2026-10-14/issues/UXG-310-let-exec-reply-to-a-customer-who-wrote-in-not-just-send-one.md) Let Exec reply to a customer who wrote in, not just send one first-contact email — high
-- [ ] [UXG-311](../audits/user-story-gap-audit-2026-10-14/issues/UXG-311-show-which-work-and-customer-an-approval-or-external-action.md) Show which Work and customer an approval or external action belongs to — medium
-- [ ] [UXG-312](../audits/user-story-gap-audit-2026-10-14/issues/UXG-312-let-the-owner-connect-the-payment-rail-and-approve-payees-fr.md) Let the owner connect the payment rail and approve payees from the web — high
-- [ ] [UXG-313](../audits/user-story-gap-audit-2026-10-14/issues/UXG-313-give-an-admin-cofounder-visibility-into-activity-spend-and-a.md) Give an admin cofounder visibility into Activity, spend and Apps — medium
-- [ ] [UXG-314](../audits/user-story-gap-audit-2026-10-14/issues/UXG-314-add-an-away-mode-that-pauses-recurring-work-and-names-a-depu.md) Add an away mode that pauses recurring work and names a deputy — medium
-- [ ] [UXG-315](../audits/user-story-gap-audit-2026-10-14/issues/UXG-315-make-telegram-notices-actionable-away-from-the-paired-comput.md) Make Telegram notices actionable away from the paired computer — medium
-- [ ] [UXG-316](../audits/user-story-gap-audit-2026-10-14/issues/UXG-316-say-who-decided-an-item-when-an-old-link-opens-it.md) Say who decided an item when an old link opens it — low
-- [ ] [UXG-317](../audits/user-story-gap-audit-2026-10-14/issues/UXG-317-link-a-native-document-to-the-work-it-was-produced-for.md) Link a native document to the Work it was produced for — medium
-- [ ] [UXG-318](../audits/user-story-gap-audit-2026-10-14/issues/UXG-318-route-a-document-comment-asking-for-a-change-to-the-work-s-r.md) Route a document comment asking for a change to the Work's revision — medium
-- [ ] [UXG-319](../audits/user-story-gap-audit-2026-10-14/issues/UXG-319-bring-brand-drift-decisions-to-the-inbox.md) Bring brand drift decisions to the Inbox — medium
-- [ ] [UXG-320](../audits/user-story-gap-audit-2026-10-14/issues/UXG-320-provide-a-weekly-review-across-work-decisions-actions-and-sp.md) Provide a weekly review across work, decisions, actions and spend — medium
-- [ ] [UXG-321](../audits/user-story-gap-audit-2026-10-14/issues/UXG-321-let-the-owner-find-everything-about-one-client-in-one-place.md) Let the owner find everything about one client in one place — medium
-- [ ] [UXG-322](../audits/user-story-gap-audit-2026-10-14/issues/UXG-322-check-for-a-model-before-the-welcome-interview-starts.md) Check for a model before the welcome interview starts — medium
-- [ ] [UXG-323](../audits/user-story-gap-audit-2026-10-14/issues/UXG-323-return-the-owner-to-where-they-started-after-an-app-sign-in.md) Return the owner to where they started after an app sign-in, and wake the work that failed meanwhile — low
-- [ ] [UXG-324](../audits/user-story-gap-audit-2026-10-14/issues/UXG-324-link-the-computer-is-stopped-review-message-to-the-recovery.md) Link the "computer is stopped" review message to the recovery action — low
-- [ ] [UXG-325](../audits/user-story-gap-audit-2026-10-14/issues/UXG-325-point-to-the-accepted-result-after-an-inbox-decision.md) Point to the accepted result after an Inbox decision — low
+- [x] [UXG-306](../audits/user-story-gap-audit-2026-10-14/issues/UXG-306-tell-the-owner-when-the-model-budget-stops-the-company.md) Tell the owner when the model budget stops the company — high — **Fixed** `8571fe0`
+- [x] [UXG-307](../audits/user-story-gap-audit-2026-10-14/issues/UXG-307-resume-stalled-work-when-the-owner-raises-the-spend-limit.md) Resume stalled work when the owner raises the spend limit — medium — **Fixed** `8571fe0`
+- [x] [UXG-308](../audits/user-story-gap-audit-2026-10-14/issues/UXG-308-bring-a-failed-or-uncertain-approved-action-back-to-the-owne.md) Bring a failed or uncertain approved action back to the owner — high — **Fixed** `a3ae40e`
+- [x] [UXG-309](../audits/user-story-gap-audit-2026-10-14/issues/UXG-309-surface-failed-and-skipped-scheduled-runs-outside-the-schedu.md) Surface failed and skipped scheduled runs outside the Schedules page — medium — **Fixed** `a948fd7`
+- [x] [UXG-310](../audits/user-story-gap-audit-2026-10-14/issues/UXG-310-let-exec-reply-to-a-customer-who-wrote-in-not-just-send-one.md) Let Exec reply to a customer who wrote in, not just send one first-contact email — high — **Fixed** `37d98ab`
+- [x] [UXG-311](../audits/user-story-gap-audit-2026-10-14/issues/UXG-311-show-which-work-and-customer-an-approval-or-external-action.md) Show which Work and customer an approval or external action belongs to — medium — **Fixed** `a3ae40e`
+- [x] [UXG-312](../audits/user-story-gap-audit-2026-10-14/issues/UXG-312-let-the-owner-connect-the-payment-rail-and-approve-payees-fr.md) Let the owner connect the payment rail and approve payees from the web — high — **Fixed** `fa60c97`
+- [x] [UXG-313](../audits/user-story-gap-audit-2026-10-14/issues/UXG-313-give-an-admin-cofounder-visibility-into-activity-spend-and-a.md) Give an admin cofounder visibility into Activity, spend and Apps — medium — **Fixed** `0b71ce4f`
+- [x] [UXG-314](../audits/user-story-gap-audit-2026-10-14/issues/UXG-314-add-an-away-mode-that-pauses-recurring-work-and-names-a-depu.md) Add an away mode that pauses recurring work and names a deputy — medium — **Fixed** `0283b24`
+- [x] [UXG-315](../audits/user-story-gap-audit-2026-10-14/issues/UXG-315-make-telegram-notices-actionable-away-from-the-paired-comput.md) Make Telegram notices actionable away from the paired computer — medium — **Fixed** `b51d6f6`
+- [x] [UXG-316](../audits/user-story-gap-audit-2026-10-14/issues/UXG-316-say-who-decided-an-item-when-an-old-link-opens-it.md) Say who decided an item when an old link opens it — low — **Fixed** `dcb8946`
+- [x] [UXG-317](../audits/user-story-gap-audit-2026-10-14/issues/UXG-317-link-a-native-document-to-the-work-it-was-produced-for.md) Link a native document to the Work it was produced for — medium — **Fixed** `9f5bc32`
+- [x] [UXG-318](../audits/user-story-gap-audit-2026-10-14/issues/UXG-318-route-a-document-comment-asking-for-a-change-to-the-work-s-r.md) Route a document comment asking for a change to the Work's revision — medium — **Fixed** `5f0e071`
+- [x] [UXG-319](../audits/user-story-gap-audit-2026-10-14/issues/UXG-319-bring-brand-drift-decisions-to-the-inbox.md) Bring brand drift decisions to the Inbox — medium — **Fixed** `c3443b6`
+- [x] [UXG-320](../audits/user-story-gap-audit-2026-10-14/issues/UXG-320-provide-a-weekly-review-across-work-decisions-actions-and-sp.md) Provide a weekly review across work, decisions, actions and spend — medium — **Fixed** `f4cb38d`
+- [x] [UXG-321](../audits/user-story-gap-audit-2026-10-14/issues/UXG-321-let-the-owner-find-everything-about-one-client-in-one-place.md) Let the owner find everything about one client in one place — medium — **Fixed** `0d87644b`
+- [x] [UXG-322](../audits/user-story-gap-audit-2026-10-14/issues/UXG-322-check-for-a-model-before-the-welcome-interview-starts.md) Check for a model before the welcome interview starts — medium — **Fixed** `f6950aa`
+- [x] [UXG-323](../audits/user-story-gap-audit-2026-10-14/issues/UXG-323-return-the-owner-to-where-they-started-after-an-app-sign-in.md) Return the owner to where they started after an app sign-in, and wake the work that failed meanwhile — low — **Fixed** `74afc00`
+- [x] [UXG-324](../audits/user-story-gap-audit-2026-10-14/issues/UXG-324-link-the-computer-is-stopped-review-message-to-the-recovery.md) Link the "computer is stopped" review message to the recovery action — low — **Fixed** `99c2469`
+- [x] [UXG-325](../audits/user-story-gap-audit-2026-10-14/issues/UXG-325-point-to-the-accepted-result-after-an-inbox-decision.md) Point to the accepted result after an Inbox decision — low — **Fixed** `84c8682`
