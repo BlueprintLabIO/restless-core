@@ -1218,8 +1218,17 @@ pub(super) async fn schedule_monitor(
         }
         let testable =
             schedule.responsibility_id.is_some() && schedule.responsibility_version.is_some();
+        // A run missed and skipped, and not recovered since, is the owner's to notice too.
+        let last_skipped = match org.list_schedule_occurrences(schedule.id, 1).await {
+            Ok(rows) => rows
+                .first()
+                .filter(|row| row.disposition == "skipped" && row.recovered_at.is_none())
+                .map(|row| row.scheduled_for),
+            Err(error) => return orgintel_error(error),
+        };
         monitored.push(json!({
             "schedule": schedule,
+            "last_skipped": last_skipped,
             "recent_outcomes": recent_outcomes,
             "prior_responsibility_outcomes": prior_responsibility_outcomes,
             "testable": testable,

@@ -363,6 +363,8 @@ export type MonitoredSchedule = {
 		responsibility_version: number | null;
 	};
 	testable: boolean;
+	/** The newest run was missed and skipped, and nobody recovered it: when it was due. */
+	last_skipped?: string | null;
 	recent_outcomes: Array<{
 		scheduled_for: string;
 		admission: string | null;
@@ -399,6 +401,14 @@ export type ScheduleTestReport = {
 	}>;
 	scheduled_for?: string;
 };
+
+/** A live schedule whose newest run failed or asked for a person, or was skipped: the
+ * Company tab carries a dot for it, so the owner hears of it outside Schedules. */
+export function scheduleNeedsLook(item: MonitoredSchedule): boolean {
+	if (item.schedule.paused_at) return false;
+	const newest = item.recent_outcomes[0];
+	return !!item.last_skipped || ['blocked', 'needs_human'].includes(newest?.state ?? '');
+}
 
 export async function monitorSchedules(company: string): Promise<MonitoredSchedule[]> {
 	return (await call<{ schedules: MonitoredSchedule[] }>(company, '/schedules')).schedules;

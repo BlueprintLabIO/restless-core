@@ -72,7 +72,12 @@
 	import { conversationUnread, messagePreview } from '$lib/model/rooms';
 	import { fetchAppRequests } from '$lib/model/app-requests';
 	import { CATALOGUE, buildApps, type App } from '$lib/model/apps';
-	import { fetchSkillLibrary, monitorSchedules, type MonitoredSchedule } from '$lib/model/skills';
+	import {
+		fetchSkillLibrary,
+		monitorSchedules,
+		scheduleNeedsLook,
+		type MonitoredSchedule
+	} from '$lib/model/skills';
 	import type { CommandSearch, CommandSearchResult } from '$lib/components/CommandMenu.svelte';
 	import { searchDocuments } from '$lib/model/documents';
 	import { searchSheets, sheetJson, type SheetRow } from '$lib/model/sheets';
@@ -932,11 +937,13 @@
 		return routes.map((tab) =>
 			tab.key === 'company' && providerIssue
 				? { ...tab, badge: 1 }
-				: tab.key === 'apps' && appsAttention
-					? { ...tab, dot: appsAttention }
-					: tab.key === 'people' && unreadChats.length
-						? { ...tab, badge: unreadChats.length }
-						: tab
+				: tab.key === 'company' && scheduleAttention
+					? { ...tab, dot: scheduleAttention }
+					: tab.key === 'apps' && appsAttention
+						? { ...tab, dot: appsAttention }
+						: tab.key === 'people' && unreadChats.length
+							? { ...tab, badge: unreadChats.length }
+							: tab
 		);
 	});
 
@@ -969,6 +976,36 @@
 				appsAttention = !count ? '' : count === 1 ? '1 app needs you' : `${count} apps need you`;
 			} catch {
 				/* A failed check leaves the dot as it was; Apps shows the failure. */
+			}
+		};
+		void check();
+		const timer = setInterval(() => void check(), 60_000);
+		return () => {
+			stopped = true;
+			clearInterval(timer);
+		};
+	});
+
+	/* The Company dot for schedules: a recurring run that failed, asked for a person, or was
+	 * skipped reaches the owner outside Schedules. Checked on arrival, on every move and once a
+	 * minute, like the Apps dot. */
+	let scheduleAttention = $state('');
+	$effect(() => {
+		if (!ownerAccess) return;
+		const id = companyId;
+		void page.url.pathname;
+		let stopped = false;
+		const check = async () => {
+			try {
+				const count = (await monitorSchedules(id)).filter(scheduleNeedsLook).length;
+				if (stopped) return;
+				scheduleAttention = !count
+					? ''
+					: count === 1
+						? 'A schedule’s last run needs a look'
+						: `${count} schedules’ last runs need a look`;
+			} catch {
+				/* A failed check leaves the dot as it was; Schedules shows the failure. */
 			}
 		};
 		void check();

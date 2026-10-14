@@ -292,7 +292,8 @@
 					paused ? 'Paused' : null,
 					!paused && hoursUsedUp ? 'Stopped by the monthly hours limit' : null,
 					!paused && !hoursUsedUp && keepsAwake(item) ? 'Keeps the computer awake' : null,
-					problem ? headline(problem.outcome, problem.outcome_reason).line : null
+					problem ? headline(problem.outcome, problem.outcome_reason).line : null,
+					!paused && item.last_skipped ? 'Last run was missed and skipped' : null
 				]
 					.filter(Boolean)
 					.join(' · ')}
@@ -301,8 +302,14 @@
 				dim={paused}
 			>
 				{#snippet leading()}<Dot
-						tone={paused ? 'muted' : problem ? 'danger' : 'success'}
-						label={paused ? 'Paused' : problem ? 'Last run needs attention' : 'Active'}
+						tone={paused ? 'muted' : problem || item.last_skipped ? 'danger' : 'success'}
+						label={paused
+							? 'Paused'
+							: problem
+								? 'Last run needs attention'
+								: item.last_skipped
+									? 'Last run skipped'
+									: 'Active'}
 					/>{/snippet}
 				{#snippet trailing()}
 					{#if !paused}<span title="Next run"
