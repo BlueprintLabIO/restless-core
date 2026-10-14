@@ -197,8 +197,18 @@ function block(node: DocumentNode, writer: Writer, context: Context): string {
 				.join('');
 			return `<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="0" w:type="auto"/><w:tblBorders><w:top w:val="single" w:sz="4" w:color="auto"/><w:left w:val="single" w:sz="4" w:color="auto"/><w:bottom w:val="single" w:sz="4" w:color="auto"/><w:right w:val="single" w:sz="4" w:color="auto"/><w:insideH w:val="single" w:sz="4" w:color="auto"/><w:insideV w:val="single" w:sz="4" w:color="auto"/></w:tblBorders></w:tblPr>${grid}${body}</w:tbl><w:p/>`;
 		}
+		case 'image': {
+			/* The picture itself is not carried; its caption is. */
+			const caption = String(node.attrs?.caption ?? '').trim();
+			return caption
+				? paragraph(
+						'',
+						`<w:r><w:rPr><w:i/></w:rPr><w:t xml:space="preserve">${escape(caption)}</w:t></w:r>`
+					)
+				: '';
+		}
 		default:
-			/* Anything else (a picture) keeps no place in Word, but its text, if any, stays. */
+			/* Anything else keeps no place in Word, but its text, if any, stays. */
 			return node.content ? blocks(node.content, writer, context) : '';
 	}
 }

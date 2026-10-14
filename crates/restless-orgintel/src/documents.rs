@@ -1140,7 +1140,7 @@ fn validate_node_attrs(
         "codeBlock" => &["language", "block_id"][..],
         "mention" => &["actor_id", "label"][..],
         "reference" => &["kind", "id", "label"][..],
-        "image" => &["block_id", "attachment_id", "alt", "width"][..],
+        "image" => &["block_id", "attachment_id", "alt", "width", "caption"][..],
         "bulletList" | "taskList" | "blockquote" | "horizontalRule" | "table"
         | "listItem" | "tableRow" | "tableCell" | "tableHeader" => &["block_id"][..],
         "doc" | "hardBreak" => &[][..],
@@ -1281,6 +1281,9 @@ fn validate_node_attrs(
                     ));
                 }
                 reject_nul("image alt", alt)?;
+            }
+            if let Some(caption) = attrs.get("caption").filter(|value| !value.is_null()) {
+                bounded_string("image caption", caption, 300)?;
             }
             if let Some(width) = attrs.get("width").filter(|value| !value.is_null()) {
                 let width = width.as_i64().ok_or_else(|| {
@@ -2062,6 +2065,16 @@ fn markdown_image(line: &str) -> DocumentResult<Option<Value>> {
     let Some(target) = target.strip_suffix(')') else {
         return Ok(None);
     };
+    // An optional caption follows the address as a quoted title: ![alt](src "caption").
+    let (target, caption) = match target.split_once(" \"") {
+        Some((path, quoted)) => match serde_json::from_str::<String>(&format!("\"{quoted}")) {
+            Ok(caption) if !caption.trim().is_empty() && caption.chars().count() <= 300 => {
+                (path, Some(caption))
+            }
+            _ => return Ok(None),
+        },
+        None => (target, None),
+    };
     let path = match target.strip_prefix("/api/companies/") {
         Some(scoped) => match scoped.split_once('/') {
             Some((company, path)) if !company.is_empty() => path,
@@ -2076,10 +2089,11 @@ fn markdown_image(line: &str) -> DocumentResult<Option<Value>> {
         Ok(parsed) if parsed.to_string() == id => {}
         _ => return Ok(None),
     }
-    Ok(Some(json!({
-        "type": "image",
-        "attrs": {"attachment_id": id, "alt": unescape_markdown(alt)?}
-    })))
+    let mut attrs = json!({"attachment_id": id, "alt": unescape_markdown(alt)?});
+    if let Some(caption) = caption {
+        attrs["caption"] = Value::String(caption);
+    }
+    Ok(Some(json!({"type": "image", "attrs": attrs})))
 }
 
 fn markdown_block_marker(line: &str) -> Option<&str> {
@@ -2776,8 +2790,12 @@ fn render_node(value: &Value) -> DocumentResult<String> {
                 .as_i64()
                 .map(|width| format!(" width=\"{width}\""))
                 .unwrap_or_default();
+            let caption = attrs["caption"]
+                .as_str()
+                .map(|caption| format!("<figcaption>{}</figcaption>", escape_html(caption)))
+                .unwrap_or_default();
             Ok(format!(
-                "<figure{block}><img data-attachment-id=\"{id}\" alt=\"{alt}\"{width}></figure>"
+                "<figure{block}><img data-attachment-id=\"{id}\" alt=\"{alt}\"{width}>{caption}</figure>"
             ))
         }
         "mention" => {
@@ -3001,8 +3019,16 @@ fn render_markdown_block(value: &Value, depth: usize) -> DocumentResult<String> 
                     attrs["attachment_id"].as_str().unwrap_or_default()
                 )
             });
+            let caption = attrs["caption"]
+                .as_str()
+                .map(|caption| {
+                    serde_json::to_string(caption)
+                        .map(|encoded| format!(" {encoded}"))
+                        .unwrap_or_default()
+                })
+                .unwrap_or_default();
             Ok(format!(
-                "![{}]({src})",
+                "![{}]({src}{caption})",
                 escape_markdown_text(attrs["alt"].as_str().unwrap_or_default())
             ))
         }
@@ -3238,6 +3264,10 @@ fn collect_plain_text(value: &Value, output: &mut String) -> DocumentResult<()> 
         "reference" => output.push_str(object["attrs"]["label"].as_str().unwrap_or_default()),
         "image" => {
             output.push_str(object["attrs"]["alt"].as_str().unwrap_or_default());
+            if let Some(caption) = object["attrs"]["caption"].as_str() {
+                output.push('\n');
+                output.push_str(caption);
+            }
             output.push('\n');
         }
         "hardBreak" => output.push('\n'),
@@ -9004,6 +9034,26 @@ mod tests {
         ] {
             assert!(validate_document_json(&body(marks, attrs)).is_err());
         }
+    }
+
+    #[test]
+    fn an_image_caption_renders_escaped_and_survives_markdown() {
+        let id = "0b7d9c1e-3f4a-4b5c-8d6e-7f8091a2b3c4";
+        let document = json!({"type":"doc","content":[{"type":"image","attrs":{
+            "block_id":"chart","attachment_id":id,"alt":"Q3","caption":"Revenue \"<up>\" 12%"
+        }}]});
+        let validated = validate_document_json(&document).unwrap();
+        assert!(validated
+            .rendered_html
+            .contains("<figcaption>Revenue &quot;&lt;up&gt;&quot; 12%</figcaption>"));
+        let line = validated.markdown.lines().find(|line| line.starts_with("![")).unwrap();
+        let image = markdown_image(line).unwrap().unwrap();
+        assert_eq!(image["attrs"]["caption"], "Revenue \"<up>\" 12%");
+        assert_eq!(image["attrs"]["attachment_id"], id);
+        let blank = json!({"type":"doc","content":[{"type":"image","attrs":{
+            "block_id":"chart","attachment_id":id,"caption":"  "
+        }}]});
+        assert!(validate_document_json(&blank).is_err());
     }
 
     #[test]

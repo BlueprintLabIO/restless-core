@@ -52,7 +52,7 @@ const projection = {
     },
     { type: 'codeBlock', attrs: { block_id: 'code', language: 'typescript' }, content: [{ type: 'text', text: 'const proof = true' }] },
     { type: 'horizontalRule', attrs: { block_id: 'rule' } },
-    { type: 'image', attrs: { block_id: 'chart', attachment_id: '0b7d9c1e-3f4a-4b5c-8d6e-7f8091a2b3c4', alt: 'Q3 chart' } },
+    { type: 'image', attrs: { block_id: 'chart', attachment_id: '0b7d9c1e-3f4a-4b5c-8d6e-7f8091a2b3c4', alt: 'Q3 chart', width: 320, caption: 'Revenue by month' } },
     {
       type: 'table', attrs: { block_id: 'table' }, content: [{
         type: 'tableRow', content: [
@@ -82,13 +82,15 @@ test('an image keeps only the company file it names', () => {
   const restored = projectionFromState(stateFromProjection(projection));
   assert.deepEqual((restored.content as Array<{ type: string }>).find((node) => node.type === 'image'), {
     type: 'image',
-    attrs: { block_id: 'chart', attachment_id: '0b7d9c1e-3f4a-4b5c-8d6e-7f8091a2b3c4', alt: 'Q3 chart' },
+    attrs: { block_id: 'chart', attachment_id: '0b7d9c1e-3f4a-4b5c-8d6e-7f8091a2b3c4', alt: 'Q3 chart', width: 320, caption: 'Revenue by month' },
   });
   for (const attrs of [
     { block_id: 'x', attachment_id: '0b7d9c1e-3f4a-4b5c-8d6e-7f8091a2b3c4', src: 'https://elsewhere.test/a.png' },
     { block_id: 'x', attachment_id: '../../secrets' },
     { block_id: 'x', attachment_id: '0B7D9C1E-3F4A-4B5C-8D6E-7F8091A2B3C4' },
     { block_id: 'x', attachment_id: '0b7d9c1e-3f4a-4b5c-8d6e-7f8091a2b3c4', width: 9_000 },
+    { block_id: 'x', attachment_id: '0b7d9c1e-3f4a-4b5c-8d6e-7f8091a2b3c4', caption: ' ' },
+    { block_id: 'x', attachment_id: '0b7d9c1e-3f4a-4b5c-8d6e-7f8091a2b3c4', caption: 'x'.repeat(301) },
   ]) {
     assert.throws(
       () => stateFromProjection({ type: 'doc', content: [{ type: 'image', attrs }] }),

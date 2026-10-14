@@ -47,7 +47,13 @@ const nodes: Record<string, NodeSpec> = {
   },
   horizontalRule: { attrs: blockId, group: 'block' },
   image: {
-    attrs: { block_id: { default: null }, attachment_id: {}, alt: { default: null }, width: { default: null } },
+    attrs: {
+      block_id: { default: null },
+      attachment_id: {},
+      alt: { default: null },
+      width: { default: null },
+      caption: { default: null },
+    },
     atom: true,
     group: 'block',
   },
@@ -194,7 +200,7 @@ function validateAttributes(type: string, value: unknown, state: ValidationState
       case 'codeBlock': return ['block_id', 'language'];
       case 'mention': return ['actor_id', 'label'];
       case 'reference': return ['id', 'kind', 'label'];
-      case 'image': return ['block_id', 'attachment_id', 'alt', 'width'];
+      case 'image': return ['block_id', 'attachment_id', 'alt', 'width', 'caption'];
       case 'bulletList':
       case 'taskList':
       case 'listItem':
@@ -236,6 +242,7 @@ function validateAttributes(type: string, value: unknown, state: ValidationState
       attrs.alt !== undefined && attrs.alt !== null &&
       (typeof attrs.alt !== 'string' || [...attrs.alt].length > 300 || attrs.alt.includes('\0'))
     ) invalid();
+    if (attrs.caption !== undefined && attrs.caption !== null) boundedString(attrs.caption, 300);
     if (
       attrs.width !== undefined && attrs.width !== null &&
       (!Number.isInteger(attrs.width) || (attrs.width as number) < 16 || (attrs.width as number) > 4_096)

@@ -20,7 +20,13 @@ import TaskList from '@tiptap/extension-task-list';
 import UniqueID from '@tiptap/extension-unique-id';
 import StarterKit from '@tiptap/starter-kit';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
-import { Plugin, PluginKey, TextSelection, type EditorState } from '@tiptap/pm/state';
+import {
+	NodeSelection,
+	Plugin,
+	PluginKey,
+	TextSelection,
+	type EditorState
+} from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import type { HocuspocusProvider } from '@hocuspocus/provider';
 import type { Doc } from 'yjs';
@@ -1279,6 +1285,12 @@ function imageExtension(hooks: DocumentEditorHooks) {
 					return Number.isInteger(width) && width >= 16 && width <= 4_096 ? width : null;
 				},
 				renderHTML: () => ({})
+			},
+			caption: {
+				default: null,
+				parseHTML: (element: HTMLElement) =>
+					bounded(element.querySelector('figcaption')?.textContent, MAX_IMAGE_ALT),
+				renderHTML: () => ({})
 			}
 		}),
 		parseHTML: () => [
@@ -1291,19 +1303,22 @@ function imageExtension(hooks: DocumentEditorHooks) {
 		renderHTML: ({ node, HTMLAttributes }) => {
 			const id = attachmentIdFrom(node.attrs.attachment_id);
 			const width = node.attrs.width;
+			const caption = typeof node.attrs.caption === 'string' ? node.attrs.caption : '';
+			const image = [
+				'img',
+				{
+					src: id && hooks.companyId ? documentImageSrc(hooks.companyId, id) : null,
+					alt: typeof node.attrs.alt === 'string' ? node.attrs.alt : '',
+					...(typeof width === 'number' ? { width: String(width) } : {}),
+					loading: 'lazy',
+					draggable: 'false'
+				}
+			] as const;
 			return [
 				'figure',
 				mergeAttributes(HTMLAttributes, { class: 'native-image' }),
-				[
-					'img',
-					{
-						src: id && hooks.companyId ? documentImageSrc(hooks.companyId, id) : null,
-						alt: typeof node.attrs.alt === 'string' ? node.attrs.alt : '',
-						...(typeof width === 'number' ? { width: String(width) } : {}),
-						loading: 'lazy',
-						draggable: 'false'
-					}
-				]
+				image,
+				...(caption ? [['figcaption', {}, caption] as const] : [])
 			];
 		},
 		addProseMirrorPlugins() {
@@ -1352,6 +1367,47 @@ export interface DocumentSuggestion {
 	kind: 'actor' | 'document' | 'work';
 	id: string;
 	label: string;
+}
+
+/** The sizes an image can be set to; null is as wide as the page allows. */
+export const DOCUMENT_IMAGE_SIZES: { label: string; width: number | null }[] = [
+	{ label: 'Small', width: 320 },
+	{ label: 'Medium', width: 560 },
+	{ label: 'Full width', width: null }
+];
+
+/** The image block the selection is on, if it is one. */
+export function selectedDocumentImage(
+	editor: Editor
+): { pos: number; node: ProseMirrorNode } | null {
+	const selection = editor.state.selection as { node?: ProseMirrorNode; from: number };
+	return selection.node?.type.name === 'image'
+		? { pos: selection.from, node: selection.node }
+		: null;
+}
+
+/** Change a selected image's size, description or caption; an empty text clears it. */
+export function updateDocumentImage(
+	editor: Editor,
+	pos: number,
+	attrs: { width?: number | null; alt?: string | null; caption?: string | null }
+): void {
+	const node = editor.state.doc.nodeAt(pos);
+	if (!node || node.type.name !== 'image' || !editor.isEditable) return;
+	const tidy = (value: string | null | undefined) =>
+		value === undefined
+			? undefined
+			: (value ?? '')
+					.replace(/\p{Cc}/gu, '')
+					.slice(0, MAX_IMAGE_ALT)
+					.trim() || null;
+	const next = { ...node.attrs };
+	if (attrs.width !== undefined) next.width = attrs.width;
+	if (attrs.alt !== undefined) next.alt = tidy(attrs.alt);
+	if (attrs.caption !== undefined) next.caption = tidy(attrs.caption);
+	const tr = editor.state.tr.setNodeMarkup(pos, undefined, next);
+	tr.setSelection(NodeSelection.create(tr.doc, pos));
+	editor.view.dispatch(tr);
 }
 
 /** The "/" menu while it is open: where its slash is and what has been typed after it. */
@@ -1705,6 +1761,8 @@ function projectedAttributes(
 				}
 				attrs.width = source.width;
 			}
+			if (source.caption !== null && source.caption !== undefined)
+				attrs.caption = string(source.caption, 'image caption', MAX_IMAGE_ALT);
 			break;
 		}
 		case 'reference': {

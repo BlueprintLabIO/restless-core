@@ -64,6 +64,9 @@
 		imageAltFromName,
 		inDocumentTable,
 		linkFromInput,
+		DOCUMENT_IMAGE_SIZES,
+		selectedDocumentImage,
+		updateDocumentImage,
 		documentAnchorTarget,
 		documentCounts,
 		documentOutline,
@@ -1174,6 +1177,31 @@
 	}
 
 	const inTable = $derived(editor ? inDocumentTable(editor) : false);
+	/* A selected image: its size, its description for screen readers, and an optional caption. */
+	const selectedImage = $derived(editor ? selectedDocumentImage(editor) : null);
+	let imageAlt = $state('');
+	let imageCaption = $state('');
+	let imageFor = -1;
+	$effect(() => {
+		const image = selectedImage;
+		if (!image) {
+			imageFor = -1;
+			return;
+		}
+		/* Refill only when another image is chosen, not while its own fields are typed in. */
+		if (image.pos === imageFor) return;
+		imageFor = image.pos;
+		imageAlt = String(image.node.attrs.alt ?? '');
+		imageCaption = String(image.node.attrs.caption ?? '');
+	});
+	function saveImageText(field: 'alt' | 'caption'): void {
+		const instance = editorState.editor;
+		const image = selectedImage;
+		if (!instance || !image || !canWriteLive) return;
+		const value = field === 'alt' ? imageAlt : imageCaption;
+		if (value.trim() === String(image.node.attrs[field] ?? '')) return;
+		updateDocumentImage(instance, image.pos, { [field]: value });
+	}
 
 	async function saveTitle(retryHistoryAdvance = true): Promise<void> {
 		if (!titleDirty || !titleEditable || saving || conflict || !serverView) return;
@@ -1417,6 +1445,54 @@
 						>Delete table</button
 					>
 				</ActionMenu>
+			</div>
+		{/if}
+		{#if selectedImage && canWriteLive}
+			<div class="image-bar" role="group" aria-label="Image">
+				<div class="image-sizes" role="group" aria-label="Size">
+					{#each DOCUMENT_IMAGE_SIZES as size (size.label)}
+						<button
+							type="button"
+							class:active={(selectedImage.node.attrs.width ?? null) === size.width}
+							aria-pressed={(selectedImage.node.attrs.width ?? null) === size.width}
+							onclick={() =>
+								run((instance) => {
+									updateDocumentImage(instance, selectedImage.pos, { width: size.width });
+									return true;
+								})}>{size.label}</button
+						>
+					{/each}
+				</div>
+				<input
+					bind:value={imageAlt}
+					type="text"
+					maxlength="300"
+					placeholder="Describe the picture"
+					aria-label="Description"
+					title="What the picture shows, read aloud to people who cannot see it"
+					onblur={() => saveImageText('alt')}
+					onkeydown={(event) => {
+						if (event.key === 'Enter' && !composing(event)) {
+							event.preventDefault();
+							saveImageText('alt');
+						}
+					}}
+				/>
+				<input
+					bind:value={imageCaption}
+					type="text"
+					maxlength="300"
+					placeholder="Caption"
+					aria-label="Caption"
+					title="Shown under the picture"
+					onblur={() => saveImageText('caption')}
+					onkeydown={(event) => {
+						if (event.key === 'Enter' && !composing(event)) {
+							event.preventDefault();
+							saveImageText('caption');
+						}
+					}}
+				/>
 			</div>
 		{/if}
 		{#if linkEditing && canWriteLive}
@@ -2250,6 +2326,51 @@
 		.outline-panel {
 			display: none;
 		}
+	}
+	.image-bar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 6px;
+		padding: 4px var(--space-4);
+		border-bottom: 1px solid var(--border);
+	}
+	.image-sizes {
+		display: flex;
+		gap: 2px;
+	}
+	.image-sizes button {
+		height: 28px;
+		padding: 0 8px;
+		border: 0;
+		border-radius: var(--radius-control);
+		background: transparent;
+		color: var(--text-secondary);
+		font: 600 var(--t-label) var(--font-ui);
+		cursor: pointer;
+	}
+	.image-sizes button:hover,
+	.image-sizes button.active {
+		background: var(--wash-hover);
+		color: var(--ink);
+	}
+	.image-bar input {
+		flex: 1 1 160px;
+		min-width: 0;
+		height: 28px;
+		padding: 0 8px;
+		border: 1px solid var(--control-edge);
+		border-radius: var(--radius-control);
+		background: var(--surface-raised);
+		color: var(--ink);
+		font: var(--t-body) var(--font-ui);
+	}
+	:global(.native-document-body .native-image figcaption),
+	:global(.rendered-document figcaption) {
+		margin-top: 6px;
+		color: var(--text-secondary);
+		font: var(--t-label) var(--font-ui);
+		text-align: center;
 	}
 	.find-bar {
 		display: flex;

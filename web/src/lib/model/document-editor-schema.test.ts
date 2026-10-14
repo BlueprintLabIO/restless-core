@@ -56,7 +56,7 @@ const SIDECAR_ATTRIBUTES: Record<string, string[]> = {
 	codeBlock: ['block_id', 'language'],
 	mention: ['actor_id', 'label'],
 	reference: ['id', 'kind', 'label'],
-	image: ['alt', 'attachment_id', 'block_id', 'width'],
+	image: ['alt', 'attachment_id', 'block_id', 'caption', 'width'],
 	doc: [],
 	text: [],
 	hardBreak: []
