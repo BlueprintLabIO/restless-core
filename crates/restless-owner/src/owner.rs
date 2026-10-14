@@ -532,6 +532,13 @@ struct ConversationInterruptResponse {
     interrupted: bool,
 }
 
+/// A fresh turn was asked for on a message still waiting for its reply.
+#[derive(Debug, Serialize)]
+struct ConversationRetryResponse {
+    message_id: i64,
+    queued: bool,
+}
+
 #[derive(Debug, Deserialize, Default)]
 struct ConversationQuery {
     work_id: Option<Uuid>,
@@ -1558,6 +1565,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(interrupt_actor_conversation),
         )
         .route(
+            "/companies/{company}/actors/{actor}/conversation/{message_id}/retry",
+            post(retry_actor_conversation),
+        )
+        .route(
             "/companies/{company}/actors/{actor}/activity",
             get(agent_activity_live),
         )
@@ -2103,6 +2114,8 @@ fn membership_boundary_violation(
         || path.starts_with("/api/mcp-access/")
         || is_company_principal_route(path)
         || is_actor_conversation_route(path)
+        // Each person asks for a fresh turn on their own message; the handler checks it is theirs.
+        || is_actor_conversation_message_route(path, "retry")
         // Every person in the company talks to Exec and the team, and sees what they are doing
         // and how they hand work to each other.
         || is_actor_route(path, "activity")
@@ -2385,6 +2398,10 @@ fn is_actor_route(path: &str, leaf: &str) -> bool {
 }
 
 fn is_actor_interrupt_route(path: &str) -> bool {
+    is_actor_conversation_message_route(path, "interrupt")
+}
+
+fn is_actor_conversation_message_route(path: &str, leaf: &str) -> bool {
     let Some(rest) = path.strip_prefix("/api/companies/") else {
         return false;
     };
@@ -2394,7 +2411,7 @@ fn is_actor_interrupt_route(path: &str) -> bool {
         && segments.next().is_some_and(|actor| !actor.is_empty())
         && segments.next() == Some("conversation")
         && segments.next().is_some_and(|message| !message.is_empty())
-        && segments.next() == Some("interrupt")
+        && segments.next() == Some(leaf)
         && segments.next().is_none()
 }
 
@@ -8778,7 +8795,14 @@ async fn agent_activity_live(
             .daemon
             .activities
             .subscribe(&company, &actor, query.message_id, query.work_id);
-    let stream = agent_activity_stream(receiver, session_lease.map(|Extension(lease)| lease));
+    // Ambient activity says that the actor is working and on what, to anyone in
+    // the company; what it is writing stays with whoever the reply is for.
+    let ambient = query.message_id.is_none() && query.work_id.is_none();
+    let stream = agent_activity_stream(
+        receiver,
+        session_lease.map(|Extension(lease)| lease),
+        ambient,
+    );
     Sse::new(stream)
         .keep_alive(
             KeepAlive::new()
@@ -8791,10 +8815,11 @@ async fn agent_activity_live(
 fn agent_activity_stream(
     receiver: tokio::sync::watch::Receiver<crate::activity::AgentActivityState>,
     session_lease: Option<SessionLease>,
+    redact_reply: bool,
 ) -> impl futures_util::Stream<Item = std::result::Result<Event, Infallible>> {
     futures_util::stream::unfold(
         (receiver, true, session_lease),
-        |(mut receiver, first, session_lease)| async move {
+        move |(mut receiver, first, session_lease)| async move {
             if session_lease.as_ref().is_some_and(SessionLease::is_ended) {
                 return None;
             }
@@ -8810,7 +8835,10 @@ fn agent_activity_stream(
                     return None;
                 }
             }
-            let state = receiver.borrow().clone();
+            let mut state = receiver.borrow().clone();
+            if redact_reply {
+                state.reply.clear();
+            }
             let data = serde_json::to_string(&state).unwrap_or_else(|_| {
                 "{\"phase\":\"failed\",\"error\":\"live projection could not be encoded\"}".into()
             });
@@ -9570,6 +9598,63 @@ async fn interrupt_actor_conversation(
         message_id,
         cancelled,
         interrupted,
+    })
+    .into_response()
+}
+
+/// Ask for a fresh turn on one of the caller's own messages that is still
+/// waiting for its reply, usually because the last turn failed. Nothing enters
+/// the transcript: the same unread message is answered by the next turn, which
+/// streams on the projection the browser already follows.
+async fn retry_actor_conversation(
+    State(state): State<OwnerState>,
+    AxumPath((company, actor, message_id)): AxumPath<(String, String, i64)>,
+    Extension(principal): Extension<RequestPrincipal>,
+) -> impl IntoResponse {
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    };
+    let waiting = match org.inbox(Some(&actor)).await {
+        Ok(unread) => unread
+            .iter()
+            .any(|message| message.id == message_id && message.from_actor == principal.actor_id()),
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    };
+    if !waiting {
+        return api_error(
+            StatusCode::CONFLICT,
+            "conversation",
+            "that message is no longer waiting for a reply",
+        );
+    }
+    state
+        .daemon
+        .activities
+        .requeue_message(&company, &actor, message_id);
+    if actor == "exec" {
+        if let Ok(mut claims) = state.daemon.in_flight.lock() {
+            claims.queue_owner_message(&company);
+        }
+    } else {
+        state.daemon.staff.clear_conversation_backoff(&company, &actor);
+    }
+    state.daemon.schedule_wake.notify_one();
+    Json(ConversationRetryResponse {
+        message_id,
+        queued: true,
     })
     .into_response()
 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { turnFailureReason } from '$lib/model/turn-failure';
+	import { turnFailureReason, turnStopped } from '$lib/model/turn-failure';
 	import Check from '@lucide/svelte/icons/check';
 	import CircleAlert from '@lucide/svelte/icons/circle-alert';
 	import type { ActiveAgentTurn } from '$lib/model/queries.svelte';
@@ -13,11 +13,29 @@
 
 	let {
 		participantName,
-		turn
+		turn,
+		onstop = null,
+		onretry = null
 	}: {
 		participantName: string;
 		turn: ActiveAgentTurn;
+		/** Stops the reply in progress without sending anything; resolves to an error sentence. */
+		onstop?: (() => Promise<string | null>) | null;
+		/** Answers the same message again after a failed reply; resolves to an error sentence. */
+		onretry?: (() => Promise<string | null>) | null;
 	} = $props();
+	let acting = $state(false);
+	let actionError = $state('');
+	async function act(action: () => Promise<string | null>) {
+		if (acting) return;
+		acting = true;
+		actionError = '';
+		try {
+			actionError = (await action()) ?? '';
+		} finally {
+			acting = false;
+		}
+	}
 
 	const glimmerDelays = [90, 180, 270, 0, 90, 180, 90, 180, 270];
 	let now = $state(Date.now());
@@ -29,6 +47,28 @@
 	const terminal = $derived(phase === 'complete' || phase === 'failed');
 	const working = $derived(!terminal && turn.transport !== 'idle');
 	const reply = $derived(turn.live?.reply ?? '');
+	const stopped = $derived(phase === 'failed' && turnStopped(turn.live?.error));
+	/* A turn that stopped or failed waits on the owner; one still working can be stopped. */
+	const action = $derived(
+		working && onstop
+			? {
+					label: acting ? 'Stopping…' : 'Stop',
+					run: onstop,
+					title: `Stop ${participantName} now without sending anything. What it already did is kept.`
+				}
+			: phase === 'failed' && !stopped && onretry
+				? {
+						label: acting ? 'Retrying…' : 'Retry',
+						run: onretry,
+						title: `Ask ${participantName} to answer the same message again`
+					}
+				: null
+	);
+	$effect(() => {
+		void turn.triggerMessageId;
+		void phase;
+		actionError = '';
+	});
 	const visibleActivity = $derived(
 		(turn.live?.activity ?? []).filter((item) => item.kind !== 'thinking')
 	);
@@ -93,6 +133,11 @@
 				/* Done is not news: the reply itself says so. */
 				return 'Replied';
 			case 'failed': {
+				/* Stopping is not failing: what was done is kept, and the message stays. */
+				if (turnStopped(turn.live?.error))
+					return /queued/i.test(turn.live?.error ?? '')
+						? 'Stopped · your newer message is next'
+						: 'Stopped · your message is kept';
 				/* Say why, in one line; the full reason is in the detail. */
 				const reason = turnFailureReason(turn.live?.error);
 				return reason
@@ -166,49 +211,60 @@
 	data-transport={turn.transport}
 	aria-label={terminal ? `${participantName} reply activity` : `${participantName} live work`}
 >
-	<button
-		type="button"
-		class="turn-summary"
-		title={terminal
-			? 'View activity from this reply. This status does not indicate whether delegated work is complete.'
-			: 'Show or hide live tools and activity. Reply text streams below.'}
-		aria-expanded={expanded}
-		aria-controls={`turn-${turn.triggerMessageId}`}
-		onclick={toggleExpanded}
-	>
-		{#if terminal}
-			<span class="terminal-mark" aria-hidden="true">
-				{#if phase === 'complete'}<Check size={16} />{:else}<CircleAlert size={16} />{/if}
-			</span>
-		{:else}
-			<span class="pixel-glimmer" class:working aria-hidden="true">
-				{#each glimmerDelays as delay, index (index)}
-					<i style={`animation-delay: ${delay}ms`}></i>
-				{/each}
-			</span>
-		{/if}
-		<span class="turn-status" class:shimmer={working} role="status" aria-live="polite"
-			>{statusLabel}</span
+	<div class="turn-head">
+		<button
+			type="button"
+			class="turn-summary"
+			title={terminal
+				? 'View activity from this reply. This status does not indicate whether delegated work is complete.'
+				: 'Show or hide live tools and activity. Reply text streams below.'}
+			aria-expanded={expanded}
+			aria-controls={`turn-${turn.triggerMessageId}`}
+			onclick={toggleExpanded}
 		>
-		<time
-			title={[latestUpdate, contextLabel, outputLabel && `${outputLabel} tokens`]
-				.filter(Boolean)
-				.join(' · ')}>{elapsedLabel}</time
-		>
-		{#if visibleActivity.length}
-			<span class="action-count"
-				>{visibleActivity.length} action{visibleActivity.length === 1 ? '' : 's'}</span
+			{#if terminal}
+				<span class="terminal-mark" aria-hidden="true">
+					{#if phase === 'complete'}<Check size={16} />{:else}<CircleAlert size={16} />{/if}
+				</span>
+			{:else}
+				<span class="pixel-glimmer" class:working aria-hidden="true">
+					{#each glimmerDelays as delay, index (index)}
+						<i style={`animation-delay: ${delay}ms`}></i>
+					{/each}
+				</span>
+			{/if}
+			<span class="turn-status" class:shimmer={working} role="status" aria-live="polite"
+				>{statusLabel}</span
 			>
-		{/if}
-		<!-- Model usage is an internal; it shows only while the owner looks inside. -->
-		{#if expanded && contextLabel}<span class="context-usage" title="Latest context-window usage"
-				>{contextLabel}</span
+			<time
+				title={[latestUpdate, contextLabel, outputLabel && `${outputLabel} tokens`]
+					.filter(Boolean)
+					.join(' · ')}>{elapsedLabel}</time
+			>
+			{#if visibleActivity.length}
+				<span class="action-count"
+					>{visibleActivity.length} action{visibleActivity.length === 1 ? '' : 's'}</span
+				>
+			{/if}
+			<!-- Model usage is an internal; it shows only while the owner looks inside. -->
+			{#if expanded && contextLabel}<span class="context-usage" title="Latest context-window usage"
+					>{contextLabel}</span
+				>{/if}
+			{#if expanded && outputLabel}<span
+					class="output-usage"
+					title="Reported generated output tokens">{outputLabel}</span
+				>{/if}
+			<span class="turn-chevron" aria-hidden="true">⌄</span>
+		</button>
+		{#if action}<button
+				type="button"
+				class="turn-action"
+				title={action.title}
+				disabled={acting}
+				onclick={() => void act(action.run)}>{action.label}</button
 			>{/if}
-		{#if expanded && outputLabel}<span class="output-usage" title="Reported generated output tokens"
-				>{outputLabel}</span
-			>{/if}
-		<span class="turn-chevron" aria-hidden="true">⌄</span>
-	</button>
+	</div>
+	{#if actionError}<p class="turn-action-error" role="alert">{actionError}</p>{/if}
 
 	{#if reply && !expanded && turn.transport !== 'idle'}
 		<article
@@ -251,8 +307,10 @@
 					<p class="turn-awaiting">The first live update will appear here.</p>
 				{/if}
 
-				{#if phase === 'failed' && turn.live?.error}
-					<p class="reply-error">{turn.live.error}</p>
+				{#if phase === 'failed' && turn.live?.error && !stopped}
+					<p class="reply-error" title="What the runtime reported, for whoever looks into it">
+						{turn.live.error}
+					</p>
 				{/if}
 			</div>
 		</div>
@@ -288,7 +346,37 @@
 		width: 12px;
 		height: 12px;
 	}
+	.turn-head {
+		display: flex;
+		align-items: center;
+		min-width: 0;
+	}
+	.turn-action {
+		flex: none;
+		margin-right: 10px;
+		padding: 2px 8px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		background: var(--surface);
+		color: var(--ink);
+		font: 500 var(--t-label) var(--font-ui);
+		cursor: pointer;
+	}
+	.turn-action:hover:not(:disabled) {
+		background: var(--surface-hover);
+	}
+	.turn-action:disabled {
+		opacity: 0.6;
+		cursor: default;
+	}
+	.turn-action-error {
+		margin: 0;
+		padding: 0 14px 6px;
+		color: var(--state-danger);
+		font-size: var(--t-label);
+	}
 	.turn-summary {
+		flex: 1 1 auto;
 		width: 100%;
 		min-width: 0;
 		display: flex;

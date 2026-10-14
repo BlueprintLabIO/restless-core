@@ -14,7 +14,7 @@ const RULES: { test: RegExp; say: string }[] = [
 	},
 	{
 		test: /rate[\s_-]*limit|too many requests|\b429\b|overloaded|\b529\b/i,
-		say: 'the model provider is busy right now. Send it again in a minute.'
+		say: 'the model provider is busy right now. Try again in a minute.'
 	},
 	{
 		test: /model[^.]*(not found|does not exist|not available|unsupported|unknown)|unknown model|no such model/i,
@@ -26,9 +26,14 @@ const RULES: { test: RegExp; say: string }[] = [
 	},
 	{
 		test: /timed? ?out|timeout|econnreset|econnrefused|connection (reset|refused|closed)|network|socket hang up/i,
-		say: 'the connection to the model dropped. Send it again.'
+		say: 'the connection to the model dropped. Try again.'
 	}
 ];
+
+/** Whether the turn ended because a person stopped it, rather than failing. */
+export function turnStopped(error: string | null | undefined): boolean {
+	return /^interrupted by owner/i.test((error ?? '').trim());
+}
 
 /** The reason as one plain sentence, or the runtime's first sentence with its jargon removed. */
 export function turnFailureReason(error: string | null | undefined): string {

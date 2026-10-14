@@ -50,6 +50,8 @@
 		execHref = null,
 		execLive = false,
 		execUnavailable = false,
+		execUnread = false,
+		execWorking = false,
 		blocked = false,
 		expandExec = false,
 		railOpen = true,
@@ -77,6 +79,10 @@
 		execHref?: string | null;
 		execLive?: boolean;
 		execUnavailable?: boolean;
+		/** Exec wrote something the viewer has not read. */
+		execUnread?: boolean;
+		/** Exec is working on a turn right now. */
+		execWorking?: boolean;
 		/** Temporarily removes the underlying page from interaction while a blocking recovery prompt is open. */
 		blocked?: boolean;
 		expandExec?: boolean;
@@ -141,6 +147,12 @@
 	};
 	const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 	const execShortcut = isMac ? '⌘J' : 'Ctrl+J';
+	/* The button says what the closed rail would: a reply waiting, or Exec at work. */
+	const execLabel = $derived(
+		[execName, execUnread ? 'new reply' : '', execWorking ? 'working' : '']
+			.filter(Boolean)
+			.join(', ')
+	);
 	const menuShortcut = isMac ? '⌘K' : 'Ctrl+K';
 	let commandMenuOpen = $state(false);
 	let shortcuts: ShortcutsDialog | undefined = $state();
@@ -405,9 +417,14 @@
 					class="tb-exec"
 					class:live={execLive}
 					class:unavailable={execUnavailable}
+					class:working={execWorking}
 					href={execHref}
+					aria-label={execLabel}
+					title={execLabel}
 				>
-					<span class="tb-exec-lamp" aria-hidden="true"></span>{execName}
+					<span class="tb-exec-lamp" aria-hidden="true"></span><span class="tb-exec-name"
+						>{execName}</span
+					>{#if execUnread}<span class="tb-dot" aria-hidden="true"></span>{/if}
 				</a>
 			{:else if rail}
 				<button
@@ -415,14 +432,18 @@
 					class:live={execLive}
 					class:unavailable={execUnavailable}
 					class:on={railOpen}
+					class:working={execWorking}
 					type="button"
 					aria-controls="bridge-exrail"
 					aria-expanded={railOpen}
 					aria-keyshortcuts={isMac ? 'Meta+J' : 'Control+J'}
-					title={`${railOpen ? 'Hide' : 'Show'} ${execName} · ${execShortcut}`}
+					aria-label={execLabel}
+					title={`${railOpen ? 'Hide' : 'Show'} ${execLabel} · ${execShortcut}`}
 					onclick={() => onexectoggle?.()}
 				>
-					<span class="tb-exec-lamp" aria-hidden="true"></span>{execName}
+					<span class="tb-exec-lamp" aria-hidden="true"></span><span class="tb-exec-name"
+						>{execName}</span
+					>{#if execUnread}<span class="tb-dot" aria-hidden="true"></span>{/if}
 				</button>
 			{/if}
 		</div>
@@ -470,6 +491,7 @@
 	{#if immersive && rail}
 		<button
 			class="immersive-exec"
+			class:unread={execUnread}
 			class:live={execLive}
 			class:unavailable={execUnavailable}
 			class:on={railOpen}

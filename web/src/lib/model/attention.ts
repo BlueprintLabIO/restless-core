@@ -281,8 +281,12 @@ export async function getActorConversation(
 	return (await response.json()) as ConversationView;
 }
 
+/** One message's turn, one Work's attempts, or (empty) the actor's ambient turns: those no
+ * person's message started, whose reply text the server leaves out. */
 export type AgentActivityScope =
-	{ messageId: number; workId?: never } | { workId: string; messageId?: never };
+	| { messageId: number; workId?: never }
+	| { workId: string; messageId?: never }
+	| { messageId?: never; workId?: never };
 
 /** Follow one live agent projection. EventSource owns reconnection; every
  * event is a complete snapshot, so a dropped delta cannot corrupt the reply. */
@@ -296,7 +300,9 @@ export function openAgentActivityStream(
 	const query =
 		scope.messageId !== undefined
 			? `message_id=${encodeURIComponent(scope.messageId)}`
-			: `work_id=${encodeURIComponent(scope.workId!)}`;
+			: scope.workId !== undefined
+				? `work_id=${encodeURIComponent(scope.workId)}`
+				: '';
 	const source = new EventSource(
 		`/api/companies/${encodeURIComponent(company)}/actors/${encodeURIComponent(actor)}/activity${query ? `?${query}` : ''}`
 	);
@@ -461,6 +467,40 @@ export async function sendActorMessage(
 				}
 			: result.focus
 	};
+}
+
+/** Stop the turn answering one of the viewer's messages, without sending anything new. The
+ * message stays in the conversation, marked read; whatever the turn already did is kept. */
+export async function interruptActorMessage(
+	company: string,
+	actor: string,
+	messageId: number
+): Promise<MessageInterruptResult> {
+	const response = await fetch(
+		`/api/companies/${encodeURIComponent(company)}/actors/${encodeURIComponent(actor)}/conversation/${messageId}/interrupt`,
+		{ method: 'POST', credentials: 'same-origin' }
+	);
+	if (!response.ok) throw await ownerError(response);
+	const result = (await response.json()) as ConversationInterruptResponse;
+	return {
+		messageId: result.message_id,
+		cancelled: result.cancelled,
+		interrupted: result.interrupted
+	};
+}
+
+/** Ask for a fresh turn on one of the viewer's messages still waiting for its reply (its last
+ * turn failed). Nothing new is sent; the same message is answered. */
+export async function retryActorMessage(
+	company: string,
+	actor: string,
+	messageId: number
+): Promise<void> {
+	const response = await fetch(
+		`/api/companies/${encodeURIComponent(company)}/actors/${encodeURIComponent(actor)}/conversation/${messageId}/retry`,
+		{ method: 'POST', credentials: 'same-origin' }
+	);
+	if (!response.ok) throw await ownerError(response);
 }
 
 /** The exact local cockpit location to associate with a message. Route parsing

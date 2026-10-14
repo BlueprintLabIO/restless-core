@@ -517,7 +517,9 @@
 			railWorkId,
 			wideActor ? undefined : focusedAttention?.id,
 			() => !!principal,
-			principal?.actor_id ?? 'owner'
+			principal?.actor_id ?? 'owner',
+			true,
+			true
 		)
 	);
 	const railActorName = $derived(
@@ -712,6 +714,24 @@
 		}
 	}
 
+	async function stopRailTurn(): Promise<string | null> {
+		try {
+			await railConversation.stopTurn();
+			return null;
+		} catch (cause) {
+			return failureSentence(cause, 'The reply could not be stopped; it may already have ended.');
+		}
+	}
+
+	async function retryRailTurn(): Promise<string | null> {
+		try {
+			await railConversation.retryTurn();
+			return null;
+		} catch (cause) {
+			return failureSentence(cause, 'It could not be retried. Send the message again instead.');
+		}
+	}
+
 	async function decideFocusedReview(
 		decision: 'accept' | 'request_changes',
 		feedback: string
@@ -814,6 +834,8 @@
 		const openPerson = inPeople && !openRoom ? (page.url.searchParams.get('person') ?? '') : '';
 		return [
 			...directChats.conversations
+				/* Exec's own replies light the Exec button, not People. */
+				.filter((row) => row.person_actor_id !== 'exec')
 				.filter((row) => row.room_id !== openRoom && row.person_actor_id !== openPerson)
 				.map((row) => ({
 					...row,
@@ -828,6 +850,15 @@
 				}))
 		].filter((row) => conversationUnread(row, viewer));
 	});
+	/* An Exec reply the viewer has not read: a dot on the Exec button. Reading it in the rail or
+	 * the full-width conversation clears it. */
+	const execUnreadRow = $derived.by(() => {
+		const row = directChats.conversations.find((entry) => entry.person_actor_id === 'exec');
+		const inPeopleExec =
+			page.url.pathname === `/${companyId}/people` &&
+			page.url.searchParams.get('person') === 'exec';
+		return row && !inPeopleExec && conversationUnread(row, principal?.actor_id ?? '') ? row : null;
+	});
 	/* A new unread message taps the owner on the shoulder when the cockpit is in the background,
 	 * as a new Inbox item does. The first reading only primes what is already known. */
 	let knownUnread: Set<string> | null = null;
@@ -838,17 +869,33 @@
 			knownUnread = null;
 		}
 		if (directChats.status === 'unknown' || groupChats.status === 'unknown') return;
-		const rows = unreadChats;
+		const exec = execUnreadRow;
+		const rows = [
+			...unreadChats,
+			...(exec
+				? [
+						{
+							...exec,
+							title: 'Exec',
+							href: '',
+							/* An Exec reply opens the rail, where the owner talks to Exec. */
+							open: () => {
+								chooseTopic(null);
+								execRailOpen = true;
+							}
+						}
+					]
+				: [])
+		];
 		const keys = new Set(rows.map((row) => `${row.room_id}:${row.last_message_id}`));
 		if (knownUnread) {
 			for (const row of rows) {
 				if (knownUnread.has(`${row.room_id}:${row.last_message_id}`)) continue;
-				desktopNotify.show(
-					row.title,
-					messagePreview(row.last_message_preview),
-					() => void goto(row.href),
-					{ company: companyName, tag: `${companyId}:room:${row.room_id}` }
-				);
+				const open = 'open' in row ? row.open : () => void goto(row.href);
+				desktopNotify.show(row.title, messagePreview(row.last_message_preview), open, {
+					company: companyName,
+					tag: `${companyId}:room:${row.room_id}`
+				});
 			}
 		}
 		knownUnread = keys;
@@ -1495,6 +1542,7 @@
 			participantId={railActorId}
 			participantRole={railActorRole}
 			turn={railConversation.activeTurn}
+			ambientTurn={railConversation.ambientTurn}
 			{companyId}
 			membershipRole={principal?.membership_role ?? 'member'}
 			connected={railConnected}
@@ -1523,6 +1571,8 @@
 			focusRequest={railFocusRequest}
 			draftRequest={railDraft}
 			uploadProgress={railConversation.uploadProgress}
+			onstopturn={stopRailTurn}
+			onretryturn={retryRailTurn}
 			references={ownerAccess
 				? referenceOptions(
 						companyId,
@@ -1577,6 +1627,9 @@
 				: null}
 			execName={railActorName}
 			execLive={railConnected}
+			execUnread={!!execUnreadRow && !(execRailOpen && railActorId === 'exec')}
+			execWorking={railActorId === 'exec' &&
+				(railConversation.working || !!railConversation.ambientTurn)}
 			execUnavailable={!!providerIssue}
 			railOpen={execRailOpen}
 			expandExec={page.url.pathname === `/${companyId}` &&

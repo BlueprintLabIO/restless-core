@@ -271,6 +271,48 @@
 	box-shadow: 0 0 0 3px color-mix(in srgb, var(--state-success) 16%, transparent);
 }
 
+.bridge-root .tb-exec {
+	position: relative;
+}
+
+/* At work: the name shimmers as the turn dock's status does. */
+.bridge-root .tb-exec.working .tb-exec-name {
+	background: linear-gradient(
+		90deg,
+		var(--text-tertiary) 30%,
+		var(--ink) 50%,
+		var(--text-tertiary) 70%
+	);
+	background-size: 210% 100%;
+	background-clip: text;
+	color: transparent;
+	-webkit-text-fill-color: transparent;
+	animation: tb-exec-shimmer var(--motion-working) linear infinite;
+}
+
+.bridge-root .tb-exec .tb-dot {
+	top: -3px;
+	right: -3px;
+}
+
+@keyframes tb-exec-shimmer {
+	from {
+		background-position: 110% 0;
+	}
+	to {
+		background-position: -110% 0;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.bridge-root .tb-exec.working .tb-exec-name {
+		animation: none;
+		background: none;
+		color: inherit;
+		-webkit-text-fill-color: currentColor;
+	}
+}
+
 .bridge-root .tb-exec.on {
 	background: var(--intent-conversation-soft);
 	border-color: color-mix(in srgb, var(--intent-conversation) 32%, var(--control-edge));

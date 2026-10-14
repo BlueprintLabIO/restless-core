@@ -2586,7 +2586,7 @@
             Duration::from_secs(60),
         );
         let lease = sessions.resolve_lease(&token).expect("resolved lease");
-        let stream = agent_activity_stream(receiver, Some(lease));
+        let stream = agent_activity_stream(receiver, Some(lease), false);
         futures_util::pin_mut!(stream);
         assert!(
             stream.next().await.is_some(),
@@ -2614,7 +2614,7 @@
             Duration::from_millis(100),
         );
         let lease = sessions.resolve_lease(&token).expect("resolved lease");
-        let stream = agent_activity_stream(receiver, Some(lease));
+        let stream = agent_activity_stream(receiver, Some(lease), false);
         futures_util::pin_mut!(stream);
         assert!(
             stream.next().await.is_some(),
@@ -2857,6 +2857,9 @@ model = \"anthropic/claude-sonnet-5-5\"
         assert!(membership_boundary_violation(&Method::GET, "/api/companies/aris/work/w-1/feedback", &principal).is_some());
         assert!(membership_boundary_violation(&Method::GET, "/api/companies/aris/work-spend", &principal).is_some());
         assert!(membership_boundary_violation(&Method::GET, "/api/companies/aris/work/w-1/resume", &principal).is_some());
+        // They ask for a fresh turn on their own message, but a member may not stop a turn.
+        assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/actors/exec/conversation/42/retry", &principal).is_none());
+        assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/actors/exec/conversation/42/interrupt", &principal).is_some());
         // They open the Work files they can see; the handlers check which.
         assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/library/open", &principal).is_none());
         assert!(membership_boundary_violation(&Method::GET, "/api/companies/aris/library/content", &principal).is_none());

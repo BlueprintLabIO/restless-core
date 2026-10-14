@@ -1129,10 +1129,16 @@ async fn run_exec_turn_with_lease(
     let mention_context = pending_mention
         .as_ref()
         .map(crate::mentions::MentionClaim::context);
-    let live_turn = daemon
-        .activities
-        .start_messages(&config.name, "exec", &owner_message_ids);
-    let observer = (!owner_message_ids.is_empty()).then(|| live_turn.observer());
+    // A turn answering a person's messages streams on those messages; any other
+    // turn streams as the Exec's ambient activity, so the rail can say it is working.
+    let live_turn = if owner_message_ids.is_empty() {
+        daemon.activities.start_ambient(&config.name, "exec")
+    } else {
+        daemon
+            .activities
+            .start_messages(&config.name, "exec", &owner_message_ids)
+    };
+    let observer = Some(live_turn.observer());
     let early_reply_message_id = Arc::new(Mutex::new(None::<i64>));
     let early_reply_commit_attempted = Arc::new(AtomicBool::new(false));
     let complete_reply_hook = (!owner_message_ids.is_empty()).then(|| {
@@ -1243,6 +1249,8 @@ async fn run_exec_turn_with_lease(
             } else {
                 "Interrupted by owner."
             });
+        } else {
+            live_turn.fail("Interrupted.");
         }
         return outcome;
     }

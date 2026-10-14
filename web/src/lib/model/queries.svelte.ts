@@ -14,6 +14,8 @@ import {
 	getAttention,
 	openAgentActivityStream,
 	sendActorMessage,
+	interruptActorMessage,
+	retryActorMessage,
 	type AttentionView,
 	type ActorConversation,
 	type AgentActivityState,
@@ -407,7 +409,9 @@ export function conversationQuery(
 	attentionId?: string,
 	enabled: QueryEnabled = true,
 	viewerActorId = 'owner',
-	followLiveActivity: QueryEnabled = true
+	followLiveActivity: QueryEnabled = true,
+	/** Also follow the actor's ambient turns (only the rail does: one more open connection). */
+	followAmbient: QueryEnabled = false
 ) {
 	const client = useQueryClient();
 	const key = queryKeys.conversation(companyId, actorId, workId);
@@ -505,6 +509,31 @@ export function conversationQuery(
 		}
 	});
 
+	/* What the actor is doing when no person's message started it: a schedule, a Staff result,
+	 * a mention. One quiet connection per open conversation, held between turns. When such a
+	 * turn ends, its reply (if any) is in the conversation. */
+	let ambient = $state<AgentActivityState | null>(null);
+	$effect(() => {
+		if (
+			!queryEnabled(enabled) ||
+			!queryEnabled(followLiveActivity) ||
+			!queryEnabled(followAmbient) ||
+			typeof EventSource === 'undefined'
+		)
+			return;
+		let wasLive = false;
+		const close = openAgentActivityStream(companyId, actorId, {}, (state) => {
+			ambient = state;
+			const isLive = state.phase !== 'complete' && state.phase !== 'failed';
+			if (wasLive && !isLive) void client.invalidateQueries({ queryKey: key });
+			wasLive = isLive;
+		});
+		return () => {
+			close();
+			ambient = null;
+		};
+	});
+
 	/* The placeholder leaves only once the server's copy is held. No read can drop that copy:
 	 * a local write cancels every older read in flight. */
 	$effect(() => {
@@ -557,6 +586,17 @@ export function conversationQuery(
 		get working() {
 			return turnWorking(this.activeTurn);
 		},
+		/** A turn no person's message started, while it runs; its reply text is not shown. */
+		get ambientTurn(): ActiveAgentTurn | null {
+			const current = ambient;
+			if (!current || current.phase === 'complete' || current.phase === 'failed') return null;
+			return {
+				triggerMessageId: 0,
+				since: current.startedAt ?? current.updatedAt,
+				live: current,
+				transport: 'live'
+			};
+		},
 		get uploadProgress() {
 			return uploadProgress;
 		},
@@ -565,6 +605,20 @@ export function conversationQuery(
 			return uncertainCommand?.id ?? null;
 		},
 		refresh: () => refresh(query),
+		/** Stop the turn answering the viewer's message, sending nothing new. */
+		async stopTurn() {
+			const messageId = live?.triggerMessageId ?? followingMessageId;
+			if (!messageId) throw new Error('There is no reply in progress to stop.');
+			const result = await interruptActorMessage(companyId, actorId, messageId);
+			void client.invalidateQueries({ queryKey: key });
+			return result;
+		},
+		/** Answer the same message again after its turn failed; it streams on the open connection. */
+		async retryTurn() {
+			const messageId = live?.triggerMessageId ?? followingMessageId;
+			if (!messageId) throw new Error('There is no failed reply to retry.');
+			await retryActorMessage(companyId, actorId, messageId);
+		},
 		attach(): () => void {
 			return () => {
 				stop?.();

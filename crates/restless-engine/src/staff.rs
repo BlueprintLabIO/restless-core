@@ -278,6 +278,14 @@ impl StaffRegistry {
             .unwrap_or(true)
     }
 
+    /// The owner asked for a fresh turn: the next scheduler scan may dispatch
+    /// this actor's conversation without waiting out a failure backoff.
+    pub fn clear_conversation_backoff(&self, company: &str, actor: &str) {
+        if let Ok(mut backoff) = self.conversation_backoff.lock() {
+            backoff.remove(&(company.to_string(), actor.to_string()));
+        }
+    }
+
     fn record_conversation_wake(&self, company: &str, actor: &str, usable: bool) {
         let Ok(mut backoff) = self.conversation_backoff.lock() else {
             return;

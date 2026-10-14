@@ -33,6 +33,9 @@ const HIDDEN_MARKERS: [&str; 2] = [DETAILS_MARKER, crate::transcript::INTENT_MAR
 enum ActivityScope {
     Message(i64),
     Work(Uuid),
+    /// A turn nobody's message started (a schedule, a Staff result, a
+    /// mention). One per actor, kept open so "is it working now" has an answer.
+    Ambient,
 }
 
 type StreamKey = (String, String, ActivityScope);
@@ -180,6 +183,21 @@ impl AgentActivityState {
     fn publish_now(&mut self) {
         self.last_incremental_emit = Instant::now();
         self.touch();
+    }
+
+    fn requeue(&mut self) {
+        self.phase = AgentActivityPhase::Queued;
+        self.reply.clear();
+        self.generated_output_tokens = None;
+        self.context_usage = None;
+        self.activity.clear();
+        self.started_at = None;
+        self.completed_message_id = None;
+        self.error = None;
+        self.reply_message_id = None;
+        self.reply_pending.clear();
+        self.suppress_reply_tail = false;
+        self.publish_now();
     }
 
     fn begin(&mut self) {
@@ -421,6 +439,7 @@ impl AgentActivityStreams {
                 stream_company != company
                     || stream_actor != actor
                     || matches!(scope, ActivityScope::Message(id) if *id == message_id)
+                    || matches!(scope, ActivityScope::Ambient)
                     || sender.borrow().phase.is_live()
             });
             streams.entry(key).or_insert_with(|| {
@@ -433,6 +452,34 @@ impl AgentActivityStreams {
                 ))
                 .0
             });
+        }
+    }
+
+    /// Show a failed or finished message's projection as waiting again, because
+    /// the owner asked for a fresh turn on it. Attached clients keep their
+    /// connection and see the next turn stream on it.
+    pub fn requeue_message(&self, company: &str, actor: &str, message_id: i64) {
+        let key = (
+            company.to_string(),
+            actor.to_string(),
+            ActivityScope::Message(message_id),
+        );
+        let existing = self
+            .streams
+            .lock()
+            .ok()
+            .and_then(|streams| streams.get(&key).cloned());
+        match existing {
+            Some(sender) => {
+                sender.send_if_modified(|state| {
+                    if state.phase.is_live() {
+                        return false;
+                    }
+                    state.requeue();
+                    true
+                });
+            }
+            None => self.expect_message(company, actor, message_id, None),
         }
     }
 
@@ -480,6 +527,35 @@ impl AgentActivityStreams {
             }
         }
         AgentActivityTurn { senders }
+    }
+
+    /// The projection for a turn no person's message started. Anyone watching
+    /// the actor's ambient activity sees it begin on the connection they hold.
+    pub fn start_ambient(&self, company: &str, actor: &str) -> AgentActivityTurn {
+        let sender = self.ambient_sender(company, actor);
+        sender.send_modify(AgentActivityState::begin);
+        AgentActivityTurn {
+            senders: vec![sender],
+        }
+    }
+
+    fn ambient_sender(&self, company: &str, actor: &str) -> watch::Sender<AgentActivityState> {
+        let idle = || {
+            let mut state = AgentActivityState::queued(company, actor, None, None, None);
+            state.phase = AgentActivityPhase::Complete;
+            watch::channel(state).0
+        };
+        match self.streams.lock() {
+            Ok(mut streams) => streams
+                .entry((
+                    company.to_string(),
+                    actor.to_string(),
+                    ActivityScope::Ambient,
+                ))
+                .or_insert_with(idle)
+                .clone(),
+            Err(_) => idle(),
+        }
     }
 
     /// End the live projection for one owner message immediately. The caller
@@ -576,19 +652,12 @@ impl AgentActivityStreams {
                 .1
             }
         };
-        let streams = self.streams.lock().expect("agent activity stream registry");
-        let sender = match scope {
-            Some(scope) => streams.get(&(company.to_string(), actor.to_string(), scope)),
-            None => streams
-                .iter()
-                .filter(|((stream_company, stream_actor, _), sender)| {
-                    stream_company == company
-                        && stream_actor == actor
-                        && sender.borrow().phase.is_live()
-                })
-                .max_by_key(|(_, sender)| sender.borrow().updated_at)
-                .map(|(_, sender)| sender),
+        // No selector follows the actor's ambient turns, and stays open between them.
+        let Some(scope) = scope else {
+            return self.ambient_sender(company, actor).subscribe();
         };
+        let streams = self.streams.lock().expect("agent activity stream registry");
+        let sender = streams.get(&(company.to_string(), actor.to_string(), scope));
         sender.map(watch::Sender::subscribe).unwrap_or_else(|| {
             watch::channel(AgentActivityState::absent(
                 company, actor, message_id, work_id,
@@ -743,8 +812,17 @@ mod tests {
         assert_eq!(state.attempt_id, Some(attempt_id));
         assert_eq!(state.phase, AgentActivityPhase::Acting);
 
-        let absent = streams.subscribe("company_test", "other", None, None);
+        let absent = streams.subscribe("company_test", "other", Some(99), None);
         assert_eq!(absent.borrow().phase, AgentActivityPhase::Failed);
+
+        // Ambient activity is idle until a turn nobody's message started begins,
+        // and that turn reaches the connection opened before it.
+        let ambient = streams.subscribe("company_test", "other", None, None);
+        assert_eq!(ambient.borrow().phase, AgentActivityPhase::Complete);
+        let turn = streams.start_ambient("company_test", "other");
+        assert_eq!(ambient.borrow().phase, AgentActivityPhase::Thinking);
+        turn.fail("Interrupted.");
+        assert_eq!(ambient.borrow().phase, AgentActivityPhase::Failed);
     }
 
     #[test]

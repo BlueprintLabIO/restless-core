@@ -113,7 +113,10 @@
 		draftRequest = null,
 		wide = false,
 		focusMessage = 0,
-		uploadProgress = null
+		uploadProgress = null,
+		onstopturn = null,
+		onretryturn = null,
+		ambientTurn = null
 	}: {
 		messages?: ThreadMessage[];
 		participantName?: string;
@@ -187,6 +190,12 @@
 		focusMessage?: number;
 		/** How much of a sending message's files has gone, 0 to 1, while they go. */
 		uploadProgress?: number | null;
+		/** Stops the reply to your message without sending anything; resolves to an error. */
+		onstopturn?: (() => Promise<string | null>) | null;
+		/** Answers your message again after its reply failed; resolves to an error. */
+		onretryturn?: (() => Promise<string | null>) | null;
+		/** What the agent is doing when no person's message started it (a schedule, a result). */
+		ambientTurn?: ActiveAgentTurn | null;
 	} = $props();
 	let focusedFor = 0;
 	$effect(() => {
@@ -265,6 +274,20 @@
 	);
 	/* A finished turn stays for its dock; only one still in progress can be interrupted. */
 	const working = $derived(turnWorking(turn));
+	/* The message the turn answers, when it is yours: you may retry it after a failure, and the
+	 * owner or an admin may stop its reply (a member's message waits its turn). */
+	const turnMessage = $derived(
+		turn
+			? (messages.find(
+					(message) =>
+						message.from === 'you' && messageNumericId(message.id) === turn.triggerMessageId
+				) ?? null)
+			: null
+	);
+	const stopTurn = $derived(
+		turnMessage && ['owner', 'admin'].includes(membershipRole) ? onstopturn : null
+	);
+	const retryTurn = $derived(turnMessage && !turnMessage.readAt ? onretryturn : null);
 	let lastTurn: unknown = null;
 	$effect(() => {
 		const current = turn?.triggerMessageId ?? null;
@@ -1409,7 +1432,16 @@
 						<p class="exr-setup-pending" role="status">
 							Message saved. {participantName} can reply after intelligence access is restored.
 						</p>
-					{:else if turn}<ConversationTurnDock {participantName} {turn} />{/if}
+					{:else if turn}<ConversationTurnDock
+							{participantName}
+							{turn}
+							onstop={stopTurn}
+							onretry={retryTurn}
+						/>{/if}
+					<!-- Work nobody's message started: a quiet line of what it is doing now. -->
+					{#if ambientTurn && (!working || (turn?.live?.phase ?? 'queued') === 'queued')}
+						<ConversationTurnDock {participantName} turn={ambientTurn} />
+					{/if}
 				</div>
 
 				{#if awayFrom !== null && visibleMessages.length}
