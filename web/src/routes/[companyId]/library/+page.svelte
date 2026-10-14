@@ -59,6 +59,7 @@
 		libraryFileHref,
 		libraryFileById,
 		replacedFile,
+		retiredWorkIds,
 		libraryFiles,
 		libraryKind,
 		openLibraryFile,
@@ -364,6 +365,14 @@
 		owner ? (attention.view?.workGraph?.work ?? []) : (collaboration.view?.work_graph.work ?? [])
 	);
 	const files = $derived(libraryFiles(artifacts, libraryWorks));
+	/* Files of stopped or revised Work have moved on: Archived, not the default views (S85-12). */
+	const retiredWork = $derived(
+		retiredWorkIds(
+			libraryWorks,
+			(owner ? attention.view?.workGraph?.edges : collaboration.view?.work_graph.edges) ?? []
+		)
+	);
+	const isRetired = (file: LibraryFile) => !!file.workId && retiredWork.has(file.workId);
 	/* Archived Work files still open, read only, so the owner can see what one is before
 	 * restoring it. */
 	const archivedLibraryFiles = $derived(
@@ -757,7 +766,7 @@
 		};
 	};
 	const rawEntries = $derived<Entry[]>([
-		...files.map((file) => fileEntry(file)),
+		...files.filter((file) => !isRetired(file)).map((file) => fileEntry(file)),
 		...keptEntries,
 		...documents.summaries
 			.filter((summary) => summary.document.status !== 'archived')
@@ -770,7 +779,8 @@
 		[
 			...archivedDocs.map((summary) => docEntry(summary, true)),
 			...archivedSheets.map(sheetEntry),
-			...archivedFiles
+			...archivedFiles,
+			...files.filter(isRetired).map((file) => fileEntry(file, true))
 		].map(organised)
 	);
 	const FILE_KINDS: LibraryFileKind[] = [

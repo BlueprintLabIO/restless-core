@@ -6,6 +6,7 @@ import {
 	replacedFile,
 	type LibraryArtifact
 } from './library-files.ts';
+import { retiredWorkIds } from './library-files.ts';
 
 const record = (over: Partial<LibraryArtifact>): LibraryArtifact => ({
 	id: 'a',
@@ -109,4 +110,20 @@ test('a replaced file with nothing newer says so', () => {
 	const found = replacedFile([old], libraryFiles([old]), 'v1');
 	assert.equal(found?.replacement, null);
 	assert.equal(found?.gone, 'Draft');
+});
+
+test('stopped Work and Work a newer Work revises are retired; the rest stay', () => {
+	const retired = retiredWorkIds(
+		[
+			{ id: 'site-v1', status: 'completed' },
+			{ id: 'site-v2', status: 'completed' },
+			{ id: 'abandoned', status: 'abandoned' },
+			{ id: 'live', status: 'active' }
+		],
+		[
+			{ from_work_id: 'site-v2', to_work_id: 'site-v1', kind: 'revises' },
+			{ from_work_id: 'live', to_work_id: 'site-v2', kind: 'requires' }
+		]
+	);
+	assert.deepEqual([...retired].sort(), ['abandoned', 'site-v1']);
 });
