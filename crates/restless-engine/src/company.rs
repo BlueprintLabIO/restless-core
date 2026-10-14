@@ -1496,19 +1496,24 @@ pub struct ActivityPage {
 
 /// One page of the governance record for Activity, newest first: external receipts, outbound
 /// email and the owner's setting and lifecycle changes. Payments and in-flight intents stay on
-/// the company view, which always carries all of them.
+/// the company view, which always carries all of them. With `party`, only the receipts and email
+/// that named that client or correspondent, searched across the whole record a page at a time.
 pub async fn governance_activity(
     daemon: &Daemon,
     company: &str,
     before: Option<i64>,
     limit: i64,
+    party: Option<&str>,
 ) -> Result<ActivityPage> {
     let limit = limit.clamp(1, 200);
+    let party = party.map(str::trim).filter(|party| !party.is_empty());
     let mut kinds = vec!["effect", "email_send_reserved"];
-    kinds.extend_from_slice(SETTING_CHANGE_KINDS);
+    if party.is_none() {
+        kinds.extend_from_slice(SETTING_CHANGE_KINDS);
+    }
     let records = daemon
         .authority
-        .records_of_kinds_page(company, &kinds, before, limit)
+        .records_of_kinds_page(company, &kinds, before, limit, party)
         .await?;
     let reconciled_receipts = daemon
         .authority

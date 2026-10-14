@@ -37,6 +37,25 @@
 	>([]);
 	let loading = $state(false);
 	let unreached = $state<string[]>([]);
+	/* Where the next older page of what reached them starts; absent at the start of the record. */
+	let olderBefore = $state<number | undefined>();
+	let loadingOlder = $state(false);
+	async function showOlder() {
+		if (olderBefore == null || loadingOlder) return;
+		loadingOlder = true;
+		try {
+			const record = await getGovernanceActivity(companyId, olderBefore, {
+				party: name,
+				limit: 100
+			});
+			actions = [...actions, ...record.items];
+			olderBefore = record.next_before ?? undefined;
+		} catch (cause) {
+			unreached = [...unreached, `Activity: ${failureSentence(cause, 'unavailable')}`];
+		} finally {
+			loadingOlder = false;
+		}
+	}
 
 	$effect(() => {
 		const company = companyId;
@@ -51,23 +70,21 @@
 			return null;
 		};
 		void (async () => {
-			/* The governance record, a few pages back, for every action that named them. */
-			const named: CompanyExternalAction[] = [];
-			let before: number | undefined;
-			for (let pageNo = 0; pageNo < 5; pageNo += 1) {
-				const record = await getGovernanceActivity(company, before).catch(missed('Activity'));
-				if (!record) break;
-				named.push(...record.items.filter((item) => matches(item.party) || matches(item.title)));
-				if (record.next_before == null) break;
-				before = record.next_before;
-			}
-			const [history, found, said] = await Promise.all([
+			/* Every action that named them, searched across the whole governance record on the
+			 * server, newest first a page at a time. */
+			const [named, history, found, said] = await Promise.all([
+				getGovernanceActivity(company, undefined, {
+					party: who,
+					limit: 100,
+					signal: controller.signal
+				}).catch(missed('Activity')),
 				fetchDecisionHistory(company).catch(missed('Decisions')),
 				searchDocuments(company, who, 0, controller.signal).catch(missed('Documents')),
 				searchRoomMessages(company, who, null, 20, controller.signal).catch(missed('Conversations'))
 			]);
 			if (controller.signal.aborted) return;
-			actions = named;
+			actions = named?.items ?? [];
+			olderBefore = named?.next_before ?? undefined;
 			decisions = (history?.decisions ?? []).filter(
 				(decision) => matches(decision.title) || matches(decision.recordedDecision)
 			);
@@ -116,6 +133,12 @@
 						meta={`${item.state.replaceAll('_', ' ')} · ${formatMoment(item.observed_at)}`}
 						href={`${root}/company/activity?show=external&open=${encodeURIComponent(item.id)}`}
 					/>{:else}<Empty compact title="No outside actions name them" />{/each}
+				{#if olderBefore != null}<button
+						class="btn small ghost"
+						type="button"
+						disabled={loadingOlder}
+						onclick={() => void showOlder()}>{loadingOlder ? 'Reading…' : 'Show older'}</button
+					>{/if}
 			{/if}
 		</Section>
 		<Section title="Work" count={work.length || null}>

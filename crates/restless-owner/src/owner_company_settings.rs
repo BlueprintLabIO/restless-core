@@ -998,6 +998,9 @@ pub(super) struct ActivityQuery {
     before: Option<i64>,
     #[serde(default)]
     limit: Option<i64>,
+    /// Only what named this client or correspondent, from the whole record.
+    #[serde(default)]
+    party: Option<String>,
 }
 
 /// A page of the governance record for Activity: receipts, outbound email and the owner's own
@@ -1026,6 +1029,7 @@ pub(super) async fn governance_activity(
         &company,
         query.before,
         query.limit.unwrap_or(50),
+        query.party.as_deref(),
     )
     .await
     {

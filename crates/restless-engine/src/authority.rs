@@ -933,24 +933,30 @@ impl AuthorityStore {
     }
 
     /// A page of records of any of `kinds`, newest first, older than the record id `before`.
+    /// With `naming`, only records whose counterparty (`party` or `recipient`) or purpose
+    /// contains it, ignoring case: one client's part of the whole record, still a page at a time.
     pub async fn records_of_kinds_page(
         &self,
         company: &str,
         kinds: &[&str],
         before: Option<i64>,
         limit: i64,
+        naming: Option<&str>,
     ) -> Result<Vec<(String, AuthorityRecord)>> {
         let kinds = kinds.iter().map(|kind| kind.to_string()).collect::<Vec<_>>();
         let rows: Vec<(String, i64, Option<String>, serde_json::Value, DateTime<Utc>)> =
             sqlx::query_as(
                 "SELECT kind, id, actor_id, body, created_at FROM restless_authority.records \
                  WHERE company = $1 AND kind = ANY($2) AND ($3::BIGINT IS NULL OR id < $3) \
+                 AND ($5::TEXT IS NULL OR strpos(lower(concat_ws(' ', body->>'party', \
+                      body->>'recipient', body->>'purpose')), lower($5)) > 0) \
                  ORDER BY id DESC LIMIT $4",
             )
             .bind(company)
             .bind(&kinds)
             .bind(before)
             .bind(limit)
+            .bind(naming)
             .fetch_all(&self.pool)
             .await
             .with_context(|| format!("read a page of Authority records for {company}"))?;

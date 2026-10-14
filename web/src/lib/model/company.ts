@@ -297,15 +297,23 @@ const ownerResponse = ownerJson;
 
 /** A page of the governance record: receipts, outbound email and owner setting changes (source
  * `owner_setting`), newest first, older than `before`. */
+/** A page of Activity. With `party`, only what named that client or correspondent, searched
+ * across the whole record on the server rather than in the newest page. */
 export async function getGovernanceActivity(
 	company: string,
-	before?: number
+	before?: number,
+	options: { party?: string; limit?: number; signal?: AbortSignal } = {}
 ): Promise<{ items: CompanyExternalAction[]; next_before?: number }> {
-	const query = before == null ? '' : `?before=${before}`;
+	const params = new URLSearchParams();
+	if (before != null) params.set('before', String(before));
+	if (options.party?.trim()) params.set('party', options.party.trim());
+	if (options.limit != null) params.set('limit', String(options.limit));
+	const query = params.size ? `?${params}` : '';
 	return ownerResponse(
 		await fetch(`/api/companies/${encodeURIComponent(company)}/company/activity${query}`, {
 			credentials: 'same-origin',
-			cache: 'no-store'
+			cache: 'no-store',
+			signal: options.signal
 		})
 	);
 }

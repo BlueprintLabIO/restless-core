@@ -33,6 +33,7 @@
 		companyShellTabs,
 		hasOwnerSurfaceAccess,
 		mayOpenCompanyRoute,
+		mayReadCompanyRecord,
 		refusedRouteReason
 	} from '$lib/model/company-access';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
@@ -1398,8 +1399,6 @@
 		kept: RetainedAttachment[];
 		schedules: MonitoredSchedule[];
 		knowHow: App[];
-		/** Clients and correspondents the company's outside actions named, newest first. */
-		parties: string[];
 		unreached: string[];
 	} | null = null;
 	/* The lists are small and shared by every keystroke, so a newer query does not cancel them; a
@@ -1413,7 +1412,7 @@
 				unreached.push(what);
 				return empty;
 			});
-		const [sheets, kept, schedules, knowHow, parties] = await Promise.all([
+		const [sheets, kept, schedules, knowHow] = await Promise.all([
 			read('sheets', sheetJson<SheetRow[]>(company), [] as SheetRow[]),
 			owner
 				? read(
@@ -1431,21 +1430,7 @@
 						),
 						[] as App[]
 					)
-				: [],
-			owner
-				? read(
-						'clients',
-						getGovernanceActivity(company).then(
-							(record) =>
-								[
-									...new Set(
-										record.items.map((item) => item.party?.trim()).filter((party) => !!party)
-									)
-								] as string[]
-						),
-						[] as string[]
-					)
-				: ([] as string[])
+				: []
 		]);
 		const lists = {
 			company,
@@ -1454,7 +1439,6 @@
 			kept,
 			schedules,
 			knowHow,
-			parties,
 			unreached
 		};
 		if (!unreached.length) libraryLists = lists;
@@ -1476,13 +1460,24 @@
 				if (!signal.aborted) unreached.push(what);
 				return empty;
 			});
-		const [documents, lists, messages, comments, inSheets] = await Promise.all([
+		/* Clients and correspondents come from the whole record, searched on the server. */
+		const [documents, lists, messages, comments, inSheets, namedBy] = await Promise.all([
 			tried('documents', searchDocuments(company, text, 0, signal), null),
 			libraryListsFor(company, owner),
 			tried('conversations', searchRoomMessages(company, text, null, 8, signal), null),
 			tried('comments', searchComments(company, text, 6, signal), []),
-			tried('sheets', searchSheets(company, text, signal), null)
+			tried('sheets', searchSheets(company, text, signal), null),
+			mayReadCompanyRecord(principal)
+				? tried(
+						'clients',
+						getGovernanceActivity(company, undefined, { party: text, limit: 50, signal }),
+						null
+					)
+				: null
 		]);
+		const parties = [
+			...new Set((namedBy?.items ?? []).map((item) => item.party?.trim() ?? '').filter(Boolean))
+		];
 		if (signal.aborted || company !== companyId) return { results: [], unreached: [] };
 		for (const what of lists.unreached) if (!unreached.includes(what)) unreached.push(what);
 		const conversationName = (roomId: string) => {
@@ -1581,7 +1576,7 @@
 					href: `${root}/company/schedules?schedule=${encodeURIComponent(item.schedule.id)}`
 				})),
 			/* A client or correspondent opens everything about them. */
-			...lists.parties
+			...parties
 				.filter((party) => named(party))
 				.slice(0, 5)
 				.map((party) => ({
