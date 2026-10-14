@@ -7,7 +7,6 @@
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import CompanyLimits from '$lib/components/CompanyLimits.svelte';
-	import TelegramChannel from '$lib/components/TelegramChannel.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { openCompanyResource, type CompanyResource } from '$lib/model/company';
@@ -59,6 +58,11 @@
 		}
 	}
 	holdQueries(() => [source]);
+	/* Telegram moved to Notifications; an old link to it still arrives. */
+	$effect(() => {
+		if (page.url.hash === '#telegram')
+			void goto(`/${companyId}/company/notifications`, { replaceState: true });
+	});
 </script>
 
 <CompanyTitle title="Limits" {companyId} />
@@ -69,9 +73,9 @@
 >
 	{#snippet actions()}
 		<nav class="jump" aria-label="Sections on this page">
-			<a href="#spend">Spend</a><a href="#authority">Authority</a><a href="#telegram">Telegram</a><a
-				href="#tools">Tools</a
-			><a href="#computer">Computer</a>
+			<a href="#spend">Spend</a><a href="#authority">Authority</a><a href="#tools">Tools</a><a
+				href="#computer">Computer</a
+			>
 		</nav>
 	{/snippet}
 	{#if view}
@@ -81,7 +85,6 @@
 			</Notice>{/if}
 		<CompanyLimits section="spend" />
 		<CompanyLimits section="authority" />
-		{#key companyId}<TelegramChannel {companyId} />{/key}
 
 		<Section
 			id="tools"

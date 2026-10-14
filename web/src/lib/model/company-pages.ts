@@ -61,7 +61,14 @@ export const COMPANY_PAGES: CompanyPage[] = [
 		label: 'Limits',
 		path: '/resources',
 		keywords:
-			'spend budget authority email payments allowance pause freeze outside actions tools mcp telegram notifications'
+			'spend budget authority email payments allowance pause freeze outside actions tools mcp'
+	},
+	{
+		key: 'notifications',
+		group: 'Operations',
+		label: 'Notifications',
+		path: '/notifications',
+		keywords: 'telegram alerts phone chat'
 	},
 	{
 		key: 'computer',

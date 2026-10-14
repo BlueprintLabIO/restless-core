@@ -23,6 +23,8 @@ import Gauge from '@lucide/svelte/icons/gauge';
 import KeyRound from '@lucide/svelte/icons/key-round';
 import Monitor from '@lucide/svelte/icons/monitor';
 import Users from '@lucide/svelte/icons/users';
+import Bell from '@lucide/svelte/icons/bell';
+import { telegramRequest } from '$lib/model/telegram';
 import History from '@lucide/svelte/icons/history';
 import HeartPulse from '@lucide/svelte/icons/heart-pulse';
 import LinkIcon from '@lucide/svelte/icons/link';
@@ -103,6 +105,7 @@ export function createCompanySetup(companyIdOf: () => string) {
 	let schedules = $state<Count>(null);
 	let secrets = $state<Count>(null);
 	let members = $state<Count>(null);
+	let telegram = $state<string | null>(null);
 	$effect(() => {
 		const company = companyId;
 		const read = (load: () => Promise<number>, set: (value: Count) => void) =>
@@ -119,6 +122,11 @@ export function createCompanySetup(companyIdOf: () => string) {
 			(value) => (schedules = value)
 		);
 		if (!owner) return;
+		void telegramRequest(company, 'GET').then(
+			(channel) =>
+				(telegram = channel?.paired ? 'Telegram paired' : channel ? 'Telegram not paired' : ''),
+			() => (telegram = 'Unavailable right now')
+		);
 		read(
 			async () => {
 				const response = await fetch(`/api/companies/${encodeURIComponent(company)}/vault`, {
@@ -259,6 +267,7 @@ export function createCompanySetup(companyIdOf: () => string) {
 			),
 			{ ...row('limits', 'Limits', limits, Gauge), alert: limitsPaused },
 			row('members', 'Members', counted(members, 'person', 'Only you', 'people'), Users),
+			row('notifications', 'Notifications', telegram ?? '…', Bell),
 			{ ...row('computer', 'Computer', computer, Monitor), alert: computerFailing }
 		]
 			/* Everyone sees the sections that describe the company; the owner also sees the ones
