@@ -2287,10 +2287,8 @@ fn membership_boundary_violation(
         || is_actor_conversation_route(path)
         // Each person asks for a fresh turn on their own message; the handler checks it is theirs.
         || is_actor_conversation_message_route(path, "retry")
-        // Every person in the company talks to Exec and the team, and sees what they are doing
-        // and how they hand work to each other.
+        // Every person in the company talks to Exec and the team, and sees what they are doing.
         || is_actor_route(path, "activity")
-        || is_actor_route(path, "exchanges")
         || member_reads_company_setup(method, path)
         // Teammates open the files of the Work they can see; the handlers check which.
         || is_company_library_read(method, path)
@@ -2504,11 +2502,15 @@ fn member_reads_company_setup(method: &Method, path: &str) -> bool {
     )
 }
 
-/// An admin who runs the company with the owner reads what it sent, decided and spent, and the
-/// apps it uses. Reads only: changing limits, apps, keys or approvals stays the owner's.
+/// An admin who runs the company with the owner reads what it sent, decided and spent, the apps
+/// it uses and asks for, and how the agents hand work to each other. Reads only: changing limits,
+/// apps, keys or approvals, or answering an app request, stays the owner's.
 fn admin_reads_company_record(method: &Method, path: &str) -> bool {
     if !matches!(*method, Method::GET | Method::HEAD) {
         return false;
+    }
+    if is_actor_route(path, "exchanges") {
+        return true;
     }
     let Some(rest) = path.strip_prefix("/api/companies/") else {
         return false;

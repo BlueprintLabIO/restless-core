@@ -592,11 +592,14 @@
 	const directPerson = $derived(people.find((person) => person.actor_id === directPartner) ?? null);
 	/* The person's profile opens from their name in the header. */
 	let profileOpen = $state(false);
-	/* Handoffs between this agent and others appear where they happened. */
+	/* Handoffs between this agent and others appear where they happened, for the owner and admins. */
+	const readsHandoffs = $derived(
+		['owner', 'admin'].includes(principalProjection.view?.membership_role ?? '')
+	);
 	const exchanges = agentExchangesQuery(
 		() => companyId,
 		() => directPartner ?? '',
-		() => ownerAccess && !!directPartner && actorIsAgent(directPartner)
+		() => readsHandoffs && !!directPartner && actorIsAgent(directPartner)
 	);
 	const at = (value: string) => new Date(value).getTime();
 	function handoffsBefore(index: number): AgentExchange[] {

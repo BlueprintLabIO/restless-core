@@ -317,11 +317,12 @@
 		else askExec(draft);
 	}
 
-	/* Handoffs between agents appear where they happened in time. */
+	/* Handoffs between agents appear where they happened in time, for the owner and an admin who
+	 * runs the company with them; a member sees what is handed to them under "Needs you". */
 	const exchanges = agentExchangesQuery(
 		() => companyId,
 		() => participantId,
-		() => open && membershipRole === 'owner'
+		() => open && ['owner', 'admin'].includes(membershipRole)
 	);
 	/* A finished turn stays for its dock; only one still in progress can be interrupted. */
 	const working = $derived(turnWorking(turn));
@@ -1777,7 +1778,11 @@
 							{companyId}
 							owner={membershipRole === 'owner'}
 						/>{/if}
-					{#if membershipRole === 'owner'}<AppRequestCards {companyId} actor={participantId} />{/if}
+					{#if membershipRole === 'owner' || membershipRole === 'admin'}<AppRequestCards
+							{companyId}
+							actor={participantId}
+							readOnly={membershipRole !== 'owner'}
+						/>{/if}
 					{#if participantId === 'exec'}<MyRequests {companyId} />{/if}
 				{/if}
 				<form class="exr-composer" onsubmit={submitAsk}>

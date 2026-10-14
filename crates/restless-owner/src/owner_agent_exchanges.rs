@@ -1,4 +1,4 @@
-//! Read-only owner view of recorded internal conversations.
+//! Read-only view of recorded internal conversations, for the owner and admins.
 use super::*;
 
 #[derive(Deserialize)]
@@ -12,11 +12,13 @@ pub(super) async fn list(
     AxumPath((company, actor)): AxumPath<(String, String)>,
     Query(query): Query<ExchangeQuery>,
 ) -> impl IntoResponse {
-    if principal.membership_role() != "owner" {
+    // The owner, and an admin who runs the company with them, read the handoffs; a member sees
+    // only what is handed to them, in their own Inbox.
+    if !matches!(principal.membership_role(), "owner" | "admin") {
         return api_error(
             StatusCode::FORBIDDEN,
             "agent_exchanges",
-            "Only the owner can inspect internal agent exchanges.",
+            "Only the company's owner or an admin can read the agents' handoffs.",
         );
     }
     let org = match state.daemon.orgintel.get(&company).await {

@@ -9,7 +9,12 @@
 	import { failureSentence } from '$lib/model/failure';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 
-	let { companyId, actor }: { companyId: string; actor: string } = $props();
+	/* An admin sees what the agents asked for; adding an app or setting the ask aside is the owner's. */
+	let {
+		companyId,
+		actor,
+		readOnly = false
+	}: { companyId: string; actor: string; readOnly?: boolean } = $props();
 
 	let requests = $state<AppRequest[]>([]);
 	let busy = $state('');
@@ -108,31 +113,35 @@
 {#each requests as request (request.handoff_id)}
 	<div class="app-request">
 		<div class="app-request-head">
-			<span class="app-request-text"><strong>{request.asker} wants {label(request)}</strong></span>
-			<button
-				type="button"
-				class="btn primary small"
-				disabled={!!busy}
-				title="Adds it, checks it works and lets the company use it. Anything that acts asks you first."
-				onclick={() => add(request)}>{busy === request.handoff_id ? 'Adding…' : 'Add'}</button
+			<span
+				class="app-request-text"
+				title={readOnly ? 'The owner adds apps or says they are not needed.' : undefined}
+				><strong>{request.asker} wants {label(request)}</strong></span
 			>
+			{#if !readOnly}<button
+					type="button"
+					class="btn primary small"
+					disabled={!!busy}
+					title="Adds it, checks it works and lets the company use it. Anything that acts asks you first."
+					onclick={() => add(request)}>{busy === request.handoff_id ? 'Adding…' : 'Add'}</button
+				>{/if}
 			<a
 				class="more"
 				href={request.href(companyId)}
 				title="Its page: what it can do, and how it connects">Details</a
 			>
-			<button
-				type="button"
-				class="dismiss"
-				aria-label="Not needed"
-				aria-expanded={declining === request.handoff_id}
-				disabled={!!busy}
-				title={`Not needed. ${request.asker} stops waiting on it; you can say why or what to use instead.`}
-				onclick={() => {
-					declining = declining === request.handoff_id ? '' : request.handoff_id;
-					reason = '';
-				}}>×</button
-			>
+			{#if !readOnly}<button
+					type="button"
+					class="dismiss"
+					aria-label="Not needed"
+					aria-expanded={declining === request.handoff_id}
+					disabled={!!busy}
+					title={`Not needed. ${request.asker} stops waiting on it; you can say why or what to use instead.`}
+					onclick={() => {
+						declining = declining === request.handoff_id ? '' : request.handoff_id;
+						reason = '';
+					}}>×</button
+				>{/if}
 		</div>
 		{#if request.reason || request.work_title}
 			<p class="app-request-why">

@@ -2735,6 +2735,8 @@ model = \"anthropic/claude-sonnet-5-5\"
             "/api/companies/aris/attention/history",
             "/api/companies/aris/tool-connections",
             "/api/companies/aris/app-requests",
+            "/api/companies/aris/actors/exec/exchanges",
+            "/api/companies/aris/actors/lead-1/exchanges",
         ] {
             assert!(membership_boundary_violation(&Method::GET, path, &admin).is_none(), "admin refused {path}");
             assert!(membership_boundary_violation(&Method::GET, path, &member).is_some(), "member reached {path}");
@@ -2746,6 +2748,14 @@ model = \"anthropic/claude-sonnet-5-5\"
             (Method::GET, "/api/companies/aris/vault"),
             (Method::POST, "/api/companies/aris/approvals/revoke"),
             (Method::POST, "/api/companies/aris/company/away"),
+            // The rail shows an admin the agents' handoffs and app requests; answering an app
+            // request (adding the app, or setting it aside) stays the owner's.
+            (Method::POST, "/api/companies/aris/actors/exec/exchanges"),
+            (Method::DELETE, "/api/companies/aris/actors/exec/exchanges"),
+            (Method::POST, "/api/companies/aris/app-requests"),
+            (Method::POST, "/api/companies/aris/attention/dismiss"),
+            (Method::POST, "/api/companies/aris/tool-connections/plugins"),
+            (Method::PATCH, "/api/companies/aris/tool-connections/github"),
         ] {
             assert!(membership_boundary_violation(&method, path, &admin).is_some(), "admin reached {method} {path}");
         }
@@ -2884,13 +2894,10 @@ model = \"anthropic/claude-sonnet-5-5\"
                 "/api/companies/aris/messages/42/reactions/extra",
             ] { assert!(membership_boundary_violation(&Method::GET,path,&participant).is_some(), "{role} reached {path}"); }
         }
-        // People in the company see what the team is doing and how it hands work around.
-        for path in [
-            "/api/companies/aris/actors/exec/exchanges",
-            "/api/companies/aris/actors/exec/activity",
-        ] {
-            assert!(membership_boundary_violation(&Method::GET, path, &principal).is_none(), "{path}");
-        }
+        // People in the company see what the team is doing; how the agents hand work to each
+        // other is the owner's and admins' to read, and a member sees what is handed to them.
+        assert!(membership_boundary_violation(&Method::GET, "/api/companies/aris/actors/exec/activity", &principal).is_none());
+        assert!(membership_boundary_violation(&Method::GET, "/api/companies/aris/actors/exec/exchanges", &principal).is_some());
         // They answer and review what is assigned to them, and pass it to the owner; OrgIntel
         // checks the assignment and the team.
         for path in [
