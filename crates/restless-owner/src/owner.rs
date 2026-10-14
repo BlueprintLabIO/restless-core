@@ -12053,6 +12053,12 @@ async fn update_agent_intelligence(
                 if model.contains('/') {
                     bail!("Native harness models use an unqualified model ID");
                 }
+                // The signed-in harness lists the models its account reaches; refuse one it lacks.
+                if let Some(listed) = status["auth"]["models"].as_array().filter(|rows| !rows.is_empty()) {
+                    if !listed.iter().any(|row| row["id"].as_str() == Some(model)) {
+                        bail!("This sign-in does not offer {model}. Choose one from the list.");
+                    }
+                }
             } else {
                 bail!("Choose an available connection");
             }
@@ -12069,6 +12075,18 @@ async fn update_agent_intelligence(
                 }
             }
             config.for_agent(&actor).validate_harness_models()?;
+            // Admit the exact model against what the running gateway serves for this connection,
+            // so a mistyped or unreachable model is refused here, not by a stalled agent.
+            let effective = config.for_agent(&actor);
+            if effective.coordination_harness == runtime::AgentHarness::RestlessManaged {
+                if let Some(full) = effective.configured_model() {
+                    if model_gateway::gateway_serves(full) == Some(false) {
+                        bail!(
+                            "This connection does not offer {model}. Check the model ID, or choose one from the list."
+                        );
+                    }
+                }
+            }
         }
         runtime::CompanyConfig::save(&state.daemon.root, &config)?;
         if let Ok(mut claims) = state.daemon.in_flight.lock() {

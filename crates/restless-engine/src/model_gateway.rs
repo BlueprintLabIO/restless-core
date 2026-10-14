@@ -252,6 +252,21 @@ pub fn readmit(configs: &[CompanyConfig]) -> Result<()> {
     Ok(())
 }
 
+/// Whether the running gateway's served catalogue lists this `provider/model`. `None` when it
+/// cannot say: no gateway has answered, or it serves nothing from that provider yet (a connection
+/// granted since it started). A model the catalogue lacks fails every turn with a 404, so the owner
+/// is told before saving it rather than after an agent stalls.
+pub fn gateway_serves(model: &str) -> Option<bool> {
+    let (provider, _) = split_model(model).ok()?;
+    let served = SERVED_MODELS.read().ok()?;
+    let served = served.as_ref()?;
+    let prefix = format!("{provider}/");
+    if !served.iter().any(|candidate| candidate.starts_with(&prefix)) {
+        return None;
+    }
+    Some(served.contains(model))
+}
+
 fn remember_loaded(providers: BTreeSet<String>, served: Option<BTreeSet<String>>) {
     if let Ok(mut loaded) = LOADED_PROVIDERS.write() {
         *loaded = providers;
