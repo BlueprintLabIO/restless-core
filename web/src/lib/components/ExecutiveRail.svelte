@@ -1022,6 +1022,47 @@
 		return !previous || messageNumericId(previous.id) <= activeFocusAfterMessageId;
 	}
 
+	/* Where earlier conversations began. The server keeps only the current focus, so each one
+	 * this device sees is remembered here, and the transcript keeps a mark where it started. */
+	const focusLogKey = $derived(`restless:focus-starts:${companyId}:${participantId}`);
+	let pastFocusStarts = $state<number[]>([]);
+	$effect(() => {
+		try {
+			const stored = JSON.parse(localStorage.getItem(focusLogKey) ?? '[]') as unknown;
+			pastFocusStarts = Array.isArray(stored)
+				? stored.filter((value): value is number => Number.isInteger(value) && value > 0)
+				: [];
+		} catch {
+			pastFocusStarts = [];
+		}
+	});
+	$effect(() => {
+		const after = focusAfterMessageId;
+		if (!after || focusStartedAt === null || untrack(() => pastFocusStarts).includes(after)) return;
+		pastFocusStarts = [...untrack(() => pastFocusStarts), after].slice(-50);
+		try {
+			localStorage.setItem(focusLogKey, JSON.stringify(pastFocusStarts));
+		} catch {
+			/* A convenience: the current focus is still marked from the server. */
+		}
+	});
+	function earlierFocusBefore(index: number): boolean {
+		const current = messages[windowStart + index];
+		const previous = messages[windowStart + index - 1];
+		if (!current || !previous) return false;
+		const id = firstMessageNumericId(current.id);
+		const before = messageNumericId(previous.id);
+		return pastFocusStarts.some(
+			(after) =>
+				!(focusActive && after === activeFocusAfterMessageId) && before <= after && id > after
+		);
+	}
+
+	function cancelNewFocus() {
+		newFocusPending = false;
+		composerFocusKey += 1;
+	}
+
 	function beginNewFocus() {
 		if (!newFocusAvailable || !connected || working || sending || review || workContext) return;
 		pendingFocusAfterMessageId = messages.reduce(
@@ -1300,7 +1341,11 @@
 							type="button"
 							class="exr-tool"
 							aria-label="New conversation"
-							title="New conversation · fresh working context, company memory kept"
+							title={working || sending
+								? `New conversation · available once ${participantName} has finished replying`
+								: !connected
+									? `New conversation · available once ${participantName} can be reached`
+									: 'New conversation · fresh working context, company memory kept'}
 							disabled={!connected || working || sending}
 							onclick={beginNewFocus}><SquarePen size={15} strokeWidth={1.9} /></button
 						>
@@ -1434,6 +1479,15 @@
 						{#if focusDividerBefore(i)}
 							<div class="conversation-focus-boundary">
 								<span>New focus</span><i aria-hidden="true"></i><span>Company memory retained</span>
+							</div>
+						{:else if earlierFocusBefore(i)}
+							<div
+								class="conversation-focus-boundary earlier"
+								title="A new conversation began here; company memory was kept"
+							>
+								<span>New conversation</span><i aria-hidden="true"></i><span
+									>{shortTime(message.createdAt)}</span
+								>
 							</div>
 						{/if}
 						{#if unreadRuleBefore(i)}
@@ -1613,7 +1667,12 @@
 					{/each}
 					{#if focusActive && !hasMessagesAfterFocus}
 						<div class="conversation-focus-boundary" role={newFocusPending ? 'status' : undefined}>
-							<span>New focus</span><i aria-hidden="true"></i><span>Company memory retained</span>
+							<span>New focus</span><i aria-hidden="true"></i>{#if newFocusPending}<button
+									type="button"
+									class="focus-cancel"
+									title="Keep talking in the current conversation"
+									onclick={cancelNewFocus}>Cancel</button
+								>{:else}<span>Company memory retained</span>{/if}
 						</div>
 						{#if !composer.trim() && !working}
 							<p class="conversation-capability-hint">{capabilityHint}</p>
@@ -2265,6 +2324,20 @@
 		font: 500 var(--t-label) var(--font-ui);
 		font-variant-numeric: tabular-nums;
 		animation: focus-arrive var(--motion-disclosure) var(--ease-spring) both;
+	}
+	.conversation-focus-boundary.earlier {
+		margin-block: 12px 6px;
+		color: var(--text-tertiary);
+		animation: none;
+	}
+	.focus-cancel {
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: inherit;
+		font: inherit;
+		text-decoration: underline;
+		cursor: pointer;
 	}
 	.conversation-focus-boundary i {
 		height: 1px;
