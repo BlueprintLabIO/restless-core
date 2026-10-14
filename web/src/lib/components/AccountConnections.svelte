@@ -31,6 +31,7 @@
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
+	import { modelLabel } from '$lib/model/intelligence-labels';
 	import {
 		announceIntelligenceChange,
 		watchIntelligenceChanges
@@ -548,7 +549,21 @@
 			{@const granted = item.companies.find((use) => use.id === company.id)}
 			<div class="access-row" class:selected={selectedCompany === company.id}>
 				<strong>{company.name}</strong>
-				{#if granted}<span class="access-state">Has access{granted.in_use ? ' · in use' : ''}</span
+				{#if granted}<span
+						class="access-state"
+						title={granted.models?.length
+							? `${company.name} runs ${granted.models.map(modelLabel).join(', ')} through this connection.`
+							: undefined}
+						>{granted.in_use
+							? granted.models?.length
+								? granted.models.map(modelLabel).join(', ')
+								: 'In use'
+							: 'Has access'}</span
+					><a
+						class="text-button"
+						href={`/${encodeURIComponent(company.id)}/company/provider`}
+						title={`Choose which model ${company.name} uses, for everyone or per agent`}
+						>{granted.in_use ? 'Change model' : 'Use it'}</a
 					>{#if granted.in_use && confirmRevocation === `${item.id}:${company.id}`}
 						<span class="replace-warning" role="alert"
 							>AI work using this connection will stop until another is selected.</span
@@ -1161,6 +1176,7 @@
 		color: var(--text-secondary);
 		font: inherit;
 		font-size: var(--t-label);
+		text-decoration: none;
 		cursor: pointer;
 	}
 	.text-button:hover {

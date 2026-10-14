@@ -3975,13 +3975,41 @@ fn companies_using_owner_connection(
                 return None;
             }
             let in_use = company_connection_is_assigned(&config, connection);
+            let models = company_connection_models(&config, connection);
             Some(serde_json::json!({
                 "id": config.name,
                 "name": config.display_name.unwrap_or_else(|| company_display_name(&config.name)),
                 "in_use": in_use,
+                "models": models,
             }))
         })
         .collect()
+}
+
+/// The models a company runs through this connection, so the account page can say which.
+fn company_connection_models(
+    config: &runtime::CompanyConfig,
+    connection: &OwnerModelConnection,
+) -> Vec<String> {
+    let exact = format!("{}@{}", connection.provider, connection.id);
+    let mut models: Vec<String> = config
+        .agent_intelligence
+        .values()
+        .filter(|route| {
+            route.connection == format!("direct:{}", connection.provider)
+                || runtime::account_intelligence_route(&route.connection)
+                    .is_some_and(|(provider, id, _)| format!("{provider}@{id}") == exact)
+        })
+        .map(|route| route.model.clone())
+        .collect();
+    if !config.agent_intelligence.contains_key("default")
+        && config.model.split('/').next() == Some(connection.provider.as_str())
+    {
+        models.push(config.model.clone());
+    }
+    models.sort();
+    models.dedup();
+    models
 }
 
 fn company_connection_is_assigned(config: &runtime::CompanyConfig, connection: &OwnerModelConnection) -> bool {

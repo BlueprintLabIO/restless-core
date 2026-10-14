@@ -6,7 +6,13 @@
 import { ownerRequest } from './setting.svelte';
 import type { ProviderStatus } from './provider';
 
-export type CompanyUse = { id: string; name: string; in_use?: boolean };
+export type CompanyUse = {
+	id: string;
+	name: string;
+	in_use?: boolean;
+	/** The models this company runs through the connection. */
+	models?: string[];
+};
 export type AccountConnection = {
 	id: string;
 	label: string;
