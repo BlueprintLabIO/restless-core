@@ -63,6 +63,8 @@
 	import Download from '@lucide/svelte/icons/download';
 	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
+	import { useQueryClient } from '@tanstack/svelte-query';
+	import { markDoneSoon } from '$lib/components/inbox-actions';
 
 	const companyId = $derived(page.params.companyId ?? '');
 
@@ -566,6 +568,28 @@
 			.finally(() => (activityRenewing = false));
 	}
 
+	/* Finish the human step from the computer itself: the sign-in is done here, so Mark done is
+	 * here too, with the same Undo window as everywhere else. */
+	const queryClient = useQueryClient();
+	const focusStep = $derived(
+		focusItem?.actions.find((action) => action.id === 'complete-human-step') ?? null
+	);
+	let finishingStep = $state(false);
+	async function finishStep() {
+		const item = focusItem;
+		if (!item || finishingStep) return;
+		finishingStep = true;
+		try {
+			if (await markDoneSoon(queryClient, companyId, item.source.reference)) {
+				resolvedHere = item.id;
+				sent = { text: 'Marked done. The work resumes.' };
+				await closePreparedComputer(null);
+			}
+		} finally {
+			finishingStep = false;
+		}
+	}
+
 	async function closePreparedComputer(item: AttentionItem | null = focusItem) {
 		if (controller === 'owner') await returnControl();
 		focusItem = null;
@@ -836,6 +860,17 @@
 					{/if}
 				{:else}
 					<span class="mono">Preview offline · Discussion available</span>
+				{/if}
+				{#if focusStep && !focusItem.preparing}
+					<button
+						class="btn small"
+						class:primary={controller === 'owner' || !desktopUrl}
+						type="button"
+						disabled={finishingStep}
+						title={`${focusItem.ifNoAction ? `${focusItem.ifNoAction}. ` : ''}${focusStep.consequence} Undo stays available for a few seconds.`}
+						onclick={() => void finishStep()}
+						>{finishingStep ? 'Marking done…' : 'Mark done'}</button
+					>
 				{/if}
 				<button
 					class="btn small"

@@ -11,11 +11,16 @@ const api = (company: string) => `/api/companies/${encodeURIComponent(company)}`
 export function decideEmailMandateProposal(
 	company: string,
 	proposal: string,
-	decision: 'approve' | 'decline'
+	decision: 'approve' | 'decline',
+	/** Why, for a decline: it reaches Exec with the decision. */
+	note = ''
 ) {
 	return ownerRequest<unknown>(
 		`${api(company)}/email-mandates/proposals/${encodeURIComponent(proposal)}/decision`,
-		{ method: 'POST', json: { decision } }
+		{
+			method: 'POST',
+			json: { decision, ...(note.trim() ? { owner_note: note.trim() } : {}) }
+		}
 	);
 }
 

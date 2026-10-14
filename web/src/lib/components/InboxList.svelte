@@ -19,12 +19,13 @@
 	import { Item } from '$lib/ui/page';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
-	import { completeHandoffHumanStep } from '$lib/model/attention';
 	import SetAsideList from './SetAside.svelte';
 	import SnoozeChoices from './SnoozeChoices.svelte';
 	import {
+		appRequestHandoffs,
 		copyInboxLink,
 		inboxItemHref,
+		markDoneSoon,
 		inboxMarksKey,
 		markInbox,
 		setAsideInboxItem,
@@ -37,8 +38,6 @@
 	import DirectionToday from './DirectionToday.svelte';
 	import { useForYou } from '$lib/model/for-you.svelte';
 	import { getInboxMarks, type InboxMarkChange } from '$lib/model/for-you';
-	import { refreshAttention } from '$lib/model/queries.svelte';
-	import { failureSentence } from '$lib/model/failure';
 	import {
 		attentionAsker,
 		attentionKindLabel,
@@ -151,8 +150,18 @@
 		);
 	const canDiscuss = (item: AttentionItem) =>
 		item.actions.some((action) => action.id === 'chat-lead');
+	/* An app request resumes when the app is added and allowed, so it has no Mark done here
+	 * either; the detail says so and links to the app. */
+	const appRequests = appRequestHandoffs(
+		() => companyId,
+		() => canSetAside
+	);
+	const appRequestIds = $derived(
+		new Set((appRequests.data ?? []).map((request) => request.handoff_id))
+	);
 	const canComplete = (item: AttentionItem) =>
-		item.actions.some((action) => action.id === 'complete-human-step');
+		item.actions.some((action) => action.id === 'complete-human-step') &&
+		!(item.source.kind === 'owner_handoff' && appRequestIds.has(item.source.reference));
 	const iconFor = (item: AttentionItem) =>
 		item.category === 'approval'
 			? CircleCheck
@@ -199,6 +208,7 @@
 		if (selectedId === item.id) void goto(next(item), { noScroll: true });
 	}
 	const copy = (item: AttentionItem) => copyInboxLink(companyId, item.id);
+	/* Mark done resumes the Work, so it waits out a few seconds of Undo first (E does the same). */
 	async function done(item: AttentionItem) {
 		if (completing || !canComplete(item)) return;
 		completing = item.id;
@@ -206,12 +216,10 @@
 		const row = document.activeElement?.closest('[role="listitem"], li, a') ?? null;
 		const at = row?.getBoundingClientRect() ?? null;
 		try {
-			await completeHandoffHumanStep(companyId, item.source.reference);
-			celebrate(at);
-			await refreshAttention(client, companyId);
-			toast('Marked done');
-		} catch (cause) {
-			toast(failureSentence(cause, 'That was not recorded.'), { tone: 'failure' });
+			if (await markDoneSoon(client, companyId, item.source.reference)) {
+				celebrate(at);
+				toast('Marked done. The work resumes.');
+			}
 		} finally {
 			completing = '';
 		}
@@ -273,7 +281,15 @@
 		}
 		if (event.key === 'r') {
 			event.preventDefault();
-			document.querySelector<HTMLTextAreaElement>('.inbox-composer textarea')?.focus();
+			/* Items without a reply box (approvals, requests, documents) take focus to their first
+			 * answer instead of doing nothing. */
+			const answer =
+				document.querySelector<HTMLElement>('.inbox-composer textarea') ??
+				document.querySelector<HTMLElement>(
+					'.inbox-composer .bar :is(button, a), .direction-request .answers button, .attention-document button'
+				);
+			if (answer) answer.focus();
+			else toast('Nothing to reply to here. Open the item to answer it.');
 		}
 		if (event.key === 'c' && canDiscuss(item)) {
 			event.preventDefault();
@@ -318,8 +334,8 @@
 						: `Show snoozed${snoozedCount ? ` (${snoozedCount})` : ''}`}</button
 				>{/if}
 			<span class="shortcuts" role="note"
-				><kbd>J</kbd><kbd>K</kbd> move · <kbd>R</kbd> reply · <kbd>C</kbd> discuss · <kbd>H</kbd>
-				snooze · <kbd>E</kbd> done</span
+				><kbd>J</kbd><kbd>K</kbd> move · <kbd>R</kbd> answer · <kbd>C</kbd> discuss · <kbd>H</kbd>
+				snooze · <kbd>E</kbd> done, with Undo · <kbd>?</kbd> all keys</span
 			>
 		</ActionMenu>
 	</header>
@@ -360,53 +376,59 @@
 					><TriangleAlert size={15} strokeWidth={1.8} aria-hidden="true" /><span>{blocker}</span></a
 				>
 			{/if}
-			{#each visible as item (item.id)}
-				{@const Icon = iconFor(item)}
-				{@const snoozedNow = snoozedUntil(item) > clock}
-				<Item
-					stacked
-					title={attentionTitle(item)}
-					meta={item.preparing ? 'Being prepared' : attentionAsker(item)}
-					href={href(item.id)}
-					selected={selectedId === item.id}
-					unread={!!marksQuery.data && marks.get(item.id)?.seen_stamp !== stamp(item)}
-					dim={snoozedNow}
-				>
-					{#snippet leading()}<span
-							class="kind"
-							class:blocker={item.category === 'blocker'}
-							title={attentionKindLabel(item)}
-							><Icon size={15} strokeWidth={1.8} aria-label={attentionKindLabel(item)} /></span
-						>{/snippet}
-					{#snippet trailing()}<RelativeTime value={item.createdAt} />{/snippet}
-					{#snippet actions()}
-						<ActionMenu label={`Actions for ${attentionTitle(item)}`}>
-							<a href={href(item.id)}>Open</a>
-							{#if canDiscuss(item)}<a
-									href={`${href(item.id)}&conversation=${encodeURIComponent(item.id)}`}
-									>Discuss <kbd>C</kbd></a
-								>{/if}
-							{#if canComplete(item)}<button disabled={!!completing} onclick={() => done(item)}
-									>{completing === item.id ? 'Recording…' : 'Mark done'} <kbd>E</kbd></button
-								>{/if}
-							{#if canDecline(item)}<a href={`${href(item.id)}&decline=1`}>Not doing this…</a>{/if}
-							{#if snoozedNow}
-								<button onclick={() => void wakeInboxItem(client, companyId, item.id)}
-									>Wake now</button
-								>
-							{:else}
-								<SnoozeChoices shortcut onpick={(until) => snooze(item, until)} />
-							{/if}
-							{#if canSetAside}<button
-									title="Not needed: off your Inbox, kept under Set aside. Whoever asked stops waiting."
-									onclick={() => void setAsideInboxItem(client, companyId, item.id)}
-									>Set aside</button
-								>{/if}
-							<button onclick={() => copy(item)}>Copy link</button>
-						</ActionMenu>
-					{/snippet}
-				</Item>
-			{/each}
+			<div role="list" aria-label="Waiting on you" class="inbox-rows">
+				{#each visible as item (item.id)}
+					{@const Icon = iconFor(item)}
+					{@const snoozedNow = snoozedUntil(item) > clock}
+					{@const unreadNow = !!marksQuery.data && marks.get(item.id)?.seen_stamp !== stamp(item)}
+					<Item
+						role="listitem"
+						stacked
+						title={attentionTitle(item)}
+						label={`${unreadNow ? 'Unread. ' : ''}${attentionKindLabel(item)}: ${attentionTitle(item)}${snoozedNow ? '. Snoozed' : ''}`}
+						meta={item.preparing ? 'Being prepared' : attentionAsker(item)}
+						href={href(item.id)}
+						selected={selectedId === item.id}
+						unread={unreadNow}
+						dim={snoozedNow}
+					>
+						{#snippet leading()}<span
+								class="kind"
+								class:blocker={item.category === 'blocker'}
+								title={attentionKindLabel(item)}
+								><Icon size={15} strokeWidth={1.8} aria-hidden="true" /></span
+							>{/snippet}
+						{#snippet trailing()}<RelativeTime value={item.createdAt} />{/snippet}
+						{#snippet actions()}
+							<ActionMenu label={`Actions for ${attentionTitle(item)}`}>
+								<a href={href(item.id)}>Open</a>
+								{#if canDiscuss(item)}<a
+										href={`${href(item.id)}&conversation=${encodeURIComponent(item.id)}`}
+										>Discuss <kbd>C</kbd></a
+									>{/if}
+								{#if canComplete(item)}<button disabled={!!completing} onclick={() => done(item)}
+										>{completing === item.id ? 'Recording…' : 'Mark done'} <kbd>E</kbd></button
+									>{/if}
+								{#if canDecline(item)}<a href={`${href(item.id)}&decline=1`}>Not doing this…</a
+									>{/if}
+								{#if snoozedNow}
+									<button onclick={() => void wakeInboxItem(client, companyId, item.id)}
+										>Wake now</button
+									>
+								{:else}
+									<SnoozeChoices shortcut onpick={(until) => snooze(item, until)} />
+								{/if}
+								{#if canSetAside}<button
+										title="Not needed: off your Inbox, kept under Set aside. Whoever asked stops waiting."
+										onclick={() => void setAsideInboxItem(client, companyId, item.id)}
+										>Set aside</button
+									>{/if}
+								<button onclick={() => copy(item)}>Copy link</button>
+							</ActionMenu>
+						{/snippet}
+					</Item>
+				{/each}
+			</div>
 			{#if loaded && !visible.length && !(coordination && !items.length)}
 				<p class="empty">
 					{requestsOnly

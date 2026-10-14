@@ -8,6 +8,7 @@
 
 	let {
 		title,
+		label,
 		meta,
 		href,
 		onclick,
@@ -22,6 +23,9 @@
 		role
 	}: {
 		title: string;
+		/** What a screen reader hears for the row link, when the row says more than its title by
+		 * look alone (unread, snoozed, its kind). Defaults to the title. */
+		label?: string;
 		meta?: string | null;
 		href?: string;
 		onclick?: (event: MouseEvent) => void;
@@ -53,9 +57,9 @@
 >
 	<div class="item-row">
 		{#if href}<a class="item-hit" {href} aria-current={selected ? 'true' : undefined} {onclick}
-				><span class="sr-only">{title}</span></a
+				><span class="sr-only">{label ?? title}</span></a
 			>{:else if onclick}<button class="item-hit" type="button" {onclick}
-				><span class="sr-only">{title}</span></button
+				><span class="sr-only">{label ?? title}</span></button
 			>{/if}
 		{#if leading}<span class="item-leading">{@render leading()}</span>{/if}
 		<span class="item-main">

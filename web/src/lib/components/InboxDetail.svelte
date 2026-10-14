@@ -16,7 +16,6 @@
 	import type { AttentionItem } from '$lib/model/view';
 	import {
 		approvalAction,
-		completeHandoffHumanStep,
 		delegateHandoff,
 		passHandoffToOwner,
 		resolveHandoffDecision
@@ -35,8 +34,10 @@
 	import { getInboxMarks } from '$lib/model/for-you';
 	import SnoozeChoices from './SnoozeChoices.svelte';
 	import {
+		appRequestHandoffs,
 		copyInboxLink,
 		inboxMarksKey,
+		markDoneSoon,
 		setAsideInboxItem,
 		snoozeInboxItem,
 		wakeInboxItem
@@ -47,7 +48,6 @@
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import { Fold, Notice } from '$lib/ui/page';
 	import { formatMoment } from '$lib/ui/time';
-	import { fetchAppRequests, type AppRequest } from '$lib/model/app-requests';
 	import { initials } from '$lib/model/initials';
 	import { companyFileLinks, type CompanyFileLink } from '$lib/model/inbox-files';
 	import type { LibraryArtifact } from '$lib/model/library-files';
@@ -151,22 +151,21 @@
 	const ownBrowser = (candidate: { role: string }) =>
 		candidate.role === 'owner_browser' ? '' : undefined;
 	/* An app request (Sprint 63): a sign-in handoff that names the app to add.
-	 * Adding and allowing it is the resume condition, so there is no "Mark done". */
-	let appRequest = $state<AppRequest | null>(null);
-	$effect(() => {
-		appRequest = null;
-		if (item.source.kind !== 'owner_handoff') return;
-		const reference = item.source.reference;
-		let current = true;
-		void fetchAppRequests(companyId)
-			.then((requests) => {
-				if (current) appRequest = requests.find((row) => row.handoff_id === reference) ?? null;
-			})
-			.catch(() => {});
-		return () => {
-			current = false;
-		};
-	});
+	 * Adding and allowing it is the resume condition, so there is no "Mark done".
+	 * Apps are the owner's, so only the owner's detail reads them; a failed read is said rather
+	 * than falling back to a Mark done that would not resume anything. */
+	const appRequests = appRequestHandoffs(
+		() => companyId,
+		() => canSetAside && item.source.kind === 'owner_handoff'
+	);
+	const appRequest = $derived(
+		item.source.kind === 'owner_handoff'
+			? (appRequests.data?.find((row) => row.handoff_id === item.source.reference) ?? null)
+			: null
+	);
+	const appRequestsFailed = $derived(
+		canSetAside && !!humanStep && !appRequests.data && !!appRequests.error
+	);
 	/* Older daemons put a verification link only in the instructions. */
 	const instructionLink = $derived.by(() => {
 		if (item.preparing || item.category !== 'human_step' || item.actions.some((a) => a.href))
@@ -343,15 +342,18 @@
 			'That was not recorded. Try again.',
 			recipientHref
 		);
-	const markDone = () =>
-		run(
-			async () => {
-				await completeHandoffHumanStep(companyId, item.source.reference);
-				await refreshAttention(client, companyId);
-			},
-			'Marked done',
-			'That was not recorded. Try again.'
-		);
+	/* Mark done resumes the Work, so it waits out a few seconds of Undo first. */
+	let markingDone = $state(false);
+	async function markDone() {
+		if (acting || markingDone) return;
+		markingDone = true;
+		try {
+			if (await markDoneSoon(client, companyId, item.source.reference))
+				onresolved?.({ text: 'Marked done. The work resumes.', href: conversationHref });
+		} finally {
+			markingDone = false;
+		}
+	}
 	const approvalTarget = (always = false) => {
 		const target = item.source.call_key
 			? { call_key: item.source.call_key, ...(always ? { always: true } : {}) }
@@ -372,6 +374,7 @@
 	/* Declined either way: a request for changes tells the company to prepare a changed draft,
 	 * which comes back here; a plain decline tells it not to go ahead. */
 	const sendApprovalNote = () => {
+		if (declineMandate && !grant) return decideMandate('decline', reason);
 		const changes = approvalNote === 'changes';
 		if (changes && !reason.trim()) return;
 		return run(
@@ -391,13 +394,17 @@
 			execHref
 		);
 	};
-	const decideMandate = (decision: 'approve' | 'decline') =>
+	const decideMandate = (decision: 'approve' | 'decline', note = '') =>
 		run(
 			async () => {
-				await decideEmailMandateProposal(companyId, item.source.reference, decision);
+				await decideEmailMandateProposal(companyId, item.source.reference, decision, note);
 				await refreshAttention(client, companyId);
 			},
-			decision === 'approve' ? 'Mandate approved' : 'Mandate declined',
+			decision === 'approve'
+				? 'Mandate approved'
+				: note.trim()
+					? 'Mandate declined. Exec has your note.'
+					: 'Mandate declined',
 			'The mandate decision was not recorded. Try again.'
 		);
 	async function openDocument() {
@@ -581,6 +588,10 @@
 
 	<footer class="inbox-composer">
 		{#if error}<Notice tone="danger" title={error} />{/if}
+		{#if appRequestsFailed}<Notice
+				tone="danger"
+				title="Could not check whether this step is an app request. If it is, adding the app resumes it; Mark done would not."
+			/>{/if}
 		{#if approveMandate}
 			<p
 				class="note"
@@ -777,7 +788,8 @@
 					{#if declineMandate}<button
 							class="btn small"
 							disabled={acting}
-							onclick={() => decideMandate('decline')}>{declineMandate.label}</button
+							title="Decline, with an optional note for Exec"
+							onclick={() => (approvalNote = 'decline')}>{declineMandate.label}…</button
 						>{/if}
 				{:else if documentRequest && (item.nativeDocument || onopenDocument)}
 					{#if item.nativeDocument}<a class="btn primary small" href={base} title={item.ifNoAction}
@@ -813,9 +825,9 @@
 					<button
 						class="btn small"
 						class:primary={!instructionLink && !navigation[0]}
-						disabled={acting || item.preparing}
-						title={`${humanStep.consequence} ${humanStep.nextState}`}
-						onclick={markDone}>{acting ? 'Recording…' : 'Mark done'}</button
+						disabled={acting || markingDone || item.preparing}
+						title={`${humanStep.consequence} ${humanStep.nextState} Undo stays available for a few seconds.`}
+						onclick={markDone}>{markingDone ? 'Marking done…' : 'Mark done'}</button
 					>
 					<button class="btn small ghost" disabled={acting} onclick={() => (declining = true)}
 						>Not doing this</button

@@ -1,10 +1,12 @@
-/* The Inbox's own moves on one item, shared by the list's row menu and the item detail, so
- * both say the same thing and both can be taken back: set aside (with Undo), snooze until a
- * chosen time (with Undo), and copy the item's link. */
-import type { QueryClient } from '@tanstack/svelte-query';
-import { toast } from '$lib/ui/feedback/toast.svelte';
+/* The Inbox's own moves on one item, shared by the list's row menu, the item detail and the
+ * computer view, so all say the same thing and all can be taken back: set aside (with Undo),
+ * snooze until a chosen time (with Undo), mark a human step done (with Undo), and copy the
+ * item's link. */
+import { createQuery, type QueryClient } from '@tanstack/svelte-query';
+import { dismissToast, toast } from '$lib/ui/feedback/toast.svelte';
 import { formatMoment } from '$lib/ui/time';
-import { dismissAttention, restoreAttention } from '$lib/model/attention';
+import { completeHandoffHumanStep, dismissAttention, restoreAttention } from '$lib/model/attention';
+import { fetchAppRequests } from '$lib/model/app-requests';
 import { failureSentence } from '$lib/model/failure';
 import { setInboxMarks, withMarks, type InboxMark, type InboxMarkChange } from '$lib/model/for-you';
 import { refreshAttention } from '$lib/model/queries.svelte';
@@ -87,4 +89,56 @@ export async function copyInboxLink(companyId: string, itemId: string) {
 	} catch {
 		toast('Could not copy the link', { tone: 'failure' });
 	}
+}
+
+/* Marking a step done resumes the Work, which cannot be taken back once it lands; so it waits
+ * out an Undo window first, whichever way it was pressed (button, row menu or E). */
+const DONE_UNDO_MS = 5000;
+const markingDone = new Set<string>();
+
+/** Mark a human step done after a few seconds in which Undo takes it back. Resolves true once
+ * it is recorded, false when undone, already pending, or refused (the refusal is said). */
+export function markDoneSoon(
+	client: QueryClient,
+	companyId: string,
+	handoff: string
+): Promise<boolean> {
+	const key = `${companyId} ${handoff}`;
+	if (markingDone.has(key)) return Promise.resolve(false);
+	markingDone.add(key);
+	return new Promise((resolve) => {
+		const timer = setTimeout(async () => {
+			dismissToast(id);
+			try {
+				await completeHandoffHumanStep(companyId, handoff);
+				resolve(true);
+			} catch (cause) {
+				toast(failureSentence(cause, 'That was not recorded.'), { tone: 'failure' });
+				resolve(false);
+			} finally {
+				markingDone.delete(key);
+				await refreshAttention(client, companyId);
+			}
+		}, DONE_UNDO_MS);
+		const id = toast('Marking done. The work resumes in a moment.', {
+			undo: () => {
+				clearTimeout(timer);
+				markingDone.delete(key);
+				resolve(false);
+			}
+		});
+	});
+}
+
+/** The handoffs that are app requests: adding the app resumes them, so they have no Mark done.
+ * The owner's only (Apps are the owner's); a refused read is the query's error to show. */
+export function appRequestHandoffs(companyId: () => string, enabled: () => boolean) {
+	return createQuery(() => ({
+		queryKey: ['app-requests', companyId()],
+		queryFn: () => fetchAppRequests(companyId()),
+		enabled: enabled() && Boolean(companyId()),
+		staleTime: 30_000,
+		refetchInterval: 60_000,
+		retry: 1
+	}));
 }
