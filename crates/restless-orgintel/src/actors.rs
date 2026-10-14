@@ -391,6 +391,76 @@ impl OrgIntel {
         Ok(())
     }
 
+    /// Re-hire a retired actor (Sprint 88): the reverse of [`Self::retire_actor`]. History was never
+    /// erased, so the actor comes back with its name, model, skills and conversations, and rejoins
+    /// the team it left when that team still stands. Returns the team it rejoined, if any.
+    pub async fn restore_actor(
+        &self,
+        actor_id: &str,
+        restored_by: &str,
+        reason: &str,
+    ) -> Result<Option<Uuid>> {
+        if reason.trim().is_empty() {
+            return Err(OrgIntelError::InvalidWork(
+                "re-hiring an actor needs a reason".into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        let may_restore: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM actors WHERE id=$1 AND retired_at IS NULL \
+             AND id IN ('owner','exec'))",
+        )
+        .bind(restored_by)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !may_restore {
+            return Err(OrgIntelError::InvalidWork(
+                "only the owner or Exec may re-hire a retired actor".into(),
+            ));
+        }
+        let retired: bool = sqlx::query_scalar(
+            "SELECT retired_at IS NOT NULL FROM actors WHERE id=$1 FOR UPDATE",
+        )
+        .bind(actor_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| OrgIntelError::InvalidWork(format!("actor {actor_id:?} does not exist")))?;
+        if !retired {
+            return Err(OrgIntelError::InvalidWork(format!(
+                "{actor_id} is not retired"
+            )));
+        }
+        // The team it left, from its latest retirement, when that team still stands.
+        let team: Option<Uuid> = sqlx::query_scalar(
+            "SELECT t.id FROM events e JOIN teams t \
+               ON t.id = NULLIF(e.body->>'previous_team_id','')::uuid AND t.disbanded_at IS NULL \
+             WHERE e.kind='actor_retired' AND e.body->>'actor_id'=$1 \
+             ORDER BY e.id DESC LIMIT 1",
+        )
+        .bind(actor_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        sqlx::query(
+            "UPDATE actors SET retired_at=NULL, retired_by=NULL, retirement_reason='', team_id=$2 \
+             WHERE id=$1",
+        )
+        .bind(actor_id)
+        .bind(team)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("INSERT INTO events (kind, actor_id, body) VALUES ('actor_restored',$1,$2)")
+            .bind(restored_by)
+            .bind(serde_json::json!({
+                "actor_id": actor_id,
+                "team_id": team,
+                "reason": reason.trim(),
+            }))
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(team)
+    }
+
     // ---- teams (S06-T4) ----
     //
     // A team is coordination, not authority. It grants no effect permission, no

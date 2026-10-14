@@ -1556,6 +1556,8 @@ const SETTING_CHANGE_KINDS: &[&str] = &[
     "brand_voice_changed",
     "model_connection_granted",
     "model_connection_revoked",
+    "agent_archived",
+    "agent_rehired",
 ];
 
 #[derive(Debug, Serialize)]
@@ -1826,6 +1828,14 @@ fn setting_change_title(kind: &str, body: &serde_json::Value) -> Option<String> 
             }
             title
         }
+        "agent_archived" => format!(
+            "{} archived: {}",
+            text("actor").unwrap_or("An agent"),
+            text("reason").unwrap_or("")
+        )
+        .trim_end_matches(": ")
+        .to_string(),
+        "agent_rehired" => format!("{} re-hired", text("actor").unwrap_or("An agent")),
         "model_connection_revoked" => format!(
             "{} removed from the company",
             text("label").unwrap_or("A model connection")

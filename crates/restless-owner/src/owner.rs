@@ -1748,6 +1748,14 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(retry_actor_conversation),
         )
         .route(
+            "/companies/{company}/actors/{actor}/archive",
+            post(archive_agent),
+        )
+        .route(
+            "/companies/{company}/actors/{actor}/rehire",
+            post(rehire_agent),
+        )
+        .route(
             "/companies/{company}/actors/{actor}/activity",
             get(agent_activity_live),
         )
@@ -5813,6 +5821,103 @@ async fn company_setup(
         Ok(config) => Json(company_setup_view(&config)).into_response(),
         Err(error) => api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
     }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AgentStaffingInput {
+    /// Why, in the owner's words; recorded with the change.
+    #[serde(default)]
+    reason: String,
+}
+
+/// Archive an agent (Sprint 88): it stops taking Work and leaves the directory, and everything it
+/// did stays attributed to it. The owner decides staffing; OrgIntel refuses while the agent leads
+/// a team, owns open Work or owes a judgement, and its refusal is shown as written.
+async fn archive_agent(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, actor)): AxumPath<(String, String)>,
+    Json(input): Json<AgentStaffingInput>,
+) -> Response<Body> {
+    staffing_change(state, principal, company, actor, input, true).await
+}
+
+/// Re-hire an archived agent (Sprint 88): it returns with its name, model, skills and history,
+/// and rejoins the team it left when that team still stands.
+async fn rehire_agent(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, actor)): AxumPath<(String, String)>,
+    Json(input): Json<AgentStaffingInput>,
+) -> Response<Body> {
+    staffing_change(state, principal, company, actor, input, false).await
+}
+
+async fn staffing_change(
+    state: OwnerState,
+    principal: RequestPrincipal,
+    company: String,
+    actor: String,
+    input: AgentStaffingInput,
+    archive: bool,
+) -> Response<Body> {
+    if principal.membership_role() != "owner" {
+        return api_error(StatusCode::FORBIDDEN, "staffing", "Only the owner archives or re-hires agents.");
+    }
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
+    };
+    let name = org
+        .list_actors_including_retired()
+        .await
+        .ok()
+        .and_then(|actors| actors.into_iter().find(|row| row.id == actor))
+        .map(|row| row.display);
+    let Some(name) = name else {
+        return api_error(StatusCode::NOT_FOUND, "staffing", "That agent does not exist.");
+    };
+    let reason = match input.reason.trim() {
+        "" if archive => "Archived by the owner".to_string(),
+        "" => "Re-hired by the owner".to_string(),
+        text => text.to_string(),
+    };
+    // The owner's governance identity is `owner`, whatever their account Actor.
+    let result = if archive {
+        org.retire_actor(&actor, "owner", &reason).await.map(|()| None)
+    } else {
+        org.restore_actor(&actor, "owner", &reason).await
+    };
+    match result {
+        Ok(team) => {
+            record_setting_change(
+                &state,
+                &company,
+                principal.actor_id(),
+                if archive { "agent_archived" } else { "agent_rehired" },
+                serde_json::json!({"actor": name, "reason": reason}),
+            )
+            .await;
+            Json(serde_json::json!({"archived": archive, "team_id": team})).into_response()
+        }
+        Err(restless_orgintel::OrgIntelError::InvalidWork(message)) => {
+            api_error(StatusCode::CONFLICT, "staffing", sentence(&message))
+        }
+        Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "staffing", format!("{error:#}")),
+    }
+}
+
+/// OrgIntel's lower-case refusal as a sentence a person reads.
+fn sentence(message: &str) -> String {
+    let mut text = message.trim().to_string();
+    if let Some(first) = text.get(..1) {
+        text.replace_range(..1, &first.to_uppercase());
+    }
+    if !text.ends_with('.') {
+        text.push('.');
+    }
+    text
 }
 
 /// Record a change a person made to the company's settings, so it shows in Activity and Exec
