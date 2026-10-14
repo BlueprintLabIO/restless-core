@@ -124,6 +124,14 @@
 		cursor: pointer;
 		list-style: none;
 	}
+	/* A trigger that shows a value (a model, a Goal) is as wide as its words; only an icon
+	 * trigger is a square. Squeezed to 32px, "Claude Sonnet 5.5" read "C.". */
+	summary.labelled {
+		width: auto;
+		min-width: 32px;
+		max-width: 100%;
+		padding: 0 6px;
+	}
 	summary::-webkit-details-marker {
 		display: none;
 	}

@@ -311,10 +311,13 @@
 	cursor: not-allowed;
 }
 
+/* One row: attach and commands, then the slot taking what is left, then the microphone and send.
+ * Attached files wrap onto their own line above it. A grid with fixed columns put the commands
+ * button in the slot's column and pushed the chips onto a second, indented row. */
 .bridge-root .hc-toolbar {
 	min-width: 0;
-	display: grid;
-	grid-template-columns: 28px minmax(0, 1fr) 28px auto;
+	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
 	gap: 4px;
 	padding: 4px;
@@ -325,12 +328,13 @@
 }
 
 .bridge-root .hc-toolbar .attach-chips {
-	grid-column: 1 / -1;
+	order: -1;
+	flex: 1 0 100%;
 	margin: 0 0 2px;
 }
 
 .bridge-root .hc-field .attach-btn {
-	grid-column: 1;
+	flex: none;
 	width: 28px;
 	height: 28px;
 	border: 0;
@@ -340,7 +344,7 @@
 /* The slot shrinks before anything beside it moves: its chips ellipsize rather than draw over the
  * microphone or the send buttons. Menus open in the top layer, so clipping here never cuts them. */
 .bridge-root .hc-slot {
-	grid-column: 2;
+	flex: 1 1 0;
 	min-width: 0;
 	max-width: 100%;
 	min-height: 28px;
@@ -354,10 +358,8 @@
 	display: none;
 }
 
-/* Without an attach button the slot takes its column too, rather than
- * starting after an empty gap. */
+/* Without an attach button the slot starts at the edge, with a little air. */
 .bridge-root .hc-toolbar:not(:has(.attach-btn)) .hc-slot {
-	grid-column: 1 / 3;
 	padding-left: 4px;
 }
 
@@ -695,7 +697,6 @@
  * worth of target. */
 @media (pointer: coarse) {
 	.bridge-root .hc-toolbar {
-		grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
 		gap: 2px;
 	}
 	.bridge-root .hc-field .attach-btn,
