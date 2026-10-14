@@ -1,9 +1,11 @@
 <script lang="ts">
 	/* A request someone asked Exec for and that waits on this person (S80): what they asked, the
-	 * exact change Exec will make, and why, with the answer one click or key away. Approving
-	 * carries the change out; "always allow" also stops this kind of change asking again. */
-	import { onMount } from 'svelte';
+	 * exact change Exec will make, and why. Approving carries the change out, after a few seconds
+	 * in which Undo takes it back; "always allow" is a hold, because it also stops this kind of
+	 * change asking again. Y and N answer only while focus is inside the request. */
 	import { useQueryClient } from '@tanstack/svelte-query';
+	import HoldApprove from '$lib/ui/controls/HoldApprove.svelte';
+	import { dismissToast, toast } from '$lib/ui/feedback/toast.svelte';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import { Notice } from '$lib/ui/page';
 	import { celebrate } from '$lib/ui/celebrate';
@@ -28,6 +30,8 @@
 	let reason = $state('');
 	let error = $state('');
 	let answered = $state<DirectionRequest | null>(null);
+	/* An approval waiting out its Undo window. */
+	let pending = $state(false);
 	const current = $derived(answered ?? request);
 	const open = $derived(current.state === 'open');
 	const always = $derived(current.offers.always_allow);
@@ -64,23 +68,37 @@
 		}
 	}
 
-	/* Y approves, A approves and always allows, N declines; never while typing. */
-	onMount(() => {
-		const keys = (event: KeyboardEvent) => {
-			if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
-			const target = event.target as HTMLElement | null;
-			if (target?.closest('input, textarea, select, [contenteditable], dialog')) return;
-			const key = event.key.toLowerCase();
-			if (key === 'y') void answer({ decision: 'approve' }, document.activeElement);
-			else if (key === 'a' && always)
-				void answer({ decision: 'approve', always_allow: true }, document.activeElement);
-			else if (key === 'n') declining = true;
-			else return;
-			event.preventDefault();
-		};
-		window.addEventListener('keydown', keys);
-		return () => window.removeEventListener('keydown', keys);
-	});
+	/* An approval is held for a few seconds with Undo before it is sent: Exec starts carrying it
+	 * out as soon as it lands. */
+	const UNDO_WINDOW_MS = 5000;
+	function approveSoon(input: DirectionDecisionInput, from?: EventTarget | null) {
+		if (busy || pending || !open) return;
+		pending = true;
+		const timer = setTimeout(() => {
+			pending = false;
+			dismissToast(id);
+			void answer(input, from);
+		}, UNDO_WINDOW_MS);
+		const id = toast(`Approving “${current.summary}”`, {
+			undo: () => {
+				clearTimeout(timer);
+				pending = false;
+			}
+		});
+	}
+
+	/* Y approves (with Undo) and N declines, only while focus is inside this request and never
+	 * while typing: a stray key elsewhere answers nothing. Always allow has no key. */
+	function keys(event: KeyboardEvent) {
+		if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+		const target = event.target as HTMLElement | null;
+		if (target?.closest('input, textarea, select, [contenteditable], dialog, details')) return;
+		const key = event.key.toLowerCase();
+		if (key === 'y') approveSoon({ decision: 'approve' }, document.activeElement);
+		else if (key === 'n' && open && !pending) declining = true;
+		else return;
+		event.preventDefault();
+	}
 
 	const outcome = $derived.by(() => {
 		const decision = current.decision;
@@ -99,7 +117,13 @@
 	});
 </script>
 
-<article class="direction-request" aria-labelledby="direction-request-title">
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<article
+	class="direction-request"
+	aria-labelledby="direction-request-title"
+	tabindex="-1"
+	onkeydown={keys}
+>
 	<header>
 		<h2 id="direction-request-title" title="A request: nothing changes until you answer">
 			{current.summary}
@@ -149,32 +173,33 @@
 				<button
 					class="btn small primary"
 					type="button"
-					disabled={busy}
-					onclick={(event) => void answer({ decision: 'approve' }, event.currentTarget)}
-					>Approve <kbd>Y</kbd></button
+					disabled={busy || pending}
+					title="Approve. Undo stays available for a few seconds before Exec starts."
+					onclick={(event) => approveSoon({ decision: 'approve' }, event.currentTarget)}
+					>{pending ? 'Approving…' : 'Approve'} <kbd>Y</kbd></button
 				>
-				{#if always}<button
-						class="btn small"
-						type="button"
-						disabled={busy}
-						title={`Approve, and ${always.label.charAt(0).toLowerCase() + always.label.slice(1)}. Each one can still be undone; revoke it in Company → Members.`}
-						onclick={(event) =>
-							void answer({ decision: 'approve', always_allow: true }, event.currentTarget)}
-						>Always allow <kbd>A</kbd></button
-					>{/if}
+				{#if always}{#key pending}<HoldApprove
+							small
+							label="Hold to always allow"
+							armedLabel="press again to always allow"
+							completeLabel="Approving…"
+							disabled={busy || pending}
+							title={`Approve, and ${always.label.charAt(0).toLowerCase() + always.label.slice(1)}: this kind of change stops asking you. Each one can still be undone; revoke it in Company → Members.`}
+							onapprove={() => approveSoon({ decision: 'approve', always_allow: true })}
+						/>{/key}{/if}
 				{#if makeOwner && current.team}<button
 						class="btn small"
 						type="button"
-						disabled={busy}
+						disabled={busy || pending}
 						title={`Approve, and make ${makeOwner.name} owner of ${current.team.name}: their direction for it then applies directly.`}
 						onclick={(event) =>
-							void answer({ decision: 'approve', make_team_owner: true }, event.currentTarget)}
+							approveSoon({ decision: 'approve', make_team_owner: true }, event.currentTarget)}
 						>Make {makeOwner.name} owner</button
 					>{/if}
 				<button
 					class="btn small ghost"
 					type="button"
-					disabled={busy}
+					disabled={busy || pending}
 					onclick={() => (declining = true)}>Decline… <kbd>N</kbd></button
 				>
 			</div>
