@@ -1243,29 +1243,43 @@ mod tests {
             .status()
             .expect("harden local review fixture");
         assert!(hardened.success());
-        let source_tree = prepared
-            .source_after
-            .source_tree
-            .as_deref()
-            .expect("source tree");
-        let probed = probe_review_copy_as_reviewer(
-            &*command,
-            review.to_str().unwrap(),
-            alias.to_str().unwrap(),
-            &source_commit,
-            source_tree,
-        )
-        .await
-        .expect("reviewer identity can read but not write the declared snapshot");
-        assert_eq!(probed, prepared.file_count);
+        // The reviewer probe runs as the current identity. One that bypasses
+        // file modes (root, CAP_DAC_OVERRIDE) can write a read-only tree, so it
+        // cannot stand in for the unprivileged Runtime reviewer. Probe that
+        // capability directly; the source-integrity checks below still run.
+        let bypass_probe = review.join(".permission-bypass-probe");
+        let bypasses_file_modes = std::fs::write(&bypass_probe, "").is_ok();
+        if bypasses_file_modes {
+            std::fs::remove_file(&bypass_probe).expect("remove permission-bypass probe");
+            eprintln!(
+                "current identity bypasses file permissions (root or CAP_DAC_OVERRIDE); \
+                 skipping the read-only reviewer probe, which needs an unprivileged user"
+            );
+        } else {
+            let source_tree = prepared
+                .source_after
+                .source_tree
+                .as_deref()
+                .expect("source tree");
+            let probed = probe_review_copy_as_reviewer(
+                &*command,
+                review.to_str().unwrap(),
+                alias.to_str().unwrap(),
+                &source_commit,
+                source_tree,
+            )
+            .await
+            .expect("reviewer identity can read but not write the declared snapshot");
+            assert_eq!(probed, prepared.file_count);
+            assert!(
+                std::fs::write(review.join("tracked.txt"), "reviewer mutation\n").is_err(),
+                "the reviewer cannot change published bytes"
+            );
+        }
         assert!(prepared.content_digest.starts_with("git-tree:"));
         assert!(
             !prepared.access_probed,
             "generic preparation does not fake the Runtime identity probe"
-        );
-        assert!(
-            std::fs::write(review.join("tracked.txt"), "reviewer mutation\n").is_err(),
-            "the reviewer cannot change published bytes"
         );
         let after = observe_git_workspace(&*command, source.to_str().unwrap()).await;
         assert_eq!(prepared.source_commit, source_commit);
