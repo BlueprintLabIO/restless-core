@@ -3185,12 +3185,18 @@
 		.table-bar {
 			padding-inline: var(--space-3);
 		}
+		/* Gutters wide enough for the grip (left) and the comment marks (right), so neither sits
+		 * on the text. */
 		.paper {
-			padding: 28px 18px 96px;
+			padding: 28px 32px 96px;
 			background: var(--surface-raised);
 		}
 		.paper-rule {
 			display: none;
+		}
+		.thread-mark {
+			right: 0;
+			padding: 0 4px;
 		}
 		.collaboration-error > div {
 			align-items: flex-start;
