@@ -863,7 +863,8 @@
 					...row,
 					href: `/${encodeURIComponent(companyId)}/people?room=${encodeURIComponent(row.room_id)}`
 				}))
-		].filter((row) => conversationUnread(row, viewer));
+			/* A muted conversation neither counts nor notifies. */
+		].filter((row) => !row.muted && conversationUnread(row, viewer));
 	});
 	/* An Exec reply the viewer has not read: a dot on the Exec button. Reading it in the rail or
 	 * the full-width conversation clears it. */

@@ -3919,6 +3919,25 @@ async fn a_group_owner_renames_or_archives_and_a_member_can_only_leave() {
         .unwrap();
     let after = org.recent_group_conversations_for_actor("exec").await.unwrap();
     assert_eq!(cursor(after), Some(Some(said.message.id)));
+    // Muting is the viewer's own: it shows in their list only, and needs them in the Room.
+    org.set_room_muted("exec", room.id, true).await.unwrap();
+    let muted = |rows: Vec<restless_orgintel::RecentGroupConversationRow>| {
+        rows.into_iter()
+            .find(|row| row.room_id == room.id)
+            .map(|row| row.muted)
+    };
+    assert_eq!(
+        muted(org.recent_group_conversations_for_actor("exec").await.unwrap()),
+        Some(true)
+    );
+    assert_eq!(
+        muted(org.recent_group_conversations_for_actor("owner").await.unwrap()),
+        Some(false)
+    );
+    assert!(org
+        .set_room_muted("research-science", room.id, true)
+        .await
+        .is_err());
 
     // A member cannot change the Room for everyone...
     let denied = [

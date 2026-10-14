@@ -55,6 +55,7 @@
 		roomQueryKeys,
 		roomReadCursorQuery,
 		roomsQuery,
+		recentGroupConversationsQuery,
 		archivedRoomsQuery,
 		roomThreadQuery
 	} from '$lib/model/room-queries.svelte';
@@ -97,6 +98,10 @@
 		collaborationBootstrapQuery(companyId, () => (ownerAccess ? null : principalProjection.view))
 	);
 	const roomList = $derived(roomsQuery(companyId));
+	/* Shared with the shell's unread count; here it says whether the viewer muted a group. */
+	const groupConversations = $derived(
+		recentGroupConversationsQuery(companyId, () => !!principalProjection.view?.actor_id)
+	);
 	const requestedRoomId = $derived(page.url.searchParams.get('room') ?? '');
 	const requestedPersonId = $derived(page.url.searchParams.get('person') ?? '');
 	let resolvedPersonRoom = $state<{ key: string; room: Room } | null>(null);
@@ -1425,6 +1430,8 @@
 						{people}
 						room={selectedRoom}
 						{participants}
+						muted={!!groupConversations.conversations.find((row) => row.room_id === selectedRoomId)
+							?.muted}
 						onclosed={() => goto(`/${encodeURIComponent(companyId)}/people?view=chats`)}
 					/>
 				{/if}

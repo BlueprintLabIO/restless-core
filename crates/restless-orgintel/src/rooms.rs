@@ -1761,7 +1761,7 @@ impl OrgIntel {
             "SELECT room.id AS room_id, peer.actor_id AS person_actor_id, \
                     latest.id AS last_message_id, latest.created_at AS last_message_at, \
                     latest.from_actor AS last_message_from, latest.preview AS last_message_preview, \
-                    cursor.last_read_message_id \
+                    cursor.last_read_message_id, viewer.muted \
              FROM rooms room \
              JOIN room_participants viewer ON viewer.room_id=room.id \
                   AND viewer.actor_id=$1 AND viewer.left_at IS NULL \
@@ -1790,6 +1790,27 @@ impl OrgIntel {
         .await?)
     }
 
+    /// Mute or unmute one conversation for one of its current participants. Muting is the
+    /// participant's own preference: it changes no one else's view and no mention.
+    pub async fn set_room_muted(&self, actor_id: &str, room_id: Uuid, muted: bool) -> Result<()> {
+        let updated = sqlx::query(
+            "UPDATE room_participants SET muted=$3 \
+             WHERE room_id=$1 AND actor_id=$2 AND left_at IS NULL",
+        )
+        .bind(room_id)
+        .bind(actor_id)
+        .bind(muted)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        if updated == 0 {
+            return Err(OrgIntelError::RoomAccessDenied(
+                "only a current participant can mute this Room".into(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Group Rooms this Actor belongs to that have any Message, newest Message first, with that
     /// Message's sender and opening text (S64-T3). An empty group Room is still listed by the
     /// Room page; this index is for what was said.
@@ -1801,7 +1822,7 @@ impl OrgIntel {
             "SELECT room.id AS room_id, room.title, \
                     latest.id AS last_message_id, latest.created_at AS last_message_at, \
                     latest.from_actor AS last_message_from, latest.preview AS last_message_preview, \
-                    cursor.last_read_message_id \
+                    cursor.last_read_message_id, viewer.muted \
              FROM rooms room \
              JOIN room_participants viewer ON viewer.room_id=room.id \
                   AND viewer.actor_id=$1 AND viewer.left_at IS NULL \

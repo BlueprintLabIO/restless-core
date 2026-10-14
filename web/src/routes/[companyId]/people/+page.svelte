@@ -6,6 +6,7 @@
 	import { goto } from '$app/navigation';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import Users from '@lucide/svelte/icons/users';
+	import BellOff from '@lucide/svelte/icons/bell-off';
 	import MessagesSquare from '@lucide/svelte/icons/messages-square';
 	import UserPlus from '@lucide/svelte/icons/user-plus';
 	import SidebarSearch from '$lib/ui/views/SidebarSearch.svelte';
@@ -47,7 +48,8 @@
 		recentDirectConversationsQuery,
 		recentGroupConversationsQuery,
 		roomMessageSearchQuery,
-		roomTitleSearchQuery
+		roomTitleSearchQuery,
+		muteRoom
 	} from '$lib/model/room-queries.svelte';
 	import { conversationUnread, messagePreview, restoreRoom, type Room } from '$lib/model/rooms';
 	import { useQueryClient } from '@tanstack/svelte-query';
@@ -609,7 +611,11 @@
 					roomId: conversation.room_id,
 					at: conversation.last_message_at,
 					preview: `${from}${messagePreview(conversation.last_message_preview)}`,
-					unread: conversationUnread(conversation, viewerId) && personId !== person.actor_id
+					muted: !!conversation.muted,
+					unread:
+						!conversation.muted &&
+						conversationUnread(conversation, viewerId) &&
+						personId !== person.actor_id
 				}
 			];
 		});
@@ -632,7 +638,9 @@
 					preview: latest
 						? `${who ? `${who}: ` : ''}${messagePreview(latest.last_message_preview)}`
 						: 'Nothing said yet',
-					unread: !!latest && conversationUnread(latest, viewerId) && roomId !== room.id
+					muted: !!latest?.muted,
+					unread:
+						!!latest && !latest.muted && conversationUnread(latest, viewerId) && roomId !== room.id
 				};
 			});
 		return [...direct, ...groups]
@@ -900,7 +908,12 @@
 									title={chat.preview}>{chat.preview}</small
 								></span
 							><span class="chat-meta"
-								><time class="chat-time" datetime={chat.at}>{chatTime(chat.at)}</time
+								>{#if chat.muted}<BellOff
+										size={12}
+										class="chat-muted"
+										aria-label="Muted"
+										role="img"
+									/>{/if}<time class="chat-time" datetime={chat.at}>{chatTime(chat.at)}</time
 								>{#if chat.unread}<span
 										class="new-dot"
 										title="New since you last looked"
@@ -908,13 +921,20 @@
 									></span>{/if}</span
 							>
 						</a>
-						{#if !chat.group}<span class="person-menu"
-								><ActionMenu label={`More for the chat with ${chat.name}`}
-									><button type="button" onclick={() => hideChat(chat.roomId, chat.at, chat.name)}
-										>Hide chat</button
-									></ActionMenu
-								></span
-							>{/if}
+						<span class="person-menu"
+							><ActionMenu label={`More for the chat with ${chat.name}`}
+								><button
+									type="button"
+									title="Muted: no unread count or notification. A mention still reaches you."
+									onclick={() =>
+										void muteRoom(roomClient, companyId, chat.roomId, !chat.muted, chat.name)}
+									>{chat.muted ? 'Unmute' : 'Mute'}</button
+								>{#if !chat.group}<button
+										type="button"
+										onclick={() => hideChat(chat.roomId, chat.at, chat.name)}>Hide chat</button
+									>{/if}</ActionMenu
+							></span
+						>
 					</div>
 				{:else}
 					{#if search.trim()}<p class="empty">No conversations match.</p>{:else}
@@ -1546,6 +1566,9 @@
 		justify-items: end;
 		gap: 4px;
 		padding-top: 2px;
+	}
+	.chat-meta :global(.chat-muted) {
+		color: var(--text-tertiary);
 	}
 	.chat-time {
 		color: var(--text-tertiary);

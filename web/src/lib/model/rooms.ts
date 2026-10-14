@@ -34,6 +34,8 @@ export interface RecentDirectConversation {
 	last_message_preview?: string;
 	/** The viewer's own server read cursor, the same on every device. */
 	last_read_message_id?: number | null;
+	/** The viewer muted it: no unread count, no notification; a mention still reaches them. */
+	muted?: boolean;
 }
 
 /** A group room by its latest message. */
@@ -45,6 +47,7 @@ export interface RecentGroupConversation {
 	last_message_from: string;
 	last_message_preview: string;
 	last_read_message_id?: number | null;
+	muted?: boolean;
 }
 
 /**
@@ -737,6 +740,15 @@ export function renameRoom(company: string, room: string, title: string): Promis
 		method: 'PATCH',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ title })
+	});
+}
+
+/** The viewer's own mute for one conversation. */
+export function setRoomMuted(company: string, room: string, muted: boolean): Promise<unknown> {
+	return roomJson(`${roomPath(company, room)}/mute`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ muted })
 	});
 }
 

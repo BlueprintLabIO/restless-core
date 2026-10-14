@@ -1,5 +1,8 @@
 import { createInfiniteQuery, createQuery, useQueryClient } from '@tanstack/svelte-query';
 import { pollEvery } from './connection.svelte';
+import type { QueryClient } from '@tanstack/svelte-query';
+import { toast } from '$lib/ui/feedback/toast.svelte';
+import { failureSentence } from './failure';
 import type { InfiniteData } from '@tanstack/svelte-query';
 import {
 	locateRoomMessageTarget,
@@ -22,6 +25,7 @@ import {
 	removeRoomMessageSearchResult,
 	searchRoomMessages,
 	searchRooms,
+	setRoomMuted,
 	tombstoneRoomMessagePages,
 	type RoomEvent,
 	type RoomListCursor,
@@ -178,6 +182,30 @@ export function roomsQuery(companyId: string) {
 		loadMore: () => query.fetchNextPage(),
 		refresh: () => query.refetch()
 	};
+}
+
+/* Mute is the viewer's own and undoable, so it acts at once and offers Undo. */
+export async function muteRoom(
+	client: QueryClient,
+	company: string,
+	room: string,
+	muted: boolean,
+	name: string
+): Promise<void> {
+	const refresh = () =>
+		Promise.all([
+			client.invalidateQueries({ queryKey: roomQueryKeys.recentDirect(company) }),
+			client.invalidateQueries({ queryKey: roomQueryKeys.recentGroups(company) })
+		]);
+	try {
+		await setRoomMuted(company, room, muted);
+		await refresh();
+		toast(muted ? `${name} muted. A mention still reaches you.` : `${name} unmuted.`, {
+			undo: () => void setRoomMuted(company, room, !muted).then(refresh)
+		});
+	} catch (cause) {
+		toast(failureSentence(cause, 'The conversation could not be muted.'), { tone: 'failure' });
+	}
 }
 
 /** Group rooms whose title matches, across every page, for Chats search. */

@@ -18,7 +18,7 @@
 		type Room,
 		type RoomParticipant
 	} from '$lib/model/rooms';
-	import { roomQueryKeys } from '$lib/model/room-queries.svelte';
+	import { muteRoom, roomQueryKeys } from '$lib/model/room-queries.svelte';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
@@ -36,7 +36,8 @@
 		contactIds = [],
 		initialParticipants = [],
 		initialContext = '',
-		label
+		label,
+		muted = false
 	}: {
 		companyId: string;
 		actorId: string;
@@ -53,6 +54,8 @@
 		initialParticipants?: string[];
 		initialContext?: string;
 		label?: string;
+		/** The viewer muted this conversation. */
+		muted?: boolean;
 	} = $props();
 	const dialogId = $props.id();
 	const client = useQueryClient();
@@ -382,6 +385,12 @@
 		<ActionMenu label="Conversation options">
 			{#if canManage}<button type="button" onclick={() => open('rename')}>Rename…</button>{/if}
 			<button type="button" onclick={() => open()}>Participants…</button>
+			<button
+				type="button"
+				title="Muted: no unread count or notification. A mention still reaches you."
+				onclick={() => room && void muteRoom(client, companyId, room.id, !muted, room.title)}
+				>{muted ? 'Unmute' : 'Mute'}</button
+			>
 			{#if canManage}<button type="button" onclick={() => open('archive')}>Archive…</button>{/if}
 			{#if canLeave}<button type="button" onclick={() => open('leave')}>Leave…</button>{/if}
 		</ActionMenu>

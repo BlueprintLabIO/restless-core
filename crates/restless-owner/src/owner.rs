@@ -1106,6 +1106,10 @@ where
             axum::routing::patch(rename_room),
         )
         .route(
+            "/companies/{company}/rooms/{room}/mute",
+            axum::routing::put(mute_room),
+        )
+        .route(
             "/companies/{company}/rooms/{room}/archive",
             post(archive_room),
         )
@@ -7892,6 +7896,32 @@ async fn rename_room(
     };
     match org.rename_room(principal.actor_id(), room, &input.title).await {
         Ok(room) => Json(room).into_response(),
+        Err(error) => room_error(error),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MuteRoomInput {
+    muted: bool,
+}
+
+/// The viewer's own mute for one conversation.
+async fn mute_room(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath((company, room)): AxumPath<(String, Uuid)>,
+    Json(input): Json<MuteRoomInput>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .set_room_muted(principal.actor_id(), room, input.muted)
+        .await
+    {
+        Ok(()) => Json(serde_json::json!({ "muted": input.muted })).into_response(),
         Err(error) => room_error(error),
     }
 }
