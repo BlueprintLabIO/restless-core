@@ -300,6 +300,16 @@ export function mountSheet(
 	}
 	function report() {
 		if (disposed || blocked || !model) return;
+		if (socket?.readyState !== WebSocket.OPEN) {
+			status({
+				state: 'offline',
+				access,
+				message: pending.size
+					? 'Keep editing; your changes are kept in this tab and save when it reconnects.'
+					: 'Keep editing; your changes save when it reconnects.'
+			});
+			return;
+		}
 		status({
 			state: pending.size ? 'saving' : 'saved',
 			access,
@@ -481,13 +491,11 @@ export function mountSheet(
 		};
 		current.onclose = async () => {
 			if (stale()) return;
-			model?.updateMode('readonly');
+			/* The grid stays writable while it reconnects: edits queue in this tab and are sent,
+			 * in order, as soon as the session resumes. */
 			showFaces([]);
-			status({
-				state: 'offline',
-				access,
-				message: 'Reconnecting. Your pending edits are retained.'
-			});
+			if (model) report();
+			else status({ state: 'offline', access, message: 'Reconnecting.' });
 			try {
 				const response = await fetch(
 					`/api/companies/${encodeURIComponent(company)}/sheets/${encodeURIComponent(sheet)}`,

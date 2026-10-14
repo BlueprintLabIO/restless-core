@@ -176,3 +176,61 @@ export async function requestDocumentCollaborationToken(
 		expires_at: body.expires_at
 	};
 }
+
+/* Edits not yet acknowledged by the documents service are kept on this device too, so closing the
+ * tab while the connection is down does not lose them. Only the difference from what the service
+ * last acknowledged is kept: applying it again later merges as an ordinary CRDT update and can
+ * never duplicate what the service already holds. */
+const PENDING_PREFIX = 'restless:document-pending:';
+const MAX_PENDING_BYTES = 1_000_000;
+
+function pendingKey(companyUuid: string, documentId: string, actorId: string): string {
+	return `${PENDING_PREFIX}${companyUuid}:${documentId}:${actorId}`;
+}
+
+export function savePendingDocumentEdits(
+	companyUuid: string,
+	documentId: string,
+	actorId: string,
+	update: Uint8Array
+): void {
+	try {
+		const key = pendingKey(companyUuid, documentId, actorId);
+		if (update.byteLength < 3 || update.byteLength > MAX_PENDING_BYTES) {
+			localStorage.removeItem(key);
+			return;
+		}
+		let binary = '';
+		for (const byte of update) binary += String.fromCharCode(byte);
+		localStorage.setItem(key, btoa(binary));
+	} catch {
+		/* No storage here (a private window, a full quota): the edits stay in this tab. */
+	}
+}
+
+export function loadPendingDocumentEdits(
+	companyUuid: string,
+	documentId: string,
+	actorId: string
+): Uint8Array | null {
+	try {
+		const stored = localStorage.getItem(pendingKey(companyUuid, documentId, actorId));
+		if (!stored) return null;
+		const binary = atob(stored);
+		return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+	} catch {
+		return null;
+	}
+}
+
+export function clearPendingDocumentEdits(
+	companyUuid: string,
+	documentId: string,
+	actorId: string
+): void {
+	try {
+		localStorage.removeItem(pendingKey(companyUuid, documentId, actorId));
+	} catch {
+		/* Nothing was kept. */
+	}
+}

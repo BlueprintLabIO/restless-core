@@ -37,6 +37,9 @@
 	import TextAlignJustify from '@lucide/svelte/icons/text-align-justify';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import {
+		clearPendingDocumentEdits,
+		loadPendingDocumentEdits,
+		savePendingDocumentEdits,
 		documentCollaborationName,
 		documentCollaborationStateLabel,
 		documentCollaborationWebSocketUrl,
@@ -163,9 +166,15 @@
 	// Track primitive identity/access so polling cannot tear down the editor.
 	const liveDocumentId = $derived(view.document.id);
 	const liveReadAccess = $derived(view.access);
+	/* Once the live body is open, a dropped connection does not stop writing: edits go on in this
+	 * tab's copy, are kept on this device, and sync when the connection returns. */
 	const canWriteLive = $derived(
-		collaborationState === 'synced' && collaborationAccess === 'write' && view.access === 'edit'
+		(collaborationState === 'synced' ||
+			(collaborationState === 'reconnecting' && editorState.editor !== null)) &&
+			collaborationAccess === 'write' &&
+			view.access === 'edit'
 	);
+	const writingOffline = $derived(canWriteLive && collaborationState === 'reconnecting');
 	/* Only a writer has edits to lose or undo; a reader is not told, or held on the page. */
 	const saveProblem = $derived(
 		collaborationAccess === 'write' && view.access === 'edit' ? storeProblem : ''
@@ -364,6 +373,23 @@
 			const controller = new AbortController();
 			const yDocument = new Y.Doc();
 			collaborationState = 'connecting';
+			/* What the service last acknowledged; local edits since then are kept on this device. */
+			let acknowledged: Uint8Array | null = null;
+			let keepTimer: ReturnType<typeof setTimeout> | undefined;
+			const flushPending = () => {
+				clearTimeout(keepTimer);
+				if (!acknowledged || unsyncedChanges === 0) return;
+				savePendingDocumentEdits(
+					identity,
+					documentId,
+					actorId,
+					Y.encodeStateAsUpdate(yDocument, acknowledged)
+				);
+			};
+			const keepPending = () => {
+				clearTimeout(keepTimer);
+				keepTimer = setTimeout(() => !disposed && flushPending(), 250);
+			};
 
 			const provider = new HocuspocusProvider({
 				url,
@@ -421,6 +447,9 @@
 					// Hocuspocus carries logical close reasons with code 1000.
 					if (event.reason === 'Document restored') {
 						documentRestored = true;
+						/* Edits kept from before the restore belong to the body that was replaced. */
+						acknowledged = null;
+						clearPendingDocumentEdits(identity, documentId, actorId);
 						collaborationState = 'degraded';
 						collaborationFailure =
 							'Someone restored an earlier version. Copy any recent changes you want to keep from this read-only draft, then load the restored version.';
@@ -436,7 +465,13 @@
 					collaborationState = hadConnection ? 'reconnecting' : collaborationState;
 				},
 				onUnsyncedChanges: ({ number }) => {
-					if (!disposed) unsyncedChanges = number;
+					if (disposed) return;
+					unsyncedChanges = number;
+					if (number === 0 && acknowledged) {
+						clearTimeout(keepTimer);
+						acknowledged = Y.encodeStateVector(yDocument);
+						clearPendingDocumentEdits(identity, documentId, actorId);
+					}
 				},
 				/* The service acknowledges an edit once it holds it, not once it is stored;
 				 * it says separately when storing stops and starts again. */
@@ -461,6 +496,18 @@
 						writable ? 'synced-write' : 'synced-read'
 					);
 					collaborationFailure = '';
+					/* Edits this device kept from a session that closed before they synced. */
+					if (writable && !acknowledged) {
+						acknowledged = Y.encodeStateVector(yDocument);
+						const kept = loadPendingDocumentEdits(identity, documentId, actorId);
+						if (kept) {
+							try {
+								Y.applyUpdate(yDocument, kept, 'kept-on-device');
+							} catch {
+								clearPendingDocumentEdits(identity, documentId, actorId);
+							}
+						}
+					}
 					void tick().then(() => {
 						if (disposed || mountedEditor || !editorElement) return;
 						mountedEditor = new Editor({
@@ -500,23 +547,27 @@
 			});
 
 			activeProvider = provider;
+			const keepLocal = (_update: Uint8Array, origin: unknown) => {
+				if (origin !== provider && acknowledged) keepPending();
+			};
+			yDocument.on('update', keepLocal);
+			window.addEventListener('pagehide', flushPending);
 
+			/* A slow first connection shows the last saved version and says so; it opens for
+			 * writing the moment it connects. A session that already opened is never replaced. */
 			const connectDeadline = setTimeout(() => {
-				if (
-					disposed ||
-					collaborationState === 'synced' ||
-					collaborationState === 'read-only' ||
-					collaborationState === 'degraded'
-				)
-					return;
-				collaborationState = 'degraded';
+				if (disposed || mountedEditor || collaborationState !== 'connecting') return;
 				collaborationFailure =
-					'Live collaboration did not become ready. The last saved version stays read only.';
+					'Live editing has not connected yet. This is the last saved version; it opens for editing once connected.';
 			}, 10_000);
 
 			return () => {
 				disposed = true;
 				clearTimeout(connectDeadline);
+				/* A last copy of anything still unsynced, as the page goes. */
+				flushPending();
+				window.removeEventListener('pagehide', flushPending);
+				yDocument.off('update', keepLocal);
 				controller.abort();
 				mountedEditor?.destroy();
 				if (activeProvider === provider) activeProvider = null;
@@ -534,9 +585,14 @@
 			if (!provider) return;
 			if (!connected) {
 				offlineProviders.add(provider);
-				collaborationState = 'degraded';
-				collaborationFailure =
-					'You are offline. Unsynced live changes remain in this tab and will retry when the connection returns.';
+				/* An open body stays writable offline; one that never opened shows the saved version. */
+				if (editorState.editor && collaborationState === 'synced') {
+					collaborationState = 'reconnecting';
+				} else if (collaborationState !== 'reconnecting' || !editorState.editor) {
+					collaborationState = 'degraded';
+					collaborationFailure =
+						'You are offline. The last saved version is shown until the connection returns.';
+				}
 				provider.disconnect();
 			} else if (offlineProviders.delete(provider)) {
 				collaborationState = 'reconnecting';
@@ -1047,9 +1103,11 @@
 			aria-live="polite"
 			title={saveProblem
 				? 'Recent edits are not being saved.'
-				: canWriteLive
-					? 'Edits and version history save automatically.'
-					: accessHint}
+				: writingOffline
+					? 'Your edits are kept on this device and sync when the connection returns.'
+					: canWriteLive
+						? 'Edits and version history save automatically.'
+						: accessHint}
 		>
 			{#if collaborationState === 'synced' && !saveProblem}
 				<Check size={14} strokeWidth={2} aria-hidden="true" />
@@ -1061,13 +1119,19 @@
 					? 'Adding image…'
 					: saveProblem
 						? 'Not saved'
-						: savingShown
-							? 'Saving…'
-							: titleDirty
-								? 'Unsaved title'
-								: canWriteLive
-									? 'Saved'
-									: readerLabel}</span
+						: writingOffline
+							? unsyncedChanges > 0
+								? 'Saved on this device, syncing'
+								: online
+									? 'Reconnecting'
+									: 'Offline'
+							: savingShown
+								? 'Saving…'
+								: titleDirty
+									? 'Unsaved title'
+									: canWriteLive
+										? 'Saved'
+										: readerLabel}</span
 			>
 		</div>
 		<div class="editor-actions">

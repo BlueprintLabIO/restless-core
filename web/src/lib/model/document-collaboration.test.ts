@@ -114,3 +114,36 @@ test('collaboration state tells initial connect, reconnect, degradation, and acc
 	assert.equal(move('read-only', 'socket-connecting'), 'reconnecting');
 	assert.equal(move('reconnecting', 'failed'), 'degraded');
 });
+
+test('edits kept on this device merge back once and never duplicate what the service holds', async () => {
+	const Y = await import('yjs');
+	const store = new Map<string, string>();
+	Object.assign(globalThis, {
+		localStorage: {
+			getItem: (key: string) => store.get(key) ?? null,
+			setItem: (key: string, value: string) => store.set(key, value),
+			removeItem: (key: string) => store.delete(key)
+		}
+	});
+	const { savePendingDocumentEdits, loadPendingDocumentEdits, clearPendingDocumentEdits } =
+		await import('./document-collaboration.ts');
+	const server = new Y.Doc();
+	server.getText('t').insert(0, 'Plan');
+	const tab = new Y.Doc();
+	Y.applyUpdate(tab, Y.encodeStateAsUpdate(server));
+	const acknowledged = Y.encodeStateVector(tab);
+	tab.getText('t').insert(4, ' for Q3');
+	savePendingDocumentEdits('c', 'd', 'a', Y.encodeStateAsUpdate(tab, acknowledged));
+	tab.destroy();
+
+	// A new tab opens on the service's copy, which never received the edit, then merges it twice.
+	const reopened = new Y.Doc();
+	Y.applyUpdate(reopened, Y.encodeStateAsUpdate(server));
+	const kept = loadPendingDocumentEdits('c', 'd', 'a');
+	assert.ok(kept);
+	Y.applyUpdate(reopened, kept);
+	Y.applyUpdate(reopened, kept);
+	assert.equal(reopened.getText('t').toString(), 'Plan for Q3');
+	clearPendingDocumentEdits('c', 'd', 'a');
+	assert.equal(loadPendingDocumentEdits('c', 'd', 'a'), null);
+});
