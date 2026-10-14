@@ -1714,6 +1714,40 @@ mod tests {
             "off keeps the app signed in and working"
         );
 
+        // Removing the app and adding it again starts it afresh rather than failing as a
+        // duplicate; the grant that ended before removal is not offered back.
+        let re_add = || {
+            connections::add(
+                &pool,
+                &authority,
+                &company,
+                serde_json::from_value(
+                    serde_json::json!({"kind": "remote", "name": "mail", "endpoint": first}),
+                )
+                .unwrap(),
+                "owner",
+            )
+        };
+        assert!(re_add().await.is_err(), "a live app of the same name refuses");
+        connections::disconnect(&pool, &authority, &root, &company, "mail", "owner")
+            .await
+            .unwrap();
+        let again = re_add().await.expect("a removed app can be added again");
+        assert_eq!(again.status, "awaiting_probe");
+        assert_eq!(again.endpoint.as_deref(), Some(first.as_str()));
+        assert!(again.tools.is_empty());
+        assert!(connections::ended_grants(&pool, &company)
+            .await
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            connections::probe(&pool, &root, &company, "mail")
+                .await
+                .unwrap()
+                .status,
+            "working"
+        );
+
         connections::forget_upstream(&company, "mail").await;
         for table in ["connections", "records"] {
             sqlx::query(&format!(

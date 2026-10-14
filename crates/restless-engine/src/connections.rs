@@ -463,7 +463,15 @@ pub async fn add(
     let inserted = sqlx::query(
         "INSERT INTO restless_authority.connections \
          (company,name,kind,endpoint,command,args,env,auth,status,source,created_by) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT DO NOTHING",
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) \
+         ON CONFLICT (company,name) DO UPDATE SET kind=EXCLUDED.kind, \
+           endpoint=EXCLUDED.endpoint, command=EXCLUDED.command, args=EXCLUDED.args, \
+           env=EXCLUDED.env, auth=EXCLUDED.auth, status=EXCLUDED.status, frozen=FALSE, \
+           browser=FALSE, account=NULL, server_name=NULL, server_version=NULL, \
+           tools='[]'::jsonb, failure=NULL, source=EXCLUDED.source, \
+           revision=gen_random_uuid(), last_probe_at=NULL, created_by=EXCLUDED.created_by, \
+           created_at=now(), updated_at=now() \
+         WHERE restless_authority.connections.status='disconnected'",
     )
     .bind(company)
     .bind(&name)
@@ -480,6 +488,8 @@ pub async fn add(
     .await
     .context("record connection")?
     .rows_affected();
+    // A removed app keeps its row as `disconnected` (its grants stay revoked for the record);
+    // adding it again starts it afresh. Only a live connection of the same name refuses.
     if inserted != 1 {
         bail!("connection {name:?} already exists");
     }
@@ -922,8 +932,10 @@ pub async fn ended_grants(
     let rows = sqlx::query(
         "SELECT DISTINCT ON (connection) connection, revision, grantee, tools, granted_by, \
            granted_at, expires_at, COALESCE(revoked_at, expires_at) AS ended_at \
-         FROM restless_authority.connection_grants \
+         FROM restless_authority.connection_grants g \
          WHERE company=$1 AND grantee='*' \
+           AND granted_at >= (SELECT c.created_at FROM restless_authority.connections c \
+                              WHERE c.company=g.company AND c.name=g.connection) \
            AND (revoked_at IS NOT NULL OR (expires_at IS NOT NULL AND expires_at <= now())) \
          ORDER BY connection, COALESCE(revoked_at, expires_at) DESC",
     )
