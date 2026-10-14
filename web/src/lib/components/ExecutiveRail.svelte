@@ -1327,14 +1327,15 @@
 					<div class="exr-who topic-switch">
 						<ActionMenu label="Switch conversation">
 							{#snippet trigger()}<span class="topic-face"
-									>{#if participantId === 'exec'}<SemanticMark
+									>{#if wide}{:else if participantId === 'exec'}<SemanticMark
 											meaning="executive"
 											size="small"
 										/>{:else}<span class="exr-initials" aria-hidden="true"
 											>{initials(participantName)}</span
 										>{/if}<span class="topic-text"
-										><strong class="exr-name">{participantName}</strong>{#if topicLabel}<span
-												class="topic-label">{topicLabel}</span
+										>{#if !wide}<strong class="exr-name">{participantName}</strong
+											>{/if}{#if topicLabel || wide}<span class="topic-label"
+												>{topicLabel || 'Conversation'}</span
 											>{/if}</span
 									>{#if anyTopicNew}<i
 											class="topic-new"
@@ -1356,13 +1357,13 @@
 					</div>
 				{:else}
 					<div class="exr-who">
-						{#if review || workContext || participantId === 'exec'}<SemanticMark
+						{#if wide && !review && !workContext}{:else if review || workContext || participantId === 'exec'}<SemanticMark
 								meaning={review || workContext ? 'work' : 'executive'}
 								size="small"
 							/>{:else}<span class="exr-initials" aria-hidden="true"
 								>{initials(participantName)}</span
 							>{/if}
-						<strong class="exr-name">{participantName}</strong>
+						{#if !wide}<strong class="exr-name">{participantName}</strong>{/if}
 					</div>
 				{/if}
 				<div class="exr-tools">

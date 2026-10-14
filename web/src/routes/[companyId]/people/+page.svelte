@@ -6,7 +6,13 @@
 		type DirectoryFilter,
 		type StatusWord
 	} from '$lib/model/people-directory';
-	import { listArchivedAgents, type ArchivedAgent } from '$lib/model/agent-staffing';
+	import {
+		archiveAgent,
+		listArchivedAgents,
+		rehireAgent,
+		type ArchivedAgent
+	} from '$lib/model/agent-staffing';
+	import PersonHeader from '$lib/components/PersonHeader.svelte';
 	import WorkDetail from '$lib/components/WorkDetail.svelte';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { setTeamOwner as recordTeamOwner, disbandTeam } from '$lib/model/company-actions';
@@ -475,7 +481,75 @@
 	}
 	/* The Exec hires, briefs, pauses and retires Staff; People hands it a draft to finish. */
 	let profileId = $state('');
-	function askAbout(ask: StaffAsk, person: DirectoryPerson) {
+	/* The person whose page is open (S88-03): the selected agent or colleague, a direct chat's
+	 * other person, or an archived agent. A group chat has no person. */
+	const headerPerson = $derived.by(() => {
+		if (roomId && selectedRoom?.kind !== 'direct') return null;
+		const id = roomId ? selectedDirectActorId : personId;
+		if (!id) return null;
+		const live = everyone.find((candidate) => candidate.actor_id === id);
+		if (live) return { ...live, archived: false, reason: '' };
+		const gone = archivedAgents.find((agent) => agent.actor_id === id);
+		return gone
+			? {
+					actor_id: gone.actor_id,
+					display: gone.display,
+					role: gone.role,
+					kind: gone.kind,
+					team_id: gone.team_id,
+					archived: true,
+					reason: gone.retirement_reason
+				}
+			: null;
+	});
+	const headerTeam = $derived(
+		headerPerson
+			? (teams.find((team) => team.id === headerPerson.team_id) ??
+					teams.find((team) => team.lead_actor_id === headerPerson.actor_id) ??
+					null)
+			: null
+	);
+	let staffingBusy = $state(false);
+	async function archive(person: { actor_id: string; display: string }) {
+		const name = personName(person.display);
+		const yes = await confirmAction({
+			title: `Archive ${name}?`,
+			body: 'They stop working and leave their team. Their chat and Work stay in history, and you can re-hire them.',
+			action: 'Archive',
+			danger: true
+		});
+		if (!yes) return;
+		staffingBusy = true;
+		try {
+			await archiveAgent(companyId, person.actor_id);
+			await cockpit.refresh();
+			archivedVersion += 1;
+			toast(`${name} archived`);
+		} catch (cause) {
+			/* OrgIntel says why not (a lead, open Work, a judgement owed), as written. */
+			toast(failureSentence(cause, `${name} was not archived. Try again.`), { tone: 'failure' });
+		} finally {
+			staffingBusy = false;
+		}
+	}
+	async function rehire(person: { actor_id: string; display: string }) {
+		const name = personName(person.display);
+		staffingBusy = true;
+		try {
+			await rehireAgent(companyId, person.actor_id);
+			archivedAgents = archivedAgents.filter((agent) => agent.actor_id !== person.actor_id);
+			await cockpit.refresh();
+			toast(`${name} re-hired`);
+		} catch (cause) {
+			toast(failureSentence(cause, `${name} was not re-hired. Try again.`), { tone: 'failure' });
+		} finally {
+			staffingBusy = false;
+		}
+	}
+	function askAbout(
+		ask: StaffAsk,
+		person: { display: string; role: string; team_id: string | null }
+	) {
 		const team = teams.find((candidate) => candidate.id === person.team_id);
 		profileId = '';
 		askExec(
@@ -700,8 +774,16 @@
 	);
 	/* Archived agents keep their history; their page offers Re-hire (S88-01, S88-03). */
 	let archivedAgents = $state<ArchivedAgent[]>([]);
+	const openArchived = $derived(
+		!!personId &&
+			!roomId &&
+			cockpit.status === 'live' &&
+			!everyone.some((p) => p.actor_id === personId)
+	);
+	let archivedVersion = $state(0);
 	$effect(() => {
-		if (!owner || filter !== 'archived') return;
+		void archivedVersion;
+		if (!owner || (filter !== 'archived' && !openArchived)) return;
 		let live = true;
 		void listArchivedAgents(companyId).then((agents) => {
 			if (live) archivedAgents = agents;
@@ -1390,7 +1472,69 @@
 	</aside>
 	<section class="conversation-main" aria-label="Selected conversation">
 		<a class="back" href={indexHref()}><ArrowLeft size={16} /> People</a>
-		{#if wide.actor && wide.actor === personId && !roomId}
+		{#if headerPerson}
+			{@const person = headerPerson}
+			{@const membership = person.kind === 'human' ? membershipFor(person.actor_id) : null}
+			<PersonHeader
+				{companyId}
+				actorId={person.actor_id}
+				name={personName(person.display)}
+				kind={person.kind}
+				role={person.kind === 'exec' ? 'Runs the company' : person.role}
+				team={headerTeam ? teamName(headerTeam.name, companyId) : ''}
+				ownedBy={headerTeam
+					? teamOwnerId(headerTeam)
+						? teamOwnerName(teamOwnerId(headerTeam) ?? '')
+						: owner
+							? 'you'
+							: ''
+					: ''}
+				access={membership
+					? membership.role.charAt(0).toUpperCase() + membership.role.slice(1)
+					: ''}
+				archived={person.archived}
+			>
+				{#snippet menu()}
+					{#if person.archived}
+						{#if owner}<button
+								type="button"
+								disabled={staffingBusy}
+								onclick={() => void rehire(person)}>Re-hire</button
+							>{/if}
+					{:else}
+						<button type="button" onclick={() => (profileId = person.actor_id)}>Profile</button>
+						{#if owner && person.kind !== 'human'}
+							<a href={`/${encodeURIComponent(companyId)}/company/provider`}>Change model</a>
+						{/if}
+						{#if owner && person.kind === 'staff'}
+							<button type="button" onclick={() => askAbout('move', person)}>Move team…</button>
+							<button type="button" onclick={() => askAbout('rebrief', person)}
+								>Ask Exec to re-brief…</button
+							>
+							<button type="button" disabled={staffingBusy} onclick={() => void archive(person)}
+								>Archive…</button
+							>
+						{/if}
+					{/if}
+				{/snippet}
+			</PersonHeader>
+		{/if}
+		{#if headerPerson?.archived}
+			<div class="archived-page">
+				<p>
+					{personName(headerPerson.display)} is archived{headerPerson.reason
+						? `: ${headerPerson.reason}`
+						: '.'}
+					Their chat and Work stay in history. Re-hire them to talk to them again.
+				</p>
+				{#if owner}<button
+						type="button"
+						class="btn small"
+						disabled={staffingBusy}
+						onclick={() => headerPerson && void rehire(headerPerson)}>Re-hire</button
+					>{/if}
+			</div>
+		{:else if wide.actor && wide.actor === personId && !roomId}
 			{@render wide.render()(true)}
 		{:else if personId === 'exec' && !roomId}
 			<!-- Exec's chat is the rail itself, widened into this pane a moment after it mounts; a
@@ -1987,6 +2131,17 @@
 	}
 	.back {
 		display: none;
+	}
+	.archived-page {
+		display: grid;
+		justify-items: start;
+		gap: 12px;
+		padding: 24px 16px;
+		color: var(--text-secondary);
+	}
+	.archived-page p {
+		max-width: 56ch;
+		margin: 0;
 	}
 	.conversation-workspace.with-work {
 		grid-template-columns:

@@ -22,7 +22,7 @@ export function workDraftFrom(author: string, text: string): string {
 }
 
 /** What the owner can ask the Exec to do about someone on the team. */
-export type StaffAsk = 'rebrief' | 'pause' | 'retire' | 'hire-like';
+export type StaffAsk = 'rebrief' | 'pause' | 'retire' | 'hire-like' | 'move';
 
 /** A draft for the Exec about one person: the Exec hires, briefs, pauses and retires Staff, so
  * People starts the conversation rather than a form. The owner finishes the sentence. */
@@ -39,6 +39,8 @@ export function staffDraft(
 			return `Pause ${who} until I say otherwise, and tell me what that leaves waiting. Why: `;
 		case 'retire':
 			return `Retire ${who}. Hand their open Work to someone suitable first. Why: `;
+		case 'move':
+			return `Move ${who} to another team. Which team, and why: `;
 		case 'hire-like':
 			return `Add someone like ${who}${team ? ` to ${team}` : ''}. What they should own: `;
 	}
