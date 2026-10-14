@@ -1,10 +1,6 @@
 type FollowChatOptions = {
 	key: string;
 	enabled?: boolean;
-	/** Remembers where the reader left this transcript for the session, so
-	 * coming back to it does not jump to the end of a conversation they were
-	 * reading further up. */
-	memory?: string;
 	/** Told whether the transcript is following its end, to offer a way back. */
 	onfollow?: (following: boolean) => void;
 };
@@ -14,33 +10,14 @@ function optionsFor(value: FollowChatParameter): FollowChatOptions & { enabled: 
 	return typeof value === 'string' ? { key: value, enabled: true } : { enabled: true, ...value };
 }
 
-const MEMORY = 'restless:chat-scroll';
-function readMemory(key: string): number | null {
-	try {
-		const stored = JSON.parse(sessionStorage.getItem(MEMORY) ?? '{}')[key];
-		return typeof stored === 'number' ? stored : null;
-	} catch {
-		return null;
-	}
-}
-function writeMemory(key: string, top: number | null) {
-	try {
-		const stored = JSON.parse(sessionStorage.getItem(MEMORY) ?? '{}');
-		if (top === null) delete stored[key];
-		else stored[key] = top;
-		sessionStorage.setItem(MEMORY, JSON.stringify(stored));
-	} catch {
-		/* Remembering a position is a convenience. */
-	}
-}
-
 /* Space above a sent message once it has risen to the top of the transcript. */
 const ANCHOR_GAP = 16;
 /* The reader's own messages; a host whose markup differs names its own in the anchor event's
  * `detail.selector`. */
 const OWNER_MESSAGE = '[data-message-sender="owner"]';
 
-/** Follow a growing transcript until the reader scrolls away from its end.
+/** Follow a growing transcript until the reader scrolls away from its end. A transcript always
+ * opens at its latest message (S85-03); it does not return to where the reader left it.
  * Dispatch `chat-scroll-end` on the node to return to the end and follow again.
  * Dispatch `chat-scroll-anchor` after the reader sends: their newest message rises to the top of
  * the transcript and the reply grows into the room beneath it, as in Claude and ChatGPT. Once the
@@ -51,7 +28,6 @@ export function followChat(node: HTMLElement, parameter: FollowChatParameter) {
 	let following = enabled;
 	let lastTop = node.scrollTop;
 	let frame = 0;
-	let saveTimer = 0;
 	/* The sent message being held at the top, and the room kept beneath the transcript for its
 	 * reply (`--chat-anchor-room`, laid out by the host as trailing space). */
 	let anchoring = false;
@@ -85,10 +61,6 @@ export function followChat(node: HTMLElement, parameter: FollowChatParameter) {
 		following = next;
 		options.onfollow?.(next);
 	}
-	/* Returning to a transcript left mid-way restores that place once its
-	 * content is tall enough to hold it. */
-	let restoreTo = options.memory ? readMemory(options.memory) : null;
-	if (restoreTo !== null) setFollowing(false);
 	function schedule() {
 		if (!enabled || frame) return;
 		frame = requestAnimationFrame(() => {
@@ -99,22 +71,10 @@ export function followChat(node: HTMLElement, parameter: FollowChatParameter) {
 					anchoring = false;
 					if (following) node.scrollTop = node.scrollHeight;
 				}
-			} else if (restoreTo !== null && node.scrollHeight - node.clientHeight >= restoreTo) {
-				node.scrollTop = restoreTo;
-				restoreTo = null;
 			} else if (enabled && following) node.scrollTop = node.scrollHeight;
 			lastTop = node.scrollTop;
 			layout = [node.scrollHeight, node.clientHeight, node.clientWidth];
 		});
-	}
-	function remember() {
-		if (!options.memory) return;
-		window.clearTimeout(saveTimer);
-		const memory = options.memory;
-		saveTimer = window.setTimeout(
-			() => writeMemory(memory, following ? null : node.scrollTop),
-			200
-		);
 	}
 	function onScroll() {
 		if (!enabled) return;
@@ -132,11 +92,9 @@ export function followChat(node: HTMLElement, parameter: FollowChatParameter) {
 			setFollowing(false);
 		} else if (atEnd()) setFollowing(true);
 		lastTop = node.scrollTop;
-		if (restoreTo === null) remember();
 	}
 	function onWheel(event: WheelEvent) {
 		if (event.deltaY < 0) {
-			restoreTo = null;
 			anchoring = false;
 			setFollowing(false);
 		}
@@ -149,20 +107,16 @@ export function followChat(node: HTMLElement, parameter: FollowChatParameter) {
 		if (!enabled) return;
 		const selector = (event as CustomEvent<{ selector?: string } | null>).detail?.selector;
 		anchorSelector = selector || OWNER_MESSAGE;
-		restoreTo = null;
 		anchoring = true;
 		setRoom(0);
 		setFollowing(true);
-		if (options.memory) writeMemory(options.memory, null);
 		schedule();
 	}
 	function toEnd() {
-		restoreTo = null;
 		anchoring = false;
 		setFollowing(true);
 		const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 		node.scrollTo({ top: node.scrollHeight, behavior: reduce ? 'auto' : 'smooth' });
-		if (options.memory) writeMemory(options.memory, null);
 	}
 	const sizes = new ResizeObserver(schedule);
 	function observeChildren() {
@@ -185,19 +139,14 @@ export function followChat(node: HTMLElement, parameter: FollowChatParameter) {
 	return {
 		update(next: FollowChatParameter) {
 			const nextOptions = optionsFor(next);
-			const sameTranscript = nextOptions.memory === options.memory;
-			const changed =
-				nextOptions.key !== resetKey || nextOptions.enabled !== enabled || !sameTranscript;
+			const changed = nextOptions.key !== resetKey || nextOptions.enabled !== enabled;
 			options = nextOptions;
 			if (changed) {
 				resetKey = nextOptions.key;
 				enabled = nextOptions.enabled;
-				/* A new key on the same transcript is a reset (the reader sent a
-				 * message): follow the end again. Another transcript restores
-				 * wherever the reader left it. */
-				if (sameTranscript && options.memory) writeMemory(options.memory, null);
-				restoreTo = !sameTranscript && options.memory ? readMemory(options.memory) : null;
-				setFollowing(enabled && restoreTo === null);
+				/* A new key is another transcript or a reset (the reader sent a message): follow
+				 * the end again. */
+				setFollowing(enabled);
 				if (enabled) schedule();
 				else if (frame) {
 					cancelAnimationFrame(frame);
@@ -207,7 +156,6 @@ export function followChat(node: HTMLElement, parameter: FollowChatParameter) {
 		},
 		destroy() {
 			cancelAnimationFrame(frame);
-			window.clearTimeout(saveTimer);
 			changes.disconnect();
 			sizes.disconnect();
 			node.removeEventListener('scroll', onScroll);

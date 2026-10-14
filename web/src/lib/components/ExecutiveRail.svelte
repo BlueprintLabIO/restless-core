@@ -1497,8 +1497,7 @@
 					class="exr-msgs"
 					bind:this={scrollEl}
 					use:followChat={{
-						key: `${companyId}:${participantId}:${scrollReset}`,
-						memory: `rail:${companyId}:${participantId}:${currentTopicKey}`,
+						key: `${companyId}:${participantId}:${currentTopicKey}:${scrollReset}`,
 						onfollow: (following) => {
 							awayFrom = following ? null : messages.length;
 						}

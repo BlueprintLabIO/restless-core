@@ -1564,7 +1564,6 @@
 				use:followChat={{
 					key: selectedRoomId,
 					enabled: !hasMessageSearch && !focusedMessageId,
-					memory: `room:${companyId}:${selectedRoomId}`,
 					onfollow: (following) => {
 						awayFrom = following ? null : visibleRoots.length;
 					}
