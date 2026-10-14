@@ -75,6 +75,7 @@ const roster = [
 	['studio-direction', 'Lead designer', 'Elif'],
 	['studio-design', 'Visual designer', 'Emeka'],
 	['site-critic', 'Independent reviewer', 'Esra'],
+	['copy-editor', 'Copy editor', 'auto'],
 ];
 const people = (await daemon({ cmd: 'people' })).actors ?? (await daemon({ cmd: 'people' }));
 const existing = new Set((Array.isArray(people) ? people : []).map((actor) => actor.id ?? actor.actor_id));
@@ -83,6 +84,10 @@ for (const [id, role, display] of roster) {
 		await tryDaemon({ cmd: 'actor-create', as_actor: id, role, name: display, actor: 'exec', reason: 'Reno-scale seed' });
 }
 const teams = (await daemon({ cmd: 'teams' })).teams;
+// The copy editor is on the team and idle: no Work, nothing owed.
+const reno = teams.find((team) => team.name === 'Reno Studio');
+if (reno && !(reno.members ?? []).some((member) => member.actor_id === 'copy-editor'))
+	await tryDaemon({ cmd: 'team-assign', as_actor: 'copy-editor', name: 'Reno Studio', actor: 'exec', reason: 'Reno-scale seed' });
 if (!teams.some((team) => team.name === 'Reno Studio')) {
 	await tryDaemon({
 		cmd: 'team-create',
@@ -171,25 +176,52 @@ if (seeded[0].n === 0) {
 	}
 }
 
-// Revisions and a stopped piece of Work, so the Library has something to retire (S85-12): each
-// client's site version N revises version N-1 (the edge runs from the newer Work to the older), and
-// one early landing page was stopped with its files still recorded.
-const { rows: revising } = await db.query("SELECT count(*)::int AS n FROM work_edges WHERE kind = 'revises'");
-if (revising[0].n === 0) {
-	const { rows: sites } = await db.query(
-		"SELECT id, title FROM work WHERE title ~ ' concept website, version [0-9]+:'"
+// Reviews, newer versions and a stopped piece of Work, the way the engine records them:
+// - an independent check is its own Work that reviews a producer's Work: a `revises` edge from the
+//   reviewer to the producer, paired with a `requires` edge from the producer to the reviewer;
+// - its verdict is its latest attempt: `produced` (accepted) or `changes_requested`;
+// - a newer version is separate Work; the older version's outputs are marked superseded;
+// - one early landing page was stopped with its files still recorded.
+// Earlier seeds linked versions to each other with `revises`, which the engine never does; those
+// edges are removed.
+await db.query(
+	`DELETE FROM work_edges e USING work a, work b
+	 WHERE e.kind = 'revises' AND a.id = e.from_work_id AND b.id = e.to_work_id
+	   AND a.title ~ ' concept website, version [0-9]+:' AND b.title ~ ' concept website, version [0-9]+:'`
+);
+const { rows: reviewed } = await db.query(
+	"SELECT count(*)::int AS n FROM work_edges e JOIN work r ON r.id = e.from_work_id WHERE e.kind = 'revises' AND r.title LIKE 'Independent check of %'"
+);
+if (reviewed[0].n === 0) {
+	const { rows: rows } = await db.query("SELECT id, title, owner_id FROM work WHERE title ~ 'concept website'");
+	const sites = new Map();
+	for (const row of rows) {
+		const site = row.title.match(/^(.*) concept website, version (\d+):/);
+		if (site) sites.set(`${site[1]}|${site[2]}`, row);
+	}
+	let index = 0;
+	for (const row of rows) {
+		const check = row.title.match(/^Independent check of the (.*) concept website \(version (\d+)\)/);
+		if (!check) continue;
+		// The check reviews the version before it in the same client's run, or that version itself.
+		const producer = sites.get(`${check[1]}|${check[2]}`) ?? sites.get(`${check[1]}|${Number(check[2]) - 1}`);
+		if (!producer) continue;
+		await db.query("INSERT INTO work_edges (from_work_id, to_work_id, kind) VALUES ($1, $2, 'revises')", [row.id, producer.id]);
+		await db.query("INSERT INTO work_edges (from_work_id, to_work_id, kind) VALUES ($1, $2, 'requires') ON CONFLICT DO NOTHING", [producer.id, row.id]);
+		const verdict = index++ === 0 ? 'changes_requested' : 'produced';
+		await db.query(
+			`INSERT INTO work_attempts (id, work_id, revision, attempt_no, actor_id, session_id, state, trigger, input_fingerprint, summary)
+			 VALUES ($1, $2, 1, 1, $3, $4, $5, 'seed', $6, $7)`,
+			[randomUUID(), row.id, row.owner_id, `seed-${randomUUID().slice(0, 8)}`, verdict, createHash('sha256').update(row.id).digest('hex'),
+				verdict === 'produced' ? 'Accepted: the page meets the brief at phone and desktop width.' : 'Changes requested: the hero image is squeezed on phones.']
+		);
+	}
+	// Older versions' outputs are superseded by the newest version of each client's site.
+	await db.query(
+		`UPDATE artifact_refs a SET state = 'superseded', superseded_at = now()
+		 FROM work w WHERE a.work_id = w.id AND w.title ~ ' concept website, version [12]:'
+		   AND a.state = 'available'`
 	);
-	const byClient = new Map();
-	for (const site of sites) {
-		const [, client, version] = site.title.match(/^(.*) concept website, version (\d+):/);
-		byClient.set(`${client}|${version}`, site.id);
-	}
-	for (const [key, id] of byClient) {
-		const [client, version] = key.split('|');
-		const older = byClient.get(`${client}|${Number(version) - 1}`);
-		if (older)
-			await db.query("INSERT INTO work_edges (from_work_id, to_work_id, kind) VALUES ($1, $2, 'revises')", [id, older]);
-	}
 }
 const { rows: stopped } = await db.query("SELECT count(*)::int AS n FROM work WHERE status = 'abandoned'");
 if (stopped[0].n === 0) {

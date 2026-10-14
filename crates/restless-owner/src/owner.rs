@@ -5925,9 +5925,44 @@ async fn staffing_change(
             Json(serde_json::json!({"archived": archive, "team_id": team})).into_response()
         }
         Err(restless_orgintel::OrgIntelError::InvalidWork(message)) => {
-            api_error(StatusCode::CONFLICT, "staffing", sentence(&message))
+            api_error(StatusCode::CONFLICT, "staffing", staffing_refusal(&message, &name, archive))
         }
         Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "staffing", format!("{error:#}")),
+    }
+}
+
+/// OrgIntel's refusal in the owner's words: the agent by name, and "archiving", never "retiring
+/// the actor". Anything unrecognised is still returned as a sentence.
+fn staffing_refusal(message: &str, name: &str, archive: bool) -> String {
+    let lower = message.to_ascii_lowercase();
+    if archive && lower.contains("open work") {
+        format!("Reassign or close {name}'s open Work before archiving them.")
+    } else if archive && lower.contains("lead") {
+        format!("{name} leads a team. Appoint another lead, or disband the team, before archiving them.")
+    } else if archive && lower.contains("judgement") {
+        format!("Answer or pass on {name}'s pending judgement before archiving them.")
+    } else if archive && lower.contains("standing company") {
+        format!("{name} can't be archived.")
+    } else if !archive && lower.contains("is not retired") {
+        format!("{name} is already on the team.")
+    } else {
+        sentence(message)
+    }
+}
+
+#[cfg(test)]
+mod staffing_refusal_tests {
+    use super::staffing_refusal;
+
+    #[test]
+    fn archive_refusals_name_the_agent_and_the_action() {
+        assert_eq!(
+            staffing_refusal("reassign or close the actor's open Work before retiring it", "Arlo", true),
+            "Reassign or close Arlo's open Work before archiving them."
+        );
+        assert!(staffing_refusal("appoint another lead or disband the team before retiring its lead", "Elif", true)
+            .starts_with("Elif leads a team."));
+        assert_eq!(staffing_refusal("copy-editor is not retired", "Blair", false), "Blair is already on the team.");
     }
 }
 
