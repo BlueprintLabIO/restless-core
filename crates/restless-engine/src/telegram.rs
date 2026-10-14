@@ -47,6 +47,13 @@ pub async fn ensure_schema(pool: &PgPool) -> Result<()> {
     .await
     .context("create telegram links")?;
     sqlx::query(
+        "ALTER TABLE restless_authority.telegram_links \
+         ADD COLUMN IF NOT EXISTS decisions_only BOOLEAN NOT NULL DEFAULT FALSE",
+    )
+    .execute(pool)
+    .await
+    .context("add telegram decisions_only")?;
+    sqlx::query(
         "CREATE TABLE IF NOT EXISTS restless_authority.telegram_deliveries (\
            id UUID PRIMARY KEY, \
            company TEXT NOT NULL REFERENCES restless_authority.telegram_links(company) ON DELETE CASCADE, \
@@ -242,10 +249,12 @@ pub struct Link {
     #[serde(skip)]
     pub chat_id: Option<i64>,
     pub paired_at: Option<DateTime<Utc>>,
+    /// Send only what can be decided in the chat (approvals and mandate proposals).
+    pub decisions_only: bool,
 }
 
 const LINK_COLUMNS: &str = "company,token_reference,bot_username,cockpit_origin,started_by,\
-     pairing_code,code_expires_at,chat_id,paired_at";
+     pairing_code,code_expires_at,chat_id,paired_at,decisions_only";
 
 fn link_from(row: &sqlx::postgres::PgRow) -> Link {
     Link {
@@ -258,6 +267,7 @@ fn link_from(row: &sqlx::postgres::PgRow) -> Link {
         code_expires_at: row.get("code_expires_at"),
         chat_id: row.get("chat_id"),
         paired_at: row.get("paired_at"),
+        decisions_only: row.get("decisions_only"),
     }
 }
 
@@ -332,6 +342,24 @@ pub async fn links(pool: &PgPool) -> Result<Vec<Link>> {
     .iter()
     .map(link_from)
     .collect())
+}
+
+/// Choose whether the chat receives every Attention item or only those it can decide.
+pub async fn set_decisions_only(
+    pool: &PgPool,
+    company: &str,
+    decisions_only: bool,
+) -> Result<Option<Link>> {
+    Ok(sqlx::query(&format!(
+        "UPDATE restless_authority.telegram_links SET decisions_only=$2 \
+         WHERE company=$1 RETURNING {LINK_COLUMNS}"
+    ))
+    .bind(company)
+    .bind(decisions_only)
+    .fetch_optional(pool)
+    .await?
+    .as_ref()
+    .map(link_from))
 }
 
 /// Forget the chat and every delivery; old buttons then answer nothing.

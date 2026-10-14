@@ -1666,6 +1666,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/companies/{company}/telegram",
             get(telegram_api::status)
                 .post(telegram_api::start)
+                .patch(telegram_api::preferences)
                 .delete(telegram_api::unpair),
         )
         .route("/companies/{company}/approvals/grant", post(grant))

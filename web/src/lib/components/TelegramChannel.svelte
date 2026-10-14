@@ -1,8 +1,9 @@
 <script lang="ts">
-	/* The owner's Telegram channel: store a bot token reference, pair one chat
-	 * with a one-time code, unpair. Only the Authority owner sees it; the API
+	/* The owner's Telegram channel: paste the bot's token (kept in the Vault) or a
+	 * reference to one, pair one chat with a one-time code, unpair. Only the Authority owner sees it; the API
 	 * refuses everyone else, and this section then stays hidden. */
-	import { Section, Row, Dot, Notice } from '$lib/ui/page';
+	import { Section, Row, Dot, Notice, Toggle } from '$lib/ui/page';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { saveSetting, settingQuery } from '$lib/model/setting.svelte';
@@ -40,7 +41,20 @@
 	const stored = $derived(!!view?.paired || waiting);
 	const localLinks = $derived(stored ? !!view?.local_links : pageLocal);
 
-	async function act(method: 'POST' | 'DELETE', body?: unknown) {
+	/* Unpairing forgets the chat; pairing again needs a new code from the owner's phone. */
+	async function unpair() {
+		if (
+			await confirmAction({
+				title: `Unpair @${view?.link?.bot_username ?? 'the bot'}?`,
+				body: 'Telegram stops receiving Attention items, and its buttons stop answering. Pairing again needs a new code.',
+				action: 'Unpair',
+				danger: true
+			})
+		)
+			void act('DELETE');
+	}
+
+	async function act(method: 'POST' | 'PATCH' | 'DELETE', body?: unknown) {
 		busy = true;
 		actionError = '';
 		try {
@@ -54,9 +68,16 @@
 		}
 	}
 
+	/* A stored reference (after the first pairing, or typed by someone who keeps their own
+	 * secrets) is sent as one; anything else is the token BotFather gave, kept in the Vault. */
 	function pair(event: SubmitEvent) {
 		event.preventDefault();
-		void act('POST', { token_reference: reference.trim(), cockpit_origin: location.origin });
+		const value = reference.trim();
+		const isReference = /^(infisical|env):/.test(value);
+		void act('POST', {
+			...(isReference ? { token_reference: value } : { token: value }),
+			cockpit_origin: location.origin
+		});
 	}
 </script>
 
@@ -80,10 +101,19 @@
 			>
 				<div class="line">
 					<span>@{view.link.bot_username}</span>
-					<button class="btn small ghost" disabled={busy} onclick={() => act('DELETE')}
-						>Unpair</button
-					>
+					<button class="btn small ghost" disabled={busy} onclick={unpair}>Unpair</button>
 				</div>
+			</Row>
+			<Row
+				label="Only decisions"
+				info="Send only approvals and requests you can answer in the chat. Everything else still waits in the Inbox."
+			>
+				<Toggle
+					checked={!!view.link.decisions_only}
+					label="Send only decisions to Telegram"
+					disabled={busy}
+					onchange={(next) => act('PATCH', { decisions_only: next })}
+				/>
 			</Row>
 		{:else if waiting && view?.link && view.pair_url}
 			<Row
@@ -104,14 +134,19 @@
 			<form onsubmit={pair}>
 				<Row
 					label="Bot token"
-					info="Create a bot with BotFather, store its token in the Vault, then enter that secret's reference, such as infisical:/companies/{companyId}/telegram-bot or env:TELEGRAM_BOT_TOKEN."
+					info="In Telegram, open BotFather, send /newbot and follow its two questions. Paste the token it replies with here; it is kept in the company Vault. A Vault reference such as env:TELEGRAM_BOT_TOKEN works too."
 				>
 					<div class="line">
+						<a class="btn small ghost" href="https://t.me/BotFather" target="_blank" rel="noopener"
+							>Open BotFather</a
+						>
 						<input
 							class="wide"
 							bind:value={reference}
-							aria-label="Bot token reference"
-							placeholder="infisical:/companies/{companyId}/telegram-bot"
+							aria-label="Bot token"
+							placeholder="123456789:AA…"
+							autocomplete="off"
+							spellcheck="false"
 							required
 							disabled={busy}
 						/>

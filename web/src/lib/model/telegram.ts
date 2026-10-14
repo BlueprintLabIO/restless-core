@@ -7,6 +7,8 @@ export type TelegramLink = {
 	pairing_code: string | null;
 	code_expires_at: string | null;
 	paired_at: string | null;
+	/** Only what can be decided in the chat is sent. */
+	decisions_only?: boolean;
 };
 export type TelegramChannel = {
 	configured: boolean;
@@ -25,7 +27,7 @@ export const telegramKey = (company: string) => ['telegram', company] as const;
 
 export async function telegramRequest(
 	company: string,
-	method: 'GET' | 'POST' | 'DELETE',
+	method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
 	body?: unknown
 ): Promise<TelegramView> {
 	try {

@@ -12,7 +12,13 @@ const TOKEN_CACHE: Duration = Duration::from_secs(600);
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct PairInput {
-    token_reference: String,
+    /// An existing secret reference, such as `infisical:/...` or `env:...`.
+    #[serde(default)]
+    token_reference: Option<String>,
+    /// The bot token itself, as BotFather gives it. It is probed, kept in this company's
+    /// Vault, and only its reference is stored with the pairing.
+    #[serde(default)]
+    token: Option<String>,
     cockpit_origin: String,
 }
 
@@ -91,19 +97,52 @@ pub(super) async fn start(
     if let Err(refusal) = gate(&state, &company, &principal).await {
         return refusal;
     }
-    let reference = input.token_reference.trim();
+    let pasted = input
+        .token
+        .as_deref()
+        .map(str::trim)
+        .filter(|token| !token.is_empty());
+    let reference = match (pasted, input.token_reference.as_deref().map(str::trim)) {
+        (Some(_), _) => format!("infisical:/companies/{company}/telegram-bot"),
+        (None, Some(reference)) if !reference.is_empty() => reference.to_string(),
+        _ => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "telegram",
+                "Paste the bot token BotFather gave you.",
+            )
+        }
+    };
     let probed = async {
         telegram::validate_origin(&input.cockpit_origin)?;
-        let token = credential::resolve_reference(reference)
+        let token = match pasted {
+            Some(token) => token.to_string(),
+            None => credential::resolve_reference(&reference)
+                .await
+                .context("the token reference did not resolve")?,
+        };
+        telegram::Bot::new(&token)?
+            .username()
             .await
-            .context("the token reference did not resolve")?;
-        telegram::Bot::new(&token)?.username().await
+            .context("Telegram did not accept this bot token")
     }
     .await;
     let username = match probed {
         Ok(username) => username,
         Err(error) => return api_error(StatusCode::BAD_REQUEST, "telegram", format!("{error:#}")),
     };
+    // A pasted token goes to the company Vault only after Telegram accepted it, so a typo
+    // never overwrites a working token.
+    if let Some(token) = pasted {
+        if let Err(error) = credential::store_reference(&reference, token).await {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "telegram",
+                format!("The Vault could not keep the bot token: {error:#}"),
+            );
+        }
+    }
+    let reference = reference.as_str();
     match telegram::start_pairing(
         state.daemon.authority.pool(),
         &company,
@@ -116,6 +155,39 @@ pub(super) async fn start(
     {
         Ok(link) => Json(view(Some(link))).into_response(),
         Err(error) => api_error(StatusCode::BAD_REQUEST, "telegram", format!("{error:#}")),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct PreferencesInput {
+    decisions_only: bool,
+}
+
+/// What the paired chat receives: every Attention item, or only what it can decide.
+pub(super) async fn preferences(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<PreferencesInput>,
+) -> Response<Body> {
+    if let Err(refusal) = gate(&state, &company, &principal).await {
+        return refusal;
+    }
+    match telegram::set_decisions_only(state.daemon.authority.pool(), &company, input.decisions_only)
+        .await
+    {
+        Ok(Some(link)) => Json(view(Some(link))).into_response(),
+        Ok(None) => api_error(
+            StatusCode::NOT_FOUND,
+            "telegram",
+            "Telegram is not paired for this company.",
+        ),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "telegram",
+            format!("{error:#}"),
+        ),
     }
 }
 
@@ -259,7 +331,9 @@ async fn delivery_loop(state: OwnerState) {
                     )
                     .await?
                     {
-                        outgoing.push(message);
+                        if !link.decisions_only || message.binding.is_some() {
+                            outgoing.push(message);
+                        }
                     }
                 }
                 telegram::deliver(state.daemon.authority.pool(), &bot, &link, outgoing).await
