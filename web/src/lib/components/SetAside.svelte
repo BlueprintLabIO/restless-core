@@ -1,7 +1,10 @@
 <script lang="ts">
-	/* What the owner set aside as not needed: one quiet fold, out of the way, each item restorable.
-	 * The gateway drops items whose request has gone away, so what is listed can come back. */
+	/* What the owner set aside as not needed: one quiet fold, out of the way, each item restorable,
+	 * with who asked and when it was set aside. The gateway drops items whose request has gone
+	 * away, so what is listed can come back. A list that cannot be read says so. */
 	import { useQueryClient } from '@tanstack/svelte-query';
+	import RelativeTime from '$lib/ui/RelativeTime.svelte';
+	import { cockpitQuery } from '$lib/model/queries.svelte';
 	import { fetchSetAside, restoreAttention, type SetAside } from '$lib/model/attention';
 	import { failureSentence } from '$lib/model/failure';
 	import { refreshAttention } from '$lib/model/queries.svelte';
@@ -12,6 +15,20 @@
 	let restoring = $state('');
 	let message = $state('');
 	let stale = $state('');
+	let query = $state('');
+	const cockpit = cockpitQuery(() => companyId);
+	const asker = (entry: SetAside) =>
+		entry.responsible_actor
+			? (cockpit.view?.people.find((person) => person.actor_id === entry.responsible_actor)
+					?.display ?? entry.responsible_actor.replaceAll('-', ' '))
+			: '';
+	const shown = $derived(
+		query.trim()
+			? items.filter((entry) =>
+					`${entry.title} ${asker(entry)}`.toLowerCase().includes(query.trim().toLowerCase())
+				)
+			: items
+	);
 
 	/* The company whose items are listed; the fold is reused across a company switch. */
 	let listedFor = '';
@@ -30,8 +47,11 @@
 			stale = '';
 		} catch (cause) {
 			if (company !== companyId) return;
-			/* Keep what was listed; say it could not be refreshed only when there is a list. */
-			stale = items.length ? failureSentence(cause, 'Set aside could not be refreshed.') : '';
+			/* Keep what was listed, and say plainly that the list could not be read. */
+			stale = failureSentence(
+				cause,
+				items.length ? 'Set aside could not be refreshed.' : 'Set aside could not be read.'
+			);
 		}
 	}
 	$effect(() => {
@@ -56,15 +76,35 @@
 	}
 </script>
 
-{#if items.length || message}
+{#if items.length || message || stale}
 	<details class="set-aside">
 		<summary title="Items you marked not needed. Restore one to bring it back."
 			>Set aside{#if items.length}<span>{items.length}</span>{/if}</summary
 		>
-		{#if message || stale}<p class="set-aside-message" role="status">{message || stale}</p>{/if}
-		{#each items as entry (entry.item_id)}
+		{#if message || stale}<p class="set-aside-message" role="status">
+				{message || stale}
+				{#if stale && !message}<button
+						type="button"
+						class="btn small ghost"
+						onclick={() => void load()}>Retry</button
+					>{/if}
+			</p>{/if}
+		{#if items.length > 6}<input
+				class="set-aside-search"
+				type="search"
+				bind:value={query}
+				aria-label="Search set aside"
+				placeholder="Search"
+			/>{/if}
+		{#each shown as entry (entry.item_id)}
 			<div class="set-aside-row">
-				<span class="set-aside-title" title={entry.title}>{entry.title}</span>
+				<span class="set-aside-main">
+					<span class="set-aside-title" title={entry.title}>{entry.title}</span>
+					<span class="set-aside-meta"
+						>{#if asker(entry)}{asker(entry)} ·
+						{/if}set aside <RelativeTime value={entry.dismissed_at} /></span
+					>
+				</span>
 				<button
 					type="button"
 					class="btn small ghost"
@@ -111,11 +151,29 @@
 		max-width: 360px;
 		padding: 2px 4px 2px 8px;
 	}
-	.set-aside-title {
+	.set-aside-main {
+		display: grid;
 		flex: 1;
 		min-width: 0;
+	}
+	.set-aside-title {
+		min-width: 0;
+		overflow: hidden;
+		color: var(--text-secondary);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.set-aside-meta {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.set-aside-meta :global(time) {
+		color: inherit;
+	}
+	.set-aside-search {
+		width: calc(100% - 16px);
+		max-width: 344px;
+		margin: 2px 8px 4px;
 	}
 </style>
