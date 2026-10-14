@@ -706,6 +706,7 @@
 				{companyId}
 				actorId={principal.view?.actor_id ?? ''}
 				{people}
+				teams={teams.map((team) => ({ id: team.id, name: teamName(team.name, companyId) }))}
 				oncreated={created}
 				onperson={owner ? (id) => goto(href(id)) : undefined}
 				contactIds={contacts.map((p) => p.actor_id)}

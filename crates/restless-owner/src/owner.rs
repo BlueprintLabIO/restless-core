@@ -1097,6 +1097,10 @@ where
             post(archive_room),
         )
         .route(
+            "/companies/{company}/rooms/{room}/owner",
+            post(hand_over_room),
+        )
+        .route(
             "/companies/{company}/rooms/archived",
             get(list_archived_rooms),
         )
@@ -7752,6 +7756,32 @@ async fn rename_room(
     };
     match org.rename_room(principal.actor_id(), room, &input.title).await {
         Ok(room) => Json(room).into_response(),
+        Err(error) => room_error(error),
+    }
+}
+
+async fn hand_over_room(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath((company, room)): AxumPath<(String, Uuid)>,
+    Json(input): Json<RoomParticipantInput>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    if input.actor_id.len() > 256 {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "room",
+            "a participant Actor id may contain at most 256 bytes",
+        );
+    }
+    match org
+        .hand_over_room(principal.actor_id(), room, &input.actor_id)
+        .await
+    {
+        Ok(participant) => Json(participant).into_response(),
         Err(error) => room_error(error),
     }
 }

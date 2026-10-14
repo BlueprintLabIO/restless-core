@@ -14,15 +14,20 @@
 		removeRoomParticipant,
 		renameRoom,
 		restoreRoom,
+		handOverRoom,
 		type Room,
 		type RoomParticipant
 	} from '$lib/model/rooms';
 	import { roomQueryKeys } from '$lib/model/room-queries.svelte';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	type PickerPerson = { actor_id: string; display: string; team_id?: string | null; kind?: string };
 	let {
 		companyId,
 		actorId,
 		people,
+		teams = [],
 		room = null,
 		participants = [],
 		oncreated = () => {},
@@ -35,7 +40,9 @@
 	}: {
 		companyId: string;
 		actorId: string;
-		people: { actor_id: string; display: string }[];
+		people: PickerPerson[];
+		/** Teams to group the people picker by. */
+		teams?: { id: string; name: string }[];
 		room?: Room | null;
 		participants?: RoomParticipant[];
 		oncreated?: (room: Room) => void;
@@ -72,8 +79,8 @@
 	let confirmArchive = $state(false);
 	let confirmLeave = $state(false);
 	const initialParticipantSet = $derived(new Set(initialParticipants));
-	const availablePeople = $derived.by(() => {
-		const candidates = new Map(
+	const availablePeople = $derived.by((): PickerPerson[] => {
+		const candidates = new Map<string, PickerPerson>(
 			people
 				.filter((person) => person.actor_id !== actorId)
 				.map((person) => [person.actor_id, person])
@@ -85,9 +92,58 @@
 		}
 		return [...candidates.values()];
 	});
+	/* The picker narrows as you type and groups people the way People does: the Exec, each team,
+	 * colleagues, then anyone else, so an elastic Staff pool stays findable. */
+	let pickerQuery = $state('');
+	const pickerGroups = $derived.by(() => {
+		const query = pickerQuery.trim().toLocaleLowerCase();
+		const inTeam = (person: PickerPerson) => teams.some((team) => team.id === person.team_id);
+		const shown = availablePeople.filter(
+			(person) =>
+				!query ||
+				person.display.toLocaleLowerCase().includes(query) ||
+				(teams.find((team) => team.id === person.team_id)?.name ?? '')
+					.toLocaleLowerCase()
+					.includes(query)
+		);
+		const groups: { label: string; people: PickerPerson[] }[] = [];
+		const add = (label: string, members: PickerPerson[]) => {
+			if (members.length) groups.push({ label, people: members });
+		};
+		add(
+			'Executive',
+			shown.filter((person) => person.kind === 'exec')
+		);
+		for (const team of teams)
+			add(
+				team.name,
+				shown.filter((person) => person.kind !== 'exec' && person.team_id === team.id)
+			);
+		add(
+			'Colleagues',
+			shown.filter(
+				(person) => (person.kind === 'human' || person.kind === 'owner') && !inTeam(person)
+			)
+		);
+		add(
+			'Others',
+			shown.filter(
+				(person) =>
+					person.kind !== 'exec' &&
+					person.kind !== 'human' &&
+					person.kind !== 'owner' &&
+					!inTeam(person)
+			)
+		);
+		return groups;
+	});
 	function uniqueParticipantIds(ids: string[]): string[] {
 		const available = new Set(availablePeople.map((person) => person.actor_id));
 		return [...new Set(ids)].filter((id) => available.has(id));
+	}
+	function isPerson(actorId: string): boolean {
+		const kind = people.find((person) => person.actor_id === actorId)?.kind;
+		return kind === 'human' || kind === 'owner';
 	}
 	function displayFor(actorId: string): string {
 		return people.find((person) => person.actor_id === actorId)?.display ?? actorId;
@@ -102,20 +158,50 @@
 	function isCurrentScope(scope: string): boolean {
 		return scopeKey === scope;
 	}
-	/** Opens the dialog, as the trigger does; a row elsewhere ("New group chat") can call it. */
-	export function open() {
+	/** Opens the dialog, as the trigger does; a row elsewhere ("New group chat") can call it. The
+	 * room menu opens it at the step chosen: renaming, archiving or leaving. */
+	export function open(step: '' | 'rename' | 'archive' | 'leave' = '') {
 		if (busy || dialog.open) return;
 		failure = '';
 		if (!room) {
 			title = '';
+			pickerQuery = '';
 			selected = uniqueParticipantIds(initialParticipants);
 			context = initialContext;
 		} else {
 			renaming = room.title;
-			confirmArchive = false;
-			confirmLeave = false;
+			confirmArchive = step === 'archive';
+			confirmLeave = step === 'leave';
 		}
 		dialog.showModal();
+		if (step === 'rename') requestAnimationFrame(() => renameInput?.select());
+	}
+	let renameInput = $state<HTMLInputElement | null>(null);
+	/* Handing a group over keeps you in it as a member, so you may then leave. */
+	async function handOver(person: string) {
+		if (!room || busy) return;
+		const name = displayFor(person);
+		const yes = await confirmAction({
+			title: `Make ${name} the owner of ${room.title}?`,
+			body: `You stay in the group as a member. Only ${name} can then rename, archive or hand it back.`,
+			action: 'Make owner'
+		});
+		if (!yes) return;
+		const requestedCompanyId = companyId;
+		const requestedRoomId = room.id;
+		const requestedScope = scopeKey;
+		busyFor = requestedScope;
+		failure = '';
+		try {
+			await handOverRoom(requestedCompanyId, requestedRoomId, person);
+			await refreshRoomLists(requestedCompanyId, requestedRoomId);
+			toast(`${name} now owns the group.`);
+		} catch (error) {
+			if (isCurrentScope(requestedScope))
+				failure = failureSentence(error, 'The group was not handed over.');
+		} finally {
+			if (busyFor === requestedScope) busyFor = '';
+		}
 	}
 	/* Rename, leave and archive change the room for everyone in it, so the lists that show it
 	 * refresh at once; the room's own event stream refreshes everyone else's. */
@@ -291,18 +377,27 @@
 	}
 </script>
 
-<button
-	class="btn small room-manage-trigger"
-	type="button"
-	onclick={open}
-	title={label ?? (room ? 'Participants' : 'New conversation')}
-	aria-label={label ?? (room ? 'Participants' : 'New conversation')}
->
-	{#if room || initialParticipants.length}<Users size={15} aria-hidden="true" />{:else}<Plus
-			size={16}
-			aria-hidden="true"
-		/>{/if}<span>{label ?? (room ? 'Participants' : 'New conversation')}</span>
-</button>
+{#if room && room.kind === 'group' && !label}
+	<span class="room-menu">
+		<ActionMenu label="Conversation options">
+			{#if canManage}<button type="button" onclick={() => open('rename')}>Rename…</button>{/if}
+			<button type="button" onclick={() => open()}>Participants…</button>
+			{#if canManage}<button type="button" onclick={() => open('archive')}>Archive…</button>{/if}
+			{#if canLeave}<button type="button" onclick={() => open('leave')}>Leave…</button>{/if}
+		</ActionMenu>
+	</span>
+{:else}<button
+		class="btn small room-manage-trigger"
+		type="button"
+		onclick={() => open()}
+		title={label ?? (room ? 'Participants' : 'New conversation')}
+		aria-label={label ?? (room ? 'Participants' : 'New conversation')}
+	>
+		{#if room || initialParticipants.length}<Users size={15} aria-hidden="true" />{:else}<Plus
+				size={16}
+				aria-hidden="true"
+			/>{/if}<span>{label ?? (room ? 'Participants' : 'New conversation')}</span>
+	</button>{/if}
 <dialog
 	bind:this={dialog}
 	aria-labelledby={`${dialogId}-${room ? 'members' : 'create'}-title`}
@@ -329,6 +424,7 @@
 			>
 				<label
 					>Name<input
+						bind:this={renameInput}
 						bind:value={renaming}
 						maxlength={160}
 						autocomplete="off"
@@ -336,9 +432,8 @@
 						aria-label="Conversation name"
 					/></label
 				>
-				{#if renaming.trim() && renaming.trim() !== room.title}<button
-						type="submit"
-						disabled={busy}>Rename</button
+				{#if renaming.trim() && renaming.trim() !== room.title}<button type="submit" disabled={busy}
+						>Rename</button
 					>{/if}
 			</form>
 		{/if}
@@ -346,12 +441,20 @@
 			{#each active as member (member.actor_id)}
 				<div class="member">
 					<span>{displayFor(member.actor_id)}{member.actor_id === actorId ? ' (you)' : ''}</span>
-					{#if member.role === 'owner'}<span class="muted">Owner</span>{:else if canManage}<button
-							type="button"
-							disabled={busy}
-							onclick={() => membership(member.actor_id, false)}
-							aria-label={`Remove ${people.find((p) => p.actor_id === member.actor_id)?.display ?? member.actor_id}`}
-							>Remove</button
+					{#if member.role === 'owner'}<span class="muted">Owner</span>{:else if canManage}<span
+							class="member-actions"
+							>{#if room.kind === 'group' && isPerson(member.actor_id)}<button
+									type="button"
+									disabled={busy}
+									title="Hand the group to them; you stay as a member"
+									onclick={() => void handOver(member.actor_id)}>Make owner</button
+								>{/if}<button
+								type="button"
+								disabled={busy}
+								onclick={() => membership(member.actor_id, false)}
+								aria-label={`Remove ${people.find((p) => p.actor_id === member.actor_id)?.display ?? member.actor_id}`}
+								>Remove</button
+							></span
 						>{/if}
 				</div>
 			{/each}
@@ -382,11 +485,12 @@
 			<div class="room-exit">
 				{#if confirmLeave}
 					<span>Leave? Only its owner can add you back.</span>
-					<button type="button" disabled={busy} onclick={() => (confirmLeave = false)}
-						>Stay</button
-					>
-					<button type="button" class="danger" disabled={busy} onclick={() => void lifecycle('leave')}
-						>Leave</button
+					<button type="button" disabled={busy} onclick={() => (confirmLeave = false)}>Stay</button>
+					<button
+						type="button"
+						class="danger"
+						disabled={busy}
+						onclick={() => void lifecycle('leave')}>Leave</button
 					>
 				{:else}
 					<button
@@ -400,12 +504,18 @@
 		{:else if canManage && room.kind === 'group'}
 			<div class="room-exit">
 				{#if confirmArchive}
-					<span>Archive for everyone? You can restore it from Chats.</span>
+					<span
+						>Archive for everyone? You can restore it from Chats. To leave instead, make someone
+						else the owner.</span
+					>
 					<button type="button" disabled={busy} onclick={() => (confirmArchive = false)}
 						>Cancel</button
 					>
-					<button type="button" class="danger" disabled={busy} onclick={() => void lifecycle('archive')}
-						>Archive</button
+					<button
+						type="button"
+						class="danger"
+						disabled={busy}
+						onclick={() => void lifecycle('archive')}>Archive</button
 					>
 				{:else}
 					<button
@@ -431,16 +541,34 @@
 				/></label
 			>
 			<fieldset disabled={busy}>
-				<legend>Members</legend>
+				<legend
+					>Members{#if selected.length}<span class="muted">{` · ${selected.length} chosen`}</span
+						>{/if}</legend
+				>
+				{#if availablePeople.length > 6}<input
+						class="picker-filter"
+						type="search"
+						placeholder="Find people or a team"
+						aria-label="Find people or a team"
+						autocomplete="off"
+						bind:value={pickerQuery}
+					/>{/if}
 				<div class="member-list">
-					{#each availablePeople as person}<label class="choice"
-							><input
-								type="checkbox"
-								disabled={initialParticipantSet.has(person.actor_id)}
-								bind:group={selected}
-								value={person.actor_id}
-							/>{person.display}</label
-						>{/each}
+					{#each pickerGroups as group (group.label)}
+						<div class="picker-group" role="group" aria-label={group.label}>
+							{#if pickerGroups.length > 1}<p class="picker-head">{group.label}</p>{/if}
+							{#each group.people as person (person.actor_id)}<label class="choice"
+									><input
+										type="checkbox"
+										disabled={initialParticipantSet.has(person.actor_id)}
+										bind:group={selected}
+										value={person.actor_id}
+									/>{person.display}</label
+								>{/each}
+						</div>
+					{:else}
+						<p class="muted">Nobody matches.</p>
+					{/each}
 				</div>
 			</fieldset>
 			{#if initialParticipants.length}<label
@@ -550,6 +678,19 @@
 	.member-list {
 		max-height: 260px;
 		overflow: auto;
+	}
+	.picker-filter {
+		margin-bottom: 8px;
+	}
+	.picker-head {
+		margin: 8px 0 2px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		font-weight: 600;
+	}
+	.member-actions {
+		display: inline-flex;
+		gap: 6px;
 	}
 	.choice {
 		display: flex;

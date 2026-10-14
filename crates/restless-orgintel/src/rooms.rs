@@ -1864,6 +1864,90 @@ impl OrgIntel {
         Ok(removed)
     }
 
+    /// Hand a group Room to another person in it. Only its owner may, and only
+    /// to an active human participant, so a group always has someone who can
+    /// rename, archive or restore it. The former owner stays as a member and may
+    /// then leave like anyone else.
+    pub async fn hand_over_room(
+        &self,
+        requesting_actor: &str,
+        room_id: Uuid,
+        to_actor: &str,
+    ) -> Result<RoomParticipantRow> {
+        let to_actor = to_actor.trim();
+        if to_actor.is_empty() || to_actor == requesting_actor {
+            return Err(OrgIntelError::InvalidRoom(
+                "a Room is handed to another participant".into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        // Actor -> Room, the one lifecycle lock order, both Actors in stable order.
+        let mut command_actors = vec![requesting_actor.to_string(), to_actor.to_string()];
+        command_actors.sort();
+        let humans = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM actors WHERE id=ANY($1) AND retired_at IS NULL \
+               AND actor_class='human' ORDER BY id FOR UPDATE",
+        )
+        .bind(&command_actors)
+        .fetch_all(&mut *tx)
+        .await?;
+        if humans != command_actors {
+            return Err(OrgIntelError::InvalidRoom(
+                "a Room passes only between active people".into(),
+            ));
+        }
+        sqlx::query("SELECT id FROM rooms WHERE id=$1 FOR UPDATE")
+            .bind(room_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        let (kind, requester_role) = active_room_access(&mut tx, room_id, requesting_actor).await?;
+        if kind != RoomKind::Group {
+            return Err(OrgIntelError::InvalidRoom(
+                "only a group Room can be handed over".into(),
+            ));
+        }
+        if requester_role != RoomParticipantRole::Owner {
+            return Err(OrgIntelError::RoomAccessDenied(
+                "only the Room owner may hand it over".into(),
+            ));
+        }
+        let promoted: RoomParticipantRow = sqlx::query_as(
+            "UPDATE room_participants SET role='owner' \
+             WHERE room_id=$1 AND actor_id=$2 AND role='member' AND left_at IS NULL \
+             RETURNING room_id,actor_id,role,joined_at,left_at",
+        )
+        .bind(room_id)
+        .bind(to_actor)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| {
+            OrgIntelError::InvalidRoom("the new owner must be an active member of the Room".into())
+        })?;
+        sqlx::query(
+            "UPDATE room_participants SET role='member' \
+             WHERE room_id=$1 AND actor_id=$2 AND left_at IS NULL",
+        )
+        .bind(room_id)
+        .bind(requesting_actor)
+        .execute(&mut *tx)
+        .await?;
+        append_room_event(
+            &mut tx,
+            "room.owner.changed.v1",
+            room_id,
+            requesting_actor,
+            None,
+            serde_json::json!({
+                "room_id": room_id,
+                "from_actor_id": requesting_actor,
+                "to_actor_id": to_actor,
+            }),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(promoted)
+    }
+
     /// Lock the requesting Actor, then the Room, and prove the requester owns
     /// an active group or company Room. Shared by rename and archive.
     async fn lock_owned_shared_room(

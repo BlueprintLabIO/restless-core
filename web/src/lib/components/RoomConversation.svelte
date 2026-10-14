@@ -11,7 +11,7 @@
 	import Wifi from '@lucide/svelte/icons/wifi';
 	import WifiOff from '@lucide/svelte/icons/wifi-off';
 	import X from '@lucide/svelte/icons/x';
-	import { initials } from '$lib/model/initials';
+	import { initials, teamName } from '$lib/model/initials';
 	import HandoffGroup from '$lib/primitives/HandoffGroup.svelte';
 	import { agentExchangesQuery, type AgentExchange } from '$lib/model/exchanges.svelte';
 	import IntelligenceChip from '$lib/components/IntelligenceChip.svelte';
@@ -1318,6 +1318,7 @@
 						{companyId}
 						actorId={currentActorId}
 						{people}
+						teams={teams.map((team) => ({ id: team.id, name: teamName(team.name, companyId) }))}
 						label="Add people"
 						initialParticipants={participants
 							.filter((p) => p.actor_id !== currentActorId)

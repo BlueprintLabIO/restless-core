@@ -645,6 +645,19 @@ export function removeRoomParticipant(
 	});
 }
 
+/** The Room owner hands a group to another person in it, and stays as a member. */
+export function handOverRoom(
+	company: string,
+	room: string,
+	actor: string
+): Promise<RoomParticipant> {
+	return roomJson(`${roomPath(company, room)}/owner`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ actor_id: actor })
+	});
+}
+
 /** The Room owner renames a group; everyone sees the new name. */
 export function renameRoom(company: string, room: string, title: string): Promise<Room> {
 	return roomJson(roomPath(company, room), {

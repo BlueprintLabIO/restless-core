@@ -3966,3 +3966,46 @@ async fn a_group_owner_renames_or_archives_and_a_member_can_only_leave() {
     // Someone who left before the archive stays out.
     assert!(org.room_participants("delivery-build", room.id).await.is_err());
 }
+
+#[tokio::test]
+async fn a_group_owner_hands_over_only_to_a_person_and_may_then_leave() {
+    let Some(org) = company("roomhandover").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Room hand-over scenario");
+        return;
+    };
+    org.ensure_actor("ines", "human", "member", "Ines")
+        .await
+        .unwrap();
+    let room = org
+        .create_room(
+            "owner",
+            RoomKind::Group,
+            "Launch",
+            &["owner", "ines", "exec"],
+            "handover-room",
+        )
+        .await
+        .unwrap();
+    // Only the owner hands over, and never to an agent who could not run the group.
+    assert!(org
+        .hand_over_room("ines", room.id, "owner")
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("only the Room owner"));
+    assert!(org
+        .hand_over_room("owner", room.id, "exec")
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("only between active people"));
+    let promoted = org.hand_over_room("owner", room.id, "ines").await.unwrap();
+    assert_eq!(promoted.actor_id, "ines");
+    // The former owner is now a member: they may leave, and the new owner may rename.
+    org.remove_room_participant("owner", room.id, "owner")
+        .await
+        .unwrap();
+    org.rename_room("ines", room.id, "Launch, continued")
+        .await
+        .unwrap();
+}
