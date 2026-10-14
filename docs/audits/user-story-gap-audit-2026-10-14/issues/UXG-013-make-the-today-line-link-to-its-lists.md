@@ -2,7 +2,7 @@
 
 | Surface | Severity | Type | Stories |
 |---|---|---|---|
-| Inbox | medium | spec-drift | US-015 |
+| Inbox | medium | spec-drift | US-015, US-193 |
 
 ## Problem
 
