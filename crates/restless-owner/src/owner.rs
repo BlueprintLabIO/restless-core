@@ -1582,6 +1582,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/companies/{company}/email-mandates/proposals/{proposal}/decision", post(decide_email_mandate))
         .route("/companies/{company}/cockpit", get(cockpit_view))
         .route("/companies/{company}/company", get(company_view))
+        .route("/companies/{company}/company/spend", get(company_spend))
         .route(
             "/companies/{company}/members",
             get(members_api::members_view),
@@ -2504,7 +2505,8 @@ fn member_reads_company_setup(method: &Method, path: &str) -> bool {
 
 /// An admin who runs the company with the owner reads what it sent, decided and spent, the apps
 /// it uses and asks for, and how the agents hand work to each other. Reads only: changing limits,
-/// apps, keys or approvals, or answering an app request, stays the owner's.
+/// apps, keys or approvals, or answering an app request, stays the owner's. Spend is its own
+/// summary: the whole company view, with its credentials and their live probes, is owner-only.
 fn admin_reads_company_record(method: &Method, path: &str) -> bool {
     if !matches!(*method, Method::GET | Method::HEAD) {
         return false;
@@ -2522,7 +2524,7 @@ fn admin_reads_company_record(method: &Method, path: &str) -> bool {
     let tail: Vec<&str> = segments.collect();
     matches!(
         tail.as_slice(),
-        ["company"]
+        ["company", "spend"]
             | ["company", "away"]
             | ["company", "activity"]
             | ["attention", "history"]
@@ -6398,6 +6400,19 @@ async fn company_view(
     };
     Json(company_projection::project(&state.daemon, &config, query.probe_credentials).await)
         .into_response()
+}
+
+/// What the company spends, without the rest of the company view: an admin reads this beside the
+/// owner, while the whole view (credentials and their probes, payment rail, computer) stays the
+/// owner's.
+async fn company_spend(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+) -> impl IntoResponse {
+    match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => Json(company_projection::spend_view(&state.daemon, &config)).into_response(),
+        Err(error) => api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+    }
 }
 
 async fn open_company_resource(

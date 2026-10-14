@@ -318,6 +318,19 @@ export async function getGovernanceActivity(
 	);
 }
 
+/** What the company spends, without the rest of the company view: an admin reads this beside the
+ * owner, whose whole view also holds the company's keys, payment rail and computer. */
+export type CompanySpendView = Pick<CompanyView['limits'], 'spend' | 'native'>;
+
+export async function getCompanySpend(company: string): Promise<CompanySpendView> {
+	return ownerResponse<CompanySpendView>(
+		await fetch(`/api/companies/${encodeURIComponent(company)}/company/spend`, {
+			credentials: 'same-origin',
+			cache: 'no-store'
+		})
+	);
+}
+
 export async function getCompany(company: string, probeCredentials = false): Promise<CompanyView> {
 	const query = probeCredentials ? '?probe_credentials=true' : '';
 	return ownerResponse<CompanyView>(

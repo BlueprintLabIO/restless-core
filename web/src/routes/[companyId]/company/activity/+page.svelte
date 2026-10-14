@@ -8,7 +8,8 @@
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { page } from '$app/state';
 	import { untrack } from 'svelte';
-	import { attentionQuery, companyQuery } from '$lib/model/queries.svelte';
+	import { attentionQuery, companyPrincipalQuery, companyQuery } from '$lib/model/queries.svelte';
+	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
 	import { fetchDecisionHistory } from '$lib/model/attention';
 	import { getGovernanceActivity, type CompanyExternalAction } from '$lib/model/company';
 	import { failureSentence } from '$lib/model/failure';
@@ -20,7 +21,11 @@
 
 	const companyId = $derived(page.params.companyId ?? '');
 	const attention = $derived(attentionQuery(companyId));
-	const company = $derived(companyQuery(companyId));
+	/* Payments and effects awaiting a result come from the whole company view, which is the
+	 * owner's; an admin reads the paged record. */
+	const principal = $derived(companyPrincipalQuery(companyId));
+	const owner = $derived(hasOwnerSurfaceAccess(principal.view));
+	const company = $derived(companyQuery(companyId, () => owner));
 	$effect(() => company.attach());
 	const graph = $derived(attention.view?.workGraph ?? null);
 	/* The Inbox's "Recently decided" arrives with ?show=decisions; a link to one entry (an
@@ -284,7 +289,7 @@
 	});
 	const filtered = $derived(!!(search.trim() || person || day));
 	const loaded = $derived(
-		!!company.view &&
+		(owner ? !!company.view : !!principal.view) &&
 			(historyLoaded || !!historyFailure) &&
 			(governanceLoaded || !!governanceFailure)
 	);
@@ -312,7 +317,7 @@
 				: state === 'unknown'
 					? 'warning'
 					: 'neutral';
-	holdQueries(() => [attention, company]);
+	holdQueries(() => [attention, company, principal]);
 </script>
 
 <CompanyTitle title="Activity" {companyId} />

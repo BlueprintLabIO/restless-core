@@ -8,7 +8,11 @@
 	import PaymentRail from '$lib/components/PaymentRail.svelte';
 	import { Section, Row, Item, Notice, Fold, Toggle } from '$lib/ui/page';
 	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
-	import { companyPrincipalQuery, companyQuery } from '$lib/model/queries.svelte';
+	import {
+		companyPrincipalQuery,
+		companyQuery,
+		companySpendQuery
+	} from '$lib/model/queries.svelte';
 	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
 	import {
 		saveNativeLimit as postNativeLimit,
@@ -16,7 +20,8 @@
 		saveSpendLimit as postSpendLimit,
 		saveOutsideActions,
 		savePaymentAllowance,
-		resumeExactSpend
+		resumeExactSpend,
+		type CompanyView
 	} from '$lib/model/company';
 	import { approvalAction } from '$lib/model/attention';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
@@ -25,12 +30,18 @@
 
 	let { section = 'spend' }: { section?: 'spend' | 'authority' | 'computer' } = $props();
 	const companyId = $derived(page.params.companyId ?? '');
-	const source = $derived(companyQuery(companyId));
-	$effect(() => source.attach());
-	const view = $derived(source.view);
-	/* An admin reads the limits; only the owner changes them. */
+	/* An admin reads what the company spends; only the owner reads the whole company view
+	 * (its keys, payment rail and computer) and changes the limits. */
 	const principal = $derived(companyPrincipalQuery(companyId));
 	const canEdit = $derived(hasOwnerSurfaceAccess(principal.view));
+	const source = $derived(companyQuery(companyId, () => canEdit));
+	$effect(() => source.attach());
+	const view = $derived(canEdit ? source.view : null);
+	const spendSource = $derived(companySpendQuery(companyId, () => !!principal.view && !canEdit));
+	const limits = $derived<Pick<CompanyView['limits'], 'status' | 'spend' | 'native'> | null>(
+		view ? view.limits : spendSource.view ? { status: 'available', ...spendSource.view } : null
+	);
+	const failure = $derived(canEdit ? source.failure : spendSource.failure);
 	let editingLimit = $state(false),
 		limitSaving = $state(false),
 		limit = $state(''),
@@ -329,18 +340,18 @@
 	function minor(value: number, currency: string): string {
 		return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(value / 100);
 	}
-	holdQueries(() => [source]);
+	holdQueries(() => [source, spendSource, principal]);
 </script>
 
-{#if view}
-	{#if view.limits.status !== 'available'}
+{#if limits}
+	{#if limits.status !== 'available'}
 		{#if section === 'spend'}<Notice
 				tone="warning"
 				title="Limits are unavailable right now"
 				details="Authority is not answering, so limits and grants are not being shown as empty."
 			/>{/if}
 	{:else if section === 'spend'}
-		{@const spend = view.limits.spend}
+		{@const spend = limits.spend}
 		{@const share = Math.min(100, (spend.accounted_usd / Math.max(spend.ceiling_usd, 0.01)) * 100)}
 		{@const monthly = spend.period === 'monthly'}
 		<Section
@@ -495,7 +506,7 @@
 			{/if}
 			{#if limitError}<Notice tone="danger" title="The limit was not saved">{limitError}</Notice
 				>{/if}
-			{@const native = view.limits.native}
+			{@const native = limits.native}
 			<form
 				onsubmit={(event) => {
 					event.preventDefault();
@@ -579,7 +590,7 @@
 				>{/if}
 			{#if nativeNotice}<Notice tone="success" title={nativeNotice} />{/if}
 		</Section>
-	{:else if section === 'authority'}
+	{:else if section === 'authority' && view}
 		<Section
 			id="authority"
 			title="Authority"
@@ -769,7 +780,7 @@
 			<PaymentRail {companyId} {view} onview={(next) => source.accept(next)} />
 		</Section>
 		<EmailMandates {companyId} />
-	{:else if section === 'computer'}
+	{:else if section === 'computer' && view}
 		{@const runtime = view.limits.runtime}
 		<Section
 			id="computer"
@@ -880,8 +891,13 @@
 			{#if runtimeNotice}<Notice tone="success" title={runtimeNotice} />{/if}
 		</Section>
 	{/if}
-{:else if source.failure && section === 'spend'}
-	<FailureNotice error={source.failure} subject="limits" variant="block" onretry={source.refresh} />
+{:else if failure && section === 'spend'}
+	<FailureNotice
+		error={failure}
+		subject="limits"
+		variant="block"
+		onretry={canEdit ? source.refresh : spendSource.refresh}
+	/>
 {:else if section === 'spend'}
 	<Skeleton label="Reading limits…" variant="page" count={3} />
 {/if}

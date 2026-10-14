@@ -7,7 +7,7 @@
 	import { Page, Section, Item, Empty, Notice, Row } from '$lib/ui/page';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { page } from '$app/state';
-	import { attentionQuery, companyQuery } from '$lib/model/queries.svelte';
+	import { attentionQuery, companySpendQuery } from '$lib/model/queries.svelte';
 	import { fetchDecisionHistory, sendActorMessage } from '$lib/model/attention';
 	import { getGovernanceActivity, type CompanyExternalAction } from '$lib/model/company';
 	import { failureSentence } from '$lib/model/failure';
@@ -18,8 +18,9 @@
 
 	const companyId = $derived(page.params.companyId ?? '');
 	const attention = $derived(attentionQuery(companyId));
-	const company = $derived(companyQuery(companyId));
-	$effect(() => company.attach());
+	/* Only the spend summary: an admin reads this page too, and the whole company view is the
+	 * owner's. */
+	const company = $derived(companySpendQuery(companyId));
 	const since = Date.now() - 7 * 86_400_000;
 	const inWeek = (at: string | number | Date | undefined | null) =>
 		!!at && new Date(at).getTime() >= since;
@@ -49,7 +50,7 @@
 			.finally(() => (loaded = true));
 	});
 
-	const spend = $derived(company.view?.limits.spend ?? null);
+	const spend = $derived(company.view?.spend ?? null);
 	const failed = $derived(
 		sent.filter((item) => item.state === 'failed' || item.state === 'unknown')
 	);

@@ -9,6 +9,7 @@ import {
 	companiesQuery,
 	companyPrincipalQuery,
 	companyQuery,
+	companySpendQuery,
 	identityQuery
 } from '$lib/model/queries.svelte';
 import { intelligenceQuery } from '$lib/model/intelligence.svelte';
@@ -94,15 +95,18 @@ export function createCompanySetup(companyIdOf: () => string) {
 	const companyId = $derived(companyIdOf());
 	const principal = $derived(companyPrincipalQuery(companyId).view);
 	const owner = $derived(principal?.membership_role === 'owner');
-	/* An admin reads the company view too: its spend and Activity, not its keys or computer. */
+	/* An admin reads what the company spends and its Activity; the whole company view, with its
+	 * keys and computer, is the owner's. */
 	const admin = $derived(principal?.membership_role === 'admin');
+	const adminSpend = $derived(companySpendQuery(companyId, () => admin));
 	const catalog = companiesQuery(() => owner);
 	const entry = $derived(catalog.view.find((company) => company.id === companyId));
-	const source = $derived(companyQuery(companyId, () => owner || admin));
+	const source = $derived(companyQuery(companyId, () => owner));
 	$effect(() => {
-		if (owner || admin) source.attach();
+		if (owner) source.attach();
 	});
-	const view = $derived(owner || admin ? source.view : null);
+	const view = $derived(owner ? source.view : null);
+	const spend = $derived(owner ? view?.limits.spend : (adminSpend.view?.spend ?? undefined));
 	const identity = $derived(identityQuery(companyId));
 	const intelligence = $derived(intelligenceQuery(companyId, () => owner));
 
@@ -188,10 +192,10 @@ export function createCompanySetup(companyIdOf: () => string) {
 	 * actions outranks it. */
 	const limitsPaused = $derived(!!view?.limits.outside_actions_paused);
 	const limits = $derived.by(() => {
-		if (!view) return source.failure ? 'Unavailable right now' : '…';
-		if (view.limits.status !== 'available') return 'Unavailable right now';
+		const failure = owner ? source.failure : adminSpend.failure;
+		if (owner && view && view.limits.status !== 'available') return 'Unavailable right now';
+		if (!spend) return failure ? 'Unavailable right now' : '…';
 		if (limitsPaused) return 'Outside actions paused';
-		const spend = view.limits.spend;
 		const share = Math.round((spend.accounted_usd / Math.max(spend.ceiling_usd, 0.01)) * 100);
 		return `${Math.min(share, 100)}% of ${spend.period === 'monthly' ? 'monthly ' : ''}budget used`;
 	});
@@ -411,7 +415,7 @@ export function createCompanySetup(companyIdOf: () => string) {
 			return view?.computer.doctor.status;
 		},
 		get spend() {
-			return view?.limits.spend;
+			return spend;
 		},
 		get working() {
 			return entry?.card?.people_working;

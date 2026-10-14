@@ -27,7 +27,14 @@ import {
 	getCollaborationBootstrap,
 	type CollaborationBootstrap
 } from './collaboration';
-import { getBrowserStatus, getCompany, type BrowserStatus, type CompanyView } from './company';
+import {
+	getBrowserStatus,
+	getCompany,
+	getCompanySpend,
+	type BrowserStatus,
+	type CompanySpendView,
+	type CompanyView
+} from './company';
 import { getCompanyIdentity, type CompanyIdentitySnapshot } from './identity';
 import { getCompanyPrincipal, type CompanyPrincipal } from './query-persistence';
 import type { ThreadMessage } from './view';
@@ -61,6 +68,7 @@ export const queryKeys = {
 	cockpit: (company: string) => ['cockpit', company] as const,
 	company: (company: string, probeCredentials: boolean) =>
 		['company', company, { probeCredentials }] as const,
+	companySpend: (company: string) => ['company-spend', company] as const,
 	identity: (company: string) => ['company-identity', company] as const,
 	conversation: (company: string, actor: string, workId?: string) =>
 		['conversation', company, actor, workId ?? null] as const,
@@ -309,6 +317,32 @@ export function companyQuery(companyId: string, enabled: QueryEnabled = true) {
 			if (probe) probeCredentials = true;
 			return () => {};
 		}
+	};
+}
+
+/** What the company spends, for an admin who reads it beside the owner; the owner reads it from
+ * the whole company view. */
+export function companySpendQuery(companyId: string, enabled: QueryEnabled = true) {
+	const query = createQuery(() => ({
+		queryKey: queryKeys.companySpend(companyId),
+		queryFn: () => getCompanySpend(companyId),
+		enabled: queryEnabled(enabled),
+		staleTime: STALE_MS,
+		gcTime: RETAIN_MS,
+		refetchInterval: 60_000,
+		refetchIntervalInBackground: false
+	}));
+	return {
+		get view() {
+			return (query.data as CompanySpendView | undefined) ?? null;
+		},
+		get status() {
+			return statusOf(query);
+		},
+		get failure() {
+			return (query.error as (Error & { status?: number }) | null) ?? null;
+		},
+		refresh: () => refresh(query)
 	};
 }
 

@@ -2730,7 +2730,7 @@ model = \"anthropic/claude-sonnet-5-5\"
         let admin = RequestPrincipal::from_verified(&identity("admin")).unwrap();
         let member = RequestPrincipal::from_verified(&identity("member")).unwrap();
         for path in [
-            "/api/companies/aris/company",
+            "/api/companies/aris/company/spend",
             "/api/companies/aris/company/activity",
             "/api/companies/aris/attention/history",
             "/api/companies/aris/tool-connections",
@@ -2742,6 +2742,7 @@ model = \"anthropic/claude-sonnet-5-5\"
             assert!(membership_boundary_violation(&Method::GET, path, &member).is_some(), "member reached {path}");
         }
         for (method, path) in [
+            (Method::GET, "/api/companies/aris/company"),
             (Method::POST, "/api/companies/aris/company/spend-limit"),
             (Method::POST, "/api/companies/aris/tool-connections"),
             (Method::POST, "/api/companies/aris/company/payment-rail"),

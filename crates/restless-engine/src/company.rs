@@ -361,6 +361,100 @@ struct AuthorityProjection {
     outside_actions: Option<crate::outside_actions::Pause>,
 }
 
+/// What the company spends, and nothing else: its model spend against the limit, by agent and
+/// model, and native-harness use this month. An admin reads this beside the owner; the whole
+/// company view, with its keys, payment rail and computer, stays the owner's.
+#[derive(Debug, Serialize)]
+pub struct SpendView {
+    spend: SpendLimit,
+    native: NativeLimit,
+}
+
+pub fn spend_view(daemon: &Daemon, config: &runtime::CompanyConfig) -> SpendView {
+    SpendView {
+        spend: spend_limit(daemon, config),
+        native: native_limit(daemon, config),
+    }
+}
+
+fn spend_limit(daemon: &Daemon, config: &runtime::CompanyConfig) -> SpendLimit {
+    let period = daemon.spend.period_spend(config);
+    let budget = period.budget;
+    let accounted_usd = period.accounted_micro_usd as f64 / 1_000_000.0;
+    let week_start = Utc::now() - chrono::Duration::days(7);
+    let last_7_days_micro: u64 = daemon
+        .spend
+        .records(&config.name)
+        .into_iter()
+        .filter(|record| record.occurred_at >= week_start)
+        .map(|record| record.cost_micro_usd)
+        .sum();
+    SpendLimit {
+        last_7_days_usd: round_usd(last_7_days_micro as f64 / 1_000_000.0),
+        period: config.spend_period.as_str(),
+        period_start: period.period_start,
+        warning_percent: period.warning_percent,
+        model: config.model.clone(),
+        accounted_usd: round_usd(accounted_usd),
+        ceiling_usd: config.spend_ceiling_usd.as_usd(),
+        remaining_usd: budget
+            .remaining_micro_usd()
+            .map(|remaining| round_usd(remaining as f64 / 1_000_000.0)),
+        status: match budget {
+            crate::spend::ModelBudgetState::Available { .. } => "available",
+            crate::spend::ModelBudgetState::Exhausted { .. } => "exhausted",
+            crate::spend::ModelBudgetState::MeteringUnknown { .. } => "metering_unknown",
+        },
+        by_actor: {
+            let mut shares: Vec<SpendShare> = daemon
+                .spend
+                .breakdown(&config.name)
+                .into_iter()
+                .map(|(actor, model, usd)| SpendShare {
+                    actor,
+                    model,
+                    spent_usd: round_usd(usd),
+                })
+                .collect();
+            shares.sort_by(|a, b| b.spent_usd.total_cmp(&a.spent_usd));
+            shares
+        },
+        unpriced: daemon
+            .spend
+            .unknown_requests(&config.name)
+            .into_iter()
+            .rev()
+            .take(20)
+            .map(|record| UnpricedCall {
+                actor: record.actor_id,
+                model: record.model,
+                occurred_at: record.occurred_at,
+            })
+            .collect(),
+    }
+}
+
+fn native_limit(daemon: &Daemon, config: &runtime::CompanyConfig) -> NativeLimit {
+    let now = Utc::now();
+    let native_usage = daemon.spend.native_usage(&config.name, now);
+    NativeLimit {
+        month_utc: now.format("%Y-%m").to_string(),
+        turns: native_usage.turns,
+        tokens: native_usage.tokens,
+        turns_without_tokens: native_usage.turns_without_tokens,
+        estimated_usd: (native_usage.turns > native_usage.turns_without_estimate)
+            .then(|| round_usd(native_usage.estimated_cost_micro_usd as f64 / 1_000_000.0)),
+        turns_without_estimate: native_usage.turns_without_estimate,
+        monthly_turn_limit: config.native_monthly_turn_limit,
+        monthly_token_limit: config.native_monthly_token_limit,
+        status: if crate::spend::native_limit_reason(config, &native_usage).is_some() {
+            "exhausted"
+        } else {
+            "available"
+        },
+    }
+}
+
 pub async fn project(
     daemon: &Daemon,
     config: &runtime::CompanyConfig,
@@ -427,79 +521,8 @@ pub async fn project(
         ),
     };
 
-    let period = daemon.spend.period_spend(config);
-    let budget = period.budget;
-    let accounted_usd = period.accounted_micro_usd as f64 / 1_000_000.0;
-    let week_start = Utc::now() - chrono::Duration::days(7);
-    let last_7_days_micro: u64 = daemon
-        .spend
-        .records(&config.name)
-        .into_iter()
-        .filter(|record| record.occurred_at >= week_start)
-        .map(|record| record.cost_micro_usd)
-        .sum();
-    let spend = SpendLimit {
-        last_7_days_usd: round_usd(last_7_days_micro as f64 / 1_000_000.0),
-        period: config.spend_period.as_str(),
-        period_start: period.period_start,
-        warning_percent: period.warning_percent,
-        model: config.model.clone(),
-        accounted_usd: round_usd(accounted_usd),
-        ceiling_usd: config.spend_ceiling_usd.as_usd(),
-        remaining_usd: budget
-            .remaining_micro_usd()
-            .map(|remaining| round_usd(remaining as f64 / 1_000_000.0)),
-        status: match budget {
-            crate::spend::ModelBudgetState::Available { .. } => "available",
-            crate::spend::ModelBudgetState::Exhausted { .. } => "exhausted",
-            crate::spend::ModelBudgetState::MeteringUnknown { .. } => "metering_unknown",
-        },
-        by_actor: {
-            let mut shares: Vec<SpendShare> = daemon
-                .spend
-                .breakdown(&config.name)
-                .into_iter()
-                .map(|(actor, model, usd)| SpendShare {
-                    actor,
-                    model,
-                    spent_usd: round_usd(usd),
-                })
-                .collect();
-            shares.sort_by(|a, b| b.spent_usd.total_cmp(&a.spent_usd));
-            shares
-        },
-        unpriced: daemon
-            .spend
-            .unknown_requests(&config.name)
-            .into_iter()
-            .rev()
-            .take(20)
-            .map(|record| UnpricedCall {
-                actor: record.actor_id,
-                model: record.model,
-                occurred_at: record.occurred_at,
-            })
-            .collect(),
-    };
-
-    let now = Utc::now();
-    let native_usage = daemon.spend.native_usage(&config.name, now);
-    let native = NativeLimit {
-        month_utc: now.format("%Y-%m").to_string(),
-        turns: native_usage.turns,
-        tokens: native_usage.tokens,
-        turns_without_tokens: native_usage.turns_without_tokens,
-        estimated_usd: (native_usage.turns > native_usage.turns_without_estimate)
-            .then(|| round_usd(native_usage.estimated_cost_micro_usd as f64 / 1_000_000.0)),
-        turns_without_estimate: native_usage.turns_without_estimate,
-        monthly_turn_limit: config.native_monthly_turn_limit,
-        monthly_token_limit: config.native_monthly_token_limit,
-        status: if crate::spend::native_limit_reason(config, &native_usage).is_some() {
-            "exhausted"
-        } else {
-            "available"
-        },
-    };
+    let spend = spend_limit(daemon, config);
+    let native = native_limit(daemon, config);
 
     let legal_identity = authority
         .as_ref()

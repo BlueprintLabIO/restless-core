@@ -16,10 +16,11 @@
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? '');
-	/* An admin reads what the company spends; the owner also sets what it may do. */
+	/* An admin reads what the company spends; the owner also sets what it may do, and only the
+	 * owner reads the whole company view behind it. */
 	const principal = $derived(companyPrincipalQuery(companyId));
 	const owner = $derived(hasOwnerSurfaceAccess(principal.view));
-	const source = $derived(companyQuery(companyId));
+	const source = $derived(companyQuery(companyId, () => owner));
 	$effect(() => source.attach(true));
 	const view = $derived(source.view);
 	const launchable = $derived(view?.resources.items.filter((item) => item.launch) ?? []);
@@ -62,7 +63,7 @@
 			opening = null;
 		}
 	}
-	holdQueries(() => [source]);
+	holdQueries(() => [source, principal]);
 	/* Telegram moved to Notifications; an old link to it still arrives. */
 	$effect(() => {
 		if (page.url.hash === '#telegram')
@@ -83,7 +84,9 @@
 				>
 			</nav>{/if}
 	{/snippet}
-	{#if view}
+	{#if principal.view && !owner}
+		<CompanyLimits section="spend" />
+	{:else if view}
 		{#if source.status === 'stale'}<Notice tone="warning" title="Showing the last values read">
 				{#snippet actions()}<button class="btn small" onclick={() => source.refresh()}>Retry</button
 					>{/snippet}
