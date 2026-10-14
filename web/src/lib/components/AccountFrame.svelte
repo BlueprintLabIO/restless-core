@@ -14,6 +14,7 @@
 	import type { AccountGroup, AccountTab } from '$lib/ui/account';
 	import { getApplianceStatus, planeLabel, type ApplianceStatus } from '$lib/model/appliance';
 	import { companiesQuery } from '$lib/model/queries.svelte';
+	import { forgetThisBrowser } from '$lib/model/sign-out';
 
 	let {
 		appliance = null,
@@ -168,7 +169,9 @@
 			<a href={`${issuer}/account/settings#support`} data-sveltekit-reload>Support</a>
 			{#if issuer === page.url.origin}
 				<hr />
-				<form method="POST" action="/account?/signOut"><button>Sign out</button></form>
+				<form method="POST" action="/account?/signOut" onsubmit={forgetThisBrowser}>
+					<button>Sign out</button>
+				</form>
 			{/if}
 		{/if}
 	{/snippet}

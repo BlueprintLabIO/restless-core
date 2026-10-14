@@ -1,6 +1,8 @@
 <script lang="ts">
-	/* The owner's own circle: who they are here, appearance, notifications on
-	 * this device and the keyboard shortcuts. Other people present sit beside it. */
+	/* The person's own circle: who they are here, appearance, notifications on
+	 * this device, the keyboard shortcuts and signing out. The owner also reaches their Account;
+	 * a member's account pages are not theirs, so the menu keeps only what applies to them.
+	 * Other people present sit beside it. */
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import Check from '@lucide/svelte/icons/check';
 	import { initials } from '$lib/model/initials';
@@ -8,19 +10,38 @@
 	import { BLOCKED_HINT, desktopNotify } from '$lib/model/desktop-notify.svelte';
 	import type { PresentPerson } from '$lib/model/presence.svelte';
 	import { onMount } from 'svelte';
+	import { planeStatus } from '$lib/model/appliance';
+	import { isLocalHost } from '$lib/model/reenter';
+	import { forgetThisBrowser } from '$lib/model/sign-out';
 
 	let {
 		name,
 		role,
 		present = [],
+		owner = false,
 		onshortcuts
 	}: {
 		name: string;
 		role: string;
 		present?: PresentPerson[];
+		/** The owner reaches their Account pages from here; members do not have them. */
+		owner?: boolean;
 		onshortcuts: () => void;
 	} = $props();
 	onMount(() => desktopNotify.load());
+	/* A local appliance has no session to end. On a hosted plane the account issuer signs out on
+	 * its own address; a member cannot read the plane's status, and on the one address the issuer
+	 * is this origin, so an unread status still offers it. */
+	let signOut = $state(false);
+	onMount(() => {
+		if (isLocalHost(window.location.hostname)) return;
+		void planeStatus().then((status) => {
+			signOut = status
+				? Boolean(status.hosted) &&
+					(!status.home_url || new URL(status.home_url).origin === window.location.origin)
+				: true;
+		});
+	});
 	const shown = $derived(present.slice(0, 3));
 </script>
 
@@ -48,7 +69,7 @@
 			<strong>{name}</strong>
 			<small>{role}</small>
 		</div>
-		<a href="/account">Account</a>
+		{#if owner}<a href="/account">Account</a>{/if}
 		<div class="group" role="group" aria-label="Appearance">
 			{#each ['system', 'light', 'dark'] as const as choice (choice)}
 				<button type="button" onclick={() => theme.set(choice)}
@@ -71,6 +92,11 @@
 			>
 		{/if}
 		<button type="button" onclick={onshortcuts}><span>Keyboard shortcuts</span><kbd>?</kbd></button>
+		{#if signOut}
+			<form class="sign-out" method="POST" action="/account?/signOut" onsubmit={forgetThisBrowser}>
+				<button>Sign out</button>
+			</form>
+		{/if}
 	</ActionMenu>
 </div>
 
@@ -127,6 +153,10 @@
 	}
 	.profile :global(.action-menu-panel :is(button, a)) {
 		justify-content: space-between;
+	}
+	.sign-out {
+		display: grid;
+		border-top: 1px solid var(--border);
 	}
 	kbd,
 	.blocked {
