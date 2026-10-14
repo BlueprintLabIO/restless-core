@@ -34,9 +34,11 @@
 		askForSheet,
 		duplicateSheet,
 		getSheetComments,
+		getSheetSharing,
 		renameSheet,
 		saveFile,
 		sheetHref,
+		setSheetParticipant,
 		sheetJson,
 		type SheetLevel,
 		type SheetRow
@@ -49,6 +51,7 @@
 	import { sheetFollow } from '$lib/model/for-you';
 	import { useForYou } from '$lib/model/for-you.svelte';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { askExec } from '$lib/model/ask-exec';
 
 	interface Version {
 		id: string;
@@ -92,6 +95,7 @@
 	});
 	const focusThread = $derived(page.url.searchParams.get('thread') ?? '');
 	let versions = $state<Version[] | null>(null);
+	let versionsFailed = $state('');
 	let csvInput: HTMLInputElement | undefined = $state();
 	let importInput: HTMLInputElement | undefined = $state();
 	let editor: SheetEditor | undefined = $state();
@@ -124,6 +128,7 @@
 		missing = false;
 		error = null;
 		versions = null;
+		versionsFailed = '';
 		changesOf = null;
 		titleDraft = null;
 	});
@@ -415,11 +420,17 @@
 				if (panel === 'history') void loadVersions();
 			}
 		);
-	const loadVersions = () =>
-		act(
-			() => sheetJson<Version[]>(company, `/${sheet}/versions`),
-			(value) => (versions = value)
-		);
+	/* A failed read is said inside History, with Retry, rather than as a Loading… that never ends. */
+	async function loadVersions() {
+		const mine = epoch;
+		versionsFailed = '';
+		try {
+			const value = await sheetJson<Version[]>(company, `/${sheet}/versions`);
+			if (mine === epoch) versions = value;
+		} catch (cause) {
+			if (mine === epoch) versionsFailed = failureSentence(cause, 'The history could not be read.');
+		}
+	}
 	function showPanel(next: 'comments' | 'history' | 'sharing' | '') {
 		const url = new URL(page.url);
 		if (next) url.searchParams.set('inspect', next === 'sharing' ? 'share' : next);
@@ -450,6 +461,68 @@
 	$effect(() => {
 		if (panel === 'history' && sheet && authorized) untrack(() => void loadVersions());
 	});
+
+	/* Talking a sheet through with Exec happens in the Exec rail, with the sheet linked to the
+	 * message, as for a document. Exec sees a sheet only once it is shared with it, so whoever may
+	 * share it gives Exec comment access first; the notice offers edit access, so Exec can make the
+	 * change asked for. Undo puts the level back. */
+	let shareEpoch = $state(0);
+	async function discuss() {
+		const current = row,
+			target = company,
+			id = sheet;
+		const exec = directory.view?.people.find((person) => person.kind === 'exec');
+		if (current && exec && current.owner_actor_id !== exec.actor_id) {
+			try {
+				const sharing = await getSheetSharing(target, id);
+				const level = sharing.people.find((person) => person.actor_id === exec.actor_id)?.access;
+				if (sharing.may_manage && level !== 'edit') {
+					const letEdit = {
+						label: `Let ${exec.display} edit`,
+						run: () => void setExecLevel(target, id, exec, 'edit', level ?? 'comment')
+					};
+					if (!level) {
+						await setSheetParticipant(target, id, exec.actor_id, 'comment');
+						shareEpoch += 1;
+						toast(`${exec.display} can now read and comment on this sheet`, { action: letEdit });
+					} else
+						toast(`${exec.display} can ${level === 'read' ? 'read' : 'comment on'} this sheet`, {
+							action: letEdit
+						});
+				}
+			} catch (cause) {
+				toast(failureSentence(cause, `${exec.display} could not be given access to this sheet.`), {
+					tone: 'failure'
+				});
+			}
+		}
+		askExec(current ? `[${current.title.replace(/[[\]]/gu, '')}](${sheetHref(target, id)}) ` : '');
+	}
+	async function setExecLevel(
+		target: string,
+		id: string,
+		exec: { actor_id: string; display: string },
+		level: SheetLevel,
+		previous: SheetLevel
+	) {
+		try {
+			await setSheetParticipant(target, id, exec.actor_id, level);
+			shareEpoch += 1;
+			toast(
+				level === 'edit'
+					? `${exec.display} can now edit this sheet, and makes the changes you ask for`
+					: `${exec.display} can ${level === 'read' ? 'read' : 'comment on'} this sheet again`,
+				{
+					undo:
+						previous !== level ? () => setExecLevel(target, id, exec, previous, level) : undefined
+				}
+			);
+		} catch (cause) {
+			toast(failureSentence(cause, `${exec.display}’s access did not change.`), {
+				tone: 'failure'
+			});
+		}
+	}
 
 	/* Following: whether others' changes to this sheet reach this person in For you. Opening the
 	 * sheet, and leaving it while following, reads them, and reads that it was shared with them. */
@@ -696,6 +769,12 @@
 						>{/if}</button
 				>
 				<button
+					class="btn small discuss"
+					type="button"
+					title="Talk it through with Exec beside this sheet. Where you may share it, Exec can then comment, and you can let Exec edit."
+					onclick={() => void discuss()}>Discuss</button
+				>
+				<button
 					class="btn small"
 					class:active={panel === 'sharing'}
 					type="button"
@@ -713,6 +792,9 @@
 							<RelativeTime value={row.updated_at} />
 						</p>{/if}
 					<button type="button" onclick={() => openPanel('history')}>History</button>
+					<button type="button" class="narrow-only" onclick={() => void discuss()}
+						>Discuss with Exec</button
+					>
 					{#if access !== 'edit'}
 						<button
 							type="button"
@@ -915,7 +997,16 @@
 				</div>
 			{:else if panel === 'history'}
 				<div class="side-body">
-					{#if versions === null}
+					{#if versionsFailed && versions === null}
+						<Notice tone="danger" title="History could not be read">
+							{versionsFailed}
+							{#snippet actions()}<button
+									class="btn small"
+									type="button"
+									onclick={() => void loadVersions()}>Try again</button
+								>{/snippet}
+						</Notice>
+					{:else if versions === null}
 						<p class="quiet">Loading…</p>
 					{:else if versions.length}
 						<div class="rows">
@@ -1011,12 +1102,14 @@
 				</div>
 			{:else}
 				<div class="side-body">
-					<SheetShare
-						{company}
-						{sheet}
-						people={directory.view?.people ?? []}
-						onchanged={(value) => (row = { ...value })}
-					/>
+					{#key shareEpoch}
+						<SheetShare
+							{company}
+							{sheet}
+							people={directory.view?.people ?? []}
+							onchanged={(value) => (row = { ...value })}
+						/>
+					{/key}
 				</div>
 			{/if}
 		</aside>
@@ -1249,7 +1342,8 @@
 		white-space: nowrap;
 	}
 	@media (max-width: 560px) {
-		.follow {
+		.follow,
+		.discuss {
 			display: none;
 		}
 		.narrow-only {

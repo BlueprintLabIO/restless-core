@@ -154,6 +154,14 @@
 		linkTimer = setTimeout(() => (linkCopied = 'idle'), 1600);
 	}
 
+	/* The draft links the file, as Discuss on a document or sheet does, so Exec knows which one. */
+	function discuss() {
+		const href = resolve
+			? `${location.pathname}${location.search}`
+			: libraryFileHref(companyId, file);
+		askExec(`[${file.label.replace(/[[\]]/gu, '')}](${href}) `);
+	}
+
 	/* ---------- the slideshow ---------- */
 	let stage = $state<HTMLElement | null>(null);
 	let frame = $state<HTMLIFrameElement | null>(null);
@@ -250,7 +258,7 @@
 			class="btn small discuss"
 			type="button"
 			title="Talk it through with Exec, with this file alongside"
-			onclick={() => askExec()}>Discuss</button
+			onclick={discuss}>Discuss</button
 		>
 		{#if url && !isDownload}
 			<a
