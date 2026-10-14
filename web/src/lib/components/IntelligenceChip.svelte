@@ -1,12 +1,14 @@
 <script lang="ts">
 	/* Which model this agent thinks with, one click from where the owner talks
 	 * to it. Choosing another model of the same connection applies to its next
-	 * session; everything else lives in Company › Intelligence. */
+	 * session, and the toast says so; thinking effort and everything else live in
+	 * Company › Intelligence. */
 	import { assignModel, intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { effortLabel, modelLabel } from '$lib/model/intelligence-labels';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
 	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
 	import { failureSentence } from '$lib/model/failure';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import Check from '@lucide/svelte/icons/check';
 	import Brain from '@lucide/svelte/icons/brain';
@@ -17,8 +19,8 @@
 	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
 
 	let { companyId, actorId, name }: { companyId: string; actorId: string; name: string } = $props();
-	/* Choosing a model is the owner's (and an admin's); for anyone else the chip is not there, and
-	 * reads nothing they would be refused. */
+	/* Choosing a model is the owner's alone, as the server decides; for anyone else the chip is not
+	 * there, and reads nothing they would be refused. */
 	const principal = $derived(companyPrincipalQuery(companyId));
 	const allowed = $derived(hasOwnerSurfaceAccess(principal.view));
 	const catalog = modelCatalog(() => allowed);
@@ -59,6 +61,8 @@
 				revision: source.view.revision
 			});
 			announceIntelligenceChange(companyId);
+			const chosen = choices.find((row) => row.id === model)?.name ?? modelLabel(model);
+			toast(`${name} will use ${chosen} from their next session.`);
 		} catch (cause) {
 			failure = failureSentence(cause, 'Could not change the model.');
 		} finally {
@@ -81,7 +85,7 @@
 			{#snippet trigger()}<span class="face" aria-hidden="true"
 					><Brain size={14} strokeWidth={1.8} /></span
 				>{/snippet}
-			<p class="now">
+			<p class="now" title="Thinking effort is set for the company under All intelligence settings">
 				{modelLabel(agent.effective_model)}<i aria-hidden="true">·</i>{effortLabel(
 					agent.thinking_effort
 				)} effort
