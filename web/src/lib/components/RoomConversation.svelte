@@ -16,7 +16,11 @@
 	import { agentExchangesQuery, type AgentExchange } from '$lib/model/exchanges.svelte';
 	import IntelligenceChip from '$lib/components/IntelligenceChip.svelte';
 	import PersonProfile from '$lib/components/PersonProfile.svelte';
-	import { composerOptions, referenceOptions } from '$lib/model/composer-options.svelte';
+	import {
+		composerOptions,
+		personOptions,
+		referenceOptions
+	} from '$lib/model/composer-options.svelte';
 	import { runExecCommand } from '$lib/model/skills';
 	import { PIN, reactionsQuery } from '$lib/model/reactions.svelte';
 	import { documentsQuery } from '$lib/model/document-queries.svelte';
@@ -56,6 +60,7 @@
 		addRoomParticipant,
 		deleteRoomMessage,
 		editRoomMessage,
+		resolveReadableMentions,
 		markRoomRead,
 		readRoomDraft,
 		roomDraftKey,
@@ -821,7 +826,8 @@
 				message.id,
 				body,
 				message.revision_number,
-				commandId
+				commandId,
+				editMentions(body)
 			);
 			targetRoomProjection?.acceptEdit(message.id, result);
 			await targetRevisionProjection?.refresh();
@@ -918,6 +924,17 @@
 		// A direct chat addresses its agent counterpart without requiring an @ token.
 		if (directPartner && actorIsAgent(directPartner)) tokens.add(directPartner);
 		return [...tokens].filter((actorId) => known.has(actorId)).map((actor_id) => ({ actor_id }));
+	}
+
+	function isParticipant(actorId: string): boolean {
+		return participants.some((participant) => participant.actor_id === actorId);
+	}
+	/* An edit asks only the people its words name, as an @ in a send does; the server asks
+	 * those the message had not asked yet. */
+	function editMentions(body: string): NewRoomMention[] {
+		return [...mentionTokens(body)]
+			.filter((actorId) => actorId !== currentActorId && isParticipant(actorId))
+			.map((actor_id) => ({ actor_id }));
 	}
 
 	/* People named with @ who are not in this room: they would not be asked, so the sender is
@@ -1023,6 +1040,8 @@
 		const files = [...composerFiles];
 		const body =
 			typed || (files.length ? `Attached: ${files.map((file) => file.name).join(', ')}` : '');
+		/* The draft reads names; the message names people by id, which is what asks them. */
+		const wireBody = resolveReadableMentions(body, roster);
 		if (
 			!body ||
 			!selectedRoomId ||
@@ -1041,7 +1060,7 @@
 			return;
 		}
 		if (!sendAsAccountableLead) {
-			const missing = mentionedOutsiders(body);
+			const missing = mentionedOutsiders(wireBody);
 			if (missing.length && mentionGapAccepted !== body) {
 				mentionGap = { body, missing };
 				return;
@@ -1065,7 +1084,7 @@
 		 * delivers the message, so the goal is never created twice. */
 		const retrying = !!retryCommandId && retryBody === body;
 		if (typed && sendAsAccountableLead && recipientActor === 'exec' && ownerAccess && !retrying) {
-			const command = await runExecCommand(targetCompany, body).catch((cause) => ({
+			const command = await runExecCommand(targetCompany, wireBody).catch((cause) => ({
 				error: failureSentence(cause, 'That command did not run.'),
 				send: false,
 				notice: undefined
@@ -1085,7 +1104,7 @@
 			selectedRoomId === targetRoom &&
 			currentActorId === targetActor &&
 			threadRootId === parent;
-		const mentions = knownMentions(body);
+		const mentions = knownMentions(wireBody);
 		const resolvesMentionId =
 			parent !== null && resolvesMention ? (answerableMention?.id ?? null) : null;
 		const followDirectReply =
@@ -1101,7 +1120,7 @@
 			room_id: selectedRoomId,
 			from_actor: currentActorId,
 			to_actor: null,
-			body,
+			body: wireBody,
 			outcome_standard: null,
 			parent_message_id: parent,
 			thread_root_message_id: parent,
@@ -1124,7 +1143,7 @@
 			if (sendAsAccountableLead && targetConversation && recipientActor) {
 				const contextPath = cockpitContextPath(targetCompany, page.url);
 				const result = await targetConversation.send(
-					body,
+					wireBody,
 					files,
 					contextPath,
 					false,
@@ -1140,7 +1159,7 @@
 				const result = await sendRoomMessage(
 					targetCompany,
 					targetRoom,
-					body,
+					wireBody,
 					commandId,
 					parent,
 					mentions,
@@ -1530,6 +1549,8 @@
 								: exactTargetKey}
 							mentions={mentionsFor(message.id)}
 							nameFor={actorName}
+							mentionPeople={roster}
+							askable={isParticipant}
 							replies={threadSummary(message.id)}
 							onjump={message.id > 0 ? () => void copyMessageLink(message.id) : null}
 							pinned={reactions.pinned().has(message.id)}
@@ -1722,6 +1743,8 @@
 							: exactTargetKey}
 						mentions={mentionsFor(message.id)}
 						nameFor={actorName}
+						mentionPeople={roster}
+						askable={isParticipant}
 						thread
 						canEdit={message.id > 0 && !message.deleted_at && message.from_actor === currentActorId}
 						canDelete={mayDelete(message)}
@@ -1780,15 +1803,14 @@
 			bind:selectedSkills={composerSkills}
 			options={[
 				...(threadRootId === null ? options.value : []),
-				...(ownerAccess
-					? referenceOptions(
-							companyId,
-							attention.view?.workGraph?.work ?? [],
-							cockpitProjection.view?.goals ?? [],
-							roomPeople,
-							libraryDocuments.documents
-						)
-					: [])
+				...referenceOptions(
+					companyId,
+					attention.view?.workGraph?.work ?? [],
+					cockpitProjection.view?.goals ?? [],
+					[],
+					libraryDocuments.documents
+				),
+				...personOptions(roomPeople, roster)
 			]}
 			interruptible={!!actorConversation?.working && accountableDirect && threadRootId === null}
 			bind:interrupt={interruptNext}

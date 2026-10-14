@@ -11,7 +11,10 @@ const {
 	getRoomMessages,
 	getRoomReadCursor,
 	getRoomThread,
+	mentionInsert,
 	openRoomEventStream,
+	readableMentions,
+	resolveReadableMentions,
 	roomDraftKey,
 	removeRoomMessageSearchResult,
 	searchRoomMessages,
@@ -400,4 +403,50 @@ test('a list preview stops before stored machine blocks, so file paths never sho
 		'Attached: invoice.pdf'
 	);
 	assert.equal(roomsModel.messagePreview('Done. <!--restless-intent:{}-->'), 'Done.');
+});
+
+test('a composed mention reads as a name and travels as the actor id it asks', () => {
+	const people = [
+		{ actor_id: 'human-ines', display: 'Ines Garcia' },
+		{ actor_id: 'staff-alex-1', display: 'Alex' },
+		{ actor_id: 'staff-alex-2', display: 'Alex' },
+		{ actor_id: 'exec', display: 'Exec' }
+	];
+	// Unique names insert readably; a shared name keeps the id so nobody is asked by mistake.
+	assert.equal(mentionInsert(people[0], people), '@Ines Garcia ');
+	assert.equal(mentionInsert(people[1], people), '@staff-alex-1 ');
+	assert.equal(
+		resolveReadableMentions('@Ines Garcia and @exec, can @staff-alex-2 help?', people),
+		'@human-ines and @exec, can @staff-alex-2 help?'
+	);
+	// A unique first name is enough; a shared one, or a name inside a word, is left alone.
+	assert.equal(
+		resolveReadableMentions('@ines: ready? @Alex? me@ines', people),
+		'@human-ines: ready? @Alex? me@ines'
+	);
+	// Putting a sent body back into an editor and sending it again changes nothing.
+	const sent = '@human-ines please ask @staff-alex-1';
+	const editable = readableMentions(sent, people);
+	assert.equal(editable, '@Ines Garcia please ask @staff-alex-1');
+	assert.equal(resolveReadableMentions(editable, people), sent);
+});
+
+test('an edit sends the mentions of its new body', async () => {
+	const requests: { body: string }[] = [];
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async (_url: string, init: RequestInit) => {
+		requests.push({ body: String(init.body) });
+		return new Response(JSON.stringify({ revision: {}, created: true }), {
+			status: 200,
+			headers: { 'content-type': 'application/json' }
+		});
+	}) as typeof fetch;
+	try {
+		await editRoomMessage('c', 'r', 4, '@exec hi', 0, 'cmd', [{ actor_id: 'exec' }]);
+		await editRoomMessage('c', 'r', 4, 'hi', 1, 'cmd2');
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+	assert.deepEqual(JSON.parse(requests[0].body).mentions, [{ actor_id: 'exec' }]);
+	assert.equal(JSON.parse(requests[1].body).mentions, undefined);
 });

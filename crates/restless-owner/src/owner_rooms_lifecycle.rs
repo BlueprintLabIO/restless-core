@@ -49,6 +49,10 @@ where
 struct EditMessageInput {
     expected_revision_number: i64,
     body: String,
+    /// Everyone the new body asks, as a send names them; only people the Message has not
+    /// asked before are asked now.
+    #[serde(default)]
+    mentions: Vec<restless_orgintel::NewRoomMessageMention>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -367,13 +371,14 @@ async fn edit_message(
         Err(response) => return response,
     };
     match org
-        .edit_room_message(
+        .edit_room_message_with_mentions(
             room,
             principal.actor_id(),
             message,
             input.expected_revision_number,
             &input.body,
             &command_id.to_string(),
+            &input.mentions,
         )
         .await
     {

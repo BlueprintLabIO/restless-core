@@ -432,7 +432,9 @@ export function editRoomMessage(
 	messageId: number,
 	body: string,
 	expectedRevisionNumber: number,
-	commandId: string
+	commandId: string,
+	/** Everyone the new body asks; the server asks only those the message had not asked. */
+	mentions: NewRoomMention[] = []
 ): Promise<RoomMessageEditResult> {
 	return roomJson(`${roomPath(company, room)}/messages/${encodeURIComponent(messageId)}`, {
 		method: 'PATCH',
@@ -440,8 +442,79 @@ export function editRoomMessage(
 			'content-type': 'application/json',
 			'idempotency-key': commandId
 		},
-		body: JSON.stringify({ body, expected_revision_number: expectedRevisionNumber })
+		body: JSON.stringify({
+			body,
+			expected_revision_number: expectedRevisionNumber,
+			...(mentions.length ? { mentions } : {})
+		})
 	});
+}
+
+/* A mention travels as `@actor-id`, but people write and read names. While composing, a person
+ * whose name is unique among those who could be named reads as `@Their Name`; sending turns it
+ * back into the id. A shared name keeps its id, so nobody is asked by mistake. */
+export interface MentionPerson {
+	actor_id: string;
+	display: string;
+}
+const MENTION_END = '(?=$|[\\s.,!?;:)])';
+function escapeRegExp(text: string): string {
+	return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+function uniquelyNamed(people: readonly MentionPerson[]): MentionPerson[] {
+	const counts = new Map<string, number>();
+	for (const person of people) {
+		const key = person.display.trim().toLowerCase();
+		counts.set(key, (counts.get(key) ?? 0) + 1);
+	}
+	return people.filter(
+		(person) =>
+			person.display.trim() &&
+			person.display.trim() !== person.actor_id &&
+			counts.get(person.display.trim().toLowerCase()) === 1
+	);
+}
+/** The name a mention shows while composing: `@Name` when unique, else `@actor-id`. */
+export function mentionInsert(person: MentionPerson, people: readonly MentionPerson[]): string {
+	return uniquelyNamed(people).some((candidate) => candidate.actor_id === person.actor_id)
+		? `@${person.display.trim()} `
+		: `@${person.actor_id} `;
+}
+/** `@actor-id` as `@Name`, for a body put back into an editor. */
+export function readableMentions(body: string, people: readonly MentionPerson[]): string {
+	const named = new Map(uniquelyNamed(people).map((person) => [person.actor_id, person.display]));
+	return body.replace(/(^|[\s(])@([\w-]+(?:[.:][\w-]+)*)/g, (whole, lead: string, id: string) => {
+		const name = named.get(id);
+		return name ? `${lead}@${name.trim()}` : whole;
+	});
+}
+/** `@Name` (or a unique first name) back to `@actor-id`, as the server routes on. */
+export function resolveReadableMentions(body: string, people: readonly MentionPerson[]): string {
+	const named = uniquelyNamed(people).toSorted((a, b) => b.display.length - a.display.length);
+	let resolved = body;
+	for (const person of named) {
+		const pattern = new RegExp(
+			`(^|[\\s(])@${escapeRegExp(person.display.trim())}${MENTION_END}`,
+			'giu'
+		);
+		resolved = resolved.replace(pattern, (_whole, lead: string) => `${lead}@${person.actor_id}`);
+	}
+	/* "@Ines" names Ines Garcia when no one else could be meant. */
+	const firstNames = new Map<string, MentionPerson[]>();
+	for (const person of people) {
+		const first = person.display.trim().split(/\s+/)[0]?.toLowerCase();
+		if (first) firstNames.set(first, [...(firstNames.get(first) ?? []), person]);
+	}
+	const ids = new Set(people.map((person) => person.actor_id.toLowerCase()));
+	for (const [first, candidates] of firstNames) {
+		if (candidates.length !== 1 || ids.has(first)) continue;
+		const pattern = new RegExp(`(^|[\\s(])@${escapeRegExp(first)}${MENTION_END}`, 'giu');
+		resolved = resolved.replace(
+			pattern,
+			(_whole, lead: string) => `${lead}@${candidates[0].actor_id}`
+		);
+	}
+	return resolved;
 }
 
 export function deleteRoomMessage(

@@ -678,3 +678,94 @@ async fn concurrent_room_commands_replay_and_claimed_replies_do_not_upgrade_lock
     assert_eq!(replies.iter().filter(|result| result.created).count(), 1);
     assert_eq!(replies[0].message.id, replies[1].message.id);
 }
+
+#[tokio::test]
+async fn an_edit_asks_people_it_names_for_the_first_time_and_only_them() {
+    let Some(org) = company("room_edit_mentions").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Room edit-mention scenario");
+        return;
+    };
+    let room = org
+        .create_room(
+            "owner",
+            RoomKind::Group,
+            "Launch room",
+            &["owner", "exec", "delivery-build"],
+            "room-edit-mentions-create",
+        )
+        .await
+        .unwrap();
+    let sent = org
+        .send_room_message_with_mentions(
+            room.id,
+            "owner",
+            "@exec can we ship?",
+            None,
+            "room-edit-mentions-send",
+            None,
+            &[NewRoomMessageMention::actor("exec")],
+            None,
+        )
+        .await
+        .unwrap();
+    let pending = |actor: &'static str| {
+        let org = &org;
+        async move {
+            org.pending_message_mentions_for_actor(actor, 0, 50)
+                .await
+                .unwrap()
+                .into_iter()
+                .filter(|context| context.message.id == sent.message.id)
+                .count()
+        }
+    };
+    assert_eq!(pending("delivery-build").await, 0);
+
+    // Someone outside the Room is refused, and the refused edit leaves no revision behind.
+    let outsider = org
+        .edit_room_message_with_mentions(
+            room.id,
+            "owner",
+            sent.message.id,
+            0,
+            "@exec @research-science can we ship?",
+            "room-edit-mentions-outsider",
+            &[
+                NewRoomMessageMention::actor("exec"),
+                NewRoomMessageMention::actor("research-science"),
+            ],
+        )
+        .await
+        .unwrap_err();
+    assert!(outsider.to_string().contains("participant"), "{outsider}");
+
+    let edit = |command: &'static str| {
+        let org = &org;
+        async move {
+            org.edit_room_message_with_mentions(
+                room.id,
+                "owner",
+                sent.message.id,
+                0,
+                "@exec @delivery-build can we ship?",
+                command,
+                &[
+                    NewRoomMessageMention::actor("exec"),
+                    NewRoomMessageMention::actor("delivery-build"),
+                ],
+            )
+            .await
+            .unwrap()
+        }
+    };
+    let first = edit("room-edit-mentions-edit").await;
+    assert!(first.created);
+    assert_eq!(first.revision.revision_number, 1);
+    // The newly named person is asked; the one already asked is not asked twice.
+    assert_eq!(pending("delivery-build").await, 1);
+    assert_eq!(pending("exec").await, 1);
+    // A retried edit replays without asking anyone again.
+    let retry = edit("room-edit-mentions-edit").await;
+    assert!(!retry.created);
+    assert_eq!(pending("delivery-build").await, 1);
+}

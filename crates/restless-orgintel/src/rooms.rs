@@ -124,6 +124,7 @@ fn room_message_edit_digest(
     editor_actor: &str,
     expected_revision_number: i64,
     body: &str,
+    mentions: &[NewRoomMessageMention],
 ) -> String {
     let mut digest = Sha256::new();
     for part in [
@@ -134,6 +135,15 @@ fn room_message_edit_digest(
         expected_revision_number.to_string(),
         body.to_string(),
     ] {
+        digest.update((part.len() as u64).to_be_bytes());
+        digest.update(part.as_bytes());
+    }
+    if !mentions.is_empty() {
+        // An edit without mentions keeps its earlier digest, so a retried edit still replays.
+        let part = format!(
+            "restless.room-message.edit-mentions.v1:{}",
+            serde_json::to_string(mentions).expect("a Room mention command is serializable")
+        );
         digest.update((part.len() as u64).to_be_bytes());
         digest.update(part.as_bytes());
     }
@@ -418,6 +428,219 @@ async fn lock_focused_room_mention_actors_in_tx(
         true,
     )
     .await
+}
+
+/// Admits a Message's mentions before any is created: Work they name must be visible in this
+/// Room, the author and recipient pending-mention quotas hold, and every recipient is a current
+/// participant. A send and an edit that names new people share these rules.
+async fn admit_room_mentions_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    room_id: Uuid,
+    author_actor: &str,
+    mentions: &[NewRoomMessageMention],
+) -> Result<()> {
+    let linked_work_ids = mentions
+        .iter()
+        .filter_map(|mention| mention.work_id)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let target_ids = mentions
+        .iter()
+        .map(|mention| mention.actor_id.clone())
+        .collect::<Vec<_>>();
+    if !linked_work_ids.is_empty() {
+        // Work references are collaboration capabilities, not decorative
+        // metadata. Lock and admit only company-visible Work or Work
+        // explicitly scoped to this same Room. Every mention recipient is
+        // checked as an active Room participant below, so the same test
+        // protects both author and recipients without an object-wide ACL.
+        let visible_work_ids = sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM work \
+             WHERE id=ANY($1) AND (collaboration_visibility='company' \
+                OR (collaboration_visibility='room' AND collaboration_room_id=$2)) \
+             ORDER BY id FOR SHARE",
+        )
+        .bind(&linked_work_ids)
+        .bind(room_id)
+        .fetch_all(&mut **tx)
+        .await?;
+        if visible_work_ids != linked_work_ids {
+            return Err(OrgIntelError::RoomAccessDenied(
+                "a Work-scoped mention must reference company Work or Work shared with this exact Room"
+                    .into(),
+            ));
+        }
+    }
+
+    if !mentions.is_empty() {
+        // Quota locks are semantic and transaction-scoped: every process
+        // contending for the same author or recipient serializes before
+        // it counts and creates mention rows. They never replace the
+        // durable mention rows and cannot be lost on daemon restart.
+        let mut quota_keys = vec![format!("out:{author_actor}")];
+        quota_keys.extend(target_ids.iter().map(|actor_id| format!("in:{actor_id}")));
+        quota_keys.sort();
+        quota_keys.dedup();
+        for quota_key in quota_keys {
+            sqlx::query(
+                "SELECT pg_advisory_xact_lock(\
+                   hashtextextended('restless-room-mention-quota:' || current_schema() || ':' || $1,0)\
+                 )",
+            )
+            .bind(quota_key)
+            .execute(&mut **tx)
+            .await?;
+        }
+        let authored_pending: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM message_mentions mention \
+             JOIN messages message ON message.id=mention.message_id \
+             WHERE message.from_actor=$1 AND mention.resolution_message_id IS NULL \
+               AND mention.cancelled_event_id IS NULL",
+        )
+        .bind(author_actor)
+        .fetch_one(&mut **tx)
+        .await?;
+        if authored_pending.saturating_add(mentions.len() as i64)
+            > MAX_PENDING_MENTIONS_AUTHORED_PER_ACTOR
+        {
+            return Err(OrgIntelError::InvalidRoom(format!(
+                "an Actor may author at most {MAX_PENDING_MENTIONS_AUTHORED_PER_ACTOR} pending mentions"
+            )));
+        }
+        let saturated_recipient: Option<String> = sqlx::query_scalar(
+            "SELECT mentioned_actor_id FROM message_mentions \
+             WHERE mentioned_actor_id=ANY($1) AND resolution_message_id IS NULL \
+               AND cancelled_event_id IS NULL \
+             GROUP BY mentioned_actor_id HAVING COUNT(*) >= $2 \
+             ORDER BY mentioned_actor_id LIMIT 1",
+        )
+        .bind(&target_ids)
+        .bind(MAX_PENDING_MENTIONS_FOR_ACTOR)
+        .fetch_optional(&mut **tx)
+        .await?;
+        if let Some(actor_id) = saturated_recipient {
+            return Err(OrgIntelError::InvalidRoom(format!(
+                "Actor {actor_id:?} already has the maximum {MAX_PENDING_MENTIONS_FOR_ACTOR} pending mentions"
+            )));
+        }
+    }
+
+    if !mentions.is_empty() {
+        let active_participants = sqlx::query_scalar::<_, String>(
+            "SELECT participant.actor_id FROM room_participants participant \
+             WHERE participant.room_id=$1 AND participant.actor_id=ANY($2) \
+               AND participant.left_at IS NULL ORDER BY participant.actor_id \
+             FOR SHARE OF participant",
+        )
+        .bind(room_id)
+        .bind(&target_ids)
+        .fetch_all(&mut **tx)
+        .await?;
+        if active_participants.iter().ne(target_ids.iter()) {
+            return Err(OrgIntelError::RoomAccessDenied(
+                "every mentioned Actor must be a current active Room participant".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Creates the admitted mentions of one Message, each with its own durable event, and pauses
+/// only the Work a blocking mention names.
+async fn insert_room_mentions_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    room_id: Uuid,
+    author_actor: &str,
+    message_id: i64,
+    thread_root_message_id: i64,
+    mentions: &[NewRoomMessageMention],
+) -> Result<()> {
+    for mention in mentions {
+        let mention_id = Uuid::new_v4();
+        let mention_kind = if mention.actor_id == "exec" {
+            MessageMentionKind::Exec
+        } else {
+            MessageMentionKind::Direct
+        };
+        let created_event_id = append_room_event(
+            tx,
+            "room.mention.created.v1",
+            room_id,
+            author_actor,
+            Some(message_id),
+            serde_json::json!({
+                "mention_id": mention_id,
+                "mentioned_actor_id": mention.actor_id,
+            }),
+        )
+        .await?;
+        sqlx::query(
+            "INSERT INTO message_mentions \
+             (id,room_id,message_id,thread_root_message_id,mentioned_actor_id,kind,work_id, \
+              why_this_actor,expected_response,recommendation,alternatives,evidence, \
+              uncertainty,affected_scope,deadline_at,fallback,independent_work_can_continue, \
+              created_event_id) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)",
+        )
+        .bind(mention_id)
+        .bind(room_id)
+        .bind(message_id)
+        .bind(thread_root_message_id)
+        .bind(&mention.actor_id)
+        .bind(mention_kind)
+        .bind(mention.work_id)
+        .bind(mention.why_this_actor.as_deref())
+        .bind(mention.expected_response.as_deref())
+        .bind(mention.recommendation.as_deref())
+        .bind(
+            serde_json::to_value(&mention.alternatives)
+                .expect("mention alternatives serialize"),
+        )
+        .bind(serde_json::to_value(&mention.evidence).expect("mention evidence serializes"))
+        .bind(mention.uncertainty.as_deref())
+        .bind(mention.affected_scope.as_deref())
+        .bind(mention.deadline_at)
+        .bind(mention.fallback.as_deref())
+        .bind(mention.independent_work_can_continue)
+        .bind(created_event_id)
+        .execute(&mut **tx)
+        .await?;
+        if let Some(work_id) = mention
+            .work_id
+            .filter(|_| !mention.independent_work_can_continue)
+        {
+            // A blocking human/agent question pauses only the Work it
+            // names. The marker lets the resolving transaction distinguish
+            // this wait from an unrelated gate or handoff block.
+            sqlx::query(
+                "UPDATE work SET status='blocked',resolution=$2,updated_at=now() \
+                 WHERE id=$1 AND status IN ('proposed','active')",
+            )
+            .bind(work_id)
+            .bind(format!("awaiting Room input {mention_id}"))
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+/// Everyone one Message has ever asked, whatever became of the question.
+async fn message_mention_actor_ids_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    room_id: Uuid,
+    message_id: i64,
+) -> Result<BTreeSet<String>> {
+    Ok(sqlx::query_scalar::<_, String>(
+        "SELECT mentioned_actor_id FROM message_mentions WHERE room_id=$1 AND message_id=$2",
+    )
+    .bind(room_id)
+    .bind(message_id)
+    .fetch_all(&mut **tx)
+    .await?
+    .into_iter()
+    .collect())
 }
 
 async fn lock_conversation_targets_in_tx(
@@ -2350,12 +2573,6 @@ impl OrgIntel {
             ));
         }
         let mentions = normalized_mentions(author_actor, mentions)?;
-        let linked_work_ids = mentions
-            .iter()
-            .filter_map(|mention| mention.work_id)
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect::<Vec<_>>();
         let payload_sha256 = room_message_digest(
             room_id,
             author_actor,
@@ -2427,100 +2644,7 @@ impl OrgIntel {
         .await?;
         let kind = active_room_kind(&mut tx, room_id, author_actor).await?;
 
-        if !linked_work_ids.is_empty() {
-            // Work references are collaboration capabilities, not decorative
-            // metadata. Lock and admit only company-visible Work or Work
-            // explicitly scoped to this same Room. Every mention recipient is
-            // checked as an active Room participant below, so the same test
-            // protects both author and recipients without an object-wide ACL.
-            let visible_work_ids = sqlx::query_scalar::<_, Uuid>(
-                "SELECT id FROM work \
-                 WHERE id=ANY($1) AND (collaboration_visibility='company' \
-                    OR (collaboration_visibility='room' AND collaboration_room_id=$2)) \
-                 ORDER BY id FOR SHARE",
-            )
-            .bind(&linked_work_ids)
-            .bind(room_id)
-            .fetch_all(&mut *tx)
-            .await?;
-            if visible_work_ids != linked_work_ids {
-                return Err(OrgIntelError::RoomAccessDenied(
-                    "a Work-scoped mention must reference company Work or Work shared with this exact Room"
-                        .into(),
-                ));
-            }
-        }
-
-        if !mentions.is_empty() {
-            // Quota locks are semantic and transaction-scoped: every process
-            // contending for the same author or recipient serializes before
-            // it counts and creates mention rows. They never replace the
-            // durable mention rows and cannot be lost on daemon restart.
-            let mut quota_keys = vec![format!("out:{author_actor}")];
-            quota_keys.extend(target_ids.iter().map(|actor_id| format!("in:{actor_id}")));
-            quota_keys.sort();
-            quota_keys.dedup();
-            for quota_key in quota_keys {
-                sqlx::query(
-                    "SELECT pg_advisory_xact_lock(\
-                       hashtextextended('restless-room-mention-quota:' || current_schema() || ':' || $1,0)\
-                     )",
-                )
-                .bind(quota_key)
-                .execute(&mut *tx)
-                .await?;
-            }
-            let authored_pending: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM message_mentions mention \
-                 JOIN messages message ON message.id=mention.message_id \
-                 WHERE message.from_actor=$1 AND mention.resolution_message_id IS NULL \
-                   AND mention.cancelled_event_id IS NULL",
-            )
-            .bind(author_actor)
-            .fetch_one(&mut *tx)
-            .await?;
-            if authored_pending.saturating_add(mentions.len() as i64)
-                > MAX_PENDING_MENTIONS_AUTHORED_PER_ACTOR
-            {
-                return Err(OrgIntelError::InvalidRoom(format!(
-                    "an Actor may author at most {MAX_PENDING_MENTIONS_AUTHORED_PER_ACTOR} pending mentions"
-                )));
-            }
-            let saturated_recipient: Option<String> = sqlx::query_scalar(
-                "SELECT mentioned_actor_id FROM message_mentions \
-                 WHERE mentioned_actor_id=ANY($1) AND resolution_message_id IS NULL \
-                   AND cancelled_event_id IS NULL \
-                 GROUP BY mentioned_actor_id HAVING COUNT(*) >= $2 \
-                 ORDER BY mentioned_actor_id LIMIT 1",
-            )
-            .bind(&target_ids)
-            .bind(MAX_PENDING_MENTIONS_FOR_ACTOR)
-            .fetch_optional(&mut *tx)
-            .await?;
-            if let Some(actor_id) = saturated_recipient {
-                return Err(OrgIntelError::InvalidRoom(format!(
-                    "Actor {actor_id:?} already has the maximum {MAX_PENDING_MENTIONS_FOR_ACTOR} pending mentions"
-                )));
-            }
-        }
-
-        if !mentions.is_empty() {
-            let active_participants = sqlx::query_scalar::<_, String>(
-                "SELECT participant.actor_id FROM room_participants participant \
-                 WHERE participant.room_id=$1 AND participant.actor_id=ANY($2) \
-                   AND participant.left_at IS NULL ORDER BY participant.actor_id \
-                 FOR SHARE OF participant",
-            )
-            .bind(room_id)
-            .bind(&target_ids)
-            .fetch_all(&mut *tx)
-            .await?;
-            if active_participants.iter().ne(target_ids.iter()) {
-                return Err(OrgIntelError::RoomAccessDenied(
-                    "every mentioned Actor must be a current active Room participant".into(),
-                ));
-            }
-        }
+        admit_room_mentions_in_tx(&mut tx, room_id, author_actor, &mentions).await?;
 
         if let Some(claim_token) = resolution_claim_token {
             let Some(mention_id) = resolves_mention_id else {
@@ -2683,73 +2807,15 @@ impl OrgIntel {
             }
         }
 
-        for mention in &mentions {
-            let mention_id = Uuid::new_v4();
-            let mention_kind = if mention.actor_id == "exec" {
-                MessageMentionKind::Exec
-            } else {
-                MessageMentionKind::Direct
-            };
-            let created_event_id = append_room_event(
-                &mut tx,
-                "room.mention.created.v1",
-                room_id,
-                author_actor,
-                Some(message_id),
-                serde_json::json!({
-                    "mention_id": mention_id,
-                    "mentioned_actor_id": mention.actor_id,
-                }),
-            )
-            .await?;
-            sqlx::query(
-                "INSERT INTO message_mentions \
-                 (id,room_id,message_id,thread_root_message_id,mentioned_actor_id,kind,work_id, \
-                  why_this_actor,expected_response,recommendation,alternatives,evidence, \
-                  uncertainty,affected_scope,deadline_at,fallback,independent_work_can_continue, \
-                  created_event_id) \
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)",
-            )
-            .bind(mention_id)
-            .bind(room_id)
-            .bind(message_id)
-            .bind(thread_root_message_id.unwrap_or(message_id))
-            .bind(&mention.actor_id)
-            .bind(mention_kind)
-            .bind(mention.work_id)
-            .bind(mention.why_this_actor.as_deref())
-            .bind(mention.expected_response.as_deref())
-            .bind(mention.recommendation.as_deref())
-            .bind(
-                serde_json::to_value(&mention.alternatives)
-                    .expect("mention alternatives serialize"),
-            )
-            .bind(serde_json::to_value(&mention.evidence).expect("mention evidence serializes"))
-            .bind(mention.uncertainty.as_deref())
-            .bind(mention.affected_scope.as_deref())
-            .bind(mention.deadline_at)
-            .bind(mention.fallback.as_deref())
-            .bind(mention.independent_work_can_continue)
-            .bind(created_event_id)
-            .execute(&mut *tx)
-            .await?;
-            if let Some(work_id) = mention
-                .work_id
-                .filter(|_| !mention.independent_work_can_continue)
-            {
-                // A blocking human/agent question pauses only the Work it
-                // names. The marker lets the resolving transaction distinguish
-                // this wait from an unrelated gate or handoff block.
-                sqlx::query(
-                    "UPDATE work SET status='blocked',resolution=$2,updated_at=now() \
-                     WHERE id=$1 AND status IN ('proposed','active')",
-                )
-                .bind(work_id)
-                .bind(format!("awaiting Room input {mention_id}"))
-                .execute(&mut *tx)
-                .await?;
-            }
-        }
+        insert_room_mentions_in_tx(
+            &mut tx,
+            room_id,
+            author_actor,
+            message_id,
+            thread_root_message_id.unwrap_or(message_id),
+            &mentions,
+        )
+        .await?;
 
         if let Some(mention_id) = resolves_mention_id {
             let Some(parent_message_id) = parent_message_id else {
@@ -2940,6 +3006,36 @@ impl OrgIntel {
         body: &str,
         client_command_id: &str,
     ) -> Result<RoomMessageEditResult> {
+        self.edit_room_message_with_mentions(
+            room_id,
+            editor_actor,
+            message_id,
+            expected_revision_number,
+            body,
+            client_command_id,
+            &[],
+        )
+        .await
+    }
+
+    /// The same revision, naming everyone the new body asks. People it names for the first
+    /// time are asked under a send's rules (current participants, pending-mention quotas);
+    /// anyone the Message already asked keeps their original mention, and a name the edit
+    /// drops does not withdraw a question already asked.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the Room edit keeps attribution, fencing, retry and mention semantics explicit"
+    )]
+    pub async fn edit_room_message_with_mentions(
+        &self,
+        room_id: Uuid,
+        editor_actor: &str,
+        message_id: i64,
+        expected_revision_number: i64,
+        body: &str,
+        client_command_id: &str,
+        mentions: &[NewRoomMessageMention],
+    ) -> Result<RoomMessageEditResult> {
         if body.trim().is_empty() || body.len() > MAX_ROOM_MESSAGE_BYTES {
             return Err(OrgIntelError::InvalidRoom(format!(
                 "a Room message revision needs 1 to {MAX_ROOM_MESSAGE_BYTES} bytes"
@@ -2951,12 +3047,14 @@ impl OrgIntel {
             ));
         }
         let client_command_id = validated_room_command_id(client_command_id)?;
+        let mentions = normalized_mentions(editor_actor, mentions)?;
         let payload_sha256 = room_message_edit_digest(
             room_id,
             message_id,
             editor_actor,
             expected_revision_number,
             body,
+            &mentions,
         );
 
         let mut tx = self.pool.begin().await?;
@@ -2975,17 +3073,45 @@ impl OrgIntel {
             tx.commit().await?;
             return Ok(result);
         }
+        // Only people this Message has not asked yet are new. Its mention rows are written by
+        // its send and by its author's edits, which serialize on the author's Actor lock below,
+        // so the set is reread once that lock is held.
+        let mut new_mentions = if mentions.is_empty() {
+            Vec::new()
+        } else {
+            let asked = message_mention_actor_ids_in_tx(&mut tx, room_id, message_id).await?;
+            mentions
+                .into_iter()
+                .filter(|mention| !asked.contains(&mention.actor_id))
+                .collect::<Vec<_>>()
+        };
         // The Actor is the command-id serialization boundary and is locked
         // before the Room, matching every other Room lifecycle operation.
-        sqlx::query("SELECT id FROM actors WHERE id=$1 FOR UPDATE")
-            .bind(editor_actor)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or_else(|| {
-                OrgIntelError::RoomAccessDenied(
-                    "the active actor is not an active participant in this Room".into(),
-                )
-            })?;
+        // Newly asked people are locked with it, in the same order a send uses.
+        if new_mentions.is_empty() {
+            sqlx::query("SELECT id FROM actors WHERE id=$1 FOR UPDATE")
+                .bind(editor_actor)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or_else(|| {
+                    OrgIntelError::RoomAccessDenied(
+                        "the active actor is not an active participant in this Room".into(),
+                    )
+                })?;
+        } else {
+            let target_ids = new_mentions
+                .iter()
+                .map(|mention| mention.actor_id.clone())
+                .collect::<Vec<_>>();
+            lock_focused_room_mention_actors_in_tx(
+                &mut tx,
+                &target_ids,
+                true,
+                &[editor_actor.to_string()],
+                true,
+            )
+            .await?;
+        }
         if let Some(result) = replay_room_message_edit_in_tx(
             &mut tx,
             room_id,
@@ -3002,6 +3128,7 @@ impl OrgIntel {
 
         let message = sqlx::query(
             "SELECT message.from_actor,message.deleted_at,message.current_plain_text, \
+                    COALESCE(message.thread_root_message_id,message.id) AS thread_root, \
                     COALESCE(revision.revision_number,0) AS revision_number \
              FROM messages message \
              LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
@@ -3041,6 +3168,12 @@ impl OrgIntel {
                 "a Message edit must change the visible body".into(),
             ));
         }
+        if !new_mentions.is_empty() {
+            let asked = message_mention_actor_ids_in_tx(&mut tx, room_id, message_id).await?;
+            new_mentions.retain(|mention| !asked.contains(&mention.actor_id));
+            admit_room_mentions_in_tx(&mut tx, room_id, editor_actor, &new_mentions).await?;
+        }
+        let thread_root_message_id: i64 = message.get("thread_root");
 
         let revision_id = Uuid::new_v4();
         let revision_number = current_revision_number + 1;
@@ -3086,6 +3219,15 @@ impl OrgIntel {
         .bind(body)
         .bind(revision.created_at)
         .execute(&mut *tx)
+        .await?;
+        insert_room_mentions_in_tx(
+            &mut tx,
+            room_id,
+            editor_actor,
+            message_id,
+            thread_root_message_id,
+            &new_mentions,
+        )
         .await?;
         tx.commit().await?;
         Ok(RoomMessageEditResult {

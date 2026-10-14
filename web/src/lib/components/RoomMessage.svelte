@@ -14,10 +14,13 @@
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
 	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
 	import type { MessageAttachment, ThreadMessage } from '$lib/model/view';
-	import type {
-		RoomMention,
-		RoomMessage as RoomMessageRecord,
-		RoomMessageRevision
+	import {
+		readableMentions,
+		resolveReadableMentions,
+		type MentionPerson,
+		type RoomMention,
+		type RoomMessage as RoomMessageRecord,
+		type RoomMessageRevision
 	} from '$lib/model/rooms';
 
 	let {
@@ -49,6 +52,8 @@
 		onedit = null,
 		ondelete = null,
 		nameFor = null,
+		mentionPeople = null,
+		askable = null,
 		replies = null,
 		onjump = null,
 		pinned = false,
@@ -87,6 +92,10 @@
 		ondelete?: ((commandId: string) => Promise<void>) | null;
 		/** A person's display name, so mentions read as names, not actor ids. */
 		nameFor?: ((actorId: string) => string) | null;
+		/** Everyone a mention can name, so the edit field reads names and saves ids. */
+		mentionPeople?: readonly MentionPerson[] | null;
+		/** Whether a person named in an edit can be asked here (is in the conversation). */
+		askable?: ((actorId: string) => boolean) | null;
 		/** This root's Thread, when it has replies. */
 		replies?: { count: number; lastAt: string; repliers: string[] } | null;
 		/** Copies a link to this exact message. */
@@ -206,17 +215,25 @@
 		);
 	}
 
-	/* An edit changes the words, not who was asked: people named only in the edit are not told. */
+	/* The edit field reads names; what is saved names people by id, as a send does. */
+	function savedBody(text: string): string {
+		return mentionPeople ? resolveReadableMentions(text, mentionPeople) : text;
+	}
+	/* Saving an edit asks the people it names for the first time, if they are in the conversation. */
 	const newlyNamed = $derived.by(() => {
-		if (!editing || !nameFor) return [];
+		if (!editing || !nameFor) return { asked: [], outside: [] };
 		const before = mentionedIds(message.body);
-		return [...mentionedIds(editBody)]
-			.filter((id) => !before.has(id) && nameFor!(id) !== id && nameFor!(id) !== 'You')
-			.map((id) => nameFor!(id));
+		const added = [...mentionedIds(savedBody(editBody))].filter(
+			(id) => !before.has(id) && nameFor!(id) !== id && nameFor!(id) !== 'You'
+		);
+		return {
+			asked: added.filter((id) => !askable || askable(id)).map((id) => nameFor!(id)),
+			outside: added.filter((id) => askable && !askable(id)).map((id) => nameFor!(id))
+		};
 	});
 
 	function beginEdit() {
-		editBody = message.body;
+		editBody = mentionPeople ? readableMentions(message.body, mentionPeople) : message.body;
 		editCommandId = null;
 		editCommandBody = '';
 		editError = '';
@@ -232,7 +249,7 @@
 	}
 
 	async function saveEdit() {
-		const body = editBody.trim();
+		const body = savedBody(editBody.trim());
 		if (!body || body === message.body || !onedit || saving) return;
 		const commandId =
 			editCommandId && editCommandBody === body ? editCommandId : crypto.randomUUID();
@@ -329,8 +346,13 @@
 							}
 						}}></textarea>
 				</label>
-				{#if newlyNamed.length}<p class="edit-note">
-						Editing does not notify {newlyNamed.join(', ')}. Mention them in a reply to reach them.
+				{#if newlyNamed.asked.length}<p class="edit-note">
+						Saving asks {newlyNamed.asked.join(', ')} to reply.
+					</p>{/if}
+				{#if newlyNamed.outside.length}<p class="edit-note">
+						{newlyNamed.outside.join(', ')}
+						{newlyNamed.outside.length === 1 ? 'isn’t' : 'aren’t'} in this conversation, so they won’t
+						be asked.
 					</p>{/if}
 				<div class="edit-controls">
 					<button

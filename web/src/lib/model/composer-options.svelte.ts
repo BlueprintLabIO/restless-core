@@ -2,6 +2,7 @@
  * talks to an agent, and the Exec's `/goal` and `/loop` commands wherever the
  * owner talks to the Exec. */
 import { EXEC_COMMANDS, fetchSkillLibrary, skillOptions, type ComposerOption } from './skills';
+import { mentionInsert, type MentionPerson } from './rooms';
 
 export function composerOptions(
 	company: () => string,
@@ -141,4 +142,22 @@ export function referenceOptions(
 				insert: `@${person.actor_id} `
 			}))
 	];
+}
+
+/* `@` in a conversation names anyone in it, whatever the viewer's role. The draft reads their
+ * name; `resolveReadableMentions` turns it back into the id when the message is sent. */
+export function personOptions(
+	people: { actor_id: string; display: string; role?: string; kind?: string }[],
+	/** Everyone a name is resolved against when sending; a name shared there keeps its id. */
+	everyone: readonly MentionPerson[] = people
+): ComposerOption[] {
+	return people
+		.filter((person) => person.kind !== 'system')
+		.map((person) => ({
+			kind: 'person' as const,
+			name: `${person.actor_id} ${person.display.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-')}`,
+			label: person.display,
+			description: person.role ?? '',
+			insert: mentionInsert(person, everyone)
+		}));
 }
