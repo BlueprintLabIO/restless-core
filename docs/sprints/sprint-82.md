@@ -365,7 +365,14 @@ moves all of them onto one data layer.
   and intercepts the conversation. An Exec turn that follows the new charter doctrine needs a
   model; the next real charter request on Cloud is that check.
 - **The owner's view on Cloud** needs the owner's sign-in; the in-app browser holds a member's.
-- **The Cloud direct-link hop** (`/company_…` → `/account?return=` → back) is a Cloud gateway
-  change: mint the company session before serving the app. It is not in this Core change.
+- **The direct-link hop is shortened, not removed.** Without a session for the company's plane, a
+  link must go through the account: that is where the session is made. The edge router now sends a
+  top-level visit there itself, before asking the plane
+  ([restless-cloud#88](https://github.com/BlueprintLabIO/restless-cloud/pull/88), deploy
+  `38545592906`).
+  - Production: a sessionless visit gets a 303 to `/account?return=<page>` from the router; the
+    API keeps the plane's own 401.
+  - The round trip to the plane (about 300 ms) is gone; the visit to the account remains by
+    design.
 - **The `CharterProposal` database scenario has no Rust test.** The live charter journey and the
   multiplayer smoke cover it against the real stack.
