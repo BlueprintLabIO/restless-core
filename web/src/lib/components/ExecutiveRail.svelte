@@ -55,11 +55,17 @@
 	import type { OutcomeStandard } from '$lib/model/company';
 	import type { ThreadMessage } from '$lib/model/view';
 	import { runExecCommand } from '$lib/model/skills';
-	import { PIN, reactionsQuery } from '$lib/model/reactions.svelte';
+	import { PIN, reactionsQuery, roomPinsQuery } from '$lib/model/reactions.svelte';
 	import { workDraftFrom, askExec } from '$lib/model/ask-exec';
 	import Pin from '@lucide/svelte/icons/pin';
 	import { recentDirectConversationsQuery } from '$lib/model/room-queries.svelte';
-	import { conversationUnread, deleteRoomMessage, markRoomRead } from '$lib/model/rooms';
+	import {
+		conversationUnread,
+		deleteRoomMessage,
+		markRoomRead,
+		messagePreview,
+		searchRoomMessages
+	} from '$lib/model/rooms';
 	import { goto } from '$app/navigation';
 	import {
 		composerOptions,
@@ -116,7 +122,9 @@
 		uploadProgress = null,
 		onstopturn = null,
 		onretryturn = null,
-		ambientTurn = null
+		ambientTurn = null,
+		hasEarlier = false,
+		onloadearlier = null
 	}: {
 		messages?: ThreadMessage[];
 		participantName?: string;
@@ -196,6 +204,10 @@
 		onretryturn?: (() => Promise<string | null>) | null;
 		/** What the agent is doing when no person's message started it (a schedule, a result). */
 		ambientTurn?: ActiveAgentTurn | null;
+		/** The server holds messages older than the ones loaded. */
+		hasEarlier?: boolean;
+		/** Pages in earlier messages; resolves to how many arrived. */
+		onloadearlier?: (() => Promise<number>) | null;
 	} = $props();
 	let focusedFor = 0;
 	$effect(() => {
@@ -235,15 +247,29 @@
 	const canOperate = $derived(['owner', 'admin', 'member'].includes(membershipRole ?? ''));
 	const canDecide = $derived(canOperate);
 
-	/* Pinned messages stay in reach above the conversation. */
-	const pinnedMessages = $derived.by(() => {
-		const ids = reactions.pinned();
-		return messages.filter((message) => ids.has(messageNumericId(message.id)));
-	});
+	/* Pinned messages stay in reach above the conversation, however old: the direct conversation's
+	 * pins come as their own list; elsewhere they are found among the messages held. */
+	const pinnedMessages = $derived.by(
+		(): { id: string; from: ThreadMessage['from']; author: string; text: string }[] => {
+			const listed = roomPins?.pins;
+			if (listed)
+				return listed.map((pin) => ({
+					id: String(pin.id),
+					from: pin.from_actor === viewerActorId ? 'you' : 'agent',
+					author: pin.from_actor === viewerActorId ? 'You' : participantName,
+					text: pin.body
+				}));
+			const ids = reactions.pinned();
+			return messages.filter((message) => ids.has(messageNumericId(message.id)));
+		}
+	);
+	function isPinned(id: number): boolean {
+		return reactions.pinned().has(id) || pinnedMessages.some((pin) => Number(pin.id) === id);
+	}
 	let pinsOpen = $state(false);
 	function togglePin(message: ThreadMessage) {
 		const id = messageNumericId(message.id);
-		if (id > 0) void reactions.react(id, PIN, !reactions.pinned().has(id));
+		if (id > 0) void reactions.react(id, PIN, !isPinned(id));
 	}
 	async function copyLink(message: ThreadMessage) {
 		const href = new URL(
@@ -354,6 +380,15 @@
 	}
 
 	async function jumpToMessage(messageId: string) {
+		/* A search hit older than what is loaded: page back to it (a bounded number of pages). */
+		for (
+			let pages = 0;
+			pages < 20 && hasEarlier && onloadearlier && !messages.some((m) => m.id === messageId);
+			pages++
+		) {
+			if (!(await onloadearlier())) break;
+			await tick();
+		}
 		const index = messages.findIndex((entry) => entry.id === messageId);
 		if (index >= 0 && index < windowStart) await showEarlier(index);
 		const message = document.getElementById(messageDomId(messageId));
@@ -620,6 +655,11 @@
 	const isDirectTopic = $derived(
 		!review && !workContext && (!currentTopicKey.includes(':') || currentTopicKey.endsWith(':'))
 	);
+	const roomPins = roomPinsQuery(
+		() => companyId,
+		() => directRoom,
+		() => open && isDirectTopic
+	);
 	let readMarking = '';
 	$effect(() => {
 		const row = directRow;
@@ -640,6 +680,15 @@
 				if (readMarking === key) readMarking = '';
 			});
 	});
+	/* Search reaches the whole conversation on the server, not only what is loaded. */
+	async function searchAll(text: string, signal: AbortSignal) {
+		const page = await searchRoomMessages(companyId, text, null, 20, signal, directRoom);
+		return page.messages.map((hit) => ({
+			id: String(hit.id),
+			snippet: hit.snippet,
+			fromViewer: hit.from_actor === viewerActorId
+		}));
+	}
 	/* Another conversation in the switcher with something new since you read it. */
 	function topicHasNew(entry: { key: string; topic: { actorId: string; workId?: string } | null }) {
 		if (entry.key === currentTopicKey || entry.topic?.workId) return false;
@@ -820,10 +869,29 @@
 
 	/* Prepending earlier messages keeps the reader's place rather than jumping
 	 * them to the top of what was just loaded. */
+	let loadingEarlier = $state(false);
+	let earlierError = $state('');
 	async function showEarlier(through = windowStart) {
 		const el = scrollEl;
 		const before = el ? el.scrollHeight - el.scrollTop : 0;
 		el?.dispatchEvent(new Event('chat-scroll-pause'));
+		/* Everything loaded is shown: ask the server for the page before it. */
+		if (through === 0 && windowStart === 0 && hasEarlier && onloadearlier) {
+			if (loadingEarlier) return;
+			loadingEarlier = true;
+			earlierError = '';
+			try {
+				const arrived = await onloadearlier();
+				messageWindow += arrived;
+			} catch (cause) {
+				earlierError = failureSentence(cause, 'Earlier messages could not be loaded.');
+			} finally {
+				loadingEarlier = false;
+			}
+			await tick();
+			if (el) el.scrollTop = el.scrollHeight - before;
+			return;
+		}
 		messageWindow = Math.max(messageWindow + MESSAGE_WINDOW, messages.length - through);
 		await tick();
 		if (el) el.scrollTop = el.scrollHeight - before;
@@ -1115,7 +1183,13 @@
 						>
 					{/if}
 					{#if visibleMessages.length}
-						<ConversationHistoryTools {messages} {participantName} onjump={jumpToMessage} />
+						<ConversationHistoryTools
+							{messages}
+							{participantName}
+							onjump={jumpToMessage}
+							more={hasEarlier}
+							onsearchall={directRoom && isDirectTopic ? searchAll : null}
+						/>
 					{/if}
 					{#if !review && !workContext && !wide}
 						<a
@@ -1175,7 +1249,7 @@
 			<details class="pinned" bind:open={pinsOpen}>
 				<summary
 					><Pin size={12} aria-hidden="true" />{pinnedMessages.length} pinned{#if !pinsOpen}<span
-							class="pinned-first">{pinnedMessages.at(-1)?.text.slice(0, 80)}</span
+							class="pinned-first">{messagePreview(pinnedMessages.at(-1)?.text).slice(0, 80)}</span
 						>{/if}</summary
 				>
 				{#each pinnedMessages as message (message.id)}
@@ -1186,7 +1260,7 @@
 							jumpToMessage(message.id);
 						}}
 						><strong>{message.from === 'you' ? 'You' : message.author || participantName}</strong
-						><span>{message.text.replace(/\s+/g, ' ').slice(0, 140)}</span></button
+						><span>{messagePreview(message.text).slice(0, 140)}</span></button
 					>
 				{/each}
 			</details>
@@ -1222,10 +1296,15 @@
 						}
 					}}
 				>
-					{#if everOpened && windowStart}
-						<button type="button" class="exr-earlier" onclick={() => void showEarlier()}
-							>Show earlier messages</button
+					{#if everOpened && (windowStart || hasEarlier)}
+						<button
+							type="button"
+							class="exr-earlier"
+							disabled={loadingEarlier}
+							onclick={() => void showEarlier()}
+							>{loadingEarlier ? 'Loading earlier messages…' : 'Show earlier messages'}</button
 						>
+						{#if earlierError}<p class="exr-error" role="alert">{earlierError}</p>{/if}
 					{/if}
 					{#each everOpened ? visibleMessages : [] as message, i (message.clientKey ?? message.id)}
 						{#if focusDividerBefore(i)}
@@ -1279,7 +1358,7 @@
 										><Reply size={12} aria-hidden="true" /></button
 									>{/if}{#if canOperate && messageNumericId(message.id) > 0}<ActionMenu label="More"
 										><button type="button" onclick={() => togglePin(message)}
-											>{reactions.pinned().has(messageNumericId(message.id))
+											>{isPinned(messageNumericId(message.id))
 												? 'Unpin'
 												: 'Pin above the conversation'}</button
 										><button type="button" onclick={() => void copyLink(message)}>Copy link</button

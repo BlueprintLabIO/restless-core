@@ -10,12 +10,49 @@
 	let {
 		messages,
 		participantName,
-		onjump
+		onjump,
+		more = false,
+		onsearchall = null
 	}: {
 		messages: ThreadMessage[];
 		participantName: string;
 		onjump: (messageId: string) => void;
+		/** Earlier messages exist beyond the loaded ones. */
+		more?: boolean;
+		/** Searches the whole conversation on the server; hits not loaded here are listed. */
+		onsearchall?:
+			| ((
+					text: string,
+					signal: AbortSignal
+			  ) => Promise<{ id: string; snippet: string; fromViewer: boolean }[]>)
+			| null;
 	} = $props();
+	/* Hits from the whole history that are not among the loaded messages. */
+	let earlierHits = $state<{ id: string; snippet: string; fromViewer: boolean }[]>([]);
+	let searchingAll = $state(false);
+	$effect(() => {
+		const text = query.trim();
+		const search = onsearchall;
+		earlierHits = [];
+		if (!open || !search || text.length < 2) return;
+		const controller = new AbortController();
+		const timer = setTimeout(() => {
+			searchingAll = true;
+			search(text, controller.signal)
+				.then((hits) => {
+					const loaded = new Set(messages.map((message) => message.id));
+					earlierHits = hits.filter((hit) => !loaded.has(hit.id));
+				})
+				.catch(() => {
+					/* The loaded matches still answer; the server search is a reach further back. */
+				})
+				.finally(() => (searchingAll = false));
+		}, 300);
+		return () => {
+			clearTimeout(timer);
+			controller.abort();
+		};
+	});
 
 	let open = $state(false);
 	let query = $state('');
@@ -125,7 +162,11 @@
 								: `${activeMatch + 1} of ${matches.length}`
 							: 'No matches'}
 					{:else}
-						{messages.length} message{messages.length === 1 ? '' : 's'} in this record
+						{messages.length} message{messages.length === 1 ? '' : 's'} loaded{more
+							? onsearchall
+								? ' · search reaches earlier ones'
+								: ' · earlier ones exist'
+							: ''}
 					{/if}
 				</span>
 				<div class="history-nav">
@@ -147,6 +188,18 @@
 					</button>
 				</div>
 			</div>
+			{#if earlierHits.length}
+				<div class="history-earlier" aria-label="Matches in earlier messages">
+					{#each earlierHits as hit (hit.id)}
+						<button type="button" onclick={() => onjump(hit.id)}
+							><strong>{hit.fromViewer ? 'You' : participantName}</strong><span>{hit.snippet}</span
+							></button
+						>
+					{/each}
+				</div>
+			{:else if searchingAll}
+				<p class="history-searching" role="status">Searching earlier messages…</p>
+			{/if}
 		</div>
 	{/if}
 </div>
@@ -251,6 +304,50 @@
 		color: var(--text-tertiary);
 		font: 500 var(--t-label) var(--font-ui);
 		font-variant-numeric: tabular-nums;
+	}
+
+	.history-earlier {
+		display: grid;
+		max-height: 220px;
+		margin-top: 6px;
+		overflow-y: auto;
+		border-top: 1px solid var(--border);
+	}
+
+	.history-earlier button {
+		display: grid;
+		gap: 1px;
+		padding: 6px;
+		border: 0;
+		border-radius: var(--radius-control);
+		background: transparent;
+		color: var(--text-secondary);
+		font: inherit;
+		font-size: var(--t-label);
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.history-earlier button:hover {
+		background: var(--surface-alt);
+	}
+
+	.history-earlier strong {
+		color: var(--ink);
+		font-weight: 600;
+	}
+
+	.history-earlier span {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.history-searching {
+		margin: 6px 0 0;
+		padding: 0 6px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
 	}
 
 	.history-nav {

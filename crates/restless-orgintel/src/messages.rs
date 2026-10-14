@@ -2162,6 +2162,37 @@ impl OrgIntel {
         .await?)
     }
 
+    /// Messages pinned (reacted to with `emoji`) in one Room the person still
+    /// takes part in, oldest first and however old: a pin stays in reach
+    /// regardless of how many messages came after it.
+    pub async fn room_pinned_messages(
+        &self,
+        actor: &str,
+        room_id: Uuid,
+        emoji: &str,
+    ) -> Result<Vec<MessageRow>> {
+        Ok(sqlx::query_as(
+            "SELECT message.id,message.from_actor,message.to_actor,\
+                    COALESCE(revision.body,message.body) AS body,message.outcome_standard,\
+                    message.created_at,message.read_at \
+             FROM messages message \
+             JOIN rooms room ON room.id=message.room_id \
+             LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
+             WHERE message.room_id=$1 AND message.deleted_at IS NULL AND room.archived_at IS NULL \
+               AND EXISTS (SELECT 1 FROM message_reactions pin \
+                           WHERE pin.message_id=message.id AND pin.emoji=$3) \
+               AND EXISTS (SELECT 1 FROM room_participants viewer \
+                           WHERE viewer.room_id=room.id AND viewer.actor_id=$2 \
+                             AND viewer.left_at IS NULL) \
+             ORDER BY message.id LIMIT 50",
+        )
+        .bind(room_id)
+        .bind(actor)
+        .bind(emoji)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     /// Those of these messages a person can read: live messages in an active
     /// Room they still take part in.
     pub async fn room_messages_visible_to(
@@ -2762,6 +2793,20 @@ impl OrgIntel {
         target_actor: &str,
         limit: i64,
     ) -> Result<Vec<MessageRow>> {
+        self.human_conversation_before(human_actor, target_actor, None, limit)
+            .await
+    }
+
+    /// The direct conversation's newest messages older than `before_message_id`
+    /// (or the newest of all), oldest first: how a reader pages back through the
+    /// whole history.
+    pub async fn human_conversation_before(
+        &self,
+        human_actor: &str,
+        target_actor: &str,
+        before_message_id: Option<i64>,
+        limit: i64,
+    ) -> Result<Vec<MessageRow>> {
         let Some(room_id) = self
             .active_human_direct_room_id(human_actor, target_actor)
             .await?
@@ -2777,11 +2822,13 @@ impl OrgIntel {
                FROM messages message \
                LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
                WHERE message.room_id=$1 AND message.deleted_at IS NULL \
+                 AND ($3::bigint IS NULL OR message.id<$3) \
                ORDER BY message.id DESC LIMIT $2\
              ) recent ORDER BY id",
         )
         .bind(room_id)
         .bind(limit)
+        .bind(before_message_id)
         .fetch_all(&self.pool)
         .await?)
     }

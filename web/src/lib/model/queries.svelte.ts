@@ -534,6 +534,23 @@ export function conversationQuery(
 		};
 	});
 
+	/* The query holds the newest 100 messages; earlier ones are paged in on request and kept
+	 * here. Messages that later fall out of the newest 100 join them, so no gap opens. */
+	const PAGE = 100;
+	let older = $state<ActorConversation['messages']>([]);
+	let olderComplete = $state(false);
+	let lastHeld: ActorConversation['messages'] = [];
+	$effect(() => {
+		const held = (query.data as ActorConversation | undefined)?.messages ?? [];
+		if (older.length && held.length) {
+			const first = held[0].id;
+			const known = new Set(older.map((message) => message.id));
+			const fell = lastHeld.filter((message) => message.id < first && !known.has(message.id));
+			if (fell.length) older = [...older, ...fell].sort((a, b) => a.id - b.id);
+		}
+		lastHeld = held;
+	});
+
 	/* The placeholder leaves only once the server's copy is held. No read can drop that copy:
 	 * a local write cancels every older read in flight. */
 	$effect(() => {
@@ -550,7 +567,10 @@ export function conversationQuery(
 			const conversation = query.data as ActorConversation | undefined;
 			const actorDisplay =
 				conversation?.actor.id === 'exec' ? 'Exec' : (conversation?.actor.display ?? actorId);
-			const messages = (conversation?.messages ?? []).map((message) => {
+			const held = conversation?.messages ?? [];
+			const first = held[0]?.id ?? Infinity;
+			const earlier = older.filter((message) => message.id < first);
+			const messages = [...earlier, ...held].map((message) => {
 				const thread = threadMessage(message, actorDisplay, viewerActorId);
 				const key = sentKeys.get(thread.id);
 				return key ? { ...thread, clientKey: key } : thread;
@@ -605,6 +625,25 @@ export function conversationQuery(
 			return uncertainCommand?.id ?? null;
 		},
 		refresh: () => refresh(query),
+		/** Whether the server holds messages older than the ones here. */
+		get hasEarlier() {
+			if (workId || olderComplete) return false;
+			const held = (query.data as ActorConversation | undefined)?.messages ?? [];
+			return older.length > 0 || held.length >= PAGE;
+		},
+		/** Page in the next earlier messages; resolves to how many arrived. */
+		async loadEarlier(): Promise<number> {
+			if (workId || olderComplete) return 0;
+			const held = (query.data as ActorConversation | undefined)?.messages ?? [];
+			const oldest = older[0]?.id ?? held[0]?.id;
+			if (!oldest) return 0;
+			const page = await getActorConversation(companyId, actorId, undefined, oldest);
+			const known = new Set([...older, ...held].map((message) => message.id));
+			const fresh = page.messages.filter((message) => !known.has(message.id));
+			older = [...fresh, ...older];
+			if (page.messages.length < PAGE) olderComplete = true;
+			return fresh.length;
+		},
 		/** Stop the turn answering the viewer's message, sending nothing new. */
 		async stopTurn() {
 			const messageId = live?.triggerMessageId ?? followingMessageId;

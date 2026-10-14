@@ -2,6 +2,7 @@
  * never sends a message or starts a turn. */
 import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 import type { MessageReactionRow } from './generated/orgintel';
+import type { ConversationMessageView } from './generated/conversation';
 import { ownerJson } from './failure';
 
 export const REACTIONS = ['👍', '👀', '✅', '❤️', '🎉', '❓'] as const;
@@ -63,4 +64,28 @@ export function reactionsQuery(company: () => string, ids: () => number[], viewe
 		await client.invalidateQueries({ queryKey: ['message-reactions', company()] });
 	}
 	return { summaryFor, react, pinned };
+}
+
+/** Every message pinned in one Room, however old: pins are listed by Room, not found among the
+ * messages a page happens to hold. Shares the reactions key, so pinning refreshes it. */
+export function roomPinsQuery(company: () => string, room: () => string, enabled: () => boolean) {
+	const query = createQuery(() => ({
+		queryKey: ['message-reactions', company(), 'pins', room()],
+		queryFn: async ({ signal }) => {
+			const response = await fetch(
+				`/api/companies/${encodeURIComponent(company())}/rooms/${encodeURIComponent(room())}/pins`,
+				{ signal }
+			);
+			return (await ownerJson<{ pins: ConversationMessageView[] }>(response)).pins;
+		},
+		enabled: !!company() && !!room() && enabled(),
+		staleTime: 10_000,
+		refetchInterval: 60_000
+	}));
+	return {
+		/** Null until the list has loaded (or when it cannot be). */
+		get pins(): ConversationMessageView[] | null {
+			return query.data ?? null;
+		}
+	};
 }

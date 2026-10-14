@@ -1543,6 +1543,8 @@
 			participantRole={railActorRole}
 			turn={railConversation.activeTurn}
 			ambientTurn={railConversation.ambientTurn}
+			hasEarlier={railConversation.hasEarlier}
+			onloadearlier={() => railConversation.loadEarlier()}
 			{companyId}
 			membershipRole={principal?.membership_role ?? 'member'}
 			connected={railConnected}

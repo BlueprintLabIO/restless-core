@@ -59,6 +59,33 @@ async fn reactions_are_a_bounded_signal_on_live_messages() {
         "a person outside the conversation cannot see it"
     );
 
+    // A pin is listed by Room for the people in it, however old, and for nobody else.
+    let probe = sqlx::PgPool::connect(&url).await.unwrap();
+    let room: uuid::Uuid = sqlx::query_scalar(&format!(
+        "SELECT room_id FROM {company}.messages WHERE id=$1"
+    ))
+    .bind(message)
+    .fetch_one(&probe)
+    .await
+    .unwrap();
+    probe.close().await;
+    assert!(org.room_pinned_messages("owner", room, "📌").await.unwrap().is_empty());
+    org.set_message_reaction(message, "owner", "📌", true).await.unwrap();
+    assert_eq!(
+        org.room_pinned_messages("owner", room, "📌")
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| row.id)
+            .collect::<Vec<_>>(),
+        vec![message]
+    );
+    assert!(org
+        .room_pinned_messages("human-ann", room, "📌")
+        .await
+        .unwrap()
+        .is_empty());
+
     assert!(
         org.set_message_reaction(message, "owner", "🍕", true)
             .await

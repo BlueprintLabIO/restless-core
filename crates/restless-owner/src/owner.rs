@@ -542,6 +542,8 @@ struct ConversationRetryResponse {
 #[derive(Debug, Deserialize, Default)]
 struct ConversationQuery {
     work_id: Option<Uuid>,
+    /// Page back: the messages before this one in the direct conversation.
+    before_message_id: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1118,6 +1120,10 @@ where
         .route(
             "/companies/{company}/rooms/{room}/messages",
             get(list_room_messages).post(send_room_message),
+        )
+        .route(
+            "/companies/{company}/rooms/{room}/pins",
+            get(list_room_pins),
         )
         .route(
             "/companies/{company}/rooms/{room}/events",
@@ -7892,6 +7898,30 @@ async fn list_room_messages(
     }
 }
 
+/// Every message pinned in a Room the caller takes part in, as the conversation
+/// shows it. Pins are reactions; this lists them by Room rather than by the
+/// messages a client happens to hold.
+async fn list_room_pins(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath((company, room)): AxumPath<(String, Uuid)>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .room_pinned_messages(principal.actor_id(), room, "📌")
+        .await
+    {
+        Ok(pins) => Json(serde_json::json!({
+            "pins": pins.into_iter().map(conversation_message_view).collect::<Vec<_>>()
+        }))
+        .into_response(),
+        Err(error) => room_error(error),
+    }
+}
+
 async fn list_room_events(
     State(state): State<RoomApiState>,
     RoomPrincipal(principal): RoomPrincipal,
@@ -8656,8 +8686,13 @@ async fn actor_conversation(
                 .await
         }
         None => {
-            org.human_conversation(principal.actor_id(), &actor, 100)
-                .await
+            org.human_conversation_before(
+                principal.actor_id(),
+                &actor,
+                query.before_message_id,
+                100,
+            )
+            .await
         }
     } {
         Ok(messages) => messages,

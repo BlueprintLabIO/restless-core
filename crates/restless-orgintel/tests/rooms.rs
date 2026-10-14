@@ -1765,6 +1765,21 @@ async fn human_direct_focus_is_attributed_and_isolated_per_person() {
             .collect::<Vec<_>>(),
         vec![bob_first]
     );
+    // Paging back stays inside the caller's own direct conversation.
+    assert_eq!(
+        org.human_conversation_before("human-alice", "exec", Some(alice_second), 20)
+            .await
+            .unwrap()
+            .iter()
+            .map(|message| message.id)
+            .collect::<Vec<_>>(),
+        vec![alice_first]
+    );
+    assert!(org
+        .human_conversation_before("human-bob", "exec", Some(bob_first), 20)
+        .await
+        .unwrap()
+        .is_empty());
     let alice_second_row = org
         .human_conversation("human-alice", "exec", 20)
         .await

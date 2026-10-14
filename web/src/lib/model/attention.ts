@@ -270,9 +270,15 @@ export async function fetchDecisionHistory(
 export async function getActorConversation(
 	company: string,
 	actor: string,
-	workId?: string
+	workId?: string,
+	/** Page back: the messages before this one. */
+	beforeMessageId?: number
 ): Promise<ActorConversation> {
-	const query = workId ? `?work_id=${encodeURIComponent(workId)}` : '';
+	const query = workId
+		? `?work_id=${encodeURIComponent(workId)}`
+		: beforeMessageId
+			? `?before_message_id=${beforeMessageId}`
+			: '';
 	const response = await fetch(
 		`/api/companies/${encodeURIComponent(company)}/actors/${encodeURIComponent(actor)}/conversation${query}`,
 		{ credentials: 'same-origin', cache: 'no-store' }
