@@ -13,7 +13,7 @@
 	import './document-print.css';
 	import { Editor, type JSONContent } from '@tiptap/core';
 	import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
-	import { MAX_UPLOAD_BYTES, uploadAttachments } from '$lib/model/attachments';
+	import { MAX_UPLOAD_BYTES, pastedPictureFile, uploadAttachments } from '$lib/model/attachments';
 	import { Selection } from '@tiptap/pm/state';
 	import { HocuspocusProvider } from '@hocuspocus/provider';
 	import * as Y from 'yjs';
@@ -682,18 +682,13 @@
 		const files: File[] = [];
 		let missed = 0;
 		for (const [index, source] of images.entries()) {
-			try {
-				const response = await fetch(source, { mode: 'cors', credentials: 'omit' });
-				const blob = await response.blob();
-				if (!response.ok || !DOCUMENT_IMAGE_TYPES.includes(blob.type)) throw new Error();
-				files.push(
-					new File([blob], `Pasted picture ${index + 1}.${blob.type.split('/')[1]}`, {
-						type: blob.type
-					})
-				);
-			} catch {
-				missed += 1;
-			}
+			const file = await pastedPictureFile(
+				source,
+				`Pasted picture ${index + 1}`,
+				DOCUMENT_IMAGE_TYPES
+			);
+			if (file) files.push(file);
+			else missed += 1;
 		}
 		const notes = [...lost];
 		if (missed)

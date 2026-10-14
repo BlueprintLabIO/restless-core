@@ -210,3 +210,20 @@ export function fileSize(bytes: number): string {
 		return `${(bytes / (1024 * 1024)).toFixed(1).replace(/\.0$/, '')} MB`;
 	return `${(bytes / (1024 * 1024 * 1024)).toFixed(1).replace(/\.0$/, '')} GB`;
 }
+
+/** A picture found inside pasted content (a data: or web address), as a file to upload; null when
+ * the source will not share it or it is not a picture a document shows. */
+export async function pastedPictureFile(
+	source: string,
+	name: string,
+	types: readonly string[]
+): Promise<File | null> {
+	try {
+		const response = await fetch(source, { mode: 'cors', credentials: 'omit' });
+		const blob = await response.blob();
+		if (!response.ok || !types.includes(blob.type)) return null;
+		return new File([blob], `${name}.${blob.type.split('/')[1]}`, { type: blob.type });
+	} catch {
+		return null;
+	}
+}
