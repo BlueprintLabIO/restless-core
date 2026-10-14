@@ -131,12 +131,14 @@
 	let moveTo = $state('');
 	const STEER: Record<
 		Exclude<Steering, ''>,
-		{ placeholder: string; submit: string; done: string; warning?: string }
+		/* `fallback`: the note is optional and this is recorded when none is given. */
+		{ placeholder: string; submit: string; done: string; warning?: string; fallback?: string }
 	> = {
 		resume: {
-			placeholder: 'What changed, so it can continue',
+			placeholder: 'What changed, if you want to say (optional)',
 			submit: 'Resume this Work',
-			done: 'Resumed'
+			done: 'Resumed',
+			fallback: 'Resumed from the Work page without a note'
 		},
 		pause: {
 			placeholder: 'Why it should wait',
@@ -150,9 +152,10 @@
 			warning: 'Nobody works on it again. It moves to Stopped, where it can be restored.'
 		},
 		restore: {
-			placeholder: 'Why it should continue',
+			placeholder: 'Why it should continue (optional)',
 			submit: 'Restore this Work',
-			done: 'Restored'
+			done: 'Restored',
+			fallback: 'Restored from the Work page without a note'
 		},
 		reopen: {
 			placeholder: 'What should change',
@@ -172,11 +175,11 @@
 	}
 	async function steer() {
 		const action = steering;
-		if (!work || !action || steerBusy || !steerReason.trim()) return;
+		if (!work || !action || steerBusy || !(steerReason.trim() || STEER[action].fallback)) return;
 		steerBusy = true;
 		steerFailure = '';
 		try {
-			const reason = steerReason.trim();
+			const reason = steerReason.trim() || STEER[action].fallback || '';
 			if (action === 'reopen') await reopenWork(companyId, work.id, reason);
 			else if (action === 'reassign') await reassignWork(companyId, work.id, moveTo, reason);
 			else await steerWork(companyId, work.id, action, reason);
@@ -513,8 +516,17 @@
 		const query = new URLSearchParams();
 		if (page.url.searchParams.get('view') === 'board') query.set('view', 'board');
 		if (selectedGoal) query.set('goal', selectedGoal);
+		const searched = page.url.searchParams.get('q');
+		if (searched) query.set('q', searched);
 		const search = query.toString();
 		return `/${encodeURIComponent(companyId)}/work${search ? `?${search}` : ''}`;
+	}
+
+	/* Talking about this Work keeps where the owner came from: its goal, board view and search. */
+	function talkHref(actorId: string): string {
+		const url = new URL(page.url);
+		url.searchParams.set('talk', actorId);
+		return `${url.pathname}${url.search}`;
 	}
 
 	function relatedHref(item: WorkItem): string {
@@ -523,8 +535,15 @@
 		return `/${encodeURIComponent(companyId)}/work/${encodeURIComponent(item.id)}?${query}`;
 	}
 
+	const ARTIFACT_STATE_LABEL: Record<string, string> = {
+		available: 'Available',
+		stale: 'Out of date',
+		missing: 'Missing',
+		superseded: 'Replaced',
+		unknown: 'Not checked yet'
+	};
 	function artifactState(artifact: Artifact): string {
-		return artifact.state === 'available' ? 'Available' : artifact.state.replaceAll('_', ' ');
+		return ARTIFACT_STATE_LABEL[artifact.state] ?? artifact.state.replaceAll('_', ' ');
 	}
 
 	/* Older Runtime-created artifacts used the whole expected-output contract as
@@ -632,7 +651,7 @@
 				{#if goal}<a
 						href={`/${encodeURIComponent(companyId)}/work?goal=${encodeURIComponent(goal.id)}`}
 						>{goal.title}</a
-					>{:else}<span>Unassigned</span>{/if}
+					>{:else}<a href={`/${encodeURIComponent(companyId)}/work?goal=other`}>No goal</a>{/if}
 				{#if goalInfo}<InfoTip text={goalInfo} />{/if}
 			</nav>
 			<div class="work-title-row">
@@ -640,12 +659,12 @@
 				<div
 					class="work-detail-status status-{work.status}"
 					class:unverified={unverifiedCompletion}
-					title={unverifiedCompletion
-						? 'Completion was recorded, but no output or passing check supports it yet.'
-						: undefined}
 				>
 					<i aria-hidden="true"></i>
 					<span>{unverifiedCompletion ? 'Done · unverified' : workStatusLabel(work.status)}</span>
+					{#if unverifiedCompletion}<InfoTip
+							text="Completion was recorded, but no output or passing check supports it yet."
+						/>{/if}
 				</div>
 				{#if maySteer}
 					<div class="work-steer">
@@ -694,23 +713,23 @@
 				{/if}
 				{#if ownerAccess}
 					<div class="work-talk">
-						<a class="btn small" href="?talk=exec" title="Talk about this Work with the Exec"
+						<a class="btn small" href={talkHref('exec')} title="Talk about this Work with the Exec"
 							>Discuss</a
 						>
 						{#if accountableLead && accountableLead.actor_id !== 'exec'}<a
 								class="btn small"
-								href={`?talk=${encodeURIComponent(accountableLead.actor_id)}`}
+								href={talkHref(accountableLead.actor_id)}
 								title={`Talk about this Work with ${accountableLead.display}, who leads it`}
 								>Ask {accountableLead.display}</a
 							>{/if}
 					</div>
 				{/if}
 			</div>
-			{#if blocker}<p class="work-blocker" title="Why this Work is waiting">{blocker}</p>{/if}
+			{#if blocker}<p class="work-blocker">{blocker}</p>{/if}
 		</header>
 
 		{#if pending.length}
-			<section class="work-pending" aria-label="Waiting on you">
+			<section class="work-pending" aria-label="Needs you">
 				{#each pending as item (item.id)}
 					<div class="pending-item">
 						<div class="pending-copy">
@@ -828,9 +847,12 @@
 				<div class="steer-actions">
 					<button
 						class="btn small {steering === 'abandon' ? 'danger' : 'primary'}"
-						disabled={steerBusy || !steerReason.trim()}
+						disabled={steerBusy || !(steerReason.trim() || STEER[steering].fallback)}
 						>{steerBusy ? 'Recording…' : STEER[steering].submit}</button
 					>
+					{#if !steerReason.trim() && !STEER[steering].fallback}<span class="steer-hint"
+							>Needs a short reason</span
+						>{/if}
 					<button class="btn small ghost" type="button" onclick={() => (steering = '')}
 						>Cancel</button
 					>
@@ -1057,7 +1079,7 @@
 											<strong class="attempt-state state-{attempt.state}"
 												>{runStateLabel(attempt.state)}</strong
 											>
-											<small>Attempt {attempt.attempt_no} · revision {attempt.revision}</small>
+											<small>Run {attempt.attempt_no} · revision {attempt.revision}</small>
 										</div>
 										<p>{attempt.summary || 'This run has not recorded a summary yet.'}</p>
 										<div class="attempt-meta">
@@ -1088,6 +1110,16 @@
 										Feedback for this Work could not be read right now.
 									</p>{/if}
 							</section>
+
+							{#if workspace?.location}
+								<section class="work-detail-section">
+									<span class="detail-label">Workspace</span>
+									<p class="mono workspace-path">
+										{workspace.location}{#if workspace.integrationBranch}<br
+											/>{workspace.integrationBranch}{/if}
+									</p>
+								</section>
+							{/if}
 
 							<section class="contribution-trace">
 								<h2>{workIsLeadOwned ? 'Who decides' : 'Who does what'}</h2>
@@ -1129,7 +1161,7 @@
 								</ActionMenu>
 							{:else}{label}{/if}
 						{/snippet}
-						<dt title="The lead accountable for integrating the whole outcome">Lead</dt>
+						<dt>Lead <InfoTip text="The lead accountable for integrating the whole outcome" /></dt>
 						<dd class="standard-cell">
 							{#if workIsLeadOwned}{@render mover(
 									accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)
@@ -1137,15 +1169,14 @@
 									ownerName(accountableLeadId ?? work.owner_id)}{/if}
 						</dd>
 						{#if !workIsLeadOwned}
-							<dt title="The Staff member doing this work under the lead">Staff</dt>
+							<dt>Staff <InfoTip text="The Staff member doing this work under the lead" /></dt>
 							<dd class="standard-cell">{@render mover(ownerName(work.owner_id))}</dd>
 						{/if}
 						<dt>Goal</dt>
 						<dd class="standard-cell">
 							{#if maySteer && goals.length}
 								<ActionMenu label="Goal">
-									{#snippet trigger()}<span class="standard-face"
-											>{goal?.title ?? 'Unassigned'}</span
+									{#snippet trigger()}<span class="standard-face">{goal?.title ?? 'No goal'}</span
 										>{/snippet}
 									{#each goals.filter((row) => !row.closed_at || row.id === goal?.id) as option (option.id)}
 										<button
@@ -1171,9 +1202,10 @@
 							{:else if goal}<a
 									href={`/${encodeURIComponent(companyId)}/work?goal=${encodeURIComponent(goal.id)}`}
 									>{goal.title}</a
-								>{:else}<span class="muted">Unassigned</span>{/if}
+								>{:else}<a href={`/${encodeURIComponent(companyId)}/work?goal=other`}>No goal</a
+								>{/if}
 						</dd>
-						<dt title="Higher priority Work is picked up first">Priority</dt>
+						<dt>Priority <InfoTip text="Higher priority Work is picked up first" /></dt>
 						<dd class="standard-cell">
 							{#if maySteer}
 								<ActionMenu label="Priority">
@@ -1199,7 +1231,7 @@
 								>{/if}
 						</dd>
 						{#if ownerAccess && spend !== null}
-							<dt title="Metered model spend on this Work so far">Cost</dt>
+							<dt>Cost <InfoTip text="Metered model spend on this Work so far" /></dt>
 							<dd>
 								{spend === 'unavailable'
 									? 'Unavailable right now'
@@ -1208,10 +1240,10 @@
 										: 'Nothing metered yet'}
 							</dd>
 						{/if}
-						<dt
-							title="How far this Work should go before it is called done. Set on its Goal; a piece of Work can hold itself to its own."
-						>
-							Quality bar
+						<dt>
+							Quality bar <InfoTip
+								text="How far this Work should go before it is called done. Set on its Goal; a piece of Work can hold itself to its own."
+							/>
 						</dt>
 						<dd class="standard-cell">
 							{#if ownerAccess}
@@ -1252,18 +1284,10 @@
 						</dd>
 						{#if latestAttempt}
 							<dt>Latest run</dt>
-							<dd>
-								Attempt {latestAttempt.attempt_no} · {runStateLabel(latestAttempt.state)}
-							</dd>
+							<dd>{runStateLabel(latestAttempt.state)}</dd>
 						{/if}
 						<dt>Updated</dt>
 						<dd>{displayDate(work.updated_at)}</dd>
-						{#if workspace?.location}
-							<dt>Workspace</dt>
-							<dd class="mono" title={workspace.integrationBranch || undefined}>
-								{workspace.location}
-							</dd>
-						{/if}
 					</dl>
 
 					{#if prerequisites.length || dependents.length || revisions.length}
@@ -1398,6 +1422,15 @@
 		background: var(--surface-raised);
 		color: var(--ink);
 		font: inherit;
+	}
+	.workspace-path {
+		font-size: var(--t-label);
+		overflow-wrap: anywhere;
+	}
+	/* Why the submit button is not ready yet, in words a touch screen shows. */
+	.steer-hint {
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
 	}
 	.steer-note {
 		margin: 0;
