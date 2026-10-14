@@ -91,6 +91,55 @@ export function runScheduleNow(
 	});
 }
 
+/** One run a schedule fired or skipped, with any recovery of a skipped one. */
+export type ScheduleOccurrence = {
+	scheduled_for: string;
+	fired_at: string;
+	disposition: 'fired' | 'skipped' | string;
+	detail: string | null;
+	superseded_count: number;
+	recovered_at: string | null;
+	recovered_by: string | null;
+};
+
+/** The last twenty runs of a schedule, newest first. */
+export async function scheduleHistory(
+	company: string,
+	schedule: string
+): Promise<ScheduleOccurrence[]> {
+	const body = await call<{ occurrences: ScheduleOccurrence[] }>(
+		company,
+		`/schedules/${encodeURIComponent(schedule)}/history`
+	);
+	return body.occurrences;
+}
+
+/** Recover one skipped run with a single wake; asking twice does not wake twice. */
+export function recoverScheduleRun(company: string, schedule: string, scheduledFor: string) {
+	return call<unknown>(company, `/schedules/${encodeURIComponent(schedule)}/recover`, {
+		method: 'POST',
+		body: JSON.stringify({ scheduled_for: scheduledFor })
+	});
+}
+
+export type MissedPolicy = 'skip' | 'skip_if_late' | 'catch_up_once' | 'coalesce_latest';
+
+/** What happens when a run is missed; every policy but skip needs a lateness window. */
+export function setScheduleMissedPolicy(
+	company: string,
+	schedule: string,
+	policy: MissedPolicy,
+	graceSeconds: number | null
+) {
+	return call<unknown>(company, `/schedules/${encodeURIComponent(schedule)}/policy`, {
+		method: 'POST',
+		body: JSON.stringify({
+			missed_policy: policy,
+			catch_up_grace_seconds: policy === 'skip' ? null : graceSeconds
+		})
+	});
+}
+
 export function fetchSkillLibrary(company: string): Promise<SkillLibrary> {
 	return call(company, '/skills');
 }

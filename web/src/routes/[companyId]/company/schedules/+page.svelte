@@ -5,6 +5,7 @@
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import ScheduleCadence from '$lib/components/ScheduleCadence.svelte';
+	import ScheduleHistory from '$lib/components/ScheduleHistory.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
@@ -256,7 +257,7 @@
 				<Row
 					label="Repeat"
 					stack
-					info={`An interval counts from when the schedule is made. A time of day runs in the zone you choose; a run missed by more than two hours is skipped. Each run wakes the company computer${runtimeLimits?.sleep_after_minutes ? `, and one due within ${runtimeLimits.sleep_after_minutes} minutes keeps it from sleeping, using its monthly hours` : ''}.`}
+					info={`An interval counts from when the schedule is made. A time of day runs in the zone you choose; what happens to a missed run is chosen on each schedule, and a skipped one can be recovered. Each run wakes the company computer${runtimeLimits?.sleep_after_minutes ? `, and one due within ${runtimeLimits.sleep_after_minutes} minutes keeps it from sleeping, using its monthly hours` : ''}.`}
 				>
 					<ScheduleCadence bind:cadence id="new-schedule-repeat" disabled={!!busy} />
 				</Row>
@@ -403,6 +404,12 @@
 									<dd><RelativeTime value={item.schedule.fire_at} /></dd>
 								</div>{/if}
 						</dl>
+						<ScheduleHistory
+							{companyId}
+							schedule={item.schedule}
+							{canManage}
+							onchanged={() => void query.refetch()}
+						/>
 						{#if item.recent_outcomes.length || item.prior_responsibility_outcomes.length}
 							<ul class="runs" aria-label="Recent runs">
 								{#each [...item.recent_outcomes, ...item.prior_responsibility_outcomes] as outcome (outcome.opportunity_id)}

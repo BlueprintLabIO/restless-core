@@ -1034,6 +1034,116 @@ pub(super) async fn run_schedule_now(
     }
 }
 
+/// Every run a schedule fired or skipped, newest first, with any recovery of a skipped one.
+pub(super) async fn schedule_history(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, schedule)): AxumPath<(String, Uuid)>,
+) -> Response<Body> {
+    if let Some(refusal) = owner_or_admin(&principal) {
+        return refusal;
+    }
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org.list_schedule_occurrences(schedule, 20).await {
+        Ok(rows) => Json(json!({ "occurrences": rows })).into_response(),
+        Err(error) => orgintel_error(error),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ScheduleRecoverInput {
+    scheduled_for: chrono::DateTime<chrono::Utc>,
+    #[serde(default)]
+    reason: String,
+}
+
+/// Recover one skipped run with a single wake; asking twice is a read, not a second wake.
+pub(super) async fn recover_schedule_run(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, schedule)): AxumPath<(String, Uuid)>,
+    Json(input): Json<ScheduleRecoverInput>,
+) -> Response<Body> {
+    if let Some(refusal) = owner_or_admin(&principal) {
+        return refusal;
+    }
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    let reason = match input.reason.trim() {
+        "" => "Recovered a skipped run from Schedules",
+        reason => reason,
+    };
+    match org
+        .recover_skipped_schedule(
+            schedule,
+            input.scheduled_for,
+            "exec",
+            principal.actor_id(),
+            reason,
+        )
+        .await
+    {
+        Ok(recovery) => {
+            state.daemon.schedule_wake.notify_one();
+            Json(json!({ "recovery": recovery })).into_response()
+        }
+        Err(error) => orgintel_error(error),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct SchedulePolicyInput {
+    /// `skip`, `skip_if_late`, `catch_up_once` or `coalesce_latest`.
+    missed_policy: String,
+    /// How late a missed run may still start; required for every policy but `skip`.
+    #[serde(default)]
+    catch_up_grace_seconds: Option<i64>,
+}
+
+/// What happens when a run is missed: skip it, run it if not too late, catch up once, or run
+/// only the latest of several.
+pub(super) async fn set_schedule_policy(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, schedule)): AxumPath<(String, Uuid)>,
+    Json(input): Json<SchedulePolicyInput>,
+) -> Response<Body> {
+    if let Some(refusal) = owner_or_admin(&principal) {
+        return refusal;
+    }
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    let grace = (input.missed_policy != "skip")
+        .then_some(input.catch_up_grace_seconds)
+        .flatten();
+    match org
+        .set_schedule_missed_policy(schedule, "exec", &input.missed_policy, grace)
+        .await
+    {
+        Ok(true) => Json(json!({
+            "schedule_id": schedule,
+            "missed_policy": input.missed_policy,
+            "catch_up_grace_seconds": grace,
+        }))
+        .into_response(),
+        Ok(false) => api_error(
+            StatusCode::CONFLICT,
+            "schedule",
+            "This schedule is no longer running. Refresh and try again.",
+        ),
+        Err(error) => orgintel_error(error),
+    }
+}
+
 /// A compact view of live recurring Exec schedules and the latest admitted
 /// opportunities associated with each schedule.
 pub(super) async fn schedule_monitor(

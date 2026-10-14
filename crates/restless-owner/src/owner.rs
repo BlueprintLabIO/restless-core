@@ -1475,6 +1475,18 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/companies/{company}/schedules/{schedule}/run",
             post(skills_api::run_schedule_now),
         )
+        .route(
+            "/companies/{company}/schedules/{schedule}/history",
+            get(skills_api::schedule_history),
+        )
+        .route(
+            "/companies/{company}/schedules/{schedule}/recover",
+            post(skills_api::recover_schedule_run),
+        )
+        .route(
+            "/companies/{company}/schedules/{schedule}/policy",
+            post(skills_api::set_schedule_policy),
+        )
         .route("/companies/{company}/vault", get(company_vault))
         .route(
             "/companies/{company}/vault/secret",
@@ -2434,7 +2446,7 @@ fn admin_manages_company_setup(path: &str) -> bool {
             | ["company", "identity", "proposals", _, "promote" | "reject"]
             | ["company", "identity", "drift", _, "decide"]
             | ["schedules", _]
-            | ["schedules", _, "test" | "run"]
+            | ["schedules", _, "test" | "run" | "history" | "recover" | "policy"]
             | ["loops"]
             | ["loops", _, "cancel"]
     )

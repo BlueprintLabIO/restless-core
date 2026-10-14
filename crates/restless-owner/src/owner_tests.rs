@@ -2902,6 +2902,9 @@ model = \"anthropic/claude-sonnet-5-5\"
             (Method::POST, "/api/companies/aris/company/identity/proposals/p-1/promote"),
             (Method::PUT, "/api/companies/aris/schedules/schedule-1"),
             (Method::POST, "/api/companies/aris/schedules/schedule-1/test"),
+            (Method::GET, "/api/companies/aris/schedules/schedule-1/history"),
+            (Method::POST, "/api/companies/aris/schedules/schedule-1/recover"),
+            (Method::POST, "/api/companies/aris/schedules/schedule-1/policy"),
             (Method::POST, "/api/companies/aris/loops"),
             (Method::POST, "/api/companies/aris/actors/exec/conversation/42/interrupt"),
         ] {
@@ -2914,6 +2917,8 @@ model = \"anthropic/claude-sonnet-5-5\"
             (Method::GET, "/api/companies/aris/vault"),
             (Method::POST, "/api/companies/aris/approvals/grant"),
             (Method::POST, "/api/companies/aris/company/spend-limit"),
+            (Method::POST, "/api/companies/aris/company/spend-exact"),
+            (Method::PUT, "/api/companies/aris/provider/failover"),
         ] {
             assert!(membership_boundary_violation(&method, path, &admin).is_some(), "admin reached {method} {path}");
         }
