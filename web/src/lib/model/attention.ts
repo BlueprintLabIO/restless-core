@@ -392,6 +392,25 @@ export async function delegateHandoff(
 	if (!response.ok) throw await ownerError(response);
 }
 
+/** A member passes a judgement they should not make up to the owner, with the reason. It leaves
+ * their Inbox; one the owner handed them goes straight back to the owner. */
+export async function passHandoffToOwner(
+	company: string,
+	handoff: string,
+	reason: string
+): Promise<void> {
+	const response = await fetch(
+		`/api/companies/${encodeURIComponent(company)}/handoffs/${encodeURIComponent(handoff)}/escalate`,
+		{
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			credentials: 'same-origin',
+			body: JSON.stringify({ reason })
+		}
+	);
+	if (!response.ok) throw await ownerError(response);
+}
+
 export async function sendActorMessage(
 	company: string,
 	actor: string,

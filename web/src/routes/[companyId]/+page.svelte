@@ -19,6 +19,7 @@
 	import { useForYou } from '$lib/model/for-you.svelte';
 	import InboxDetail from '$lib/components/InboxDetail.svelte';
 	import SetAsideList from '$lib/components/SetAside.svelte';
+	import ClearHome from '$lib/components/ClearHome.svelte';
 	import { celebrate } from '$lib/ui/celebrate';
 	import DirectionRequestDetail from '$lib/components/DirectionRequestDetail.svelte';
 	import CharterPurpose from '$lib/components/CharterPurpose.svelte';
@@ -1103,25 +1104,31 @@
 					{/if}
 				</div>
 			{:else}
-				{#if brandMissing && !startBlocker}
-					<!-- Until the brand and voice are set, every site and message the team makes is a guess. -->
-					<div class="brand-nudge" role="status">
-						<p>
-							<strong>Set your brand and voice</strong>
-							Exec asks three questions, so what the team makes sounds and looks like you.
-						</p>
-						<button class="btn small primary" type="button" onclick={setUpBrand}
-							>Set up with Exec</button
-						>
+				<!-- Outcomes and what comes next lead; the floor of people sits below them. -->
+				<div class="clear-surface">
+					{#if brandMissing && !startBlocker}
+						<!-- Until the brand and voice are set, every site and message the team makes is a guess. -->
+						<div class="brand-nudge" role="status">
+							<p>
+								<strong>Set your brand and voice</strong>
+								Exec asks three questions, so what the team makes sounds and looks like you.
+							</p>
+							<button class="btn small primary" type="button" onclick={setUpBrand}
+								>Set up with Exec</button
+							>
+						</div>
+					{/if}
+					<ClearHome {companyId} work={graph?.work ?? []} />
+					<div class="clear-office">
+						<CompanyOffice
+							{companyId}
+							{graph}
+							collaboration={owner ? null : collaboration.view}
+							sourceHealth={view?.sourceHealth ?? {}}
+							quietSignal={catalogPending || !!startBlocker}
+						/>
 					</div>
-				{/if}
-				<CompanyOffice
-					{companyId}
-					{graph}
-					collaboration={owner ? null : collaboration.view}
-					sourceHealth={view?.sourceHealth ?? {}}
-					quietSignal={catalogPending || !!startBlocker}
-				/>
+				</div>
 			{/if}
 		</section>
 	</div>
@@ -1165,6 +1172,7 @@
 			{artifacts}
 			workOwnerId={graph?.work.find((work) => work.id === item.workId)?.owner_id}
 			canSetAside={owner}
+			canPassToOwner={!owner}
 			onleave={() => {
 				/* Snoozed or set aside here: on to the next item, as the list does. */
 				resolvedHere = item.id;
@@ -1192,12 +1200,20 @@
 {/snippet}
 
 <style>
+	.clear-surface {
+		display: grid;
+		align-content: start;
+		gap: 24px;
+		/* Below the "No decisions" pill, and above the Set aside corner. */
+		padding: 60px 24px 64px;
+	}
+	.clear-office {
+		height: clamp(360px, 60vh, 640px);
+		overflow: hidden;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+	}
 	.brand-nudge {
-		position: absolute;
-		z-index: 2;
-		/* Below the "No decisions" pill that shares this corner. */
-		top: 52px;
-		left: 12px;
 		display: flex;
 		align-items: center;
 		gap: 12px;

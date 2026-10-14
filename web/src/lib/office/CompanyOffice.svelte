@@ -55,16 +55,19 @@
 	let selectedActorId = $state<string | null>(null);
 	let preferences = $state<OfficePreferences>({ ...DEFAULT_OFFICE_PREFERENCES });
 
-	const members = $derived(
+	const everyone = $derived(
 		cockpit && graph
 			? projectOfficeMembers(companyId, cockpit, graph, {
 					runtimeStatus: error
 						? 'unavailable'
 						: (sourceHealth.runtime ?? cockpit.source_health.runtime),
 					orgintelStatus: sourceHealth.orgintel ?? cockpit.source_health.orgintel
-				}).slice(0, MAX_VISIBLE_OFFICE_MEMBERS)
+				})
 			: ([] as OfficeMember[])
 	);
+	const members = $derived(everyone.slice(0, MAX_VISIBLE_OFFICE_MEMBERS));
+	/* The floor seats a fixed number; the rest are said, not silently dropped. */
+	const overflow = $derived(everyone.length - members.length);
 	const liveCount = $derived(members.filter((member) => member.sessionObserved).length);
 	const runtimeAvailable = $derived(
 		['available', 'running'].includes(sourceHealth.runtime ?? cockpit?.source_health.runtime ?? '')
@@ -142,6 +145,14 @@
 			onpreferenceschange={updatePreferences}
 		/>
 
+		{#if overflow > 0}
+			<a
+				class="office-overflow"
+				href={`/${encodeURIComponent(companyId)}/people`}
+				title={`${overflow} more ${overflow === 1 ? 'person is' : 'people are'} not seated on the floor. See everyone in People.`}
+				>+{overflow}</a
+			>
+		{/if}
 		{#if signalUnavailable && !quietSignal}
 			<div class="office-signal unavailable" role="status" title={signalTitle || undefined}>
 				<i></i>{!orgintelAvailable ? 'Coordination offline' : 'Live view offline'}
@@ -198,6 +209,21 @@
 		font-variant-numeric: tabular-nums;
 		backdrop-filter: blur(4px);
 		z-index: 5;
+	}
+
+	.office-overflow {
+		position: absolute;
+		right: var(--space-3);
+		bottom: var(--space-3);
+		z-index: 5;
+		padding: 4px 8px;
+		border: 1px solid rgba(23, 36, 51, 0.62);
+		border-radius: var(--radius-control);
+		background: rgba(239, 248, 244, 0.92);
+		color: #172433;
+		font: 600 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
+		text-decoration: none;
 	}
 
 	.office-signal i {

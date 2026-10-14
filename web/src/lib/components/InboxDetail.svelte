@@ -18,6 +18,7 @@
 		approvalAction,
 		completeHandoffHumanStep,
 		delegateHandoff,
+		passHandoffToOwner,
 		resolveHandoffDecision
 	} from '$lib/model/attention';
 	import {
@@ -58,6 +59,7 @@
 		declining: startDeclining = false,
 		workOwnerId,
 		canSetAside = true,
+		canPassToOwner = false,
 		onopenDocument,
 		onresolved,
 		onleave
@@ -75,6 +77,8 @@
 		onresolved?: (sent: { text: string; href?: string }) => void;
 		/** Setting an item aside is the owner's: it answers for the whole company queue. */
 		canSetAside?: boolean;
+		/** A member's own item: a judgement they should not make can go up to the owner. */
+		canPassToOwner?: boolean;
 		/** The item was snoozed or set aside here: the page moves on to the next one. */
 		onleave?: () => void;
 	} = $props();
@@ -285,6 +289,25 @@
 			handNote = '';
 		});
 	});
+	/* Pass to owner: a member's item goes up with the reason, which the owner reads with it. */
+	const passable = $derived(
+		canPassToOwner && item.source.kind === 'owner_handoff' && !item.preparing
+	);
+	let passing = $state(false);
+	$effect(() => {
+		void item.id;
+		untrack(() => (passing = false));
+	});
+	const passUp = () =>
+		reason.trim() &&
+		run(
+			async () => {
+				await passHandoffToOwner(companyId, item.source.reference, reason.trim());
+				await refreshAttention(client, companyId);
+			},
+			'Passed on with your reason. It has left your Inbox.',
+			'That was not passed on. Try again.'
+		);
 	const handOn = () => {
 		const person = handingTo;
 		if (!person) return;
@@ -461,6 +484,10 @@
 					title={`Hand this to ${person.display}: it leaves your Inbox and becomes theirs. They can pass it back.`}
 					onclick={() => (handingTo = person)}>Hand to {person.display}…</button
 				>{/each}
+			{#if passable}<button
+					title="Not yours to decide: it goes up with your reason and leaves your Inbox. One handed to you goes back to the owner."
+					onclick={() => (passing = true)}>Pass to owner…</button
+				>{/if}
 			<button onclick={() => void copyInboxLink(companyId, item.id)}>Copy link</button>
 			<button onclick={copyReference}>Copy reference</button>
 		</ActionMenu>
@@ -563,7 +590,25 @@
 			</p>
 		{/if}
 
-		{#if handingTo}
+		{#if passing}
+			<textarea
+				bind:value={reason}
+				{@attach (input) => input.focus()}
+				aria-label="Why the owner should decide"
+				maxlength={2000}
+				placeholder="Why should the owner decide this? They read it with the item."
+				disabled={acting}
+				onkeydown={(event) => keys(event, passUp)}></textarea>
+			<div class="bar">
+				<button class="btn primary small" disabled={acting || !reason.trim()} onclick={passUp}
+					>{acting ? 'Passing on…' : 'Pass to owner'}</button
+				>
+				<button class="btn small ghost" disabled={acting} onclick={() => (passing = false)}
+					>Back</button
+				>
+				<span class="hint">⌘ ↵</span>
+			</div>
+		{:else if handingTo}
 			<textarea
 				bind:value={handNote}
 				{@attach (input) => input.focus()}
