@@ -1008,9 +1008,15 @@
 		const update = () => readSelection();
 		document.addEventListener('selectionchange', update);
 		paperElement?.addEventListener('scroll', update, { passive: true });
+		/* Opening the comments panel (or any change of width) reflows the text under the bubble;
+		 * place it again rather than leave it over the wrong words. */
+		const resized = new ResizeObserver(update);
+		if (sectionElement) resized.observe(sectionElement);
+		if (editorElement) resized.observe(editorElement);
 		return () => {
 			document.removeEventListener('selectionchange', update);
 			paperElement?.removeEventListener('scroll', update);
+			resized.disconnect();
 		};
 	});
 	const mayComment = $derived(view.access === 'comment' || view.access === 'edit');
