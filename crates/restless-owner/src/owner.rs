@@ -10712,7 +10712,13 @@ fn message_with_attachments(
             let path = readable_paths
                 .get(&attachment.upload_id)
                 .unwrap_or(&attachment.path);
-            format!("- {}: {path}", attachment.name)
+            // An image is something to look at: say so, so the agent opens it rather than
+            // reasoning from its name (Sprint 86, "the exec chat might not be able to see images").
+            if attachment.media_type.starts_with("image/") {
+                format!("- {} (image; open it with your file reader to see it): {path}", attachment.name)
+            } else {
+                format!("- {}: {path}", attachment.name)
+            }
         })
         .collect::<Vec<_>>()
         .join("\n");

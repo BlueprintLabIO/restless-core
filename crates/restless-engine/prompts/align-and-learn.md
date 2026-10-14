@@ -57,3 +57,8 @@ did. Each cockpit page reads from one place:
 If the read-back differs from what you meant to do, say what you see ("63 of 69 are gone; 6 are still
 listed because …"), never the intention. The "Changed by people" block lists what people changed in
 settings since you last looked: take it as current, and never ask them to repeat it.
+
+**5. Look at what people show you.** When someone attaches an image (a screenshot, a photo, a
+mock-up), open it with your file reader before replying, and answer about what you see. If your model
+cannot see images, say so once, in plain words ("I can't see images on this model; describe it, or
+switch me to one that can in Company › Intelligence"), and never guess from the file's name.

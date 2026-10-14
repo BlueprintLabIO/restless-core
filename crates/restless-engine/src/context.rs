@@ -157,7 +157,15 @@ pub fn message_mention_context(mention: &MessageMentionContext) -> String {
     if !mention.message.attachments.is_empty() {
         body.push_str("\nAttached files:");
         for file in &mention.message.attachments {
-            body.push_str(&format!("\n- {}: {}", file.name, file.path()));
+            if file.media_type.starts_with("image/") {
+                body.push_str(&format!(
+                    "\n- {} (image; open it with your file reader to see it): {}",
+                    file.name,
+                    file.path()
+                ));
+            } else {
+                body.push_str(&format!("\n- {}: {}", file.name, file.path()));
+            }
         }
     }
     format!(
