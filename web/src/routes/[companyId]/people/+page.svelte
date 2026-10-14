@@ -1,4 +1,6 @@
 <script lang="ts">
+	import WorkPanel from '$lib/components/WorkPanel.svelte';
+	import { fetchWorkSpend } from '$lib/model/work-actions';
 	import {
 		DIRECTORY_FILTERS,
 		directoryFilter,
@@ -196,9 +198,23 @@
 		selectedRoom ? (directPerson(selectedRoom)?.actor_id ?? '') : ''
 	);
 	const explicitSelection = $derived(!!roomId || page.url.searchParams.has('person'));
-	/* A piece of Work opens in a side sheet beside its agent's chat (S85-15). Opened without a
-	 * chat named, the chat is the agent doing the Work, once the sheet knows who that is. */
+	/* A person's Work sits beside their chat (S88-04). ?work= highlights one piece in the panel,
+	 * as /work/<id> lands (S88-06); ?details= opens it in full (S85-15). Opened without a chat
+	 * named, the chat is the agent doing that Work. */
 	const workId = $derived(page.url.searchParams.get('work') ?? '');
+	const detailsId = $derived(page.url.searchParams.get('details') ?? '');
+	function workHref(id: string): string {
+		const url = new URL(page.url);
+		url.searchParams.set('work', id);
+		url.searchParams.delete('details');
+		return `${url.pathname}${url.search}`;
+	}
+	function openDetails(id: string) {
+		const url = new URL(page.url);
+		url.searchParams.set('work', id);
+		url.searchParams.set('details', id);
+		void goto(`${url.pathname}${url.search}`, { keepFocus: true, noScroll: true });
+	}
 	function openOwnerChat(ownerId: string) {
 		if (roomId || page.url.searchParams.has('person') || !ownerId) return;
 		const url = new URL(page.url);
@@ -211,7 +227,7 @@
 	}
 	function closeWork() {
 		const url = new URL(page.url);
-		url.searchParams.delete('work');
+		url.searchParams.delete('details');
 		void goto(`${url.pathname}${url.search}`, { keepFocus: true, noScroll: true });
 	}
 	let search = $state('');
@@ -509,6 +525,106 @@
 					null)
 			: null
 	);
+	/* The Work graph this person may read: the owner's whole one, or a member's collaboration. */
+	type PanelGraph = {
+		work: {
+			id: string;
+			owner_id: string;
+			title: string;
+			status: 'proposed' | 'active' | 'blocked' | 'completed' | 'abandoned';
+			updated_at: string;
+		}[];
+		edges?: { from_work_id: string; to_work_id: string; kind: string }[];
+		artifacts?: {
+			id: string;
+			kind: string;
+			label: string;
+			work_id: string | null;
+			state: string;
+			superseded_at?: string | null;
+			uri?: string;
+		}[];
+		gates?: { id: string; work_id: string; retired_at: string | null }[];
+		gate_runs?: { gate_id: string; passed: boolean; ran_at: string }[];
+		attempts?: { work_id: string; revision: number; attempt_no: number; state: string }[];
+	};
+	const workGraph = $derived(
+		(owner ? attention.view?.workGraph : collaboration.view?.work_graph) as
+			PanelGraph | null | undefined
+	);
+	/* Opened by a Work's address with no chat named: the chat is whoever does it. */
+	$effect(() => {
+		if (!workId) return;
+		const found = workGraph?.work.find((item) => item.id === workId);
+		if (found) openOwnerChat(found.owner_id);
+	});
+	let workSpend = $state<Map<string, number> | null>(null);
+	$effect(() => {
+		if (!owner) return;
+		let live = true;
+		void fetchWorkSpend(companyId)
+			.then((spend) => {
+				if (live) workSpend = spend;
+			})
+			.catch(() => {
+				/* Spend is a detail; the panel reads without it. */
+			});
+		return () => {
+			live = false;
+		};
+	});
+	/* A lead's panel is the team's Work; anyone else's is their own. */
+	const panelOwners = $derived.by(() => {
+		const person = headerPerson;
+		if (!person || person.archived) return new Set<string>();
+		const led = teams.find((team) => team.lead_actor_id === person.actor_id);
+		return new Set([
+			person.actor_id,
+			...(led ? everyone.filter((p) => p.team_id === led.id).map((p) => p.actor_id) : [])
+		]);
+	});
+	/* Open by default when there is room for three columns, remembered per person (S88-05). */
+	let workOpenChoice = $state<Record<string, boolean>>({});
+	let roomy = $state(true);
+	$effect(() => {
+		const query = window.matchMedia('(min-width: 1280px)');
+		roomy = query.matches;
+		const changed = () => (roomy = query.matches);
+		query.addEventListener('change', changed);
+		return () => query.removeEventListener('change', changed);
+	});
+	$effect(() => {
+		try {
+			workOpenChoice = JSON.parse(localStorage.getItem(`restless:${companyId}:work-panel`) ?? '{}');
+		} catch {
+			workOpenChoice = {};
+		}
+	});
+	const panelKey = $derived(headerPerson?.actor_id ?? '');
+	const workOpen = $derived(
+		!!panelKey &&
+			!headerPerson?.archived &&
+			(!!workId || !!detailsId || (workOpenChoice[panelKey] ?? roomy))
+	);
+	function toggleWork() {
+		const next = !workOpen;
+		workOpenChoice = { ...workOpenChoice, [panelKey]: next };
+		try {
+			localStorage.setItem(`restless:${companyId}:work-panel`, JSON.stringify(workOpenChoice));
+		} catch {
+			/* The choice holds for this visit. */
+		}
+		if (!next && (workId || detailsId)) {
+			const url = new URL(page.url);
+			url.searchParams.delete('work');
+			url.searchParams.delete('details');
+			void goto(`${url.pathname}${url.search}`, {
+				replaceState: true,
+				keepFocus: true,
+				noScroll: true
+			});
+		}
+	}
 	let staffingBusy = $state(false);
 	async function archive(person: { actor_id: string; display: string }) {
 		const name = personName(person.display);
@@ -946,7 +1062,7 @@
 <div
 	class="conversation-workspace"
 	class:selected={explicitSelection}
-	class:with-work={!!workId}
+	class:with-work={workOpen && !!headerPerson}
 	use:resizePane={{
 		key: `${companyId}:sidebar:people`,
 		label: 'Resize the People sidebar',
@@ -1493,6 +1609,8 @@
 					? membership.role.charAt(0).toUpperCase() + membership.role.slice(1)
 					: ''}
 				archived={person.archived}
+				workOpen={person.archived ? null : workOpen}
+				ontogglework={toggleWork}
 			>
 				{#snippet menu()}
 					{#if person.archived}
@@ -1556,14 +1674,36 @@
 			</div>
 		{/if}
 	</section>
-	{#if workId}
+	{#if workOpen && headerPerson}
 		<aside class="work-sheet" aria-label="Work">
-			{#key workId}<WorkDetail
+			<button type="button" class="work-sheet-back" onclick={toggleWork}
+				><ArrowLeft size={16} aria-hidden="true" /> Back to the chat</button
+			>
+			{#if detailsId}
+				{#key detailsId}<WorkDetail
+						{companyId}
+						workId={detailsId}
+						onclose={closeWork}
+						onowner={openOwnerChat}
+					/>{/key}
+			{:else}
+				<WorkPanel
 					{companyId}
-					{workId}
-					onclose={closeWork}
-					onowner={openOwnerChat}
-				/>{/key}
+					name={personName(headerPerson.display)}
+					work={workGraph?.work ?? []}
+					edges={workGraph?.edges ?? []}
+					artifacts={workGraph?.artifacts ?? []}
+					gates={workGraph?.gates ?? []}
+					gateRuns={workGraph?.gate_runs ?? []}
+					attempts={workGraph?.attempts ?? []}
+					owners={panelOwners}
+					ownerName={(id) => personName(everyone.find((p) => p.actor_id === id)?.display ?? id)}
+					highlight={workId}
+					spend={workSpend}
+					hrefFor={workHref}
+					ondetails={openDetails}
+				/>
+			{/if}
 		</aside>
 	{/if}
 </div>
@@ -2146,7 +2286,7 @@
 	.conversation-workspace.with-work {
 		grid-template-columns:
 			var(--sidebar-width, 264px) minmax(0, 1fr)
-			var(--work-sheet-width, 460px);
+			var(--work-sheet-width, 380px);
 	}
 	.work-sheet {
 		position: relative;
@@ -2154,13 +2294,20 @@
 		min-height: 0;
 		overflow: hidden;
 		display: flex;
+		flex-direction: column;
+		border-radius: var(--radius-pane);
+		background: var(--glass-pane);
 	}
-	.work-sheet > :global(*) {
+	.work-sheet > :global(:not(.work-sheet-back)) {
 		flex: 1;
+		min-height: 0;
 		min-width: 0;
 	}
-	/* Narrower, the conversation list steps aside for the chat and the sheet. */
-	@media (max-width: 1180px) {
+	.work-sheet-back {
+		display: none;
+	}
+	/* Narrower, the conversation list steps aside for the chat and the panel (S88-05). */
+	@media (max-width: 1279px) {
 		.conversation-workspace.with-work {
 			grid-template-columns: minmax(0, 1fr) var(--work-sheet-width, 420px);
 		}
@@ -2173,12 +2320,27 @@
 		.conversation-workspace.with-work {
 			grid-template-columns: minmax(0, 1fr);
 		}
-		/* On a phone the sheet covers the chat; closing it returns there. */
+		/* On a phone the Work toggle swaps the chat for the panel; Back returns (S88-05). */
 		.work-sheet {
 			position: fixed;
 			inset: 0;
 			z-index: 30;
+			border-radius: 0;
 			background: var(--surface-raised);
+		}
+		.work-sheet-back {
+			display: flex;
+			flex: none;
+			gap: 8px;
+			align-items: center;
+			min-height: 44px;
+			padding: 0 12px;
+			border: 0;
+			border-bottom: 1px solid var(--border);
+			background: transparent;
+			color: var(--intent-conversation);
+			font: inherit;
+			text-align: left;
 		}
 		.conversation-main {
 			display: none;

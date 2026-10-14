@@ -51,17 +51,13 @@
 			{name}{#if archived}<span class="person-header-state">Archived</span>{/if}
 		</h2>
 		<p>
-			{#each facts as fact, index (fact)}{#if index}<span aria-hidden="true"> · </span>{/if}<span
-					>{fact}</span
-				>{/each}{#if agent && !archived}{#if facts.length}<span aria-hidden="true">
-						·
-					</span>{/if}<IntelligenceChip
+			{#if facts.length}<span class="person-header-facts" title={facts.join(' · ')}
+					>{facts.join(' · ')}</span
+				>{/if}{#if agent && !archived}<IntelligenceChip
 					{companyId}
 					{actorId}
 					{name}
-				/>{:else if access}{#if facts.length}<span aria-hidden="true"> · </span>{/if}<span
-					>{access}</span
-				>{/if}
+				/>{:else if access}<span class="person-header-facts">{access}</span>{/if}
 		</p>
 		{#if ownedBy}<small class="person-header-owner">Owned by {ownedBy}</small>{/if}
 	</div>
@@ -128,14 +124,22 @@
 		font-size: var(--t-label);
 		font-weight: 600;
 	}
+	/* Role and team on one line that ellipsizes; the model chip sits beside it, or below on a phone. */
 	p {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
-		gap: 0 2px;
+		gap: 0 10px;
 		margin: 0;
 		color: var(--text-secondary);
 		font-size: var(--t-body);
+	}
+	.person-header-facts {
+		min-width: 0;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.person-header-owner {
 		color: var(--text-tertiary);

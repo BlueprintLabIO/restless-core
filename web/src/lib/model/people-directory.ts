@@ -78,3 +78,46 @@ export function workPanel<W extends PanelWorkItem>(
 	);
 	return { now, nowDelivered, next, done };
 }
+
+/** What an independent reviewer decided about a piece of Work. */
+export type ReviewVerdict = 'accepted' | 'changes' | 'pending';
+
+/** For each piece of Work with a reviewer, the reviewer and its verdict. A `revises` edge runs from
+ * the reviewer to the Work it may send back. The verdict is the reviewer's own outcome: accepted
+ * when it is done and its latest attempt produced; changes when its latest attempt asked for them.
+ * Nothing is read from titles. */
+export function reviewVerdicts<W extends { id: string; status: string }>(
+	work: readonly W[],
+	edges: readonly { from_work_id: string; to_work_id: string; kind: string }[],
+	attempts: readonly { work_id: string; revision: number; attempt_no: number; state: string }[]
+): Map<string, { reviewer: W; verdict: ReviewVerdict }> {
+	const byId = new Map(work.map((item) => [item.id, item]));
+	const latest = new Map<string, { revision: number; attempt_no: number; state: string }>();
+	for (const attempt of attempts) {
+		const seen = latest.get(attempt.work_id);
+		if (
+			!seen ||
+			attempt.revision > seen.revision ||
+			(attempt.revision === seen.revision && attempt.attempt_no > seen.attempt_no)
+		)
+			latest.set(attempt.work_id, attempt);
+	}
+	const verdicts = new Map<string, { reviewer: W; verdict: ReviewVerdict }>();
+	for (const edge of edges) {
+		if (edge.kind !== 'revises') continue;
+		const reviewer = byId.get(edge.from_work_id);
+		if (!reviewer || !byId.has(edge.to_work_id)) continue;
+		const state = latest.get(reviewer.id)?.state;
+		const verdict: ReviewVerdict =
+			state === 'changes_requested'
+				? 'changes'
+				: reviewer.status === 'completed' && state === 'produced'
+					? 'accepted'
+					: 'pending';
+		/* Several reviewers: an accepted verdict stands over a pending one, changes over both. */
+		const held = verdicts.get(edge.to_work_id)?.verdict;
+		if (!held || verdict === 'changes' || (verdict === 'accepted' && held === 'pending'))
+			verdicts.set(edge.to_work_id, { reviewer, verdict });
+	}
+	return verdicts;
+}
