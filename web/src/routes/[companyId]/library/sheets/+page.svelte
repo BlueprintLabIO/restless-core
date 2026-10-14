@@ -18,6 +18,7 @@
 	import MessageSquare from '@lucide/svelte/icons/message-square';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import SheetComments from '$lib/components/SheetComments.svelte';
+	import SheetRowForm from '$lib/components/SheetRowForm.svelte';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import { Item, Notice, Empty } from '$lib/ui/page';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
@@ -83,7 +84,7 @@
 		saveState = $state('connecting'),
 		access = $state('read'),
 		worksheet = $state('');
-	const panel = $derived.by<'comments' | 'history' | 'sharing' | ''>(() => {
+	const panel = $derived.by<'comments' | 'history' | 'sharing' | 'row' | ''>(() => {
 		const inspect = page.url.searchParams.get('inspect');
 		return inspect === 'comments'
 			? 'comments'
@@ -91,9 +92,18 @@
 				? 'history'
 				: inspect === 'share'
 					? 'sharing'
-					: '';
+					: inspect === 'row'
+						? 'row'
+						: '';
 	});
 	const focusThread = $derived(page.url.searchParams.get('thread') ?? '');
+	const PANEL_NAME = {
+		comments: 'Comments',
+		history: 'History',
+		sharing: 'Sharing',
+		row: 'Row',
+		'': ''
+	} as const;
 	let versions = $state<Version[] | null>(null);
 	let versionsFailed = $state('');
 	let csvInput: HTMLInputElement | undefined = $state();
@@ -452,7 +462,7 @@
 			if (mine === epoch) versionsFailed = failureSentence(cause, 'The history could not be read.');
 		}
 	}
-	function showPanel(next: 'comments' | 'history' | 'sharing' | '') {
+	function showPanel(next: 'comments' | 'history' | 'sharing' | 'row' | '') {
 		const url = new URL(page.url);
 		if (next) url.searchParams.set('inspect', next === 'sharing' ? 'share' : next);
 		else url.searchParams.delete('inspect');
@@ -851,6 +861,12 @@
 						title="This tab, or the selected cells, as a page; the print dialog can save it as a PDF"
 						onclick={printSheet}>Print or save as PDF</button
 					>
+					<button
+						type="button"
+						disabled={!ready}
+						title="The selected row as a form, one field per column: easier to type into on a phone"
+						onclick={() => showPanel('row')}>Edit row as a form</button
+					>
 					{#if access === 'edit'}
 						<button
 							type="button"
@@ -995,12 +1011,9 @@
 	{#if panel}
 		<!-- On a phone the panel covers the sheet and its heading; this names the page meanwhile. -->
 		<h1 class="sr-title">{row?.title ?? 'Sheet'}</h1>
-		<aside
-			class="side cockpit-pane"
-			aria-label={panel === 'comments' ? 'Comments' : panel === 'history' ? 'History' : 'Sharing'}
-		>
+		<aside class="side cockpit-pane" aria-label={PANEL_NAME[panel]}>
 			<header class="side-head">
-				<h2>{panel === 'comments' ? 'Comments' : panel === 'history' ? 'History' : 'Share'}</h2>
+				<h2>{PANEL_NAME[panel] === 'Sharing' ? 'Share' : PANEL_NAME[panel]}</h2>
 				<button
 					type="button"
 					class="close"
@@ -1025,6 +1038,15 @@
 						onask={access === 'read' && asked !== sheet
 							? () => void askForAccess('comment')
 							: undefined}
+					/>
+				</div>
+			{:else if panel === 'row'}
+				<div class="side-body">
+					<SheetRowForm
+						getModel={() => editor?.getModel()}
+						{selection}
+						editable={access === 'edit'}
+						onshow={(tab, cell) => editor?.select(tab, cell)}
 					/>
 				</div>
 			{:else if panel === 'history'}

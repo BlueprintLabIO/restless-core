@@ -172,7 +172,8 @@
 	}
 	.native-sheet-surface {
 		height: 100%;
-		min-height: 320px;
+		/* A phone held sideways is shorter than 320px of grid; the sheet takes what there is. */
+		min-height: min(320px, 60dvh);
 		flex: 1;
 		background: white;
 		color: #252525;
