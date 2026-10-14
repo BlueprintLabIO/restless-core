@@ -104,139 +104,139 @@ Status lives only here; the audit README's checklist points to this one.
 
 ### WP01 — Brand & voice
 
-- [ ] [UXG-001](../audits/user-story-gap-audit-2026-10-14/issues/UXG-001-let-the-owner-edit-or-remove-any-released-brand-statement-no.md) Let the owner edit or remove any released brand statement, not only their own pillar text — high
-- [ ] [UXG-002](../audits/user-story-gap-audit-2026-10-14/issues/UXG-002-present-brand-voice-as-one-readable-brand-document-instead-o.md) Present Brand & voice as one readable brand document instead of fragmented statement rows — high
-- [ ] [UXG-003](../audits/user-story-gap-audit-2026-10-14/issues/UXG-003-let-the-owner-amend-an-exec-identity-proposal-before-promoti.md) Let the owner amend an Exec identity proposal before promoting, and make the reason optional — medium
-- [ ] [UXG-004](../audits/user-story-gap-audit-2026-10-14/issues/UXG-004-allow-restoring-an-earlier-brand-version.md) Allow restoring an earlier brand version — medium
-- [ ] [UXG-005](../audits/user-story-gap-audit-2026-10-14/issues/UXG-005-stop-hiding-exec-statements-that-still-ship-when-the-owner-w.md) Stop hiding Exec statements that still ship when the owner writes a pillar — high
-- [ ] [UXG-006](../audits/user-story-gap-audit-2026-10-14/issues/UXG-006-give-visual-identity-structured-fields-logo-colours-type-in.md) Give visual identity structured fields (logo, colours, type) in one place — medium
-- [ ] [UXG-007](../audits/user-story-gap-audit-2026-10-14/issues/UXG-007-let-the-owner-export-or-share-the-brand-guide.md) Let the owner export or share the brand guide — low
+- [x] [UXG-001](../audits/user-story-gap-audit-2026-10-14/issues/UXG-001-let-the-owner-edit-or-remove-any-released-brand-statement-no.md) Let the owner edit or remove any released brand statement, not only their own pillar text — high — **Fixed** `4e5f44b`
+- [x] [UXG-002](../audits/user-story-gap-audit-2026-10-14/issues/UXG-002-present-brand-voice-as-one-readable-brand-document-instead-o.md) Present Brand & voice as one readable brand document instead of fragmented statement rows — high — **Fixed** `4e5f44b`
+- [x] [UXG-003](../audits/user-story-gap-audit-2026-10-14/issues/UXG-003-let-the-owner-amend-an-exec-identity-proposal-before-promoti.md) Let the owner amend an Exec identity proposal before promoting, and make the reason optional — medium — **Fixed** `4e5f44b`
+- [x] [UXG-004](../audits/user-story-gap-audit-2026-10-14/issues/UXG-004-allow-restoring-an-earlier-brand-version.md) Allow restoring an earlier brand version — medium — **Fixed** `4e5f44b`
+- [x] [UXG-005](../audits/user-story-gap-audit-2026-10-14/issues/UXG-005-stop-hiding-exec-statements-that-still-ship-when-the-owner-w.md) Stop hiding Exec statements that still ship when the owner writes a pillar — high — **Fixed** `4e5f44b`
+- [x] [UXG-006](../audits/user-story-gap-audit-2026-10-14/issues/UXG-006-give-visual-identity-structured-fields-logo-colours-type-in.md) Give visual identity structured fields (logo, colours, type) in one place — medium — **Fixed** `4e5f44b`
+- [x] [UXG-007](../audits/user-story-gap-audit-2026-10-14/issues/UXG-007-let-the-owner-export-or-share-the-brand-guide.md) Let the owner export or share the brand guide — low — **Fixed** `4e5f44b`
 
 ### WP02 — Inbox I
 
-- [ ] [UXG-008](../audits/user-story-gap-audit-2026-10-14/issues/UXG-008-add-undo-to-dismiss-in-the-inbox-item-detail.md) Add Undo to "Dismiss" in the Inbox item detail — high
-- [ ] [UXG-009](../audits/user-story-gap-audit-2026-10-14/issues/UXG-009-use-one-name-for-dismiss-not-needed-set-aside.md) Use one name for "Dismiss / Not needed / Set aside" — medium
-- [ ] [UXG-010](../audits/user-story-gap-audit-2026-10-14/issues/UXG-010-make-always-allow-at-least-as-deliberate-as-a-one-off-approv.md) Make "Always allow" at least as deliberate as a one-off approval — high
-- [ ] [UXG-011](../audits/user-story-gap-audit-2026-10-14/issues/UXG-011-let-the-owner-snooze-until-a-chosen-time-or-date.md) Let the owner snooze until a chosen time or date — medium
-- [ ] [UXG-012](../audits/user-story-gap-audit-2026-10-14/issues/UXG-012-add-snooze-and-copy-link-to-the-inbox-item-detail.md) Add Snooze and Copy link to the Inbox item detail — medium
-- [ ] [UXG-013](../audits/user-story-gap-audit-2026-10-14/issues/UXG-013-make-the-today-line-link-to-its-lists.md) Make the "Today" line link to its lists — medium
-- [ ] [UXG-014](../audits/user-story-gap-audit-2026-10-14/issues/UXG-014-let-an-applied-change-row-open-the-change-it-made.md) Let an applied-change row open the change it made — medium
-- [ ] [UXG-015](../audits/user-story-gap-audit-2026-10-14/issues/UXG-015-remove-eyebrow-kickers-in-direction-requests-and-the-compute.md) Remove eyebrow kickers in direction requests and the computer view — low
-- [ ] [UXG-016](../audits/user-story-gap-audit-2026-10-14/issues/UXG-016-show-whether-the-company-can-keep-going-while-an-item-waits.md) Show whether the company can keep going while an item waits — medium
-- [ ] [UXG-017](../audits/user-story-gap-audit-2026-10-14/issues/UXG-017-order-the-inbox-by-consequence-and-deadline-not-age-alone.md) Order the Inbox by consequence and deadline, not age alone — medium
-- [ ] [UXG-018](../audits/user-story-gap-audit-2026-10-14/issues/UXG-018-stop-single-keystroke-approvals-of-direction-requests.md) Stop single-keystroke approvals of direction requests — high
-- [ ] [UXG-019](../audits/user-story-gap-audit-2026-10-14/issues/UXG-019-link-the-inbox-to-what-i-decided-and-allow-amending-a-recent.md) Link the Inbox to "what I decided" and allow amending a recent answer — medium
-- [ ] [UXG-020](../audits/user-story-gap-audit-2026-10-14/issues/UXG-020-let-the-owner-delegate-an-inbox-item-to-a-member-or-admin.md) Let the owner delegate an Inbox item to a member or admin — medium
-- [ ] [UXG-021](../audits/user-story-gap-audit-2026-10-14/issues/UXG-021-let-a-requester-see-all-their-requests-and-withdraw-a-pendin.md) Let a requester see all their requests and withdraw a pending one — medium
-- [ ] [UXG-022](../audits/user-story-gap-audit-2026-10-14/issues/UXG-022-give-set-aside-dates-the-asker-and-a-visible-failure-state.md) Give "Set aside" dates, the asker, and a visible failure state — low
+- [x] [UXG-008](../audits/user-story-gap-audit-2026-10-14/issues/UXG-008-add-undo-to-dismiss-in-the-inbox-item-detail.md) Add Undo to "Dismiss" in the Inbox item detail — high — **Fixed** `1458575`
+- [x] [UXG-009](../audits/user-story-gap-audit-2026-10-14/issues/UXG-009-use-one-name-for-dismiss-not-needed-set-aside.md) Use one name for "Dismiss / Not needed / Set aside" — medium — **Fixed** `1458575`
+- [x] [UXG-010](../audits/user-story-gap-audit-2026-10-14/issues/UXG-010-make-always-allow-at-least-as-deliberate-as-a-one-off-approv.md) Make "Always allow" at least as deliberate as a one-off approval — high — **Fixed** `1458575`
+- [x] [UXG-011](../audits/user-story-gap-audit-2026-10-14/issues/UXG-011-let-the-owner-snooze-until-a-chosen-time-or-date.md) Let the owner snooze until a chosen time or date — medium — **Fixed** `1458575`
+- [x] [UXG-012](../audits/user-story-gap-audit-2026-10-14/issues/UXG-012-add-snooze-and-copy-link-to-the-inbox-item-detail.md) Add Snooze and Copy link to the Inbox item detail — medium — **Fixed** `1458575`
+- [x] [UXG-013](../audits/user-story-gap-audit-2026-10-14/issues/UXG-013-make-the-today-line-link-to-its-lists.md) Make the "Today" line link to its lists — medium — **Fixed** `4cab9e7`
+- [x] [UXG-014](../audits/user-story-gap-audit-2026-10-14/issues/UXG-014-let-an-applied-change-row-open-the-change-it-made.md) Let an applied-change row open the change it made — medium — **Fixed** `8c3be9c`
+- [x] [UXG-015](../audits/user-story-gap-audit-2026-10-14/issues/UXG-015-remove-eyebrow-kickers-in-direction-requests-and-the-compute.md) Remove eyebrow kickers in direction requests and the computer view — low — **Fixed** `1458575`
+- [x] [UXG-016](../audits/user-story-gap-audit-2026-10-14/issues/UXG-016-show-whether-the-company-can-keep-going-while-an-item-waits.md) Show whether the company can keep going while an item waits — medium — **Fixed** `1458575`
+- [x] [UXG-017](../audits/user-story-gap-audit-2026-10-14/issues/UXG-017-order-the-inbox-by-consequence-and-deadline-not-age-alone.md) Order the Inbox by consequence and deadline, not age alone — medium — **Fixed** `1458575`
+- [x] [UXG-018](../audits/user-story-gap-audit-2026-10-14/issues/UXG-018-stop-single-keystroke-approvals-of-direction-requests.md) Stop single-keystroke approvals of direction requests — high — **Fixed** `92a0a88`
+- [x] [UXG-019](../audits/user-story-gap-audit-2026-10-14/issues/UXG-019-link-the-inbox-to-what-i-decided-and-allow-amending-a-recent.md) Link the Inbox to "what I decided" and allow amending a recent answer — medium — **Fixed** `5e4f656`
+- [x] [UXG-020](../audits/user-story-gap-audit-2026-10-14/issues/UXG-020-let-the-owner-delegate-an-inbox-item-to-a-member-or-admin.md) Let the owner delegate an Inbox item to a member or admin — medium — **Fixed** `285490e`
+- [x] [UXG-021](../audits/user-story-gap-audit-2026-10-14/issues/UXG-021-let-a-requester-see-all-their-requests-and-withdraw-a-pendin.md) Let a requester see all their requests and withdraw a pending one — medium — **Fixed** `5e4f656`
+- [x] [UXG-022](../audits/user-story-gap-audit-2026-10-14/issues/UXG-022-give-set-aside-dates-the-asker-and-a-visible-failure-state.md) Give "Set aside" dates, the asker, and a visible failure state — low — **Fixed** `588f491`
 
 ### WP03 — Inbox II
 
-- [ ] [UXG-023](../audits/user-story-gap-audit-2026-10-14/issues/UXG-023-wire-the-existing-pass-to-owner-endpoint-for-members.md) Wire the existing "pass to owner" endpoint for members — medium
-- [ ] [UXG-024](../audits/user-story-gap-audit-2026-10-14/issues/UXG-024-gate-hold-to-accept-and-request-changes-with-the-same-real-r.md) Gate "Hold to accept" and "Request changes" with the same real roles — low
-- [ ] [UXG-025](../audits/user-story-gap-audit-2026-10-14/issues/UXG-025-let-the-owner-finish-a-human-step-from-the-computer-view.md) Let the owner finish a human step from the computer view — low
-- [ ] [UXG-026](../audits/user-story-gap-audit-2026-10-14/issues/UXG-026-show-what-was-asked-and-by-whom-on-document-items.md) Show what was asked, and by whom, on document items — medium
-- [ ] [UXG-027](../audits/user-story-gap-audit-2026-10-14/issues/UXG-027-give-a-failed-direction-request-a-way-forward.md) Give a failed direction request a way forward — medium
-- [ ] [UXG-028](../audits/user-story-gap-audit-2026-10-14/issues/UXG-028-notify-members-not-just-owners-of-new-inbox-items.md) Notify members, not just owners, of new Inbox items — medium
-- [ ] [UXG-029](../audits/user-story-gap-audit-2026-10-14/issues/UXG-029-reconsider-the-pixel-office-as-the-clear-inbox-home.md) Reconsider the pixel office as the clear-Inbox home — medium
+- [x] [UXG-023](../audits/user-story-gap-audit-2026-10-14/issues/UXG-023-wire-the-existing-pass-to-owner-endpoint-for-members.md) Wire the existing "pass to owner" endpoint for members — medium — **Fixed** `2d47878`
+- [x] [UXG-024](../audits/user-story-gap-audit-2026-10-14/issues/UXG-024-gate-hold-to-accept-and-request-changes-with-the-same-real-r.md) Gate "Hold to accept" and "Request changes" with the same real roles — low — **Fixed** `29cda16`
+- [x] [UXG-025](../audits/user-story-gap-audit-2026-10-14/issues/UXG-025-let-the-owner-finish-a-human-step-from-the-computer-view.md) Let the owner finish a human step from the computer view — low — **Fixed** `b574912`
+- [x] [UXG-026](../audits/user-story-gap-audit-2026-10-14/issues/UXG-026-show-what-was-asked-and-by-whom-on-document-items.md) Show what was asked, and by whom, on document items — medium — **Fixed** `9a6979f`
+- [x] [UXG-027](../audits/user-story-gap-audit-2026-10-14/issues/UXG-027-give-a-failed-direction-request-a-way-forward.md) Give a failed direction request a way forward — medium — **Fixed** `35850cf`
+- [x] [UXG-028](../audits/user-story-gap-audit-2026-10-14/issues/UXG-028-notify-members-not-just-owners-of-new-inbox-items.md) Notify members, not just owners, of new Inbox items — medium — **Fixed** `9a51a22`
+- [x] [UXG-029](../audits/user-story-gap-audit-2026-10-14/issues/UXG-029-reconsider-the-pixel-office-as-the-clear-inbox-home.md) Reconsider the pixel office as the clear-Inbox home — medium — **Fixed** `2d47878`
 - [ ] [UXG-030](../audits/user-story-gap-audit-2026-10-14/issues/UXG-030-add-notifications-that-work-with-the-tab-closed-and-an-email.md) Add notifications that work with the tab closed, and an email preference — medium
-- [ ] [UXG-031](../audits/user-story-gap-audit-2026-10-14/issues/UXG-031-make-the-shortcuts-sheet-list-every-key-that-works.md) Make the shortcuts sheet list every key that works — low
-- [ ] [UXG-032](../audits/user-story-gap-audit-2026-10-14/issues/UXG-032-stop-e-meaning-mark-done-in-the-inbox-but-mark-read-in-for-y.md) Stop E meaning "mark done" in the Inbox but "mark read" in For you — medium
-- [ ] [UXG-033](../audits/user-story-gap-audit-2026-10-14/issues/UXG-033-make-the-inbox-badge-match-the-list.md) Make the Inbox badge match the list — low
-- [ ] [UXG-034](../audits/user-story-gap-audit-2026-10-14/issues/UXG-034-let-a-sent-rail-message-be-corrected-after-the-agent-has-rea.md) Let a sent rail message be corrected after the agent has read it — low
-- [ ] [UXG-035](../audits/user-story-gap-audit-2026-10-14/issues/UXG-035-expose-unread-snoozed-and-kind-to-screen-readers-in-the-inbo.md) Expose unread, snoozed and kind to screen readers in the Inbox — medium
-- [ ] [UXG-036](../audits/user-story-gap-audit-2026-10-14/issues/UXG-036-stop-offering-mark-done-on-app-requests-and-surface-fetch-fa.md) Stop offering "Mark done" on app requests and surface fetch failures — low
-- [ ] [UXG-037](../audits/user-story-gap-audit-2026-10-14/issues/UXG-037-let-an-owner-give-a-reason-when-declining-an-email-mandate.md) Let an owner give a reason when declining an email mandate — low
-- [ ] [UXG-038](../audits/user-story-gap-audit-2026-10-14/issues/UXG-038-show-non-owners-only-the-inbox-actions-they-may-take.md) Show non-owners only the Inbox actions they may take — low
+- [x] [UXG-031](../audits/user-story-gap-audit-2026-10-14/issues/UXG-031-make-the-shortcuts-sheet-list-every-key-that-works.md) Make the shortcuts sheet list every key that works — low — **Fixed** `591ce3a`
+- [x] [UXG-032](../audits/user-story-gap-audit-2026-10-14/issues/UXG-032-stop-e-meaning-mark-done-in-the-inbox-but-mark-read-in-for-y.md) Stop E meaning "mark done" in the Inbox but "mark read" in For you — medium — **Fixed** `b574912`
+- [x] [UXG-033](../audits/user-story-gap-audit-2026-10-14/issues/UXG-033-make-the-inbox-badge-match-the-list.md) Make the Inbox badge match the list — low — **Fixed** `9a51a22`
+- [x] [UXG-034](../audits/user-story-gap-audit-2026-10-14/issues/UXG-034-let-a-sent-rail-message-be-corrected-after-the-agent-has-rea.md) Let a sent rail message be corrected after the agent has read it — low — **Fixed** `7301e90`
+- [x] [UXG-035](../audits/user-story-gap-audit-2026-10-14/issues/UXG-035-expose-unread-snoozed-and-kind-to-screen-readers-in-the-inbo.md) Expose unread, snoozed and kind to screen readers in the Inbox — medium — **Fixed** `b574912`
+- [x] [UXG-036](../audits/user-story-gap-audit-2026-10-14/issues/UXG-036-stop-offering-mark-done-on-app-requests-and-surface-fetch-fa.md) Stop offering "Mark done" on app requests and surface fetch failures — low — **Fixed** `b574912`
+- [x] [UXG-037](../audits/user-story-gap-audit-2026-10-14/issues/UXG-037-let-an-owner-give-a-reason-when-declining-an-email-mandate.md) Let an owner give a reason when declining an email mandate — low — **Fixed** `b574912`
+- [x] [UXG-038](../audits/user-story-gap-audit-2026-10-14/issues/UXG-038-show-non-owners-only-the-inbox-actions-they-may-take.md) Show non-owners only the Inbox actions they may take — low — **Already fixed** `1458575`
 
 ### WP04 — Work I
 
-- [ ] [UXG-039](../audits/user-story-gap-audit-2026-10-14/issues/UXG-039-surface-the-pending-decision-on-the-work-detail-page.md) Surface the pending decision on the Work detail page — high
-- [ ] [UXG-040](../audits/user-story-gap-audit-2026-10-14/issues/UXG-040-bring-the-prepared-reviewtarget-to-the-work-detail-page.md) Bring the prepared ReviewTarget to the Work detail page — high
-- [ ] [UXG-041](../audits/user-story-gap-audit-2026-10-14/issues/UXG-041-let-the-owner-accept-reject-or-request-changes-from-work.md) Let the owner accept, reject or request changes from Work — high
-- [ ] [UXG-042](../audits/user-story-gap-audit-2026-10-14/issues/UXG-042-separate-pause-from-stop-for-good-and-warn-before-abandoning.md) Separate "pause" from "stop for good" and warn before abandoning — high
-- [ ] [UXG-043](../audits/user-story-gap-audit-2026-10-14/issues/UXG-043-give-stopped-work-a-place-to-be-found-and-restored.md) Give stopped work a place to be found and restored — high
-- [ ] [UXG-044](../audits/user-story-gap-audit-2026-10-14/issues/UXG-044-show-why-blocked-work-is-blocked-in-the-list-and-detail-head.md) Show why blocked work is blocked in the list and detail header — medium
-- [ ] [UXG-045](../audits/user-story-gap-audit-2026-10-14/issues/UXG-045-show-and-let-the-owner-change-work-priority-add-sort.md) Show and let the owner change Work priority; add sort — medium
-- [ ] [UXG-046](../audits/user-story-gap-audit-2026-10-14/issues/UXG-046-allow-renaming-a-work-item-and-editing-its-scope-or-goal.md) Allow renaming a Work item and editing its scope or goal — medium
-- [ ] [UXG-047](../audits/user-story-gap-audit-2026-10-14/issues/UXG-047-show-attempt-history-feedback-and-inputs-on-work-detail.md) Show attempt history, feedback and inputs on Work detail — medium
-- [ ] [UXG-048](../audits/user-story-gap-audit-2026-10-14/issues/UXG-048-wire-lead-team-reassignment-for-work-and-goals.md) Wire lead/team reassignment for Work and Goals — medium
-- [ ] [UXG-049](../audits/user-story-gap-audit-2026-10-14/issues/UXG-049-show-cost-per-work-and-per-goal.md) Show cost per Work and per Goal — medium
-- [ ] [UXG-050](../audits/user-story-gap-audit-2026-10-14/issues/UXG-050-add-goal-editing-close-this-goal-and-reopen-in-the-work-ui.md) Add goal editing, close-this-goal and reopen in the Work UI — high
-- [ ] [UXG-051](../audits/user-story-gap-audit-2026-10-14/issues/UXG-051-add-owner-and-status-filters-and-decide-on-the-work-graph-vi.md) Add owner and status filters, and decide on the Work graph view — medium
-- [ ] [UXG-052](../audits/user-story-gap-audit-2026-10-14/issues/UXG-052-provide-a-goal-detail-page.md) Provide a goal detail page — medium
-- [ ] [UXG-053](../audits/user-story-gap-audit-2026-10-14/issues/UXG-053-mark-needs-you-on-board-cards.md) Mark "needs you" on board cards — medium
+- [x] [UXG-039](../audits/user-story-gap-audit-2026-10-14/issues/UXG-039-surface-the-pending-decision-on-the-work-detail-page.md) Surface the pending decision on the Work detail page — high — **Fixed** `b8eaad2`
+- [x] [UXG-040](../audits/user-story-gap-audit-2026-10-14/issues/UXG-040-bring-the-prepared-reviewtarget-to-the-work-detail-page.md) Bring the prepared ReviewTarget to the Work detail page — high — **Fixed** `b8eaad2`
+- [x] [UXG-041](../audits/user-story-gap-audit-2026-10-14/issues/UXG-041-let-the-owner-accept-reject-or-request-changes-from-work.md) Let the owner accept, reject or request changes from Work — high — **Fixed** `b8eaad2`
+- [x] [UXG-042](../audits/user-story-gap-audit-2026-10-14/issues/UXG-042-separate-pause-from-stop-for-good-and-warn-before-abandoning.md) Separate "pause" from "stop for good" and warn before abandoning — high — **Fixed** `b8eaad2`
+- [x] [UXG-043](../audits/user-story-gap-audit-2026-10-14/issues/UXG-043-give-stopped-work-a-place-to-be-found-and-restored.md) Give stopped work a place to be found and restored — high — **Fixed** `f8cf1e1`
+- [x] [UXG-044](../audits/user-story-gap-audit-2026-10-14/issues/UXG-044-show-why-blocked-work-is-blocked-in-the-list-and-detail-head.md) Show why blocked work is blocked in the list and detail header — medium — **Fixed** `b8eaad2`
+- [x] [UXG-045](../audits/user-story-gap-audit-2026-10-14/issues/UXG-045-show-and-let-the-owner-change-work-priority-add-sort.md) Show and let the owner change Work priority; add sort — medium — **Fixed** `f8cf1e1`
+- [x] [UXG-046](../audits/user-story-gap-audit-2026-10-14/issues/UXG-046-allow-renaming-a-work-item-and-editing-its-scope-or-goal.md) Allow renaming a Work item and editing its scope or goal — medium — **Fixed** `b8eaad2`
+- [x] [UXG-047](../audits/user-story-gap-audit-2026-10-14/issues/UXG-047-show-attempt-history-feedback-and-inputs-on-work-detail.md) Show attempt history, feedback and inputs on Work detail — medium — **Fixed** `b8eaad2`
+- [x] [UXG-048](../audits/user-story-gap-audit-2026-10-14/issues/UXG-048-wire-lead-team-reassignment-for-work-and-goals.md) Wire lead/team reassignment for Work and Goals — medium — **Fixed** `b8eaad2`
+- [x] [UXG-049](../audits/user-story-gap-audit-2026-10-14/issues/UXG-049-show-cost-per-work-and-per-goal.md) Show cost per Work and per Goal — medium — **Fixed** `b8eaad2`
+- [x] [UXG-050](../audits/user-story-gap-audit-2026-10-14/issues/UXG-050-add-goal-editing-close-this-goal-and-reopen-in-the-work-ui.md) Add goal editing, close-this-goal and reopen in the Work UI — high — **Fixed** `f8cf1e1`
+- [x] [UXG-051](../audits/user-story-gap-audit-2026-10-14/issues/UXG-051-add-owner-and-status-filters-and-decide-on-the-work-graph-vi.md) Add owner and status filters, and decide on the Work graph view — medium — **Fixed** `f8cf1e1`
+- [x] [UXG-052](../audits/user-story-gap-audit-2026-10-14/issues/UXG-052-provide-a-goal-detail-page.md) Provide a goal detail page — medium — **Fixed** `f8cf1e1`
+- [x] [UXG-053](../audits/user-story-gap-audit-2026-10-14/issues/UXG-053-mark-needs-you-on-board-cards.md) Mark "needs you" on board cards — medium — **Fixed** `98ddc30`
 
 ### WP05 — Work II
 
-- [ ] [UXG-054](../audits/user-story-gap-audit-2026-10-14/issues/UXG-054-make-waiting-on-you-work-for-team-owners-members.md) Make "Waiting on you" work for team owners (members) — medium
-- [ ] [UXG-055](../audits/user-story-gap-audit-2026-10-14/issues/UXG-055-fix-the-no-work-yet-empty-state-on-a-failed-search.md) Fix the "No work yet" empty state on a failed search — low
-- [ ] [UXG-056](../audits/user-story-gap-audit-2026-10-14/issues/UXG-056-widen-work-search-and-keep-it-in-the-url.md) Widen Work search and keep it in the URL — low
-- [ ] [UXG-057](../audits/user-story-gap-audit-2026-10-14/issues/UXG-057-unify-status-words-waiting-waiting-on-you-blocked-needs-you.md) Unify status words: Waiting / Waiting on you / Blocked / Needs you — medium
-- [ ] [UXG-058](../audits/user-story-gap-audit-2026-10-14/issues/UXG-058-start-add-work-from-a-goal-with-context-prefilled-and-confir.md) Start "add work" from a goal with context prefilled, and confirm creation — low
-- [ ] [UXG-059](../audits/user-story-gap-audit-2026-10-14/issues/UXG-059-reorder-or-replace-the-board-on-mobile.md) Reorder or replace the board on mobile — low
-- [ ] [UXG-060](../audits/user-story-gap-audit-2026-10-14/issues/UXG-060-cap-or-fold-the-board-s-done-column.md) Cap or fold the board's Done column — low
-- [ ] [UXG-061](../audits/user-story-gap-audit-2026-10-14/issues/UXG-061-fix-work-board-semantics-for-screen-readers.md) Fix Work board semantics for screen readers — medium
-- [ ] [UXG-062](../audits/user-story-gap-audit-2026-10-14/issues/UXG-062-replace-hover-only-title-explanations-on-work-with-touch-rea.md) Replace hover-only title explanations on Work with touch-reachable tips — low
-- [ ] [UXG-063](../audits/user-story-gap-audit-2026-10-14/issues/UXG-063-hide-run-internals-and-raw-enum-words-from-the-default-work.md) Hide run internals and raw enum words from the default Work view — low
-- [ ] [UXG-064](../audits/user-story-gap-audit-2026-10-14/issues/UXG-064-use-one-name-for-goal-less-work-other-work-vs-unassigned.md) Use one name for goal-less work ("Other work" vs "Unassigned") — low
-- [ ] [UXG-065](../audits/user-story-gap-audit-2026-10-14/issues/UXG-065-make-goal-rows-real-links-in-the-work-sidebar.md) Make goal rows real links in the Work sidebar — low
-- [ ] [UXG-066](../audits/user-story-gap-audit-2026-10-14/issues/UXG-066-keep-list-context-when-opening-discuss-from-work.md) Keep list context when opening "Discuss" from Work — low
-- [ ] [UXG-067](../audits/user-story-gap-audit-2026-10-14/issues/UXG-067-do-not-require-a-written-reason-to-resume-work.md) Do not require a written reason to resume work — low
-- [ ] [UXG-068](../audits/user-story-gap-audit-2026-10-14/issues/UXG-068-add-row-quick-actions-and-later-bulk-actions-export-to-the-w.md) Add row quick actions (and later bulk actions/export) to the Work list — low
+- [x] [UXG-054](../audits/user-story-gap-audit-2026-10-14/issues/UXG-054-make-waiting-on-you-work-for-team-owners-members.md) Make "Waiting on you" work for team owners (members) — medium — **Fixed** `a673450`
+- [x] [UXG-055](../audits/user-story-gap-audit-2026-10-14/issues/UXG-055-fix-the-no-work-yet-empty-state-on-a-failed-search.md) Fix the "No work yet" empty state on a failed search — low — **Fixed** `a673450`
+- [x] [UXG-056](../audits/user-story-gap-audit-2026-10-14/issues/UXG-056-widen-work-search-and-keep-it-in-the-url.md) Widen Work search and keep it in the URL — low — **Fixed** `a673450`
+- [x] [UXG-057](../audits/user-story-gap-audit-2026-10-14/issues/UXG-057-unify-status-words-waiting-waiting-on-you-blocked-needs-you.md) Unify status words: Waiting / Waiting on you / Blocked / Needs you — medium — **Fixed** `a673450`
+- [x] [UXG-058](../audits/user-story-gap-audit-2026-10-14/issues/UXG-058-start-add-work-from-a-goal-with-context-prefilled-and-confir.md) Start "add work" from a goal with context prefilled, and confirm creation — low — **Fixed** `a673450`
+- [x] [UXG-059](../audits/user-story-gap-audit-2026-10-14/issues/UXG-059-reorder-or-replace-the-board-on-mobile.md) Reorder or replace the board on mobile — low — **Fixed** `a673450`
+- [x] [UXG-060](../audits/user-story-gap-audit-2026-10-14/issues/UXG-060-cap-or-fold-the-board-s-done-column.md) Cap or fold the board's Done column — low — **Fixed** `a673450`
+- [x] [UXG-061](../audits/user-story-gap-audit-2026-10-14/issues/UXG-061-fix-work-board-semantics-for-screen-readers.md) Fix Work board semantics for screen readers — medium — **Fixed** `a673450`
+- [x] [UXG-062](../audits/user-story-gap-audit-2026-10-14/issues/UXG-062-replace-hover-only-title-explanations-on-work-with-touch-rea.md) Replace hover-only title explanations on Work with touch-reachable tips — low — **Fixed** `5dce793`
+- [x] [UXG-063](../audits/user-story-gap-audit-2026-10-14/issues/UXG-063-hide-run-internals-and-raw-enum-words-from-the-default-work.md) Hide run internals and raw enum words from the default Work view — low — **Fixed** `5dce793`
+- [x] [UXG-064](../audits/user-story-gap-audit-2026-10-14/issues/UXG-064-use-one-name-for-goal-less-work-other-work-vs-unassigned.md) Use one name for goal-less work ("Other work" vs "Unassigned") — low — **Fixed** `5dce793`
+- [x] [UXG-065](../audits/user-story-gap-audit-2026-10-14/issues/UXG-065-make-goal-rows-real-links-in-the-work-sidebar.md) Make goal rows real links in the Work sidebar — low — **Fixed** `a673450`
+- [x] [UXG-066](../audits/user-story-gap-audit-2026-10-14/issues/UXG-066-keep-list-context-when-opening-discuss-from-work.md) Keep list context when opening "Discuss" from Work — low — **Fixed** `5dce793`
+- [x] [UXG-067](../audits/user-story-gap-audit-2026-10-14/issues/UXG-067-do-not-require-a-written-reason-to-resume-work.md) Do not require a written reason to resume work — low — **Fixed** `5dce793`
+- [x] [UXG-068](../audits/user-story-gap-audit-2026-10-14/issues/UXG-068-add-row-quick-actions-and-later-bulk-actions-export-to-the-w.md) Add row quick actions (and later bulk actions/export) to the Work list — low — **Fixed** `a673450`
 
 ### WP06 — Library I
 
-- [ ] [UXG-069](../audits/user-story-gap-audit-2026-10-14/issues/UXG-069-add-folders-or-collections-to-the-library.md) Add folders or collections to the Library — high
-- [ ] [UXG-070](../audits/user-story-gap-audit-2026-10-14/issues/UXG-070-stop-email-sharing-from-making-outsiders-full-company-member.md) Stop email sharing from making outsiders full company members — high
-- [ ] [UXG-071](../audits/user-story-gap-audit-2026-10-14/issues/UXG-071-allow-renaming-work-outputs-and-uploaded-files.md) Allow renaming Work outputs and uploaded files — medium
-- [ ] [UXG-072](../audits/user-story-gap-audit-2026-10-14/issues/UXG-072-allow-permanent-deletion-of-archived-work-outputs.md) Allow permanent deletion of archived Work outputs — medium
-- [ ] [UXG-073](../audits/user-story-gap-audit-2026-10-14/issues/UXG-073-let-archived-files-be-opened-or-previewed.md) Let archived files be opened or previewed — medium
-- [ ] [UXG-074](../audits/user-story-gap-audit-2026-10-14/issues/UXG-074-search-inside-sheets-and-comments-from-the-library-search-bo.md) Search inside sheets and comments from the Library search box — medium
-- [ ] [UXG-075](../audits/user-story-gap-audit-2026-10-14/issues/UXG-075-sort-and-count-across-all-documents-not-just-loaded-pages.md) Sort and count across all documents, not just loaded pages — medium
-- [ ] [UXG-076](../audits/user-story-gap-audit-2026-10-14/issues/UXG-076-add-owner-shared-with-me-and-date-filters-plus-bulk-select.md) Add owner, "shared with me" and date filters, plus bulk select — medium
-- [ ] [UXG-077](../audits/user-story-gap-audit-2026-10-14/issues/UXG-077-show-the-actual-old-document-when-previewing-history.md) Show the actual old document when previewing history — medium
-- [ ] [UXG-078](../audits/user-story-gap-audit-2026-10-14/issues/UXG-078-restore-sheet-versions-in-place-like-documents.md) Restore sheet versions in place, like documents — medium
-- [ ] [UXG-079](../audits/user-story-gap-audit-2026-10-14/issues/UXG-079-show-who-made-each-sheet-version.md) Show who made each sheet version — low
-- [ ] [UXG-080](../audits/user-story-gap-audit-2026-10-14/issues/UXG-080-let-a-docx-xlsx-upload-become-an-editable-doc-or-sheet.md) Let a .docx/.xlsx upload become an editable doc or sheet — high
-- [ ] [UXG-081](../audits/user-story-gap-audit-2026-10-14/issues/UXG-081-export-documents-as-word-docx.md) Export documents as Word (.docx) — medium
-- [ ] [UXG-082](../audits/user-story-gap-audit-2026-10-14/issues/UXG-082-let-an-old-document-version-be-downloaded.md) Let an old document version be downloaded — low
-- [ ] [UXG-083](../audits/user-story-gap-audit-2026-10-14/issues/UXG-083-give-owners-a-way-forward-when-email-invites-are-not-set-up.md) Give owners a way forward when email invites are not set up — medium
+- [x] [UXG-069](../audits/user-story-gap-audit-2026-10-14/issues/UXG-069-add-folders-or-collections-to-the-library.md) Add folders or collections to the Library — high — **Fixed** `b24b68e`
+- [x] [UXG-070](../audits/user-story-gap-audit-2026-10-14/issues/UXG-070-stop-email-sharing-from-making-outsiders-full-company-member.md) Stop email sharing from making outsiders full company members — high — **Fixed** `5f65c4b`
+- [x] [UXG-071](../audits/user-story-gap-audit-2026-10-14/issues/UXG-071-allow-renaming-work-outputs-and-uploaded-files.md) Allow renaming Work outputs and uploaded files — medium — **Fixed** `b24b68e`
+- [x] [UXG-072](../audits/user-story-gap-audit-2026-10-14/issues/UXG-072-allow-permanent-deletion-of-archived-work-outputs.md) Allow permanent deletion of archived Work outputs — medium — **Fixed** `b24b68e`
+- [x] [UXG-073](../audits/user-story-gap-audit-2026-10-14/issues/UXG-073-let-archived-files-be-opened-or-previewed.md) Let archived files be opened or previewed — medium — **Fixed** `3b263e8`
+- [x] [UXG-074](../audits/user-story-gap-audit-2026-10-14/issues/UXG-074-search-inside-sheets-and-comments-from-the-library-search-bo.md) Search inside sheets and comments from the Library search box — medium — **Fixed** `b24b68e`
+- [x] [UXG-075](../audits/user-story-gap-audit-2026-10-14/issues/UXG-075-sort-and-count-across-all-documents-not-just-loaded-pages.md) Sort and count across all documents, not just loaded pages — medium — **Fixed** `b24b68e`
+- [x] [UXG-076](../audits/user-story-gap-audit-2026-10-14/issues/UXG-076-add-owner-shared-with-me-and-date-filters-plus-bulk-select.md) Add owner, "shared with me" and date filters, plus bulk select — medium — **Fixed** `b24b68e`
+- [x] [UXG-077](../audits/user-story-gap-audit-2026-10-14/issues/UXG-077-show-the-actual-old-document-when-previewing-history.md) Show the actual old document when previewing history — medium — **Fixed** `8ddcfa4`
+- [x] [UXG-078](../audits/user-story-gap-audit-2026-10-14/issues/UXG-078-restore-sheet-versions-in-place-like-documents.md) Restore sheet versions in place, like documents — medium — **Fixed** `e867635`
+- [x] [UXG-079](../audits/user-story-gap-audit-2026-10-14/issues/UXG-079-show-who-made-each-sheet-version.md) Show who made each sheet version — low — **Fixed** `e867635`
+- [x] [UXG-080](../audits/user-story-gap-audit-2026-10-14/issues/UXG-080-let-a-docx-xlsx-upload-become-an-editable-doc-or-sheet.md) Let a .docx/.xlsx upload become an editable doc or sheet — high — **Fixed** `ee03bca`
+- [x] [UXG-081](../audits/user-story-gap-audit-2026-10-14/issues/UXG-081-export-documents-as-word-docx.md) Export documents as Word (.docx) — medium — **Fixed** `2db04ff`
+- [x] [UXG-082](../audits/user-story-gap-audit-2026-10-14/issues/UXG-082-let-an-old-document-version-be-downloaded.md) Let an old document version be downloaded — low — **Fixed** `8ddcfa4`
+- [x] [UXG-083](../audits/user-story-gap-audit-2026-10-14/issues/UXG-083-give-owners-a-way-forward-when-email-invites-are-not-set-up.md) Give owners a way forward when email invites are not set up — medium — **Fixed** `5f65c4b`
 
 ### WP07 — Library II
 
-- [ ] [UXG-084](../audits/user-story-gap-audit-2026-10-14/issues/UXG-084-make-uploaded-files-shareable-and-visible-to-the-team.md) Make uploaded files shareable and visible to the team — medium
-- [ ] [UXG-085](../audits/user-story-gap-audit-2026-10-14/issues/UXG-085-let-discuss-actually-allow-exec-to-make-the-requested-docume.md) Let Discuss actually allow Exec to make the requested document edit — high
-- [ ] [UXG-086](../audits/user-story-gap-audit-2026-10-14/issues/UXG-086-allow-deleting-a-document-from-its-own-page.md) Allow deleting a document from its own page — low
-- [ ] [UXG-087](../audits/user-story-gap-audit-2026-10-14/issues/UXG-087-fix-library-table-head-and-sort-accessibility.md) Fix Library table head and sort accessibility — low
-- [ ] [UXG-088](../audits/user-story-gap-audit-2026-10-14/issues/UXG-088-refresh-the-sheet-list-and-keep-library-error-states-honest.md) Refresh the sheet list and keep Library error states honest — low
-- [ ] [UXG-089](../audits/user-story-gap-audit-2026-10-14/issues/UXG-089-return-the-editor-s-back-link-to-where-the-owner-came-from.md) Return the editor's back link to where the owner came from — low
-- [ ] [UXG-090](../audits/user-story-gap-audit-2026-10-14/issues/UXG-090-offer-discuss-with-exec-on-sheets-and-link-the-file-on-file.md) Offer "Discuss with Exec" on sheets and link the file on file Discuss — medium
-- [ ] [UXG-091](../audits/user-story-gap-audit-2026-10-14/issues/UXG-091-hide-or-explain-request-review-for-people-who-cannot-request.md) Hide or explain "Request review…" for people who cannot request one — low
-- [ ] [UXG-092](../audits/user-story-gap-audit-2026-10-14/issues/UXG-092-let-the-requester-choose-a-reviewer-and-use-plain-language-i.md) Let the requester choose a reviewer, and use plain language in Review — medium
-- [ ] [UXG-093](../audits/user-story-gap-audit-2026-10-14/issues/UXG-093-remove-the-hard-coded-aris-company-and-brand-from-library-ro.md) Remove the hard-coded "aris" company and brand from Library routes — low
-- [ ] [UXG-094](../audits/user-story-gap-audit-2026-10-14/issues/UXG-094-show-agent-document-proposals-as-a-diff-not-two-full-texts.md) Show agent document proposals as a diff, not two full texts — medium
-- [ ] [UXG-095](../audits/user-story-gap-audit-2026-10-14/issues/UXG-095-decide-whether-archived-documents-stay-editable.md) Decide whether archived documents stay editable — low
-- [ ] [UXG-096](../audits/user-story-gap-audit-2026-10-14/issues/UXG-096-handle-a-failed-sheet-history-load.md) Handle a failed sheet-history load — low
-- [ ] [UXG-097](../audits/user-story-gap-audit-2026-10-14/issues/UXG-097-surface-or-delete-the-document-backlinks-api.md) Surface or delete the document backlinks API — low
+- [x] [UXG-084](../audits/user-story-gap-audit-2026-10-14/issues/UXG-084-make-uploaded-files-shareable-and-visible-to-the-team.md) Make uploaded files shareable and visible to the team — medium — **Fixed** `4b6de75d`
+- [x] [UXG-085](../audits/user-story-gap-audit-2026-10-14/issues/UXG-085-let-discuss-actually-allow-exec-to-make-the-requested-docume.md) Let Discuss actually allow Exec to make the requested document edit — high — **Fixed** `349fc1f`
+- [x] [UXG-086](../audits/user-story-gap-audit-2026-10-14/issues/UXG-086-allow-deleting-a-document-from-its-own-page.md) Allow deleting a document from its own page — low — **Fixed** `349fc1f`
+- [x] [UXG-087](../audits/user-story-gap-audit-2026-10-14/issues/UXG-087-fix-library-table-head-and-sort-accessibility.md) Fix Library table head and sort accessibility — low — **Fixed** `a1e4d6f7`
+- [x] [UXG-088](../audits/user-story-gap-audit-2026-10-14/issues/UXG-088-refresh-the-sheet-list-and-keep-library-error-states-honest.md) Refresh the sheet list and keep Library error states honest — low — **Fixed** `a1e4d6f7`
+- [x] [UXG-089](../audits/user-story-gap-audit-2026-10-14/issues/UXG-089-return-the-editor-s-back-link-to-where-the-owner-came-from.md) Return the editor's back link to where the owner came from — low — **Fixed** `0de66c58`
+- [x] [UXG-090](../audits/user-story-gap-audit-2026-10-14/issues/UXG-090-offer-discuss-with-exec-on-sheets-and-link-the-file-on-file.md) Offer "Discuss with Exec" on sheets and link the file on file Discuss — medium — **Fixed** `d01e31e`
+- [x] [UXG-091](../audits/user-story-gap-audit-2026-10-14/issues/UXG-091-hide-or-explain-request-review-for-people-who-cannot-request.md) Hide or explain "Request review…" for people who cannot request one — low — **Fixed** `612866df`
+- [x] [UXG-092](../audits/user-story-gap-audit-2026-10-14/issues/UXG-092-let-the-requester-choose-a-reviewer-and-use-plain-language-i.md) Let the requester choose a reviewer, and use plain language in Review — medium — **Fixed** `612866df`
+- [x] [UXG-093](../audits/user-story-gap-audit-2026-10-14/issues/UXG-093-remove-the-hard-coded-aris-company-and-brand-from-library-ro.md) Remove the hard-coded "aris" company and brand from Library routes — low — **Fixed** `349fc1f`
+- [x] [UXG-094](../audits/user-story-gap-audit-2026-10-14/issues/UXG-094-show-agent-document-proposals-as-a-diff-not-two-full-texts.md) Show agent document proposals as a diff, not two full texts — medium — **Fixed** `81d1b4c`
+- [x] [UXG-095](../audits/user-story-gap-audit-2026-10-14/issues/UXG-095-decide-whether-archived-documents-stay-editable.md) Decide whether archived documents stay editable — low — **Fixed** `612866df`
+- [x] [UXG-096](../audits/user-story-gap-audit-2026-10-14/issues/UXG-096-handle-a-failed-sheet-history-load.md) Handle a failed sheet-history load — low — **Fixed** `d01e31e`
+- [x] [UXG-097](../audits/user-story-gap-audit-2026-10-14/issues/UXG-097-surface-or-delete-the-document-backlinks-api.md) Surface or delete the document backlinks API — low — **Fixed** `989232a8`
 
 ### WP08 — People I
 
-- [ ] [UXG-098](../audits/user-story-gap-audit-2026-10-14/issues/UXG-098-add-invite-and-member-management-to-people.md) Add invite and member management to People — medium
-- [ ] [UXG-099](../audits/user-story-gap-audit-2026-10-14/issues/UXG-099-confirm-or-offer-undo-for-cancelling-invitations-and-pausing.md) Confirm or offer Undo for cancelling invitations and pausing access — medium
+- [x] [UXG-098](../audits/user-story-gap-audit-2026-10-14/issues/UXG-098-add-invite-and-member-management-to-people.md) Add invite and member management to People — medium — **Fixed** `e8632bf`
+- [x] [UXG-099](../audits/user-story-gap-audit-2026-10-14/issues/UXG-099-confirm-or-offer-undo-for-cancelling-invitations-and-pausing.md) Confirm or offer Undo for cancelling invitations and pausing access — medium — **Fixed** `4b0588a`
 - [ ] [UXG-100](../audits/user-story-gap-audit-2026-10-14/issues/UXG-100-support-transferring-company-ownership.md) Support transferring company ownership — medium
-- [ ] [UXG-101](../audits/user-story-gap-audit-2026-10-14/issues/UXG-101-give-the-owner-a-way-to-hire-retire-pause-or-re-brief-ai-sta.md) Give the owner a way to hire, retire, pause or re-brief AI staff — high
-- [ ] [UXG-102](../audits/user-story-gap-audit-2026-10-14/issues/UXG-102-build-the-actor-profile-the-spec-requires.md) Build the actor profile the spec requires — high
-- [ ] [UXG-103](../audits/user-story-gap-audit-2026-10-14/issues/UXG-103-confirm-model-changes-and-say-when-they-take-effect.md) Confirm model changes and say when they take effect — low
-- [ ] [UXG-104](../audits/user-story-gap-audit-2026-10-14/issues/UXG-104-make-a-person-s-current-work-clickable-from-people.md) Make a person's current Work clickable from People — medium
-- [ ] [UXG-105](../audits/user-story-gap-audit-2026-10-14/issues/UXG-105-unify-what-is-this-person-doing-between-people-and-the-offic.md) Unify "what is this person doing" between People and the office floor — low
-- [ ] [UXG-106](../audits/user-story-gap-audit-2026-10-14/issues/UXG-106-let-admins-and-members-react-and-pin-as-the-backend-allows.md) Let admins and members react and pin, as the backend allows — medium
-- [ ] [UXG-107](../audits/user-story-gap-audit-2026-10-14/issues/UXG-107-add-search-and-grouping-to-the-new-conversation-people-picke.md) Add search and grouping to the new-conversation people picker — low
-- [ ] [UXG-108](../audits/user-story-gap-audit-2026-10-14/issues/UXG-108-make-room-rename-and-archive-discoverable.md) Make room rename and archive discoverable — medium
-- [ ] [UXG-109](../audits/user-story-gap-audit-2026-10-14/issues/UXG-109-let-a-room-owner-leave-or-hand-over-a-group.md) Let a room owner leave or hand over a group — low
-- [ ] [UXG-110](../audits/user-story-gap-audit-2026-10-14/issues/UXG-110-let-archived-groups-be-read-without-restoring-and-allow-hidi.md) Let archived groups be read without restoring, and allow hiding DMs — low
+- [x] [UXG-101](../audits/user-story-gap-audit-2026-10-14/issues/UXG-101-give-the-owner-a-way-to-hire-retire-pause-or-re-brief-ai-sta.md) Give the owner a way to hire, retire, pause or re-brief AI staff — high — **Fixed** `e8632bf`
+- [x] [UXG-102](../audits/user-story-gap-audit-2026-10-14/issues/UXG-102-build-the-actor-profile-the-spec-requires.md) Build the actor profile the spec requires — high — **Fixed** `e8632bf`
+- [x] [UXG-103](../audits/user-story-gap-audit-2026-10-14/issues/UXG-103-confirm-model-changes-and-say-when-they-take-effect.md) Confirm model changes and say when they take effect — low — **Fixed** `1feae2a`
+- [x] [UXG-104](../audits/user-story-gap-audit-2026-10-14/issues/UXG-104-make-a-person-s-current-work-clickable-from-people.md) Make a person's current Work clickable from People — medium — **Fixed** `e8632bf`
+- [x] [UXG-105](../audits/user-story-gap-audit-2026-10-14/issues/UXG-105-unify-what-is-this-person-doing-between-people-and-the-offic.md) Unify "what is this person doing" between People and the office floor — low — **Fixed** `e8632bf`
+- [x] [UXG-106](../audits/user-story-gap-audit-2026-10-14/issues/UXG-106-let-admins-and-members-react-and-pin-as-the-backend-allows.md) Let admins and members react and pin, as the backend allows — medium — **Fixed** `296f9a1`
+- [x] [UXG-107](../audits/user-story-gap-audit-2026-10-14/issues/UXG-107-add-search-and-grouping-to-the-new-conversation-people-picke.md) Add search and grouping to the new-conversation people picker — low — **Fixed** `9717e44`
+- [x] [UXG-108](../audits/user-story-gap-audit-2026-10-14/issues/UXG-108-make-room-rename-and-archive-discoverable.md) Make room rename and archive discoverable — medium — **Fixed** `9717e44`
+- [x] [UXG-109](../audits/user-story-gap-audit-2026-10-14/issues/UXG-109-let-a-room-owner-leave-or-hand-over-a-group.md) Let a room owner leave or hand over a group — low — **Fixed** `9717e44`
+- [x] [UXG-110](../audits/user-story-gap-audit-2026-10-14/issues/UXG-110-let-archived-groups-be-read-without-restoring-and-allow-hidi.md) Let archived groups be read without restoring, and allow hiding DMs — low — **Fixed** `53e396d`
 - [ ] [UXG-111](../audits/user-story-gap-audit-2026-10-14/issues/UXG-111-add-keyboard-shortcuts-to-message-editing-and-re-parse-menti.md) Add keyboard shortcuts to message editing and re-parse mentions on edit — medium
-- [ ] [UXG-112](../audits/user-story-gap-audit-2026-10-14/issues/UXG-112-label-people-message-search-and-give-it-loading-and-empty-st.md) Label People message search and give it loading and empty states — medium
+- [x] [UXG-112](../audits/user-story-gap-audit-2026-10-14/issues/UXG-112-label-people-message-search-and-give-it-loading-and-empty-st.md) Label People message search and give it loading and empty states — medium — **Fixed** `8821300`
 
 ### WP09 — People II
 
@@ -257,21 +257,21 @@ Status lives only here; the audit README's checklist points to this one.
 
 ### WP10 — Apps I
 
-- [ ] [UXG-127](../audits/user-story-gap-audit-2026-10-14/issues/UXG-127-add-google-gmail-calendar-drive-microsoft-and-accounting-ser.md) Add Google (Gmail/Calendar/Drive), Microsoft and accounting services to the Apps catalogue — high
-- [ ] [UXG-128](../audits/user-story-gap-audit-2026-10-14/issues/UXG-128-collect-the-token-when-a-token-auth-app-is-added-from-a-tile.md) Collect the token when a token-auth app is added from a tile or the ask box — high
-- [ ] [UXG-129](../audits/user-story-gap-audit-2026-10-14/issues/UXG-129-confirm-before-removing-an-app-and-say-what-loses-access.md) Confirm before removing an app and say what loses access — high
-- [ ] [UXG-130](../audits/user-story-gap-audit-2026-10-14/issues/UXG-130-remove-or-ask-about-a-plugin-bundle-s-know-how-when-the-bund.md) Remove (or ask about) a plugin bundle's know-how when the bundle is removed — medium
-- [ ] [UXG-131](../audits/user-story-gap-audit-2026-10-14/issues/UXG-131-let-the-owner-read-a-skill-s-skill-md-and-scripts-before-acc.md) Let the owner read a skill's SKILL.md and scripts before accepting it — high
-- [ ] [UXG-132](../audits/user-story-gap-audit-2026-10-14/issues/UXG-132-allow-editing-a-connection-s-address-token-or-sign-in-withou.md) Allow editing a connection's address, token or sign-in without removing it — medium
-- [ ] [UXG-133](../audits/user-story-gap-audit-2026-10-14/issues/UXG-133-provide-a-way-to-create-and-edit-company-know-how.md) Provide a way to create and edit company know-how — high
-- [ ] [UXG-134](../audits/user-story-gap-audit-2026-10-14/issues/UXG-134-show-removed-skills-with-restore-and-show-the-skill-s-versio.md) Show removed skills with Restore, and show the skill's version — medium
-- [ ] [UXG-135](../audits/user-story-gap-audit-2026-10-14/issues/UXG-135-make-app-activity-answer-what-was-it-used-for.md) Make app activity answer "what was it used for" — medium
-- [ ] [UXG-136](../audits/user-story-gap-audit-2026-10-14/issues/UXG-136-offer-a-real-off-state-that-keeps-the-sign-in.md) Offer a real "off" state that keeps the sign-in — medium
-- [ ] [UXG-137](../audits/user-story-gap-audit-2026-10-14/issues/UXG-137-show-permissions-before-auto-allowing-an-added-app.md) Show permissions before auto-allowing an added app — medium
-- [ ] [UXG-138](../audits/user-story-gap-audit-2026-10-14/issues/UXG-138-replace-the-free-text-vault-secret-name-with-a-picker-or-inl.md) Replace the free-text "Vault secret name" with a picker or inline entry — medium
-- [ ] [UXG-139](../audits/user-story-gap-audit-2026-10-14/issues/UXG-139-show-why-exec-wants-an-app-in-the-chat-card-without-hovering.md) Show why Exec wants an app in the chat card without hovering — medium
-- [ ] [UXG-140](../audits/user-story-gap-audit-2026-10-14/issues/UXG-140-let-declining-an-app-request-carry-a-reason-or-alternative.md) Let declining an app request carry a reason or alternative — low
-- [ ] [UXG-141](../audits/user-story-gap-audit-2026-10-14/issues/UXG-141-report-skipped-items-and-link-to-review-after-a-plugin-impor.md) Report skipped items and link to review after a plugin import — low
+- [x] [UXG-127](../audits/user-story-gap-audit-2026-10-14/issues/UXG-127-add-google-gmail-calendar-drive-microsoft-and-accounting-ser.md) Add Google (Gmail/Calendar/Drive), Microsoft and accounting services to the Apps catalogue — high — **Fixed** `059ce113`
+- [x] [UXG-128](../audits/user-story-gap-audit-2026-10-14/issues/UXG-128-collect-the-token-when-a-token-auth-app-is-added-from-a-tile.md) Collect the token when a token-auth app is added from a tile or the ask box — high — **Fixed** `059ce113`
+- [x] [UXG-129](../audits/user-story-gap-audit-2026-10-14/issues/UXG-129-confirm-before-removing-an-app-and-say-what-loses-access.md) Confirm before removing an app and say what loses access — high — **Fixed** `059ce113`
+- [x] [UXG-130](../audits/user-story-gap-audit-2026-10-14/issues/UXG-130-remove-or-ask-about-a-plugin-bundle-s-know-how-when-the-bund.md) Remove (or ask about) a plugin bundle's know-how when the bundle is removed — medium — **Fixed** `059ce113`
+- [x] [UXG-131](../audits/user-story-gap-audit-2026-10-14/issues/UXG-131-let-the-owner-read-a-skill-s-skill-md-and-scripts-before-acc.md) Let the owner read a skill's SKILL.md and scripts before accepting it — high — **Fixed** `059ce113`
+- [x] [UXG-132](../audits/user-story-gap-audit-2026-10-14/issues/UXG-132-allow-editing-a-connection-s-address-token-or-sign-in-withou.md) Allow editing a connection's address, token or sign-in without removing it — medium — **Fixed** `059ce113`
+- [x] [UXG-133](../audits/user-story-gap-audit-2026-10-14/issues/UXG-133-provide-a-way-to-create-and-edit-company-know-how.md) Provide a way to create and edit company know-how — high — **Fixed** `059ce113`
+- [x] [UXG-134](../audits/user-story-gap-audit-2026-10-14/issues/UXG-134-show-removed-skills-with-restore-and-show-the-skill-s-versio.md) Show removed skills with Restore, and show the skill's version — medium — **Fixed** `059ce113`
+- [x] [UXG-135](../audits/user-story-gap-audit-2026-10-14/issues/UXG-135-make-app-activity-answer-what-was-it-used-for.md) Make app activity answer "what was it used for" — medium — **Fixed** `059ce113`
+- [x] [UXG-136](../audits/user-story-gap-audit-2026-10-14/issues/UXG-136-offer-a-real-off-state-that-keeps-the-sign-in.md) Offer a real "off" state that keeps the sign-in — medium — **Fixed** `059ce113`
+- [x] [UXG-137](../audits/user-story-gap-audit-2026-10-14/issues/UXG-137-show-permissions-before-auto-allowing-an-added-app.md) Show permissions before auto-allowing an added app — medium — **Fixed** `059ce113`
+- [x] [UXG-138](../audits/user-story-gap-audit-2026-10-14/issues/UXG-138-replace-the-free-text-vault-secret-name-with-a-picker-or-inl.md) Replace the free-text "Vault secret name" with a picker or inline entry — medium — **Fixed** `059ce113`
+- [x] [UXG-139](../audits/user-story-gap-audit-2026-10-14/issues/UXG-139-show-why-exec-wants-an-app-in-the-chat-card-without-hovering.md) Show why Exec wants an app in the chat card without hovering — medium — **Fixed** `059ce113`
+- [x] [UXG-140](../audits/user-story-gap-audit-2026-10-14/issues/UXG-140-let-declining-an-app-request-carry-a-reason-or-alternative.md) Let declining an app request carry a reason or alternative — low — **Fixed** `059ce113`
+- [x] [UXG-141](../audits/user-story-gap-audit-2026-10-14/issues/UXG-141-report-skipped-items-and-link-to-review-after-a-plugin-impor.md) Report skipped items and link to review after a plugin import — low — **Fixed** `059ce113`
 
 ### WP11 — Apps II
 
@@ -333,19 +333,19 @@ Status lives only here; the audit README's checklist points to this one.
 
 ### WP14 — Exec chat I
 
-- [ ] [UXG-191](../audits/user-story-gap-audit-2026-10-14/issues/UXG-191-add-retry-to-a-failed-exec-reply.md) Add Retry to a failed Exec reply — high
-- [ ] [UXG-192](../audits/user-story-gap-audit-2026-10-14/issues/UXG-192-add-a-stop-button-that-halts-exec-s-reply-without-sending-a.md) Add a Stop button that halts Exec's reply without sending a new message — high
-- [ ] [UXG-193](../audits/user-story-gap-audit-2026-10-14/issues/UXG-193-show-exec-s-live-work-even-when-the-owner-did-not-send-the-l.md) Show Exec's live work even when the owner did not send the last message — high
-- [ ] [UXG-194](../audits/user-story-gap-audit-2026-10-14/issues/UXG-194-put-exec-s-unread-reply-and-working-state-on-the-exec-button.md) Put Exec's unread reply and working state on the Exec button, not the People badge — medium
-- [ ] [UXG-195](../audits/user-story-gap-audit-2026-10-14/issues/UXG-195-let-the-rail-reach-and-search-exec-history-older-than-the-la.md) Let the rail reach and search Exec history older than the last 100 messages — high
-- [ ] [UXG-196](../audits/user-story-gap-audit-2026-10-14/issues/UXG-196-keep-pinned-exec-messages-visible-regardless-of-age.md) Keep pinned Exec messages visible regardless of age — medium
-- [ ] [UXG-197](../audits/user-story-gap-audit-2026-10-14/issues/UXG-197-let-the-owner-write-and-leave-a-message-while-exec-is-unreac.md) Let the owner write and leave a message while Exec is unreachable — medium
-- [ ] [UXG-198](../audits/user-story-gap-audit-2026-10-14/issues/UXG-198-check-attachment-size-count-and-type-before-sending-from-the.md) Check attachment size, count and type before sending from the rail, and show upload progress — medium
-- [ ] [UXG-199](../audits/user-story-gap-audit-2026-10-14/issues/UXG-199-keep-attached-files-quote-and-chosen-skills-when-switching-r.md) Keep attached files, quote and chosen skills when switching rail conversations — medium
-- [ ] [UXG-200](../audits/user-story-gap-audit-2026-10-14/issues/UXG-200-persist-the-rail-s-retry-key-for-an-uncertain-send-across-re.md) Persist the rail's retry key for an uncertain send across reloads and topic switches — medium
-- [ ] [UXG-201](../audits/user-story-gap-audit-2026-10-14/issues/UXG-201-stop-handed-in-drafts-from-silently-replacing-the-owner-s-un.md) Stop handed-in drafts from silently replacing the owner's unsent message — medium
-- [ ] [UXG-202](../audits/user-story-gap-audit-2026-10-14/issues/UXG-202-make-slash-commands-skills-references-and-people-discoverabl.md) Make slash commands, skills, # references and @ people discoverable in the composer — medium
-- [ ] [UXG-203](../audits/user-story-gap-audit-2026-10-14/issues/UXG-203-confirm-before-loop-clear-stops-every-loop-and-let-goal-clea.md) Confirm before /loop clear stops every loop, and let /goal clear choose the goal — high
+- [x] [UXG-191](../audits/user-story-gap-audit-2026-10-14/issues/UXG-191-add-retry-to-a-failed-exec-reply.md) Add Retry to a failed Exec reply — high — **Fixed** `3a3ed1e9`
+- [x] [UXG-192](../audits/user-story-gap-audit-2026-10-14/issues/UXG-192-add-a-stop-button-that-halts-exec-s-reply-without-sending-a.md) Add a Stop button that halts Exec's reply without sending a new message — high — **Fixed** `3a3ed1e9`
+- [x] [UXG-193](../audits/user-story-gap-audit-2026-10-14/issues/UXG-193-show-exec-s-live-work-even-when-the-owner-did-not-send-the-l.md) Show Exec's live work even when the owner did not send the last message — high — **Fixed** `3a3ed1e9`
+- [x] [UXG-194](../audits/user-story-gap-audit-2026-10-14/issues/UXG-194-put-exec-s-unread-reply-and-working-state-on-the-exec-button.md) Put Exec's unread reply and working state on the Exec button, not the People badge — medium — **Fixed** `3a3ed1e9`
+- [x] [UXG-195](../audits/user-story-gap-audit-2026-10-14/issues/UXG-195-let-the-rail-reach-and-search-exec-history-older-than-the-la.md) Let the rail reach and search Exec history older than the last 100 messages — high — **Fixed** `7b45a1d6`
+- [x] [UXG-196](../audits/user-story-gap-audit-2026-10-14/issues/UXG-196-keep-pinned-exec-messages-visible-regardless-of-age.md) Keep pinned Exec messages visible regardless of age — medium — **Fixed** `7b45a1d6`
+- [x] [UXG-197](../audits/user-story-gap-audit-2026-10-14/issues/UXG-197-let-the-owner-write-and-leave-a-message-while-exec-is-unreac.md) Let the owner write and leave a message while Exec is unreachable — medium — **Fixed** `0c0d5e00`
+- [x] [UXG-198](../audits/user-story-gap-audit-2026-10-14/issues/UXG-198-check-attachment-size-count-and-type-before-sending-from-the.md) Check attachment size, count and type before sending from the rail, and show upload progress — medium — **Fixed** `da733536`
+- [x] [UXG-199](../audits/user-story-gap-audit-2026-10-14/issues/UXG-199-keep-attached-files-quote-and-chosen-skills-when-switching-r.md) Keep attached files, quote and chosen skills when switching rail conversations — medium — **Fixed** `b7ea1c23`
+- [x] [UXG-200](../audits/user-story-gap-audit-2026-10-14/issues/UXG-200-persist-the-rail-s-retry-key-for-an-uncertain-send-across-re.md) Persist the rail's retry key for an uncertain send across reloads and topic switches — medium — **Fixed** `b7ea1c23`
+- [x] [UXG-201](../audits/user-story-gap-audit-2026-10-14/issues/UXG-201-stop-handed-in-drafts-from-silently-replacing-the-owner-s-un.md) Stop handed-in drafts from silently replacing the owner's unsent message — medium — **Fixed** `f235651b`
+- [x] [UXG-202](../audits/user-story-gap-audit-2026-10-14/issues/UXG-202-make-slash-commands-skills-references-and-people-discoverabl.md) Make slash commands, skills, # references and @ people discoverable in the composer — medium — **Fixed** `d1c2c9a1`
+- [x] [UXG-203](../audits/user-story-gap-audit-2026-10-14/issues/UXG-203-confirm-before-loop-clear-stops-every-loop-and-let-goal-clea.md) Confirm before /loop clear stops every loop, and let /goal clear choose the goal — high — **Fixed** `d5da8c7c`
 
 ### WP15 — Exec chat II
 
@@ -423,31 +423,31 @@ Status lives only here; the audit README's checklist points to this one.
 
 ### WP19 — Shell
 
-- [ ] [UXG-266](../audits/user-story-gap-audit-2026-10-14/issues/UXG-266-keep-failure-toasts-until-dismissed-and-never-evict-a-live-u.md) Keep failure toasts until dismissed and never evict a live Undo — medium
-- [ ] [UXG-267](../audits/user-story-gap-audit-2026-10-14/issues/UXG-267-make-undo-reachable-from-the-keyboard-within-its-window.md) Make Undo reachable from the keyboard within its window — medium
-- [ ] [UXG-268](../audits/user-story-gap-audit-2026-10-14/issues/UXG-268-notify-for-every-company-and-name-the-company-in-each-deskto.md) Notify for every company and name the company in each desktop notification — medium
-- [ ] [UXG-269](../audits/user-story-gap-audit-2026-10-14/issues/UXG-269-show-what-needs-the-owner-in-the-tab-title-or-favicon.md) Show what needs the owner in the tab title or favicon — low
-- [ ] [UXG-270](../audits/user-story-gap-audit-2026-10-14/issues/UXG-270-give-the-couldn-t-open-this-company-dialog-a-way-out-when-re.md) Give the "couldn’t open this company" dialog a way out when retrying cannot help — high
-- [ ] [UXG-271](../audits/user-story-gap-audit-2026-10-14/issues/UXG-271-keep-unsent-text-across-session-re-entry-and-update-reloads.md) Keep unsent text across session re-entry and update reloads, and say when re-entry gave up — medium
-- [ ] [UXG-272](../audits/user-story-gap-audit-2026-10-14/issues/UXG-272-add-sign-out-to-the-in-company-profile-menu.md) Add Sign out to the in-company profile menu — medium
-- [ ] [UXG-273](../audits/user-story-gap-audit-2026-10-14/issues/UXG-273-tell-an-open-tab-when-a-new-version-has-been-deployed.md) Tell an open tab when a new version has been deployed — medium
-- [ ] [UXG-274](../audits/user-story-gap-audit-2026-10-14/issues/UXG-274-stop-sending-members-to-the-owner-s-account-pages.md) Stop sending members to the owner’s Account pages — medium
-- [ ] [UXG-275](../audits/user-story-gap-audit-2026-10-14/issues/UXG-275-say-when-k-search-could-not-reach-a-source-instead-of-no-mat.md) Say when ⌘K search could not reach a source instead of "No match" — medium
-- [ ] [UXG-276](../audits/user-story-gap-audit-2026-10-14/issues/UXG-276-stop-offering-add-app-for-apps-already-connected-and-let-k-f.md) Stop offering "Add <app>" for apps already connected and let ⌘K find what the company has — low
-- [ ] [UXG-277](../audits/user-story-gap-audit-2026-10-14/issues/UXG-277-offer-ask-exec-about-with-the-typed-text-when-k-has-no-answe.md) Offer "Ask Exec about …" with the typed text when ⌘K has no answer — medium
-- [ ] [UXG-278](../audits/user-story-gap-audit-2026-10-14/issues/UXG-278-make-stay-on-this-page-actually-cancel-the-stalled-navigatio.md) Make "Stay on this page" actually cancel the stalled navigation — medium
-- [ ] [UXG-279](../audits/user-story-gap-audit-2026-10-14/issues/UXG-279-ignore-enter-while-an-ime-is-composing-in-k-and-other-picker.md) Ignore Enter while an IME is composing in ⌘K and other pickers — medium
-- [ ] [UXG-280](../audits/user-story-gap-audit-2026-10-14/issues/UXG-280-use-the-shared-date-time-and-money-formatters-everywhere.md) Use the shared date, time and money formatters everywhere — low
-- [ ] [UXG-281](../audits/user-story-gap-audit-2026-10-14/issues/UXG-281-do-not-add-a-browser-history-entry-for-every-j-k-step-in-the.md) Do not add a browser history entry for every J/K step in the Inbox — low
-- [ ] [UXG-282](../audits/user-story-gap-audit-2026-10-14/issues/UXG-282-move-the-connection-banner-above-the-phone-dock-and-out-of-t.md) Move the connection banner above the phone dock and out of the toasts’ way — medium
-- [ ] [UXG-283](../audits/user-story-gap-audit-2026-10-14/issues/UXG-283-take-the-product-name-from-brand-config-in-the-shell-offline.md) Take the product name from brand config in the shell, offline page and manifest — low
-- [ ] [UXG-284](../audits/user-story-gap-audit-2026-10-14/issues/UXG-284-stop-shipping-the-gallery-and-office-demo-routes-with-a-foun.md) Stop shipping the gallery and office demo routes, with a founder’s email, to every install — medium
-- [ ] [UXG-285](../audits/user-story-gap-audit-2026-10-14/issues/UXG-285-remove-the-aris-fallback-from-every-company-route-and-retire.md) Remove the 'aris' fallback from every company route and retire the Aris knowledge route — low
-- [ ] [UXG-286](../audits/user-story-gap-audit-2026-10-14/issues/UXG-286-give-the-home-and-account-frame-the-skip-link-k-and-correct.md) Give the Home and Account frame the skip link, ⌘K and correct menu semantics the company shell has — low
-- [ ] [UXG-287](../audits/user-story-gap-audit-2026-10-14/issues/UXG-287-add-print-styles-beyond-documents.md) Add print styles beyond documents — low
-- [ ] [UXG-288](../audits/user-story-gap-audit-2026-10-14/issues/UXG-288-reserve-app-route-names-so-a-company-id-cannot-be-shadowed.md) Reserve app route names so a company id cannot be shadowed — low
-- [ ] [UXG-289](../audits/user-story-gap-audit-2026-10-14/issues/UXG-289-clear-per-company-browser-memory-when-a-person-signs-out.md) Clear per-company browser memory when a person signs out — low
-- [ ] [UXG-290](../audits/user-story-gap-audit-2026-10-14/issues/UXG-290-write-the-error-page-in-owner-language-and-name-the-product.md) Write the error page in owner language and name the product in its title — low
+- [x] [UXG-266](../audits/user-story-gap-audit-2026-10-14/issues/UXG-266-keep-failure-toasts-until-dismissed-and-never-evict-a-live-u.md) Keep failure toasts until dismissed and never evict a live Undo — medium — **Fixed** `913de27`
+- [x] [UXG-267](../audits/user-story-gap-audit-2026-10-14/issues/UXG-267-make-undo-reachable-from-the-keyboard-within-its-window.md) Make Undo reachable from the keyboard within its window — medium — **Fixed** `913de27`
+- [x] [UXG-268](../audits/user-story-gap-audit-2026-10-14/issues/UXG-268-notify-for-every-company-and-name-the-company-in-each-deskto.md) Notify for every company and name the company in each desktop notification — medium — **Fixed** `8191dce`
+- [x] [UXG-269](../audits/user-story-gap-audit-2026-10-14/issues/UXG-269-show-what-needs-the-owner-in-the-tab-title-or-favicon.md) Show what needs the owner in the tab title or favicon — low — **Fixed** `340223c`
+- [x] [UXG-270](../audits/user-story-gap-audit-2026-10-14/issues/UXG-270-give-the-couldn-t-open-this-company-dialog-a-way-out-when-re.md) Give the "couldn’t open this company" dialog a way out when retrying cannot help — high — **Fixed** `9bf44f1`
+- [x] [UXG-271](../audits/user-story-gap-audit-2026-10-14/issues/UXG-271-keep-unsent-text-across-session-re-entry-and-update-reloads.md) Keep unsent text across session re-entry and update reloads, and say when re-entry gave up — medium — **Fixed** `4e323cf`
+- [x] [UXG-272](../audits/user-story-gap-audit-2026-10-14/issues/UXG-272-add-sign-out-to-the-in-company-profile-menu.md) Add Sign out to the in-company profile menu — medium — **Fixed** `440a092`
+- [x] [UXG-273](../audits/user-story-gap-audit-2026-10-14/issues/UXG-273-tell-an-open-tab-when-a-new-version-has-been-deployed.md) Tell an open tab when a new version has been deployed — medium — **Fixed** `1e1218f`
+- [x] [UXG-274](../audits/user-story-gap-audit-2026-10-14/issues/UXG-274-stop-sending-members-to-the-owner-s-account-pages.md) Stop sending members to the owner’s Account pages — medium — **Fixed** `440a092`
+- [x] [UXG-275](../audits/user-story-gap-audit-2026-10-14/issues/UXG-275-say-when-k-search-could-not-reach-a-source-instead-of-no-mat.md) Say when ⌘K search could not reach a source instead of "No match" — medium — **Fixed** `237c402`
+- [x] [UXG-276](../audits/user-story-gap-audit-2026-10-14/issues/UXG-276-stop-offering-add-app-for-apps-already-connected-and-let-k-f.md) Stop offering "Add <app>" for apps already connected and let ⌘K find what the company has — low — **Fixed** `237c402`
+- [x] [UXG-277](../audits/user-story-gap-audit-2026-10-14/issues/UXG-277-offer-ask-exec-about-with-the-typed-text-when-k-has-no-answe.md) Offer "Ask Exec about …" with the typed text when ⌘K has no answer — medium — **Fixed** `237c402`
+- [x] [UXG-278](../audits/user-story-gap-audit-2026-10-14/issues/UXG-278-make-stay-on-this-page-actually-cancel-the-stalled-navigatio.md) Make "Stay on this page" actually cancel the stalled navigation — medium — **Fixed** `a80c6ce`
+- [x] [UXG-279](../audits/user-story-gap-audit-2026-10-14/issues/UXG-279-ignore-enter-while-an-ime-is-composing-in-k-and-other-picker.md) Ignore Enter while an IME is composing in ⌘K and other pickers — medium — **Fixed** `f3802ad`
+- [x] [UXG-280](../audits/user-story-gap-audit-2026-10-14/issues/UXG-280-use-the-shared-date-time-and-money-formatters-everywhere.md) Use the shared date, time and money formatters everywhere — low — **Fixed** `09b3127`
+- [x] [UXG-281](../audits/user-story-gap-audit-2026-10-14/issues/UXG-281-do-not-add-a-browser-history-entry-for-every-j-k-step-in-the.md) Do not add a browser history entry for every J/K step in the Inbox — low — **Fixed** `15805dc`
+- [x] [UXG-282](../audits/user-story-gap-audit-2026-10-14/issues/UXG-282-move-the-connection-banner-above-the-phone-dock-and-out-of-t.md) Move the connection banner above the phone dock and out of the toasts’ way — medium — **Fixed** `ae1158d`
+- [x] [UXG-283](../audits/user-story-gap-audit-2026-10-14/issues/UXG-283-take-the-product-name-from-brand-config-in-the-shell-offline.md) Take the product name from brand config in the shell, offline page and manifest — low — **Fixed** `c6111eb`
+- [x] [UXG-284](../audits/user-story-gap-audit-2026-10-14/issues/UXG-284-stop-shipping-the-gallery-and-office-demo-routes-with-a-foun.md) Stop shipping the gallery and office demo routes, with a founder’s email, to every install — medium — **Fixed** `cd915e4`
+- [x] [UXG-285](../audits/user-story-gap-audit-2026-10-14/issues/UXG-285-remove-the-aris-fallback-from-every-company-route-and-retire.md) Remove the 'aris' fallback from every company route and retire the Aris knowledge route — low — **Fixed** `3226797`
+- [x] [UXG-286](../audits/user-story-gap-audit-2026-10-14/issues/UXG-286-give-the-home-and-account-frame-the-skip-link-k-and-correct.md) Give the Home and Account frame the skip link, ⌘K and correct menu semantics the company shell has — low — **Fixed** `000bb29`
+- [x] [UXG-287](../audits/user-story-gap-audit-2026-10-14/issues/UXG-287-add-print-styles-beyond-documents.md) Add print styles beyond documents — low — **Fixed** `0b3e74e`
+- [x] [UXG-288](../audits/user-story-gap-audit-2026-10-14/issues/UXG-288-reserve-app-route-names-so-a-company-id-cannot-be-shadowed.md) Reserve app route names so a company id cannot be shadowed — low — **Fixed** `4027390`
+- [x] [UXG-289](../audits/user-story-gap-audit-2026-10-14/issues/UXG-289-clear-per-company-browser-memory-when-a-person-signs-out.md) Clear per-company browser memory when a person signs out — low — **Fixed** `440a092`
+- [x] [UXG-290](../audits/user-story-gap-audit-2026-10-14/issues/UXG-290-write-the-error-page-in-owner-language-and-name-the-product.md) Write the error page in owner language and name the product in its title — low — **Fixed** `7191435`
 
 ### WP20 — Endpoint & CLI parity
 
