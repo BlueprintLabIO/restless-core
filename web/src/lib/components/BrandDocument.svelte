@@ -80,13 +80,15 @@
 	/* What the document shows: the current version, with a previewed proposal's
 	 * removals struck through and its additions marked. */
 	type Shown = BrandStatement & { change: '' | 'added' | 'removed' };
-	const shown = $derived<Shown[]>([
-		...current.map((item) => ({
-			...item,
-			change: changes?.removed.has(item.id ?? '') ? ('removed' as const) : ('' as const)
-		})),
-		...(changes?.added ?? []).map((item) => ({ ...item, change: 'added' as const }))
-	]);
+	const shown = $derived<Shown[]>(
+		[
+			...current.map((item) => ({
+				...item,
+				change: changes?.removed.has(item.id ?? '') ? ('removed' as const) : ('' as const)
+			})),
+			...(changes?.added ?? []).map((item) => ({ ...item, change: 'added' as const }))
+		].filter((item) => !(item.change && previewing && dismissed.has(`${previewing}:${item.id}`)))
+	);
 
 	let editing = $state(false);
 	let saving = $state(false);
@@ -227,6 +229,86 @@
 		} else if (event.key === 'Enter' && !event.shiftKey) {
 			event.preventDefault();
 			void saveInline(change);
+		}
+	}
+
+	/* Exec's proposal, line by line (S85-01): each proposed line sits in its section with Accept
+	 * and Dismiss. Accepting saves it into the current version with its evidence; dismissing sets it
+	 * aside. Once nothing in the proposal is left undecided, the proposal is closed. */
+	let dismissed = $state(new Set<string>());
+	/* A proposal drafted against an earlier version is not settled line by line: its "removals"
+	 * would undo what was accepted since. Its Edit and Decline stay. */
+	const previewStale = $derived.by(() => {
+		const proposal = view.pending_proposals.find((row) => row.id === previewing);
+		return proposal ? proposalChanges(view, proposal).stale : false;
+	});
+	let settling = $state('');
+	const lineKey = (proposal: string, id: string | null) => `${proposal}:${id}`;
+
+	async function settleIfDone(proposalId: string, accepted: number) {
+		const proposal = view.pending_proposals.find((row) => row.id === proposalId);
+		if (!proposal) return;
+		const diff = proposalChanges(view, proposal);
+		const open = [...diff.added, ...diff.removed].filter(
+			(item) => !dismissed.has(lineKey(proposalId, item.id))
+		);
+		if (open.length) return;
+		await rejectIdentityProposal(
+			companyId,
+			proposalId,
+			accepted
+				? 'Settled line by line in Brand & voice.'
+				: 'Dismissed line by line in Brand & voice.'
+		);
+		await onSaved();
+	}
+
+	async function decideLine(item: Shown, accept: boolean) {
+		const proposalId = previewing;
+		if (!proposalId || !item.id || settling) return;
+		settling = item.id;
+		error = '';
+		notice = '';
+		try {
+			if (accept) {
+				const keep = current.filter((row) => !(item.change === 'removed' && row.id === item.id));
+				const next =
+					item.change === 'added'
+						? [
+								...keep,
+								{
+									id: item.id,
+									pillar: item.pillar,
+									text: item.text,
+									token: item.token,
+									evidence: item.evidence
+								}
+							]
+						: keep;
+				await saveCompanyIdentity(companyId, {
+					expected_release: view.current_release?.id ?? null,
+					statements: identityStatementsPayload(
+						next.map((row, index) => draftStatement(row, `${row.id}-${index}`))
+					),
+					change_account:
+						item.change === 'added'
+							? `Accepted Exec's proposed ${item.pillar} statement`
+							: `Accepted Exec's proposed removal from ${item.pillar}`
+				});
+				notice =
+					item.change === 'added'
+						? 'Added. New work will use it.'
+						: 'Removed. An earlier version can bring it back.';
+				await onSaved();
+			} else {
+				dismissed = new Set([...dismissed, lineKey(proposalId, item.id)]);
+				notice = 'Set aside.';
+			}
+			await settleIfDone(proposalId, accept ? 1 : 0);
+		} catch (cause) {
+			error = failureSentence(cause, 'That line was not settled.');
+		} finally {
+			settling = '';
 		}
 	}
 
@@ -661,6 +743,30 @@
 							>
 								{#if item.evidence?.polarity === 'negative'}<span class="avoid">Avoid</span>{/if}
 								<Markdown text={item.text} />
+								{#if canManage && item.change && item.id && previewing && !previewStale}
+									<span class="line-decide print-hide">
+										<span class="line-kind"
+											>{item.change === 'added' ? 'Proposed' : 'Proposed removal'}</span
+										>
+										<button
+											class="btn small"
+											type="button"
+											disabled={!!settling}
+											title={item.change === 'added'
+												? 'Add this to your brand'
+												: 'Remove this from your brand'}
+											onclick={() => decideLine(item, true)}
+											>{settling === item.id ? 'Saving…' : 'Accept'}</button
+										>
+										<button
+											class="btn small ghost"
+											type="button"
+											disabled={!!settling}
+											title="Set this suggestion aside"
+											onclick={() => decideLine(item, false)}>Dismiss</button
+										>
+									</span>
+								{/if}
 								{#if inlineChanges && item.change === '' && item.id}
 									{@const id = item.id}
 									<span class="row-actions print-hide">
@@ -772,6 +878,17 @@
 	.statement.editable:hover,
 	.statement.editable:focus-within {
 		background: var(--surface-hover, rgba(0, 0, 0, 0.03));
+	}
+	.line-decide {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin-top: 6px;
+	}
+	.line-kind {
+		margin-right: auto;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
 	}
 	.row-actions {
 		position: absolute;
