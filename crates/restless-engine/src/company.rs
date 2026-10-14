@@ -278,7 +278,7 @@ struct ResourceRow {
 }
 
 #[derive(Debug, Serialize)]
-struct ExternalActions {
+pub struct ExternalActions {
     status: &'static str,
     items: Vec<ExternalActionRow>,
 }
@@ -1361,16 +1361,6 @@ fn actions(authority: Option<&AuthorityProjection>) -> ExternalActions {
         .iter()
         .filter_map(|row| row.body.get("receipt_id")?.as_str().map(str::to_string))
         .collect::<BTreeSet<_>>();
-    let completed = authority
-        .effect_receipts
-        .iter()
-        .filter_map(|row| {
-            Some((
-                row.body.get("idempotency_key")?.as_str()?.to_string(),
-                execution_no(&row.body),
-            ))
-        })
-        .collect::<BTreeSet<_>>();
     let mut items = authority
         .effect_receipts
         .iter()
@@ -1378,50 +1368,10 @@ fn actions(authority: Option<&AuthorityProjection>) -> ExternalActions {
         .take(50)
         .map(|row| action_from_receipt(row, &reconciled_receipts))
         .collect::<Vec<_>>();
-    items.extend(
-        authority
-            .effect_intents
-            .iter()
-            .filter(|row| {
-                row.body
-                    .get("idempotency_key")
-                    .and_then(serde_json::Value::as_str)
-                    .is_some_and(|key| {
-                        !completed.contains(&(key.to_string(), execution_no(&row.body)))
-                    })
-            })
-            .map(|row| ExternalActionRow {
-                id: format!("intent:{}", row.id),
-                title: row
-                    .body
-                    .get("purpose")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("External effect awaiting reconciliation")
-                    .to_string(),
-                effect_class: row
-                    .body
-                    .get("effect_class")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("external_effect")
-                    .to_string(),
-                source: "authority",
-                state: "unknown".into(),
-                evidence: "unknown",
-                actor: row.actor_id.clone(),
-                party: row
-                    .body
-                    .get("party")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_string),
-                receipt_ref: None,
-                detail: Some(format!(
-                    "Execution {} has durable intent but no result receipt.",
-                    execution_no(&row.body)
-                )),
-                work_id: body_work_id(&row.body),
-                observed_at: row.created_at,
-            }),
-    );
+    items.extend(intent_rows(
+        &authority.effect_receipts,
+        &authority.effect_intents,
+    ));
     let mut latest_email_status = std::collections::BTreeMap::new();
     for status in &authority.email_statuses {
         if let Some(id) = status.body.get("permit_id").and_then(serde_json::Value::as_str) {
@@ -1456,38 +1406,130 @@ fn actions(authority: Option<&AuthorityProjection>) -> ExternalActions {
             observed_at: status.map(|record| record.created_at).unwrap_or(reservation.created_at),
         })
     }));
-    items.extend(authority.payments.iter().map(|payment| {
-        let confirmed =
-            payment.provider_transfer_id.is_some() || payment.raw_provider_status.is_some();
-        ExternalActionRow {
-            id: format!("payment:{}", payment.request.idempotency_key),
-            title: payment.request.purpose.clone(),
-            effect_class: "payment.transfer".into(),
-            source: "authority_provider",
-            state: payment.state.as_str().into(),
-            evidence: if confirmed {
-                "provider_confirmed"
-            } else {
-                "authority_recorded"
-            },
-            actor: Some(payment.request.requesting_actor.clone()),
-            party: Some(payment.request.provider_beneficiary_ref.clone()),
-            receipt_ref: payment.provider_transfer_id.clone(),
-            detail: Some(format!(
-                "{} {} from {}",
-                format_minor(payment.request.amount_minor),
-                payment.request.currency,
-                payment.request.source_account_ref
-            )),
-            work_id: Some(payment.request.work_id.to_string()),
-            observed_at: payment.updated_at,
-        }
-    }));
+    items.extend(
+        authority
+            .payments
+            .iter()
+            .map(|payment| payment_row(payment, true)),
+    );
     items.sort_by_key(|item| std::cmp::Reverse(item.observed_at));
     ExternalActions {
         status: "available",
         items,
     }
+}
+
+/// Effects with a durable intent but no result receipt for that execution yet.
+fn intent_rows(
+    effect_receipts: &[crate::authority::AuthorityRecord],
+    effect_intents: &[crate::authority::AuthorityRecord],
+) -> Vec<ExternalActionRow> {
+    let completed = effect_receipts
+        .iter()
+        .filter_map(|row| {
+            Some((
+                row.body.get("idempotency_key")?.as_str()?.to_string(),
+                execution_no(&row.body),
+            ))
+        })
+        .collect::<BTreeSet<_>>();
+    effect_intents
+        .iter()
+        .filter(|row| {
+            row.body
+                .get("idempotency_key")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|key| !completed.contains(&(key.to_string(), execution_no(&row.body))))
+        })
+        .map(|row| ExternalActionRow {
+            id: format!("intent:{}", row.id),
+            title: row
+                .body
+                .get("purpose")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("External effect awaiting reconciliation")
+                .to_string(),
+            effect_class: row
+                .body
+                .get("effect_class")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("external_effect")
+                .to_string(),
+            source: "authority",
+            state: "unknown".into(),
+            evidence: "unknown",
+            actor: row.actor_id.clone(),
+            party: row
+                .body
+                .get("party")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
+            receipt_ref: None,
+            detail: Some(format!(
+                "Execution {} has durable intent but no result receipt.",
+                execution_no(&row.body)
+            )),
+            work_id: body_work_id(&row.body),
+            observed_at: row.created_at,
+        })
+        .collect()
+}
+
+/// One payment as Activity lists it. Only the owner's view names the account it pays from.
+fn payment_row(payment: &finance::PaymentIntent, with_source_account: bool) -> ExternalActionRow {
+    let confirmed = payment.provider_transfer_id.is_some() || payment.raw_provider_status.is_some();
+    let amount = format!(
+        "{} {}",
+        format_minor(payment.request.amount_minor),
+        payment.request.currency
+    );
+    ExternalActionRow {
+        id: format!("payment:{}", payment.request.idempotency_key),
+        title: payment.request.purpose.clone(),
+        effect_class: "payment.transfer".into(),
+        source: "authority_provider",
+        state: payment.state.as_str().into(),
+        evidence: if confirmed {
+            "provider_confirmed"
+        } else {
+            "authority_recorded"
+        },
+        actor: Some(payment.request.requesting_actor.clone()),
+        party: Some(payment.request.provider_beneficiary_ref.clone()),
+        receipt_ref: with_source_account
+            .then(|| payment.provider_transfer_id.clone())
+            .flatten(),
+        detail: Some(if with_source_account {
+            format!("{amount} from {}", payment.request.source_account_ref)
+        } else {
+            amount
+        }),
+        work_id: Some(payment.request.work_id.to_string()),
+        observed_at: payment.updated_at,
+    }
+}
+
+/// Payments and effects still awaiting a result: the Activity rows the paged record does not
+/// carry. An admin reads this beside the owner, so each row holds only what Activity shows (what,
+/// to whom, how much, for which Work, when, its state); only the owner's rows also name the
+/// account it pays from and the provider's transfer reference. Never credentials or the rail.
+pub async fn payment_activity(
+    daemon: &Daemon,
+    company: &str,
+    owner: bool,
+) -> Result<ExternalActions> {
+    let (effect_receipts, effect_intents, payments) = tokio::try_join!(
+        daemon.authority.records_of_kind(company, "effect"),
+        daemon.authority.records_of_kind(company, "effect_intent"),
+        finance::payments(&daemon.authority, company),
+    )?;
+    let mut items = intent_rows(&effect_receipts, &effect_intents);
+    items.extend(payments.iter().map(|payment| payment_row(payment, owner)));
+    items.sort_by_key(|item| std::cmp::Reverse(item.observed_at));
+    Ok(ExternalActions {
+        status: "available",
+        items,
+    })
 }
 
 /// Owner setting changes and lifecycle acts that Activity lists beside external actions.
@@ -2415,6 +2457,43 @@ mod tests {
             body,
             created_at: Utc::now(),
         }
+    }
+
+    /// An admin reads Activity's payments beside the owner, so their rows must never name the
+    /// account a payment draws from nor the provider's transfer reference.
+    #[test]
+    fn an_admins_payment_row_names_neither_the_source_account_nor_the_transfer() {
+        let payment: finance::PaymentIntent = serde_json::from_value(serde_json::json!({
+            "work_id": uuid::Uuid::new_v4(),
+            "owner_handoff_id": uuid::Uuid::new_v4(),
+            "source_account_ref": "acct-operating-77",
+            "provider_beneficiary_ref": "Acme Supplies",
+            "amount_minor": 12500,
+            "currency": "USD",
+            "purpose": "Pay the supplier invoice",
+            "idempotency_key": "pay-1",
+            "requesting_actor": "exec",
+            "state": "processing",
+            "provider": "airwallex",
+            "provider_transfer_id": "tx-secret-9",
+            "created_at": Utc::now(),
+            "updated_at": Utc::now(),
+        }))
+        .unwrap();
+        let admin = serde_json::to_string(&payment_row(&payment, false)).unwrap();
+        assert!(
+            !admin.contains("acct-operating-77") && !admin.contains("tx-secret-9"),
+            "{admin}"
+        );
+        assert!(
+            admin.contains("Acme Supplies") && admin.contains("125.00 USD"),
+            "{admin}"
+        );
+        let owner = serde_json::to_string(&payment_row(&payment, true)).unwrap();
+        assert!(
+            owner.contains("acct-operating-77") && owner.contains("tx-secret-9"),
+            "{owner}"
+        );
     }
 
     #[test]

@@ -1042,6 +1042,36 @@ pub(super) async fn governance_activity(
     }
 }
 
+/// Payments and effects still awaiting a result, for Activity: the rows its paged record does
+/// not carry. Read-only and narrow, so an admin reads it beside the owner.
+pub(super) async fn payment_activity(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+) -> impl IntoResponse {
+    let role = principal.membership_role();
+    if !matches!(role, "owner" | "admin") {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "activity",
+            "Only the owner and admins can read the company's payments and pending effects.",
+        );
+    }
+    if let Err(e) = runtime::CompanyConfig::load(&state.daemon.root, &company)
+        .or_else(|_| runtime::CompanyConfig::load_archived(&state.daemon.root, &company))
+    {
+        return api_error(StatusCode::NOT_FOUND, "company", format!("{e:#}"));
+    }
+    match company_projection::payment_activity(&state.daemon, &company, role == "owner").await {
+        Ok(view) => Json(view).into_response(),
+        Err(e) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "authority",
+            format!("Payments could not be read: {e:#}"),
+        ),
+    }
+}
+
 /// Everything the company holds, as one zip: charter, settings, the governance record, work and
 /// the company computer's files. Built on request and removed once sent.
 pub(super) async fn export_company(

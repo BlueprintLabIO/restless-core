@@ -318,6 +318,21 @@ export async function getGovernanceActivity(
 	);
 }
 
+/** Payments and effects still awaiting a result: the Activity rows the paged record does not
+ * carry. Owners and admins read it; only the owner's rows name the paying account. */
+export async function getPaymentActivity(
+	company: string,
+	signal?: AbortSignal
+): Promise<{ status: 'available' | 'unavailable'; items: CompanyExternalAction[] }> {
+	return ownerResponse(
+		await fetch(`/api/companies/${encodeURIComponent(company)}/company/activity/payments`, {
+			credentials: 'same-origin',
+			cache: 'no-store',
+			signal
+		})
+	);
+}
+
 /** What the company spends, without the rest of the company view: an admin reads this beside the
  * owner, whose whole view also holds the company's keys, payment rail and computer. */
 export type CompanySpendView = Pick<CompanyView['limits'], 'spend' | 'native'>;

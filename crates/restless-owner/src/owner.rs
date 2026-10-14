@@ -1608,6 +1608,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(company_settings_api::governance_activity),
         )
         .route(
+            "/companies/{company}/company/activity/payments",
+            get(company_settings_api::payment_activity),
+        )
+        .route(
             "/companies/{company}/company/outside-actions",
             post(company_settings_api::save_outside_actions),
         )
@@ -2527,6 +2531,7 @@ fn admin_reads_company_record(method: &Method, path: &str) -> bool {
         ["company", "spend"]
             | ["company", "away"]
             | ["company", "activity"]
+            | ["company", "activity", "payments"]
             | ["attention", "history"]
             | ["tool-connections"]
             | ["app-requests"]

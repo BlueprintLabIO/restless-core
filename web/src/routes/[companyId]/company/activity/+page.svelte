@@ -8,10 +8,13 @@
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { page } from '$app/state';
 	import { untrack } from 'svelte';
-	import { attentionQuery, companyPrincipalQuery, companyQuery } from '$lib/model/queries.svelte';
-	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
+	import { attentionQuery } from '$lib/model/queries.svelte';
 	import { fetchDecisionHistory } from '$lib/model/attention';
-	import { getGovernanceActivity, type CompanyExternalAction } from '$lib/model/company';
+	import {
+		getGovernanceActivity,
+		getPaymentActivity,
+		type CompanyExternalAction
+	} from '$lib/model/company';
 	import { failureSentence } from '$lib/model/failure';
 	import type { DecisionContinuation } from '$lib/model/view';
 	import CircleCheck from '@lucide/svelte/icons/circle-check';
@@ -21,12 +24,6 @@
 
 	const companyId = $derived(page.params.companyId ?? '');
 	const attention = $derived(attentionQuery(companyId));
-	/* Payments and effects awaiting a result come from the whole company view, which is the
-	 * owner's; an admin reads the paged record. */
-	const principal = $derived(companyPrincipalQuery(companyId));
-	const owner = $derived(hasOwnerSurfaceAccess(principal.view));
-	const company = $derived(companyQuery(companyId, () => owner));
-	$effect(() => company.attach());
 	const graph = $derived(attention.view?.workGraph ?? null);
 	/* The Inbox's "Recently decided" arrives with ?show=decisions; a link to one entry (an
 	 * outside action that failed, a decision someone else made) with ?q= and ?open=. */
@@ -79,12 +76,19 @@
 	let governanceLoaded = $state(false);
 	let governanceFailure = $state<unknown>(null);
 	let governanceReading = $state(false);
+	/* Payments and effects still awaiting a result are not in the paged record; a narrow read
+	 * that owners and admins share always holds all of them. */
+	let pending = $state<CompanyExternalAction[]>([]);
 	async function readGovernance(before?: number) {
 		const target = companyId;
 		governanceReading = true;
 		try {
-			const result = await getGovernanceActivity(target, before);
+			const [result, payments] = await Promise.all([
+				getGovernanceActivity(target, before),
+				before == null ? getPaymentActivity(target) : null
+			]);
 			if (target !== companyId) return;
+			if (payments) pending = payments.status === 'available' ? payments.items : [];
 			if (!governanceLoaded || before != null) governanceNext = result.next_before;
 			const byId = new Map(governance.map((row) => [row.id, row]));
 			for (const row of result.items) byId.set(row.id, row);
@@ -101,6 +105,7 @@
 		const target = companyId;
 		untrack(() => {
 			governance = [];
+			pending = [];
 			governanceNext = undefined;
 			governanceLoaded = false;
 			governanceFailure = null;
@@ -199,18 +204,11 @@
 			}
 		}))
 	);
-	/* Payments and effects still awaiting a result come from the company view, which always holds
+	/* Payments and effects still awaiting a result come from their own read, which always holds
 	 * all of them; everything else comes from the paged record. */
 	const externalAvailable = $derived(governanceLoaded);
 	const external = $derived<Entry[]>(
-		[
-			...(company.view?.external_actions.status === 'available'
-				? company.view.external_actions.items.filter(
-						(item) => item.id.startsWith('intent:') || item.id.startsWith('payment:')
-					)
-				: []),
-			...governance
-		].map((item) => ({
+		[...pending, ...governance].map((item) => ({
 			kind: item.source === 'owner_setting' ? 'change' : 'external',
 			id: item.id,
 			title: item.title,
@@ -289,9 +287,7 @@
 	});
 	const filtered = $derived(!!(search.trim() || person || day));
 	const loaded = $derived(
-		(owner ? !!company.view : !!principal.view) &&
-			(historyLoaded || !!historyFailure) &&
-			(governanceLoaded || !!governanceFailure)
+		(historyLoaded || !!historyFailure) && (governanceLoaded || !!governanceFailure)
 	);
 
 	function words(value: string): string {
@@ -317,7 +313,7 @@
 				: state === 'unknown'
 					? 'warning'
 					: 'neutral';
-	holdQueries(() => [attention, company, principal]);
+	holdQueries(() => [attention]);
 </script>
 
 <CompanyTitle title="Activity" {companyId} />
@@ -344,20 +340,7 @@
 	{/snippet}
 
 	{#if !loaded}
-		{#if company.failure}<Notice
-				tone="danger"
-				title="Activity could not be read"
-				details={String(company.failure?.message ?? '')}
-			>
-				{#snippet actions()}<button
-						class="btn small"
-						onclick={() => {
-							void company.refresh();
-							void readHistory();
-						}}>Retry</button
-					>{/snippet}
-			</Notice>
-		{:else}<Skeleton label="Reading activity…" variant="page" count={4} />{/if}
+		<Skeleton label="Reading activity…" variant="page" count={4} />
 	{:else}
 		{#if !externalAvailable && filter !== 'decisions'}<Notice
 				tone="warning"
