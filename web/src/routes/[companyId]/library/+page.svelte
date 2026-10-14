@@ -84,6 +84,7 @@
 	import Square from '@lucide/svelte/icons/square';
 	import SquareCheck from '@lucide/svelte/icons/square-check';
 	import { documentSearch } from '$lib/model/document-search.svelte';
+	import { rememberLibraryView } from '$lib/model/library-return';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import {
 		duplicateSheet,
@@ -1096,6 +1097,8 @@
 		return query ? `${root}/library?${query}` : `${root}/library`;
 	};
 	const backHref = $derived(filterHref(filter, collectionParam));
+	/* An editor opened from here returns to this view, as it was. */
+	$effect(() => rememberLibraryView(companyId, page.url.search));
 	/* Collections in use, among the items this person can see. */
 	const collections = $derived(
 		collectionCounts(

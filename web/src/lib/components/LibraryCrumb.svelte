@@ -1,14 +1,13 @@
 <script lang="ts">
 	/* The way back from an editor to the Library it was opened from. */
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
+	import { libraryReturnHref } from '$lib/model/library-return';
 	let { companyId, show }: { companyId: string; show: 'docs' | 'sheets' } = $props();
+	/* Read once, as the editor opens: the view it was opened from. */
+	const href = $derived(libraryReturnHref(companyId, show));
 </script>
 
-<a
-	class="crumb"
-	href={`/${encodeURIComponent(companyId)}/library?show=${show}`}
-	title="Back to the Library"
-	aria-label="Back to the Library"
+<a class="crumb" {href} title="Back to the Library" aria-label="Back to the Library"
 	><ArrowLeft size={15} strokeWidth={1.9} aria-hidden="true" /><span>Library</span></a
 ><span class="sep" aria-hidden="true">/</span>
 
