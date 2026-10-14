@@ -305,7 +305,7 @@ Severity: **high** breaks a core owner loop or trust · **medium** clear UX or f
 
 ## Issues
 
-Ticket status lives only in this checklist. Tick an item when its fix lands on `main`.
+Status lives in the [Sprint 83 checklist](../../sprints/sprint-83.md#checklist); this list is the index.
 
 
 ### Round 1
