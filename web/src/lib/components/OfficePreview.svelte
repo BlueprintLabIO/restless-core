@@ -1,7 +1,8 @@
 <script lang="ts">
-	/* A Word document or Excel workbook, read in the cockpit (G17). Browsers render neither, so the
-	 * bytes come to the cockpit and are rendered here: Word as sanitized HTML, Excel read-only in the
-	 * same spreadsheet engine as native Sheets. Download stays beside it for the original. */
+	/* A Word document, Excel workbook or PowerPoint deck, read in the cockpit (G17). Browsers render
+	 * none, so the bytes come to the cockpit and are rendered here: Word as sanitized HTML, Excel
+	 * read-only in the same spreadsheet engine as native Sheets, a deck as its slides in order.
+	 * Download stays beside it for the original. */
 	import { untrack } from 'svelte';
 	import Pending from '$lib/ui/feedback/Pending.svelte';
 	import { failureSentence } from '$lib/model/failure';
@@ -13,7 +14,7 @@
 		load,
 		downloadHref = ''
 	}: {
-		format: 'docx' | 'xlsx';
+		format: 'docx' | 'xlsx' | 'pptx';
 		name: string;
 		/** Which file this is (its path or URL); a different one reads again. */
 		source: string;
@@ -47,6 +48,9 @@
 				if (kind === 'docx') {
 					const rendered = await office.docxHtml(bytes);
 					if (!disposed) html = rendered.html || '<p>This document has no text.</p>';
+				} else if (kind === 'pptx') {
+					const rendered = await office.pptxHtml(bytes);
+					if (!disposed) html = rendered.html || '<p>This deck has no slides.</p>';
 				} else if (host) {
 					const mounted = await office.mountWorkbook(host, bytes);
 					if (disposed) mounted.destroy();
@@ -58,7 +62,9 @@
 						cause,
 						kind === 'docx'
 							? 'This Word document could not be read here.'
-							: 'This workbook could not be read here.'
+							: kind === 'pptx'
+								? 'This deck could not be read here.'
+								: 'This workbook could not be read here.'
 					);
 			} finally {
 				if (!disposed) loading = false;
@@ -77,16 +83,20 @@
 			<p class="office-failure">{failure}</p>
 			<div class="office-actions">
 				<button class="btn small" type="button" onclick={() => (attempt += 1)}>Try again</button>
-				{#if downloadHref}<a class="btn small primary" href={downloadHref} download>Download {name}</a>{/if}
+				{#if downloadHref}<a class="btn small primary" href={downloadHref} download
+						>Download {name}</a
+					>{/if}
 			</div>
 		</div>
-	{:else if loading && format === 'docx'}
-		<div class="office-center"><Pending label="Reading the document" /></div>
+	{:else if loading && format !== 'xlsx'}
+		<div class="office-center">
+			<Pending label={format === 'pptx' ? 'Reading the slides' : 'Reading the document'} />
+		</div>
 	{/if}
-	{#if format === 'docx' && html && !failure}
+	{#if format !== 'xlsx' && html && !failure}
 		<div class="office-scroll">
 			<!-- Sanitized in office-preview.ts: no script, style, frame or network reference survives. -->
-			<article class="office-paper">{@html html}</article>
+			<article class="office-paper" class:deck={format === 'pptx'}>{@html html}</article>
 		</div>
 	{:else if format === 'xlsx'}
 		{#if loading && !failure}<div class="office-center overlay">
@@ -194,6 +204,35 @@
 		text-decoration: underline;
 		text-underline-offset: 2px;
 	}
+	.office-paper.deck {
+		display: grid;
+		gap: 16px;
+		max-width: 96ch;
+		padding: 0;
+		border: 0;
+		background: none;
+	}
+	.office-paper.deck :global(section) {
+		position: relative;
+		aspect-ratio: 16 / 9;
+		overflow: auto;
+		padding: 28px 36px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-md);
+		background: var(--surface-pane, var(--surface));
+	}
+	.office-paper.deck :global(section > small) {
+		position: absolute;
+		right: 12px;
+		bottom: 8px;
+		color: var(--text-tertiary);
+		font: var(--t-label) var(--font-ui);
+	}
+	.office-paper.deck :global(section img) {
+		display: block;
+		max-height: 60%;
+		margin-top: 12px;
+	}
 	.office-workbook {
 		height: 100%;
 		min-height: 320px;
@@ -206,6 +245,13 @@
 	@media (max-width: 760px) {
 		.office-scroll {
 			padding: 0;
+		}
+		.office-paper.deck {
+			padding: 12px;
+		}
+		.office-paper.deck :global(section) {
+			aspect-ratio: auto;
+			padding: 18px 18px 28px;
 		}
 		.office-paper {
 			padding: 20px 18px;

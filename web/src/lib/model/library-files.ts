@@ -4,14 +4,7 @@
 import { responseFailure } from './failure.ts';
 
 export type LibraryFileKind =
-	| 'site'
-	| 'image'
-	| 'deck'
-	| 'pdf'
-	| 'media'
-	| 'text'
-	| 'office'
-	| 'other';
+	'site' | 'image' | 'deck' | 'pdf' | 'media' | 'text' | 'office' | 'other';
 
 export interface LibraryArtifact {
 	id: string;
@@ -58,7 +51,8 @@ const TEXT = /\.(md|markdown|txt|csv|tsv|json|log)$/i;
 const OFFICE = /\.(docx?|xlsx?|pptx?)$/i;
 /* Kinds the browser itself shows; everything else downloads (an Office file may be read in
  * place by the cockpit, see officeFormat). */
-const VIEWABLE = /\.(html?|pdf|png|jpe?g|gif|webp|avif|svg|ico|mp4|m4v|webm|ogv|mp3|m4a|wav|oga|ogg|flac|md|markdown|txt|json)$/i;
+const VIEWABLE =
+	/\.(html?|pdf|png|jpe?g|gif|webp|avif|svg|ico|mp4|m4v|webm|ogv|mp3|m4a|wav|oga|ogg|flac|md|markdown|txt|json)$/i;
 const DECK_KIND = /^(deck|slides?|presentation)$/i;
 const DECK_NAME = /\b(deck|slides?|presentation)\b/i;
 /* Labels that name no particular file: recorders' defaults and the words for a kind. */
@@ -132,10 +126,10 @@ export function downloads(file: Pick<LibraryFile, 'uri'>): boolean {
 	return path.startsWith('/company/') && !VIEWABLE.test(path);
 }
 
-/** A Word or Excel file the cockpit reads in place; other Office files only download. */
-export function officeFormat(uri: string): 'docx' | 'xlsx' | null {
-	const match = uri.split(/[?#]/)[0].match(/\.(docx|xlsx)$/i);
-	return match ? (match[1].toLowerCase() as 'docx' | 'xlsx') : null;
+/** A Word, Excel or PowerPoint file the cockpit reads in place; other Office files only download. */
+export function officeFormat(uri: string): 'docx' | 'xlsx' | 'pptx' | null {
+	const match = uri.split(/[?#]/)[0].match(/\.(docx|xlsx|pptx)$/i);
+	return match ? (match[1].toLowerCase() as 'docx' | 'xlsx' | 'pptx') : null;
 }
 
 /** What to call a file: the label its recorder gave, unless that names nothing in particular,
@@ -152,7 +146,10 @@ export function fileLabel(label: string, uri: string, workTitle?: string): strin
 			.split('/')
 			.slice(2, -1)
 			.reverse()
-			.find((segment) => !/^(deck|slides|presentation|site|dist|build|public|out|www|outputs)$/i.test(segment));
+			.find(
+				(segment) =>
+					!/^(deck|slides|presentation|site|dist|build|public|out|www|outputs)$/i.test(segment)
+			);
 		if (folder) return pathName(folder);
 	}
 	return workTitle?.trim() || given || name || uri;
@@ -205,10 +202,7 @@ export function libraryFiles(
 }
 
 /** The Library row a link names: by any recorded id of the file. */
-export function libraryFileById(
-	files: readonly LibraryFile[],
-	id: string
-): LibraryFile | null {
+export function libraryFileById(files: readonly LibraryFile[], id: string): LibraryFile | null {
 	return files.find((file) => file.id === id || file.ids?.includes(id)) ?? null;
 }
 
@@ -256,7 +250,9 @@ export function fileAtPath(path: string): LibraryFile | null {
 
 /** Where a file opens in the Library: by its recorded id, or by its path. */
 export function libraryFileHref(company: string, file: { id?: string; uri: string }): string {
-	const query = file.id ? `file=${encodeURIComponent(file.id)}` : `path=${encodeURIComponent(file.uri)}`;
+	const query = file.id
+		? `file=${encodeURIComponent(file.id)}`
+		: `path=${encodeURIComponent(file.uri)}`;
 	return `/${encodeURIComponent(company)}/library?${query}`;
 }
 

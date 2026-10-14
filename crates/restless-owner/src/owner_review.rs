@@ -452,7 +452,7 @@ pub(crate) struct LibraryContentQuery {
     pub(crate) path: String,
 }
 
-/// The bytes of one Word or Excel file in the company home, for the cockpit to render in place
+/// The bytes of one Word, Excel or PowerPoint file in the company home, for the cockpit to render in place
 /// (browsers render neither). Owner only, like opening it; bounded like a review read, served
 /// as an inert download with no-sniff so the cockpit origin never renders it.
 pub(crate) async fn library_file_content(
@@ -478,13 +478,13 @@ pub(crate) async fn library_file_content(
     let office = std::path::Path::new(path)
         .extension()
         .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| matches!(extension.to_ascii_lowercase().as_str(), "docx" | "xlsx"));
+        .is_some_and(|extension| matches!(extension.to_ascii_lowercase().as_str(), "docx" | "xlsx" | "pptx"));
     if !office || !path.starts_with("/company/") || runtime::runtime_review_file_root(path).is_err()
     {
         return api_error(
             StatusCode::BAD_REQUEST,
             "library",
-            "only a Word or Excel file in the company home is read here",
+            "only a Word, Excel or PowerPoint file in the company home is read here",
         );
     }
     if let Err(error) = runtime::CompanyConfig::load(&state.daemon.root, &company) {
