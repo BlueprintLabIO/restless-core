@@ -7,6 +7,8 @@
 //! approval actions, and browser attach/lease transport. It is not a generic
 //! REST facade over the company computer.
 
+#[path = "owner_appliance.rs"]
+mod appliance_api;
 #[path = "owner_agent_exchanges.rs"]
 mod agent_exchanges_api;
 #[path = "owner_capacity_activity.rs"]
@@ -1309,6 +1311,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
 
     let api = Router::new()
         .route("/appliance", get(appliance_status))
+        .route("/appliance/operations", get(appliance_api::operations))
+        .route("/appliance/operations/{op}", post(appliance_api::run))
+        .route("/appliance/backups/latest", get(appliance_api::download_backup))
+        .route("/appliance/resume", post(appliance_api::resume))
         .route("/model-catalog", get(model_catalog_api::get_catalog))
         .route("/companies", get(company_catalog).post(create_company))
         .route(
@@ -6385,6 +6391,10 @@ async fn exchange_native_launch(
     }
 }
 
+/// Schedule wake delivery stopped; the cockpit's Restart runs `restless appliance start`.
+const WAKE_STOPPED: &str =
+    "Schedule wake delivery has stopped. Restart it so schedules run while the cockpit is closed.";
+
 #[derive(Serialize)]
 struct ApplianceStatus {
     profile: String,
@@ -6395,6 +6405,9 @@ struct ApplianceStatus {
     schedule_transport: &'static str,
     last_schedule_wake: Option<serde_json::Value>,
     repair: Option<&'static str>,
+    /// The cockpit actions that carry out `repair`: `resume`, `start`, `rollback` or
+    /// `retry-upgrade` (see `owner_appliance.rs`). Empty when only the host can fix it.
+    repair_actions: Vec<&'static str>,
     /// A hosted plane: its owner's Home (the one company list) lives on the
     /// account issuer, and there is no host for the owner to repair.
     hosted: bool,
@@ -6463,7 +6476,7 @@ async fn appliance_status(
                 (
                     "degraded",
                     "unavailable",
-                    Some("Run `restless appliance start` to restore schedule wake delivery."),
+                    Some(WAKE_STOPPED),
                 )
             }
         }
@@ -6507,7 +6520,7 @@ async fn appliance_status(
                 (
                     "degraded",
                     "unavailable",
-                    Some("Run `restless appliance start` to restore schedule wake delivery."),
+                    Some(WAKE_STOPPED),
                 )
             }
         }
@@ -6519,6 +6532,13 @@ async fn appliance_status(
         restless_contracts::appliance::ProfileKind::Dev => ("development", "in_process", None),
         restless_contracts::appliance::ProfileKind::Test => ("test", "in_process", None),
     };
+    let recovery_actions = recovery.as_ref().map(|recovery| {
+        if recovery.get("rollback_refused").and_then(serde_json::Value::as_bool) == Some(true) {
+            vec!["retry-upgrade"]
+        } else {
+            vec!["retry-upgrade", "rollback"]
+        }
+    });
     let (state_name, repair) = if let Some(recovery) = recovery {
         (
             "degraded",
@@ -6529,9 +6549,9 @@ async fn appliance_status(
                     if recovery.get("rollback_refused").and_then(serde_json::Value::as_bool)
                         == Some(true)
                     {
-                        "The new release did not become ready, and it is the only release that can open company data. Inspect the service log, then retry the upgrade."
+                        "The new release did not become ready, and it is the only release that can open company data. Retry the update."
                     } else {
-                        "The last appliance upgrade was blocked. Inspect the service log, then retry or roll back."
+                        "The last appliance update did not become ready. Retry it, or roll back to the previous release."
                     }
                 }),
         )
@@ -6539,7 +6559,7 @@ async fn appliance_status(
         (
             "draining",
             Some(if operation {
-                "Work admission is paused for a lifecycle operation. Run `restless appliance resume` if no upgrade is active."
+                "Work admission is paused for a lifecycle operation. Resume it if no update is running."
             } else {
                 "Running work is finishing before a restart; new work starts once it is back."
             }),
@@ -6552,7 +6572,22 @@ async fn appliance_status(
     } else {
         (state_name, repair)
     };
+    // The repairs the cockpit can carry out itself; an install stays a host step.
+    let repair_actions: Vec<&'static str> = if hosted
+        || profile.kind != restless_contracts::appliance::ProfileKind::Stable
+    {
+        Vec::new()
+    } else if let Some(recovery) = recovery_actions {
+        recovery
+    } else if repair == Some(WAKE_STOPPED) {
+        vec!["start"]
+    } else if draining && operation {
+        vec!["resume"]
+    } else {
+        Vec::new()
+    };
     Json(ApplianceStatus {
+        repair_actions,
         profile: profile.kind.as_str().to_string(),
         state: state_name,
         draining,

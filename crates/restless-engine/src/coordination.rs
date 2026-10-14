@@ -106,6 +106,15 @@ where
     Ok(())
 }
 
+/// Clear the appliance drain barrier and reopen work admission: what `restless appliance resume`
+/// asks the daemon to do, and what the owner's Resume does from the cockpit.
+pub fn resume_appliance(daemon: &Daemon) -> Result<()> {
+    restless_contracts::appliance::clear_drain_marker(&daemon.root)
+        .context("clear appliance drain barrier")?;
+    daemon.lifecycle.resume();
+    Ok(())
+}
+
 pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Response {
     if request.cmd == "appliance-drain" {
         daemon.lifecycle.begin_drain();
@@ -116,10 +125,9 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
         return Response::ok_serialized(appliance_drain_status(daemon));
     }
     if request.cmd == "appliance-resume" {
-        if let Err(error) = restless_contracts::appliance::clear_drain_marker(&daemon.root) {
-            return Response::err(format!("clear appliance drain barrier: {error:#}"));
+        if let Err(error) = resume_appliance(daemon) {
+            return Response::err(format!("{error:#}"));
         }
-        daemon.lifecycle.resume();
         return Response::ok_serialized(appliance_drain_status(daemon));
     }
     if matches!(request.cmd.as_str(), "browser-session-register" | "browser-session-release") {

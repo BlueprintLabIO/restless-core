@@ -9,10 +9,11 @@
 	import AccountConnections from '$lib/components/AccountConnections.svelte';
 	import AccountAiApps from '$lib/components/AccountAiApps.svelte';
 	import AccountAppearance from '$lib/components/AccountAppearance.svelte';
+	import AccountAppliance from '$lib/components/AccountAppliance.svelte';
 	import AccountPage from '$lib/ui/views/AccountPage.svelte';
 	import type { AccountSection } from '$lib/ui/account';
 
-	type Id = 'connections' | 'ai-apps' | 'appearance';
+	type Id = 'connections' | 'ai-apps' | 'appearance' | 'appliance';
 	let { id }: { id: Id } = $props();
 
 	const SECTIONS: Record<Id, AccountSection> = {
@@ -26,6 +27,12 @@
 			id: 'ai-apps',
 			title: 'AI apps',
 			tooltip: `Use ${PRODUCT_NAME} from Claude Code, Claude Desktop or Codex over MCP: read your Inbox, decide approvals and talk to Exec. A token acts as you, with exactly your access, and stops working the moment it is revoked or your membership changes.`
+		},
+		appliance: {
+			id: 'appliance',
+			title: 'This computer',
+			tooltip:
+				'The appliance this computer runs: its release, rolling back, and backing up every company on it.'
 		},
 		appearance: {
 			id: 'appearance',
@@ -44,7 +51,7 @@
 			<AccountPage title="Settings" sections={[current]} {nav}>
 				{#snippet section()}
 					{#if id === 'connections'}<AccountConnections />{:else if id === 'ai-apps'}<AccountAiApps
-						/>{:else}<AccountAppearance />{/if}
+						/>{:else if id === 'appliance'}<AccountAppliance />{:else}<AccountAppearance />{/if}
 				{/snippet}
 			</AccountPage>
 		{/snippet}

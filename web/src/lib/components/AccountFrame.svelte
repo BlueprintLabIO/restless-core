@@ -153,7 +153,18 @@
 		{ id: 'home', group: 'Go to', label: 'Home', hint: 'Your companies', href: home },
 		{ id: 'connections', group: 'Settings', label: 'AI accounts', href: '/account/connections' },
 		{ id: 'ai-apps', group: 'Settings', label: 'AI apps', href: '/account/ai-apps' },
-		{ id: 'appearance', group: 'Settings', label: 'Appearance', href: '/account/appearance' }
+		{ id: 'appearance', group: 'Settings', label: 'Appearance', href: '/account/appearance' },
+		...(status && !status.hosted
+			? [
+					{
+						id: 'appliance',
+						group: 'Settings',
+						label: 'This computer',
+						hint: 'Release and backup',
+						href: '/account/appliance'
+					}
+				]
+			: [])
 	]);
 	/* Settings' own list, shown in the page beside the section. */
 	const settingsNav = $derived<AccountGroup[]>([
@@ -170,6 +181,9 @@
 			label: 'Integrations',
 			items: [own('AI accounts', '/account/connections'), own('AI apps', '/account/ai-apps')]
 		},
+		...(status && !status.hosted
+			? [{ label: 'This computer', items: [own('Release and backup', '/account/appliance')] }]
+			: []),
 		...(issuer ? [{ label: 'Help', items: issued('Support', 'support') }] : [])
 	]);
 </script>

@@ -20,6 +20,7 @@
 	import CreateCompany from '$lib/components/CreateCompany.svelte';
 	import AccountFrame from '$lib/components/AccountFrame.svelte';
 	import { getApplianceStatus, planeLabel, type ApplianceStatus } from '$lib/model/appliance';
+	import ApplianceRepair from '$lib/components/ApplianceRepair.svelte';
 	import { companiesQuery } from '$lib/model/queries.svelte';
 	import {
 		accountGrantFix,
@@ -64,6 +65,10 @@
 		if (next) void goto(next, { replaceState: true });
 	});
 
+	/* After a repair, read the appliance again so a resolved banner goes away. */
+	async function refreshAppliance() {
+		appliance = await getApplianceStatus().catch(() => appliance);
+	}
 	let accountConnections = $state<AccountConnectionSummary[]>([]);
 	$effect(() => {
 		const controller = new AbortController();
@@ -255,16 +260,28 @@
 					<div class="appliance-notice" role="status">
 						<span>Restoring runtime safety.</span>
 						<p>{appliance.repair}</p>
+						<ApplianceRepair
+							actions={appliance.repair_actions ?? []}
+							ondone={() => void refreshAppliance()}
+						/>
 					</div>
 				{:else if appliance?.state === 'draining'}
 					<div class="appliance-notice" role="status">
 						<span>Work admission is paused.</span>
 						<p>{appliance.repair}</p>
+						<ApplianceRepair
+							actions={appliance.repair_actions ?? []}
+							ondone={() => void refreshAppliance()}
+						/>
 					</div>
 				{:else if appliance?.state === 'degraded'}
 					<div class="appliance-notice" role="status">
 						<span>Schedule wake needs repair.</span>
 						<p>{appliance.repair}</p>
+						<ApplianceRepair
+							actions={appliance.repair_actions ?? []}
+							ondone={() => void refreshAppliance()}
+						/>
 					</div>
 				{/if}
 			{/snippet}

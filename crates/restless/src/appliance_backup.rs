@@ -185,6 +185,15 @@ pub fn backup(output: PathBuf, force: bool) -> Result<BackupReport> {
     drop(file);
     let plane_restarted = plane.restart()?;
     partial.0 = None;
+    // The cockpit's "last backed up" fact, wherever the archive went. Machine-local, so it
+    // never travels inside a backup; failing to note it does not fail the backup.
+    let note = serde_json::json!({
+        "archive": output.display().to_string(),
+        "bytes": bytes,
+        "created_at_unix_seconds": manifest.created_at_unix_seconds,
+    });
+    let _ = std::fs::create_dir_all(root.join("machine"))
+        .and_then(|()| std::fs::write(root.join("machine/last-backup.json"), note.to_string()));
     Ok(BackupReport {
         archive: output.display().to_string(),
         bytes,
