@@ -1,13 +1,20 @@
 /* One composer everywhere: the company's skills are offered wherever the owner
  * talks to an agent, and the Exec's `/goal` and `/loop` commands wherever the
  * owner talks to the Exec. */
-import { EXEC_COMMANDS, fetchSkillLibrary, skillOptions, type ComposerOption } from './skills';
+import {
+	EXEC_COMMANDS,
+	fetchSkillLibrary,
+	skillOptions,
+	type ComposerOption,
+	type ExecCommand
+} from './skills';
 import { mentionInsert, type MentionPerson } from './rooms';
 
 export function composerOptions(
 	company: () => string,
 	enabled: () => boolean,
-	execCommands: () => boolean
+	/** The Exec commands this person may run here: none, `/loop` alone for an admin, or both. */
+	execCommands: () => readonly ExecCommand[]
 ) {
 	let skills = $state<ComposerOption[]>([]);
 	$effect(() => {
@@ -27,7 +34,11 @@ export function composerOptions(
 	});
 	return {
 		get value(): ComposerOption[] {
-			return execCommands() ? [...EXEC_COMMANDS, ...skills] : skills;
+			const allowed = execCommands();
+			return [
+				...EXEC_COMMANDS.filter((command) => allowed.includes(command.name as ExecCommand)),
+				...skills
+			];
 		}
 	};
 }

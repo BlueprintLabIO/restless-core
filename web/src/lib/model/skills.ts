@@ -173,6 +173,16 @@ export function skillOptions(library: SkillLibrary | null): ComposerOption[] {
 }
 
 /** Restless commands offered by the Exec composer's `/` menu. */
+export type ExecCommand = 'goal' | 'loop';
+
+/** Which Exec commands a membership role may run: the server lets an admin run loops with the
+ * owner, while goals stay the owner's. */
+export function execCommandsFor(role: string | null | undefined): readonly ExecCommand[] {
+	if (role === 'owner') return ['goal', 'loop'];
+	if (role === 'admin') return ['loop'];
+	return [];
+}
+
 export const EXEC_COMMANDS: ComposerOption[] = [
 	{
 		kind: 'command',
@@ -384,7 +394,8 @@ export function describeInterval(seconds: number): string {
  * commands handled without a message, or `send: true` to deliver the text. */
 export async function runExecCommand(
 	company: string,
-	text: string
+	text: string,
+	allowed: readonly ExecCommand[] = ['goal', 'loop']
 ): Promise<{
 	notice?: string;
 	error?: string;
@@ -396,6 +407,12 @@ export async function runExecCommand(
 }> {
 	const command = parseComposerCommand(text);
 	if (!command) return { send: true };
+	if (!allowed.length) return { send: true };
+	if (command.kind.startsWith('goal') && !allowed.includes('goal'))
+		return {
+			error: 'Only the owner sets and closes goals. Ask Exec in your own words instead.',
+			send: false
+		};
 	switch (command.kind) {
 		case 'invalid':
 			return { error: command.message, send: false };

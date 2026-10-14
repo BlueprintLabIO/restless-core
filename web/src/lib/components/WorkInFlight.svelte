@@ -2,15 +2,26 @@
 	/* What Exec has under way, one quiet line each, above the composer: who is on it and whether
 	 * it is moving, done, blocked or has gone quiet. A promise to "come back to you" is then never
 	 * the only sign that work exists; silence reads as a state the owner can see and ask about. */
-	import { attentionQuery, cockpitQuery } from '$lib/model/queries.svelte';
+	import {
+		attentionQuery,
+		cockpitQuery,
+		collaborationBootstrapQuery,
+		companyPrincipalQuery
+	} from '$lib/model/queries.svelte';
 	import { personName } from '$lib/model/initials';
 	import { formatMoment } from '$lib/ui/time';
 	import { judgementHolders, workWaitingOnOwner } from '$lib/model/attention-presentation';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
-	let { companyId }: { companyId: string } = $props();
-	const attention = $derived(attentionQuery(companyId));
-	const cockpit = $derived(cockpitQuery(companyId));
+	/* The owner reads the whole company; everyone else reads the Work they can see, from their
+	 * collaboration view, and "Needs you" means handed to them. */
+	let { companyId, owner = true }: { companyId: string; owner?: boolean } = $props();
+	const attention = $derived(attentionQuery(companyId, () => owner));
+	const cockpit = $derived(cockpitQuery(companyId, () => owner));
+	const principal = $derived(companyPrincipalQuery(companyId));
+	const collaboration = $derived(
+		collaborationBootstrapQuery(companyId, () => (owner ? null : principal.view))
+	);
 
 	const QUIET_MS = 20 * 60_000;
 	const RECENT_MS = 3 * 60 * 60_000;
@@ -29,24 +40,59 @@
 		tone: string;
 		at: string;
 	};
+	type Source = {
+		work: {
+			id: string;
+			title: string;
+			status: string;
+			updated_at: string;
+			owner_id: string;
+			goal_id: string | null;
+		}[];
+		attempts: { work_id: string; state: string; started_at: string }[];
+		waiting: Set<string>;
+		heldBy: Map<string, string>;
+		people: { actor_id: string; display: string }[];
+		goals: { id: string; title: string }[];
+	};
+	const source = $derived.by<Source | null>(() => {
+		if (owner) {
+			const graph = attention.view?.workGraph;
+			if (!graph) return null;
+			return {
+				work: graph.work,
+				attempts: graph.attempts,
+				/* Waiting on the owner means what the Inbox shows; a lead or Exec may still hold the judgement. */
+				waiting: workWaitingOnOwner(attention.view?.items ?? []),
+				heldBy: judgementHolders(graph.handoffs ?? []),
+				people: cockpit.view?.people ?? [],
+				goals: cockpit.view?.goals ?? []
+			};
+		}
+		const view = collaboration.view;
+		if (!view) return null;
+		return {
+			work: view.work_graph.work,
+			attempts: view.work_graph.attempts,
+			waiting: new Set(view.attention.handoffs.map((handoff) => handoff.work_id)),
+			heldBy: new Map(),
+			people: view.people,
+			goals: view.goals
+		};
+	});
 	const lines = $derived.by<Line[]>(() => {
-		const graph = attention.view?.workGraph;
-		if (!graph) return [];
+		const from = source;
+		if (!from) return [];
 		const name = (actor: string) =>
-			personName(
-				cockpit.view?.people.find((person) => person.actor_id === actor)?.display ?? actor
-			);
-		/* Waiting on the owner means what the Inbox shows; a lead or Exec may still hold the judgement. */
-		const waitingOnOwner = workWaitingOnOwner(attention.view?.items ?? []);
-		const heldBy = judgementHolders(graph.handoffs ?? []);
+			personName(from.people.find((person) => person.actor_id === actor)?.display ?? actor);
 		const out: Line[] = [];
-		for (const work of graph.work) {
+		for (const work of from.work) {
 			const updated = new Date(work.updated_at).getTime();
-			const running = graph.attempts.find(
+			const running = from.attempts.find(
 				(attempt) => attempt.work_id === work.id && attempt.state === 'running'
 			);
-			const waiting = waitingOnOwner.has(work.id);
-			const holder = heldBy.get(work.id);
+			const waiting = from.waiting.has(work.id);
+			const holder = from.heldBy.get(work.id);
 			let state = '';
 			let tone = '';
 			if (work.status === 'completed' && now - updated < RECENT_MS)
@@ -63,7 +109,7 @@
 			out.push({
 				id: work.id,
 				title: work.title,
-				goal: cockpit.view?.goals.find((goal) => goal.id === work.goal_id)?.title ?? '',
+				goal: from.goals.find((goal) => goal.id === work.goal_id)?.title ?? '',
 				who: name(work.owner_id),
 				state,
 				tone,
@@ -72,7 +118,7 @@
 		}
 		return out.toSorted((a, b) => b.at.localeCompare(a.at)).slice(0, 3);
 	});
-	holdQueries(() => [attention, cockpit]);
+	holdQueries(() => [attention, cockpit, collaboration]);
 </script>
 
 {#if lines.length}

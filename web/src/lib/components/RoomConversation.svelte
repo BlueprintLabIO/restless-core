@@ -21,7 +21,7 @@
 		personOptions,
 		referenceOptions
 	} from '$lib/model/composer-options.svelte';
-	import { runExecCommand } from '$lib/model/skills';
+	import { execCommandsFor, runExecCommand } from '$lib/model/skills';
 	import { PIN, reactionsQuery } from '$lib/model/reactions.svelte';
 	import { documentsQuery } from '$lib/model/document-queries.svelte';
 	import { askExec, workDraftFrom } from '$lib/model/ask-exec';
@@ -641,7 +641,7 @@
 	const options = composerOptions(
 		() => companyId,
 		() => accountableDirect,
-		() => ownerAccess && directPartner === 'exec'
+		() => (ownerAccess && directPartner === 'exec' ? execCommandsFor('owner') : [])
 	);
 	/* Everyone in a conversation reacts and pins, as the server allows anyone who can read it;
 	 * turning a message into Work stays the owner's, since it asks the Exec. */

@@ -54,7 +54,7 @@
 	} from '$lib/model/queries.svelte';
 	import type { OutcomeStandard } from '$lib/model/company';
 	import type { ThreadMessage } from '$lib/model/view';
-	import { runExecCommand } from '$lib/model/skills';
+	import { execCommandsFor, runExecCommand } from '$lib/model/skills';
 	import { PIN, reactionsQuery, roomPinsQuery } from '$lib/model/reactions.svelte';
 	import { workDraftFrom, askExec } from '$lib/model/ask-exec';
 	import Pin from '@lucide/svelte/icons/pin';
@@ -345,16 +345,17 @@
 	 * Exec conversation, where they have one accountable meaning. */
 	let composerSkills = $state<string[]>([]);
 	const execConversation = $derived(participantId === 'exec' && !review && !workContext);
-	const commandsAllowed = $derived(execConversation && membershipRole === 'owner');
+	/* Each command is offered to whoever the server lets run it: an admin runs loops with the owner. */
+	const allowedCommands = $derived(execConversation ? execCommandsFor(membershipRole) : []);
 	const options = composerOptions(
 		() => companyId,
 		() => open && canOperate,
-		() => commandsAllowed
+		() => allowedCommands
 	);
 
 	/* Returns a notice for commands handled without a message, or send: true. */
 	async function runCommand(text: string): ReturnType<typeof runExecCommand> {
-		return commandsAllowed ? runExecCommand(companyId, text) : { send: true };
+		return runExecCommand(companyId, text, allowedCommands);
 	}
 
 	/* Day separators, same as the thread — computed from the record, so the
@@ -1555,8 +1556,9 @@
 							></a
 						>{/if}
 				{:else}
-					{#if membershipRole === 'owner' && participantId === 'exec'}<WorkInFlight
+					{#if participantId === 'exec'}<WorkInFlight
 							{companyId}
+							owner={membershipRole === 'owner'}
 						/>{/if}
 					{#if membershipRole === 'owner'}<AppRequestCards {companyId} actor={participantId} />{/if}
 					{#if participantId === 'exec'}<MyRequests {companyId} />{/if}

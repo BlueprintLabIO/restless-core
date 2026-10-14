@@ -358,8 +358,8 @@
 		}
 	}
 	const workRows = $derived(attention.view?.workGraph?.work ?? []);
-	/* Documents the composer offers after `#`. */
-	const libraryDocuments = $derived(documentsQuery(ownerAccess ? companyId : ''));
+	/* Documents the composer offers after `#`: everyone's list holds only what they may read. */
+	const libraryDocuments = $derived(documentsQuery(principal ? companyId : ''));
 	const workTitle = (id: string) => workRows.find((work) => work.id === id)?.title ?? 'Work';
 	function personName(actorId: string): string {
 		if (actorId === 'exec') return 'Exec';
@@ -1575,15 +1575,13 @@
 			uploadProgress={railConversation.uploadProgress}
 			onstopturn={stopRailTurn}
 			onretryturn={retryRailTurn}
-			references={ownerAccess
-				? referenceOptions(
-						companyId,
-						workRows,
-						cockpit?.goals ?? [],
-						cockpit?.people ?? [],
-						libraryDocuments.documents
-					)
-				: []}
+			references={referenceOptions(
+				companyId,
+				ownerAccess ? workRows : (collaboration.view?.work_graph.work ?? []),
+				(ownerAccess ? cockpit?.goals : collaboration.view?.goals) ?? [],
+				viewerPeople ?? [],
+				libraryDocuments.documents
+			)}
 			open={wide || execRailOpen}
 			onask={askRail}
 			review={focusedReview && !wide
