@@ -12,6 +12,7 @@
 	import { failureSentence } from '$lib/model/failure';
 	import { refreshAttention } from '$lib/model/queries.svelte';
 	import { decideDirectionRequest, targetPhrase } from '$lib/model/direction';
+	import { askExec } from '$lib/model/ask-exec';
 	import type { DirectionDecisionInput, DirectionRequest } from '$lib/model/generated/direction';
 
 	let {
@@ -36,6 +37,12 @@
 	const open = $derived(current.state === 'open');
 	const always = $derived(current.offers.always_allow);
 	const makeOwner = $derived(current.offers.make_team_owner);
+	/* Approved but not carried out: it is back here so someone owns the way forward. Exec tries
+	 * again from the conversation, where the owner can add what it needs. */
+	const retry = () =>
+		askExec(
+			`Please try again: "${current.summary}" (request ${current.id}) was approved, but carrying it out failed: ${current.failure ?? 'no reason was recorded'}. Make the change and record the outcome, or tell me what you need from me.`
+		);
 
 	async function answer(input: DirectionDecisionInput, from?: EventTarget | null) {
 		if (busy || !open) return;
@@ -204,6 +211,15 @@
 				>
 			</div>
 		{/if}
+	{:else if current.state === 'failed'}
+		<div class="answers">
+			<button
+				class="btn small primary"
+				type="button"
+				title="Opens your conversation with Exec holding this request, so it tries again. Add anything it needs before sending."
+				onclick={retry}>Ask Exec to try again</button
+			>
+		</div>
 	{/if}
 </article>
 

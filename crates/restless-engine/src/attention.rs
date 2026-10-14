@@ -376,7 +376,8 @@ pub async fn project(
     project_queue(config, authority, org, None).await
 }
 
-/// Open direction requests routed to `viewer` (the owner sees every one), as Inbox items: the
+/// Open direction requests routed to `viewer` (the owner sees every one), and approved ones that
+/// failed to be carried out, as Inbox items: the
 /// request in the person's words, and Approve, Always allow and Decline in its detail (S80).
 async fn direction_items(
     authority: &crate::authority::AuthorityStore,
@@ -390,6 +391,30 @@ async fn direction_items(
         .into_iter()
         .map(|request| {
             let who = request.requester.name.clone();
+            // Approved, but Exec could not carry it out: back with whoever answered, to try again.
+            let failure = (request.state == crate::direction::RequestState::Failed).then(|| {
+                request.failure.clone().unwrap_or_else(|| "Exec could not make the change.".into())
+            });
+            let (title, what_happened, why_it_matters, requested_action, if_no_action) = match &failure {
+                Some(failure) => (
+                    format!("Not done: {}", request.summary),
+                    format!("You approved {who}'s request, but carrying it out failed: {failure}"),
+                    format!("{who} is still waiting for the change."),
+                    "Ask Exec to try again, or set it aside.".to_string(),
+                    format!("Nothing changes; {who}'s approved request stays undone."),
+                ),
+                None => (
+                    format!("{who} asks: {}", request.summary),
+                    format!("{who} asked Exec to change something only you can approve: {}", request.change),
+                    if request.reason.trim().is_empty() {
+                        "Nothing changes until you answer.".into()
+                    } else {
+                        request.reason.clone()
+                    },
+                    "Approve or decline.".to_string(),
+                    format!("Nothing changes; {who}'s request waits."),
+                ),
+            };
             AttentionItem {
                 id: format!("authority:direction_request:{}", request.id),
                 work_id: None,
@@ -400,17 +425,17 @@ async fn direction_items(
                     party: None,
                     call_key: None,
                 },
-                category: "decision".into(),
-                title: format!("{who} asks: {}", request.summary),
-                what_happened: format!("{who} asked Exec to change something only you can approve: {}", request.change),
-                why_it_matters: if request.reason.trim().is_empty() {
-                    "Nothing changes until you answer.".into()
+                category: if failure.is_some() { "blocker" } else { "decision" }.into(),
+                title,
+                what_happened,
+                why_it_matters,
+                recommendation: if failure.is_some() {
+                    requested_action.clone()
                 } else {
-                    request.reason.clone()
+                    "Approve it, approve it and always allow changes like it, or decline with a reason.".into()
                 },
-                recommendation: "Approve it, approve it and always allow changes like it, or decline with a reason.".into(),
-                requested_action: "Approve or decline.".into(),
-                if_no_action: format!("Nothing changes; {who}'s request waits."),
+                requested_action,
+                if_no_action,
                 uncertainty: None,
                 deadline: None,
                 brief_status: "source-authored",
@@ -425,7 +450,7 @@ async fn direction_items(
                 actions: Vec::new(),
                 can_continue: false,
                 preparing: false,
-                created_at: request.filed_at,
+                created_at: request.decision.as_ref().filter(|_| failure.is_some()).map_or(request.filed_at, |decision| decision.decided_at),
                 direction_request: Some(request),
                 charter_proposal: None,
             }

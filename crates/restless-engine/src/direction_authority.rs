@@ -18,6 +18,9 @@ pub const UNDONE: &str = "direction_undone";
 pub const REQUEST: &str = "direction_request";
 pub const DECISION: &str = "direction_decision";
 pub const OUTCOME: &str = "direction_outcome";
+/// A later outcome of a request whose first attempt failed: Exec tried again. Not unique, so a
+/// request can be retried until it is done; the newest outcome is the one that stands.
+pub const RETRIED: &str = "direction_outcome_retried";
 pub const GRANT: &str = "direction_grant";
 pub const GRANT_REVOKED: &str = "direction_grant_revoked";
 
@@ -466,12 +469,18 @@ pub async fn record_outcome(
             ))
         }
     }
+    // A request that failed can be carried out again; one that is done stays done.
+    let kind = match latest_outcome(authority, company, request_id).await? {
+        Some(previous) if failed(Some(&previous)) => RETRIED,
+        Some(_) => return Ok(current),
+        None => OUTCOME,
+    };
     sqlx::query(
         "INSERT INTO restless_authority.records (company, kind, actor_id, body) \
          VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
     )
     .bind(company)
-    .bind(OUTCOME)
+    .bind(kind)
     .bind(by)
     .bind(json!({
         "request_id": request_id,
@@ -600,9 +609,26 @@ pub async fn request(
         return Ok(None);
     };
     let decision = authority.find_record(company, DECISION, "request_id", &id.to_string()).await?;
-    let outcome = authority.find_record(company, OUTCOME, "request_id", &id.to_string()).await?;
+    let outcome = latest_outcome(authority, company, id).await?;
     let owner = company_owner(authority, company).await?;
     Ok(Some(request_view(names, &owner, record, decision, outcome, viewer)))
+}
+
+/// The outcome that stands: the newest retry, else the first outcome.
+async fn latest_outcome(
+    authority: &AuthorityStore,
+    company: &str,
+    id: Uuid,
+) -> Result<Option<AuthorityRecord>> {
+    let key = id.to_string();
+    if let Some(retried) = authority.find_record(company, RETRIED, "request_id", &key).await? {
+        return Ok(Some(retried));
+    }
+    authority.find_record(company, OUTCOME, "request_id", &key).await
+}
+
+fn failed(outcome: Option<&AuthorityRecord>) -> bool {
+    outcome.is_some_and(|outcome| outcome.body["result"] == "failed")
 }
 
 fn request_view(
@@ -697,8 +723,8 @@ fn request_view(
     }
 }
 
-/// Requests for one viewer: those routed to them (the owner sees every one) when `open`, or those
-/// they asked for when `mine`.
+/// Requests for one viewer: those routed to them (the owner sees every one) that wait on an answer
+/// or failed after approval when `open`, or those they asked for when `mine`.
 pub async fn requests(
     authority: &AuthorityStore,
     company: &str,
@@ -709,16 +735,20 @@ pub async fn requests(
     let owner = company_owner(authority, company).await?;
     let viewer_is_owner = viewer == owner || viewer == "owner";
     let decisions = by_field(authority, company, DECISION, "request_id").await?;
-    let outcomes = by_field(authority, company, OUTCOME, "request_id").await?;
+    let mut outcomes = by_field(authority, company, OUTCOME, "request_id").await?;
+    outcomes.extend(by_field(authority, company, RETRIED, "request_id").await?);
     let mut out = Vec::new();
     for record in authority.records_of_kind(company, REQUEST).await?.into_iter().rev() {
         let id = string_field(&record.body, "id").unwrap_or_default();
         let requester = string_field(&record.body, "requester").unwrap_or_default();
         let routed = string_field(&record.body, "routed_to").unwrap_or_default();
+        // An approved request that could not be carried out comes back to whoever answers for
+        // it, so somebody owns the way forward.
+        let waiting = !decisions.contains_key(&id) || failed(outcomes.get(&id));
         let include = if mine {
             requester == viewer
         } else {
-            !decisions.contains_key(&id) && (viewer_is_owner || routed == viewer)
+            waiting && (viewer_is_owner || routed == viewer)
         };
         if !include {
             continue;
@@ -1414,6 +1444,51 @@ mod tests {
         assert_eq!(withdrawn.state, RequestState::Declined);
         assert_eq!(withdrawn.decision.unwrap().by.actor_id, "human-bodhi");
         assert!(requests(&f.authority, &f.company, &names, "owner", false).await.unwrap().is_empty());
+        f.done().await;
+    }
+
+    /// An approved request that failed comes back to the approver and can be carried out again;
+    /// one that is done stays done.
+    #[tokio::test]
+    async fn a_failed_request_returns_to_the_approver_and_can_be_retried_until_done() {
+        let Some(f) = fixture("f").await else { return };
+        let names = f.names().await;
+        let team = f.studio.to_string();
+        let filed = file_request(&f.authority, &f.company, &names, "exec", RequestInput {
+            requester: "human-bodhi",
+            class: Some(DirectionClass::Staffing),
+            team: Some(&team),
+            summary: "Give the designer a stronger model",
+            change: "Set designer-ui's model to the strongest model",
+            reason: "",
+            source_message: None,
+        })
+        .await
+        .unwrap();
+        let approve = DirectionDecisionInput {
+            decision: DirectionDecisionKind::Approve,
+            reason: None,
+            always_allow: None,
+            make_team_owner: None,
+        };
+        decide(&f.authority, &f.org, &f.company, &names, filed.id, "owner", &approve).await.unwrap();
+        assert!(requests(&f.authority, &f.company, &names, "owner", false).await.unwrap().is_empty());
+        let failed = record_outcome(&f.authority, &f.company, &names, filed.id, "exec", None, Some("model unavailable"))
+            .await
+            .unwrap();
+        assert_eq!(failed.state, RequestState::Failed);
+        let back = requests(&f.authority, &f.company, &names, "owner", false).await.unwrap();
+        assert_eq!((back.len(), back[0].state), (1, RequestState::Failed));
+        let target = DirectionTarget::Agent { actor_id: "studio-design".into(), name: "Dani".into() };
+        let done = record_outcome(&f.authority, &f.company, &names, filed.id, "exec", Some(target.clone()), None)
+            .await
+            .unwrap();
+        assert_eq!(done.state, RequestState::Done);
+        assert!(requests(&f.authority, &f.company, &names, "owner", false).await.unwrap().is_empty());
+        let again = record_outcome(&f.authority, &f.company, &names, filed.id, "exec", Some(target), Some("again"))
+            .await
+            .unwrap();
+        assert_eq!(again.state, RequestState::Done);
         f.done().await;
     }
 

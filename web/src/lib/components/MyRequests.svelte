@@ -47,7 +47,7 @@
 				if (withdrawn(request)) return 'Withdrawn';
 				return request.decision?.reason ? `Declined: ${request.decision.reason}` : 'Declined';
 			case 'failed':
-				return 'Approved, not done';
+				return `Approved, not done. Back with ${request.routed_to.name}`;
 		}
 	}
 	let withdrawing = $state('');
