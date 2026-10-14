@@ -27,6 +27,7 @@
 </script>
 
 <script lang="ts">
+	import { composing } from '$lib/primitives/composer-keys';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import MessageReactions from '$lib/primitives/MessageReactions.svelte';
 	import ReactionAdd from '$lib/primitives/ReactionAdd.svelte';
@@ -410,7 +411,7 @@
 	}
 
 	function mentionKeys(event: KeyboardEvent): void {
-		if (!mentionQuery || !mentionOptions.length) return;
+		if (!mentionQuery || !mentionOptions.length || composing(event)) return;
 		if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
 			event.preventDefault();
 			const step = event.key === 'ArrowDown' ? 1 : -1;

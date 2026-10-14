@@ -4,6 +4,7 @@
 	 * the answer, Exec is: it finds the app and brings a one-click card back here. Below it, what
 	 * the company can do, in plain words. Power users have the sidebar's views: a dense table of
 	 * what is in use, by kind, and the full catalogue by category. */
+	import { composing } from '$lib/primitives/composer-keys';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { Page, Section, Item, Notice, Empty, Dot } from '$lib/ui/page';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
@@ -183,7 +184,7 @@
 	}
 
 	function onAskKey(event: KeyboardEvent) {
-		if (!options.length) return;
+		if (!options.length || composing(event)) return;
 		if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
 			event.preventDefault();
 			const step = event.key === 'ArrowDown' ? 1 : -1;

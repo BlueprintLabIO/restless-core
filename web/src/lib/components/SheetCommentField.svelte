@@ -2,6 +2,7 @@
 	/* A comment box: typing @ offers people by name. The name goes into the text and the person is
 	 * remembered, so the comment mentions them rather than the letters of their name. Enter picks
 	 * a name; Cmd or Ctrl+Enter sends. */
+	import { composing } from '$lib/primitives/composer-keys';
 	import { tick } from 'svelte';
 	import { composerTrigger } from '$lib/primitives/composer-menu';
 
@@ -107,7 +108,7 @@
 	}
 
 	function keys(event: KeyboardEvent): void {
-		if (open) {
+		if (open && !composing(event)) {
 			if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
 				event.preventDefault();
 				const step = event.key === 'ArrowDown' ? 1 : -1;

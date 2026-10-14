@@ -3,6 +3,7 @@
 	 * the block into another, keys stay in the page), and a block's own actions from its drag
 	 * handle or Ctrl+/ (comment, copy its link, duplicate, turn into, delete). Both look and move
 	 * like the cockpit's ActionMenu. */
+	import { composing } from '$lib/primitives/composer-keys';
 	import { tick, type Component } from 'svelte';
 	import type { Editor } from '@tiptap/core';
 	import { TextSelection } from '@tiptap/pm/state';
@@ -58,7 +59,13 @@
 	}
 
 	const KINDS: BlockChoice[] = [
-		{ id: 'text', label: 'Text', icon: Pilcrow, words: 'paragraph plain', turn: (c) => c.clearNodes() },
+		{
+			id: 'text',
+			label: 'Text',
+			icon: Pilcrow,
+			words: 'paragraph plain',
+			turn: (c) => c.clearNodes()
+		},
 		{
 			id: 'heading1',
 			label: 'Heading 1',
@@ -183,9 +190,7 @@
 	});
 
 	$effect(() => {
-		slashPanel
-			?.querySelector(`[data-index="${slashIndex}"]`)
-			?.scrollIntoView({ block: 'nearest' });
+		slashPanel?.querySelector(`[data-index="${slashIndex}"]`)?.scrollIntoView({ block: 'nearest' });
 	});
 
 	function chooseSlash(item: BlockChoice): void {
@@ -212,7 +217,7 @@
 	/** The "/" menu's keys, while it is open; true when it used the key. */
 	export function slashKey(event: KeyboardEvent): boolean {
 		const items = slashItems;
-		if (!slash || !items.length) return false;
+		if (!slash || !items.length || composing(event)) return false;
 		if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
 			const step = event.key === 'ArrowDown' ? 1 : -1;
 			slashIndex = (slashIndex + step + items.length) % items.length;
@@ -360,15 +365,17 @@
 				doc.resolve(pos + 1),
 				doc.resolve(pos + node.nodeSize - 1)
 			);
-			item.turn(
-				instance
-					.chain()
-					.focus()
-					.command(({ tr }) => {
-						tr.setSelection(selection);
-						return true;
-					})
-			).run();
+			item
+				.turn(
+					instance
+						.chain()
+						.focus()
+						.command(({ tr }) => {
+							tr.setSelection(selection);
+							return true;
+						})
+				)
+				.run();
 		});
 	}
 

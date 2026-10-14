@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { composing } from '$lib/primitives/composer-keys';
 	import { failureSentence } from '$lib/model/failure';
 	import { browser } from '$app/environment';
 	import { tick, untrack, type Snippet } from 'svelte';
@@ -1019,14 +1020,14 @@
 				>{addingImages
 					? 'Adding image…'
 					: saveProblem
-					? 'Not saved'
-					: savingShown
-						? 'Saving…'
-						: titleDirty
-							? 'Unsaved title'
-							: canWriteLive
-								? 'Saved'
-								: readerLabel}</span
+						? 'Not saved'
+						: savingShown
+							? 'Saving…'
+							: titleDirty
+								? 'Unsaved title'
+								: canWriteLive
+									? 'Saved'
+									: readerLabel}</span
 			>
 		</div>
 		<div class="editor-actions">
@@ -1039,15 +1040,13 @@
 							type="button"
 							class="touch-only"
 							disabled={!editor.can().undo()}
-							onclick={() => run((instance) => instance.chain().focus().undo().run())}
-							>Undo</button
+							onclick={() => run((instance) => instance.chain().focus().undo().run())}>Undo</button
 						>
 						<button
 							type="button"
 							class="touch-only"
 							disabled={!editor.can().redo()}
-							onclick={() => run((instance) => instance.chain().focus().redo().run())}
-							>Redo</button
+							onclick={() => run((instance) => instance.chain().focus().redo().run())}>Redo</button
 						>{/if}{@render moreActions()}</DocumentActions
 				>
 			{/if}
@@ -1221,7 +1220,7 @@
 				bind:this={titleInput}
 				onblur={() => void saveTitle()}
 				onkeydown={(event) => {
-					if (event.key === 'Enter') {
+					if (event.key === 'Enter' && !composing(event)) {
 						event.preventDefault();
 						/* Move into the body now, not on the next frame: Tiptap's focus command
 						 * waits a frame, and keys typed in that gap were lost ("Opening" became

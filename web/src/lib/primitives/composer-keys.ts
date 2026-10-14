@@ -40,3 +40,12 @@ export function composerKeyAction(event: ComposerKey, composing = false): Compos
 export function nextComposerHeight(scrollHeight: number, max: number): number {
 	return Math.min(scrollHeight, max);
 }
+
+/**
+ * Whether an Enter keydown belongs to an input method (Japanese, Chinese, Korean) confirming a
+ * conversion rather than to the box. Safari reports the confirming keydown after composition has
+ * ended, with keyCode 229, so both are read. Every Enter-to-act handler checks this first.
+ */
+export function composing(event: { isComposing?: boolean; keyCode?: number }): boolean {
+	return Boolean(event.isComposing) || event.keyCode === 229;
+}

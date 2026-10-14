@@ -2,6 +2,7 @@
 	/* The body of a share panel, for a document or a sheet: general access first, then the
 	 * people added by name with their level, then the link. Whoever may not manage sharing sees
 	 * the same facts without the controls. */
+	import { composing } from '$lib/primitives/composer-keys';
 	import X from '@lucide/svelte/icons/x';
 	import Lock from '@lucide/svelte/icons/lock';
 	import Users from '@lucide/svelte/icons/users';
@@ -159,7 +160,7 @@
 			event.preventDefault();
 			const step = event.key === 'ArrowDown' ? 1 : -1;
 			active = (active + step + options.length) % options.length;
-		} else if (event.key === 'Enter') {
+		} else if (event.key === 'Enter' && !composing(event)) {
 			event.preventDefault();
 			choose(options[active] ?? options[0]);
 		} else if (event.key === 'Escape' && query) {

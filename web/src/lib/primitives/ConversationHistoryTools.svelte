@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { composing } from '$lib/primitives/composer-keys';
 	import { tick } from 'svelte';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import ChevronUp from '@lucide/svelte/icons/chevron-up';
@@ -57,6 +58,7 @@
 
 	function onSearchKeydown(event: KeyboardEvent) {
 		if (event.key === 'Enter') {
+			if (composing(event)) return;
 			event.preventDefault();
 			jump(event.shiftKey ? -1 : 1);
 		} else if (event.key === 'Escape') {

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { composing } from '$lib/primitives/composer-keys';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { namePageContext } from '$lib/model/page-context.svelte';
 	/* One sheet, full width, opened from the Library. Comments, history and sharing
@@ -593,6 +594,7 @@
 					onblur={() => void commitTitle()}
 					onkeydown={(event) => {
 						if (event.key === 'Enter') {
+							if (composing(event)) return;
 							event.preventDefault();
 							event.currentTarget.blur();
 						} else if (event.key === 'Escape') {
