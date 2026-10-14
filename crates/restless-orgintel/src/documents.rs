@@ -1100,6 +1100,7 @@ fn node_allowed(node_type: &str, expected: ChildRule) -> bool {
                 | "blockquote"
                 | "codeBlock"
                 | "horizontalRule"
+                | "pageBreak"
                 | "table"
                 | "image"
                 | "file"
@@ -1146,8 +1147,8 @@ fn validate_node_attrs(
         "image" => &["block_id", "attachment_id", "alt", "width", "caption"][..],
         "file" => &["block_id", "attachment_id", "name"][..],
         "tableCell" | "tableHeader" => &["block_id", "width"][..],
-        "bulletList" | "taskList" | "blockquote" | "horizontalRule" | "table" | "listItem"
-        | "tableRow" => &["block_id"][..],
+        "bulletList" | "taskList" | "blockquote" | "horizontalRule" | "pageBreak" | "table"
+        | "listItem" | "tableRow" => &["block_id"][..],
         "doc" | "hardBreak" => &[][..],
         _ => &[][..],
     };
@@ -1969,6 +1970,9 @@ fn markdown_body_to_document(body: &str) -> DocumentResult<Value> {
         } else if line.trim() == "---" {
             index += 1;
             json!({"type":"horizontalRule","attrs":{}})
+        } else if line.trim() == MARKDOWN_PAGE_BREAK {
+            index += 1;
+            json!({"type":"pageBreak","attrs":{}})
         } else if line.starts_with("> ") || line == ">" {
             let mut quoted = Vec::new();
             while index < lines.len() {
@@ -2100,6 +2104,9 @@ fn markdown_body_to_document(body: &str) -> DocumentResult<Value> {
 /// An image line as an export writes it: `![alt](/api/companies/{company}/attachments/{id})`,
 /// or relative to the company's API root, `![alt](attachments/{id})`. Anything else is text.
 /// A line that is only a link to a company file, `[name](attachments/<id>)`, is a file block.
+/// How a page break block reads in Markdown, and is read back.
+const MARKDOWN_PAGE_BREAK: &str = "<div style=\"page-break-after: always\"></div>";
+
 fn markdown_file(line: &str) -> DocumentResult<Option<Value>> {
     let Some(rest) = line.trim().strip_prefix('[') else {
         return Ok(None);
@@ -2855,6 +2862,10 @@ fn render_node(value: &Value) -> DocumentResult<String> {
             Ok(format!("<pre{block}><code{language}>{inner}</code></pre>"))
         }
         "horizontalRule" => Ok(format!("<hr{block}>")),
+        // Print starts a new page after it (document-print.css); on screen it is a quiet line.
+        "pageBreak" => Ok(format!(
+            "<div data-page-break=\"true\" class=\"page-break\"{block}></div>"
+        )),
         "table" => Ok(format!("<table{block}><tbody>{inner}</tbody></table>")),
         "tableRow" => Ok(format!("<tr{block}>{inner}</tr>")),
         "tableHeader" | "tableCell" => {
@@ -3105,6 +3116,8 @@ fn render_markdown_block(value: &Value, depth: usize) -> DocumentResult<String> 
             Ok(format!("{fence}{language}\n{code}\n{fence}"))
         }
         "horizontalRule" => Ok("---".into()),
+        // Markdown has no page break; this HTML is the one most converters honour.
+        "pageBreak" => Ok(MARKDOWN_PAGE_BREAK.into()),
         // A Markdown export names the company's own file route (markdown_export_body); elsewhere
         // the address is relative to the company's API root.
         "image" => {
@@ -9219,6 +9232,29 @@ mod tests {
             let body = json!({"type":"doc","content":[{"type":"file","attrs":attrs}]});
             assert!(validate_document_json(&body).is_err());
         }
+    }
+
+    #[test]
+    fn a_page_break_renders_for_print_and_survives_markdown() {
+        let document = json!({"type":"doc","content":[
+            {"type":"paragraph","attrs":{"block_id":"one"},"content":[{"type":"text","text":"Page one"}]},
+            {"type":"pageBreak","attrs":{"block_id":"break"}},
+            {"type":"paragraph","attrs":{"block_id":"two"},"content":[{"type":"text","text":"Page two"}]}
+        ]});
+        let validated = validate_document_json(&document).unwrap();
+        assert!(validated
+            .rendered_html
+            .contains("<div data-page-break=\"true\" class=\"page-break\" data-block-id=\"break\"></div>"));
+        let back = markdown_body_to_document(&validated.markdown).unwrap();
+        let kinds: Vec<&str> = back["content"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|node| node["type"].as_str().unwrap())
+            .collect();
+        assert_eq!(kinds, ["paragraph", "pageBreak", "paragraph"]);
+        let extra = json!({"type":"doc","content":[{"type":"pageBreak","attrs":{"block_id":"b","before":true}}]});
+        assert!(validate_document_json(&extra).is_err());
     }
 
     #[test]

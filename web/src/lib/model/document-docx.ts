@@ -148,6 +148,8 @@ function block(node: DocumentNode, writer: Writer, context: Context): string {
 				)
 				.join('');
 		}
+		case 'pageBreak':
+			return paragraph('', '<w:r><w:br w:type="page"/></w:r>');
 		case 'horizontalRule':
 			return paragraph(
 				'<w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="auto"/></w:pBdr>',

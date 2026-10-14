@@ -46,6 +46,8 @@ const nodes: Record<string, NodeSpec> = {
     marks: '',
   },
   horizontalRule: { attrs: blockId, group: 'block' },
+  // Where a printed or PDF copy starts a new page; nothing else.
+  pageBreak: { attrs: blockId, group: 'block' },
   image: {
     attrs: {
       block_id: { default: null },
@@ -228,6 +230,7 @@ function validateAttributes(type: string, value: unknown, state: ValidationState
       case 'listItem':
       case 'blockquote':
       case 'horizontalRule':
+      case 'pageBreak':
       case 'table':
       case 'tableRow':
         return ['block_id'];

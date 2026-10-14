@@ -76,7 +76,8 @@ CONTENT AND CONFLICTS
   Blocks use the editor JSON returned by read. Preserve untouched nodes and attributes.
   Each block needs a unique attrs.block_id (including nested block nodes); text nodes do not.
   Common blocks: paragraph, heading (attrs.level 1-6), bulletList/orderedList with listItem
-  children containing paragraphs, blockquote, codeBlock (attrs.language), horizontalRule.
+  children containing paragraphs, blockquote, codeBlock (attrs.language), horizontalRule, and
+  pageBreak (where a printed copy starts a new page).
   An image block (attrs.attachment_id, attrs.alt, attrs.caption) shows a company file, and a file
   block (attrs.attachment_id, attrs.name) carries one; keep both unchanged.
   Inline text: {"type":"text","text":"..."}; optional marks include bold, italic, underline, strike, code, link, highlight and textColor (attrs.color from a small named palette).

@@ -2914,6 +2914,26 @@
 		border: 0;
 		border-top: 1px solid var(--border-strong);
 	}
+	/* A page break: on screen, a dashed line that says what it is; print breaks the page there. */
+	:global(.page-break[data-page-break]) {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		margin: var(--space-6) 0;
+		color: var(--text-tertiary);
+		font: var(--t-label) var(--font-ui);
+		user-select: none;
+	}
+	:global(.page-break[data-page-break])::before,
+	:global(.page-break[data-page-break])::after {
+		content: '';
+		flex: 1;
+		border-top: 1px dashed var(--border-strong);
+	}
+	:global(.native-document-body .page-break.ProseMirror-selectednode) {
+		outline: 2px solid var(--intent-conversation);
+		outline-offset: 2px;
+	}
 	:global(.native-document-body a) {
 		color: var(--intent-conversation);
 		text-decoration: underline;

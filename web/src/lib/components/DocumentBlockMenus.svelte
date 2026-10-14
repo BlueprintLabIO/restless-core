@@ -29,6 +29,7 @@
 	import ListChecks from '@lucide/svelte/icons/list-checks';
 	import ListOrdered from '@lucide/svelte/icons/list-ordered';
 	import Minus from '@lucide/svelte/icons/minus';
+	import SeparatorHorizontal from '@lucide/svelte/icons/separator-horizontal';
 	import Pilcrow from '@lucide/svelte/icons/pilcrow';
 	import Quote from '@lucide/svelte/icons/quote';
 	import Repeat2 from '@lucide/svelte/icons/repeat-2';
@@ -148,6 +149,12 @@
 	const INSERTS: BlockChoice[] = [
 		...KINDS,
 		{ id: 'divider', label: 'Divider', icon: Minus, words: 'rule line hr separator' },
+		{
+			id: 'pagebreak',
+			label: 'Page break',
+			icon: SeparatorHorizontal,
+			words: 'print pdf new page'
+		},
 		{ id: 'table', label: 'Table', icon: Table2, words: 'grid' },
 		{ id: 'image', label: 'Image', icon: ImageIcon, words: 'picture photo upload' },
 		{
@@ -242,6 +249,8 @@
 			.deleteRange(range);
 		if (item.turn) item.turn(chain).run();
 		else if (item.id === 'divider') chain.setHorizontalRule().run();
+		else if (item.id === 'pagebreak')
+			chain.insertContent([{ type: 'pageBreak' }, { type: 'paragraph' }]).run();
 		else if (item.id === 'table') chain.insertContent(documentTable()).run();
 		else if (item.id === 'image' || item.id === 'file') {
 			chain.run();

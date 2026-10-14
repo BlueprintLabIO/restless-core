@@ -6,8 +6,16 @@
  * and stops clipping, and everything beside it along the way is left off the page. Nothing here
  * names the shell, so it holds wherever a document is shown. */
 @media print {
+	/* Numbered pages, so a printed contract or report can be referred to by page. */
 	@page {
 		margin: 18mm 16mm;
+		@bottom-right {
+			content: counter(page) ' / ' counter(pages);
+			color: #666;
+			font:
+				9pt system-ui,
+				sans-serif;
+		}
 	}
 
 	:has(.document-print) {
@@ -91,6 +99,17 @@
 	.document-print blockquote,
 	.document-print img {
 		break-inside: avoid;
+	}
+
+	/* A page break block starts the next page, and is not itself seen. */
+	.document-print .page-break {
+		break-after: page;
+		height: 0 !important;
+		margin: 0 !important;
+		border: 0 !important;
+	}
+	.document-print .page-break span {
+		display: none !important;
 	}
 
 	.document-print h1,

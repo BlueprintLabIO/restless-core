@@ -25,6 +25,7 @@ test('the browser editor schema is the exact sidecar-compatible node and mark se
 		'listItem',
 		'mention',
 		'orderedList',
+		'pageBreak',
 		'paragraph',
 		'reference',
 		'table',

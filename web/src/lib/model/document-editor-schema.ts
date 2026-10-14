@@ -46,6 +46,7 @@ const BLOCK_TYPES = [
 	'blockquote',
 	'codeBlock',
 	'horizontalRule',
+	'pageBreak',
 	'table',
 	'tableRow',
 	'tableCell',
@@ -1900,6 +1901,23 @@ export function documentTable(): JSONContent {
 	return { type: 'table', content: [row('tableHeader'), row('tableCell')] };
 }
 
+/* Where a printed or PDF copy starts a new page. On screen it is a quiet labelled line; print
+ * hides the label and breaks the page after it (document-print.css). */
+const pageBreakExtension = Node.create({
+	name: 'pageBreak',
+	group: 'block',
+	atom: true,
+	selectable: true,
+	draggable: true,
+	addAttributes: () => BLOCK_ID,
+	parseHTML: () => [{ tag: 'div[data-page-break]' }],
+	renderHTML: ({ HTMLAttributes }) => [
+		'div',
+		mergeAttributes(HTMLAttributes, { 'data-page-break': 'true', class: 'page-break' }),
+		['span', {}, 'Page break']
+	]
+});
+
 export function createDocumentEditorExtensions(
 	document: Doc,
 	provider: HocuspocusProvider,
@@ -1929,6 +1947,7 @@ export function createDocumentEditorExtensions(
 		alignmentExtension,
 		imageExtension(hooks),
 		fileExtension(hooks),
+		pageBreakExtension,
 		slashMenuExtension(hooks),
 		blockHandleExtension(hooks),
 		commentMarksExtension(hooks),

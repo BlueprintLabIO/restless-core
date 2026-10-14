@@ -12,6 +12,7 @@ export type BlockChange =
 const LABELS: Record<string, string> = {
 	image: 'An image',
 	horizontalRule: 'A divider',
+	pageBreak: 'A page break',
 	table: 'A table'
 };
 

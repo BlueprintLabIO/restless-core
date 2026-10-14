@@ -53,6 +53,7 @@ const projection = {
     },
     { type: 'codeBlock', attrs: { block_id: 'code', language: 'typescript' }, content: [{ type: 'text', text: 'const proof = true' }] },
     { type: 'horizontalRule', attrs: { block_id: 'rule' } },
+    { type: 'pageBreak', attrs: { block_id: 'break' } },
     { type: 'file', attrs: { block_id: 'lease', attachment_id: '0b7d9c1e-3f4a-4b5c-8d6e-7f8091a2b3c5', name: 'Signed lease.pdf' } },
     { type: 'image', attrs: { block_id: 'chart', attachment_id: '0b7d9c1e-3f4a-4b5c-8d6e-7f8091a2b3c4', alt: 'Q3 chart', width: 320, caption: 'Revenue by month' } },
     {
