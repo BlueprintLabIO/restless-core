@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatMoney } from '$lib/ui/time';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
@@ -153,13 +154,7 @@
 			revoking = '';
 		}
 	}
-	function money(value: number): string {
-		return new Intl.NumberFormat(undefined, {
-			style: 'currency',
-			currency: 'USD',
-			currencyDisplay: 'narrowSymbol'
-		}).format(value);
-	}
+	const money = formatMoney;
 
 	function minor(value: number, currency: string): string {
 		return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(value / 100);

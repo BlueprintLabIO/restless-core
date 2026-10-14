@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatMoment } from '$lib/ui/time';
 	import { composing } from '$lib/primitives/composer-keys';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { namePageContext } from '$lib/model/page-context.svelte';
@@ -407,7 +408,7 @@
 					body: JSON.stringify({
 						key: crypto.randomUUID(),
 						expected_revision: revision,
-						title: new Date().toLocaleString()
+						title: formatMoment(new Date())
 					})
 				}),
 			() => {
@@ -518,7 +519,7 @@
 		);
 	}
 	const versionName = (version: Version) =>
-		version.title ?? `Autosave, ${new Date(version.created_at).toLocaleString()}`;
+		version.title ?? `Autosave, ${formatMoment(version.created_at)}`;
 	/* A saved version downloads as the workbook it was, every tab, as .xlsx. */
 	const downloadVersion = (version: Version) =>
 		act(
@@ -531,11 +532,7 @@
 				return workbookXlsx(saved.workbook);
 			},
 			(blob) =>
-				saveFile(
-					`${title} (${version.title ?? new Date(version.created_at).toLocaleString()})`,
-					'xlsx',
-					blob
-				),
+				saveFile(`${title} (${version.title ?? formatMoment(version.created_at)})`, 'xlsx', blob),
 			'The version wasn’t downloaded'
 		);
 	const recover = (version: Version) =>

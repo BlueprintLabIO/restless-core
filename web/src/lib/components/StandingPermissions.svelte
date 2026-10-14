@@ -2,6 +2,7 @@
 	/* Standing permissions (S80): what people may change without asking, each from an "Approve,
 	 * and always allow". Revoking takes effect for the next change; what was already applied stays,
 	 * with its own Undo. */
+	import { formatDay } from '$lib/ui/time';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { Section, Item, Empty } from '$lib/ui/page';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
@@ -52,7 +53,7 @@
 		{#each grants.data?.items ?? [] as grant (grant.id)}
 			<Item
 				title={grant.label}
-				meta={`Granted by ${grant.granted_by.name} · ${new Date(grant.granted_at).toLocaleDateString()}`}
+				meta={`Granted by ${grant.granted_by.name} · ${formatDay(grant.granted_at)}`}
 			>
 				{#snippet trailing()}
 					<button

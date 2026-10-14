@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatDay } from '$lib/ui/time';
 	import { onMount } from 'svelte';
 	import { Section, Item, Notice, Empty } from '$lib/ui/page';
 	import { failureSentence } from '$lib/model/failure';
@@ -72,7 +73,7 @@
 		copied = true;
 	}
 
-	const when = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString() : 'never');
+	const when = (iso?: string | null) => formatDay(iso, 'never');
 </script>
 
 <div class="ai-apps">

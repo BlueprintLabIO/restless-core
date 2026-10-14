@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { copyText } from '$lib/model/copy-text';
-	import { formatMoment } from '$lib/ui/time';
+	import { formatClock, formatMoment } from '$lib/ui/time';
 	import { onDestroy, untrack } from 'svelte';
 	import type { Snippet } from 'svelte';
 	import Check from '@lucide/svelte/icons/check';
@@ -64,12 +64,9 @@
 	let copyState = $state<'idle' | 'copied' | 'failed'>('idle');
 	let copyTimer: number | undefined;
 
-	function timeLabel(value: Date | string): string {
-		const date = value instanceof Date ? value : new Date(value);
-		if (Number.isNaN(date.getTime())) return '';
-		// Day separators carry the date; a message shows its time of day.
-		return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-	}
+	/* Day separators carry the date; a message shows its time of day, the same way in its header
+	 * and its gutter. */
+	const timeLabel = (value: Date | string): string => formatClock(value);
 	/* A room message that is seconds old when it first renders has just
 	 * arrived: it settles in. History loading on open and the owner's own
 	 * words (shown optimistically, then confirmed) stay still, as do Exec
@@ -79,12 +76,7 @@
 	);
 	const timestamp = $derived(timeLabel(createdAt));
 	/* A message in a run has no header; its time waits in the gutter until pointed at. */
-	const gutterTime = $derived.by(() => {
-		const date = createdAt instanceof Date ? createdAt : new Date(createdAt);
-		return Number.isNaN(date.getTime())
-			? ''
-			: date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: false });
-	});
+	const gutterTime = $derived(formatClock(createdAt));
 	const messageDate = $derived(new Date(createdAt));
 	const validDate = $derived(!Number.isNaN(messageDate.getTime()));
 	const displayAuthor = $derived(author === 'The Exec' ? 'Exec' : author);
@@ -109,9 +101,7 @@
 
 	/* The whole message as read: its takeaway line, then its text. */
 	async function copyMessage() {
-		copyState = (await copyText(takeaway ? `${takeaway}\n\n${text}` : text))
-			? 'copied'
-			: 'failed';
+		copyState = (await copyText(takeaway ? `${takeaway}\n\n${text}` : text)) ? 'copied' : 'failed';
 		window.clearTimeout(copyTimer);
 		copyTimer = window.setTimeout(() => (copyState = 'idle'), 1_800);
 	}

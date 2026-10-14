@@ -2,6 +2,7 @@
 	/* Company's overview: a line of facts, then what waits on the owner. The section list beside it
 	 * carries every area's value; where it steps out (a narrow pane, a phone) the overview lists the
 	 * sections itself. A value that could not be read says so rather than guessing. */
+	import { formatMoney } from '$lib/ui/time';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { Page, Section, Item } from '$lib/ui/page';
 	import { useCompanySetup } from '$lib/model/company-setup-rows.svelte';
@@ -12,8 +13,7 @@
 
 	const plural = (count: number, one: string, many = `${one}s`) =>
 		`${count} ${count === 1 ? one : many}`;
-	const money = (usd: number) =>
-		usd.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+	const money = formatMoney;
 	const spendLine = $derived.by(() => {
 		const spend = setup.spend;
 		if (!spend) return '';

@@ -3,6 +3,7 @@
 	 * asker's words, what it touched, and Undo for a week. Each opens the change it made (a
 	 * document's versions since just before, a sheet's history, or the page it touched). Undo
 	 * never overwrites newer work; it says so instead. */
+	import { formatDay } from '$lib/ui/time';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { targetHref, targetPhrase, undoDirectionApplied } from '$lib/model/direction';
@@ -63,7 +64,7 @@
 					class="btn small ghost"
 					type="button"
 					disabled={busy === change.id}
-					title={`Puts back what this replaced. Available until ${new Date(change.undo.until).toLocaleDateString()}.`}
+					title={`Puts back what this replaced. Available until ${formatDay(change.undo.until)}.`}
 					onclick={() => void undo(change)}>{busy === change.id ? 'Undoing…' : 'Undo'}</button
 				>
 			{:else if change.undo.state === 'undone'}

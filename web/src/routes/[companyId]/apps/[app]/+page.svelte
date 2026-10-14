@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatMoment } from '$lib/ui/time';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { Page, Section, Notice, Toggle, Segmented, Dot } from '$lib/ui/page';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
@@ -354,7 +355,7 @@
 									: ''}</span
 							>
 							<span class="quiet">{effect.actor}</span>
-							<time>{new Date(effect.created_at).toLocaleString()}</time>
+							<time>{formatMoment(effect.created_at)}</time>
 						</li>
 					{/each}
 					{#each recent.reads.slice(0, 5) as read (read.id)}
@@ -362,7 +363,7 @@
 							<Dot tone={read.status === 'complete' ? 'neutral' : 'danger'} label={read.status} />
 							<span>{skillName(read.tool)}</span>
 							<span class="quiet">{read.actor}</span>
-							<time>{new Date(read.observed_at).toLocaleString()}</time>
+							<time>{formatMoment(read.observed_at)}</time>
 						</li>
 					{/each}
 				</ul>

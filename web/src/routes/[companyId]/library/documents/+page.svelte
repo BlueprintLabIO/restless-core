@@ -373,7 +373,7 @@
 		/* A clock a little ahead of the server's still reads as now. */
 		return relative === 'Just now' || relative === 'Soon' || relative.startsWith('in ')
 			? 'just now'
-			: `${relative} ago`;
+			: relative;
 	};
 
 	/* Documents are found in the Library; this address without one goes there. */
