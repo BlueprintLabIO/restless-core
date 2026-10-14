@@ -313,7 +313,7 @@
 				class:active={tab === 'inbox'}
 				title="Decisions and steps waiting on you"
 				onclick={() => showTab('inbox')}
-				>Inbox{#if loaded && visible.length}<span class="tab-count">{visible.length}</span
+				>Decisions{#if loaded && visible.length}<span class="tab-count">{visible.length}</span
 					>{/if}</button
 			>
 			{#if forYou}<button

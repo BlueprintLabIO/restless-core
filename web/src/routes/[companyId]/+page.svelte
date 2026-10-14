@@ -215,7 +215,9 @@
 	});
 	/* The company catalogue is the owner's; nobody else waits on it. */
 	const catalogPending = $derived(owner && companyCatalog.status === 'unknown');
-	const showClear = $derived(attentionClear && !catalogPending && !startBlocker);
+	/* The pill speaks only when the list is folded away; with For you open beside it, the list
+	 * already says there are no decisions (S85-22). */
+	const showClear = $derived(queueClear && !catalogPending && !startBlocker);
 	/* The queue starts collapsed until its source answers, so an idle
 	 * company's office is never squeezed and released; when items do arrive,
 	 * the queue opens with the same motion as any later change. */
