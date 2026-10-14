@@ -597,6 +597,16 @@
 			});
 		}
 	}
+	/* Arrow keys move between People and Chats, as between radios. */
+	function switchViewByKey(event: KeyboardEvent) {
+		if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+		event.preventDefault();
+		chooseView(view === 'people' ? 'chats' : 'people');
+		const group = (event.currentTarget as HTMLElement).parentElement;
+		requestAnimationFrame(() =>
+			group?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus()
+		);
+	}
 	let manager = $state<{ open: () => void } | null>(null);
 
 	const recentGroups = $derived(
@@ -809,21 +819,26 @@
 				label="Search conversations and people"
 			/>
 		</div>
-		<div class="people-views" role="tablist" aria-label="Show">
+		<!-- A view switch: one list replaced by the other, so radio semantics and arrow keys. -->
+		<div class="people-views" role="radiogroup" aria-label="Show">
 			<button
 				type="button"
-				role="tab"
-				aria-selected={view === 'people'}
+				role="radio"
+				aria-checked={view === 'people'}
+				tabindex={view === 'people' ? 0 : -1}
+				onkeydown={switchViewByKey}
 				onclick={() => chooseView('people')}><Users size={14} aria-hidden="true" />People</button
 			>
 			<button
 				type="button"
-				role="tab"
-				aria-selected={view === 'chats'}
+				role="radio"
+				aria-checked={view === 'chats'}
+				tabindex={view === 'chats' ? 0 : -1}
+				onkeydown={switchViewByKey}
 				onclick={() => chooseView('chats')}
-				><MessagesSquare size={14} aria-hidden="true" />Chats{#if unreadChats}<b
-						aria-label={`${unreadChats} unread`}>{unreadChats}</b
-					>{/if}</button
+				><MessagesSquare size={14} aria-hidden="true" />Chats{#if unreadChats}<b aria-hidden="true"
+						>{unreadChats}</b
+					><span class="sr-only">, {unreadChats} unread</span>{/if}</button
 			>
 		</div>
 		<div class="entries">
@@ -887,6 +902,7 @@
 							>{person.kind === 'exec' ? 'E' : initials(person.display)}{#if line.tone === 'work'}<i
 									class="avatar-working"
 									title={`${personName(person.display)} is working`}
+									role="img"
 									aria-label="Working"
 								></i>{:else if person.kind === 'human' && hereNow.has(person.actor_id)}<i
 									class="avatar-working here"
@@ -905,6 +921,7 @@
 						>{#if hasNew(person.actor_id) && personId !== person.actor_id}<span
 								class="new-dot"
 								title="Something new since you last looked"
+								role="img"
 								aria-label="New messages"
 							></span>{/if}
 					</a>
@@ -941,6 +958,7 @@
 								>{#if chat.unread}<span
 										class="new-dot"
 										title="New since you last looked"
+										role="img"
 										aria-label="Unread"
 									></span>{/if}</span
 							>
@@ -1321,7 +1339,7 @@
 	.people-views button:hover {
 		color: var(--ink);
 	}
-	.people-views button[aria-selected='true'] {
+	.people-views button[aria-checked='true'] {
 		background: var(--segment-thumb);
 		box-shadow:
 			var(--shadow-soft),
