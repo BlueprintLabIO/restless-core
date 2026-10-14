@@ -7,6 +7,7 @@
 	import Minimize2 from '@lucide/svelte/icons/minimize-2';
 	import Clipboard from '@lucide/svelte/icons/clipboard';
 	import Keyboard from '@lucide/svelte/icons/keyboard';
+	import FileUp from '@lucide/svelte/icons/file-up';
 
 	type Rfb = {
 		scaleViewport: boolean;
@@ -64,7 +65,8 @@
 		interactive = false,
 		canResize = false,
 		ondisplayresize = null,
-		onstatus = null
+		onstatus = null,
+		ondropfile = null
 	}: {
 		src?: string;
 		title?: string;
@@ -78,6 +80,8 @@
 		canResize?: boolean;
 		ondisplayresize?: ((width: number, height: number) => void) | null;
 		onstatus?: ((status: Status, message?: string) => void) | null;
+		/** Put a file the owner drops or picks on the company computer; resolves where it landed. */
+		ondropfile?: ((file: File) => Promise<string>) | null;
 	} = $props();
 
 	let target = $state<HTMLDivElement>();
@@ -117,6 +121,9 @@
 	let ctrlLatched = $state(false);
 	let altLatched = $state(false);
 	let focusAnnouncement = $state('');
+	let filePicker = $state<HTMLInputElement>();
+	let dragging = $state(false);
+	let utilityTimer: ReturnType<typeof setTimeout> | undefined;
 
 	function report(next: Status, detail = '') {
 		status = next;
@@ -616,6 +623,33 @@
 		void mayType().then((ok) => ok && press(...mapped));
 	}
 
+	function sayUtility(text: string) {
+		utilityMessage = text;
+		clearTimeout(utilityTimer);
+		utilityTimer = setTimeout(() => (utilityMessage = ''), 6_000);
+	}
+
+	/* A web form on the computer needs the owner's own document: it lands in Downloads, where the
+	 * upload dialog opens, and the owner is told the exact name. */
+	async function placeFile(files: FileList | null | undefined) {
+		const file = files?.[0];
+		if (!file || !ondropfile) return;
+		if (file.size > 32 * 1024 * 1024) {
+			sayUtility('Files over 32 MB can’t be added from here.');
+			return;
+		}
+		sayUtility(`Adding ${file.name}…`);
+		try {
+			const path = await ondropfile(file);
+			sayUtility(`In Downloads as ${path.split('/').pop()}. Pick it from the upload dialog.`);
+			onactivity?.();
+		} catch (cause) {
+			sayUtility(failureSentence(cause, 'The file could not be added.'));
+		} finally {
+			if (filePicker) filePicker.value = '';
+		}
+	}
+
 	async function toggleFullscreen() {
 		if (!target) return;
 		try {
@@ -753,12 +787,33 @@
 		active = false;
 		generation += 1;
 		clearTimeout(retryTimer);
+		clearTimeout(utilityTimer);
 		rfb?.disconnect();
 		clearClipboardSession();
 	});
 </script>
 
-<div class="desktop-viewport" bind:this={target} aria-label={title}>
+<div
+	class="desktop-viewport"
+	class:dragging
+	bind:this={target}
+	aria-label={title}
+	role="region"
+	ondragover={(event) => {
+		if (!ondropfile || !event.dataTransfer?.types.includes('Files')) return;
+		event.preventDefault();
+		dragging = true;
+	}}
+	ondragleave={(event) => {
+		if (event.currentTarget === event.target) dragging = false;
+	}}
+	ondrop={(event) => {
+		if (!ondropfile || !event.dataTransfer?.files.length) return;
+		event.preventDefault();
+		dragging = false;
+		void placeFile(event.dataTransfer.files);
+	}}
+>
 	{#if src}
 		<div bind:this={screen} class="desktop-screen" aria-label={title}></div>
 		<div class="desktop-tools" aria-label="Desktop controls">
@@ -779,6 +834,24 @@
 							: 'Connecting'}
 			</span>
 			<div class="desktop-tool-actions">
+				{#if ondropfile}
+					<input
+						bind:this={filePicker}
+						class="sr-only"
+						type="file"
+						tabindex="-1"
+						aria-hidden="true"
+						onchange={(event) => void placeFile(event.currentTarget.files)}
+					/>
+					<button
+						type="button"
+						title="Put a file in the computer’s Downloads, or drop one on the desktop"
+						aria-label="Add a file to Downloads"
+						onclick={() => filePicker?.click()}
+					>
+						<FileUp size={14} />
+					</button>
+				{/if}
 				<button
 					type="button"
 					class="desktop-keyboard-toggle"
@@ -995,6 +1068,10 @@
 		flex-direction: column;
 		overflow: hidden;
 		background: #101217;
+	}
+	.desktop-viewport.dragging {
+		outline: 2px dashed var(--intent-conversation);
+		outline-offset: -4px;
 	}
 	.desktop-viewport:fullscreen {
 		width: 100vw;

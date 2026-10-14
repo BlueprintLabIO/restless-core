@@ -103,6 +103,20 @@
 	pointer-events: none;
 }
 
+.bridge-root .computer-files-view {
+	display: grid;
+	align-content: start;
+	gap: var(--space-4);
+	width: min(880px, 100%);
+	margin: 0 auto;
+	padding: var(--space-5) 16px;
+	overflow: auto;
+}
+
+.bridge-root .computer-files-view > .btn {
+	justify-self: start;
+}
+
 .bridge-root .computer-portal-actions {
 	display: flex;
 	gap: 6px;

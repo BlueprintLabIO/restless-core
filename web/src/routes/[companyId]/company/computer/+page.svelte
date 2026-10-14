@@ -11,6 +11,8 @@
 	import Monitor from '@lucide/svelte/icons/monitor';
 	import { desktopWindows, focusDesktopWindow, type DesktopWindow } from '$lib/model/desktop';
 	import DesktopViewport from '$lib/components/DesktopViewport.svelte';
+	import ComputerFiles from '$lib/components/ComputerFiles.svelte';
+	import { dropComputerFile } from '$lib/model/computer-files';
 	import { issueDesktopTicket } from '$lib/model/attention';
 	import { DesktopControl } from '$lib/model/desktop-control.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
@@ -42,6 +44,7 @@
 	const focusMode = $derived(page.url.searchParams.get('focus'));
 	const focus = $derived(focusMode === 'desktop' || focusMode === 'browser');
 	const browserFocus = $derived(focusMode === 'browser');
+	const filesView = $derived(focusMode === 'files');
 	/* A harness sign-in opened in the company browser: bring it forward and hand this tab control. */
 	const signIn = $derived(page.url.searchParams.get('task') === 'harness-sign-in');
 
@@ -449,7 +452,12 @@
 
 <CompanyTitle title="Computer" {companyId} />
 
-{#if focus}
+{#if filesView}
+	<div class="computer-files-view">
+		<a class="btn small ghost" href={`/${companyId}/company/computer`}>← Computer</a>
+		<ComputerFiles {companyId} />
+	</div>
+{:else if focus}
 	<div class="company-desktop-focus">
 		<header class="computer-focus-toolbar">
 			<div class="computer-focus-identity">
@@ -546,6 +554,7 @@
 			interactive={control.owner}
 			canResize={canResize || control.owner}
 			onclaim={claimControl}
+			ondropfile={(file) => dropComputerFile(companyId, file)}
 			ondisplayresize={requestDisplayResize}
 			onload={() => void desktopReady()}
 			onactivity={desktopActivity}
@@ -605,8 +614,9 @@
 							<ArrowUpRight size={16} strokeWidth={2} aria-hidden="true" />
 						</button>
 						<p>
-							Your team’s shared browser, files and applications. Click or type on the desktop to
-							join in.
+							Your team’s shared browser, <a href={`/${companyId}/company/computer?focus=files`}
+								>files</a
+							> and applications. Click or type on the desktop to join in.
 						</p>
 					{:else}
 						<p class="computer-unavailable-copy">

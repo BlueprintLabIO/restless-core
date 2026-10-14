@@ -891,3 +891,126 @@ mod tests {
         }
     }
 }
+
+#[derive(Deserialize)]
+pub(crate) struct ComputerFileQuery {
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+}
+
+/// One folder of the company's file places (Downloads by default), owner only.
+pub(crate) async fn list_computer_files(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    Query(query): Query<ComputerFileQuery>,
+) -> Response<Body> {
+    if let Err(refusal) =
+        super::review_api::wake_for_owner_read(&state, &company, "the owner opened its files").await
+    {
+        return refusal;
+    }
+    let folder = query
+        .path
+        .filter(|path| !path.trim().is_empty())
+        .unwrap_or_else(|| restless_engine::runtime_files::OWNER_FILE_PLACES[0].to_string());
+    match restless_engine::runtime_files::list(&company, &folder).await {
+        Ok(listing) => Json(serde_json::json!({
+            "places": restless_engine::runtime_files::OWNER_FILE_PLACES,
+            "folder": listing,
+        }))
+        .into_response(),
+        Err(error) => api_error(StatusCode::NOT_FOUND, "files", format!("{error:#}")),
+    }
+}
+
+/// Download one file from the company's file places as an inert attachment.
+pub(crate) async fn download_computer_file(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    Query(query): Query<ComputerFileQuery>,
+) -> Response<Body> {
+    let Some(path) = query.path.filter(|path| !path.trim().is_empty()) else {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "files",
+            "name the file to download",
+        );
+    };
+    if let Err(refusal) =
+        super::review_api::wake_for_owner_read(&state, &company, "the owner downloaded a file")
+            .await
+    {
+        return refusal;
+    }
+    let canonical = match restless_engine::runtime_files::resolve_file(&company, &path).await {
+        Ok(canonical) => canonical,
+        Err(error) => return api_error(StatusCode::NOT_FOUND, "files", format!("{error:#}")),
+    };
+    let file =
+        match runtime::stream_runtime_review_file(&company, std::path::Path::new(&canonical), None)
+            .await
+        {
+            Ok(file) => file,
+            Err(error) if error.is::<runtime::ReviewFileTooLarge>() => {
+                return api_error(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "files",
+                    "This file is larger than the 16 GiB the cockpit can download.",
+                )
+            }
+            Err(error) => return api_error(StatusCode::NOT_FOUND, "files", format!("{error:#}")),
+        };
+    let name = canonical
+        .rsplit('/')
+        .next()
+        .and_then(runtime::owner_attachment_alias)
+        .unwrap_or_else(|| "file".into());
+    let mut response = Response::new(Body::from_stream(file.body));
+    let headers = response.headers_mut();
+    headers.insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
+    if let Ok(length) = HeaderValue::from_str(&file.size.to_string()) {
+        headers.insert(axum::http::header::CONTENT_LENGTH, length);
+    }
+    headers.insert(
+        HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    if let Ok(disposition) = HeaderValue::from_str(&format!("attachment; filename=\"{name}\"")) {
+        headers.insert(CONTENT_DISPOSITION, disposition);
+    }
+    headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(
+        "content-security-policy",
+        HeaderValue::from_static("sandbox; default-src 'none'"),
+    );
+    response
+}
+
+/// Put one owner file in the company's Downloads, where a web form's upload dialog finds it.
+pub(crate) async fn drop_computer_file(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    Query(query): Query<ComputerFileQuery>,
+    body: Bytes,
+) -> Response<Body> {
+    let Some(name) = query.name.filter(|name| !name.trim().is_empty()) else {
+        return api_error(StatusCode::BAD_REQUEST, "files", "name the file");
+    };
+    if body.is_empty() {
+        return api_error(StatusCode::BAD_REQUEST, "files", "the file is empty");
+    }
+    if let Err(refusal) =
+        super::review_api::wake_for_owner_read(&state, &company, "the owner added a file").await
+    {
+        return refusal;
+    }
+    match restless_engine::runtime_files::drop_in_downloads(&company, &name, &body).await {
+        Ok(path) => Json(serde_json::json!({ "path": path })).into_response(),
+        Err(error) => api_error(StatusCode::CONFLICT, "files", format!("{error:#}")),
+    }
+}

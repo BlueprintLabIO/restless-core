@@ -60,6 +60,7 @@ pub mod release;
 pub mod room_commands;
 pub mod runtime;
 pub mod runtime_bridge;
+pub mod runtime_files;
 pub mod runtime_sleep;
 pub mod runtime_mode;
 pub mod runtime_usage;

@@ -1,0 +1,185 @@
+//! The owner's read-and-drop view of files on the company computer: what its browser downloaded,
+//! finished outputs and project work. Confined to those places, so a credential under the company
+//! home never reaches the cockpit through this view.
+
+use std::process::Stdio;
+
+use anyhow::{bail, Context, Result};
+use serde::Serialize;
+use tokio::io::AsyncWriteExt;
+
+use crate::runtime::{self, container_name, validate_company_name};
+
+/// The company places the owner browses. Downloads first: the browser saves there.
+pub const OWNER_FILE_PLACES: [&str; 3] = [
+    "/company/downloads",
+    "/company/outputs",
+    "/company/projects",
+];
+
+const MAX_ENTRIES: usize = 500;
+
+/// Resolve `$1` to a canonical path inside one owner place, or exit non-zero. Leaves it in `$p`.
+const CANONICAL_OWNER_PLACE: &str = r#"p=$(realpath -e -- "$1") || { echo "not found" >&2; exit 66; }
+ok=
+for place in /company/downloads /company/outputs /company/projects; do
+  root=$(realpath -e "$place" 2>/dev/null) || continue
+  case "$p" in "$root"|"$root"/*) ok=1;; esac
+done
+[ -n "$ok" ] || { echo "outside the company's file places" >&2; exit 67; }
+"#;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ComputerFile {
+    pub name: String,
+    pub path: String,
+    pub directory: bool,
+    pub size: u64,
+    /// Seconds since the Unix epoch.
+    pub modified: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ComputerFolder {
+    pub path: String,
+    pub entries: Vec<ComputerFile>,
+    /// More entries exist than were listed.
+    pub truncated: bool,
+}
+
+/// List one folder inside the owner places, folders first, newest first.
+pub async fn list(company: &str, folder: &str) -> Result<ComputerFolder> {
+    validate_company_name(company)?;
+    let script = format!(
+        "{CANONICAL_OWNER_PLACE}[ -d \"$p\" ] || {{ echo \"not a folder\" >&2; exit 68; }}\n\
+         printf '%s\\n' \"$p\"\n\
+         find \"$p\" -mindepth 1 -maxdepth 1 -printf '%y\\t%s\\t%T@\\t%f\\n' | head -n {}",
+        MAX_ENTRIES + 1
+    );
+    let output = runtime::docker_observe(&[
+        "exec",
+        "-u",
+        "company",
+        &container_name(company),
+        "sh",
+        "-c",
+        &script,
+        "sh",
+        folder,
+    ])
+    .await?;
+    if !output.status.success() {
+        bail!(
+            "the folder could not be read: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut lines = text.lines();
+    let path = lines
+        .next()
+        .context("the folder listing was empty")?
+        .to_string();
+    let mut entries: Vec<ComputerFile> = lines
+        .filter_map(|line| {
+            let mut parts = line.splitn(4, '\t');
+            let kind = parts.next()?;
+            let size = parts.next()?.parse().unwrap_or(0);
+            let modified = parts
+                .next()?
+                .split('.')
+                .next()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(0);
+            let name = parts.next()?.to_string();
+            Some(ComputerFile {
+                path: format!("{path}/{name}"),
+                directory: kind == "d",
+                name,
+                size,
+                modified,
+            })
+        })
+        .collect();
+    let truncated = entries.len() > MAX_ENTRIES;
+    entries.truncate(MAX_ENTRIES);
+    entries.sort_by(|a, b| {
+        b.directory
+            .cmp(&a.directory)
+            .then(b.modified.cmp(&a.modified))
+    });
+    Ok(ComputerFolder {
+        path,
+        entries,
+        truncated,
+    })
+}
+
+/// The canonical path of one regular file inside the owner places, for a download.
+pub async fn resolve_file(company: &str, file: &str) -> Result<String> {
+    validate_company_name(company)?;
+    let script =
+        format!("{CANONICAL_OWNER_PLACE}[ -f \"$p\" ] || {{ echo \"not a file\" >&2; exit 68; }}\nprintf '%s' \"$p\"");
+    let output = runtime::docker_observe(&[
+        "exec",
+        "-u",
+        "company",
+        &container_name(company),
+        "sh",
+        "-c",
+        &script,
+        "sh",
+        file,
+    ])
+    .await?;
+    if !output.status.success() {
+        bail!(
+            "the file could not be read: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// Put an owner's file in the company's Downloads, where the browser's upload dialog opens, as the
+/// company user. An existing name is kept; the new file gets a numbered name. Returns its path.
+pub async fn drop_in_downloads(company: &str, name: &str, bytes: &[u8]) -> Result<String> {
+    validate_company_name(company)?;
+    let name = runtime::owner_attachment_alias(name).context("the file needs a usable name")?;
+    let script = concat!(
+        "set -eu; d=$(realpath -e /company/downloads); ",
+        "stem=\"${1%.*}\"; ext=\"${1##*.}\"; [ \"$stem\" = \"$1\" ] && ext= || ext=\".$ext\"; ",
+        "n=\"$1\"; i=1; while [ -e \"$d/$n\" ] || [ -L \"$d/$n\" ]; do n=\"$stem-$i$ext\"; i=$((i+1)); done; ",
+        "umask 022; cat > \"$d/.$n.part\"; mv -f \"$d/.$n.part\" \"$d/$n\"; printf '%s' \"$d/$n\""
+    );
+    let mut child = tokio::process::Command::new("docker")
+        .args([
+            "exec",
+            "-i",
+            "-u",
+            "company",
+            &container_name(company),
+            "sh",
+            "-c",
+            script,
+            "sh",
+            &name,
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .context("spawn docker exec for an owner file")?;
+    let mut stdin = child.stdin.take().context("docker exec has no input")?;
+    stdin.write_all(bytes).await?;
+    drop(stdin);
+    let output = child.wait_with_output().await?;
+    if !output.status.success() {
+        bail!(
+            "the file could not be saved: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}

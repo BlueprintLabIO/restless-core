@@ -68,7 +68,7 @@ export const COMPANY_PAGES: CompanyPage[] = [
 		group: 'Operations',
 		label: 'Computer',
 		path: '/computer',
-		keywords: 'desktop runtime'
+		keywords: 'desktop runtime files downloads restart sleep'
 	},
 	{
 		key: 'activity',

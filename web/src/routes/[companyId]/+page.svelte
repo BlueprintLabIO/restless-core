@@ -49,6 +49,7 @@
 	import { browserTabClientId } from '$lib/model/browserTab';
 	import { issueDesktopTicket, issueReviewTicket } from '$lib/model/attention';
 	import { DesktopControl } from '$lib/model/desktop-control.svelte';
+	import { dropComputerFile } from '$lib/model/computer-files';
 	import { takeInboxOutcome } from '$lib/model/inbox-outcome.svelte';
 	import { companyFileLinks, workFileLinks } from '$lib/model/inbox-files';
 	import {
@@ -938,6 +939,7 @@
 						interactive={control.owner}
 						canResize={control.owner}
 						onclaim={() => control.take()}
+						ondropfile={(file) => dropComputerFile(companyId, file)}
 						onload={() => void desktopConnected()}
 						onactivity={() => control.activity()}
 					/>

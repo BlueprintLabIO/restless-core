@@ -1782,6 +1782,14 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(record_activity),
         )
         .route("/companies/{company}/browser/return", post(return_control))
+        .route(
+            "/companies/{company}/computer/files",
+            get(desktop_api::list_computer_files).post(desktop_api::drop_computer_file),
+        )
+        .route(
+            "/companies/{company}/computer/files/download",
+            get(desktop_api::download_computer_file),
+        )
         .merge(room_api_routes::<OwnerState>())
         .merge(rooms_lifecycle_api::routes::<OwnerState>())
         .merge(documents_api::routes::<OwnerState>())
