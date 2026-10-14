@@ -26,6 +26,7 @@
 		type UploadedAttachment
 	} from '$lib/model/attachments';
 	import Pending from '$lib/ui/feedback/Pending.svelte';
+	import { importOfficeFile, importedHref } from '$lib/model/office-import';
 
 	type Kind = 'doc' | 'sheet';
 	let {
@@ -39,12 +40,19 @@
 	const client = useQueryClient();
 
 	let busy = $state(false);
-	let failure = $state<{ kind: Kind | 'upload'; message: string; retry: boolean } | null>(null);
+	let failure = $state<{
+		kind: Kind | 'upload' | 'import';
+		message: string;
+		retry: boolean;
+	} | null>(null);
 	let documentAttempt: PendingDocumentCreation | null = null;
 	let sheetId = '';
 	let picker: HTMLInputElement | undefined = $state();
 	let uploading = $state(0);
 	let unsent: File[] = [];
+	let importPicker: HTMLInputElement | undefined = $state();
+	let importing = $state('');
+	let importFailed: File | null = null;
 
 	const UNTITLED: Record<Kind, string> = { doc: 'Untitled document', sheet: 'Untitled sheet' };
 
@@ -106,6 +114,36 @@
 			};
 		} finally {
 			busy = false;
+		}
+	}
+
+	/** Choose a Word, Excel or CSV file to make into a document or sheet. */
+	export function pickImport() {
+		importPicker?.click();
+	}
+
+	/** Make a Word, Excel or CSV file an editable document or sheet, and open it. */
+	export async function importFile(file: File) {
+		if (importing) return;
+		const company = companyId;
+		importing = file.name;
+		failure = null;
+		try {
+			const imported = await importOfficeFile(company, file);
+			importFailed = null;
+			if (imported.kind === 'doc')
+				await client.invalidateQueries({ queryKey: documentQueryKeys.list(company) });
+			if (company === companyId) await goto(importedHref(company, imported));
+		} catch (cause) {
+			importFailed = file;
+			if (company === companyId)
+				failure = {
+					kind: 'import',
+					retry: true,
+					message: failureSentence(cause, `${file.name} was not imported.`)
+				};
+		} finally {
+			importing = '';
 		}
 	}
 
@@ -179,7 +217,9 @@
 	function retry() {
 		if (!failure) return;
 		if (failure.kind === 'upload') void upload(unsent, true);
-		else void open(failure.kind, true);
+		else if (failure.kind === 'import') {
+			if (importFailed) void importFile(importFailed);
+		} else void open(failure.kind, true);
 	}
 </script>
 
@@ -197,7 +237,25 @@
 	}}
 />
 
-{#if uploading}
+<input
+	bind:this={importPicker}
+	class="library-new-picker"
+	type="file"
+	accept=".docx,.xlsx,.csv,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+	tabindex="-1"
+	aria-hidden="true"
+	onchange={(event) => {
+		const file = event.currentTarget.files?.[0];
+		event.currentTarget.value = '';
+		if (file) void importFile(file);
+	}}
+/>
+
+{#if importing}
+	<div class="library-new-failure uploading">
+		<Pending label={`Importing ${importing}`} />
+	</div>
+{:else if uploading}
 	<div class="library-new-failure uploading">
 		<Pending label={uploading === 1 ? 'Adding the file' : `Adding ${uploading} files`} />
 	</div>

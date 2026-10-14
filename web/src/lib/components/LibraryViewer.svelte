@@ -44,7 +44,8 @@
 		file,
 		owner,
 		backHref,
-		resolve = null
+		resolve = null,
+		convert = null
 	}: {
 		companyId: string;
 		file: LibraryFile;
@@ -52,7 +53,19 @@
 		backHref: string;
 		/** Where this file is read from, when it is not a Work file the gateway opens by id. */
 		resolve?: (() => Promise<string>) | null;
+		/** Make this Word, Excel or CSV file an editable document or sheet, when it can be one. */
+		convert?: { label: string; run: () => Promise<void> } | null;
 	} = $props();
+	let converting = $state(false);
+	async function runConvert() {
+		if (!convert || converting) return;
+		converting = true;
+		try {
+			await convert.run();
+		} finally {
+			converting = false;
+		}
+	}
 
 	/* The rail's context chip names this file, so "send this to Sam" is visibly about it. */
 	namePageContext(() => file.label);
@@ -80,9 +93,7 @@
 		slide = 1;
 		total = 0;
 		void (
-			resolve
-				? resolve().then((url): OpenedFile => ({ url }))
-				: openLibraryFile(companyId, which)
+			resolve ? resolve().then((url): OpenedFile => ({ url })) : openLibraryFile(companyId, which)
 		)
 			.then((next) => {
 				if (target === fileKey) opened = next;
@@ -226,6 +237,15 @@
 				><Play size={14} strokeWidth={2} aria-hidden="true" />Present</button
 			>
 		{/if}
+		{#if convert}
+			<button
+				class="btn small"
+				type="button"
+				disabled={converting}
+				title="Make an editable copy; this file stays as it is"
+				onclick={() => void runConvert()}>{converting ? 'Importing…' : convert.label}</button
+			>
+		{/if}
 		<button
 			class="btn small discuss"
 			type="button"
@@ -303,8 +323,7 @@
 						? 'Browsers cannot show PowerPoint files. Download it to present it in PowerPoint or Keynote.'
 						: 'Browsers cannot show this kind of file. Download it to open it on your computer.'}
 				</p>
-				<a class="btn small primary" href={savedHref}
-				download={resolve ? file.label : ''}
+				<a class="btn small primary" href={savedHref} download={resolve ? file.label : ''}
 					><Download size={14} strokeWidth={1.9} aria-hidden="true" />Download {file.name}</a
 				>
 			</div>
@@ -315,8 +334,7 @@
 					<a class="btn small primary" href={url} target="_blank" rel="noopener noreferrer"
 						><ExternalLink size={14} strokeWidth={1.9} aria-hidden="true" />Open the PDF</a
 					>
-					<a class="btn small" href={savedHref}
-				download={resolve ? file.label : ''}
+					<a class="btn small" href={savedHref} download={resolve ? file.label : ''}
 						><Download size={14} strokeWidth={1.9} aria-hidden="true" />Download</a
 					>
 				</div>

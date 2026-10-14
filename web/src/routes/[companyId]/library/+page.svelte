@@ -56,6 +56,7 @@
 		libraryFiles,
 		libraryKind,
 		openLibraryFile,
+		libraryFileBytes,
 		fetchPins,
 		forgetLocalPins,
 		setPin,
@@ -65,6 +66,7 @@
 		type LibraryFileKind
 	} from '$lib/model/library-files';
 	import { documentsQuery } from '$lib/model/document-queries.svelte';
+	import { importKind } from '$lib/model/office-import';
 	import { documentSearch } from '$lib/model/document-search.svelte';
 	import { duplicateSheet, sheetJson, type SheetRow } from '$lib/model/sheets';
 	import {
@@ -352,6 +354,46 @@
 			await goto(`${root}/library/${path}&rename=1`);
 		} catch (cause) {
 			toast(failureSentence(cause, `“${entry.title}” was not duplicated.`), { tone: 'failure' });
+		}
+	}
+
+	/* A Word, Excel or CSV file the team made or the owner kept becomes an editable document or
+	 * sheet; the file itself stays as it was. */
+	const convertsTo = (entry: Entry) =>
+		isFile(entry) || entry.kind === 'upload'
+			? importKind(
+					entry.kind === 'upload'
+						? entry.title
+						: (files.find((file) => file.id === entry.id)?.uri ?? '')
+				)
+			: null;
+	const convertFile = (id: string, title: string) =>
+		convert({ id, title, kind: 'other', updatedAt: '', owner: '', status: '', review: false });
+	async function convert(entry: Entry) {
+		try {
+			let bytes: ArrayBuffer;
+			if (entry.kind === 'upload') {
+				const response = await fetch(attachmentHref(companyId, entry.id), {
+					credentials: 'same-origin',
+					cache: 'no-store'
+				});
+				if (!response.ok) throw await responseFailure(response);
+				bytes = await response.arrayBuffer();
+			} else {
+				const file = files.find((candidate) => candidate.id === entry.id);
+				if (!file) return;
+				bytes = await libraryFileBytes(companyId, file.uri);
+			}
+			const name =
+				entry.kind === 'upload'
+					? entry.title
+					: (files
+							.find((file) => file.id === entry.id)
+							?.uri.split('/')
+							.at(-1) ?? entry.title);
+			await creator?.importFile(new File([bytes], name));
+		} catch (cause) {
+			toast(failureSentence(cause, `“${entry.title}” could not be read.`), { tone: 'failure' });
 		}
 	}
 
@@ -1024,11 +1066,18 @@
 		</nav>
 	{/snippet}
 	{#if fileOpen}
+		{@const opensAs = fileOpen.id ? importKind(fileOpen.uri) : null}
 		<LibraryViewer
 			{companyId}
 			file={fileOpen}
 			owner={fileOpen.createdBy ? name(fileOpen.createdBy) : ''}
 			{backHref}
+			convert={opensAs && fileOpen
+				? {
+						label: opensAs === 'doc' ? 'Open as document' : 'Open as sheet',
+						run: () => convertFile(fileOpen!.id, fileOpen!.label)
+					}
+				: null}
 		/>
 	{:else if uploadFile && uploadResolver}
 		<LibraryViewer
@@ -1259,6 +1308,13 @@
 											>{/if}
 										{#if (isFile(entry) || isNative(entry)) && filter !== 'archived'}<button
 												onclick={() => void copyLink(entry)}>Copy link</button
+											>{/if}
+										{#if filter !== 'archived' && convertsTo(entry)}<button
+												title="Make an editable copy; this file stays as it is"
+												onclick={() => void convert(entry)}
+												>{convertsTo(entry) === 'doc'
+													? 'Open as document'
+													: 'Open as sheet'}</button
 											>{/if}
 										{#if isNative(entry) && filter !== 'archived'}<button
 												title="A copy you own, with the same access"
