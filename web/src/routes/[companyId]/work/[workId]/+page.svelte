@@ -35,6 +35,7 @@
 	import {
 		PRIORITIES,
 		blockerSentence,
+		steerResolution,
 		fetchWorkFeedback,
 		fetchWorkSpend,
 		priorityLabel,
@@ -415,9 +416,16 @@
 			: null
 	);
 	const outcomeParts = $derived(splitOutcome(work?.outcome ?? ''));
-	const readerSummary = $derived((work?.resolution || outcomeParts.opening).trim());
+	/* A settled Work says what happened; unsettled Work keeps its outcome, and a
+	 * pause or resume note shows once, as the blocker line under the title. */
+	const settledResolution = $derived(
+		work && (work.status === 'completed' || work.status === 'abandoned')
+			? steerResolution(work.resolution)
+			: ''
+	);
+	const readerSummary = $derived((settledResolution || outcomeParts.opening).trim());
 	const readerSummaryLabel = $derived(
-		work?.resolution ? 'What happened' : 'What this Work delivers'
+		settledResolution ? 'What happened' : 'What this Work delivers'
 	);
 	const executionContract = $derived(outcomeParts.contract || work?.outcome || '');
 	const outcomeIsLong = $derived(executionContract.length > OUTCOME_CLAMP_CHARS);
@@ -674,7 +682,7 @@
 								aria-expanded={steering === 'resume'}
 								onclick={() => openSteer('resume')}>Resume…</button
 							>{/if}
-						{#if work.status === 'proposed' || work.status === 'active'}<button
+						{#if (work.status === 'proposed' || work.status === 'active') && !pending.length}<button
 								class="btn small ghost"
 								type="button"
 								title="Hold this Work; Resume continues it"
@@ -726,148 +734,148 @@
 				{/if}
 			</div>
 			{#if blocker}<p class="work-blocker">{blocker}</p>{/if}
-		</header>
 
-		{#if pending.length}
-			<section class="work-pending" aria-label="Needs you">
-				{#each pending as item (item.id)}
-					<div class="pending-item">
-						<div class="pending-copy">
-							<strong>{attentionTitle(item)}</strong>
-							{#if item.requestedAction}<p>{item.requestedAction}</p>{/if}
-							{#if item.reviewTarget}<a
-									class="pending-target"
-									href={inboxHref(item)}
-									title={item.reviewTarget.uri}
-									>Open {item.reviewTarget.label || 'the prepared outcome'}</a
-								>{/if}
-						</div>
-						<div class="pending-actions">
-							{#if isOutcomeReview(item)}
-								<button
-									class="btn small primary"
-									type="button"
-									disabled={reviewBusy}
-									title="Accept the prepared outcome; this Work is done"
-									onclick={() => decide(item, 'accept')}>Accept</button
+			{#if pending.length}
+				<section class="work-pending" aria-label="Needs you">
+					{#each pending as item (item.id)}
+						<div class="pending-item">
+							<div class="pending-copy">
+								<strong>{attentionTitle(item)}</strong>
+								{#if item.requestedAction}<p>{item.requestedAction}</p>{/if}
+								{#if item.reviewTarget}<a
+										class="pending-target"
+										href={inboxHref(item)}
+										title={item.reviewTarget.uri}
+										>Open {item.reviewTarget.label || 'the prepared outcome'}</a
+									>{/if}
+							</div>
+							<div class="pending-actions">
+								{#if isOutcomeReview(item)}
+									<button
+										class="btn small primary"
+										type="button"
+										disabled={reviewBusy}
+										title="Accept the prepared outcome; this Work is done"
+										onclick={() => decide(item, 'accept')}>Accept</button
+									>
+									<button
+										class="btn small"
+										type="button"
+										aria-expanded={changesFor === item.id}
+										onclick={() => (changesFor = changesFor === item.id ? '' : item.id)}
+										>Request changes…</button
+									>
+									<a class="btn small ghost" href={inboxHref(item)}>Review</a>
+								{:else}
+									<a class="btn small primary" href={inboxHref(item)}>Open in Inbox</a>
+								{/if}
+							</div>
+							{#if changesFor === item.id}
+								<form
+									class="work-steer-form"
+									onsubmit={(event) => {
+										event.preventDefault();
+										void decide(item, 'request_changes');
+									}}
 								>
-								<button
-									class="btn small"
-									type="button"
-									aria-expanded={changesFor === item.id}
-									onclick={() => (changesFor = changesFor === item.id ? '' : item.id)}
-									>Request changes…</button
-								>
-								<a class="btn small ghost" href={inboxHref(item)}>Review</a>
-							{:else}
-								<a class="btn small primary" href={inboxHref(item)}>Open in Inbox</a>
+									<!-- svelte-ignore a11y_autofocus -->
+									<textarea
+										bind:value={changesText}
+										rows="2"
+										autofocus
+										aria-label="What should change"
+										placeholder="What should change"></textarea>
+									<div class="steer-actions">
+										<button class="btn small primary" disabled={reviewBusy || !changesText.trim()}
+											>{reviewBusy ? 'Recording…' : 'Send changes'}</button
+										>
+										<button class="btn small ghost" type="button" onclick={() => (changesFor = '')}
+											>Cancel</button
+										>
+									</div>
+								</form>
 							{/if}
 						</div>
-						{#if changesFor === item.id}
-							<form
-								class="work-steer-form"
-								onsubmit={(event) => {
-									event.preventDefault();
-									void decide(item, 'request_changes');
-								}}
-							>
-								<!-- svelte-ignore a11y_autofocus -->
-								<textarea
-									bind:value={changesText}
-									rows="2"
-									autofocus
-									aria-label="What should change"
-									placeholder="What should change"></textarea>
-								<div class="steer-actions">
-									<button class="btn small primary" disabled={reviewBusy || !changesText.trim()}
-										>{reviewBusy ? 'Recording…' : 'Send changes'}</button
-									>
-									<button class="btn small ghost" type="button" onclick={() => (changesFor = '')}
-										>Cancel</button
-									>
-								</div>
-							</form>
-						{/if}
-					</div>
-				{/each}
-				{#if reviewFailure}<p class="steer-failure" role="alert">{reviewFailure}</p>{/if}
-			</section>
-		{/if}
+					{/each}
+					{#if reviewFailure}<p class="steer-failure" role="alert">{reviewFailure}</p>{/if}
+				</section>
+			{/if}
 
-		{#if editing && work}
-			<form
-				class="work-steer-form work-edit-form"
-				onsubmit={(event) => {
-					event.preventDefault();
-					void saveEdit();
-				}}
-			>
-				<label><span>Title</span><input bind:value={editTitle} maxlength="200" required /></label>
-				<label><span>Brief</span><textarea bind:value={editOutcome} rows="6"></textarea></label>
-				<label
-					><span>Expected output</span><input
-						bind:value={editExpected}
-						placeholder="What it should produce"
-					/></label
+			{#if editing && work}
+				<form
+					class="work-steer-form work-edit-form"
+					onsubmit={(event) => {
+						event.preventDefault();
+						void saveEdit();
+					}}
 				>
-				{#if editFailure}<p class="steer-failure" role="alert">{editFailure}</p>{/if}
-				<div class="steer-actions">
-					<button class="btn small primary" disabled={editBusy || !editTitle.trim()}
-						>{editBusy ? 'Saving…' : 'Save'}</button
+					<label><span>Title</span><input bind:value={editTitle} maxlength="200" required /></label>
+					<label><span>Brief</span><textarea bind:value={editOutcome} rows="6"></textarea></label>
+					<label
+						><span>Expected output</span><input
+							bind:value={editExpected}
+							placeholder="What it should produce"
+						/></label
 					>
-					<button class="btn small ghost" type="button" onclick={() => (editing = false)}
-						>Cancel</button
-					>
-				</div>
-			</form>
-		{/if}
+					{#if editFailure}<p class="steer-failure" role="alert">{editFailure}</p>{/if}
+					<div class="steer-actions">
+						<button class="btn small primary" disabled={editBusy || !editTitle.trim()}
+							>{editBusy ? 'Saving…' : 'Save'}</button
+						>
+						<button class="btn small ghost" type="button" onclick={() => (editing = false)}
+							>Cancel</button
+						>
+					</div>
+				</form>
+			{/if}
 
-		{#if steering && work}
-			<form
-				class="work-steer-form"
-				onsubmit={(event) => {
-					event.preventDefault();
-					void steer();
-				}}
-			>
-				{#if steering === 'reassign'}<p class="steer-note">
-						Move this Work to <strong>{ownerName(moveTo)}</strong>
-					</p>{/if}
-				<!-- svelte-ignore a11y_autofocus -->
-				<textarea
-					bind:value={steerReason}
-					rows="2"
-					autofocus
-					aria-label={STEER[steering].placeholder}
-					placeholder={STEER[steering].placeholder}></textarea>
-				{#if STEER[steering].warning}<p class="steer-note" role="note">
-						{STEER[steering].warning}
-					</p>{/if}
-				{#if steerFailure}<p class="steer-failure" role="alert">{steerFailure}</p>{/if}
-				<div class="steer-actions">
-					<button
-						class="btn small {steering === 'abandon' ? 'danger' : 'primary'}"
-						disabled={steerBusy || !(steerReason.trim() || STEER[steering].fallback)}
-						>{steerBusy ? 'Recording…' : STEER[steering].submit}</button
-					>
-					{#if !steerReason.trim() && !STEER[steering].fallback}<span class="steer-hint"
-							>Needs a short reason</span
-						>{/if}
-					<button class="btn small ghost" type="button" onclick={() => (steering = '')}
-						>Cancel</button
-					>
-				</div>
-			</form>
-		{/if}
+			{#if steering && work}
+				<form
+					class="work-steer-form"
+					onsubmit={(event) => {
+						event.preventDefault();
+						void steer();
+					}}
+				>
+					{#if steering === 'reassign'}<p class="steer-note">
+							Move this Work to <strong>{ownerName(moveTo)}</strong>
+						</p>{/if}
+					<!-- svelte-ignore a11y_autofocus -->
+					<textarea
+						bind:value={steerReason}
+						rows="2"
+						autofocus
+						aria-label={STEER[steering].placeholder}
+						placeholder={STEER[steering].placeholder}></textarea>
+					{#if STEER[steering].warning}<p class="steer-note" role="note">
+							{STEER[steering].warning}
+						</p>{/if}
+					{#if steerFailure}<p class="steer-failure" role="alert">{steerFailure}</p>{/if}
+					<div class="steer-actions">
+						<button
+							class="btn small {steering === 'abandon' ? 'danger' : 'primary'}"
+							disabled={steerBusy || !(steerReason.trim() || STEER[steering].fallback)}
+							>{steerBusy ? 'Recording…' : STEER[steering].submit}</button
+						>
+						{#if !steerReason.trim() && !STEER[steering].fallback}<span class="steer-hint"
+								>Needs a short reason</span
+							>{/if}
+						<button class="btn small ghost" type="button" onclick={() => (steering = '')}
+							>Cancel</button
+						>
+					</div>
+				</form>
+			{/if}
 
-		{#if workTurn}
-			<section class="work-live-activity" aria-label="Live Work activity">
-				<ConversationTurnDock
-					participantName={accountableLead?.display ?? ownerName(work.owner_id)}
-					turn={workTurn}
-				/>
-			</section>
-		{/if}
+			{#if workTurn}
+				<section class="work-live-activity" aria-label="Live Work activity">
+					<ConversationTurnDock
+						participantName={accountableLead?.display ?? ownerName(work.owner_id)}
+						turn={workTurn}
+					/>
+				</section>
+			{/if}
+		</header>
 
 		{#if unknownRecovery}
 			<section class="recovery-brief" aria-labelledby="recovery-heading">
@@ -1349,7 +1357,7 @@
 		display: grid;
 		gap: 8px;
 		max-width: 560px;
-		margin: 0 0 12px;
+		margin: 0;
 	}
 	.work-steer-form textarea {
 		padding: 8px 10px;
@@ -1373,7 +1381,7 @@
 		display: grid;
 		gap: 8px;
 		max-width: 720px;
-		margin: 0 0 12px;
+		margin: 0;
 	}
 	.pending-item {
 		display: flex;

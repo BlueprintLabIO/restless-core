@@ -101,12 +101,25 @@ export const PRIORITIES = [
 
 /* Why Work is waiting, in one sentence: its recorded resolution, without the "changes requested
  * by lead-id:" prefix the record keeps for attribution. Empty when nothing was recorded. */
+/* A steer the server records as `<verb> by <actor>: <reason>`, in owner words. */
+const STEER_VERB: Record<string, string> = {
+	'changes requested': 'Changes requested',
+	paused: 'Paused',
+	resumed: 'Resumed',
+	restored: 'Restored',
+	abandoned: 'Stopped'
+};
+export function steerResolution(resolution: string): string {
+	return resolution
+		.trim()
+		.replace(
+			/^(changes requested|paused|resumed|restored|abandoned) by [\w-]+:\s*/i,
+			(_, verb: string) => `${STEER_VERB[verb.toLowerCase()]}: `
+		);
+}
+
 export function blockerSentence(resolution: string, summary = ''): string {
-	const text = (resolution || summary).trim();
-	const said = text.replace(
-		/^(changes requested|paused|resumed|restored|abandoned) by [\w-]+:\s*/i,
-		(_, verb: string) => `${verb[0].toUpperCase()}${verb.slice(1).toLowerCase()}: `
-	);
+	const said = resolution.trim() ? steerResolution(resolution) : summary.trim();
 	const first = said.split('\n')[0];
 	return first.length > 180 ? `${first.slice(0, 177).trimEnd()}…` : first;
 }
