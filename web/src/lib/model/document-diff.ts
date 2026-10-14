@@ -129,3 +129,56 @@ export function proposalChanges(
 		at < 0 ? [...content, node] : content.map((block, index) => (index === at ? node : block));
 	return versionChanges(current, { type: 'doc', content: next });
 }
+
+/** What changed between two plain-text versions, paragraph by paragraph: a charter or any
+ * Markdown without block identity. Paragraphs are matched in order; a removed paragraph
+ * followed by an added one reads as reworded, with the words that changed. */
+export function paragraphChanges(before: string, after: string): BlockChange[] {
+	const split = (text: string) =>
+		text
+			.split(/\n\s*\n/u)
+			.map((part) => part.trim())
+			.filter(Boolean);
+	const left = split(before);
+	const right = split(after);
+	const cols = right.length + 1;
+	const table = new Uint16Array((left.length + 1) * cols);
+	for (let i = left.length - 1; i >= 0; i -= 1)
+		for (let j = right.length - 1; j >= 0; j -= 1)
+			table[i * cols + j] =
+				left[i] === right[j]
+					? table[(i + 1) * cols + j + 1] + 1
+					: Math.max(table[(i + 1) * cols + j], table[i * cols + j + 1]);
+	const raw: { kind: 'added' | 'removed'; text: string }[] = [];
+	const changes: BlockChange[] = [];
+	const flush = () => {
+		const removed = raw.filter((change) => change.kind === 'removed');
+		const added = raw.filter((change) => change.kind === 'added');
+		const paired = Math.min(removed.length, added.length);
+		for (let k = 0; k < paired; k += 1)
+			changes.push({
+				kind: 'changed',
+				id: `#${changes.length}`,
+				words: wordChanges(removed[k].text, added[k].text)
+			});
+		for (const change of [...removed.slice(paired), ...added.slice(paired)])
+			changes.push({ kind: change.kind, id: `#${changes.length}`, text: change.text });
+		raw.length = 0;
+	};
+	let i = 0;
+	let j = 0;
+	while (i < left.length || j < right.length) {
+		if (i < left.length && j < right.length && left[i] === right[j]) {
+			flush();
+			i += 1;
+			j += 1;
+		} else if (
+			j >= right.length ||
+			(i < left.length && table[(i + 1) * cols + j] >= table[i * cols + j + 1])
+		)
+			raw.push({ kind: 'removed', text: left[i++] });
+		else raw.push({ kind: 'added', text: right[j++] });
+	}
+	flush();
+	return changes;
+}

@@ -576,6 +576,10 @@ struct CharterRevisionInput {
     /// The draft this save publishes, edited or not; it leaves the Inbox once saved.
     #[serde(default)]
     proposal_id: Option<uuid::Uuid>,
+    /// Where the words came from, for the history: `setup` (agreed with Exec when the company
+    /// began) or `restore` (an earlier revision brought back).
+    #[serde(default)]
+    source: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -5231,11 +5235,13 @@ async fn copy_company_setup(
             return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority", "Could not record the requested setting copy.");
         }
         let saved = if matches!(section, CompanySetupSection::Purpose) {
-            authority::revise_mandate(
+            authority::revise_mandate_from(
                 &state.daemon.authority,
                 &state.daemon.root,
                 original_target,
                 target.mission.clone(),
+                principal.actor_id(),
+                Some("copy"),
             )
             .await
             .is_ok()
@@ -6613,7 +6619,8 @@ async fn company_charter_history(
                 "revision": record.body["revision"],
                 "markdown": record.body["markdown"],
                 "saved_at": record.created_at,
-                "author": if record.actor_id.as_deref() == Some("exec") { "Exec" } else { "Owner" },
+                "author": charter_author(record.actor_id.as_deref(), record.body["source"].as_str()),
+                "source": record.body["source"],
             })
         })
         .collect();
@@ -6670,6 +6677,18 @@ async fn discard_charter_proposal(
     }
 }
 
+/// Who a charter revision came from, as the history names it.
+fn charter_author(actor: Option<&str>, source: Option<&str>) -> &'static str {
+    match (actor, source) {
+        (Some("exec"), _) => "Exec",
+        (_, Some("setup")) => "Agreed with Exec at setup",
+        (_, Some("exec_draft")) => "Exec's draft, published by the owner",
+        (_, Some("restore")) => "Restored by the owner",
+        (_, Some("copy")) => "Copied from another company",
+        _ => "Owner",
+    }
+}
+
 async fn revise_company_charter(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
@@ -6696,11 +6715,21 @@ async fn revise_company_charter(
         );
     }
 
-    let revision = match authority::revise_mandate(
+    let source = match input.source.as_deref() {
+        None => input.proposal_id.map(|_| "exec_draft"),
+        Some("setup") => Some("setup"),
+        Some("restore") => Some("restore"),
+        Some(_) => {
+            return api_error(StatusCode::BAD_REQUEST, "charter", "Unknown charter source.")
+        }
+    };
+    let revision = match authority::revise_mandate_from(
         &state.daemon.authority,
         &state.daemon.root,
         config,
         input.markdown,
+        "owner",
+        source,
     )
     .await
     {

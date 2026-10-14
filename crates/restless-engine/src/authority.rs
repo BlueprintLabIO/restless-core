@@ -1273,9 +1273,22 @@ pub async fn revise_mandate(
 pub async fn revise_mandate_by(
     authority: &AuthorityStore,
     root: &Path,
+    config: crate::runtime::CompanyConfig,
+    markdown: String,
+    actor: &str,
+) -> Result<MandateRevisionOutcome> {
+    revise_mandate_from(authority, root, config, markdown, actor, None).await
+}
+
+/// The same mutation, with where the words came from (`setup`, `exec_draft`, `restore`,
+/// `copy`) recorded beside them, so the charter's history can say it.
+pub async fn revise_mandate_from(
+    authority: &AuthorityStore,
+    root: &Path,
     mut config: crate::runtime::CompanyConfig,
     markdown: String,
     actor: &str,
+    source: Option<&str>,
 ) -> Result<MandateRevisionOutcome> {
     validate_mandate(&markdown)?;
     let previous_markdown = config.mission.clone();
@@ -1305,6 +1318,7 @@ pub async fn revise_mandate_by(
                 "previous_markdown": previous_markdown,
                 "markdown": markdown,
                 "requested_at": requested_at,
+                "source": source,
             }),
         )
         .await

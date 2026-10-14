@@ -314,13 +314,21 @@ export async function reviseCompanyCharter(
 	company: string,
 	markdown: string,
 	baseRevision: string,
-	proposalId?: string
+	proposalId?: string,
+	/** Where the words came from, for the charter's history: agreed at `setup` with Exec, or a
+	 * `restore` of an earlier revision. Plain saves leave it out. */
+	source?: 'setup' | 'restore'
 ): Promise<CharterRevisionOutcome> {
 	return ownerResponse<CharterRevisionOutcome>(
 		await fetch(`/api/companies/${encodeURIComponent(company)}/company/charter`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ markdown, base_revision: baseRevision, proposal_id: proposalId }),
+			body: JSON.stringify({
+				markdown,
+				base_revision: baseRevision,
+				proposal_id: proposalId,
+				source
+			}),
 			credentials: 'same-origin'
 		})
 	);

@@ -5,7 +5,9 @@
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { tick } from 'svelte';
 	import { useQueryClient } from '@tanstack/svelte-query';
-	import { Section, Notice, Empty } from '$lib/ui/page';
+	import { Section, Notice, Empty, Segmented } from '$lib/ui/page';
+	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
+	import { paragraphChanges } from '$lib/model/document-diff';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
@@ -48,6 +50,11 @@
 	let baseRevision = $state('');
 	let editingProposal = $state<string | undefined>();
 	let editor = $state<HTMLTextAreaElement>();
+	/* Writing, or reading what the saved charter will look like. */
+	let editorView = $state<'write' | 'preview'>('write');
+	/* The earlier revision being compared with the current charter, by its revision id. */
+	let comparing = $state('');
+	let restoring = $state('');
 	let notice = $state('');
 	let failure = $state('');
 	const changed = $derived(editing && draft !== openedMarkdown);
@@ -59,6 +66,7 @@
 		editingProposal = proposalId;
 		failure = '';
 		notice = '';
+		editorView = 'write';
 		editing = true;
 		void tick().then(() => editor?.focus());
 	}
@@ -72,13 +80,18 @@
 		failure = '';
 	}
 
-	async function save(markdown: string, revision: string, proposalId?: string) {
-		if (saving) return;
+	async function save(
+		markdown: string,
+		revision: string,
+		proposalId?: string,
+		source?: 'restore'
+	): Promise<boolean> {
+		if (saving) return false;
 		saving = true;
 		failure = '';
 		notice = '';
 		try {
-			const outcome = await reviseCompanyCharter(companyId, markdown, revision, proposalId);
+			const outcome = await reviseCompanyCharter(companyId, markdown, revision, proposalId, source);
 			onsaved(outcome.company);
 			notice = outcome.message;
 			if (outcome.evidence_status === 'incomplete')
@@ -93,12 +106,29 @@
 				void refreshAttention(client, companyId);
 				celebrate();
 			}
+			return true;
 		} catch (cause) {
 			failure = failureSentence(cause, 'The charter was not saved.');
 			if ((cause as Error & { status?: number })?.status === 409) void charter.refresh();
+			return false;
 		} finally {
 			saving = false;
 		}
+	}
+
+	/* An earlier revision becomes the charter again, as a new revision; nothing is lost. */
+	async function restore(markdown: string, revision: string) {
+		if (
+			!(await confirmAction({
+				title: 'Restore this version of the charter?',
+				body: 'It becomes the current charter as a new revision. The charter it replaces stays in the history.',
+				action: 'Restore'
+			}))
+		)
+			return;
+		restoring = revision;
+		if (await save(markdown, view.charter.revision, undefined, 'restore')) comparing = '';
+		restoring = '';
 	}
 
 	function saveEdits() {
@@ -242,11 +272,11 @@
 		{:else}
 			{#if !inbox}<button
 					type="button"
-					class="text-link"
+					class="btn small ghost"
 					onclick={() => (historyOpen = !historyOpen)}
 					aria-expanded={historyOpen}
-					title={`Saved ${formatMoment(view.charter.effective_at)}`}
-					>Saved {when(view.charter.effective_at)}</button
+					title={`Saved ${formatMoment(view.charter.effective_at)}. Earlier versions, to compare or restore.`}
+					>History</button
 				>{/if}
 			<button class="btn small" type="button" onclick={() => beginEditing()}>Edit</button>
 			{#if !inbox}<CopyCompanySetting
@@ -259,14 +289,38 @@
 	{/snippet}
 	<div class="charter-card">
 		{#if editing}
-			<textarea
-				class="charter-editor"
-				bind:this={editor}
-				bind:value={draft}
-				aria-label="Company charter in Markdown"
-				title="Markdown: # for headings, - for lists, a blank line between paragraphs."
-				spellcheck="true"
-				onkeydown={editorKeys}></textarea>
+			<div class="editor-bar">
+				<Segmented
+					label="Charter view"
+					value={editorView}
+					options={[
+						{ value: 'write', label: 'Write' },
+						{ value: 'preview', label: 'Preview' }
+					]}
+					onchange={(value) => {
+						editorView = value;
+						if (value === 'write') void tick().then(() => editor?.focus());
+					}}
+				/>
+				<InfoTip
+					text="Write in plain sentences. Start a line with # for a heading or - for a list, and leave a blank line between paragraphs. Preview shows the charter as everyone will read it."
+				/>
+			</div>
+			{#if editorView === 'preview'}
+				<div class="charter-text preview">
+					{#if draft.trim()}<Markdown
+							text={withoutDocumentTitle(draft, view.company.name)}
+						/>{:else}<p class="empty-line">Nothing written yet.</p>{/if}
+				</div>
+			{:else}
+				<textarea
+					class="charter-editor"
+					bind:this={editor}
+					bind:value={draft}
+					aria-label="Company charter"
+					spellcheck="true"
+					onkeydown={editorKeys}></textarea>
+			{/if}
 		{:else if charterText}
 			<div
 				class="charter-text"
@@ -285,10 +339,11 @@
 			<Empty
 				compact
 				title="No charter yet"
-				info="Write the company's purpose, or agree it with Exec and save it here."
+				info="Agree the company's purpose with Exec, or write it yourself."
 			>
-				{#snippet action()}<button class="btn primary small" onclick={() => beginEditing()}
-						>Write charter</button
+				{#snippet action()}<a class="btn primary small" href={`/${companyId}/welcome`}
+						>Talk it through with Exec</a
+					><button class="btn small" onclick={() => beginEditing()}>Write it myself</button
 					>{/snippet}
 			</Empty>
 		{/if}
@@ -306,16 +361,60 @@
 			>
 		{:else}
 			{#each charter.record?.revisions ?? [] as revision, index (`${revision.revision}:${index}`)}
+				{@const current = revision.revision === view.charter.revision}
 				<details class="revision">
 					<summary>
-						<span
-							>{revision.revision === view.charter.revision ? 'Current' : 'Earlier'} · {revision.author}</span
-						>
+						<span>{current ? 'Current' : 'Earlier'} · {revision.author}</span>
 						<time title={revision.saved_at ? formatMoment(revision.saved_at) : undefined}
 							>{revision.saved_at ? when(revision.saved_at) : ''}</time
 						>
 					</summary>
-					<div class="revision-text"><Markdown text={revision.markdown} /></div>
+					{#if !current}
+						<div class="revision-actions">
+							<button
+								class="btn small ghost"
+								type="button"
+								aria-pressed={comparing === revision.revision}
+								onclick={() =>
+									(comparing = comparing === revision.revision ? '' : revision.revision)}
+								>{comparing === revision.revision
+									? 'Show this version'
+									: 'Compare with current'}</button
+							>
+							<button
+								class="btn small"
+								type="button"
+								disabled={saving}
+								onclick={() => restore(revision.markdown, revision.revision)}
+								>{restoring === revision.revision ? 'Restoring…' : 'Restore this version'}</button
+							>
+						</div>
+					{/if}
+					{#if comparing === revision.revision}
+						{@const changes = paragraphChanges(revision.markdown, view.charter.purpose)}
+						{#if changes.length}
+							<ol class="revision-diff" aria-label="What changed since this version">
+								{#each changes as change (change.id)}
+									<li class="diff-{change.kind}">
+										{#if change.kind === 'changed'}
+											{#each change.words as part, wordIndex (wordIndex)}{#if part.op === 'added'}<ins
+														>{part.text}</ins
+													>{:else if part.op === 'removed'}<del>{part.text}</del
+													>{:else}{part.text}{/if}{/each}
+										{:else if change.kind === 'added'}
+											<ins>{change.text}</ins>
+										{:else}
+											<del>{change.text}</del>
+										{/if}
+									</li>
+								{/each}
+							</ol>
+						{:else}
+							<p class="revision-text">The same words as the current charter.</p>
+						{/if}
+					{:else}
+						<div class="revision-text"><Markdown text={revision.markdown} /></div>
+					{/if}
 				</details>
 			{/each}
 		{/if}
@@ -391,13 +490,22 @@
 		overflow: hidden;
 		mask-image: linear-gradient(#000 75%, transparent);
 	}
+	.editor-bar {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		margin-bottom: 12px;
+	}
+	.preview {
+		min-height: 360px;
+	}
 	.charter-editor {
 		width: 100%;
 		min-height: 360px;
 		border: 0;
 		padding: 0;
 		background: transparent;
-		font: var(--t-body) / 1.65 var(--font-mono);
+		font: var(--t-body) / 1.65 var(--font-ui);
 		resize: vertical;
 		box-shadow: none;
 	}
@@ -457,6 +565,42 @@
 		margin-left: auto;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
+	}
+	.revision-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+		padding: 0 16px 8px;
+	}
+	.revision-diff {
+		display: grid;
+		gap: 6px;
+		margin: 0;
+		padding: 4px 16px 16px;
+		list-style: none;
+		color: var(--text-secondary);
+		font: var(--t-body) / 1.55 var(--font-ui);
+		white-space: pre-wrap;
+	}
+	.revision-diff li {
+		padding-left: 8px;
+		border-left: 2px solid var(--border);
+	}
+	.revision-diff li.diff-added {
+		border-left-color: var(--state-success, var(--surface-work));
+	}
+	.revision-diff li.diff-removed {
+		border-left-color: var(--state-danger);
+	}
+	.revision-diff ins {
+		background: color-mix(in srgb, var(--surface-work) 16%, transparent);
+		color: var(--ink);
+		text-decoration: none;
+	}
+	.revision-diff del {
+		color: var(--text-tertiary);
+		text-decoration: line-through;
+		text-decoration-color: var(--state-danger);
 	}
 	.revision-text {
 		padding: 4px 16px 16px;

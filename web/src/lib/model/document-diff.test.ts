@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { proposalChanges, versionChanges, wordChanges } from './document-diff.ts';
+import { paragraphChanges, proposalChanges, versionChanges, wordChanges } from './document-diff.ts';
 import type { DocumentContent } from './documents.ts';
 
 const doc = (...blocks: [string, string][]): DocumentContent => ({
@@ -52,5 +52,23 @@ test('a one-block proposal reads as that block reworded, nothing else', () => {
 	assert.deepEqual(
 		changes.map((change) => [change.kind, change.id]),
 		[['changed', 'b']]
+	);
+});
+
+test('a charter compares paragraph by paragraph: kept ones are left out, a reworded one names its words', () => {
+	const before = '# Acme\n\nWe bake bread.\n\nOpen daily.\n\nNo delivery.';
+	const after =
+		'# Acme\n\nWe bake sourdough bread.\n\nOpen daily.\n\nDelivery on Fridays.\n\nA new rule.';
+	assert.deepEqual(
+		paragraphChanges(before, after).map((change) =>
+			change.kind === 'changed'
+				? ['changed', change.words.filter((part) => part.op !== 'same').map((part) => part.text)]
+				: [change.kind, change.text]
+		),
+		[
+			['changed', ['sourdough ']],
+			['changed', ['No', 'Delivery', 'delivery.', 'on Fridays.']],
+			['added', 'A new rule.']
+		]
 	);
 });
