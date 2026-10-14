@@ -653,12 +653,17 @@ impl CompanyConfig {
     /// Resolve an agent override or the company default into an execution route.
     pub fn for_agent(&self, actor: &str) -> Self {
         let mut config = self.clone();
+        let override_route = actor != "default" && self.agent_intelligence.contains_key(actor);
         if let Some(route) = self
             .agent_intelligence
             .get(actor)
             .or_else(|| self.agent_intelligence.get("default"))
         {
-            config.model_failover.clear();
+            // An owner's choice for one agent is exact. The company default keeps the owner's
+            // ordered fallbacks, so a primary on quota or outage does not stop the company.
+            if override_route {
+                config.model_failover.clear();
+            }
             if let Some(provider) = route.connection.strip_prefix("direct:") {
                 config.model = if route.model.starts_with(&format!("{provider}/")) {
                     route.model.clone()
@@ -694,6 +699,8 @@ impl CompanyConfig {
                     }
                 }
             }
+            let primary = config.model.clone();
+            config.model_failover.retain(|model| *model != primary);
         }
         config
     }
@@ -4601,7 +4608,9 @@ model = "claude-sonnet-4-6"
             inherited.agent_preference("exec", Some("openai/gpt-5.6-terra")),
             Some("anthropic/claude-sonnet-4-6")
         );
-        assert!(inherited.model_failover.is_empty());
+        // The company default keeps the owner's ordered fallbacks; an exact override does not.
+        assert_eq!(inherited.model_failover, vec!["zai/glm-5".to_string()]);
+        inherited.model_candidates().unwrap();
         // On the default route, Exec may staff any model the same connection serves.
         let bob = config.for_agent("bob");
         assert_eq!(

@@ -1331,6 +1331,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(company_provider).put(update_company_provider),
         )
         .route(
+            "/companies/{company}/provider/failover",
+            axum::routing::put(update_model_failover),
+        )
+        .route(
             "/companies/{company}/startup-doctor",
             get(startup_doctor_report),
         )
@@ -3834,7 +3838,73 @@ async fn provider_view(config: &runtime::CompanyConfig) -> serde_json::Value {
         "infisical_configured": credential::infisical_configured(),
         "infisical_status": health.status.as_str(), "infisical_detail": health.detail,
         "startup_issue": company_model_issue(config),
+        // What the company runs on, then the owner's ordered fallbacks for when it cannot.
+        "primary_model": config.for_agent("default").configured_model(),
+        "model_failover": config.model_failover,
     })
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ModelFailoverInput {
+    /// Ordered provider-qualified models, such as `anthropic/claude-sonnet-4-6`.
+    models: Vec<String>,
+    revision: String,
+}
+
+/// The owner's ordered fallback models, tried in turn when the main model is out of quota or
+/// unreachable. The same list `restless company set model_failover` writes.
+async fn update_model_failover(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<ModelFailoverInput>,
+) -> Response<Body> {
+    let _write = state.charter_writes.lock().await;
+    let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
+    };
+    if company_setup_view(&config)["revision"].as_str() != Some(input.revision.as_str()) {
+        return api_error(
+            StatusCode::CONFLICT,
+            "provider_revision",
+            "Company settings changed. Refresh and try again.",
+        );
+    }
+    let models: Vec<String> = input
+        .models
+        .iter()
+        .map(|model| model.trim().to_string())
+        .filter(|model| !model.is_empty())
+        .collect();
+    if models.len() > 5 {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "model_failover",
+            "Choose at most five fallback models.",
+        );
+    }
+    if let Some(bad) = models.iter().find(|model| {
+        model.len() > 200
+            || model.chars().any(|c| c.is_whitespace() || c.is_control())
+            || !model
+                .split_once('/')
+                .is_some_and(|(provider, id)| !provider.is_empty() && !id.is_empty())
+    }) {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "model_failover",
+            format!("Use a full provider/model ID, not {bad:?}."),
+        );
+    }
+    config.model_failover = models;
+    if let Err(error) = config.for_agent("default").model_candidates() {
+        return api_error(StatusCode::BAD_REQUEST, "model_failover", format!("{error:#}"));
+    }
+    if let Err(error) = runtime::CompanyConfig::save(&state.daemon.root, &config) {
+        return api_error(StatusCode::BAD_REQUEST, "model_failover", format!("{error:#}"));
+    }
+    Json(provider_view(&config).await).into_response()
 }
 
 async fn company_provider(

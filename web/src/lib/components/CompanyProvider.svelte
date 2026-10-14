@@ -13,6 +13,7 @@
 	import HarnessDiagnostics from './HarnessDiagnostics.svelte';
 	import CustomHarnesses from './CustomHarnesses.svelte';
 	import AgentIntelligence from './AgentIntelligence.svelte';
+	import ModelFallbacks from './ModelFallbacks.svelte';
 	import CopyCompanySetting from './CopyCompanySetting.svelte';
 	import { companiesQuery } from '$lib/model/queries.svelte';
 	import { needsAnotherModel, startLinkLabel } from '$lib/model/company-start';
@@ -471,6 +472,14 @@
 	{#if notice}<Notice tone="success" title={notice} />{/if}
 
 	<AgentIntelligence {companyId} />
+	{#if status}<ModelFallbacks
+			{companyId}
+			{status}
+			onsaved={(saved) => {
+				providerSource.accept(saved);
+				announceIntelligenceChange(companyId);
+			}}
+		/>{/if}
 
 	<Section
 		title="AI accounts"

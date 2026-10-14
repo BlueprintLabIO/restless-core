@@ -22,6 +22,10 @@ export type ProviderStatus = {
 	infisical_status: string;
 	infisical_detail: string | null;
 	startup_issue: string | null;
+	/** What the company runs on by default, as provider/model. */
+	primary_model?: string | null;
+	/** The owner's ordered fallbacks, tried in turn when the main model cannot answer. */
+	model_failover?: string[];
 };
 export type ReusableConnection = {
 	id: string;
@@ -63,6 +67,14 @@ export function saveProvider(
 	}
 ) {
 	return ownerRequest<ProviderStatus>(`${company(id)}/provider`, { method: 'PUT', json: body });
+}
+
+/** Replace the ordered fallback models; the answer is the new provider status. */
+export function saveModelFailover(id: string, models: string[], revision: string) {
+	return ownerRequest<ProviderStatus>(`${company(id)}/provider/failover`, {
+		method: 'PUT',
+		json: { models, revision }
+	});
 }
 
 export async function readReusableConnections(signal?: AbortSignal): Promise<ReusableConnections> {
