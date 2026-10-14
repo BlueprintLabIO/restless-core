@@ -14,6 +14,7 @@
 	import { authorizePublication, stopPublication } from '$lib/model/publications';
 	import { failureSentence } from '$lib/model/failure';
 	import { untrack } from 'svelte';
+	import { clearOfToasts } from '$lib/ui/feedback/toast.svelte';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import type { AttentionItem } from '$lib/model/view';
 	import {
@@ -620,7 +621,7 @@
 		</div>
 	</div>
 
-	<footer class="inbox-composer">
+	<footer class="inbox-composer" {@attach clearOfToasts}>
 		{#if error}<Notice tone="danger" title={error} />{/if}
 		{#if appRequestsFailed}<Notice
 				tone="danger"

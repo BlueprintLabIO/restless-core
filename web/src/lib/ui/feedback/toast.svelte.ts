@@ -81,3 +81,24 @@ export function holdToast(id: number, held: boolean) {
 		timers.delete(id);
 	} else schedule(id);
 }
+
+/* A bar pinned to the bottom of the view (the Inbox detail's actions) keeps toasts above it: attach
+ * this to it and the stack rises by the bar's height while it is mounted. */
+const clearances = $state<{ list: { id: number; px: number }[] }>({ list: [] });
+export const toastClearance = () => Math.max(0, ...clearances.list.map((entry) => entry.px));
+export function clearOfToasts(node: HTMLElement) {
+	const id = next++;
+	const measure = () => {
+		const px = Math.max(0, Math.round(window.innerHeight - node.getBoundingClientRect().top));
+		clearances.list = [...clearances.list.filter((entry) => entry.id !== id), { id, px }];
+	};
+	measure();
+	const observer = new ResizeObserver(measure);
+	observer.observe(node);
+	window.addEventListener('resize', measure);
+	return () => {
+		observer.disconnect();
+		window.removeEventListener('resize', measure);
+		clearances.list = clearances.list.filter((entry) => entry.id !== id);
+	};
+}

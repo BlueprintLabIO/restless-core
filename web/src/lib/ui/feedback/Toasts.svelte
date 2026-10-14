@@ -1,10 +1,18 @@
 <script lang="ts">
-	/* The one place toasts appear: bottom centre, above the dock on a phone. The app's connection
+	/* The one place toasts appear: bottom centre, above the dock on a phone and above any bar that
+	 * asks to stay clear (clearOfToasts). The app's connection
 	 * banner (`below`) stacks under them in the same region, so neither covers the other or the
 	 * dock. */
 	import type { Snippet } from 'svelte';
 	import X from '@lucide/svelte/icons/x';
-	import { dismissToast, holdToast, toasts, undoLatest, type Toast } from './toast.svelte';
+	import {
+		dismissToast,
+		holdToast,
+		toastClearance,
+		toasts,
+		undoLatest,
+		type Toast
+	} from './toast.svelte';
 
 	let { below }: { below?: Snippet } = $props();
 
@@ -39,7 +47,7 @@
 
 <svelte:window {onkeydown} />
 
-<div class="toasts bridge-tokens">
+<div class="toasts bridge-tokens" style:--toast-clear={`${toastClearance()}px`}>
 	<div class="toast-list" aria-live="polite">
 		{#each toasts.list as item (item.id)}
 			<div
@@ -80,7 +88,7 @@
 		position: fixed;
 		z-index: var(--z-app);
 		left: 50%;
-		bottom: calc(16px + env(safe-area-inset-bottom));
+		bottom: max(calc(16px + env(safe-area-inset-bottom)), calc(var(--toast-clear, 0px) + 8px));
 		display: grid;
 		gap: 6px;
 		width: max-content;
@@ -98,7 +106,10 @@
 	}
 	@media (max-width: 760px) {
 		.toasts {
-			bottom: calc(var(--dock-h, 57px) + 12px + env(safe-area-inset-bottom));
+			bottom: max(
+				calc(var(--dock-h, 57px) + 12px + env(safe-area-inset-bottom)),
+				calc(var(--toast-clear, 0px) + 8px)
+			);
 		}
 	}
 	.toast {
