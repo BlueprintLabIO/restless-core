@@ -60,6 +60,7 @@
 		imageAltFromName,
 		inDocumentTable,
 		linkFromInput,
+		referenceFromPath,
 		runDocumentTableAction,
 		safeHref,
 		selectedDocumentBlockId,
@@ -524,6 +525,7 @@
 								{
 									companyId: routeCompany,
 									requestLink: () => openLinkBar(),
+									resolveReference: (href) => referenceFor(href),
 									uploadImages: (files, at) => void insertImages(files, at),
 									pasted: (images, lost, at) => void placePasted(images, lost, at),
 									slashChange: setSlash,
@@ -941,6 +943,17 @@
 		return href;
 	}
 
+	/** A link to a page here whose title is known, as a chip naming it. */
+	function referenceFor(href: string): { kind: string; id: string; label: string } | null {
+		const path = companyRelative(href);
+		if (!path.startsWith('/')) return null;
+		const found = referenceFromPath(companyId, path);
+		const known = found
+			? suggestions.find((item) => item.kind === found.kind && item.id === found.id)
+			: null;
+		return found && known ? { ...found, label: [...known.label].slice(0, 300).join('') } : null;
+	}
+
 	function applyLink(event: SubmitEvent): void {
 		event.preventDefault();
 		const instance = editorState.editor;
@@ -956,7 +969,10 @@
 		}
 		const href = companyRelative(parsed);
 		const { empty } = instance.state.selection;
-		if (empty && !instance.isActive('link')) {
+		const reference = empty && !instance.isActive('link') ? referenceFor(href) : null;
+		if (reference) {
+			instance.chain().focus().insertContent({ type: 'reference', attrs: reference }).run();
+		} else if (empty && !instance.isActive('link')) {
 			instance
 				.chain()
 				.focus()
@@ -1001,6 +1017,42 @@
 		const modified = event.metaKey || event.ctrlKey;
 		if (editorState.editor?.isEditable && !reference && !modified) return;
 		openHref(anchor.getAttribute('href') ?? '', modified);
+	}
+
+	/* Hovering a link shows where it goes, with Open and (while editing) Edit, as in Notion. */
+	let hoverLink = $state<{ href: string; pos: number; left: number; top: number } | null>(null);
+	let hoverTimer: ReturnType<typeof setTimeout> | undefined;
+	function showLinkCard(event: MouseEvent): void {
+		const anchor = (event.target as Element | null)?.closest('a[href]');
+		if (!anchor || !editorElement?.contains(anchor) || !sectionElement) return;
+		clearTimeout(hoverTimer);
+		const instance = editorState.editor;
+		const box = anchor.getBoundingClientRect();
+		const frame = sectionElement.getBoundingClientRect();
+		let pos = -1;
+		try {
+			pos = instance ? instance.view.posAtDOM(anchor, 0) : -1;
+		} catch {
+			pos = -1;
+		}
+		hoverLink = {
+			href: anchor.getAttribute('href') ?? '',
+			pos: anchor.hasAttribute('data-native-reference') ? -1 : pos,
+			left: Math.max(8, Math.min(box.left - frame.left, frame.width - 280)),
+			top: box.bottom - frame.top + 4
+		};
+	}
+	function hideLinkCard(): void {
+		clearTimeout(hoverTimer);
+		hoverTimer = setTimeout(() => (hoverLink = null), 250);
+	}
+	function editHoveredLink(): void {
+		const instance = editorState.editor;
+		const link = hoverLink;
+		hoverLink = null;
+		if (!instance || !link || link.pos < 0) return;
+		instance.chain().focus().setTextSelection(link.pos).run();
+		openLinkBar();
 	}
 
 	function openCurrentLink(): void {
@@ -1124,7 +1176,13 @@
 		const element = editorElement;
 		if (!element) return;
 		element.addEventListener('click', followLink);
-		return () => element.removeEventListener('click', followLink);
+		element.addEventListener('mouseover', showLinkCard);
+		element.addEventListener('mouseout', hideLinkCard);
+		return () => {
+			element.removeEventListener('click', followLink);
+			element.removeEventListener('mouseover', showLinkCard);
+			element.removeEventListener('mouseout', hideLinkCard);
+		};
 	});
 </script>
 
@@ -1426,6 +1484,30 @@
 			oncomment={(blockId) => oncomment(blockId)}
 			onlink={oncopyblocklink}
 		/>
+	{/if}
+	{#if hoverLink && !bubble && !linkEditing}
+		<div
+			class="link-card"
+			role="group"
+			aria-label="Link"
+			style:left={`${hoverLink.left}px`}
+			style:top={`${hoverLink.top}px`}
+			onmouseenter={() => clearTimeout(hoverTimer)}
+			onmouseleave={hideLinkCard}
+		>
+			<span class="link-address" title={hoverLink.href}>{hoverLink.href}</span>
+			<button
+				type="button"
+				class="link-icon"
+				aria-label="Open link"
+				title="Open in a new tab"
+				onclick={() => hoverLink && openHref(hoverLink.href, true)}
+				><ExternalLink size={14} strokeWidth={1.8} /></button
+			>
+			{#if canWriteLive && hoverLink.pos >= 0}
+				<button type="button" class="btn small" onclick={editHoveredLink}>Edit</button>
+			{/if}
+		</div>
 	{/if}
 	{#if bubble && editor && (canWriteLive || mayComment)}
 		<div
@@ -1846,6 +1928,32 @@
 	.link-icon:hover {
 		background: var(--wash-hover);
 		color: var(--ink);
+	}
+	.link-card {
+		position: absolute;
+		z-index: 24;
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		max-width: min(360px, calc(100% - 16px));
+		padding: 3px 3px 3px 10px;
+		border: 1px solid var(--border-strong);
+		border-radius: 8px;
+		background: var(--surface-raised);
+		box-shadow: 0 6px 22px #18243a1f;
+	}
+	.link-address {
+		min-width: 0;
+		overflow: hidden;
+		color: var(--text-secondary);
+		font: var(--t-label) var(--font-ui);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	@media print {
+		.link-card {
+			display: none;
+		}
 	}
 	.link-problem {
 		flex-basis: 100%;

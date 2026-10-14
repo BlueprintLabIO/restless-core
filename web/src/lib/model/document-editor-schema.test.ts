@@ -150,6 +150,18 @@ test('typed links become only links the sidecar keeps', () => {
 		'/acme/library?file=a%2F1'
 	);
 	assert.equal(documentEditorSchema.documentReferenceHref('acme', 'decision', 'd-1'), null);
+	for (const [kind, id] of [
+		['document', 'd 1'],
+		['work', 'w/1'],
+		['artifact', 'a1'],
+		['actor', 'exec'],
+		['attention', 'i1']
+	]) {
+		const href = documentEditorSchema.documentReferenceHref('acme', kind, id)!;
+		assert.deepEqual(documentEditorSchema.referenceFromPath('acme', href), { kind, id }, href);
+	}
+	assert.equal(documentEditorSchema.referenceFromPath('acme', '/other/work/w1'), null);
+	assert.equal(documentEditorSchema.referenceFromPath('acme', '/acme/library'), null);
 });
 
 test('named-version projection preserves stable blocks and strips generic Tiptap attributes', () => {

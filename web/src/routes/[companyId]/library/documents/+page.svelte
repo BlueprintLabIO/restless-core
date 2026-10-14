@@ -28,7 +28,8 @@
 	import {
 		documentCommentThreadsQuery,
 		documentQuery,
-		documentQueryKeys
+		documentQueryKeys,
+		documentsQuery
 	} from '$lib/model/document-queries.svelte';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { sameDocumentTarget, type DocumentTarget } from '$lib/model/document-cache';
@@ -48,9 +49,11 @@
 	} from '$lib/model/documents';
 	import {
 		collaborationBootstrapQuery,
+		attentionQuery,
 		companyPrincipalQuery,
 		cockpitQuery
 	} from '$lib/model/queries.svelte';
+	import type { DocumentSuggestion } from '$lib/model/document-editor-schema';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import { markForYouRead, setDocumentFollow } from '$lib/model/for-you';
 	import { useForYou } from '$lib/model/for-you.svelte';
@@ -78,12 +81,24 @@
 	const failure = $derived(shellPrincipal.failure ?? detail.failure ?? null);
 	const principalId = $derived(shellPrincipal.view?.actor_id ?? '');
 	const people = $derived((ownerAccess ? cockpit.view?.people : collaboration.view?.people) ?? []);
-	/* Whom "@" offers in the text: the company's people and Staff, by the names they go by. */
-	const suggestions = $derived(
-		people
+	/* Whom and what "@" offers in the text: the company's people and Staff by the names they go
+	 * by, recent documents and Work by title. A pasted link to one of them becomes its chip. */
+	const recentDocuments = documentsQuery(() => companyId);
+	const attentionView = $derived(attentionQuery(companyId, () => ownerAccess));
+	const suggestions = $derived<DocumentSuggestion[]>([
+		...people
 			.filter((person) => person.kind !== 'system' && person.display)
-			.map((person) => ({ kind: 'actor' as const, id: person.actor_id, label: person.display }))
-	);
+			.map((person) => ({ kind: 'actor' as const, id: person.actor_id, label: person.display })),
+		...recentDocuments.documents
+			.filter((item) => item.id !== documentId && item.title.trim())
+			.map((item) => ({ kind: 'document' as const, id: item.id, label: item.title })),
+		...(
+			(ownerAccess ? attentionView.view?.workGraph?.work : collaboration.view?.work_graph.work) ??
+			[]
+		)
+			.filter((work) => work.title.trim())
+			.map((work) => ({ kind: 'work' as const, id: work.id, label: work.title }))
+	]);
 	/* Anyone who can open it sees who else can; its creator, the company's owner and the Exec
 	 * change that. Anyone who may edit it retitles, archives and restores it; the company's owner
 	 * may do that to anything they can read. */

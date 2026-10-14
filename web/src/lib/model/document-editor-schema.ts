@@ -389,6 +389,31 @@ export function documentReferenceHref(companyId: string, kind: string, id: strin
 	}
 }
 
+/** What a cockpit path names, when it is the page of something a reference can point at. */
+export function referenceFromPath(
+	companyId: string,
+	path: string
+): { kind: string; id: string } | null {
+	let url: URL;
+	try {
+		url = new URL(path, 'https://cockpit.invalid');
+	} catch {
+		return null;
+	}
+	const root = `/${encodeURIComponent(companyId)}`;
+	const rest = url.pathname.startsWith(`${root}/`) ? url.pathname.slice(root.length) : null;
+	const param = (name: string) => url.searchParams.get(name);
+	if (url.pathname === root || url.pathname === `${root}/`)
+		return param('item') ? { kind: 'attention', id: param('item')! } : null;
+	if (rest === '/library/documents' && param('document'))
+		return { kind: 'document', id: param('document')! };
+	if (rest === '/library' && param('file')) return { kind: 'artifact', id: param('file')! };
+	if (rest === '/people' && param('person')) return { kind: 'actor', id: param('person')! };
+	const work = rest ? /^\/work\/([^/]+)$/u.exec(rest) : null;
+	if (work) return { kind: 'work', id: decodeURIComponent(work[1]) };
+	return null;
+}
+
 function referenceExtension(companyId: string) {
 	return Node.create({
 		name: 'reference',
@@ -491,7 +516,8 @@ export function linkFromInput(value: string): string | null {
 
 const WEB_ADDRESS = /^https?:\/\/\S+$/u;
 
-function linkExtension(requestLink: (() => void) | undefined) {
+function linkExtension(hooks: DocumentEditorHooks) {
+	const requestLink = hooks.requestLink;
 	return Mark.create({
 		name: 'link',
 		priority: 1000,
@@ -569,8 +595,19 @@ function linkExtension(requestLink: (() => void) | undefined) {
 							const href = WEB_ADDRESS.test(text) ? storableHref(text) : null;
 							const { state } = view;
 							if (!href || state.selection.$from.parent.type.spec.code) return false;
-							const mark = type.create({ href });
 							const { from, to, empty } = state.selection;
+							/* A link to a page in this cockpit becomes a chip with that page's title. */
+							const reference = empty ? hooks.resolveReference?.(href) : null;
+							if (reference) {
+								view.dispatch(
+									state.tr.replaceSelectionWith(
+										state.schema.nodes.reference.create(reference),
+										false
+									)
+								);
+								return true;
+							}
+							const mark = type.create({ href });
 							view.dispatch(
 								empty
 									? state.tr.replaceSelectionWith(state.schema.text(href, [mark]), false)
@@ -709,6 +746,8 @@ export interface DocumentEditorHooks {
 	companyId?: string;
 	/** Mod-K: the page opens its link field. */
 	requestLink?: () => void;
+	/** A web address, when it is a page in this cockpit with a known title, as a reference to it. */
+	resolveReference?: (href: string) => { kind: string; id: string; label: string } | null;
 	/** Image files pasted or dropped at a position: the page uploads them and places them there. */
 	uploadImages?: (files: File[], at: number) => void;
 	/** After a paste: pictures found in it to upload and place at a position, and what was lost. */
@@ -1284,7 +1323,7 @@ export function createDocumentEditorExtensions(
 		TableHeader,
 		Mention,
 		referenceExtension(hooks.companyId ?? ''),
-		linkExtension(hooks.requestLink),
+		linkExtension(hooks),
 		colourMark('highlight'),
 		colourMark('textColor'),
 		alignmentExtension,

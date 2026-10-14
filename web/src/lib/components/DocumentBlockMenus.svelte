@@ -146,7 +146,13 @@
 		{ id: 'divider', label: 'Divider', icon: Minus, words: 'rule line hr separator' },
 		{ id: 'table', label: 'Table', icon: Table2, words: 'grid' },
 		{ id: 'image', label: 'Image', icon: ImageIcon, words: 'picture photo upload' },
-		{ id: 'mention', label: 'Mention a person', icon: AtSign, words: 'person people at name' }
+		{ id: 'mention', label: 'Mention a person', icon: AtSign, words: 'person people at name' },
+		{
+			id: 'page',
+			label: 'Link to a page',
+			icon: FileText,
+			words: 'document doc work reference link page'
+		}
 	];
 
 	/* ---------- "/" ---------- */
@@ -230,7 +236,7 @@
 		else if (item.id === 'image') {
 			chain.run();
 			pickImages(range.from);
-		} else if (item.id === 'mention')
+		} else if (item.id === 'mention' || item.id === 'page')
 			chain
 				.insertContent('@')
 				.command(({ tr }) => {
