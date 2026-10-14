@@ -67,7 +67,9 @@ pub use library_pins::*;
 pub use notifications::*;
 pub use pending_shares::*;
 pub use responsibility::*;
-pub use schedules::{MAX_INTERVAL_SECONDS, MIN_INTERVAL_SECONDS};
+pub use schedules::{
+    validate_calendar_days, ScheduleChange, MAX_INTERVAL_SECONDS, MIN_INTERVAL_SECONDS,
+};
 pub use sheet_comments::*;
 pub use sheet_search::*;
 pub use sheets::*;

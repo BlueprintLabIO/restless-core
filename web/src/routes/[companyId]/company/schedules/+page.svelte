@@ -4,6 +4,7 @@
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
+	import ScheduleCadence from '$lib/components/ScheduleCadence.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
@@ -15,13 +16,24 @@
 		monitorSchedules,
 		testScheduleTrigger,
 		addLoop,
-		addWeekdaySchedule,
+		addCalendarSchedule,
 		browserTimeZone,
 		cancelLoop,
+		runScheduleNow,
 		updateSchedule,
 		type MonitoredSchedule,
+		type ScheduleChange,
 		type ScheduleTestReport
 	} from '$lib/model/skills';
+	import {
+		cadenceOf,
+		cadenceReady,
+		cadenceRequest,
+		cadenceText as describeCadence,
+		newCadence,
+		sameCadence,
+		type Cadence
+	} from '$lib/model/schedule-cadence';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	const companyId = $derived(page.params.companyId ?? '');
 	/* Owners and admins run the schedules; everyone else sees them. */
@@ -32,6 +44,8 @@
 		queryFn: () => monitorSchedules(companyId)
 	}));
 	const schedules = $derived(query.data ?? null);
+	const active = $derived(schedules?.filter((item) => !item.schedule.paused_at) ?? []);
+	const resting = $derived(schedules?.filter((item) => !!item.schedule.paused_at) ?? []);
 	let actionFailure = $state('');
 	const failure = $derived(
 		actionFailure ||
@@ -39,18 +53,16 @@
 	);
 	let busy = $state('');
 	let report = $state<ScheduleTestReport | null>(null);
+	/* A new time-of-day schedule starts in the browser's zone; the owner may choose another. */
+	const timeZone = browserTimeZone();
 	let creating = $state(false),
-		every = $state('1h'),
-		atLocal = $state('09:00'),
+		cadence = $state<Cadence>(newCadence(timeZone)),
 		prompt = $state('');
 	/* ⌘K opens a schedule by its id. */
 	let open = $state(page.url.searchParams.get('schedule') ?? '');
 	let editing = $state(''),
-		editEvery = $state(''),
-		editTime = $state('');
-	/* A weekday schedule runs in the zone of the browser that made it. */
-	const timeZone = browserTimeZone();
-	const weekdays = (item: MonitoredSchedule) => item.schedule.recurrence === 'weekdays';
+		editCadence = $state<Cadence>(newCadence(timeZone)),
+		editPrompt = $state('');
 	async function act(key: string, operation: () => Promise<unknown>, message: string) {
 		if (busy) return;
 		busy = key;
@@ -67,29 +79,52 @@
 	}
 	async function create(event: SubmitEvent) {
 		event.preventDefault();
+		if (!cadenceReady(cadence)) return;
 		await act(
 			'create',
 			async () => {
-				if (every === 'weekdays') await addWeekdaySchedule(companyId, atLocal, timeZone, prompt);
-				else await addLoop(companyId, every, prompt);
+				const request = cadenceRequest(cadence);
+				if ('every' in request) await addLoop(companyId, request.every, prompt);
+				else
+					await addCalendarSchedule(
+						companyId,
+						request.at_local,
+						request.timezone,
+						request.days,
+						prompt
+					);
 				creating = false;
 				prompt = '';
+				cadence = newCadence(timeZone);
 			},
 			'Schedule created'
 		);
 	}
-	async function cadence(event: SubmitEvent, item: MonitoredSchedule) {
+	function beginEdit(item: MonitoredSchedule) {
+		open = item.schedule.id;
+		editing = item.schedule.id;
+		editCadence = cadenceOf(item.schedule, timeZone);
+		editPrompt = item.schedule.reason;
+	}
+	async function saveEdit(event: SubmitEvent, item: MonitoredSchedule) {
 		event.preventDefault();
-		const paused = !!item.schedule.paused_at;
+		if (!cadenceReady(editCadence)) return;
+		const change: ScheduleChange = {};
+		if (!sameCadence(editCadence, cadenceOf(item.schedule, timeZone)))
+			Object.assign(change, cadenceRequest(editCadence));
+		if (editPrompt.trim() && editPrompt.trim() !== item.schedule.reason)
+			change.prompt = editPrompt.trim();
+		if (!Object.keys(change).length) {
+			editing = '';
+			return;
+		}
 		await act(
 			item.schedule.id,
 			async () => {
-				if (weekdays(item))
-					await updateSchedule(companyId, item.schedule, paused, undefined, editTime);
-				else await updateSchedule(companyId, item.schedule, paused, editEvery);
+				await updateSchedule(companyId, item.schedule, !!item.schedule.paused_at, change);
 				editing = '';
 			},
-			weekdays(item) ? 'Time saved' : 'Cadence saved'
+			'Schedule saved'
 		);
 	}
 	async function remove(item: MonitoredSchedule) {
@@ -130,17 +165,9 @@
 	}
 	function cadenceText(item: MonitoredSchedule) {
 		const s = item.schedule;
-		if (s.interval_seconds) {
-			const n = s.interval_seconds;
-			return n % 86400 === 0
-				? `Every ${n / 86400}d`
-				: n % 3600 === 0
-					? `Every ${n / 3600}h`
-					: `Every ${n / 60}m`;
-		}
-		return s.recurrence === 'weekdays'
-			? `Weekdays · ${s.local_time?.slice(0, 5)} ${s.timezone ?? ''}`
-			: 'Recurring';
+		if (!s.interval_seconds && !s.local_time) return 'Recurring';
+		const text = describeCadence(cadenceOf(s, timeZone));
+		return s.timezone && s.timezone !== timeZone ? `${text} (${s.timezone})` : text;
 	}
 	/* An outcome as the owner reads it: one short sentence, with the full agent
 	 * or system text kept for Details. */
@@ -178,8 +205,10 @@
 		</Notice>{/if}
 	{#if report}<Notice
 			tone="info"
-			title={`Trigger test: ${report.status.replaceAll('_', ' ')}`}
-			details="Scheduler admission was checked. No agent or external action ran."
+			title={report.status === 'admitted'
+				? 'The schedule can start'
+				: 'The schedule did not start in time'}
+			details="Only checked that the scheduler accepts it. Exec did not run and nothing was done."
 		>
 			{#snippet actions()}<button class="btn small ghost" onclick={() => (report = null)}
 					>Dismiss</button
@@ -200,24 +229,13 @@
 				</Row>
 				<Row
 					label="Repeat"
-					info={`An interval counts from when the schedule is made. A weekday time runs Monday to Friday in your time zone (${timeZone}); a run missed by more than two hours is skipped.`}
+					stack
+					info="An interval counts from when the schedule is made. A time of day runs in the zone you choose; a run missed by more than two hours is skipped."
 				>
-					<select bind:value={every} aria-label="Repeat"
-						><option value="30m">Every 30 minutes</option><option value="1h">Every hour</option
-						><option value="4h">Every 4 hours</option><option value="1d">Every day</option><option
-							value="7d">Every week</option
-						><option value="weekdays">Every weekday at…</option></select
-					>
-					{#if every === 'weekdays'}<input
-							type="time"
-							bind:value={atLocal}
-							aria-label="Time of day"
-							title={`In your time zone, ${timeZone}`}
-							required
-						/>{/if}
+					<ScheduleCadence bind:cadence id="new-schedule-repeat" disabled={!!busy} />
 				</Row>
 				<div class="form-bar">
-					<button class="btn primary small" disabled={!!busy}
+					<button class="btn primary small" disabled={!!busy || !cadenceReady(cadence)}
 						>{busy === 'create' ? 'Creating…' : 'Create schedule'}</button
 					>
 					<button class="btn small ghost" type="button" onclick={() => (creating = false)}
@@ -237,151 +255,151 @@
 					>{/if}{/snippet}
 		</Empty>
 	{:else if schedules.length}
-		<Section title="Active" count={schedules.length}>
-			{#each schedules as item (item.schedule.id)}
-				{@const problem = latestProblem(item)}
-				{@const paused = !!item.schedule.paused_at}
-				<Item
-					title={item.schedule.reason}
-					meta={[
-						cadenceText(item),
-						paused ? 'Paused' : null,
-						problem ? headline(problem.outcome, problem.outcome_reason).line : null
-					]
-						.filter(Boolean)
-						.join(' · ')}
-					onclick={() => (open = open === item.schedule.id ? '' : item.schedule.id)}
-					selected={open === item.schedule.id}
-					dim={paused}
-				>
-					{#snippet leading()}<Dot
-							tone={paused ? 'muted' : problem ? 'danger' : 'success'}
-							label={paused ? 'Paused' : problem ? 'Last run needs attention' : 'Active'}
-						/>{/snippet}
-					{#snippet trailing()}
-						{#if !paused}<span title="Next run"
-								>Next <RelativeTime value={item.schedule.fire_at} /></span
-							>{/if}
-					{/snippet}
-					{#snippet actions()}{#if canManage}
-							<ActionMenu label={`Options for ${item.schedule.reason}`}>
-								<button
+		{#snippet scheduleRow(item: MonitoredSchedule)}
+			{@const problem = latestProblem(item)}
+			{@const paused = !!item.schedule.paused_at}
+			<Item
+				title={item.schedule.reason}
+				meta={[
+					cadenceText(item),
+					paused ? 'Paused' : null,
+					problem ? headline(problem.outcome, problem.outcome_reason).line : null
+				]
+					.filter(Boolean)
+					.join(' · ')}
+				onclick={() => (open = open === item.schedule.id ? '' : item.schedule.id)}
+				selected={open === item.schedule.id}
+				dim={paused}
+			>
+				{#snippet leading()}<Dot
+						tone={paused ? 'muted' : problem ? 'danger' : 'success'}
+						label={paused ? 'Paused' : problem ? 'Last run needs attention' : 'Active'}
+					/>{/snippet}
+				{#snippet trailing()}
+					{#if !paused}<span title="Next run"
+							>Next <RelativeTime value={item.schedule.fire_at} /></span
+						>{/if}
+				{/snippet}
+				{#snippet actions()}{#if canManage}
+						<ActionMenu label={`Options for ${item.schedule.reason}`}>
+							<button
+								disabled={!!busy}
+								onclick={() =>
+									act(
+										item.schedule.id,
+										() => updateSchedule(companyId, item.schedule, !paused),
+										paused ? 'Schedule resumed' : 'Schedule paused'
+									)}>{paused ? 'Resume' : 'Pause'}</button
+							>
+							<button disabled={!!busy} onclick={() => beginEdit(item)}>Edit</button>
+							<button
+								disabled={paused || !!busy}
+								title={paused
+									? 'Resume it first'
+									: 'Exec runs it now; the next run is counted from now'}
+								onclick={() =>
+									act(
+										item.schedule.id,
+										() => runScheduleNow(companyId, item.schedule),
+										'Running now'
+									)}>Run now</button
+							>
+							<button
+								disabled={!item.testable || !!busy}
+								title={item.testable
+									? 'Checks that the scheduler accepts it, without running Exec or doing anything'
+									: 'This schedule needs a bound responsibility'}
+								onclick={() =>
+									act(
+										item.schedule.id,
+										async () => {
+											report = await testScheduleTrigger(companyId, item.schedule.id);
+										},
+										'Checked'
+									)}>Check it can start</button
+							>
+							<a href={`/${companyId}/people?person=exec&view=people`}>Discuss with Exec</a>
+							<button disabled={!!busy} onclick={() => remove(item)}>Delete schedule</button>
+						</ActionMenu>
+					{/if}{/snippet}
+				{#if open === item.schedule.id}
+					<div class="detail">
+						{#if problem}
+							{@const text = headline(problem.outcome, problem.outcome_reason)}
+							<Notice tone="warning" title="The last run didn’t finish" details={text.full || null}
+								>{text.line}
+								{#snippet actions()}<a
+										class="btn small"
+										href={`/${companyId}/people?person=exec&view=people`}>Discuss</a
+									>{/snippet}</Notice
+							>
+						{/if}
+						{#if editing === item.schedule.id}
+							<form class="edit" onsubmit={(event) => saveEdit(event, item)}>
+								<label for={`prompt-${item.schedule.id}`}>What Exec should check</label>
+								<textarea
+									id={`prompt-${item.schedule.id}`}
+									class="full"
+									bind:value={editPrompt}
+									required
+									maxlength="2000"></textarea>
+								<label for={`cadence-${item.schedule.id}`}>Repeat</label>
+								<ScheduleCadence
+									bind:cadence={editCadence}
+									id={`cadence-${item.schedule.id}`}
 									disabled={!!busy}
-									onclick={() =>
-										act(
-											item.schedule.id,
-											() => updateSchedule(companyId, item.schedule, !paused),
-											paused ? 'Schedule resumed' : 'Schedule paused'
-										)}>{paused ? 'Resume' : 'Pause'}</button
-								>
-								{#if item.schedule.interval_seconds}<button
-										onclick={() => {
-											open = item.schedule.id;
-											editing = item.schedule.id;
-											editEvery = `${(item.schedule.interval_seconds ?? 3600) / 60}m`;
-										}}>Change cadence</button
-									>{:else if weekdays(item) && item.schedule.local_time}<button
-										onclick={() => {
-											open = item.schedule.id;
-											editing = item.schedule.id;
-											editTime = item.schedule.local_time?.slice(0, 5) ?? '09:00';
-										}}>Change time</button
-									>{/if}
-								<button
-									disabled={!item.testable || !!busy}
-									title={item.testable
-										? 'Tests admission without running an agent or external action'
-										: 'This schedule needs a bound responsibility'}
-									onclick={() =>
-										act(
-											item.schedule.id,
-											async () => {
-												report = await testScheduleTrigger(companyId, item.schedule.id);
-											},
-											'Trigger tested'
-										)}>Test trigger</button
-								>
-								<a href={`/${companyId}/people?person=exec&view=people`}>Discuss with Exec</a>
-								<button disabled={!!busy} onclick={() => remove(item)}>Delete schedule</button>
-							</ActionMenu>
-						{/if}{/snippet}
-					{#if open === item.schedule.id}
-						<div class="detail">
-							{#if problem}
-								{@const text = headline(problem.outcome, problem.outcome_reason)}
-								<Notice
-									tone="warning"
-									title="The last run didn’t finish"
-									details={text.full || null}
-									>{text.line}
-									{#snippet actions()}<a
-											class="btn small"
-											href={`/${companyId}/people?person=exec&view=people`}>Discuss</a
-										>{/snippet}</Notice
-								>
-							{/if}
-							{#if editing === item.schedule.id}
-								<form class="cadence" onsubmit={(event) => cadence(event, item)}>
-									{#if weekdays(item)}
-										<label for={`cadence-${item.schedule.id}`}>Every weekday at</label>
-										<input
-											id={`cadence-${item.schedule.id}`}
-											type="time"
-											bind:value={editTime}
-											title={item.schedule.timezone ? `In ${item.schedule.timezone}` : undefined}
-											required
-										/>
-									{:else}
-										<label for={`cadence-${item.schedule.id}`}>Repeat every</label>
-										<input
-											id={`cadence-${item.schedule.id}`}
-											bind:value={editEvery}
-											required
-											placeholder="30m, 2h or 1d"
-										/>
-									{/if}
-									<button class="btn primary small" disabled={!!busy}
+								/>
+								<div class="edit-bar">
+									<button
+										class="btn primary small"
+										disabled={!!busy || !editPrompt.trim() || !cadenceReady(editCadence)}
 										>{busy ? 'Saving…' : 'Save'}</button
 									>
 									<button class="btn small ghost" type="button" onclick={() => (editing = '')}
 										>Cancel</button
 									>
-								</form>
-							{/if}
-							<dl class="facts">
-								<div>
-									<dt>Cadence</dt>
-									<dd>{cadenceText(item)}</dd>
 								</div>
-								{#if item.schedule.last_fired_at}<div>
-										<dt>Last run</dt>
-										<dd><RelativeTime value={item.schedule.last_fired_at} /></dd>
-									</div>{/if}
-								{#if !paused}<div>
-										<dt>Next run</dt>
-										<dd><RelativeTime value={item.schedule.fire_at} /></dd>
-									</div>{/if}
-							</dl>
-							{#if item.recent_outcomes.length || item.prior_responsibility_outcomes.length}
-								<ul class="runs" aria-label="Recent runs">
-									{#each [...item.recent_outcomes, ...item.prior_responsibility_outcomes] as outcome (outcome.opportunity_id)}
-										{@const text = headline(outcome.outcome, outcome.outcome_reason)}
-										<li title={text.full || undefined}>
-											<Dot
-												tone={stateTone(outcome.state)}
-												label={outcome.state.replaceAll('_', ' ')}
-											/>
-											<span>{text.line}</span>
-											<RelativeTime value={outcome.created_at} />
-										</li>
-									{/each}
-								</ul>
-							{/if}
-						</div>
-					{/if}
-				</Item>
-			{/each}
-		</Section>
+							</form>
+						{/if}
+						<dl class="facts">
+							<div>
+								<dt>Cadence</dt>
+								<dd>{cadenceText(item)}</dd>
+							</div>
+							{#if item.schedule.last_fired_at}<div>
+									<dt>Last run</dt>
+									<dd><RelativeTime value={item.schedule.last_fired_at} /></dd>
+								</div>{/if}
+							{#if !paused}<div>
+									<dt>Next run</dt>
+									<dd><RelativeTime value={item.schedule.fire_at} /></dd>
+								</div>{/if}
+						</dl>
+						{#if item.recent_outcomes.length || item.prior_responsibility_outcomes.length}
+							<ul class="runs" aria-label="Recent runs">
+								{#each [...item.recent_outcomes, ...item.prior_responsibility_outcomes] as outcome (outcome.opportunity_id)}
+									{@const text = headline(outcome.outcome, outcome.outcome_reason)}
+									<li title={text.full || undefined}>
+										<Dot
+											tone={stateTone(outcome.state)}
+											label={outcome.state.replaceAll('_', ' ')}
+										/>
+										<span>{text.line}</span>
+										<RelativeTime value={outcome.created_at} />
+									</li>
+								{/each}
+							</ul>
+						{/if}
+					</div>
+				{/if}
+			</Item>
+		{/snippet}
+		{#if active.length}<Section title="Active" count={active.length}>
+				{#each active as item (item.schedule.id)}{@render scheduleRow(item)}{/each}
+			</Section>{/if}
+		{#if resting.length}<Section title="Paused" count={resting.length}>
+				{#each resting as item (item.schedule.id)}{@render scheduleRow(item)}{/each}
+			</Section>{/if}
 	{/if}
 </Page>
 
@@ -399,15 +417,19 @@
 		gap: 14px;
 		padding-top: 6px;
 	}
-	.cadence {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: var(--space-2);
+	.edit {
+		display: grid;
+		gap: 6px;
 		font-size: var(--t-body);
 	}
-	.cadence input {
-		width: 140px;
+	.edit label {
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.edit-bar {
+		display: flex;
+		gap: var(--space-2);
+		margin-top: 6px;
 	}
 	.facts {
 		display: flex;

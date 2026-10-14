@@ -1120,6 +1120,9 @@ pub struct ScheduleRow {
     pub interval_seconds: Option<i32>,
     pub responsibility_id: Option<Uuid>,
     pub responsibility_version: Option<i32>,
+    /// The days a `weekdays` recurrence runs on: absent for Monday to Friday, else `daily`,
+    /// `weekly:1,3` (ISO weekdays) or `monthly:15`.
+    pub calendar_days: Option<String>,
 }
 
 /// Durable objective admitted by a schedule occurrence. `owner_epoch` fences

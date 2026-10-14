@@ -212,7 +212,12 @@ export type ScheduleRow = { id: string, actor_id: string, work_id: string | null
 /**
  * Present only for an interval recurrence (`/loop`).
  */
-interval_seconds: number | null, responsibility_id: string | null, responsibility_version: number | null, };
+interval_seconds: number | null, responsibility_id: string | null, responsibility_version: number | null,
+/**
+ * The days a `weekdays` recurrence runs on: absent for Monday to Friday, else `daily`,
+ * `weekly:1,3` (ISO weekdays) or `monthly:15`.
+ */
+calendar_days: string | null, };
 
 export type SkillRow = { name: string, description: string, source: string, path: string, digest: string, has_scripts: boolean,
 /**

@@ -1,10 +1,12 @@
 //! Time-based coordination wakes.
 
 use super::*;
-use chrono::{Datelike as _, Days, LocalResult, NaiveDateTime, NaiveTime, TimeZone as _, Weekday};
+use chrono::{
+    Datelike as _, Days, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, TimeZone as _, Weekday,
+};
 use chrono_tz::Tz;
 
-const SCHEDULE_COLUMNS: &str = "id, actor_id, work_id, reason, fire_at, fired_at, cancelled_at, paused_at, recurrence, timezone, local_time, last_fired_at, missed_policy, catch_up_grace_seconds, last_missed_at, last_considered_at, machine_requirement, created_at, interval_seconds, responsibility_id, responsibility_version";
+const SCHEDULE_COLUMNS: &str = "id, actor_id, work_id, reason, fire_at, fired_at, cancelled_at, paused_at, recurrence, timezone, local_time, last_fired_at, missed_policy, catch_up_grace_seconds, last_missed_at, last_considered_at, machine_requirement, created_at, interval_seconds, responsibility_id, responsibility_version, calendar_days";
 const MISSED_TOLERANCE_SECONDS: i64 = 30;
 const DEFAULT_OPPORTUNITY_WINDOW_SECONDS: i64 = 2 * 60 * 60;
 const DEFAULT_OPPORTUNITY_DELIVERY_BUDGET: i32 = 4;
@@ -88,22 +90,101 @@ fn validate_missed_policy(policy: &str, grace: Option<i64>) -> Result<()> {
     }
 }
 
+/// The days a calendar schedule runs on. `None` is the original weekday schedule, Monday to
+/// Friday; otherwise `daily`, `weekly:1,3` (ISO weekdays, 1 = Monday) or `monthly:15`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CalendarDays {
+    Weekdays,
+    Daily,
+    /// Bit `n` set for ISO weekday `n`.
+    Weekly(u8),
+    Monthly(u32),
+}
+
+impl CalendarDays {
+    fn parse(value: Option<&str>) -> Result<Self> {
+        let invalid = || {
+            OrgIntelError::InvalidWork(
+                "choose daily, weekly on one or more days, or monthly on a day from 1 to 31".into(),
+            )
+        };
+        let Some(value) = value else {
+            return Ok(Self::Weekdays);
+        };
+        if value == "daily" {
+            return Ok(Self::Daily);
+        }
+        if let Some(days) = value.strip_prefix("weekly:") {
+            let mut mask = 0u8;
+            for day in days.split(',') {
+                let day: u8 = day.parse().map_err(|_| invalid())?;
+                if !(1..=7).contains(&day) || mask & (1 << day) != 0 {
+                    return Err(invalid());
+                }
+                mask |= 1 << day;
+            }
+            return Ok(Self::Weekly(mask));
+        }
+        if let Some(text) = value.strip_prefix("monthly:") {
+            let day: u32 = text.parse().map_err(|_| invalid())?;
+            if (1..=31).contains(&day) && !text.starts_with('0') {
+                return Ok(Self::Monthly(day));
+            }
+        }
+        Err(invalid())
+    }
+
+    fn includes(self, date: NaiveDate) -> bool {
+        match self {
+            Self::Weekdays => !matches!(date.weekday(), Weekday::Sat | Weekday::Sun),
+            Self::Daily => true,
+            Self::Weekly(mask) => mask & (1 << date.weekday().number_from_monday()) != 0,
+            Self::Monthly(day) => {
+                // A day past the end of a short month runs on its last day.
+                let last = last_day_of_month(date);
+                date.day() == day.min(last)
+            }
+        }
+    }
+}
+
+fn last_day_of_month(date: NaiveDate) -> u32 {
+    let (year, month) = if date.month() == 12 {
+        (date.year() + 1, 1)
+    } else {
+        (date.year(), date.month() + 1)
+    };
+    NaiveDate::from_ymd_opt(year, month, 1)
+        .and_then(|first| first.pred_opt())
+        .map_or(28, |last| last.day())
+}
+
+/// Validate the stored form of a calendar schedule's days.
+pub fn validate_calendar_days(value: Option<&str>) -> Result<()> {
+    CalendarDays::parse(value).map(|_| ())
+}
+
+/// How far a calendar search may look: a monthly day is always found within two months.
+const CALENDAR_SEARCH_DAYS: u64 = 62;
+
 fn latest_weekday_fire_at_or_before(
     now: DateTime<Utc>,
     local_time: NaiveTime,
     timezone: &str,
+    days: Option<&str>,
 ) -> Result<DateTime<Utc>> {
+    let days = CalendarDays::parse(days)?;
     let timezone: Tz = timezone
         .parse()
         .map_err(|_| OrgIntelError::InvalidWork(format!("unknown IANA timezone `{timezone}`")))?;
     let first_date = now.with_timezone(&timezone).date_naive();
-    for offset in 0..=8 {
+    for offset in 0..=CALENDAR_SEARCH_DAYS {
         let date = first_date
             .checked_sub_days(Days::new(offset))
             .ok_or_else(|| {
                 OrgIntelError::InvalidWork("recurring schedule date underflow".into())
             })?;
-        if matches!(date.weekday(), Weekday::Sat | Weekday::Sun) {
+        if !days.includes(date) {
             continue;
         }
         let local = NaiveDateTime::new(date, local_time);
@@ -128,48 +209,40 @@ fn weekday_occurrence_count(
     first: DateTime<Utc>,
     last: DateTime<Utc>,
     timezone: &str,
+    days: Option<&str>,
 ) -> Result<i64> {
     if last < first {
         return Ok(0);
     }
+    let days = CalendarDays::parse(days)?;
     let timezone: Tz = timezone
         .parse()
         .map_err(|_| OrgIntelError::InvalidWork(format!("unknown IANA timezone `{timezone}`")))?;
     let first = first.with_timezone(&timezone).date_naive();
     let last = last.with_timezone(&timezone).date_naive();
-    let days = (last - first).num_days();
-    let full_weeks = days / 7;
-    let mut count = full_weeks * 5;
-    let remainder_start = first
-        .checked_add_days(Days::new((full_weeks * 7) as u64))
-        .ok_or_else(|| OrgIntelError::InvalidWork("recurring schedule range overflow".into()))?;
-    for offset in 0..=(days - full_weeks * 7) {
-        let date = remainder_start
-            .checked_add_days(Days::new(offset as u64))
-            .ok_or_else(|| {
-                OrgIntelError::InvalidWork("recurring schedule range overflow".into())
-            })?;
-        if !matches!(date.weekday(), Weekday::Sat | Weekday::Sun) {
-            count += 1;
-        }
-    }
-    Ok(count)
+    Ok(first
+        .iter_days()
+        .take_while(|date| *date <= last)
+        .filter(|date| days.includes(*date))
+        .count() as i64)
 }
 
 fn next_weekday_fire(
     after: DateTime<Utc>,
     local_time: NaiveTime,
     timezone: &str,
+    days: Option<&str>,
 ) -> Result<DateTime<Utc>> {
+    let days = CalendarDays::parse(days)?;
     let timezone: Tz = timezone
         .parse()
         .map_err(|_| OrgIntelError::InvalidWork(format!("unknown IANA timezone `{timezone}`")))?;
     let first_date = after.with_timezone(&timezone).date_naive();
-    for offset in 0..=8 {
+    for offset in 0..=CALENDAR_SEARCH_DAYS {
         let date = first_date
             .checked_add_days(Days::new(offset))
             .ok_or_else(|| OrgIntelError::InvalidWork("recurring schedule date overflow".into()))?;
-        if matches!(date.weekday(), Weekday::Sat | Weekday::Sun) {
+        if !days.includes(date) {
             continue;
         }
         let local = NaiveDateTime::new(date, local_time);
@@ -207,6 +280,20 @@ fn next_interval_fire(
     let behind = now.signed_duration_since(fire_at).num_seconds().max(0);
     let steps = behind / interval + 1;
     Ok(fire_at + chrono::Duration::seconds(steps * interval))
+}
+
+/// What an owner changes on a recurring schedule. An interval, or any of the time, zone and days,
+/// sets the cadence; the rest stays as it is.
+#[derive(Debug, Clone, Default)]
+pub struct ScheduleChange {
+    pub paused: bool,
+    pub interval_seconds: Option<i32>,
+    pub local_time: Option<NaiveTime>,
+    pub timezone: Option<String>,
+    /// `Some(None)` is Monday to Friday; see [`validate_calendar_days`].
+    pub calendar_days: Option<Option<String>>,
+    /// What the schedule asks Exec to do.
+    pub reason: Option<String>,
 }
 
 /// Bounds for `/loop`: at least five minutes, at most thirty days.
@@ -1038,6 +1125,44 @@ impl OrgIntel {
         objective: &str,
         policy: serde_json::Value,
     ) -> Result<(Uuid, DateTime<Utc>, bool)> {
+        self.create_calendar_schedule_with_responsibility(
+            actor_id,
+            reason,
+            None,
+            local_time,
+            timezone,
+            after,
+            missed_policy,
+            catch_up_grace_seconds,
+            machine_requirement,
+            responsibility_id,
+            version,
+            objective,
+            policy,
+        )
+        .await
+    }
+
+    /// A weekday schedule on chosen days: `calendar_days` is `None` for Monday to Friday, or
+    /// `daily`, `weekly:1,3` or `monthly:15` (see [`validate_calendar_days`]).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_calendar_schedule_with_responsibility(
+        &self,
+        actor_id: &str,
+        reason: &str,
+        calendar_days: Option<&str>,
+        local_time: NaiveTime,
+        timezone: &str,
+        after: DateTime<Utc>,
+        missed_policy: &str,
+        catch_up_grace_seconds: Option<i64>,
+        machine_requirement: &str,
+        responsibility_id: Uuid,
+        version: i32,
+        objective: &str,
+        policy: serde_json::Value,
+    ) -> Result<(Uuid, DateTime<Utc>, bool)> {
+        validate_calendar_days(calendar_days)?;
         if reason.trim().is_empty() {
             return Err(OrgIntelError::InvalidWork(
                 "a recurring time opportunity needs a reason".into(),
@@ -1056,7 +1181,7 @@ impl OrgIntel {
             ));
         }
         opportunity_window_seconds(&policy)?;
-        let fire_at = next_weekday_fire(after, local_time, timezone)?;
+        let fire_at = next_weekday_fire(after, local_time, timezone, calendar_days)?;
         let mut tx = self.pool.begin().await?;
 
         sqlx::query(
@@ -1098,8 +1223,8 @@ impl OrgIntel {
         .await?;
 
         let inserted = sqlx::query_scalar::<_, Uuid>(
-            "INSERT INTO schedules (id, actor_id, reason, fire_at, recurrence, timezone, local_time, missed_policy, catch_up_grace_seconds, machine_requirement, responsibility_id, responsibility_version) \
-             VALUES ($1,$2,$3,$4,'weekdays',$5,$6,$7,$8,$9,$10,$11) \
+            "INSERT INTO schedules (id, actor_id, reason, fire_at, recurrence, timezone, local_time, missed_policy, catch_up_grace_seconds, machine_requirement, responsibility_id, responsibility_version, calendar_days) \
+             VALUES ($1,$2,$3,$4,'weekdays',$5,$6,$7,$8,$9,$10,$11,$12) \
              ON CONFLICT DO NOTHING RETURNING id",
         )
         .bind(Uuid::new_v4())
@@ -1113,6 +1238,7 @@ impl OrgIntel {
         .bind(machine_requirement)
         .bind(responsibility_id)
         .bind(version)
+        .bind(calendar_days)
         .fetch_optional(&mut *tx)
         .await?;
         if let Some(id) = inserted {
@@ -1123,12 +1249,14 @@ impl OrgIntel {
         let existing = sqlx::query_as::<_, ScheduleRow>(&format!(
             "SELECT {SCHEDULE_COLUMNS} FROM schedules \
              WHERE actor_id=$1 AND recurrence='weekdays' AND timezone=$2 \
-               AND local_time=$3 AND reason=$4 AND cancelled_at IS NULL"
+               AND local_time=$3 AND reason=$4 AND calendar_days IS NOT DISTINCT FROM $5 \
+               AND cancelled_at IS NULL"
         ))
         .bind(actor_id)
         .bind(timezone)
         .bind(local_time)
         .bind(reason)
+        .bind(calendar_days)
         .fetch_one(&mut *tx)
         .await?;
         if existing.missed_policy != missed_policy
@@ -1527,6 +1655,31 @@ impl OrgIntel {
         interval_seconds: Option<i32>,
         local_time: Option<NaiveTime>,
     ) -> Result<Option<ScheduleRow>> {
+        self.change_recurring_schedule(
+            schedule_id,
+            expected_fire_at,
+            expected_paused,
+            ScheduleChange {
+                paused,
+                interval_seconds,
+                local_time,
+                ..ScheduleChange::default()
+            },
+        )
+        .await
+    }
+
+    /// Change an Exec schedule the owner runs: pause or resume it, move it to an interval or to a
+    /// time of day on chosen days in a chosen zone, or reword what it asks Exec to do. A new
+    /// wording is a new version of the schedule's responsibility, so earlier runs keep the words
+    /// they ran with. `None` from a stale screen or a schedule that has ended.
+    pub async fn change_recurring_schedule(
+        &self,
+        schedule_id: Uuid,
+        expected_fire_at: DateTime<Utc>,
+        expected_paused: bool,
+        change: ScheduleChange,
+    ) -> Result<Option<ScheduleRow>> {
         let mut tx = self.pool.begin().await?;
         let Some(row) = sqlx::query_as::<_, ScheduleRow>(&format!(
             "SELECT {SCHEDULE_COLUMNS} FROM schedules WHERE id=$1 AND actor_id='exec' \
@@ -1541,33 +1694,62 @@ impl OrgIntel {
         if row.fire_at != expected_fire_at || row.paused_at.is_some() != expected_paused {
             return Ok(None);
         }
+        let ScheduleChange {
+            paused,
+            interval_seconds,
+            local_time,
+            timezone,
+            calendar_days,
+            reason,
+        } = change;
+        let calendar_change = local_time.is_some() || timezone.is_some() || calendar_days.is_some();
+        if interval_seconds.is_some() && calendar_change {
+            return Err(OrgIntelError::InvalidWork(
+                "Change either the interval or the time of day, not both".into(),
+            ));
+        }
         if let Some(seconds) = interval_seconds {
-            if row.recurrence.as_deref() != Some("interval")
-                || !(MIN_INTERVAL_SECONDS..=MAX_INTERVAL_SECONDS).contains(&seconds)
-            {
+            if !(MIN_INTERVAL_SECONDS..=MAX_INTERVAL_SECONDS).contains(&seconds) {
                 return Err(OrgIntelError::InvalidWork("Choose a cadence between five minutes and thirty days for an interval schedule".into()));
             }
         }
-        if local_time.is_some()
-            && (interval_seconds.is_some() || row.recurrence.as_deref() != Some("weekdays"))
-        {
-            return Err(OrgIntelError::InvalidWork(
-                "Only a weekday schedule runs at a time of day".into(),
-            ));
-        }
         let now = Utc::now();
-        let interval = interval_seconds.or(row.interval_seconds);
-        let retimed = local_time;
-        let local_time = local_time.or(row.local_time);
+        // The schedule after the change: an interval, or a time of day on chosen days.
+        let (recurrence, interval, local, zone, days) = if interval_seconds.is_some() {
+            (Some("interval".to_string()), interval_seconds, None, None, None)
+        } else if calendar_change {
+            let local = local_time.or(row.local_time);
+            let zone = timezone.clone().or_else(|| row.timezone.clone());
+            let (Some(local), Some(zone)) = (local, zone) else {
+                return Err(OrgIntelError::InvalidWork(
+                    "Only a weekday schedule runs at a time of day; choose a time and a time zone"
+                        .into(),
+                ));
+            };
+            let days = match calendar_days {
+                Some(days) => days,
+                None if row.recurrence.as_deref() == Some("weekdays") => row.calendar_days.clone(),
+                None => None,
+            };
+            validate_calendar_days(days.as_deref())?;
+            (Some("weekdays".to_string()), None, Some(local), Some(zone), days)
+        } else {
+            (
+                row.recurrence.clone(),
+                row.interval_seconds,
+                row.local_time,
+                row.timezone.clone(),
+                row.calendar_days.clone(),
+            )
+        };
         let fire_at = if interval_seconds.is_some() {
             now + chrono::Duration::seconds(i64::from(interval.expect("validated interval")))
-        } else if let Some(time) = retimed {
+        } else if calendar_change {
             next_weekday_fire(
                 now,
-                time,
-                row.timezone
-                    .as_deref()
-                    .ok_or_else(|| OrgIntelError::InvalidWork("Missing timezone".into()))?,
+                local.expect("validated time"),
+                zone.as_deref().expect("validated zone"),
+                days.as_deref(),
             )?
         } else if !paused && row.paused_at.is_some() && row.fire_at <= now {
             match row.recurrence.as_deref() {
@@ -1579,6 +1761,7 @@ impl OrgIntel {
                     row.timezone
                         .as_deref()
                         .ok_or_else(|| OrgIntelError::InvalidWork("Missing timezone".into()))?,
+                    row.calendar_days.as_deref(),
                 )?,
                 _ => {
                     return Err(OrgIntelError::InvalidWork(
@@ -1589,12 +1772,96 @@ impl OrgIntel {
         } else {
             row.fire_at
         };
+
+        // A new wording is a new responsibility version; the schedule then names it.
+        let reason = reason.map(|text| text.trim().to_string());
+        let mut version = row.responsibility_version;
+        if let Some(text) = reason.as_deref().filter(|text| *text != row.reason) {
+            if text.is_empty() || text.chars().count() > 2_000 {
+                return Err(OrgIntelError::InvalidWork(
+                    "Say what Exec should do in at most 2,000 characters".into(),
+                ));
+            }
+            if let (Some(responsibility_id), Some(current)) =
+                (row.responsibility_id, row.responsibility_version)
+            {
+                let policy: serde_json::Value = sqlx::query_scalar(
+                    "SELECT policy FROM responsibility_versions WHERE responsibility_id=$1 AND version=$2",
+                )
+                .bind(responsibility_id)
+                .bind(current)
+                .fetch_one(&mut *tx)
+                .await?;
+                let next: i32 = sqlx::query_scalar(
+                    "SELECT COALESCE(max(version), 0) + 1 FROM responsibility_versions WHERE responsibility_id=$1",
+                )
+                .bind(responsibility_id)
+                .fetch_one(&mut *tx)
+                .await?;
+                sqlx::query(
+                    "INSERT INTO responsibility_versions (responsibility_id, version, objective, policy) VALUES ($1,$2,$3,$4)",
+                )
+                .bind(responsibility_id)
+                .bind(next)
+                .bind(text)
+                .bind(&policy)
+                .execute(&mut *tx)
+                .await?;
+                sqlx::query("UPDATE responsibilities SET current_version=$2 WHERE id=$1")
+                    .bind(responsibility_id)
+                    .bind(next)
+                    .execute(&mut *tx)
+                    .await?;
+                version = Some(next);
+            }
+        }
         let updated = sqlx::query_as::<_, ScheduleRow>(&format!(
             "UPDATE schedules SET paused_at=CASE WHEN $2 THEN COALESCE(paused_at,now()) ELSE NULL END, \
-             interval_seconds=$3, fire_at=$4, local_time=$5 WHERE id=$1 RETURNING {SCHEDULE_COLUMNS}"
-        )).bind(schedule_id).bind(paused).bind(interval).bind(fire_at).bind(local_time).fetch_one(&mut *tx).await?;
+             interval_seconds=$3, fire_at=$4, local_time=$5, recurrence=$6, timezone=$7, calendar_days=$8, \
+             reason=COALESCE($9, reason), responsibility_version=$10 \
+             WHERE id=$1 RETURNING {SCHEDULE_COLUMNS}"
+        ))
+        .bind(schedule_id)
+        .bind(paused)
+        .bind(interval)
+        .bind(fire_at)
+        .bind(local)
+        .bind(recurrence)
+        .bind(zone)
+        .bind(days)
+        .bind(reason)
+        .bind(version)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|error| match &error {
+            sqlx::Error::Database(database) if database.is_unique_violation() => {
+                OrgIntelError::InvalidWork(
+                    "Another schedule already asks Exec the same thing at that time".into(),
+                )
+            }
+            _ => error.into(),
+        })?;
         tx.commit().await?;
         Ok(Some(updated))
+    }
+
+    /// Run an owner's schedule now, as if its time had come: the scheduler claims it on its next
+    /// pass and then sets the following run from now. A paused schedule stays paused.
+    pub async fn run_schedule_now(
+        &self,
+        schedule_id: Uuid,
+        expected_fire_at: DateTime<Utc>,
+    ) -> Result<Option<ScheduleRow>> {
+        Ok(sqlx::query_as::<_, ScheduleRow>(&format!(
+            "UPDATE schedules SET fire_at=LEAST(fire_at, now()) \
+             WHERE id=$1 AND actor_id='exec' AND recurrence IS NOT NULL AND fired_at IS NULL \
+               AND cancelled_at IS NULL AND paused_at IS NULL AND fire_at=$2 \
+             RETURNING {SCHEDULE_COLUMNS}"
+        ))
+        .bind(schedule_id)
+        .bind(expected_fire_at)
+        .fetch_optional(&self.pool)
+        .await?)
     }
 
     pub async fn claim_due_schedules(&self) -> Result<Vec<ScheduleRow>> {
@@ -1653,15 +1920,17 @@ impl OrgIntel {
                 let local_time = row.local_time.ok_or_else(|| {
                     OrgIntelError::InvalidWork("weekday schedule is missing local time".into())
                 })?;
-                let latest = latest_weekday_fire_at_or_before(now, local_time, timezone)?;
+                let days = row.calendar_days.as_deref();
+                let latest = latest_weekday_fire_at_or_before(now, local_time, timezone, days)?;
                 if latest > original_fire_at {
                     superseded_count =
-                        weekday_occurrence_count(original_fire_at, latest, timezone)?
+                        weekday_occurrence_count(original_fire_at, latest, timezone, days)?
                             .saturating_sub(1);
                     let supersedes_through = latest_weekday_fire_at_or_before(
                         latest - chrono::Duration::milliseconds(1),
                         local_time,
                         timezone,
+                        days,
                     )?;
                     sqlx::query(
                         "INSERT INTO schedule_occurrences \
@@ -1739,7 +2008,7 @@ impl OrgIntel {
                                 "weekday schedule is missing local time".into(),
                             )
                         })?;
-                        next_weekday_fire(now, local_time, timezone)?
+                        next_weekday_fire(now, local_time, timezone, row.calendar_days.as_deref())?
                     }
                 };
                 sqlx::query(
@@ -2231,6 +2500,7 @@ mod tests {
             friday_after_window,
             NaiveTime::from_hms_opt(9, 0, 0).unwrap(),
             "Australia/Sydney",
+            None,
         )
         .unwrap();
         assert_eq!(next.to_rfc3339(), "2026-08-30T23:00:00+00:00");
@@ -2245,6 +2515,7 @@ mod tests {
             before,
             NaiveTime::from_hms_opt(9, 0, 0).unwrap(),
             "Australia/Sydney",
+            None,
         )
         .unwrap();
         assert_eq!(next.to_rfc3339(), "2026-10-04T22:00:00+00:00");
@@ -2259,10 +2530,40 @@ mod tests {
             friday_after_window,
             NaiveTime::from_hms_opt(9, 0, 0).unwrap(),
             "Australia/Sydney",
+            None,
         )
         .unwrap();
         // DST ends on Sunday; Monday's 09:00 is one deterministic AEST instant.
         assert_eq!(next.to_rfc3339(), "2026-04-05T23:00:00+00:00");
+    }
+
+    #[test]
+    fn calendar_days_choose_the_owners_days() {
+        let nine = NaiveTime::from_hms_opt(9, 0, 0).unwrap();
+        // Friday 28 August 2026, 10:30 in London.
+        let friday = DateTime::parse_from_rfc3339("2026-08-28T09:30:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let next = |days| next_weekday_fire(friday, nine, "Europe/London", Some(days)).unwrap();
+        assert_eq!(next("daily").to_rfc3339(), "2026-08-29T08:00:00+00:00");
+        // Wednesday only: the following Wednesday.
+        assert_eq!(next("weekly:3").to_rfc3339(), "2026-09-02T08:00:00+00:00");
+        assert_eq!(next("weekly:1,6").to_rfc3339(), "2026-08-29T08:00:00+00:00");
+        assert_eq!(next("monthly:1").to_rfc3339(), "2026-09-01T08:00:00+00:00");
+        // The 31st in September runs on the 30th.
+        assert_eq!(next("monthly:31").to_rfc3339(), "2026-08-31T08:00:00+00:00");
+        let after_august = DateTime::parse_from_rfc3339("2026-09-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(
+            next_weekday_fire(after_august, nine, "Europe/London", Some("monthly:31"))
+                .unwrap()
+                .to_rfc3339(),
+            "2026-09-30T08:00:00+00:00"
+        );
+        for invalid in ["weekly:", "weekly:8", "weekly:1,1", "monthly:0", "monthly:32", "monthly:07", "hourly"] {
+            assert!(validate_calendar_days(Some(invalid)).is_err(), "{invalid}");
+        }
     }
 
     #[test]

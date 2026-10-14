@@ -45,6 +45,25 @@ async fn paused_schedules_do_not_dispatch_or_replay_backlog_and_stale_edits_fail
     assert_eq!(retimed.timezone.as_deref(), Some("Europe/London"));
     assert_eq!(retimed.responsibility_id, Some(weekday_responsibility));
     assert!(retimed.fire_at > Utc::now());
+    // Rewording keeps the schedule and its history: the new words are a new responsibility
+    // version, and the version earlier runs used stays as it was.
+    let reworded = org.change_recurring_schedule(weekday, retimed.fire_at, false, restless_orgintel::ScheduleChange {
+        reason: Some("Evening check".into()),
+        timezone: Some("America/New_York".into()),
+        calendar_days: Some(Some("weekly:1,3".into())),
+        ..Default::default()
+    }).await.unwrap().unwrap();
+    assert_eq!((reworded.id, reworded.reason.as_str()), (weekday, "Evening check"));
+    assert_eq!(reworded.responsibility_version, Some(2));
+    assert_eq!(reworded.calendar_days.as_deref(), Some("weekly:1,3"));
+    assert_eq!(reworded.timezone.as_deref(), Some("America/New_York"));
+    assert_eq!(org.get_responsibility_version(weekday_responsibility, 1).await.unwrap().unwrap().objective, "Morning check");
+    assert_eq!(org.get_responsibility_version(weekday_responsibility, 2).await.unwrap().unwrap().objective, "Evening check");
+    // Run now makes it due at once; the scheduler then sets the next run from now.
+    let due = org.run_schedule_now(weekday, reworded.fire_at).await.unwrap().unwrap();
+    assert!(due.fire_at <= Utc::now());
+    assert_eq!(org.claim_due_schedules_at(Utc::now()).await.unwrap().len(), 1);
+    assert!(org.get_schedule(weekday).await.unwrap().unwrap().fire_at > Utc::now());
     org.cancel_schedule(id, "exec", "Finished test").await.unwrap();
     assert!(org.update_recurring_schedule(id, edited.fire_at, false, false, None, None).await.unwrap().is_none());
     org.drop_schema().await.unwrap();

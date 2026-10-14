@@ -8,6 +8,7 @@
 
 import type { GoalRow, ScheduleRow, SkillAssignmentRow, SkillRow } from './generated/orgintel';
 import { responseFailure } from './failure.ts';
+import { cadenceOf, cadenceText } from './schedule-cadence.ts';
 
 export type { SkillRow, SkillAssignmentRow };
 
@@ -51,13 +52,22 @@ async function call<T>(company: string, path: string, init?: RequestInit): Promi
 	return response.json() as Promise<T>;
 }
 
-/** Pause, resume, or change an interval (`every`) or a weekday time (`atLocal`, HH:MM). */
+/** What changes on a schedule besides pausing: an interval (`every`), or a time of day
+ * (`at_local`, HH:MM) with its `timezone` and `days`, and what it asks Exec to do (`prompt`). */
+export type ScheduleChange = {
+	every?: string;
+	at_local?: string;
+	timezone?: string;
+	days?: string;
+	prompt?: string;
+};
+
+/** Pause, resume, or change a schedule's cadence or words. */
 export function updateSchedule(
 	company: string,
 	schedule: ScheduleRow,
 	paused: boolean,
-	every?: string,
-	atLocal?: string
+	change: ScheduleChange = {}
 ): Promise<{ schedule: ScheduleRow }> {
 	return call(company, `/schedules/${encodeURIComponent(schedule.id)}`, {
 		method: 'PUT',
@@ -65,9 +75,19 @@ export function updateSchedule(
 			expected_fire_at: schedule.fire_at,
 			expected_paused: !!schedule.paused_at,
 			paused,
-			every,
-			at_local: atLocal
+			...change
 		})
+	});
+}
+
+/** Run a schedule now; the next run is then set from now. */
+export function runScheduleNow(
+	company: string,
+	schedule: ScheduleRow
+): Promise<{ schedule: ScheduleRow }> {
+	return call(company, `/schedules/${encodeURIComponent(schedule.id)}/run`, {
+		method: 'POST',
+		body: JSON.stringify({ expected_fire_at: schedule.fire_at })
 	});
 }
 
@@ -358,20 +378,22 @@ export function addLoop(
 	return call(company, '/loops', { method: 'POST', body: JSON.stringify({ every, prompt }) });
 }
 
-/** Wake Exec Monday to Friday at `atLocal` (HH:MM) in an IANA time zone. */
-export function addWeekdaySchedule(
+/** Wake Exec at `atLocal` (HH:MM) in an IANA time zone, on `days`: `weekdays`, `daily`,
+ * `weekly:1,3` (ISO weekdays) or `monthly:15`. */
+export function addCalendarSchedule(
 	company: string,
 	atLocal: string,
 	timezone: string,
+	days: string,
 	prompt: string
 ): Promise<{ schedule_id: string; next_fire_at: string; created: boolean }> {
 	return call(company, '/loops', {
 		method: 'POST',
-		body: JSON.stringify({ at_local: atLocal, timezone, prompt })
+		body: JSON.stringify({ at_local: atLocal, timezone, days, prompt })
 	});
 }
 
-/** The browser's IANA time zone, which a weekday schedule runs in. */
+/** The browser's IANA time zone: where a new time-of-day schedule starts. */
 export function browserTimeZone(): string {
 	try {
 		return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -497,7 +519,7 @@ export async function runExecCommand(
 function loopTitle(loop: ScheduleRow): string {
 	const when =
 		loop.local_time && loop.timezone
-			? `Weekdays at ${loop.local_time}`
+			? cadenceText(cadenceOf(loop, loop.timezone))
 			: `Every ${describeInterval(loop.interval_seconds ?? 0)}`;
 	return `${when}: ${loop.reason}`;
 }
@@ -505,6 +527,12 @@ function loopTitle(loop: ScheduleRow): string {
 /** A stopped loop started again with the same cadence and words (under a new id). */
 function restartLoop(company: string, loop: ScheduleRow): Promise<unknown> {
 	return loop.local_time && loop.timezone
-		? addWeekdaySchedule(company, loop.local_time.slice(0, 5), loop.timezone, loop.reason)
+		? addCalendarSchedule(
+				company,
+				loop.local_time.slice(0, 5),
+				loop.timezone,
+				loop.calendar_days ?? 'weekdays',
+				loop.reason
+			)
 		: addLoop(company, `${loop.interval_seconds ?? 0}s`, loop.reason);
 }

@@ -579,7 +579,24 @@ pub(super) struct LoopInput {
     /// `HH:MM` on weekdays, in `timezone` (IANA, e.g. `Europe/London`).
     at_local: Option<String>,
     timezone: Option<String>,
+    /// The days a time of day runs on: `weekdays` (the default), `daily`, `weekly:1,3` (ISO
+    /// weekdays) or `monthly:15`.
+    #[serde(default)]
+    days: Option<String>,
     prompt: String,
+}
+
+/// The owner's day choice as OrgIntel stores it: Monday to Friday is the absent value.
+fn calendar_days(days: Option<&str>) -> std::result::Result<Option<String>, Response<Body>> {
+    let days = days.map(str::trim).filter(|days| *days != "weekdays");
+    restless_orgintel::validate_calendar_days(days).map_err(|_| {
+        api_error(
+            StatusCode::BAD_REQUEST,
+            "schedule",
+            "Choose weekdays, every day, one or more days of the week, or a day of the month.",
+        )
+    })?;
+    Ok(days.map(str::to_string))
 }
 
 /// A missed weekday run still happens when the plane comes back within two
@@ -670,6 +687,13 @@ pub(super) async fn add_loop(
         );
     }
     let every = match (&input.every, &input.at_local, &input.timezone) {
+        (Some(_), None, None) if input.days.is_some() => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "loop",
+                "days go with a time of day, not an interval",
+            )
+        }
         (Some(every), None, None) => every,
         (None, Some(at_local), Some(timezone)) => {
             let Some(local_time) = parse_local_time(at_local) else {
@@ -691,7 +715,11 @@ pub(super) async fn add_loop(
                 Ok(org) => org,
                 Err(response) => return response,
             };
-            return add_weekday_loop(&org, prompt, local_time, timezone).await;
+            let days = match calendar_days(input.days.as_deref()) {
+                Ok(days) => days,
+                Err(response) => return response,
+            };
+            return add_weekday_loop(&org, prompt, local_time, timezone, days.as_deref()).await;
         }
         _ => {
             return api_error(
@@ -764,12 +792,14 @@ async fn add_weekday_loop(
     prompt: &str,
     local_time: chrono::NaiveTime,
     timezone: &str,
+    days: Option<&str>,
 ) -> Response<Body> {
     let matching = match org.list_schedules(Some("exec"), false).await {
         Ok(rows) => rows.into_iter().find(|row| {
             row.recurrence.as_deref() == Some("weekdays")
                 && row.local_time == Some(local_time)
                 && row.timezone.as_deref() == Some(timezone)
+                && row.calendar_days.as_deref() == days
                 && row.reason == prompt
         }),
         Err(error) => return orgintel_error(error),
@@ -780,9 +810,10 @@ async fn add_weekday_loop(
             Err(response) => return response,
         };
     match org
-        .create_weekday_schedule_with_responsibility(
+        .create_calendar_schedule_with_responsibility(
             "exec",
             prompt,
+            days,
             local_time,
             timezone,
             chrono::Utc::now(),
@@ -865,8 +896,17 @@ pub(super) struct ScheduleUpdateInput {
     expected_paused: bool,
     paused: bool,
     every: Option<String>,
-    /// A new `HH:MM` for a weekday schedule; its time zone is kept.
+    /// A new `HH:MM` for a time-of-day schedule; its zone and days are kept unless given.
     at_local: Option<String>,
+    /// A new IANA time zone for a time-of-day schedule.
+    #[serde(default)]
+    timezone: Option<String>,
+    /// New days for a time-of-day schedule, as `LoopInput::days`.
+    #[serde(default)]
+    days: Option<String>,
+    /// New words for what the schedule asks Exec to do.
+    #[serde(default)]
+    prompt: Option<String>,
 }
 
 pub(super) async fn update_schedule(
@@ -878,7 +918,8 @@ pub(super) async fn update_schedule(
     if let Some(refusal) = owner_or_admin(&principal) {
         return refusal;
     }
-    if input.every.is_some() && input.at_local.is_some() {
+    let calendar = input.at_local.is_some() || input.timezone.is_some() || input.days.is_some();
+    if input.every.is_some() && calendar {
         return api_error(
             StatusCode::BAD_REQUEST,
             "schedule",
@@ -911,18 +952,40 @@ pub(super) async fn update_schedule(
         },
         None => None,
     };
+    let timezone = match input.timezone.as_deref().map(str::trim) {
+        Some(zone) if !plausible_timezone(zone) => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "schedule",
+                "Choose a time zone such as Europe/London.",
+            )
+        }
+        zone => zone.map(str::to_string),
+    };
+    let days = match input.days.as_deref() {
+        Some(days) => match calendar_days(Some(days)) {
+            Ok(days) => Some(days),
+            Err(response) => return response,
+        },
+        None => None,
+    };
     let org = match org_for(&state, &company).await {
         Ok(org) => org,
         Err(response) => return response,
     };
     match org
-        .update_recurring_schedule(
+        .change_recurring_schedule(
             schedule,
             input.expected_fire_at,
             input.expected_paused,
-            input.paused,
-            interval,
-            local_time,
+            restless_orgintel::ScheduleChange {
+                paused: input.paused,
+                interval_seconds: interval,
+                local_time,
+                timezone,
+                calendar_days: days,
+                reason: input.prompt,
+            },
         )
         .await
     {
@@ -931,6 +994,41 @@ pub(super) async fn update_schedule(
             StatusCode::CONFLICT,
             "schedule",
             "This schedule changed. Refresh and try again.",
+        ),
+        Err(error) => orgintel_error(error),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ScheduleRunInput {
+    expected_fire_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Run a schedule now: the scheduler claims it at once, as if its time had come, and Exec is
+/// woken with what it asks. The next run is set from now.
+pub(super) async fn run_schedule_now(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, schedule)): AxumPath<(String, Uuid)>,
+    Json(input): Json<ScheduleRunInput>,
+) -> Response<Body> {
+    if let Some(refusal) = owner_or_admin(&principal) {
+        return refusal;
+    }
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org.run_schedule_now(schedule, input.expected_fire_at).await {
+        Ok(Some(row)) => {
+            state.daemon.schedule_wake.notify_one();
+            Json(json!({"schedule": row})).into_response()
+        }
+        Ok(None) => api_error(
+            StatusCode::CONFLICT,
+            "schedule",
+            "This schedule changed or is paused. Refresh and try again.",
         ),
         Err(error) => orgintel_error(error),
     }
@@ -956,7 +1054,7 @@ pub(super) async fn schedule_monitor(
     let mut monitored = Vec::with_capacity(schedules.len());
     for schedule in schedules {
         let links = match org
-            .list_schedule_opportunity_occurrences(schedule.id, 3)
+            .list_schedule_opportunity_occurrences(schedule.id, 10)
             .await
         {
             Ok(rows) => rows,
