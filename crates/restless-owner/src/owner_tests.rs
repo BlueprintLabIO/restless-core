@@ -2837,8 +2837,16 @@ model = \"anthropic/claude-sonnet-5-5\"
         ] {
             assert!(membership_boundary_violation(&Method::POST, path, &principal).is_none(), "{path}");
         }
-        // Only the owner says who owns a team.
-        assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/teams/t-1/owner", &principal).is_some());
+        // Only the owner says who owns a team, or forms, reshapes, re-leads or disbands one.
+        for path in [
+            "/api/companies/aris/teams/t-1/owner",
+            "/api/companies/aris/teams",
+            "/api/companies/aris/teams/t-1/lead",
+            "/api/companies/aris/teams/t-1/disband",
+        ] {
+            assert!(membership_boundary_violation(&Method::POST, path, &principal).is_some(), "{path}");
+        }
+        assert!(membership_boundary_violation(&Method::PATCH, "/api/companies/aris/teams/t-1", &principal).is_some());
         // Only the owner hands an Inbox item to someone else.
         assert!(membership_boundary_violation(&Method::POST, "/api/companies/aris/handoffs/h-1/delegate", &principal).is_some());
         // Goal wording, closing and reopening, a Work's feedback and spend stay with the owner.

@@ -31,6 +31,35 @@ export function setTeamOwner(company: string, team: string, person: string | nul
 	});
 }
 
+/** Form a team around an accountable lead, at the company's own outcome standard. */
+export function createTeam(company: string, body: { name: string; brief: string; lead: string }) {
+	return ownerRequest<{ team_id: string }>(`${api(company)}/teams`, { method: 'POST', json: body });
+}
+
+/** Rename a team or revise what it is accountable for. */
+export function changeTeam(company: string, team: string, body: { name?: string; brief?: string }) {
+	return ownerRequest<unknown>(`${api(company)}/teams/${encodeURIComponent(team)}`, {
+		method: 'PATCH',
+		json: body
+	});
+}
+
+/** Replace a team's accountable lead. */
+export function setTeamLead(company: string, team: string, lead: string) {
+	return ownerRequest<unknown>(`${api(company)}/teams/${encodeURIComponent(team)}/lead`, {
+		method: 'POST',
+		json: { lead }
+	});
+}
+
+/** Disband a team: members become unassigned; judgement it still owed falls to Exec. */
+export function disbandTeam(company: string, team: string) {
+	return ownerRequest<{ reassigned_judgements: number }>(
+		`${api(company)}/teams/${encodeURIComponent(team)}/disband`,
+		{ method: 'POST', json: {} }
+	);
+}
+
 /** Archive or restore a Library entry; the view reads the failure from the response. */
 export function setLibraryArchived(
 	company: string,

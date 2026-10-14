@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { setTeamOwner as recordTeamOwner } from '$lib/model/company-actions';
+	import { setTeamOwner as recordTeamOwner, disbandTeam } from '$lib/model/company-actions';
+	import TeamEditor from '$lib/components/TeamEditor.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { initials, personName, teamName } from '$lib/model/initials';
 	import { page } from '$app/state';
@@ -117,6 +118,32 @@
 			void cockpit.refresh();
 		} finally {
 			teamOwnerBusy = '';
+		}
+	}
+	/* The owner reshapes the organisation directly: one editor open at a time, under the team it
+	 * changes or, for a new team, at the foot of the directory. Disbanding asks first. */
+	let teamEdit = $state<{ mode: 'new' | 'rename' | 'lead'; team: string } | null>(null);
+	const agents = $derived(everyone.filter((person) => person.kind === 'staff'));
+	async function teamEdited(message: string) {
+		teamEdit = null;
+		await cockpit.refresh();
+		toast(message);
+	}
+	async function disband(team: (typeof teams)[number]) {
+		const label = teamName(team.name, companyId);
+		const yes = await confirmAction({
+			title: `Disband ${label}?`,
+			body: 'Its members become unassigned, and anything it still owed you falls to Exec.',
+			action: 'Disband',
+			danger: true
+		});
+		if (!yes) return;
+		try {
+			await disbandTeam(companyId, team.id);
+			await cockpit.refresh();
+			toast(`${label} disbanded`);
+		} catch (cause) {
+			toast(failureSentence(cause, `${label} was not disbanded. Try again.`), { tone: 'failure' });
 		}
 	}
 	const contacts = $derived(
@@ -1043,9 +1070,21 @@
 						<header class="team-directory-head" title={entry.team.brief}>
 							<span>{teamName(entry.team.name, companyId)}</span><em
 								>{entry.members.length + (entry.lead ? 1 : 0)}</em
-							>{#if owner && humanColleagues.length}<div class="team-menu">
-									<ActionMenu label={`Who owns ${teamName(entry.team.name, companyId)}`}>
-										{#each [{ actor_id: '', display: 'You' }, ...humanColleagues] as choice (choice.actor_id)}
+							>{#if owner}<div class="team-menu">
+									<ActionMenu label={`Change ${teamName(entry.team.name, companyId)}`}>
+										<button
+											type="button"
+											onclick={() => (teamEdit = { mode: 'rename', team: entry.team.id })}
+											>Rename…</button
+										>
+										<button
+											type="button"
+											disabled={agents.length < 2}
+											onclick={() => (teamEdit = { mode: 'lead', team: entry.team.id })}
+											>Change lead…</button
+										>
+										<button type="button" onclick={() => void disband(entry.team)}>Disband…</button>
+										{#each humanColleagues.length ? [{ actor_id: '', display: 'You' }, ...humanColleagues] : [] as choice (choice.actor_id)}
 											{@const current = (teamOwnerId(entry.team) ?? '') === choice.actor_id}
 											<button
 												type="button"
@@ -1062,6 +1101,16 @@
 						</header>
 						{#if teamOwnerId(entry.team)}
 							<p class="team-owner">Owned by {teamOwnerName(teamOwnerId(entry.team) ?? '')}</p>
+						{/if}
+						{#if teamEdit && teamEdit.team === entry.team.id && teamEdit.mode !== 'new'}
+							<TeamEditor
+								{companyId}
+								mode={teamEdit.mode}
+								team={entry.team}
+								{agents}
+								ondone={(message) => void teamEdited(message)}
+								oncancel={() => (teamEdit = null)}
+							/>
 						{/if}
 						{#if entry.lead}{@render directoryPerson(entry.lead, 'lead')}{/if}
 						{#each entry.members.filter((member) => entry.teamMatches || matchesDirectory(member, search
@@ -1128,6 +1177,27 @@
 							</div>
 						{/each}
 					</section>
+				{/if}
+				{#if owner && agents.length && !search.trim()}
+					{#if teamEdit?.mode === 'new'}
+						<section class="directory-section" aria-label="New team">
+							<header class="team-directory-head"><span>New team</span></header>
+							<TeamEditor
+								{companyId}
+								mode="new"
+								{agents}
+								ondone={(message) => void teamEdited(message)}
+								oncancel={() => (teamEdit = null)}
+							/>
+						</section>
+					{:else}
+						<button
+							type="button"
+							class="more"
+							title="Form a team around an accountable lead"
+							onclick={() => (teamEdit = { mode: 'new', team: '' })}>New team…</button
+						>
+					{/if}
 				{/if}
 				{#if !execShown && !directoryTeams.length && !directoryUnassigned.length && !directoryHumans.length && !shownInvitations.length}<p
 						class="empty"

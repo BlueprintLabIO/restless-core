@@ -91,6 +91,154 @@ pub(super) async fn set_team_owner(
     }
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct NewTeamInput {
+    name: String,
+    /// What the team is accountable for.
+    brief: String,
+    /// The agent accountable for the team; it joins its own team.
+    lead: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct TeamChangeInput {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    brief: Option<String>,
+    #[serde(default)]
+    reason: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct TeamLeadInput {
+    lead: String,
+    #[serde(default)]
+    reason: String,
+}
+
+fn owner_reason<'a>(reason: &'a str, fallback: &'a str) -> &'a str {
+    match reason.trim() {
+        "" => fallback,
+        reason => reason,
+    }
+}
+
+/// The owner forms a team around an accountable lead, as `restless team create` does, at the
+/// company's own outcome standard. Owner only: the boundary refuses everyone else.
+pub(super) async fn create_team(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<NewTeamInput>,
+) -> Response<Body> {
+    let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
+    };
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .create_team_with_standard(
+            input.name.trim(),
+            input.brief.trim(),
+            input.lead.trim(),
+            "owner",
+            config.outcome_standard,
+            restless_orgintel::OutcomeStandardSource::CompanyDefault,
+            None,
+        )
+        .await
+    {
+        Ok(id) => Json(serde_json::json!({ "team_id": id })).into_response(),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, "team", error.plain_message()),
+    }
+}
+
+/// Rename a team or revise what it is accountable for.
+pub(super) async fn change_team(
+    State(state): State<OwnerState>,
+    AxumPath((company, team)): AxumPath<(String, Uuid)>,
+    Json(input): Json<TeamChangeInput>,
+) -> Response<Body> {
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    let name = input.name.as_deref().map(str::trim).filter(|n| !n.is_empty());
+    let brief = input.brief.as_deref().map(str::trim).filter(|b| !b.is_empty());
+    match org
+        .update_team(
+            team,
+            name,
+            brief,
+            "owner",
+            owner_reason(&input.reason, "Changed by the owner from People"),
+        )
+        .await
+    {
+        Ok(()) => Json(serde_json::json!({ "team_id": team })).into_response(),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, "team", error.plain_message()),
+    }
+}
+
+/// Replace a team's accountable lead.
+pub(super) async fn set_team_lead(
+    State(state): State<OwnerState>,
+    AxumPath((company, team)): AxumPath<(String, Uuid)>,
+    Json(input): Json<TeamLeadInput>,
+) -> Response<Body> {
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .set_team_lead(
+            team,
+            input.lead.trim(),
+            "owner",
+            owner_reason(&input.reason, "Lead changed by the owner from People"),
+        )
+        .await
+    {
+        Ok(()) => Json(serde_json::json!({ "team_id": team, "lead": input.lead.trim() }))
+            .into_response(),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, "team", error.plain_message()),
+    }
+}
+
+/// Disband a team: its members become unassigned and any judgement it still owed falls to
+/// Exec, recorded rather than dropped.
+pub(super) async fn disband_team(
+    State(state): State<OwnerState>,
+    AxumPath((company, team)): AxumPath<(String, Uuid)>,
+    Json(input): Json<ReasonInput>,
+) -> Response<Body> {
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .disband_team(
+            team,
+            "owner",
+            owner_reason(&input.reason, "Disbanded by the owner from People"),
+        )
+        .await
+    {
+        Ok(reassigned) => Json(serde_json::json!({
+            "team_id": team,
+            "reassigned_judgements": reassigned,
+        }))
+        .into_response(),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, "team", error.plain_message()),
+    }
+}
+
 /// Put a goal under a team, or back with the owner. The owner and Exec organise freely; a
 /// person moves goals only between teams they own.
 pub(super) async fn set_goal_team(

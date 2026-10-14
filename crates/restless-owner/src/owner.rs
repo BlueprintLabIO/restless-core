@@ -1393,6 +1393,19 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/companies/{company}/goals/{goal}/reopen",
             post(skills_api::reopen_goal),
         )
+        .route("/companies/{company}/teams", post(teams_api::create_team))
+        .route(
+            "/companies/{company}/teams/{team}",
+            axum::routing::patch(teams_api::change_team),
+        )
+        .route(
+            "/companies/{company}/teams/{team}/lead",
+            post(teams_api::set_team_lead),
+        )
+        .route(
+            "/companies/{company}/teams/{team}/disband",
+            post(teams_api::disband_team),
+        )
         .route(
             "/companies/{company}/teams/{team}/owner",
             post(teams_api::set_team_owner),
