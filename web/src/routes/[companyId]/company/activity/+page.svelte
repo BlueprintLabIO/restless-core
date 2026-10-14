@@ -168,6 +168,7 @@
 				detail: string | null;
 				actor: string;
 				workId?: string;
+				party?: string;
 		  };
 
 	const decisions = $derived<Entry[]>(
@@ -217,7 +218,8 @@
 			evidence: item.evidence,
 			detail: item.detail ?? null,
 			actor: item.actor ?? 'source record',
-			workId: item.work_id
+			workId: item.work_id,
+			party: item.party
 		}))
 	);
 	const who = (entry: Entry) =>
@@ -491,12 +493,18 @@
 											<dt>Detail</dt>
 											<dd>{entry.detail}</dd>
 										</div>{/if}
-									{#if entry.workId}<div class="follow-up">
-											<a
-												class="btn small"
-												href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(entry.workId)}`}
-												>Open work</a
-											>
+									{#if entry.workId || entry.party}<div class="follow-up">
+											{#if entry.workId}<a
+													class="btn small"
+													href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(entry.workId)}`}
+													>Open work</a
+												>{/if}
+											{#if entry.party}<a
+													class="btn small"
+													href={`/${encodeURIComponent(companyId)}/company/party?name=${encodeURIComponent(entry.party)}`}
+													title="What reached them, decisions, Work, documents and conversations that mention them"
+													>Everything about {entry.party}</a
+												>{/if}
 										</div>{/if}
 								{/if}
 							</dl>

@@ -78,6 +78,7 @@
 		scheduleNeedsLook,
 		type MonitoredSchedule
 	} from '$lib/model/skills';
+	import { getGovernanceActivity } from '$lib/model/company';
 	import type { CommandSearch, CommandSearchResult } from '$lib/components/CommandMenu.svelte';
 	import { searchDocuments } from '$lib/model/documents';
 	import { searchSheets, sheetJson, type SheetRow } from '$lib/model/sheets';
@@ -1388,6 +1389,8 @@
 		kept: RetainedAttachment[];
 		schedules: MonitoredSchedule[];
 		knowHow: App[];
+		/** Clients and correspondents the company's outside actions named, newest first. */
+		parties: string[];
 		unreached: string[];
 	} | null = null;
 	/* The lists are small and shared by every keystroke, so a newer query does not cancel them; a
@@ -1401,7 +1404,7 @@
 				unreached.push(what);
 				return empty;
 			});
-		const [sheets, kept, schedules, knowHow] = await Promise.all([
+		const [sheets, kept, schedules, knowHow, parties] = await Promise.all([
 			read('sheets', sheetJson<SheetRow[]>(company), [] as SheetRow[]),
 			owner
 				? read(
@@ -1419,9 +1422,32 @@
 						),
 						[] as App[]
 					)
-				: []
+				: [],
+			owner
+				? read(
+						'clients',
+						getGovernanceActivity(company).then(
+							(record) =>
+								[
+									...new Set(
+										record.items.map((item) => item.party?.trim()).filter((party) => !!party)
+									)
+								] as string[]
+						),
+						[] as string[]
+					)
+				: ([] as string[])
 		]);
-		const lists = { company, at: Date.now(), sheets, kept, schedules, knowHow, unreached };
+		const lists = {
+			company,
+			at: Date.now(),
+			sheets,
+			kept,
+			schedules,
+			knowHow,
+			parties,
+			unreached
+		};
 		if (!unreached.length) libraryLists = lists;
 		return lists;
 	}
@@ -1544,6 +1570,17 @@
 					label: item.schedule.reason,
 					hint: item.schedule.paused_at ? 'Paused' : 'Schedule',
 					href: `${root}/company/schedules?schedule=${encodeURIComponent(item.schedule.id)}`
+				})),
+			/* A client or correspondent opens everything about them. */
+			...lists.parties
+				.filter((party) => named(party))
+				.slice(0, 5)
+				.map((party) => ({
+					id: `party:${party}`,
+					group: 'Clients',
+					label: party,
+					hint: 'Everything about them',
+					href: `${root}/company/party?name=${encodeURIComponent(party)}`
 				})),
 			...lists.knowHow
 				.filter((app) => named(`${app.name} ${app.description}`))
