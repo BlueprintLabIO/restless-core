@@ -373,7 +373,110 @@ pub async fn project(
     authority: &crate::authority::AuthorityStore,
     org: Option<&OrgIntel>,
 ) -> Result<AttentionView> {
-    project_queue(config, authority, org, None).await
+    project_queue(config, authority, org, None, None).await
+}
+
+/// The owner's queue with what the spend ledger adds: a warning before the spend limit.
+pub async fn project_with_spend(
+    config: &CompanyConfig,
+    authority: &crate::authority::AuthorityStore,
+    org: Option<&OrgIntel>,
+    spend: &crate::spend::SpendLedger,
+) -> Result<AttentionView> {
+    project_queue(config, authority, org, None, Some(spend)).await
+}
+
+/// Spend has reached the owner's warning share of the limit: one Inbox item while model work
+/// can still run. It is raised again for a new month, a new limit or a new warning share.
+fn spend_warning_item(
+    config: &CompanyConfig,
+    spend: &crate::spend::SpendLedger,
+) -> Option<AttentionItem> {
+    let period = spend.period_spend(config);
+    if !period.warning() {
+        return None;
+    }
+    let usd = |micro: u64| format!("${:.2}", micro as f64 / 1_000_000.0);
+    let monthly = period.period_start.is_some();
+    // When the warning share was crossed, from the ledger's own records; the item keeps one age.
+    let threshold = u128::from(period.ceiling_micro_usd) * u128::from(period.warning_percent) / 100;
+    let mut running = 0_u128;
+    let crossed_at = spend
+        .records(&config.name)
+        .into_iter()
+        .filter(|record| period.period_start.is_none_or(|start| record.occurred_at >= start))
+        .find(|record| {
+            running += u128::from(record.cost_micro_usd);
+            running >= threshold
+        })
+        .map_or_else(Utc::now, |record| record.occurred_at);
+    let reference = format!(
+        "{}:{}:{}",
+        period
+            .period_start
+            .map_or_else(|| "total".to_string(), |start| start.format("%Y-%m").to_string()),
+        period.ceiling_micro_usd,
+        period.warning_percent
+    );
+    let remaining = period.ceiling_micro_usd.saturating_sub(period.accounted_micro_usd);
+    Some(AttentionItem {
+        id: format!("authority:spend_warning:{reference}"),
+        work_id: None,
+        source: AttentionSource {
+            plane: "authority",
+            kind: "spend_warning".into(),
+            reference,
+            party: None,
+            call_key: None,
+        },
+        category: "risk".into(),
+        title: format!(
+            "Model spend is at {}% of the {}limit",
+            (u128::from(period.accounted_micro_usd) * 100 / u128::from(period.ceiling_micro_usd.max(1))),
+            if monthly { "monthly " } else { "" }
+        ),
+        what_happened: format!(
+            "{} of {} is spent{}; {} is left.",
+            usd(period.accounted_micro_usd),
+            usd(period.ceiling_micro_usd),
+            if monthly { " this month" } else { "" },
+            usd(remaining)
+        ),
+        why_it_matters: "When spend reaches the limit, Exec and Staff stop all model work until the limit is raised."
+            .into(),
+        recommendation: "Raise the limit if the work is worth it, or let the company finish within it.".into(),
+        requested_action: "Review the spend limit.".into(),
+        if_no_action: if monthly {
+            "Model work stops at the limit and resumes next month.".into()
+        } else {
+            "Model work stops at the limit.".into()
+        },
+        uncertainty: matches!(period.budget, crate::spend::ModelBudgetState::MeteringUnknown { .. })
+            .then(|| "Some model responses reported no price, so actual spend may be higher.".into()),
+        deadline: None,
+        brief_status: "source-observed",
+        brief_author: None,
+        briefed_at: None,
+        evidence: Vec::new(),
+        review_sources: Vec::new(),
+        responsible_actor: None,
+        runtime_attach: None,
+        review_target: None,
+        native_document: None,
+        direction_request: None,
+        charter_proposal: None,
+        actions: vec![AttentionAction {
+            id: "open-spend-limit".into(),
+            label: "Open spend limit".into(),
+            role: "inspect",
+            consequence: "Opens Company › Limits, where the limit and its warning are set.".into(),
+            next_state: "The warning clears when spend falls below it, the limit changes, or a new month starts.".into(),
+            href: Some(format!("/{}/company/limits#spend", config.name)),
+        }],
+        can_continue: true,
+        preparing: false,
+        created_at: crossed_at,
+    })
 }
 
 /// Open direction requests routed to `viewer` (the owner sees every one), and approved ones that
@@ -523,7 +626,7 @@ pub async fn project_for(
     org: Option<&OrgIntel>,
     assignee: &str,
 ) -> Result<AttentionView> {
-    let mut view = project_queue(config, authority, org, Some(assignee)).await?;
+    let mut view = project_queue(config, authority, org, Some(assignee), None).await?;
     view.items.retain(|item| {
         item.source.kind == "owner_handoff"
             || item.source.kind == crate::direction::DIRECTION_REQUEST_ATTENTION_KIND
@@ -538,6 +641,7 @@ async fn project_queue(
     authority: &crate::authority::AuthorityStore,
     org: Option<&OrgIntel>,
     assignee: Option<&str>,
+    spend: Option<&crate::spend::SpendLedger>,
 ) -> Result<AttentionView> {
     let approved = approval::approved_parties(authority, &config.name).await?;
     let approvals = authority
@@ -1799,6 +1903,9 @@ async fn project_queue(
                 });
             }
         }
+    }
+    if let Some(warning) = spend.and_then(|spend| spend_warning_item(config, spend)) {
+        items.push(warning);
     }
     let mut seen_sources = HashSet::new();
     items.retain(|item| {

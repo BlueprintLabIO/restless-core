@@ -652,6 +652,24 @@ impl SpendStore {
 
     /// Exact request records remain the source for Work/Attempt telemetry;
     /// aggregates are projections, never a second accounting writer.
+    /// Exact spend recorded before `before`, less corrected duplicates: what a monthly budget
+    /// leaves behind when a new month starts.
+    #[must_use]
+    pub fn accounted_before_micro_usd(&self, company_id: &str, before: DateTime<Utc>) -> u64 {
+        let Ok(state) = self.state.lock() else {
+            return 0;
+        };
+        state
+            .records
+            .values()
+            .filter(|record| {
+                record.company_id == company_id
+                    && record.occurred_at < before
+                    && !state.corrected_requests.contains(&record.request_id)
+            })
+            .fold(0_u64, |total, record| total.saturating_add(record.cost_micro_usd))
+    }
+
     #[must_use]
     pub fn records_for_company(&self, company_id: &str) -> Vec<SpendRecord> {
         let Ok(state) = self.state.lock() else {

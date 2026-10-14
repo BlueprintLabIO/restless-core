@@ -306,7 +306,7 @@ pub fn summarize_parts(
 pub async fn card_for(daemon: &Daemon, company: &str) -> Result<Summary> {
     let config = runtime::CompanyConfig::load(&daemon.root, company)?;
     let org = daemon.orgintel.get(company).await?;
-    let view = attention::project(&config, &daemon.authority, Some(&org)).await?;
+    let view = attention::project_with_spend(&config, &daemon.authority, Some(&org), &daemon.spend).await?;
     let exec_waking = daemon
         .in_flight
         .lock()

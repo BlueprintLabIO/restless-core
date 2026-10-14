@@ -49,6 +49,11 @@ export interface CompanyView {
 			ceiling_usd: number;
 			remaining_usd?: number | null;
 			status: 'available' | 'exhausted' | 'metering_unknown';
+			/** One running total, or a budget for each UTC month. */
+			period: 'total' | 'monthly';
+			period_start?: string | null;
+			/** The share of the limit, in percent, at which the Inbox warns. */
+			warning_percent: number;
 		};
 		/** Native-harness use (Codex or Claude on their own sign-in) this UTC month. */
 		native: {
@@ -430,10 +435,15 @@ export function saveRuntimePolicy(
 	return postCompany<CompanyView>(company, '/company/runtime-policy', body);
 }
 
-/** The monthly spend ceiling; the answer is the company view. */
+/** The model spend limit, its period and its warning share; the answer is the company view. */
 export function saveSpendLimit(
 	company: string,
-	body: { ceiling: string; expected_ceiling: unknown }
+	body: {
+		ceiling: string;
+		expected_ceiling: unknown;
+		period?: 'total' | 'monthly';
+		warning_percent?: number;
+	}
 ) {
 	return postCompany<CompanyView>(company, '/company/spend-limit', body);
 }

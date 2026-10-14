@@ -416,6 +416,39 @@ fn extract_legacy_company_spool(root: &Path, cell_dir: &Path, company: &str) -> 
     Ok(())
 }
 
+/// When the company's budget period began: `None` for one running total, else the start of
+/// this UTC month.
+#[must_use]
+pub fn period_start(company: &CompanyConfig, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+    match company.spend_period {
+        crate::runtime::SpendPeriod::Total => None,
+        crate::runtime::SpendPeriod::Monthly => Utc
+            .with_ymd_and_hms(now.year(), now.month(), 1, 0, 0, 0)
+            .single(),
+    }
+}
+
+/// Spend in the current budget period, as the owner reads it.
+#[derive(Debug, Clone, Copy)]
+pub struct PeriodSpend {
+    pub period_start: Option<DateTime<Utc>>,
+    pub accounted_micro_usd: u64,
+    pub ceiling_micro_usd: u64,
+    pub warning_percent: u8,
+    pub budget: ModelBudgetState,
+}
+
+impl PeriodSpend {
+    /// Spend has reached the warning share of the ceiling but not the ceiling itself.
+    #[must_use]
+    pub fn warning(&self) -> bool {
+        self.ceiling_micro_usd > 0
+            && self.budget.is_available()
+            && u128::from(self.accounted_micro_usd) * 100
+                >= u128::from(self.ceiling_micro_usd) * u128::from(self.warning_percent)
+    }
+}
+
 impl SpendLedger {
     /// Open the ledger under `$RESTLESS_HOME/spend/`, rebuilding per-company
     /// totals from the spool. Failure to open is fatal: a daemon that cannot
@@ -609,7 +642,47 @@ impl SpendLedger {
     /// metering-certainty state. Unknown is not converted into arithmetic.
     #[must_use]
     pub fn budget_state(&self, company: &CompanyConfig) -> ModelBudgetState {
-        self.budget_state_for(&company.name, company.spend_ceiling_usd)
+        self.budget_state_for(&company.name, self.effective_ceiling(company))
+    }
+
+    /// The ceiling admission compares with the running total. A monthly budget is the spend
+    /// before this UTC month plus the month's budget, so every check that reads one total keeps
+    /// working and a new month starts with the whole budget again.
+    #[must_use]
+    pub fn effective_ceiling(&self, company: &CompanyConfig) -> SpendCeiling {
+        match period_start(company, Utc::now()) {
+            None => company.spend_ceiling_usd,
+            Some(start) => SpendCeiling::from_micro_usd(
+                self.accounted_before(&company.name, start)
+                    .saturating_add(company.spend_ceiling_usd.micro_usd()),
+            ),
+        }
+    }
+
+    /// Spend in the company's budget period: all of it, or this UTC month's.
+    #[must_use]
+    pub fn period_spend(&self, company: &CompanyConfig) -> PeriodSpend {
+        let start = period_start(company, Utc::now());
+        let budget = self.budget_state(company);
+        let before = start.map_or(0, |start| self.accounted_before(&company.name, start));
+        let accounted_micro_usd = budget.accounted_micro_usd().saturating_sub(before);
+        let ceiling_micro_usd = company.spend_ceiling_usd.micro_usd();
+        let warning_percent = company
+            .spend_warning_percent
+            .unwrap_or(crate::runtime::DEFAULT_SPEND_WARNING_PERCENT);
+        PeriodSpend {
+            period_start: start,
+            accounted_micro_usd,
+            ceiling_micro_usd,
+            warning_percent,
+            budget,
+        }
+    }
+
+    fn accounted_before(&self, company: &str, before: DateTime<Utc>) -> u64 {
+        self.store(company)
+            .map(|store| store.accounted_before_micro_usd(company, before))
+            .unwrap_or_default()
     }
 
     #[must_use]
@@ -880,6 +953,49 @@ mod tests {
         // Non-destructive: the shared spool stays until an operator removes it.
         assert!(root.join("spend").join("spend.jsonl").exists());
 
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// A monthly budget counts only this UTC month against the limit, so a new month starts with
+    /// the whole budget again; a total budget counts everything. The warning fires before the
+    /// limit and never after it.
+    #[test]
+    fn a_monthly_budget_counts_this_month_and_warns_before_the_limit() {
+        let root = std::env::temp_dir().join(format!("restless-period-spend-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("spend")).unwrap();
+        let row = |cost: u64, at: DateTime<Utc>| {
+            serde_json::json!({
+                "requestId": Uuid::new_v4(), "companyId": "alpha_test", "model": "zai/glm-5.3",
+                "inputTokens": 0, "outputTokens": 0, "totalTokens": 10, "costMicroUsd": cost,
+                "actorId": "exec", "sessionId": "s", "occurredAt": at,
+            })
+            .to_string()
+        };
+        let earlier = Utc::now() - chrono::Duration::days(62);
+        std::fs::write(
+            root.join("spend").join("spend.jsonl"),
+            format!("{}\n{}\n", row(900, earlier), row(300, Utc::now())),
+        )
+        .unwrap();
+        let ledger = SpendLedger::open(&root).unwrap();
+        let mut config: CompanyConfig = toml::from_str(
+            "name = \"alpha_test\"\nspend_ceiling_usd = \"0.001\"\nspend_period = \"monthly\"\nspend_warning_percent = 25\n",
+        )
+        .unwrap();
+        let monthly = ledger.period_spend(&config);
+        assert_eq!(monthly.accounted_micro_usd, 300);
+        assert!(monthly.budget.is_available());
+        assert!(monthly.warning());
+        assert_eq!(ledger.effective_ceiling(&config).micro_usd(), 1_900);
+
+        config.spend_warning_percent = Some(50);
+        assert!(!ledger.period_spend(&config).warning());
+
+        config.spend_period = crate::runtime::SpendPeriod::Total;
+        let total = ledger.period_spend(&config);
+        assert_eq!(total.accounted_micro_usd, 1_200);
+        assert!(!total.budget.is_available());
+        assert!(!total.warning(), "past the limit is not a warning any more");
         std::fs::remove_dir_all(&root).unwrap();
     }
 

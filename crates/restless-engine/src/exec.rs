@@ -309,7 +309,7 @@ pub async fn wake(
                 crate::spend::MeteredTurnHolder::Exec,
                 &auth.session_id,
                 auth.billing,
-                config.spend_ceiling_usd,
+                spend.effective_ceiling(config),
             )
             .await;
         let budget = spend.budget_state(config);

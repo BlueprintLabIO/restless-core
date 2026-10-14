@@ -27,6 +27,8 @@
 		limitSaving = $state(false),
 		limit = $state(''),
 		baseLimit = $state(''),
+		period = $state<'total' | 'monthly'>('total'),
+		warning = $state(80),
 		limitError = $state('');
 	let editingRuntime = $state(false),
 		runtimeSaving = $state(false),
@@ -100,31 +102,54 @@
 	/* The new limit shows the moment Save is pressed; the authority's answer replaces it, and a
 	 * refusal puts the old one back with the editor open on the reason. */
 	async function saveLimit() {
-		if (limitSaving) return;
+		if (limitSaving || !view || view.limits.status !== 'available') return;
 		const ceiling = Number(limit);
 		if (!Number.isFinite(ceiling) || ceiling < 0) {
 			limitError = 'Enter a limit in US dollars, such as 50.';
 			return;
 		}
+		const warn = Math.round(Number(warning));
+		if (!Number.isFinite(warn) || warn < 1 || warn > 99) {
+			limitError = 'Choose a warning between 1% and 99% of the limit.';
+			return;
+		}
+		const spend = view.limits.spend;
+		/* Spend this period counts against the new limit: switching to a monthly budget counts only
+		 * this month. A limit at or below it stops model work the moment it is saved. */
+		const spent = period === spend.period ? spend.accounted_usd : null;
+		if (
+			spent !== null &&
+			ceiling <= spent &&
+			!(await confirmAction({
+				title: `Stop all model work now?`,
+				body: `${money(spent)} is already spent${period === 'monthly' ? ' this month' : ''}, so a limit of ${money(ceiling)} stops Exec and Staff from thinking until the limit is raised${period === 'monthly' ? ' or next month starts' : ''}.`,
+				action: 'Save and stop',
+				danger: true
+			}))
+		)
+			return;
 		limitSaving = true;
 		limitError = '';
 		const before = view;
-		if (before && before.limits.status === 'available') {
-			source.accept({
-				...before,
-				limits: { ...before.limits, spend: { ...before.limits.spend, ceiling_usd: ceiling } }
-			});
-		}
+		source.accept({
+			...before,
+			limits: {
+				...before.limits,
+				spend: { ...spend, ceiling_usd: ceiling, warning_percent: warn }
+			}
+		});
 		editingLimit = false;
 		try {
 			const result = await postSpendLimit(companyId, {
 				ceiling: limit,
-				expected_ceiling: baseLimit
+				expected_ceiling: baseLimit,
+				period,
+				warning_percent: warn
 			});
 			source.accept(result);
 			toast('Spend limit saved');
 		} catch (e) {
-			if (before) source.accept(before);
+			source.accept(before);
 			limitError = failureSentence(e, 'The limit could not be saved.');
 			editingLimit = true;
 		} finally {
@@ -172,10 +197,13 @@
 	{:else if section === 'spend'}
 		{@const spend = view.limits.spend}
 		{@const share = Math.min(100, (spend.accounted_usd / Math.max(spend.ceiling_usd, 0.01)) * 100)}
+		{@const monthly = spend.period === 'monthly'}
 		<Section
 			id="spend"
 			title="Spend"
-			info="The total model budget across all work, not a monthly one. Lowering it does not undo past spend."
+			info={monthly
+				? `A model budget for each calendar month (UTC), across all work. The Inbox warns at ${spend.warning_percent}%; at the limit, model work stops until next month or a higher limit.`
+				: `The total model budget across all work so far. The Inbox warns at ${spend.warning_percent}%; at the limit, model work stops. Lowering it does not undo past spend.`}
 		>
 			{#snippet actions()}
 				{#if !editingLimit}<button
@@ -183,6 +211,8 @@
 						onclick={() => {
 							limit = String(spend.ceiling_usd);
 							baseLimit = limit;
+							period = spend.period;
+							warning = spend.warning_percent;
 							limitError = '';
 							editingLimit = true;
 						}}>Edit limit</button
@@ -201,12 +231,17 @@
 							spend.accounted_usd
 						)}</strong
 					>
-					<span>of {money(spend.ceiling_usd)} model budget</span>
+					<span
+						>of {money(spend.ceiling_usd)}
+						{monthly ? 'this month' : 'model budget'}{spend.remaining_usd != null
+							? ` · ${money(spend.remaining_usd)} left`
+							: ''}</span
+					>
 					<span class="meter-share">{Math.round(share)}%</span>
 				</div>
 				<div
 					class="meter"
-					class:high={share >= 80}
+					class:high={share >= spend.warning_percent}
 					role="meter"
 					aria-label="Model spend"
 					aria-valuemin={0}
@@ -225,7 +260,12 @@
 						void saveLimit();
 					}}
 				>
-					<label for="spend-limit">Total limit (USD)</label>
+					<label for="spend-period" class="sr-only">Budget period</label>
+					<select id="spend-period" bind:value={period} disabled={limitSaving}>
+						<option value="total">Total limit</option>
+						<option value="monthly">Monthly limit</option>
+					</select>
+					<label for="spend-limit" class="sr-only">Limit in US dollars</label>
 					<input
 						id="spend-limit"
 						type="text"
@@ -234,7 +274,21 @@
 						required
 						bind:value={limit}
 						disabled={limitSaving}
+						title="US dollars"
 					/>
+					<label for="spend-warning">Warn at</label>
+					<input
+						id="spend-warning"
+						class="percent"
+						type="number"
+						min="1"
+						max="99"
+						step="1"
+						required
+						bind:value={warning}
+						disabled={limitSaving}
+						title="An Inbox item tells you when spend reaches this share of the limit, before model work stops."
+					/><span>%</span>
 					<button class="btn primary small" disabled={limitSaving}
 						>{limitSaving ? 'Saving…' : 'Save'}</button
 					>
@@ -555,6 +609,9 @@
 	}
 	.inline-form input {
 		width: 120px;
+	}
+	.inline-form input.percent {
+		width: 72px;
 	}
 	.hours {
 		width: 120px;

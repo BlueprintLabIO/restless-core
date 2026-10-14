@@ -853,7 +853,7 @@ pub async fn dispatch_actor_conversation(
     let registry = runtime.registry.clone();
     let schedule_wake = std::sync::Arc::clone(runtime.schedule_wake);
     let spend = runtime.spend.clone();
-    let spend_ceiling = config.spend_ceiling_usd;
+    let spend_ceiling = spend.effective_ceiling(config);
     let coordination_harness = config.coordination_harness;
     let reasoning_effort = config.reasoning_effort.clone();
     let authority = runtime.authority.clone();

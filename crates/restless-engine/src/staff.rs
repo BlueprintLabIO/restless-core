@@ -718,7 +718,7 @@ pub async fn dispatch_claimed_work(
     let registry = registry.clone();
     let schedule_wake = std::sync::Arc::clone(schedule_wake);
     let spend = spend.clone();
-    let spend_ceiling = config.spend_ceiling_usd;
+    let spend_ceiling = spend.effective_ceiling(config);
     let worker_harness = config.worker_harness;
     let reasoning_effort = config.reasoning_effort.clone();
     let authority = authority.clone();

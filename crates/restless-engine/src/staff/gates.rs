@@ -1250,6 +1250,8 @@ mod tests {
             internal_network: false,
             mission: "Sprint 26 integrated fixture".into(),
             spend_ceiling_usd: SpendCeiling::from_micro_usd(0),
+            spend_period: Default::default(),
+            spend_warning_percent: None,
             monthly_runtime_cap_hours: None,
             native_monthly_turn_limit: None,
             native_monthly_token_limit: None,

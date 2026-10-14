@@ -1888,8 +1888,9 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
         "spend" => match runtime::CompanyConfig::load(&daemon.root, company) {
             Ok(config) => {
                 let by_actor = daemon.spend.breakdown(company);
-                let budget = daemon.spend.budget_state(&config);
-                let accounted = budget.accounted_micro_usd() as f64 / 1_000_000.0;
+                let period = daemon.spend.period_spend(&config);
+                let budget = period.budget;
+                let accounted = period.accounted_micro_usd as f64 / 1_000_000.0;
                 let status = match budget {
                     spend::ModelBudgetState::Available { .. } => "available",
                     spend::ModelBudgetState::Exhausted { .. } => "exhausted",
@@ -1911,6 +1912,7 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                     "ceiling_usd": config.spend_ceiling_usd.as_usd(),
                     "remaining_usd": budget.remaining_micro_usd().map(|remaining| round_usd(remaining as f64 / 1_000_000.0)),
                     "status": status,
+                    "period": config.spend_period.as_str(),
                     "note": if status == "metering_unknown" {
                         serde_json::json!(
                             "Some model responses reported no price, so `accounted_usd` is a lower bound and actual spend may be higher. Charged work continues until known spend reaches the ceiling."

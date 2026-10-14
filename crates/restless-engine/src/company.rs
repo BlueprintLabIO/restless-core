@@ -192,6 +192,12 @@ struct SpendLimit {
     #[serde(skip_serializing_if = "Option::is_none")]
     remaining_usd: Option<f64>,
     status: &'static str,
+    /// `total` or `monthly` (a UTC calendar month).
+    period: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    period_start: Option<DateTime<Utc>>,
+    /// The share of the ceiling at which the Inbox warns.
+    warning_percent: u8,
 }
 
 #[derive(Debug, Serialize)]
@@ -385,9 +391,13 @@ pub async fn project(
         ),
     };
 
-    let budget = daemon.spend.budget_state(config);
-    let accounted_usd = budget.accounted_micro_usd() as f64 / 1_000_000.0;
+    let period = daemon.spend.period_spend(config);
+    let budget = period.budget;
+    let accounted_usd = period.accounted_micro_usd as f64 / 1_000_000.0;
     let spend = SpendLimit {
+        period: config.spend_period.as_str(),
+        period_start: period.period_start,
+        warning_percent: period.warning_percent,
         model: config.model.clone(),
         accounted_usd: round_usd(accounted_usd),
         ceiling_usd: config.spend_ceiling_usd.as_usd(),

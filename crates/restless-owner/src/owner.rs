@@ -5204,6 +5204,8 @@ async fn copy_company_setup(
         )
     }) {
         target.spend_ceiling_usd = source.spend_ceiling_usd;
+        target.spend_period = source.spend_period;
+        target.spend_warning_percent = source.spend_warning_percent;
     }
     if sections.iter().any(|section| {
         matches!(
@@ -5832,7 +5834,13 @@ async fn attention_view(
     let org = state.daemon.orgintel.get(&company).await.ok();
     // Everyone else's Inbox is the same projection, of what is assigned to them alone.
     let projected = if principal.membership_role() == "owner" {
-        attention::project(&config, &state.daemon.authority, org.as_ref()).await
+        attention::project_with_spend(
+            &config,
+            &state.daemon.authority,
+            org.as_ref(),
+            &state.daemon.spend,
+        )
+        .await
     } else {
         attention::project_for(
             &config,
@@ -7048,8 +7056,9 @@ async fn cockpit_view(
     };
 
     let spend_breakdown = state.daemon.spend.breakdown(&company);
-    let budget = state.daemon.spend.budget_state(&config);
-    let accounted_usd = budget.accounted_micro_usd() as f64 / 1_000_000.0;
+    let period = state.daemon.spend.period_spend(&config);
+    let budget = period.budget;
+    let accounted_usd = period.accounted_micro_usd as f64 / 1_000_000.0;
     let cooldowns = state
         .daemon
         .authority

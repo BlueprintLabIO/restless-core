@@ -490,6 +490,13 @@ pub struct CompanyConfig {
     /// Per-company model spend ceiling in USD (T2). The fuse, not governance.
     #[serde(default = "default_ceiling")]
     pub spend_ceiling_usd: SpendCeiling,
+    /// Whether the ceiling covers all spend so far or each UTC calendar month.
+    #[serde(default, skip_serializing_if = "SpendPeriod::is_total")]
+    pub spend_period: SpendPeriod,
+    /// The share of the ceiling, in percent, at which the owner's Inbox warns before the ceiling
+    /// stops model work. `None` warns at [`DEFAULT_SPEND_WARNING_PERCENT`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spend_warning_percent: Option<u8>,
     /// Optional monthly running-time cap. It gates new Runtime starts and does
     /// not stop work that is already running. This is a capacity policy, not a
     /// representation of the provider's invoice.
@@ -541,6 +548,33 @@ pub struct CompanyConfig {
     #[serde(default)]
     pub approved_parties: Vec<String>,
 }
+
+/// Whether a company's spend ceiling is one running total or a budget for each UTC month.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SpendPeriod {
+    #[default]
+    Total,
+    Monthly,
+}
+
+impl SpendPeriod {
+    #[must_use]
+    pub fn is_total(&self) -> bool {
+        *self == Self::Total
+    }
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Total => "total",
+            Self::Monthly => "monthly",
+        }
+    }
+}
+
+/// The Inbox warns when spend reaches this share of the ceiling, unless the owner chose another.
+pub const DEFAULT_SPEND_WARNING_PERCENT: u8 = 80;
 
 fn default_ceiling() -> SpendCeiling {
     SpendCeiling::from_micro_usd(10_000_000)
@@ -4777,6 +4811,8 @@ worker_harness = "claude_agent"
             internal_network: false,
             mission: "Preserve me".into(),
             spend_ceiling_usd: SpendCeiling::from_micro_usd(5_000_000),
+            spend_period: Default::default(),
+            spend_warning_percent: None,
             monthly_runtime_cap_hours: None,
             native_monthly_turn_limit: None,
             native_monthly_token_limit: None,

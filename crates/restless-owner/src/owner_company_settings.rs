@@ -130,6 +130,12 @@ pub(super) async fn save_identity(
 pub(super) struct SpendLimitInput {
     ceiling: runtime::SpendCeiling,
     expected_ceiling: runtime::SpendCeiling,
+    /// `total` or `monthly`; absent keeps the current period.
+    #[serde(default)]
+    period: Option<runtime::SpendPeriod>,
+    /// The share of the ceiling, 1–99%, at which the Inbox warns; absent keeps it.
+    #[serde(default)]
+    warning_percent: Option<u8>,
 }
 
 pub(super) async fn save_spend_limit(
@@ -157,7 +163,19 @@ pub(super) async fn save_spend_limit(
             "The spend limit changed. Reload the saved limit before trying again.",
         );
     }
-    if config.spend_ceiling_usd != input.ceiling {
+    if input.warning_percent.is_some_and(|percent| !(1..=99).contains(&percent)) {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "spend_limit",
+            "Choose a warning between 1% and 99% of the limit.",
+        );
+    }
+    let period = input.period.unwrap_or(config.spend_period);
+    let warning = input.warning_percent.or(config.spend_warning_percent);
+    if config.spend_ceiling_usd != input.ceiling
+        || config.spend_period != period
+        || config.spend_warning_percent != warning
+    {
         if let Err(e) = state
             .daemon
             .authority
@@ -165,7 +183,13 @@ pub(super) async fn save_spend_limit(
                 &company,
                 "company_spend_limit_requested",
                 Some(principal.actor_id()),
-                serde_json::json!({"previous": config.spend_ceiling_usd, "ceiling": input.ceiling}),
+                serde_json::json!({
+                    "previous": config.spend_ceiling_usd,
+                    "ceiling": input.ceiling,
+                    "previous_period": config.spend_period,
+                    "period": period,
+                    "warning_percent": warning,
+                }),
             )
             .await
         {
@@ -176,6 +200,8 @@ pub(super) async fn save_spend_limit(
             );
         }
         config.spend_ceiling_usd = input.ceiling;
+        config.spend_period = period;
+        config.spend_warning_percent = warning;
         if let Err(e) = runtime::CompanyConfig::save(&state.daemon.root, &config) {
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -190,7 +216,7 @@ pub(super) async fn save_spend_limit(
                 &company,
                 "company_spend_limit_changed",
                 Some(principal.actor_id()),
-                serde_json::json!({"ceiling": input.ceiling}),
+                serde_json::json!({"ceiling": input.ceiling, "period": period, "warning_percent": warning}),
             )
             .await
         {

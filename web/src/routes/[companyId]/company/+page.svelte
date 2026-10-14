@@ -17,15 +17,21 @@
 	const spendLine = $derived.by(() => {
 		const spend = setup.spend;
 		if (!spend) return '';
-		/* The budget is a running total across all work, never reset monthly (Limits says so too). */
+		/* A running total, or this month's spend against a monthly budget (Limits sets which). */
 		const floor = spend.status === 'metering_unknown' ? 'At least ' : '';
-		return `${floor}${money(spend.accounted_usd)} of ${money(spend.ceiling_usd)} model budget`;
+		const budget = spend.period === 'monthly' ? 'this month' : 'model budget';
+		return `${floor}${money(spend.accounted_usd)} of ${money(spend.ceiling_usd)} ${budget}`;
 	});
-	const spendWhy = $derived(
-		setup.spend?.status === 'metering_unknown'
-			? "Model spend so far against the company's total budget. Some use could not be metered, so the real figure may be higher."
-			: "Model spend so far against the company's total budget. It is a running total, not a monthly one."
-	);
+	const spendWhy = $derived.by(() => {
+		const spend = setup.spend;
+		const against =
+			spend?.period === 'monthly'
+				? "Model spend this month (UTC) against the company's monthly budget."
+				: "Model spend so far against the company's total budget, a running total.";
+		return spend?.status === 'metering_unknown'
+			? `${against} Some use could not be metered, so the real figure may be higher.`
+			: against;
+	});
 	const working = $derived(setup.working);
 </script>
 

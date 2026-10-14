@@ -1050,6 +1050,8 @@ fn desired_company_config(
         internal_network: false,
         mission: String::new(),
         spend_ceiling_usd: runtime::SpendCeiling::from_micro_usd(10_000_000),
+        spend_period: Default::default(),
+        spend_warning_percent: None,
         monthly_runtime_cap_hours: None,
         native_monthly_turn_limit: None,
         native_monthly_token_limit: None,

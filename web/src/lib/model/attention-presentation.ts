@@ -37,6 +37,7 @@ export function attentionKindLabel(item: AttentionItem): string {
 	if (item.category === 'human_step') return 'Your step';
 	if (item.category === 'conversation') return 'Question';
 	if (item.source.kind === 'direction_request') return 'Request';
+	if (item.source.kind === 'spend_warning') return 'Spend';
 	return 'Decision';
 }
 
