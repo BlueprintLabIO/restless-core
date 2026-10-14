@@ -1,9 +1,9 @@
 /* A Word or Excel file made into a native document or sheet the company can edit. Excel and CSV go
- * through the sheet import the Sheets page already uses; a Word file is read as Markdown in the
- * browser and becomes the first saved version of a new document. The original file is untouched. */
-import { createDocument, emptyDocument, getDocument } from './documents';
+ * through the sheet import the Sheets page already uses; a Word file is read in the browser and
+ * becomes the body of a new document. The original file is untouched. */
+import { createDocument, type DocumentContent } from './documents';
+import { htmlDocumentContent } from './docx-content';
 import { importSpreadsheet } from './sheets';
-import { ownerJson } from './failure';
 
 export type ImportKind = 'doc' | 'sheet';
 
@@ -26,25 +26,15 @@ export function importTitle(name: string, fallback: string): string {
 	);
 }
 
-/** A Word document's text as Markdown. Images are left out: a document carries text, and an
- * embedded picture would otherwise arrive as a very long data address. */
-export async function docxMarkdown(bytes: ArrayBuffer): Promise<string> {
-	const mammoth = (await import('mammoth')).default as unknown as {
-		convertToMarkdown(
-			input: { arrayBuffer: ArrayBuffer },
-			options?: Record<string, unknown>
-		): Promise<{ value: string }>;
-		images: { imgElement(read: () => Promise<{ src: string }>): unknown };
-	};
-	const result = await mammoth.convertToMarkdown(
+/** A Word document as a native document body. Pictures are left out: mammoth would carry them as
+ * very long data addresses, and a document image is a company file of its own. */
+export async function docxContent(bytes: ArrayBuffer): Promise<DocumentContent> {
+	const mammoth = (await import('mammoth')).default;
+	const result = await mammoth.convertToHtml(
 		{ arrayBuffer: bytes },
 		{ convertImage: mammoth.images.imgElement(() => Promise.resolve({ src: '' })) }
 	);
-	return result.value
-		.replace(/!\[[^\]]*\]\([^)]*\)/g, '')
-		.replace(/<a id="[^"]*"><\/a>/g, '')
-		.replace(/\n{3,}/g, '\n\n')
-		.trim();
+	return htmlDocumentContent(new DOMParser().parseFromString(result.value, 'text/html').body);
 }
 
 /** Make the file an editable document or sheet and return where it opens. */
@@ -56,9 +46,9 @@ export async function importOfficeFile(
 	if (kind === 'sheet') return { kind, id: (await importSpreadsheet(company, file)).id };
 	if (kind !== 'doc')
 		throw new Error('Choose a Word document (.docx), an Excel workbook or a CSV.');
-	let markdown: string;
+	let content: DocumentContent;
 	try {
-		markdown = await docxMarkdown(await file.arrayBuffer());
+		content = await docxContent(await file.arrayBuffer());
 	} catch {
 		throw new Error(
 			'This Word document could not be read. If it has a password, remove it in Word first.'
@@ -72,29 +62,11 @@ export async function importOfficeFile(
 			visibility: 'company',
 			linked_room_id: null,
 			inherit_room_visibility: false,
-			content_json: emptyDocument(),
+			content_json: content,
 			reason: `Imported from ${file.name}`.slice(0, 200)
 		},
 		crypto.randomUUID()
 	);
-	if (markdown) {
-		const created = await getDocument(company, receipt.document_id);
-		await ownerJson(
-			await fetch(
-				`/api/companies/${encodeURIComponent(company)}/documents/${encodeURIComponent(receipt.document_id)}/imports/markdown`,
-				{
-					method: 'POST',
-					credentials: 'same-origin',
-					headers: { 'content-type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
-					body: JSON.stringify({
-						expected_current_version_id: created.current_version.version.id,
-						markdown,
-						reason: `Imported from ${file.name}`.slice(0, 200)
-					})
-				}
-			)
-		);
-	}
 	return { kind, id: receipt.document_id };
 }
 
