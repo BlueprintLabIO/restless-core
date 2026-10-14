@@ -5160,7 +5160,8 @@ mod tests {
         let cli_source = concat!(
             include_str!("../../restless/src/main.rs"),
             include_str!("../../restless/src/document.rs"),
-            include_str!("../../restless/src/sheet.rs")
+            include_str!("../../restless/src/sheet.rs"),
+            include_str!("../../restless/src/direction.rs")
         );
         let dispatch = daemon_source
             .split("match request.cmd.as_str() {")
