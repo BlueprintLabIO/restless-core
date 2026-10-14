@@ -303,7 +303,7 @@
 	</div>
 	{#if actionError}<p class="turn-action-error" role="alert">{actionError}</p>{/if}
 
-	{#if reply && !expanded && turn.transport !== 'idle' && !(phase === 'failed' && replyIsError(reply, turn.live?.error))}
+	{#if reply && !expanded && turn.transport !== 'idle' && !turn.replyLanded && !(phase === 'failed' && replyIsError(reply, turn.live?.error))}
 		<article
 			class="streamed-reply visible-reply"
 			aria-label={`${participantName} streaming reply`}

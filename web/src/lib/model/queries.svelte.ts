@@ -421,6 +421,8 @@ export interface ActiveAgentTurn {
 	since: Date | string;
 	live: AgentActivityState | null;
 	transport: ActivityTransport;
+	/** The agent's saved reply is already in the conversation, so the streamed copy steps aside. */
+	replyLanded?: boolean;
 }
 
 /* A turn stays on screen after it ends so the dock can say "Replied" or why it failed; only a
@@ -630,11 +632,18 @@ export function conversationQuery(
 			const current = live;
 			const messageId = current?.triggerMessageId ?? followingMessageId ?? Number(pending?.id);
 			if (!Number.isFinite(messageId)) return null;
+			/* The saved reply can arrive before the stream says it finished; showing both drew the
+			 * reply twice for a moment, then dropped one (S85-04). */
+			const held = (query.data as ActorConversation | undefined)?.messages ?? [];
+			const replyLanded = held.some(
+				(message) => message.id > messageId && message.from_actor === actorId
+			);
 			return {
 				triggerMessageId: messageId,
 				since: current?.startedAt ?? pending?.createdAt ?? new Date(),
 				live: current,
-				transport
+				transport,
+				replyLanded
 			};
 		},
 		get working() {
