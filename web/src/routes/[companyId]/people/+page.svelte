@@ -1101,6 +1101,9 @@
 						</header>
 						{#if teamOwnerId(entry.team)}
 							<p class="team-owner">Owned by {teamOwnerName(teamOwnerId(entry.team) ?? '')}</p>
+						{:else if owner}
+							<!-- A team nobody else owns is the owner's (S85-19). -->
+							<p class="team-owner">Owned by you</p>
 						{/if}
 						{#if teamEdit && teamEdit.team === entry.team.id && teamEdit.mode !== 'new'}
 							<TeamEditor
@@ -1440,8 +1443,11 @@
 		min-height: 0;
 		padding: 1px 2px 8px;
 	}
+	/* One column no wider than the sidebar: a long status ellipsizes instead of widening the row
+	 * under its hover menu (S85-20). */
 	.directory-section {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: 1px;
 	}
 	.directory-section + .directory-section {
@@ -1535,6 +1541,7 @@
 	/* Each row keeps its menu beside the link, shown on hover or focus (always on touch). */
 	.person-row {
 		position: relative;
+		min-width: 0;
 	}
 	.person-menu {
 		position: absolute;
