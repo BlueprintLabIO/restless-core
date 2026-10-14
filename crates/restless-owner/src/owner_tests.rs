@@ -2889,6 +2889,7 @@ model = \"anthropic/claude-sonnet-5-5\"
             (Method::PUT, "/api/companies/aris/schedules/schedule-1"),
             (Method::POST, "/api/companies/aris/loops"),
             (Method::PUT, "/api/companies/aris/intelligence/exec"),
+            (Method::PUT, "/api/companies/aris/intelligence-effort"),
             (Method::GET, "/api/companies/aris/vault"),
             (Method::GET, "/api/companies/aris/attention/dismissed"),
             (Method::POST, "/api/companies/aris/approvals/grant"),
@@ -2913,6 +2914,7 @@ model = \"anthropic/claude-sonnet-5-5\"
         for (method, path) in [
             (Method::POST, "/api/companies/aris/company/charter"),
             (Method::PUT, "/api/companies/aris/intelligence/exec"),
+            (Method::PUT, "/api/companies/aris/intelligence-effort"),
             (Method::GET, "/api/companies/aris/vault"),
             (Method::POST, "/api/companies/aris/approvals/grant"),
             (Method::POST, "/api/companies/aris/company/spend-limit"),

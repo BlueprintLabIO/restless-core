@@ -88,6 +88,22 @@ export function intelligenceQuery(company: string, enabled: () => boolean = () =
 }
 
 /** Choose the model an agent (or the company default) uses from its next session. */
+/** How hard every agent of the company thinks: one company setting. */
+export const EFFORTS = [
+	{ value: 'low', label: 'Low', hint: 'Fastest and cheapest' },
+	{ value: 'medium', label: 'Medium', hint: 'Balanced' },
+	{ value: 'high', label: 'High', hint: 'More careful, slower' },
+	{ value: 'xhigh', label: 'Extra high', hint: 'For hard judgement' },
+	{ value: 'max', label: 'Max', hint: 'Slowest and most expensive' }
+] as const;
+
+export function setEffort(company: string, body: { effort: string; revision: string }) {
+	return ownerRequest<unknown>(
+		`/api/companies/${encodeURIComponent(company)}/intelligence-effort`,
+		{ method: 'PUT', json: body }
+	);
+}
+
 export function assignModel(
 	company: string,
 	actor: string,

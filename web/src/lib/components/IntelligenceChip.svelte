@@ -1,9 +1,14 @@
 <script lang="ts">
 	/* Which model this agent thinks with, one click from where the owner talks
 	 * to it. Choosing another model of the same connection applies to its next
-	 * session, and the toast says so; thinking effort and everything else live in
-	 * Company › Intelligence. */
-	import { assignModel, intelligenceQuery } from '$lib/model/intelligence.svelte';
+	 * session, and the toast says so. Thinking effort is one company setting, chosen here too;
+	 * everything else lives in Company › Intelligence. */
+	import {
+		EFFORTS,
+		assignModel,
+		intelligenceQuery,
+		setEffort
+	} from '$lib/model/intelligence.svelte';
 	import { effortLabel, modelLabel } from '$lib/model/intelligence-labels';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
 	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
@@ -70,6 +75,27 @@
 			busy = false;
 		}
 	}
+	async function chooseEffort(effort: string) {
+		if (!source.view || busy || effort === agent?.thinking_effort) return;
+		busy = true;
+		failure = '';
+		try {
+			await setEffort(companyId, { effort, revision: source.view.revision });
+			announceIntelligenceChange(companyId);
+			const label = EFFORTS.find((row) => row.value === effort)?.label ?? effort;
+			toast(`Agents will think with ${label.toLowerCase()} effort from their next session.`);
+		} catch (cause) {
+			failure = failureSentence(cause, 'Could not change the effort.');
+		} finally {
+			await source.refresh();
+			busy = false;
+		}
+	}
+	/* The chip names the model, short: the family without its provider or date. */
+	const shortModel = $derived.by(() => {
+		const label = agent ? modelLabel(agent.effective_model) : '';
+		return label.length > 18 ? `${label.slice(0, 17)}…` : label;
+	});
 	holdQueries(() => [source]);
 </script>
 
@@ -82,14 +108,28 @@
 		title={`${name} thinks with ${modelLabel(agent.effective_model)}, ${effortLabel(agent.thinking_effort).toLowerCase()} effort`}
 	>
 		<ActionMenu label={`${name}’s model`}>
-			{#snippet trigger()}<span class="face" aria-hidden="true"
-					><Brain size={14} strokeWidth={1.8} /></span
+			{#snippet trigger()}<span class="face"
+					><Brain size={14} strokeWidth={1.8} aria-hidden="true" /><span class="model-name"
+						>{shortModel}</span
+					></span
 				>{/snippet}
-			<p class="now" title="Thinking effort is set for the company under All intelligence settings">
+			<p class="now">
 				{modelLabel(agent.effective_model)}<i aria-hidden="true">·</i>{effortLabel(
 					agent.thinking_effort
 				)} effort
 			</p>
+			<div class="efforts" role="group" aria-label="Thinking effort for every agent">
+				{#each EFFORTS as effort (effort.value)}
+					<button
+						type="button"
+						class:on={agent.thinking_effort === effort.value}
+						aria-pressed={agent.thinking_effort === effort.value}
+						disabled={busy}
+						title={`${effort.hint}. Applies to every agent from their next session.`}
+						onclick={() => chooseEffort(effort.value)}>{effort.label}</button
+					>
+				{/each}
+			</div>
 			{#if choices.length >= FILTER_FROM || assignment?.connection.includes('openrouter')}<input
 					class="filter"
 					type="search"
@@ -133,13 +173,45 @@
 		min-width: 0;
 	}
 	.chip :global(summary) {
-		display: grid;
-		place-items: center;
-		width: 24px;
+		display: flex;
+		align-items: center;
+		min-width: 0;
 		height: 24px;
-		padding: 0;
+		padding: 0 6px;
 		border-radius: 999px;
 		color: var(--text-tertiary);
+	}
+	.face {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		min-width: 0;
+	}
+	.model-name {
+		min-width: 0;
+		overflow: hidden;
+		font-size: var(--t-label);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.efforts {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 2px;
+		margin: 0 8px 6px;
+	}
+	.chip :global(.action-menu-panel .efforts button) {
+		flex: 1 0 auto;
+		justify-content: center;
+		padding: 2px 6px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		font-size: var(--t-label);
+	}
+	.chip :global(.action-menu-panel .efforts button.on) {
+		border-color: var(--border-strong);
+		background: var(--surface-hover);
+		color: var(--ink);
 	}
 	.chip :global(summary:hover) {
 		color: var(--ink);

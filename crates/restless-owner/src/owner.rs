@@ -1479,6 +1479,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/companies/{company}/intelligence/{actor}",
             axum::routing::put(update_agent_intelligence),
         )
+        .route(
+            "/companies/{company}/intelligence-effort",
+            axum::routing::put(update_reasoning_effort),
+        )
         .route("/companies/{company}/archive", post(archive_company))
         .route("/companies/{company}/restore", post(restore_company))
         .route("/companies/{company}/attention", get(attention_view))
@@ -12067,6 +12071,50 @@ async fn update_agent_intelligence(
         .into_response(),
         Err(error) => api_error(StatusCode::BAD_REQUEST, "intelligence", error.to_string()),
     }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReasoningEffortInput {
+    effort: String,
+    revision: String,
+}
+
+/// How hard the company's agents think, chosen where the owner talks to them. The effort is
+/// one company setting; the model stays per agent.
+async fn update_reasoning_effort(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<ReasoningEffortInput>,
+) -> Response<Body> {
+    let _write = state.charter_writes.lock().await;
+    let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(c) => c,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
+    };
+    if company_setup_view(&config)["revision"].as_str() != Some(&input.revision) {
+        return api_error(
+            StatusCode::CONFLICT,
+            "revision",
+            "Settings changed. Refresh and try again.",
+        );
+    }
+    if !matches!(
+        input.effort.as_str(),
+        "low" | "medium" | "high" | "xhigh" | "max"
+    ) {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "intelligence",
+            "Choose low, medium, high, xhigh or max effort.",
+        );
+    }
+    config.reasoning_effort = input.effort;
+    if let Err(error) = runtime::CompanyConfig::save(&state.daemon.root, &config) {
+        return api_error(StatusCode::BAD_REQUEST, "intelligence", error.to_string());
+    }
+    Json(serde_json::json!({"saved":true,"revision":company_setup_view(&config)["revision"]}))
+        .into_response()
 }
 
 async fn company_vault(
