@@ -47,6 +47,7 @@
 		roomQueryKeys,
 		roomReadCursorQuery,
 		roomsQuery,
+		archivedRoomsQuery,
 		roomThreadQuery
 	} from '$lib/model/room-queries.svelte';
 	import { useQueryClient } from '@tanstack/svelte-query';
@@ -119,7 +120,6 @@
 	const readProjection = $derived(
 		selectedRoomId ? roomReadCursorQuery(companyId, selectedRoomId) : null
 	);
-	const activity = $derived(selectedRoomId ? roomActivityStream(companyId, selectedRoomId) : null);
 	const threadProjection = $derived(
 		selectedRoomId && threadRootId ? roomThreadQuery(companyId, selectedRoomId, threadRootId) : null
 	);
@@ -215,12 +215,29 @@
 
 	const hasMessageSearch = $derived(messageSearch.trim().length > 0);
 	const messageSearchPending = $derived(messageSearch.trim() !== debouncedMessageSearch);
-	const knownRooms = $derived(new Map(roomList.rooms.map((room) => [room.id, room])));
+	/* An archived group opens read only for those still in it; it is not on the live list. */
+	const archivedRooms = $derived(
+		archivedRoomsQuery(
+			companyId,
+			() =>
+				!!requestedRoomId &&
+				roomList.status !== 'unknown' &&
+				!roomList.hasMore &&
+				!roomList.rooms.some((room) => room.id === requestedRoomId)
+		)
+	);
+	const knownRooms = $derived(
+		new Map([...archivedRooms.rooms, ...roomList.rooms].map((room) => [room.id, room]))
+	);
 	const selectedRoom = $derived(
 		knownRooms.get(selectedRoomId) ??
 			(resolvedPersonRoom?.key === `${companyId}:${principalActorId}:${requestedPersonId}`
 				? resolvedPersonRoom.room
 				: null)
+	);
+	const archivedRoom = $derived(!!selectedRoom?.archived_at);
+	const activity = $derived(
+		selectedRoomId && !archivedRoom ? roomActivityStream(companyId, selectedRoomId) : null
 	);
 	$effect(() => {
 		const id = selectedRoomId,
@@ -623,7 +640,7 @@
 	);
 	/* Everyone in a conversation reacts and pins, as the server allows anyone who can read it;
 	 * turning a message into Work stays the owner's, since it asks the Exec. */
-	const mayReact = $derived(!!currentActorId);
+	const mayReact = $derived(!!currentActorId && !archivedRoom);
 	const reactions = reactionsQuery(
 		() => companyId,
 		() =>
@@ -679,7 +696,7 @@
 		const company = companyId;
 		const projection = readProjection;
 		const through = lastLoadedMessageId;
-		if (!online || !room || through === null) return;
+		if (!online || !room || through === null || archivedRoom) return;
 		if (room === lastMarkedRoom && through <= lastMarkedMessage) return;
 		if (readProjection?.cursor?.last_read_message_id === through) return;
 		lastMarkedRoom = room;
@@ -1333,7 +1350,7 @@
 						disabled
 						title="Participants must finish loading before starting a group.">Add people</button
 					>
-				{:else if selectedRoom}
+				{:else if selectedRoom && !archivedRoom}
 					<RoomManager
 						{companyId}
 						actorId={currentActorId}
@@ -1742,6 +1759,16 @@
 </div>
 
 {#snippet messageComposer()}
+	{#if archivedRoom}
+		<p class="room-archived" role="status">
+			Archived. You can read it; only its owner can bring it back to write in.
+		</p>
+	{:else}
+		{@render liveComposer()}
+	{/if}
+{/snippet}
+
+{#snippet liveComposer()}
 	<p class="room-typing" aria-live="polite">{typingLine}</p>
 	<form class="room-composer" onsubmit={submitMessage} bind:this={composerForm}>
 		<Composer
@@ -1952,6 +1979,13 @@
 		color: var(--ink);
 		font: inherit;
 		cursor: pointer;
+	}
+	.room-archived {
+		margin: 0;
+		padding: 12px 16px;
+		border-top: 1px solid var(--border);
+		color: var(--text-secondary);
+		font-size: var(--t-body);
 	}
 	.room-contact:hover strong {
 		text-decoration: underline;

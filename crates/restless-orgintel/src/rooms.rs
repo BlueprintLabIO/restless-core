@@ -329,6 +329,40 @@ impl OrgIntel {
     }
 }
 
+/// Read access, which outlives archive: someone still in an archived group may
+/// read what was said there without restoring it for everyone. Writes keep
+/// using `active_room_access`, so an archived Room stays closed to them.
+async fn readable_room_kind(
+    tx: &mut Transaction<'_, Postgres>,
+    room_id: Uuid,
+    actor_id: &str,
+) -> Result<RoomKind> {
+    sqlx::query("SELECT id FROM actors WHERE id=$1 AND retired_at IS NULL FOR SHARE")
+        .bind(actor_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| {
+            OrgIntelError::RoomAccessDenied(
+                "the active actor is not an active participant in this Room".into(),
+            )
+        })?;
+    sqlx::query_scalar(
+        "SELECT room.kind FROM rooms room \
+         JOIN room_participants participant ON participant.room_id=room.id \
+         WHERE room.id=$1 AND participant.actor_id=$2 AND participant.left_at IS NULL \
+         FOR SHARE OF room,participant",
+    )
+    .bind(room_id)
+    .bind(actor_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| {
+        OrgIntelError::RoomAccessDenied(
+            "the active actor is not an active participant in this Room".into(),
+        )
+    })
+}
+
 pub(crate) async fn active_room_kind(
     tx: &mut Transaction<'_, Postgres>,
     room_id: Uuid,
@@ -1652,7 +1686,7 @@ impl OrgIntel {
         room_id: Uuid,
     ) -> Result<Vec<RoomParticipantRow>> {
         let mut tx = self.pool.begin().await?;
-        active_room_kind(&mut tx, room_id, requesting_actor).await?;
+        readable_room_kind(&mut tx, room_id, requesting_actor).await?;
         let rows = sqlx::query_as(
             "SELECT participant.room_id,participant.actor_id,participant.role, \
                     participant.joined_at,participant.left_at \
@@ -2064,6 +2098,25 @@ impl OrgIntel {
              JOIN actors actor ON actor.id=participant.actor_id \
              WHERE participant.actor_id=$1 AND participant.role='owner' \
                AND participant.left_at IS NULL AND actor.retired_at IS NULL \
+               AND room.kind='group' AND room.archived_at IS NOT NULL \
+             ORDER BY room.archived_at DESC, room.id LIMIT 50",
+        )
+        .bind(actor)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    /// Every archived group Room this Actor is still in, most recently archived
+    /// first, so a participant can read one without asking its owner to restore it.
+    pub async fn archived_rooms_for(&self, actor: &str) -> Result<Vec<RoomRow>> {
+        Ok(sqlx::query_as(
+            "SELECT room.id,room.kind,room.title,room.created_by,room.canonical_key, \
+                    room.created_at,room.archived_at \
+             FROM rooms room \
+             JOIN room_participants participant ON participant.room_id=room.id \
+             JOIN actors actor ON actor.id=participant.actor_id \
+             WHERE participant.actor_id=$1 AND participant.left_at IS NULL \
+               AND actor.retired_at IS NULL \
                AND room.kind='group' AND room.archived_at IS NOT NULL \
              ORDER BY room.archived_at DESC, room.id LIMIT 50",
         )
@@ -3405,7 +3458,7 @@ impl OrgIntel {
         limit: i64,
     ) -> Result<RoomMessagePage> {
         let mut tx = self.pool.begin().await?;
-        active_room_kind(&mut tx, room_id, requesting_actor).await?;
+        readable_room_kind(&mut tx, room_id, requesting_actor).await?;
         let root_message_id = sqlx::query_scalar::<_, i64>(
             "SELECT COALESCE(thread_root_message_id,id) FROM messages \
              WHERE room_id=$1 AND id=$2",
@@ -3436,7 +3489,7 @@ impl OrgIntel {
     ) -> Result<RoomMessagePage> {
         let limit = limit.clamp(1, 100);
         let mut tx = self.pool.begin().await?;
-        active_room_kind(&mut tx, room_id, requesting_actor).await?;
+        readable_room_kind(&mut tx, room_id, requesting_actor).await?;
         let (messages, has_more, next_before_message_id) = if let Some(thread_root_message_id) =
             thread_root_message_id
         {

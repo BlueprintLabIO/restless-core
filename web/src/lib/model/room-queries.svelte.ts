@@ -83,7 +83,7 @@ export function recentGroupConversationsQuery(
 	};
 }
 
-/** The viewer's own archived groups, read only while someone looks at Chats. */
+/** The archived groups the viewer is still in, read only while someone needs them. */
 export function archivedRoomsQuery(companyId: string, enabled: () => boolean) {
 	const query = createQuery(() => ({
 		queryKey: roomQueryKeys.archived(companyId),
@@ -94,7 +94,11 @@ export function archivedRoomsQuery(companyId: string, enabled: () => boolean) {
 	}));
 	return {
 		get rooms() {
-			return query.data ?? [];
+			return query.data?.rooms ?? [];
+		},
+		/** Whether the viewer owns this archived group, and so may restore it. */
+		owns(roomId: string) {
+			return query.data?.ownedRoomIds.includes(roomId) ?? false;
 		}
 	};
 }

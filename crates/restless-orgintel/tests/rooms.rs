@@ -3943,6 +3943,18 @@ async fn a_group_owner_renames_or_archives_and_a_member_can_only_leave() {
         .send_room_message(room.id, "exec", "Too late", None, "lifecycle-late")
         .await
         .is_err());
+    // Those still in it read it without restoring it; someone who left does not.
+    assert_eq!(
+        org.archived_rooms_for("exec").await.unwrap().iter().map(|row| row.id).collect::<Vec<_>>(),
+        vec![room.id]
+    );
+    org.room_messages_before("exec", room.id, None, 10).await.unwrap();
+    org.room_participants("exec", room.id).await.unwrap();
+    assert!(org.archived_rooms_for("delivery-build").await.unwrap().is_empty());
+    assert!(org
+        .room_messages_before("delivery-build", room.id, None, 10)
+        .await
+        .is_err());
 
     // Archived is not gone: its owner, and only its owner, sees it and brings it back.
     let shelf = org.archived_rooms_owned_by("owner").await.unwrap();

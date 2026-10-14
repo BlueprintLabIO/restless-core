@@ -632,11 +632,46 @@
 			});
 		return [...direct, ...groups]
 			.filter(
-				(chat) => !query || `${chat.name} ${chat.preview}`.toLocaleLowerCase().includes(query)
+				(chat) =>
+					(chat.group || query || roomId === chat.roomId || !chatHidden(chat.roomId, chat.at)) &&
+					(!query || `${chat.name} ${chat.preview}`.toLocaleLowerCase().includes(query))
 			)
 			.toSorted((a, b) => Date.parse(b.at) - Date.parse(a.at));
 	});
 	const unreadChats = $derived(chats.filter((chat) => chat.unread).length);
+	/* Hiding a direct chat is this viewer's tidying, kept on this device: it comes back by itself
+	 * when someone writes again, and People still reaches the person. */
+	let hiddenChats = $state<Record<string, string>>({});
+	const hiddenKey = $derived(`restless:${companyId}:hidden-chats`);
+	$effect(() => {
+		try {
+			hiddenChats = JSON.parse(localStorage.getItem(hiddenKey) ?? '{}') ?? {};
+		} catch {
+			hiddenChats = {};
+		}
+	});
+	function keepHidden(next: Record<string, string>) {
+		hiddenChats = next;
+		try {
+			localStorage.setItem(hiddenKey, JSON.stringify(next));
+		} catch {
+			/* Hidden for this visit only. */
+		}
+	}
+	function hideChat(room: string, at: string, name: string) {
+		keepHidden({ ...hiddenChats, [room]: at });
+		toast(`Chat with ${name} hidden until someone writes again.`, {
+			undo: () => {
+				const rest = { ...hiddenChats };
+				delete rest[room];
+				keepHidden(rest);
+			}
+		});
+	}
+	function chatHidden(room: string, at: string): boolean {
+		const since = hiddenChats[room];
+		return !!since && Date.parse(at) <= Date.parse(since);
+	}
 	/* "14:05" today, "Tue" this week, "3 Oct" before that. */
 	function chatTime(iso: string): string {
 		const at = new Date(iso);
@@ -841,32 +876,41 @@
 			{/snippet}
 			{#if view === 'chats'}
 				{#each chats as chat (chat.key)}
-					<a
-						class="directory-person chat"
-						class:group={chat.group}
-						href={href(chat.person, chat.room)}
-						onclick={(event) => {
-							if (chat.person && !chat.room) void openPerson(event, chat.person);
-						}}
-						aria-current={(chat.room ? roomId === chat.room : !roomId && personId === chat.person)
-							? 'page'
-							: undefined}
-					>
-						<span class="avatar" aria-hidden="true">{chat.mark}</span>
-						<span class="person-lines"
-							><span class="name" class:strong={chat.unread}>{chat.name}</span><small
-								class="doing"
-								title={chat.preview}>{chat.preview}</small
-							></span
-						><span class="chat-meta"
-							><time class="chat-time" datetime={chat.at}>{chatTime(chat.at)}</time
-							>{#if chat.unread}<span
-									class="new-dot"
-									title="New since you last looked"
-									aria-label="Unread"
-								></span>{/if}</span
+					<div class="person-row">
+						<a
+							class="directory-person chat"
+							class:group={chat.group}
+							href={href(chat.person, chat.room)}
+							onclick={(event) => {
+								if (chat.person && !chat.room) void openPerson(event, chat.person);
+							}}
+							aria-current={(chat.room ? roomId === chat.room : !roomId && personId === chat.person)
+								? 'page'
+								: undefined}
 						>
-					</a>
+							<span class="avatar" aria-hidden="true">{chat.mark}</span>
+							<span class="person-lines"
+								><span class="name" class:strong={chat.unread}>{chat.name}</span><small
+									class="doing"
+									title={chat.preview}>{chat.preview}</small
+								></span
+							><span class="chat-meta"
+								><time class="chat-time" datetime={chat.at}>{chatTime(chat.at)}</time
+								>{#if chat.unread}<span
+										class="new-dot"
+										title="New since you last looked"
+										aria-label="Unread"
+									></span>{/if}</span
+							>
+						</a>
+						{#if !chat.group}<span class="person-menu"
+								><ActionMenu label={`More for the chat with ${chat.name}`}
+									><button type="button" onclick={() => hideChat(chat.roomId, chat.at, chat.name)}
+										>Hide chat</button
+									></ActionMenu
+								></span
+							>{/if}
+					</div>
 				{:else}
 					{#if search.trim()}<p class="empty">No conversations match.</p>{:else}
 						<!-- Message Exec is beside it and a new group is the + above; this only says why it is empty. -->
@@ -877,20 +921,25 @@
 					<details class="archived-chats">
 						<summary
 							class="team-directory-head"
-							title="Groups you archived. Restoring one brings it back for everyone still in it."
+							title="Archived groups you are still in. Open one to read it; its owner can restore it for everyone."
 							><span>Archived</span><em>{archived.rooms.length}</em></summary
 						>
 						{#each archived.rooms as room (room.id)}
 							<div class="archived-chat">
 								<span class="avatar" aria-hidden="true">#</span>
-								<span class="name">{room.title}</span>
-								<button
-									type="button"
-									class="btn small ghost"
-									disabled={!!restoring}
-									onclick={() => void restore(room)}
-									>{restoring === room.id ? 'Restoring…' : 'Restore'}</button
+								<a
+									class="name"
+									href={href('', room.id)}
+									aria-current={roomId === room.id ? 'page' : undefined}
+									title="Read it as it was left">{room.title}</a
 								>
+								{#if archived.owns(room.id)}<button
+										type="button"
+										class="btn small ghost"
+										disabled={!!restoring}
+										onclick={() => void restore(room)}
+										>{restoring === room.id ? 'Restoring…' : 'Restore'}</button
+									>{/if}
 							</div>
 						{/each}
 					</details>
@@ -1284,6 +1333,14 @@
 		min-height: 36px;
 		padding: 0 4px 0 8px;
 		color: var(--text-secondary);
+	}
+	.archived-chat a.name {
+		color: inherit;
+		text-decoration: none;
+	}
+	.archived-chat a.name:hover,
+	.archived-chat a.name[aria-current='page'] {
+		color: var(--ink);
 	}
 	.archived-chat .name {
 		flex: 1;

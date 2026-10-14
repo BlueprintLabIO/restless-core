@@ -1537,7 +1537,7 @@
     }
 
     #[tokio::test]
-    async fn an_archived_room_is_listed_and_restored_only_by_its_owner() {
+    async fn an_archived_room_is_read_by_its_participants_and_restored_only_by_its_owner() {
         let Some(fixture) = RoomRouteFixture::new().await else {
             eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping archived Room route scenario");
             return;
@@ -1565,10 +1565,14 @@
         let (status, _) = room_request(&alice, Method::POST, &archive, None).await;
         assert_eq!(status, StatusCode::OK);
 
-        // A participant who does not own it neither sees it on the shelf nor brings it back.
+        // A participant who does not own it sees it on the shelf to read, but cannot bring it back.
         let (status, shelf) = room_request(&bob, Method::GET, &archived, None).await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(shelf["rooms"].as_array().unwrap().len(), 0);
+        assert_eq!(shelf["rooms"][0]["id"], room.to_string());
+        assert_eq!(shelf["owned_room_ids"].as_array().unwrap().len(), 0);
+        let (status, _) =
+            room_request(&bob, Method::GET, &format!("{rooms_path}/{room}/messages"), None).await;
+        assert_eq!(status, StatusCode::OK);
         let (status, denied) = room_request(&bob, Method::POST, &restore, None).await;
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(denied["error"], "room_access");
@@ -1576,6 +1580,7 @@
         let (status, shelf) = room_request(&alice, Method::GET, &archived, None).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(shelf["rooms"][0]["id"], room.to_string());
+        assert_eq!(shelf["owned_room_ids"][0], room.to_string());
         let (status, restored) = room_request(&alice, Method::POST, &restore, None).await;
         assert_eq!(status, StatusCode::OK);
         assert!(restored["archived_at"].is_null());

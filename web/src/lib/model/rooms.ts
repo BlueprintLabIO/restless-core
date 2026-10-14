@@ -672,9 +672,14 @@ export function archiveRoom(company: string, room: string): Promise<Room> {
 	return roomJson(`${roomPath(company, room)}/archive`, { method: 'POST' });
 }
 
-/** The groups the viewer owns and archived, which only they can bring back. */
-export async function getArchivedRooms(company: string): Promise<Room[]> {
-	return (await roomJson<{ rooms: Room[] }>(`${roomPath(company)}/archived`)).rooms;
+/** The archived groups the viewer is still in, to read; only those they own can they bring back. */
+export async function getArchivedRooms(
+	company: string
+): Promise<{ rooms: Room[]; ownedRoomIds: string[] }> {
+	const body = await roomJson<{ rooms: Room[]; owned_room_ids?: string[] }>(
+		`${roomPath(company)}/archived`
+	);
+	return { rooms: body.rooms, ownedRoomIds: body.owned_room_ids ?? [] };
 }
 
 /** Bring an archived group back for everyone still in it. */

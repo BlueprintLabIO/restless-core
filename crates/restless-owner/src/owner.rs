@@ -7829,7 +7829,8 @@ async fn archive_room(
     }
 }
 
-/// The archived group conversations the viewer owns, which only they can bring back.
+/// The archived group conversations the viewer is still in, to read; the ones they own, which
+/// only they can bring back, are named in `owned_room_ids`.
 async fn list_archived_rooms(
     State(state): State<RoomApiState>,
     RoomPrincipal(principal): RoomPrincipal,
@@ -7839,8 +7840,16 @@ async fn list_archived_rooms(
         Ok(org) => org,
         Err(response) => return response,
     };
+    let rooms = match org.archived_rooms_for(principal.actor_id()).await {
+        Ok(rooms) => rooms,
+        Err(error) => return room_error(error),
+    };
     match org.archived_rooms_owned_by(principal.actor_id()).await {
-        Ok(rooms) => Json(serde_json::json!({ "rooms": rooms })).into_response(),
+        Ok(owned) => Json(serde_json::json!({
+            "rooms": rooms,
+            "owned_room_ids": owned.iter().map(|room| room.id).collect::<Vec<_>>(),
+        }))
+        .into_response(),
         Err(error) => room_error(error),
     }
 }
