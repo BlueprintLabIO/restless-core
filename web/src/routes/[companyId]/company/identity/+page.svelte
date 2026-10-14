@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
-	import { mayManageCompanySetup } from '$lib/model/company-access';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { formatRelative, formatMoment } from '$lib/ui/time';
 	import { Page, Section, Row, Item, Notice, Segmented, Fold } from '$lib/ui/page';
@@ -25,9 +24,10 @@
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? '');
-	/* Owners and admins decide the company identity; everyone else reads it. */
+	/* Only the owner approves the company identity (OrgIntel refuses anyone else), so only the
+	 * owner is offered its edits, restores and decisions; everyone else reads it. */
 	const principal = $derived(companyPrincipalQuery(companyId));
-	const canManage = $derived(mayManageCompanySetup(principal.view));
+	const canManage = $derived(principal.view?.membership_role === 'owner');
 	const source = $derived(identityQuery(companyId));
 	const view = $derived(source.view);
 	const staleBindings = $derived(view?.bindings.filter((binding) => binding.stale_at).length ?? 0);
