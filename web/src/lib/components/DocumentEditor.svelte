@@ -36,6 +36,7 @@
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import XIcon from '@lucide/svelte/icons/x';
 	import ListTree from '@lucide/svelte/icons/list-tree';
+	import GripVertical from '@lucide/svelte/icons/grip-vertical';
 	import Baseline from '@lucide/svelte/icons/baseline';
 	import TextAlignStart from '@lucide/svelte/icons/text-align-start';
 	import TextAlignCenter from '@lucide/svelte/icons/text-align-center';
@@ -1193,6 +1194,36 @@
 	}
 
 	const inTable = $derived(editor ? inDocumentTable(editor) : false);
+	/* A touch screen has no pointer to hover a block's grip with: a small button beside the block
+	 * the caret is in opens its actions (move, duplicate, delete, copy a link) instead. */
+	const touch = browser && window.matchMedia('(hover: none)').matches;
+	let touchGrip = $state<{ pos: number; top: number; left: number } | null>(null);
+	let scrolled = $state(0);
+	$effect(() => {
+		const paper = paperElement;
+		if (!touch || !paper) return;
+		const moved = () => (scrolled += 1);
+		paper.addEventListener('scroll', moved, { passive: true });
+		return () => paper.removeEventListener('scroll', moved);
+	});
+	$effect(() => {
+		void scrolled;
+		const instance = editorState.editor;
+		if (!touch || !instance || !canWriteLive || !sectionElement) {
+			touchGrip = null;
+			return;
+		}
+		const from = instance.state.selection.$from;
+		const pos = from.depth >= 1 ? from.before(1) : instance.state.selection.from;
+		const dom = instance.view.nodeDOM(pos);
+		if (!(dom instanceof HTMLElement)) {
+			touchGrip = null;
+			return;
+		}
+		const box = dom.getBoundingClientRect();
+		const frame = sectionElement.getBoundingClientRect();
+		touchGrip = { pos, top: box.top - frame.top, left: Math.max(2, box.left - frame.left - 30) };
+	});
 	/* A selected image: its size, its description for screen readers, and an optional caption. */
 	const selectedImage = $derived(editor ? selectedDocumentImage(editor) : null);
 	let imageAlt = $state('');
@@ -1832,6 +1863,22 @@
 			</div>
 		{/if}
 	</div>
+	{#if touchGrip && editor && canWriteLive}
+		<button
+			type="button"
+			class="touch-grip"
+			aria-label="Move or change this block"
+			title="Move, duplicate or delete this block"
+			style:top={`${touchGrip.top}px`}
+			style:left={`${touchGrip.left}px`}
+			onclick={(event) =>
+				touchGrip &&
+				menus?.openBlockMenu({
+					pos: touchGrip.pos,
+					anchor: event.currentTarget.getBoundingClientRect()
+				})}><GripVertical size={16} strokeWidth={1.8} /></button
+		>
+	{/if}
 	{#if editor && canWriteLive}
 		<DocumentBlockMenus
 			bind:this={menus}
@@ -2898,6 +2945,23 @@
 		:global(.block-handle) {
 			display: none;
 		}
+	}
+	.touch-grip {
+		position: absolute;
+		z-index: 6;
+		display: grid;
+		place-items: center;
+		width: 28px;
+		height: 32px;
+		padding: 0;
+		border: 0;
+		border-radius: 6px;
+		background: transparent;
+		color: var(--text-tertiary);
+	}
+	.touch-grip:active {
+		background: var(--wash-hover);
+		color: var(--ink);
 	}
 	/* Other people's carets: a thin coloured bar with their name above it. */
 	:global(.collaboration-carets__caret) {

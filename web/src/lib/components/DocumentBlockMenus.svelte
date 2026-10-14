@@ -12,6 +12,8 @@
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import Copy from '@lucide/svelte/icons/copy';
+	import ArrowUp from '@lucide/svelte/icons/arrow-up';
+	import ArrowDown from '@lucide/svelte/icons/arrow-down';
 	import Paperclip from '@lucide/svelte/icons/paperclip';
 	import AtSign from '@lucide/svelte/icons/at-sign';
 	import FileText from '@lucide/svelte/icons/file-text';
@@ -35,6 +37,7 @@
 	import {
 		DOCUMENT_IMAGE_TYPES,
 		documentTable,
+		moveDocumentBlock,
 		mentionMenuKey,
 		slashMenuKey,
 		type DocumentSuggestion,
@@ -457,6 +460,15 @@
 		closeBlockMenu(false);
 	}
 
+	/** Whether the open block has a neighbour to swap with that way. */
+	function canMove(step: 1 | -1): boolean {
+		void blockOpen;
+		const block = currentBlock();
+		if (!editor || !block) return false;
+		const index = editor.state.doc.resolve(block.pos).index(0);
+		return step < 0 ? index > 0 : index < editor.state.doc.childCount - 1;
+	}
+
 	function duplicate(instance: Editor, node: ProseMirrorNode, pos: number): void {
 		/* The copy's blocks get identities of their own; the ids the original keeps stay unique. */
 		const strip = (value: Record<string, unknown>): Record<string, unknown> => ({
@@ -672,6 +684,22 @@
 				><Link size={16} strokeWidth={1.8} aria-hidden="true" />Copy link to block</button
 			>
 		{/if}
+		<button
+			type="button"
+			role="menuitem"
+			disabled={!canMove(-1)}
+			onclick={() => onBlock((instance, _node, pos) => moveDocumentBlock(instance, pos, -1))}
+			><ArrowUp size={16} strokeWidth={1.8} aria-hidden="true" />Move up<kbd>Alt+Shift+↑</kbd
+			></button
+		>
+		<button
+			type="button"
+			role="menuitem"
+			disabled={!canMove(1)}
+			onclick={() => onBlock((instance, _node, pos) => moveDocumentBlock(instance, pos, 1))}
+			><ArrowDown size={16} strokeWidth={1.8} aria-hidden="true" />Move down<kbd>Alt+Shift+↓</kbd
+			></button
+		>
 		<button type="button" role="menuitem" onclick={() => onBlock(duplicate)}
 			><Copy size={16} strokeWidth={1.8} aria-hidden="true" />Duplicate</button
 		>

@@ -1732,6 +1732,29 @@ function slashMenuExtension(hooks: DocumentEditorHooks) {
 	});
 }
 
+/** Move the top-level block at a position one place up or down, keeping the caret in it. */
+export function moveDocumentBlock(editor: Editor, pos: number, step: 1 | -1): boolean {
+	const { state } = editor;
+	const node = state.doc.nodeAt(pos);
+	if (!node || !editor.isEditable) return false;
+	const $pos = state.doc.resolve(pos);
+	if ($pos.depth !== 0) return false;
+	const index = $pos.index(0);
+	const neighbour = step < 0 ? index - 1 : index + 1;
+	if (neighbour < 0 || neighbour >= state.doc.childCount) return false;
+	const other = state.doc.child(neighbour);
+	const offset = state.selection.from - pos;
+	const tr = state.tr.delete(pos, pos + node.nodeSize);
+	const target = step < 0 ? pos - other.nodeSize : pos + other.nodeSize;
+	tr.insert(target, node);
+	const caret = Math.min(target + Math.max(1, offset), target + node.nodeSize - 1);
+	tr.setSelection(
+		node.isAtom ? NodeSelection.create(tr.doc, target) : TextSelection.near(tr.doc.resolve(caret))
+	);
+	editor.view.dispatch(tr.scrollIntoView());
+	return true;
+}
+
 const GRIP =
 	'<svg width="10" height="16" viewBox="0 0 10 16" aria-hidden="true"><g fill="currentColor"><circle cx="2.5" cy="3" r="1.4"/><circle cx="7.5" cy="3" r="1.4"/><circle cx="2.5" cy="8" r="1.4"/><circle cx="7.5" cy="8" r="1.4"/><circle cx="2.5" cy="13" r="1.4"/><circle cx="7.5" cy="13" r="1.4"/></g></svg>';
 
@@ -1742,6 +1765,15 @@ function blockHandleExtension(hooks: DocumentEditorHooks) {
 		name: 'documentBlockHandle',
 		addKeyboardShortcuts() {
 			return {
+				/* Move the block the caret is in, as in Notion and Google Docs. */
+				'Alt-Shift-ArrowUp': () => {
+					const { $from } = this.editor.state.selection;
+					return $from.depth >= 1 && moveDocumentBlock(this.editor, $from.before(1), -1);
+				},
+				'Alt-Shift-ArrowDown': () => {
+					const { $from } = this.editor.state.selection;
+					return $from.depth >= 1 && moveDocumentBlock(this.editor, $from.before(1), 1);
+				},
 				'Mod-/': () => {
 					const { $from } = this.editor.state.selection;
 					if (!hooks.blockMenu || !this.editor.isEditable || $from.depth < 1) return false;
@@ -1760,7 +1792,7 @@ function blockHandleExtension(hooks: DocumentEditorHooks) {
 			element.className = 'block-handle';
 			element.setAttribute('aria-label', 'Move or change this block');
 			const mod = /Mac|iPhone|iPad/u.test(window.navigator.platform) ? '⌘' : 'Ctrl+';
-			element.title = `Drag to move. Click, or press ${mod}/, for more`;
+			element.title = `Drag to move, or press Alt+Shift+↑/↓. Click, or press ${mod}/, for more`;
 			element.innerHTML = GRIP;
 			let current = -1;
 			element.addEventListener('click', () => {
