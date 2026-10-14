@@ -470,6 +470,10 @@ await journey('screens', async (page) => {
 	]) {
 		await page.goto(`${base}${path}`);
 		await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => {});
+		// A company screen appears once its first reads are in (first-paint.svelte.ts).
+		await page.waitForFunction(() => !document.querySelector('.first-paint-pending'), null, {
+			timeout: 10_000
+		});
 		await page.waitForTimeout(800);
 		// Rendered: the main region holds the screen, not a blank or a loading line.
 		const text = (
