@@ -693,15 +693,7 @@
 	 * whether it was tapped, filled in or typed. */
 	async function sendAnswer(text: string) {
 		const answer = text.trim();
-		if (
-			!answer ||
-			sending ||
-			deciding ||
-			!onask ||
-			needsProvider ||
-			connectionStatus !== 'available'
-		)
-			return;
+		if (!answer || sending || deciding || !onask) return;
 		sending = true;
 		askError = '';
 		askNotice = '';
@@ -721,7 +713,7 @@
 			} else {
 				fieldValues = {};
 				newFocusPending = false;
-				askNotice = outcome.notice ?? '';
+				askNotice = outcome.notice ?? leftForLater;
 			}
 		} catch (cause) {
 			askError = failureSentence(cause, 'Your answer was not delivered.');
@@ -878,6 +870,13 @@
 	const attachmentHref = (attachment: { uploadId: string }) =>
 		`/api/companies/${encodeURIComponent(companyId)}/attachments/${encodeURIComponent(attachment.uploadId)}`;
 
+	/* While Exec cannot be reached a message is still saved, and read when it is back. The turn dock
+	 * says so when intelligence needs connecting; otherwise this receipt does. */
+	const leftForLater = $derived(
+		!needsProvider && (connectionStatus === 'unavailable' || connectionStatus === 'error')
+			? `Saved. ${participantName} reads it when it is back.`
+			: ''
+	);
 	let sending = $state(false);
 	async function submitAsk(event: SubmitEvent) {
 		event.preventDefault();
@@ -890,8 +889,7 @@
 		/* A file on its own is a message: it says what it carries, so Exec reads a sentence. */
 		const text =
 			typed || (files.length ? `Attached: ${files.map((file) => file.name).join(', ')}` : '');
-		if (!text || sending || deciding || !onask || needsProvider || connectionStatus !== 'available')
-			return;
+		if (!text || sending || deciding || !onask) return;
 		/* The same limits the server holds, said before anything is sent. */
 		const tooLarge = files.find((file) => file.size > MAX_UPLOAD_BYTES);
 		if (tooLarge || files.length > MAX_UPLOAD_FILES) {
@@ -949,7 +947,7 @@
 				newFocusPending = false;
 				retryCommandId = null;
 				retryBody = '';
-				askNotice = outcome.notice ?? '';
+				askNotice = outcome.notice ?? leftForLater;
 			}
 		} catch (cause) {
 			composer = sent;
@@ -1417,101 +1415,100 @@
 				{/if}
 				{#if needsProvider}
 					<!-- In the empty state the connect action sits with its explanation
-					     above; otherwise it takes the composer's place. -->
-					{#if !providerPromptInline}
-						{#if ownerFixes}<a
-								class="btn primary small provider-connect-slot"
-								href={`/${companyId}/company/provider`}
-								>{#if neverConnected}<Plus
-										size={14}
-										strokeWidth={2}
-										aria-hidden="true"
-									/>{:else}<RotateCw size={14} strokeWidth={2} aria-hidden="true" />{/if}<span
-									>{providerAction}</span
-								></a
-							>{/if}
-					{/if}
+					     above; otherwise it sits above the composer, which stays usable: a message
+					     written now is kept and read when the connection is back. -->
+					{#if !providerPromptInline && ownerFixes}<a
+							class="btn primary small provider-connect-slot"
+							href={`/${companyId}/company/provider`}
+							>{#if neverConnected}<Plus
+									size={14}
+									strokeWidth={2}
+									aria-hidden="true"
+								/>{:else}<RotateCw size={14} strokeWidth={2} aria-hidden="true" />{/if}<span
+								>{providerAction}</span
+							></a
+						>{/if}
 				{:else}
 					{#if membershipRole === 'owner' && participantId === 'exec'}<WorkInFlight
 							{companyId}
 						/>{/if}
 					{#if membershipRole === 'owner'}<AppRequestCards {companyId} actor={participantId} />{/if}
 					{#if participantId === 'exec'}<MyRequests {companyId} />{/if}
-					<form class="exr-composer" onsubmit={submitAsk}>
-						{#if quoting}
-							<div class="quoting">
-								<Reply size={13} aria-hidden="true" />
-								<span
-									>{quoting.answer ? 'Answering' : `Replying to ${quoting.author}`}:
-									<em>{quoting.excerpt}</em></span
-								>
-								<button
-									type="button"
-									aria-label="Stop replying to that message"
-									title="Stop replying to that message"
-									onclick={() => (quoting = null)}><X size={13} /></button
-								>
-							</div>
-						{/if}
-						<Composer
-							bind:value={composer}
-							bind:files={composerFiles}
-							bind:selectedSkills={composerSkills}
-							options={[...options.value, ...references]}
-							interruptible={working}
-							bind:interrupt={interruptNext}
-							actionLabel={retryCommandId ? 'Retry send · it cannot be sent twice' : ''}
-							disabled={!canOperate ||
-								sending ||
-								deciding ||
-								!onask ||
-								connectionStatus !== 'available'}
-							minlength={1}
-							placeholder={openQuestion
+				{/if}
+				<form class="exr-composer" onsubmit={submitAsk}>
+					{#if quoting}
+						<div class="quoting">
+							<Reply size={13} aria-hidden="true" />
+							<span
+								>{quoting.answer ? 'Answering' : `Replying to ${quoting.author}`}:
+								<em>{quoting.excerpt}</em></span
+							>
+							<button
+								type="button"
+								aria-label="Stop replying to that message"
+								title="Stop replying to that message"
+								onclick={() => (quoting = null)}><X size={13} /></button
+							>
+						</div>
+					{/if}
+					<Composer
+						bind:value={composer}
+						bind:files={composerFiles}
+						bind:selectedSkills={composerSkills}
+						options={[...options.value, ...references]}
+						interruptible={working}
+						bind:interrupt={interruptNext}
+						actionLabel={retryCommandId ? 'Retry send · it cannot be sent twice' : ''}
+						disabled={!canOperate || sending || deciding || !onask}
+						minlength={1}
+						placeholder={needsProvider ||
+						connectionStatus === 'unavailable' ||
+						connectionStatus === 'error'
+							? `Leave a message for ${participantName}…`
+							: openQuestion
 								? `Answer ${participantName}, or ask anything…`
 								: review || workContext || participantId !== 'exec'
 									? `Message ${participantName}…`
 									: 'Ask, redirect, or make a judgement…'}
-							ariaLabel={review || workContext
-								? `Message ${participantName}`
-								: `Ask ${participantName}`}
-							flareKey={contextFlare}
-							focusKey={composerFocusKey}
-						>
-							{#snippet controls()}
-								<IntelligenceChip {companyId} actorId={participantId} name={participantName} />
-								{#if !review && !workContext}
-									<div class="exec-context-line">
-										<button
-											type="button"
-											class="exec-context-chip"
-											class:off={!includeContext}
-											aria-pressed={includeContext}
-											title={includeContext
-												? `This message links to ${contextLabel}; click to send it without the link`
-												: `Link ${contextLabel} to this message`}
-											onclick={toggleContext}
-										>
-											<MatrixGlyph rows={GLYPHS.work} size={8} />
-											<span>{includeContext ? contextLabel : `Link ${contextLabel}`}</span>
-										</button>
-									</div>
-								{/if}
-							{/snippet}
-						</Composer>
-						{#if uploadProgress !== null && sending}
-							<p class="exr-notice" role="status">
-								Uploading… {Math.round(uploadProgress * 100)}%
-							</p>
-						{/if}
-						{#if askError}
-							<p class="exr-error" role="alert">{askError}</p>
-						{/if}
-						{#if askNotice}
-							<p class="exr-notice" role="status">{askNotice}</p>
-						{/if}
-					</form>
-				{/if}
+						ariaLabel={review || workContext
+							? `Message ${participantName}`
+							: `Ask ${participantName}`}
+						flareKey={contextFlare}
+						focusKey={composerFocusKey}
+					>
+						{#snippet controls()}
+							<IntelligenceChip {companyId} actorId={participantId} name={participantName} />
+							{#if !review && !workContext}
+								<div class="exec-context-line">
+									<button
+										type="button"
+										class="exec-context-chip"
+										class:off={!includeContext}
+										aria-pressed={includeContext}
+										title={includeContext
+											? `This message links to ${contextLabel}; click to send it without the link`
+											: `Link ${contextLabel} to this message`}
+										onclick={toggleContext}
+									>
+										<MatrixGlyph rows={GLYPHS.work} size={8} />
+										<span>{includeContext ? contextLabel : `Link ${contextLabel}`}</span>
+									</button>
+								</div>
+							{/if}
+						{/snippet}
+					</Composer>
+					{#if uploadProgress !== null && sending}
+						<p class="exr-notice" role="status">
+							Uploading… {Math.round(uploadProgress * 100)}%
+						</p>
+					{/if}
+					{#if askError}
+						<p class="exr-error" role="alert">{askError}</p>
+					{/if}
+					{#if askNotice}
+						<p class="exr-notice" role="status">{askNotice}</p>
+					{/if}
+				</form>
 			</div>
 		</div>
 	</div>
