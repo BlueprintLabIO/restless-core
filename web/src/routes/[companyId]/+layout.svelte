@@ -84,7 +84,9 @@
 	} from '$lib/model/attachments';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import { keepCountInTitle } from '$lib/model/title-count';
-	import { forYouSentence, newlyUnread, unreadMarks } from '$lib/model/for-you';
+	import { forYouSentence, getInboxMarks, newlyUnread, unreadMarks } from '$lib/model/for-you';
+	import { createQuery } from '@tanstack/svelte-query';
+	import { inboxMarksKey } from '$lib/components/inbox-actions';
 	import { forYouSource, provideForYou } from '$lib/model/for-you.svelte';
 
 	let { children } = $props();
@@ -213,7 +215,30 @@
 	 * queue it is counting. Members hear the same change hints, so a page shared
 	 * with them or a reply to them appears without waiting for the next poll. */
 	companyChangeStream(() => companyId);
-	const attention = $derived(attentionQuery(companyId, () => ownerAccess));
+	/* Everyone's Inbox is the same projection (the owner's is the company queue), so the badge and
+	 * the notifier read it for members too. */
+	const attention = $derived(attentionQuery(companyId, () => !!principal));
+	/* What this person snoozed: off the badge, as it is off the list, until it wakes. */
+	const inboxMarks = createQuery(() => ({
+		queryKey: inboxMarksKey(companyId),
+		queryFn: () => getInboxMarks(companyId),
+		enabled: !!principal,
+		staleTime: 10_000,
+		refetchInterval: 30_000
+	}));
+	let markClock = $state(Date.now());
+	onMount(() => {
+		const timer = setInterval(() => (markClock = Date.now()), 30_000);
+		return () => clearInterval(timer);
+	});
+	const awakeNeeds = $derived.by(() => {
+		const snoozed = new Set(
+			(inboxMarks.data ?? [])
+				.filter((mark) => mark.snoozed_until && Date.parse(mark.snoozed_until) > markClock)
+				.map((mark) => mark.item_id)
+		);
+		return (attention.view?.items ?? []).filter((item) => !snoozed.has(item.id));
+	});
 	const cockpitProjection = cockpitQuery(
 		() => companyId,
 		() => ownerAccess
@@ -826,11 +851,11 @@
 			companyId,
 			page.url.pathname,
 			principal,
-			ownerAccess
-				? attention.status === 'unknown'
+			attention.status === 'unknown'
+				? ownerAccess
 					? undefined
-					: liveNeedsYou.length + forYou.unreadCount
-				: (collaboration.view?.attention.handoffs.length ?? 0) + forYou.unreadCount
+					: (collaboration.view?.attention.handoffs.length ?? 0) + forYou.unreadCount
+				: awakeNeeds.length + forYou.unreadCount
 		);
 		return routes.map((tab) =>
 			tab.key === 'company' && providerIssue
@@ -936,7 +961,7 @@
 	let knownNeeds: Set<string> | null = null;
 	let knownCompany = '';
 	$effect(() => {
-		if (!ownerAccess || attention.status !== 'live') return;
+		if (!principal || attention.status !== 'live') return;
 		/* While coordination is down the list is partial: what returns on recovery is not new. */
 		if (!attention.view || attention.view.sourceHealth.orgintel !== 'available') return;
 		/* Another company's list primes afresh rather than reading as new. */
@@ -1035,13 +1060,15 @@
 				run: () => askPerson('exec')
 			},
 			/* A member finds their own handoffs as the owner finds what needs them. */
-			...(ownerAccess ? [] : (collaboration.view?.attention.handoffs ?? [])).map((handoff) => ({
-				id: `handoff:${handoff.id}`,
-				group: 'Needs you',
-				label: handoff.requested_action,
-				hint: work.find((item) => item.id === handoff.work_id)?.title,
-				href: `${root}/work/${encodeURIComponent(handoff.work_id)}`
-			})),
+			...(ownerAccess || attention.view ? [] : (collaboration.view?.attention.handoffs ?? [])).map(
+				(handoff) => ({
+					id: `handoff:${handoff.id}`,
+					group: 'Needs you',
+					label: handoff.requested_action,
+					hint: work.find((item) => item.id === handoff.work_id)?.title,
+					href: `${root}/work/${encodeURIComponent(handoff.work_id)}`
+				})
+			),
 			...leads.map((lead) => ({
 				id: `action:ask:${lead.actor_id}`,
 				group: 'Actions',
