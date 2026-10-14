@@ -1,6 +1,7 @@
 /* What the owner, or the person who owns a Work's team, does to a Work or a Goal from the Work
  * surface. Each call is one owner-API route; OrgIntel decides who may. */
 import { ownerJson } from './failure';
+import { failureLine } from './turn-failure';
 
 const base = (company: string) => `/api/companies/${encodeURIComponent(company)}`;
 
@@ -119,7 +120,8 @@ export function steerResolution(resolution: string): string {
 }
 
 export function blockerSentence(resolution: string, summary = ''): string {
-	const said = resolution.trim() ? steerResolution(resolution) : summary.trim();
+	/* A run that failed is said as a sentence, never the runtime's "[transport] …" (S85-06). */
+	const said = failureLine(resolution.trim() ? steerResolution(resolution) : summary.trim());
 	const first = said.split('\n')[0];
 	return first.length > 180 ? `${first.slice(0, 177).trimEnd()}…` : first;
 }

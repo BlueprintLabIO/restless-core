@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { replyIsError, turnFailureFix, turnFailureReason } from './turn-failure.ts';
+import { failureLine, replyIsError, turnFailureFix, turnFailureReason } from './turn-failure.ts';
 
 test('a refused key names the key and where to fix it, not the transport', () => {
 	const reason = turnFailureReason(
@@ -70,4 +70,23 @@ test('a provider error body streamed as the reply is not shown as the reply', ()
 	assert.equal(replyIsError('{"type":"error","error":{}}', ''), true);
 	assert.equal(replyIsError('I checked Work and', '[transport] connection reset'), false);
 	assert.equal(replyIsError('', 'anything'), false);
+});
+
+test('a Work blocker that is a runtime failure reads as a sentence; anything else is unchanged', () => {
+	assert.equal(
+		failureLine(
+			'[transport] the agent session failed: No model connection is active yet. Connect a model in Company → Intelligence (Restless loads it within seconds), or assign this agent to another.'
+		),
+		'Its model connection is unavailable right now. Check it in Company → Intelligence.'
+	);
+	assert.equal(
+		failureLine(
+			"[transport] the agent session failed: This agent's account connection is no longer granted to the company"
+		),
+		'Its model connection is unavailable right now. Check it in Company → Intelligence.'
+	);
+	assert.equal(
+		failureLine('Waiting on the owner to approve the hero copy.'),
+		'Waiting on the owner to approve the hero copy.'
+	);
 });

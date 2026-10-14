@@ -49,7 +49,7 @@ const RULES: {
 		fix: INTELLIGENCE
 	},
 	{
-		test: /connection is (temporarily )?unavailable|no (intelligence|model) connection|reconnect (the )?model/i,
+		test: /connection is (temporarily )?unavailable|no (intelligence|model) connection|connection is no longer granted|reconnect (the )?model/i,
 		say: 'its model connection is unavailable right now. Check it in Company → Intelligence.',
 		fix: INTELLIGENCE
 	},
@@ -82,6 +82,15 @@ export function turnFailureReason(error: string | null | undefined): string {
 		.trim();
 	const first = plain.split(/(?<=[.!?])\s/)[0]?.trim() ?? '';
 	return first.length > 120 ? `${first.slice(0, 120)}…` : first;
+}
+
+/** A line that may be a runtime failure ("[transport] the agent session failed: …"), such as a
+ * Work's blocker, as a sentence a person reads; anything else is returned as it was. */
+export function failureLine(text: string): string {
+	const raw = text.trim();
+	if (!/^\[[a-z_ -]+\]/i.test(raw)) return raw;
+	const reason = turnFailureReason(raw);
+	return reason ? reason.charAt(0).toUpperCase() + reason.slice(1) : raw;
 }
 
 /** Where the failure is fixed, when the cockpit has a page for it; its label appears in the reason. */
