@@ -26,6 +26,7 @@
 	import Target from '@lucide/svelte/icons/target';
 	import { page } from '$app/state';
 	import { referencePreview } from '$lib/model/reference-preview';
+	import { linkCockpitPlaces } from '$lib/model/cockpit-places';
 
 	let {
 		text,
@@ -219,7 +220,7 @@
 <div class="markdown">
 	<Streamdown
 		class="md"
-		content={text ?? ''}
+		content={linkCockpitPlaces(text ?? '', companyRoot)}
 		static={!streaming}
 		parseIncompleteMarkdown={streaming}
 		renderHtml={false}
