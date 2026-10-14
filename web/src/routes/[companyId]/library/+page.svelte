@@ -316,7 +316,9 @@
 	const workWaitingOnOwner = $derived(waitingOnOwner(attention.view?.items ?? []));
 	const fileOpen = $derived(
 		openFileId
-			? libraryFileById(files, openFileId)
+			? (libraryFileById(files, openFileId) ??
+					archivedLibraryFiles.find((file) => file.id === openFileId) ??
+					null)
 			: openPath && owner
 				? (files.find((file) => file.uri === openPath) ?? fileAtPath(openPath))
 				: null
@@ -616,7 +618,7 @@
 		id: file.id,
 		kind: file.kind,
 		title: file.label,
-		href: archived ? undefined : fileHref(file.id),
+		href: fileHref(file.id),
 		updatedAt: file.createdAt,
 		owner: name(file.createdBy),
 		status: '',
@@ -645,28 +647,28 @@
 			.map((summary) => docEntry(summary)),
 		...sheets.map(sheetEntry)
 	]);
-	const archivedFiles = $derived(
-		archivedArtifacts.flatMap((artifact) => {
+	/* Archived Work files still open, read only, so the owner can see what one is before
+	 * restoring it. */
+	const archivedLibraryFiles = $derived(
+		archivedArtifacts.flatMap((artifact): LibraryFile[] => {
 			const kind = libraryKind(artifact);
 			if (!kind) return [];
 			const name = artifact.uri.split(/[?#]/)[0].split('/').filter(Boolean).at(-1) ?? artifact.uri;
 			return [
-				fileEntry(
-					{
-						id: artifact.id,
-						kind,
-						label: artifact.label.trim() || name,
-						uri: artifact.uri,
-						createdBy: artifact.created_by,
-						workId: artifact.work_id,
-						createdAt: artifact.created_at,
-						name
-					},
-					true
-				)
+				{
+					id: artifact.id,
+					kind,
+					label: artifact.label.trim() || name,
+					uri: artifact.uri,
+					createdBy: artifact.created_by,
+					workId: artifact.work_id,
+					createdAt: artifact.created_at,
+					name
+				}
 			];
 		})
 	);
+	const archivedFiles = $derived(archivedLibraryFiles.map((file) => fileEntry(file, true)));
 	const archivedEntries = $derived<Entry[]>([
 		...archivedDocs.map((summary) => docEntry(summary, true)),
 		...archivedSheets.map(sheetEntry),
