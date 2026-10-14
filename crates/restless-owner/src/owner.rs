@@ -51,8 +51,6 @@ mod owner_vault;
 mod plane_readiness;
 #[path = "owner_presence.rs"]
 mod presence_api;
-#[path = "owner_decisions.rs"]
-mod decisions_api;
 #[path = "owner_rooms_lifecycle.rs"]
 mod rooms_lifecycle_api;
 #[path = "owner_sharing.rs"]
@@ -1791,7 +1789,6 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/companies/{company}/messages/{message}/reactions",
             post(set_message_reaction),
         )
-        .route("/companies/{company}/decisions", get(decisions_api::list))
         .route(
             "/companies/{company}/presence",
             post(presence_api::heartbeat).delete(presence_api::leave),
