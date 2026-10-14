@@ -5,6 +5,8 @@
 	import { formatDay } from '$lib/ui/time';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { Section, Item, Empty } from '$lib/ui/page';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { failureSentence } from '$lib/model/failure';
@@ -23,6 +25,18 @@
 		retry: false
 	}));
 	let busy = $state('');
+	/* Who it covers, over what, and where: the row's facts behind its sentence. */
+	const CLASS_WORDS: Record<DirectionGrant['class'], string> = {
+		content: 'Content',
+		work: 'Work',
+		staffing: 'Staffing',
+		schedule: 'Schedules'
+	};
+	function scopeLine(grant: DirectionGrant): string {
+		const who = grant.grantee.kind === 'members' ? 'Every member' : grant.grantee.name;
+		const where = grant.scope.kind === 'company' ? 'Whole company' : `Team ${grant.scope.name}`;
+		return `${who} · ${CLASS_WORDS[grant.class]} · ${where}`;
+	}
 
 	async function revoke(grant: DirectionGrant) {
 		const yes = await confirmAction({
@@ -45,15 +59,25 @@
 	}
 </script>
 
-{#if grants.isSuccess}<Section
-		title="Standing permissions"
-		count={grants.data?.items.length}
-		info="What people may change without asking you first. Exec still tells you, with Undo, each time."
-	>
+<Section
+	title="Standing permissions"
+	count={grants.data?.items.length}
+	info="What people may change without asking you first. Exec still tells you, with Undo, each time."
+>
+	{#if grants.isPending}
+		<Skeleton label="Loading standing permissions" variant="list" count={2} />
+	{:else if grants.isError}
+		<FailureNotice
+			error={grants.error}
+			subject="standing permissions"
+			variant="block"
+			onretry={() => void grants.refetch()}
+		/>
+	{:else}
 		{#each grants.data?.items ?? [] as grant (grant.id)}
 			<Item
 				title={grant.label}
-				meta={`Granted by ${grant.granted_by.name} · ${formatDay(grant.granted_at)}`}
+				meta={`${scopeLine(grant)} · Granted by ${grant.granted_by.name} · ${formatDay(grant.granted_at)}`}
 			>
 				{#snippet trailing()}
 					<button
@@ -67,4 +91,5 @@
 		{:else}
 			<Empty compact title="None yet. Approve a request with “always allow” to add one." />
 		{/each}
-	</Section>{/if}
+	{/if}
+</Section>
