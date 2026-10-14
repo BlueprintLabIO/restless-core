@@ -1748,6 +1748,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(retry_actor_conversation),
         )
         .route(
+            "/companies/{company}/actors/archived",
+            get(archived_agents),
+        )
+        .route(
             "/companies/{company}/actors/{actor}/archive",
             post(archive_agent),
         )
@@ -5829,6 +5833,25 @@ struct AgentStaffingInput {
     /// Why, in the owner's words; recorded with the change.
     #[serde(default)]
     reason: String,
+}
+
+/// The company's archived agents, newest first, for People's Archived filter. Owner only, like
+/// archiving itself.
+async fn archived_agents(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    if principal.membership_role() != "owner" {
+        return api_error(StatusCode::FORBIDDEN, "staffing", "Only the owner sees archived agents.");
+    }
+    match state.daemon.orgintel.get(&company).await {
+        Ok(org) => match org.archived_agents().await {
+            Ok(agents) => Json(serde_json::json!({ "agents": agents })).into_response(),
+            Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
+        },
+        Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
+    }
 }
 
 /// Archive an agent (Sprint 88): it stops taking Work and leaves the directory, and everything it

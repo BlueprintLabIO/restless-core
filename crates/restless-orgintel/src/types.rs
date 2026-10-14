@@ -392,6 +392,21 @@ pub struct ActorRow {
     pub created_at: DateTime<Utc>,
 }
 
+/// An archived agent as People lists it (Sprint 88).
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct ArchivedAgentRow {
+    pub actor_id: String,
+    pub display: String,
+    pub role: String,
+    pub kind: String,
+    /// The team it left, if it was in one.
+    pub team_id: Option<Uuid>,
+    pub model: Option<String>,
+    pub retired_at: Option<DateTime<Utc>>,
+    pub retired_by: Option<String>,
+    pub retirement_reason: String,
+}
+
 /// A group of actors with one accountable lead (S06-T4).
 ///
 /// Coordination state, not kernel truth: recoverable, overridable, repairable.

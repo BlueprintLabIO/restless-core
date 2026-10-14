@@ -2042,6 +2042,9 @@ async fn durable_people_and_one_level_rosters_refuse_ghosts_and_poaching() {
         "Work requires an existing active actor and never reopens retirement"
     );
 
+    let archived = org.archived_agents().await.unwrap();
+    assert!(archived.iter().any(|agent| agent.actor_id == "retiring-researcher"
+        && agent.retirement_reason.contains("no longer exists")));
     // Sprint 88: re-hiring reverses retirement. The same identity comes back and can take Work.
     assert!(
         org.restore_actor("retiring-researcher", "exec", "").await.is_err(),
@@ -2066,6 +2069,7 @@ async fn durable_people_and_one_level_rosters_refuse_ghosts_and_poaching() {
     org.update_actor_model("retiring-researcher", "kimi-k2.5")
         .await
         .expect("a re-hired actor takes a model again");
+    assert!(!org.archived_agents().await.unwrap().iter().any(|agent| agent.actor_id == "retiring-researcher"));
 
     let roster_events = org.events_of_kind("team_roster_changed").await.unwrap();
     assert!(roster_events.iter().any(|event| {

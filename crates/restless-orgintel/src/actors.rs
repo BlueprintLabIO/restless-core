@@ -391,6 +391,22 @@ impl OrgIntel {
         Ok(())
     }
 
+    /// Archived agents, newest first (Sprint 88), each with the team it left: retirement clears
+    /// `team_id`, so the team comes from the retirement record, for People to group them by.
+    pub async fn archived_agents(&self) -> Result<Vec<ArchivedAgentRow>> {
+        Ok(sqlx::query_as(
+            "SELECT a.id AS actor_id, a.display, a.role, a.kind, a.model, a.retired_at, a.retired_by, \
+                    a.retirement_reason, \
+                    (SELECT NULLIF(e.body->>'previous_team_id','')::uuid FROM events e \
+                      WHERE e.kind='actor_retired' AND e.body->>'actor_id'=a.id \
+                      ORDER BY e.id DESC LIMIT 1) AS team_id \
+             FROM actors a WHERE a.retired_at IS NOT NULL AND a.actor_class='agent' \
+             ORDER BY a.retired_at DESC, a.id",
+        )
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     /// Re-hire a retired actor (Sprint 88): the reverse of [`Self::retire_actor`]. History was never
     /// erased, so the actor comes back with its name, model, skills and conversations, and rejoins
     /// the team it left when that team still stands. Returns the team it rejoined, if any.
