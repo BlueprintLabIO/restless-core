@@ -42,7 +42,7 @@
 	const harnessName = (id: string) =>
 		id.startsWith('account-harness:')
 			? (HARNESS_NAMES[id.split(':')[1]] ?? id.split(':')[1])
-			: 'OMP';
+			: 'Built in';
 	let custom = $state(false);
 	const presets = $derived(
 		selected?.models ??
@@ -238,23 +238,31 @@
 									choose();
 								}}
 								disabled={busy}
-								>{#each accounts as c}<option value={c.id}
-										>{label(c.id.replace(/^account-harness:[^:]+:/, 'account:'))}{!c.loaded
-											? ' · restart pending'
-											: ''}</option
+								>{#each accounts as c}<option
+										value={c.id}
+										title={c.loaded
+											? undefined
+											: 'Ready once the company restarts, which it does on its own.'}
+										>{label(c.id.replace(/^account-harness:[^:]+:/, 'account:'))}</option
 									>{/each}</select
 							></label
 						>
-						{#if harnesses.length > 1}<label
-								title="The agent program that runs this model. OMP is the built-in harness; Claude Code and Codex are the providers' own."
-								><span>Harness</span><select
-									value={connection}
-									disabled={busy}
-									onchange={(event) => (connection = event.currentTarget.value)}
-									>{#each harnesses as c}<option value={c.id}>{harnessName(c.id)}</option
-										>{/each}</select
-								></label
-							>{/if}
+						{#if harnesses.length > 1}<details
+								class="runs-with"
+								open={harnessName(connection) !== 'Built in'}
+							>
+								<summary>More options</summary>
+								<label
+									title="Which agent program runs this model. Built in is the default; Claude Code and Codex are the model makers' own programs."
+									><span>Runs with</span><select
+										value={connection}
+										disabled={busy}
+										onchange={(event) => (connection = event.currentTarget.value)}
+										>{#each harnesses as c}<option value={c.id}>{harnessName(c.id)}</option
+											>{/each}</select
+									></label
+								>
+							</details>{/if}
 						<label
 							title={selected?.kind === 'harness'
 								? selected.models?.length
@@ -270,11 +278,11 @@
 								}}
 							>
 								{#if model && !presets.some((m) => m.id === model)}<option value={model}
-										>{model} (saved)</option
+										>{modelLabel(model)} (current)</option
 									>{/if}
-								{#each presets as m}<option value={m.id}>{m.name}</option>{/each}<option
-									value="__custom">Custom model…</option
-								>
+								{#each presets as m}<option value={m.id}
+										>{m.name}{'default' in m && m.default ? ' (recommended)' : ''}</option
+									>{/each}<option value="__custom">Custom model…</option>
 							</select></label
 						>
 						{#if custom}<label
@@ -339,6 +347,20 @@
 	.bar {
 		display: flex;
 		gap: var(--space-2);
+		order: 2;
+	}
+	/* How it runs is a detail: after the model, folded unless it is not the default. */
+	.runs-with {
+		flex-basis: 100%;
+		order: 1;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.runs-with summary {
+		cursor: pointer;
+	}
+	.runs-with label {
+		margin-top: 6px;
 	}
 	.more {
 		width: 100%;
