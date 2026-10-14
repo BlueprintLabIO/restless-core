@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { versionChanges, wordChanges } from './document-diff.ts';
+import { proposalChanges, versionChanges, wordChanges } from './document-diff.ts';
 import type { DocumentContent } from './documents.ts';
 
 const doc = (...blocks: [string, string][]): DocumentContent => ({
@@ -42,5 +42,15 @@ test('a moved block that kept its words is not a change, and the first version i
 	assert.deepEqual(
 		versionChanges(null, before).map((change) => change.kind),
 		['added', 'added']
+	);
+});
+
+test('a one-block proposal reads as that block reworded, nothing else', () => {
+	const current = doc(['a', 'Intro'], ['b', 'Price is 10'], ['c', 'Close']);
+	const proposed = { type: 'paragraph', content: [{ type: 'text', text: 'Price is 12' }] };
+	const changes = proposalChanges(current, proposed, 'b');
+	assert.deepEqual(
+		changes.map((change) => [change.kind, change.id]),
+		[['changed', 'b']]
 	);
 });

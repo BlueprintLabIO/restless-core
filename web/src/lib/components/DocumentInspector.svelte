@@ -95,7 +95,7 @@
 		type PendingDocumentMutation
 	} from '$lib/model/documents';
 	import { composerTrigger } from '$lib/primitives/composer-menu';
-	import { versionChanges } from '$lib/model/document-diff';
+	import { proposalChanges, versionChanges, type BlockChange } from '$lib/model/document-diff';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import { withDocumentImages } from '$lib/model/document-editor-schema';
 
@@ -314,6 +314,16 @@
 		() => companyId,
 		() => documentId,
 		() => selectedProposal?.id ?? ''
+	);
+	/* A proposal reads as what it would change in the document now, word by word. */
+	const proposalDiff = $derived(
+		proposalDetail.proposal
+			? proposalChanges(
+					view.current_version.version.content_json,
+					proposalDetail.proposal.proposed_content_json,
+					proposalDetail.proposal.scope === 'block' ? proposalDetail.proposal.block_id : null
+				)
+			: null
 	);
 	const versionDetail = documentVersionQuery(
 		() => companyId,
@@ -1198,6 +1208,23 @@
 	}
 </script>
 
+{#snippet changeList(list: BlockChange[], label: string)}
+	<ol class="version-diff" aria-label={label}>
+		{#each list as change (change.id)}
+			<li class="diff-{change.kind}">
+				{#if change.kind === 'changed'}
+					{#each change.words as part, index (index)}{#if part.op === 'added'}<ins>{part.text}</ins
+							>{:else if part.op === 'removed'}<del>{part.text}</del>{:else}{part.text}{/if}{/each}
+				{:else if change.kind === 'added'}
+					<ins>{change.text}</ins>
+				{:else}
+					<del>{change.text}</del>
+				{/if}
+			</li>
+		{/each}
+	</ol>
+{/snippet}
+
 <aside class="document-inspector" aria-label="Document review and discussion">
 	{#if ondismiss}
 		<div class="inspector-dismiss">
@@ -1691,16 +1718,19 @@
 						{/each}
 					</div>
 					{#if proposalDetail?.proposal}
-						<div class="proposal-compare">
-							<div>
-								<strong>Current</strong>
-								<pre>{view.current_version.version.plain_text}</pre>
-							</div>
-							<div>
-								<strong>Proposed</strong>
-								<pre>{proposalDetail.proposal.proposed_plain_text}</pre>
-							</div>
-						</div>
+						{#if proposalDetail.proposal.base_version_id !== view.current_version.version.id}
+							<p
+								class="diff-scope"
+								title="The document changed after this was proposed, so the comparison also shows those later edits."
+							>
+								Proposed on an earlier version
+							</p>
+						{/if}
+						{#if proposalDiff?.length}
+							{@render changeList(proposalDiff, 'What this proposal changes')}
+						{:else}
+							<p class="diff-scope">It changes no words.</p>
+						{/if}
 						{#if canJudge}
 							<label class="field"
 								><span>Decision note</span><textarea
@@ -1865,22 +1895,7 @@
 										? 'The first version'
 										: 'Everything in this version'}
 							</p>
-							<ol class="version-diff" aria-label="What changed">
-								{#each changes as change (change.id)}
-									<li class="diff-{change.kind}">
-										{#if change.kind === 'changed'}
-											{#each change.words as part, index (index)}{#if part.op === 'added'}<ins
-														>{part.text}</ins
-													>{:else if part.op === 'removed'}<del>{part.text}</del
-													>{:else}{part.text}{/if}{/each}
-										{:else if change.kind === 'added'}
-											<ins>{change.text}</ins>
-										{:else}
-											<del>{change.text}</del>
-										{/if}
-									</li>
-								{/each}
-							</ol>
+							{@render changeList(changes, 'What changed')}
 						{:else}
 							<p class="diff-scope">No words changed in this version.</p>
 						{/if}
@@ -2343,27 +2358,6 @@
 	}
 	.proposal-section > header > span {
 		color: var(--text-tertiary);
-	}
-	.proposal-compare {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 1px;
-		margin: var(--space-3);
-		border: 1px solid var(--border);
-		background: var(--border);
-	}
-	.proposal-compare > div {
-		min-width: 0;
-		padding: 9px;
-		background: var(--surface);
-	}
-	.proposal-compare pre {
-		max-height: 190px;
-		margin: 6px 0 0;
-		overflow: auto;
-		white-space: pre-wrap;
-		color: var(--text-secondary);
-		font: var(--t-body) / 1.45 var(--font-ui);
 	}
 	.proposal-section > .field {
 		margin: 0 var(--space-3) var(--space-2);

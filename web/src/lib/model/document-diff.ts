@@ -111,3 +111,21 @@ export function versionChanges(
 	removedUpTo(old.length);
 	return changes;
 }
+
+/** What an agent's proposal would change in the current document. A whole-document proposal is
+ * compared as a version; a one-block proposal is that block replaced in place. */
+export function proposalChanges(
+	current: DocumentContent,
+	proposed: DocumentContent | DocumentNode,
+	blockId: string | null
+): BlockChange[] {
+	if (proposed.type === 'doc') return versionChanges(current, proposed as DocumentContent);
+	const node = blockId
+		? { ...proposed, attrs: { ...proposed.attrs, block_id: blockId } }
+		: proposed;
+	const content = current.content ?? [];
+	const at = blockId ? content.findIndex((block) => block.attrs?.block_id === blockId) : -1;
+	const next =
+		at < 0 ? [...content, node] : content.map((block, index) => (index === at ? node : block));
+	return versionChanges(current, { type: 'doc', content: next });
+}
