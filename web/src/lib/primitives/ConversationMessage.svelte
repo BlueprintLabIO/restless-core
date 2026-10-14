@@ -35,7 +35,8 @@
 		headerExtra,
 		actions,
 		embedded = false,
-		continued = false
+		continued = false,
+		context = null
 	}: {
 		sender: 'owner' | 'agent' | 'human' | 'system';
 		author: string;
@@ -59,6 +60,8 @@
 		embedded?: boolean;
 		/** Follows a message from the same author moments earlier: no header. */
 		continued?: boolean;
+		/** The screen this message was sent from, linked so a terse question keeps its subject. */
+		context?: { href: string; label: string } | null;
 	} = $props();
 
 	let copyState = $state<'idle' | 'copied' | 'failed'>('idle');
@@ -171,6 +174,9 @@
 				/></button
 			>{/if}
 		<AttachmentList {attachments} {hrefFor} />
+		{#if context}<a class="message-context" href={context.href} title="Sent from this screen"
+				>{context.label}</a
+			>{/if}
 		{#if onreact && sender !== 'system'}<MessageReactions {reactions} {onreact} />{/if}
 		{#if details && sender === 'agent'}
 			<!-- One disclosure: the evidence stays folded under the message until asked for. -->
@@ -227,6 +233,21 @@
 </article>
 
 <style>
+	.message-context {
+		display: inline-block;
+		max-width: 100%;
+		margin-top: 4px;
+		overflow: hidden;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		text-decoration: none;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.message-context:hover {
+		color: var(--text-secondary);
+		text-decoration: underline;
+	}
 	.conversation-message.fresh {
 		animation: message-arrive var(--motion-disclosure) var(--ease-out) both;
 	}

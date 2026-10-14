@@ -100,6 +100,7 @@
 		needsProvider = false,
 		providerLabel = 'Connect intelligence',
 		contextLabel = 'Current screen',
+		contextLabelFor = null,
 		contextKind = '',
 		focusAfterMessageId = 0,
 		focusStartedAt = null,
@@ -144,6 +145,8 @@
 		providerLabel?: string;
 		/** The thing on screen a message will be linked to, by name. */
 		contextLabel?: string;
+		/** What the screen a sent message links to is called, so the message can name it. */
+		contextLabelFor?: ((path: string) => string) | null;
 		/** Which surface it is on: work, library, people, company or inbox. */
 		contextKind?: string;
 		focusAfterMessageId?: number;
@@ -1020,6 +1023,12 @@
 		return () => document.removeEventListener('selectionchange', capture);
 	});
 
+	function sentFrom(path: string | null | undefined): { href: string; label: string } | null {
+		if (!path || !path.startsWith(`/${encodeURIComponent(companyId)}`)) return null;
+		const label = contextLabelFor?.(path);
+		return label ? { href: path, label } : null;
+	}
+
 	function toggleContext() {
 		includeContext = !includeContext;
 		if (includeContext) contextFlare += 1;
@@ -1413,6 +1422,7 @@
 							intent={message.intent}
 							attachments={message.attachments}
 							hrefFor={attachmentHref}
+							context={message.from === 'you' ? sentFrom(message.contextPath) : null}
 						>
 							{#snippet actions()}<!-- Two tools in sight (reply, and copy beside them); the rest wait in one menu. -->{#if message.from !== 'you' && onask}<button
 										type="button"

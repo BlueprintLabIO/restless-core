@@ -770,8 +770,8 @@
 
 	/* What the next rail message will be linked to, by name: the Work, Goal,
 	 * document or person on screen rather than the section it sits in. */
-	const currentContext = $derived.by((): { kind: string; label: string } => {
-		const url = page.url;
+	/* What a screen is called, for the chip now and for the link a sent message carries. */
+	function contextFor(url: URL, current: boolean): { kind: string; label: string } {
 		const path = url.pathname;
 		const root = `/${companyId}`;
 		const workId = path.match(new RegExp(`^${root}/work/([^/]+)$`))?.[1];
@@ -791,7 +791,14 @@
 						? 'Sheet'
 						: 'Sheets'
 					: 'Library';
-			return { kind: 'library', label: pageContext.title || fallback };
+			const document = url.searchParams.get('document');
+			const named = document
+				? libraryDocuments.documents.find((candidate) => candidate.id === document)?.title
+				: '';
+			return {
+				kind: 'library',
+				label: (current ? pageContext.title : '') || named || fallback
+			};
 		}
 		if (path === `${root}/people` || path.startsWith(`${root}/people/`)) {
 			const person = url.searchParams.get('person');
@@ -806,7 +813,15 @@
 		const item = url.searchParams.get('item');
 		const title = item ? liveNeedsYou.find((candidate) => candidate.id === item)?.title : '';
 		return { kind: 'inbox', label: title || 'Inbox' };
-	});
+	}
+	const currentContext = $derived(contextFor(page.url, true));
+	function contextLabelFor(path: string): string {
+		try {
+			return contextFor(new URL(path, page.url.origin), false).label;
+		} catch {
+			return '';
+		}
+	}
 
 	/* Conversations with something the viewer has not read, from the server read cursor, so
 	 * People says a colleague or lead wrote wherever the owner is. The one open in People is
@@ -1564,6 +1579,7 @@
 				railRouteState === 'unavailable'}
 			providerLabel={providerIssue ? startLinkLabel(providerIssue) : 'Connect intelligence'}
 			contextLabel={currentContext.label}
+			{contextLabelFor}
 			contextKind={currentContext.kind}
 			focusAfterMessageId={railConversation.focusAfterMessageId}
 			focusStartedAt={railConversation.focusStartedAt}
