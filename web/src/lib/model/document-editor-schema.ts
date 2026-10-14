@@ -55,6 +55,95 @@ const MAX_HREF = 2_048;
 const MAX_LINK_TITLE = 300;
 const MAX_ORDERED_START = 100_000;
 
+/** The few colours text may be written or highlighted in. A colour is stored by name, so the page
+ * draws it to suit a light or dark theme and an export picks its own; anything else is dropped. */
+export const DOCUMENT_TEXT_COLORS = ['gray', 'red', 'orange', 'green', 'blue', 'purple'] as const;
+export const DOCUMENT_HIGHLIGHTS = ['yellow', 'green', 'blue', 'pink', 'purple'] as const;
+/** How a paragraph or heading lines up; left, the default, is no attribute at all. */
+export const DOCUMENT_ALIGNMENTS = ['center', 'right', 'justify'] as const;
+export type DocumentAlignment = (typeof DOCUMENT_ALIGNMENTS)[number];
+
+/* The colours a pasted span is matched against: a Word or Google Docs colour becomes the nearest
+ * named one, and black, white or grey-ish defaults become none. */
+const TEXT_COLOR_RGB: Record<(typeof DOCUMENT_TEXT_COLORS)[number], [number, number, number]> = {
+	gray: [120, 120, 120],
+	red: [220, 38, 38],
+	orange: [234, 120, 20],
+	green: [22, 150, 70],
+	blue: [37, 99, 235],
+	purple: [140, 60, 220]
+};
+const HIGHLIGHT_RGB: Record<(typeof DOCUMENT_HIGHLIGHTS)[number], [number, number, number]> = {
+	yellow: [255, 240, 0],
+	green: [120, 230, 120],
+	blue: [120, 200, 255],
+	pink: [255, 150, 200],
+	purple: [200, 160, 255]
+};
+
+function cssRgb(value: string): [number, number, number] | null {
+	const text = value.trim().toLowerCase();
+	const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/u.exec(text)?.[1];
+	if (hex) {
+		const full = hex.length === 3 ? [...hex].map((digit) => digit + digit).join('') : hex;
+		return [0, 2, 4].map((at) => parseInt(full.slice(at, at + 2), 16)) as [number, number, number];
+	}
+	const rgb = /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)(?:[\s,/]+([\d.]+%?))?\s*\)$/u.exec(text);
+	if (!rgb) return null;
+	if (rgb[4] !== undefined && parseFloat(rgb[4]) === 0) return null;
+	return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
+}
+
+function nearest<T extends string>(
+	rgb: [number, number, number],
+	palette: Record<T, [number, number, number]>
+): T {
+	let best = '' as T;
+	let distance = Infinity;
+	for (const [name, [r, g, b]] of Object.entries(palette) as [T, [number, number, number]][]) {
+		const d = (rgb[0] - r) ** 2 + (rgb[1] - g) ** 2 + (rgb[2] - b) ** 2;
+		if (d < distance) [best, distance] = [name, d];
+	}
+	return best;
+}
+
+/** A pasted CSS text colour as a named one, or null for the ordinary black (or white) of a page. */
+export function documentTextColorFromCss(value: string | null | undefined): string | null {
+	const rgb = value ? cssRgb(value) : null;
+	if (!rgb) return null;
+	const spread = Math.max(...rgb) - Math.min(...rgb);
+	const light = (rgb[0] + rgb[1] + rgb[2]) / 3;
+	if (spread < 40 && (light < 70 || light > 200)) return null;
+	return spread < 40 ? 'gray' : nearest(rgb, TEXT_COLOR_RGB);
+}
+
+/** A pasted CSS background as a named highlight, or null for white, black and transparent. */
+export function documentHighlightFromCss(value: string | null | undefined): string | null {
+	const rgb = value ? cssRgb(value) : null;
+	if (!rgb) return null;
+	if (Math.max(...rgb) - Math.min(...rgb) < 40) return null;
+	return nearest(rgb, HIGHLIGHT_RGB);
+}
+
+function oneOf(value: unknown, allowed: readonly string[]): string | null {
+	return typeof value === 'string' && allowed.includes(value) ? value : null;
+}
+
+/** A paragraph's or heading's alignment, from its own markup or the style a paste carries. */
+const ALIGN = {
+	align: {
+		default: null,
+		parseHTML: (element: HTMLElement) =>
+			oneOf(
+				element.getAttribute('data-align') ??
+					(element.style?.textAlign === 'both' ? 'justify' : element.style?.textAlign),
+				DOCUMENT_ALIGNMENTS
+			),
+		renderHTML: (attributes: Record<string, unknown>) =>
+			oneOf(attributes.align, DOCUMENT_ALIGNMENTS) ? { 'data-align': attributes.align } : {}
+	}
+};
+
 const BLOCK_ID = {
 	block_id: {
 		default: null,
@@ -495,6 +584,72 @@ function linkExtension(requestLink: (() => void) | undefined) {
 		}
 	});
 }
+
+function colourMark(name: 'highlight' | 'textColor') {
+	const palette = name === 'highlight' ? DOCUMENT_HIGHLIGHTS : DOCUMENT_TEXT_COLORS;
+	const attribute = name === 'highlight' ? 'data-color' : 'data-text-color';
+	const fromCss = name === 'highlight' ? documentHighlightFromCss : documentTextColorFromCss;
+	return Mark.create({
+		name,
+		addAttributes: () => ({
+			color: {
+				default: null,
+				parseHTML: (element: HTMLElement) =>
+					oneOf(element.getAttribute(attribute), palette) ??
+					fromCss(name === 'highlight' ? element.style?.backgroundColor : element.style?.color) ??
+					(name === 'highlight' && element.tagName === 'MARK' ? 'yellow' : null),
+				renderHTML: (attributes: Record<string, unknown>) =>
+					oneOf(attributes.color, palette) ? { [attribute]: attributes.color } : {}
+			}
+		}),
+		/* Its own markup, a plain <mark>, or a span a word processor coloured; a span in the page's
+		 * ordinary colours is not a colour at all. */
+		parseHTML: () => [
+			{
+				tag: name === 'highlight' ? 'mark' : `span[${attribute}]`,
+				getAttrs: (element: HTMLElement) =>
+					oneOf(element.getAttribute(attribute), palette) || name === 'highlight' ? null : false
+			},
+			{
+				tag: 'span[style]',
+				getAttrs: (element: HTMLElement) =>
+					fromCss(name === 'highlight' ? element.style?.backgroundColor : element.style?.color)
+						? null
+						: false
+			}
+		],
+		renderHTML: ({ HTMLAttributes }) => [name === 'highlight' ? 'mark' : 'span', HTMLAttributes, 0]
+	});
+}
+
+/* A paragraph or heading may be centred, right-aligned or justified (⌘⇧E, ⌘⇧R, ⌘⇧J; ⌘⇧L back to
+ * the left), as in every word processor. */
+export function alignDocumentBlocks(editor: Editor, align: DocumentAlignment | null): boolean {
+	return editor
+		.chain()
+		.focus()
+		.updateAttributes('paragraph', { align })
+		.updateAttributes('heading', { align })
+		.run();
+}
+
+export function documentAlignment(editor: Editor): DocumentAlignment | null {
+	const { $from } = editor.state.selection;
+	return oneOf($from.parent.attrs.align, DOCUMENT_ALIGNMENTS) as DocumentAlignment | null;
+}
+
+const alignmentExtension = Extension.create({
+	name: 'documentAlignment',
+	addGlobalAttributes: () => [{ types: ['paragraph', 'heading'], attributes: ALIGN }],
+	addKeyboardShortcuts() {
+		return {
+			'Mod-Shift-l': () => alignDocumentBlocks(this.editor, null),
+			'Mod-Shift-e': () => alignDocumentBlocks(this.editor, 'center'),
+			'Mod-Shift-r': () => alignDocumentBlocks(this.editor, 'right'),
+			'Mod-Shift-j': () => alignDocumentBlocks(this.editor, 'justify')
+		};
+	}
+});
 
 /* An ordered list keeps a number to start at and nothing else. Tiptap also records a marker type
  * (from a pasted Word or Google Docs "a." list, or <ol type="i">), which the company schema has
@@ -1004,7 +1159,6 @@ export function createDocumentEditorExtensions(
 	return [
 		StarterKit.configure({
 			link: false,
-			underline: false,
 			undoRedo: false,
 			orderedList: false,
 			heading: { levels: [1, 2, 3, 4, 5, 6] }
@@ -1019,6 +1173,9 @@ export function createDocumentEditorExtensions(
 		Mention,
 		referenceExtension(hooks.companyId ?? ''),
 		linkExtension(hooks.requestLink),
+		colourMark('highlight'),
+		colourMark('textColor'),
+		alignmentExtension,
 		imageExtension(hooks),
 		slashMenuExtension(hooks),
 		blockHandleExtension(hooks),
@@ -1061,11 +1218,31 @@ function string(value: unknown, label: string, maximum: number): string {
 	return value;
 }
 
+const MARK_TYPES = [
+	'bold',
+	'italic',
+	'underline',
+	'strike',
+	'code',
+	'link',
+	'highlight',
+	'textColor'
+];
+
 function projectMark(value: unknown): DocumentMark {
 	const source = object(value, 'text mark');
 	const type = string(source.type, 'mark type', 32);
-	if (!['bold', 'italic', 'strike', 'code', 'link'].includes(type)) {
+	if (!MARK_TYPES.includes(type)) {
 		invalid(`mark ${type} is outside the company schema.`);
+	}
+	if (type === 'highlight' || type === 'textColor') {
+		const attrs = object(source.attrs, `${type} attributes`);
+		const color = oneOf(
+			attrs.color,
+			type === 'highlight' ? DOCUMENT_HIGHLIGHTS : DOCUMENT_TEXT_COLORS
+		);
+		if (!color) invalid(`${type} colour is outside the company palette.`);
+		return { type, attrs: { color } };
 	}
 	if (type !== 'link') return { type };
 	const attrs = object(source.attrs, 'link attributes');
@@ -1099,6 +1276,11 @@ function projectedAttributes(
 			attrs.block_id = blockId;
 		}
 		if (topLevel && !attrs.block_id) invalid('a top-level block has no stable identity.');
+	}
+	if ((type === 'paragraph' || type === 'heading') && source.align != null) {
+		const align = oneOf(source.align, DOCUMENT_ALIGNMENTS);
+		if (!align) invalid('alignment is invalid.');
+		attrs.align = align;
 	}
 	switch (type) {
 		case 'heading': {

@@ -34,13 +34,23 @@ test('the browser editor schema is the exact sidecar-compatible node and mark se
 		'taskList',
 		'text'
 	]);
-	assert.deepEqual(Object.keys(schema.marks).sort(), ['bold', 'code', 'italic', 'link', 'strike']);
+	assert.deepEqual(Object.keys(schema.marks).sort(), [
+		'bold',
+		'code',
+		'highlight',
+		'italic',
+		'link',
+		'strike',
+		'textColor',
+		'underline'
+	]);
 });
 
 /* The sidecar refuses a whole body for one attribute outside these lists, and every later store
  * with it (services/native-documents-collaboration/src/document-codec.ts validateAttributes). */
 const SIDECAR_ATTRIBUTES: Record<string, string[]> = {
-	heading: ['block_id', 'level'],
+	heading: ['align', 'block_id', 'level'],
+	paragraph: ['align', 'block_id'],
 	orderedList: ['block_id', 'start'],
 	taskItem: ['block_id', 'checked'],
 	codeBlock: ['block_id', 'language'],
@@ -68,7 +78,11 @@ test('no browser node or mark can carry an attribute the sidecar refuses', (cont
 	for (const [name, type] of Object.entries(schema.marks)) {
 		assert.deepEqual(
 			Object.keys(type.spec.attrs ?? {}).sort(),
-			name === 'link' ? ['href', 'title'] : [],
+			name === 'link'
+				? ['href', 'title']
+				: ['highlight', 'textColor'].includes(name)
+					? ['color']
+					: [],
 			`${name} attributes`
 		);
 	}
@@ -389,4 +403,41 @@ test('a split block keeps its id on the part that is still that block', (context
 	const start = split([paragraph('a', 'Shared plan.')], () => 1);
 	assert.deepEqual(start[1], ['a', 'Shared plan.']);
 	assert.notEqual(start[0][0], 'a');
+});
+
+test('colours and alignment keep only the named palette the sidecar keeps', () => {
+	const { documentTextColorFromCss, documentHighlightFromCss, projectDocumentContent } =
+		documentEditorSchema;
+	assert.equal(documentTextColorFromCss('#000000'), null, 'a page’s ordinary black is no colour');
+	assert.equal(documentTextColorFromCss('rgb(255, 255, 255)'), null);
+	assert.equal(documentTextColorFromCss('#e01b1b'), 'red');
+	assert.equal(documentTextColorFromCss('#1155cc'), 'blue');
+	assert.equal(documentHighlightFromCss('#ffff00'), 'yellow');
+	assert.equal(documentHighlightFromCss('transparent'), null);
+	assert.equal(documentHighlightFromCss('#ffffff'), null);
+	const body = (marks: unknown[], attrs: Record<string, unknown> = {}) => ({
+		type: 'doc',
+		content: [
+			{
+				type: 'paragraph',
+				attrs: { block_id: 'p', ...attrs },
+				content: [{ type: 'text', text: 'Due Friday', marks }]
+			}
+		]
+	});
+	const kept = projectDocumentContent(
+		body(
+			[
+				{ type: 'underline' },
+				{ type: 'highlight', attrs: { color: 'yellow' } },
+				{ type: 'textColor', attrs: { color: 'red' } }
+			],
+			{ align: 'center' }
+		) as never
+	);
+	assert.deepEqual(kept.content[0].attrs, { block_id: 'p', align: 'center' });
+	assert.throws(() =>
+		projectDocumentContent(body([{ type: 'highlight', attrs: { color: '#ff0' } }]) as never)
+	);
+	assert.throws(() => projectDocumentContent(body([], { align: 'left' }) as never));
 });

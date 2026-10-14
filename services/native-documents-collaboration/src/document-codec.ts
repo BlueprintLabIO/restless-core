@@ -17,9 +17,9 @@ const blockId = { block_id: { default: null } } as const;
 
 const nodes: Record<string, NodeSpec> = {
   doc: { content: 'block*' },
-  paragraph: { attrs: blockId, content: 'inline*', group: 'block' },
+  paragraph: { attrs: { block_id: { default: null }, align: { default: null } }, content: 'inline*', group: 'block' },
   heading: {
-    attrs: { block_id: { default: null }, level: { default: 1 } },
+    attrs: { block_id: { default: null }, level: { default: 1 }, align: { default: null } },
     content: 'inline*',
     defining: true,
     group: 'block',
@@ -74,7 +74,10 @@ const nodes: Record<string, NodeSpec> = {
 const marks: Record<string, MarkSpec> = {
   bold: {},
   italic: {},
+  underline: {},
   strike: {},
+  highlight: { attrs: { color: {} } },
+  textColor: { attrs: { color: {} } },
   code: { code: true, excludes: '_' },
   link: {
     attrs: { href: {}, title: { default: null } },
@@ -142,6 +145,12 @@ interface ValidationState {
   readonly blockIds: Set<string>;
 }
 
+const MARK_TYPES = ['bold', 'italic', 'underline', 'strike', 'code', 'link', 'highlight', 'textColor'];
+// Colours and alignments are names from a small palette; web/src/lib/model/document-editor-schema.ts.
+const TEXT_COLORS = ['gray', 'red', 'orange', 'green', 'blue', 'purple'];
+const HIGHLIGHTS = ['yellow', 'green', 'blue', 'pink', 'purple'];
+const ALIGNMENTS = ['center', 'right', 'justify'];
+
 function validateMarks(value: unknown): void {
   if (value === undefined) return;
   if (!Array.isArray(value)) invalid();
@@ -150,11 +159,17 @@ function validateMarks(value: unknown): void {
     const mark = object(candidate);
     exactKeys(mark, ['type', 'attrs']);
     const type = mark.type;
-    if (typeof type !== 'string' || !['bold', 'italic', 'strike', 'code', 'link'].includes(type) || seen.has(type)) {
+    if (typeof type !== 'string' || !MARK_TYPES.includes(type) || seen.has(type)) {
       invalid();
     }
     seen.add(type);
     const attrs = mark.attrs === undefined ? {} : object(mark.attrs);
+    if (type === 'highlight' || type === 'textColor') {
+      exactKeys(attrs, ['color']);
+      const palette = type === 'highlight' ? HIGHLIGHTS : TEXT_COLORS;
+      if (typeof attrs.color !== 'string' || !palette.includes(attrs.color)) invalid();
+      continue;
+    }
     if (type !== 'link') {
       if (Object.keys(attrs).length !== 0) invalid();
       continue;
@@ -172,14 +187,14 @@ function validateAttributes(type: string, value: unknown, state: ValidationState
   const attrs = value === undefined ? {} : object(value);
   const allowed = (() => {
     switch (type) {
-      case 'heading': return ['block_id', 'level'];
+      case 'heading': return ['block_id', 'level', 'align'];
+      case 'paragraph': return ['block_id', 'align'];
       case 'orderedList': return ['block_id', 'start'];
       case 'taskItem': return ['block_id', 'checked'];
       case 'codeBlock': return ['block_id', 'language'];
       case 'mention': return ['actor_id', 'label'];
       case 'reference': return ['id', 'kind', 'label'];
       case 'image': return ['block_id', 'attachment_id', 'alt', 'width'];
-      case 'paragraph':
       case 'bulletList':
       case 'taskList':
       case 'listItem':
@@ -201,6 +216,7 @@ function validateAttributes(type: string, value: unknown, state: ValidationState
     if (!/^[A-Za-z0-9_.:-]+$/u.test(id) || state.blockIds.has(id)) invalid();
     state.blockIds.add(id);
   }
+  if (attrs.align !== undefined && attrs.align !== null && (typeof attrs.align !== 'string' || !ALIGNMENTS.includes(attrs.align))) invalid();
   if (type === 'heading' && (!Number.isInteger(attrs.level) || (attrs.level as number) < 1 || (attrs.level as number) > 6)) invalid();
   if (
     type === 'orderedList' &&

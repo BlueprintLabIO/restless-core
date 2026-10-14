@@ -15,7 +15,7 @@ const projection = {
   content: [
     {
       type: 'heading',
-      attrs: { block_id: 'heading', level: 2 },
+      attrs: { block_id: 'heading', level: 2, align: 'center' },
       content: [{ type: 'text', text: 'A shared plan', marks: [{ type: 'bold' }] }],
     },
     {
@@ -25,6 +25,7 @@ const projection = {
         { type: 'mention', attrs: { actor_id: 'research-lead', label: 'Research Lead' } },
         { type: 'text', text: ' linked ', marks: [{ type: 'italic' }] },
         { type: 'reference', attrs: { kind: 'work', id: 'work-1', label: 'the experiment' } },
+        { type: 'text', text: 'due Friday', marks: [{ type: 'underline' }, { type: 'highlight', attrs: { color: 'yellow' } }, { type: 'textColor', attrs: { color: 'red' } }] },
         { type: 'hardBreak' },
         { type: 'text', text: 'Evidence', marks: [{ type: 'link', attrs: { href: '/evidence', title: 'Evidence' } }] },
       ],
@@ -125,4 +126,21 @@ test('the document codec rejects malformed projections and hidden shared Yjs typ
   const hiddenState = Y.encodeStateAsUpdate(hidden);
   hidden.destroy();
   assert.throws(() => projectionFromState(hiddenState), DocumentCodecError);
+});
+
+test('colours and alignment are names from the company palette', () => {
+  const restored = projectionFromState(stateFromProjection(projection));
+  assert.deepEqual((restored.content as Array<{ attrs: unknown }>)[0]?.attrs, { block_id: 'heading', level: 2, align: 'center' });
+  const text = (marks: unknown[], attrs: Record<string, unknown> = { block_id: 'p' }) => ({
+    type: 'doc',
+    content: [{ type: 'paragraph', attrs, content: [{ type: 'text', text: 'x', marks }] }],
+  });
+  for (const body of [
+    text([{ type: 'highlight', attrs: { color: '#ffff00' } }]),
+    text([{ type: 'textColor', attrs: { color: 'red', shade: 2 } }]),
+    text([{ type: 'underline', attrs: { style: 'double' } }]),
+    text([], { block_id: 'p', align: 'left' }),
+  ]) {
+    assert.throws(() => stateFromProjection(body), DocumentCodecError, JSON.stringify(body));
+  }
 });

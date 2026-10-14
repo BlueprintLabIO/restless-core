@@ -1133,14 +1133,15 @@ fn validate_node_attrs(
 ) -> DocumentResult<()> {
     let attrs = optional_object(attrs, &format!("{node_type} attrs"))?;
     let allowed = match node_type {
-        "heading" => &["level", "block_id"][..],
+        "heading" => &["level", "block_id", "align"][..],
+        "paragraph" => &["block_id", "align"][..],
         "orderedList" => &["start", "block_id"][..],
         "taskItem" => &["checked", "block_id"][..],
         "codeBlock" => &["language", "block_id"][..],
         "mention" => &["actor_id", "label"][..],
         "reference" => &["kind", "id", "label"][..],
         "image" => &["block_id", "attachment_id", "alt", "width"][..],
-        "paragraph" | "bulletList" | "taskList" | "blockquote" | "horizontalRule" | "table"
+        "bulletList" | "taskList" | "blockquote" | "horizontalRule" | "table"
         | "listItem" | "tableRow" | "tableCell" | "tableHeader" => &["block_id"][..],
         "doc" | "hardBreak" => &[][..],
         _ => &[][..],
@@ -1161,6 +1162,17 @@ fn validate_node_attrs(
             return Err(DocumentError::Invalid(format!(
                 "block_id {block_id:?} is repeated"
             )));
+        }
+    }
+
+    if let Some(align) = attrs.get("align").filter(|value| !value.is_null()) {
+        if !align
+            .as_str()
+            .is_some_and(|align| DOCUMENT_ALIGNMENTS.contains(&align))
+        {
+            return Err(DocumentError::Invalid(
+                "alignment must be center, right or justify".into(),
+            ));
         }
     }
 
@@ -1286,6 +1298,11 @@ fn validate_node_attrs(
     Ok(())
 }
 
+/// Colours and alignments are names from a small palette, so a page draws them for its own theme.
+const DOCUMENT_TEXT_COLORS: &[&str] = &["gray", "red", "orange", "green", "blue", "purple"];
+const DOCUMENT_HIGHLIGHTS: &[&str] = &["yellow", "green", "blue", "pink", "purple"];
+const DOCUMENT_ALIGNMENTS: &[&str] = &["center", "right", "justify"];
+
 fn validate_marks(value: Option<&Value>) -> DocumentResult<()> {
     let Some(value) = value else {
         return Ok(());
@@ -1303,7 +1320,10 @@ fn validate_marks(value: Option<&Value>) -> DocumentResult<()> {
             .get("type")
             .and_then(Value::as_str)
             .ok_or_else(|| DocumentError::Invalid("every text mark needs a string type".into()))?;
-        if !matches!(mark_type, "bold" | "italic" | "strike" | "code" | "link") {
+        if !matches!(
+            mark_type,
+            "bold" | "italic" | "underline" | "strike" | "code" | "link" | "highlight" | "textColor"
+        ) {
             return Err(DocumentError::Invalid(format!(
                 "mark {mark_type:?} is unsupported"
             )));
@@ -1330,6 +1350,22 @@ fn validate_marks(value: Option<&Value>) -> DocumentResult<()> {
             }
             if let Some(title) = attrs.get("title").filter(|value| !value.is_null()) {
                 bounded_string("link title", title, 300)?;
+            }
+        } else if matches!(mark_type, "highlight" | "textColor") {
+            reject_unknown_keys(attrs, &["color"], "colour mark attrs")?;
+            let palette = if mark_type == "highlight" {
+                DOCUMENT_HIGHLIGHTS
+            } else {
+                DOCUMENT_TEXT_COLORS
+            };
+            if !attrs
+                .get("color")
+                .and_then(Value::as_str)
+                .is_some_and(|color| palette.contains(&color))
+            {
+                return Err(DocumentError::Invalid(format!(
+                    "mark {mark_type:?} needs a colour from the company palette"
+                )));
             }
         } else if !attrs.is_empty() {
             return Err(DocumentError::Invalid(format!(
@@ -2684,10 +2720,14 @@ fn render_node(value: &Value) -> DocumentResult<String> {
     let block = block_id_attribute(object.get("attrs"));
     match node_type {
         "doc" => Ok(inner),
-        "paragraph" => Ok(format!("<p{block}>{inner}</p>")),
+        "paragraph" => {
+            let align = align_attribute(object.get("attrs"));
+            Ok(format!("<p{block}{align}>{inner}</p>"))
+        }
         "heading" => {
             let level = object["attrs"]["level"].as_i64().unwrap_or(1);
-            Ok(format!("<h{level}{block}>{inner}</h{level}>"))
+            let align = align_attribute(object.get("attrs"));
+            Ok(format!("<h{level}{block}{align}>{inner}</h{level}>"))
         }
         "text" => render_text(object),
         "hardBreak" => Ok("<br>".into()),
@@ -2777,8 +2817,22 @@ fn render_text(object: &Map<String, Value>) -> DocumentResult<String> {
             match mark.get("type").and_then(Value::as_str).unwrap_or_default() {
                 "bold" => rendered = format!("<strong>{rendered}</strong>"),
                 "italic" => rendered = format!("<em>{rendered}</em>"),
+                "underline" => rendered = format!("<u>{rendered}</u>"),
                 "strike" => rendered = format!("<s>{rendered}</s>"),
                 "code" => rendered = format!("<code>{rendered}</code>"),
+                "highlight" | "textColor" => {
+                    let color = escape_html_attribute(
+                        mark.get("attrs")
+                            .and_then(|attrs| attrs.get("color"))
+                            .and_then(Value::as_str)
+                            .unwrap_or_default(),
+                    );
+                    rendered = if mark.get("type").and_then(Value::as_str) == Some("highlight") {
+                        format!("<mark data-color=\"{color}\">{rendered}</mark>")
+                    } else {
+                        format!("<span data-text-color=\"{color}\">{rendered}</span>")
+                    };
+                }
                 "link" => {
                     let attrs = mark
                         .get("attrs")
@@ -2810,6 +2864,14 @@ fn render_text(object: &Map<String, Value>) -> DocumentResult<String> {
         }
     }
     Ok(rendered)
+}
+
+fn align_attribute(attrs: Option<&Value>) -> String {
+    attrs
+        .and_then(|attrs| attrs.get("align"))
+        .and_then(Value::as_str)
+        .map(|align| format!(" data-align=\"{}\"", escape_html_attribute(align)))
+        .unwrap_or_default()
 }
 
 fn block_id_attribute(attrs: Option<&Value>) -> String {
@@ -3069,6 +3131,8 @@ fn render_markdown_inline(value: &Value) -> DocumentResult<String> {
                         "italic" => rendered = format!("_{rendered}_"),
                         "strike" => rendered = format!("~~{rendered}~~"),
                         "code" => rendered = format!("`{rendered}`"),
+                        // Markdown has no underline or colour: the words carry over plainly.
+                        "underline" | "highlight" | "textColor" => {}
                         "link" => {
                             let attrs =
                                 mark.get("attrs")
@@ -8912,6 +8976,34 @@ mod tests {
             .markdown
             .contains("[the source](https://restless.run)"));
         assert_eq!(validated.content_hash.len(), 64);
+    }
+
+    #[test]
+    fn colours_and_alignment_are_names_from_the_palette() {
+        let body = |marks: Value, attrs: Value| {
+            json!({"type":"doc","content":[{"type":"paragraph","attrs":attrs,"content":[
+                {"type":"text","text":"Due Friday","marks":marks}
+            ]}]})
+        };
+        let validated = validate_document_json(&body(
+            json!([{"type":"underline"},{"type":"highlight","attrs":{"color":"yellow"}},
+                   {"type":"textColor","attrs":{"color":"red"}}]),
+            json!({"block_id":"p","align":"center"}),
+        ))
+        .unwrap();
+        assert!(validated.rendered_html.contains("<p data-block-id=\"p\" data-align=\"center\">"));
+        assert!(validated.rendered_html.contains(
+            "<u><mark data-color=\"yellow\"><span data-text-color=\"red\">Due Friday</span></mark></u>"
+        ));
+        assert!(validated.markdown.contains("Due Friday"));
+        for (marks, attrs) in [
+            (json!([{"type":"highlight","attrs":{"color":"#ff0"}}]), json!({"block_id":"p"})),
+            (json!([{"type":"textColor","attrs":{"color":"\"><script>"}}]), json!({"block_id":"p"})),
+            (json!([{"type":"underline","attrs":{"style":"double"}}]), json!({"block_id":"p"})),
+            (json!([]), json!({"block_id":"p","align":"left"})),
+        ] {
+            assert!(validate_document_json(&body(marks, attrs)).is_err());
+        }
     }
 
     #[test]

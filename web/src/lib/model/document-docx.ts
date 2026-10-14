@@ -1,7 +1,7 @@
 /* A native document as a Word file (.docx), written in the browser from its saved body. It keeps
  * what Word can hold of the company schema: headings, paragraphs, bulleted, numbered and task
- * lists, tables, quotes, code, rules and line breaks, with bold, italic, struck, code and linked
- * text. Pictures and comments are not carried. */
+ * lists, tables, quotes, code, rules and line breaks, with bold, italic, underlined, struck,
+ * coloured, highlighted, code and linked text, and each paragraph's alignment. Pictures and comments are not carried. */
 import { strToU8, zipSync } from 'fflate';
 import type { DocumentContent, DocumentNode } from './documents';
 
@@ -22,6 +22,30 @@ interface Writer {
 	lists: { ordered: boolean; start: number }[];
 }
 
+/* The named colours a document keeps, as Word colours. */
+const TEXT_COLOURS: Record<string, string> = {
+	gray: '6B7280',
+	red: 'DC2626',
+	orange: 'C2410C',
+	green: '15803D',
+	blue: '1D4ED8',
+	purple: '7E22CE'
+};
+const HIGHLIGHTS: Record<string, string> = {
+	yellow: 'FEF08A',
+	green: 'BBF7D0',
+	blue: 'BFDBFE',
+	pink: 'FBCFE8',
+	purple: 'E9D5FF'
+};
+const JUSTIFY: Record<string, string> = { center: 'center', right: 'right', justify: 'both' };
+
+/** A paragraph's alignment, last of its properties as Word's schema orders them. */
+function alignment(node: DocumentNode): string {
+	const value = JUSTIFY[String(node.attrs?.align ?? '')];
+	return value ? `<w:jc w:val="${value}"/>` : '';
+}
+
 function runs(nodes: DocumentNode[] | undefined, writer: Writer): string {
 	let out = '';
 	for (const node of nodes ?? []) {
@@ -39,15 +63,23 @@ function runs(nodes: DocumentNode[] | undefined, writer: Writer): string {
 						: '';
 		if (!text) continue;
 		const marks = node.marks ?? [];
-		let props = '';
-		if (marks.some((mark) => mark.type === 'bold')) props += '<w:b/>';
-		if (marks.some((mark) => mark.type === 'italic')) props += '<w:i/>';
-		if (marks.some((mark) => mark.type === 'strike')) props += '<w:strike/>';
-		if (marks.some((mark) => mark.type === 'code'))
-			props += '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" w:cs="Consolas"/>';
+		const has = (type: string) => marks.some((mark) => mark.type === type);
+		const colour = (type: string, palette: Record<string, string>) =>
+			palette[String(marks.find((mark) => mark.type === type)?.attrs?.color ?? '')] ?? '';
 		const link = marks.find((mark) => mark.type === 'link');
 		const href = typeof link?.attrs?.href === 'string' ? link.attrs.href : '';
+		/* In the order Word's schema lists run properties. */
+		let props = '';
 		if (href) props += '<w:rStyle w:val="Hyperlink"/>';
+		if (has('code')) props += '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" w:cs="Consolas"/>';
+		if (has('bold')) props += '<w:b/>';
+		if (has('italic')) props += '<w:i/>';
+		if (has('strike')) props += '<w:strike/>';
+		const textColour = colour('textColor', TEXT_COLOURS);
+		if (textColour) props += `<w:color w:val="${textColour}"/>`;
+		if (has('underline')) props += '<w:u w:val="single"/>';
+		const highlight = colour('highlight', HIGHLIGHTS);
+		if (highlight) props += `<w:shd w:val="clear" w:color="auto" w:fill="${highlight}"/>`;
 		const run = `<w:r>${props ? `<w:rPr>${props}</w:rPr>` : ''}<w:t xml:space="preserve">${escape(text)}</w:t></w:r>`;
 		if (href && /^(https?:|mailto:)/i.test(href)) {
 			writer.links.push(href);
@@ -86,14 +118,17 @@ function block(node: DocumentNode, writer: Writer, context: Context): string {
 	switch (node.type) {
 		case 'heading': {
 			const level = Math.min(6, Math.max(1, Number(node.attrs?.level ?? 1)));
-			return paragraph(`<w:pStyle w:val="Heading${level}"/>`, runs(node.content, writer));
+			return paragraph(
+				`<w:pStyle w:val="Heading${level}"/>${alignment(node)}`,
+				runs(node.content, writer)
+			);
 		}
 		case 'paragraph': {
 			const prefix = context.prefix
 				? `<w:r><w:t xml:space="preserve">${escape(context.prefix)}</w:t></w:r>`
 				: '';
 			return paragraph(
-				`${context.quote && !context.list ? '<w:pStyle w:val="Quote"/>' : ''}${contextProps(context)}`,
+				`${context.quote && !context.list ? '<w:pStyle w:val="Quote"/>' : ''}${contextProps(context)}${alignment(node)}`,
 				prefix + runs(node.content, writer)
 			);
 		}

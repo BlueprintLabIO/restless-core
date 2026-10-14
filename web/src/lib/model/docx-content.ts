@@ -29,6 +29,8 @@ function markFor(node: HtmlNode): DocumentMark | null {
 		case 'em':
 		case 'i':
 			return { type: 'italic' };
+		case 'u':
+			return { type: 'underline' };
 		case 's':
 		case 'del':
 		case 'strike':

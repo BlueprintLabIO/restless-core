@@ -29,6 +29,12 @@
 	import MessageSquarePlus from '@lucide/svelte/icons/message-square-plus';
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 	import Strikethrough from '@lucide/svelte/icons/strikethrough';
+	import UnderlineIcon from '@lucide/svelte/icons/underline';
+	import Baseline from '@lucide/svelte/icons/baseline';
+	import TextAlignStart from '@lucide/svelte/icons/text-align-start';
+	import TextAlignCenter from '@lucide/svelte/icons/text-align-center';
+	import TextAlignEnd from '@lucide/svelte/icons/text-align-end';
+	import TextAlignJustify from '@lucide/svelte/icons/text-align-justify';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import {
 		documentCollaborationName,
@@ -40,7 +46,12 @@
 		type DocumentCollaborationState
 	} from '$lib/model/document-collaboration';
 	import {
+		DOCUMENT_HIGHLIGHTS,
 		DOCUMENT_IMAGE_TYPES,
+		DOCUMENT_TEXT_COLORS,
+		alignDocumentBlocks,
+		documentAlignment,
+		type DocumentAlignment,
 		commentMarksKey,
 		createDocumentEditorExtensions,
 		imageAltFromName,
@@ -699,6 +710,13 @@
 			toggle: (instance) => instance.chain().focus().toggleItalic().run()
 		},
 		{
+			mark: 'underline',
+			label: 'Underline',
+			key: keys('⌘U', 'Ctrl+U'),
+			Icon: UnderlineIcon,
+			toggle: (instance) => instance.chain().focus().toggleUnderline().run()
+		},
+		{
 			mark: 'strike',
 			label: 'Strikethrough',
 			key: keys('⌘⇧S', 'Ctrl+Shift+S'),
@@ -713,6 +731,27 @@
 			toggle: (instance) => instance.chain().focus().toggleCode().run()
 		}
 	];
+	/* Colour and alignment: one small palette under the bubble's last button. */
+	let paletteOpen = $state(false);
+	const ALIGNMENTS: {
+		value: DocumentAlignment | null;
+		label: string;
+		key: string;
+		Icon: typeof BoldIcon;
+	}[] = [
+		{ value: null, label: 'Align left', key: keys('⌘⇧L', 'Ctrl+Shift+L'), Icon: TextAlignStart },
+		{ value: 'center', label: 'Centre', key: keys('⌘⇧E', 'Ctrl+Shift+E'), Icon: TextAlignCenter },
+		{ value: 'right', label: 'Align right', key: keys('⌘⇧R', 'Ctrl+Shift+R'), Icon: TextAlignEnd },
+		{ value: 'justify', label: 'Justify', key: keys('⌘⇧J', 'Ctrl+Shift+J'), Icon: TextAlignJustify }
+	];
+	const colourName = (name: string) => name[0].toUpperCase() + name.slice(1);
+	function setColour(mark: 'textColor' | 'highlight', color: string | null): void {
+		run((instance) =>
+			color
+				? instance.chain().focus().setMark(mark, { color }).run()
+				: instance.chain().focus().unsetMark(mark).run()
+		);
+	}
 	let bubble = $state<{ left: number; top: number; below: boolean } | null>(null);
 	let sectionElement = $state<HTMLElement>();
 	function readSelection(): void {
@@ -720,6 +759,7 @@
 		const body = editorElement;
 		if (!selection || selection.isCollapsed || !selection.rangeCount || !body || linkEditing) {
 			bubble = null;
+			paletteOpen = false;
 			return;
 		}
 		const range = selection.getRangeAt(0);
@@ -1302,6 +1342,16 @@
 					onmousedown={(event) => event.preventDefault()}
 					onclick={openLinkBar}><LinkIcon size={15} strokeWidth={2} /></button
 				>
+				<button
+					type="button"
+					class:active={paletteOpen}
+					aria-label="Colour and alignment"
+					aria-expanded={paletteOpen}
+					title="Colour, highlight and alignment"
+					onmousedown={(event) => event.preventDefault()}
+					onclick={() => (paletteOpen = !paletteOpen)}
+					><Baseline size={15} strokeWidth={2} /></button
+				>
 			{/if}
 			{#if mayComment}
 				{#if canWriteLive}<span class="bubble-rule" aria-hidden="true"></span>{/if}
@@ -1313,6 +1363,73 @@
 					onclick={commentOnSelection}
 					><MessageSquarePlus size={15} strokeWidth={1.8} aria-hidden="true" /> Comment</button
 				>
+			{/if}
+			{#if paletteOpen && canWriteLive}
+				{@const textColour = String(editor.getAttributes('textColor').color ?? '')}
+				{@const highlight = String(editor.getAttributes('highlight').color ?? '')}
+				{@const align = documentAlignment(editor)}
+				<div class="format-palette" role="group" aria-label="Colour and alignment">
+					<div class="swatches" role="group" aria-label="Text colour">
+						<button
+							type="button"
+							class="swatch text"
+							class:active={!textColour}
+							aria-label="Default text colour"
+							title="Default text colour"
+							onmousedown={(event) => event.preventDefault()}
+							onclick={() => setColour('textColor', null)}>A</button
+						>
+						{#each DOCUMENT_TEXT_COLORS as color (color)}
+							<button
+								type="button"
+								class="swatch text"
+								class:active={textColour === color}
+								data-text-color={color}
+								aria-label={`${colourName(color)} text`}
+								title={`${colourName(color)} text`}
+								onmousedown={(event) => event.preventDefault()}
+								onclick={() => setColour('textColor', color)}>A</button
+							>
+						{/each}
+					</div>
+					<div class="swatches" role="group" aria-label="Highlight">
+						<button
+							type="button"
+							class="swatch none"
+							class:active={!highlight}
+							aria-label="No highlight"
+							title="No highlight"
+							onmousedown={(event) => event.preventDefault()}
+							onclick={() => setColour('highlight', null)}
+						></button>
+						{#each DOCUMENT_HIGHLIGHTS as color (color)}
+							<button
+								type="button"
+								class="swatch"
+								class:active={highlight === color}
+								aria-label={`${colourName(color)} highlight`}
+								title={`${colourName(color)} highlight`}
+								onmousedown={(event) => event.preventDefault()}
+								onclick={() => setColour('highlight', color)}
+								><mark data-color={color}>A</mark></button
+							>
+						{/each}
+					</div>
+					<div class="swatches" role="group" aria-label="Alignment">
+						{#each ALIGNMENTS as item (item.label)}
+							<button
+								type="button"
+								class:active={align === item.value}
+								aria-label={item.label}
+								aria-pressed={align === item.value}
+								title={`${item.label} (${item.key})`}
+								onmousedown={(event) => event.preventDefault()}
+								onclick={() => run((instance) => alignDocumentBlocks(instance, item.value))}
+								><item.Icon size={15} strokeWidth={2} /></button
+							>
+						{/each}
+					</div>
+				</div>
 			{/if}
 		</div>
 	{/if}
@@ -1476,6 +1593,43 @@
 	}
 	.selection-bubble.below {
 		transform: translate(-50%, 0);
+	}
+	/* The palette opens under the bubble's buttons, inside the same raised card. */
+	.selection-bubble {
+		flex-wrap: wrap;
+	}
+	.format-palette {
+		flex-basis: 100%;
+		display: grid;
+		gap: 2px;
+		padding-top: 3px;
+		border-top: 1px solid var(--border);
+		margin-top: 2px;
+	}
+	.swatches {
+		display: flex;
+		gap: 1px;
+	}
+	.selection-bubble .swatch {
+		font: 700 var(--t-body) var(--font-ui);
+	}
+	.selection-bubble .swatch.none::before {
+		content: '';
+		width: 14px;
+		height: 14px;
+		border: 1px solid var(--border-strong);
+		border-radius: 3px;
+		background: linear-gradient(
+			135deg,
+			transparent 45%,
+			var(--state-danger) 45% 55%,
+			transparent 55%
+		);
+	}
+	.selection-bubble .swatch mark {
+		padding: 0 3px;
+		border-radius: 3px;
+		color: var(--ink);
 	}
 	.selection-bubble .bubble-comment {
 		padding-inline: 8px;
@@ -1761,6 +1915,80 @@
 		color: var(--intent-conversation);
 		text-decoration: underline;
 		text-underline-offset: 2px;
+	}
+	/* Named colours: drawn for this theme, so a colour stays legible in light and dark alike. */
+	:global(:root) {
+		--doc-text-gray: #6b7280;
+		--doc-text-red: #c62828;
+		--doc-text-orange: #c2410c;
+		--doc-text-green: #15803d;
+		--doc-text-blue: #1d4ed8;
+		--doc-text-purple: #7e22ce;
+		--doc-mark-yellow: #fef08a;
+		--doc-mark-green: #bbf7d0;
+		--doc-mark-blue: #bfdbfe;
+		--doc-mark-pink: #fbcfe8;
+		--doc-mark-purple: #e9d5ff;
+	}
+	:global(:root[data-theme='dark']) {
+		--doc-text-gray: #9ca3af;
+		--doc-text-red: #f87171;
+		--doc-text-orange: #fb923c;
+		--doc-text-green: #4ade80;
+		--doc-text-blue: #60a5fa;
+		--doc-text-purple: #c084fc;
+		--doc-mark-yellow: #854d0e;
+		--doc-mark-green: #166534;
+		--doc-mark-blue: #1e3a8a;
+		--doc-mark-pink: #831843;
+		--doc-mark-purple: #581c87;
+	}
+	:global([data-text-color='gray']) {
+		color: var(--doc-text-gray);
+	}
+	:global([data-text-color='red']) {
+		color: var(--doc-text-red);
+	}
+	:global([data-text-color='orange']) {
+		color: var(--doc-text-orange);
+	}
+	:global([data-text-color='green']) {
+		color: var(--doc-text-green);
+	}
+	:global([data-text-color='blue']) {
+		color: var(--doc-text-blue);
+	}
+	:global([data-text-color='purple']) {
+		color: var(--doc-text-purple);
+	}
+	:global(mark[data-color]) {
+		color: inherit;
+		border-radius: 2px;
+		background: var(--doc-mark-yellow);
+	}
+	:global(mark[data-color='green']) {
+		background: var(--doc-mark-green);
+	}
+	:global(mark[data-color='blue']) {
+		background: var(--doc-mark-blue);
+	}
+	:global(mark[data-color='pink']) {
+		background: var(--doc-mark-pink);
+	}
+	:global(mark[data-color='purple']) {
+		background: var(--doc-mark-purple);
+	}
+	:global(.native-document-body [data-align='center']),
+	:global(.rendered-document [data-align='center']) {
+		text-align: center;
+	}
+	:global(.native-document-body [data-align='right']),
+	:global(.rendered-document [data-align='right']) {
+		text-align: right;
+	}
+	:global(.native-document-body [data-align='justify']),
+	:global(.rendered-document [data-align='justify']) {
+		text-align: justify;
 	}
 	:global(.native-document-body .native-mention),
 	:global(.native-document-body .native-reference) {
