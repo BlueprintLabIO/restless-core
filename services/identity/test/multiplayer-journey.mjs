@@ -869,7 +869,7 @@ try {
   };
   alice.page.on("request", noteRequest);
   alice.page.on("response", watchRefusals);
-  for (const path of ["", "/library", "/people", "/work", "/company", "/company/charter", `/library/sheets?sheet=${sheetId}`]) {
+  for (const path of ["", "/library", "/people", "/work", "/company", "/company/charter", "/company/identity", `/library/sheets?sheet=${sheetId}`]) {
     await alice.page.goto("about:blank");
     screen = path;
     await alice.page.goto(`${core}/${company}${path}`);

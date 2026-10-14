@@ -54,7 +54,8 @@
 	} = $props();
 	type Pillar = (typeof IDENTITY_PILLARS)[number]['key'];
 
-	const catalog = companiesQuery();
+	/* The company list is the owner's; anyone else would be refused it, and sees the mark. */
+	const catalog = companiesQuery(() => canManage);
 	const logoUrl = $derived(catalog.view.find((entry) => entry.id === companyId)?.logo_url ?? null);
 
 	const current = $derived(brandStatements(view, releaseEvidence(view, view.current_release?.id)));
