@@ -313,7 +313,13 @@ async fn delivery_loop(state: OwnerState) {
                 let config = runtime::CompanyConfig::load(&state.daemon.root, &link.company)?;
                 let org = state.daemon.orgintel.get(&link.company).await?;
                 let attention =
-                    attention::project(&config, &state.daemon.authority, Some(&org)).await?;
+                    attention::project_with_spend(
+                        &config,
+                        &state.daemon.authority,
+                        Some(&org),
+                        &state.daemon.spend,
+                    )
+                    .await?;
                 let display = config
                     .display_name
                     .clone()

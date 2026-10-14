@@ -199,6 +199,10 @@ pub(super) async fn save_spend_limit(
                 format!("The change could not be recorded: {e:#}"),
             );
         }
+        let was_stopped = matches!(
+            state.daemon.spend.budget_state(&config),
+            restless_engine::spend::ModelBudgetState::Exhausted { .. }
+        );
         config.spend_ceiling_usd = input.ceiling;
         config.spend_period = period;
         config.spend_warning_percent = warning;
@@ -221,6 +225,20 @@ pub(super) async fn save_spend_limit(
             .await
         {
             return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority", format!("The limit was saved but confirmation could not be recorded. Refresh to check it: {e:#}"));
+        }
+        // Raising the limit above spend is the observable resume condition: tell Exec, so the
+        // owner never has to report that model work may continue.
+        if was_stopped && state.daemon.spend.budget_state(&config).is_available() {
+            if let Ok(org) = state.daemon.orgintel.get(&company).await {
+                let body = format!(
+                    "{} raised the spend limit to ${:.2}; model work can run again. Resume the work that stopped on the spend limit.",
+                    principal.actor_id(),
+                    input.ceiling.as_usd()
+                );
+                if let Err(error) = org.send_message(principal.actor_id(), Some("exec"), &body).await {
+                    tracing::warn!(%error, "could not tell Exec that the spend limit was raised");
+                }
+            }
         }
     }
     Json(company_projection::project(&state.daemon, &config, false).await).into_response()

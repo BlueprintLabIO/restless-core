@@ -31,6 +31,7 @@ export function isOutcomeReview(item: AttentionItem): boolean {
 /** What kind of ask this is, in a word, for a tooltip. The Inbox does not
  * file items into categories; the owner reads one list. */
 export function attentionKindLabel(item: AttentionItem): string {
+	if (item.source.kind === 'spend_stopped') return 'Spend';
 	if (item.category === 'approval') return 'Approval';
 	if (item.category === 'review') return 'Review';
 	if (item.category === 'blocker') return 'Setup';

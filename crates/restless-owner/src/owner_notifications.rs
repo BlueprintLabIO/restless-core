@@ -484,7 +484,9 @@ async fn owed_intents(
     // cockpit (current Work revision/brief, payment state and prepared command
     // are all enforced there).
     let config = runtime::CompanyConfig::load(&state.daemon.root, company)?;
-    let attention = attention::project(&config, &state.daemon.authority, Some(org)).await?;
+    let attention =
+        attention::project_with_spend(&config, &state.daemon.authority, Some(org), &state.daemon.spend)
+            .await?;
     let withdrawal_authoritative = attention.source_health.orgintel == "available";
     let owners = org.active_hosted_owners().await?;
     if owners.is_empty() {

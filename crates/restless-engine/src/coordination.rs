@@ -4275,7 +4275,7 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
         "attention" => match runtime::CompanyConfig::load(&daemon.root, company) {
             Ok(config) => {
                 let org = daemon.orgintel.get(company).await.ok();
-                match attention::project(&config, &daemon.authority, org.as_ref()).await {
+                match attention::project_with_spend(&config, &daemon.authority, org.as_ref(), &daemon.spend).await {
                     Ok(view) => match serde_json::to_value(view) {
                         Ok(value) => Response::ok(value),
                         Err(error) => Response::err(format!("encode attention: {error}")),

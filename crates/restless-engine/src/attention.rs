@@ -396,20 +396,10 @@ fn spend_warning_item(
     if !period.warning() {
         return None;
     }
-    let usd = |micro: u64| format!("${:.2}", micro as f64 / 1_000_000.0);
     let monthly = period.period_start.is_some();
     // When the warning share was crossed, from the ledger's own records; the item keeps one age.
     let threshold = u128::from(period.ceiling_micro_usd) * u128::from(period.warning_percent) / 100;
-    let mut running = 0_u128;
-    let crossed_at = spend
-        .records(&config.name)
-        .into_iter()
-        .filter(|record| period.period_start.is_none_or(|start| record.occurred_at >= start))
-        .find(|record| {
-            running += u128::from(record.cost_micro_usd);
-            running >= threshold
-        })
-        .map_or_else(Utc::now, |record| record.occurred_at);
+    let crossed_at = spend_crossed_at(config, spend, &period, threshold);
     let reference = format!(
         "{}:{}:{}",
         period
@@ -419,6 +409,7 @@ fn spend_warning_item(
         period.warning_percent
     );
     let remaining = period.ceiling_micro_usd.saturating_sub(period.accounted_micro_usd);
+    let usd = usd_micro;
     Some(AttentionItem {
         id: format!("authority:spend_warning:{reference}"),
         work_id: None,
@@ -477,6 +468,98 @@ fn spend_warning_item(
         preparing: false,
         created_at: crossed_at,
     })
+}
+
+fn usd_micro(micro: u64) -> String {
+    format!("${:.2}", micro as f64 / 1_000_000.0)
+}
+
+/// When this period's running spend first reached `threshold`, from the ledger's own records.
+fn spend_crossed_at(
+    config: &CompanyConfig,
+    spend: &crate::spend::SpendLedger,
+    period: &crate::spend::PeriodSpend,
+    threshold: u128,
+) -> DateTime<Utc> {
+    let mut running = 0_u128;
+    spend
+        .records(&config.name)
+        .into_iter()
+        .filter(|record| period.period_start.is_none_or(|start| record.occurred_at >= start))
+        .find(|record| {
+            running += u128::from(record.cost_micro_usd);
+            running >= threshold
+        })
+        .map_or_else(Utc::now, |record| record.occurred_at)
+}
+
+/// The spend limit has stopped model work: from the ledger, or from the latest Exec turn the
+/// host refused with a `[budget]` reason (a native usage cap included). One blocker, linking
+/// to Limits; it clears when the limit is raised or the next Exec turn runs.
+fn spend_stopped_item(config: &CompanyConfig, what_happened: String, created_at: DateTime<Utc>) -> AttentionItem {
+    AttentionItem {
+        id: "authority:spend_stopped".into(),
+        work_id: None,
+        source: AttentionSource {
+            plane: "authority",
+            kind: "spend_stopped".into(),
+            reference: "spend_limit".into(),
+            party: None,
+            call_key: None,
+        },
+        category: "blocker".into(),
+        title: "Model work stopped at the spend limit".into(),
+        what_happened,
+        why_it_matters: "Exec and Staff start no paid model turn until the limit is raised, so work in progress waits.".into(),
+        recommendation: "Raise the limit if the work is worth it; stopped work resumes when you do.".into(),
+        requested_action: "Raise the spend limit, or leave the company stopped.".into(),
+        if_no_action: "The company stays stopped until the limit is raised or a new budget month starts.".into(),
+        uncertainty: None,
+        deadline: None,
+        brief_status: "source-observed",
+        brief_author: None,
+        briefed_at: None,
+        evidence: Vec::new(),
+        review_sources: Vec::new(),
+        responsible_actor: None,
+        runtime_attach: None,
+        review_target: None,
+        native_document: None,
+        direction_request: None,
+        charter_proposal: None,
+        actions: vec![AttentionAction {
+            id: "open-spend-limit".into(),
+            label: "Raise spend limit".into(),
+            role: "inspect",
+            consequence: "Opens Company › Limits, where the limit is set.".into(),
+            next_state: "Raising the limit above spend tells Exec to resume the stopped work.".into(),
+            href: Some(format!("/{}/company/limits#spend", config.name)),
+        }],
+        can_continue: false,
+        preparing: false,
+        created_at,
+    }
+}
+
+/// The ledger's view of a stopped company, worded for the owner.
+fn ledger_spend_stopped_item(config: &CompanyConfig, spend: &crate::spend::SpendLedger) -> Option<AttentionItem> {
+    let period = spend.period_spend(config);
+    if !matches!(period.budget, crate::spend::ModelBudgetState::Exhausted { .. }) {
+        return None;
+    }
+    let monthly = period.period_start.is_some();
+    let crossed_at = spend_crossed_at(config, spend, &period, u128::from(period.ceiling_micro_usd));
+    Some(spend_stopped_item(
+        config,
+        format!(
+            "{} of the {}{} limit is spent{}.",
+            usd_micro(period.accounted_micro_usd),
+            if monthly { "monthly " } else { "" },
+            usd_micro(period.ceiling_micro_usd),
+            if monthly { " this month" } else { "" },
+        ),
+        crossed_at,
+    ))
 }
 
 /// Open direction requests routed to `viewer` (the owner sees every one), and approved ones that
@@ -1684,6 +1767,16 @@ async fn project_queue(
                 .and_then(serde_json::Value::as_u64)
                 == Some(0);
             if event.actor_id.as_deref() == Some("exec") && blocked && no_tools {
+                if let Some(limit) = reason.strip_prefix("[budget] ") {
+                    let mut what_happened = limit.to_string();
+                    if let Some(first) = what_happened.get(..1) {
+                        what_happened.replace_range(..1, &first.to_uppercase());
+                    }
+                    if !what_happened.ends_with('.') {
+                        what_happened.push('.');
+                    }
+                    items.push(spend_stopped_item(config, what_happened, event.created_at));
+                }
                 if let Some(true) = exec_startup_failure(reason) {
                     if let Some(provider_issue) = crate::company::observed_company_model_issue(config).await {
                         let action = AttentionAction {
@@ -1910,6 +2003,11 @@ async fn project_queue(
     }
     if let Some(warning) = spend.and_then(|spend| spend_warning_item(config, spend)) {
         items.push(warning);
+    }
+    if !items.iter().any(|item| item.source.kind == "spend_stopped") {
+        if let Some(stopped) = spend.and_then(|spend| ledger_spend_stopped_item(config, spend)) {
+            items.push(stopped);
+        }
     }
     let mut seen_sources = HashSet::new();
     items.retain(|item| {
