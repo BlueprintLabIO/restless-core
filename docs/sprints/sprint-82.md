@@ -340,6 +340,25 @@ moves all of them onto one data layer.
 - The full suite passes together (entry, hints, answer, charter, settings, screens). The entry
   journey now sees no change at all after the reveal.
 
+### Shipped
+
+- **First cut:** Core release `38489642230` (`41237b3a`), Cloud deploy `38492470678`.
+- **Second pass:** two more Core releases, `38503784511` and `38515498829`.
+  - The release smoke failed the cut in between: it found four 502s, caused by the shell's
+    profile menu asking for plane status before anyone was named. Fixed with a blank avatar slot
+    until the viewer is named.
+  - Final release `38515498829` (`ec4e93cb`), Cloud deploy `38520124725`.
+- **Carried along:** these releases include the other sessions' work on `main`, with migrations
+  0101–0106. All six are additive: new tables, and nullable or defaulted columns.
+- **Fixed on the way:** two refused requests on a member's screens. Company › Charter read the
+  owner-only company view, and Brand & voice read the owner-only company list. Both are now read
+  only by the owner.
+- **On production, as a Reno member:**
+  - the cockpit appears once at 1.6 s and nothing changes after;
+  - Company, Charter, Brand & voice, Members, Schedules, People, Library and Work all render;
+  - none of them makes a refused request, apart from the documented member refusal of
+    `/api/appliance`.
+
 ### Not done or not verified
 
 - **No model was connected on the dev stack.** The answer journey stands in a ready model route
