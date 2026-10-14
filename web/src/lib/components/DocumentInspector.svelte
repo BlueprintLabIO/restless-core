@@ -196,7 +196,17 @@
 	let commentBusy = $state(false);
 	let commentFailure = $state('');
 	let reviewSummary = $state('');
-	let reviewName = $state('Accepted review');
+	let reviewName = $state(
+		`Reviewed ${new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`
+	);
+	/* Whom the requester asks to judge it; empty lets anyone who can edit it judge it. */
+	let reviewerId = $state('');
+	const reviewerChoices = $derived(
+		people.filter(
+			(person) =>
+				(person.kind === 'human' || person.kind === 'owner') && person.actor_id !== viewerActorId
+		)
+	);
 	let reviewNote = $state('');
 	let reviewBusy = $state(false);
 	let reviewFailure = $state('');
@@ -265,6 +275,7 @@
 		expectedDocumentVersion: number;
 		expectedCurrentVersionId: string;
 		summary: string;
+		reviewer: string | null;
 	}
 	interface ReviewAcceptInput {
 		target: DocumentTarget;
@@ -847,7 +858,8 @@
 			target,
 			expectedDocumentVersion: view.document.version,
 			expectedCurrentVersionId: view.current_version.version.id,
-			summary
+			summary,
+			reviewer: reviewerId || null
 		};
 		const attempt = pendingDocumentMutation(
 			reviewRequestAttempt,
@@ -866,13 +878,15 @@
 				attempt.input.expectedDocumentVersion,
 				attempt.input.expectedCurrentVersionId,
 				attempt.input.summary,
-				attempt.command.id
+				attempt.command.id,
+				attempt.input.reviewer
 			);
 			mutationSucceeded = true;
 			reviews.accept(attempt.input.target, review);
 			if (isCurrentTarget(target)) {
 				reviewRequestAttempt = null;
 				reviewSummary = '';
+				reviewerId = '';
 			}
 			await refreshDocument(attempt.input.target);
 			if (!isCurrentTarget(target)) return;
@@ -1585,10 +1599,9 @@
 	{:else if panel === 'review'}
 		<div class="inspector-body review-body">
 			<header class="inspector-head">
-				<div>
-					<h2>Review</h2>
-					<p>Review the saved document and proposed changes.</p>
-				</div>
+				<h2 title="Ask someone to judge the saved document, and decide on changes agents propose">
+					Review
+				</h2>
 			</header>
 			{#if editing && canJudge}<p class="pending-draft">Waiting for edits to finish saving.</p>{/if}
 			{#if requestedReview}
@@ -1604,6 +1617,12 @@
 							<dt>Requested by</dt>
 							<dd>{actorName(requestedReview.requested_by_actor_id)}</dd>
 						</div>
+						{#if requestedReview.reviewer_actor_id}
+							<div>
+								<dt>Asked of</dt>
+								<dd>{actorName(requestedReview.reviewer_actor_id)}</dd>
+							</div>
+						{/if}
 						<div>
 							<dt>Version</dt>
 							<dd>
@@ -1615,7 +1634,8 @@
 					</dl>
 					{#if canJudge}
 						<label class="field"
-							><span>Accepted version name</span><input
+							><span title="History lists the accepted version under this name">Version name</span
+							><input
 								bind:value={reviewName}
 								disabled={!online || editing || reviewBusy}
 								oninput={() => (reviewAcceptAttempt = null)}
@@ -1676,6 +1696,23 @@
 							disabled={!online || editing || reviewBusy}
 							oninput={() => (reviewRequestAttempt = null)}></textarea></label
 					>
+					{#if reviewerChoices.length}
+						<label class="field"
+							><span
+								title="They hear about it in For you; anyone who can edit it may still judge it"
+								>Who should review it?</span
+							><select
+								bind:value={reviewerId}
+								disabled={!online || editing || reviewBusy}
+								onchange={() => (reviewRequestAttempt = null)}
+							>
+								<option value="">Anyone who can edit it</option>
+								{#each reviewerChoices as person (person.actor_id)}
+									<option value={person.actor_id}>{person.display}</option>
+								{/each}
+							</select></label
+						>
+					{/if}
 					<button
 						type="submit"
 						class="btn primary"
@@ -1684,7 +1721,9 @@
 					>
 				</form>
 			{:else}
-				<p class="quiet-state">No active review.</p>
+				<p class="quiet-state">
+					No review in progress. People who can edit this document can ask for one.
+				</p>
 			{/if}
 			{#if reviewFailure}<p class="inline-error" role="alert">{reviewFailure}</p>{/if}
 			{#if reviewNotice}<p class="inline-notice" role="status">{reviewNotice}</p>{/if}
@@ -1741,7 +1780,8 @@
 									oninput={() => (proposalAttempt = null)}></textarea></label
 							>
 							<label class="field"
-								><span>Accepted version name</span><input
+								><span title="History lists the accepted version under this name">Version name</span
+								><input
 									bind:value={proposalVersionName}
 									disabled={!online || editing || proposalBusy}
 									oninput={() => (proposalAttempt = null)}
@@ -1988,13 +2028,8 @@
 		padding: var(--space-4);
 		border-bottom: 1px solid var(--border);
 	}
-	.inspector-head h2,
-	.inspector-head p {
+	.inspector-head h2 {
 		margin: 0;
-	}
-	.inspector-head p {
-		margin-top: 3px;
-		color: var(--text-tertiary);
 	}
 	.flat-action {
 		display: inline-flex;
@@ -2183,6 +2218,7 @@
 	}
 	.comment-composer textarea,
 	.field textarea,
+	.field select,
 	.field input {
 		width: 100%;
 		padding: 8px 9px;

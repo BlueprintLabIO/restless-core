@@ -735,6 +735,8 @@ pub struct DocumentReviewRow {
     pub stale_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub version: i64,
+    /// Whom the requester asked to judge it; `None` lets any editor judge it.
+    pub reviewer_actor_id: Option<String>,
 }
 
 pub struct RequestDocumentReview<'a> {
@@ -744,6 +746,8 @@ pub struct RequestDocumentReview<'a> {
     pub expected_document_version: i64,
     pub expected_current_version_id: Uuid,
     pub summary: &'a str,
+    /// One person asked to judge it: an active human who may edit it, not the requester.
+    pub reviewer_actor_id: Option<&'a str>,
     pub work_dependency: Option<DocumentWorkReviewDependencyInput<'a>>,
 }
 
@@ -3707,14 +3711,15 @@ fn comment_columns() -> &'static str {
 fn review_select() -> &'static str {
     "SELECT id,document_id,requested_version_id,requested_by_actor_id,summary,status,\
             accepted_version_id,accepted_by_actor_id,accepted_at,material_unresolved_thread_ids,\
-            stale_against_version_id,stale_detected_by_actor_id,stale_at,created_at,version \
+            stale_against_version_id,stale_detected_by_actor_id,stale_at,created_at,version,\
+            reviewer_actor_id \
      FROM native_document_reviews"
 }
 
 fn review_columns() -> &'static str {
     "id,document_id,requested_version_id,requested_by_actor_id,summary,status,accepted_version_id,\
      accepted_by_actor_id,accepted_at,material_unresolved_thread_ids,stale_against_version_id,\
-     stale_detected_by_actor_id,stale_at,created_at,version"
+     stale_detected_by_actor_id,stale_at,created_at,version,reviewer_actor_id"
 }
 
 fn work_review_dependency_select() -> &'static str {
@@ -7168,6 +7173,20 @@ impl OrgIntel {
                 ))
             })
             .transpose()?;
+        let reviewer = input
+            .reviewer_actor_id
+            .map(|reviewer| clean_bounded("reviewer actor id", reviewer, 200))
+            .transpose()?;
+        if reviewer.is_some() && work_dependency.is_some() {
+            return Err(DocumentError::Invalid(
+                "a Work-bound review names its reviewer on the Work dependency".into(),
+            ));
+        }
+        if reviewer.as_deref() == Some(input.actor_id) {
+            return Err(DocumentError::Invalid(
+                "ask someone other than yourself to review it".into(),
+            ));
+        }
         let fingerprint = request_fingerprint(
             "review_request",
             json!({
@@ -7176,6 +7195,7 @@ impl OrgIntel {
                 "expected_document_version": input.expected_document_version,
                 "expected_current_version_id": input.expected_current_version_id,
                 "summary": summary,
+                "reviewer_actor_id": reviewer,
                 "work_dependency": work_dependency.as_ref().map(|(work_id, attempt_id, work_revision, reviewer)| json!({
                     "work_id": work_id,
                     "attempt_id": attempt_id,
@@ -7278,6 +7298,27 @@ impl OrgIntel {
                 }
             }
         }
+        if let Some(reviewer) = &reviewer {
+            let reviewer_class: Option<String> = sqlx::query_scalar(
+                "SELECT actor_class FROM actors WHERE id=$1 AND retired_at IS NULL FOR SHARE",
+            )
+            .bind(reviewer)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if !matches!(reviewer_class.as_deref(), Some("human" | "owner")) {
+                return Err(DocumentError::Invalid(
+                    "the reviewer must be an active person in the company".into(),
+                ));
+            }
+            if access_in_transaction(&mut tx, input.document_id, reviewer).await?
+                != Some(DocumentAccess::Edit)
+            {
+                return Err(DocumentError::Invalid(
+                    "the reviewer cannot edit this document yet; share it with them to edit first"
+                        .into(),
+                ));
+            }
+        }
         let current_version_id = if work_dependency.is_none() {
             snapshot_live_document(
                 &mut tx,
@@ -7358,8 +7399,8 @@ impl OrgIntel {
         let review_id = Uuid::new_v4();
         let review = sqlx::query_as::<_, DocumentReviewRow>(&format!(
             "INSERT INTO native_document_reviews \
-             (id,document_id,requested_version_id,requested_by_actor_id,summary) \
-             VALUES ($1,$2,$3,$4,$5) RETURNING {}",
+             (id,document_id,requested_version_id,requested_by_actor_id,summary,reviewer_actor_id) \
+             VALUES ($1,$2,$3,$4,$5,$6) RETURNING {}",
             review_columns()
         ))
         .bind(review_id)
@@ -7367,6 +7408,7 @@ impl OrgIntel {
         .bind(current_version_id)
         .bind(input.actor_id)
         .bind(&summary)
+        .bind(&reviewer)
         .fetch_one(&mut *tx)
         .await?;
         let created_dependency = if let Some((
@@ -9503,7 +9545,7 @@ impl OrgIntel {
         .unwrap_or_else(|| "owner".to_string());
         let candidates = sqlx::query_as::<_,DocumentAttentionReference>(
             "SELECT r.id,r.document_id,d.title,r.requested_by_actor_id,r.summary,r.created_at,'collaboration'::text AS kind,NULL::uuid AS named_version_id FROM native_document_collaboration_requests r JOIN native_documents d ON d.id=r.document_id WHERE r.resolved_at IS NULL AND r.requested_owner_actor_id=$1 AND d.status<>'archived' \
-             UNION ALL SELECT r.id,r.document_id,d.title,r.requested_by_actor_id,r.summary,r.created_at,'review'::text AS kind,r.requested_version_id AS named_version_id FROM native_document_reviews r JOIN native_documents d ON d.id=r.document_id LEFT JOIN native_document_work_review_dependencies w ON w.review_id=r.id AND w.document_id=r.document_id WHERE r.status='requested' AND d.status<>'archived' AND (w.review_id IS NULL OR (w.reviewer_actor_id=$1 AND w.status='pending')) ORDER BY created_at")
+             UNION ALL SELECT r.id,r.document_id,d.title,r.requested_by_actor_id,r.summary,r.created_at,'review'::text AS kind,r.requested_version_id AS named_version_id FROM native_document_reviews r JOIN native_documents d ON d.id=r.document_id LEFT JOIN native_document_work_review_dependencies w ON w.review_id=r.id AND w.document_id=r.document_id WHERE r.status='requested' AND d.status<>'archived' AND ((w.review_id IS NULL AND (r.reviewer_actor_id IS NULL OR r.reviewer_actor_id=$1)) OR (w.reviewer_actor_id=$1 AND w.status='pending')) ORDER BY created_at")
             .bind(&owner)
             .fetch_all(&mut *tx).await?;
         let mut visible = Vec::new();

@@ -891,7 +891,7 @@
 			</div>{/if}
 		{#if row?.archived_at}<div class="notice-slot">
 				<Notice tone="info" title="This sheet is archived">
-					It is hidden from the Library.
+					It is out of the Library lists. Anyone who can edit it still can.
 					{#snippet actions()}{#if canManage}<button
 								class="btn small"
 								type="button"

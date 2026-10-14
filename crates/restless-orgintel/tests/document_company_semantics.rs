@@ -382,6 +382,7 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
             expected_document_version: 1,
             expected_current_version_id: requested_version_id,
             summary: "Check this before it becomes company guidance",
+            reviewer_actor_id: None,
             work_dependency: None,
         })
         .await
@@ -394,6 +395,7 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
             expected_document_version: 1,
             expected_current_version_id: requested_version_id,
             summary: "Check this before it becomes company guidance",
+            reviewer_actor_id: None,
             work_dependency: None,
         })
         .await
@@ -509,6 +511,7 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
             expected_document_version: 1,
             expected_current_version_id: requested_version_id,
             summary: "Check this before it becomes company guidance",
+            reviewer_actor_id: None,
             work_dependency: None,
         })
         .await
@@ -543,6 +546,7 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
             expected_document_version: 4,
             expected_current_version_id: post_acceptance.result_id,
             summary: "Review the later revision",
+            reviewer_actor_id: None,
             work_dependency: None,
         })
         .await
@@ -567,6 +571,7 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
             expected_document_version: 6,
             expected_current_version_id: newest.result_id,
             summary: "Review the current revision, not its stale predecessor",
+            reviewer_actor_id: None,
             work_dependency: None,
         })
         .await
@@ -722,6 +727,7 @@ async fn work_bound_reviews_are_exact_replayable_and_stale_safe() {
             expected_document_version: 4,
             expected_current_version_id: created.current_version.version.id,
             summary: "Attempt to bind somebody else's Work",
+            reviewer_actor_id: None,
             work_dependency: Some(DocumentWorkReviewDependencyInput {
                 work_id: untouched_work_id,
                 attempt_id: untouched_work.attempt_id,
@@ -742,6 +748,7 @@ async fn work_bound_reviews_are_exact_replayable_and_stale_safe() {
             expected_document_version: 4,
             expected_current_version_id: created.current_version.version.id,
             summary: "Attempt to mix Work and Attempt identities",
+            reviewer_actor_id: None,
             work_dependency: Some(DocumentWorkReviewDependencyInput {
                 work_id,
                 attempt_id: untouched_work.attempt_id,
@@ -759,6 +766,7 @@ async fn work_bound_reviews_are_exact_replayable_and_stale_safe() {
             expected_document_version: 4,
             expected_current_version_id: created.current_version.version.id,
             summary: "Attempt to bind a stale Work revision",
+            reviewer_actor_id: None,
             work_dependency: Some(DocumentWorkReviewDependencyInput {
                 work_id,
                 attempt_id: work.attempt_id,
@@ -777,6 +785,7 @@ async fn work_bound_reviews_are_exact_replayable_and_stale_safe() {
             expected_document_version: 4,
             expected_current_version_id: created.current_version.version.id,
             summary: "Alex reviews this exact version before the Work continues",
+            reviewer_actor_id: None,
             work_dependency: Some(DocumentWorkReviewDependencyInput {
                 work_id,
                 attempt_id: work.attempt_id,
@@ -931,6 +940,7 @@ async fn work_bound_reviews_are_exact_replayable_and_stale_safe() {
             expected_document_version: 4,
             expected_current_version_id: created.current_version.version.id,
             summary: "Alex reviews this exact version before the Work continues",
+            reviewer_actor_id: None,
             work_dependency: Some(DocumentWorkReviewDependencyInput {
                 work_id,
                 attempt_id: work.attempt_id,
@@ -1022,6 +1032,7 @@ async fn work_bound_reviews_are_exact_replayable_and_stale_safe() {
             expected_document_version: 3,
             expected_current_version_id: changes_doc.current_version.version.id,
             summary: "Review the evidence",
+            reviewer_actor_id: None,
             work_dependency: Some(DocumentWorkReviewDependencyInput {
                 work_id: changes_work_id,
                 attempt_id: changes_work.attempt_id,
@@ -1095,6 +1106,7 @@ async fn work_bound_reviews_are_exact_replayable_and_stale_safe() {
             expected_document_version: 3,
             expected_current_version_id: stale_doc.current_version.version.id,
             summary: "Review this immutable version",
+            reviewer_actor_id: None,
             work_dependency: Some(DocumentWorkReviewDependencyInput {
                 work_id: stale_work_id,
                 attempt_id: stale_work.attempt_id,
@@ -1183,6 +1195,7 @@ async fn work_bound_reviews_are_exact_replayable_and_stale_safe() {
             expected_document_version: 3,
             expected_current_version_id: replaced_doc.current_version.version.id,
             summary: "Review this exact source before it changes",
+            reviewer_actor_id: None,
             work_dependency: Some(DocumentWorkReviewDependencyInput {
                 work_id: replaced_work_id,
                 attempt_id: replaced_work.attempt_id,
@@ -1211,6 +1224,7 @@ async fn work_bound_reviews_are_exact_replayable_and_stale_safe() {
             expected_document_version: 5,
             expected_current_version_id: replacement_version.result_id,
             summary: "Review only the replacement source",
+            reviewer_actor_id: None,
             work_dependency: None,
         })
         .await
@@ -1603,4 +1617,53 @@ async fn exec_shares_a_staff_document_but_a_member_cannot() {
         org.set_document_participant(share("alex", 3, "blair")).await,
         Err(DocumentError::Unavailable)
     ));
+}
+
+#[tokio::test]
+async fn a_named_reviewer_must_be_able_to_edit_and_is_the_one_asked() {
+    let Some(org) = company("docreviewer").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping named document reviewer scenario");
+        return;
+    };
+    let created = create_private_document(&org, "Reviewed body").await;
+    let document_id = created.document.id;
+    let request = |command_id, version| RequestDocumentReview {
+        document_id,
+        actor_id: "owner",
+        command_id,
+        expected_document_version: version,
+        expected_current_version_id: created.current_version.version.id,
+        summary: "Is the pricing claim right?",
+        reviewer_actor_id: Some("alex"),
+        work_dependency: None,
+    };
+    // Someone who cannot edit it cannot be asked to judge it.
+    assert!(matches!(
+        org.request_document_review(request(Uuid::new_v4(), 1))
+            .await,
+        Err(DocumentError::Invalid(_))
+    ));
+    org.set_document_participant(SetDocumentParticipant {
+        command_id: Uuid::new_v4(),
+        document_id,
+        actor_id: "owner",
+        expected_document_version: 1,
+        participant_actor_id: "alex",
+        access: DocumentAccess::Edit,
+    })
+    .await
+    .unwrap();
+    let requested = org
+        .request_document_review(request(Uuid::new_v4(), 2))
+        .await
+        .unwrap();
+    assert_eq!(requested.review.reviewer_actor_id.as_deref(), Some("alex"));
+    // It reaches the person asked, not the owner's Inbox.
+    let asked = org.unread_for_you_items("alex").await.unwrap();
+    let key = format!("review:{}", requested.review.id);
+    assert!(asked
+        .iter()
+        .any(|item| item.kind == "review" && item.key == key));
+    let attention = org.pending_document_attention().await.unwrap();
+    assert!(!attention.iter().any(|item| item.id == requested.review.id));
 }

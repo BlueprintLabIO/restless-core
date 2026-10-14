@@ -242,6 +242,8 @@ export interface DocumentReviewRow {
 	stale_at: string | null;
 	created_at: string;
 	version: number;
+	/** Whom the requester asked to judge it; null lets any editor judge it. */
+	reviewer_actor_id?: string | null;
 }
 
 export type DocumentWorkReviewStatus = 'pending' | 'accepted' | 'changes_requested' | 'stale';
@@ -453,8 +455,18 @@ export interface DocumentSearchPage {
 	next_offset: number | null;
 }
 
-export function searchDocuments(company: string, q: string, offset = 0, signal?: AbortSignal): Promise<DocumentSearchPage> {
-	const query = new URLSearchParams({ q, offset: String(offset), limit: '30', include_archived: 'false' });
+export function searchDocuments(
+	company: string,
+	q: string,
+	offset = 0,
+	signal?: AbortSignal
+): Promise<DocumentSearchPage> {
+	const query = new URLSearchParams({
+		q,
+		offset: String(offset),
+		limit: '30',
+		include_archived: 'false'
+	});
 	return documentJson(`${documentsPath(company)}/search?${query}`, { signal });
 }
 
@@ -486,7 +498,11 @@ export function setDocumentGeneralAccess(
 ): Promise<DocumentCommandResult> {
 	return documentJson(
 		documentsPath(company, document),
-		mutation({ expected_version: expectedVersion, general_access: generalAccess }, commandId, 'PATCH')
+		mutation(
+			{ expected_version: expectedVersion, general_access: generalAccess },
+			commandId,
+			'PATCH'
+		)
 	);
 }
 
@@ -752,7 +768,8 @@ export function requestDocumentReview(
 	expectedDocumentVersion: number,
 	expectedCurrentVersionId: string,
 	summary: string,
-	commandId: string
+	commandId: string,
+	reviewerActorId: string | null = null
 ): Promise<DocumentReviewView> {
 	return documentJson(
 		`${documentsPath(company, document)}/reviews`,
@@ -760,7 +777,8 @@ export function requestDocumentReview(
 			{
 				expected_document_version: expectedDocumentVersion,
 				expected_current_version_id: expectedCurrentVersionId,
-				summary
+				summary,
+				...(reviewerActorId ? { reviewer_actor_id: reviewerActorId } : {})
 			},
 			commandId
 		)

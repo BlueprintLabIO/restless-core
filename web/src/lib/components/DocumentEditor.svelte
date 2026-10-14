@@ -332,7 +332,7 @@
 			if (!identity) {
 				collaborationState = 'degraded';
 				collaborationFailure =
-					'Live editing isn’t set up for this company, so the latest named version is read only.';
+					'Live editing isn’t set up for this company, so the last saved version is read only.';
 				return;
 			}
 
@@ -403,7 +403,7 @@
 					if (disposed) return;
 					collaborationState = transitionDocumentCollaborationState(collaborationState, 'failed');
 					collaborationFailure =
-						'Collaboration access was rejected. The latest named version remains read only.';
+						'Collaboration access was rejected. The last saved version stays read only.';
 				},
 				onClose: ({ event }) => {
 					if (disposed || collaborationState === 'degraded') return;
@@ -500,7 +500,7 @@
 					return;
 				collaborationState = 'degraded';
 				collaborationFailure =
-					'Live collaboration did not become ready. The latest named version remains read only.';
+					'Live collaboration did not become ready. The last saved version stays read only.';
 			}, 10_000);
 
 			return () => {
@@ -1251,7 +1251,7 @@
 		{:else}
 			<div class="named-version-projection">
 				<div class="projection-note">
-					<strong>Latest named version</strong><span
+					<strong>Last saved version</strong><span
 						>{collaborationState === 'connecting'
 							? 'Live document is connecting.'
 							: 'Read only.'}</span

@@ -453,6 +453,7 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                         expected_document_version,
                         expected_current_version_id: named_version_id,
                         summary,
+                        reviewer_actor_id: None,
                         work_dependency: Some(
                             restless_orgintel::DocumentWorkReviewDependencyInput {
                                 work_id,

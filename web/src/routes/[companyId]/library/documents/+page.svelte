@@ -681,7 +681,15 @@
 							>Ask to edit</button
 						>
 					{/if}
-					<button type="button" onclick={() => changePanel('review')}>Request review…</button>
+					{#if documentView.access === 'edit'}
+						<button type="button" onclick={() => changePanel('review')}>Request review…</button>
+					{:else}
+						<button
+							type="button"
+							title="See a review in progress and changes agents propose. People who can edit it request reviews."
+							onclick={() => changePanel('review')}>Review</button
+						>
+					{/if}
 					{#if mayArchive}
 						<button
 							type="button"
@@ -720,6 +728,7 @@
 					{#if archived}
 						<div class="document-banner">
 							<Notice title="Archived">
+								It is out of the Library lists. Anyone who can edit it still can.
 								{#snippet actions()}
 									{#if mayArchive}
 										<button

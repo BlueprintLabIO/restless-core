@@ -844,6 +844,7 @@ mod tests {
                     expected_document_version: latest.document.version,
                     expected_current_version_id: latest.current_version.version.id,
                     summary: "Review this exact version",
+                    reviewer_actor_id: None,
                     work_dependency: None,
                 })
                 .await?;

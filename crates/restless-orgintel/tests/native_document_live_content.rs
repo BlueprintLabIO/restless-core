@@ -615,6 +615,7 @@ async fn review_captures_current_live_body_without_manual_checkpoint() {
         expected_document_version: view.document.version,
         expected_current_version_id: seed.checkpoint_named_version_id,
         summary: "Please review",
+        reviewer_actor_id: None,
         work_dependency: None,
     })
     .await

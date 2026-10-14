@@ -532,6 +532,7 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
             expected_document_version: 5,
             expected_current_version_id: second_version_id,
             summary: "Review the current evidence",
+            reviewer_actor_id: None,
             work_dependency: None,
         })
         .await

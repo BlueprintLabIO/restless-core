@@ -244,16 +244,18 @@ const ITEMS: &str = "viewer AS ( \
      AND s.owner_actor_id<>$1 AND $6::uuid IS NULL AND ($8::uuid IS NULL OR p.sheet_id=$8) \
  ), \
  reviews AS ( \
-   SELECT 'review:'||w.review_id,'review',w.document_id,NULL::uuid,NULL::uuid,NULL::text, \
+   SELECT 'review:'||review.id,'review',review.document_id,NULL::uuid,NULL::uuid,NULL::text, \
      NULL::bigint,NULL::bigint,NULL::uuid,d.title,left(review.summary,$7), \
-     ARRAY[review.requested_by_actor_id],w.created_at, \
-     w.created_at>GREATEST(viewer.through,COALESCE(r.read_at,'-infinity')) \
-   FROM native_document_work_review_dependencies w CROSS JOIN viewer \
-   JOIN native_document_reviews review ON review.id=w.review_id AND review.status='requested' \
-   JOIN native_documents d ON d.id=w.document_id AND d.status<>'archived' \
-   LEFT JOIN for_you_reads r ON r.actor_id=$1 AND r.item_key='review:'||w.review_id \
-   WHERE w.reviewer_actor_id=$1 AND w.status='pending' AND review.requested_by_actor_id<>$1 \
-     AND $8::uuid IS NULL AND ($6::uuid IS NULL OR w.document_id=$6) \
+     ARRAY[review.requested_by_actor_id],COALESCE(w.created_at,review.created_at), \
+     COALESCE(w.created_at,review.created_at)>GREATEST(viewer.through,COALESCE(r.read_at,'-infinity')) \
+   FROM native_document_reviews review CROSS JOIN viewer \
+   LEFT JOIN native_document_work_review_dependencies w ON w.review_id=review.id \
+   JOIN native_documents d ON d.id=review.document_id AND d.status<>'archived' \
+   LEFT JOIN for_you_reads r ON r.actor_id=$1 AND r.item_key='review:'||review.id \
+   WHERE review.status='requested' AND review.requested_by_actor_id<>$1 \
+     AND ((w.reviewer_actor_id=$1 AND w.status='pending') \
+       OR (w.review_id IS NULL AND review.reviewer_actor_id=$1)) \
+     AND $8::uuid IS NULL AND ($6::uuid IS NULL OR review.document_id=$6) \
      AND $1<>COALESCE((SELECT b.actor_id FROM human_principal_actor_bindings b \
        WHERE b.membership_role='owner' AND b.membership_status='active' \
        ORDER BY b.first_verified_at ASC LIMIT 1),'owner') \

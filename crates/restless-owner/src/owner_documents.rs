@@ -683,6 +683,9 @@ struct RequestDocumentReviewInput {
     expected_document_version: i64,
     expected_current_version_id: Uuid,
     summary: String,
+    /// One person asked to judge it; without one, any editor may.
+    #[serde(default)]
+    reviewer_actor_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2092,6 +2095,7 @@ async fn request_document_review(
             // A human owner/member may request an ordinary document review.
             // Only a capability-bound hosted Runtime Attempt may bind that
             // review to Work; the coordination route supplies that operation.
+            reviewer_actor_id: input.reviewer_actor_id.as_deref(),
             work_dependency: None,
         })
         .await
@@ -2928,6 +2932,7 @@ mod tests {
                 expected_document_version: 3,
                 expected_current_version_id: current_version_id,
                 summary: "Alice reviews the exact evidence",
+                reviewer_actor_id: None,
                 work_dependency: Some(restless_orgintel::DocumentWorkReviewDependencyInput {
                     work_id,
                     attempt_id: attempt.attempt_id,
@@ -2956,6 +2961,7 @@ mod tests {
                 expected_document_version: 3,
                 expected_current_version_id: current_version_id,
                 summary: "Alice reviews the exact evidence",
+                reviewer_actor_id: None,
                 work_dependency: Some(restless_orgintel::DocumentWorkReviewDependencyInput {
                     work_id,
                     attempt_id: attempt.attempt_id,
