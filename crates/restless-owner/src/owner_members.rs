@@ -148,3 +148,84 @@ pub(super) async fn members_view(
     })
     .into_response()
 }
+
+#[derive(Serialize)]
+struct HandoverPerson {
+    actor_id: String,
+    name: String,
+}
+
+#[derive(Serialize)]
+struct HandoverView {
+    from: HandoverPerson,
+    to: HandoverPerson,
+    requested_at: chrono::DateTime<chrono::Utc>,
+    /// `waiting`: the issuer has not confirmed the new owner yet. `confirmed`: it has, and the
+    /// daemon is finishing Authority. `ended`: the person no longer has access, so only cancelling
+    /// resolves it.
+    state: &'static str,
+}
+
+/// A pending ownership handover (ADR 0012 decision 7), for the Inbox and Members of both
+/// people. Everyone in the company may read it, like the member list.
+pub(super) async fn ownership_handover_view(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    let pending = match state
+        .daemon
+        .authority
+        .pending_authority_handover(&company)
+        .await
+    {
+        Ok(Some(pending)) => pending,
+        Ok(None) => return Json(serde_json::json!({ "handover": null })).into_response(),
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "members",
+                format!("{error:#}"),
+            )
+        }
+    };
+    let members = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org.human_members().await.map_err(anyhow::Error::from),
+        Err(error) => Err(error),
+    };
+    let members = match members {
+        Ok(members) => members,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "members",
+                format!("{error:#}"),
+            )
+        }
+    };
+    let person = |actor_id: &str| HandoverPerson {
+        actor_id: actor_id.to_string(),
+        name: members
+            .iter()
+            .find(|member| member.actor_id == actor_id)
+            .map(|member| member.display.clone())
+            .unwrap_or_else(|| actor_id.to_string()),
+    };
+    let target = members
+        .iter()
+        .find(|member| member.actor_id == pending.to_actor_id);
+    let handover_state = match target {
+        Some(member) if member.membership_status != "active" => "ended",
+        Some(member) if member.membership_role == "owner" => "confirmed",
+        Some(_) => "waiting",
+        None => "ended",
+    };
+    Json(serde_json::json!({
+        "handover": HandoverView {
+            from: person(&pending.from_actor_id),
+            to: person(&pending.to_actor_id),
+            requested_at: pending.requested_at,
+            state: handover_state,
+        }
+    }))
+    .into_response()
+}

@@ -102,3 +102,42 @@ test("someone outside the company cannot be made the owner", async () => {
   await store.close();
   assert.deepEqual(controls(queries), []);
 });
+
+test("a repeat after the handover happened succeeds and writes nothing", async () => {
+  // Finish pressed again, or a retry after a lost response: the former owner is an admin now.
+  const { store, queries } = await storeWith({
+    owner1: { role: "admin", status: "active", version: 5 },
+    admin1: { role: "owner", status: "active", version: 3 },
+  });
+  const formerOwner = { membership_id: "owner1", role: "admin" };
+  const result = await store.transferOwnership(COMPANY, "owner1", "admin1", {
+    authorize: (current, target) => authorizeOwnershipTransfer(formerOwner, current, target),
+  });
+  await store.close();
+  assert.deepEqual(result, { ending: false });
+  assert.deepEqual(roleWrites(queries), []);
+  assert.deepEqual(controls(queries), []);
+});
+
+test("the repeat path admits nobody else", async () => {
+  for (const [people, caller] of [
+    // A member cannot use it to learn or touch anything.
+    [{ owner1: { role: "member", status: "active", version: 1 }, admin1: { role: "owner", status: "active", version: 1 } }, "member"],
+    // An admin cannot make another admin the owner.
+    [{ owner1: { role: "admin", status: "active", version: 1 }, admin1: { role: "admin", status: "active", version: 1 } }, "admin"],
+    // A suspended former owner gets nothing.
+    [{ owner1: { role: "admin", status: "suspended", version: 1 }, admin1: { role: "owner", status: "active", version: 1 } }, "admin"],
+  ]) {
+    const { store, queries } = await storeWith(people);
+    await assert.rejects(
+      store.transferOwnership(COMPANY, "owner1", "admin1", {
+        authorize: (current, target) =>
+          authorizeOwnershipTransfer({ membership_id: "owner1", role: caller }, current, target),
+      }),
+      (error) => error instanceof Refusal && error.status === 403,
+    );
+    await store.close();
+    assert.deepEqual(roleWrites(queries), []);
+    assert.deepEqual(controls(queries), []);
+  }
+});

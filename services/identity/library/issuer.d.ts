@@ -86,7 +86,10 @@ export interface MembershipStore {
     fromMembershipId: string,
     toMembershipId: string,
     options: {
-      /** Run under the Store's lock on both memberships; throws a Refusal. */
+      /**
+       * Run under the Store's lock on both memberships; throws a Refusal. False (issuer 1.2.1)
+       * means the handover already happened: write nothing and succeed.
+       */
       authorize(current: ChangeTarget, target: ChangeTarget): boolean;
     }
   ): Promise<{ ending: boolean }>;

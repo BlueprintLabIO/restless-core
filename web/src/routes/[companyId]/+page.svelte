@@ -46,6 +46,7 @@
 	} from '$lib/model/queries.svelte';
 	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
 	import { startFixHref, startLinkLabel } from '$lib/model/company-start';
+	import { getOwnershipHandover, handoverNotice, type OwnershipHandover } from '$lib/model/members';
 	import { browserTabClientId } from '$lib/model/browserTab';
 	import {
 		fetchDecisionHistory,
@@ -169,7 +170,22 @@
 	/* The charter an Inbox draft opens: read only while such an item is on screen. */
 	const charterCompany = $derived(companyQuery(companyId, () => !!selectedItem?.charterProposal));
 	const attentionClear = $derived(loaded && items.length === 0 && !coordination);
-	const queueClear = $derived(attentionClear && !forYou?.items.length && forYou?.filter === 'all');
+	/* A pending ownership handover (ADR 0012 decision 7) is said to both people in it, here rather
+	 * than as a refusal when someone tries to approve. Reread whenever Attention changes. */
+	let handover = $state<OwnershipHandover | null>(null);
+	$effect(() => {
+		void view;
+		const requested = companyId;
+		getOwnershipHandover(requested)
+			.then((next) => {
+				if (requested === companyId) handover = next;
+			})
+			.catch(() => {});
+	});
+	const handoverStatus = $derived(handoverNotice(handover, principal?.actor_id));
+	const queueClear = $derived(
+		attentionClear && !forYou?.items.length && forYou?.filter === 'all' && !handoverStatus
+	);
 	/* Phones never mount the office canvas (see the clear state below). */
 	let compactScreen = $state(false);
 	$effect(() => {
@@ -1027,6 +1043,7 @@
 				canSetAside={owner}
 				selectedId={selectedItem?.id}
 				blocker={startBlocker}
+				notice={handoverStatus}
 				{loaded}
 				failure={source.failure}
 				{coordination}

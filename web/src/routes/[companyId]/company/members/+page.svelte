@@ -13,8 +13,11 @@
 	import SharingSetup from '$lib/components/SharingSetup.svelte';
 	import StandingPermissions from '$lib/components/StandingPermissions.svelte';
 	import {
+		cancelHandover,
 		changeMembership,
 		getAuthorityOwner,
+		getOwnershipHandover,
+		handoverNotice,
 		getCoreMembers,
 		getIssuerMembers,
 		IssuerSessionMissing,
@@ -23,6 +26,7 @@
 		makeOwner,
 		mayManage,
 		type AuthorityOwner,
+		type OwnershipHandover,
 		type CoreMembersView,
 		type IssuerInvitation,
 		type IssuerMembersView,
@@ -41,6 +45,7 @@
 	let core = $state<CoreMembersView | null>(null);
 	let issuer = $state<IssuerMembersView | null>(null);
 	let authority = $state<AuthorityOwner | null>(null);
+	let handover = $state<OwnershipHandover | null>(null);
 	let signInNeeded = $state(false);
 	let failure = $state('');
 	let busy = $state('');
@@ -65,6 +70,11 @@
 			const nextCore = await getCoreMembers(requestedCompany);
 			if (version !== loadVersion || requestedCompany !== companyId) return;
 			core = nextCore;
+			handover =
+				nextCore.mode === 'network'
+					? await getOwnershipHandover(requestedCompany).catch(() => null)
+					: null;
+			if (version !== loadVersion || requestedCompany !== companyId) return;
 			if (!canManage || nextCore.mode !== 'network' || !nextCore.issuer || !nextCore.company_id) {
 				issuer = null;
 				return;
@@ -74,7 +84,8 @@
 				if (version !== loadVersion || requestedCompany !== companyId) return;
 				issuer = nextIssuer;
 				signInNeeded = false;
-				// Only the owner reads who holds Authority, to finish a handover they started.
+				// Only the owner reads who holds Authority, to finish or take back a handover that
+				// moved it before handovers waited for the issuer.
 				authority =
 					nextIssuer.viewer.role === 'owner'
 						? await getAuthorityOwner(requestedCompany).catch(() => null)
@@ -163,14 +174,38 @@
 		});
 	}
 
-	/* A handover that moved Authority but not yet the owner membership: approvals wait for it. */
-	const handingTo = $derived(
-		viewer?.role === 'owner' &&
-			authority?.source === 'explicit_transfer' &&
-			authority.actor_id !== principal?.actor_id
-			? rows.find((row) => row.actor?.actor_id === authority?.actor_id && row.role !== 'owner')
-			: undefined
+	/* The handover this owner started and the issuer has not confirmed: Finish repeats it, Cancel
+	 * withdraws it. Also an older handover that moved Authority without the membership. */
+	const mine = $derived(
+		viewer?.role === 'owner' && handover?.from.actor_id === principal?.actor_id ? handover : null
 	);
+	const handingTo = $derived(
+		viewer?.role !== 'owner'
+			? undefined
+			: mine
+				? rows.find((row) => row.actor?.actor_id === mine.to.actor_id && row.role !== 'owner')
+				: authority?.source === 'explicit_transfer' && authority.actor_id !== principal?.actor_id
+					? rows.find((row) => row.actor?.actor_id === authority?.actor_id && row.role !== 'owner')
+					: undefined
+	);
+	const handingName = $derived(mine?.to.name ?? handingTo?.name ?? '');
+	/* Everyone else in the handover sees where it stands; the owner sees it with its actions. */
+	const handoverStatus = $derived(mine ? '' : handoverNotice(handover, principal?.actor_id));
+
+	async function cancelPending() {
+		if (!principal?.actor_id || busy) return;
+		busy = 'cancel-handover';
+		failure = '';
+		try {
+			await cancelHandover(companyId, principal.actor_id);
+			toast(`You stay the owner. The handover to ${handingName} is cancelled.`);
+		} catch (cause) {
+			failure = failureSentence(cause, 'The handover was not cancelled.');
+		} finally {
+			busy = '';
+			await load();
+		}
+	}
 
 	/* Handing the company on cannot be taken back by the person who does it, so it names exactly
 	 * what changes and asks for their name typed out. */
@@ -383,6 +418,7 @@
 	{/snippet}
 
 	{#if failure}<Notice tone="danger" title="That change was not made" details={failure} />{/if}
+	{#if handoverStatus}<Notice title={handoverStatus} />{/if}
 
 	{#if !core}
 		{#if !failure}<Skeleton label="Reading company access…" variant="page" count={4} />{/if}
@@ -451,18 +487,23 @@
 			</form>
 		{/if}
 
-		{#if handingTo}
-			{@const to = handingTo}
+		{#if handingName && mine?.state !== 'confirmed'}
 			<Notice
 				tone="warning"
-				title={`Finish making ${to.name} the owner`}
-				details={`${to.name} already holds Authority but is not the owner yet, so approvals wait until this is finished.`}
+				title={mine?.state === 'ended'
+					? `${handingName} left before becoming the owner`
+					: `Finish making ${handingName} the owner`}
+				details={mine
+					? `You keep Authority and approvals until the account service makes ${handingName} the owner. Finish asks it again; Cancel keeps the company with you.`
+					: `${handingName} already holds Authority but is not the owner yet, so approvals wait. Finish completes the handover; Cancel brings Authority back to you.`}
 			>
-				{#snippet actions()}<button
-						class="btn small primary"
-						disabled={!!busy}
-						onclick={() => void handOver(to, false)}
-						>{busy === `owner:${to.membership_id}` ? 'Finishing…' : 'Finish'}</button
+				{#snippet actions()}{#if handingTo && mine?.state !== 'ended'}{@const to = handingTo}<button
+							class="btn small primary"
+							disabled={!!busy}
+							onclick={() => void handOver(to, false)}
+							>{busy === `owner:${to.membership_id}` ? 'Finishing…' : 'Finish'}</button
+						>{/if}<button class="btn small" disabled={!!busy} onclick={() => void cancelPending()}
+						>{busy === 'cancel-handover' ? 'Cancelling…' : 'Cancel handover'}</button
 					>{/snippet}
 			</Notice>
 		{/if}

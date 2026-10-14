@@ -1290,6 +1290,13 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
 
     telegram_api::spawn(state.clone());
     notification_delivery_api::spawn_push(state.clone());
+    // Finish ownership handovers whose Authority half did not complete when the issuer's control
+    // arrived, including across a restart. Only a shared company can have one.
+    if state.entry.network().is_some() {
+        tokio::spawn(restless_engine::ownership_handover::run(Arc::clone(
+            &state.daemon,
+        )));
+    }
 
     // Resume a first native sign-in across a daemon restart. Explicit defaults
     // always win; the same write lock fences competing completed logins.
@@ -1586,6 +1593,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route(
             "/companies/{company}/members",
             get(members_api::members_view),
+        )
+        .route(
+            "/companies/{company}/members/handover",
+            get(members_api::ownership_handover_view),
         )
         .route(
             "/companies/{company}/company/charter",
@@ -3144,7 +3155,7 @@ async fn apply_membership_control(
             return api_error(StatusCode::UNAUTHORIZED, refusal.code(), refusal.message());
         }
     };
-    let (_company, org) =
+    let (company, org) =
         match resolve_company_coordinates(&state, control.company_id, control.cell_id).await {
             Ok(resolved) => resolved,
             Err(error) => {
@@ -3208,6 +3219,22 @@ async fn apply_membership_control(
             );
         }
     };
+
+    // The issuer confirmed someone as owner: finish a pending handover's Authority half now. The
+    // daemon's handover loop retries if this fails (ADR 0012 decision 7).
+    if control.membership_role == "owner"
+        && control.membership_status == restless_orgintel::ExternalMembershipStatus::Active
+    {
+        if let Err(error) = restless_engine::ownership_handover::finish_if_confirmed(
+            &state.daemon.authority,
+            &org,
+            &company,
+        )
+        .await
+        {
+            tracing::warn!(%company, "ownership handover will be retried: {error:#}");
+        }
+    }
 
     // Database commit is the revocation point. The in-memory eviction only
     // shortens the next-request path; every request independently rechecks the
@@ -6379,7 +6406,7 @@ async fn decide_email_mandate(
         Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority_owner", format!("could not resolve Authority owner: {error:#}")),
     };
     if principal.actor_id() != owner {
-        return api_error(StatusCode::FORBIDDEN, "authority_owner", "only the current Authority owner may decide this mandate");
+        return authority_owner_refusal(&state, &company, &principal, "only the current Authority owner may decide this mandate").await;
     }
     match state.daemon.authority.decide_email_mandate_proposal(&company, principal.actor_id(), proposal, approve, input.owner_note.as_deref()).await {
         Ok(Some(mandate)) => {
@@ -7304,11 +7331,11 @@ async fn company_authority_owner(
     }
 }
 
-/// Root Authority moves to another person only as one half of handing the company on (UXG-100):
-/// the owner asks here first, then asks the issuer to make that person the owner and themselves an
-/// admin. Only an active admin or member Core has verified may receive it, so the membership half
-/// can follow. Asking again once Authority has moved, while the caller still holds the owner
-/// membership, writes nothing and answers the same, so an interrupted handover finishes by retrying.
+/// Root Authority moves to another person only as one half of handing the company on (ADR 0012
+/// decision 7): the owner records a pending handover here, then asks the issuer to make that
+/// person the owner and themselves an admin. Authority moves when Core applies the issuer's signed
+/// control, so until then the owner keeps both halves. Naming yourself cancels a pending handover.
+/// A repeat answers the same request without writing, so Finish is safe to press again.
 async fn transfer_company_authority_owner(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,
@@ -7330,85 +7357,66 @@ async fn transfer_company_authority_owner(
             "Turn on sharing before handing the company to someone else.",
         );
     }
+    let unavailable = |error: anyhow::Error| {
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "authority_owner",
+            format!("{error:#}"),
+        )
+    };
     let org = match state.daemon.orgintel.get(&company).await {
         Ok(org) => org,
-        Err(error) => {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "authority_owner",
-                format!("{error:#}"),
-            )
-        }
-    };
-    let members = match org.human_members().await {
-        Ok(members) => members,
-        Err(error) => {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "authority_owner",
-                format!("{error:#}"),
-            )
-        }
-    };
-    let Some(target) = members.iter().find(|member| {
-        member.actor_id == to_actor_id
-            && member.membership_status == "active"
-            && matches!(member.membership_role.as_str(), "admin" | "member")
-    }) else {
-        return api_error(
-            StatusCode::CONFLICT,
-            "authority_owner",
-            "Only an active admin or member who has opened the company can be made the owner.",
-        );
+        Err(error) => return unavailable(error),
     };
     let current = match effective_authority_owner(&state, &company, Some(&org)).await {
         Ok(view) => view,
-        Err(error) => {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "authority_owner",
-                format!("{error:#}"),
-            )
-        }
+        Err(error) => return unavailable(error),
     };
-    let moved = |authority_record_id: Option<i64>| {
-        Json(serde_json::json!({
-            "actor_id": to_actor_id,
-            "membership_id": target.membership_id,
-            "source": "explicit_transfer",
-            "authority_record_id": authority_record_id,
-        }))
-        .into_response()
-    };
-    // Already moved by this owner's earlier request: the membership half is what remains.
-    if current.actor_id == to_actor_id && principal.membership_role() == "owner" {
-        return moved(None);
-    }
-    if principal.actor_id() != current.actor_id || principal.membership_role() != "owner" {
-        return api_error(
-            StatusCode::FORBIDDEN,
-            "authority_owner",
-            "Only the owner who holds Authority may hand the company on.",
-        );
-    }
-    match state
-        .daemon
-        .authority
-        .transfer_authority_owner(
-            &company,
-            &current.actor_id,
-            to_actor_id,
-            input.rationale.trim(),
-        )
-        .await
+    use restless_engine::ownership_handover::{self as handover, Outcome, Refusal};
+    let outcome = match handover::change_authority_owner(
+        &state.daemon.authority,
+        &org,
+        &company,
+        handover::Caller {
+            actor_id: principal.actor_id(),
+            membership_role: principal.membership_role(),
+        },
+        &current.actor_id,
+        to_actor_id,
+        input.rationale.trim(),
+    )
+    .await
     {
-        Ok(record_id) => moved(Some(record_id)),
-        Err(error) => api_error(
-            StatusCode::CONFLICT,
-            "authority_owner",
-            format!("{error:#}"),
-        ),
-    }
+        Ok(Ok(outcome)) => outcome,
+        Ok(Err(Refusal::Forbidden(message))) => {
+            return api_error(StatusCode::FORBIDDEN, "authority_owner", message)
+        }
+        Ok(Err(Refusal::Conflict(message))) => {
+            return api_error(StatusCode::CONFLICT, "authority_owner", message)
+        }
+        Err(error) => return unavailable(error),
+    };
+    let membership_id = match org.human_members().await {
+        Ok(members) => members
+            .into_iter()
+            .find(|member| member.actor_id == to_actor_id)
+            .map(|member| member.membership_id),
+        Err(error) => return unavailable(error.into()),
+    };
+    let (pending, authority_record_id, cancelled) = match outcome {
+        Outcome::Pending(pending) => (Some(pending.record_id), None, false),
+        Outcome::AlreadyMoved => (None, None, false),
+        Outcome::Cancelled => (None, None, true),
+        Outcome::Reclaimed(record) => (None, Some(record), false),
+    };
+    Json(serde_json::json!({
+        "actor_id": to_actor_id,
+        "membership_id": membership_id,
+        "handover_record_id": pending,
+        "authority_record_id": authority_record_id,
+        "cancelled": cancelled,
+    }))
+    .into_response()
 }
 
 /// The owner cockpit's cross-plane read. This is deliberately an aggregation
@@ -11042,13 +11050,33 @@ async fn require_authority_owner(
         }
     };
     if principal.actor_id() != current.actor_id {
-        return Err(api_error(
-            StatusCode::FORBIDDEN,
-            "authority_owner",
+        return Err(authority_owner_refusal(
+            state,
+            company,
+            principal,
             "only the current Authority owner may decide standing approval for real effects",
-        ));
+        )
+        .await);
     }
     Ok(())
+}
+
+/// Refuse someone who does not hold root Authority. While a handover to them waits for the
+/// issuer, say so instead of a bare refusal (ADR 0012 decision 7).
+async fn authority_owner_refusal(
+    state: &OwnerState,
+    company: &str,
+    principal: &RequestPrincipal,
+    otherwise: &'static str,
+) -> Response<Body> {
+    match state.daemon.authority.pending_authority_handover(company).await {
+        Ok(Some(pending)) if pending.to_actor_id == principal.actor_id() => api_error(
+            StatusCode::CONFLICT,
+            "ownership_handover_pending",
+            "Ownership handover in progress — approvals resume when it completes.",
+        ),
+        _ => api_error(StatusCode::FORBIDDEN, "authority_owner", otherwise),
+    }
 }
 
 #[derive(Deserialize)]

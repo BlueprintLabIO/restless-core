@@ -94,13 +94,24 @@ export function authorizeChange(viewer, change, target) {
 /**
  * The rules for handing the company to someone else, run by the Store under its lock against both
  * memberships' current state. Only the owner hands it on, to an active admin or member of the same
- * company; the owner becomes an admin in the same transaction.
+ * company; the owner becomes an admin in the same transaction. A repeat once that has happened
+ * returns false, so the Store writes nothing and the request still succeeds.
  */
 export function authorizeOwnershipTransfer(viewer, current, target) {
-  if (current.membership_id !== viewer.membership_id || current.role !== "owner")
+  if (current.membership_id !== viewer.membership_id)
     refuse(403, "Only the owner can make someone else the owner.");
   if (current.status !== "active")
     refuse(403, "You do not currently have access to this company.");
+  // A repeat after the swap already happened (Finish pressed again, or a retry after a lost
+  // response): the former owner is now an admin and the chosen person the owner. Nothing to write.
+  if (
+    current.role === "admin" &&
+    target.role === "owner" &&
+    target.status === "active" &&
+    target.membership_id !== current.membership_id
+  )
+    return false;
+  if (current.role !== "owner") refuse(403, "Only the owner can make someone else the owner.");
   if (target.membership_id === current.membership_id)
     refuse(409, "You are already the owner.");
   if (!["admin", "member"].includes(target.role))
@@ -275,7 +286,10 @@ export function createIssuer({ auth, origin, placement, store, invitationLink })
     // once. The cockpit moves root Authority to them first (Core records it), then asks here.
     match = rest.match(/^members\/([^/]{1,128})\/make-owner$/);
     if (match) {
-      if (viewer.role !== "owner") refuse(403, "Only the owner can make someone else the owner.");
+      // An admin gets as far as the Store only so a repeat of a finished handover answers
+      // without writing; authorizeOwnershipTransfer refuses anything else under the lock.
+      if (!["owner", "admin"].includes(viewer.role))
+        refuse(403, "Only the owner can make someone else the owner.");
       if (typeof store.transferOwnership !== "function")
         refuse(404, "This account service cannot transfer ownership.");
       return store.transferOwnership(companyId, viewer.membership_id, match[1], {

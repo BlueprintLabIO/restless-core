@@ -823,6 +823,214 @@ impl AuthorityStore {
         Ok(id)
     }
 
+    /// The handover this company is waiting on, if its latest ownership fact is a request that
+    /// has been neither completed nor cancelled (ADR 0012 decision 7).
+    pub async fn pending_authority_handover(
+        &self,
+        company: &str,
+    ) -> Result<Option<PendingAuthorityHandover>> {
+        latest_pending_handover(&self.pool, company).await
+    }
+
+    /// Every company's pending handover, oldest first: what the daemon finishes after a restart.
+    pub async fn pending_authority_handovers(&self) -> Result<Vec<PendingAuthorityHandover>> {
+        let companies: Vec<String> = sqlx::query_scalar(
+            "SELECT DISTINCT company FROM restless_authority.records \
+             WHERE kind='authority_ownership_handover_requested'",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("list companies with an ownership handover")?;
+        let mut pending = Vec::new();
+        for company in companies {
+            if let Some(handover) = latest_pending_handover(&self.pool, &company).await? {
+                pending.push(handover);
+            }
+        }
+        pending.sort_by_key(|handover| handover.record_id);
+        Ok(pending)
+    }
+
+    /// The Authority holder asks to hand root Authority to `to_actor_id`. Nothing moves yet:
+    /// Authority follows only once the issuer's signed control shows that person holds the owner
+    /// membership, so neither half ever leaves the company without someone who holds both. A
+    /// repeat for the same person answers the same request without writing.
+    pub async fn request_authority_handover(
+        &self,
+        company: &str,
+        expected_current_owner: &str,
+        to_actor_id: &str,
+        rationale: &str,
+    ) -> Result<PendingAuthorityHandover> {
+        if to_actor_id.trim().is_empty() || rationale.trim().is_empty() {
+            bail!("an ownership handover needs a destination Actor and a rationale");
+        }
+        if to_actor_id == expected_current_owner {
+            bail!("that Actor already holds Authority ownership");
+        }
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("begin ownership handover")?;
+        lock_authority_owner(&mut tx, company).await?;
+        if let Some(pending) = latest_pending_handover(&mut *tx, company).await? {
+            if pending.from_actor_id == expected_current_owner && pending.to_actor_id == to_actor_id
+            {
+                return Ok(pending);
+            }
+            bail!("another ownership handover is already waiting; cancel it first");
+        }
+        let current = current_owner_in(&mut tx, company).await?;
+        if current.as_deref().unwrap_or(expected_current_owner) != expected_current_owner {
+            bail!("Authority ownership already changed to a different Actor; refresh and retry");
+        }
+        if current.is_none() {
+            // Before the first transfer, Authority is derived from the membership owner. Record it
+            // explicitly, so the membership swap alone can never move Authority, even if this
+            // handover is later cancelled.
+            sqlx::query(
+                "INSERT INTO restless_authority.records (company,kind,actor_id,body) \
+                 VALUES ($1,'authority_ownership_transfer',$2,$3)",
+            )
+            .bind(company)
+            .bind(expected_current_owner)
+            .bind(serde_json::json!({
+                "from_actor_id": expected_current_owner,
+                "rationale": "recorded the derived owner before an ownership handover",
+            }))
+            .execute(&mut *tx)
+            .await
+            .context("record the derived Authority owner")?;
+        }
+        let (record_id, requested_at): (i64, DateTime<Utc>) = sqlx::query_as(
+            "INSERT INTO restless_authority.records (company,kind,actor_id,body) \
+             VALUES ($1,'authority_ownership_handover_requested',$2,$3) RETURNING id,created_at",
+        )
+        .bind(company)
+        .bind(to_actor_id)
+        .bind(serde_json::json!({
+            "from_actor_id": expected_current_owner,
+            "rationale": rationale.trim(),
+        }))
+        .fetch_one(&mut *tx)
+        .await
+        .context("record ownership handover request")?;
+        tx.commit()
+            .await
+            .context("commit ownership handover request")?;
+        Ok(PendingAuthorityHandover {
+            record_id,
+            company: company.to_string(),
+            from_actor_id: expected_current_owner.to_string(),
+            to_actor_id: to_actor_id.to_string(),
+            requested_at,
+        })
+    }
+
+    /// Finish one handover after its membership half is confirmed: under the owner lock, only if
+    /// that exact request is still pending and its requester still holds Authority, record the
+    /// transfer. Returns the transfer record, or `None` when there was nothing left to do, so the
+    /// daemon may call it again safely.
+    pub async fn complete_authority_handover(
+        &self,
+        company: &str,
+        record_id: i64,
+    ) -> Result<Option<i64>> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("begin ownership handover completion")?;
+        lock_authority_owner(&mut tx, company).await?;
+        let Some(pending) = latest_pending_handover(&mut *tx, company).await? else {
+            return Ok(None);
+        };
+        if pending.record_id != record_id {
+            return Ok(None);
+        }
+        let current = current_owner_in(&mut tx, company).await?;
+        if current.as_deref().unwrap_or(&pending.from_actor_id) != pending.from_actor_id {
+            bail!("Authority ownership changed while the handover waited");
+        }
+        let id = sqlx::query_scalar::<_, i64>(
+            "INSERT INTO restless_authority.records (company,kind,actor_id,body) \
+             VALUES ($1,'authority_ownership_transfer',$2,$3) RETURNING id",
+        )
+        .bind(company)
+        .bind(&pending.to_actor_id)
+        .bind(serde_json::json!({
+            "from_actor_id": pending.from_actor_id,
+            "rationale": "the issuer confirmed the new owner's membership",
+            "handover_record_id": pending.record_id,
+        }))
+        .fetch_one(&mut *tx)
+        .await
+        .context("record completed ownership handover")?;
+        tx.commit()
+            .await
+            .context("commit ownership handover completion")?;
+        Ok(Some(id))
+    }
+
+    /// The Authority holder withdraws their pending handover. Only the requester, who still holds
+    /// Authority because nothing has moved, may do this.
+    pub async fn cancel_authority_handover(
+        &self,
+        company: &str,
+        holder: &str,
+        rationale: &str,
+    ) -> Result<Option<i64>> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("begin ownership handover cancel")?;
+        lock_authority_owner(&mut tx, company).await?;
+        let Some(pending) = latest_pending_handover(&mut *tx, company).await? else {
+            return Ok(None);
+        };
+        if pending.from_actor_id != holder {
+            bail!("only the person who started this handover may cancel it");
+        }
+        let id = sqlx::query_scalar::<_, i64>(
+            "INSERT INTO restless_authority.records (company,kind,actor_id,body) \
+             VALUES ($1,'authority_ownership_handover_cancelled',$2,$3) RETURNING id",
+        )
+        .bind(company)
+        .bind(holder)
+        .bind(serde_json::json!({
+            "handover_record_id": pending.record_id,
+            "to_actor_id": pending.to_actor_id,
+            "rationale": rationale.trim(),
+        }))
+        .fetch_one(&mut *tx)
+        .await
+        .context("record cancelled ownership handover")?;
+        tx.commit()
+            .await
+            .context("commit ownership handover cancel")?;
+        Ok(Some(id))
+    }
+
+    /// The person the latest recorded transfer took Authority from, if any. Used only to let an
+    /// owner whose earlier handover moved Authority before the pending step existed take it back.
+    pub async fn latest_transfer_from(&self, company: &str) -> Result<Option<String>> {
+        let body: Option<serde_json::Value> = sqlx::query_scalar(
+            "SELECT body FROM restless_authority.records \
+             WHERE company=$1 AND kind='authority_ownership_transfer' \
+             ORDER BY id DESC LIMIT 1",
+        )
+        .bind(company)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(body.and_then(|body| {
+            body.get("from_actor_id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        }))
+    }
+
     /// Record one owner identity decision idempotently. Authority owns the
     /// decision; OrgIntel projects the resulting release and can safely retry
     /// after a crash between the two stores.
@@ -1531,6 +1739,70 @@ mod identity_decision_attribution_tests {
             .expect("recover identity decision");
         assert_eq!(recovered_id, record_id);
     }
+}
+
+/// A handover of root Authority waiting for its membership half (ADR 0012 decision 7).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct PendingAuthorityHandover {
+    pub record_id: i64,
+    pub company: String,
+    pub from_actor_id: String,
+    pub to_actor_id: String,
+    pub requested_at: DateTime<Utc>,
+}
+
+async fn lock_authority_owner(tx: &mut Transaction<'_, Postgres>, company: &str) -> Result<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+        .bind(format!("authority-owner:{company}"))
+        .execute(&mut **tx)
+        .await
+        .context("serialize Authority ownership change")?;
+    Ok(())
+}
+
+async fn current_owner_in(
+    tx: &mut Transaction<'_, Postgres>,
+    company: &str,
+) -> Result<Option<String>> {
+    sqlx::query_scalar(
+        "SELECT actor_id FROM restless_authority.records \
+         WHERE company=$1 AND kind='authority_ownership_transfer' \
+         ORDER BY id DESC LIMIT 1",
+    )
+    .bind(company)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("read current Authority owner")
+}
+
+async fn latest_pending_handover<'e, E>(
+    executor: E,
+    company: &str,
+) -> Result<Option<PendingAuthorityHandover>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    type Row = (i64, String, Option<String>, serde_json::Value, DateTime<Utc>);
+    let latest: Option<Row> = sqlx::query_as(
+        "SELECT id,kind,actor_id,body,created_at FROM restless_authority.records \
+         WHERE company=$1 AND kind IN ('authority_ownership_transfer', \
+           'authority_ownership_handover_requested','authority_ownership_handover_cancelled') \
+         ORDER BY id DESC LIMIT 1",
+    )
+    .bind(company)
+    .fetch_optional(executor)
+    .await
+    .context("read pending ownership handover")?;
+    Ok(latest.and_then(|(record_id, kind, to, body, requested_at)| {
+        (kind == "authority_ownership_handover_requested").then_some(())?;
+        Some(PendingAuthorityHandover {
+            record_id,
+            company: company.to_string(),
+            from_actor_id: body.get("from_actor_id")?.as_str()?.to_string(),
+            to_actor_id: to?,
+            requested_at,
+        })
+    }))
 }
 
 #[cfg(test)]

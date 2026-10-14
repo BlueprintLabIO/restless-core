@@ -250,6 +250,19 @@ impl OrgIntel {
         .await?)
     }
 
+    /// Whether this Actor currently holds the active external `owner` membership, as the issuer's
+    /// last applied handoff or control said. The membership half of an ownership handover is
+    /// confirmed by this, never by anything Core writes.
+    pub async fn holds_active_membership_owner(&self, actor_id: &str) -> Result<bool> {
+        Ok(sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM human_principal_actor_bindings \
+             WHERE actor_id=$1 AND membership_role='owner' AND membership_status='active')",
+        )
+        .bind(actor_id)
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
     /// Immutable hosted coordinates already bound to this company schema.
     pub async fn company_access_identity(&self) -> Result<Option<CompanyAccessIdentity>> {
         Ok(sqlx::query_as::<_, (Uuid, Uuid)>(

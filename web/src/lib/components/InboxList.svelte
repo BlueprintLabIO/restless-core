@@ -52,6 +52,7 @@
 		items,
 		selectedId,
 		blocker = '',
+		notice = '',
 		loaded = false,
 		failure = null,
 		coordination = null,
@@ -63,6 +64,8 @@
 		items: AttentionItem[];
 		selectedId?: string;
 		blocker?: string;
+		/** A company-wide state the reader is part of, such as an ownership handover. */
+		notice?: string;
 		loaded?: boolean;
 		failure?: Error | null;
 		/** The company's coordination is unavailable, so the list may be incomplete. */
@@ -377,6 +380,11 @@
 					><TriangleAlert size={15} strokeWidth={1.8} aria-hidden="true" /><span>{blocker}</span></a
 				>
 			{/if}
+			{#if notice}
+				<a class="setup handover" href={`/${companyId}/company/members`} aria-live="polite"
+					><TriangleAlert size={15} strokeWidth={1.8} aria-hidden="true" /><span>{notice}</span></a
+				>
+			{/if}
 			<div role="list" aria-label="Waiting on you" class="inbox-rows">
 				{#each visible as item (item.id)}
 					{@const Icon = iconFor(item)}
@@ -583,6 +591,13 @@
 	.setup :global(svg) {
 		flex: none;
 		color: var(--state-danger);
+	}
+	.setup.handover {
+		border-color: color-mix(in srgb, var(--intent-authority) 25%, var(--border));
+		background: color-mix(in srgb, var(--intent-authority) 5%, var(--surface-raised));
+	}
+	.setup.handover :global(svg) {
+		color: var(--intent-authority);
 	}
 	.empty {
 		margin: 0;

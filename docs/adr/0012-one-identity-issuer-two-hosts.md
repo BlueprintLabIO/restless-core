@@ -216,12 +216,43 @@ message grants nothing, and later entries send nothing. The owner claim sends no
    hold entry until delivered. An `active` control does neither. Rollout order: Core accepts
    `active` controls before an issuer sends them. An older Core refuses them and the outbox retries,
    which is harmless.
-7. **Ownership is handed on explicitly, both halves together (S83 UXG-100, issuer 1.2.0).** Only
+7. **Ownership is handed on explicitly, both halves together (S83 UXG-100, issuer 1.2.1).** Only
    the owner makes an active admin or member the owner: `POST …/members/{id}/make-owner`. The Store
    swaps the two roles in one transaction (the owner becomes an admin) and delivers both as
-   `active` controls, new owner first. The cockpit first asks Core to move root Authority to that
-   person (`POST /company/authority-owner/transfer`, which checks they are an active non-owner member
-   and records the transfer); a repeat of that request is a no-op, so an interrupted handover is
-   finished by asking again. Neither boundary is widened: afterwards the new owner passes the
-   membership boundary and the Authority checks because they hold both. A Store without
-   `transferOwnership` refuses the request.
+   `active` controls through its durable outbox, new owner first.
+
+   Root Authority and the owner membership live in two systems, so they cannot change in one
+   transaction. **Authority therefore follows the membership half instead of leading it.** The
+   cockpit first asks Core to record a *pending handover* (`POST /company/authority-owner/transfer`,
+   which checks that the caller holds both the owner membership and Authority, and that the
+   recipient is an active non-owner member). Nothing moves yet. When Core applies the issuer's
+   signed control naming that person the owner, it records the Authority transfer at once. If that
+   fails, or the daemon was down, a daemon loop finishes every pending handover whose membership
+   half is confirmed, with bounded backoff (5 s doubling to 5 min), from the durable Authority
+   record, so a restart resumes it.
+
+   This closes the gap the first version left, where Authority moved first and a failed issuer
+   call left nobody able to approve. The original owner now keeps both halves until the issuer
+   confirms, and the new owner holds both from the moment Core finishes. While a handover is
+   pending, both people see it in the Inbox and Members (`GET /members/handover`). If the
+   recipient tries to approve in the short confirmed-but-unfinished window, Core answers "Ownership
+   handover in progress — approvals resume when it completes" instead of a bare refusal.
+
+   Both halves are repeat-safe. A repeat request to Core answers the same pending handover. A
+   repeat `make-owner` after the swap (the former owner, now an admin, naming the current owner)
+   writes nothing and succeeds. So **Finish** is the same call pressed again. The original owner
+   cancels by naming themselves on the same route. That covers a recipient who left or a swap
+   the issuer refuses for good. Nothing about the cancel is new authority: the caller already holds
+   Authority, because nothing moved. An Authority transfer made by issuer 1.2.0, which moved
+   Authority alone, can be taken back the same way. That works only for the person the transfer
+   took Authority from, while they hold the owner membership and the recipient does not.
+
+   The daemon does **not** call the issuer. Core never writes membership (invariant 2) and holds no
+   credential toward the issuer (section 3). A service credential able to swap owners would be a
+   new way to change who owns the company. The membership half is retried by the issuer's outbox,
+   and the browser starts it with the owner's session.
+
+   Neither boundary is widened. Membership alone never moves Authority (invariant 3). Core
+   finishes only a handover the Authority holder recorded. Before the first handover, Core also
+   records the owner it derived from membership as an explicit Authority fact. So a cancelled
+   handover stays cancelled even if the swap arrives later. A Store without `transferOwnership` refuses the request.

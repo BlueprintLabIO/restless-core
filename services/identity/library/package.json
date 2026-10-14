@@ -1,6 +1,6 @@
 {
   "name": "@restless/issuer",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Restless identity issuer rules, membership admin API and metadata (ADR 0012), plus Core's PostgreSQL membership Store. Hosts supply Better Auth, Placement and a pg Pool.",
   "type": "module",
   "types": "./issuer.d.ts",

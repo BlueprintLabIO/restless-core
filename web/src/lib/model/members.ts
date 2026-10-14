@@ -189,10 +189,10 @@ export async function getAuthorityOwner(company: string): Promise<AuthorityOwner
 }
 
 /**
- * Hand the company to an active admin or member, both halves in a safe order. Core first moves root
- * Authority to them and records it; then the issuer makes them the owner and you an admin in one
- * step. Core answers a repeat of the first half without writing, so if the second half fails the
- * same call finishes the handover. Until it does, approvals wait.
+ * Hand the company to an active admin or member. Core records a pending handover (nothing moves
+ * yet); then the issuer makes them the owner and you an admin in one step. Core moves root
+ * Authority itself once the issuer confirms, so you keep approving until then. Both halves answer
+ * a repeat without writing, so Finish is this same call.
  */
 export async function makeOwner(
 	company: string,
@@ -201,16 +201,62 @@ export async function makeOwner(
 	actorId: string,
 	name: string
 ): Promise<void> {
-	const moved = await read<{ membership_id: string }>(
+	const recorded = await transferAuthority(
+		company,
+		actorId,
+		`The owner made ${name} the owner from Company, Members.`
+	);
+	if (!recorded.membership_id) throw new Error(`${name} is no longer in the company.`);
+	await changeMembership(issuer, companyId, `members/${recorded.membership_id}/make-owner`);
+}
+
+/** Withdraw a handover that has not finished: Authority stays, or comes back, with you. */
+export async function cancelHandover(company: string, ownerActorId: string): Promise<void> {
+	await transferAuthority(company, ownerActorId, 'The owner cancelled the ownership handover.');
+}
+
+async function transferAuthority(company: string, toActorId: string, rationale: string) {
+	return read<{ membership_id: string | null }>(
 		await fetch(`/api/companies/${encodeURIComponent(company)}/company/authority-owner/transfer`, {
 			method: 'POST',
 			credentials: 'same-origin',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({
-				to_actor_id: actorId,
-				rationale: `The owner made ${name} the owner from Company, Members.`
-			})
+			body: JSON.stringify({ to_actor_id: toActorId, rationale })
 		})
 	);
-	await changeMembership(issuer, companyId, `members/${moved.membership_id}/make-owner`);
+}
+
+/** A handover waiting for the issuer to confirm the new owner (ADR 0012 decision 7). */
+export interface OwnershipHandover {
+	from: { actor_id: string; name: string };
+	to: { actor_id: string; name: string };
+	requested_at: string;
+	/** `confirmed`: the issuer made them the owner and Core is moving Authority. `ended`: they
+	 * no longer have access, so only cancelling resolves it. */
+	state: 'waiting' | 'confirmed' | 'ended';
+}
+
+export async function getOwnershipHandover(company: string): Promise<OwnershipHandover | null> {
+	const view = await read<{ handover: OwnershipHandover | null }>(
+		await fetch(`/api/companies/${encodeURIComponent(company)}/members/handover`, {
+			credentials: 'same-origin',
+			cache: 'no-store'
+		})
+	);
+	return view.handover;
+}
+
+/** What a pending handover means to the person reading, or nothing if they are not part of it. */
+export function handoverNotice(
+	handover: OwnershipHandover | null,
+	actorId: string | undefined
+): string {
+	if (!handover || !actorId) return '';
+	if (handover.from.actor_id === actorId)
+		return handover.state === 'ended'
+			? `${handover.to.name} left before becoming the owner. Cancel the handover in Members.`
+			: `Ownership handover to ${handover.to.name} in progress. You keep approving until it completes.`;
+	if (handover.to.actor_id === actorId)
+		return `Ownership handover from ${handover.from.name} in progress — approvals move to you when it completes.`;
+	return '';
 }

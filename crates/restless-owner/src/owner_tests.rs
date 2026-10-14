@@ -2841,6 +2841,13 @@ model = \"anthropic/claude-sonnet-5-5\"
             let principal = RequestPrincipal::from_verified(&identity).unwrap();
             let refused = membership_boundary_violation(&Method::POST, path, &principal).is_some();
             assert_eq!(refused, role != "owner", "{role}");
+            // Both people in a pending handover, and everyone else, may read where it stands.
+            assert!(membership_boundary_violation(
+                &Method::GET,
+                "/api/companies/aris/members/handover",
+                &principal
+            )
+            .is_none());
         }
     }
 
