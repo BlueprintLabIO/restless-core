@@ -25,6 +25,8 @@ __pycache__/
 
 # Web app
 node_modules/
+# A worktree may link node_modules to a shared install; a symlink is not a directory.
+node_modules
 /web/.svelte-kit
 /web/build
 /.vite/
