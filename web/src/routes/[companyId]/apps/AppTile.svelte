@@ -25,8 +25,8 @@
 			aria-label={`Add ${app.name}`}
 			title={`${app.how}. ${
 				app.catalogue?.auth === 'token'
-					? `Adds ${app.name}; you then choose the Vault secret it uses.`
-					: `Adds ${app.name} and checks it answers. Sign-in comes next.`
+					? `Opens ${app.name} to choose or paste the token it uses, then adds it.`
+					: `Adds ${app.name} and checks it answers. Sign-in, then what it may do, come next.`
 			}`}
 			onclick={onadd}>{busy ? 'Adding…' : 'Add'}</button
 		>

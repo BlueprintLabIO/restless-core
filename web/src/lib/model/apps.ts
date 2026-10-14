@@ -275,6 +275,72 @@ export const CATALOGUE: CatalogueEntry[] = [
 	}
 ];
 
+/** Services owners ask for that have no address in the catalogue, said honestly. None of them
+ * offered a hosted MCP address that passed the probe above (Sprint 63), so none is pretended
+ * here. Email as the company already has a real path, its email permissions; for the rest, Exec
+ * looks for a working server and brings it back to turn on. */
+export type UnlistedService = {
+	key: string;
+	name: string;
+	/** Words an owner types for it. */
+	terms: string[];
+	/** Why it is not one click, in owner words. */
+	note: string;
+	/** `email`: the company's own email permissions answer this ask. */
+	path: 'email' | 'exec';
+};
+
+export const UNLISTED: UnlistedService[] = [
+	{
+		key: 'email',
+		name: 'Email as the company',
+		terms: ['email', 'e-mail', 'mail', 'inbox', 'gmail', 'outlook', 'newsletter'],
+		note: 'Exec sends email as the company within permissions you set: who it may write to, why, and how many a day.',
+		path: 'email'
+	},
+	{
+		key: 'google-workspace',
+		name: 'Google Workspace',
+		terms: ['google', 'gmail', 'calendar', 'drive', 'docs', 'sheets', 'workspace'],
+		note: 'Google offers no hosted address we could check yet. Exec can look for a working one and bring it here.',
+		path: 'exec'
+	},
+	{
+		key: 'microsoft-365',
+		name: 'Microsoft 365',
+		terms: [
+			'microsoft',
+			'outlook',
+			'office',
+			'teams',
+			'onedrive',
+			'sharepoint',
+			'calendar',
+			'excel'
+		],
+		note: 'Microsoft offers no hosted address we could check yet. Exec can look for a working one and bring it here.',
+		path: 'exec'
+	},
+	{
+		key: 'quickbooks',
+		name: 'QuickBooks',
+		terms: ['quickbooks', 'intuit', 'accounting', 'bookkeeping', 'bookkeeper'],
+		note: 'Not checked yet. Xero, Stripe and PayPal are ready to add; Exec can look for a working QuickBooks server.',
+		path: 'exec'
+	}
+];
+
+/** The unlisted services a typed ask names, by whole word. */
+export function unlistedFor(text: string): UnlistedService[] {
+	const words = new Set(
+		text
+			.toLowerCase()
+			.split(/[^a-z0-9-]+/)
+			.filter(Boolean)
+	);
+	return UNLISTED.filter((service) => service.terms.some((term) => words.has(term)));
+}
+
 export type AppState = 'in_use' | 'needs_you' | 'paused' | 'available';
 
 /** What sort of ability an app is. Each grants differently, so experts can tell them apart. */
@@ -354,6 +420,9 @@ function connectionState(connection: ToolConnection): { state: AppState; attenti
 		return { state: 'needs_you', attention: connection.tools.length ? 'Sign in again' : 'Sign in' };
 	if (connection.status === 'failed') return { state: 'needs_you', attention: 'Not answering' };
 	if (connection.status === 'awaiting_probe') return { state: 'needs_you', attention: 'Checking' };
+	/* Turned off on purpose: signed in, nothing allowed until it is turned back on. */
+	if (connection.status === 'working' && !connection.grants.length && connection.ended_grant)
+		return { state: 'paused', attention: 'Off' };
 	if (connection.status === 'working' && !connection.grants.length)
 		return { state: 'needs_you', attention: 'Choose what it may do' };
 	if (connection.changed.length) return { state: 'needs_you', attention: 'Changed upstream' };
@@ -377,16 +446,35 @@ export function builtIn(app: App): boolean {
 	);
 }
 
+function skillApp(skill: SkillRow): App {
+	return {
+		key: `s-${skill.name}`,
+		kind: 'skill',
+		name: skillName(skill.name),
+		description: skill.description || 'Know-how the company follows.',
+		how: 'Know-how, nothing to sign in to',
+		howTip:
+			skill.source === 'builtin'
+				? 'A skill that ships with Restless: instructions the company follows. It grants no access.'
+				: 'A skill: instructions (and sometimes scripts) the company follows. It grants no credential, spending or approval.',
+		category: 'Know-how',
+		...skillState(skill),
+		connections: [],
+		skills: [skill]
+	};
+}
+
 /** Everything the company has, grouped into apps, plus the catalogue it does
- * not. `requested` catalogue keys are Exec's open requests; they are offered
- * there, not again in Browse. */
+ * not, and know-how the owner removed (kept, to restore). `requested` catalogue
+ * keys are Exec's open requests; they are offered there, not again in Browse. */
 export function buildApps(
 	connections: ToolConnection[],
 	library: SkillLibrary | null,
 	requested: string[] = []
-): { mine: App[]; browse: App[] } {
+): { mine: App[]; browse: App[]; removed: App[] } {
 	const live = connections.filter((connection) => connection.status !== 'disconnected');
 	const skills = (library?.skills ?? []).filter((skill) => skill.disposition !== 'retired');
+	const retired = (library?.skills ?? []).filter((skill) => skill.disposition === 'retired');
 	const plugins = new Map<string, App>();
 	const mine: App[] = [];
 
@@ -457,23 +545,7 @@ export function buildApps(
 			bundle.skills.push(skill);
 			continue;
 		}
-		const { state, attention } = skillState(skill);
-		mine.push({
-			key: `s-${skill.name}`,
-			kind: 'skill',
-			name: skillName(skill.name),
-			description: skill.description || 'Know-how the company follows.',
-			how: 'Know-how, nothing to sign in to',
-			howTip:
-				skill.source === 'builtin'
-					? 'A skill that ships with Restless: instructions the company follows. It grants no access.'
-					: 'A skill: instructions (and sometimes scripts) the company follows. It grants no credential, spending or approval.',
-			category: 'Know-how',
-			state,
-			attention,
-			connections: [],
-			skills: [skill]
-		});
+		mine.push(skillApp(skill));
 	}
 
 	for (const app of plugins.values()) {
@@ -503,7 +575,12 @@ export function buildApps(
 		skills: [],
 		catalogue: entry
 	}));
-	return { mine, browse };
+	const removed: App[] = retired.map((skill) => ({
+		...skillApp(skill),
+		state: 'paused' as const,
+		attention: 'Removed'
+	}));
+	return { mine, browse, removed };
 }
 
 /** What the company may do with an app, in a few words, and why on hover. */

@@ -59,6 +59,12 @@ struct ConnectionView {
     /// What a local tool last printed to its error output, secrets removed.
     #[serde(skip_serializing_if = "Option::is_none")]
     last_output: Option<String>,
+    /// When no grant is live: the last grant that ended (turned off or expired) and when, so
+    /// "off" reads as off, keeps its sign-in, and can be turned back on exactly as it was.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ended_grant: Option<connections::ConnectionGrant>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ended_at: Option<DateTime<Utc>>,
 }
 
 pub(super) async fn list(
@@ -74,26 +80,38 @@ pub(super) async fn list(
         let all = connections::list(pool, &company).await?;
         let grants = connections::grants(pool, &company, None).await?;
         let changed = connections::changed_tools(pool, &company).await?;
+        let ended = connections::ended_grants(pool, &company).await?;
         Ok::<_, anyhow::Error>(
             all.into_iter()
-                .map(|connection| ConnectionView {
-                    grants: grants
+                .map(|connection| {
+                    let live = grants
                         .iter()
-                        .filter(|grant| grant.connection == connection.name)
-                        .cloned()
-                        .collect(),
-                    proposed: connection
-                        .tools
+                        .any(|grant| grant.connection == connection.name);
+                    let ended = ended
                         .iter()
-                        .map(connections::proposed_grant)
-                        .collect(),
-                    changed: changed
-                        .iter()
-                        .filter(|(name, _)| name == &connection.name)
-                        .map(|(_, tool)| tool.clone())
-                        .collect(),
-                    last_output: connections::worker_log_tail(&company, &connection.name),
-                    connection,
+                        .find(|(grant, _)| !live && grant.connection == connection.name)
+                        .cloned();
+                    ConnectionView {
+                        ended_at: ended.as_ref().map(|(_, at)| *at),
+                        ended_grant: ended.map(|(grant, _)| grant),
+                        grants: grants
+                            .iter()
+                            .filter(|grant| grant.connection == connection.name)
+                            .cloned()
+                            .collect(),
+                        proposed: connection
+                            .tools
+                            .iter()
+                            .map(connections::proposed_grant)
+                            .collect(),
+                        changed: changed
+                            .iter()
+                            .filter(|(name, _)| name == &connection.name)
+                            .map(|(_, tool)| tool.clone())
+                            .collect(),
+                        last_output: connections::worker_log_tail(&company, &connection.name),
+                        connection,
+                    }
                 })
                 .collect::<Vec<_>>(),
         )
@@ -140,6 +158,43 @@ pub(super) async fn add(
         }
     } else {
         added
+    };
+    Json(serde_json::json!({ "connection": connection })).into_response()
+}
+
+/// Change an online app's address or token in place, keeping what the owner allowed it to
+/// do, then check it again at once so the owner sees whether the change works.
+pub(super) async fn change(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, name)): AxumPath<(String, String)>,
+    Json(input): Json<connections::ConnectionChange>,
+) -> Response<Body> {
+    if let Err(refusal) = owner_gate(&state, &company, &principal).await {
+        return refusal;
+    }
+    let pool = state.daemon.authority.pool();
+    let changed = match connections::update(
+        pool,
+        &state.daemon.authority,
+        &state.daemon.root,
+        &company,
+        &name,
+        input,
+        principal.actor_id(),
+    )
+    .await
+    {
+        Ok(connection) => connection,
+        Err(error) => return connection_error(error),
+    };
+    let connection = if changed.status == "awaiting_probe" {
+        match connections::probe(pool, &state.daemon.root, &company, &name).await {
+            Ok(connection) => connection,
+            Err(error) => return connection_error(error),
+        }
+    } else {
+        changed
     };
     Json(serde_json::json!({ "connection": connection })).into_response()
 }
@@ -575,32 +630,56 @@ pub(super) async fn disconnect(
     }
 }
 
-/// Recent receipts lead the connection view: reads from the gateway's read
-/// receipts, effects from the Authority record.
+#[derive(Deserialize)]
+pub(super) struct ReceiptsQuery {
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
+/// What an app was used for, newest first: reads from the gateway's read receipts, effects from
+/// the Authority record, each with who used it (by name) and the Work it served. `limit` pages
+/// further back; it is kept for an app in any state, so a broken app still shows its history.
 pub(super) async fn receipts(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,
     AxumPath((company, name)): AxumPath<(String, String)>,
+    axum::extract::Query(query): axum::extract::Query<ReceiptsQuery>,
 ) -> Response<Body> {
     if let Err(refusal) = owner_gate(&state, &company, &principal).await {
         return refusal;
     }
+    let limit = query.limit.unwrap_or(50).clamp(1, 500);
     let authority = &state.daemon.authority;
     let result = async {
         let reads =
-            connections::recent_read_receipts(authority.pool(), &company, &name, 50).await?;
+            connections::recent_read_receipts(authority.pool(), &company, &name, limit).await?;
         let class = restless_engine::effect::tool_effect_class(&name);
         let effects = authority
-            .recent_records_of_kind(&company, "effect", 200)
+            .recent_records_matching(&company, "effect", "effect_class", &class, limit)
             .await?
             .into_iter()
-            .filter(|record| {
-                record.body.get("effect_class").and_then(|v| v.as_str()) == Some(class.as_str())
-            })
-            .take(50)
             .map(|record| record.body)
             .collect::<Vec<_>>();
-        Ok::<_, anyhow::Error>(serde_json::json!({ "reads": reads, "effects": effects }))
+        let names = match state.daemon.orgintel.get(&company).await {
+            Ok(org) => org
+                .list_actors_including_retired()
+                .await
+                .map(|actors| {
+                    actors
+                        .into_iter()
+                        .filter(|actor| !actor.display.trim().is_empty())
+                        .map(|actor| (actor.id, actor.display))
+                        .collect::<std::collections::HashMap<_, _>>()
+                })
+                .unwrap_or_default(),
+            Err(_) => Default::default(),
+        };
+        Ok::<_, anyhow::Error>(serde_json::json!({
+            "reads": reads,
+            "effects": effects,
+            "actors": names,
+            "limit": limit,
+        }))
     }
     .await;
     match result {

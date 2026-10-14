@@ -1,14 +1,20 @@
 <script lang="ts">
-	import { formatMoment } from '$lib/ui/time';
+	import { formatDay, formatMoment } from '$lib/ui/time';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
-	import { Page, Section, Notice, Toggle, Segmented, Dot } from '$lib/ui/page';
+	import Markdown from '$lib/primitives/Markdown.svelte';
+	import TokenPicker from '$lib/components/TokenPicker.svelte';
+	import { Page, Section, Notice, Toggle, Segmented, Dot, Fold } from '$lib/ui/page';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import {
 		CLASS_LABEL,
-		addAndAllow,
+		addConnection,
+		changeConnection,
+		classSummary,
 		currentClasses,
 		disconnectConnection,
 		fetchConnections,
@@ -16,41 +22,74 @@
 		freezeConnection,
 		setConnectionBrowser,
 		grantTools,
+		isOff,
 		probeConnection,
+		restoredDecisions,
 		revokeGrant,
 		signIn,
 		statusLabel,
 		type GrantedTool,
 		type ToolClass,
 		type ToolConnection,
+		type ToolDecision,
 		type ToolReceipts
 	} from '$lib/model/connections';
 	import {
 		assignSkill,
+		editSkill,
 		fetchSkillLibrary,
+		fetchSkillPackage,
 		setSkillDisposition,
+		shortDigest,
 		type SkillLibrary,
+		type SkillPackage,
 		type SkillRow
 	} from '$lib/model/skills';
 	import { buildApps, nameForLink, skillName, type App } from '$lib/model/apps';
 	import AppMark from '$lib/primitives/AppMark.svelte';
-	import { fetchAppRequests, type AppRequest } from '$lib/model/app-requests';
-	import { dismissAttention } from '$lib/model/attention';
+	import { declineAppRequest, fetchAppRequests, type AppRequest } from '$lib/model/app-requests';
 
 	const companyId = $derived(page.params.companyId ?? '');
 	const key = $derived(decodeURIComponent(page.params.app ?? ''));
 	const requestId = $derived(page.url.searchParams.get('request'));
 	const appsHref = $derived(`/${encodeURIComponent(companyId)}/apps`);
+	const workHref = (id: string) =>
+		`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(id)}`;
 
 	let connections = $state<ToolConnection[] | null>(null);
 	let library = $state<SkillLibrary | null>(null);
 	let request = $state<AppRequest | null>(null);
 	let receipts = $state<Record<string, ToolReceipts>>({});
+	/* How far back each app's activity reaches; "Show more" widens it. */
+	let reach = $state<Record<string, number>>({});
+	let packages = $state<Record<string, SkillPackage | { error: string }>>({});
 	let failure = $state('');
 	let notice = $state('');
 	let busy = $state('');
 	let draft = $state<Record<string, ToolClass>>({});
-	let vaultSecret = $state('');
+	/* For how long a saved grant lasts, per connection: days, or '' until turned off. */
+	let expiry = $state<Record<string, string>>({});
+	let address = $state<Record<string, string>>({});
+	/* A skill's SKILL.md while the owner edits it, and the version it was opened at. */
+	let editing = $state<Record<string, { text: string; digest: string }>>({});
+	let declining = $state(false);
+	let declineReason = $state('');
+
+	async function loadReceipts(connection: ToolConnection) {
+		receipts[connection.name] = await fetchReceipts(
+			companyId,
+			connection.name,
+			reach[connection.name] ?? 20
+		).catch(() => ({ reads: [], effects: [] }));
+	}
+
+	async function loadPackage(skill: SkillRow) {
+		const known = packages[skill.name];
+		if (known && 'package' in known && known.package.digest === skill.digest) return;
+		packages[skill.name] = await fetchSkillPackage(companyId, skill.name).catch((cause) => ({
+			error: failureSentence(cause, 'Its files could not be read from the company computer.')
+		}));
+	}
 
 	async function load() {
 		failure = '';
@@ -65,13 +104,13 @@
 				const requests = await fetchAppRequests(companyId).catch(() => []);
 				request = requests.find((row) => row.handoff_id === requestId) ?? null;
 			}
-			for (const connection of app?.connections ?? []) {
-				if (connection.status === 'working')
-					receipts[connection.name] = await fetchReceipts(companyId, connection.name).catch(() => ({
-						reads: [],
-						effects: []
-					}));
-			}
+			/* History is kept whatever the app's state: a broken app still shows what it did. */
+			await Promise.all([
+				...(app?.connections ?? [])
+					.filter((connection) => connection.status !== 'disconnected')
+					.map(loadReceipts),
+				...(app?.skills ?? []).map(loadPackage)
+			]);
 		} catch (cause) {
 			failure = failureSentence(cause, 'This app could not be read.');
 		}
@@ -92,6 +131,7 @@
 			apps?.mine.find((candidate) =>
 				candidate.connections.some((connection) => `c-${connection.name}` === key)
 			) ??
+			apps?.removed.find((candidate) => candidate.key === key) ??
 			apps?.browse.find((candidate) => candidate.key === key)
 	);
 	const pendingLink = $derived(key.startsWith('link:') ? key.slice('link:'.length) : '');
@@ -116,21 +156,19 @@
 		}
 	}
 
-	async function add() {
+	/* Adding checks the app and lands on what it can do; the owner allows it from that list. */
+	async function add(credential?: string) {
 		const entry = app?.catalogue;
 		await act('add', async () => {
-			const connection = entry
-				? await addAndAllow(companyId, {
+			const { connection } = entry
+				? await addConnection(companyId, {
 						kind: 'remote',
 						name: entry.key,
 						endpoint: entry.endpoint,
 						source: `catalogue:${entry.key}`,
-						auth:
-							entry.auth === 'token'
-								? { type: 'bearer', credential: vaultSecret.trim() }
-								: { type: 'none' }
+						auth: credential ? { type: 'bearer', credential } : { type: 'none' }
 					})
-				: await addAndAllow(companyId, {
+				: await addConnection(companyId, {
 						kind: 'remote',
 						name: nameForLink(pendingLink),
 						endpoint: pendingLink
@@ -152,6 +190,10 @@
 		draft[`${connection.name}/${tool}`] ?? currentClasses(connection)[tool]?.class ?? 'acts';
 	const granted = (connection: ToolConnection) =>
 		connection.grants.some((grant) => grant.grantee === '*');
+	const liveGrant = (connection: ToolConnection) =>
+		connection.grants.find((grant) => grant.grantee === '*');
+	const until = (days: string) =>
+		days ? new Date(Date.now() + Number(days) * 86_400_000).toISOString() : null;
 
 	async function allow(connection: ToolConnection) {
 		const classes = currentClasses(connection);
@@ -166,12 +208,57 @@
 		await act(
 			`grant:${connection.name}`,
 			async () => {
-				await grantTools(companyId, connection.name, tools);
+				await grantTools(companyId, connection.name, tools, until(expiry[connection.name] ?? ''));
 				draft = {};
+				delete expiry[connection.name];
 			},
 			request
 				? `${app?.name ?? connection.name} is in use. The work that was waiting on it resumes on its own.`
 				: `${app?.name ?? connection.name} is in use.`
+		);
+	}
+
+	/* Off takes back what it may do and keeps the sign-in; On restores exactly what it allowed. */
+	async function setOn(connection: ToolConnection, on: boolean) {
+		const name = app?.name ?? connection.name;
+		if (on) {
+			await act(`on:${connection.name}`, () =>
+				grantTools(companyId, connection.name, restoredDecisions(connection))
+			);
+			if (!failure) toast(`${name} is on again: ${classSummary(restoredDecisions(connection))}.`);
+			return;
+		}
+		const before: ToolDecision[] = (liveGrant(connection)?.tools ?? []).map((tool) => ({
+			tool: tool.tool,
+			class: tool.class,
+			party_args: tool.party_args
+		}));
+		await act(`on:${connection.name}`, () => revokeGrant(companyId, connection.name));
+		if (!failure)
+			toast(`${name} is off. Its sign-in is kept.`, {
+				undo: before.length
+					? async () => {
+							await grantTools(companyId, connection.name, before);
+							await load();
+						}
+					: undefined
+			});
+	}
+
+	async function change(
+		connection: ToolConnection,
+		update: { endpoint?: string; credential?: string },
+		done: string
+	) {
+		await act(
+			`change:${connection.name}`,
+			async () => {
+				const { connection: changed } = await changeConnection(companyId, connection.name, update);
+				delete address[connection.name];
+				if (changed.status === 'awaiting_sign_in')
+					window.location.assign(await signIn(companyId, changed.name));
+			},
+			done
 		);
 	}
 
@@ -182,7 +269,96 @@
 		}));
 	const dirty = (connection: ToolConnection) =>
 		Object.keys(draft).some((id) => id.startsWith(`${connection.name}/`)) ||
+		connection.name in expiry ||
 		connection.changed.length > 0;
+
+	/* What it was used for: effects and reads together, newest first, each with its purpose,
+	 * who used it and the Work it served. */
+	type Use = {
+		id: string;
+		tool: string;
+		at: string;
+		ok: boolean;
+		label: string;
+		purpose?: string;
+		parties?: string[];
+		actor: string;
+		work?: string | null;
+	};
+	function uses(recent: ToolReceipts | undefined): Use[] {
+		if (!recent) return [];
+		const named = (actor: string) =>
+			recent.actors?.[actor] ?? (actor === 'exec' ? 'Exec' : skillName(actor));
+		return [
+			...recent.effects.map((effect) => ({
+				id: effect.id,
+				tool: effect.tool,
+				at: effect.created_at,
+				ok: effect.success,
+				label: effect.success ? 'Done' : 'Failed',
+				purpose: effect.purpose,
+				parties: effect.parties,
+				actor: named(effect.actor),
+				work: effect.work_id
+			})),
+			...recent.reads.map((read) => ({
+				id: read.id,
+				tool: read.tool,
+				at: read.observed_at,
+				ok: read.status === 'complete',
+				label: read.status === 'complete' ? 'Read' : 'Read failed',
+				actor: named(read.actor),
+				work: read.work_id
+			}))
+		].sort((a, b) => b.at.localeCompare(a.at));
+	}
+	const more = (recent: ToolReceipts | undefined) =>
+		!!recent &&
+		(recent.effects.length >= (recent.limit ?? 20) || recent.reads.length >= (recent.limit ?? 20));
+
+	/* Who loses what when the app goes: the agents and Work that used it lately, its know-how. */
+	async function remove() {
+		const target = app;
+		if (!target) return;
+		const live = target.connections.filter((connection) => connection.status !== 'disconnected');
+		const recent = live.flatMap((connection) => uses(receipts[connection.name]));
+		const people = [...new Set(recent.map((use) => use.actor))];
+		const work = new Set(recent.flatMap((use) => (use.work ? [use.work] : []))).size;
+		const skills = target.skills.filter(
+			(skill) => skill.source !== 'builtin' && skill.disposition !== 'retired'
+		);
+		const lines = [
+			live.length
+				? 'Every agent loses it at once, its sign-in is deleted, and what you allowed it to do is forgotten.'
+				: '',
+			people.length
+				? `Lately used by ${people.slice(0, 4).join(', ')}${people.length > 4 ? ` and ${people.length - 4} more` : ''}${work ? ` on ${work} Work` : ''}.`
+				: live.length
+					? 'Nothing used it lately.'
+					: '',
+			skills.length
+				? `Its know-how (${skills.map((skill) => skillName(skill.name)).join(', ')}) is removed too; you can restore it under Removed.`
+				: '',
+			live.some((connection) => connection.status === 'working')
+				? 'To stop it for now and keep the sign-in, turn it off instead.'
+				: ''
+		];
+		const yes = await confirmAction({
+			title: `Remove ${target.name}?`,
+			body: lines.filter(Boolean).join(' '),
+			action: 'Remove',
+			danger: true
+		});
+		if (!yes) return;
+		await act('disconnect', async () => {
+			for (const connection of live) {
+				if (granted(connection)) await revokeGrant(companyId, connection.name);
+				await disconnectConnection(companyId, connection.name);
+			}
+			for (const skill of skills) await setSkillDisposition(companyId, skill.name, 'retired');
+			await goto(appsHref);
+		});
+	}
 
 	const offForEveryone = (skill: SkillRow) =>
 		library?.assignments.some(
@@ -199,8 +375,37 @@
 			done
 		);
 
+	/* Removing know-how keeps it, so it says so with Undo rather than asking first. */
+	async function retire(skill: SkillRow) {
+		await act(`retired:${skill.name}`, () => setSkillDisposition(companyId, skill.name, 'retired'));
+		if (!failure)
+			toast(`${skillName(skill.name)} was removed. It is kept under Removed.`, {
+				undo: async () => {
+					await setSkillDisposition(companyId, skill.name, 'accepted');
+					await load();
+				}
+			});
+	}
+
+	const editable = (skill: SkillRow) =>
+		skill.source !== 'builtin' && skill.source !== 'project' && skill.disposition !== 'retired';
+	const body = (text: string) => text.replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim();
+
+	async function saveSkill(skill: SkillRow) {
+		const edit = editing[skill.name];
+		if (!edit) return;
+		await act(
+			`edit:${skill.name}`,
+			async () => {
+				await editSkill(companyId, skill.name, edit.text, edit.digest);
+				delete editing[skill.name];
+			},
+			`${skillName(skill.name)} was saved. Agents follow the new version from their next use.`
+		);
+	}
+
 	const connectionTone = (connection: ToolConnection) =>
-		connection.frozen
+		connection.frozen || isOff(connection)
 			? 'warning'
 			: connection.status === 'working'
 				? 'success'
@@ -212,6 +417,7 @@
 <CompanyTitle title={app?.name ?? 'App'} {companyId} />
 
 {#snippet service(connection: ToolConnection)}
+	{@const grant = liveGrant(connection)}
 	<Section
 		title={app && app.connections.length > 1 ? connection.name : 'Status'}
 		info={connection.endpoint
@@ -220,9 +426,23 @@
 	>
 		<div class="status">
 			<span title={connection.account ? `Signed in as ${connection.account}` : undefined}
-				><Dot tone={connectionTone(connection)} label={statusLabel(connection)} show /></span
+				><Dot
+					tone={connectionTone(connection)}
+					label={isOff(connection) ? 'Off' : statusLabel(connection)}
+					show
+				/></span
 			>
 			{#if connection.account}<span class="quiet">{connection.account}</span>{/if}
+			{#if grant?.expires_at}<span
+					class="quiet"
+					title="What it may do ends then, and it turns off on its own. Its sign-in is kept."
+					>Until {formatDay(grant.expires_at)}</span
+				>{/if}
+			{#if isOff(connection) && connection.ended_at}<span
+					class="quiet"
+					title="Nothing is allowed until it is turned back on. Its sign-in is kept."
+					>Since {formatDay(connection.ended_at)}</span
+				>{/if}
 			<span class="spacer"></span>
 			{#if connection.status === 'awaiting_sign_in' || connection.failure === 'sign_in_required'}
 				<button
@@ -245,7 +465,19 @@
 						)}>{busy === `probe:${connection.name}` ? 'Checking…' : 'Check again'}</button
 				>
 			{/if}
-			{#if connection.status === 'working'}
+			{#if connection.status === 'working' && (grant || isOff(connection))}
+				<Toggle
+					checked={!!grant}
+					label="On"
+					title={grant
+						? 'On: the company may use it as allowed below. Turn off to take that away at once and keep the sign-in.'
+						: 'Off: nothing is allowed, and the sign-in is kept. Turn on to allow exactly what it could do before.'}
+					disabled={!!busy}
+					onchange={() => void setOn(connection, !grant)}
+				/>
+				<span class="quiet">On</span>
+			{/if}
+			{#if connection.status === 'working' && grant}
 				<Toggle
 					checked={connection.frozen}
 					label="Freeze"
@@ -287,6 +519,60 @@
 				class="last-output"
 				title="What it printed last. Exec and Staff see this too, and can fix what they can.">{connection.last_output.trim()}</pre>
 		{/if}
+		{#if connection.kind === 'remote'}
+			<Fold
+				label={connection.auth_type === 'oauth'
+					? 'Change address or sign in again'
+					: 'Change address or token'}
+			>
+				<form
+					class="edit-row"
+					onsubmit={(event) => {
+						event.preventDefault();
+						const endpoint = (address[connection.name] ?? '').trim();
+						if (endpoint) void change(connection, { endpoint }, 'Address changed. Checked again.');
+					}}
+				>
+					<input
+						type="url"
+						aria-label="Address"
+						title="Its MCP address. What you allowed it to do is kept; a tool that differs at the new address waits until you allow it again."
+						value={address[connection.name] ?? connection.endpoint ?? ''}
+						oninput={(event) => (address[connection.name] = event.currentTarget.value)}
+						disabled={!!busy}
+					/>
+					<button
+						class="btn small"
+						type="submit"
+						disabled={!!busy ||
+							!(address[connection.name] ?? '').trim() ||
+							address[connection.name] === connection.endpoint}
+						>{busy === `change:${connection.name}` ? 'Saving…' : 'Save address'}</button
+					>
+				</form>
+				<div class="edit-row">
+					{#if connection.auth_type === 'oauth'}
+						<button
+							class="btn small"
+							type="button"
+							disabled={!!busy}
+							title="Sign in again, as the same or another account. What you allowed it to do is kept."
+							onclick={() => void startSignIn(connection)}
+							>{busy === `signin:${connection.name}` ? 'Opening…' : 'Sign in again'}</button
+						>
+					{:else}
+						<TokenPicker
+							{companyId}
+							app={connection.name}
+							action={connection.auth_type === 'bearer' ? 'Replace token' : 'Use a token'}
+							busy={busy === `change:${connection.name}`}
+							onchoose={(credential) =>
+								change(connection, { credential }, 'Token changed. Checked again.')}
+						/>
+					{/if}
+				</div>
+			</Fold>
+		{/if}
 	</Section>
 
 	{#if connection.status === 'working'}
@@ -295,7 +581,20 @@
 			info="Each tool is either used freely, used with a receipt (and asks you before reaching anyone new), or asks you every time. Changes apply to the next call."
 		>
 			{#snippet actions()}
-				{#if !granted(connection) || dirty(connection)}<button
+				{#if !granted(connection) || dirty(connection)}
+					<select
+						aria-label="For how long"
+						title="How long it may do this. When it ends, it turns off on its own and keeps the sign-in."
+						value={expiry[connection.name] ?? ''}
+						onchange={(event) => (expiry[connection.name] = event.currentTarget.value)}
+						disabled={!!busy}
+					>
+						<option value="">Until turned off</option>
+						<option value="1">For a day</option>
+						<option value="7">For a week</option>
+						<option value="30">For 30 days</option>
+					</select>
+					<button
 						class="btn small primary"
 						type="button"
 						disabled={!!busy}
@@ -305,7 +604,8 @@
 							: granted(connection)
 								? 'Save'
 								: 'Allow'}</button
-					>{/if}
+					>
+				{/if}
 			{/snippet}
 			{#each grouped(connection) as group (group.klass)}
 				{#if group.tools.length}
@@ -338,46 +638,67 @@
 				{/if}
 			{/each}
 		</Section>
+	{/if}
 
-		{@const recent = receipts[connection.name]}
-		{#if recent && (recent.effects.length || recent.reads.length)}
-			<Section title="Recent">
-				<ul class="receipts">
-					{#each recent.effects.slice(0, 8) as effect (effect.id)}
-						<li title={effect.purpose}>
-							<Dot
-								tone={effect.success ? 'success' : 'danger'}
-								label={effect.success ? 'Done' : 'Failed'}
-							/>
+	{@const recent = receipts[connection.name]}
+	{@const used = uses(recent)}
+	{#if used.length}
+		<Section
+			title="Activity"
+			count={used.length}
+			info="What it was used for, newest first: each action with its purpose, and each read, with who used it and for which Work."
+		>
+			<ul class="receipts">
+				{#each used as use (use.id)}
+					<li>
+						<Dot
+							tone={use.ok ? (use.purpose ? 'success' : 'neutral') : 'danger'}
+							label={use.label}
+						/>
+						<span class="use">
 							<span
-								>{skillName(effect.tool)}{effect.parties?.length
-									? ` → ${effect.parties.join(', ')}`
+								>{skillName(use.tool)}{use.parties?.length
+									? ` → ${use.parties.join(', ')}`
 									: ''}</span
 							>
-							<span class="quiet">{effect.actor}</span>
-							<time>{formatMoment(effect.created_at)}</time>
-						</li>
-					{/each}
-					{#each recent.reads.slice(0, 5) as read (read.id)}
-						<li>
-							<Dot tone={read.status === 'complete' ? 'neutral' : 'danger'} label={read.status} />
-							<span>{skillName(read.tool)}</span>
-							<span class="quiet">{read.actor}</span>
-							<time>{formatMoment(read.observed_at)}</time>
-						</li>
-					{/each}
-				</ul>
-			</Section>
-		{/if}
+							{#if use.purpose}<span class="purpose">{use.purpose}</span>{/if}
+						</span>
+						<span class="quiet">{use.actor}</span>
+						{#if use.work}<a class="quiet" href={workHref(use.work)}>Work</a>{/if}
+						<time>{formatMoment(use.at)}</time>
+					</li>
+				{/each}
+			</ul>
+			{#if more(recent)}
+				<button
+					class="btn small ghost more"
+					type="button"
+					disabled={!!busy}
+					onclick={async () => {
+						reach[connection.name] = (reach[connection.name] ?? 20) * 3;
+						await loadReceipts(connection);
+					}}>Show more</button
+				>
+			{/if}
+		</Section>
 	{/if}
 {/snippet}
 
 {#snippet knowHow(skill: SkillRow)}
 	{@const uses = library?.usage?.[skill.name] ?? 0}
+	{@const read = packages[skill.name]}
+	{@const edit = editing[skill.name]}
 	<Section title={app && app.skills.length > 1 ? skillName(skill.name) : 'Know-how'}>
 		<p class="description">{skill.description || 'No description.'}</p>
 		<div class="status">
 			<span title="Work that explicitly chose this know-how" class="quiet">Used on {uses} Work</span
+			>
+			<span
+				class="quiet"
+				title={`Version ${skill.digest}${skill.origin_ref ? `, from commit ${skill.origin_ref}` : ''}${skill.origin_url ? ` of ${skill.origin_url}` : ''}. ${skill.added_by ? `Added by ${skill.added_by}.` : ''}`}
+				>Version {shortDigest(skill.digest)}{skill.origin_ref
+					? ` · commit ${skill.origin_ref.slice(0, 7)}`
+					: ''} · {formatDay(skill.updated_at)}</span
 			>
 			{#if skill.has_scripts}<span
 					class="badge"
@@ -390,6 +711,9 @@
 					class="btn small primary"
 					type="button"
 					disabled={!!busy}
+					title={read && 'error' in read
+						? 'Its files could not be read here. Accept only if you trust where it came from.'
+						: 'Agents follow it from their next use. Read it below first.'}
 					onclick={() =>
 						void decide(skill, 'accepted', `${skillName(skill.name)} is now company know-how.`)}
 					>Accept</button
@@ -425,11 +749,78 @@
 						class="btn small ghost"
 						type="button"
 						disabled={!!busy}
-						onclick={() => void decide(skill, 'retired', `${skillName(skill.name)} was removed.`)}
-						>Remove</button
+						onclick={() => void retire(skill)}>Remove</button
 					>{/if}
+			{:else if skill.disposition === 'retired'}
+				<button
+					class="btn small primary"
+					type="button"
+					disabled={!!busy}
+					onclick={() =>
+						void decide(skill, 'accepted', `${skillName(skill.name)} is company know-how again.`)}
+					>Restore</button
+				>
+			{/if}
+			{#if editable(skill) && read && 'package' in read && !edit}
+				<button
+					class="btn small ghost"
+					type="button"
+					disabled={!!busy}
+					title="Change its instructions. Work that already chose it keeps the version it chose."
+					onclick={() =>
+						(editing[skill.name] = { text: read.package.skill_md, digest: read.package.digest })}
+					>Edit</button
+				>
 			{/if}
 		</div>
+		{#if edit}
+			<form
+				class="skill-edit"
+				onsubmit={(event) => {
+					event.preventDefault();
+					void saveSkill(skill);
+				}}
+			>
+				<textarea
+					aria-label={`${skillName(skill.name)} SKILL.md`}
+					rows="16"
+					spellcheck="true"
+					bind:value={edit.text}
+					disabled={!!busy}></textarea>
+				<div class="edit-row">
+					<button class="btn small primary" type="submit" disabled={!!busy}
+						>{busy === `edit:${skill.name}` ? 'Saving…' : 'Save'}</button
+					>
+					<button class="btn small ghost" type="button" onclick={() => delete editing[skill.name]}
+						>Cancel</button
+					>
+				</div>
+			</form>
+		{:else if read && 'error' in read}
+			<p class="quiet inset" role="status">{read.error}</p>
+		{:else if read}
+			<Fold
+				label={skill.disposition === 'candidate' ? 'Read it before accepting' : 'Instructions'}
+				count={read.package.files.length ? `${read.package.files.length + 1} files` : null}
+				open={skill.disposition === 'candidate'}
+			>
+				{#if read.changed}<p class="quiet inset">
+						The files in the company computer changed since this version was recorded.
+					</p>{/if}
+				<div class="skill-body"><Markdown text={body(read.package.skill_md)} /></div>
+				{#each read.package.files as file (file.path)}
+					<details class="file">
+						<summary
+							><span>{file.path}</span><span class="quiet">{file.bytes.toLocaleString()} bytes</span
+							></summary
+						>
+						{#if file.text != null}<pre>{file.text}</pre>{:else}<p class="quiet inset">
+								Not shown: binary or larger than 32 KB.
+							</p>{/if}
+					</details>
+				{/each}
+			</Fold>
+		{/if}
 	</Section>
 {/snippet}
 
@@ -455,20 +846,13 @@
 			/>
 		{/snippet}
 		{#snippet actions()}
-			{#if app?.connections.some((connection) => connection.status !== 'disconnected')}
+			{#if app && (app.connections.some((connection) => connection.status !== 'disconnected') || (app.kind === 'bundle' && app.skills.some((skill) => skill.disposition !== 'retired')))}
 				<button
 					class="btn small ghost"
 					type="button"
 					disabled={!!busy}
-					title="Signs out, removes the stored credential and stops every agent using it."
-					onclick={() =>
-						void act('disconnect', async () => {
-							for (const connection of app?.connections ?? []) {
-								if (granted(connection)) await revokeGrant(companyId, connection.name);
-								await disconnectConnection(companyId, connection.name);
-							}
-							await goto(appsHref);
-						})}>Remove</button
+					title="Signs out, removes the stored credential and stops every agent using it. You confirm first."
+					onclick={() => void remove()}>Remove</button
 				>
 			{/if}
 		{/snippet}
@@ -477,27 +861,52 @@
 		{#if failure}<Notice tone="danger" title="That change was not made" details={failure} />{/if}
 		{#if notice}<Notice tone="success" title={notice} />{/if}
 		{#if request}
-			<p
+			<div
 				class="request"
 				title={`${request.work_title ? `For “${request.work_title}”. ` : ''}Allowing it resumes that work on its own.`}
 			>
-				<span class="asked">{request.asker} asked</span><span class="reason">{request.reason}</span
-				><button
-					type="button"
-					class="link-button"
-					title={`Not needed. Kept under Set aside in your Inbox; ${request.asker} stops waiting on it.`}
-					disabled={!!busy}
-					onclick={() =>
-						act(
-							'dismiss',
-							async () => {
-								await dismissAttention(companyId, `orgintel:handoff:${request?.handoff_id}`);
-								request = null;
-							},
-							'Dismissed'
-						)}>Not needed</button
-				>
-			</p>
+				<p class="request-line">
+					<span class="asked">{request.asker} asked</span><span class="reason"
+						>{request.reason}</span
+					><button
+						type="button"
+						class="link-button"
+						aria-expanded={declining}
+						title={`Not needed. ${request.asker} stops waiting on it; you can say why or what to use instead.`}
+						disabled={!!busy}
+						onclick={() => (declining = !declining)}>Not needed</button
+					>
+				</p>
+				{#if declining}
+					<form
+						class="edit-row"
+						onsubmit={(event) => {
+							event.preventDefault();
+							const asked = request;
+							if (!asked) return;
+							void act(
+								'dismiss',
+								async () => {
+									await declineAppRequest(companyId, asked, declineReason);
+									request = null;
+									declining = false;
+									declineReason = '';
+								},
+								'Set aside. Kept under Set aside in your Inbox.'
+							);
+						}}
+					>
+						<input
+							aria-label="Why not, or what to use instead"
+							placeholder="Why not, or what to use instead (optional)"
+							title={`Sent to ${request.asker} so it can change course instead of asking again.`}
+							autocomplete="off"
+							bind:value={declineReason}
+						/>
+						<button class="btn small" type="submit" disabled={!!busy}>Not needed</button>
+					</form>
+				{/if}
+			</div>
 		{/if}
 
 		{#if app && app.state === 'available'}
@@ -506,19 +915,22 @@
 					<span title={app.howTip}>{app.how}</span>
 					<span class="spacer"></span>
 					{#if app.catalogue?.auth === 'token'}
-						<input
-							aria-label="Vault secret"
-							placeholder="Vault secret name"
-							title="The name of the Vault secret holding the token. The token itself never leaves your plane."
-							bind:value={vaultSecret}
+						<TokenPicker
+							{companyId}
+							app={app.catalogue.key}
+							action={`Add ${app.name}`}
+							busy={busy === 'add'}
+							onchoose={(credential) => add(credential)}
 						/>
+					{:else}
+						<button
+							class="btn small primary"
+							type="button"
+							disabled={!!busy}
+							title="Adds it and checks it answers. You then sign in if it needs one, and choose what it may do."
+							onclick={() => void add()}>{busy === 'add' ? 'Adding…' : `Add ${app.name}`}</button
+						>
 					{/if}
-					<button
-						class="btn small primary"
-						type="button"
-						disabled={!!busy || (app.catalogue?.auth === 'token' && !vaultSecret.trim())}
-						onclick={() => void add()}>{busy === 'add' ? 'Adding…' : `Add ${app.name}`}</button
-					>
 				</div>
 			</Section>
 		{:else if !app && pendingLink}
@@ -558,9 +970,8 @@
 		color: var(--text-secondary);
 	}
 	.request {
-		display: flex;
-		gap: 10px;
-		align-items: baseline;
+		display: grid;
+		gap: 8px;
 		margin: 0;
 		padding: 12px 14px;
 		border: 1px solid color-mix(in srgb, var(--intent-authority) 30%, transparent);
@@ -581,8 +992,83 @@
 		font: var(--t-label) / 1.5 var(--font-mono, ui-monospace, monospace);
 		white-space: pre-wrap;
 	}
+	.request-line {
+		display: flex;
+		gap: 10px;
+		align-items: baseline;
+		margin: 0;
+	}
 	.request .reason {
 		flex: 1;
+	}
+	.edit-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+		align-items: center;
+		padding: 6px 16px 10px;
+	}
+	.edit-row input {
+		flex: 1;
+		min-width: min(240px, 100%);
+	}
+	.request .edit-row {
+		padding: 0;
+	}
+	.use {
+		display: grid;
+		flex: 1;
+		min-width: 0;
+	}
+	.purpose {
+		overflow: hidden;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.more {
+		margin: 0 10px 10px;
+	}
+	.inset {
+		margin: 0;
+		padding: 6px 16px;
+	}
+	.skill-body {
+		max-width: 72ch;
+		padding: 4px 16px 12px;
+		font-size: var(--t-body);
+	}
+	.skill-edit {
+		display: grid;
+		gap: 4px;
+		padding: 6px 14px 0;
+	}
+	.skill-edit textarea {
+		width: 100%;
+		font: var(--t-label) / 1.55 var(--font-mono, ui-monospace, monospace);
+		resize: vertical;
+	}
+	.skill-edit .edit-row {
+		padding: 0 0 10px;
+	}
+	.file summary {
+		display: flex;
+		justify-content: space-between;
+		gap: var(--space-2);
+		padding: 6px 16px;
+		font: var(--t-label) / 1.5 var(--font-mono, ui-monospace, monospace);
+		cursor: pointer;
+	}
+	.file pre {
+		max-height: 24em;
+		margin: 0 16px 10px;
+		padding: 8px 10px;
+		overflow: auto;
+		border-radius: var(--radius-control);
+		background: var(--wash-hover);
+		font: var(--t-label) / 1.5 var(--font-mono, ui-monospace, monospace);
+		white-space: pre-wrap;
 	}
 	.link-button {
 		flex-shrink: 0;

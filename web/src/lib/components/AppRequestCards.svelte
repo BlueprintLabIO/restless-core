@@ -2,18 +2,21 @@
 	/* An app an agent asked for, answered where the conversation is: one click adds it, checks it
 	 * and allows it, which resumes the waiting Work. Only an app that needs a sign-in or a secret
 	 * leaves the chat, and then straight to the sign-in or its app page. */
-	import { fetchAppRequests, type AppRequest } from '$lib/model/app-requests';
+	import { declineAppRequest, fetchAppRequests, type AppRequest } from '$lib/model/app-requests';
 	import { CATALOGUE, nameForLink } from '$lib/model/apps';
 	import { goto } from '$app/navigation';
-	import { addAndAllow, fetchConnections, signIn } from '$lib/model/connections';
-	import { dismissAttention } from '$lib/model/attention';
+	import { addAndAllow, classSummary, fetchConnections, signIn } from '$lib/model/connections';
 	import { failureSentence } from '$lib/model/failure';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
 
 	let { companyId, actor }: { companyId: string; actor: string } = $props();
 
 	let requests = $state<AppRequest[]>([]);
 	let busy = $state('');
 	let error = $state('');
+	/* The request being declined, with the optional reason typed so far. */
+	let declining = $state('');
+	let reason = $state('');
 
 	async function load() {
 		const all = await fetchAppRequests(companyId).catch(() => null);
@@ -59,7 +62,7 @@
 				);
 				return;
 			}
-			const connection = await addAndAllow(
+			const { connection, allowed } = await addAndAllow(
 				companyId,
 				entry
 					? {
@@ -70,8 +73,29 @@
 						}
 					: { kind: 'remote', name, endpoint: request.app }
 			);
-			if (connection.status === 'awaiting_sign_in')
+			if (connection.status === 'awaiting_sign_in') {
 				window.location.assign(await signIn(companyId, connection.name));
+				return;
+			}
+			/* Allowed at once so the Work resumes; say what was allowed, and where to change it. */
+			if (allowed.length)
+				toast(`${label(request)} is in use: ${classSummary(allowed)}.`, {
+					action: {
+						label: 'Review',
+						run: () =>
+							goto(
+								`/${encodeURIComponent(companyId)}/apps/${encodeURIComponent(`c-${connection.name}`)}`
+							)
+					}
+				});
+		});
+	}
+
+	function decline(request: AppRequest) {
+		void act(request, async () => {
+			await declineAppRequest(companyId, request, reason);
+			declining = '';
+			reason = '';
 		});
 	}
 
@@ -82,29 +106,59 @@
 </script>
 
 {#each requests as request (request.handoff_id)}
-	<div
-		class="app-request"
-		title={`${request.reason}${request.work_title ? `\nFor “${request.work_title}”` : ''}`}
-	>
-		<span class="app-request-text"><strong>{request.asker} wants {label(request)}</strong></span>
-		<button
-			type="button"
-			class="btn primary small"
-			disabled={!!busy}
-			title="Adds it, checks it works and lets the company use it. Anything that acts asks you first."
-			onclick={() => add(request)}>{busy === request.handoff_id ? 'Adding…' : 'Add'}</button
-		>
-		<a class="more" href={request.href(companyId)} title="Details">Details</a>
-		<button
-			type="button"
-			class="dismiss"
-			aria-label="Not needed"
-			disabled={!!busy}
-			title={`Not needed. Kept under Set aside in your Inbox; ${request.asker} stops waiting on it.`}
-			onclick={() =>
-				act(request, () => dismissAttention(companyId, `orgintel:handoff:${request.handoff_id}`))}
-			>×</button
-		>
+	<div class="app-request">
+		<div class="app-request-head">
+			<span class="app-request-text"><strong>{request.asker} wants {label(request)}</strong></span>
+			<button
+				type="button"
+				class="btn primary small"
+				disabled={!!busy}
+				title="Adds it, checks it works and lets the company use it. Anything that acts asks you first."
+				onclick={() => add(request)}>{busy === request.handoff_id ? 'Adding…' : 'Add'}</button
+			>
+			<a
+				class="more"
+				href={request.href(companyId)}
+				title="Its page: what it can do, and how it connects">Details</a
+			>
+			<button
+				type="button"
+				class="dismiss"
+				aria-label="Not needed"
+				aria-expanded={declining === request.handoff_id}
+				disabled={!!busy}
+				title={`Not needed. ${request.asker} stops waiting on it; you can say why or what to use instead.`}
+				onclick={() => {
+					declining = declining === request.handoff_id ? '' : request.handoff_id;
+					reason = '';
+				}}>×</button
+			>
+		</div>
+		{#if request.reason || request.work_title}
+			<p class="app-request-why">
+				{request.reason}{#if request.work_title}<span class="for">
+						For “{request.work_title}”.</span
+					>{/if}
+			</p>
+		{/if}
+		{#if declining === request.handoff_id}
+			<form
+				class="decline"
+				onsubmit={(event) => {
+					event.preventDefault();
+					decline(request);
+				}}
+			>
+				<input
+					aria-label={`Why ${label(request)} is not needed, or what to use instead`}
+					placeholder="Why not, or what to use instead (optional)"
+					title={`Sent to ${request.asker} so it can change course instead of asking again.`}
+					autocomplete="off"
+					bind:value={reason}
+				/>
+				<button class="btn small" type="submit" disabled={!!busy}>Not needed</button>
+			</form>
+		{/if}
 	</div>
 {/each}
 {#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -112,15 +166,43 @@
 <style>
 	/* One slim line above the composer: the ask, Add, and a way to say not needed. */
 	.app-request {
-		display: flex;
-		align-items: center;
-		gap: 6px;
+		display: grid;
+		gap: 4px;
 		margin: 0 10px 6px;
 		padding: 4px 4px 4px 10px;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-control);
 		background: var(--surface);
 		font-size: var(--t-label);
+	}
+	.app-request-head {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.app-request-why {
+		display: -webkit-box;
+		margin: 0;
+		padding-right: 6px;
+		overflow: hidden;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		line-height: 1.45;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 3;
+		line-clamp: 3;
+	}
+	.app-request-why .for {
+		color: var(--text-tertiary);
+	}
+	.decline {
+		display: flex;
+		gap: 6px;
+		padding-right: 2px;
+	}
+	.decline input {
+		flex: 1;
+		min-width: 0;
 	}
 	.app-request-text {
 		flex: 1;

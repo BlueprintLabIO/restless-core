@@ -56,6 +56,9 @@ export type ToolConnection = {
 	changed: string[];
 	/** What a local tool last printed to its error output, secrets removed. */
 	last_output?: string | null;
+	/** With no live grant: the last grant that ended (turned off or expired), and when. */
+	ended_grant?: ConnectionGrant | null;
+	ended_at?: string | null;
 };
 
 export type ToolDecision = { tool: string; class: ToolClass; party_args?: string[] | null };
@@ -87,7 +90,14 @@ export type NewConnection =
 	  };
 
 export type ToolReceipts = {
-	reads: { id: string; actor: string; tool: string; status: string; observed_at: string }[];
+	reads: {
+		id: string;
+		actor: string;
+		tool: string;
+		status: string;
+		observed_at: string;
+		work_id?: string | null;
+	}[];
 	effects: {
 		id: string;
 		tool: string;
@@ -96,8 +106,13 @@ export type ToolReceipts = {
 		actor: string;
 		parties?: string[];
 		created_at: string;
+		work_id?: string | null;
 		outcome?: { status?: string };
 	}[];
+	/** Actor id → display name, for who used it. */
+	actors?: Record<string, string>;
+	/** How far back this page reaches; a full page means there may be more. */
+	limit?: number;
 };
 
 export type PluginImport = {
@@ -171,8 +186,29 @@ export async function signIn(company: string, name: string): Promise<string> {
 	return url;
 }
 
-export const grantTools = (company: string, name: string, tools: ToolDecision[]) =>
-	post(named(company, name, 'grant'), { grantee: '*', tools });
+/** Allow tools for everyone, until `expiresAt` when given. */
+export const grantTools = (
+	company: string,
+	name: string,
+	tools: ToolDecision[],
+	expiresAt?: string | null
+) =>
+	post(named(company, name, 'grant'), {
+		grantee: '*',
+		tools,
+		...(expiresAt ? { expires_at: expiresAt } : {})
+	});
+
+/** Change an online app's address or token in place; what it may do is kept. */
+export const changeConnection = (
+	company: string,
+	name: string,
+	change: { endpoint?: string; credential?: string }
+) =>
+	call<{ connection: ToolConnection }>(path(company, `/${encodeURIComponent(name)}`), {
+		method: 'PATCH',
+		body: JSON.stringify(change)
+	});
 
 export const revokeGrant = (company: string, name: string) =>
 	post(named(company, name, 'revoke'), { grantee: '*' });
@@ -185,8 +221,43 @@ export const setConnectionBrowser = (company: string, name: string, browser: boo
 export const disconnectConnection = (company: string, name: string) =>
 	post(named(company, name, 'disconnect'));
 
-export const fetchReceipts = (company: string, name: string) =>
-	call<ToolReceipts>(named(company, name, 'receipts'));
+export const fetchReceipts = (company: string, name: string, limit = 20) =>
+	call<ToolReceipts>(`${named(company, name, 'receipts')}?limit=${limit}`);
+
+/** Turned off on purpose: working, signed in, nothing allowed now, and a grant that ended. */
+export function isOff(connection: ToolConnection): boolean {
+	return connection.status === 'working' && !connection.grants.length && !!connection.ended_grant;
+}
+
+/** The tools to allow when an app is turned back on: what it allowed before, for each tool it
+ * still offers, and Exec's proposal for any tool that is new since. */
+export function restoredDecisions(connection: ToolConnection): ToolDecision[] {
+	const before = new Map((connection.ended_grant?.tools ?? []).map((tool) => [tool.tool, tool]));
+	const proposed = new Map(connection.proposed.map((tool) => [tool.tool, tool]));
+	return connection.tools.map((tool) => {
+		const earlier = before.get(tool.name) ?? proposed.get(tool.name);
+		return {
+			tool: tool.name,
+			class: earlier?.class ?? 'reserved',
+			party_args: earlier?.party_args ?? []
+		};
+	});
+}
+
+/** "4 read freely, 2 act with a receipt, 1 asks you first", for a summary of what was allowed. */
+export function classSummary(tools: { class: ToolClass }[]): string {
+	const counts = (['reads', 'acts', 'reserved'] as ToolClass[])
+		.map((klass) => ({ klass, count: tools.filter((tool) => tool.class === klass).length }))
+		.filter((row) => row.count > 0);
+	const words: Record<ToolClass, [string, string]> = {
+		reads: ['reads freely', 'read freely'],
+		acts: ['acts with a receipt', 'act with a receipt'],
+		reserved: ['asks you first', 'ask you first']
+	};
+	return counts
+		.map(({ klass, count }) => `${count} ${words[klass][count === 1 ? 0 : 1]}`)
+		.join(', ');
+}
 
 /* The class each tool has now: the live grant, else Exec's proposal. */
 export function currentClasses(connection: ToolConnection): Record<string, GrantedTool> {
@@ -210,17 +281,23 @@ export function statusLabel(connection: ToolConnection): string {
 	);
 }
 
-/* Adding an app is one step: add it, let the gateway check it, and allow it at once with Exec's
- * proposal (reads run; anything that acts asks the owner the first time). An app that needs a
+/* Answering an agent's app request is one step: add it, let the gateway check it, and allow it at
+ * once with Exec's proposal (reads run; anything that acts asks the owner the first time), so the
+ * waiting Work resumes. The caller says what was allowed. An app added any other way lands on its
+ * permission list instead, where the owner sees each tool before allowing it. An app that needs a
  * sign-in comes back awaiting it, for the caller to start. */
-export async function addAndAllow(company: string, input: NewConnection): Promise<ToolConnection> {
+export async function addAndAllow(
+	company: string,
+	input: NewConnection
+): Promise<{ connection: ToolConnection; allowed: GrantedTool[] }> {
 	const { connection } = await addConnection(company, input);
 	const view = (await fetchConnections(company)).find((row) => row.name === connection.name);
-	if (!view || view.status !== 'working' || !view.proposed.length) return view ?? connection;
+	if (!view || view.status !== 'working' || !view.proposed.length)
+		return { connection: view ?? connection, allowed: [] };
 	await grantTools(
 		company,
 		view.name,
 		view.proposed.map(({ tool, class: kind, party_args }) => ({ tool, class: kind, party_args }))
 	);
-	return view;
+	return { connection: view, allowed: view.proposed };
 }

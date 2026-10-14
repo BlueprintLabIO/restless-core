@@ -12,8 +12,10 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { tick } from 'svelte';
-	import { addAndAllow, importPlugin } from '$lib/model/connections';
+	import { addConnection, importPlugin } from '$lib/model/connections';
 	import { sendActorMessage } from '$lib/model/attention';
+	import { composeSkillMd, createSkill, setSkillDisposition, skillSlug } from '$lib/model/skills';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import {
 		KIND_INFO,
 		KIND_LABEL,
@@ -22,7 +24,9 @@
 		builtIn,
 		classifyLink,
 		nameForLink,
-		type App
+		unlistedFor,
+		type App,
+		type UnlistedService
 	} from '$lib/model/apps';
 	import { useAppsData, viewFrom, isKind, type AppsView } from '$lib/model/apps-data.svelte';
 	import AppTile from './AppTile.svelte';
@@ -38,9 +42,16 @@
 	let askInput: HTMLInputElement | undefined = $state();
 	let link = $state('');
 	let linkDismissed = $state(false);
+	let skippedImport = $state<string[]>([]);
+	let reviewHref = $state('');
+	let skillDismissed = $state(false);
+	let skillTitle = $state('');
+	let skillWhen = $state('');
+	let skillSteps = $state('');
 
 	const view = $derived<AppsView>(viewFrom(page.url.searchParams.get('view')) ?? 'ask');
 	const linking = $derived(page.url.searchParams.get('add') === 'link' && !linkDismissed);
+	const writing = $derived(page.url.searchParams.get('add') === 'skill' && !skillDismissed);
 	const route = (key: string) =>
 		`/${encodeURIComponent(companyId)}/apps/${encodeURIComponent(key)}`;
 	const failure = $derived(actionFailure || data.failure);
@@ -49,6 +60,7 @@
 		ask: 'Apps',
 		waiting: 'Waiting on you',
 		'in-use': 'In use',
+		removed: 'Removed',
 		all: 'All apps'
 	};
 	const title = $derived(TITLES[view] ?? (isKind(view) ? KIND_SECTION[view] : view));
@@ -59,6 +71,7 @@
 		| { id: string; kind: 'open'; app: App }
 		| { id: string; kind: 'add'; app: App }
 		| { id: string; kind: 'link'; value: string }
+		| { id: string; kind: 'unlisted'; service: UnlistedService }
 		| { id: string; kind: 'ask'; value: string };
 	const term = $derived(query.trim());
 	const matches = (app: App) =>
@@ -73,6 +86,11 @@
 			...(/^https?:\/\/\S+$/i.test(term)
 				? [{ id: 'link', kind: 'link' as const, value: term }]
 				: []),
+			...unlistedFor(term).map((service) => ({
+				id: `unlisted:${service.key}`,
+				kind: 'unlisted' as const,
+				service
+			})),
 			{ id: 'ask', kind: 'ask' as const, value: term }
 		];
 	});
@@ -86,6 +104,8 @@
 		busy = key;
 		actionFailure = '';
 		notice = '';
+		skippedImport = [];
+		reviewHref = '';
 		try {
 			await action();
 		} catch (cause) {
@@ -95,15 +115,20 @@
 		}
 	}
 
-	/* Adding a known service probes and allows it at once; the app page asks for a sign-in
-	 * only when one is needed. */
+	/* Adding a known service probes it and lands on its page: a sign-in when it needs one,
+	 * otherwise the list of what it can do, which the owner allows from there. A service that
+	 * needs a token goes to its Add step first, where the token is chosen or pasted. */
 	async function addCatalogue(app: App) {
 		const entry = app.catalogue;
 		if (!entry) return;
+		if (entry.auth === 'token') {
+			await goto(route(entry.key));
+			return;
+		}
 		await act(
 			`add:${app.key}`,
 			async () => {
-				const connection = await addAndAllow(companyId, {
+				const { connection } = await addConnection(companyId, {
 					kind: 'remote',
 					name: entry.key,
 					endpoint: entry.endpoint,
@@ -112,6 +137,51 @@
 				await goto(route(`c-${connection.name}`));
 			},
 			'That app was not added.'
+		);
+	}
+
+	/* An ask the catalogue cannot answer with one click says so: email has its own path, and
+	 * Exec looks for a working server for the rest. */
+	function chooseUnlisted(service: UnlistedService) {
+		if (service.path === 'email') {
+			void goto(`/${encodeURIComponent(companyId)}/company/resources#email`);
+			return;
+		}
+		void askExec(
+			`connect ${service.name} (${term}). The catalogue has no checked address for it, so find a working MCP server or another way`
+		);
+	}
+
+	async function writeSkill(event: SubmitEvent) {
+		event.preventDefault();
+		const name = skillSlug(skillTitle);
+		if (!name || !skillWhen.trim() || !skillSteps.trim()) return;
+		await act(
+			'skill',
+			async () => {
+				await createSkill(companyId, composeSkillMd(name, skillWhen, skillSteps));
+				skillTitle = '';
+				skillWhen = '';
+				skillSteps = '';
+				skillDismissed = true;
+				await data.load();
+				await goto(route(`s-${name}`));
+			},
+			'That know-how was not saved.'
+		);
+	}
+
+	async function restore(app: App) {
+		const skill = app.skills[0];
+		if (!skill) return;
+		await act(
+			`restore:${app.key}`,
+			async () => {
+				await setSkillDisposition(companyId, skill.name, 'accepted');
+				await data.load();
+				toast(`${app.name} is company know-how again.`);
+			},
+			'That know-how was not restored.'
 		);
 	}
 
@@ -134,16 +204,22 @@
 							`${result.import.skills.length} skill${result.import.skills.length === 1 ? '' : 's'} for you to review`
 						);
 					notice = `${result.import.plugin} added${parts.length ? `: ${parts.join(' and ')}` : ''}.`;
+					skippedImport = result.import.skipped;
+					/* Its services and skills wait on the owner; Exec adds the skills shortly. */
+					reviewHref =
+						result.import.connections.length || result.import.skills.length
+							? `/${encodeURIComponent(companyId)}/apps?view=waiting`
+							: '';
 					link = '';
 					query = '';
 					await data.load();
 					return;
 				}
 				const name = nameForLink(value);
-				const connection =
+				const { connection } =
 					kind === 'remote'
-						? await addAndAllow(companyId, { kind: 'remote', name, endpoint: value })
-						: await addAndAllow(companyId, {
+						? await addConnection(companyId, { kind: 'remote', name, endpoint: value })
+						: await addConnection(companyId, {
 								kind: 'local',
 								name,
 								command: value.split(/\s+/)[0],
@@ -180,6 +256,7 @@
 		if (option.kind === 'open') void goto(route(option.app.key));
 		else if (option.kind === 'add') void addCatalogue(option.app);
 		else if (option.kind === 'link') void addFromLink(option.value);
+		else if (option.kind === 'unlisted') chooseUnlisted(option.service);
 		else void askExec(option.value);
 	}
 
@@ -214,6 +291,9 @@
 	$effect(() => {
 		if (linking) void tick().then(() => document.getElementById('apps-link')?.focus());
 	});
+	$effect(() => {
+		if (writing) void tick().then(() => document.getElementById('skill-title')?.focus());
+	});
 
 	const tone = (app: App) =>
 		app.state === 'needs_you' ? 'warning' : app.state === 'paused' ? 'muted' : 'success';
@@ -227,7 +307,7 @@
 	const tiles = $derived(
 		view === 'all'
 			? data.browse
-			: !isKind(view) && !['ask', 'waiting', 'in-use'].includes(view)
+			: !isKind(view) && !['ask', 'waiting', 'in-use', 'removed'].includes(view)
 				? data.inCategory(view as never)
 				: []
 	);
@@ -237,6 +317,8 @@
 <svelte:window onkeydown={onWindowKey} />
 
 <CompanyTitle {title} {companyId} />
+
+{#snippet review()}<a class="btn small" href={reviewHref}>Review</a>{/snippet}
 
 {#snippet mark(app: App, size: 24 | 32 | 40 = 24)}
 	<AppMark
@@ -251,16 +333,64 @@
 	{title}
 	info={view === 'ask'
 		? 'Say what the company should be able to do, or type an app’s name. Exec finds what fits and brings it here to turn on. Each app shows what it may do, and asks you before it acts the first time.'
-		: isKind(view)
-			? KIND_INFO[view]
-			: undefined}
+		: view === 'removed'
+			? 'Know-how you removed. Agents no longer follow it; restoring it makes it company know-how again.'
+			: isKind(view)
+				? KIND_INFO[view]
+				: undefined}
 >
 	{#if failure}<Notice
 			tone="danger"
 			title={actionFailure ? actionFailure : 'Apps could not be read'}
 			details={actionFailure ? null : failure}
 		/>{/if}
-	{#if notice}<Notice tone="success" title={notice} />{/if}
+	{#if notice}<Notice
+			tone="success"
+			title={notice}
+			details={skippedImport.length ? `Not added: ${skippedImport.join('; ')}.` : null}
+			actions={reviewHref ? review : undefined}
+		/>{/if}
+
+	{#if writing}
+		<form class="skill-form" onsubmit={writeSkill}>
+			<input
+				id="skill-title"
+				aria-label="Name"
+				placeholder="Name, such as Reply to refund requests"
+				title="A short name. It becomes the know-how’s id, in lowercase words joined by hyphens."
+				autocomplete="off"
+				required
+				bind:value={skillTitle}
+			/>
+			<input
+				aria-label="When to use it"
+				placeholder="When to use it"
+				title="One sentence agents read to decide whether this know-how fits what they are doing."
+				autocomplete="off"
+				required
+				bind:value={skillWhen}
+			/>
+			<textarea
+				aria-label="How to do it"
+				placeholder="How to do it: the steps, the standard, and what to avoid"
+				title="The instructions agents follow, in plain words or Markdown."
+				rows="8"
+				required
+				bind:value={skillSteps}></textarea>
+			<div class="skill-actions">
+				<button
+					class="btn small primary"
+					type="submit"
+					disabled={busy === 'skill' || !skillSlug(skillTitle)}
+					title="Saves it as know-how to review. It is followed once you accept it."
+					>{busy === 'skill' ? 'Saving…' : 'Save for review'}</button
+				>
+				<button class="btn small ghost" type="button" onclick={() => (skillDismissed = true)}
+					>Cancel</button
+				>
+			</div>
+		</form>
+	{/if}
 
 	{#if linking}
 		<form
@@ -348,6 +478,15 @@
 										: busy === `add:${option.app.key}`
 											? 'Adding…'
 											: 'Turn on'}</span
+								>
+							{:else if option.kind === 'unlisted'}
+								<span class="ask-glyph" aria-hidden="true"
+									>{option.service.path === 'email' ? '@' : '?'}</span
+								>
+								<strong>{option.service.name}</strong>
+								<span class="ask-what" title={option.service.note}>{option.service.note}</span>
+								<span class="ask-go"
+									>{option.service.path === 'email' ? 'Email settings' : 'Ask Exec'}</span
 								>
 							{:else if option.kind === 'link'}
 								<span class="ask-glyph" aria-hidden="true">↗</span>
@@ -482,6 +621,27 @@
 			{/if}
 		{/if}
 
+		{#if view === 'removed'}
+			<Section>
+				{#each data.removed as app (app.key)}
+					<Item title={app.name} meta={app.description} href={route(app.key)} dim>
+						{#snippet leading()}{@render mark(app)}{/snippet}
+						{#snippet trailing()}
+							<button
+								class="btn small"
+								type="button"
+								disabled={!!busy}
+								onclick={() => void restore(app)}
+								>{busy === `restore:${app.key}` ? 'Restoring…' : 'Restore'}</button
+							>
+						{/snippet}
+					</Item>
+				{:else}
+					<Empty compact title="Nothing removed" info="Know-how you remove is kept here." />
+				{/each}
+			</Section>
+		{/if}
+
 		{#if tiles.length}
 			<div class="grid">
 				{#each tiles as app (app.key)}
@@ -494,7 +654,7 @@
 					/>
 				{/each}
 			</div>
-		{:else if view === 'all' || (!isKind(view) && !['ask', 'waiting', 'in-use'].includes(view))}
+		{:else if view === 'all' || (!isKind(view) && !['ask', 'waiting', 'in-use', 'removed'].includes(view))}
 			<Empty compact title="Everything here is already added" info="Add one from a link instead." />
 		{/if}
 	{/if}
@@ -607,6 +767,23 @@
 	.exec-mark {
 		background: var(--ink);
 		color: var(--surface-raised);
+	}
+	.skill-form {
+		display: grid;
+		gap: var(--space-2);
+		padding: 12px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-lg);
+		background: var(--surface-raised);
+		box-shadow: var(--shadow-soft);
+	}
+	.skill-form textarea {
+		resize: vertical;
+		font: inherit;
+	}
+	.skill-actions {
+		display: flex;
+		gap: var(--space-2);
 	}
 	.link {
 		display: grid;

@@ -120,6 +120,178 @@ pub(super) async fn set_disposition(
     }
 }
 
+/// A skill's package as agents would follow it: `SKILL.md` and the files beside it, read live
+/// from the company computer, so the owner reviews the real instructions and scripts.
+pub(super) async fn package(
+    State(state): State<OwnerState>,
+    AxumPath((company, skill)): AxumPath<(String, String)>,
+) -> Response<Body> {
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    let row = match org.skill(&skill).await {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "skills",
+                "No company skill has that name.",
+            )
+        }
+        Err(error) => return orgintel_error(error),
+    };
+    match crate::skills::read_package(&company, &row.path).await {
+        Ok(package) => Json(json!({
+            "skill": row,
+            "package": package,
+            "changed": package.digest != row.digest,
+        }))
+        .into_response(),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "skills",
+            format!("{error:#}"),
+        ),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct NewSkillInput {
+    skill_md: String,
+}
+
+/// The owner writes new know-how. It lands as a candidate, which the owner reviews and accepts
+/// like any other, so every skill the company follows passed the same review.
+pub(super) async fn create(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<NewSkillInput>,
+) -> Response<Body> {
+    if let Some(refusal) = owner_only(&principal) {
+        return refusal;
+    }
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    let Some(name) = restless_contracts::skill_package::parse_frontmatter(&input.skill_md)
+        .map(|frontmatter| frontmatter.name)
+        .filter(|name| restless_orgintel::valid_skill_name(name))
+    else {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "skills",
+            "Give the know-how a name of lowercase letters, digits and hyphens.",
+        );
+    };
+    match org.skill(&name).await {
+        Ok(None) => {}
+        Ok(Some(_)) => {
+            return api_error(
+                StatusCode::CONFLICT,
+                "skills",
+                "Know-how with that name already exists. Choose another name.",
+            )
+        }
+        Err(error) => return orgintel_error(error),
+    }
+    let dir = format!(
+        "{}/{name}",
+        restless_contracts::skill_package::CANDIDATE_ROOT
+    );
+    let observed = match crate::skills::write_skill_md(&company, &dir, &name, &input.skill_md).await
+    {
+        Ok(observed) => observed,
+        Err(error) => return api_error(StatusCode::BAD_REQUEST, "skills", format!("{error:#}")),
+    };
+    match org
+        .register_skill_candidate(&observed, principal.actor_id(), None, None)
+        .await
+    {
+        Ok(row) => Json(row).into_response(),
+        Err(error) => orgintel_error(error),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct EditSkillInput {
+    skill_md: String,
+    /// The digest the owner edited from; a newer version is not overwritten.
+    expected_digest: String,
+}
+
+/// The owner corrects a company or candidate skill in place. The new digest is recorded at
+/// once; Work that pinned the earlier version keeps it and is told the library changed.
+pub(super) async fn edit(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, skill)): AxumPath<(String, String)>,
+    Json(input): Json<EditSkillInput>,
+) -> Response<Body> {
+    if let Some(refusal) = owner_only(&principal) {
+        return refusal;
+    }
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    let row = match org.skill(&skill).await {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "skills",
+                "No company skill has that name.",
+            )
+        }
+        Err(error) => return orgintel_error(error),
+    };
+    match crate::skills::read_package(&company, &row.path).await {
+        Ok(current) if current.digest != input.expected_digest => {
+            return api_error(
+                StatusCode::CONFLICT,
+                "skills",
+                "This know-how changed since you opened it. Reopen it and edit again.",
+            )
+        }
+        Ok(_) => {}
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "skills",
+                format!("{error:#}"),
+            )
+        }
+    }
+    let observed = match crate::skills::write_skill_md(
+        &company,
+        &row.path,
+        &row.name,
+        &input.skill_md,
+    )
+    .await
+    {
+        Ok(observed) => observed,
+        Err(error) => return api_error(StatusCode::BAD_REQUEST, "skills", format!("{error:#}")),
+    };
+    if let Err(error) = org.observe_skills(std::slice::from_ref(&observed)).await {
+        return orgintel_error(error);
+    }
+    match org.skill(&skill).await {
+        Ok(Some(row)) => Json(row).into_response(),
+        Ok(None) => api_error(
+            StatusCode::NOT_FOUND,
+            "skills",
+            "No company skill has that name.",
+        ),
+        Err(error) => orgintel_error(error),
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct AssignmentInput {

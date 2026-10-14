@@ -898,6 +898,9 @@ pub struct ToolCall<'a> {
     pub contract_digest: &'a str,
     pub arguments: serde_json::Value,
     pub parties: Vec<String>,
+    /// The Work the call served, recorded on its receipt so the owner can see what it was for.
+    /// It is not part of the command, so it never changes the approved digest or idempotency.
+    pub work_id: Option<Uuid>,
 }
 
 /// What the upstream said. `is_error` is a tool-level failure the server
@@ -982,6 +985,7 @@ where
     parties.sort();
     parties.dedup();
     call.parties = parties.clone();
+    let call_work = call.work_id;
     let (command_document, command_digest) = tool_command(&call, purpose);
 
     let (stored_receipt, replay) =
@@ -1135,8 +1139,12 @@ where
         arguments: Some(call.arguments),
         parties: parties.clone(),
     };
+    let mut record = serde_json::to_value(&receipt)?;
+    if let Some(work_id) = call_work {
+        record["work_id"] = serde_json::json!(work_id);
+    }
     authority
-        .emit(&config.name, "effect", Some(actor), serde_json::to_value(&receipt)?)
+        .emit(&config.name, "effect", Some(actor), record)
         .await?;
     if let Some(earlier_key) = repeat {
         authority.emit(&config.name, "effect_repeat_party", Some(actor), serde_json::json!({

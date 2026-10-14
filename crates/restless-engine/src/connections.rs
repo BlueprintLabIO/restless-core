@@ -912,6 +912,130 @@ pub async fn revoke_grant(
     Ok(revoked > 0)
 }
 
+/// The last grant that ended for each connection, by revocation or expiry, and when it ended.
+/// A working connection with no live grant whose last grant ended was turned off on purpose
+/// (it keeps its sign-in); turning it back on can restore exactly what that grant allowed.
+pub async fn ended_grants(
+    pool: &PgPool,
+    company: &str,
+) -> Result<Vec<(ConnectionGrant, DateTime<Utc>)>> {
+    let rows = sqlx::query(
+        "SELECT DISTINCT ON (connection) connection, revision, grantee, tools, granted_by, \
+           granted_at, expires_at, COALESCE(revoked_at, expires_at) AS ended_at \
+         FROM restless_authority.connection_grants \
+         WHERE company=$1 AND grantee='*' \
+           AND (revoked_at IS NOT NULL OR (expires_at IS NOT NULL AND expires_at <= now())) \
+         ORDER BY connection, COALESCE(revoked_at, expires_at) DESC",
+    )
+    .bind(company)
+    .fetch_all(pool)
+    .await
+    .context("list ended connection grants")?;
+    rows.iter()
+        .map(|row| {
+            Ok((
+                ConnectionGrant {
+                    connection: row.try_get("connection")?,
+                    revision: row.try_get("revision")?,
+                    grantee: row.try_get("grantee")?,
+                    tools: serde_json::from_value(row.try_get("tools")?)?,
+                    granted_by: row.try_get("granted_by")?,
+                    granted_at: row.try_get("granted_at")?,
+                    expires_at: row.try_get("expires_at")?,
+                },
+                row.try_get("ended_at")?,
+            ))
+        })
+        .collect()
+}
+
+/// What the owner may change on a remote connection without removing it.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConnectionChange {
+    #[serde(default)]
+    pub endpoint: Option<String>,
+    /// A new static credential: a credential reference or a company binding name.
+    #[serde(default)]
+    pub credential: Option<String>,
+}
+
+/// Change a remote connection's address or static credential in place. Its grants stay: a
+/// tool whose definition differs at the new address is withheld by its digest until the owner
+/// grants it again. A new address for a signed-in app needs a new sign-in, so its tokens go.
+pub async fn update(
+    pool: &PgPool,
+    authority: &crate::authority::AuthorityStore,
+    root: &Path,
+    company: &str,
+    name: &str,
+    change: ConnectionChange,
+    by: &str,
+) -> Result<Connection> {
+    let connection = require(pool, company, name).await?;
+    if connection.status == "disconnected" {
+        bail!("connection {name:?} is removed; add it again");
+    }
+    if connection.kind != "remote" {
+        bail!("only an online app's address or token can be changed here");
+    }
+    let endpoint = change
+        .endpoint
+        .map(|value| value.trim().to_string())
+        .filter(|value| Some(value.as_str()) != connection.endpoint.as_deref());
+    if let Some(endpoint) = &endpoint {
+        validate_endpoint(endpoint)?;
+    }
+    let mut auth = connection.auth.clone();
+    if let Some(credential) = change.credential.map(|value| value.trim().to_string()) {
+        if credential.is_empty() {
+            bail!("connection credential reference is empty");
+        }
+        if matches!(auth, ConnectionAuth::Oauth { .. }) {
+            bail!("this app signs in; use Sign in again instead of a token");
+        }
+        auth = ConnectionAuth::Bearer { credential };
+    }
+    if endpoint.is_none() && auth == connection.auth {
+        return Ok(connection);
+    }
+    let signed_in = matches!(auth, ConnectionAuth::Oauth { .. });
+    if let (Some(_), ConnectionAuth::Oauth { credential, .. }) = (&endpoint, &auth) {
+        token_store(root, company, name, credential).clear().await?;
+    }
+    let status = if signed_in && endpoint.is_some() {
+        "awaiting_sign_in"
+    } else {
+        "awaiting_probe"
+    };
+    sqlx::query(
+        "UPDATE restless_authority.connections SET endpoint=COALESCE($3, endpoint), auth=$4, \
+         status=$5, failure=NULL, revision=gen_random_uuid(), updated_at=now() \
+         WHERE company=$1 AND name=$2 AND status<>'disconnected'",
+    )
+    .bind(company)
+    .bind(name)
+    .bind(&endpoint)
+    .bind(serde_json::to_value(&auth)?)
+    .bind(status)
+    .execute(pool)
+    .await?;
+    forget_upstream(company, name).await;
+    authority
+        .emit(
+            company,
+            "connection_changed",
+            Some(by),
+            serde_json::json!({
+                "connection": name,
+                "endpoint": endpoint,
+                "credential_changed": auth != connection.auth,
+            }),
+        )
+        .await?;
+    require(pool, company, name).await
+}
+
 pub async fn grants(
     pool: &PgPool,
     company: &str,
@@ -1293,11 +1417,13 @@ pub struct ReadReceipt {
     pub status: String,
     pub observed_at: DateTime<Utc>,
     pub result_digest: Option<String>,
+    /// The Work the read served, when it served one.
+    pub work_id: Option<Uuid>,
 }
 
 pub async fn read_receipt(pool: &PgPool, company: &str, id: Uuid) -> Result<Option<ReadReceipt>> {
     let row = sqlx::query(
-        "SELECT id, actor, connection, tool, status, observed_at, result_digest \
+        "SELECT id, actor, connection, tool, status, observed_at, result_digest, work_id \
          FROM restless_authority.tool_read_receipts WHERE company=$1 AND id=$2",
     )
     .bind(company)
@@ -1313,6 +1439,7 @@ pub async fn read_receipt(pool: &PgPool, company: &str, id: Uuid) -> Result<Opti
             status: row.try_get("status")?,
             observed_at: row.try_get("observed_at")?,
             result_digest: row.try_get("result_digest")?,
+            work_id: row.try_get("work_id")?,
         })
     })
     .transpose()
@@ -1325,7 +1452,7 @@ pub async fn recent_read_receipts(
     limit: i64,
 ) -> Result<Vec<ReadReceipt>> {
     let rows = sqlx::query(
-        "SELECT id, actor, connection, tool, status, observed_at, result_digest \
+        "SELECT id, actor, connection, tool, status, observed_at, result_digest, work_id \
          FROM restless_authority.tool_read_receipts WHERE company=$1 AND connection=$2 \
          ORDER BY observed_at DESC LIMIT $3",
     )
@@ -1344,6 +1471,7 @@ pub async fn recent_read_receipts(
                 status: row.try_get("status")?,
                 observed_at: row.try_get("observed_at")?,
                 result_digest: row.try_get("result_digest")?,
+                work_id: row.try_get("work_id")?,
             })
         })
         .collect()

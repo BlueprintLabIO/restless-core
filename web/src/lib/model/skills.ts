@@ -1,8 +1,9 @@
 /* Company skills, `/goal` and `/loop` (Sprint 55).
  *
  * Skills are the company's reusable methods in the open SKILL.md format. The
- * owner surfaces here only select, accept, retire and assign them; the package
- * files live in the company computer. `/goal` and `/loop` are Restless
+ * owner surfaces here select, read, write, accept, retire and assign them; the
+ * package files live in the company computer, and new know-how the owner writes
+ * lands there as a candidate to review like any other. `/goal` and `/loop` are Restless
  * primitives (a Goal and an Exec interval schedule), not harness features. */
 
 import type { GoalRow, ScheduleRow, SkillAssignmentRow, SkillRow } from './generated/orgintel';
@@ -83,6 +84,60 @@ export function setSkillDisposition(
 		method: 'POST',
 		body: JSON.stringify({ disposition })
 	});
+}
+
+/** One file of a skill package, as read live from the company computer. */
+export type SkillPackageFile = { path: string; bytes: number; text?: string | null };
+
+export type SkillPackage = {
+	skill: SkillRow;
+	package: { skill_md: string; digest: string; files: SkillPackageFile[] };
+	/** The files differ from the version the library recorded. */
+	changed: boolean;
+};
+
+/** Read a skill's SKILL.md and the scripts and references beside it. */
+export function fetchSkillPackage(company: string, skill: string): Promise<SkillPackage> {
+	return call(company, `/skills/${encodeURIComponent(skill)}/package`);
+}
+
+/** Write new know-how; it lands as a candidate for review. */
+export function createSkill(company: string, skillMd: string): Promise<SkillRow> {
+	return call(company, '/skills', { method: 'POST', body: JSON.stringify({ skill_md: skillMd }) });
+}
+
+/** Save an edited SKILL.md over the version read at `expectedDigest`. */
+export function editSkill(
+	company: string,
+	skill: string,
+	skillMd: string,
+	expectedDigest: string
+): Promise<SkillRow> {
+	return call(company, `/skills/${encodeURIComponent(skill)}/package`, {
+		method: 'PUT',
+		body: JSON.stringify({ skill_md: skillMd, expected_digest: expectedDigest })
+	});
+}
+
+/** A skill name from a title: `Reply to refunds` → `reply-to-refunds`. */
+export function skillSlug(title: string): string {
+	return title
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-+|-+$/g, '')
+		.slice(0, 64)
+		.replace(/-+$/, '');
+}
+
+/** A SKILL.md in the open format from what the owner wrote. */
+export function composeSkillMd(name: string, description: string, instructions: string): string {
+	const oneLine = description.replace(/\s+/g, ' ').trim().replace(/"/g, '\\"');
+	return `---\nname: ${name}\ndescription: "${oneLine}"\n---\n\n${instructions.trim()}\n`;
+}
+
+/** `sha256:0123…` → `0123456789ab`, a version the owner can compare. */
+export function shortDigest(digest: string): string {
+	return digest.replace(/^sha256:/, '').slice(0, 12);
 }
 
 export function assignSkill(

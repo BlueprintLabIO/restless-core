@@ -10,6 +10,7 @@
 	import BookOpen from '@lucide/svelte/icons/book-open';
 	import Package from '@lucide/svelte/icons/package';
 	import Link2 from '@lucide/svelte/icons/link-2';
+	import BookPlus from '@lucide/svelte/icons/book-plus';
 	import LayoutGrid from '@lucide/svelte/icons/layout-grid';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
 	import Kanban from '@lucide/svelte/icons/kanban';
@@ -19,6 +20,7 @@
 	import Palette from '@lucide/svelte/icons/palette';
 	import FileText from '@lucide/svelte/icons/file-text';
 	import Globe from '@lucide/svelte/icons/globe';
+	import ArchiveRestore from '@lucide/svelte/icons/archive-restore';
 	import SidebarShell from '$lib/ui/views/SidebarShell.svelte';
 	import SidebarGroup from '$lib/ui/views/SidebarGroup.svelte';
 	import SidebarRow from '$lib/ui/views/SidebarRow.svelte';
@@ -96,6 +98,11 @@
 			label="Add from a link: a service's MCP address, a plugin or skill on GitHub, or a command"
 			icon={Link2}
 		/>
+		<SidebarHeadButton
+			href={`${index}?add=skill`}
+			label="Write new know-how: instructions the company follows once you accept them"
+			icon={BookPlus}
+		/>
 	{/snippet}
 	{#snippet nav()}
 		<SidebarRow
@@ -133,6 +140,16 @@
 					title={KIND_INFO[row.kind]}
 				/>
 			{/each}
+			{#if data.removed.length}
+				<SidebarRow
+					href={href('removed')}
+					label="Removed"
+					icon={ArchiveRestore}
+					active={current === 'removed'}
+					count={data.removed.length}
+					title="Know-how you removed. It is kept, so you can restore it."
+				/>
+			{/if}
 		</SidebarGroup>
 		<SidebarGroup label="Browse">
 			<SidebarRow

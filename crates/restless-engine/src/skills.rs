@@ -92,6 +92,187 @@ async fn scan_and_observe(org: &OrgIntel, company: &str) -> Result<()> {
     Ok(())
 }
 
+/// One file of a skill package as the owner reads it before accepting it.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PackageFile {
+    /// Relative to the skill directory.
+    pub path: String,
+    pub bytes: u64,
+    /// The text, when the file is small text; binary or large files are listed only.
+    pub text: Option<String>,
+}
+
+/// A skill package read from the company computer: `SKILL.md` and every file beside it.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Package {
+    pub skill_md: String,
+    pub digest: String,
+    pub files: Vec<PackageFile>,
+}
+
+const PACKAGE_READ_SCRIPT: &str = r#"dir=$1
+[ -f "$dir/SKILL.md" ] || { echo "no SKILL.md in $dir" >&2; exit 3; }
+printf 'SKILL.md\t%s\t' "$(wc -c < "$dir/SKILL.md")"
+head -c 65536 "$dir/SKILL.md" | base64 | tr -d '\n'
+printf '\n'
+cd "$dir" && find . -type f ! -path './SKILL.md' ! -path '*/.*' | sort | head -n 200 | while IFS= read -r file; do
+  file=${file#./}
+  size=$(wc -c < "$file")
+  printf '%s\t%s\t' "$file" "$size"
+  if [ "$size" -le 32768 ] && grep -Iq . "$file" 2>/dev/null; then base64 < "$file" | tr -d '\n'; fi
+  printf '\n'
+done"#;
+
+/// The roots an owner may read or write a skill in. Built-in skills ship with the image and are
+/// read-only; a project skill belongs to its repository.
+fn owner_root(dir: &str) -> Option<&'static str> {
+    [
+        skill_package::COMPANY_ROOT,
+        skill_package::CANDIDATE_ROOT,
+        skill_package::BUILTIN_ROOT,
+    ]
+    .into_iter()
+    .find(|root| {
+        dir.strip_prefix(root)
+            .and_then(|rest| rest.strip_prefix('/'))
+            .is_some_and(|folder| {
+                !folder.is_empty()
+                    && !folder.starts_with('.')
+                    && !folder.contains(['/', '\\', '\0'])
+            })
+    })
+}
+
+async fn company_exec(
+    company: &str,
+    script: &str,
+    args: &[&str],
+    stdin: Option<&[u8]>,
+) -> Result<Vec<u8>> {
+    use tokio::io::AsyncWriteExt as _;
+    let mut command = tokio::process::Command::new("docker");
+    command
+        .args(["exec", "-i", "-u", "company"])
+        .arg(crate::runtime::container_name(company))
+        .args(["sh", "-c", script, "restless-skill"])
+        .args(args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    let mut child = command
+        .spawn()
+        .context("could not reach the company computer")?;
+    let mut input = child.stdin.take().context("company computer stdin")?;
+    if let Some(bytes) = stdin {
+        input.write_all(bytes).await?;
+    }
+    drop(input);
+    let output = tokio::time::timeout(std::time::Duration::from_secs(15), child.wait_with_output())
+        .await
+        .context("the company computer did not answer in time")??;
+    if !output.status.success() {
+        bail!(
+            "the company computer could not read the skill: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(output.stdout)
+}
+
+/// Read a recorded skill's package from the company computer, so the owner reads exactly what
+/// agents would follow: its `SKILL.md` and each script or reference beside it.
+pub async fn read_package(company: &str, dir: &str) -> Result<Package> {
+    use base64::Engine as _;
+    if owner_root(dir).is_none() {
+        bail!("this skill lives outside the company's skill folders and cannot be read here");
+    }
+    let output = company_exec(company, PACKAGE_READ_SCRIPT, &[dir], None).await?;
+    let mut skill_md = None;
+    let mut digest = String::new();
+    let mut files = Vec::new();
+    for line in String::from_utf8_lossy(&output).lines() {
+        let mut fields = line.splitn(3, '\t');
+        let (Some(path), Some(bytes), encoded) = (fields.next(), fields.next(), fields.next())
+        else {
+            continue;
+        };
+        let decoded = encoded
+            .filter(|value| !value.is_empty())
+            .and_then(|value| base64::engine::general_purpose::STANDARD.decode(value).ok());
+        if path == "SKILL.md" && skill_md.is_none() {
+            let bytes = decoded.unwrap_or_default();
+            digest = skill_package::digest(&bytes);
+            skill_md = Some(String::from_utf8_lossy(&bytes).into_owned());
+        } else {
+            files.push(PackageFile {
+                path: path.to_string(),
+                bytes: bytes.trim().parse().unwrap_or(0),
+                text: decoded.map(|bytes| String::from_utf8_lossy(&bytes).into_owned()),
+            });
+        }
+    }
+    Ok(Package {
+        skill_md: skill_md.context("the skill has no SKILL.md")?,
+        digest,
+        files,
+    })
+}
+
+/// Write an owner-authored `SKILL.md` into the company computer and observe it. A new skill is
+/// written as a candidate, which the owner then reviews like any other; an existing company or
+/// candidate skill is changed in place. Built-in skills are read-only.
+pub async fn write_skill_md(
+    company: &str,
+    dir: &str,
+    name: &str,
+    text: &str,
+) -> Result<ObservedSkill> {
+    let root =
+        owner_root(dir).context("a skill can only be written in the company's skill folders")?;
+    if root == skill_package::BUILTIN_ROOT {
+        bail!("built-in know-how ships with Restless and cannot be edited");
+    }
+    if text.len() > 65_536 {
+        bail!("SKILL.md is limited to 64 KiB");
+    }
+    let source = if root == skill_package::CANDIDATE_ROOT {
+        "candidate"
+    } else {
+        "company"
+    };
+    let observed = skill_package::observe(
+        source,
+        dir,
+        text,
+        skill_package::digest(text.as_bytes()),
+        false,
+    )
+    .context("SKILL.md needs frontmatter with a name and a description")?;
+    if observed.name != name {
+        bail!("the frontmatter name must be {name}");
+    }
+    let output = company_exec(
+        company,
+        r#"mkdir -p "$1" && cat > "$1/SKILL.md.tmp" && mv "$1/SKILL.md.tmp" "$1/SKILL.md" && { [ -d "$1/scripts" ] && echo scripts || true; }"#,
+        &[dir],
+        Some(text.as_bytes()),
+    )
+    .await?;
+    forget_scan(company);
+    Ok(ObservedSkill {
+        has_scripts: String::from_utf8_lossy(&output).trim() == "scripts",
+        ..observed
+    })
+}
+
+/// The next library read scans the company computer again.
+pub fn forget_scan(company: &str) {
+    if let Ok(mut scans) = RECENT_SCANS.lock() {
+        scans.remove(company);
+    }
+}
+
 /// The shared contract text, identical for Exec, leads and Staff.
 pub fn contract_section() -> String {
     format!(

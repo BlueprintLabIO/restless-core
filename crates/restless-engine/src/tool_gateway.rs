@@ -479,6 +479,7 @@ impl ToolCaller<'_> {
             contract_digest: &tool.observed.digest,
             arguments,
             parties,
+            work_id: self.grant.work_id,
         };
         let live = std::sync::Mutex::new(None::<CallToolResult>);
         let receipt = crate::effect::request_tool_effect(
@@ -1498,6 +1499,7 @@ mod tests {
             contract_digest: "d",
             arguments: serde_json::json!({"to": "ann@example.com", "body": "lost"}),
             parties: vec!["ann@example.com".into()],
+            work_id: None,
         };
         let lost = crate::effect::request_tool_effect(
             &config,
@@ -1518,6 +1520,7 @@ mod tests {
             contract_digest: "d",
             arguments: serde_json::json!({"to": "ann@example.com", "body": "lost"}),
             parties: vec!["ann@example.com".into()],
+            work_id: None,
         };
         let blocked = crate::effect::request_tool_effect(
             &config,
@@ -1614,6 +1617,113 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Changing an app's address keeps what the owner allowed it to do, and turning it off keeps
+    /// the sign-in and remembers the grant, so it can be turned back on exactly as it was.
+    #[tokio::test]
+    async fn changing_or_turning_off_an_app_keeps_its_grant() {
+        let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            return;
+        };
+        let authority = crate::authority::AuthorityStore::connect(&url)
+            .await
+            .unwrap();
+        let pool = authority.pool().clone();
+        let company = format!("tools_{}_test", Uuid::new_v4().simple());
+        let root = std::env::temp_dir().join(format!("restless-tools-{}", Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&root).unwrap();
+        let first = serve_fake(Fake::default()).await;
+        let second = serve_fake(Fake::default()).await;
+        connections::add(
+            &pool,
+            &authority,
+            &company,
+            serde_json::from_value(
+                serde_json::json!({"kind": "remote", "name": "mail", "endpoint": first}),
+            )
+            .unwrap(),
+            "owner",
+        )
+        .await
+        .unwrap();
+        let connection = connections::probe(&pool, &root, &company, "mail")
+            .await
+            .unwrap();
+        let decisions = connection
+            .tools
+            .iter()
+            .map(|tool| {
+                let proposed = connections::proposed_grant(tool);
+                connections::ToolDecision {
+                    tool: proposed.tool,
+                    class: proposed.class,
+                    party_args: None,
+                }
+            })
+            .collect();
+        connections::grant(
+            &pool, &authority, &company, "mail", "*", decisions, "owner", None,
+        )
+        .await
+        .unwrap();
+
+        let changed = connections::update(
+            &pool,
+            &authority,
+            &root,
+            &company,
+            "mail",
+            connections::ConnectionChange {
+                endpoint: Some(second.clone()),
+                credential: None,
+            },
+            "owner",
+        )
+        .await
+        .unwrap();
+        assert_eq!(changed.endpoint.as_deref(), Some(second.as_str()));
+        assert_eq!(changed.status, "awaiting_probe");
+        assert_ne!(changed.revision, connection.revision);
+        let probed = connections::probe(&pool, &root, &company, "mail")
+            .await
+            .unwrap();
+        assert_eq!(probed.status, "working");
+        let live = connections::grants(&pool, &company, Some("mail"))
+            .await
+            .unwrap();
+        assert_eq!(live.len(), 1, "the grant survives the change");
+        assert!(connections::changed_tools(&pool, &company)
+            .await
+            .unwrap()
+            .is_empty());
+
+        connections::revoke_grant(&pool, &authority, &company, "mail", "*", "owner")
+            .await
+            .unwrap();
+        let ended = connections::ended_grants(&pool, &company).await.unwrap();
+        assert_eq!(ended.len(), 1);
+        assert_eq!(ended[0].0.tools, live[0].tools);
+        assert_eq!(
+            connections::require(&pool, &company, "mail")
+                .await
+                .unwrap()
+                .status,
+            "working",
+            "off keeps the app signed in and working"
+        );
+
+        connections::forget_upstream(&company, "mail").await;
+        for table in ["connections", "records"] {
+            sqlx::query(&format!(
+                "DELETE FROM restless_authority.{table} WHERE company=$1"
+            ))
+            .bind(&company)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
         let _ = std::fs::remove_dir_all(&root);
     }
 }

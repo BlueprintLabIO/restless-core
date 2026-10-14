@@ -1334,7 +1334,14 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             axum::routing::put(custom_harnesses::save).post(custom_harnesses::action),
         )
         .route("/companies/{company}/intelligence", get(intelligence_view))
-        .route("/companies/{company}/skills", get(skills_api::list))
+        .route(
+            "/companies/{company}/skills",
+            get(skills_api::list).post(skills_api::create),
+        )
+        .route(
+            "/companies/{company}/skills/{skill}/package",
+            get(skills_api::package).put(skills_api::edit),
+        )
         .route(
             "/companies/{company}/skills/{skill}/disposition",
             post(skills_api::set_disposition),
@@ -1585,6 +1592,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route(
             "/companies/{company}/app-requests",
             get(tool_connections_api::app_requests),
+        )
+        .route(
+            "/companies/{company}/tool-connections/{name}",
+            axum::routing::patch(tool_connections_api::change),
         )
         .route(
             "/companies/{company}/tool-connections/{name}/probe",

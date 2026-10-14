@@ -922,6 +922,30 @@ impl AuthorityStore {
         .with_context(|| format!("read recent Authority {kind} records for {company}"))
     }
 
+    /// The newest records of one kind whose body has `field` equal to `value`, newest first.
+    pub async fn recent_records_matching(
+        &self,
+        company: &str,
+        kind: &str,
+        field: &str,
+        value: &str,
+        limit: i64,
+    ) -> Result<Vec<AuthorityRecord>> {
+        sqlx::query_as(
+            "SELECT id, actor_id, body, created_at \
+             FROM restless_authority.records \
+             WHERE company = $1 AND kind = $2 AND body->>$3 = $4 ORDER BY id DESC LIMIT $5",
+        )
+        .bind(company)
+        .bind(kind)
+        .bind(field)
+        .bind(value)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .with_context(|| format!("read matching Authority {kind} records for {company}"))
+    }
+
     pub async fn find_body(
         &self,
         company: &str,

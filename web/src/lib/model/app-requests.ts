@@ -5,6 +5,7 @@
 
 import { responseFailure } from './failure.ts';
 import { CATALOGUE } from './apps.ts';
+import { dismissAttention, sendActorMessage } from './attention';
 
 type AppRequestRow = {
 	handoff_id: string;
@@ -57,4 +58,23 @@ export async function fetchAppRequests(company: string): Promise<AppRequest[]> {
 	if (!response.ok) throw await responseFailure(response);
 	const body = (await response.json()) as { requests: AppRequestRow[] };
 	return body.requests.map(toRequest);
+}
+
+/** Not needed: set the request aside, so the asker stops waiting on it. A reason or an
+ * alternative, when given, goes to the asker as a message, so it can change course instead of
+ * asking again. */
+export async function declineAppRequest(
+	company: string,
+	request: AppRequest,
+	reason = ''
+): Promise<void> {
+	await dismissAttention(company, `orgintel:handoff:${request.handoff_id}`);
+	const why = reason.trim();
+	if (!why) return;
+	await sendActorMessage(
+		company,
+		request.requested_by,
+		`About your request for ${request.name}${request.work_title ? ` (for “${request.work_title}”)` : ''}: I set it aside as not needed. ${why}`,
+		request.work_id || undefined
+	);
 }
