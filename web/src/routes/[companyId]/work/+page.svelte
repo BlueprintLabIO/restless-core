@@ -67,6 +67,7 @@
 		setGoalTeam
 	} from '$lib/model/work-actions';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { celebrate } from '$lib/ui/celebrate';
 
 	const companyId = $derived(page.params.companyId ?? '');
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
@@ -192,6 +193,24 @@
 			});
 	});
 	const noWorkYet = $derived(!!graph && graph.work.length === 0 && goals.length === 0);
+	/* Done stays out of the way (S85-14): Work finished more than a week ago, or before this
+	 * person last cleared Done, lives under Archived. Clearing is kept per person in this
+	 * browser. */
+	const DONE_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
+	const clearedKey = $derived(`restless:work-done-cleared:${companyId}`);
+	let doneClearedAt = $state(0);
+	$effect(() => {
+		try {
+			doneClearedAt = Number(localStorage.getItem(clearedKey)) || 0;
+		} catch {
+			doneClearedAt = 0;
+		}
+	});
+	function retired(item: { status: string; updated_at: string }): boolean {
+		if (item.status !== 'completed') return false;
+		const finished = Date.parse(item.updated_at);
+		return finished < Date.now() - DONE_KEEP_MS || finished <= doneClearedAt;
+	}
 	/* "other" is the Work that serves no Goal: a peer of the Goals, kept small. "waiting" and
 	 * "active" are views across every Goal: what waits on the owner, and what is moving. */
 	const goalWork = $derived(
@@ -221,8 +240,10 @@
 							: selectedGoal === 'active'
 								? item.status === 'active'
 								: selectedGoal === 'archived'
-									? !!item.goal_id && archivedGoalIds.has(item.goal_id)
-									: item.goal_id === selectedGoal))
+									? (!!item.goal_id && archivedGoalIds.has(item.goal_id)) || retired(item)
+									: item.goal_id === selectedGoal)) &&
+				/* Retired Done shows only under Archived, or when a search looks for it. */
+				(selectedGoal === 'archived' || !!search.trim() || !retired(item))
 		)
 	);
 	const waitingCount = $derived(
@@ -575,6 +596,25 @@
 </script>
 
 <CompanyTitle title="Work" {companyId} />
+
+{#snippet clearDone()}
+	<button
+		class="btn small ghost"
+		type="button"
+		title="Move this Done Work to Archived. It is still there, and in search."
+		onclick={(event) => {
+			const moved = done.length;
+			celebrate(event.currentTarget);
+			doneClearedAt = Date.now();
+			try {
+				localStorage.setItem(clearedKey, String(doneClearedAt));
+			} catch {
+				/* Kept for this visit only. */
+			}
+			toast(`${moved} moved to Archived`);
+		}}>Clear done</button
+	>
+{/snippet}
 
 {#snippet goalRow(goal: Goal, indent = false)}
 	{@const progress = goalProgress(goal.id)}
@@ -1042,6 +1082,7 @@
 									onclick={() => (showAllDone = !showAllDone)}
 									>{showAllDone ? 'Show recent only' : `Show all ${done.length}`}</button
 								>{/if}
+							{#if column.key === 'completed' && done.length && selectedGoal !== 'archived'}{@render clearDone()}{/if}
 						{/snippet}
 					</WorkBoard>
 				{:else}
@@ -1060,6 +1101,10 @@
 									{#each done as work (work.id)}{@render row(work, 'success')}{/each}
 								</Fold>
 							</div>
+							<!-- In view whether or not Done is open: clearing should not need a hunt. -->
+							{#if selectedGoal !== 'archived'}<div class="clear-done">
+									{@render clearDone()}
+								</div>{/if}
 						</section>
 					{/if}
 					{#if !goalWork.length}
@@ -1290,5 +1335,10 @@
 		border-radius: 50%;
 		background: conic-gradient(var(--state-success) var(--done), var(--border-strong) 0);
 		mask: radial-gradient(circle, transparent 3.5px, #000 4px);
+	}
+	.clear-done {
+		display: flex;
+		justify-content: flex-end;
+		padding: 4px 8px;
 	}
 </style>
