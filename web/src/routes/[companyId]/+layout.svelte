@@ -236,8 +236,13 @@
 		const timeout = window.setTimeout(() => (startupStalled = true), 12_000);
 		return () => window.clearTimeout(timeout);
 	});
+	/* When retrying cannot help (signed out, refused, no such company) the dialog offers the way
+	 * out instead of a "Try again" that would trap the person behind the scrim. */
+	const startupView = $derived(startupFailure ? describeFailure(startupFailure) : null);
+	let startupExit: HTMLAnchorElement | undefined = $state();
 	$effect(() => {
-		if (startupBlocking && startupRetryButton) startupRetryButton.focus();
+		if (!startupBlocking) return;
+		(startupExit ?? startupRetryButton)?.focus();
 	});
 
 	const companyName = $derived(
@@ -1496,20 +1501,40 @@
 				</div>
 				<h1 id="startup-error-title">We couldn’t open this company</h1>
 				<p id="startup-error-copy">
-					{startupFailure
-						? describeFailure(startupFailure).detail
+					{startupView
+						? startupView.detail
 						: 'This is taking longer than expected. Your page is still here; try reconnecting.'}
 				</p>
-				<button
-					bind:this={startupRetryButton}
-					class="btn primary"
-					type="button"
-					disabled={retryingStartup}
-					onclick={retryStartup}
-				>
-					{retryingStartup ? 'Reconnecting…' : 'Try again'}
-				</button>
-				<span class="startup-error-note">Your open page and drafts are being kept in place.</span>
+				{#if startupView && !startupView.retryable}
+					<!-- A retry cannot succeed: offer the way out instead. Full loads, so on a hosted
+					     plane the address, not this app, decides where Home and sign-in live. -->
+					<div class="startup-error-actions">
+						{#if startupView.kind === 'signed_out'}
+							<a
+								bind:this={startupExit}
+								class="btn primary"
+								href={`/account?return=${encodeURIComponent(page.url.pathname + page.url.search)}`}
+								data-sveltekit-reload>Sign in</a
+							>
+							<a class="btn" href="/" data-sveltekit-reload>All companies</a>
+						{:else}
+							<a bind:this={startupExit} class="btn primary" href="/" data-sveltekit-reload
+								>All companies</a
+							>
+						{/if}
+					</div>
+				{:else}
+					<button
+						bind:this={startupRetryButton}
+						class="btn primary"
+						type="button"
+						disabled={retryingStartup}
+						onclick={retryStartup}
+					>
+						{retryingStartup ? 'Reconnecting…' : 'Try again'}
+					</button>
+					<span class="startup-error-note">Your open page and drafts are being kept in place.</span>
+				{/if}
 			</div>
 		</div>
 	{/if}
@@ -1584,6 +1609,7 @@
 		background: var(--intent-conversation-soft);
 		color: var(--intent-conversation);
 		font: 600 var(--t-body) var(--font-ui);
+		text-decoration: none;
 		cursor: pointer;
 	}
 	.startup-error .btn:disabled {
@@ -1593,6 +1619,12 @@
 	.startup-error .btn:focus-visible {
 		outline: 2px solid var(--intent-conversation);
 		outline-offset: 2px;
+	}
+	.startup-error-actions {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: var(--space-2);
 	}
 	.startup-error-note {
 		color: var(--text-tertiary);

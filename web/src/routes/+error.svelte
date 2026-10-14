@@ -29,6 +29,10 @@
 			{#if !missing}
 				<button class="btn" type="button" onclick={() => location.reload()}>Try again</button>
 			{/if}
+			{#if companyId}
+				<!-- The company itself may be what is missing; Home is always a way out. -->
+				<a class="btn" href="/" data-sveltekit-reload>All companies</a>
+			{/if}
 			<a class="btn primary" href={home}>{companyId ? 'Back to company' : 'Back to companies'}</a>
 		</div>
 	</main>
