@@ -586,6 +586,15 @@
 			retracting = false;
 		}
 	}
+	/* Once it has been read (or work on it started), the last message can no longer be taken
+	 * back, but it can still be corrected: the composer opens with its words to edit, under a
+	 * line saying this replaces it, so the agent reads the correction as superseding it. */
+	function correct() {
+		const last = visibleMessages.at(-1);
+		if (!last || last.from !== 'you') return;
+		composer = `Correction, replacing my last message:\n\n${last.text}`;
+		composerFocusKey += 1;
+	}
 	const receipt = $derived.by(() => {
 		const last = visibleMessages.at(-1);
 		if (!last || last.from !== 'you' || working || last.id.startsWith('optimistic:')) return '';
@@ -1300,6 +1309,10 @@
 									onclick={() => retract(true)}>Edit</button
 								><button type="button" disabled={retracting} onclick={() => retract(false)}
 									>Retract</button
+								><span aria-hidden="true">·</span>{:else if !composer.trim()}<button
+									type="button"
+									title={`${participantName} has it already. Send a corrected version that replaces it.`}
+									onclick={correct}>Correct</button
 								><span aria-hidden="true">·</span>{/if}{receipt}
 						</p>{/if}
 					{#if turn && needsProvider && (turn.live?.phase ?? 'queued') === 'queued'}
