@@ -3583,7 +3583,7 @@ async fn create_company(
     let name = input.name.trim();
     let mission = input.mission.trim();
     let model = input.model.as_deref().unwrap_or_default().trim();
-    if let Err(error) = runtime::validate_company_name(name) {
+    if let Err(error) = runtime::validate_new_company_name(name) {
         return api_error(StatusCode::BAD_REQUEST, "company", error.to_string());
     }
     if mission.len() > 4000

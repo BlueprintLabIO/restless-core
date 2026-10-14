@@ -1226,6 +1226,32 @@ pub fn validate_company_name(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Top-level paths the cockpit and the owner API claim on every plane. A company with one of these
+/// ids could be created, but its cockpit at `/<id>` would never open, because the static route wins.
+/// Keep in step with `web/src/routes` and the owner router.
+pub const RESERVED_COMPANY_NAMES: &[&str] = &[
+    "account",
+    "api",
+    "company",
+    "connections",
+    "desktop",
+    "documents",
+    "gallery",
+    "health",
+    "review",
+];
+
+/// The rule for a company being created: a valid name that no app route shadows. Existing
+/// companies are read with [`validate_company_name`] alone, so one created before this rule still
+/// loads and can be renamed or archived.
+pub fn validate_new_company_name(name: &str) -> Result<()> {
+    validate_company_name(name)?;
+    if RESERVED_COMPANY_NAMES.contains(&name) {
+        bail!("invalid company name {name:?}: it is reserved for an app page; choose another");
+    }
+    Ok(())
+}
+
 pub fn container_name(company: &str) -> String {
     match std::env::var("RESTLESS_RESOURCE_NAMESPACE") {
         Ok(namespace) if !namespace.is_empty() => format!("restless-{namespace}-co-{company}"),
@@ -4044,6 +4070,15 @@ mod tests {
         ContainerStatus, NativeHarnessConfig, COMPANY_IMAGE, DEFAULT_CPUS, DEFAULT_MEMORY,
         DEFAULT_PIDS_LIMIT,
     };
+
+    #[test]
+    fn a_new_company_cannot_take_an_app_route_but_an_existing_one_still_loads() {
+        for name in super::RESERVED_COMPANY_NAMES {
+            assert!(super::validate_new_company_name(name).is_err(), "{name}");
+            assert!(super::validate_company_name(name).is_ok(), "{name}");
+        }
+        assert!(super::validate_new_company_name("acme_goods").is_ok());
+    }
 
     #[test]
     fn legacy_unconfigured_sentinel_round_trips_without_becoming_a_model_route() {

@@ -5023,7 +5023,7 @@ pub async fn create_local_company_inner(
     run_startup_doctor: bool,
 ) -> Result<()> {
     static CREATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-    runtime::validate_company_name(&config.name)?;
+    runtime::validate_new_company_name(&config.name)?;
     for model in config.model_candidates()? {
         runtime::validate_company_model_selection(&model)?;
     }
