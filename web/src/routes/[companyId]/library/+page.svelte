@@ -121,7 +121,7 @@
 	} from '$lib/model/queries.svelte';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
-	const companyId = $derived(page.params.companyId ?? 'aris');
+	const companyId = $derived(page.params.companyId ?? '');
 	const root = $derived(`/${encodeURIComponent(companyId)}`);
 	const api = $derived(`/api/companies/${encodeURIComponent(companyId)}`);
 	const principal = $derived(companyPrincipalQuery(companyId));

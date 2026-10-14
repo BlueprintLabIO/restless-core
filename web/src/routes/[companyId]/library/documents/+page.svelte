@@ -2,6 +2,7 @@
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import { namePageContext } from '$lib/model/page-context.svelte';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	/* One document, full width, opened from the Library. Its discussion and
 	 * review open beside it on wide screens and in its place on narrow ones. */
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
@@ -32,6 +33,7 @@
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { sameDocumentTarget, type DocumentTarget } from '$lib/model/document-cache';
 	import {
+		deleteArchivedDocument,
 		documentFileName,
 		documentMarkdownDownload,
 		duplicateDocument,
@@ -40,6 +42,7 @@
 		requestDocumentAccess,
 		setDocumentArchived,
 		setDocumentParticipant,
+		type DocumentAccess,
 		type DocumentReadView
 	} from '$lib/model/documents';
 	import {
@@ -52,7 +55,7 @@
 	import { useForYou } from '$lib/model/for-you.svelte';
 	import { formatMoment, formatRelative } from '$lib/ui/time';
 
-	const companyId = $derived(page.params.companyId ?? 'aris');
+	const companyId = $derived(page.params.companyId ?? '');
 	const shellPrincipal = $derived(companyPrincipalQuery(companyId));
 	const ownerAccess = $derived(shellPrincipal.view?.membership_role === 'owner');
 	const collaboration = $derived(collaborationBootstrapQuery(companyId, () => shellPrincipal.view));
@@ -84,6 +87,8 @@
 	const mayRename = $derived(ownerAccess || ownsDocument || documentView?.access === 'edit');
 	const mayArchive = $derived(ownerAccess || documentView?.access === 'edit');
 	const archived = $derived(documentView?.document.status === 'archived');
+	/* An archived document's creator, or the company's owner, deletes it for good. */
+	const mayDelete = $derived(archived && (ownerAccess || ownsDocument));
 
 	/* A menu action is answered on the shared toast, with Undo when it can be taken back. */
 	const say = (message: string) => toast(message);
@@ -253,28 +258,67 @@
 		}
 	}
 
+	/* Deleting cannot be taken back, so it asks first; the Library's Archived list is next. */
+	async function deleteForever(): Promise<void> {
+		const target = currentTarget();
+		const title = documentView?.document.title ?? 'this document';
+		const yes = await confirmAction({
+			title: `Delete “${title}” permanently?`,
+			body: 'Its versions, comments and reviews go with it. This cannot be undone.',
+			action: 'Delete',
+			danger: true
+		});
+		if (!yes) return;
+		try {
+			await deleteArchivedDocument(target.companyId, target.documentId);
+			say(`“${title}” was deleted`);
+			await goto(`/${encodeURIComponent(target.companyId)}/library?show=archived`, {
+				replaceState: true
+			});
+			queries.removeQueries({
+				queryKey: documentQueryKeys.detail(target.companyId, target.documentId)
+			});
+			void queries.invalidateQueries({ queryKey: documentQueryKeys.list(target.companyId) });
+		} catch (cause) {
+			sayFailure(failureSentence(cause, `“${title}” was not deleted.`));
+		}
+	}
+
 	/* Talking a document through with Exec happens beside it, in the Exec rail, with the document
-	 * linked to the message. Exec sees a document only once it is shared with it, so a document
-	 * of the owner's own is shared with Exec to comment on first, and the owner is told. */
+	 * linked to the message. Exec sees a document only once it is shared with it, so whoever may
+	 * share it shares it with Exec to comment on first, and is told. Exec applies a bounded edit
+	 * the person asks for only under edit access (ARCHITECTURE §4.3), so the notice offers that
+	 * one deliberate step; it can be taken back. */
 	async function discuss(): Promise<void> {
 		const view = documentView;
 		const exec = people.find((person) => person.kind === 'exec');
 		const target = currentTarget();
-		if (view && exec && ownsDocument) {
+		if (view && exec && view.document.owner_actor_id !== exec.actor_id) {
 			try {
-				const listed = await getDocumentParticipants(target.companyId, target.documentId);
-				if (!listed.items.some((row) => row.actor_id === exec.actor_id)) {
-					await setDocumentParticipant(
-						target.companyId,
-						target.documentId,
-						exec.actor_id,
-						view.document.version,
-						'comment',
-						crypto.randomUUID()
-					);
-					const latest = await getDocument(target.companyId, target.documentId);
-					if (sameDocumentTarget(target, companyId, documentId)) detail.accept(target, latest);
-					say(`${exec.display} can now read and comment on this document`);
+				const listed = await getDocumentParticipants(
+					target.companyId,
+					target.documentId,
+					null,
+					200
+				);
+				const current = listed.items.find((row) => row.actor_id === exec.actor_id)?.access;
+				if (listed.may_manage && current !== 'edit') {
+					const letEdit = {
+						label: `Let ${exec.display} edit`,
+						run: () => void setExecAccess(target, exec, 'edit', current ?? 'comment')
+					};
+					if (!current) {
+						await setExecAccess(target, exec, 'comment', null, false);
+						toast(`${exec.display} can now read and comment on this document`, {
+							action: letEdit
+						});
+					} else
+						toast(
+							`${exec.display} can ${current === 'read' ? 'read' : 'comment on'} this document`,
+							{
+								action: letEdit
+							}
+						);
 				}
 			} catch (cause) {
 				sayFailure(
@@ -288,6 +332,45 @@
 				? `[${view.document.title.replace(/[[\]]/gu, '')}](/${encodeURIComponent(target.companyId)}/library/documents?document=${encodeURIComponent(target.documentId)}) `
 				: undefined
 		);
+	}
+	/* Exec's level on this document, set against its latest version; a change says so, with Undo
+	 * back to the level it had. */
+	async function setExecAccess(
+		target: DocumentTarget,
+		exec: { actor_id: string; display: string },
+		access: DocumentAccess,
+		previous: DocumentAccess | null,
+		announce = true
+	): Promise<void> {
+		try {
+			const before = await getDocument(target.companyId, target.documentId);
+			await setDocumentParticipant(
+				target.companyId,
+				target.documentId,
+				exec.actor_id,
+				before.document.version,
+				access,
+				crypto.randomUUID()
+			);
+			const latest = await getDocument(target.companyId, target.documentId);
+			if (sameDocumentTarget(target, companyId, documentId)) detail.accept(target, latest);
+			shareEpoch += 1;
+			if (!announce) return;
+			toast(
+				access === 'edit'
+					? `${exec.display} can now edit this document, and applies the changes you ask for`
+					: `${exec.display} can ${access === 'read' ? 'read' : 'comment on'} this document again`,
+				{
+					undo:
+						previous && previous !== access
+							? () => setExecAccess(target, exec, previous, access)
+							: undefined
+				}
+			);
+		} catch (cause) {
+			if (!announce) throw cause;
+			sayFailure(failureSentence(cause, `${exec.display}’s access did not change.`));
+		}
 	}
 
 	/* Following, and what others changed since this person last opened it. The notice says what
@@ -492,13 +575,11 @@
 							title={PRIVATE_HINT}><Lock size={13} strokeWidth={1.8} aria-label="Private" /></span
 						>{/if}{/snippet}
 				{#snippet actions()}
-					{#if ownerAccess && !documentView.document.linked_room_id}
+					{#if !documentView.document.linked_room_id}
 						<button
 							type="button"
 							class="btn small discuss"
-							title={ownsDocument
-								? 'Talk it through with Exec beside this document. Exec can then read and comment on it.'
-								: 'Talk it through with Exec beside this document'}
+							title="Talk it through with Exec beside this document. Where you may share it, Exec can then comment, and you can let Exec edit."
 							onclick={() => void discuss()}>Discuss</button
 						>
 					{:else}
@@ -582,7 +663,7 @@
 						title="A copy you own, with the same access"
 						onclick={() => void duplicate()}>Duplicate</button
 					>
-					{#if ownerAccess && !documentView.document.linked_room_id}
+					{#if !documentView.document.linked_room_id}
 						<button type="button" class="narrow-only" onclick={() => void discuss()}
 							>Discuss with Exec</button
 						>
@@ -608,6 +689,11 @@
 								? 'Return it to the Library as a draft'
 								: 'Take it out of the Library lists; restore it any time'}
 							onclick={() => void setArchived(!archived)}>{archived ? 'Restore' : 'Archive'}</button
+						>
+					{/if}
+					{#if mayDelete}
+						<button type="button" class="danger" onclick={() => void deleteForever()}
+							>Delete permanently…</button
 						>
 					{/if}
 				{/snippet}
@@ -726,6 +812,9 @@
 </div>
 
 <style>
+	.danger {
+		color: var(--state-danger);
+	}
 	.documents-screen {
 		position: relative;
 		display: grid;
