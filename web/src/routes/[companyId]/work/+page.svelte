@@ -359,7 +359,8 @@
 					status: row.status,
 					ownerName: ownerName(row.owner_id),
 					revision: row.revision,
-					href: workHref(row.id)
+					href: workHref(row.id),
+					needsYou: row.status !== 'completed' && waitingOnOwner.has(row.id)
 				}))
 		}))
 	);

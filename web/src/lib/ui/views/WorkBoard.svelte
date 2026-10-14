@@ -8,6 +8,8 @@
 		ownerName: string;
 		revision: number;
 		href: string;
+		/** A decision or step waits on the viewer: the card says so before anything else. */
+		needsYou?: boolean;
 	};
 
 	export type BoardColumn = {
@@ -42,12 +44,14 @@
 			{#each column.items as item (item.id)}
 				<a
 					class="board-item status-{item.status}"
+					class:needs-you={item.needsYou}
 					animate:listFlip
 					in:listIn
 					out:listOut
 					href={item.href}
-					aria-label={`Open Work: ${item.title}`}
+					aria-label={`Open Work: ${item.title}${item.needsYou ? ' (needs you)' : ''}`}
 				>
+					{#if item.needsYou}<span class="needs-you-badge">Needs you</span>{/if}
 					<strong style:view-transition-name={`work-title-${item.id}`}>{item.title}</strong>
 					{#if item.signal}<p>{item.signal}</p>{/if}
 					<footer>
@@ -149,6 +153,19 @@
 	.board-item:focus-visible {
 		outline: 2px solid var(--intent-conversation);
 		outline-offset: 2px;
+	}
+	.board-item.needs-you {
+		border-color: color-mix(in srgb, var(--intent-authority) 55%, var(--border-strong));
+	}
+	.needs-you-badge {
+		display: inline-block;
+		margin-bottom: 6px;
+		padding: 1px 7px;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--intent-authority) 16%, transparent);
+		color: color-mix(in srgb, var(--intent-authority) 70%, var(--ink));
+		font-size: var(--t-label);
+		font-weight: 600;
 	}
 	.board-item strong {
 		display: block;
