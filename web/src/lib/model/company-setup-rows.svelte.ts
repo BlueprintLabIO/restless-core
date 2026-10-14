@@ -201,7 +201,19 @@ export function createCompanySetup(companyIdOf: () => string) {
 
 	const rows = $derived(
 		[
-			row('charter', 'Charter', charter, BookOpen, charterMissing ? 1 : 0, 'Write the charter'),
+			/* A company without a charter goes back to the welcome conversation, where Exec reads
+			 * the company back and the owner's "Let's do it" saves it. */
+			{
+				...row(
+					'charter',
+					'Charter',
+					charter,
+					BookOpen,
+					charterMissing ? 1 : 0,
+					'Write the charter'
+				),
+				...(charterMissing && owner ? { href: `/${companyId}/welcome` } : {})
+			},
 			row(
 				'identity',
 				'Brand & voice',

@@ -105,7 +105,21 @@
 	let starting = $state(false);
 	let error = $state('');
 	let slow = $state(false);
-	let input: HTMLInputElement | undefined = $state();
+	let input: HTMLTextAreaElement | undefined = $state();
+	/* The charter is saved but the company's name did not change: say so, and offer it again. */
+	let nameFailure = $state('');
+	/* The charter this page saved; a changed read-back is saved again. */
+	let savedCharter = '';
+
+	/* The answer box grows with what the owner writes, up to a few lines, then scrolls. */
+	function grow() {
+		if (!input) return;
+		input.style.height = 'auto';
+		input.style.height = `${Math.min(input.scrollHeight, 220)}px`;
+	}
+	$effect(() => {
+		if (!answer) void tick().then(grow);
+	});
 
 	/* Say "thinking" only when the reply takes a moment; a quick one needs no words. */
 	$effect(() => {
@@ -152,35 +166,57 @@
 		if (starting || !readback.length) return;
 		starting = true;
 		error = '';
+		nameFailure = '';
+		const name = proposedName.trim();
 		try {
-			const view = company.view ?? (await company.refresh(), company.view);
-			const name = proposedName.trim();
-			await reviseCompanyCharter(
-				companyId,
-				charterFrom(readback, name),
-				view?.charter.revision ?? ''
-			);
-			if (name && name !== currentName) await rename(name);
+			const charter = charterFrom(readback, name);
+			if (charter !== savedCharter) {
+				if (savedCharter || !company.view) await company.refresh();
+				await reviseCompanyCharter(
+					companyId,
+					charter,
+					company.view?.charter.revision ?? '',
+					undefined,
+					'setup'
+				);
+				savedCharter = charter;
+			}
+		} catch (cause) {
+			error = failureSentence(cause, 'That didn’t save. Try again.');
+			starting = false;
+			return;
+		}
+		if (name && name !== currentName) {
+			try {
+				await rename(name);
+			} catch (cause) {
+				nameFailure = failureSentence(cause, 'The name didn’t save.');
+				starting = false;
+				return;
+			}
+		}
+		await finish();
+	}
+
+	async function finish() {
+		starting = true;
+		error = '';
+		nameFailure = '';
+		try {
 			await conversation.send(asAnswer('Let’s do it'), [], `/${companyId}/welcome`);
 			await goto(`/${companyId}?tour=1`);
 		} catch (cause) {
-			error = failureSentence(cause, 'That didn’t save. Try again.');
+			error = failureSentence(cause, 'That didn’t reach Exec. Try again.');
 			starting = false;
 		}
 	}
 
 	/* The name: Fleet owns it on Cloud and is renamed first; the company's setup keeps the copy
-	 * the cockpit shows. A name that cannot be saved yet is not worth stopping for: the charter
-	 * carries it. */
+	 * the cockpit shows. A failure is reported, never dropped: the read-back showed this name. */
 	async function rename(name: string) {
-		try {
-			await renameInAccount(companyId, name);
-		} catch {
-			return;
-		}
-		const current = await readCompanySetup(companyId).catch(() => null);
-		if (!current) return;
-		await saveCompanySetup(companyId, { ...current, display_name: name }).catch(() => null);
+		await renameInAccount(companyId, name);
+		const current = await readCompanySetup(companyId);
+		await saveCompanySetup(companyId, { ...current, display_name: name });
 	}
 
 	/* The conversation glides into the Exec rail as the company appears behind it. */
@@ -198,7 +234,7 @@
 
 	/* A company that already has a charter has met its owner. */
 	$effect(() => {
-		if (company.view?.charter.purpose.trim() && !starting)
+		if (company.view?.charter.purpose.trim() && !starting && !savedCharter)
 			void goto(`/${companyId}`, { replaceState: true });
 	});
 	holdQueries(() => [principal, company, conversation]);
@@ -225,12 +261,26 @@
 						<dd>{line.text}</dd>
 					{/each}
 				</dl>
-				<div class="go">
-					<button type="button" class="primary" onclick={begin} disabled={starting}
-						>{starting ? 'Setting things up…' : 'Let’s do it'}</button
-					>
-					<span>Or just tell me what I got wrong.</span>
-				</div>
+				{#if nameFailure}
+					<div class="go" role="alert">
+						<span class="name-failure"
+							>The charter is saved, but the name is still {currentName || 'unchanged'}: {nameFailure}</span
+						>
+						<button type="button" class="primary" onclick={begin} disabled={starting}
+							>Try the name again</button
+						>
+						<button type="button" class="quiet" onclick={finish} disabled={starting}
+							>Keep {currentName || 'it'} for now</button
+						>
+					</div>
+				{:else}
+					<div class="go">
+						<button type="button" class="primary" onclick={begin} disabled={starting}
+							>{starting ? 'Setting things up…' : 'Let’s do it'}</button
+						>
+						<span>Or just tell me what I got wrong.</span>
+					</div>
+				{/if}
 			</section>
 		{:else if stalled}
 			<p class="stalled" role="alert" title={stallReason}>
@@ -262,14 +312,22 @@
 				}}
 			>
 				<label class="sr-only" for="welcome-answer">Your answer</label>
-				<input
+				<textarea
 					id="welcome-answer"
 					bind:this={input}
 					bind:value={answer}
+					rows="1"
 					placeholder={readback.length ? 'What should I change?' : 'Just type how you’d say it…'}
 					autocomplete="off"
 					disabled={sending}
-				/>
+					title="Enter to send, Shift+Enter for a new line"
+					oninput={grow}
+					onkeydown={(event) => {
+						if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+							event.preventDefault();
+							void say(answer);
+						}
+					}}></textarea>
 				<button type="submit" aria-label="Send" disabled={!answer.trim() || sending}>
 					<svg
 						width="16"
@@ -363,20 +421,25 @@
 	}
 	.answer {
 		display: flex;
-		align-items: center;
+		align-items: flex-end;
 		gap: 12px;
-		height: 58px;
-		padding: 0 10px 0 22px;
-		border-radius: 999px;
+		min-height: 58px;
+		padding: 9px 9px 9px 22px;
+		border-radius: 29px;
 		background: var(--surface-raised);
 		box-shadow: var(--shadow-soft);
 		animation: settle 900ms 250ms var(--ease-out, ease-out) both;
 	}
-	.answer input {
+	.answer textarea {
 		flex: 1;
 		min-width: 0;
-		height: 100%;
+		align-self: center;
+		max-height: 220px;
+		padding: 4px 0;
+		resize: none;
 		border: 0;
+		box-shadow: none;
+		line-height: 1.4;
 		outline: 0;
 		background: transparent;
 		color: var(--ink);
@@ -500,6 +563,23 @@
 		font-size: var(--t-head);
 		font-weight: 400;
 		cursor: pointer;
+	}
+	.go .quiet {
+		height: 52px;
+		padding: 0 6px;
+		border: 0;
+		background: transparent;
+		color: var(--text-secondary);
+		font: inherit;
+		font-size: var(--t-head);
+		font-weight: 300;
+		text-decoration: underline;
+		text-underline-offset: 6px;
+		cursor: pointer;
+	}
+	.name-failure {
+		flex-basis: 100%;
+		color: var(--text-secondary);
 	}
 	.error {
 		margin: 0;
