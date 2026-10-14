@@ -208,20 +208,25 @@
 	}
 
 	/* The latest saved version, read fresh: edits save as versions within seconds of a pause. */
-	async function downloadMarkdown(): Promise<void> {
+	async function download(format: 'md' | 'docx'): Promise<void> {
 		const target = currentTarget();
 		try {
 			const latest = await getDocument(target.companyId, target.documentId);
 			if (sameDocumentTarget(target, companyId, documentId)) detail.accept(target, latest);
-			const url = URL.createObjectURL(
-				new Blob(
-					[documentMarkdownDownload(latest.document.title, latest.current_version.markdown)],
-					{ type: 'text/markdown;charset=utf-8' }
-				)
-			);
+			const blob =
+				format === 'md'
+					? new Blob(
+							[documentMarkdownDownload(latest.document.title, latest.current_version.markdown)],
+							{ type: 'text/markdown;charset=utf-8' }
+						)
+					: (await import('$lib/model/document-docx')).documentDocx(
+							latest.document.title,
+							latest.current_version.version.content_json
+						);
+			const url = URL.createObjectURL(blob);
 			const link = window.document.createElement('a');
 			link.href = url;
-			link.download = documentFileName(latest.document.title, 'md');
+			link.download = documentFileName(latest.document.title, format);
 			link.click();
 			setTimeout(() => URL.revokeObjectURL(url), 1_000);
 		} catch (cause) {
@@ -562,8 +567,13 @@
 						</p>{/if}
 					<button
 						type="button"
+						title="The latest saved version, as a Word file"
+						onclick={() => void download('docx')}>Download as Word</button
+					>
+					<button
+						type="button"
 						title="The latest saved version, as a Markdown file"
-						onclick={() => void downloadMarkdown()}>Download as Markdown</button
+						onclick={() => void download('md')}>Download as Markdown</button
 					>
 					<button type="button" onclick={printDocument}>Print or save as PDF</button>
 					<button type="button" onclick={() => void copyLink()}>Copy link</button>
