@@ -197,11 +197,10 @@
 		() => viewerActorId
 	);
 
-	/* Every person in the company talks to Exec and the team; reviews are the owner's decisions. */
-	const canOperate = $derived(
-		['owner', 'operator', 'admin', 'member'].includes(membershipRole ?? '')
-	);
-	const canDecide = $derived(['owner', 'operator'].includes(membershipRole ?? ''));
+	/* Every person in the company talks to Exec and the team, and decides a review handed to
+	 * them; the server checks the review is theirs to decide. */
+	const canOperate = $derived(['owner', 'admin', 'member'].includes(membershipRole ?? ''));
+	const canDecide = $derived(canOperate);
 
 	/* Pinned messages stay in reach above the conversation. */
 	const pinnedMessages = $derived.by(() => {
@@ -1022,7 +1021,7 @@
 						label={deciding ? 'Recording…' : 'Hold to accept'}
 						title="Hold to accept outcome"
 						completeLabel="accepted ✓"
-						disabled={deciding || sending}
+						disabled={!canDecide || deciding || sending}
 						onapprove={() => void acceptReview()}
 					/>
 				</div>
