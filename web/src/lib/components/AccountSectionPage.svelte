@@ -30,7 +30,7 @@
 		appearance: {
 			id: 'appearance',
 			title: 'Appearance',
-			tooltip: 'Light, dark, or follow this device'
+			tooltip: 'Light, dark, or follow this device. Saved in this browser on this device only.'
 		}
 	};
 	const current = $derived(SECTIONS[id]);

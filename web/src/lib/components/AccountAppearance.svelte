@@ -9,22 +9,21 @@
 
 <div class="appearance-choices" role="radiogroup" aria-label="Appearance">
 	{#each choices as choice (choice.value)}
-		<button
-			type="button"
-			role="radio"
-			class="appearance-choice"
-			aria-checked={theme.preference === choice.value}
-			onclick={() => theme.set(choice.value)}
-		>
+		<label class="appearance-choice" title={`${choice.detail}. Saved on this device.`}>
+			<input
+				class="sr-only"
+				type="radio"
+				name="appearance"
+				value={choice.value}
+				checked={theme.preference === choice.value}
+				onchange={() => theme.set(choice.value)}
+			/>
 			<span class="preview preview-{choice.value}" aria-hidden="true">
 				<i class="half light"><b></b><b></b><b></b></i>
 				<i class="half dark"><b></b><b></b><b></b></i>
 			</span>
-			<span class="choice-copy">
-				<strong>{choice.label}</strong>
-				<small>{choice.detail}</small>
-			</span>
-		</button>
+			<strong class="choice-copy">{choice.label}</strong>
+		</label>
 	{/each}
 </div>
 
@@ -52,7 +51,11 @@
 	.appearance-choice:hover {
 		border-color: var(--edge-control-hover);
 	}
-	.appearance-choice[aria-checked='true'] {
+	.appearance-choice:has(input:focus-visible) {
+		outline: 2px solid var(--intent-feedback);
+		outline-offset: 2px;
+	}
+	.appearance-choice:has(input:checked) {
 		border-color: var(--intent-conversation);
 		box-shadow: 0 0 0 1px var(--intent-conversation);
 	}
@@ -102,16 +105,8 @@
 		display: none;
 	}
 	.choice-copy {
-		display: grid;
-		gap: 2px;
 		padding: 0 var(--space-2) var(--space-2);
-	}
-	.choice-copy strong {
 		font-weight: 500;
-	}
-	.choice-copy small {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
 	}
 	@media (max-width: 760px) {
 		.appearance-choices {
