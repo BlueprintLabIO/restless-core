@@ -4,6 +4,8 @@
 //! asks Authority to reserve the matching permit, and only then dispatches the
 //! prepared payload. This module never looks up or returns the provider key.
 
+use std::collections::BTreeMap;
+
 use anyhow::{bail, Context, Result};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
@@ -78,6 +80,9 @@ pub struct EmailSendRequest {
     pub effect_key: String,
     #[serde(default)]
     pub permit_id: Uuid,
+    /// The Message-ID of the email this answers, so the reply lands in the customer's thread.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub in_reply_to: Option<String>,
 }
 
 /// Bytes resolved by the host for a declared attachment reference.
@@ -105,6 +110,8 @@ struct ProviderPayload {
     html: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     attachments: Vec<ProviderAttachment>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    headers: BTreeMap<&'static str, String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -125,6 +132,8 @@ struct CanonicalPayload<'a> {
     text: &'a Option<String>,
     html: &'a Option<String>,
     attachments: Vec<CanonicalAttachment<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    in_reply_to: Option<&'a str>,
 }
 
 /// Prepared, validated email whose digest identifies its complete actual
@@ -514,6 +523,13 @@ pub fn prepare_email(
             content: base64::engine::general_purpose::STANDARD.encode(&actual.bytes),
         });
     }
+    let in_reply_to = request.in_reply_to.as_deref().map(str::trim).filter(|id| !id.is_empty());
+    if in_reply_to.is_some_and(|id| id.len() > 998 || id.chars().any(char::is_control)) {
+        bail!("in_reply_to must be one Message-ID of at most 998 characters with no control characters");
+    }
+    let headers = in_reply_to
+        .map(|id| BTreeMap::from([("In-Reply-To", id.to_owned()), ("References", id.to_owned())]))
+        .unwrap_or_default();
     let text = request.text;
     let html = request.html;
     let canonical = CanonicalPayload {
@@ -525,6 +541,7 @@ pub fn prepare_email(
         text: &text,
         html: &html,
         attachments: canonical_attachments,
+        in_reply_to,
     };
     let payload_sha256 =
         hex_sha256(&serde_json::to_vec(&canonical).context("serialize canonical email payload")?);
@@ -544,6 +561,7 @@ pub fn prepare_email(
         text,
         html,
         attachments: provider_attachments,
+        headers,
     };
     Ok(PreparedEmail {
         from,

@@ -602,8 +602,21 @@ pub async fn reserve(
     if prior {
         bail!("email permit or effect key has already been consumed");
     }
+    // A reply is not outreach: once this correspondent has written in after an earlier email
+    // to them, Exec may answer in that thread. Only an outcome nobody knows still refuses.
+    let latest_inbound: Option<i64> = sqlx::query_scalar(
+        "SELECT max(id) FROM restless_authority.records \
+         WHERE company=$1 AND kind='inbound_effect' \
+           AND body->>'type' IN ('email.received','email.inbound') \
+           AND (lower(body->>'party')=$2 OR lower(body->>'party') LIKE '%<' || $2 || '>')",
+    )
+    .bind(company)
+    .bind(recipient.as_str())
+    .fetch_one(&mut *tx)
+    .await?;
+    let answered = |id: i64| latest_inbound.is_some_and(|inbound| inbound > id);
     let prior_recipient_reservations = sqlx::query(
-        "SELECT body FROM restless_authority.records \
+        "SELECT id, body FROM restless_authority.records \
          WHERE company=$1 AND kind='email_send_reserved' AND lower(body->>'recipient')=$2",
     )
     .bind(company)
@@ -611,6 +624,7 @@ pub async fn reserve(
     .fetch_all(&mut *tx)
     .await?;
     for prior in prior_recipient_reservations {
+        let prior_id: i64 = prior.try_get("id")?;
         let body: Value = prior.try_get("body")?;
         let prior_key = body
             .get("effect_key")
@@ -625,21 +639,27 @@ pub async fn reserve(
         .bind(prior_key)
         .fetch_optional(&mut *tx)
         .await?;
-        if last_outcome.as_deref() != Some("confirmed_not_sent") {
-            bail!(
-                "recipient already has a sent or uncertain outbound email under an email mandate"
-            );
+        match last_outcome.as_deref() {
+            Some("confirmed_not_sent") => {}
+            Some("confirmed_sent") if answered(prior_id) => {}
+            Some("confirmed_sent") => bail!(
+                "recipient already has a sent outbound email under an email mandate and has not written back since"
+            ),
+            _ => bail!(
+                "recipient already has an uncertain outbound email under an email mandate; reconcile it before replying"
+            ),
         }
     }
     for receipt in sqlx::query(
-        "SELECT body FROM restless_authority.records WHERE company=$1 AND kind='effect'",
+        "SELECT id, body FROM restless_authority.records WHERE company=$1 AND kind='effect'",
     )
     .bind(company)
     .fetch_all(&mut *tx)
     .await?
     {
         let body: Value = receipt.try_get("body")?;
-        if body.get("effect_class").and_then(Value::as_str) == Some("customer-contact.email")
+        if !answered(receipt.try_get("id")?)
+            && body.get("effect_class").and_then(Value::as_str) == Some("customer-contact.email")
             && body
                 .get("party")
                 .and_then(Value::as_str)
@@ -649,14 +669,20 @@ pub async fn reserve(
             bail!("recipient already has a successful customer-contact.email receipt");
         }
     }
+    // A generic attempt the correspondent has since answered is settled only if it has a result.
     let prior_generic_intent: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM restless_authority.records \
-         WHERE company=$1 AND kind='effect_intent' \
-           AND body->>'effect_class'='customer-contact.email' \
-           AND lower(body->>'party')=$2)",
+        "SELECT EXISTS(SELECT 1 FROM restless_authority.records intent \
+         WHERE intent.company=$1 AND intent.kind='effect_intent' \
+           AND intent.body->>'effect_class'='customer-contact.email' \
+           AND lower(intent.body->>'party')=$2 \
+           AND NOT (intent.id < COALESCE($3, 0) AND EXISTS(SELECT 1 FROM restless_authority.records receipt \
+             WHERE receipt.company=$1 AND receipt.kind='effect' \
+               AND receipt.body->>'idempotency_key'=intent.body->>'idempotency_key' \
+               AND receipt.body->>'execution_no'=intent.body->>'execution_no')))",
     )
     .bind(company)
     .bind(recipient.as_str())
+    .bind(latest_inbound)
     .fetch_one(&mut *tx)
     .await?;
     if prior_generic_intent {
@@ -897,5 +923,95 @@ mod replace_tests {
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, replaced.id);
         assert_eq!(listed[0].max_per_day, 10);
+    }
+
+    /// A reply is not new outreach: after a send, the same recipient is refused until they
+    /// write back, and each message they send allows one answer in that thread.
+    #[tokio::test]
+    async fn a_correspondent_who_writes_back_can_be_answered_once_per_message() {
+        let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping mandate reply scenario");
+            return;
+        };
+        let authority = AuthorityStore::connect(&database_url).await.unwrap();
+        let company = format!("mandate_reply_{}", Uuid::new_v4().simple());
+        let proposed = authority
+            .propose_email_mandate(&company, "exec", proposal(10), None, None)
+            .await
+            .unwrap();
+        let mandate = authority
+            .decide_email_mandate_proposal(&company, "owner", proposed, true, None)
+            .await
+            .unwrap()
+            .unwrap();
+        let send = |n: u32| {
+            let authority = &authority;
+            let company = &company;
+            async move {
+                let digest = format!("{n:064x}");
+                let key = format!("reply-{n}");
+                let permit = authority
+                    .issue_email_permit(
+                        company,
+                        "exec",
+                        mandate.id,
+                        EmailPermitProposal {
+                            sender: "hello@example.com".into(),
+                            recipient: "customer@example.com".into(),
+                            payload_sha256: digest.clone(),
+                            effect_key: key.clone(),
+                            rationale: "They asked a question.".into(),
+                            evidence_refs: vec!["inbound".into()],
+                            expires_at: Utc::now() + chrono::Duration::minutes(4),
+                        },
+                    )
+                    .await?;
+                authority
+                    .reserve_email_send(
+                        company,
+                        permit.id,
+                        "hello@example.com",
+                        None,
+                        "customer@example.com",
+                        &digest,
+                        &key,
+                    )
+                    .await?;
+                authority
+                    .record_email_send_status(
+                        company,
+                        permit.id,
+                        &key,
+                        ProviderOutcome::ConfirmedSent,
+                        Some(&format!("re_{n}")),
+                        None,
+                    )
+                    .await
+            }
+        };
+        let inbound = |n: u32| {
+            let authority = &authority;
+            let company = &company;
+            async move {
+                authority
+                    .emit_inbound_once_with_id(
+                        company,
+                        serde_json::json!({
+                            "provider_event_id": format!("evt-{n}"),
+                            "type": "email.received",
+                            "party": "Customer <Customer@example.com>",
+                        }),
+                    )
+                    .await
+                    .unwrap();
+            }
+        };
+        send(1).await.unwrap();
+        assert!(send(2).await.is_err(), "a second email before they write back is outreach");
+        inbound(1).await;
+        send(3).await.unwrap();
+        assert!(send(4).await.is_err(), "one answer per message they sent");
+        inbound(2).await;
+        send(5).await.unwrap();
     }
 }

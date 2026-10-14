@@ -600,7 +600,9 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          recipient-specific rationale and evidence in restless mandate permit --mandate <id> \
          --proposal-file <json>, then restless email send --request-file <json> with that \
          permit id. The email JSON names from, optional from_name, to, subject, text or html, effect_key, permit_id, \
-         and optional declared attachments. The permit JSON names sender, recipient, \
+         optional in_reply_to (the Message-ID you answer, so a reply stays in the customer's thread) \
+         and optional declared attachments. A mandate covers one first email per recipient; once \
+         they write back, each message they send allows one reply in that thread. The permit JSON names sender, recipient, \
          payload_sha256, effect_key, rationale, evidence_refs and an expiry within five minutes. \
          Reconcile prior sends and unknown outcomes before proposing; never retry an uncertain \
          external effect. A provider-accepted send is not proof of delivery. Use `restless email \
