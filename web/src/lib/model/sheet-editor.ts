@@ -16,6 +16,7 @@ import type { SheetRow } from './sheets';
 import { sheetFaces, type PageFace } from './page-faces.ts';
 import { MAX_UPLOAD_BYTES, attachmentHref, uploadAttachments } from './attachments.ts';
 import { failureSentence } from './failure.ts';
+import { closestSheetLocale, sheetCurrency, sheetLocales } from './sheet-locale.ts';
 
 class Root extends Component {
 	static template = xml`<Spreadsheet model="props.model"/>`;
@@ -272,6 +273,32 @@ tr { break-inside: avoid; }
 </style></head><body><h1>${heading}</h1><table>${widths}${body}</table></body></html>`;
 }
 
+/* A new, empty sheet takes the number and date conventions of the person who opens it first, as
+ * a shared edit, rather than the engine's US default. Later it is changed in File > Settings. */
+function localeOnce(model: any, sheet: string) {
+	const key = `restless:sheet-locale:${sheet}`;
+	try {
+		if (localStorage.getItem(key)) return;
+		localStorage.setItem(key, '1');
+	} catch {
+		return;
+	}
+	const empty = model.getters
+		.getSheetIds()
+		.every((id: string) => !Object.keys(model.getters.getCells(id) ?? {}).length);
+	const wanted = closestSheetLocale(navigator.language || 'en-US');
+	if (empty && model.getters.getLocale().code === 'en_US' && wanted.code !== 'en_US')
+		model.dispatch('UPDATE_LOCALE', { locale: wanted });
+}
+/* The currency presets in the engine's format menu follow the sheet's locale. */
+function followCurrency(model: any) {
+	const code = model.getters.getLocale().code;
+	if (model.config.defaultCurrencyFor !== code) {
+		model.config.defaultCurrencyFor = code;
+		model.config.defaultCurrency = sheetCurrency(code);
+	}
+}
+
 export function mountSheet(
 	element: HTMLDivElement,
 	company: string,
@@ -384,6 +411,7 @@ export function mountSheet(
 			selected(value);
 		}
 		drawMarks(model, element, marks);
+		followCurrency(model);
 	}
 	/* Each face takes the selection colour the grid gives that person's session. */
 	function showFaces(value: unknown = present) {
@@ -689,7 +717,7 @@ export function mountSheet(
 								transportService: transport,
 								client: { id: clientId, name: 'You' },
 								mode: access === 'edit' ? 'normal' : 'readonly',
-								external: { fileStore: pictures }
+								external: { fileStore: pictures, loadLocales: async () => sheetLocales() }
 							},
 							state.messages.map((m: { message: UpstreamMessage }) => m.message)
 						);
@@ -703,7 +731,10 @@ export function mountSheet(
 							mounted.destroy();
 							return;
 						}
-						if (access === 'edit') fitColumnsOnce(model, sheet);
+						if (access === 'edit') {
+							fitColumnsOnce(model, sheet);
+							localeOnce(model, sheet);
+						}
 						if (carried?.edits) replay(carried);
 						carried = undefined;
 						gridChanged();
