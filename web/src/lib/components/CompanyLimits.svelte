@@ -767,6 +767,12 @@
 							editingRuntime = true;
 						}}>Edit limits</button
 					>{/if}
+				<a
+					class="btn small ghost"
+					href={`/${companyId}/company/schedules`}
+					title="Each due schedule wakes the computer, and one due sooner than its sleep timeout keeps it awake. Schedules marks those."
+					>Schedules</a
+				>
 				<CopyCompanySetting
 					{companyId}
 					setting="runtime"

@@ -9,8 +9,8 @@
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { page } from '$app/state';
-	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
-	import { mayManageCompanySetup } from '$lib/model/company-access';
+	import { companyPrincipalQuery, companyQuery } from '$lib/model/queries.svelte';
+	import { hasOwnerSurfaceAccess, mayManageCompanySetup } from '$lib/model/company-access';
 	import { createQuery } from '@tanstack/svelte-query';
 	import {
 		monitorSchedules,
@@ -39,6 +39,22 @@
 	/* Owners and admins run the schedules; everyone else sees them. */
 	const principal = $derived(companyPrincipalQuery(companyId));
 	const canManage = $derived(mayManageCompanySetup(principal.view));
+	/* How schedules meet the computer's sleep and its monthly hours: the owner's view only. */
+	const owner = $derived(hasOwnerSurfaceAccess(principal.view));
+	const company = $derived(companyQuery(companyId, () => owner));
+	$effect(() => {
+		if (owner) company.attach();
+	});
+	const runtimeLimits = $derived(owner ? (company.view?.limits.runtime ?? null) : null);
+	const hoursUsedUp = $derived(
+		runtimeLimits?.monthly_runtime_cap_hours != null && runtimeLimits.usage?.remaining_seconds === 0
+	);
+	/* A run wakes a sleeping computer; one due sooner than its sleep timeout keeps it awake. */
+	const keepsAwake = (item: MonitoredSchedule) => {
+		const sleepAfter = runtimeLimits?.sleep_after_minutes;
+		const every = item.schedule.interval_seconds;
+		return !item.schedule.local_time && !!sleepAfter && !!every && every < sleepAfter * 60;
+	};
 	const query = createQuery(() => ({
 		queryKey: ['schedules', companyId],
 		queryFn: () => monitorSchedules(companyId)
@@ -215,6 +231,16 @@
 				>{/snippet}
 		</Notice>{/if}
 
+	{#if hoursUsedUp}<Notice
+			tone="warning"
+			title="Scheduled runs are stopped"
+			details="This month's computer hours are used up, so due schedules cannot wake the computer until the limit is raised or the month ends."
+		>
+			{#snippet actions()}<a class="btn small" href={`/${companyId}/company/resources#computer`}
+					>Raise the limit</a
+				>{/snippet}
+		</Notice>{/if}
+
 	{#if creating}
 		<Section title="New schedule">
 			<form onsubmit={create}>
@@ -230,7 +256,7 @@
 				<Row
 					label="Repeat"
 					stack
-					info="An interval counts from when the schedule is made. A time of day runs in the zone you choose; a run missed by more than two hours is skipped."
+					info={`An interval counts from when the schedule is made. A time of day runs in the zone you choose; a run missed by more than two hours is skipped. Each run wakes the company computer${runtimeLimits?.sleep_after_minutes ? `, and one due within ${runtimeLimits.sleep_after_minutes} minutes keeps it from sleeping, using its monthly hours` : ''}.`}
 				>
 					<ScheduleCadence bind:cadence id="new-schedule-repeat" disabled={!!busy} />
 				</Row>
@@ -263,6 +289,8 @@
 				meta={[
 					cadenceText(item),
 					paused ? 'Paused' : null,
+					!paused && hoursUsedUp ? 'Stopped by the monthly hours limit' : null,
+					!paused && !hoursUsedUp && keepsAwake(item) ? 'Keeps the computer awake' : null,
 					problem ? headline(problem.outcome, problem.outcome_reason).line : null
 				]
 					.filter(Boolean)
