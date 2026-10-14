@@ -40,8 +40,12 @@
 		companyPrincipalQuery,
 		cockpitQuery
 	} from '$lib/model/queries.svelte';
-	import { conversationQuery } from '$lib/model/queries.svelte';
-	import { cockpitContextPath } from '$lib/model/attention';
+	import { conversationQuery, type ActiveAgentTurn } from '$lib/model/queries.svelte';
+	import {
+		cockpitContextPath,
+		openAgentActivityStream,
+		type AgentActivityState
+	} from '$lib/model/attention';
 	import {
 		roomActivityStream,
 		roomMessageRevisionsQuery,
@@ -610,11 +614,53 @@
 						: null))
 			: null
 	);
+	/* Exec or a team lead, for anyone in the company: the message goes to their conversation (as
+	 * the rail sends it), so its reply is followed live and selected skills travel with it. */
 	const accountableDirect = $derived(
-		ownerAccess &&
-			!!directPerson &&
+		!!directPerson &&
 			(directPerson.kind === 'exec' ||
 				teams.some((team) => team.lead_actor_id === directPerson.actor_id))
+	);
+	/* Stopping a reply is the owner's or an admin's, as the server allows. */
+	const mayInterrupt = $derived(
+		['owner', 'admin'].includes(principalProjection.view?.membership_role ?? '')
+	);
+	/* Any other agent here (a Staff member in a direct chat, or agents in a group): what each is
+	 * doing now, followed from its activity stream, so the conversation never looks idle while an
+	 * agent works on what was said. */
+	const watchedAgents = $derived(
+		accountableDirect
+			? []
+			: participants
+					.map((participant) => participant.actor_id)
+					.filter((actor) => actor !== currentActorId && actorIsAgent(actor))
+					.slice(0, 4)
+	);
+	let agentActivity = $state<Record<string, AgentActivityState>>({});
+	$effect(() => {
+		const company = companyId;
+		const actors = watchedAgents;
+		agentActivity = {};
+		if (!actors.length || typeof EventSource === 'undefined') return;
+		const closers = actors.map((actor) =>
+			openAgentActivityStream(company, actor, {}, (state) => {
+				agentActivity = { ...agentActivity, [actor]: state };
+			})
+		);
+		return () => closers.forEach((close) => close());
+	});
+	const agentTurns = $derived(
+		watchedAgents.flatMap((actor) => {
+			const state = agentActivity[actor];
+			if (!state || state.phase === 'complete' || state.phase === 'failed') return [];
+			const turn: ActiveAgentTurn = {
+				triggerMessageId: 0,
+				since: state.startedAt ?? state.updatedAt,
+				live: state,
+				transport: 'live'
+			};
+			return [{ actor, turn }];
+		})
 	);
 	const actorConversation = $derived(
 		directPartner && actorIsAgent(directPartner)
@@ -1147,7 +1193,7 @@
 					files,
 					contextPath,
 					false,
-					!!actorConversation?.working && accountableDirect && interruptNext,
+					!!actorConversation?.working && accountableDirect && mayInterrupt && interruptNext,
 					undefined,
 					skills
 				);
@@ -1619,6 +1665,9 @@
 					{#if leadTurn}
 						<ConversationTurnDock participantName={actorDisplay} turn={leadTurn} />
 					{/if}
+					{#each agentTurns as agent (agent.actor)}
+						<ConversationTurnDock participantName={actorName(agent.actor)} turn={agent.turn} />
+					{/each}
 				{/if}
 			</div>
 
@@ -1812,7 +1861,10 @@
 				),
 				...personOptions(roomPeople, roster)
 			]}
-			interruptible={!!actorConversation?.working && accountableDirect && threadRootId === null}
+			interruptible={!!actorConversation?.working &&
+				accountableDirect &&
+				mayInterrupt &&
+				threadRootId === null}
 			bind:interrupt={interruptNext}
 			actionLabel={retryCommandId && retryBody === composer.trim() ? 'Retry send' : 'Send'}
 			disabled={sending || !online || (selectedRoom?.kind === 'direct' && !canExtendDirect)}
