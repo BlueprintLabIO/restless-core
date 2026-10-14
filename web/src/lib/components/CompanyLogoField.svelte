@@ -122,7 +122,7 @@
 		class:failed={!!error}
 		role="status"
 		aria-live="polite"
-		title={error || saved || undefined}>{error ? 'Not saved' : saved && !busy ? 'Saved' : ''}</span
+		title={saved || undefined}>{error ? `Not saved: ${error}` : saved && !busy ? 'Saved' : ''}</span
 	>
 	<input
 		bind:this={input}
@@ -137,6 +137,7 @@
 <style>
 	.logo-field {
 		display: inline-flex;
+		flex-wrap: wrap;
 		align-items: center;
 		justify-content: flex-end;
 		gap: var(--space-2);
@@ -171,7 +172,11 @@
 	.logo-state:empty {
 		display: none;
 	}
+	/* The reason sits under the controls, readable on touch and to a screen reader. */
 	.failed {
+		flex-basis: 100%;
 		color: var(--state-danger);
+		text-align: right;
+		white-space: normal;
 	}
 </style>

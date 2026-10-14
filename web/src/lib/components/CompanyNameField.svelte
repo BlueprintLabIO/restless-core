@@ -121,14 +121,9 @@
 		disabled={!ready}
 		aria-invalid={!!error}
 	/>
-	<span
-		class="name-state"
-		class:failed={!!error}
-		role="status"
-		aria-live="polite"
-		title={error || undefined}
+	<span class="name-state" class:failed={!!error} role="status" aria-live="polite"
 		>{error
-			? 'Not saved'
+			? `Not saved: ${error}`
 			: saving
 				? 'Saving…'
 				: saveState === 'saved' && !dirty
@@ -140,6 +135,7 @@
 <style>
 	.name-field {
 		display: inline-flex;
+		flex-wrap: wrap;
 		align-items: center;
 		justify-content: flex-end;
 		gap: var(--space-2);
@@ -158,7 +154,11 @@
 	.name-state:empty {
 		display: none;
 	}
+	/* The reason sits under the field, readable on touch and to a screen reader. */
 	.failed {
+		flex-basis: 100%;
 		color: var(--state-danger);
+		text-align: right;
+		white-space: normal;
 	}
 </style>
