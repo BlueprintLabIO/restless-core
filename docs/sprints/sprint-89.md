@@ -45,3 +45,9 @@ charter editing, growing replies and hidden-review-note recovery; open-latest ch
 The full S89-04 acceptance remains pending the separate stale-brand and outcome-review issues.
 Reproduce with scripts/seed-inbox-actions.mjs after seed-reno-scale.mjs, then npm --prefix web run
 verify:inbox with RESTLESS_SMOKE_ORIGIN and RESTLESS_SMOKE_COMPANY set.
+
+The footer slice is committed as 874ae40c on codex/cockpit-overhaul. The rest of Sprint 89
+remains active in the Core and Cloud worktrees. Its temporary model, daemon, Vite, six containers,
+four volumes, one network, two image tags and ui10x_test profile were removed after verification.
+The browser tab was closed. Screenshots and JSON evidence were retained in the task's Windows
+visualizations directory. Restart an isolated dev stack and rerun the guarded seeds for further QA.
