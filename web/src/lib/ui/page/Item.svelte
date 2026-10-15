@@ -258,7 +258,8 @@
 		background: var(--surface-hover);
 	}
 	@media (hover: hover) and (pointer: fine) {
-		.stacked:is(:hover, :focus-within) .item-trailing {
+		.stacked:has(.item-actions:not(:empty)):is(:hover, :focus-within)
+			.item-trailing:not(:has(:global(a, button, details, input, label))) {
 			visibility: hidden;
 		}
 	}

@@ -2016,14 +2016,15 @@
 	/* On a narrow pane the sidebar steps out for a row of the same views. */
 	.library-filters {
 		display: flex;
+		flex-wrap: wrap;
 		gap: 2px;
 		padding: 6px 8px;
-		overflow-x: auto;
 		border-bottom: 1px solid var(--border);
-		scrollbar-width: none;
 	}
 	.library-filters a {
 		flex: none;
+		max-width: 100%;
+		overflow-wrap: anywhere;
 		padding: 5px 10px;
 		border-radius: var(--radius-control);
 		color: var(--text-secondary);

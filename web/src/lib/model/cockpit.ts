@@ -41,10 +41,11 @@ export interface CompanyCatalogEntry {
 	};
 }
 
-export async function getCompanies(): Promise<CompanyCatalogEntry[]> {
+export async function getCompanies(signal?: AbortSignal): Promise<CompanyCatalogEntry[]> {
 	const response = await bootFetch('/api/companies', {
 		credentials: 'same-origin',
-		cache: 'no-store'
+		cache: 'no-store',
+		signal
 	});
 	if (!response.ok) throw await responseFailure(response);
 	return response.json();
@@ -126,13 +127,18 @@ export async function getArchivedCompany(company: string): Promise<ArchivedCompa
 	return response.json();
 }
 
-export async function getCockpit(company: string, probeCredentials = false): Promise<CockpitView> {
+export async function getCockpit(
+	company: string,
+	probeCredentials = false,
+	signal?: AbortSignal
+): Promise<CockpitView> {
 	const query = probeCredentials ? '?probe_credentials=true' : '';
 	const response = await bootFetch(
 		`/api/companies/${encodeURIComponent(company)}/cockpit${query}`,
 		{
 			credentials: 'same-origin',
-			cache: 'no-store'
+			cache: 'no-store',
+			signal
 		}
 	);
 	if (!response.ok) throw await responseFailure(response);
@@ -143,12 +149,7 @@ export async function getCockpit(company: string, probeCredentials = false): Pro
  * not a probe of ACP session health or whether a turn is running. */
 export function actorCanReceive(view: CockpitView | null, actorId: string): boolean {
 	if (!view || view.source_health.orgintel !== 'available') return false;
-	return (
-		actorId === 'exec' ||
-		view.teams.some(
-			(team) =>
-				team.lead_actor_id === actorId &&
-				view.people.some((person) => person.actor_id === actorId && person.kind === 'staff')
-		)
+	return view.people.some(
+		(person) => person.actor_id === actorId && (person.kind === 'exec' || person.kind === 'staff')
 	);
 }

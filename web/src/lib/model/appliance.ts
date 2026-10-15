@@ -1,4 +1,5 @@
 import { ownerRequest } from './setting.svelte';
+import { bootFetch } from './boot-fetch';
 
 export interface ApplianceStatus {
 	profile: 'stable' | 'dev' | 'test';
@@ -32,7 +33,10 @@ let shared: Promise<ApplianceStatus | null> | null = null;
 
 /** This plane's status, read once per page load and shared by every reader. */
 export function planeStatus(): Promise<ApplianceStatus | null> {
-	shared ??= getApplianceStatus().catch(() => null);
+	shared ??= getApplianceStatus().catch(() => {
+		shared = null;
+		return null;
+	});
 	return shared;
 }
 
@@ -42,7 +46,7 @@ export function hostPlace(status: ApplianceStatus | null): string {
 }
 
 export async function getApplianceStatus(signal?: AbortSignal): Promise<ApplianceStatus> {
-	const response = await fetch('/api/appliance', {
+	const response = await bootFetch('/api/appliance', {
 		headers: { accept: 'application/json' },
 		signal
 	});

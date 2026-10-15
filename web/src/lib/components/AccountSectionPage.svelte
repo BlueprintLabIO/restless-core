@@ -7,13 +7,12 @@
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import AccountFrame from '$lib/components/AccountFrame.svelte';
 	import AccountConnections from '$lib/components/AccountConnections.svelte';
-	import AccountAiApps from '$lib/components/AccountAiApps.svelte';
 	import AccountAppearance from '$lib/components/AccountAppearance.svelte';
 	import AccountAppliance from '$lib/components/AccountAppliance.svelte';
 	import AccountPage from '$lib/ui/views/AccountPage.svelte';
 	import type { AccountSection } from '$lib/ui/account';
 
-	type Id = 'connections' | 'ai-apps' | 'appearance' | 'appliance';
+	type Id = 'connections' | 'appearance' | 'appliance';
 	let { id }: { id: Id } = $props();
 
 	const SECTIONS: Record<Id, AccountSection> = {
@@ -23,11 +22,7 @@
 			tooltip:
 				'Connect an AI model account (Anthropic, OpenAI and others) once, then give individual companies access. Each company keeps its own model choice. Services such as Stripe are added in each company’s Apps.'
 		},
-		'ai-apps': {
-			id: 'ai-apps',
-			title: 'AI apps',
-			tooltip: `Use ${PRODUCT_NAME} from Claude Code, Claude Desktop or Codex over MCP: read your Inbox, decide approvals and talk to Exec. A token acts as you, with exactly your access, and stops working the moment it is revoked or your membership changes.`
-		},
+
 		appliance: {
 			id: 'appliance',
 			title: 'This computer',
@@ -50,7 +45,7 @@
 		{#snippet settings(nav)}
 			<AccountPage title="Settings" sections={[current]} {nav}>
 				{#snippet section()}
-					{#if id === 'connections'}<AccountConnections />{:else if id === 'ai-apps'}<AccountAiApps
+					{#if id === 'connections'}<AccountConnections
 						/>{:else if id === 'appliance'}<AccountAppliance />{:else}<AccountAppearance />{/if}
 				{/snippet}
 			</AccountPage>

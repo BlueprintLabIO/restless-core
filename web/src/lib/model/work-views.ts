@@ -29,3 +29,29 @@ export function matchesSearch(query: string, fields: readonly (string | null | u
 	const needle = query.trim().toLocaleLowerCase();
 	return !needle || fields.some((field) => field?.toLocaleLowerCase().includes(needle));
 }
+
+/** Ready for an explicit archive choice: every task is complete, with at least one task.
+ * A progress count alone never changes a goal's lifecycle. */
+export function goalsWithFinishedWork(
+	goals: readonly { id: string; closed_at?: string | null }[],
+	work: readonly { goal_id?: string | null; status: string }[]
+): Set<string> {
+	const byGoal = new Map<string, { total: number; unfinished: boolean }>();
+	for (const item of work) {
+		if (!item.goal_id) continue;
+		const state = byGoal.get(item.goal_id) ?? { total: 0, unfinished: false };
+		state.total++;
+		state.unfinished ||= item.status !== 'completed';
+		byGoal.set(item.goal_id, state);
+	}
+	return new Set(
+		goals
+			.filter(
+				(goal) =>
+					!goal.closed_at &&
+					(byGoal.get(goal.id)?.total ?? 0) > 0 &&
+					!byGoal.get(goal.id)?.unfinished
+			)
+			.map((goal) => goal.id)
+	);
+}

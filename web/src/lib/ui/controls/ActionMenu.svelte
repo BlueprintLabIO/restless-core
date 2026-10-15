@@ -2,26 +2,18 @@
 	import type { Snippet } from 'svelte';
 	import Ellipsis from '@lucide/svelte/icons/ellipsis';
 	import { dismissable } from './dismissable';
+	import { anchoredPopover } from './anchored-popover';
 	let {
 		label = 'More actions',
 		trigger,
 		children
 	}: { label?: string; trigger?: Snippet; children: Snippet } = $props();
 	let panel: HTMLDivElement;
+	let details: HTMLDetailsElement;
 	/* A menu sits on every message; its items render once someone reaches for
 	 * it (pointer or focus, before any open), not with every message. */
 	let reached = $state(false);
 	function place(node: HTMLDetailsElement) {
-		function position() {
-			if (!node.open || !panel) return;
-			const trigger = node.querySelector('summary')!.getBoundingClientRect();
-			const bounds = panel.getBoundingClientRect();
-			panel.style.left = `${Math.max(8, Math.min(trigger.right - bounds.width, innerWidth - bounds.width - 8))}px`;
-			panel.style.top = `${Math.max(8, trigger.bottom + bounds.height + 8 > innerHeight ? trigger.top - bounds.height - 4 : trigger.bottom + 4)}px`;
-		}
-		/* Items render on first reach, after the panel opens: placing it then would use an empty
-		 * width and push a right-edge menu off the screen. Place it again whenever it resizes. */
-		let sized: ResizeObserver | null = null;
 		/* Opened from the keyboard, the menu takes focus at its first item, as a menu does. */
 		let byKeyboard = false;
 		function toggle() {
@@ -29,18 +21,11 @@
 			if (!panel) return;
 			if (node.open) {
 				panel.showPopover();
-				position();
 				if (byKeyboard)
 					requestAnimationFrame(() =>
 						panel.querySelector<HTMLElement>('button:not(:disabled), a[href]')?.focus()
 					);
 				byKeyboard = false;
-				// The panel has no width until it lays out; place it again then.
-				requestAnimationFrame(position);
-				if (!sized && typeof ResizeObserver !== 'undefined') {
-					sized = new ResizeObserver(position);
-					sized.observe(panel);
-				}
 			} else if (panel.matches(':popover-open')) panel.hidePopover();
 		}
 		function choose(event: MouseEvent) {
@@ -55,7 +40,9 @@
 				event.target === node.querySelector('summary')
 			)
 				byKeyboard = !node.open;
-			const actions = [...panel.querySelectorAll<HTMLElement>('button:not(:disabled), a[href]')];
+			const actions = [
+				...(panel?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href]') ?? [])
+			];
 			if (!actions.length || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
 			event.preventDefault();
 			if (!node.open) {
@@ -77,22 +64,18 @@
 		node.addEventListener('toggle', toggle);
 		node.addEventListener('click', choose);
 		node.addEventListener('keydown', keyboard);
-		window.addEventListener('resize', position);
-		window.addEventListener('scroll', position, true);
 		return {
 			destroy() {
-				sized?.disconnect();
 				node.removeEventListener('toggle', toggle);
 				node.removeEventListener('click', choose);
 				node.removeEventListener('keydown', keyboard);
-				window.removeEventListener('resize', position);
-				window.removeEventListener('scroll', position, true);
 			}
 		};
 	}
 </script>
 
 <details
+	bind:this={details}
 	class="action-menu"
 	use:dismissable
 	use:place
@@ -102,7 +85,12 @@
 	<summary aria-label={label} title={label} class:labelled={!!trigger}
 		>{#if trigger}{@render trigger()}{:else}<Ellipsis size={16} aria-hidden="true" />{/if}</summary
 	>
-	<div bind:this={panel} popover="manual" class="action-menu-panel">
+	<div
+		bind:this={panel}
+		popover="manual"
+		class="action-menu-panel"
+		use:anchoredPopover={() => details?.querySelector('summary') ?? undefined}
+	>
 		{#if reached}{@render children()}{/if}
 	</div>
 </details>

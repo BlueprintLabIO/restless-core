@@ -3,5 +3,5 @@ import type { PageLoad } from './$types';
 
 /* Account settings moved to a page per section. */
 export const load: PageLoad = ({ url }) => {
-	redirect(308, `/account/ai-apps${url.search}`);
+	redirect(307, `/account/connections${url.search}`);
 };

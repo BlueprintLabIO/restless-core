@@ -29,6 +29,34 @@ async fn company(prefix: &str) -> Option<OrgIntel> {
     Some(org)
 }
 
+#[tokio::test]
+async fn active_staff_are_directly_addressable_without_a_team_lead() {
+    let Some(org) = company("staffdirect").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping direct staff scenario");
+        return;
+    };
+    org.ensure_actor("independent-craft", "staff", "designer", "Independent Craft")
+        .await.unwrap();
+    let (message_id, _) = org.send_owner_conversation_message(
+        "independent-craft", "Please explain this draft.", false
+    ).await.unwrap();
+    let conversation = org.owner_conversation("independent-craft", 20).await.unwrap();
+    assert!(conversation.iter().any(|message| message.id == message_id));
+    let room = org.create_room(
+        "owner", RoomKind::Group, "Draft review",
+        &["owner", "independent-craft"], "staff-direct-group"
+    ).await.unwrap();
+    let mentioned = org.send_room_message_with_mentions(
+        room.id, "owner", "Please check the draft", None, "staff-direct-mention",
+        None, &[NewRoomMessageMention::actor("independent-craft")], None
+    ).await.unwrap();
+    assert_eq!(mentioned.mentions.len(), 1);
+    org.retire_actor("independent-craft", "exec", "The test agent is retired").await.unwrap();
+    assert!(org.send_owner_conversation_message("independent-craft", "After retirement", false).await.is_err());
+    org.ensure_actor("automation", "system", "automation", "Automation").await.unwrap();
+    assert!(org.send_owner_conversation_message("automation", "Not an agent", false).await.is_err());
+}
+
 async fn handoff_input(
     org: &OrgIntel,
     handoff_id: uuid::Uuid,

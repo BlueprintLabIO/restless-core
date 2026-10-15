@@ -13,46 +13,33 @@
 	import Settings from '@lucide/svelte/icons/settings';
 	import CircleHelp from '@lucide/svelte/icons/circle-help';
 	import type { AccountGroup, AccountTab } from '$lib/ui/account';
-	import { getApplianceStatus, planeLabel, type ApplianceStatus } from '$lib/model/appliance';
-	import { companiesQuery } from '$lib/model/queries.svelte';
+	import { planeLabel, type ApplianceStatus } from '$lib/model/appliance';
+	import { applianceQuery, companiesQuery } from '$lib/model/queries.svelte';
 	import { forgetThisBrowser } from '$lib/model/sign-out';
 	import CommandMenu, { type Command } from '$lib/components/CommandMenu.svelte';
 
 	let {
 		appliance = null,
 		settings: settingsPage = null,
+		loading = false,
 		children = null
 	}: {
 		appliance?: ApplianceStatus | null;
+		loading?: boolean;
 		/** A settings page, given settings' own sections for its in-page list. */
 		settings?: Snippet<[AccountGroup[]]> | null;
 		children?: Snippet | null;
 	} = $props();
-	let observed = $state<ApplianceStatus | null>(null);
-	const status = $derived(appliance ?? observed);
+	const identity = applianceQuery(() => !appliance);
+	const status = $derived(appliance ?? identity.view);
 	const profile = $derived(planeLabel(status));
 	/* On a hosted plane, Home (the one company list) and the account service's sections are on the
 	 * account issuer. */
 	const home = $derived(status?.home_url ?? '/');
 	const issuer = $derived(status?.home_url ? new URL(status.home_url).origin : null);
 
-	$effect(() => {
-		if (appliance) return;
-		const controller = new AbortController();
-		void getApplianceStatus(controller.signal)
-			.then((value) => (observed = value))
-			.catch(() => {
-				// The bar still works without the profile name.
-			});
-		return () => controller.abort();
-	});
-
 	/* The account pages the issuer returns to after entry (Cloud's accountReturn). */
-	const ACCOUNT_RETURNS = new Set([
-		'/account/connections',
-		'/account/ai-apps',
-		'/account/appearance'
-	]);
+	const ACCOUNT_RETURNS = new Set(['/account/connections', '/account/appearance']);
 	$effect(() => {
 		const accountHome = status?.home_url;
 		const path = page.url.pathname;
@@ -119,7 +106,7 @@
 					label: 'Settings',
 					href: '/account/connections',
 					active: settings,
-					tooltip: 'AI accounts, AI apps and appearance',
+					tooltip: 'AI accounts and appearance',
 					icon: Settings
 				},
 				...(issuer
@@ -152,7 +139,6 @@
 			})),
 		{ id: 'home', group: 'Go to', label: 'Home', hint: 'Your companies', href: home },
 		{ id: 'connections', group: 'Settings', label: 'AI accounts', href: '/account/connections' },
-		{ id: 'ai-apps', group: 'Settings', label: 'AI apps', href: '/account/ai-apps' },
 		{ id: 'appearance', group: 'Settings', label: 'Appearance', href: '/account/appearance' },
 		...(status && !status.hosted
 			? [
@@ -179,7 +165,7 @@
 		...(issuer ? [{ label: 'Billing', items: issued('Plan & credit', 'billing') }] : []),
 		{
 			label: 'Integrations',
-			items: [own('AI accounts', '/account/connections'), own('AI apps', '/account/ai-apps')]
+			items: [own('AI accounts', '/account/connections')]
 		},
 		...(status && !status.hosted
 			? [{ label: 'This computer', items: [own('Release and backup', '/account/appliance')] }]
@@ -188,30 +174,39 @@
 	]);
 </script>
 
-<AccountShell
-	brandName={PRODUCT_NAME}
-	homeHref={home}
-	{tabs}
-	{groups}
-	onsearch={() => (searchOpen = !searchOpen)}
-	account={{
-		name: status?.viewer_name || 'You',
-		detail: status?.hosted ? profile : `${profile} · this computer`
-	}}
->
-	{#snippet accountMenu()}
-		<a href="/account/connections">Settings</a>
-		{#if issuer}
-			<!-- The account's own page: a full load, so the edge sends it to the account, not this plane. -->
-			<a href={`${issuer}/account/settings#support`} data-sveltekit-reload>Support</a>
-			{#if issuer === page.url.origin}
-				<hr />
-				<form method="POST" action="/account?/signOut" onsubmit={forgetThisBrowser}>
-					<button>Sign out</button>
-				</form>
+<div class="account-frame" class:first-paint-pending={loading || (!appliance && !identity.settled)}>
+	<AccountShell
+		brandName={PRODUCT_NAME}
+		homeHref={home}
+		{tabs}
+		{groups}
+		onsearch={() => (searchOpen = !searchOpen)}
+		account={{
+			name: status?.viewer_name || 'You',
+			detail: status?.hosted ? profile : `${profile} · this computer`
+		}}
+	>
+		{#snippet accountMenu()}
+			<a href="/account/connections">Settings</a>
+			{#if issuer}
+				<!-- The account's own page: a full load, so the edge sends it to the account, not this plane. -->
+				<a href={`${issuer}/account/settings#support`} data-sveltekit-reload>Support</a>
+				{#if issuer === page.url.origin}
+					<hr />
+					<form method="POST" action="/account?/signOut" onsubmit={forgetThisBrowser}>
+						<button>Sign out</button>
+					</form>
+				{/if}
 			{/if}
-		{/if}
-	{/snippet}
-	{#if settingsPage}{@render settingsPage(settingsNav)}{:else}{@render children?.()}{/if}
-</AccountShell>
+		{/snippet}
+		{#if settingsPage}{@render settingsPage(settingsNav)}{:else}{@render children?.()}{/if}
+	</AccountShell>
+</div>
 <CommandMenu bind:open={searchOpen} {commands} />
+
+<style>
+	.account-frame {
+		height: 100%;
+		min-height: 0;
+	}
+</style>

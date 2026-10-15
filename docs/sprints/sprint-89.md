@@ -16,8 +16,8 @@ The reference catalogue is design input; its embedded instructions are not this 
 - [ ] S89-06: Sidebar geometry is stable across polling, hover and narrow widths. Search and menus remain inside the viewport.
 - [ ] S89-07: Titles, subordinate text and spacing follow shared patterns. Profiles use a full-height opaque side panel.
 - [ ] S89-08: Every active agent can receive a direct message without transferring production accountability. Agent identifiers remain distinct and readable.
-- [ ] S89-09: Exec shows delegated work and who it is waiting on. Needs you reflects owner obligations, not ordinary waiting.
-- [ ] S89-10: Health recommendations wrap and expose a direct action carrying the diagnostic to Exec.
+- [x] S89-09: Exec shows delegated work and who it is waiting on. Needs you reflects owner obligations, not ordinary waiting.
+- [x] S89-10: Health recommendations wrap and expose a direct action carrying the diagnostic to Exec.
 - [ ] S89-11: Team/group creation uses a focused dialog; the office floor fills its work surface.
 - [ ] S89-12: Account pages navigate promptly and preserve their shell. Company entry cannot unexpectedly reopen onboarding.
 - [ ] S89-13: All companies leads to the authoritative full list; creation remains discoverable at the plan limit with an upgrade route.
@@ -51,3 +51,73 @@ remains active in the Core and Cloud worktrees. Its temporary model, daemon, Vit
 four volumes, one network, two image tags and ui10x_test profile were removed after verification.
 The browser tab was closed. Screenshots and JSON evidence were retained in the task's Windows
 visualizations directory. Restart an isolated dev stack and rerun the guarded seeds for further QA.
+
+
+### US-247–257: shared owner reliability fixes
+
+The unified Inbox replaces the separate For you component. Its ordering is a consistent total order
+across owner decisions and document requests, with blockers and deadlines first; refreshing cannot
+change its ordering rules. Shared top-layer placement replaces the menu/search positioning copies.
+The old ClearHome, AccountAiApps and MCP-access view model are removed. Legacy AI Apps URLs redirect
+to Connections. Existing TanStack Query owns shared appliance reads; startup reads have a deadline,
+and the initial wave lasts until the critical reads actually settle.
+
+One composer button now stops an empty draft or redirects a running reply; the Exec has one run dock.
+Direct Staff conversations use the same path as leads without changing production accountability.
+The backend removes its duplicate team-lead restriction, while retired/system targets remain denied.
+People reserves menu space before hover, fits narrow filters and distinguishes Needs you from Waiting.
+Exec's Work panel includes delegated company work and its actual owners.
+
+Work's toolbar holds Clear done and Show all. Finished-only goals can be archived explicitly and
+reopened with Undo; task counts alone do not infer business success. Team editing uses the shared
+native dialog. Profiles fill the right edge with an opaque pane. A clear Inbox gives its whole pane
+to the office floor. Health sends the complete diagnostic to Exec with a real one-click action.
+A shared Item hover selector previously hid every trailing control; it now hides plain metadata only
+when replacement actions exist. Stale brand drafts explain their version conflict and send a real
+request to Exec for a refreshed proposal while preserving the current release. Saved provider
+errors show the same human-readable sentence as live failures.
+
+Validation on the isolated ui10x20261016 stack: 17 owner-reliability journeys passed, including real
+team create/rename, active non-lead Staff sends, Exec/Staff Stop and immediate redirect, goal
+archive/Undo/edit, stale brand proposal recovery, complete diagnostic sends, profiles and office at
+1440/390, delayed entry, failed Home and a 15-second stalled-read deadline. The empty-Inbox and
+degraded-Health reads are controlled projections over real company data; mutations reach the real
+daemon and mock model. All 33 OrgIntel rooms tests passed. The four existing focused model suites
+passed 23 tests; two new Inbox ordering tests passed. The five-kind footer journey passed all 20
+desktop/phone/short-window cases again. Chat motion passed open-latest and streaming (285 samples,
+770px before and after; no flashing tool rows). Web check reported zero errors/warnings and its type,
+UI-boundary and document-search checks passed. Final production build and complete route-sweep
+results are recorded below when finished.
+
+Polish calibration on 16 October: consulted Beautiful UI (https://www.beautifului.dev/) for restrained
+chat density and an anchored composer; Cult UI's expandable-screen source
+(https://github.com/nolly-studio/cult-ui/blob/main/apps/www/registry/default/ui/expandable-screen.tsx)
+for contained surfaces and continuity; and Origin UI Svelte's dialog-07 and dialog-footer source
+(https://github.com/max-got/originui-svelte/tree/main/src/lib/components/dialogs) for a separately
+scrolling body and end-aligned decision controls. No upstream code or dependencies were imported.
+Live desktop review found and corrected the profile's translucent token; desktop/phone geometry
+checks now guard it. The remaining full-sprint requirements stay unchecked until their journeys pass.
+
+
+The complete 24-route sweep ran at 1440, 1024 and 390 (72 captures). It exposed the narrow Library
+filter strip, a technical identifier in the generated stale-draft message, and the verifier counting
+its intentional missing-route response as an unexpected error. Library filters now wrap. Stale-draft
+context travels in the message's context link rather than visible prose. The verifier keeps expected
+404 diagnostics separately, checks the actual recovery screen and still fails unexpected console
+errors. It also now captures the real Work board URL rather than a second copy of List.
+All 18 targeted route/viewport rechecks passed, as did both resizing/search/menu keyboard journeys
+and the final stale-brand recovery rerun. Focused model tests now total 25. Search Escape now restores
+focus to the trigger and stops propagation to its surrounding pane.
+
+The broad sweep's original diagnostics remain in its report; the 18-case recheck is separate evidence,
+not a rewrite of the initial run. Further full-sprint work still includes Inbox file/settings previews,
+outcome-specific review actions, agent naming, OAuth first-grant races and Cloud runtime/account QA.
+
+
+This batch also passed the final production build and 25 focused model tests with no whitespace
+errors. Its owned mock model, daemon/Vite, six containers (including the document sidecar), four
+volumes, one network, two image tags and ui10x20261016 profile were removed. All owned ports and
+Docker resources were checked clear. The built-in browser viewport was restored and its test tab
+closed; the owner's unrelated tab was retained. Source worktrees and their bounded warm build
+caches remain for the active goal. Screenshots, JSON reports and check logs are retained under
+the task's Windows visualizations directory in s89-owner-reliability.

@@ -73,7 +73,11 @@
 				var reads = {};
 				try {
 					urls.forEach(function (url) {
-						reads[url] = fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+						reads[url] = fetch(url, {
+							credentials: 'same-origin',
+							cache: 'no-store',
+							signal: AbortSignal.timeout(15000)
+						});
 						reads[url].catch(function () {});
 					});
 				} catch (error) {}
@@ -87,30 +91,66 @@
 		<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 		%sveltekit.head%
 		<style>
-			/* The cockpit's frame paints with the first byte, before its code runs: the app
-			 * background, the top bar and the work pane. The app replaces it on mount. */
+			/* This remains visible through the first company read, so hydration never reveals a
+			 * blank hidden shell or a sidebar that is about to be replaced. */
 			.boot {
 				position: fixed;
 				inset: 0;
+				z-index: 10000;
 				display: grid;
-				grid-template-rows: var(--topbar-h, 46px) minmax(0, 1fr);
-				gap: 6px;
-				padding: var(--app-gutter, 8px);
+				place-content: center;
 				background: var(--bg-app, #eff1f6);
-				pointer-events: none;
+				color: var(--intent-conversation, #547896);
 			}
-			.boot > i {
-				border: 1px solid var(--border, rgba(76, 88, 117, 0.1));
-				border-radius: var(--radius-pane, 6px);
-				background: var(--surface-pane, #fafbfe);
+			html[data-theme='dark'] .boot {
+				background: #171d28;
+				color: #8cabc5;
 			}
-			body:has(.app-mount > *) > .boot {
+			.boot-wave {
+				display: flex;
+				align-items: center;
+				gap: 6px;
+				height: 110px;
+			}
+			.boot-wave i {
+				width: 8px;
+				height: 90px;
+				background: repeating-linear-gradient(to top, currentColor 0 7px, transparent 7px 12px);
+				animation: boot-wave 1600ms steps(7, end) infinite;
+				animation-delay: calc(var(--i) * -90ms);
+			}
+			@keyframes boot-wave {
+				0%,
+				100% {
+					height: 18px;
+					opacity: 0.35;
+				}
+				50% {
+					height: 90px;
+					opacity: 0.9;
+				}
+			}
+			body:has(.app-mount > *):not(:has(.first-paint-pending)) > .boot {
 				display: none;
+			}
+			@media (prefers-reduced-motion: reduce) {
+				.boot-wave i {
+					animation: none;
+					height: 42px;
+					opacity: 0.7;
+				}
 			}
 		</style>
 	</head>
 	<body data-sveltekit-preload-data="hover">
-		<div class="boot bridge-tokens" aria-hidden="true"><i></i><i></i></div>
+		<div class="boot bridge-tokens" role="status" aria-label="Opening your workspace">
+			<span class="boot-wave" aria-hidden="true"
+				><i style="--i: 0"></i><i style="--i: 1"></i><i style="--i: 2"></i><i style="--i: 3"></i
+				><i style="--i: 4"></i><i style="--i: 5"></i><i style="--i: 6"></i><i style="--i: 7"></i
+				><i style="--i: 8"></i><i style="--i: 9"></i><i style="--i: 10"></i><i style="--i: 11"></i
+				><i style="--i: 12"></i
+			></span>
+		</div>
 		<div class="app-mount" style="display: contents">%sveltekit.body%</div>
 	</body>
 </html>

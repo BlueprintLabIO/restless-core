@@ -325,6 +325,9 @@
 	);
 	/* A finished turn stays for its dock; only one still in progress can be interrupted. */
 	const working = $derived(turnWorking(turn));
+	const shownTurn = $derived(
+		ambientTurn && (!working || (turn?.live?.phase ?? 'queued') === 'queued') ? ambientTurn : turn
+	);
 	/* Saved for a reply that cannot start until a model is connected: nothing to interrupt. */
 	const setupPending = $derived(
 		!!turn && needsProvider && (turn.live?.phase ?? 'queued') === 'queued'
@@ -550,7 +553,7 @@
 		return () => clearTimeout(timer);
 	});
 	let composerFiles = $state<File[]>([]);
-	/* While the agent is replying, Send queues and Interrupt stops the reply. */
+	/* Sending a new message redirects the current reply; the turn owns Stop. */
 	let interruptNext = $state(false);
 	let includeContext = $state(true);
 	let contextFlare = $state(0);
@@ -1397,13 +1400,13 @@
 								title={hasEarlier
 									? `Copies the ${messages.length} loaded messages; show earlier messages to include them`
 									: 'Copies the whole conversation as text'}
-								onclick={() => void copyConversation()}>Copy conversation</button
+								onclick={() => void copyConversation()}>Copy loaded messages</button
 							>{#if canOperate}<button
 									type="button"
 									disabled={savingConversation}
 									title="Keep the loaded messages as a Library document only you can open until you share it"
 									onclick={() => void keepConversation()}
-									>{savingConversation ? 'Saving…' : 'Save to Library'}</button
+									>{savingConversation ? 'Saving…' : 'Save messages to Library'}</button
 								>{/if}</ActionMenu
 						>
 					{/if}
@@ -1744,16 +1747,12 @@
 						<p class="exr-setup-pending" role="status">
 							Message saved. {participantName} can reply after intelligence access is restored.
 						</p>
-					{:else if turn}<ConversationTurnDock
+					{:else if shownTurn}<ConversationTurnDock
 							{participantName}
-							{turn}
-							onstop={stopTurn}
-							onretry={retryTurn}
+							turn={shownTurn}
+							onstop={null}
+							onretry={shownTurn === turn ? retryTurn : null}
 						/>{/if}
-					<!-- Work nobody's message started: a quiet line of what it is doing now. -->
-					{#if ambientTurn && (!working || (turn?.live?.phase ?? 'queued') === 'queued')}
-						<ConversationTurnDock {participantName} turn={ambientTurn} />
-					{/if}
 				</div>
 
 				{#if awayFrom !== null && visibleMessages.length}
@@ -1812,6 +1811,7 @@
 						bind:selectedSkills={composerSkills}
 						options={[...options.value, ...references]}
 						interruptible={working && !setupPending}
+						onstop={stopTurn}
 						bind:interrupt={interruptNext}
 						actionLabel={retryCommandId ? 'Retry send · it cannot be sent twice' : ''}
 						disabled={!canOperate || sending || deciding || !onask}
@@ -2258,8 +2258,9 @@
 		width: auto;
 		max-width: 100%;
 		min-width: 0;
-		height: 30px;
-		padding: 0 6px 0 2px;
+		min-height: 42px;
+		height: auto;
+		padding: 4px 6px 4px 2px;
 		border-color: transparent !important;
 		overflow: hidden;
 	}
@@ -2315,17 +2316,17 @@
 		flex: none;
 		color: var(--text-tertiary);
 	}
-	/* The name and its topic are two sizes on one line: they share a baseline, while the mark
-	 * and chevron stay centred on the row. */
+	/* Keep the topic under the person's name throughout the cockpit. */
 	.topic-text {
 		display: flex;
-		align-items: baseline;
-		gap: 6px;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 0;
 		min-width: 0;
 	}
 	.topic-face .exr-name {
 		flex: none;
-		max-width: 60%;
+		max-width: 100%;
 	}
 	.topic-label {
 		flex: 1 1 auto;
@@ -2335,10 +2336,6 @@
 		font-size: var(--t-label);
 		text-overflow: ellipsis;
 		white-space: nowrap;
-	}
-	.topic-label::before {
-		content: '· ';
-		color: var(--text-tertiary);
 	}
 	.topic-option {
 		display: grid;

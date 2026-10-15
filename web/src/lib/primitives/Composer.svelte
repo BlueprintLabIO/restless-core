@@ -13,6 +13,7 @@
 	 * The caller keeps its own <form>, hidden fields, and action; this component owns only
 	 * the input and its controls. */
 
+	import { failureSentence } from '$lib/model/failure';
 	import { onMount, type Snippet } from 'svelte';
 	import Mic from '@lucide/svelte/icons/mic';
 	import Square from '@lucide/svelte/icons/square';
@@ -43,6 +44,7 @@
 		options = [],
 		selectedSkills = $bindable<string[]>([]),
 		interruptible = false,
+		onstop = null,
 		interrupt = $bindable(false),
 		controls
 	}: {
@@ -69,12 +71,28 @@
 		options?: ComposerOption[];
 		/** Skills explicitly selected for the next message, shown as removable chips. */
 		selectedSkills?: string[];
-		/** The recipient is mid-reply: Send queues the message, and a second
-		 * action (or Ctrl/Cmd+Enter) interrupts the reply with it instead. */
+		/** Sending while the recipient replies redirects it immediately. With an empty draft,
+		 * the same anchored button stops the reply instead. */
 		interruptible?: boolean;
+		onstop?: (() => Promise<string | null>) | null;
 		/** Set just before submit: whether this send interrupts. */
 		interrupt?: boolean;
 	} = $props();
+
+	let stopping = $state(false);
+	let stopFailure = $state('');
+	async function stopReply() {
+		if (!onstop || stopping) return;
+		stopping = true;
+		stopFailure = '';
+		try {
+			stopFailure = (await onstop()) ?? '';
+		} catch (cause) {
+			stopFailure = failureSentence(cause, 'The reply did not stop.');
+		} finally {
+			stopping = false;
+		}
+	}
 
 	type Menu = import('$lib/primitives/composer-menu').ComposerTrigger;
 	let menu = $state<Menu | null>(null);
@@ -307,7 +325,7 @@
 		if (composerKeyAction(event, composing) !== 'send') return;
 		event.preventDefault();
 		if (!sendable) return;
-		interrupt = interruptible && (event.metaKey || event.ctrlKey);
+		interrupt = interruptible;
 		/* requestSubmit, never submit: submit() skips HTML validation. */
 		inputEl?.form?.requestSubmit();
 	}
@@ -468,7 +486,7 @@
 	     removing one there needs no file input. -->
 	{#if showHint && !menu}<span class="hc-hint" aria-hidden="true"
 			>{interruptible
-				? 'Enter queues · Ctrl/Cmd+Enter interrupts'
+				? 'Enter sends now · Shift+Enter adds a line'
 				: options.length
 					? 'Enter sends · Shift+Enter adds a line · / $ # @ open menus'
 					: 'Enter sends · Shift+Enter adds a line'}</span
@@ -488,6 +506,12 @@
 			<div class="hc-voice-state error" role="alert">
 				<span>{voiceError}</span>
 				<button type="button" onclick={() => (voiceState = 'idle')}>Dismiss</button>
+			</div>
+		{:else if stopFailure}
+			<div class="hc-voice-state error" role="alert">
+				<span>{stopFailure}</span><button type="button" onclick={() => (stopFailure = '')}
+					>Dismiss</button
+				>
 			</div>
 		{:else if attachmentNotice}
 			<div class="hc-voice-state notice" role="status">
@@ -586,23 +610,29 @@
 				{/if}
 			</button>
 			<div class="hc-sends">
-				{#if interruptible}<button
-						class="hc-interrupt"
+				{#if interruptible && onstop && !sendable}
+					<button
+						class="hc-send hc-stop"
+						type="button"
+						aria-label={stopping ? 'Stopping reply' : 'Stop reply'}
+						title="Stop the current reply without sending anything"
+						disabled={stopping || disabled}
+						onclick={() => void stopReply()}
+					>
+						<Square size={15} fill="currentColor" strokeWidth={0} aria-hidden="true" />
+					</button>
+				{:else}
+					<button
+						class="hc-send"
 						type="submit"
-						title="Stop the current reply and send this now (Ctrl/Cmd+Enter)"
+						aria-label={interruptible ? 'Send now and redirect the current reply' : sendLabel}
+						title={interruptible ? 'Send now and redirect the current reply (Enter)' : sendLabel}
 						disabled={!sendable}
-						onclick={() => (interrupt = true)}>Interrupt</button
-					>{/if}
-				<button
-					class="hc-send"
-					type="submit"
-					aria-label={interruptible ? 'Queue for after the current reply' : sendLabel}
-					title={interruptible ? 'Queue for after the current reply (Enter)' : sendLabel}
-					disabled={!sendable}
-					onclick={() => (interrupt = false)}
-				>
-					<MatrixGlyph rows={GLYPHS.up} size={11} />
-				</button>
+						onclick={() => (interrupt = interruptible)}
+					>
+						<MatrixGlyph rows={GLYPHS.up} size={11} />
+					</button>
+				{/if}
 			</div>
 		</div>
 	</div>

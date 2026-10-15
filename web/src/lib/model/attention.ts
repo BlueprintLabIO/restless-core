@@ -137,10 +137,11 @@ type WireContinuation = {
 	decided_by?: string;
 };
 
-export async function getAttention(company: string): Promise<AttentionView> {
+export async function getAttention(company: string, signal?: AbortSignal): Promise<AttentionView> {
 	const response = await bootFetch(`/api/companies/${encodeURIComponent(company)}/attention`, {
 		credentials: 'same-origin',
-		cache: 'no-store'
+		cache: 'no-store',
+		signal
 	});
 	if (!response.ok) throw await ownerError(response);
 	const wire = await response.json();

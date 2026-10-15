@@ -114,6 +114,9 @@ export function failureKind(error: unknown): FailureKind {
 
 /** Whether an automatic retry can help. Used by the query client. */
 export function isRetryable(error: unknown): boolean {
+	// A deadline already spent the read budget. Show its recovery action now; background
+	// refreshes and the person's Retry remain available without another minute of skeleton.
+	if (error instanceof DOMException && error.name === 'TimeoutError') return false;
 	const kind = failureKind(error);
 	return kind === 'unreachable' || kind === 'busy' || kind === 'server' || kind === 'unavailable';
 }

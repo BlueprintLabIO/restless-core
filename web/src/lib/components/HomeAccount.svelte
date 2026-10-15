@@ -38,7 +38,7 @@
 		return () => (stale = true);
 	});
 	/* A hosted plane's backups are its operator's; only a local appliance reports its own. */
-	const local = $derived(!!appliance && !appliance.hosted);
+	const local = $derived(appliance?.profile === 'stable' && !appliance.hosted);
 	$effect(() => {
 		if (!local) return;
 		const controller = new AbortController();

@@ -19,7 +19,6 @@
 	import { useForYou } from '$lib/model/for-you.svelte';
 	import InboxDetail from '$lib/components/InboxDetail.svelte';
 	import SetAsideList from '$lib/components/SetAside.svelte';
-	import ClearHome from '$lib/components/ClearHome.svelte';
 	import { celebrate } from '$lib/ui/celebrate';
 	import DirectionRequestDetail from '$lib/components/DirectionRequestDetail.svelte';
 	import CharterPurpose from '$lib/components/CharterPurpose.svelte';
@@ -109,6 +108,7 @@
 	});
 	let messageFiles = $state<File[]>([]);
 	let sendingMessage = $state(false);
+	let interruptMessage = $state(false);
 	let clientId = $state('');
 	const control = new DesktopControl(
 		() => companyId,
@@ -571,6 +571,15 @@
 		await goto(item ? itemHref(item.id) : baseHref, { replaceState: true });
 	}
 
+	async function stopConversation(): Promise<string | null> {
+		try {
+			await leadConversation?.stopTurn();
+			return null;
+		} catch (cause) {
+			return failureSentence(cause, 'The reply could not be stopped; it may already have ended.');
+		}
+	}
+
 	async function sendMessage(event: SubmitEvent) {
 		event.preventDefault();
 		const files = messageFiles;
@@ -583,7 +592,13 @@
 		const sent = messageDraft;
 		messageDraft = '';
 		try {
-			await leadConversation.send(body, files, undefined, false, leadConversation.working);
+			await leadConversation.send(
+				body,
+				files,
+				undefined,
+				false,
+				conversationWorking && interruptMessage
+			);
 			messageFiles = [];
 		} catch (cause) {
 			messageDraft = sent;
@@ -939,7 +954,9 @@
 							<Composer
 								bind:value={messageDraft}
 								bind:files={messageFiles}
-								actionLabel={conversationWorking ? 'Queue direction' : 'Send'}
+								interruptible={owner && conversationWorking}
+								onstop={owner ? stopConversation : null}
+								bind:interrupt={interruptMessage}
 								disabled={sendingMessage}
 								placeholder={conversationWorking
 									? `Interrupt ${requestingActorName} with new direction…`
@@ -1053,10 +1070,7 @@
 			/>
 		</aside>
 
-		<section
-			class="cockpit-pane attention-focus"
-			class:office-focus={!selectedItem && loaded && !compactScreen}
-		>
+		<section class="cockpit-pane attention-focus" class:office-focus={!selectedItem && loaded}>
 			{#if queueClear && startBlocker && !compactScreen}
 				<a class="attention-start-blocker" href={startFixHref(companyId)}>
 					<span class="attention-start-glyph" aria-hidden="true">
@@ -1122,28 +1136,8 @@
 				     verdict, and it was the wrong one about half a second later. -->
 			{:else if coordination && compactScreen}
 				<!-- No verdict while coordination is down: the list says why. -->
-			{:else if compactScreen}
-				<!-- A phone gets the verdict, not the company floor: the pixel
-				     campus is a large canvas that costs battery for little use at
-				     this size. -->
-				<div class="attention-clear-compact" role="status">
-					{#if catalogPending}<p>Checking company…</p>
-					{:else if startBlocker}<TriangleAlert size={22} />
-						<p>Exec is waiting for intelligence.</p>
-						<a class="btn primary small" href={startFixHref(companyId)}>{startBlocker}</a>
-					{:else}
-						<span class="attention-clear-compact-mark" aria-hidden="true">
-							<MatrixGlyph rows={GLYPHS.check} size={10} />
-						</span>
-						<p>Nothing needs you right now.</p>
-						<button class="btn small primary" type="button" onclick={askExec}
-							>Tell Exec what you want</button
-						>
-						<a class="btn small" href={`/${companyId}/work`}>Open Work</a>
-					{/if}
-				</div>
 			{:else}
-				<!-- Outcomes and what comes next lead; the floor of people sits below them. -->
+				<!-- The office fills the clear Inbox; Work holds outcomes and next steps. -->
 				<div class="clear-surface">
 					{#if brandMissing && !startBlocker}
 						<!-- Until the brand and voice are set, every site and message the team makes is a guess. -->
@@ -1157,7 +1151,6 @@
 							>
 						</div>
 					{/if}
-					<ClearHome {companyId} work={graph?.work ?? []} />
 					<div class="clear-office">
 						<CompanyOffice
 							{companyId}
@@ -1240,19 +1233,21 @@
 
 <style>
 	.clear-surface {
-		display: grid;
-		align-content: start;
-		gap: 24px;
-		/* Below the "No decisions" pill, and above the Set aside corner. */
-		padding: 60px 24px 64px;
+		position: relative;
+		width: 100%;
+		height: 100%;
+		min-height: 0;
+		overflow: hidden;
 	}
 	.clear-office {
-		height: clamp(360px, 60vh, 640px);
+		height: 100%;
 		overflow: hidden;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
 	}
 	.brand-nudge {
+		position: absolute;
+		top: 60px;
+		left: 16px;
+		z-index: 2;
 		display: flex;
 		align-items: center;
 		gap: 12px;
@@ -1542,31 +1537,6 @@
 	}
 	.review-unavailable p {
 		color: var(--text-secondary);
-	}
-	.attention-clear-compact {
-		display: grid;
-		justify-items: center;
-		align-content: center;
-		gap: var(--space-3);
-		height: 100%;
-		padding: var(--space-6);
-		text-align: center;
-	}
-	.attention-clear-compact p {
-		margin: 0;
-		color: var(--text-secondary);
-		font-size: var(--t-head);
-		font-weight: 600;
-	}
-	.attention-clear-compact-mark {
-		display: grid;
-		place-items: center;
-		width: 40px;
-		height: 40px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
-		background: var(--surface-raised);
-		color: var(--state-success);
 	}
 	.attention-error,
 	.focus-error {

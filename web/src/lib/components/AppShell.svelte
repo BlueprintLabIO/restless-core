@@ -55,7 +55,6 @@
 		execUnread = false,
 		execWorking = false,
 		blocked = false,
-		expandExec = false,
 		railOpen = true,
 		immersive = false,
 		onexectoggle = null,
@@ -87,7 +86,6 @@
 		execWorking?: boolean;
 		/** Temporarily removes the underlying page from interaction while a blocking recovery prompt is open. */
 		blocked?: boolean;
-		expandExec?: boolean;
 		railOpen?: boolean;
 		/** Gives a prepared live outcome the full browser window while preserving one bounded Exec control. */
 		immersive?: boolean;
@@ -333,7 +331,7 @@
 						<ChevronDown class="company-chevron" size={14} strokeWidth={2} aria-hidden="true" />
 					</summary>
 					<div class="company-switcher-menu">
-						<a class="company-overview-link" href="/">
+						<a class="company-overview-link" href={homeHref}>
 							<MatrixGlyph rows={GLYPHS.r} size={8} />
 							<span><strong>All companies</strong></span>
 						</a>
@@ -387,7 +385,10 @@
 							</a>
 						{/each}
 						<div class="company-switcher-rule" role="separator"></div>
-						<a class="company-overview-link" href="/?start=1">
+						<a
+							class="company-overview-link"
+							href={homeHref + (homeHref.includes('?') ? '&' : '?') + 'start=1'}
+						>
 							<Plus size={14} strokeWidth={2} aria-hidden="true" />
 							<span><strong>Start a company</strong></span>
 						</a>
@@ -549,7 +550,7 @@
 			side: 'end',
 			min: 320,
 			minOther: 320,
-			defaultSize: (width) => (expandExec ? width * 0.62 : 380),
+			defaultSize: 380,
 			enabled: !!rail && railOpen && !immersive
 		}}
 	>

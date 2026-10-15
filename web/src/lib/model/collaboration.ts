@@ -1,3 +1,4 @@
+import { bootFetch } from './boot-fetch';
 import type {
 	ArtifactRefState,
 	OwnerBrief,
@@ -408,7 +409,7 @@ export async function getCollaborationBootstrap(
 	company: string,
 	signal?: AbortSignal
 ): Promise<CollaborationBootstrap> {
-	const response = await fetch(
+	const response = await bootFetch(
 		`/api/companies/${encodeURIComponent(company)}/collaboration/bootstrap`,
 		{ credentials: 'same-origin', cache: 'no-store', signal }
 	);

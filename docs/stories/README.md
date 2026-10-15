@@ -41,7 +41,7 @@ The 210 stories of the 14 October audit are in
 | US-232 | full | I want to see and change who owns a team. I see a quiet "Owned by" line with a menu. | S85-19 | browser |
 | US-233 | core | I want to read every row. Nothing runs under a button or toolbar. | S85-20 | `capture-surfaces` overlap probe |
 | US-234 | full | I want changing an agent's model to read like choosing one. I see the same labels both times. | S85-21 | browser |
-| US-235 | core | I want to know which list holds my decisions. I see Decisions and For you, never "Inbox · Inbox". | S85-22 | browser |
+| US-235 | core | I want to know which list holds my decisions. I see Decisions and For you, never "Inbox · Inbox". | S85-22; superseded by US-247 | browser |
 | US-236 | core | I want Exec to notice what I changed. After I raise the ceiling or rename the company, Exec knows. | S86-01 | unit + smoke |
 | US-237 | core | I want Exec's "done" to be true. When Exec says it archived something, the Library agrees. | S86-02 | doctrine + browser |
 | US-238 | core | I want to know why a model stopped working. I see who removed it and when, and one Inbox item to fix it. | S86-03 | unit + API |
@@ -53,3 +53,23 @@ The 210 stories of the 14 October audit are in
 | US-244 | core | I want to check in with someone and talk to them in one place. Their page has their work and model above our chat. | S88-03 | browser |
 | US-245 | full | I want to let an agent go, and bring them back later. Archive and Re-hire on their page keep their history. | S88-01 | API test + browser |
 | US-246 | core | I want to act on any Inbox item without hunting for its buttons. Decisions stay at the bottom right of the middle pane while its content scrolls, including requests, replies, charter drafts and document reviews. | S89-04 | browser + attention-footer geometry check at desktop/phone widths |
+
+
+## From the owner, 15–16 October (Sprint 89)
+
+| ID | Tier | Story: I want … and I see … | Fix | Check |
+|---|---|---|---|---|
+| US-247 | core | I want one Inbox ranked by urgency. Decisions, review requests and updates share one list with essential actions and discoverable shortcuts. | S89-03 | inbox-feed ordering tests + browser |
+| US-248 | core | I want to stop or redirect a reply. One anchored composer button stops an empty draft or sends new direction immediately, for Exec and Staff alike. | S89-02 | real owner-reliability Stop/redirect + verify-motion |
+| US-249 | core | I want to reach any active agent. A non-lead Staff member receives my message directly and keeps its production role. | S89-08 | rooms backend suite + real Staff conversation |
+| US-250 | core | I want to know who needs me and who Exec is waiting on. People distinguishes Needs you from Waiting; Exec shows delegated company work. Hover never moves the status. | S89-06, S89-09 | real owner-reliability People journey |
+| US-251 | core | I want to clear finished work and manage goals. Controls stay in the toolbar; archiving a goal is explicit and reversible. Counts alone never declare an outcome achieved. | S89-05 | goal candidate tests + real archive/undo/edit |
+| US-252 | core | I want useful Health recommendations. The complete diagnostic wraps and one click sends it to Exec. The control remains clickable on hover. | S89-10, S89-15 | real diagnostic send with controlled degraded read |
+| US-253 | core | I want a focused team form and a readable person profile. Team editing uses a dialog; profiles use an opaque full-height right drawer. | S89-07, S89-11 | real team create/rename + drawer checks at 1440/390 |
+| US-254 | core | I want a useful quiet Inbox. The office floor fills the pane without an extra recent-outcomes or tell-Exec card. | S89-11 | empty Inbox projection with real office graph at 1440/390 |
+| US-255 | core | I want to reach Home or a company without a blank screen. A slow read keeps the loading wave, and a failed or stalled read gives a recovery action. | S89-01, S89-12 | delayed, failed and hanging real-read journeys |
+| US-256 | core | I want to understand an old brand draft I cannot accept. The page explains the version conflict and lets me ask Exec for an updated draft without overwriting my newer changes. | S89-04 | real stale proposal and real Exec message |
+| US-257 | core | I want readable failures. Stored provider errors show a useful sentence and keep technical details folded. | S89-02, S89-15 | turn-failure tests + seeded historical provider error |
+| US-258 | core | I want conversation search and menus to stay on screen. Popovers share viewport-aware placement and keep focus behavior. | S89-06, S89-15 | overlay/search journeys pending final audit |
+| US-259 | core | I want account navigation and company switching to agree. All companies opens the authoritative list; creation stays visible at the plan limit and leads to upgrading. | S89-12, S89-13 | Core destination tests; Cloud runtime verification pending |
+| US-260 | core | I want unnecessary account chrome removed. AI Apps redirects to Connections, checkboxes remain a sensible size, and the desktop brand is not duplicated. | S89-14 | Core phone/redirect journey; Cloud visual verification pending |

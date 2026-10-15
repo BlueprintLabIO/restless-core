@@ -20,6 +20,8 @@
 	let {
 		companyId,
 		name,
+		scope = 'person',
+		ownerNeeds = new Set<string>(),
 		work,
 		edges = [],
 		artifacts = [],
@@ -36,6 +38,8 @@
 		companyId: string;
 		/** Whose Work this is, for "All of Arlo's work". */
 		name: string;
+		scope?: 'person' | 'company';
+		ownerNeeds?: ReadonlySet<string>;
 		work: readonly Item[];
 		edges?: readonly { from_work_id: string; to_work_id: string; kind: string }[];
 		artifacts?: readonly Artifact[];
@@ -52,6 +56,18 @@
 		ondetails: (workId: string) => void;
 	} = $props();
 
+	const monitored = $derived(
+		work
+			.filter(
+				(item) =>
+					owners.has(item.owner_id) && ['active', 'blocked', 'proposed'].includes(item.status)
+			)
+			.toSorted(
+				(a, b) =>
+					Number(b.status === 'active') - Number(a.status === 'active') ||
+					Date.parse(b.updated_at) - Date.parse(a.updated_at)
+			)
+	);
 	const panel = $derived(workPanel(work, owners, { highlight }));
 	const team = $derived(owners.size > 1);
 	const now = $derived(panel.now);
@@ -88,49 +104,82 @@
 	const money = (usd: number) => `$${usd < 10 ? usd.toFixed(2) : usd.toFixed(0)}`;
 </script>
 
-<section class="work-panel" aria-label={`${name}'s Work`}>
-	<h3>Now</h3>
-	{#if now}
-		<article class="work-now" class:highlighted={highlight === now.id}>
-			<a class="work-now-title" href={hrefFor(now.id)}>{now.title}</a>
-			<p class="work-now-meta">
-				<span class="work-pill status-{now.status}"
-					>{panel.nowDelivered ? 'Last delivered' : workStatusLabel(now.status)}</span
-				>{#if team}<span>{ownerName(now.owner_id)}</span
-					>{/if}{#if nowReview}{#if nowReview.verdict === 'accepted'}<span class="review-badge"
-							>Reviewed · accepted</span
-						>{:else if nowReview.verdict === 'changes'}<span class="review-changes"
-							>{ownerName(nowReview.reviewer.owner_id)} asked for changes</span
-						>{:else}<span>review by {ownerName(nowReview.reviewer.owner_id)} next</span>{/if}{/if}
-			</p>
-			{#if outputs.length}
-				<div class="work-outputs">
-					{#each outputs as artifact (artifact.id)}
-						<OutputThumb {companyId} {artifact} />
-					{/each}
-				</div>
-			{/if}
-			<p class="work-now-facts">
-				{#if checks}<span>Checks {checks.passed}/{checks.total}</span>{/if}{#if spent !== null}<span
-						>{money(spent)}</span
-					>{/if}<button type="button" onclick={() => ondetails(now.id)}>Details</button>
-			</p>
-		</article>
+<section
+	class="work-panel"
+	aria-label={scope === 'company' ? 'Company work monitored by Exec' : name + "'s Work"}
+>
+	{#if scope === 'company'}
+		<h3>Monitoring</h3>
+		{#if monitored.length}
+			<ul class="monitoring">
+				{#each monitored as item (item.id)}
+					<li>
+						<div class="monitor-owner">
+							<a
+								href={'/' +
+									encodeURIComponent(companyId) +
+									'/people?person=' +
+									encodeURIComponent(item.owner_id)}>{ownerName(item.owner_id)}</a
+							>
+							<span class="work-pill status-{item.status}"
+								>{ownerNeeds.has(item.id)
+									? 'Needs you'
+									: item.status === 'blocked'
+										? 'Waiting'
+										: workStatusLabel(item.status)}</span
+							>
+						</div>
+						<a href={hrefFor(item.id)}>{item.title}</a>
+					</li>
+				{/each}
+			</ul>
+		{:else}<p class="work-empty">No delegated work is in progress.</p>{/if}
 	{:else}
-		<p class="work-empty">Nothing yet. Work {name} takes on shows here.</p>
-	{/if}
+		<h3>Now</h3>
+		{#if now}
+			<article class="work-now" class:highlighted={highlight === now.id}>
+				<a class="work-now-title" href={hrefFor(now.id)}>{now.title}</a>
+				<p class="work-now-meta">
+					<span class="work-pill status-{now.status}"
+						>{panel.nowDelivered ? 'Last delivered' : workStatusLabel(now.status)}</span
+					>{#if team}<span>{ownerName(now.owner_id)}</span
+						>{/if}{#if nowReview}{#if nowReview.verdict === 'accepted'}<span class="review-badge"
+								>Reviewed · accepted</span
+							>{:else if nowReview.verdict === 'changes'}<span class="review-changes"
+								>{ownerName(nowReview.reviewer.owner_id)} asked for changes</span
+							>{:else}<span>review by {ownerName(nowReview.reviewer.owner_id)} next</span>{/if}{/if}
+				</p>
+				{#if outputs.length}
+					<div class="work-outputs">
+						{#each outputs as artifact (artifact.id)}
+							<OutputThumb {companyId} {artifact} />
+						{/each}
+					</div>
+				{/if}
+				<p class="work-now-facts">
+					{#if checks}<span>Checks {checks.passed}/{checks.total}</span
+						>{/if}{#if spent !== null}<span>{money(spent)}</span>{/if}<button
+						type="button"
+						onclick={() => ondetails(now.id)}>Details</button
+					>
+				</p>
+			</article>
+		{:else}
+			<p class="work-empty">Nothing yet. Work {name} takes on shows here.</p>
+		{/if}
 
-	{#if panel.next.length}
-		<h3>Next</h3>
-		<ul>
-			{#each panel.next as item (item.id)}
-				<li>
-					<a href={hrefFor(item.id)} title={item.title}>{item.title}</a>{#if team}<small
-							>{ownerName(item.owner_id)}</small
-						>{/if}
-				</li>
-			{/each}
-		</ul>
+		{#if panel.next.length}
+			<h3>Next</h3>
+			<ul>
+				{#each panel.next as item (item.id)}
+					<li>
+						<a href={hrefFor(item.id)} title={item.title}>{item.title}</a>{#if team}<small
+								>{ownerName(item.owner_id)}</small
+							>{/if}
+					</li>
+				{/each}
+			</ul>
+		{/if}
 	{/if}
 
 	{#if panel.done.length}
@@ -150,9 +199,15 @@
 		</ul>
 	{/if}
 
-	<a class="work-all" href={`/${encodeURIComponent(companyId)}/work?q=${encodeURIComponent(name)}`}
-		>All of {name}'s work</a
+	<a
+		class="work-all"
+		href={'/' +
+			encodeURIComponent(companyId) +
+			'/work' +
+			(scope === 'company' ? '' : '?q=' + encodeURIComponent(name))}
 	>
+		{scope === 'company' ? 'All company work' : 'All of ' + name + "'s work"}
+	</a>
 </section>
 
 <style>
@@ -164,13 +219,26 @@
 		padding: 14px 16px 20px;
 		overflow-y: auto;
 	}
+	.monitoring li {
+		display: grid;
+		gap: 4px;
+		padding-block: 8px;
+		border-bottom: 1px solid var(--border);
+	}
+	.monitor-owner {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+	}
+	.monitor-owner a {
+		font-weight: 600;
+	}
 	h3 {
 		margin: 8px 0 0;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 		font-weight: 600;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
 	}
 	h3:first-child {
 		margin-top: 0;
@@ -178,10 +246,8 @@
 	.work-now {
 		display: grid;
 		gap: 8px;
-		padding: 12px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
-		background: var(--surface-raised);
+		padding: 0 0 12px;
+		border-bottom: 1px solid var(--border);
 	}
 	.work-now.highlighted {
 		box-shadow: 0 0 0 2px color-mix(in srgb, var(--intent-conversation) 45%, transparent);

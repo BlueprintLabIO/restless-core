@@ -381,55 +381,6 @@ pub(crate) async fn active_room_kind(
     Ok(active_room_access(tx, room_id, actor_id).await?.0)
 }
 
-/// Lock and validate the exact Actors to which Runtime can owe a persistent
-/// free-form response. Team rows are always locked before target Actor rows,
-/// matching lead replacement/disband and preventing a stale lead admission
-/// from committing after its lifecycle cancellation scan.
-///
-/// Human Actors are addressable only when the caller explicitly permits them;
-/// agent Actors must be the singleton Exec or a current live team lead. A
-/// service Actor is never made addressable merely because legacy data names it
-/// as a lead.
-pub(crate) async fn lock_runtime_addressable_actors_in_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    actor_ids: &[String],
-    allow_humans: bool,
-    additional_active_actor_ids: &[String],
-    actors_for_update: bool,
-) -> Result<()> {
-    lock_conversation_targets_in_tx(
-        tx,
-        actor_ids,
-        allow_humans,
-        additional_active_actor_ids,
-        actors_for_update,
-        false,
-    )
-    .await
-}
-
-/// A focused Room mention is a bounded collaboration turn, not a persistent
-/// office or a Work ownership transfer. Active Staff may therefore answer one
-/// exact Room Thread even when they are not an accountable lead or are between
-/// team assignments.
-async fn lock_focused_room_mention_actors_in_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    actor_ids: &[String],
-    allow_humans: bool,
-    additional_active_actor_ids: &[String],
-    actors_for_update: bool,
-) -> Result<()> {
-    lock_conversation_targets_in_tx(
-        tx,
-        actor_ids,
-        allow_humans,
-        additional_active_actor_ids,
-        actors_for_update,
-        true,
-    )
-    .await
-}
-
 /// Admits a Message's mentions before any is created: Work they name must be visible in this
 /// Room, the author and recipient pending-mention quotas hold, and every recipient is a current
 /// participant. A send and an edit that names new people share these rules.
@@ -643,13 +594,15 @@ async fn message_mention_actor_ids_in_tx(
     .collect())
 }
 
-async fn lock_conversation_targets_in_tx(
+/// Active humans (when allowed) and all active agents are conversation targets.
+/// Direct conversation does not commission Work or change team accountability.
+/// Lock team rows before actors, preserving the lifecycle lock order.
+pub(crate) async fn lock_runtime_addressable_actors_in_tx(
     tx: &mut Transaction<'_, Postgres>,
     actor_ids: &[String],
     allow_humans: bool,
     additional_active_actor_ids: &[String],
     actors_for_update: bool,
-    allow_staff_for_focused_room_mention: bool,
 ) -> Result<()> {
     let mut actor_ids = actor_ids
         .iter()
@@ -682,7 +635,7 @@ async fn lock_conversation_targets_in_tx(
         .iter()
         .filter_map(|(_, _, team_id)| *team_id)
         .collect::<Vec<_>>();
-    let live_teams = sqlx::query_as::<_, (Uuid, String)>(
+    sqlx::query_as::<_, (Uuid, String)>(
         "SELECT id,lead_actor_id FROM teams \
          WHERE disbanded_at IS NULL AND (id=ANY($1) OR lead_actor_id=ANY($2)) \
          ORDER BY id FOR SHARE",
@@ -719,41 +672,16 @@ async fn lock_conversation_targets_in_tx(
         ));
     }
 
-    let team_leads = live_teams
-        .iter()
-        .map(|(_, lead_actor_id)| lead_actor_id.clone())
-        .collect::<BTreeSet<_>>();
-    let leads_by_team = live_teams.into_iter().collect::<HashMap<_, _>>();
-    for (actor_id, actor_class, team_id) in active_actors {
+    for (actor_id, actor_class, _) in active_actors {
         if actor_ids.binary_search(&actor_id).is_err() {
             continue;
         }
-        if actor_class == "human" {
-            if allow_humans {
-                continue;
-            }
-            return Err(OrgIntelError::RoomAccessDenied(format!(
-                "human Actor {actor_id:?} is not an agent conversation target"
-            )));
-        }
-        if actor_class == "agent"
-            && (actor_id == "exec"
-                || team_leads.contains(&actor_id)
-                || allow_staff_for_focused_room_mention)
-        {
+        if actor_class == "agent" || (actor_class == "human" && allow_humans) {
             continue;
         }
-        if actor_class == "agent" {
-            let route = team_id
-                .and_then(|team_id| leads_by_team.get(&team_id))
-                .map(|lead| {
-                    format!(
-                        "; route it through currently addressable accountable lead {lead:?} instead"
-                    )
-                })
-                .unwrap_or_else(|| "; no active accountable lead is currently addressable".into());
+        if actor_class == "human" {
             return Err(OrgIntelError::RoomAccessDenied(format!(
-                "Actor {actor_id:?} is not a directly addressable persistent agent{route}"
+                "human Actor {actor_id:?} is not an agent conversation target"
             )));
         }
         return Err(OrgIntelError::RoomAccessDenied(format!(
@@ -2655,7 +2583,7 @@ impl OrgIntel {
         // the Room, matching retirement/removal and preventing Actor↔Room
         // cycles. The author is only required to be active; mention targets
         // additionally pass the runtime-addressability policy.
-        lock_focused_room_mention_actors_in_tx(
+        lock_runtime_addressable_actors_in_tx(
             &mut tx,
             &target_ids,
             true,
@@ -3124,7 +3052,7 @@ impl OrgIntel {
                 .iter()
                 .map(|mention| mention.actor_id.clone())
                 .collect::<Vec<_>>();
-            lock_focused_room_mention_actors_in_tx(
+            lock_runtime_addressable_actors_in_tx(
                 &mut tx,
                 &target_ids,
                 true,

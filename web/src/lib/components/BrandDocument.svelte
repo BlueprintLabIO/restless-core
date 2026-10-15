@@ -390,6 +390,33 @@
 		}
 	}
 
+	async function updateProposal(proposal: IdentityProposalRow) {
+		if (drafting) return;
+		drafting = true;
+		error = '';
+		notice = '';
+		try {
+			await sendActorMessage(
+				companyId,
+				'exec',
+				'Brand and voice changed since "' +
+					proposal.rationale +
+					'" was drafted. Rework it against the latest brand and voice, preserving my newer changes, and bring a fresh proposal for review.',
+				undefined,
+				[],
+				'/' +
+					encodeURIComponent(companyId) +
+					'/company/identity?proposal=' +
+					encodeURIComponent(proposal.id)
+			);
+			notice = 'Asked Exec for a draft based on the latest brand and voice.';
+		} catch (cause) {
+			error = failureSentence(cause, 'Could not ask Exec to update the draft.');
+		} finally {
+			drafting = false;
+		}
+	}
+
 	function downloadMarkdown() {
 		const url = URL.createObjectURL(
 			new Blob([brandMarkdown(current)], { type: 'text/markdown;charset=utf-8' })
@@ -523,6 +550,10 @@
 						>
 					</button>
 					{#if canManage && previewing === proposal.id}
+						{#if diff.stale}<p class="proposal-stale" role="status">
+								Brand and voice changed since this draft. Ask Exec to update it, or edit it before
+								accepting.
+							</p>{/if}
 						<div class="suggestion-decide">
 							<input
 								class="decision-note"
@@ -533,12 +564,19 @@
 							<button
 								class="btn primary small"
 								type="button"
-								disabled={deciding || diff.stale}
+								disabled={deciding || drafting}
 								title={diff.stale
-									? 'Drafted against an earlier version. Edit it to apply it to the current one.'
+									? 'Ask Exec to rework this draft against the latest brand and voice'
 									: 'Make this the current version'}
-								onclick={() => decide(proposal, 'promote')}
-								>{deciding ? 'Recording…' : 'Accept'}</button
+								onclick={() =>
+									diff.stale ? updateProposal(proposal) : decide(proposal, 'promote')}
+								>{deciding
+									? 'Recording…'
+									: diff.stale
+										? drafting
+											? 'Asking…'
+											: 'Ask Exec to update'
+										: 'Accept'}</button
 							>
 							<button
 								class="btn small"
@@ -847,6 +885,12 @@
 </Section>
 
 <style>
+	.proposal-stale {
+		margin: 8px 12px;
+		color: var(--intent-authority);
+		font-size: var(--t-body);
+	}
+
 	.brand-doc {
 		display: grid;
 		gap: 28px;

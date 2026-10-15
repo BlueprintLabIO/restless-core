@@ -6,6 +6,7 @@
  * tiny overlay that invalidates the relevant query when the turn settles.
  */
 
+import { getApplianceStatus } from './appliance';
 import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 import { onMount } from 'svelte';
 import type { QueryClient } from '@tanstack/svelte-query';
@@ -55,6 +56,7 @@ function queryEnabled(value: QueryEnabled): boolean {
 
 export const queryKeys = {
 	companies: ['companies'] as const,
+	appliance: ['appliance'] as const,
 	principal: (company: string) => ['company-principal', company] as const,
 	collaboration: (company: string, principal: CompanyPrincipal | null | undefined) =>
 		[
@@ -74,6 +76,31 @@ export const queryKeys = {
 		['conversation', company, actor, workId ?? null] as const,
 	browserStatus: (company: string) => ['browser-status', company] as const
 };
+
+/** Host/account identity is shared for navigation, not polled independently by each shell. */
+export function applianceQuery(enabled: QueryEnabled = true) {
+	const query = createQuery(() => ({
+		queryKey: queryKeys.appliance,
+		queryFn: ({ signal }) => getApplianceStatus(signal),
+		enabled: queryEnabled(enabled),
+		staleTime: 60_000,
+		gcTime: RETAIN_MS,
+		retry: false,
+		refetchOnWindowFocus: false
+	}));
+	return {
+		get view() {
+			return query.data ?? null;
+		},
+		get settled() {
+			return !query.isPending;
+		},
+		get failure() {
+			return query.error as Error | null;
+		},
+		refresh: () => refresh(query)
+	};
+}
 
 export function companyPrincipalQuery(companyId: string) {
 	const query = createQuery(() => ({
@@ -146,7 +173,7 @@ function statusOf(query: {
 	isError: boolean;
 }): QuerySourceStatus {
 	if (query.isPending && !query.data) return 'unknown';
-	return query.isError ? (query.data ? 'stale' : 'unknown') : 'live';
+	return query.isError ? 'stale' : 'live';
 }
 
 function refresh<T>(query: { refetch: () => Promise<T> }): Promise<T> {
@@ -168,7 +195,7 @@ export function attentionQuery(companyId: string | (() => string), enabled: Quer
 	});
 	const query = createQuery(() => ({
 		queryKey: queryKeys.attention(currentCompany()),
-		queryFn: ({ queryKey }) => getAttention(queryKey[1]),
+		queryFn: ({ queryKey, signal }) => getAttention(queryKey[1], signal),
 		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
@@ -228,7 +255,7 @@ export function companiesQuery(
 ) {
 	const query = createQuery(() => ({
 		queryKey: queryKeys.companies,
-		queryFn: getCompanies,
+		queryFn: ({ signal }) => getCompanies(signal),
 		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
@@ -254,7 +281,7 @@ export function cockpitQuery(companyId: string | (() => string), enabled: QueryE
 	const currentCompany = () => (typeof companyId === 'function' ? companyId() : companyId);
 	const query = createQuery(() => ({
 		queryKey: queryKeys.cockpit(currentCompany()),
-		queryFn: ({ queryKey }) => getCockpit(queryKey[1]),
+		queryFn: ({ queryKey, signal }) => getCockpit(queryKey[1], false, signal),
 		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
@@ -280,7 +307,7 @@ export function companyQuery(companyId: string, enabled: QueryEnabled = true) {
 	let probeCredentials = $state(false);
 	const options = (probe: boolean, on: () => boolean) => ({
 		queryKey: queryKeys.company(companyId, probe),
-		queryFn: () => getCompany(companyId, probe),
+		queryFn: ({ signal }: { signal: AbortSignal }) => getCompany(companyId, probe, signal),
 		enabled: queryEnabled(enabled) && on(),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,

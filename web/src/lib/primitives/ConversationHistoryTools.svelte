@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { composing } from '$lib/primitives/composer-keys';
 	import { tick } from 'svelte';
+	import { anchoredPopover } from '$lib/ui/controls/anchored-popover';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import ChevronUp from '@lucide/svelte/icons/chevron-up';
 	import Search from '@lucide/svelte/icons/search';
@@ -34,19 +35,23 @@
 		const text = query.trim();
 		const search = onsearchall;
 		earlierHits = [];
+		searchingAll = false;
 		if (!open || !search || text.length < 2) return;
 		const controller = new AbortController();
 		const timer = setTimeout(() => {
 			searchingAll = true;
 			search(text, controller.signal)
 				.then((hits) => {
+					if (controller.signal.aborted) return;
 					const loaded = new Set(messages.map((message) => message.id));
 					earlierHits = hits.filter((hit) => !loaded.has(hit.id));
 				})
 				.catch(() => {
 					/* The loaded matches still answer; the server search is a reach further back. */
 				})
-				.finally(() => (searchingAll = false));
+				.finally(() => {
+					if (!controller.signal.aborted) searchingAll = false;
+				});
 		}, 300);
 		return () => {
 			clearTimeout(timer);
@@ -55,6 +60,13 @@
 	});
 
 	let open = $state(false);
+	let control = $state<HTMLButtonElement>();
+	let panel = $state<HTMLDivElement>();
+	$effect(() => {
+		if (!panel) return;
+		if (open && !panel.matches(':popover-open')) panel.showPopover();
+		else if (!open && panel.matches(':popover-open')) panel.hidePopover();
+	});
 	let query = $state('');
 	let activeMatch = $state(-1);
 	let searchInput = $state<HTMLInputElement | undefined>();
@@ -99,9 +111,11 @@
 			event.preventDefault();
 			jump(event.shiftKey ? -1 : 1);
 		} else if (event.key === 'Escape') {
-			// Consumed here: Escape closes the search, not the pane around it.
+			// Escape closes this search and returns to its trigger within the same pane.
 			event.preventDefault();
+			event.stopPropagation();
 			open = false;
+			control?.focus();
 		}
 	}
 </script>
@@ -122,6 +136,7 @@
 	<button
 		type="button"
 		class="history-toggle"
+		bind:this={control}
 		aria-expanded={open}
 		aria-label={`Search this conversation with ${participantName}`}
 		title="Search this conversation (Ctrl+F)"
@@ -131,7 +146,17 @@
 	</button>
 
 	{#if open}
-		<div class="history-panel" role="search" aria-label={`${participantName} conversation history`}>
+		<div
+			class="history-panel"
+			bind:this={panel}
+			popover="auto"
+			use:anchoredPopover={() => control}
+			ontoggle={(event) => {
+				if (event.newState === 'closed') open = false;
+			}}
+			role="search"
+			aria-label={`${participantName} conversation history`}
+		>
 			<label class="history-search">
 				<Search size={14} strokeWidth={2} aria-hidden="true" />
 				<input
@@ -239,10 +264,11 @@
 	}
 
 	.history-panel {
-		position: absolute;
-		z-index: var(--z-raised);
-		top: calc(100% + 8px);
-		right: 0;
+		position: fixed;
+		inset: auto;
+		margin: 0;
+		overflow: auto;
+		color: var(--ink);
 		width: min(310px, calc(100vw - 32px));
 		padding: 8px;
 		border: 1px solid var(--border-strong);

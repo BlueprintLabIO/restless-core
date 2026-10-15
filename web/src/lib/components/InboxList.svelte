@@ -33,7 +33,8 @@
 		wakeInboxItem
 	} from './inbox-actions';
 	import { celebrate } from '$lib/ui/celebrate';
-	import ForYou from './ForYou.svelte';
+	import InboxUpdate from './InboxUpdate.svelte';
+	import { inboxFeed } from '$lib/model/inbox-feed';
 	import MyRequests from './MyRequests.svelte';
 	import DirectionToday from './DirectionToday.svelte';
 	import { useForYou } from '$lib/model/for-you.svelte';
@@ -79,30 +80,7 @@
 	const client = useQueryClient();
 	/* Beside the decisions: mentions, replies, shares and changes to what the owner follows. */
 	const forYou = useForYou();
-	let forYouList: ForYou | undefined = $state();
-	/* One list at a time: decisions, or what happened around you. Remembered per company on this
-	 * device; the counts on both tabs keep the other one in view. */
-	let tab = $state<'inbox' | 'for-you'>('inbox');
-	const tabKey = () => `restless:inbox-tab:${companyId}`;
-	$effect(() => {
-		try {
-			tab =
-				page.url.searchParams.get('tab') === 'for-you' ||
-				localStorage.getItem(tabKey()) === 'for-you'
-					? 'for-you'
-					: 'inbox';
-		} catch {
-			tab = 'inbox';
-		}
-	});
-	function showTab(next: 'inbox' | 'for-you') {
-		tab = next;
-		try {
-			localStorage.setItem(tabKey(), next);
-		} catch {
-			/* Storage can be unavailable; the tab still switches. */
-		}
-	}
+
 	let showSnoozed = $state(false);
 	/* The Today line's "requests waiting" shows only those requests until it is pressed again. */
 	let requestsOnly = $state(false);
@@ -241,16 +219,23 @@
 		});
 	}
 
+	const feed = $derived(inboxFeed(visible, requestsOnly ? [] : (forYou?.items ?? [])));
 	function keyboard(event: KeyboardEvent) {
 		if (
 			event.defaultPrevented ||
 			(event.target as HTMLElement)?.closest(
-				'input, textarea, select, [contenteditable], dialog, #bridge-exrail, .for-you'
+				'input, textarea, select, [contenteditable], dialog, #bridge-exrail'
 			) ||
 			document.querySelector('dialog[open]')
 		)
 			return;
-		const item = items.find((row) => row.id === selectedId);
+		const focused = (document.activeElement as HTMLElement)?.closest<HTMLElement>(
+			'[data-inbox-key]'
+		)?.dataset.inboxKey;
+		const row =
+			feed.find((row) => row.key === focused) ??
+			feed.find((row) => row.kind === 'attention' && row.item.id === selectedId);
+		const item = row?.kind === 'attention' ? row.item : null;
 		if ((event.metaKey || event.ctrlKey) && event.key === '.' && item) {
 			event.preventDefault();
 			void copy(item);
@@ -258,20 +243,29 @@
 		}
 		if (event.metaKey || event.ctrlKey || event.altKey) return;
 		const step = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 }[event.key];
-		if (step) {
-			const index = visible.findIndex((row) => row.id === selectedId);
-			/* Past the last decision, the keys walk on into For you. */
-			if (step > 0 && (index === visible.length - 1 || !visible.length)) {
-				if (forYou?.items.length) {
-					event.preventDefault();
-					showTab('for-you');
-					void tick().then(() => forYouList?.focusFirst());
-				}
-				return;
-			}
-			if (!visible.length) return;
+		if (step && feed.length) {
 			event.preventDefault();
-			select(visible[Math.max(0, Math.min(visible.length - 1, index + step))]);
+			const index = row ? feed.indexOf(row) : -1;
+			const target = feed[Math.max(0, Math.min(feed.length - 1, index + step))];
+			if (target.kind === 'attention') select(target.item);
+			else {
+				const wrapper = [...document.querySelectorAll<HTMLElement>('[data-inbox-key]')].find(
+					(el) => el.dataset.inboxKey === target.key
+				);
+				const link = wrapper?.querySelector<HTMLElement>('.item-hit');
+				link?.focus();
+				link?.scrollIntoView({ block: 'nearest' });
+			}
+			return;
+		}
+		if (row?.kind === 'update' && forYou) {
+			if (event.key === 'e' || (event.key === 'U' && event.shiftKey)) {
+				event.preventDefault();
+				void (
+					event.key === 'e' ? forYou.read([row.item.key]) : forYou.unread([row.item.key])
+				).catch(() => toast('The update was not marked. Try again.', { tone: 'failure' }));
+			}
+			return;
 		}
 		if (!item) return;
 		if (event.key === 'h') {
@@ -284,19 +278,17 @@
 		}
 		if (event.key === 'r') {
 			event.preventDefault();
-			/* Items without a reply box (approvals, requests, documents) take focus to their first
-			 * answer instead of doing nothing. */
 			const answer =
 				document.querySelector<HTMLElement>('.inbox-composer textarea') ??
 				document.querySelector<HTMLElement>(
 					'.inbox-composer .bar :is(button, a), .direction-request .answers button, .attention-document button'
 				);
 			if (answer) answer.focus();
-			else toast('Nothing to reply to here. Open the item to answer it.');
+			else toast('Open the item to answer it.');
 		}
 		if (event.key === 'c' && canDiscuss(item)) {
 			event.preventDefault();
-			void goto(`${href(item.id)}&conversation=${encodeURIComponent(item.id)}`);
+			void goto(href(item.id) + '&conversation=' + encodeURIComponent(item.id));
 		}
 	}
 </script>
@@ -305,40 +297,29 @@
 
 <div class="inbox">
 	<header class="inbox-head">
-		<div class="inbox-tabs" role="tablist" aria-label="Inbox">
-			<button
-				type="button"
-				role="tab"
-				aria-selected={tab === 'inbox'}
-				class:active={tab === 'inbox'}
-				title="Decisions and steps waiting on you"
-				onclick={() => showTab('inbox')}
-				>Decisions{#if loaded && visible.length}<span class="tab-count">{visible.length}</span
-					>{/if}</button
-			>
-			{#if forYou}<button
-					type="button"
-					role="tab"
-					aria-selected={tab === 'for-you'}
-					class:active={tab === 'for-you'}
-					title="Mentions, replies, shares and changes to what you follow"
-					onclick={() => showTab('for-you')}
-					>For you{#if forYou.unreadCount}<span class="tab-count unread">{forYou.unreadCount}</span
-						>{/if}</button
-				>{/if}
-		</div>
+		<h2>Inbox</h2>
 		<span class="spacer"></span>
 		<ActionMenu label="Inbox options">
-			{#if tab === 'inbox'}<button
-					onclick={() => (showSnoozed = !showSnoozed)}
-					disabled={!snoozedCount && !showSnoozed}
-					>{showSnoozed
-						? 'Hide snoozed'
-						: `Show snoozed${snoozedCount ? ` (${snoozedCount})` : ''}`}</button
-				>{/if}
-			<span class="shortcuts" role="note"
-				><kbd>J</kbd><kbd>K</kbd> move · <kbd>R</kbd> answer · <kbd>C</kbd> discuss · <kbd>H</kbd>
-				snooze · <kbd>E</kbd> done, with Undo · <kbd>?</kbd> all keys</span
+			<button onclick={() => (showSnoozed = !showSnoozed)} disabled={!snoozedCount && !showSnoozed}
+				>{showSnoozed
+					? 'Hide snoozed'
+					: `Show snoozed${snoozedCount ? ` (${snoozedCount})` : ''}`}</button
+			>
+			{#if forYou}
+				<button onclick={() => forYou.setFilter(forYou.filter === 'archived' ? 'all' : 'archived')}>
+					{forYou.filter === 'archived' ? 'Show current updates' : 'Show archived updates'}
+				</button>
+				<button
+					disabled={!forYou.unreadCount}
+					onclick={() =>
+						void forYou
+							.read('all')
+							.catch(() => toast('Updates could not be marked read.', { tone: 'failure' }))}
+					>Mark updates read</button
+				>
+			{/if}
+			<button onclick={() => window.dispatchEvent(new CustomEvent('restless:shortcuts'))}
+				>Keyboard shortcuts <kbd>?</kbd></button
 			>
 		</ActionMenu>
 	</header>
@@ -348,117 +329,124 @@
 		weekly={canSetAside}
 		onrequests={(only) => {
 			requestsOnly = only;
-			showTab('inbox');
 		}}
 	/>
 
-	<div class="inbox-list" role="tabpanel">
-		{#if tab === 'for-you' && forYou}
-			<MyRequests {companyId} all />
-			<ForYou
-				bind:this={forYouList}
-				source={forYou}
-				embedded
-				onexit={() => {
-					showTab('inbox');
-					const last = visible.at(-1);
-					if (last) select(last);
-				}}
-			/>
-		{:else}
-			{#if failure && !loaded}
-				<div class="inbox-failure">
-					<FailureNotice error={failure} subject="the Inbox" variant="block" {onretry} />
-				</div>
-			{:else if coordination && loaded}
-				<div class="inbox-failure">
-					<FailureNotice error={coordination} {onretry} />
-				</div>
-			{/if}
-			{#if blocker && !items.some( (item) => item.actions.some((action) => action.id === 'open-intelligence-provider') )}
-				<a class="setup" href={`/${companyId}/company/provider`}
-					><TriangleAlert size={15} strokeWidth={1.8} aria-hidden="true" /><span>{blocker}</span></a
-				>
-			{/if}
-			{#if notice}
-				<a class="setup handover" href={`/${companyId}/company/members`} aria-live="polite"
-					><TriangleAlert size={15} strokeWidth={1.8} aria-hidden="true" /><span>{notice}</span></a
-				>
-			{/if}
-			<div role="list" aria-label="Waiting on you" class="inbox-rows">
-				{#each visible as item (item.id)}
-					{@const Icon = iconFor(item)}
-					{@const snoozedNow = snoozedUntil(item) > clock}
-					{@const unreadNow = !!marksQuery.data && marks.get(item.id)?.seen_stamp !== stamp(item)}
-					<Item
-						role="listitem"
-						stacked
-						title={attentionTitle(item)}
-						label={`${unreadNow ? 'Unread. ' : ''}${attentionKindLabel(item)}: ${attentionTitle(item)}${snoozedNow ? '. Snoozed' : ''}`}
-						meta={item.preparing ? 'Being prepared' : attentionAsker(item)}
-						href={href(item.id)}
-						selected={selectedId === item.id}
-						unread={unreadNow}
-						dim={snoozedNow}
-					>
-						{#snippet leading()}<span
-								class="kind"
-								class:blocker={item.category === 'blocker'}
-								title={attentionKindLabel(item)}
-								><Icon size={15} strokeWidth={1.8} aria-hidden="true" /></span
-							>{/snippet}
-						{#snippet trailing()}<RelativeTime value={item.createdAt} />{/snippet}
-						{#snippet actions()}
-							<ActionMenu label={`Actions for ${attentionTitle(item)}`}>
-								<a href={href(item.id)}>Open</a>
-								{#if canDiscuss(item)}<a
-										href={`${href(item.id)}&conversation=${encodeURIComponent(item.id)}`}
-										>Discuss <kbd>C</kbd></a
-									>{/if}
-								{#if canComplete(item)}<button disabled={!!completing} onclick={() => done(item)}
-										>{completing === item.id ? 'Recording…' : 'Mark done'} <kbd>E</kbd></button
-									>{/if}
-								{#if canDecline(item)}<a href={`${href(item.id)}&decline=1`}>Not doing this…</a
-									>{/if}
-								{#if snoozedNow}
-									<button onclick={() => void wakeInboxItem(client, companyId, item.id)}
-										>Wake now</button
-									>
-								{:else}
-									<SnoozeChoices shortcut onpick={(until) => snooze(item, until)} />
-								{/if}
-								{#if canSetAside}<button
-										title="Not needed: off your Inbox, kept under Set aside. Whoever asked stops waiting."
-										onclick={() => void setAsideInboxItem(client, companyId, item.id)}
-										>Set aside</button
-									>{/if}
-								<button onclick={() => copy(item)}>Copy link</button>
-							</ActionMenu>
-						{/snippet}
-					</Item>
-				{/each}
+	<div class="inbox-list">
+		{#if failure && !loaded}
+			<div class="inbox-failure">
+				<FailureNotice error={failure} subject="the Inbox" variant="block" {onretry} />
 			</div>
-			{#if loaded && !visible.length && !(coordination && !items.length)}
-				<p class="empty">
-					{requestsOnly
-						? 'No requests waiting on you.'
-						: items.length
-							? 'Everything here is snoozed.'
-							: 'No decisions waiting on you.'}
-				</p>
-			{:else if !loaded && !failure}
-				<div class="waiting" aria-label="Loading the Inbox"><i></i><i></i><i></i></div>
-			{/if}
-			{#if canSetAside}<div class="set-aside-slot">
-					<SetAsideList {companyId} version={items.length} />
-					<a
-						class="decided"
-						href={`/${encodeURIComponent(companyId)}/company/activity?show=decisions`}
-						title="What you answered lately, and where each stands. Follow up on one from there."
-						>Recently decided</a
-					>
-				</div>{/if}
+		{:else if coordination && loaded}
+			<div class="inbox-failure">
+				<FailureNotice error={coordination} {onretry} />
+			</div>
 		{/if}
+		{#if blocker && !items.some( (item) => item.actions.some((action) => action.id === 'open-intelligence-provider') )}
+			<a class="setup" href={`/${companyId}/company/provider`}
+				><TriangleAlert size={15} strokeWidth={1.8} aria-hidden="true" /><span>{blocker}</span></a
+			>
+		{/if}
+		{#if notice}
+			<a class="setup handover" href={`/${companyId}/company/members`} aria-live="polite"
+				><TriangleAlert size={15} strokeWidth={1.8} aria-hidden="true" /><span>{notice}</span></a
+			>
+		{/if}
+		<div role="list" aria-label="Waiting on you" class="inbox-rows">
+			{#each feed as row (row.key)}
+				<div data-inbox-key={row.key}>
+					{#if row.kind === 'update' && forYou}
+						<InboxUpdate {companyId} source={forYou} item={row.item} />
+					{:else if row.kind === 'attention'}
+						{@const item = row.item}
+						{@const Icon = iconFor(item)}
+						{@const snoozedNow = snoozedUntil(item) > clock}
+						{@const unreadNow = !!marksQuery.data && marks.get(item.id)?.seen_stamp !== stamp(item)}
+						<Item
+							role="listitem"
+							stacked
+							title={attentionTitle(item)}
+							label={`${unreadNow ? 'Unread. ' : ''}${attentionKindLabel(item)}: ${attentionTitle(item)}${snoozedNow ? '. Snoozed' : ''}`}
+							meta={item.preparing ? 'Being prepared' : attentionAsker(item)}
+							href={href(item.id)}
+							selected={selectedId === item.id}
+							unread={unreadNow}
+							dim={snoozedNow}
+						>
+							{#snippet leading()}<span
+									class="kind"
+									class:blocker={item.category === 'blocker'}
+									title={attentionKindLabel(item)}
+									><Icon size={15} strokeWidth={1.8} aria-hidden="true" /></span
+								>{/snippet}
+							{#snippet trailing()}<RelativeTime value={item.createdAt} />{/snippet}
+							{#snippet actions()}
+								<ActionMenu label={`Actions for ${attentionTitle(item)}`}>
+									<a href={href(item.id)}>Open</a>
+									{#if canDiscuss(item)}<a
+											href={`${href(item.id)}&conversation=${encodeURIComponent(item.id)}`}
+											>Discuss <kbd>C</kbd></a
+										>{/if}
+									{#if canComplete(item)}<button disabled={!!completing} onclick={() => done(item)}
+											>{completing === item.id ? 'Recording…' : 'Mark done'} <kbd>E</kbd></button
+										>{/if}
+									{#if canDecline(item)}<a href={`${href(item.id)}&decline=1`}>Not doing this…</a
+										>{/if}
+									{#if snoozedNow}
+										<button onclick={() => void wakeInboxItem(client, companyId, item.id)}
+											>Wake now</button
+										>
+									{:else}
+										<SnoozeChoices shortcut onpick={(until) => snooze(item, until)} />
+									{/if}
+									{#if canSetAside}<button
+											title="Not needed: off your Inbox, kept under Set aside. Whoever asked stops waiting."
+											onclick={() => void setAsideInboxItem(client, companyId, item.id)}
+											>Set aside</button
+										>{/if}
+									<button onclick={() => copy(item)}>Copy link</button>
+								</ActionMenu>
+							{/snippet}
+						</Item>
+					{/if}
+				</div>
+			{/each}
+		</div>
+		{#if loaded && !feed.length && !(coordination && !items.length)}
+			<p class="empty">
+				{requestsOnly
+					? 'No requests waiting on you.'
+					: items.length
+						? 'Everything here is snoozed.'
+						: 'No decisions waiting on you.'}
+			</p>
+		{:else if !loaded && !failure}
+			<div class="waiting" aria-label="Loading the Inbox"><i></i><i></i><i></i></div>
+		{/if}
+		{#if canSetAside}<div class="set-aside-slot">
+				<SetAsideList {companyId} version={items.length} />
+				<a
+					class="decided"
+					href={`/${encodeURIComponent(companyId)}/company/activity?show=decisions`}
+					title="What you answered lately, and where each stands. Follow up on one from there."
+					>Recently decided</a
+				>
+			</div>{/if}
+		{#if forYou?.failure}<p class="empty">
+				Updates could not be read. <button type="button" onclick={() => forYou?.refresh()}
+					>Try again</button
+				>
+			</p>{/if}
+		{#if forYou?.hasMore}<button
+				type="button"
+				class="btn small ghost"
+				disabled={forYou.loadingMore}
+				onclick={() => forYou?.loadMore()}>Show earlier updates</button
+			>{/if}
+		<details class="my-requests" open={page.url.searchParams.get('requests') === 'mine'}>
+			<summary>Your requests</summary>
+			<MyRequests {companyId} all />
+		</details>
 	</div>
 </div>
 
@@ -494,65 +482,23 @@
 		padding: 8px 8px 8px 10px;
 		border-bottom: 1px solid var(--border);
 	}
-	.inbox-tabs {
-		display: flex;
-		gap: 2px;
-		min-width: 0;
-	}
-	.inbox-tabs button {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		height: 30px;
-		padding: 0 10px;
-		border: 0;
-		border-radius: var(--radius-control);
-		background: transparent;
-		color: var(--text-secondary);
-		font: inherit;
-		font-size: var(--t-body);
-		font-weight: 500;
-		white-space: nowrap;
-		cursor: pointer;
-		transition:
-			background-color var(--motion-state) var(--ease-standard),
-			color var(--motion-state) var(--ease-standard);
-	}
-	.inbox-tabs button:hover {
-		background: var(--surface-hover);
+	h2 {
+		margin: 0;
 		color: var(--ink);
-	}
-	.inbox-tabs button.active {
-		background: var(--surface-alt);
-		color: var(--ink);
+		font-size: var(--t-head);
 		font-weight: 600;
 	}
-	.tab-count {
-		min-width: 18px;
-		padding: 0 5px;
-		border-radius: 9px;
-		background: var(--surface-hover);
-		color: var(--text-tertiary);
+	.my-requests {
+		margin: 8px 16px;
+		color: var(--text-secondary);
+	}
+	.my-requests summary {
+		cursor: pointer;
 		font-size: var(--t-label);
-		font-variant-numeric: tabular-nums;
-		line-height: 18px;
-		text-align: center;
 	}
-	.tab-count.unread {
-		background: color-mix(in srgb, var(--intent-conversation) 14%, transparent);
-		color: var(--intent-conversation);
-	}
+
 	.spacer {
 		flex: 1;
-	}
-	.shortcuts {
-		display: block;
-		max-width: 240px;
-		padding: 8px 10px;
-		border-top: 1px solid var(--border);
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-		line-height: 1.7;
 	}
 	kbd {
 		padding: 0 4px;

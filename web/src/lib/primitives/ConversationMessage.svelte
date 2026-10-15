@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { replyIsError, failureLine } from '$lib/model/turn-failure';
 	import { copyText } from '$lib/model/copy-text';
 	import { formatClock, formatMoment } from '$lib/ui/time';
 	import { onDestroy, untrack } from 'svelte';
@@ -93,6 +94,11 @@
 
 	/* Takeaway first: an agent's own one-line reading of the message leads. An agent's reply is
 	 * never folded; only the owner's own long paste (a report, a log) folds, and then late. */
+	const providerError = $derived(sender === 'agent' && replyIsError(text, null));
+	const readableText = $derived(
+		providerError ? failureLine(text) || 'The model provider could not answer. Try again.' : text
+	);
+	const readableDetails = $derived(details || (providerError ? text : null));
 	const takeaway = $derived(sender === 'agent' ? (intent?.summary?.trim() ?? '') : '');
 	const long = $derived(sender !== 'agent' && text.split(/\s+/).length > 450);
 	let expanded = $state(false);
@@ -104,7 +110,9 @@
 
 	/* The whole message as read: its takeaway line, then its text. */
 	async function copyMessage() {
-		copyState = (await copyText(takeaway ? `${takeaway}\n\n${text}` : text)) ? 'copied' : 'failed';
+		copyState = (await copyText(takeaway ? `${takeaway}\n\n${readableText}` : readableText))
+			? 'copied'
+			: 'failed';
 		window.clearTimeout(copyTimer);
 		copyTimer = window.setTimeout(() => (copyState = 'idle'), 1_800);
 	}
@@ -155,7 +163,7 @@
 		{#if takeaway}<p class="takeaway">{takeaway}</p>{/if}
 		<div class="message-text" class:folded class:after-takeaway={!!takeaway}>
 			<Markdown
-				{text}
+				text={readableText}
 				onreference={referable
 					? (path, name) => void preview?.open(messageId, path, name)
 					: undefined}
@@ -178,13 +186,13 @@
 				>{context.label}</a
 			>{/if}
 		{#if onreact && sender !== 'system'}<MessageReactions {reactions} {onreact} />{/if}
-		{#if details && sender === 'agent'}
+		{#if readableDetails && sender === 'agent'}
 			<!-- One disclosure: the evidence stays folded under the message until asked for. -->
 			<details class="work-details">
-				<summary>Work details</summary>
+				<summary>{providerError ? 'Error details' : 'Work details'}</summary>
 				<div class="work-details-body">
 					<Markdown
-						text={details}
+						text={readableDetails}
 						onreference={referable
 							? (path, name) => void preview?.open(messageId, path, name)
 							: undefined}

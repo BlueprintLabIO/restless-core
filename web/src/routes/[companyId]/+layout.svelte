@@ -47,6 +47,7 @@
 	import { searchComments } from '$lib/model/comment-search';
 	import { searchRoomMessages } from '$lib/model/rooms';
 	import {
+		applianceQuery,
 		attentionQuery,
 		cockpitQuery,
 		collaborationBootstrapQuery,
@@ -104,6 +105,7 @@
 	const entry = firstPaint(() => companyId);
 	const principal = $derived(principalProjection.view);
 	const ownerAccess = $derived(hasOwnerSurfaceAccess(principal));
+	const applianceIdentity = applianceQuery(() => ownerAccess);
 	/* For you, for the owner and every member: the Inbox lists it, the Inbox tab counts what is
 	 * unread, and with desktop notifications on it keeps reading while the cockpit is hidden. */
 	const forYou = forYouSource(
@@ -1732,7 +1734,9 @@
 			{viewerName}
 			{viewerRole}
 			present={others.present}
-			homeHref={ownerAccess ? '/' : collaboratorHome(companyId)}
+			homeHref={ownerAccess
+				? (applianceIdentity.view?.home_url ?? '/')
+				: collaboratorHome(companyId)}
 			canSwitchCompanies={ownerAccess}
 			execHref={!!principal &&
 			(page.url.pathname === `/${companyId}/people` ||
@@ -1746,12 +1750,6 @@
 				(railConversation.working || !!railConversation.ambientTurn)}
 			execUnavailable={!!providerIssue}
 			railOpen={execRailOpen}
-			expandExec={page.url.pathname === `/${companyId}` &&
-				attention.status === 'live' &&
-				liveNeedsYou.length === 0 &&
-				railConnected &&
-				!page.url.searchParams.has('computer') &&
-				!focusedAttention}
 			immersive={immersiveComputer}
 			blocked={startupBlocking}
 			onexectoggle={() => inPlace(() => (execRailOpen = !execRailOpen))}

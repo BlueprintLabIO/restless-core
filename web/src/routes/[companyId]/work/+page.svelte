@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Dialog from '$lib/ui/controls/Dialog.svelte';
+	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import ResizableSidebar from '$lib/components/ResizableSidebar.svelte';
 	/* Work: the company's goals and the work under them.
 	 *
@@ -52,7 +54,7 @@
 		judgementHolders,
 		workWaitingOnOwner
 	} from '$lib/model/attention-presentation';
-	import { emptyWorkTitle, matchesSearch } from '$lib/model/work-views';
+	import { emptyWorkTitle, matchesSearch, goalsWithFinishedWork } from '$lib/model/work-views';
 	import { dueLabel, finishLine, type Goal } from '$lib/work/goal';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import Ban from '@lucide/svelte/icons/ban';
@@ -540,7 +542,6 @@
 	let goalDue = $state('');
 	let goalBusy = $state(false);
 	let goalFailure = $state('');
-	let confirmingClose = $state(false);
 	const goalDueOn = (goal: object) => (goal as { due_on?: string | null }).due_on ?? '';
 	function openGoalEdit() {
 		if (!selectedGoalRow) return;
@@ -558,12 +559,110 @@
 			await run();
 			toast(done);
 			goalEditing = false;
-			confirmingClose = false;
 			await cockpitProjection.refresh();
 		} catch (cause) {
 			goalFailure = failureSentence(cause, 'The Goal did not change.');
 		} finally {
 			goalBusy = false;
+		}
+	}
+	async function archiveSelectedGoal() {
+		const goal = selectedGoalRow;
+		if (!goal || goalBusy) return;
+		if (
+			await confirmAction({
+				title: 'Archive this goal?',
+				body:
+					'Archive “' +
+					goal.title +
+					'”? Existing work keeps running. You can reopen the goal from Archived.',
+				action: 'Archive goal'
+			})
+		)
+			await goalAction(() => closeGoal(companyId, goal.id), 'Goal archived');
+	}
+
+	let clearingDone = $state(false);
+	const archiveCandidates = $derived.by(() => {
+		if (
+			!ownerAccess ||
+			ownerFilter ||
+			statusFilter ||
+			search.trim() ||
+			(selectedGoal && !selectedGoalRow) ||
+			selectedGoalRow?.closed_at
+		)
+			return [];
+		const ready = goalsWithFinishedWork(goals, graph?.work ?? []);
+		return goals.filter(
+			(goal) => ready.has(goal.id) && (!selectedGoal || selectedGoal === goal.id)
+		);
+	});
+	async function clearCompleted(from: Element) {
+		if (clearingDone) return;
+		const candidates = archiveCandidates;
+		if (
+			candidates.length &&
+			!(await confirmAction({
+				title:
+					candidates.length === 1
+						? 'Clear done and archive the goal?'
+						: 'Clear done and archive ' + candidates.length + ' goals?',
+				body:
+					candidates.map((goal) => '“' + goal.title + '”').join(', ') +
+					' has no unfinished work. Archive ' +
+					(candidates.length === 1 ? 'this goal' : 'these goals') +
+					' while clearing completed work? Each can be reopened from Archived.',
+				action: 'Clear and archive'
+			}))
+		)
+			return;
+		clearingDone = true;
+		const previous = doneClearedAt;
+		const count = done.length;
+		const archived: Goal[] = [];
+		try {
+			for (const goal of candidates) {
+				await closeGoal(companyId, goal.id);
+				archived.push(goal);
+			}
+			doneClearedAt = Date.now();
+			try {
+				localStorage.setItem(clearedKey, String(doneClearedAt));
+			} catch {
+				/* This visit only. */
+			}
+			celebrate(from);
+			toast(
+				(count ? count + ' completed tasks cleared' : 'Completed work cleared') +
+					(archived.length
+						? ' · ' +
+							archived.length +
+							(archived.length === 1 ? ' goal archived' : ' goals archived')
+						: ''),
+				{
+					undo: () => {
+						doneClearedAt = previous;
+						try {
+							localStorage.setItem(clearedKey, String(previous));
+						} catch {
+							/* This visit only. */
+						}
+						void Promise.all(archived.map((goal) => reopenGoal(companyId, goal.id)))
+							.then(() => cockpitProjection.refresh())
+							.catch((cause) =>
+								toast(failureSentence(cause, 'Some goals could not be reopened.'), {
+									tone: 'failure'
+								})
+							);
+					}
+				}
+			);
+		} catch (cause) {
+			toast(failureSentence(cause, 'Completed work was not cleared.'), { tone: 'failure' });
+		} finally {
+			if (archived.length) await cockpitProjection.refresh();
+			clearingDone = false;
 		}
 	}
 	function saveGoal() {
@@ -583,7 +682,6 @@
 	$effect(() => {
 		void selectedGoal;
 		goalEditing = false;
-		confirmingClose = false;
 		goalFailure = '';
 	});
 
@@ -601,19 +699,18 @@
 	<button
 		class="btn small ghost"
 		type="button"
-		title="Move this Done Work to Archived. It is still there, and in search."
-		onclick={(event) => {
-			const moved = done.length;
-			celebrate(event.currentTarget);
-			doneClearedAt = Date.now();
-			try {
-				localStorage.setItem(clearedKey, String(doneClearedAt));
-			} catch {
-				/* Kept for this visit only. */
-			}
-			toast(`${moved} moved to Archived`);
-		}}>Clear done</button
+		disabled={clearingDone}
+		title="Clear completed work from the current view. You can also archive goals whose tasks are all complete."
+		onclick={(event) => void clearCompleted(event.currentTarget)}
 	>
+		{clearingDone
+			? 'Clearing…'
+			: done.length
+				? 'Clear done'
+				: archiveCandidates.length === 1
+					? 'Archive goal'
+					: 'Archive finished goals'}
+	</button>
 {/snippet}
 
 {#snippet goalRow(goal: Goal, indent = false)}
@@ -778,14 +875,17 @@
 				<SidebarSearch bind:value={() => search, typeSearch} placeholder="Search work" />
 			</div>
 			{#if loaded && graph && !noWorkYet}
-				<nav class="views" aria-label="Goals">
-					{#each narrowViews as item (item.goal)}
-						<a
-							href={viewHref(item.goal)}
-							aria-current={selectedGoal === item.goal ? 'page' : undefined}>{item.label}</a
-						>
-					{/each}
-				</nav>
+				<label class="goal-select">
+					<span>Show</span>
+					<select
+						aria-label="Work view"
+						value={selectedGoal}
+						onchange={(event) => setQuery('goal', event.currentTarget.value)}
+					>
+						{#each narrowViews as item (item.goal)}<option value={item.goal}>{item.label}</option
+							>{/each}
+					</select>
+				</label>
 			{/if}
 		{/snippet}
 
@@ -832,7 +932,7 @@
 				{#if selectedGoalRow && ownerAccess}
 					<div class="goal-standard-picker">
 						<ActionMenu label="Goal actions">
-							{#snippet trigger()}<span>Goal</span>{/snippet}
+							{#snippet trigger()}<span>Goal actions</span>{/snippet}
 							{#if !selectedGoalRow.closed_at}
 								<button type="button" onclick={addWork}><span>Add work…</span></button>
 								<button type="button" onclick={openGoalEdit}><span>Edit goal…</span></button>
@@ -863,8 +963,8 @@
 											)}><span>Hold it yourself</span></button
 									>
 								{/if}
-								<button type="button" onclick={() => (confirmingClose = true)}
-									><span>Close goal…</span></button
+								<button type="button" onclick={() => void archiveSelectedGoal()}
+									><span>Archive goal…</span></button
 								>
 							{:else}
 								<button
@@ -944,6 +1044,20 @@
 						</ActionMenu>
 					</div>
 				</div>
+				{#if done.length || archiveCandidates.length}
+					<div class="completed-actions" aria-label="Completed work actions">
+						{#if view === 'board' && done.length > RECENT_DONE}
+							<button
+								class="btn small ghost"
+								type="button"
+								onclick={() => (showAllDone = !showAllDone)}
+							>
+								{showAllDone ? 'Show recent only' : 'Show all ' + done.length}
+							</button>
+						{/if}
+						{#if selectedGoal !== 'archived'}{@render clearDone()}{/if}
+					</div>
+				{/if}
 				<div class="view-switch">
 					<Segmented
 						label="View"
@@ -971,80 +1085,34 @@
 				{#if selectedGoalRow && loaded && graph}
 					{@const progress = goalProgress(selectedGoalRow.id)}
 					<section class="goal-head" aria-label="About this goal">
-						{#if goalEditing}
-							<form
-								class="goal-form"
-								onsubmit={(event) => {
-									event.preventDefault();
-									saveGoal();
-								}}
-							>
-								<label><span>Goal</span><input bind:value={goalTitle} required /></label>
-								<label
-									><span>Done when</span><input
-										bind:value={goalDoneWhen}
-										maxlength="400"
-										placeholder="What you will see when it is done"
-									/></label
-								>
-								<label><span>Due</span><input type="date" bind:value={goalDue} /></label>
-								<div class="goal-form-actions">
-									<button class="btn small primary" disabled={goalBusy || !goalTitle.trim()}
-										>{goalBusy ? 'Saving…' : 'Save'}</button
+						{#if selectedGoalRow.body.trim() || finishLine(selectedGoalRow)}
+							<details class="goal-description">
+								<summary>About this goal</summary>
+								{#if selectedGoalRow.body.trim() && selectedGoalRow.body.trim() !== selectedGoalRow.title}<p
+										class="goal-body"
 									>
-									<button
-										class="btn small ghost"
-										type="button"
-										onclick={() => (goalEditing = false)}>Cancel</button
-									>
-								</div>
-							</form>
-						{:else}
-							{#if selectedGoalRow.body.trim() && selectedGoalRow.body.trim() !== selectedGoalRow.title}<p
-									class="goal-body"
-								>
-									{selectedGoalRow.body}
-								</p>{/if}
-							<p class="goal-facts">
-								<span
-									>{finishLine(selectedGoalRow)
-										? `Done when ${finishLine(selectedGoalRow)}`
-										: 'No finish line yet'}</span
-								>
-								<span>{progress.done} of {progress.total} done</span>
-								{#if dueLabel(selectedGoalRow)}<span>Due {dueLabel(selectedGoalRow)}</span>{/if}
-								{#if goalTeam(selectedGoalRow)}<span>{goalTeam(selectedGoalRow)}</span>{/if}
-								<!-- The facts a goal row's hover title carries, readable on touch once it is chosen. -->
-								{#if !ownerAccess}<span
-										>{standardLabel(goalStandard(selectedGoalRow))} quality bar</span
-									>{/if}
-								{#if ownerAccess && goalCost(selectedGoalRow.id)}<span
-										title="Metered model spend on this goal's work"
-										>{goalCost(selectedGoalRow.id)}</span
-									>{/if}
-								{#if selectedGoalRow.closed_at}<span>Closed</span>{/if}
-							</p>
+										{selectedGoalRow.body}
+									</p>{/if}
+								{#if finishLine(selectedGoalRow)}<p class="goal-body">
+										Done when {finishLine(selectedGoalRow)}
+									</p>{/if}
+							</details>
 						{/if}
-						{#if confirmingClose}
-							<div class="goal-confirm" role="alertdialog" aria-label="Close this goal">
-								<span
-									>Close “{selectedGoalRow.title}”? Its work keeps running; you can reopen it.</span
-								>
-								<button
-									class="btn small danger"
-									type="button"
-									disabled={goalBusy}
-									onclick={() =>
-										goalAction(() => closeGoal(companyId, selectedGoalRow.id), 'Goal closed')}
-									>Close goal</button
-								>
-								<button
-									class="btn small ghost"
-									type="button"
-									onclick={() => (confirmingClose = false)}>Cancel</button
-								>
-							</div>
-						{/if}
+						<p class="goal-facts">
+							<span>{progress.done} of {progress.total} done</span>
+							{#if dueLabel(selectedGoalRow)}<span>Due {dueLabel(selectedGoalRow)}</span>{/if}
+							{#if goalTeam(selectedGoalRow)}<span>{goalTeam(selectedGoalRow)}</span>{/if}
+							<!-- The facts a goal row's hover title carries, readable on touch once it is chosen. -->
+							{#if !ownerAccess}<span
+									>{standardLabel(goalStandard(selectedGoalRow))} quality bar</span
+								>{/if}
+							{#if ownerAccess && goalCost(selectedGoalRow.id)}<span
+									title="Metered model spend on this goal's work"
+									>{goalCost(selectedGoalRow.id)}</span
+								>{/if}
+							{#if selectedGoalRow.closed_at}<span>Closed</span>{/if}
+						</p>
+
 						{#if goalFailure}<p class="standard-failure" role="alert">{goalFailure}</p>{/if}
 					</section>
 				{/if}
@@ -1074,17 +1142,7 @@
 							>{/snippet}
 					</Empty>
 				{:else if view === 'board'}
-					<WorkBoard columns={boardColumns}>
-						{#snippet footer(column)}
-							{#if column.key === 'completed' && done.length > RECENT_DONE}<button
-									class="btn small ghost"
-									type="button"
-									onclick={() => (showAllDone = !showAllDone)}
-									>{showAllDone ? 'Show recent only' : `Show all ${done.length}`}</button
-								>{/if}
-							{#if column.key === 'completed' && done.length && selectedGoal !== 'archived'}{@render clearDone()}{/if}
-						{/snippet}
-					</WorkBoard>
+					<WorkBoard columns={boardColumns}></WorkBoard>
 				{:else}
 					{#each groups.filter((group) => group.rows.length) as group (group.key)}
 						<section class="group" aria-label={group.label}>
@@ -1101,10 +1159,6 @@
 									{#each done as work (work.id)}{@render row(work, 'success')}{/each}
 								</Fold>
 							</div>
-							<!-- In view whether or not Done is open: clearing should not need a hunt. -->
-							{#if selectedGoal !== 'archived'}<div class="clear-done">
-									{@render clearDone()}
-								</div>{/if}
 						</section>
 					{/if}
 					{#if !goalWork.length}
@@ -1121,6 +1175,37 @@
 		</div>
 	</SidebarShell>
 </ResizableSidebar>
+
+{#if goalEditing && selectedGoalRow}
+	<Dialog title="Edit goal" busy={goalBusy} onclose={() => (goalEditing = false)}>
+		<form
+			class="goal-form"
+			onsubmit={(event) => {
+				event.preventDefault();
+				saveGoal();
+			}}
+		>
+			<label><span>Goal</span><input bind:value={goalTitle} required /></label>
+			<label
+				><span>Done when</span><input
+					bind:value={goalDoneWhen}
+					maxlength="400"
+					placeholder="What you will see when it is done"
+				/></label
+			>
+			<label><span>Due</span><input type="date" bind:value={goalDue} /></label>
+			<div class="goal-form-actions">
+				<button class="btn small primary" disabled={goalBusy || !goalTitle.trim()}
+					>{goalBusy ? 'Saving…' : 'Save'}</button
+				>
+				<button class="btn small ghost" type="button" onclick={() => (goalEditing = false)}
+					>Cancel</button
+				>
+			</div>
+			{#if goalFailure}<p class="standard-failure" role="alert">{goalFailure}</p>{/if}
+		</form>
+	</Dialog>
+{/if}
 
 <style>
 	.goal-standard-picker :global(summary) {
@@ -1143,35 +1228,17 @@
 	.narrow-search {
 		padding: 10px 12px 4px;
 	}
-	.views {
+	.goal-select {
 		display: flex;
-		gap: 2px;
-		padding: 6px 8px;
-		overflow-x: auto;
-		border-bottom: 1px solid var(--border);
-		scrollbar-width: none;
+		align-items: center;
+		gap: 12px;
+		padding: 6px 12px;
+		min-width: 0;
 	}
-	.views a {
-		flex: none;
-		max-width: 16em;
-		padding: 5px 10px;
-		overflow: hidden;
-		border-radius: var(--radius-control);
-		color: var(--text-secondary);
-		font-size: var(--t-body);
-		text-decoration: none;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	/* The selected place is raised, as it is in the sidebar and the top navigation. */
-	.views a[aria-current='page'] {
-		background: var(--surface-raised);
-		box-shadow:
-			var(--shadow-soft),
-			var(--bevel),
-			0 0 0 1px var(--border);
-		color: var(--ink);
-		font-weight: 600;
+	.goal-select select {
+		flex: 1;
+		width: 100%;
+		min-width: 0;
 	}
 	/* One column the width of the pane: a long goal title is cut, never widening every row. */
 	.page {
@@ -1193,6 +1260,8 @@
 		border-bottom: 1px solid var(--border);
 	}
 	.title {
+		flex: 1 1 240px;
+		max-width: 100%;
 		display: flex;
 		align-items: center;
 		gap: 8px;
@@ -1286,8 +1355,7 @@
 		color: var(--ink);
 		font: inherit;
 	}
-	.goal-form-actions,
-	.goal-confirm {
+	.goal-form-actions {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
@@ -1336,9 +1404,17 @@
 		background: conic-gradient(var(--state-success) var(--done), var(--border-strong) 0);
 		mask: radial-gradient(circle, transparent 3.5px, #000 4px);
 	}
-	.clear-done {
+	.completed-actions {
 		display: flex;
-		justify-content: flex-end;
-		padding: 4px 8px;
+		flex-wrap: wrap;
+		gap: 6px;
+	}
+	.goal-description summary {
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		cursor: pointer;
+	}
+	.goal-description p {
+		margin-block: 8px;
 	}
 </style>

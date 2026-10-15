@@ -1,7 +1,13 @@
 <script lang="ts">
 	/* Every keyboard shortcut the cockpit answers to, on `?`. */
 	import X from '@lucide/svelte/icons/x';
+	import { onMount } from 'svelte';
 	let dialog: HTMLDialogElement;
+	onMount(() => {
+		const show = () => dialog.showModal();
+		window.addEventListener('restless:shortcuts', show);
+		return () => window.removeEventListener('restless:shortcuts', show);
+	});
 	const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 	const mod = isMac ? '⌘' : 'Ctrl';
 	const GROUPS: { title: string; keys: [string, string][] }[] = [
@@ -40,7 +46,7 @@
 		{
 			title: 'Inbox',
 			keys: [
-				['J / K', 'Next or previous item, on into For you'],
+				['J / K', 'Next or previous Inbox item'],
 				['R', 'Answer: the reply box, or the first answer button'],
 				['C', 'Discuss with whoever asked'],
 				['E', 'Mark a step done, with Undo'],

@@ -21,10 +21,9 @@
 		event.preventDefault();
 		const next = options[(index + step + options.length) % options.length];
 		onchange(next.value);
+		const group = (event.currentTarget as HTMLElement).parentElement;
 		requestAnimationFrame(() =>
-			(event.currentTarget as HTMLElement)?.parentElement
-				?.querySelector<HTMLButtonElement>('[aria-checked="true"]')
-				?.focus()
+			group?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus()
 		);
 	}
 </script>

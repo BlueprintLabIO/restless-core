@@ -13,6 +13,7 @@
 	import { recoverCompany, type RecoveryAction } from '$lib/model/company';
 	import { companyQuery } from '$lib/model/queries.svelte';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
+	import { sendActorMessage } from '$lib/model/attention';
 	import { askExec } from '$lib/model/ask-exec';
 
 	const companyId = $derived(page.params.companyId ?? '');
@@ -103,7 +104,6 @@
 			working = '';
 		}
 	}
-	let open = $state('');
 	const toneFor = (status: string) =>
 		status === 'healthy'
 			? 'success'
@@ -119,12 +119,33 @@
 		({ degraded: 'Needs attention', unknown: 'Unclear', unavailable: "Couldn't be checked" })[
 			status
 		] ?? status;
-	/* Exec can look into anything on the company computer; the draft names the check so the owner
-	 * only has to send it. */
-	const askAbout = (check: { label: string; summary: string }) =>
-		askExec(
-			`The "${check.label}" health check is failing: ${check.summary} Look into it, fix what you can and tell me what needs me.`
-		);
+	async function askAbout(check: { label: string; summary: string }) {
+		if (working) return;
+		const target = companyId;
+		working = 'ask:' + check.label;
+		error = '';
+		notice = '';
+		try {
+			await sendActorMessage(
+				target,
+				'exec',
+				'The "' +
+					check.label +
+					'" health check is failing: ' +
+					check.summary +
+					' Investigate, fix what you can and tell me what needs me.'
+			);
+			if (companyId === target) {
+				notice = 'Diagnostic sent to Exec.';
+				askExec();
+			}
+		} catch (cause) {
+			if (companyId === target) error = failureSentence(cause, 'The diagnostic was not sent.');
+		} finally {
+			if (companyId === target) working = '';
+		}
+	}
+
 	holdQueries(() => [source]);
 </script>
 
@@ -188,12 +209,7 @@
 		{#if failing.length}
 			<Section title="Needs attention" count={failing.length}>
 				{#each failing as check (check.id)}
-					<Item
-						title={check.label}
-						meta={check.summary}
-						onclick={check.detail ? () => (open = open === check.id ? '' : check.id) : undefined}
-						selected={open === check.id}
-					>
+					<Item title={check.label} stacked>
 						{#snippet leading()}<Dot
 								tone={dotTone(check.status)}
 								label={statusWord(check.status)}
@@ -206,7 +222,7 @@
 									check.summary.startsWith('Choose an intelligence')
 										? 'Connect a model'
 										: 'Reconnect'}</a
-								>{:else if check.id === repairCheck}{#each view.computer.doctor.actions as action (action.id)}<button
+								>{:else if check.id === repairCheck && view.computer.doctor.actions.length}{#each view.computer.doctor.actions as action (action.id)}<button
 										class="btn small primary"
 										title={action.consequence}
 										disabled={!!working}
@@ -219,11 +235,18 @@
 								>{:else if check.id === 'browser'}<a
 									class="btn small"
 									href={`/${companyId}/company/computer?focus=desktop`}>Open the desktop</a
-								>{:else}<button class="btn small" type="button" onclick={() => askAbout(check)}
-									>Ask Exec to look into this</button
+								>{:else}<button
+									class="btn small"
+									type="button"
+									disabled={!!working}
+									onclick={() => void askAbout(check)}>Ask Exec to fix</button
 								>{/if}
 						{/snippet}
-						{#if open === check.id && check.detail}<p class="detail">{check.detail}</p>{/if}
+						<p class="detail">{check.summary}</p>
+						{#if check.detail}<details class="check-detail">
+								<summary>Details</summary>
+								<p class="detail">{check.detail}</p>
+							</details>{/if}
 					</Item>
 				{/each}
 			</Section>

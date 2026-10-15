@@ -24,7 +24,7 @@ const routes = [
 	['home', '/'],
 	['attention', `/${company}`],
 	['work', `/${company}/work`],
-	['work-board', `/${company}/work?lens=board`],
+	['work-board', `/${company}/work?view=board`],
 	...(workId ? [['work-item', `/${company}/work/${workId}`]] : []),
 	['work-documents', `/${company}/work/documents`],
 	['people', `/${company}/people`],
@@ -68,13 +68,34 @@ try {
 		});
 		for (const [name, path] of routes) {
 			const page = await context.newPage();
-			const errors = [];
-			page.on('pageerror', (e) => errors.push(e.message));
-			page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+			const errors = [],
+				expectedErrors = [];
+			const expectedMissing = 'SvelteKitError: Not found: ' + path;
+			function recordError(message, source = '') {
+				if (
+					name === 'not-found' &&
+					(message.startsWith(expectedMissing) ||
+						(source === origin + path &&
+							message ===
+								'Failed to load resource: the server responded with a status of 404 (Not Found)'))
+				)
+					expectedErrors.push(message);
+				else errors.push(message);
+			}
+			page.on('pageerror', (e) => recordError(e.message));
+			page.on('console', (m) => m.type() === 'error' && recordError(m.text(), m.location().url));
 			await page
 				.goto(origin + path, { waitUntil: 'networkidle' })
 				.catch((e) => errors.push(String(e)));
 			await page.waitForTimeout(700);
+			if (name === 'not-found') {
+				await page
+					.getByRole('heading', { name: 'This page does not exist', exact: true })
+					.waitFor({ timeout: 5000 })
+					.catch(() => errors.push('Missing page did not show its recovery screen'));
+				if (!(await page.getByRole('link', { name: /Back to compan/ }).count()))
+					errors.push('Missing page has no way back');
+			}
 			const overflow = await page.evaluate(() => {
 				const doc = document.documentElement;
 				const wide = [...document.querySelectorAll('body *')]
@@ -168,6 +189,7 @@ try {
 				scheme,
 				url: page.url().replace(origin, ''),
 				errors,
+				expectedErrors,
 				overflow,
 				jank
 			});
@@ -195,7 +217,12 @@ for (const r of report) {
 }
 if (
 	report.some(
-		(r) => r.overflow.scroll || r.jank.clipped.length || r.jank.sideways.length || r.jank.raw.length
+		(r) =>
+			r.errors.length ||
+			r.overflow.scroll ||
+			r.jank.clipped.length ||
+			r.jank.sideways.length ||
+			r.jank.raw.length
 	)
 )
 	process.exitCode = 1;

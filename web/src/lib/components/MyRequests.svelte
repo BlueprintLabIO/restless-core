@@ -114,7 +114,7 @@
 			</li>
 		{/each}
 		{#if more || recent.length > shown.length}<li class="all-link">
-				<a href={`/${encodeURIComponent(companyId)}?tab=for-you`}>All your requests</a>
+				<a href={`/${encodeURIComponent(companyId)}?requests=mine`}>All your requests</a>
 			</li>{/if}
 	</ul>
 {/if}

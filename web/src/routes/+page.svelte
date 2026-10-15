@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { accountHomeDestination } from '$lib/model/account-home';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import {
 		archiveCompany,
@@ -20,9 +21,9 @@
 	import CreateCompany from '$lib/components/CreateCompany.svelte';
 	import HomeAccount from '$lib/components/HomeAccount.svelte';
 	import AccountFrame from '$lib/components/AccountFrame.svelte';
-	import { getApplianceStatus, planeLabel, type ApplianceStatus } from '$lib/model/appliance';
+	import { planeLabel } from '$lib/model/appliance';
 	import ApplianceRepair from '$lib/components/ApplianceRepair.svelte';
-	import { companiesQuery } from '$lib/model/queries.svelte';
+	import { applianceQuery, companiesQuery } from '$lib/model/queries.svelte';
 	import {
 		accountGrantFix,
 		getAccountConnections,
@@ -43,15 +44,16 @@
 		unavailable: 'Unavailable'
 	};
 	let redirected = $state(false);
-	let appliance = $state<ApplianceStatus | null>(null);
-	let applianceSettled = $state(false);
-	/* A hosted plane keeps no company list of its own: Home is on the account issuer, so there is
-	 * one list. Hold the skeleton until the plane says which it is, so its own list never flashes. */
-	const hostedHome = $derived(appliance?.hosted ? (appliance.home_url ?? null) : null);
+	const identity = applianceQuery();
+	const appliance = $derived(identity.view);
+	const destination = $derived(accountHomeDestination(page.url, appliance));
+	const loaded = $derived(companyCatalog.status !== 'unknown' && identity.settled && !destination);
 	$effect(() => {
-		if (hostedHome && !page.url.searchParams.get('next')) window.location.replace(hostedHome);
+		if (redirected || !identity.settled || !destination) return;
+		redirected = true;
+		if (destination.startsWith('/')) void goto(destination, { replaceState: true });
+		else window.location.replace(destination);
 	});
-	const loaded = $derived(companyCatalog.status !== 'unknown' && applianceSettled && !hostedHome);
 	const activeCompanies = $derived(
 		companies.filter((company) => company.lifecycle_status === 'active')
 	);
@@ -59,36 +61,19 @@
 		companies.filter((company) => company.lifecycle_status === 'archived')
 	);
 
-	$effect(() => {
-		if (redirected || !loaded) return;
-		redirected = true;
-		const next = safeNext(page.url.searchParams.get('next'));
-		if (next) void goto(next, { replaceState: true });
-	});
-
-	/* After a repair, read the appliance again so a resolved banner goes away. */
+	/* Repair refreshes the same identity read the shell uses. */
 	async function refreshAppliance() {
-		appliance = await getApplianceStatus().catch(() => appliance);
+		await identity.refresh();
 	}
 	let accountConnections = $state<AccountConnectionSummary[]>([]);
 	$effect(() => {
 		const controller = new AbortController();
-		void getApplianceStatus(controller.signal)
-			.then((value) => (appliance = value))
-			.catch(() => {
-				// The portfolio query already owns the global unavailable state.
-			})
-			.finally(() => (applianceSettled = true));
 		// Only refines a blocked company's fix; without it the Company page link stays.
 		void getAccountConnections(controller.signal)
 			.then((rows) => (accountConnections = rows))
 			.catch(() => {});
 		return () => controller.abort();
 	});
-
-	function safeNext(value: string | null): string {
-		return value?.startsWith('/') && !value.startsWith('//') ? value : '';
-	}
 
 	/* Archiving stops the company, so it says what that means first; the toast then offers Undo.
 	 * Restoring and failures say so on the toast too. */
@@ -211,94 +196,111 @@
 <svelte:head><title>Companies — {PRODUCT_NAME}</title></svelte:head>
 
 {#snippet feedback()}
-	{#if companyCatalog.failure}
+	{#if companyCatalog.failure || identity.failure}
 		<FailureNotice
-			error={companyCatalog.failure}
+			error={companyCatalog.failure ?? identity.failure!}
 			subject="your companies"
 			stale={loaded}
 			variant={loaded ? 'inline' : 'page'}
-			onretry={companyCatalog.refresh}
+			onretry={() => {
+				void companyCatalog.refresh();
+				void identity.refresh();
+			}}
 		/>
 	{/if}
 {/snippet}
 
 <div use:tooltips use:selectMenu>
-	<AccountFrame {appliance}>
-		<CompanyPortfolio companies={rows} {loaded} feedback={companyCatalog.failure ? feedback : null}>
-			{#snippet actions()}
-				{#if loaded}<CreateCompany />{/if}
-			{/snippet}
-			{#snippet rowActions(company)}<ActionMenu label={`${company.name} options`}
-					>{#if archivedSet.has(company.id)}<a href={`/archived/${encodeURIComponent(company.id)}`}
-							>Open read-only</a
-						><button disabled={!!busy} onclick={() => restore(company.id)}>Restore company</button
-						><a href={companyExportHref(company.id)} download>Download export</a><button
-							disabled={!!busy}
-							onclick={() => remove(company.id, company.name)}>Delete permanently</button
-						>{:else}<a href={`/${company.id}`}>Open</a><a href={`/${company.id}/company`}>Company</a
-						><a href={`/${company.id}/company/provider`}>Intelligence</a><button
-							disabled={!!busy}
-							onclick={() => archive(company.id, company.name)}>Archive company</button
-						>{/if}</ActionMenu
-				>{/snippet}
-			{#snippet footer()}
-				<span
-					>{activeCompanies.length}
-					{activeCompanies.length === 1 ? 'company' : 'companies'} · {planeLabel(appliance)}</span
-				>
-				{#if archivedCompanies.length}<button
-						class="portfolio-archived-toggle"
-						type="button"
-						aria-pressed={showArchived}
-						onclick={() => (showArchived = !showArchived)}
-						>{showArchived
-							? 'Hide archived'
-							: `Show archived (${archivedCompanies.length})`}</button
-					>{/if}
-			{/snippet}
-			{#snippet after()}
-				<HomeAccount companies={activeCompanies} {appliance} />
-			{/snippet}
-			{#snippet before()}
-				{#if appliance?.state === 'recovering'}
-					<div class="appliance-notice" role="status">
-						<span>Restoring runtime safety.</span>
-						<p>{appliance.repair}</p>
-						<ApplianceRepair
-							actions={appliance.repair_actions ?? []}
-							ondone={() => void refreshAppliance()}
-						/>
-					</div>
-				{:else if appliance?.state === 'draining'}
-					<div class="appliance-notice" role="status">
-						<span>Work admission is paused.</span>
-						<p>{appliance.repair}</p>
-						<ApplianceRepair
-							actions={appliance.repair_actions ?? []}
-							ondone={() => void refreshAppliance()}
-						/>
-					</div>
-				{:else if appliance?.state === 'degraded'}
-					<div class="appliance-notice" role="status">
-						<span>Schedule wake needs repair.</span>
-						<p>{appliance.repair}</p>
-						<ApplianceRepair
-							actions={appliance.repair_actions ?? []}
-							ondone={() => void refreshAppliance()}
-						/>
-					</div>
-				{/if}
-			{/snippet}
+	<AccountFrame {appliance} loading={!loaded && !companyCatalog.failure && !identity.failure}>
+		{#if identity.failure || (companyCatalog.failure && !companies.length)}
+			<FailureNotice
+				error={identity.failure ?? companyCatalog.failure!}
+				subject={identity.failure ? 'account navigation' : 'your companies'}
+				variant="page"
+				onretry={() => Promise.all([identity.refresh(), companyCatalog.refresh()])}
+			/>
+		{:else}
+			<CompanyPortfolio
+				companies={rows}
+				{loaded}
+				feedback={companyCatalog.failure || identity.failure ? feedback : null}
+			>
+				{#snippet actions()}
+					{#if loaded}<CreateCompany />{/if}
+				{/snippet}
+				{#snippet rowActions(company)}<ActionMenu label={`${company.name} options`}
+						>{#if archivedSet.has(company.id)}<a
+								href={`/archived/${encodeURIComponent(company.id)}`}>Open read-only</a
+							><button disabled={!!busy} onclick={() => restore(company.id)}>Restore company</button
+							><a href={companyExportHref(company.id)} download>Download export</a><button
+								disabled={!!busy}
+								onclick={() => remove(company.id, company.name)}>Delete permanently</button
+							>{:else}<a href={`/${company.id}`}>Open</a><a href={`/${company.id}/company`}
+								>Company</a
+							><a href={`/${company.id}/company/provider`}>Intelligence</a><button
+								disabled={!!busy}
+								onclick={() => archive(company.id, company.name)}>Archive company</button
+							>{/if}</ActionMenu
+					>{/snippet}
+				{#snippet footer()}
+					<span
+						>{activeCompanies.length}
+						{activeCompanies.length === 1 ? 'company' : 'companies'} · {planeLabel(appliance)}</span
+					>
+					{#if archivedCompanies.length}<button
+							class="portfolio-archived-toggle"
+							type="button"
+							aria-pressed={showArchived}
+							onclick={() => (showArchived = !showArchived)}
+							>{showArchived
+								? 'Hide archived'
+								: `Show archived (${archivedCompanies.length})`}</button
+						>{/if}
+				{/snippet}
+				{#snippet after()}
+					<HomeAccount companies={activeCompanies} {appliance} />
+				{/snippet}
+				{#snippet before()}
+					{#if appliance?.state === 'recovering'}
+						<div class="appliance-notice" role="status">
+							<span>Restoring runtime safety.</span>
+							<p>{appliance.repair}</p>
+							<ApplianceRepair
+								actions={appliance.repair_actions ?? []}
+								ondone={() => void refreshAppliance()}
+							/>
+						</div>
+					{:else if appliance?.state === 'draining'}
+						<div class="appliance-notice" role="status">
+							<span>Work admission is paused.</span>
+							<p>{appliance.repair}</p>
+							<ApplianceRepair
+								actions={appliance.repair_actions ?? []}
+								ondone={() => void refreshAppliance()}
+							/>
+						</div>
+					{:else if appliance?.state === 'degraded'}
+						<div class="appliance-notice" role="status">
+							<span>Schedule wake needs repair.</span>
+							<p>{appliance.repair}</p>
+							<ApplianceRepair
+								actions={appliance.repair_actions ?? []}
+								ondone={() => void refreshAppliance()}
+							/>
+						</div>
+					{/if}
+				{/snippet}
 
-			{#snippet empty()}
-				<h2>No companies yet</h2>
-				<p>
-					{archivedCompanies.length
-						? 'Use Start a company to begin a new one.'
-						: 'Use Start a company and tell Exec what to build.'}
-				</p>
-			{/snippet}
-		</CompanyPortfolio>
+				{#snippet empty()}
+					<h2>No companies yet</h2>
+					<p>
+						{archivedCompanies.length
+							? 'Use Start a company to begin a new one.'
+							: 'Use Start a company and tell Exec what to build.'}
+					</p>
+				{/snippet}
+			</CompanyPortfolio>
+		{/if}
 	</AccountFrame>
 </div>
 

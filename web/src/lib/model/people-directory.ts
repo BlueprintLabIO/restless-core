@@ -2,10 +2,11 @@
  * Pure, so the page and its tests read the same rules. Nothing here is stored. */
 
 /** One word that can be read at a glance, coloured by meaning in the directory. */
-export type StatusWord = 'Working' | 'Waiting' | 'Blocked' | 'Idle';
+export type StatusWord = 'Working' | 'Waiting' | 'Needs you' | 'Blocked' | 'Idle';
 
 /** The directory row's tone, as People already colours it, said as a word. */
-export function statusWord(tone: string): StatusWord {
+export function statusWord(tone: string, needsOwner = false): StatusWord {
+	if (needsOwner) return 'Needs you';
 	if (tone === 'block') return 'Blocked';
 	if (tone === 'wait') return 'Waiting';
 	if (tone === 'work') return 'Working';

@@ -136,8 +136,7 @@
 			teamOwnerBusy = '';
 		}
 	}
-	/* The owner reshapes the organisation directly: one editor open at a time, under the team it
-	 * changes or, for a new team, at the foot of the directory. Disbanding asks first. */
+	/* Organisation changes use one focused dialog, leaving the directory in place. */
 	let teamEdit = $state<{ mode: 'new' | 'rename' | 'lead'; team: string } | null>(null);
 	const agents = $derived(everyone.filter((person) => person.kind === 'staff'));
 	async function teamEdited(message: string) {
@@ -162,9 +161,7 @@
 			toast(failureSentence(cause, `${label} was not disbanded. Try again.`), { tone: 'failure' });
 		}
 	}
-	const contacts = $derived(
-		people.filter((p) => p.kind === 'exec' || teams.some((t) => t.lead_actor_id === p.actor_id))
-	);
+	const contacts = $derived(people.filter((p) => p.kind === 'exec' || p.kind === 'staff'));
 	const rooms = $derived(roomsQuery(companyId));
 	/* Groups you archived wait under Chats until you restore them; nobody else sees them. */
 	const archived = $derived(archivedRoomsQuery(companyId, () => !!principal.view?.actor_id));
@@ -263,7 +260,10 @@
 		]);
 		return (attention.view?.items ?? []).filter((item) => {
 			const sourceActor =
-				item.responsibleActor?.id ?? item.runtimeAttach?.requestingActor ?? item.briefAuthor?.id;
+				item.responsibleActor?.id ??
+				item.runtimeAttach?.requestingActor ??
+				item.briefAuthor?.id ??
+				item.directionRequest?.requester.actor_id;
 			const workOwner = attention.view?.workGraph?.work.find(
 				(work) => work.id === item.workId
 			)?.owner_id;
@@ -577,6 +577,12 @@
 	const panelOwners = $derived.by(() => {
 		const person = headerPerson;
 		if (!person || person.archived) return new Set<string>();
+		if (person.kind === 'exec')
+			return new Set(
+				everyone
+					.filter((candidate) => candidate.kind !== 'human')
+					.map((candidate) => candidate.actor_id)
+			);
 		const led = teams.find((team) => team.lead_actor_id === person.actor_id);
 		return new Set([
 			person.actor_id,
@@ -867,7 +873,11 @@
 					? `Leads ${teamName(ledTeam.name, companyId)}`
 					: person.role;
 		const text = currentWorkTitle(actorId) || role || line.text;
-		return { word: owner ? statusWord(line.tone) : '', text, hint: line.hint || line.text };
+		return {
+			word: owner ? statusWord(line.tone, personStatus(actorId).need !== null) : '',
+			text,
+			hint: line.hint || line.text
+		};
 	}
 	const filtered = $derived.by(() => {
 		if (filter === 'everyone' || filter === 'archived') return [];
@@ -1325,7 +1335,9 @@
 								><span class="name"
 									>{personName(person.display)}{#if isLead}<span class="role-tag">{' · Lead'}</span
 										>{/if}</span
-								>{#if row.word}<span class="status-word {row.word.toLowerCase()}">{row.word}</span
+								>{#if row.word}<span
+										class="status-word {row.word.toLowerCase().replaceAll(' ', '-')}"
+										>{row.word}</span
 									>{/if}</span
 							>{#if row.text}<small class="doing" title={row.hint}>{row.text}</small>{/if}</span
 						>{#if hasNew(person.actor_id) && personId !== person.actor_id}<span
@@ -1387,16 +1399,7 @@
 							<!-- A team nobody else owns is the owner's (S85-19). -->
 							<p class="team-owner">Owned by you</p>
 						{/if}
-						{#if teamEdit && teamEdit.team === entry.team.id && teamEdit.mode !== 'new'}
-							<TeamEditor
-								{companyId}
-								mode={teamEdit.mode}
-								team={entry.team}
-								{agents}
-								ondone={(message) => void teamEdited(message)}
-								oncancel={() => (teamEdit = null)}
-							/>
-						{/if}
+
 						{#if entry.lead}{@render directoryPerson(entry.lead, 'lead')}{/if}
 						{#each entry.members.filter((member) => entry.teamMatches || matchesDirectory(member, search
 										.trim()
@@ -1468,25 +1471,12 @@
 					{@render groupChats()}
 				</section>
 				{#if owner && agents.length && !search.trim()}
-					{#if teamEdit?.mode === 'new'}
-						<section class="directory-section" aria-label="New team">
-							<header class="team-directory-head"><span>New team</span></header>
-							<TeamEditor
-								{companyId}
-								mode="new"
-								{agents}
-								ondone={(message) => void teamEdited(message)}
-								oncancel={() => (teamEdit = null)}
-							/>
-						</section>
-					{:else}
-						<button
-							type="button"
-							class="more"
-							title="Form a team around an accountable lead"
-							onclick={() => (teamEdit = { mode: 'new', team: '' })}>New team…</button
-						>
-					{/if}
+					<button
+						type="button"
+						class="more"
+						title="Form a team around an accountable lead"
+						onclick={() => (teamEdit = { mode: 'new', team: '' })}>New team…</button
+					>
 				{/if}
 				{#if !execShown && !directoryTeams.length && !directoryUnassigned.length && !directoryHumans.length && !shownInvitations.length}<p
 						class="empty"
@@ -1691,6 +1681,12 @@
 				<WorkPanel
 					{companyId}
 					name={personName(headerPerson.display)}
+					scope={headerPerson.kind === 'exec' ? 'company' : 'person'}
+					ownerNeeds={new Set(
+						attentionFor(headerPerson.actor_id).flatMap((item) =>
+							item.workId ? [item.workId] : []
+						)
+					)}
 					work={workGraph?.work ?? []}
 					edges={workGraph?.edges ?? []}
 					artifacts={workGraph?.artifacts ?? []}
@@ -1733,6 +1729,19 @@
 	</PersonProfile>
 {/if}
 
+{#if teamEdit}
+	{#key teamEdit}
+		<TeamEditor
+			{companyId}
+			mode={teamEdit.mode}
+			team={teams.find((team) => team.id === teamEdit?.team) ?? null}
+			{agents}
+			ondone={(message) => void teamEdited(message)}
+			oncancel={() => (teamEdit = null)}
+		/>
+	{/key}
+{/if}
+
 <style>
 	.conversation-workspace {
 		display: grid;
@@ -1760,6 +1769,7 @@
 		container: conversation / inline-size;
 	}
 	.conversation-index {
+		container: people-index / inline-size;
 		padding: 4px 8px 0 6px;
 	}
 	/* The same head as every sidebar: the title, and the main action as a raised button. */
@@ -1805,7 +1815,8 @@
 	 * thumb, so it never reads as a second selection beside the open conversation. */
 	/* Four filters in one row at the narrowest sidebar: each takes what its word needs. */
 	.people-views {
-		display: flex;
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
 		flex: none;
 		gap: 0;
 		/* The track grows with its buttons, which take a larger tap target on touch screens. */
@@ -1814,6 +1825,12 @@
 		padding: 3px;
 		border-radius: var(--radius-lg);
 		background: var(--wash-hover);
+	}
+	@container people-index (max-width: 320px) {
+		.people-views {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 3px;
+		}
 	}
 	.people-views button {
 		display: inline-flex;
@@ -1988,10 +2005,6 @@
 			opacity: 1;
 		}
 	}
-	.person-row:hover .directory-person,
-	.person-row:focus-within .directory-person {
-		padding-right: 34px;
-	}
 	.directory-person.teammate + .person-menu {
 		top: 3px;
 	}
@@ -2024,7 +2037,7 @@
 		align-items: flex-start;
 		gap: 10px;
 		min-height: 48px;
-		padding: 6px 8px;
+		padding: 6px 34px 6px 8px;
 		border-radius: var(--radius-pane);
 		color: var(--ink);
 		text-decoration: none;
@@ -2096,7 +2109,8 @@
 	.status-word.working {
 		color: var(--intent-feedback);
 	}
-	.status-word.waiting {
+	.status-word.waiting,
+	.status-word.needs-you {
 		color: var(--intent-authority);
 	}
 	.status-word.blocked {
@@ -2108,7 +2122,7 @@
 		align-items: center;
 		min-height: 30px;
 		margin-left: 18px;
-		padding: 2px 8px;
+		padding: 2px 34px 2px 8px;
 	}
 	.directory-person.teammate .avatar {
 		width: 20px;

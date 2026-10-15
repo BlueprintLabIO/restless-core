@@ -90,3 +90,14 @@ test('a Work blocker that is a runtime failure reads as a sentence; anything els
 		'Waiting on the owner to approve the hero copy.'
 	);
 });
+
+test('a stored provider error reads as the same useful sentence as a live failure', () => {
+	assert.equal(
+		failureLine('529 {"type":"error","error":{"message":"Overloaded"}}'),
+		'The model provider is busy right now. Try again in a minute.'
+	);
+	assert.equal(
+		failureLine('The response contained a 529 error during our test.'),
+		'The response contained a 529 error during our test.'
+	);
+});

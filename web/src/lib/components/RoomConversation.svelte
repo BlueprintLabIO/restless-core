@@ -182,7 +182,7 @@
 	let composer = $state('');
 	let composerFiles = $state<File[]>([]);
 	let composerSkills = $state<string[]>([]);
-	/* While the agent replies, Send queues and Interrupt stops the reply. */
+	/* Sending a new message redirects the current reply; the turn owns Stop. */
 	let interruptNext = $state(false);
 	/* Messages in view when the reader scrolled up; null while following. */
 	let awayFrom = $state<number | null>(null);
@@ -625,8 +625,7 @@
 						: null))
 			: null
 	);
-	/* Exec or a team lead, for anyone in the company: the message goes to their conversation (as
-	 * the rail sends it), so its reply is followed live and selected skills travel with it. */
+	/* Every active agent uses the same direct conversation, live reply and skill contract. */
 	/* Only the owner gives directives, in a direct chat with an agent. */
 	let asDirective = $state(false);
 	const mayDirect = $derived(ownerAccess && !!directPartner && actorIsAgent(directPartner));
@@ -634,20 +633,18 @@
 		void selectedRoomId;
 		asDirective = false;
 	});
-	const accountableDirect = $derived(
-		!!directPerson &&
-			(directPerson.kind === 'exec' ||
-				teams.some((team) => team.lead_actor_id === directPerson.actor_id))
+	const directAgent = $derived(
+		!!directPerson && (directPerson.kind === 'exec' || directPerson.kind === 'staff')
 	);
 	/* Stopping a reply is the owner's or an admin's, as the server allows. */
 	const mayInterrupt = $derived(
 		['owner', 'admin'].includes(principalProjection.view?.membership_role ?? '')
 	);
-	/* Any other agent here (a Staff member in a direct chat, or agents in a group): what each is
+	/* Agents in a group: what each is
 	 * doing now, followed from its activity stream, so the conversation never looks idle while an
 	 * agent works on what was said. */
 	const watchedAgents = $derived(
-		accountableDirect
+		directAgent
 			? []
 			: participants
 					.map((participant) => participant.actor_id)
@@ -689,7 +686,7 @@
 					undefined,
 					true,
 					currentActorId,
-					accountableDirect
+					directAgent
 				)
 			: null
 	);
@@ -704,7 +701,7 @@
 	);
 	const options = composerOptions(
 		() => companyId,
-		() => accountableDirect,
+		() => directAgent,
 		() => (ownerAccess && directPartner === 'exec' ? execCommandsFor('owner') : [])
 	);
 	/* Everyone in a conversation reacts and pins, as the server allows anyone who can read it;
@@ -719,7 +716,15 @@
 				.slice(-120),
 		() => currentActorId
 	);
-	const leadTurn = $derived(accountableDirect ? (actorConversation?.activeTurn ?? null) : null);
+	const directTurn = $derived(directAgent ? (actorConversation?.activeTurn ?? null) : null);
+	async function stopDirectReply(): Promise<string | null> {
+		try {
+			await actorConversation?.stopTurn();
+			return null;
+		} catch (cause) {
+			return failureSentence(cause, 'The reply could not be stopped; it may already have ended.');
+		}
+	}
 	function attentionFor(actorId: string): AttentionItem[] {
 		if (!ownerAccess) return [];
 		const items = attention.view?.items ?? [];
@@ -1124,7 +1129,7 @@
 		event.preventDefault();
 		const typed = composer.trim();
 		const parent = threadRootId;
-		const sendAsAccountableLead = accountableDirect && parent === null;
+		const sendToAgent = directAgent && parent === null;
 		/* A file on its own is a message: it says what it carries. */
 		const files = [...composerFiles];
 		const body =
@@ -1150,7 +1155,7 @@
 				: `Attach at most ${MAX_UPLOAD_FILES} files to one message.`;
 			return;
 		}
-		if (!sendAsAccountableLead) {
+		if (!sendToAgent) {
 			const missing = mentionedOutsiders(wireBody);
 			if (missing.length && mentionGapAccepted !== body) {
 				mentionGap = { body, missing };
@@ -1174,7 +1179,7 @@
 		/* A retry of the same words already ran their command (a `/goal` made its goal): it only
 		 * delivers the message, so the goal is never created twice. */
 		const retrying = !!retryCommandId && retryBody === body;
-		if (typed && sendAsAccountableLead && recipientActor === 'exec' && ownerAccess && !retrying) {
+		if (typed && sendToAgent && recipientActor === 'exec' && ownerAccess && !retrying) {
 			const command = await runExecCommand(targetCompany, wireBody).catch((cause) => ({
 				error: failureSentence(cause, 'That command did not run.'),
 				send: false,
@@ -1198,8 +1203,6 @@
 		const mentions = knownMentions(wireBody);
 		const resolvesMentionId =
 			parent !== null && resolvesMention ? (answerableMention?.id ?? null) : null;
-		const followDirectReply =
-			!sendAsAccountableLead && parent === null && !!directPartner && actorIsAgent(directPartner);
 		writeRoomDraft(targetDraft, { body, commandId, updatedAt: new Date().toISOString() });
 		retryCommandId = commandId;
 		retryBody = body;
@@ -1222,7 +1225,6 @@
 			deleted_at: null,
 			legacy_read_at: null
 		};
-		let sentMessageId: number | null = null;
 		if (parent === null) {
 			// Your message rises to the top of the room and replies grow beneath it.
 			await tick();
@@ -1231,14 +1233,14 @@
 			);
 		}
 		try {
-			if (sendAsAccountableLead && targetConversation && recipientActor) {
+			if (sendToAgent && targetConversation && recipientActor) {
 				const contextPath = cockpitContextPath(targetCompany, page.url);
 				const result = await targetConversation.send(
 					wireBody,
 					files,
 					contextPath,
 					false,
-					!!actorConversation?.working && accountableDirect && mayInterrupt && interruptNext,
+					!!actorConversation?.working && directAgent && mayInterrupt && interruptNext,
 					undefined,
 					skills
 				);
@@ -1257,7 +1259,6 @@
 					resolvesMentionId,
 					attachmentIds
 				);
-				sentMessageId = result.message.id;
 				targetProjection?.accept(result);
 			}
 			writeRoomDraft(targetDraft, {
@@ -1290,9 +1291,6 @@
 			pendingMessage = null;
 			if (activeDraftKey) {
 				writeRoomDraft(activeDraftKey, { body: '', commandId: null, updatedAt: '' });
-			}
-			if (followDirectReply && sentMessageId !== null) {
-				await goto(threadHref(sentMessageId), { keepFocus: true, noScroll: true });
 			}
 			await tick();
 			const scroller = parent === null ? roomScrollEl : threadScrollEl;
@@ -1746,8 +1744,8 @@
 							</div>
 						{/if}
 					{/each}
-					{#if leadTurn}
-						<ConversationTurnDock participantName={actorDisplay} turn={leadTurn} />
+					{#if directTurn}
+						<ConversationTurnDock participantName={actorDisplay} turn={directTurn} />
 					{/if}
 					{#each agentTurns as agent (agent.actor)}
 						<ConversationTurnDock participantName={actorName(agent.actor)} turn={agent.turn} />
@@ -1946,9 +1944,10 @@
 				...personOptions(roomPeople, roster)
 			]}
 			interruptible={!!actorConversation?.working &&
-				accountableDirect &&
+				directAgent &&
 				mayInterrupt &&
 				threadRootId === null}
+			onstop={mayInterrupt && directAgent && threadRootId === null ? stopDirectReply : null}
 			bind:interrupt={interruptNext}
 			actionLabel={retryCommandId && retryBody === composer.trim() ? 'Retry send' : 'Send'}
 			disabled={sending || !online || (selectedRoom?.kind === 'direct' && !canExtendDirect)}

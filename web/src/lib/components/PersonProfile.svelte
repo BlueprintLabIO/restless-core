@@ -171,14 +171,19 @@
 
 <style>
 	dialog {
-		width: min(420px, calc(100vw - 32px));
-		max-height: calc(100dvh - 48px);
+		position: fixed;
+		inset: 0 0 0 auto;
+		width: min(440px, 100vw);
+		height: 100dvh;
+		max-width: 100vw;
+		max-height: 100dvh;
+		margin: 0;
 		overflow: auto;
 		padding: 20px;
 		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
-		background: var(--surface);
-		box-shadow: var(--shadow-soft);
+		border-radius: 0;
+		background: var(--surface-pane);
+		box-shadow: var(--shadow-lift);
 		color: var(--ink);
 	}
 	dialog::backdrop {

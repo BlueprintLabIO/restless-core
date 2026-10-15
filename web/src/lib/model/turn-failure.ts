@@ -88,7 +88,7 @@ export function turnFailureReason(error: string | null | undefined): string {
  * Work's blocker, as a sentence a person reads; anything else is returned as it was. */
 export function failureLine(text: string): string {
 	const raw = text.trim();
-	if (!/^\[[a-z_ -]+\]/i.test(raw)) return raw;
+	if (!/^\[[a-z_ -]+\]/i.test(raw) && !replyIsError(raw, null)) return raw;
 	const reason = turnFailureReason(raw);
 	return reason ? reason.charAt(0).toUpperCase() + reason.slice(1) : raw;
 }

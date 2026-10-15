@@ -1,3 +1,4 @@
+import { bootFetch } from './boot-fetch';
 import type { MoneyEnvelope } from './cockpit';
 import { getApplianceStatus } from './appliance';
 import { ownerJson } from './failure.ts';
@@ -346,12 +347,17 @@ export async function getCompanySpend(company: string): Promise<CompanySpendView
 	);
 }
 
-export async function getCompany(company: string, probeCredentials = false): Promise<CompanyView> {
+export async function getCompany(
+	company: string,
+	probeCredentials = false,
+	signal?: AbortSignal
+): Promise<CompanyView> {
 	const query = probeCredentials ? '?probe_credentials=true' : '';
 	return ownerResponse<CompanyView>(
-		await fetch(`/api/companies/${encodeURIComponent(company)}/company${query}`, {
+		await bootFetch(`/api/companies/${encodeURIComponent(company)}/company${query}`, {
 			credentials: 'same-origin',
-			cache: 'no-store'
+			cache: 'no-store',
+			signal
 		})
 	);
 }

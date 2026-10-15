@@ -4,7 +4,7 @@
 	import type { AccountGroup, AccountSection } from '../account';
 
 	/* One page for everything that belongs to the owner rather than to a company. The host decides
-	 * which sections exist (locally: connections, AI apps, appearance; on Cloud: account, security,
+	 * which sections exist (locally: connections, appearance; on Cloud: account, security,
 	 * billing, support). A section a host lacks is simply absent, never a disabled imitation. */
 	let {
 		title = 'Account',
@@ -215,12 +215,12 @@
 		.settings-nav {
 			position: static;
 			display: flex;
-			gap: 2px;
-			overflow-x: auto;
-			scrollbar-width: none;
+			flex-wrap: wrap;
+			gap: 4px 8px;
 		}
 		.settings-nav-group {
 			display: flex;
+			flex-wrap: wrap;
 			gap: 2px;
 		}
 		.settings-nav-label {

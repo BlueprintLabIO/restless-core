@@ -24,6 +24,12 @@ test('the status word follows the row tone', () => {
 	assert.equal(statusWord(''), 'Idle');
 });
 
+test('owner obligations are distinct from waiting on other agents', () => {
+	assert.equal(statusWord('wait', true), 'Needs you');
+	assert.equal(statusWord('wait', false), 'Waiting');
+	assert.equal(statusWord('work', true), 'Needs you');
+});
+
 test('an unknown filter is Everyone', () => {
 	assert.equal(directoryFilter('needs'), 'needs');
 	assert.equal(directoryFilter('bogus'), 'everyone');

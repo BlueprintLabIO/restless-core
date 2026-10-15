@@ -1,6 +1,7 @@
 <script lang="ts">
 	/* The owner's direct control over the organisation Exec built: form a team around a lead,
 	 * rename it or revise what it is for, or give it another lead. */
+	import Dialog from '$lib/ui/controls/Dialog.svelte';
 	import { changeTeam, createTeam, setTeamLead } from '$lib/model/company-actions';
 	import { failureSentence } from '$lib/model/failure';
 	import { personName } from '$lib/model/initials';
@@ -63,45 +64,57 @@
 	}
 </script>
 
-<form class="team-editor" onsubmit={submit}>
-	{#if mode !== 'lead'}
-		<label
-			>Name<input type="text" required maxlength="120" bind:value={name} disabled={saving} /></label
-		>
-		<label title="What the team is accountable for; its lead and Exec read this"
-			>Accountable for<textarea
-				rows="2"
-				required={mode === 'new'}
-				bind:value={brief}
-				disabled={saving}></textarea></label
-		>
-	{/if}
-	{#if mode !== 'rename'}
-		<label title="The agent accountable for the team's outcome; it joins the team"
-			>Lead<select required bind:value={lead} disabled={saving}>
-				<option value="" disabled>Choose an agent</option>
-				{#each choices as agent (agent.actor_id)}<option value={agent.actor_id}
-						>{personName(agent.display)}</option
-					>{/each}
-			</select></label
-		>
-	{/if}
-	{#if failure}<p class="failure" role="alert">{failure}</p>{/if}
-	<div class="bar">
-		<button class="btn primary small" disabled={saving || !ready}
-			>{saving ? 'Saving…' : mode === 'new' ? 'Form team' : 'Save'}</button
-		>
-		<button class="btn small ghost" type="button" disabled={saving} onclick={oncancel}
-			>Cancel</button
-		>
-	</div>
-</form>
+<Dialog
+	title={mode === 'new' ? 'New team' : mode === 'lead' ? 'Change team lead' : 'Edit team'}
+	busy={saving}
+	onclose={oncancel}
+>
+	<form class="team-editor" onsubmit={submit}>
+		{#if mode !== 'lead'}
+			<label
+				>Name<input
+					type="text"
+					required
+					maxlength="120"
+					bind:value={name}
+					disabled={saving}
+				/></label
+			>
+			<label title="What the team is accountable for; its lead and Exec read this"
+				>Accountable for<textarea
+					rows="2"
+					required={mode === 'new'}
+					bind:value={brief}
+					disabled={saving}></textarea></label
+			>
+		{/if}
+		{#if mode !== 'rename'}
+			<label title="The agent accountable for the team's outcome; it joins the team"
+				>Lead<select required bind:value={lead} disabled={saving}>
+					<option value="" disabled>Choose an agent</option>
+					{#each choices as agent (agent.actor_id)}<option value={agent.actor_id}
+							>{personName(agent.display)}</option
+						>{/each}
+				</select></label
+			>
+		{/if}
+		{#if failure}<p class="failure" role="alert">{failure}</p>{/if}
+		<div class="bar">
+			<button class="btn small ghost" type="button" disabled={saving} onclick={oncancel}
+				>Cancel</button
+			>
+
+			<button class="btn primary small" disabled={saving || !ready}
+				>{saving ? 'Saving…' : mode === 'new' ? 'Form team' : 'Save'}</button
+			>
+		</div>
+	</form>
+</Dialog>
 
 <style>
 	.team-editor {
 		display: grid;
-		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3) var(--space-3);
+		gap: var(--space-4);
 	}
 	label {
 		display: grid;
@@ -114,6 +127,7 @@
 	}
 	.bar {
 		display: flex;
+		justify-content: flex-end;
 		gap: var(--space-2);
 	}
 	.failure {
