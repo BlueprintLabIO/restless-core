@@ -1322,8 +1322,17 @@
 			display: none;
 		}
 		:global(.bridge-root .attention-screen.mobile-detail .attention-focus) {
-			display: block;
+			display: flex;
+			flex-direction: column;
+			overflow: hidden;
 			flex: 1;
+		}
+		:global(.bridge-root .attention-screen.mobile-detail .attention-focus > article),
+		:global(.bridge-root .attention-screen.mobile-detail .attention-focus > .attention-surface),
+		:global(.bridge-root .attention-screen.mobile-detail .attention-focus > .attention-document) {
+			flex: 1;
+			min-height: 0;
+			height: auto;
 		}
 	}
 
@@ -1820,13 +1829,15 @@
 	 * lives, then the surface itself, not a summary of it. */
 	.attention-surface {
 		display: grid;
-		gap: var(--space-4);
-		max-width: 760px;
+		grid-template-rows: auto minmax(0, 1fr);
+		height: 100%;
+		min-height: 0;
 		width: 100%;
-		margin: 0 auto;
-		padding: var(--space-5) var(--space-5) var(--space-6);
+		overflow: hidden;
 	}
 	.attention-surface-head {
+		padding: 22px 24px 14px;
+		border-bottom: 1px solid var(--border);
 		display: flex;
 		align-items: baseline;
 		justify-content: space-between;

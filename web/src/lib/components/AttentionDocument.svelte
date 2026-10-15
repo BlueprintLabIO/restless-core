@@ -1,4 +1,6 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
+	import AttentionFooter from './AttentionFooter.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import DocumentEditor from './LazyDocumentEditor.svelte';
 	import DocumentActions from './DocumentActions.svelte';
@@ -39,6 +41,7 @@
 		() => request.named_version_id ?? ''
 	);
 	let editLive = $state(false);
+	let reviewActions = $state<Snippet>();
 	const shell = $derived(companyPrincipalQuery(companyId));
 	const collaboration = $derived(collaborationBootstrapQuery(companyId, () => shell.view));
 	let online = $state(true);
@@ -134,17 +137,6 @@
 		>
 			<MessageSquare size={16} />
 		</button>
-		{#if request.kind === 'collaboration'}
-			<button
-				class="btn small"
-				type="button"
-				disabled={busy || !online || !detail.view || !readyToLeave}
-				onclick={done}
-				title="Finish this collaboration and clear it from the Inbox. Your document stays available in Documents."
-			>
-				{busy ? 'Finishing…' : 'Done'}
-			</button>
-		{/if}
 	{/snippet}
 	{#snippet moreActions()}
 		<a
@@ -244,14 +236,19 @@
 					/>
 				{/if}
 			</div>
-			{#if inspectorOpen}
-				<div class="document-discussion">
+			{#if inspectorOpen || request.kind === 'review'}
+				<div class="document-discussion" hidden={!inspectorOpen}>
 					<DocumentInspector
 						{companyId}
 						view={detail.view}
 						{panel}
 						ondismiss={() => (inspectorOpen = false)}
 						requestedReviewId={request.kind === 'review' ? request.id : ''}
+						onreviewactionschange={(actions) => (reviewActions = actions)}
+						onrequestreviewnote={() => {
+							panel = 'review';
+							inspectorOpen = true;
+						}}
 						people={collaboration.view?.people ?? []}
 						viewerActorId={shell.view?.actor_id ?? ''}
 						{online}
@@ -271,6 +268,35 @@
 				<button class="btn small" onclick={() => void detail.refresh()}>Try again</button>{/if}
 		</div>
 	{/if}
+	<AttentionFooter>
+		{#if request.kind === 'review'}
+			{#if reviewActions}{@render reviewActions()}
+			{:else}<div class="action-row">
+					<button
+						class="btn small"
+						type="button"
+						onclick={() => {
+							panel = 'review';
+							inspectorOpen = true;
+						}}>Review details</button
+					>
+				</div>{/if}
+		{:else}
+			<div class="action-row">
+				{#if request.kind === 'collaboration'}
+					<button
+						class="btn small"
+						type="button"
+						disabled={busy || !online || !detail.view || !readyToLeave}
+						onclick={done}
+						title="Finish this collaboration and clear it from the Inbox. Your document stays available in Documents."
+					>
+						{busy ? 'Finishing…' : 'Done'}
+					</button>
+				{/if}
+			</div>
+		{/if}
+	</AttentionFooter>
 </section>
 
 <style>
@@ -324,6 +350,9 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: 6px;
+	}
+	.document-discussion[hidden] {
+		display: none;
 	}
 	.document-panes {
 		min-width: 0;

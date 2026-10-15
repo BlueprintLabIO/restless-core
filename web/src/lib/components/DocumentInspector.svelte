@@ -27,6 +27,7 @@
 </script>
 
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { composing } from '$lib/primitives/composer-keys';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import MessageReactions from '$lib/primitives/MessageReactions.svelte';
@@ -114,6 +115,10 @@
 		view: DocumentReadView;
 		panel: DocumentInspectorPanel;
 		requestedReviewId?: string;
+		/** Inbox renders the same live decision controls in its fixed pane footer. */
+		onreviewactionschange?: (actions: Snippet | undefined) => void;
+		/** Reveal a hidden review panel before focusing its change note. */
+		onrequestreviewnote?: () => void;
 		/** A thread to open on arrival (from For you or a margin mark), and a comment to point at. */
 		requestedThreadId?: string;
 		requestedCommentId?: string;
@@ -149,6 +154,8 @@
 		view,
 		panel,
 		requestedReviewId = '',
+		onreviewactionschange,
+		onrequestreviewnote,
 		requestedThreadId = '',
 		requestedCommentId = '',
 		threadRequest = 0,
@@ -225,6 +232,7 @@
 		)
 	);
 	let reviewNote = $state('');
+	let reviewNoteInput = $state<HTMLTextAreaElement>();
 	let reviewBusy = $state(false);
 	let reviewFailure = $state('');
 	let reviewNotice = $state('');
@@ -1012,6 +1020,17 @@
 		}
 	}
 
+	async function beginReviewChanges() {
+		if (!reviewNote.trim()) {
+			onrequestreviewnote?.();
+			onpanelchange('review');
+			await tick();
+			reviewNoteInput?.focus();
+			return;
+		}
+		await (canRequestChanges ? requestChanges() : commentChanges());
+	}
+
 	/* Sending the version back: the Work that asked resumes with the note, and the review leaves
 	 * the Inbox. It refreshes the document as accepting does, so the Inbox closes it the same way. */
 	async function requestChanges(): Promise<void> {
@@ -1311,6 +1330,11 @@
 		const quote = blockQuote(proposal.block_id);
 		return quote ? `“${quote}”` : 'A block that has since moved';
 	}
+
+	$effect(() => {
+		onreviewactionschange?.(requestedReview && canJudge ? requestedReviewActions : undefined);
+		return () => onreviewactionschange?.(undefined);
+	});
 </script>
 
 {#snippet changeList(list: BlockChange[], label: string)}
@@ -1328,6 +1352,30 @@
 			</li>
 		{/each}
 	</ol>
+{/snippet}
+
+{#snippet requestedReviewActions()}
+	<div class="review-actions action-row">
+		{#if mayRequestChanges}
+			<button
+				type="button"
+				class="btn"
+				title={!reviewNote.trim()
+					? 'Write what should change first'
+					: canRequestChanges
+						? 'Send this version back with your note'
+						: 'Post your note as a comment to whoever asked'}
+				disabled={!online || editing || reviewBusy}
+				onclick={() => void beginReviewChanges()}>Request changes</button
+			>
+		{/if}
+		<button
+			type="button"
+			class="btn primary"
+			disabled={!online || editing || reviewBusy || !reviewName.trim()}
+			onclick={() => void acceptReview()}>{reviewBusy ? 'Saving…' : 'Accept this version'}</button
+		>
+	</div>
 {/snippet}
 
 <aside class="document-inspector" aria-label="Document review and discussion">
@@ -1760,6 +1808,7 @@
 									>Note</span
 								><textarea
 									bind:value={reviewNote}
+									bind:this={reviewNoteInput}
 									rows="3"
 									maxlength="4000"
 									placeholder="What should change, or anything to carry forward"
@@ -1771,29 +1820,7 @@
 									}}></textarea></label
 							>
 						{/if}
-						<div class="review-actions">
-							{#if mayRequestChanges}
-								<button
-									type="button"
-									class="btn"
-									title={!reviewNote.trim()
-										? 'Write what should change first'
-										: canRequestChanges
-											? 'Send this version back with your note'
-											: 'Post your note as a comment to whoever asked'}
-									disabled={!online || editing || reviewBusy || !reviewNote.trim()}
-									onclick={() => void (canRequestChanges ? requestChanges() : commentChanges())}
-									>Request changes</button
-								>
-							{/if}
-							<button
-								type="button"
-								class="btn primary"
-								disabled={!online || editing || reviewBusy || !reviewName.trim()}
-								onclick={() => void acceptReview()}
-								>{reviewBusy ? 'Saving…' : 'Accept this version'}</button
-							>
-						</div>
+						{#if !onreviewactionschange}{@render requestedReviewActions()}{/if}
 					{/if}
 				</section>
 			{:else if canJudge}

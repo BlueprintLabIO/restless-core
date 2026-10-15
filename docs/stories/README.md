@@ -52,3 +52,4 @@ The 210 stories of the 14 October audit are in
 | US-243 | core | I want to see everyone at a glance: what each is doing, and who needs me. People is a directory with a status word and current Work per person. | S88-02 | browser on seed |
 | US-244 | core | I want to check in with someone and talk to them in one place. Their page has their work and model above our chat. | S88-03 | browser |
 | US-245 | full | I want to let an agent go, and bring them back later. Archive and Re-hire on their page keep their history. | S88-01 | API test + browser |
+| US-246 | core | I want to act on any Inbox item without hunting for its buttons. Decisions stay at the bottom right of the middle pane while its content scrolls, including requests, replies, charter drafts and document reviews. | S89-04 | browser + attention-footer geometry check at desktop/phone widths |

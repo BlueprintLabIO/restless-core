@@ -14,7 +14,7 @@
 	import { authorizePublication, stopPublication } from '$lib/model/publications';
 	import { failureSentence } from '$lib/model/failure';
 	import { untrack } from 'svelte';
-	import { clearOfToasts } from '$lib/ui/feedback/toast.svelte';
+	import AttentionFooter from './AttentionFooter.svelte';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import type { AttentionItem } from '$lib/model/view';
 	import {
@@ -473,179 +473,265 @@
 	const initial = (name: string) => initials(name) || '?';
 </script>
 
-<article class="inbox-detail" aria-label={attentionTitle(item)}>
-	<header class="head">
-		<div class="title">
-			<h1>{attentionTitle(item)}</h1>
-			<p class="meta">
-				<span title={attentionKindLabel(item)}>{attentionKindLabel(item)}</span>
-				<span aria-hidden="true">·</span>
-				<span>{asker}</span>
-				<span aria-hidden="true">·</span>
-				<RelativeTime value={item.createdAt} />
-				{#if item.deadline}<span aria-hidden="true">·</span><span class="deadline"
-						>Needed {#if due !== null}<RelativeTime value={due} />{:else}by {item.deadline}{/if}</span
-					>{/if}
-				{#if !item.preparing}<span aria-hidden="true">·</span><span
-						class="continues"
-						class:held={!item.canContinue}
-						title={item.ifNoAction ? `If nothing happens: ${item.ifNoAction}` : undefined}
-						>{item.canContinue
-							? 'Work keeps going meanwhile'
-							: 'Work is paused until you answer'}</span
-					>{/if}
-			</p>
-		</div>
-		{#if canSetAside}<button
-				type="button"
-				class="btn ghost small dismiss"
-				disabled={acting}
-				title={item.responsibleActor
-					? `Not needed. Off your Inbox and kept under Set aside; ${asker} stops waiting on it.`
-					: 'Not needed. Off your Inbox and kept under Set aside, until it comes up again.'}
-				onclick={() => void setAside()}>Set aside</button
+{#snippet secondaryActions()}
+	{#if canSetAside}<button
+			type="button"
+			class="btn ghost small dismiss"
+			disabled={acting}
+			title={item.responsibleActor
+				? `Not needed. Off your Inbox and kept under Set aside; ${asker} stops waiting on it.`
+				: 'Not needed. Off your Inbox and kept under Set aside, until it comes up again.'}
+			onclick={() => void setAside()}>Set aside</button
+		>{/if}
+	<ActionMenu label="More">
+		{#if discuss}<a href={`${base}&conversation=${encodeURIComponent(item.id)}`}>Discuss</a>{/if}
+		<a href={conversationHref}>Open conversation with {asker}</a>
+		{#if item.workId}<a
+				href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(item.workId)}`}
+				>Open the work</a
 			>{/if}
-		<ActionMenu label="More">
-			{#if discuss}<a href={`${base}&conversation=${encodeURIComponent(item.id)}`}>Discuss</a>{/if}
-			<a href={conversationHref}>Open conversation with {asker}</a>
-			{#if item.workId}<a
-					href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(item.workId)}`}
-					>Open the work</a
-				>{/if}
-			{#each navigation.slice(1) as extra (extra.id)}<a
-					href={extra.href}
-					target={extra.href?.startsWith('/') ? undefined : '_blank'}
-					rel="noreferrer"
-					data-open-externally={ownBrowser(extra)}
-					title={`${extra.consequence} ${extra.nextState}`}>{extra.label}</a
-				>{/each}
-			{#if snoozed}<button onclick={() => void wakeInboxItem(client, companyId, item.id)}
-					>Wake now</button
-				>{:else}<SnoozeChoices onpick={snooze} />{/if}
-			{#each delegates as person (person.actor_id)}<button
-					title={`Hand this to ${person.display}: it leaves your Inbox and becomes theirs. They can pass it back.`}
-					onclick={() => (handingTo = person)}>Hand to {person.display}…</button
-				>{/each}
-			{#if passable}<button
-					title="Not yours to decide: it goes up with your reason and leaves your Inbox. One handed to you goes back to the owner."
-					onclick={() => (passing = true)}>Pass to owner…</button
-				>{/if}
-			<button onclick={() => void copyInboxLink(companyId, item.id)}>Copy link</button>
-			<button onclick={copyReference}>Copy reference</button>
-		</ActionMenu>
-	</header>
+		{#each navigation.slice(1) as extra (extra.id)}<a
+				href={extra.href}
+				target={extra.href?.startsWith('/') ? undefined : '_blank'}
+				rel="noreferrer"
+				data-open-externally={ownBrowser(extra)}
+				title={`${extra.consequence} ${extra.nextState}`}>{extra.label}</a
+			>{/each}
+		{#if snoozed}<button onclick={() => void wakeInboxItem(client, companyId, item.id)}
+				>Wake now</button
+			>{:else}<SnoozeChoices onpick={snooze} />{/if}
+		{#each delegates as person (person.actor_id)}<button
+				title={`Hand this to ${person.display}: it leaves your Inbox and becomes theirs. They can pass it back.`}
+				onclick={() => (handingTo = person)}>Hand to {person.display}…</button
+			>{/each}
+		{#if passable}<button
+				title="Not yours to decide: it goes up with your reason and leaves your Inbox. One handed to you goes back to the owner."
+				onclick={() => (passing = true)}>Pass to owner…</button
+			>{/if}
+		<button onclick={() => void copyInboxLink(companyId, item.id)}>Copy link</button>
+		<button onclick={copyReference}>Copy reference</button>
+	</ActionMenu>
+{/snippet}
 
-	<div class="body">
-		<div class="message">
-			<span class="avatar" aria-hidden="true">{initial(asker)}</span>
-			<div class="message-body">
-				<div class="message-head">
-					<strong>{asker}</strong>
-					{#if item.responsibleActor?.role}<span>{item.responsibleActor.role}</span>{/if}
-				</div>
-				{#if item.preparing}
-					<p class="waiting">
-						Nothing to do yet. This step is being prepared; instructions and any sign-in link will
-						appear here when ready.
-					</p>
-				{:else}
-					<div class="ask"><Markdown text={item.requestedAction} /></div>
-				{/if}
-				{#each drafts as draft, index (index)}
-					<pre
-						class="draft"
-						aria-label={draft.label}
-						title="The exact draft. Allowing it lets exactly this run.">{draft.content}</pre>
-				{/each}
-				{#if files.length}
-					<div class="attach-list files">
-						{#each item.workId ? files.slice(0, 6) : files as file (file.href)}
-							<a class="attach-file" href={file.href} title={`Open in the Library · ${file.path}`}>
-								<span class="a-kind">{file.ext}</span>
-								<span class="af-main"><span class="a-name">{file.label}</span></span>
-							</a>
-						{/each}
-						{#if files.length > 6 && item.workId}<a
-								class="link"
-								href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(item.workId)}`}
-								>All {files.length} files</a
-							>{/if}
-					</div>
-				{/if}
-				{#if item.uncertainty}<p class="uncertain" title="What the team is not sure about">
-						<span>Not certain</span>{item.uncertainty}
-					</p>{/if}
+<article class="inbox-detail" aria-label={attentionTitle(item)}>
+	<div class="detail-content">
+		<header class="head">
+			<div class="title">
+				<h1>{attentionTitle(item)}</h1>
+				<p class="meta">
+					<span title={attentionKindLabel(item)}>{attentionKindLabel(item)}</span>
+					<span aria-hidden="true">·</span>
+					<span>{asker}</span>
+					<span aria-hidden="true">·</span>
+					<RelativeTime value={item.createdAt} />
+					{#if item.deadline}<span aria-hidden="true">·</span><span class="deadline"
+							>Needed {#if due !== null}<RelativeTime value={due} />{:else}by {item.deadline}{/if}</span
+						>{/if}
+					{#if !item.preparing}<span aria-hidden="true">·</span><span
+							class="continues"
+							class:held={!item.canContinue}
+							title={item.ifNoAction ? `If nothing happens: ${item.ifNoAction}` : undefined}
+							>{item.canContinue
+								? 'Work keeps going meanwhile'
+								: 'Work is paused until you answer'}</span
+						>{/if}
+				</p>
 			</div>
-		</div>
+		</header>
 
-		<div class="folds">
-			{#if item.whatHappened || item.whyItMatters || showRecommendation}
-				<Fold label="Context">
-					<div class="prose">
-						{#if item.whatHappened}<Markdown text={item.whatHappened} />{/if}
-						{#if item.whyItMatters && item.whyItMatters !== item.whatHappened}<Markdown
-								text={item.whyItMatters}
-							/>{/if}
-						{#if showRecommendation}<div class="recommended">
-								<strong>Recommended</strong>
-								<Markdown text={item.recommendation} />
-							</div>{/if}
+		<div class="body">
+			<div class="message">
+				<span class="avatar" aria-hidden="true">{initial(asker)}</span>
+				<div class="message-body">
+					<div class="message-head">
+						<strong>{asker}</strong>
+						{#if item.responsibleActor?.role}<span>{item.responsibleActor.role}</span>{/if}
 					</div>
-				</Fold>
-			{/if}
-			<Fold label="Evidence" count={folded.length || null}>
-				<div class="prose evidence">
-					<p class="credit">
-						Prepared by <strong>{item.briefAuthor?.display ?? asker}</strong>{#if item.briefedAt}
-							· <time title={formatMoment(item.briefedAt)}
-								><RelativeTime value={item.briefedAt} /></time
-							>{/if}
-					</p>
-					{#each folded as evidence, index (`${evidence.kind}:${evidence.label}:${index}`)}
-						{#if evidence.content}
-							<div class="quote">
-								<span>{evidence.label}</span>
-								<blockquote>{evidence.content}</blockquote>
-							</div>
-						{:else if evidence.uri}
-							<a class="link" href={evidence.uri} target="_blank" rel="noreferrer"
-								>{evidence.label} <span aria-hidden="true">↗</span></a
-							>
-						{/if}
+					{#if item.preparing}
+						<p class="waiting">
+							Nothing to do yet. This step is being prepared; instructions and any sign-in link will
+							appear here when ready.
+						</p>
+					{:else}
+						<div class="ask"><Markdown text={item.requestedAction} /></div>
+					{/if}
+					{#each drafts as draft, index (index)}
+						<pre
+							class="draft"
+							aria-label={draft.label}
+							title="The exact draft. Allowing it lets exactly this run.">{draft.content}</pre>
 					{/each}
-					{#if item.ifNoAction}<p class="credit" title="What happens if nobody acts">
-							If nothing happens: {item.ifNoAction}
+					{#if files.length}
+						<div class="attach-list files">
+							{#each item.workId ? files.slice(0, 6) : files as file (file.href)}
+								<a
+									class="attach-file"
+									href={file.href}
+									title={`Open in the Library · ${file.path}`}
+								>
+									<span class="a-kind">{file.ext}</span>
+									<span class="af-main"><span class="a-name">{file.label}</span></span>
+								</a>
+							{/each}
+							{#if files.length > 6 && item.workId}<a
+									class="link"
+									href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(item.workId)}`}
+									>All {files.length} files</a
+								>{/if}
+						</div>
+					{/if}
+					{#if item.uncertainty}<p class="uncertain" title="What the team is not sure about">
+							<span>Not certain</span>{item.uncertainty}
 						</p>{/if}
 				</div>
-			</Fold>
+			</div>
+
+			<div class="folds">
+				{#if item.whatHappened || item.whyItMatters || showRecommendation}
+					<Fold label="Context">
+						<div class="prose">
+							{#if item.whatHappened}<Markdown text={item.whatHappened} />{/if}
+							{#if item.whyItMatters && item.whyItMatters !== item.whatHappened}<Markdown
+									text={item.whyItMatters}
+								/>{/if}
+							{#if showRecommendation}<div class="recommended">
+									<strong>Recommended</strong>
+									<Markdown text={item.recommendation} />
+								</div>{/if}
+						</div>
+					</Fold>
+				{/if}
+				<Fold label="Evidence" count={folded.length || null}>
+					<div class="prose evidence">
+						<p class="credit">
+							Prepared by <strong>{item.briefAuthor?.display ?? asker}</strong>{#if item.briefedAt}
+								· <time title={formatMoment(item.briefedAt)}
+									><RelativeTime value={item.briefedAt} /></time
+								>{/if}
+						</p>
+						{#each folded as evidence, index (`${evidence.kind}:${evidence.label}:${index}`)}
+							{#if evidence.content}
+								<div class="quote">
+									<span>{evidence.label}</span>
+									<blockquote>{evidence.content}</blockquote>
+								</div>
+							{:else if evidence.uri}
+								<a class="link" href={evidence.uri} target="_blank" rel="noreferrer"
+									>{evidence.label} <span aria-hidden="true">↗</span></a
+								>
+							{/if}
+						{/each}
+						{#if item.ifNoAction}<p class="credit" title="What happens if nobody acts">
+								If nothing happens: {item.ifNoAction}
+							</p>{/if}
+					</div>
+				</Fold>
+			</div>
 		</div>
 	</div>
+	{#snippet responseFields()}
+		<div class="inbox-inputs">
+			{#if error}<Notice tone="danger" title={error} />{/if}
+			{#if appRequestsFailed}<Notice
+					tone="danger"
+					title="Could not check whether this step is an app request. If it is, adding the app resumes it; Mark done would not."
+				/>{/if}
+			{#if approveMandate}
+				<p
+					class="note"
+					title="Exec judges whether each recipient and message fits the mandate. The system enforces the mechanical limits."
+				>
+					Approving gives Exec bounded sending authority.
+				</p>
+			{/if}
 
-	<footer class="inbox-composer" {@attach clearOfToasts}>
-		{#if error}<Notice tone="danger" title={error} />{/if}
-		{#if appRequestsFailed}<Notice
-				tone="danger"
-				title="Could not check whether this step is an app request. If it is, adding the app resumes it; Mark done would not."
-			/>{/if}
-		{#if approveMandate}
-			<p
-				class="note"
-				title="Exec judges whether each recipient and message fits the mandate. The system enforces the mechanical limits."
-			>
-				Approving gives Exec bounded sending authority.
-			</p>
-		{/if}
-
-		{#if passing}
-			<textarea
-				bind:value={reason}
-				{@attach (input) => input.focus()}
-				aria-label="Why the owner should decide"
-				maxlength={2000}
-				placeholder="Why should the owner decide this? They read it with the item."
-				disabled={acting}
-				onkeydown={(event) => keys(event, passUp)}></textarea>
-			<div class="bar">
+			{#if passing}
+				<textarea
+					bind:value={reason}
+					{@attach (input) => input.focus()}
+					aria-label="Why the owner should decide"
+					maxlength={2000}
+					placeholder="Why should the owner decide this? They read it with the item."
+					disabled={acting}
+					onkeydown={(event) => keys(event, passUp)}></textarea>
+			{:else if handingTo}
+				<textarea
+					bind:value={handNote}
+					{@attach (input) => input.focus()}
+					aria-label={`Note for ${handingTo.display}`}
+					maxlength={2000}
+					placeholder={`Anything ${handingTo.display} should know? Optional.`}
+					disabled={acting}
+					onkeydown={(event) => keys(event, handOn)}></textarea>
+			{:else if declining}
+				<textarea
+					bind:value={reason}
+					aria-label="Why not"
+					placeholder={`Why not? ${asker} will see this.`}
+					disabled={acting}
+					onkeydown={(event) => keys(event, sendDecline)}></textarea>
+			{:else if approvalNote}
+				<textarea
+					bind:value={reason}
+					{@attach (input) => input.focus()}
+					aria-label={approvalNote === 'changes' ? 'What should change' : 'Why not'}
+					maxlength={4000}
+					placeholder={approvalNote === 'changes'
+						? 'What should change? A new draft comes back here for you.'
+						: 'Why not? Optional. Exec is told either way.'}
+					disabled={acting}
+					onkeydown={(event) => keys(event, sendApprovalNote)}></textarea>
+			{:else if record}
+				{#if fields.length}
+					<div class="fields">
+						{#each fields as field (field.id)}
+							<label
+								><span>{field.label}{field.required ? '' : ' (optional)'}</span>
+								{#if field.type === 'choice' || field.type === 'boolean'}<select
+										bind:value={fieldValues[field.id]}
+										required={field.required}
+										disabled={acting}
+										><option value="">Choose…</option>{#each optionsFor(field) as option}<option
+												value={option}>{option}</option
+											>{/each}</select
+									>{:else}<input
+										type={field.type === 'date'
+											? 'date'
+											: field.type === 'amount'
+												? 'number'
+												: 'text'}
+										step={field.type === 'amount' ? '0.01' : undefined}
+										bind:value={fieldValues[field.id]}
+										required={field.required}
+										disabled={acting}
+									/>{/if}
+							</label>
+						{/each}
+					</div>
+				{/if}
+				<textarea
+					bind:value={reply}
+					aria-label={`Reply to ${asker}`}
+					placeholder={fields.length ? 'Anything else (optional)' : `Reply to ${asker}…`}
+					disabled={acting}
+					onkeydown={(event) => keys(event, sendReply)}></textarea>
+			{/if}
+		</div>
+	{/snippet}
+	<AttentionFooter
+		fields={error ||
+		appRequestsFailed ||
+		approveMandate ||
+		passing ||
+		handingTo ||
+		declining ||
+		approvalNote ||
+		record
+			? responseFields
+			: undefined}
+	>
+		{#if passing}<div class="action-row">
+				{@render secondaryActions()}
 				<button class="btn primary small" disabled={acting || !reason.trim()} onclick={passUp}
 					>{acting ? 'Passing on…' : 'Pass to owner'}</button
 				>
@@ -654,16 +740,8 @@
 				>
 				<span class="hint">⌘ ↵</span>
 			</div>
-		{:else if handingTo}
-			<textarea
-				bind:value={handNote}
-				{@attach (input) => input.focus()}
-				aria-label={`Note for ${handingTo.display}`}
-				maxlength={2000}
-				placeholder={`Anything ${handingTo.display} should know? Optional.`}
-				disabled={acting}
-				onkeydown={(event) => keys(event, handOn)}></textarea>
-			<div class="bar">
+		{:else if handingTo}<div class="action-row">
+				{@render secondaryActions()}
 				<button class="btn primary small" disabled={acting} onclick={handOn}
 					>{acting ? 'Handing on…' : `Hand to ${handingTo.display}`}</button
 				>
@@ -672,14 +750,8 @@
 				>
 				<span class="hint">⌘ ↵</span>
 			</div>
-		{:else if declining}
-			<textarea
-				bind:value={reason}
-				aria-label="Why not"
-				placeholder={`Why not? ${asker} will see this.`}
-				disabled={acting}
-				onkeydown={(event) => keys(event, sendDecline)}></textarea>
-			<div class="bar">
+		{:else if declining}<div class="action-row">
+				{@render secondaryActions()}
 				<button class="btn primary small" disabled={acting || !reason.trim()} onclick={sendDecline}
 					>{acting ? 'Sending…' : 'Decline'}</button
 				>
@@ -688,18 +760,8 @@
 				>
 				<span class="hint">⌘ ↵</span>
 			</div>
-		{:else if approvalNote}
-			<textarea
-				bind:value={reason}
-				{@attach (input) => input.focus()}
-				aria-label={approvalNote === 'changes' ? 'What should change' : 'Why not'}
-				maxlength={4000}
-				placeholder={approvalNote === 'changes'
-					? 'What should change? A new draft comes back here for you.'
-					: 'Why not? Optional. Exec is told either way.'}
-				disabled={acting}
-				onkeydown={(event) => keys(event, sendApprovalNote)}></textarea>
-			<div class="bar">
+		{:else if approvalNote}<div class="action-row">
+				{@render secondaryActions()}
 				<button
 					class="btn primary small"
 					disabled={acting || (approvalNote === 'changes' && !reason.trim())}
@@ -718,41 +780,8 @@
 				>
 				<span class="hint" title="Goes to Exec with your decision">To Exec · ⌘ ↵</span>
 			</div>
-		{:else if record}
-			{#if fields.length}
-				<div class="fields">
-					{#each fields as field (field.id)}
-						<label
-							><span>{field.label}{field.required ? '' : ' (optional)'}</span>
-							{#if field.type === 'choice' || field.type === 'boolean'}<select
-									bind:value={fieldValues[field.id]}
-									required={field.required}
-									disabled={acting}
-									><option value="">Choose…</option>{#each optionsFor(field) as option}<option
-											value={option}>{option}</option
-										>{/each}</select
-								>{:else}<input
-									type={field.type === 'date'
-										? 'date'
-										: field.type === 'amount'
-											? 'number'
-											: 'text'}
-									step={field.type === 'amount' ? '0.01' : undefined}
-									bind:value={fieldValues[field.id]}
-									required={field.required}
-									disabled={acting}
-								/>{/if}
-						</label>
-					{/each}
-				</div>
-			{/if}
-			<textarea
-				bind:value={reply}
-				aria-label={`Reply to ${asker}`}
-				placeholder={fields.length ? 'Anything else (optional)' : `Reply to ${asker}…`}
-				disabled={acting}
-				onkeydown={(event) => keys(event, sendReply)}></textarea>
-			<div class="bar">
+		{:else if record}<div class="action-row">
+				{@render secondaryActions()}
 				<button
 					class="btn primary small"
 					disabled={acting || !replyReady}
@@ -773,7 +802,8 @@
 				>
 			</div>
 		{:else}
-			<div class="bar">
+			<div class="action-row">
+				{@render secondaryActions()}
 				{#if grant}
 					{#key `${item.id}:${attempt}`}
 						<HoldApprove
@@ -934,16 +964,22 @@
 					>{/if}
 			</div>
 		{/if}
-	</footer>
+	</AttentionFooter>
 </article>
 
 <style>
 	.inbox-detail {
-		display: grid;
-		grid-template-rows: auto minmax(0, 1fr) auto;
+		display: flex;
+		flex-direction: column;
 		height: 100%;
 		min-height: 0;
+		overflow: hidden;
 		container: page / inline-size;
+	}
+	.detail-content {
+		flex: 1;
+		min-height: 0;
+		overflow: auto;
 	}
 	.head {
 		display: flex;
@@ -984,8 +1020,6 @@
 		color: var(--text-secondary);
 	}
 	.body {
-		min-height: 0;
-		overflow: auto;
 		padding: 20px 24px 8px;
 	}
 	.message {
@@ -1120,14 +1154,11 @@
 	.link:hover {
 		text-decoration: underline;
 	}
-	.inbox-composer {
+	.inbox-inputs {
 		display: grid;
 		gap: 10px;
-		padding: 12px 24px 16px;
-		border-top: 1px solid var(--border);
-		background: color-mix(in srgb, var(--surface-pane) 92%, transparent);
 	}
-	.inbox-composer textarea {
+	.inbox-inputs textarea {
 		width: 100%;
 		min-height: 64px;
 		max-height: 220px;
@@ -1148,14 +1179,9 @@
 	.fields :is(input, select) {
 		width: 100%;
 	}
-	.bar {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: var(--space-2);
-	}
 	.hint {
-		margin-left: auto;
+		order: -1;
+		margin-right: auto;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
@@ -1184,8 +1210,7 @@
 	}
 	@container page (max-width: 560px) {
 		.head,
-		.body,
-		.inbox-composer {
+		.body {
 			padding-inline: 14px;
 		}
 		.folds {
