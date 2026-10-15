@@ -189,12 +189,14 @@ export async function attachmentObjectUrl(
 	company: string,
 	id: string,
 	mediaType: string,
-	name: string
+	name: string,
+	signal?: AbortSignal
 ): Promise<string> {
 	const kind = attachmentReadKind(mediaType, name);
 	if (!kind) throw new Error('This kind of file downloads rather than opening here.');
 	const response = await fetch(attachmentHref(company, id), {
 		credentials: 'same-origin',
+		signal,
 		cache: 'no-store'
 	});
 	if (!response.ok) throw await responseFailure(response);

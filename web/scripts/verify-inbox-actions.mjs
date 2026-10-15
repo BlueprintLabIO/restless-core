@@ -20,10 +20,16 @@ try {
 	for (const item of items) {
 		const kind =
 			item.native_document?.kind ??
-			(item.charter_proposal ? 'charter' : item.direction_request ? 'direction' : 'handoff');
+			(item.charter_proposal
+				? 'charter'
+				: item.direction_request
+					? 'direction'
+					: item.actions.some((action) => action.id === 'accept-review')
+						? 'outcome'
+						: 'handoff');
 		if (!kinds.has(kind)) kinds.set(kind, item);
 	}
-	for (const kind of ['direction', 'charter', 'review', 'collaboration', 'handoff'])
+	for (const kind of ['direction', 'charter', 'review', 'collaboration', 'handoff', 'outcome'])
 		assert(
 			kinds.has(kind),
 			'Seed missing ' + kind + ' with scripts/seed-inbox-actions.mjs and seed-reno-scale.mjs'
@@ -130,6 +136,19 @@ try {
 				);
 				await footer.getByRole('button', { name: 'Back', exact: true }).click();
 			}
+			if (kind === 'outcome') {
+				await footer.getByRole('button', { name: 'Accept outcome', exact: true }).waitFor();
+				await footer.getByRole('button', { name: 'Request changes', exact: true }).click();
+				await footer
+					.getByRole('textbox', { name: /Changes for/ })
+					.fill('A long review note. '.repeat(100));
+				const change = await geometry();
+				assert(
+					change.visible && Math.abs(change.bottom - before.bottom) < 1,
+					'Outcome feedback keeps decisions anchored'
+				);
+				await footer.getByRole('button', { name: 'Back', exact: true }).click();
+			}
 			if (kind === 'charter') {
 				await footer.getByRole('button', { name: 'Edit', exact: true }).click();
 				await footer.getByRole('button', { name: 'Publish', exact: true }).waitFor();
@@ -150,7 +169,7 @@ try {
 		await context.close();
 	}
 	console.log(
-		'Inbox footer: direction, handoff, charter, review and collaboration stay bottom-right at four desktop/phone viewport sizes; scroll, decline and charter editing passed.'
+		'Inbox footer: direction, handoff, charter, native review, outcome review and collaboration stay bottom-right at four desktop/phone viewport sizes; scroll, decline and charter editing passed.'
 	);
 } finally {
 	await writeFile(out + '/report.json', JSON.stringify(report, null, 2));

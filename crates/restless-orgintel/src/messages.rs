@@ -4,6 +4,12 @@ use super::*;
 
 const MAX_CONVERSATION_MESSAGE_BYTES: usize = 64 * 1024;
 
+/// Conversation scope is distinct from production ownership. Use the same admission for
+/// reads, input and replies: the producer, its accountable lead, or the singleton Exec.
+fn work_conversation_actor(owner: &str, lead: Option<&str>, actor: &str) -> bool {
+    actor == "exec" || actor == owner || lead == Some(actor)
+}
+
 fn validate_conversation_body(body: &str) -> Result<()> {
     if body.trim().is_empty() || body.len() > MAX_CONVERSATION_MESSAGE_BYTES {
         return Err(OrgIntelError::InvalidWork(format!(
@@ -288,9 +294,11 @@ impl OrgIntel {
         // through the atomic reply + consumption commit.
         validate_cognitive_lease_in_tx(&mut tx, lease).await?;
         if let Some((work_id, accountability)) = reply_work.as_ref() {
-            if accountability.owner_id != lease.actor_id
-                && accountability.lead_actor_id.as_deref() != Some(lease.actor_id.as_str())
-            {
+            if !work_conversation_actor(
+                &accountability.owner_id,
+                accountability.lead_actor_id.as_deref(),
+                &lease.actor_id,
+            ) {
                 return Err(OrgIntelError::InvalidWork(format!(
                     "Work {work_id} belongs to {:?}; its accountable lead is {:?}, not replying actor {:?}",
                     accountability.owner_id, accountability.lead_actor_id, lease.actor_id
@@ -1926,7 +1934,9 @@ impl OrgIntel {
                     .into(),
             ));
         }
-        if owner != to && accountable_lead.as_deref() != Some(to) {
+        // Exec discusses portfolio decisions without becoming the Work's producer.
+        // Actor liveness and any exact pending handoff are still checked under the same locks.
+        if !work_conversation_actor(&owner, accountable_lead.as_deref(), to) {
             return Err(OrgIntelError::InvalidWork(format!(
                 "Work {work_id} belongs to {owner:?}; its accountable lead is {:?}, not message recipient {to:?}",
                 accountable_lead
@@ -1939,19 +1949,31 @@ impl OrgIntel {
                         escalated_from,escalated_at,owner_brief,briefed_by,briefed_at, \
                         brief_source_fingerprint,delivered_at,created_at,resolved_at \
                  FROM owner_handoffs \
-                 WHERE id=$1 AND work_id=$2 AND state='pending' AND assigned_to=$3 \
+                 WHERE id=$1 AND work_id=$2 AND state='pending' \
                  FOR SHARE",
             )
             .bind(expected_handoff.id)
             .bind(work_id)
-            .bind(to)
             .fetch_optional(&mut *tx)
             .await?;
-            if current
-                .as_ref()
-                .map(OwnerHandoffRow::conversation_input)
-                .as_ref()
-                != Some(expected_handoff)
+            // An escalated owner item has no agent assignee: its authored brief names
+            // the conversation partner. Assignee-only admission rejects every such Inbox
+            // discussion, even though it is still pending for the human owner.
+            let current_recipient = current.as_ref().is_some_and(|handoff| {
+                let recipient = handoff.assigned_to.as_deref().unwrap_or_else(|| {
+                    handoff
+                        .briefed_by
+                        .as_deref()
+                        .unwrap_or(accountable_lead.as_deref().unwrap_or(&owner))
+                });
+                recipient == to
+            });
+            if !current_recipient
+                || current
+                    .as_ref()
+                    .map(OwnerHandoffRow::conversation_input)
+                    .as_ref()
+                    != Some(expected_handoff)
             {
                 return Err(OrgIntelError::InvalidWork(
                     "the expected Attention handoff changed, was resolved, or is no longer pending for this Actor"
@@ -2273,7 +2295,7 @@ impl OrgIntel {
         .await?)
     }
 
-    /// Reply from the producing actor or its accountable lead to the human
+    /// Reply from the producer, accountable lead or portfolio Exec to the human
     /// owner, preserving the same Work-scoped conversation. The lead speaks
     /// for the complete team outcome while Staff retains production
     /// attribution. The owner inbox remains the existing `to_actor = NULL`
@@ -2314,7 +2336,7 @@ impl OrgIntel {
         .bind(&owner)
         .fetch_optional(&mut *tx)
         .await?;
-        if owner != from && accountable_lead.as_deref() != Some(from) {
+        if !work_conversation_actor(&owner, accountable_lead.as_deref(), from) {
             return Err(OrgIntelError::InvalidWork(format!(
                 "Work {work_id} belongs to {owner:?}; its accountable lead is {:?}, not replying actor {from:?}",
                 accountable_lead
@@ -2340,7 +2362,7 @@ impl OrgIntel {
         Ok(id)
     }
 
-    /// One verified human/producer direct-Room conversation linked to Work.
+    /// One verified human/producer, lead or Exec direct-Room conversation linked to Work.
     /// The Work owner remains authoritative; the human Actor is attribution,
     /// not an implicit ownership or Authority grant.
     pub async fn human_work_conversation(
@@ -2350,11 +2372,16 @@ impl OrgIntel {
         work_id: Uuid,
         limit: i64,
     ) -> Result<Vec<MessageRow>> {
-        let owner: String = sqlx::query_scalar("SELECT owner_id FROM work WHERE id=$1")
-            .bind(work_id)
-            .fetch_one(&self.pool)
-            .await?;
-        if owner != target_actor {
+        let (owner, lead): (String, Option<String>) = sqlx::query_as(
+            "SELECT work.owner_id,team.lead_actor_id FROM work \
+             LEFT JOIN actors actor ON actor.id=work.owner_id AND actor.retired_at IS NULL \
+             LEFT JOIN teams team ON team.id=actor.team_id AND team.disbanded_at IS NULL \
+             WHERE work.id=$1",
+        )
+        .bind(work_id)
+        .fetch_one(&self.pool)
+        .await?;
+        if !work_conversation_actor(&owner, lead.as_deref(), target_actor) {
             return Err(OrgIntelError::InvalidWork(format!(
                 "Work {work_id} belongs to {owner:?}, not conversation actor {target_actor:?}"
             )));

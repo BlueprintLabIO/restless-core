@@ -109,8 +109,11 @@ export async function readStartupDoctor<T>(company: string): Promise<T> {
 }
 
 /** Owner-only: Library files that were archived. Null when they cannot be read. */
-export async function readArchivedLibrary<T>(company: string): Promise<T | null> {
-	return ownerRequest<T>(`${api(company)}/library/archived`).catch(() => null);
+export async function readArchivedLibrary<T>(
+	company: string,
+	signal?: AbortSignal
+): Promise<T | null> {
+	return ownerRequest<T>(`${api(company)}/library/archived`, { signal });
 }
 
 /** A file a message refers to, resolved to a viewable URL or its text. */

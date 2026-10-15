@@ -24,10 +24,12 @@
 
 	let {
 		companyId,
+		preview,
 		request,
 		onresolved = () => {}
 	}: {
 		companyId: string;
+		preview?: Snippet;
 		request: NativeDocumentAttention;
 		onresolved?: () => void;
 	} = $props();
@@ -177,97 +179,104 @@
 		</header>
 	{/if}
 	{#if failure}<p class="cockpit-error" role="alert">{failure}</p>{/if}
-	{#if detail.view}
-		<div
-			class="document-panes"
-			class:with-inspector={inspectorOpen}
-			class:wide={width >= 850}
-			use:resizePane={{
-				key: `${companyId}:attention-document`,
-				label: 'Resize document discussion',
-				target: '.document-discussion',
-				variable: '--discussion-width',
-				side: 'start',
-				min: 260,
-				minOther: 400,
-				defaultSize: 320,
-				enabled: inspectorOpen && width >= 850,
-				breakpoint: 0
-			}}
-		>
-			<div class="document-body">
-				{#if request.kind === 'review' && !editLive}
-					<article class="requested-version document-print" aria-label="Requested document version">
-						<h1 class="print-title">{detail.view?.document.title ?? request.title}</h1>
-						{#if requestedVersion.version}
-							<h2 class="print-hide">
-								Version {requestedVersion.version.version.version_number} under review
-							</h2>
-							<Markdown text={requestedVersion.version.markdown} />
-						{:else}<p>
-								{requestedVersion.failure
-									? 'The requested version is unavailable.'
-									: 'Loading requested version…'}
-							</p>{/if}
-					</article>
-				{:else}
-					<DocumentEditor
-						{actions}
-						{moreActions}
-						{companyId}
-						companyUuid={collaboration.view
-							? collaboration.view.company.company_id
-							: collaboration.failure
-								? null
-								: undefined}
-						view={detail.view}
-						principalActorId={shell.view?.actor_id ?? ''}
-						mayRename={shell.view?.membership_role === 'owner' ||
-							detail.view.document.owner_actor_id === shell.view?.actor_id}
-						{online}
-						onaccept={accept}
-						onleavechange={(value) => (readyToLeave = value)}
-						ondirtychange={(value) => (dirty = value)}
-						oncomment={(block) => {
-							commentBlockId = block;
-							panel = 'comments';
-							inspectorOpen = true;
-						}}
-					/>
+
+	{#if preview}<div class="native-preview">{@render preview()}</div>{/if}
+	<div class="document-content" class:preview-hidden={!!preview}>
+		{#if detail.view}
+			<div
+				class="document-panes"
+				class:with-inspector={inspectorOpen}
+				class:wide={width >= 850}
+				use:resizePane={{
+					key: `${companyId}:attention-document`,
+					label: 'Resize document discussion',
+					target: '.document-discussion',
+					variable: '--discussion-width',
+					side: 'start',
+					min: 260,
+					minOther: 400,
+					defaultSize: 320,
+					enabled: inspectorOpen && width >= 850,
+					breakpoint: 0
+				}}
+			>
+				<div class="document-body">
+					{#if request.kind === 'review' && !editLive}
+						<article
+							class="requested-version document-print"
+							aria-label="Requested document version"
+						>
+							<h1 class="print-title">{detail.view?.document.title ?? request.title}</h1>
+							{#if requestedVersion.version}
+								<h2 class="print-hide">
+									Version {requestedVersion.version.version.version_number} under review
+								</h2>
+								<Markdown text={requestedVersion.version.markdown} />
+							{:else}<p>
+									{requestedVersion.failure
+										? 'The requested version is unavailable.'
+										: 'Loading requested version…'}
+								</p>{/if}
+						</article>
+					{:else}
+						<DocumentEditor
+							{actions}
+							{moreActions}
+							{companyId}
+							companyUuid={collaboration.view
+								? collaboration.view.company.company_id
+								: collaboration.failure
+									? null
+									: undefined}
+							view={detail.view}
+							principalActorId={shell.view?.actor_id ?? ''}
+							mayRename={shell.view?.membership_role === 'owner' ||
+								detail.view.document.owner_actor_id === shell.view?.actor_id}
+							{online}
+							onaccept={accept}
+							onleavechange={(value) => (readyToLeave = value)}
+							ondirtychange={(value) => (dirty = value)}
+							oncomment={(block) => {
+								commentBlockId = block;
+								panel = 'comments';
+								inspectorOpen = true;
+							}}
+						/>
+					{/if}
+				</div>
+				{#if inspectorOpen || request.kind === 'review'}
+					<div class="document-discussion" hidden={!inspectorOpen}>
+						<DocumentInspector
+							{companyId}
+							view={detail.view}
+							{panel}
+							ondismiss={() => (inspectorOpen = false)}
+							requestedReviewId={request.kind === 'review' ? request.id : ''}
+							onreviewactionschange={(actions) => (reviewActions = actions)}
+							onrequestreviewnote={() => {
+								panel = 'review';
+								inspectorOpen = true;
+							}}
+							people={collaboration.view?.people ?? []}
+							viewerActorId={shell.view?.actor_id ?? ''}
+							{online}
+							editing={dirty}
+							{commentBlockId}
+							onpanelchange={(value) => (panel = value)}
+							oncommenttargetchange={(value) => (commentBlockId = value)}
+							onaccept={accept}
+						/>
+					</div>
 				{/if}
 			</div>
-			{#if inspectorOpen || request.kind === 'review'}
-				<div class="document-discussion" hidden={!inspectorOpen}>
-					<DocumentInspector
-						{companyId}
-						view={detail.view}
-						{panel}
-						ondismiss={() => (inspectorOpen = false)}
-						requestedReviewId={request.kind === 'review' ? request.id : ''}
-						onreviewactionschange={(actions) => (reviewActions = actions)}
-						onrequestreviewnote={() => {
-							panel = 'review';
-							inspectorOpen = true;
-						}}
-						people={collaboration.view?.people ?? []}
-						viewerActorId={shell.view?.actor_id ?? ''}
-						{online}
-						editing={dirty}
-						{commentBlockId}
-						onpanelchange={(value) => (panel = value)}
-						oncommenttargetchange={(value) => (commentBlockId = value)}
-						onaccept={accept}
-					/>
-				</div>
-			{/if}
-		</div>
-	{:else}
-		<div class="document-unavailable" role="status">
-			<h2>{detail.status === 'unknown' ? 'Loading document…' : 'Document unavailable'}</h2>
-			{#if detail.status !== 'unknown'}<p>Your access may have changed.</p>
-				<button class="btn small" onclick={() => void detail.refresh()}>Try again</button>{/if}
-		</div>
-	{/if}
+		{:else}
+			<div class="document-unavailable" role="status">
+				<h2>{detail.status === 'unknown' ? 'Loading document…' : 'Document unavailable'}</h2>
+				{#if detail.status !== 'unknown'}<p>Your access may have changed.</p>
+					<button class="btn small" onclick={() => void detail.refresh()}>Try again</button>{/if}
+			</div>
+		{/if}
+	</div>
 	<AttentionFooter>
 		{#if request.kind === 'review'}
 			{#if reviewActions}{@render reviewActions()}
@@ -278,7 +287,8 @@
 						onclick={() => {
 							panel = 'review';
 							inspectorOpen = true;
-						}}>Review details</button
+						}}
+						data-inbox-reveal>Review details</button
 					>
 				</div>{/if}
 		{:else}
@@ -300,6 +310,18 @@
 </section>
 
 <style>
+	.document-content {
+		display: contents;
+	}
+	.document-content.preview-hidden {
+		display: none;
+	}
+	.native-preview {
+		flex: 1;
+		min-height: 0;
+		overflow: hidden;
+	}
+
 	.attention-document {
 		min-width: 0;
 		min-height: 0;

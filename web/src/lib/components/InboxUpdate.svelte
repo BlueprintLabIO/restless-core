@@ -1,5 +1,7 @@
 <script lang="ts">
 	/* One update in the shared Inbox queue. Its server source owns read/archive state. */
+	import { page } from '$app/state';
+	import { inboxPreviewTarget } from '$lib/model/inbox-preview';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import { Item } from '$lib/ui/page';
@@ -45,6 +47,25 @@
 			fail(cause, 'Not archived.');
 		}
 	}
+	const destination = $derived(
+		item.kind === 'applied'
+			? item.direction_applied?.length === 1
+				? (targetHref(
+						companyId,
+						item.direction_applied[0].target,
+						item.direction_applied[0].applied_at
+					) ?? undefined)
+				: undefined
+			: item.href
+	);
+	const href = $derived.by(() => {
+		if (!destination || !inboxPreviewTarget(companyId, destination, page.url.origin))
+			return destination;
+		const url = new URL('/' + encodeURIComponent(companyId), page.url.origin);
+		url.searchParams.set('update', item.key);
+		url.searchParams.set('preview', destination);
+		return url.pathname + url.search;
+	});
 </script>
 
 <Item
@@ -52,15 +73,7 @@
 	stacked
 	title={forYouSentence(item)}
 	meta={item.kind === 'applied' ? null : item.excerpt || null}
-	href={item.kind === 'applied'
-		? item.direction_applied?.length === 1
-			? (targetHref(
-					companyId,
-					item.direction_applied[0].target,
-					item.direction_applied[0].applied_at
-				) ?? undefined)
-			: undefined
-		: item.href}
+	{href}
 	unread={item.unread}
 	onclick={() => open(item)}
 >

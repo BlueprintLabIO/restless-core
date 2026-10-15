@@ -1,6 +1,8 @@
 /* Any page can hand the owner to the Exec: open the rail on the general
  * conversation with the composer ready. The layout listens. */
 export const ASK_EXEC_EVENT = 'restless:ask-exec';
+/** Reveal the already selected conversation without changing its actor or Work. */
+export const SHOW_CONVERSATION_EVENT = 'restless:show-conversation';
 
 /** With a draft, the composer opens holding it for the owner to edit. */
 export function askExec(draft?: unknown) {

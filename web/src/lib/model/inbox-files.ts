@@ -2,7 +2,7 @@
  * into the Library viewer. Nothing is copied: a file the Work graph recorded opens by its artifact
  * id, any other path under the company home opens by path (S64 contract C1), and anything else
  * stays text. */
-import { libraryFiles, type LibraryArtifact } from './library-files';
+import { libraryFiles, type LibraryArtifact } from './library-files.ts';
 
 export interface CompanyFileLink {
 	label: string;
@@ -54,12 +54,10 @@ export function workFileLinks(
 ): CompanyFileLink[] {
 	if (!workId) return [];
 	const base = `/${encodeURIComponent(companyId)}/library`;
-	return libraryFiles(artifacts)
-		.filter((file) => file.workId === workId)
-		.map((file) => ({
-			label: file.label,
-			path: file.uri,
-			href: `${base}?file=${encodeURIComponent(file.id)}`,
-			ext: extension(file.uri)
-		}));
+	return libraryFiles(artifacts.filter((artifact) => artifact.work_id === workId)).map((file) => ({
+		label: file.label,
+		path: file.uri,
+		href: `${base}?file=${encodeURIComponent(file.id)}`,
+		ext: extension(file.uri)
+	}));
 }

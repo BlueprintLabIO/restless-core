@@ -7,17 +7,20 @@
 	 * it), so the owner is told where it went, even when a lead asked. Approvals keep hold-to-confirm, with the exact
 	 * draft shown under the ask; declining one, or asking for changes, can carry
 	 * a note that reaches the company with the decision. Files the item points
-	 * at open in the Library. Context and the rest of the evidence are folded
+	 * at open alongside the decision in Inbox. Context and the rest of the evidence are folded
 	 * away until asked for. */
+	import { page } from '$app/state';
+	import { inboxDiscussionHref } from '$lib/model/inbox-preview';
 	import { decideEmailMandateProposal } from '$lib/model/company-actions';
 	import { decidePayee } from '$lib/model/company';
 	import { authorizePublication, stopPublication } from '$lib/model/publications';
 	import { failureSentence } from '$lib/model/failure';
-	import { untrack } from 'svelte';
+	import { tick, untrack, type Snippet } from 'svelte';
 	import AttentionFooter from './AttentionFooter.svelte';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import type { AttentionItem } from '$lib/model/view';
 	import {
+		reviewAction,
 		approvalAction,
 		delegateHandoff,
 		passHandoffToOwner,
@@ -37,6 +40,7 @@
 	import { getInboxMarks } from '$lib/model/for-you';
 	import SnoozeChoices from './SnoozeChoices.svelte';
 	import {
+		discussInbox,
 		appRequestHandoffs,
 		copyInboxLink,
 		inboxMarksKey,
@@ -59,6 +63,8 @@
 		companyId,
 		item,
 		artifacts = [],
+		content,
+		preview,
 		declining: startDeclining = false,
 		workOwnerId,
 		canSetAside = true,
@@ -69,6 +75,8 @@
 	}: {
 		companyId: string;
 		item: AttentionItem;
+		content?: Snippet;
+		preview?: Snippet;
 		/** The Work graph's artifact references, so a file the item names opens in the Library. */
 		artifacts?: readonly LibraryArtifact[];
 		/** Open straight into "Not doing this", as the list's quick action does. */
@@ -87,6 +95,7 @@
 	} = $props();
 
 	const client = useQueryClient();
+	const discussionHref = $derived(inboxDiscussionHref(page.url, companyId, item.id));
 	const asker = $derived(attentionAsker(item));
 	const askerId = $derived(item.responsibleActor?.id ?? item.briefAuthor?.id ?? 'exec');
 	const conversationHref = $derived(
@@ -146,6 +155,26 @@
 	const record = $derived(action('record-decision'));
 	const open = $derived(action('open-outcome'));
 	const review = $derived(item.actions.some((candidate) => candidate.id === 'accept-review'));
+	let requestingReviewChanges = $state(false),
+		reviewFeedback = $state('');
+	let reviewNote = $state<HTMLTextAreaElement>();
+	async function showReviewChanges() {
+		requestingReviewChanges = true;
+		await tick();
+		reviewNote?.focus();
+	}
+	function decideReview(decision: 'accept' | 'request_changes') {
+		if (decision === 'request_changes' && !reviewFeedback.trim()) return;
+		return run(
+			async () => {
+				await reviewAction(companyId, item.source.reference, decision, reviewFeedback.trim());
+				await refreshAttention(client, companyId);
+			},
+			decision === 'accept' ? 'Accepted' : 'Changes sent to ' + recipient,
+			'The review decision was not recorded.',
+			recipientHref
+		);
+	}
 	const humanStep = $derived(action('complete-human-step'));
 	const discuss = $derived(item.actions.some((candidate) => candidate.id === 'chat-lead'));
 	const documentRequest = $derived(
@@ -484,7 +513,8 @@
 			onclick={() => void setAside()}>Set aside</button
 		>{/if}
 	<ActionMenu label="More">
-		{#if discuss}<a href={`${base}&conversation=${encodeURIComponent(item.id)}`}>Discuss</a>{/if}
+		{#if discuss}<a href={discussionHref} onclick={(event) => void discussInbox(event)}>Discuss</a
+			>{/if}
 		<a href={conversationHref}>Open conversation with {asker}</a>
 		{#if item.workId}<a
 				href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(item.workId)}`}
@@ -514,7 +544,7 @@
 {/snippet}
 
 <article class="inbox-detail" aria-label={attentionTitle(item)}>
-	<div class="detail-content">
+	<div class="detail-content" class:has-preview={!!(preview || content)}>
 		<header class="head">
 			<div class="title">
 				<h1>{attentionTitle(item)}</h1>
@@ -539,99 +569,119 @@
 			</div>
 		</header>
 
-		<div class="body">
-			<div class="message">
-				<span class="avatar" aria-hidden="true">{initial(asker)}</span>
-				<div class="message-body">
-					<div class="message-head">
-						<strong>{asker}</strong>
-						{#if item.responsibleActor?.role}<span>{item.responsibleActor.role}</span>{/if}
-					</div>
-					{#if item.preparing}
-						<p class="waiting">
-							Nothing to do yet. This step is being prepared; instructions and any sign-in link will
-							appear here when ready.
-						</p>
-					{:else}
-						<div class="ask"><Markdown text={item.requestedAction} /></div>
-					{/if}
-					{#each drafts as draft, index (index)}
-						<pre
-							class="draft"
-							aria-label={draft.label}
-							title="The exact draft. Allowing it lets exactly this run.">{draft.content}</pre>
-					{/each}
-					{#if files.length}
-						<div class="attach-list files">
-							{#each item.workId ? files.slice(0, 6) : files as file (file.href)}
-								<a
-									class="attach-file"
-									href={file.href}
-									title={`Open in the Library · ${file.path}`}
-								>
-									<span class="a-kind">{file.ext}</span>
-									<span class="af-main"><span class="a-name">{file.label}</span></span>
-								</a>
-							{/each}
-							{#if files.length > 6 && item.workId}<a
-									class="link"
-									href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(item.workId)}`}
-									>All {files.length} files</a
-								>{/if}
+		{#if preview}<div class="detail-preview">{@render preview()}</div>{/if}
+		{#if content}<div class="detail-preview" hidden={!!preview}>{@render content()}</div>
+		{:else}
+			<div class="body" hidden={!!preview}>
+				<div class="message">
+					<span class="avatar" aria-hidden="true">{initial(asker)}</span>
+					<div class="message-body">
+						<div class="message-head">
+							<strong>{asker}</strong>
+							{#if item.responsibleActor?.role}<span>{item.responsibleActor.role}</span>{/if}
 						</div>
-					{/if}
-					{#if item.uncertainty}<p class="uncertain" title="What the team is not sure about">
-							<span>Not certain</span>{item.uncertainty}
-						</p>{/if}
-				</div>
-			</div>
-
-			<div class="folds">
-				{#if item.whatHappened || item.whyItMatters || showRecommendation}
-					<Fold label="Context">
-						<div class="prose">
-							{#if item.whatHappened}<Markdown text={item.whatHappened} />{/if}
-							{#if item.whyItMatters && item.whyItMatters !== item.whatHappened}<Markdown
-									text={item.whyItMatters}
-								/>{/if}
-							{#if showRecommendation}<div class="recommended">
-									<strong>Recommended</strong>
-									<Markdown text={item.recommendation} />
-								</div>{/if}
-						</div>
-					</Fold>
-				{/if}
-				<Fold label="Evidence" count={folded.length || null}>
-					<div class="prose evidence">
-						<p class="credit">
-							Prepared by <strong>{item.briefAuthor?.display ?? asker}</strong>{#if item.briefedAt}
-								· <time title={formatMoment(item.briefedAt)}
-									><RelativeTime value={item.briefedAt} /></time
-								>{/if}
-						</p>
-						{#each folded as evidence, index (`${evidence.kind}:${evidence.label}:${index}`)}
-							{#if evidence.content}
-								<div class="quote">
-									<span>{evidence.label}</span>
-									<blockquote>{evidence.content}</blockquote>
-								</div>
-							{:else if evidence.uri}
-								<a class="link" href={evidence.uri} target="_blank" rel="noreferrer"
-									>{evidence.label} <span aria-hidden="true">↗</span></a
-								>
-							{/if}
+						{#if item.preparing}
+							<p class="waiting">
+								Nothing to do yet. This step is being prepared; instructions and any sign-in link
+								will appear here when ready.
+							</p>
+						{:else}
+							<div class="ask"><Markdown text={item.requestedAction} /></div>
+						{/if}
+						{#each drafts as draft, index (index)}
+							<pre
+								class="draft"
+								aria-label={draft.label}
+								title="The exact draft. Allowing it lets exactly this run.">{draft.content}</pre>
 						{/each}
-						{#if item.ifNoAction}<p class="credit" title="What happens if nobody acts">
-								If nothing happens: {item.ifNoAction}
+						{#if files.length}
+							<div class="attach-list files">
+								{#each item.workId ? files.slice(0, 6) : files as file (file.href)}
+									<a
+										class="attach-file"
+										href={file.href}
+										title={`Open in the Library · ${file.path}`}
+									>
+										<span class="a-kind">{file.ext}</span>
+										<span class="af-main"><span class="a-name">{file.label}</span></span>
+									</a>
+								{/each}
+								{#if files.length > 6 && item.workId}<a
+										class="link"
+										href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(item.workId)}`}
+										>All {files.length} files</a
+									>{/if}
+							</div>
+						{/if}
+						{#if item.uncertainty}<p class="uncertain" title="What the team is not sure about">
+								<span>Not certain</span>{item.uncertainty}
 							</p>{/if}
 					</div>
-				</Fold>
+				</div>
+
+				<div class="folds">
+					{#if item.whatHappened || item.whyItMatters || showRecommendation}
+						<Fold label="Context">
+							<div class="prose">
+								{#if item.whatHappened}<Markdown text={item.whatHappened} />{/if}
+								{#if item.whyItMatters && item.whyItMatters !== item.whatHappened}<Markdown
+										text={item.whyItMatters}
+									/>{/if}
+								{#if showRecommendation}<div class="recommended">
+										<strong>Recommended</strong>
+										<Markdown text={item.recommendation} />
+									</div>{/if}
+							</div>
+						</Fold>
+					{/if}
+					<Fold label="Evidence" count={folded.length || null}>
+						<div class="prose evidence">
+							<p class="credit">
+								Prepared by <strong>{item.briefAuthor?.display ?? asker}</strong
+								>{#if item.briefedAt}
+									· <time title={formatMoment(item.briefedAt)}
+										><RelativeTime value={item.briefedAt} /></time
+									>{/if}
+							</p>
+							{#each folded as evidence, index (`${evidence.kind}:${evidence.label}:${index}`)}
+								{#if evidence.content}
+									<div class="quote">
+										<span>{evidence.label}</span>
+										<blockquote>{evidence.content}</blockquote>
+									</div>
+								{:else if evidence.uri}
+									<a class="link" href={evidence.uri} target="_blank" rel="noreferrer"
+										>{evidence.label} <span aria-hidden="true">↗</span></a
+									>
+								{/if}
+							{/each}
+							{#if item.ifNoAction}<p class="credit" title="What happens if nobody acts">
+									If nothing happens: {item.ifNoAction}
+								</p>{/if}
+						</div>
+					</Fold>
+				</div>
 			</div>
-		</div>
+		{/if}
 	</div>
 	{#snippet responseFields()}
 		<div class="inbox-inputs">
 			{#if error}<Notice tone="danger" title={error} />{/if}
+			{#if requestingReviewChanges}
+				<label
+					>Changes for {recipient}<textarea
+						bind:this={reviewNote}
+						bind:value={reviewFeedback}
+						rows="3"
+						placeholder="Describe what should change…"
+						onkeydown={(event) => {
+							if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+								event.preventDefault();
+								void decideReview('request_changes');
+							}
+						}}></textarea></label
+				>
+			{/if}
 			{#if appRequestsFailed}<Notice
 					tone="danger"
 					title="Could not check whether this step is an app request. If it is, adding the app resumes it; Mark done would not."
@@ -719,7 +769,8 @@
 		</div>
 	{/snippet}
 	<AttentionFooter
-		fields={error ||
+		fields={requestingReviewChanges ||
+		error ||
 		appRequestsFailed ||
 		approveMandate ||
 		passing ||
@@ -795,7 +846,8 @@
 				>
 				{#if discuss}<a
 						class="btn small ghost"
-						href={`${base}&conversation=${encodeURIComponent(item.id)}`}>Discuss</a
+						href={discussionHref}
+						onclick={(event) => void discussInbox(event)}>Discuss</a
 					>{/if}
 				<span class="hint" title={`Goes to ${recipient} as a message in your conversation`}
 					>To {recipient} · ⌘ ↵</span
@@ -804,7 +856,38 @@
 		{:else}
 			<div class="action-row">
 				{@render secondaryActions()}
-				{#if grant}
+				{#if review}
+					{#if requestingReviewChanges}
+						<button
+							class="btn primary small"
+							type="button"
+							disabled={acting || !reviewFeedback.trim()}
+							onclick={() => void decideReview('request_changes')}
+							>{acting ? 'Sending…' : 'Send changes'}</button
+						>
+						<button
+							class="btn small ghost"
+							type="button"
+							disabled={acting}
+							onclick={() => (requestingReviewChanges = false)}>Back</button
+						>
+					{:else}
+						<button
+							class="btn primary small"
+							type="button"
+							disabled={acting}
+							title={action('accept-review')?.consequence}
+							onclick={() => void decideReview('accept')}
+							>{acting ? 'Accepting…' : 'Accept outcome'}</button
+						>
+						<button
+							class="btn small"
+							type="button"
+							disabled={acting}
+							onclick={() => void showReviewChanges()}>Request changes</button
+						>
+					{/if}
+				{:else if grant}
 					{#key `${item.id}:${attempt}`}
 						<HoldApprove
 							small
@@ -960,7 +1043,8 @@
 				{/if}
 				{#if discuss && !humanStep}<a
 						class="btn small ghost"
-						href={`${base}&conversation=${encodeURIComponent(item.id)}`}>Discuss</a
+						href={discussionHref}
+						onclick={(event) => void discussInbox(event)}>Discuss</a
 					>{/if}
 			</div>
 		{/if}
@@ -975,6 +1059,23 @@
 		min-height: 0;
 		overflow: hidden;
 		container: page / inline-size;
+	}
+	.detail-content.has-preview {
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+	}
+	.detail-content.has-preview .head {
+		flex: none;
+	}
+	.detail-preview {
+		flex: 1;
+		min-height: 0;
+		overflow: hidden;
+	}
+	.detail-preview[hidden],
+	.body[hidden] {
+		display: none;
 	}
 	.detail-content {
 		flex: 1;

@@ -1366,6 +1366,7 @@
 						? 'Send this version back with your note'
 						: 'Post your note as a comment to whoever asked'}
 				disabled={!online || editing || reviewBusy}
+				data-inbox-reveal
 				onclick={() => void beginReviewChanges()}>Request changes</button
 			>
 		{/if}

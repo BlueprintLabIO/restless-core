@@ -373,8 +373,9 @@ export function companySpendQuery(companyId: string, enabled: QueryEnabled = tru
 	};
 }
 
-export function identityQuery(companyId: string) {
+export function identityQuery(companyId: string, enabled: QueryEnabled = true) {
 	const query = createQuery(() => ({
+		enabled: queryEnabled(enabled),
 		queryKey: queryKeys.identity(companyId),
 		queryFn: () => getCompanyIdentity(companyId),
 		staleTime: STALE_MS,

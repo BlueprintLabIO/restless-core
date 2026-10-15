@@ -44,6 +44,8 @@
 		file,
 		owner,
 		backHref,
+		backLabel = 'Back to the Library',
+		showDiscuss = true,
 		resolve = null,
 		convert = null
 	}: {
@@ -51,6 +53,8 @@
 		file: LibraryFile;
 		owner: string;
 		backHref: string;
+		backLabel?: string;
+		showDiscuss?: boolean;
 		/** Where this file is read from, when it is not a Work file the gateway opens by id. */
 		resolve?: (() => Promise<string>) | null;
 		/** Make this Word, Excel or CSV file an editable document or sheet, when it can be one. */
@@ -232,9 +236,11 @@
 
 <div class="viewer">
 	<header class="viewer-head">
-		<a class="back" href={backHref} title="Back to the Library" aria-label="Back to the Library"
-			><ArrowLeft size={16} strokeWidth={1.9} /></a
-		>
+		{#if backHref}
+			<a class="back" href={backHref} title={backLabel} aria-label={backLabel}
+				><ArrowLeft size={16} strokeWidth={1.9} /></a
+			>
+		{/if}
 		<div class="viewer-title">
 			<h1 title={file.label}>{file.label}</h1>
 			<small title={file.uri}>{owner ? `${owner} · ` : ''}{file.name}</small>
@@ -254,12 +260,12 @@
 				onclick={() => void runConvert()}>{converting ? 'Importing…' : convert.label}</button
 			>
 		{/if}
-		<button
-			class="btn small discuss"
-			type="button"
-			title="Talk it through with Exec, with this file alongside"
-			onclick={discuss}>Discuss</button
-		>
+		{#if showDiscuss}<button
+				class="btn small discuss"
+				type="button"
+				title="Talk it through with Exec, with this file alongside"
+				onclick={discuss}>Discuss</button
+			>{/if}
 		{#if url && !isDownload}
 			<a
 				class="btn small icon"
@@ -307,7 +313,7 @@
 					<button class="btn small primary" type="button" onclick={() => (attempt += 1)}
 						>Try again</button
 					>
-					<a class="btn small" href={backHref}>Back to the Library</a>
+					{#if backHref}<a class="btn small" href={backHref}>{backLabel}</a>{/if}
 				</div>
 				{#if failureDetail}<details class="failure-detail">
 						<summary>Details</summary>

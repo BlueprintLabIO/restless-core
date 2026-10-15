@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	/* The charter's purpose, as the owner reads and edits it: one surface for Company › Charter and
 	 * for the Inbox. When Exec drafted a change, the draft sits on this same surface with Publish,
 	 * Edit and Discard, so the owner never approves a copy of the charter somewhere else (S82). */
@@ -21,11 +22,13 @@
 
 	let {
 		companyId,
+		preview,
 		view,
 		onsaved,
 		inbox = false
 	}: {
 		companyId: string;
+		preview?: Snippet;
 		view: CompanyView;
 		/** The saved company, so the page's copy updates from the save's own answer. */
 		onsaved: (company: CompanyView) => void;
@@ -222,6 +225,7 @@
 				class="btn small"
 				type="button"
 				disabled={saving}
+				data-inbox-reveal
 				onclick={() => beginEditing(proposal.markdown, proposal.id)}>Edit</button
 			>
 			<button class="btn primary small" type="button" disabled={saving} onclick={publish}
@@ -254,7 +258,9 @@
 				title={`Saved ${formatMoment(view.charter.effective_at)}. Earlier versions, to compare or restore.`}
 				>History</button
 			>{/if}
-		<button class="btn small" type="button" onclick={() => beginEditing()}>Edit</button>
+		<button class="btn small" type="button" data-inbox-reveal onclick={() => beginEditing()}
+			>Edit</button
+		>
 		{#if !inbox}<CopyCompanySetting
 				{companyId}
 				setting="purpose"
@@ -265,172 +271,177 @@
 {/snippet}
 
 <div class="charter-purpose" class:inbox>
-	<div class="charter-content">
-		{#if failure}<Notice tone="danger" title="The charter was not saved" details={failure} />{/if}
-		{#if notice}<Notice tone="success" title="Charter">{notice}</Notice>{/if}
+	<div class="charter-content" class:has-preview={!!preview}>
+		{#if preview}{@render preview()}{:else}
+			{#if failure}<Notice tone="danger" title="The charter was not saved" details={failure} />{/if}
+			{#if notice}<Notice tone="success" title="Charter">{notice}</Notice>{/if}
 
-		{#if proposal && !editing}
-			<section class="draft" aria-label="Exec's draft of the charter">
-				<header>
-					<div class="draft-who">
-						<strong>Draft from Exec</strong>
-						<time title={formatMoment(proposal.proposed_at)}>{when(proposal.proposed_at)}</time>
-						{#if proposal.requester.name && !['exec', 'owner', viewer].includes(proposal.requester.actor_id)}<span
-								title="Who asked for it">for {proposal.requester.name}</span
-							>{/if}
-					</div>
-					{#if !inbox}{@render draftActions()}{/if}
-				</header>
-				{#if proposal.reason}<p class="draft-why">{proposal.reason}</p>{/if}
-				{#if !proposal.current}<p class="draft-stale">
-						The charter changed after this was drafted. Read both before publishing.
-					</p>{/if}
-				<div class="charter-text draft-text">
-					<Markdown text={withoutDocumentTitle(proposal.markdown, view.company.name)} />
-				</div>
-			</section>
-		{/if}
-
-		<Section
-			title={proposal && !editing ? 'Current charter' : 'Purpose'}
-			info="The owner-authorised purpose and rules every agent works under. Each save is a new revision."
-			group={false}
-		>
-			{#snippet actions()}{#if !inbox}{@render charterActions()}{/if}{/snippet}
-			<div class="charter-card">
-				{#if editing}
-					<div class="editor-bar">
-						<Segmented
-							label="Charter view"
-							value={editorView}
-							options={[
-								{ value: 'write', label: 'Write' },
-								{ value: 'preview', label: 'Preview' }
-							]}
-							onchange={(value) => {
-								editorView = value;
-								if (value === 'write') void tick().then(() => editor?.focus());
-							}}
-						/>
-						<InfoTip
-							text="Write in plain sentences. Start a line with # for a heading or - for a list, and leave a blank line between paragraphs. Preview shows the charter as everyone will read it."
-						/>
-					</div>
-					{#if editorView === 'preview'}
-						<div class="charter-text preview">
-							{#if draft.trim()}<Markdown
-									text={withoutDocumentTitle(draft, view.company.name)}
-								/>{:else}<p class="empty-line">Nothing written yet.</p>{/if}
+			{#if proposal && !editing}
+				<section class="draft" aria-label="Exec's draft of the charter">
+					<header>
+						<div class="draft-who">
+							<strong>Draft from Exec</strong>
+							<time title={formatMoment(proposal.proposed_at)}>{when(proposal.proposed_at)}</time>
+							{#if proposal.requester.name && !['exec', 'owner', viewer].includes(proposal.requester.actor_id)}<span
+									title="Who asked for it">for {proposal.requester.name}</span
+								>{/if}
 						</div>
-					{:else}
-						<textarea
-							class="charter-editor"
-							bind:this={editor}
-							bind:value={draft}
-							aria-label="Company charter"
-							spellcheck="true"
-							onkeydown={editorKeys}></textarea>
-					{/if}
-				{:else if charterText}
-					<div
-						class="charter-text"
-						class:collapsed={!charterExpanded && charterText.length > LONG_CHARTER}
-					>
-						<Markdown text={charterText} />
+						{#if !inbox}{@render draftActions()}{/if}
+					</header>
+					{#if proposal.reason}<p class="draft-why">{proposal.reason}</p>{/if}
+					{#if !proposal.current}<p class="draft-stale">
+							The charter changed after this was drafted. Read both before publishing.
+						</p>{/if}
+					<div class="charter-text draft-text">
+						<Markdown text={withoutDocumentTitle(proposal.markdown, view.company.name)} />
 					</div>
-					{#if charterText.length > LONG_CHARTER}<button
-							class="text-link expand"
-							onclick={() => (charterExpanded = !charterExpanded)}
-							>{charterExpanded ? 'Show less' : 'Show the full charter'}</button
-						>{/if}
-				{:else if proposal}
-					<p class="empty-line">No charter yet. Exec's draft above becomes it when you publish.</p>
-				{:else}
-					<Empty
-						compact
-						title="No charter yet"
-						info="Agree the company's purpose with Exec, or write it yourself."
-					>
-						{#snippet action()}<a class="btn primary small" href={`/${companyId}/welcome`}
-								>Talk it through with Exec</a
-							><button class="btn small" onclick={() => beginEditing()}>Write it myself</button
-							>{/snippet}
-					</Empty>
-				{/if}
-			</div>
-		</Section>
+				</section>
+			{/if}
 
-		{#if historyOpen && !inbox}
-			<Section title="Charter history" count={charter.record?.revisions.length || null}>
-				{#if charter.loading}<Empty compact title="Loading revisions…" />
-				{:else if charter.failure}<Notice tone="danger" title="Could not read charter history"
-						>{failureSentence(charter.failure, '')}
-						{#snippet actions()}<button class="btn small" onclick={() => void charter.refresh()}
-								>Retry</button
-							>{/snippet}</Notice
-					>
-				{:else}
-					{#each charter.record?.revisions ?? [] as revision, index (`${revision.revision}:${index}`)}
-						{@const current = revision.revision === view.charter.revision}
-						<details class="revision">
-							<summary>
-								<span>{current ? 'Current' : 'Earlier'} · {revision.author}</span>
-								<time title={revision.saved_at ? formatMoment(revision.saved_at) : undefined}
-									>{revision.saved_at ? when(revision.saved_at) : ''}</time
-								>
-							</summary>
-							{#if !current}
-								<div class="revision-actions">
-									<button
-										class="btn small ghost"
-										type="button"
-										aria-pressed={comparing === revision.revision}
-										onclick={() =>
-											(comparing = comparing === revision.revision ? '' : revision.revision)}
-										>{comparing === revision.revision
-											? 'Show this version'
-											: 'Compare with current'}</button
-									>
-									<button
-										class="btn small"
-										type="button"
-										disabled={saving}
-										onclick={() => restore(revision.markdown, revision.revision)}
-										>{restoring === revision.revision
-											? 'Restoring…'
-											: 'Restore this version'}</button
-									>
-								</div>
-							{/if}
-							{#if comparing === revision.revision}
-								{@const changes = paragraphChanges(revision.markdown, view.charter.purpose)}
-								{#if changes.length}
-									<ol class="revision-diff" aria-label="What changed since this version">
-										{#each changes as change (change.id)}
-											<li class="diff-{change.kind}">
-												{#if change.kind === 'changed'}
-													{#each change.words as part, wordIndex (wordIndex)}{#if part.op === 'added'}<ins
-																>{part.text}</ins
-															>{:else if part.op === 'removed'}<del>{part.text}</del
-															>{:else}{part.text}{/if}{/each}
-												{:else if change.kind === 'added'}
-													<ins>{change.text}</ins>
-												{:else}
-													<del>{change.text}</del>
-												{/if}
-											</li>
-										{/each}
-									</ol>
-								{:else}
-									<p class="revision-text">The same words as the current charter.</p>
-								{/if}
-							{:else}
-								<div class="revision-text"><Markdown text={revision.markdown} /></div>
-							{/if}
-						</details>
-					{/each}
-				{/if}
+			<Section
+				title={proposal && !editing ? 'Current charter' : 'Purpose'}
+				info="The owner-authorised purpose and rules every agent works under. Each save is a new revision."
+				group={false}
+			>
+				{#snippet actions()}{#if !inbox}{@render charterActions()}{/if}{/snippet}
+				<div class="charter-card">
+					{#if editing}
+						<div class="editor-bar">
+							<Segmented
+								label="Charter view"
+								value={editorView}
+								options={[
+									{ value: 'write', label: 'Write' },
+									{ value: 'preview', label: 'Preview' }
+								]}
+								onchange={(value) => {
+									editorView = value;
+									if (value === 'write') void tick().then(() => editor?.focus());
+								}}
+							/>
+							<InfoTip
+								text="Write in plain sentences. Start a line with # for a heading or - for a list, and leave a blank line between paragraphs. Preview shows the charter as everyone will read it."
+							/>
+						</div>
+						{#if editorView === 'preview'}
+							<div class="charter-text preview">
+								{#if draft.trim()}<Markdown
+										text={withoutDocumentTitle(draft, view.company.name)}
+									/>{:else}<p class="empty-line">Nothing written yet.</p>{/if}
+							</div>
+						{:else}
+							<textarea
+								class="charter-editor"
+								bind:this={editor}
+								bind:value={draft}
+								aria-label="Company charter"
+								spellcheck="true"
+								onkeydown={editorKeys}></textarea>
+						{/if}
+					{:else if charterText}
+						<div
+							class="charter-text"
+							class:collapsed={!charterExpanded && charterText.length > LONG_CHARTER}
+						>
+							<Markdown text={charterText} />
+						</div>
+						{#if charterText.length > LONG_CHARTER}<button
+								class="text-link expand"
+								onclick={() => (charterExpanded = !charterExpanded)}
+								>{charterExpanded ? 'Show less' : 'Show the full charter'}</button
+							>{/if}
+					{:else if proposal}
+						<p class="empty-line">
+							No charter yet. Exec's draft above becomes it when you publish.
+						</p>
+					{:else}
+						<Empty
+							compact
+							title="No charter yet"
+							info="Agree the company's purpose with Exec, or write it yourself."
+						>
+							{#snippet action()}<a class="btn primary small" href={`/${companyId}/welcome`}
+									>Talk it through with Exec</a
+								><button class="btn small" data-inbox-reveal onclick={() => beginEditing()}
+									>Write it myself</button
+								>{/snippet}
+						</Empty>
+					{/if}
+				</div>
 			</Section>
+
+			{#if historyOpen && !inbox}
+				<Section title="Charter history" count={charter.record?.revisions.length || null}>
+					{#if charter.loading}<Empty compact title="Loading revisions…" />
+					{:else if charter.failure}<Notice tone="danger" title="Could not read charter history"
+							>{failureSentence(charter.failure, '')}
+							{#snippet actions()}<button class="btn small" onclick={() => void charter.refresh()}
+									>Retry</button
+								>{/snippet}</Notice
+						>
+					{:else}
+						{#each charter.record?.revisions ?? [] as revision, index (`${revision.revision}:${index}`)}
+							{@const current = revision.revision === view.charter.revision}
+							<details class="revision">
+								<summary>
+									<span>{current ? 'Current' : 'Earlier'} · {revision.author}</span>
+									<time title={revision.saved_at ? formatMoment(revision.saved_at) : undefined}
+										>{revision.saved_at ? when(revision.saved_at) : ''}</time
+									>
+								</summary>
+								{#if !current}
+									<div class="revision-actions">
+										<button
+											class="btn small ghost"
+											type="button"
+											aria-pressed={comparing === revision.revision}
+											onclick={() =>
+												(comparing = comparing === revision.revision ? '' : revision.revision)}
+											>{comparing === revision.revision
+												? 'Show this version'
+												: 'Compare with current'}</button
+										>
+										<button
+											class="btn small"
+											type="button"
+											disabled={saving}
+											onclick={() => restore(revision.markdown, revision.revision)}
+											>{restoring === revision.revision
+												? 'Restoring…'
+												: 'Restore this version'}</button
+										>
+									</div>
+								{/if}
+								{#if comparing === revision.revision}
+									{@const changes = paragraphChanges(revision.markdown, view.charter.purpose)}
+									{#if changes.length}
+										<ol class="revision-diff" aria-label="What changed since this version">
+											{#each changes as change (change.id)}
+												<li class="diff-{change.kind}">
+													{#if change.kind === 'changed'}
+														{#each change.words as part, wordIndex (wordIndex)}{#if part.op === 'added'}<ins
+																	>{part.text}</ins
+																>{:else if part.op === 'removed'}<del>{part.text}</del
+																>{:else}{part.text}{/if}{/each}
+													{:else if change.kind === 'added'}
+														<ins>{change.text}</ins>
+													{:else}
+														<del>{change.text}</del>
+													{/if}
+												</li>
+											{/each}
+										</ol>
+									{:else}
+										<p class="revision-text">The same words as the current charter.</p>
+									{/if}
+								{:else}
+									<div class="revision-text"><Markdown text={revision.markdown} /></div>
+								{/if}
+							</details>
+						{/each}
+					{/if}
+				</Section>
+			{/if}
 		{/if}
 	</div>
 	{#if inbox}
@@ -442,6 +453,11 @@
 </div>
 
 <style>
+	.charter-content.has-preview {
+		padding: 0;
+		overflow: hidden;
+	}
+
 	.charter-purpose,
 	.charter-content {
 		display: contents;

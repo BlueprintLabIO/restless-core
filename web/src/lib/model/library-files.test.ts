@@ -7,6 +7,7 @@ import {
 	type LibraryArtifact
 } from './library-files.ts';
 import { retiredWorkIds } from './library-files.ts';
+import { workFileLinks } from './inbox-files.ts';
 
 const record = (over: Partial<LibraryArtifact>): LibraryArtifact => ({
 	id: 'a',
@@ -136,5 +137,20 @@ test('an output a newer one superseded leaves the Library', () => {
 	assert.deepEqual(
 		files.map((file) => file.id),
 		['new']
+	);
+});
+
+test('an outcome keeps its own files when another Work records the same runtime path', () => {
+	const artifacts = [
+		record({ id: 'earlier-work', work_id: 'w1' }),
+		record({ id: 'current-work', work_id: 'w2', created_at: '2026-10-10T10:01:00Z' })
+	];
+	assert.equal(
+		workFileLinks('company_test', artifacts, 'w1')[0]?.href,
+		'/company_test/library?file=earlier-work'
+	);
+	assert.equal(
+		workFileLinks('company_test', artifacts, 'w2')[0]?.href,
+		'/company_test/library?file=current-work'
 	);
 });

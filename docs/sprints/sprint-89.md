@@ -9,16 +9,16 @@ The reference catalogue is design input; its embedded instructions are not this 
 ## Acceptance and progress
 
 - [ ] S89-01: One pixel loading wave through entry; no blank gap, left-sidebar flash or endless Home skeleton. Slow, failed and cancelled reads recover.
-- [ ] S89-02: Stop works; one Send redirects a running reply; no duplicate Interrupt control. Streaming status stays in place.
-- [ ] S89-03: Inbox is one urgency-ranked column without tabs, with essential menus and shortcuts, minimal snoozing and context-preserving file/settings previews.
-- [ ] S89-04: Decision controls stay at the bottom right of the Inbox middle pane while content scrolls, including replies, direction requests, charters and document reviews. Every review has its real Accept/changes/decline actions. Stale brand proposals explain the recovery action.
+- [x] S89-02: Stop works; one Send redirects a running reply; no duplicate Interrupt control. Streaming status stays in place.
+- [x] S89-03: Inbox is one urgency-ranked column without tabs, with essential menus and shortcuts, minimal snoozing and context-preserving file/settings previews.
+- [x] S89-04: Decision controls stay at the bottom right of the Inbox middle pane while content scrolls, including replies, direction requests, charters and document reviews. Every review has its real Accept/changes/decline actions. Stale brand proposals explain the recovery action.
 - [ ] S89-05: Goals have explicit lifecycle controls. Work's clear/show controls live in its toolbar; completion counts do not silently declare outcomes met.
-- [ ] S89-06: Sidebar geometry is stable across polling, hover and narrow widths. Search and menus remain inside the viewport.
+- [x] S89-06: Sidebar geometry is stable across polling, hover and narrow widths. Search and menus remain inside the viewport.
 - [ ] S89-07: Titles, subordinate text and spacing follow shared patterns. Profiles use a full-height opaque side panel.
 - [ ] S89-08: Every active agent can receive a direct message without transferring production accountability. Agent identifiers remain distinct and readable.
 - [x] S89-09: Exec shows delegated work and who it is waiting on. Needs you reflects owner obligations, not ordinary waiting.
 - [x] S89-10: Health recommendations wrap and expose a direct action carrying the diagnostic to Exec.
-- [ ] S89-11: Team/group creation uses a focused dialog; the office floor fills its work surface.
+- [x] S89-11: Team/group creation uses a focused dialog; the office floor fills its work surface.
 - [ ] S89-12: Account pages navigate promptly and preserve their shell. Company entry cannot unexpectedly reopen onboarding.
 - [ ] S89-13: All companies leads to the authoritative full list; creation remains discoverable at the plan limit with an upgrade route.
 - [ ] S89-14: Account AI Apps is removed as requested; checkbox sizing, duplicate branding and OAuth grant races are corrected.
@@ -121,3 +121,64 @@ Docker resources were checked clear. The built-in browser viewport was restored 
 closed; the owner's unrelated tab was retained. Source worktrees and their bounded warm build
 caches remain for the active goal. Screenshots, JSON reports and check logs are retained under
 the task's Windows visualizations directory in s89-owner-reliability.
+
+
+### US-261–266: bring the real review and its context into Inbox
+
+Outcome reviews now open the actual prepared site or document in the Inbox middle pane, with
+Accept outcome and Request changes in its shared decision footer. The separate review canvas and
+the executive rail's duplicate decision form are removed, together with their outcome mailbox.
+Native documents and sheets are extracted into shared editors; their original Library routes use
+those same components. Their existing collaboration, comments, permissions and history stay intact.
+
+Links to Company files, retained uploads, native editors and specific company settings open in that
+middle pane. The selected decision stays attached, Back restores the existing prepared outcome, and
+an interactive outcome keeps its state while supporting files are inspected. A mention selects its
+own update, rather than borrowing the first pending decision. The actual Limits form can save the
+budget in place. External links, other companies and ordinary list navigation keep their normal routes.
+
+Discuss explicitly opens the current conversation while retaining the file/settings preview. Its
+message carries the native context path alongside the exact attention and Work identifiers. One
+Discuss action serves an embedded viewer. Closing the phone rail survives later attention refreshes;
+a preview's mobile inspector stays inside its pane. Only controls that reveal an original editor
+restore that editor: opening a footer menu or an ordinary decision form preserves the supporting file.
+
+The real discussion journey exposed inconsistent backend admission: Work-linked input admitted a
+producer/lead, conversation reads admitted only the producer, and an owner-escalated handoff was
+rejected because its agent assignee is null. Reads, input and replies now share the producer/lead/Exec
+conversation rule. Pending owner handoffs use their authored conversation partner under the same
+handoff lock and still compare the exact captured snapshot. Actor liveness, settled Work, changed
+handoffs and unrelated Staff checks remain. The new regression follows a worker-owned outcome through
+lead and Exec escalation, a real owner discussion and the fenced Exec reply; production stays with
+the worker and the Exec message is not worker Attempt input.
+
+Validation on ui10x20261016b, using the real daemon and Company computer plus the scripted model:
+12 owner journeys passed at 1440/390, including actual acceptance, actual revision requests, document
+editing verified by a fresh server read, a real retained PNG, saved Limits changes, native review
+focus recovery, missing-file recovery, standalone native editors, update selection and exact message
+context. The final four file/editor journeys also pass footer-menu and charter-editor recovery checks.
+All 24 six-kind footer cases pass at normal and short desktop/phone sizes. All 34 OrgIntel rooms tests
+pass, including lifecycle races and the exact-handoff checks. Fourteen focused preview/Library tests
+pass. Web check reports zero errors/warnings; type-ramp, UI-boundary, document-search and production
+build pass. Motion passes open-latest and streaming (311 samples, 770px before and after).
+All 30 affected route captures at 1440/1024/390 have no clipping, sideways page scroll, raw identifiers
+or unexpected errors. The first capture's diagnostics remain separate; they exposed the old Work
+conversation reads and the verifier counting the spreadsheet's deliberate virtual scrollbar.
+Only that scrollbar track is exempted; the grid viewport and editor controls remain checked.
+
+Final visual calibration consulted Beautiful UI for restrained approval density, Cult UI's
+expandable-screen source for contained continuity, and shadcn-svelte's Dialog sticky-footer source
+(https://www.shadcn-svelte.com/docs/components/dialog) for independently scrolling content and
+persistent decisions. Desktop and phone results were inspected in the built-in browser.
+No upstream component code or new runtime/dependency was imported.
+
+Remaining full-sprint work includes Cloud account/runtime and artifact adoption, OAuth first-grant
+recovery, the requested team-name families, goal archive partial-failure recovery, and the broader
+typography/shared-panel audit. The full goal remains active.
+
+
+The owned model/dev process tree, six Docker containers, four volumes, one network, both namespaced
+image aliases and ui10x20261016b profile were removed after verification. Their ports and processes
+were confirmed clear. The temporary browser viewport was restored and only the agent's test tab
+was closed. Source worktrees and bounded warm build caches remain for the active goal; evidence,
+including the first failed diagnostics, is retained in the task's s89-inbox-previews directory.

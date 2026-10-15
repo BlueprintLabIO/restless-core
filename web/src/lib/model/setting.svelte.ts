@@ -9,6 +9,7 @@
 
 import { createQuery, useQueryClient, type QueryClient } from '@tanstack/svelte-query';
 import { ownerJson } from './failure';
+import { bootFetch } from './boot-fetch';
 import { pollEvery } from './connection.svelte';
 
 export type SettingKey = readonly unknown[];
@@ -19,8 +20,9 @@ export async function ownerRequest<T>(
 	init: RequestInit & { json?: unknown } = {}
 ): Promise<T> {
 	const { json, headers, ...rest } = init;
+	const request = (rest.method ?? 'GET').toUpperCase() === 'GET' ? bootFetch : fetch;
 	return ownerJson<T>(
-		await fetch(url, {
+		await request(url, {
 			cache: 'no-store',
 			credentials: 'same-origin',
 			...rest,

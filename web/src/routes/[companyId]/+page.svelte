@@ -7,12 +7,14 @@
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { goto } from '$app/navigation';
+	import { goto, beforeNavigate } from '$app/navigation';
+	import InboxPreview from '$lib/components/InboxPreview.svelte';
+	import OutcomePreview from '$lib/components/OutcomePreview.svelte';
+	import AttentionFooter from '$lib/components/AttentionFooter.svelte';
+	import { inboxPreviewTarget, inboxPreviewHref, inboxPreviewBack } from '$lib/model/inbox-preview';
 	import AttentionDocument from '$lib/components/AttentionDocument.svelte';
 	import DesktopViewport from '$lib/components/DesktopViewport.svelte';
-	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
-	import Paperclip from '@lucide/svelte/icons/paperclip';
 	import Composer from '$lib/primitives/Composer.svelte';
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
 	import InboxList from '$lib/components/InboxList.svelte';
@@ -27,7 +29,6 @@
 		coordinationFailure,
 		isOutcomeReview
 	} from '$lib/model/attention-presentation';
-	import { formatRelative, formatMoment } from '$lib/ui/time';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
@@ -47,26 +48,10 @@
 	import { startFixHref, startLinkLabel } from '$lib/model/company-start';
 	import { getOwnershipHandover, handoverNotice, type OwnershipHandover } from '$lib/model/members';
 	import { browserTabClientId } from '$lib/model/browserTab';
-	import {
-		fetchDecisionHistory,
-		issueDesktopTicket,
-		issueReviewTicket
-	} from '$lib/model/attention';
+	import { fetchDecisionHistory, issueDesktopTicket } from '$lib/model/attention';
 	import { DesktopControl } from '$lib/model/desktop-control.svelte';
 	import { dropComputerFile } from '$lib/model/computer-files';
-	import { takeInboxOutcome } from '$lib/model/inbox-outcome.svelte';
-	import { companyFileLinks, workFileLinks } from '$lib/model/inbox-files';
-	import {
-		downloadHref,
-		downloads,
-		libraryFileBytes,
-		officeFormat,
-		type LibraryArtifact
-	} from '$lib/model/library-files';
-	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
-	import OfficePreview from '$lib/components/OfficePreview.svelte';
-	import Download from '@lucide/svelte/icons/download';
-	import ExternalLink from '@lucide/svelte/icons/external-link';
+	import type { LibraryArtifact } from '$lib/model/library-files';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { markDoneSoon } from '$lib/components/inbox-actions';
@@ -114,9 +99,6 @@
 		() => companyId,
 		() => clientId
 	);
-	let reviewUrl = $state('');
-	let reviewError = $state('');
-	let reviewRequestKey = $state('');
 	let focusAttachKey = $state('');
 
 	const items = $derived(view?.items ?? []);
@@ -138,7 +120,10 @@
 	);
 	/* The Work graph's file references, so files named by an item open in the Library viewer. */
 	const artifacts = $derived((graph?.artifacts ?? []) as unknown as LibraryArtifact[]);
-	const selectedItemId = $derived(page.url.searchParams.get('item'));
+	const selectedUpdateId = $derived(page.url.searchParams.get('update'));
+	const selectedItemId = $derived(
+		page.url.searchParams.get('item') ?? page.url.searchParams.get('review')
+	);
 	/* Brand & voice not set yet: the clear Inbox offers to set it up with Exec. */
 	const identity = $derived(identityQuery(companyId));
 	const brandMissing = $derived(
@@ -186,7 +171,7 @@
 	const queueClear = $derived(
 		attentionClear && !forYou?.items.length && forYou?.filter === 'all' && !handoverStatus
 	);
-	/* Phones never mount the office canvas (see the clear state below). */
+	/* Preload office assets on desktop; a clear phone Inbox can still open the floor. */
 	let compactScreen = $state(false);
 	$effect(() => {
 		const query = window.matchMedia('(max-width: 760px)');
@@ -222,8 +207,10 @@
 	 * company's office is never squeezed and released; when items do arrive,
 	 * the queue opens with the same motion as any later change. */
 	const selectedItem = $derived(
-		items.find((item) => item.id === selectedItemId) ??
-			(selectedItemId ? null : ((visibleItems ?? items)[0] ?? null))
+		selectedUpdateId
+			? null
+			: (items.find((item) => item.id === selectedItemId) ??
+					(selectedItemId ? null : ((visibleItems ?? items)[0] ?? null)))
 	);
 	let missingNotice = $state('');
 	let missingDecisionHref = $state('');
@@ -253,11 +240,6 @@
 		const timer = setTimeout(() => (sent = null), 6000);
 		return () => clearTimeout(timer);
 	});
-	/* A review decided from the rail lands here: confirm it like any other answer. */
-	$effect(() => {
-		const outcome = takeInboxOutcome();
-		if (outcome) sent = outcome;
-	});
 	let previousItemOrder: string[] = [];
 	$effect(() => {
 		if (
@@ -286,59 +268,6 @@
 		if (!selectedItemId || items.some((item) => item.id === selectedItemId))
 			missingItemRedirect = '';
 		if (loaded) previousItemOrder = (visibleItems ?? items).map((item) => item.id);
-	});
-	const focusedReviewId = $derived(page.url.searchParams.get('review'));
-	const focusedReview = $derived(
-		items.find((item) => item.id === focusedReviewId && isOutcomeReview(item)) ?? null
-	);
-	/* An older Telegram link names a document request with `?review=`: open it as its item. */
-	$effect(() => {
-		const named = items.find((item) => item.id === focusedReviewId);
-		if (named && !isOutcomeReview(named))
-			void goto(itemHref(named.id), { replaceState: true, noScroll: true });
-	});
-	const reviewEvidence = $derived(focusedReview?.evidence ?? []);
-	const reviewFileLink = $derived(companyFileLinks(companyId, artifacts));
-	/* The Work's other files, one click from the outcome under review. */
-	const reviewOtherFiles = $derived(
-		workFileLinks(companyId, artifacts, focusedReview?.workId).filter(
-			(file) => file.path !== focusedReview?.reviewTarget?.uri
-		)
-	);
-	const DOCUMENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-	function sameCompanyDocumentHref(content: string, company: string): string {
-		const canonicalPath = `/${encodeURIComponent(company)}/library/documents`;
-		for (const line of content.split(/\r?\n/)) {
-			const value = line.trim();
-			const legacy = /^\/documents\/([^/?#\s]+)\/([^/?#\s]+)$/.exec(value);
-			if (legacy?.[1] === company && DOCUMENT_ID.test(legacy[2]))
-				return `${canonicalPath}?document=${encodeURIComponent(legacy[2])}`;
-			if (!value.startsWith('/')) continue;
-			let url: URL;
-			try {
-				url = new URL(value, 'https://restless.local');
-			} catch {
-				continue;
-			}
-			const documentId = url.searchParams.get('document');
-			if (
-				url.pathname === canonicalPath &&
-				url.searchParams.size === 1 &&
-				!url.hash &&
-				!!documentId &&
-				DOCUMENT_ID.test(documentId)
-			)
-				return `${canonicalPath}?document=${encodeURIComponent(documentId)}`;
-		}
-		return '';
-	}
-	const nativeDocumentHref = $derived.by(() => {
-		for (const evidence of reviewEvidence) {
-			if (!evidence.content) continue;
-			const href = sameCompanyDocumentHref(evidence.content, companyId);
-			if (href) return href;
-		}
-		return '';
 	});
 	const focusedComputerId = $derived(page.url.searchParams.get('computer'));
 	const baseHref = $derived(`/${companyId}`);
@@ -399,73 +328,6 @@
 		void attachPreparedComputer(item);
 	});
 
-	$effect(() => {
-		const item = focusedReview;
-		if (!item) {
-			reviewUrl = '';
-			reviewError = '';
-			reviewRequestKey = '';
-			return;
-		}
-		/* A computer that fell asleep is not a broken outcome: asking for the ticket wakes it. The
-		 * open frame then survives the projection catching up from asleep to available. */
-		const status = item.reviewTarget?.status ?? 'none';
-		const key = `${item.id}:${item.reviewTarget?.generation ?? 'none'}:${status === 'asleep' ? 'available' : status}:${item.reviewTarget?.kind === 'runtime-text' ? status : ''}`;
-		if (reviewRequestKey === key) return;
-		reviewRequestKey = key;
-		reviewUrl = '';
-		if (item.reviewTarget?.status === 'asleep') {
-			reviewError = '';
-			void issueReviewTicket(companyId, item.id)
-				.then((url) => {
-					if (reviewRequestKey !== key) return;
-					if (url) reviewUrl = url;
-					else void source.refresh();
-				})
-				.catch((cause) => {
-					if (reviewRequestKey === key)
-						reviewError = failureSentence(cause, 'The company computer could not be woken.');
-				});
-			return;
-		}
-		if (!item.reviewTarget) {
-			/* The accountable actor did not link a target this cockpit can open.
-			 * Say what is actually true and show the evidence it did prepare —
-			 * a heading claiming the outcome "is not ready" was wrong whenever
-			 * the outcome was ready and merely in a format we could not frame. */
-			reviewError =
-				'The company did not prepare a target this cockpit can open. Its recorded evidence is below.';
-			return;
-		}
-		if (item.reviewTarget.status !== 'available') {
-			reviewError =
-				item.reviewTarget.unavailableReason ??
-				'The prepared outcome is unavailable. This page will reconnect automatically.';
-			return;
-		}
-		reviewError = '';
-		if (item.reviewTarget.kind === 'runtime-text') return;
-		void issueReviewTicket(companyId, item.id)
-			.then((url) => {
-				if (reviewRequestKey === key) reviewUrl = url ?? '';
-			})
-			.catch((cause) => {
-				if (reviewRequestKey === key) {
-					reviewError = failureSentence(cause, 'The live website is unavailable.');
-				}
-			});
-	});
-	const reviewPath = $derived(focusedReview?.reviewTarget?.uri?.split(/[?#]/)[0] ?? '');
-	const reviewIsFile = $derived(focusedReview?.reviewTarget?.kind === 'runtime-file');
-	const reviewIsPdf = $derived(reviewIsFile && /\.pdf$/i.test(reviewPath));
-	const reviewOffice = $derived(reviewIsFile ? officeFormat(reviewPath) : null);
-	const reviewIsPowerPoint = $derived(/\.pptx?$/i.test(reviewPath));
-	/* A file the browser cannot show (another Office format, an archive) is offered to download. */
-	const reviewDownloadOnly = $derived(
-		reviewIsFile && !reviewOffice && downloads({ uri: reviewPath })
-	);
-	const reviewSaveHref = $derived(reviewUrl && reviewIsFile ? downloadHref(reviewUrl) : '');
-
 	onMount(() => {
 		void browserTabClientId(companyId).then((id) => (clientId = id));
 		return control.watch();
@@ -481,22 +343,54 @@
 		return `${baseHref}?item=${encodeURIComponent(id)}`;
 	}
 
-	const when = (value: Date | string) => formatRelative(value);
-
-	function attentionKind(category: string): string {
-		return (
-			{
-				approval: 'Approval',
-				review: 'Outcome review',
-				decision: 'Decision',
-				blocker: 'Blocked',
-				opportunity: 'Opportunity',
-				contradiction: 'Conflicting evidence',
-				human_step: 'Your participation',
-				collaboration: 'Work together',
-				conversation: 'Question'
-			}[category] ?? category.replaceAll('_', ' ')
-		);
+	const requestedPreview = $derived(page.url.searchParams.get('preview'));
+	let hiddenPreview = $state<string | null>(null);
+	const previewTarget = $derived(
+		requestedPreview && requestedPreview !== hiddenPreview
+			? inboxPreviewTarget(companyId, requestedPreview, page.url.origin)
+			: null
+	);
+	$effect(() => {
+		if (!requestedPreview) hiddenPreview = null;
+	});
+	async function openPreview(href: string | URL, options?: Parameters<typeof goto>[1]) {
+		const target = inboxPreviewTarget(companyId, href, page.url.origin);
+		if (!target) return goto(href, options);
+		const current = new URL(page.url);
+		if (!selectedUpdateId && selectedItem) current.searchParams.set('item', selectedItem.id);
+		return goto(inboxPreviewHref(current, target.href), { noScroll: true, ...options });
+	}
+	beforeNavigate((navigation) => {
+		if (!navigation.to || navigation.from?.url.pathname !== baseHref) return;
+		if (!inboxPreviewTarget(companyId, navigation.to.url, page.url.origin)) return;
+		navigation.cancel();
+		void openPreview(navigation.to.url);
+	});
+	function restoreItem() {
+		if (!previewTarget) return;
+		hiddenPreview = requestedPreview;
+		void goto(inboxPreviewBack(page.url), { replaceState: true, noScroll: true, keepFocus: true });
+	}
+	function revealItemEditor(node: HTMLElement) {
+		const click = (event: MouseEvent) => {
+			if (
+				selectedItem &&
+				event.target instanceof Element &&
+				event.target.closest('[data-inbox-actions] [data-inbox-reveal]')
+			)
+				restoreItem();
+		};
+		node.addEventListener('click', click, true);
+		return { destroy: () => node.removeEventListener('click', click, true) };
+	}
+	async function archiveUpdate() {
+		if (!selectedUpdateId || !forYou) return;
+		try {
+			await forYou.archive([selectedUpdateId]);
+			await goto(baseHref);
+		} catch (cause) {
+			error = failureSentence(cause, 'The update was not archived.');
+		}
 	}
 
 	/* The prepared step is the owner's to do: once the desktop connects, this tab takes control
@@ -615,207 +509,7 @@
 >
 <h1 class="sr-title">Inbox</h1>
 
-{#if focusedReview}
-	<section
-		class="review-canvas"
-		use:resizePane={{
-			key: `${companyId}:review`,
-			label: 'Resize review source pane',
-			target: '.review-source',
-			variable: '--review-source-w',
-			min: 220,
-			minOther: 280,
-			defaultSize: (width) => width * 0.42,
-			enabled: focusedReview.reviewSources.length > 0
-		}}
-		class:with-source={focusedReview.reviewSources.length > 0}
-		aria-label={`Review ${focusedReview.title}`}
-	>
-		{#if focusedReview.reviewSources.length > 0}
-			<aside class="review-source" aria-label="Source material">
-				<header class="review-source-head">
-					<h2>Source</h2>
-					<InfoTip
-						text="External inputs already linked to this exact Work. Each source preserves its observed verification state."
-					/>
-				</header>
-				<div class="review-source-scroll">
-					{#each focusedReview.reviewSources as source (source.reference)}
-						<article class="review-source-card">
-							<header>
-								<strong>{source.label}</strong>
-								<div class="review-source-meta">
-									<span title="Observed source verification">{source.verification}</span>
-									<time>{when(source.observedAt)}</time>
-								</div>
-							</header>
-							<pre>{source.content}</pre>
-							{#if source.uri}
-								<a href={source.uri} target="_blank" rel="noreferrer"
-									>Open original in {source.provider} ↗</a
-								>
-							{/if}
-						</article>
-					{/each}
-				</div>
-			</aside>
-		{/if}
-		<div class="review-outcome" aria-label="Prepared outcome">
-			<header class="review-outcome-head">
-				<strong title={focusedReview.reviewTarget?.uri}
-					>{focusedReview.reviewTarget?.label ?? focusedReview.title}</strong
-				>
-				{#if reviewOtherFiles.length}
-					<span class="review-other-files">
-						<ActionMenu
-							label={`${reviewOtherFiles.length} other ${reviewOtherFiles.length === 1 ? 'file' : 'files'} from this work`}
-						>
-							{#snippet trigger()}<Paperclip
-									size={15}
-									strokeWidth={1.8}
-									aria-hidden="true"
-								/>{/snippet}
-							{#each reviewOtherFiles as file (file.href)}
-								<a href={file.href} title={file.path}>{file.label}</a>
-							{/each}
-						</ActionMenu>
-					</span>
-				{/if}
-				<InfoTip
-					text="The exact candidate selected by Staff and inspected by the accountable lead."
-				/>
-				<span class="review-outcome-spacer"></span>
-				{#if reviewUrl && reviewIsFile && !reviewDownloadOnly && !reviewOffice}
-					<a
-						class="review-outcome-action"
-						href={reviewUrl}
-						target="_blank"
-						rel="noopener noreferrer"
-						title="Open in a new tab"
-						aria-label="Open in a new tab"><ExternalLink size={15} strokeWidth={1.9} /></a
-					>
-				{:else if reviewUrl && !reviewIsFile}
-					<a
-						class="review-outcome-action"
-						href={reviewUrl}
-						target="_blank"
-						rel="noopener noreferrer"
-						title="Open the site in a new tab"
-						aria-label="Open the site in a new tab"><ExternalLink size={15} strokeWidth={1.9} /></a
-					>
-				{/if}
-				{#if reviewSaveHref}
-					<a
-						class="review-outcome-action"
-						href={reviewSaveHref}
-						download
-						title="Download the file"
-						aria-label="Download the file"><Download size={15} strokeWidth={1.9} /></a
-					>
-				{:else if focusedReview.reviewTarget?.kind === 'runtime-text' && reviewPath}
-					<a
-						class="review-outcome-action"
-						href={`/${encodeURIComponent(companyId)}/library?path=${encodeURIComponent(reviewPath)}`}
-						title="Open in the Library to download or link it"
-						aria-label="Open in the Library"><ExternalLink size={15} strokeWidth={1.9} /></a
-					>
-				{/if}
-			</header>
-			<div class="review-outcome-stage">
-				{#if focusedReview.reviewTarget?.kind === 'runtime-text' && focusedReview.reviewTarget.content}
-					<article class="review-document">
-						<Markdown text={focusedReview.reviewTarget.content} />
-					</article>
-				{:else if reviewOffice && reviewUrl}
-					<OfficePreview
-						format={reviewOffice}
-						name={reviewPath.split('/').pop() ?? reviewPath}
-						source={reviewPath}
-						load={() => libraryFileBytes(companyId, reviewPath)}
-						downloadHref={reviewSaveHref}
-					/>
-				{:else if reviewDownloadOnly && reviewUrl}
-					<div class="review-download">
-						<div class="review-download-kind">
-							{reviewPath.match(/\.([a-z0-9]+)$/i)?.[1]?.toUpperCase() ?? 'FILE'}
-						</div>
-						<h1>{focusedReview.reviewTarget?.label ?? focusedReview.title}</h1>
-						<p>
-							{reviewIsPowerPoint
-								? 'Browsers cannot show PowerPoint files. Download it to review it in PowerPoint or Keynote.'
-								: 'Browsers cannot show this kind of file. Download it to review it on your computer.'}
-						</p>
-						<a href={reviewSaveHref} download>Download file</a>
-					</div>
-				{:else if reviewUrl && reviewIsPdf && compactScreen}
-					<div class="review-download">
-						<div class="review-download-kind">PDF</div>
-						<h1>{focusedReview.reviewTarget?.label ?? focusedReview.title}</h1>
-						<p>This PDF reads best on its own on a phone.</p>
-						<a href={reviewUrl} target="_blank" rel="noopener noreferrer">Open the PDF</a>
-					</div>
-				{:else if reviewUrl && reviewIsPdf}
-					<!-- The browser's PDF reader will not run in a sandboxed frame; the PDF is already on
-					     its own read-only review origin and runs no page script (S64). -->
-					<iframe
-						title={focusedReview.reviewTarget?.label ?? focusedReview.title}
-						src={reviewUrl}
-						referrerpolicy="no-referrer"
-					></iframe>
-				{:else if reviewUrl}
-					<iframe
-						title={focusedReview.reviewTarget?.label ?? focusedReview.title}
-						src={reviewUrl}
-						sandbox="allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
-						referrerpolicy="no-referrer"
-					></iframe>
-				{:else}
-					<div class="review-unavailable" role="status">
-						<h1>{reviewError ? 'This outcome cannot be opened here.' : 'Opening the outcome…'}</h1>
-						{#if reviewError}
-							<p>{reviewError}</p>
-							{#if focusedReview.reviewTarget?.status === 'stopped'}<a
-									class="btn small primary"
-									href={`/${encodeURIComponent(companyId)}/company/computer`}
-									title="Start the company computer; this review opens once it is running"
-									>Start the computer</a
-								>{/if}
-							{#if focusedReview.reviewTarget?.uri}
-								<code class="review-unavailable-uri">{focusedReview.reviewTarget.uri}</code>
-							{/if}
-							{#if reviewEvidence.length}
-								<ul class="review-unavailable-evidence">
-									{#each reviewEvidence as evidence (evidence.label)}
-										{@const file =
-											evidence.kind === 'artifact' && evidence.content
-												? reviewFileLink(evidence.content, evidence.label)
-												: null}
-										<li>
-											{#if evidence.uri}
-												<a href={evidence.uri} target="_blank" rel="noreferrer"
-													>{evidence.label} <span aria-hidden="true">↗</span></a
-												>
-											{:else if file}
-												<a href={file.href} title={`Open in the Library · ${file.path}`}
-													>{file.label}</a
-												>
-											{:else}
-												<strong>{evidence.label}</strong>
-											{/if}
-										</li>
-									{/each}
-								</ul>
-							{/if}
-							{#if nativeDocumentHref}
-								<a class="btn small primary" href={nativeDocumentHref}>Open document</a>
-							{/if}
-						{/if}
-					</div>
-				{/if}
-			</div>
-		</div>
-	</section>
-{:else if focusItem}
+{#if focusItem && !previewTarget}
 	<div class="browser-focus">
 		<header class="handover-rail">
 			<div class="handover-context">
@@ -1019,7 +713,7 @@
 		class="cockpit-screen attention-screen"
 		class:queue-clear={queueClear}
 		class:settled
-		class:mobile-detail={compactScreen && !!selectedItemId}
+		class:mobile-detail={compactScreen && !!(selectedItemId || previewTarget)}
 		class:awaiting={!loaded && !source.failure}
 		aria-busy={!loaded && !source.failure}
 		use:resizePane={{
@@ -1070,7 +764,11 @@
 			/>
 		</aside>
 
-		<section class="cockpit-pane attention-focus" class:office-focus={!selectedItem && loaded}>
+		<section
+			use:revealItemEditor
+			class="cockpit-pane attention-focus"
+			class:office-focus={!selectedItem && !previewTarget && loaded}
+		>
 			{#if queueClear && startBlocker && !compactScreen}
 				<a class="attention-start-blocker" href={startFixHref(companyId)}>
 					<span class="attention-start-glyph" aria-hidden="true">
@@ -1106,8 +804,9 @@
 							onclick={() => forYou.setFilter('archived')}>Archived</button
 						>{/if}
 				</div>{/if}
-			{#if compactScreen && selectedItemId}<a class="attention-mobile-back" href={baseHref}
-					>← Inbox</a
+			{#if compactScreen && (selectedItemId || previewTarget)}<a
+					class="attention-mobile-back"
+					href={baseHref}>← Inbox</a
 				>{/if}
 			{#if selectedItem}
 				{#if selectedItem.nativeDocument}
@@ -1115,6 +814,7 @@
 						<AttentionDocument
 							{companyId}
 							request={selectedItem.nativeDocument}
+							preview={previewTarget ? previewContent : undefined}
 							onresolved={() => void source.refresh()}
 						/>
 					{/key}
@@ -1123,6 +823,20 @@
 						{@render attentionDetail(selectedItem)}
 					{/key}
 				{/if}
+			{:else if previewTarget}
+				<div class="update-preview">
+					{@render previewContent()}
+					<AttentionFooter
+						><div class="action-row">
+							{#if selectedUpdateId}<button
+									class="btn small"
+									type="button"
+									onclick={() => void archiveUpdate()}>Archive</button
+								>{/if}
+							<a class="btn small" href={inboxPreviewBack(page.url)}>Back to Inbox</a>
+						</div></AttentionFooter
+					>
+				</div>
 			{:else if !loaded && source.failure}
 				<FailureNotice
 					error={source.failure}
@@ -1166,6 +880,20 @@
 	</div>
 {/if}
 
+{#snippet previewContent()}
+	{#if previewTarget}
+		{#key companyId + ':' + previewTarget.kind + ':' + previewTarget.value}
+			<InboxPreview
+				{companyId}
+				target={previewTarget}
+				{artifacts}
+				backHref={inboxPreviewBack(page.url)}
+				onnavigate={openPreview}
+			/>
+		{/key}
+	{/if}
+{/snippet}
+
 {#snippet attentionDetail(item: AttentionItem)}
 	{#if item.charterProposal}
 		<div class="attention-surface">
@@ -1180,6 +908,7 @@
 					{companyId}
 					view={charterCompany.view}
 					inbox
+					preview={previewTarget ? previewContent : undefined}
 					onsaved={(company) => {
 						charterCompany.accept(company);
 						resolvedHere = item.id;
@@ -1192,16 +921,26 @@
 		<DirectionRequestDetail
 			{companyId}
 			request={item.directionRequest}
+			preview={previewTarget ? previewContent : undefined}
 			onresolved={(result) => {
 				resolvedHere = item.id;
 				sent = result;
 				void source.refresh();
 			}}
 		/>
-	{:else}<InboxDetail
+	{:else}
+		{#snippet outcomeContent()}<OutcomePreview
+				{companyId}
+				{item}
+				{artifacts}
+				onrefresh={source.refresh}
+			/>{/snippet}
+		<InboxDetail
 			{companyId}
 			{item}
 			{artifacts}
+			content={isOutcomeReview(item) ? outcomeContent : undefined}
+			preview={previewTarget ? previewContent : undefined}
 			workOwnerId={graph?.work.find((work) => work.id === item.workId)?.owner_id}
 			canSetAside={owner}
 			canPassToOwner={!owner}
@@ -1329,214 +1068,6 @@
 			min-height: 0;
 			height: auto;
 		}
-	}
-
-	.review-canvas {
-		width: 100%;
-		height: 100%;
-		min-width: 0;
-		min-height: 0;
-		display: grid;
-		grid-template-columns: minmax(0, 1fr);
-		overflow: hidden;
-		background: var(--surface-alt);
-	}
-	.review-canvas.with-source {
-		grid-template-columns: minmax(0, var(--review-source-w, 42%)) minmax(0, 1fr);
-	}
-	.review-source,
-	.review-outcome {
-		min-width: 0;
-		min-height: 0;
-		display: grid;
-		grid-template-rows: auto minmax(0, 1fr);
-	}
-	.review-source {
-		border-right: 1px solid var(--border-strong);
-		background: color-mix(in srgb, var(--surface-alt) 82%, var(--surface-raised));
-	}
-	.review-source-head,
-	.review-outcome-head {
-		min-height: 48px;
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-2);
-		padding: 10px 14px;
-		border-bottom: 1px solid var(--border);
-		background: color-mix(in srgb, var(--surface-pane) 86%, transparent);
-	}
-	.review-source-head h2,
-	.review-outcome-head strong {
-		min-width: 0;
-		margin: 0;
-		overflow: hidden;
-		font-size: var(--t-head);
-		font-weight: 600;
-		line-height: 1.35;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.review-other-files {
-		margin-left: auto;
-	}
-	.review-source-scroll,
-	.review-outcome-stage {
-		min-width: 0;
-		min-height: 0;
-		overflow: auto;
-	}
-	.review-source-scroll {
-		padding: 12px;
-	}
-	.review-source-card {
-		overflow: hidden;
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-control);
-		background: var(--surface-pane);
-		box-shadow: var(--bevel);
-	}
-	.review-source-card + .review-source-card {
-		margin-top: 10px;
-	}
-	.review-source-card header {
-		display: flex;
-		align-items: baseline;
-		justify-content: space-between;
-		gap: var(--space-2);
-		padding: 10px 11px;
-		border-bottom: 1px solid var(--border);
-	}
-	.review-source-card header strong {
-		font-size: var(--t-body);
-		font-weight: 600;
-	}
-	.review-source-card time {
-		flex: none;
-		font: var(--t-label) var(--font-ui);
-		font-variant-numeric: tabular-nums;
-		color: var(--text-tertiary);
-	}
-	.review-source-meta {
-		flex: none;
-		display: grid;
-		justify-items: end;
-		gap: 2px;
-	}
-	.review-source-meta span {
-		font-size: var(--t-label);
-		color: var(--intent-feedback);
-	}
-	.review-source-card pre {
-		max-height: min(58vh, 620px);
-		margin: 0;
-		overflow: auto;
-		padding: 12px;
-		white-space: pre-wrap;
-		overflow-wrap: anywhere;
-		font: var(--t-body)/1.55 var(--font-mono);
-		color: var(--text-secondary);
-	}
-	.review-source-card a {
-		display: block;
-		padding: 9px 11px;
-		border-top: 1px solid var(--border);
-		color: var(--ink);
-		font-size: var(--t-body);
-		text-decoration: none;
-	}
-	.review-source-card a:hover {
-		background: var(--surface-alt);
-	}
-	.review-outcome {
-		background: var(--surface-raised);
-	}
-	.review-outcome-stage iframe {
-		width: 100%;
-		height: 100%;
-		border: 0;
-		background: var(--surface-raised);
-	}
-	.review-document {
-		width: min(820px, calc(100% - 48px));
-		min-height: calc(100% - 48px);
-		margin: 24px auto;
-		padding: clamp(28px, 5vw, 58px);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
-		background: var(--surface-raised);
-		box-shadow: var(--shadow-lift);
-	}
-	.review-document :global(.md) {
-		font-size: var(--t-head);
-		line-height: 1.65;
-		color: var(--ink);
-	}
-	.review-unavailable {
-		width: 100%;
-		height: 100%;
-		display: grid;
-		place-content: center;
-		gap: 8px;
-		padding: 40px;
-		background: var(--surface-raised);
-		color: var(--ink);
-	}
-	.review-download {
-		width: min(480px, calc(100% - 48px));
-		margin: auto;
-		padding: 28px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
-		background: var(--surface);
-		color: var(--ink);
-	}
-	.review-download-kind {
-		margin-bottom: 20px;
-		color: var(--text-tertiary);
-		font: var(--t-label) var(--font-ui);
-		font-variant-numeric: tabular-nums;
-	}
-	.review-download h1 {
-		margin: 0;
-		font-size: var(--t-head);
-	}
-	.review-download p {
-		color: var(--text-secondary);
-		line-height: 1.5;
-	}
-	.review-download a {
-		display: inline-block;
-		margin: 8px 0 16px;
-		padding: 9px 14px;
-		border-radius: var(--radius-md);
-		background: var(--ink);
-		color: var(--surface);
-		text-decoration: none;
-	}
-	.review-outcome-spacer {
-		flex: 1;
-	}
-	.review-outcome-action {
-		display: inline-grid;
-		flex: none;
-		place-items: center;
-		width: 30px;
-		height: 30px;
-		border-radius: var(--radius-control);
-		color: var(--text-secondary);
-	}
-	.review-outcome-action:hover {
-		background: var(--wash-hover);
-		color: var(--ink);
-	}
-	.review-unavailable h1,
-	.review-unavailable p {
-		max-width: 560px;
-		margin: 0;
-	}
-	.review-unavailable p {
-		color: var(--text-secondary);
 	}
 	.attention-error,
 	.focus-error {
@@ -1740,24 +1271,6 @@
 		}
 	}
 	@media (max-width: 760px) {
-		.review-canvas.with-source {
-			grid-template-columns: minmax(0, 1fr);
-			grid-template-rows: minmax(240px, 0.72fr) minmax(360px, 1fr);
-			overflow: auto;
-		}
-		.review-source {
-			border-right: 0;
-			border-bottom: 1px solid var(--border-strong);
-		}
-		.review-source-card pre {
-			max-height: 260px;
-		}
-		.review-document {
-			width: calc(100% - 24px);
-			min-height: calc(100% - 24px);
-			margin: 12px auto;
-			padding: 22px;
-		}
 		.handover-rail,
 		.handover-state {
 			align-items: flex-start;
@@ -1828,5 +1341,17 @@
 	}
 	.attention-surface-head a:hover {
 		color: var(--ink);
+	}
+
+	.update-preview {
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+		height: 100%;
+		overflow: hidden;
+	}
+	.update-preview :global(.inbox-preview) {
+		flex: 1;
+		min-height: 0;
 	}
 </style>

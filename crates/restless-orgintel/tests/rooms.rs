@@ -4083,3 +4083,185 @@ async fn a_group_owner_hands_over_only_to_a_person_and_may_then_leave() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn exec_discusses_delegated_work_without_taking_its_production_role() {
+    let Some(org) = company("execportfolioconversation").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Exec portfolio conversation");
+        return;
+    };
+    org.ensure_actor("delivery-direction", "staff", "lead", "Delivery Lead")
+        .await
+        .unwrap();
+    org.ensure_actor("other-research", "staff", "researcher", "Other Staff")
+        .await
+        .unwrap();
+    let team = org
+        .create_team(
+            "Delivery",
+            "Own the delivered outcome",
+            "delivery-direction",
+            "exec",
+        )
+        .await
+        .unwrap();
+    org.set_actor_team(
+        "delivery-build",
+        Some(team),
+        "exec",
+        "The worker owns production",
+    )
+    .await
+    .unwrap();
+    let work_id = org
+        .add_work(NewWork {
+            owner_id: "delivery-build",
+            title: "Prepared owner review",
+            outcome: "One outcome with an accountable delivery team",
+            goal_id: None,
+            priority: 1,
+            expected_artifact: "none",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(1),
+        })
+        .await
+        .unwrap();
+    assert!(org
+        .send_work_message(
+            "owner",
+            "other-research",
+            work_id,
+            "An unrelated actor cannot take this Work conversation"
+        )
+        .await
+        .is_err());
+    assert!(org
+        .human_work_conversation("owner", "other-research", work_id, 20)
+        .await
+        .is_err());
+    let lead_input = org
+        .send_work_message(
+            "owner",
+            "delivery-direction",
+            work_id,
+            "Please explain your team's candidate.",
+        )
+        .await
+        .unwrap();
+    assert!(org
+        .human_work_conversation("owner", "delivery-direction", work_id, 20)
+        .await
+        .unwrap()
+        .iter()
+        .any(|row| row.id == lead_input));
+    let input = org
+        .send_work_message("owner", "exec", work_id, "Explain the prepared decision.")
+        .await
+        .unwrap();
+    assert!(
+        !org.message_is_work_attempt_input(input).await.unwrap(),
+        "An Exec discussion does not become worker production input"
+    );
+    assert!(org
+        .human_work_conversation("owner", "exec", work_id, 20)
+        .await
+        .unwrap()
+        .iter()
+        .any(|row| row.id == input));
+    let handoff_id = org
+        .request_owner_handoff(NewOwnerHandoff {
+            work_id,
+            attempt_id: None,
+            requested_by: "delivery-build",
+            category: OwnerHandoffCategory::OwnerJudgement,
+            requested_action: "Choose whether this candidate meets the brief",
+            prepared_state: "The exact outcome is ready for inspection",
+            resume_condition: "The human owner records a review decision",
+        })
+        .await
+        .unwrap();
+    org.prepare_owner_brief(
+        handoff_id,
+        "exec",
+        restless_orgintel::OwnerBrief {
+            kind: restless_orgintel::OwnerBriefKind::OutcomeReview,
+            headline: "Judge the prepared delivery outcome".into(),
+            situation: "The delivery team prepared the candidate.".into(),
+            impact: "Production waits for the owner's judgement.".into(),
+            recommendation: "Inspect it before deciding.".into(),
+            no_action: "The candidate remains pending.".into(),
+            uncertainty: None,
+            deadline: None,
+        },
+    )
+    .await
+    .unwrap();
+    org.escalate_handoff(
+        handoff_id,
+        "delivery-direction",
+        "The lead needs owner judgement",
+    )
+    .await
+    .unwrap();
+    org.escalate_handoff(
+        handoff_id,
+        "exec",
+        "The prepared last mile belongs to the owner",
+    )
+    .await
+    .unwrap();
+    let handoff = org
+        .list_owner_handoffs()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|row| row.id == handoff_id)
+        .unwrap();
+    assert!(
+        handoff.assigned_to.is_none(),
+        "Owner Inbox items have no agent assignee"
+    );
+    let token = handoff.conversation_input();
+    let (handoff_message, created) = org
+        .send_work_message_idempotent(
+            "owner",
+            "exec",
+            work_id,
+            "Explain this pending owner review",
+            Some(&token),
+            &[],
+            "owner-review-discuss",
+            &"e".repeat(64),
+        )
+        .await
+        .unwrap();
+    assert!(created);
+    let lease = org
+        .claim_actor_cognitive_session("exec", Duration::from_secs(60))
+        .await
+        .unwrap()
+        .unwrap();
+    let reply = org
+        .finalize_cognitive_conversation(
+            &lease,
+            Some("The delivery team still owns this outcome; here is the judgement needed."),
+            Some(work_id),
+            &[input, handoff_message],
+            &[],
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(org.message_work_id(reply).await.unwrap(), Some(work_id));
+    assert_eq!(
+        org.get_work(work_id).await.unwrap().unwrap().owner_id,
+        "delivery-build"
+    );
+    assert!(org
+        .human_work_conversation("owner", "exec", work_id, 20)
+        .await
+        .unwrap()
+        .iter()
+        .any(|row| row.id == reply));
+    org.drop_schema().await.unwrap();
+}

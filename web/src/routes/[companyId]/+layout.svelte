@@ -23,10 +23,9 @@
 	import type ExecutiveRailView from '$lib/components/ExecutiveRail.svelte';
 	import { presence } from '$lib/model/presence.svelte';
 	import { desktopNotify, notifyPortfolio } from '$lib/model/desktop-notify.svelte';
-	import { ASK_EXEC_EVENT } from '$lib/model/ask-exec';
-	import { cockpitContextPath, reviewAction } from '$lib/model/attention';
+	import { ASK_EXEC_EVENT, SHOW_CONVERSATION_EVENT } from '$lib/model/ask-exec';
+	import { cockpitContextPath } from '$lib/model/attention';
 	import { isOutcomeReview } from '$lib/model/attention-presentation';
-	import { handInboxOutcome } from '$lib/model/inbox-outcome.svelte';
 	import { prepareCompanyBrowser } from '$lib/model/company-browser';
 	import {
 		collaboratorHome,
@@ -64,6 +63,7 @@
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import { inPlace } from '$lib/transition';
 	import { pageContext } from '$lib/model/page-context.svelte';
+	import { inboxPreviewContext } from '$lib/model/inbox-preview';
 	import { provideReferencePreview } from '$lib/model/reference-preview';
 	import { documentsQuery } from '$lib/model/document-queries.svelte';
 	import { fetchConnections } from '$lib/model/connections';
@@ -314,7 +314,10 @@
 		}
 	});
 	const liveNeedsYou = $derived(attention.view?.items ?? []);
-	const focusedReviewId = $derived(page.url.searchParams.get('review'));
+	const focusedReviewId = $derived(
+		page.url.searchParams.get('review') ??
+			(page.url.pathname === '/' + companyId ? page.url.searchParams.get('item') : null)
+	);
 	const focusedReview = $derived(
 		liveNeedsYou.find((item) => item.id === focusedReviewId && isOutcomeReview(item)) ?? null
 	);
@@ -591,9 +594,6 @@
 		toast(refusedRouteReason(companyId, page.url.pathname));
 		void goto(collaboratorHome(companyId), { replaceState: true });
 	});
-	$effect(() => {
-		if (focusedAttention) execRailOpen = true;
-	});
 	/* Until intelligence is connected the rail can only say so, and the start
 	 * blocker already says it on Attention. Start it closed once so the work
 	 * surface keeps the width; the owner can still open it. */
@@ -644,7 +644,7 @@
 	$effect(() => {
 		/* The executive is a persistent sibling on desktop, but its small-screen
 		 * presentation is a full workspace overlay. Start that overlay closed unless
-		 * a focused Attention item explicitly needs it. */
+		 * the owner explicitly opens a discussion. */
 		if (
 			typeof window !== 'undefined' &&
 			window.matchMedia('(max-width: 980px)').matches &&
@@ -657,9 +657,19 @@
 	 * open must reveal where it went. Navigations meant for the rail itself keep it: an Inbox
 	 * focus, ?talk=, the tour, and the layout dropping ?talk= or ?tour= from the same page. */
 	afterNavigate(({ from, to, type }) => {
-		if (type === 'enter' || !to || !window.matchMedia('(max-width: 980px)').matches) return;
+		if (!to) return;
 		const params = to.url.searchParams;
-		if (['review', 'conversation', 'talk', 'tour'].some((key) => params.has(key))) return;
+		const compact = window.matchMedia('(max-width: 980px)').matches;
+		if (params.has('preview')) {
+			if (compact) execRailOpen = false;
+			return;
+		}
+		if (params.has('conversation') && !from?.url.searchParams.has('preview')) {
+			execRailOpen = true;
+			return;
+		}
+		if (type === 'enter' || !compact) return;
+		if (['talk', 'tour'].some((key) => params.has(key))) return;
 		const tidied = from?.url.searchParams.has('talk') || from?.url.searchParams.has('tour');
 		if (tidied && from?.url.pathname === to.url.pathname) return;
 		execRailOpen = false;
@@ -747,38 +757,6 @@
 		}
 	}
 
-	async function decideFocusedReview(
-		decision: 'accept' | 'request_changes',
-		feedback: string
-	): Promise<string | null> {
-		if (!focusedReview) return 'This review is no longer outstanding.';
-		const lead = focusedReview.responsibleActor;
-		/* What was accepted lives with its Work, which shows the outcome and its files. */
-		const workId = focusedReview.workId;
-		try {
-			await reviewAction(companyId, focusedReview.source.reference, decision, feedback);
-			await attention.refresh();
-			await goto(`/${companyId}`);
-			/* The Inbox confirms it, as it does an answer given in its own pane. */
-			handInboxOutcome({
-				text: decision === 'accept' ? 'Accepted' : `Changes sent to ${lead?.display ?? 'the lead'}`,
-				href: lead
-					? `/${encodeURIComponent(companyId)}/people?person=${encodeURIComponent(lead.id)}&view=people`
-					: undefined,
-				result:
-					decision === 'accept' && workId
-						? {
-								href: `/${encodeURIComponent(companyId)}/work/${encodeURIComponent(workId)}`,
-								label: 'Open the result'
-							}
-						: undefined
-			});
-			return null;
-		} catch (cause) {
-			return failureSentence(cause, 'The review decision was not recorded.');
-		}
-	}
-
 	function closeFocusedContext() {
 		if (!focusedAttention) return;
 		/* On small screens the executive rail is a full-workspace overlay. Closing
@@ -796,6 +774,8 @@
 	 * document or person on screen rather than the section it sits in. */
 	/* What a screen is called, for the chip now and for the link a sent message carries. */
 	function contextFor(url: URL, current: boolean): { kind: string; label: string } {
+		const preview = inboxPreviewContext(companyId, url);
+		if (preview) url = new URL(preview.href, url.origin);
 		const path = url.pathname;
 		const root = `/${companyId}`;
 		const workId = path.match(new RegExp(`^${root}/work/([^/]+)$`))?.[1];
@@ -1069,8 +1049,15 @@
 	$effect(() => {
 		const ask = (event: Event) =>
 			askPerson('exec', (event as CustomEvent<{ draft?: string }>).detail?.draft ?? '');
+		const show = () => {
+			execRailOpen = true;
+		};
+		window.addEventListener(SHOW_CONVERSATION_EVENT, show);
 		window.addEventListener(ASK_EXEC_EVENT, ask);
-		return () => window.removeEventListener(ASK_EXEC_EVENT, ask);
+		return () => {
+			window.removeEventListener(ASK_EXEC_EVENT, ask);
+			window.removeEventListener(SHOW_CONVERSATION_EVENT, show);
+		};
 	});
 	/* Blank until the people list names the viewer: a placeholder letter that later changes is
 	 * exactly the flicker this avoids. The avatar keeps its place either way. */
@@ -1700,8 +1687,7 @@
 			review={focusedReview && !wide
 				? {
 						id: focusedReview.id,
-						onback: closeFocusedContext,
-						ondecide: decideFocusedReview
+						onback: closeFocusedContext
 					}
 				: null}
 			workContext={focusedAttention && !wide ? { onback: closeFocusedContext } : null}

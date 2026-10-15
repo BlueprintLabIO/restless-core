@@ -1,3 +1,5 @@
+import { goto } from '$app/navigation';
+import { SHOW_CONVERSATION_EVENT } from '$lib/model/ask-exec';
 /* The Inbox's own moves on one item, shared by the list's row menu, the item detail and the
  * computer view, so all say the same thing and all can be taken back: set aside (with Undo),
  * snooze until a chosen time (with Undo), mark a human step done (with Undo), and copy the
@@ -141,4 +143,26 @@ export function appRequestHandoffs(companyId: () => string, enabled: () => boole
 		refetchInterval: 60_000,
 		retry: 1
 	}));
+}
+
+/** An explicit Discuss click opens chat after navigation. Returning from a preview alone must
+ * not reopen the phone overlay; modifier clicks retain ordinary link behavior. */
+export async function discussInbox(event: MouseEvent) {
+	if (
+		event.defaultPrevented ||
+		event.button !== 0 ||
+		event.metaKey ||
+		event.ctrlKey ||
+		event.shiftKey ||
+		event.altKey
+	)
+		return;
+	const link = event.currentTarget as HTMLAnchorElement;
+	event.preventDefault();
+	try {
+		await goto(link.href);
+		window.dispatchEvent(new Event(SHOW_CONVERSATION_EVENT));
+	} catch (cause) {
+		toast(failureSentence(cause, 'The conversation could not be opened.'));
+	}
 }

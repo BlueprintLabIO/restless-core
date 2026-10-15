@@ -19,8 +19,49 @@ const scheme = process.env.SCHEME === 'dark' ? 'dark' : 'light';
 /* Optional deep links for seeded data: WORK_ID and ROOM_ID. */
 const workId = process.env.WORK_ID;
 const roomId = process.env.ROOM_ID;
+const documentId = process.env.DOCUMENT_ID,
+	sheetId = process.env.SHEET_ID,
+	inboxItemId = process.env.INBOX_ITEM_ID;
 
 const routes = [
+	['library', '/' + company + '/library'],
+	...(documentId
+		? [
+				[
+					'library-document',
+					'/' + company + '/library/documents?document=' + encodeURIComponent(documentId)
+				]
+			]
+		: []),
+	...(sheetId
+		? [['library-sheet', '/' + company + '/library/sheets?sheet=' + encodeURIComponent(sheetId)]]
+		: []),
+	...(inboxItemId
+		? [
+				['inbox-outcome', '/' + company + '?item=' + encodeURIComponent(inboxItemId)],
+				[
+					'inbox-file',
+					'/' +
+						company +
+						'?item=' +
+						encodeURIComponent(inboxItemId) +
+						'&preview=' +
+						encodeURIComponent(
+							'/' + company + '/library?path=%2Fcompany%2Foutputs%2Finbox-preview%2Fshape.svg'
+						)
+				],
+				[
+					'inbox-limits',
+					'/' +
+						company +
+						'?item=' +
+						encodeURIComponent(inboxItemId) +
+						'&preview=' +
+						encodeURIComponent('/' + company + '/company/resources')
+				]
+			]
+		: []),
+
 	['home', '/'],
 	['attention', `/${company}`],
 	['work', `/${company}/work`],
@@ -100,6 +141,9 @@ try {
 				const doc = document.documentElement;
 				const wide = [...document.querySelectorAll('body *')]
 					.filter((el) => {
+						// The spreadsheet's virtual scrollbar deliberately contains a wide track.
+						// Its viewport and all editor toolbars remain subject to the ordinary probes.
+						if (el.closest('.native-sheet-surface .o-scrollbar')) return false;
 						const r = el.getBoundingClientRect();
 						return (
 							r.width > 0 &&
@@ -126,7 +170,7 @@ try {
 				/* Screen-reader text is clipped on purpose; code, tables and grids scroll by design. */
 				const exempt = (el) =>
 					el.closest(
-						'.sr-only, pre, code, table, [role=grid], .sheet-grid, canvas, svg, .cm-editor, .ProseMirror'
+						'.sr-only, pre, code, table, [role=grid], .sheet-grid, canvas, svg, .cm-editor, .ProseMirror, .native-sheet-surface .o-scrollbar'
 					);
 				/* Content wider than the box that clips it: a row cut at the sidebar edge. */
 				const clipped = [];

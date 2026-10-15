@@ -11,6 +11,7 @@ import type {
 import { responseFailure } from './failure.ts';
 import { bootFetch } from './boot-fetch.ts';
 import { postFiles } from './attachments.ts';
+import { inboxPreviewContext } from './inbox-preview.ts';
 
 export type {
 	AgentActivityPhase,
@@ -519,7 +520,7 @@ export async function retryActorMessage(
  * company-scope authority. */
 export function cockpitContextPath(
 	company: string,
-	location: Pick<URL, 'pathname' | 'search'>
+	location: Pick<URL, 'pathname' | 'search'> & Partial<Pick<URL, 'origin'>>
 ): string | undefined {
 	const encodedCompany = location.pathname.split('/')[1];
 	if (!encodedCompany) return undefined;
@@ -530,7 +531,9 @@ export function cockpitContextPath(
 		return undefined;
 	}
 	if (routeCompany !== company) return undefined;
-	const context = `${location.pathname}${location.search}`;
+	const context =
+		inboxPreviewContext(company, location)?.href.split('#')[0] ??
+		`${location.pathname}${location.search}`;
 	return context.length <= 512 ? context : undefined;
 }
 
@@ -577,8 +580,13 @@ export async function issueDesktopTicket(
 
 /** A ticket for the review's isolated origin. Asking wakes a computer that fell asleep; a text
  * outcome has no origin, so it answers null and the next projection carries the text. */
-export async function issueReviewTicket(company: string, itemId: string): Promise<string | null> {
+export async function issueReviewTicket(
+	company: string,
+	itemId: string,
+	signal?: AbortSignal
+): Promise<string | null> {
 	const response = await fetch(`/api/companies/${encodeURIComponent(company)}/reviews/ticket`, {
+		signal,
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
 		body: JSON.stringify({ item_id: itemId }),

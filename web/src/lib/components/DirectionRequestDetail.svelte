@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	/* A request someone asked Exec for and that waits on this person (S80): what they asked, the
 	 * exact change Exec will make, and why. Approving carries the change out, after a few seconds
 	 * in which Undo takes it back; "always allow" is a hold, because it also stops this kind of
@@ -18,10 +19,12 @@
 
 	let {
 		companyId,
+		preview,
 		request,
 		onresolved
 	}: {
 		companyId: string;
+		preview?: Snippet;
 		request: DirectionRequest;
 		onresolved?: (sent: { text: string; href?: string }) => void;
 	} = $props();
@@ -132,7 +135,7 @@
 	tabindex="-1"
 	onkeydown={keys}
 >
-	<div class="request-content">
+	<div class="request-content" class:has-preview={!!preview}>
 		<header>
 			<h2 id="direction-request-title" title="A request: nothing changes until you answer">
 				{current.summary}
@@ -145,15 +148,17 @@
 			</p>
 		</header>
 
-		<dl class="facts">
-			<dt>The change</dt>
-			<dd>{current.change}</dd>
-			{#if current.reason}<dt>Why</dt>
-				<dd>{current.reason}</dd>{/if}
-		</dl>
+		{#if preview}<div class="request-preview">{@render preview()}</div>{:else}
+			<dl class="facts">
+				<dt>The change</dt>
+				<dd>{current.change}</dd>
+				{#if current.reason}<dt>Why</dt>
+					<dd>{current.reason}</dd>{/if}
+			</dl>
 
-		{#if error}<Notice tone="danger" title={error} />{/if}
-		{#if outcome}<p class="outcome" data-state={current.state} role="status">{outcome}</p>{/if}
+			{#if error}<Notice tone="danger" title={error} />{/if}
+			{#if outcome}<p class="outcome" data-state={current.state} role="status">{outcome}</p>{/if}
+		{/if}
 	</div>
 	{#if open || current.state === 'failed'}
 		<AttentionFooter>
@@ -236,6 +241,17 @@
 </article>
 
 <style>
+	.request-content.has-preview {
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+	}
+	.request-preview {
+		flex: 1;
+		min-height: 0;
+		overflow: hidden;
+	}
+
 	.direction-request {
 		display: flex;
 		flex-direction: column;

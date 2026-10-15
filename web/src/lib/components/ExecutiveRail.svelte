@@ -47,7 +47,6 @@
 	import ConversationHistoryTools from '$lib/primitives/ConversationHistoryTools.svelte';
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
-	import HoldApprove from '$lib/ui/controls/HoldApprove.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
 	import {
@@ -174,10 +173,6 @@
 			/** The Inbox item under review; a change clears the previous review's note. */
 			id: string;
 			onback: () => void;
-			ondecide: (
-				decision: 'accept' | 'request_changes',
-				feedback: string
-			) => Promise<string | null>;
 		} | null;
 		workContext?: { onback: () => void } | null;
 		/** What this conversation is about: General, or one piece of Work. */
@@ -252,7 +247,6 @@
 	/* Every person in the company talks to Exec and the team, and decides a review handed to
 	 * them; the server checks the review is theirs to decide. */
 	const canOperate = $derived(['owner', 'admin', 'member'].includes(membershipRole ?? ''));
-	const canDecide = $derived(canOperate);
 
 	/* Pinned messages stay in reach above the conversation, however old: the direct conversation's
 	 * pins come as their own list; elsewhere they are found among the messages held. */
@@ -597,24 +591,6 @@
 			askError = failureSentence(cause, 'That could not be undone.');
 		}
 	}
-	let reviewError = $state('');
-	let reviewFeedback = $state('');
-	let deciding = $state(false);
-	/* A note belongs to one review: opening a different one starts blank, and
-	 * an error never outlives the review it was about. Leaving and coming back
-	 * to the same review keeps an unsent note. */
-	let noteFor = '';
-	let reviewShown = '';
-	$effect(() => {
-		const id = review?.id ?? '';
-		if (id === reviewShown) return;
-		reviewShown = id;
-		reviewError = '';
-		if (id && id !== noteFor) {
-			noteFor = id;
-			reviewFeedback = '';
-		}
-	});
 	let scrollEl = $state<HTMLDivElement | undefined>();
 	let scrollReset = $state(0);
 	/* How many messages there were when the reader scrolled up; null while
@@ -848,7 +824,7 @@
 	 * whether it was tapped, filled in or typed. */
 	async function sendAnswer(text: string) {
 		const answer = text.trim();
-		if (!answer || sending || deciding || !onask) return;
+		if (!answer || sending || !onask) return;
 		sending = true;
 		askError = '';
 		askNotice = '';
@@ -1163,7 +1139,7 @@
 		/* A file on its own is a message: it says what it carries, so Exec reads a sentence. */
 		const text =
 			typed || (files.length ? `Attached: ${files.map((file) => file.name).join(', ')}` : '');
-		if (!text || sending || deciding || !onask) return;
+		if (!text || sending || !onask) return;
 		/* The same limits the server holds, said before anything is sent. */
 		const tooLarge = files.find((file) => file.size > MAX_UPLOAD_BYTES);
 		if (tooLarge || files.length > MAX_UPLOAD_FILES) {
@@ -1238,33 +1214,6 @@
 			askError = failureSentence(cause, 'Your message was not delivered.');
 		} finally {
 			sending = false;
-		}
-	}
-
-	async function requestChanges() {
-		const feedback = reviewFeedback.trim();
-		if (!review || !feedback || deciding) return;
-		deciding = true;
-		reviewError = '';
-		try {
-			const failure = await review.ondecide('request_changes', feedback);
-			if (failure) reviewError = failure;
-			else reviewFeedback = '';
-		} finally {
-			deciding = false;
-		}
-	}
-
-	async function acceptReview() {
-		if (!review || deciding) return;
-		deciding = true;
-		reviewError = '';
-		try {
-			const failure = await review.ondecide('accept', '');
-			if (failure) reviewError = failure;
-			else reviewFeedback = '';
-		} finally {
-			deciding = false;
 		}
 	}
 
@@ -1429,41 +1378,7 @@
 					{/if}
 				</div>
 			</div>
-			{#if review}
-				<div class="review-controls">
-					<HoldApprove
-						small
-						label={deciding ? 'Recording…' : 'Hold to accept'}
-						title="Hold to accept outcome"
-						completeLabel="accepted ✓"
-						disabled={!canDecide || deciding || sending}
-						onapprove={() => void acceptReview()}
-					/>
-				</div>
-			{/if}
 		</header>
-		{#if reviewError}<p class="review-error" role="alert">{reviewError}</p>{/if}
-		{#if review}
-			<form
-				class="review-feedback"
-				onsubmit={(event) => {
-					event.preventDefault();
-					void requestChanges();
-				}}
-			>
-				<label
-					>Request changes<textarea
-						bind:value={reviewFeedback}
-						rows="3"
-						placeholder="Describe the changes needed…"
-						disabled={!canDecide || deciding}></textarea></label
-				>
-				<button class="btn small" disabled={!canDecide || deciding || !reviewFeedback.trim()}
-					>{deciding ? 'Recording…' : 'Request changes'}</button
-				>
-			</form>
-		{/if}
-
 		{#if pinnedMessages.length}
 			<details class="pinned" bind:open={pinsOpen}>
 				<summary
@@ -1814,7 +1729,7 @@
 						onstop={stopTurn}
 						bind:interrupt={interruptNext}
 						actionLabel={retryCommandId ? 'Retry send · it cannot be sent twice' : ''}
-						disabled={!canOperate || sending || deciding || !onask}
+						disabled={!canOperate || sending || !onask}
 						minlength={1}
 						placeholder={needsProvider ||
 						connectionStatus === 'unavailable' ||
@@ -2537,58 +2452,10 @@
 		outline: 2px solid var(--intent-conversation);
 		outline-offset: 2px;
 	}
-	.review-controls {
-		flex: none;
-		display: flex;
-		align-items: center;
-		gap: 8px;
-	}
-	.review-feedback {
-		display: grid;
-		gap: 8px;
-		margin: 0 16px 12px;
-		padding: 12px;
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-control);
-		background: var(--surface);
-	}
-	.review-feedback label {
-		display: grid;
-		gap: 6px;
-		font-size: var(--t-label);
-		font-weight: 500;
-	}
-	.review-feedback textarea {
-		box-sizing: border-box;
-		width: 100%;
-		resize: vertical;
-		padding: 8px 10px;
-		border: 1px solid var(--control-edge);
-		border-radius: var(--radius-control);
-		background: var(--surface);
-		color: var(--ink);
-		font: inherit;
-	}
-	.review-feedback button {
-		justify-self: start;
-	}
-	.review-controls :global(.hold-approve) {
-		min-width: 122px;
-		white-space: nowrap;
-	}
 	.exr-name {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-	}
-	.review-error {
-		margin: 0;
-		padding: 9px 14px;
-		border-bottom: 1px solid color-mix(in srgb, var(--danger) 28%, var(--border));
-		background: color-mix(in srgb, var(--danger) 6%, var(--surface-raised));
-		font-size: var(--t-label);
-		line-height: 1.4;
-		color: var(--danger);
 	}
 	.review-empty {
 		width: calc(100% - 36px);
