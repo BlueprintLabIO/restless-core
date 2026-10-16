@@ -1,7 +1,8 @@
 /* What the owner, or the person who owns a Work's team, does to a Work or a Goal from the Work
  * surface. Each call is one owner-API route; OrgIntel decides who may. */
-import { ownerJson } from './failure';
-import { failureLine } from './turn-failure';
+import { ownerJson } from './failure.ts';
+import { failureLine } from './turn-failure.ts';
+import { bootFetch } from './boot-fetch.ts';
 
 const base = (company: string) => `/api/companies/${encodeURIComponent(company)}`;
 
@@ -77,11 +78,54 @@ export function setGoalDetails(company: string, goal: string, details: GoalDetai
 }
 
 export function closeGoal(company: string, goal: string) {
-	return post(goalUrl(company, goal, 'close'));
+	return post<{ closed: boolean }>(goalUrl(company, goal, 'close'));
 }
 
 export function reopenGoal(company: string, goal: string) {
-	return post(goalUrl(company, goal, 'reopen'));
+	return post<{ reopened: boolean }>(goalUrl(company, goal, 'reopen'));
+}
+
+export type GoalTransitionResult = {
+	changed: string[];
+	failed: { id: string; cause: unknown }[];
+};
+
+/** Keep each result of a batch. A lost write response is reconciled with source state
+ * before reporting failure, so the owner can undo every change that actually applied. */
+export async function transitionGoals(
+	company: string,
+	ids: readonly string[],
+	action: 'archive' | 'reopen'
+): Promise<GoalTransitionResult> {
+	const targets = [...new Set(ids)];
+	const settled = await Promise.allSettled(
+		targets.map((id) => (action === 'archive' ? closeGoal(company, id) : reopenGoal(company, id)))
+	);
+	let observed: Map<string, boolean> | undefined;
+	if (settled.some((result) => result.status === 'rejected')) {
+		try {
+			const response = await bootFetch(base(company) + '/goals', { credentials: 'same-origin' });
+			const body = await ownerJson<{ goals: { id: string; closed_at?: string | null }[] }>(
+				response
+			);
+			observed = new Map(body.goals.map((goal) => [goal.id, Boolean(goal.closed_at)]));
+		} catch {
+			/* Unconfirmed writes remain retryable; never infer success from transport failure. */
+		}
+	}
+	const result: GoalTransitionResult = { changed: [], failed: [] };
+	settled.forEach((entry, index) => {
+		const id = targets[index];
+		if (
+			entry.status === 'fulfilled' ||
+			(observed?.has(id) && observed.get(id) === (action === 'archive'))
+		) {
+			result.changed.push(id);
+		} else if (entry.status === 'rejected') {
+			result.failed.push({ id, cause: entry.reason });
+		}
+	});
+	return result;
 }
 
 /** null hands the Goal back to the owner. */

@@ -159,6 +159,36 @@ pub fn load_owner_connections(root: &std::path::Path) -> Result<OwnerModelConnec
     }
 }
 
+/// A verified provider sign-in replaced its credential. Reload an unadmitted
+/// route even when the provider name stayed the same, and lift only credential
+/// rejections belonging to companies granted this exact account connection.
+pub async fn oauth_connection_restored(
+    root: &std::path::Path,
+    provider: &str,
+    authority: &crate::authority::AuthorityStore,
+) -> Result<()> {
+    let registry = load_owner_connections(root)?;
+    let connection = registry.connections.iter()
+        .find(|connection| connection.provider == provider && connection.kind == "oauth")
+        .context("restored OAuth connection was not registered")?;
+    let reference = owner_connection_reference(connection);
+    crate::model_gateway::note_credential_replaced();
+    for company in crate::configured_companies(root)? {
+        let config = match runtime::CompanyConfig::load(root, &company) {
+            Ok(config) => config,
+            Err(error) => {
+                tracing::warn!(company, %error, "could not inspect restored model access");
+                continue;
+            }
+        };
+        if config.credentials.get(&format!("model.inference.{provider}")) != Some(&reference) { continue; }
+        if let Err(error) = authority.clear_provider_credential_cooldowns(&company, provider).await {
+            tracing::warn!(company, %error, "could not clear restored credential rejection");
+        }
+    }
+    Ok(())
+}
+
 pub fn account_oauth_providers(root: &std::path::Path) -> Result<Vec<String>> {
     Ok(load_owner_connections(root)?
         .connections.into_iter().filter(|connection| connection.kind == "oauth")
@@ -332,5 +362,63 @@ mod key_check_tests {
             check_api_key_at(&google, "x-goog-api-key", "k").await,
             KeyCheck::Rejected("API key not valid. Please pass a valid API key.".into())
         );
+    }
+}
+
+#[cfg(test)]
+mod oauth_restoration_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn restoring_oauth_clears_only_exact_account_credential_rejections() {
+        let Ok(database) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping OAuth restoration scenario");
+            return;
+        };
+        struct Root(PathBuf);
+        impl Drop for Root {
+            fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+        }
+        let root = Root(std::env::temp_dir().join(format!("restless-oauth-restore-{}", Uuid::new_v4())));
+        std::fs::create_dir_all(root.0.join("companies")).unwrap();
+        let connection = OwnerModelConnection {
+            id: Uuid::new_v4().simple().to_string(), label: "Restored test account".into(),
+            provider: "openai-codex".into(), kind: "oauth".into(),
+            account_key: Some("original-account".into()),
+        };
+        save_owner_connections(&root.0, &OwnerModelConnections { connections: vec![connection.clone()] }).unwrap();
+        let granted = format!("oauth_granted_{}_test", Uuid::new_v4().simple());
+        let other = format!("oauth_other_{}_test", Uuid::new_v4().simple());
+        let unrelated = format!("oauth_unrelated_{}_test", Uuid::new_v4().simple());
+        for (company, reference) in [(&granted, owner_connection_reference(&connection)), (&other, "env:OTHER_ACCOUNT_KEY".into())] {
+            let config: runtime::CompanyConfig = serde_json::from_value(serde_json::json!({
+                "name": company, "mission": "Owned OAuth recovery fixture",
+                "credentials": {"model.inference.openai-codex": reference}
+            })).unwrap();
+            runtime::CompanyConfig::save(&root.0, &config).unwrap();
+        }
+        let unrelated_config: runtime::CompanyConfig = serde_json::from_value(serde_json::json!({
+            "name": unrelated, "mission": "Unrelated credential field",
+            "credentials": {"external.service": owner_connection_reference(&connection)}
+        })).unwrap();
+        runtime::CompanyConfig::save(&root.0, &unrelated_config).unwrap();
+        let authority = crate::authority::AuthorityStore::connect(&database).await.unwrap();
+        let later = chrono::Utc::now() + chrono::Duration::hours(24);
+        for (company, model, kind) in [
+            (&granted, "openai-codex/gpt-6-sol", "credential"),
+            (&granted, "openai-codex/gpt-5.6-sol", "quota"),
+            (&granted, "anthropic/claude-sonnet-5-5", "credential"),
+            (&other, "openai-codex/gpt-6-sol", "credential"),
+            (&unrelated, "openai-codex/gpt-6-sol", "credential"),
+        ] {
+            authority.set_model_cooldown(company, model, kind, "fixture rejection", later).await.unwrap();
+        }
+        oauth_connection_restored(&root.0, "openai-codex", &authority).await.unwrap();
+        let mut left = authority.active_model_cooldowns(&granted).await.unwrap()
+            .into_iter().map(|row| row.model).collect::<Vec<_>>();
+        left.sort();
+        assert_eq!(left, ["anthropic/claude-sonnet-5-5", "openai-codex/gpt-5.6-sol"]);
+        assert_eq!(authority.active_model_cooldowns(&other).await.unwrap().len(), 1);
+        assert_eq!(authority.active_model_cooldowns(&unrelated).await.unwrap().len(), 1);
     }
 }

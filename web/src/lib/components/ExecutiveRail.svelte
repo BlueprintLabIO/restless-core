@@ -1592,17 +1592,7 @@
 						{:else if focusActive}
 							<!-- The focus boundary below is the empty transcript state. -->
 						{:else if review || workContext}
-							<div class="exr-empty review-empty">
-								<div class="review-empty-card">
-									<span class="review-empty-mark">
-										<MatrixGlyph rows={GLYPHS.work} size={12} />
-									</span>
-									<div>
-										<strong>Talk to the lead</strong>
-										<p>Ask questions, discuss evidence, or share revision feedback.</p>
-									</div>
-								</div>
-							</div>
+							<div class="exr-empty"><p class="exr-empty-p">No messages yet.</p></div>
 						{:else if needsProvider || !exchanges.exchanges.length}
 							<div class="exr-empty">
 								{#if needsProvider}<span class="exr-empty-mark" aria-hidden="true"
@@ -2456,51 +2446,5 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-	}
-	.review-empty {
-		width: calc(100% - 36px);
-		max-width: 360px;
-		padding: 0;
-		text-align: left;
-	}
-	.review-empty-card {
-		display: grid;
-		grid-template-columns: auto minmax(0, 1fr);
-		align-items: center;
-		gap: 12px;
-		padding: 14px 15px;
-		border: 1px solid color-mix(in srgb, var(--intent-feedback) 34%, var(--border));
-		border-left: 3px solid var(--intent-feedback);
-		border-radius: var(--radius-pane);
-		background: linear-gradient(
-			145deg,
-			color-mix(in srgb, var(--intent-feedback-soft) 82%, var(--surface-raised)),
-			color-mix(in srgb, var(--intent-feedback-soft) 58%, var(--surface-alt))
-		);
-		box-shadow: var(--shadow-soft);
-	}
-	.review-empty-mark {
-		width: 38px;
-		height: 38px;
-		display: grid;
-		place-items: center;
-		border: 1px solid color-mix(in srgb, var(--intent-feedback) 28%, var(--border));
-		border-radius: var(--radius-control);
-		background: color-mix(in srgb, var(--intent-feedback-soft) 76%, var(--surface-raised));
-		box-shadow: var(--control-depth);
-		color: var(--intent-feedback);
-	}
-	.review-empty-card strong {
-		display: block;
-		color: var(--ink);
-		font-size: var(--t-body);
-		font-weight: 600;
-		line-height: 1.3;
-	}
-	.review-empty-card p {
-		margin: 3px 0 0;
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-		line-height: 1.45;
 	}
 </style>

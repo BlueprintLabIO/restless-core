@@ -130,9 +130,14 @@
 		border-color: color-mix(in srgb, var(--state-danger) 40%, var(--border-strong));
 	}
 	.toast span {
+		flex: 1;
+		min-width: 0;
+		overflow-wrap: anywhere;
 		padding-right: 6px;
 	}
 	.undo {
+		flex-shrink: 0;
+		white-space: nowrap;
 		padding: 4px 10px;
 		border: 0;
 		border-radius: var(--radius-control);
@@ -142,6 +147,7 @@
 		cursor: pointer;
 	}
 	.close {
+		flex-shrink: 0;
 		display: grid;
 		place-items: center;
 		width: 26px;

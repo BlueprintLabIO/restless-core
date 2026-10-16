@@ -375,7 +375,7 @@ async fn run() -> Result<()> {
             )
             .await
             {
-                Ok(processes) => {
+                Ok(mut processes) => {
                     if model_gateway::is_ready() {
                         tracing::info!("model gateway ready");
                     } else {
@@ -388,12 +388,21 @@ async fn run() -> Result<()> {
                     // company or a model switch within loaded providers is
                     // re-admitted in place: the relay also carries every
                     // company's tool gateway, so a restart drops their calls.
-                    let started_from = format!("{}|{:?}", model_gateway::gateway_fingerprint(&model_configs), model_connections::account_oauth_providers(&model_root));
+                    let started_from = processes.fingerprint().to_owned();
                     let mut admitted_from = model_gateway::provider_fingerprint(&model_configs);
                     loop {
                         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        if let Err(error) = processes.check_running() {
+                            tracing::warn!("model service stopped; restarting: {error:#}");
+                            if let Ok(current) = load_configs(&model_root) {
+                                model_configs = current;
+                            }
+                            break;
+                        }
                         if let Ok(current) = load_configs(&model_root) {
-                            if format!("{}|{:?}", model_gateway::gateway_fingerprint(&current), model_connections::account_oauth_providers(&model_root)) != started_from {
+                            let unchanged = model_connections::account_oauth_providers(&model_root)
+                                .is_ok_and(|accounts| model_gateway::gateway_fingerprint(&current, &accounts) == started_from);
+                            if !unchanged {
                                 model_configs = current;
                                 break;
                             }
@@ -413,13 +422,14 @@ async fn run() -> Result<()> {
                             }
                         }
                     }
-                    tracing::info!("company model providers changed; reloading the model gateway");
+                    tracing::info!("reloading account model services");
                     model_gateway::uninstall();
                     drop(processes);
                     // Let the stopped broker and gateway release their ports.
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 }
                 Err(error) => {
+                    model_gateway::uninstall();
                     tracing::error!(
                         "model gateway unavailable; owner plane remains ready and retry is scheduled: {error:#}"
                     );

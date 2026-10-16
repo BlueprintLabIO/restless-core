@@ -123,7 +123,11 @@ pub(super) async fn start_codex_login(
         .iter()
         .find(|connection| connection.kind == "oauth" && connection.provider == "openai-codex");
     let expected_account = if let Some(existing) = existing {
-        match existing.account_key.clone().or(model_gateway::oauth_account_key("openai-codex").await.ok().flatten()) {
+        let key = match existing.account_key.clone() {
+            Some(key) => Some(key),
+            None => model_gateway::oauth_account_key("openai-codex").await.ok().flatten(),
+        };
+        match key {
             Some(key) => Some(key),
             None => return api_error(StatusCode::CONFLICT, "connections", "The existing Codex account identity cannot be verified. Restore that connection before reconnecting."),
         }
@@ -266,6 +270,13 @@ pub(super) async fn start_codex_login(
                     save_owner_connections(&state.daemon.root, &registry)
                 })
                 .is_ok();
+            if registered {
+                if let Err(error) = crate::model_connections::oauth_connection_restored(
+                    &state.daemon.root, "openai-codex", &state.daemon.authority,
+                ).await {
+                    tracing::warn!(%error, "could not refresh restored OAuth company access");
+                }
+            }
             if let Some(job) = JOBS.lock().await.get_mut(&id) {
                 job.state = if registered { "connected" } else { "failed" };
                 job.url = None;
@@ -295,7 +306,11 @@ pub(super) async fn start_claude_login(
     };
     let existing = registry.connections.iter().find(|connection| connection.kind == "oauth" && connection.provider == "anthropic");
     let expected_account = if let Some(existing) = existing {
-        match existing.account_key.clone().or(model_gateway::oauth_account_key("anthropic").await.ok().flatten()) {
+        let key = match existing.account_key.clone() {
+            Some(key) => Some(key),
+            None => model_gateway::oauth_account_key("anthropic").await.ok().flatten(),
+        };
+        match key {
             Some(key) => Some(key),
             None => return api_error(StatusCode::CONFLICT, "connections", "The existing Claude account identity cannot be verified. Restore that connection before reconnecting."),
         }
@@ -382,6 +397,13 @@ pub(super) async fn start_claude_login(
                 }
                 save_owner_connections(&state.daemon.root, &registry)
             }).is_ok();
+            if registered {
+                if let Err(error) = crate::model_connections::oauth_connection_restored(
+                    &state.daemon.root, "anthropic", &state.daemon.authority,
+                ).await {
+                    tracing::warn!(%error, "could not refresh restored OAuth company access");
+                }
+            }
             if let Some(job) = JOBS.lock().await.get_mut(&id) {
                 job.state = if registered { "connected" } else { "failed" };
                 job.url = None;

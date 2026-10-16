@@ -9,6 +9,8 @@
 import type { GoalRow, ScheduleRow, SkillAssignmentRow, SkillRow } from './generated/orgintel';
 import { responseFailure } from './failure.ts';
 import { cadenceOf, cadenceText } from './schedule-cadence.ts';
+import { closeGoal, reopenGoal } from './work-actions.ts';
+export { closeGoal, reopenGoal };
 
 export type { SkillRow, SkillAssignmentRow };
 
@@ -320,14 +322,6 @@ export function addGoal(
 	objective: string
 ): Promise<{ goal_id: string; title: string }> {
 	return call(company, '/goals', { method: 'POST', body: JSON.stringify({ objective }) });
-}
-
-export function closeGoal(company: string, goal: string): Promise<{ closed: boolean }> {
-	return call(company, `/goals/${encodeURIComponent(goal)}/close`, { method: 'POST' });
-}
-
-export function reopenGoal(company: string, goal: string): Promise<{ reopened: boolean }> {
-	return call(company, `/goals/${encodeURIComponent(goal)}/reopen`, { method: 'POST' });
 }
 
 /** Which of `rows` a `/goal clear` or `/loop stop` target names: its number in the listing,

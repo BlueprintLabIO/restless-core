@@ -190,6 +190,24 @@ try {
     "INSERT INTO work (id,owner_id,title,outcome,status,resolution,priority,commissioned_by,goal_id) SELECT $1,'exec',$2,'The completed fixture can be archived with its goal','completed','accepted',1,'exec',$3 WHERE NOT EXISTS (SELECT 1 FROM work WHERE title=$2)",
     [randomUUID(), "Completed owner reliability fixture", completedGoal.id],
   );
+  for (const title of ["Goal archive recovery A", "Goal archive recovery B"]) {
+    let recovery = goals.find((goal) => goal.title === title);
+    if (!recovery) {
+      await daemon({
+        cmd: "goal-add",
+        title,
+        body: "Partial archive and Undo recovery fixture",
+        actor: "exec",
+      });
+      listed = await daemon({ cmd: "goals" });
+      goals = Array.isArray(listed) ? listed : listed.goals;
+      recovery = goals.find((goal) => goal.title === title);
+    }
+    await db.query(
+      "INSERT INTO work (id,owner_id,title,outcome,status,resolution,priority,commissioned_by,goal_id) SELECT $1,'exec',$2,'Archive recovery fixture','completed','accepted',1,'exec',$3 WHERE NOT EXISTS (SELECT 1 FROM work WHERE title=$2)",
+      [randomUUID(), title + " completed work", recovery.id],
+    );
+  }
   let brand = await json("/company/identity");
   const rationale = "Stale brand proposal reliability test";
   if (

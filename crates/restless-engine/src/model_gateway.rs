@@ -199,12 +199,15 @@ pub fn note_credential_replaced() {
     CREDENTIAL_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 }
 
-pub fn gateway_fingerprint(configs: &[CompanyConfig]) -> String {
+pub fn gateway_fingerprint(configs: &[CompanyConfig], account_oauth: &[String]) -> String {
     let mut loaded = BTreeSet::new();
     loaded.insert(format!(
         "credential-generation:{}",
         CREDENTIAL_GENERATION.load(std::sync::atomic::Ordering::SeqCst)
     ));
+    for provider in account_oauth {
+        loaded.insert(format!("{provider}=omp-oauth:{provider}"));
+    }
     for config in configs {
         let primary = config
             .for_agent("exec")
@@ -221,6 +224,11 @@ pub fn gateway_fingerprint(configs: &[CompanyConfig]) -> String {
                         .flatten()
                 });
             if let Some(reference) = reference {
+                // Company grant IDs do not change the account credential the broker loads.
+                let reference = match crate::credential::omp_oauth_provider(reference) {
+                    Ok(Some(oauth)) => format!("omp-oauth:{oauth}"),
+                    _ => reference.clone(),
+                };
                 loaded.insert(format!("{provider}={reference}"));
             }
         }
@@ -571,6 +579,28 @@ pub struct Processes {
     gateway: Option<Child>,
     relay: Option<tokio::task::JoinHandle<()>>,
     marker: PathBuf,
+    fingerprint: String,
+}
+
+impl Processes {
+    /// The inputs captured before these processes started, not a later file observation.
+    pub fn fingerprint(&self) -> &str { &self.fingerprint }
+
+    /// A child that exited must withdraw readiness and be restarted by its supervisor.
+    pub fn check_running(&mut self) -> Result<()> {
+        if let Some(status) = self.broker.try_wait().context("inspect model broker")? {
+            bail!("model broker exited ({status})");
+        }
+        if let Some(gateway) = self.gateway.as_mut() {
+            if let Some(status) = gateway.try_wait().context("inspect model gateway")? {
+                bail!("model gateway exited ({status})");
+            }
+        }
+        if self.relay.as_ref().is_some_and(|relay| relay.is_finished()) {
+            bail!("model relay exited");
+        }
+        Ok(())
+    }
 }
 
 impl Drop for Processes {
@@ -726,11 +756,13 @@ pub async fn start(
     capabilities: crate::capability::CapabilityIssuer,
     spend: crate::spend::SpendLedger,
     tool_gateway_daemon: Option<std::sync::Arc<crate::Daemon>>,
-) -> Result<Option<Processes>> {
+) -> Result<Processes> {
     sweep_orphaned_model_children(root)?;
     let endpoints = GatewayEndpoints::from_env()?;
+    let account_oauth = crate::model_connections::account_oauth_providers(root)?;
+    let fingerprint = gateway_fingerprint(configs, &account_oauth);
     let mut provider_credentials = provider_credentials(configs).await?;
-    for provider in crate::model_connections::account_oauth_providers(root)? {
+    for provider in account_oauth {
         match provider_credentials.get(&provider) {
             Some(ProviderCredential::ApiKey(_)) => bail!(
                 "account OAuth connection for {provider} conflicts with a company API key; choose one credential before starting the gateway"
@@ -807,19 +839,18 @@ pub async fn start(
         .context("start OMP model credential broker")?;
     record_model_child(root, &broker, &omp, &broker_args)?;
     wait_for_broker(&mut broker, &broker_token, &endpoints.broker_url).await?;
+    // Account sign-in and grants need the broker, not the gateway's slower model catalogue.
+    *BROKER_ACCESS.write().map_err(|_| anyhow::anyhow!("model broker state lock is poisoned"))? =
+        Some(BrokerAccess { url: endpoints.broker_url.clone(), token: broker_token.clone() });
 
     if broker_only {
-        if let Ok(mut access) = BROKER_ACCESS.write() {
-            *access = Some(BrokerAccess { url: endpoints.broker_url, token: broker_token });
-        } else {
-            bail!("model broker state lock is poisoned");
-        }
-        return Ok(Some(Processes {
+        return Ok(Processes {
             broker,
             gateway: None,
             relay: None,
             marker: model_children_path(root),
-        }));
+            fingerprint,
+        });
     }
 
     let http = reqwest::Client::builder()
@@ -875,12 +906,13 @@ pub async fn start(
         } else {
             bail!("model broker state lock is poisoned");
         }
-        return Ok(Some(Processes {
+        return Ok(Processes {
             broker,
             gateway: None,
             relay: None,
             marker: model_children_path(root),
-        }));
+            fingerprint,
+        });
     }
     let mut admission = admit(configs, &provider_credentials)?;
     for (company, reason) in &admission.unstartable {
@@ -992,12 +1024,6 @@ pub async fn start(
                 runtime_url: endpoints.relay_runtime_url.clone(),
             });
             *hosted = Some(relay_state);
-            if let Ok(mut broker) = BROKER_ACCESS.write() {
-                *broker = Some(BrokerAccess {
-                    url: endpoints.broker_url.clone(),
-                    token: broker_token.clone(),
-                });
-            }
             NO_DIRECT_PROVIDER.store(false, Ordering::Release);
         }
         _ => {
@@ -1005,12 +1031,13 @@ pub async fn start(
             bail!("model gateway state lock is poisoned");
         }
     }
-    Ok(Some(Processes {
+    Ok(Processes {
         broker,
         gateway: Some(gateway),
         relay: Some(relay),
         marker: model_children_path(root),
-    }))
+        fingerprint,
+    })
 }
 
 #[derive(Deserialize)]
@@ -3190,70 +3217,80 @@ pub fn client() -> Result<ClientConfig> {
         .context("No model connection is active yet. Connect a model in Company → Intelligence (Restless loads it within seconds), or assign this agent to a connected harness.")
 }
 
-pub async fn oauth_is_loaded(provider: &str) -> Result<bool> {
-    let access = BROKER_ACCESS
-        .read()
-        .map_err(|_| anyhow::anyhow!("host model broker state is unavailable"))?
-        .clone()
-        .context("host model broker is not running")?;
-    let http = reqwest::Client::builder()
-        .timeout(Duration::from_secs(2))
-        .build()?;
-    let snapshot = broker_snapshot(&http, &access.token, &access.url).await?;
-    let rows = snapshot
-        .credentials
-        .iter()
-        .filter(|credential| credential.provider == provider)
-        .collect::<Vec<_>>();
-    if rows.is_empty() {
-        return Ok(false);
+/// A broker observation carries only the provider's public account metadata.
+/// Credential payloads stay inside this module.
+pub struct OAuthAccount {
+    pub identity: Option<String>,
+    pub key: Option<String>,
+}
+
+impl OAuthAccount {
+    pub fn matches_account(&self, expected: Option<&str>) -> bool {
+        expected.is_some_and(|expected| self.key.as_deref() == Some(expected))
     }
-    if rows.len() != 1 || !rows[0].is_oauth() {
+}
+
+async fn account_broker_snapshot() -> Result<BrokerSnapshot> {
+    let http = reqwest::Client::builder().timeout(Duration::from_secs(2)).build()?;
+    broker_snapshot_when_ready(&http, Duration::from_secs(10), || {
+        BROKER_ACCESS.read()
+            .map(|access| access.clone())
+            .map_err(|_| anyhow::anyhow!("host model broker state is unavailable"))
+    }).await
+}
+
+/// A grant can arrive during the normal broker reload after an account is saved.
+/// Retry only startup/transport gaps; an authenticated absence or a refused/invalid
+/// snapshot is an immediate observation, never a reason to retry a mutation.
+async fn broker_snapshot_when_ready(
+    http: &reqwest::Client,
+    within: Duration,
+    access: impl Fn() -> Result<Option<BrokerAccess>>,
+) -> Result<BrokerSnapshot> {
+    tokio::time::timeout(within, async {
+        loop {
+            if let Some(access) = access()? {
+                match broker_snapshot(http, &access.token, &access.url).await {
+                    Ok(snapshot) => return Ok(snapshot),
+                    Err(error) if error.downcast_ref::<reqwest::Error>()
+                        .is_some_and(|cause| cause.is_connect() || cause.is_timeout()) => {}
+                    Err(error) => return Err(error),
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }).await.context("The model connection is still starting. Try again in a moment.")?
+}
+
+fn oauth_account_from_snapshot(snapshot: BrokerSnapshot, provider: &str) -> Result<Option<OAuthAccount>> {
+    let mut rows = snapshot.credentials.into_iter().filter(|row| row.provider == provider);
+    let Some(row) = rows.next() else { return Ok(None) };
+    if rows.next().is_some() || !row.is_oauth() {
         bail!("host model broker has conflicting credential modes for {provider}");
     }
-    Ok(true)
+    let identity = |fields: &[&str]| fields.iter().find_map(|field| {
+        row.credential.get(*field).and_then(serde_json::Value::as_str)
+            .filter(|value| !value.is_empty() && value.len() <= 200 && !value.chars().any(char::is_control))
+            .map(str::to_owned)
+    });
+    Ok(Some(OAuthAccount {
+        identity: identity(&["email", "accountId"]),
+        key: identity(&["accountId", "email"]),
+    }))
 }
 
-/// Only provider-supplied account metadata leaves the host broker. Never
-/// serialize its snapshot credential: it contains a live access token.
-pub async fn oauth_account_identity(provider: &str) -> Result<Option<String>> {
-    let access = BROKER_ACCESS
-        .read()
-        .map_err(|_| anyhow::anyhow!("host model broker state is unavailable"))?
-        .clone()
-        .context("host model broker is not running")?;
-    let http = reqwest::Client::builder().timeout(Duration::from_secs(2)).build()?;
-    let snapshot = broker_snapshot(&http, &access.token, &access.url).await?;
-    let rows = snapshot.credentials.iter()
-        .filter(|credential| credential.provider == provider && credential.is_oauth())
-        .collect::<Vec<_>>();
-    if rows.len() != 1 { return Ok(None); }
-    Ok(rows[0].credential.get("email")
-        .or_else(|| rows[0].credential.get("accountId"))
-        .and_then(serde_json::Value::as_str)
-        .filter(|identity| !identity.is_empty() && identity.len() <= 200 && !identity.chars().any(char::is_control))
-        .map(str::to_owned))
+/// Observe presence, mode and identity together so a reload cannot split them.
+pub async fn oauth_account(provider: &str) -> Result<Option<OAuthAccount>> {
+    oauth_account_from_snapshot(account_broker_snapshot().await?, provider)
 }
 
-/// A stable comparison key for reconnecting the same provider account. An
-/// email is used only when the provider did not supply an account ID.
+pub async fn oauth_is_loaded(provider: &str) -> Result<bool> {
+    Ok(oauth_account(provider).await?.is_some())
+}
+
+/// A stable comparison key; email is used only without a valid account ID.
 pub async fn oauth_account_key(provider: &str) -> Result<Option<String>> {
-    let access = BROKER_ACCESS
-        .read()
-        .map_err(|_| anyhow::anyhow!("host model broker state is unavailable"))?
-        .clone()
-        .context("host model broker is not running")?;
-    let http = reqwest::Client::builder().timeout(Duration::from_secs(5)).build()?;
-    let snapshot = broker_snapshot(&http, &access.token, &access.url).await?;
-    let rows = snapshot.credentials.iter()
-        .filter(|credential| credential.provider == provider && credential.is_oauth())
-        .collect::<Vec<_>>();
-    if rows.len() != 1 { return Ok(None); }
-    Ok(rows[0].credential.get("accountId")
-        .or_else(|| rows[0].credential.get("email"))
-        .and_then(serde_json::Value::as_str)
-        .filter(|identity| !identity.is_empty() && identity.len() <= 200 && !identity.chars().any(char::is_control))
-        .map(str::to_owned))
+    Ok(oauth_account(provider).await?.and_then(|account| account.key))
 }
 
 /// Import a legacy company Codex sign-in into the account broker. The caller
@@ -3794,6 +3831,148 @@ async fn wait_for_gateway(
 #[cfg(test)]
 mod tests {
     use super::*;
+    static FINGERPRINT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    struct OAuthProbeServer {
+        url: String,
+        reads: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        task: tokio::task::JoinHandle<()>,
+    }
+
+    impl Drop for OAuthProbeServer {
+        fn drop(&mut self) { self.task.abort(); }
+    }
+
+    impl OAuthProbeServer {
+        async fn start(status: StatusCode, payload: serde_json::Value) -> Self {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let reads = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let observed = reads.clone();
+            let app = Router::new().route("/v1/snapshot", get(move |headers: HeaderMap| {
+                let payload = payload.clone();
+                let observed = observed.clone();
+                async move {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    assert_eq!(headers.get(AUTHORIZATION).unwrap(), "Bearer probe-only-token");
+                    (status, axum::Json(payload))
+                }
+            }));
+            let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
+            Self { url, reads, task }
+        }
+
+        fn access(&self) -> BrokerAccess {
+            BrokerAccess { url: self.url.clone(), token: "probe-only-token".into() }
+        }
+    }
+
+    fn oauth_probe_payload() -> serde_json::Value {
+        serde_json::json!({"credentials": [{
+            "id": 1, "provider": "openai-codex",
+            "credential": {"type": "oauth", "access": "host-only-token",
+                "accountId": "original-account", "email": "fixture@restless.test"}
+        }]})
+    }
+
+    #[tokio::test]
+    async fn oauth_probe_waits_for_broker_startup_without_reporting_a_missing_account() {
+        let server = OAuthProbeServer::start(StatusCode::OK, oauth_probe_payload()).await;
+        let current = std::sync::Arc::new(RwLock::new(None));
+        let next = current.clone();
+        let access = server.access();
+        let publish = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(40)).await;
+            *next.write().unwrap() = Some(access);
+        });
+        let snapshot = broker_snapshot_when_ready(&reqwest::Client::new(), Duration::from_secs(2),
+            || Ok(current.read().unwrap().clone())).await.unwrap();
+        let account = oauth_account_from_snapshot(snapshot, "openai-codex").unwrap().unwrap();
+        assert!(account.matches_account(Some("original-account")));
+        assert_eq!(account.identity.as_deref(), Some("fixture@restless.test"));
+        assert_eq!(server.reads.load(Ordering::SeqCst), 1);
+        publish.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn oauth_probe_follows_the_restarted_broker_after_a_transport_gap() {
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let old_url = format!("http://{}", closed.local_addr().unwrap());
+        let server = OAuthProbeServer::start(StatusCode::OK, oauth_probe_payload()).await;
+        drop(closed);
+        let current = std::sync::Arc::new(RwLock::new(Some(BrokerAccess {
+            url: old_url, token: "probe-only-token".into()
+        })));
+        let next = current.clone();
+        let access = server.access();
+        let publish = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(40)).await;
+            *next.write().unwrap() = Some(access);
+        });
+        let snapshot = broker_snapshot_when_ready(&reqwest::Client::new(), Duration::from_secs(2),
+            || Ok(current.read().unwrap().clone())).await.unwrap();
+        assert!(oauth_account_from_snapshot(snapshot, "openai-codex").unwrap().unwrap()
+            .matches_account(Some("original-account")));
+        assert_eq!(server.reads.load(Ordering::SeqCst), 1);
+        publish.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn oauth_probe_does_not_retry_authenticated_absence_or_refusal() {
+        let empty = OAuthProbeServer::start(StatusCode::OK, serde_json::json!({"credentials": []})).await;
+        let snapshot = broker_snapshot_when_ready(&reqwest::Client::new(), Duration::from_secs(2),
+            || Ok(Some(empty.access()))).await.unwrap();
+        assert!(oauth_account_from_snapshot(snapshot, "openai-codex").unwrap().is_none());
+        assert_eq!(empty.reads.load(Ordering::SeqCst), 1);
+        let refused = OAuthProbeServer::start(StatusCode::UNAUTHORIZED,
+            serde_json::json!({"reflected_secret": "must-stay-private"})).await;
+        let error = broker_snapshot_when_ready(&reqwest::Client::new(), Duration::from_secs(2),
+            || Ok(Some(refused.access()))).await.err().unwrap();
+        assert_eq!(refused.reads.load(Ordering::SeqCst), 1);
+        assert!(!format!("{error:#}").contains("must-stay-private"));
+    }
+
+    #[tokio::test]
+    async fn oauth_probe_has_a_deadline_when_no_broker_starts() {
+        let error = broker_snapshot_when_ready(&reqwest::Client::new(), Duration::from_millis(30),
+            || Ok(None)).await.err().unwrap();
+        assert!(error.to_string().contains("still starting"));
+    }
+
+    #[test]
+    fn oauth_account_requires_one_mode_and_the_exact_saved_identity() {
+        let account = oauth_account_from_snapshot(serde_json::from_value(oauth_probe_payload()).unwrap(),
+            "openai-codex").unwrap().unwrap();
+        assert!(account.matches_account(Some("original-account")));
+        assert!(!account.matches_account(Some("different-account")));
+        assert!(!account.matches_account(None));
+        let mut mixed = oauth_probe_payload();
+        mixed["credentials"].as_array_mut().unwrap().push(serde_json::json!({
+            "id": 2, "provider": "openai-codex", "credential": {"type": "api_key", "key": "another-mode"}
+        }));
+        assert!(oauth_account_from_snapshot(serde_json::from_value(mixed).unwrap(),
+            "openai-codex").is_err());
+        let mut fallback = oauth_probe_payload();
+        fallback["credentials"][0]["credential"]["accountId"] = serde_json::Value::Null;
+        let account = oauth_account_from_snapshot(serde_json::from_value(fallback).unwrap(),
+            "openai-codex").unwrap().unwrap();
+        assert!(account.matches_account(Some("fixture@restless.test")));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn exited_model_broker_withdraws_supervisor_readiness() {
+        let child = Command::new("sleep").arg("30").kill_on_drop(true).spawn().unwrap();
+        let mut processes = Processes {
+            broker: child, gateway: None, relay: None,
+            marker: std::env::temp_dir().join(format!("restless-probe-{}", uuid::Uuid::new_v4())),
+            fingerprint: String::new(),
+        };
+        processes.check_running().unwrap();
+        processes.broker.start_kill().unwrap();
+        processes.broker.wait().await.unwrap();
+        assert!(processes.check_running().unwrap_err().to_string().contains("broker exited"));
+    }
 
     #[test]
     fn ambient_provider_credentials_do_not_admit_an_unconfigured_company() {
@@ -3982,15 +4161,43 @@ mission = "Choose native intelligence"
 
     #[test]
     fn replacing_a_key_at_the_same_reference_changes_the_gateway_fingerprint() {
+        let _guard = FINGERPRINT_TEST_LOCK.lock().unwrap();
         let config: CompanyConfig = serde_json::from_value(serde_json::json!({
             "name": "key_replace_test", "mission": "Test key replacement", "model": "anthropic/claude-sonnet-5-5",
             "credentials": {"model.inference.anthropic": "infisical:/companies/key_replace_test/ANTHROPIC_API_KEY"}
         }))
         .unwrap();
-        let before = gateway_fingerprint(std::slice::from_ref(&config));
-        assert_eq!(before, gateway_fingerprint(std::slice::from_ref(&config)));
+        let before = gateway_fingerprint(std::slice::from_ref(&config), &[]);
+        assert_eq!(before, gateway_fingerprint(std::slice::from_ref(&config), &[]));
         note_credential_replaced();
-        assert_ne!(before, gateway_fingerprint(std::slice::from_ref(&config)));
+        assert_ne!(before, gateway_fingerprint(std::slice::from_ref(&config), &[]));
+    }
+
+    #[test]
+    fn granting_an_already_loaded_oauth_account_does_not_restart_model_services() {
+        let _guard = FINGERPRINT_TEST_LOCK.lock().unwrap();
+        let mut config: CompanyConfig = serde_json::from_value(serde_json::json!({
+            "name": "account_grant_test", "mission": "Share an existing connection",
+            "model": "anthropic/claude-sonnet-5-5",
+            "credentials": {"model.inference.anthropic": "env:ANTHROPIC_TEST"}
+        })).unwrap();
+        let accounts = vec!["openai-codex".to_owned()];
+        let before = gateway_fingerprint(std::slice::from_ref(&config), &accounts);
+        config.credentials.insert("model.inference.openai-codex".into(),
+            "omp-oauth:openai-codex@0123456789abcdef0123456789abcdef".into());
+        assert_eq!(before, gateway_fingerprint(std::slice::from_ref(&config), &accounts));
+        config.model = "openai-codex/gpt-6-sol".into();
+        assert_eq!(before, gateway_fingerprint(std::slice::from_ref(&config), &accounts));
+    }
+
+    #[test]
+    fn a_new_account_provider_still_reloads_the_gateway_inputs() {
+        let _guard = FINGERPRINT_TEST_LOCK.lock().unwrap();
+        let config: CompanyConfig = serde_json::from_value(serde_json::json!({
+            "name": "new_account_test", "mission": "Connect a new provider"
+        })).unwrap();
+        assert_ne!(gateway_fingerprint(std::slice::from_ref(&config), &[]),
+            gateway_fingerprint(std::slice::from_ref(&config), &["openai-codex".to_owned()]));
     }
 
     #[test]

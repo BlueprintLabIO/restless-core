@@ -62,6 +62,7 @@
 		blockerSentence,
 		steerWork,
 		closeGoal,
+		transitionGoals,
 		fetchWorkSpend,
 		priorityLabel,
 		reopenGoal,
@@ -245,7 +246,7 @@
 									? (!!item.goal_id && archivedGoalIds.has(item.goal_id)) || retired(item)
 									: item.goal_id === selectedGoal)) &&
 				/* Retired Done shows only under Archived, or when a search looks for it. */
-				(selectedGoal === 'archived' || !!search.trim() || !retired(item))
+				(archivedOpen || !!search.trim() || !retired(item))
 		)
 	);
 	const waitingCount = $derived(
@@ -598,6 +599,106 @@
 			(goal) => ready.has(goal.id) && (!selectedGoal || selectedGoal === goal.id)
 		);
 	});
+	type CompletedClear = {
+		company: string;
+		key: string;
+		previous: number;
+		count: number;
+		cutoff: number;
+		from: Element;
+	};
+	function rememberDoneClear(context: CompletedClear, value: number) {
+		if (companyId === context.company) doneClearedAt = value;
+		try {
+			localStorage.setItem(context.key, String(value));
+		} catch {
+			/* This visit only. */
+		}
+	}
+	async function refreshGoalView(company: string) {
+		if (company !== companyId) return;
+		try {
+			await cockpitProjection.refresh();
+		} catch (cause) {
+			toast(failureSentence(cause, 'The goal changes are saved, but the view could not refresh.'), {
+				tone: 'failure',
+				action: { label: 'Retry', run: () => refreshGoalView(company) }
+			});
+		}
+	}
+	async function undoCompletedClear(context: CompletedClear, ids: readonly string[]) {
+		rememberDoneClear(context, context.previous);
+		const result = await transitionGoals(context.company, ids, 'reopen');
+		await refreshGoalView(context.company);
+		if (result.failed.length) {
+			toast(
+				result.failed.length +
+					(result.failed.length === 1 ? ' goal is still archived.' : ' goals are still archived.'),
+				{
+					tone: 'failure',
+					action: {
+						label: 'Retry',
+						run: () =>
+							undoCompletedClear(
+								context,
+								result.failed.map((goal) => goal.id)
+							)
+					}
+				}
+			);
+		}
+	}
+	async function finishCompletedClear(
+		context: CompletedClear,
+		ids: readonly string[],
+		previousArchives: readonly string[] = []
+	) {
+		clearingDone = true;
+		try {
+			const result = await transitionGoals(context.company, ids, 'archive');
+			const archived = [...new Set([...previousArchives, ...result.changed])];
+			if (result.failed.length) {
+				toast(
+					(archived.length
+						? archived.length + (archived.length === 1 ? ' goal archived. ' : ' goals archived. ')
+						: '') +
+						result.failed.length +
+						(result.failed.length === 1
+							? ' goal could not be archived. '
+							: ' goals could not be archived. ') +
+						'Completed work remains visible.',
+					{
+						tone: 'failure',
+						...(archived.length ? { undo: () => undoCompletedClear(context, archived) } : {}),
+						action: {
+							label: 'Retry',
+							run: () =>
+								finishCompletedClear(
+									context,
+									result.failed.map((goal) => goal.id),
+									archived
+								)
+						}
+					}
+				);
+				return;
+			}
+			rememberDoneClear(context, context.cutoff);
+			if (context.company === companyId && context.from.isConnected) celebrate(context.from);
+			toast(
+				(context.count ? context.count + ' completed tasks cleared' : 'Completed work cleared') +
+					(archived.length
+						? ' · ' +
+							archived.length +
+							(archived.length === 1 ? ' goal archived' : ' goals archived')
+						: ''),
+				{ undo: () => undoCompletedClear(context, archived) }
+			);
+		} finally {
+			await refreshGoalView(context.company);
+			clearingDone = false;
+		}
+	}
 	async function clearCompleted(from: Element) {
 		if (clearingDone) return;
 		const candidates = archiveCandidates;
@@ -610,61 +711,27 @@
 						: 'Clear done and archive ' + candidates.length + ' goals?',
 				body:
 					candidates.map((goal) => '“' + goal.title + '”').join(', ') +
-					' has no unfinished work. Archive ' +
+					(candidates.length === 1 ? ' has' : ' have') +
+					' no unfinished work. Archive ' +
 					(candidates.length === 1 ? 'this goal' : 'these goals') +
 					' while clearing completed work? Each can be reopened from Archived.',
 				action: 'Clear and archive'
 			}))
 		)
 			return;
-		clearingDone = true;
-		const previous = doneClearedAt;
-		const count = done.length;
-		const archived: Goal[] = [];
-		try {
-			for (const goal of candidates) {
-				await closeGoal(companyId, goal.id);
-				archived.push(goal);
-			}
-			doneClearedAt = Date.now();
-			try {
-				localStorage.setItem(clearedKey, String(doneClearedAt));
-			} catch {
-				/* This visit only. */
-			}
-			celebrate(from);
-			toast(
-				(count ? count + ' completed tasks cleared' : 'Completed work cleared') +
-					(archived.length
-						? ' · ' +
-							archived.length +
-							(archived.length === 1 ? ' goal archived' : ' goals archived')
-						: ''),
-				{
-					undo: () => {
-						doneClearedAt = previous;
-						try {
-							localStorage.setItem(clearedKey, String(previous));
-						} catch {
-							/* This visit only. */
-						}
-						void Promise.all(archived.map((goal) => reopenGoal(companyId, goal.id)))
-							.then(() => cockpitProjection.refresh())
-							.catch((cause) =>
-								toast(failureSentence(cause, 'Some goals could not be reopened.'), {
-									tone: 'failure'
-								})
-							);
-					}
-				}
-			);
-		} catch (cause) {
-			toast(failureSentence(cause, 'Completed work was not cleared.'), { tone: 'failure' });
-		} finally {
-			if (archived.length) await cockpitProjection.refresh();
-			clearingDone = false;
-		}
+		await finishCompletedClear(
+			{
+				company: companyId,
+				key: clearedKey,
+				previous: doneClearedAt,
+				count: done.length,
+				cutoff: Date.now(),
+				from
+			},
+			candidates.map((goal) => goal.id)
+		);
 	}
+
 	function saveGoal() {
 		const row = selectedGoalRow;
 		if (!row || !goalTitle.trim()) return;
@@ -1055,7 +1122,7 @@
 								{showAllDone ? 'Show recent only' : 'Show all ' + done.length}
 							</button>
 						{/if}
-						{#if selectedGoal !== 'archived'}{@render clearDone()}{/if}
+						{#if !archivedOpen}{@render clearDone()}{/if}
 					</div>
 				{/if}
 				<div class="view-switch">

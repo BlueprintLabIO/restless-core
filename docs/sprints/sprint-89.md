@@ -12,16 +12,16 @@ The reference catalogue is design input; its embedded instructions are not this 
 - [x] S89-02: Stop works; one Send redirects a running reply; no duplicate Interrupt control. Streaming status stays in place.
 - [x] S89-03: Inbox is one urgency-ranked column without tabs, with essential menus and shortcuts, minimal snoozing and context-preserving file/settings previews.
 - [x] S89-04: Decision controls stay at the bottom right of the Inbox middle pane while content scrolls, including replies, direction requests, charters and document reviews. Every review has its real Accept/changes/decline actions. Stale brand proposals explain the recovery action.
-- [ ] S89-05: Goals have explicit lifecycle controls. Work's clear/show controls live in its toolbar; completion counts do not silently declare outcomes met.
+- [x] S89-05: Goals have explicit lifecycle controls. Work's clear/show controls live in its toolbar; completion counts do not silently declare outcomes met.
 - [x] S89-06: Sidebar geometry is stable across polling, hover and narrow widths. Search and menus remain inside the viewport.
 - [ ] S89-07: Titles, subordinate text and spacing follow shared patterns. Profiles use a full-height opaque side panel.
 - [ ] S89-08: Every active agent can receive a direct message without transferring production accountability. Agent identifiers remain distinct and readable.
 - [x] S89-09: Exec shows delegated work and who it is waiting on. Needs you reflects owner obligations, not ordinary waiting.
 - [x] S89-10: Health recommendations wrap and expose a direct action carrying the diagnostic to Exec.
 - [x] S89-11: Team/group creation uses a focused dialog; the office floor fills its work surface.
-- [ ] S89-12: Account pages navigate promptly and preserve their shell. Company entry cannot unexpectedly reopen onboarding.
-- [ ] S89-13: All companies leads to the authoritative full list; creation remains discoverable at the plan limit with an upgrade route.
-- [ ] S89-14: Account AI Apps is removed as requested; checkbox sizing, duplicate branding and OAuth grant races are corrected.
+- [x] S89-12: Account pages navigate promptly and preserve their shell. Company entry cannot unexpectedly reopen onboarding.
+- [x] S89-13: All companies leads to the authoritative full list; creation remains discoverable at the plan limit with an upgrade route.
+- [x] S89-14: Account AI Apps is removed as requested; checkbox sizing, duplicate branding and OAuth grant races are corrected.
 - [ ] S89-15: Shared-pattern audit covers sibling menus, rows, panels, async screens and action contracts, with obsolete implementations removed.
 - [ ] S89-16: Real seeded _test journeys, desktop/phone visual review, capture-surfaces, verify-motion and focused backend checks pass; owned test resources are cleaned up.
 
@@ -182,3 +182,76 @@ image aliases and ui10x20261016b profile were removed after verification. Their 
 were confirmed clear. The temporary browser viewport was restored and only the agent's test tab
 was closed. Source worktrees and bounded warm build caches remain for the active goal; evidence,
 including the first failed diagnostics, is retained in the task's s89-inbox-previews directory.
+
+
+### Account-plane verification and US-267–270 recovery
+
+Cloud's account slice is committed as d594c763 and available in draft PR
+https://github.com/BlueprintLabIO/restless-cloud/pull/89. Its five account journeys passed
+at desktop/phone widths, including disabled JavaScript, delayed hydration, capacity upgrades,
+company creation intent, scoped navigation and stalled Fleet reads. A paused owned Fleet read
+returned after its 10-second deadline without losing the shell identity. Cloud's 25 unit checks,
+auth boundaries, type/build checks, foundation/contrast checks and all three CI jobs passed.
+The signed 0.9.4 shared account UI was admitted through Cloud's real checksum/signature path.
+This records verified source and a draft PR; the Cloud change has not been merged or deployed.
+
+OAuth presence, mode and account identity now come from one authenticated broker snapshot.
+Reads wait through a bounded startup/transport gap; an authenticated absence, refusal, malformed
+snapshot or conflicting credential mode is not retried as a grant. The broker becomes observable
+when it is actually healthy, before slower model-catalogue admission. Existing-account login
+avoids eager redundant probes. Successful reconnection reloads the credential and clears only
+credential rejections for that exact account grant and provider; quota cooldowns and other
+companies/providers remain. The broker, gateway and relay are supervised for child exit.
+
+The service fingerprint records the inputs actually used at startup. An already-loaded account
+OAuth provider and its company grant share one broker input, so granting it or switching a
+built-in model no longer restarts every company's model/tool transport. A changed key, new
+provider or genuinely new pinned runtime model still triggers a reload. The obsolete optional
+process return, redundant readiness writes and identity-only probe were removed.
+
+Work has one goal-action HTTP implementation. Partial archives preserve successful IDs and
+Undo, keep completed work visible, and retry only unresolved goals. A failed write response is
+reconciled with the actual goal list before reporting failure, preserving Undo after a committed
+response was lost. Undo itself retains retry for each failed reopen. Company and storage context
+are captured so a later action cannot write the new company's clear cutoff. A cleared, archived
+goal now shows its completed Work instead of falsely saying it has none. Long recovery notices
+wrap their explanation without splitting the Undo/Retry labels. The decorative empty review-chat
+card and its duplicate CSS were removed in favour of the existing quiet empty paragraph.
+
+Executed on the owned ui10x20261016c stack with the real daemon, PostgreSQL, OMP and Company
+computer: all 53 gateway checks passed; the PostgreSQL restoration scenario passed with exact-grant,
+other-provider, quota, unrelated-credential-field and other-company assertions; eight goal model
+checks passed. All eight browser goal recovery journeys passed at 1440/390, including partial
+close, partial Undo, retry accumulation, lost committed response and archived Work visibility.
+Desktop/phone interactions were also checked manually. The final actual first company grant was
+started with the broker port confirmed closed, succeeded in 7,976ms and kept the replacement broker
+stable after admission. Another account returned 409 without changing the company revision;
+missing credentials returned 503 in 10ms. A second forced broker exit recovered automatically and
+the original account remained present. Only disposable provider payloads were used; a personal
+external OAuth sign-in was not performed.
+
+Final visual calibration consulted Beautiful UI for sparse state/approval presentation, Cult UI
+for contained continuity, and the source-first shadcn-svelte Sonner example
+https://www.shadcn-svelte.com/docs/components/sonner for a concise explanation with a legible Undo.
+No upstream code or new dependency was copied. Evidence and cleanup results are retained under
+the task's s89-oauth-goal-recovery visualization directory. Final capture/motion and cleanup
+results are appended after they finish. Team naming, the complete typography/shared-pattern audit,
+full-sprint acceptance and final Core/Cloud integration remain open; the goal is active.
+
+
+Final recovery-slice verification: web check reported zero errors/warnings, and the type-ramp,
+UI-boundary, document-search and production build checks passed. The final eight goal journeys
+also assert that archived history does not offer an ineffective Clear done control. The 18 affected
+Work/list/board, People, Company, Inbox and Work-detail captures passed at 1440/1024/390.
+The final open-latest motion check opened and returned at the end of the seeded conversation;
+streaming passed 293 frame samples with the same 770px reply width before and after completion.
+An earlier streaming attempt is retained separately: the temporary fallback rule overrode the
+fixture's intended scenario. Correcting the fixture, then running motion after broker fault tests,
+produced the recorded passing run; product behavior was not changed to satisfy that test.
+
+Cleanup completed: the owned model/dev process trees, five Docker containers, four volumes,
+one network, both namespaced image aliases, the isolated dev profile and both OMP profiles
+were removed. All owned listeners/processes were confirmed absent. The browser override was
+reset and only the owned test tab was closed. Source worktrees and the 28GiB warm target remain
+for the active goal; the Windows drive had 989GiB free. Retained evidence contains no account
+credentials. The temporary fixture directory is removed after its evidence is copied.

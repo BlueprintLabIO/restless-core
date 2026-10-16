@@ -4394,46 +4394,43 @@ async fn list_owner_connections(State(state): State<OwnerState>, Extension(princ
                 connection,
                 companies,
             );
-            let probe = credential::probe_reference(&owner_connection_reference(connection)).await;
-            summary["status"] = serde_json::Value::String(probe.status.as_str().to_string());
-            if let Some(reason) = rejection.filter(|_| probe.status == credential::ProbeStatus::Present) {
-                summary["status"] = serde_json::Value::String("invalid".into());
-                summary["detail"] = serde_json::Value::String(reason);
-            }
-            if connection.kind == "oauth" && probe.status == credential::ProbeStatus::Present {
-                match (&connection.account_key, model_gateway::oauth_account_key(&connection.provider).await) {
-                    (Some(expected), Ok(Some(actual))) if expected == &actual => {},
-                    (_, Err(_)) => {
-                        summary["status"] = serde_json::Value::String("checking".into());
-                        summary["detail"] = serde_json::Value::String("Checking the account connection. This can take a moment after company settings change.".into());
-                    },
-                    _ => {
-                        summary["status"] = serde_json::Value::String("invalid".into());
-                        summary["detail"] = serde_json::Value::String("This sign-in no longer matches the saved account identity. Reconnect the original account.".into());
-                    },
-                }
-                if account_owner {
-                    if let Ok(Some(identity)) = model_gateway::oauth_account_identity(&connection.provider).await {
-                        summary["account_identity"] = serde_json::Value::String(identity);
+            if connection.kind == "oauth" {
+                match model_gateway::oauth_account(&connection.provider).await {
+                    Ok(Some(account)) if account.matches_account(connection.account_key.as_deref()) => {
+                        summary["status"] = serde_json::json!("present");
+                        if account_owner {
+                            if let Some(identity) = account.identity {
+                                summary["account_identity"] = serde_json::json!(identity);
+                            }
+                        }
+                    }
+                    Ok(Some(_)) => {
+                        summary["status"] = serde_json::json!("invalid");
+                        summary["detail"] = serde_json::json!("This sign-in no longer matches the saved account identity. Reconnect the original account.");
+                    }
+                    Ok(None) => {
+                        summary["status"] = serde_json::json!("absent");
+                        summary["detail"] = serde_json::json!("Sign in to this provider to restore the connection.");
+                    }
+                    Err(_) => {
+                        summary["status"] = serde_json::json!("checking");
+                        summary["detail"] = serde_json::json!("The account connection could not be checked. It may still be starting after a settings change.");
                     }
                 }
-            }
-            if probe.status == credential::ProbeStatus::Absent {
-                summary["detail"] = serde_json::Value::String(if connection.kind == "oauth" {
-                    "The host OMP broker has no active OAuth connection for this provider."
-                        .to_string()
-                } else {
-                    "The key is missing from the account vault.".to_string()
-                });
-            } else if probe.status == credential::ProbeStatus::Invalid {
-                if connection.kind == "oauth" {
-                    summary["status"] = serde_json::Value::String("checking".into());
+            } else {
+                let probe = credential::probe_reference(&owner_connection_reference(connection)).await;
+                summary["status"] = serde_json::json!(probe.status.as_str());
+                if probe.status == credential::ProbeStatus::Absent {
+                    summary["detail"] = serde_json::json!("The key is missing from the account vault.");
+                } else if probe.status == credential::ProbeStatus::Invalid {
+                    summary["detail"] = serde_json::json!("The account vault could not be checked. Try again.");
                 }
-                summary["detail"] = serde_json::Value::String(if connection.kind == "oauth" {
-                    "Checking the account connection. This can take a moment after company settings change.".to_string()
-                } else {
-                    "The account vault could not be checked. Try again.".to_string()
-                });
+            }
+            if summary["status"] == "present" {
+                if let Some(reason) = rejection {
+                    summary["status"] = serde_json::json!("invalid");
+                    summary["detail"] = serde_json::json!(reason);
+                }
             }
             summary
         })}))
@@ -4528,18 +4525,11 @@ async fn create_owner_connection(
     };
     let mut unverified = false;
     if connection.kind == "oauth" {
-        let reference = owner_connection_reference(&connection);
-        if credential::probe_reference(&reference).await.status != credential::ProbeStatus::Present
-        {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "connections",
-                "The host OMP broker does not have an active OAuth connection for this provider.",
-            );
-        }
-        connection.account_key = match model_gateway::oauth_account_key(provider).await {
-            Ok(Some(key)) => Some(key),
-            _ => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The host broker did not provide a verifiable provider account identity."),
+        connection.account_key = match model_gateway::oauth_account(&connection.provider).await {
+            Ok(Some(account)) if account.key.is_some() => account.key,
+            Ok(Some(_)) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The provider did not supply a verifiable account identity. Reconnect it before adding this connection."),
+            Ok(None) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "Sign in to this provider before adding its connection."),
+            Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The account connection is still starting or could not be checked. Try again in a moment."),
         };
     } else {
         let secret = input.secret.as_deref().unwrap_or_default();
@@ -4991,13 +4981,11 @@ async fn grant_owner_connection(
         return api_error(StatusCode::CONFLICT, "provider_conflict", "This company already has a credential for that provider. Confirm replacing this company's provider key to continue.");
     }
     let proposed_secret = if connection.kind == "oauth" {
-        if credential::probe_reference(&reference).await.status != credential::ProbeStatus::Present
-        {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "connections",
-                "The host OMP broker does not have an active OAuth connection for this provider.",
-            );
+        match model_gateway::oauth_account(&connection.provider).await {
+            Ok(Some(account)) if account.matches_account(connection.account_key.as_deref()) => {}
+            Ok(Some(_)) => return api_error(StatusCode::CONFLICT, "account_identity", "This sign-in no longer matches the saved account identity. Reconnect the original account before granting access."),
+            Ok(None) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "Sign in to this provider before granting company access."),
+            Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The account connection is still starting or could not be checked. Try again in a moment."),
         }
         None
     } else {
