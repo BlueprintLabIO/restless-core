@@ -7,6 +7,6 @@ The owner approved the 16 October audit and requested all fixes, aggressive simp
 - [x] [Brand and structural restraint](sprint-90/t03-restraint.md)
 - [x] [Measured state and rendering work](sprint-90/t04-performance.md)
 - [x] [Owner journeys and accessibility](sprint-90/t05-acceptance.md)
-- [ ] [Exact-build main and local acceptance](sprint-90/t06-release.md)
+- [x] [Exact-build main and local acceptance](sprint-90/t06-release.md)
 
 A checked item requires its observed acceptance evidence. The audit distinguishes source-confirmed defects from profiling hypotheses; do not report hypotheses fixed without measurements. The stable appliance stays on origin/main and is upgraded only through the supported promotion path.
