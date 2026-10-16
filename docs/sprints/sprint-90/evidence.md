@@ -49,3 +49,11 @@ The late-company read journey caught an existing `state_unsafe_mutation`: the fi
 | A24 | Required Python connections smoke no longer depends on executable mode and a missing gate fails closed. Its exact-release run and supported activation remain the release gate. |
 
 No additional frontend runtime was added. The new dev-only accessibility dependency is pinned `axe-core`; Svelte and the existing TanStack cache remain the implementation. Cleanup removed competing behaviours, not retained company history.
+
+## Required gate caught an isolation race
+
+Promotion of `48e83a33` built successfully, then the required connections smoke failed before activation: the probe-only allocator and a concurrent CI smoke both chose offset 20000 while their databases started. The other daemon was an independently owned test stack; it was not stopped. The failed attempt reported a clean exit and left the installed appliance unchanged.
+
+`smoke_plane.reserve_offset` now holds the actual ports until daemon launch and a standard process lock through the plane lifetime, including restarts. Two cross-process regressions pass: another process cannot choose the claimed block, including during the handoff gap, and it becomes available after release. US-294 records the owner outcome. The full exact-build gate must still pass before activation.
+
+The push also printed three existing Dependabot notices. Read-only triage found the checked-in locks already on devalue 5.9.4 and ip-address 10.7.3, above the advisories' first patched versions (5.9.3 and 10.7.1). No extra dependency churn or claim that GitHub's open-alert state changed.

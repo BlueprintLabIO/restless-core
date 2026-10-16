@@ -6,7 +6,7 @@ the local control socket, the owner HTTP API, and capabilities minted with the
 installation key exactly as the daemon mints them. Everything it creates carries
 the `_test` suffix and is removed by `close()`, including after a failure.
 """
-import base64, datetime, hashlib, hmac, json, os, pathlib, secrets, signal, socket, subprocess, time
+import base64, datetime, fcntl, hashlib, hmac, json, os, pathlib, secrets, signal, socket, subprocess, tempfile, time
 import urllib.error, urllib.request
 
 
@@ -21,24 +21,29 @@ def b64(value):
 
 
 def reserve_offset(start=20000, stop=24900):
-    """A block of ports the daemon derives from its offset, all free now.
+    """Claim an offset across smoke processes and hold its ports until handoff.
 
-    The test profile requires an offset of at least 20000, and the block stays
-    below 32768: Linux hands out ephemeral ports from there up, so an outgoing
-    connection could take a daemon port between this check and the bind."""
+    Probing and immediately closing the ports let two concurrent smokes choose
+    the same block while their databases started. The advisory lock remains held
+    through daemon restarts; bound sockets also exclude older/non-cooperating
+    probes until the instant the daemon is launched. No state or identity is shared.
+    """
+    locks = pathlib.Path(tempfile.gettempdir()) / f'restless-smoke-ports-{os.getuid()}'
+    locks.mkdir(mode=0o700, exist_ok=True)
     for offset in range(start, stop, 100):
+        lease = (locks / f'{offset}.lock').open('a+')
         held = []
         try:
+            fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
             for base in range(7788, 7800):
                 probe = socket.socket()
-                probe.bind(('127.0.0.1', offset + base))
                 held.append(probe)
-            return offset
+                probe.bind(('127.0.0.1', offset + base))
+            return offset, lease, held
         except OSError:
-            pass
-        finally:
             for probe in held:
                 probe.close()
+            lease.close()
     raise RuntimeError('no isolated test port range')
 
 
@@ -57,7 +62,7 @@ class Plane:
         self.daemon_bin = daemon_bin
         self.image = image
         self.extra_env = dict(extra_env or {})
-        self.offset = reserve_offset()
+        self.offset, self._port_lease, self._reserved_ports = reserve_offset()
         self.owner_origin = f'http://127.0.0.1:{self.offset + 7788}'
         self.relay_port = self.offset + 7790
         self.coordinator = f'127.0.0.1:{self.offset + 7791}'
@@ -106,6 +111,10 @@ class Plane:
         return env
 
     def start(self):
+        for probe in self._reserved_ports:
+            probe.close()
+        self._reserved_ports.clear()
+        # Keep the cross-process lease until close(), including across restart checks.
         log = self.log_path.open('a')
         self.process = subprocess.Popen([self.daemon_bin], cwd=self.root, env=self.env(), stdout=log,
                                         stderr=subprocess.STDOUT, start_new_session=True)
@@ -223,4 +232,8 @@ class Plane:
             problems.append(f'containers remain: {sorted(set(leftover))}')
         if volumes:
             problems.append(f'volumes remain: {sorted(set(volumes))}')
+        for probe in self._reserved_ports:
+            probe.close()
+        self._reserved_ports.clear()
+        self._port_lease.close()
         return problems
