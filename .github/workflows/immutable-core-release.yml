@@ -103,8 +103,10 @@ jobs:
           scripts/restless-cargo build -p restlessd -p restless
           npm --prefix infra/host-tools ci --no-audit --no-fund
           previous="$(docker image inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)"
-          source scripts/lib/dev-release.sh
-          dev_build_company_image "$PWD" "$IMAGE" "$GITHUB_SHA"
+          bash scripts/release/with-company-builder.sh bash -c '
+            source scripts/lib/dev-release.sh
+            dev_build_company_image "$PWD" "$IMAGE" "$GITHUB_SHA"
+          '
           # Remove only the exact image this build replaced; a container still using it keeps it.
           if [[ -n "$previous" && "$previous" != "$(docker image inspect --format '{{.Id}}' "$IMAGE")" ]]; then
             docker image rm "$previous" >/dev/null 2>&1 || true

@@ -57,8 +57,10 @@ jobs:
         run: |
           scripts/restless-cargo build -p restlessd -p restless
           npm --prefix infra/host-tools ci --no-audit --no-fund
-          source scripts/lib/dev-release.sh
-          dev_build_company_image "$PWD" "$IMAGE" "$GITHUB_SHA"
+          bash scripts/release/with-company-builder.sh bash -c '
+            source scripts/lib/dev-release.sh
+            dev_build_company_image "$PWD" "$IMAGE" "$GITHUB_SHA"
+          '
 
       - name: Run the connections smoke (with the skills smoke)
         env:
