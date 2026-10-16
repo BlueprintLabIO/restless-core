@@ -6,7 +6,11 @@
 		/** An entry just corrected: old wording struck through, new wording shown. */
 		correction?: { from: string; to: string };
 	};
-	export type IdentityOutput = { title: string; state: 'current' | 'outdated' | 'updated'; reason?: string };
+	export type IdentityOutput = {
+		title: string;
+		state: 'current' | 'outdated' | 'updated';
+		reason?: string;
+	};
 </script>
 
 <script lang="ts">
@@ -28,7 +32,7 @@
 	<section class="identity-view" aria-label="Company identity">
 		<header class="id-head">
 			<Fingerprint size={15} strokeWidth={2.2} />
-			<strong>Brand & voice</strong>
+			<strong>Brand</strong>
 			<span class="id-version">{version}</span>
 		</header>
 		<div class="id-pillars">
@@ -38,7 +42,9 @@
 					<ul>
 						{#each pillar.entries as entry (entry)}<li>{entry}</li>{/each}
 						{#if pillar.correction}
-							<li class="id-correction"><s>{pillar.correction.from}</s> <ins>{pillar.correction.to}</ins></li>
+							<li class="id-correction">
+								<s>{pillar.correction.from}</s> <ins>{pillar.correction.to}</ins>
+							</li>
 						{/if}
 					</ul>
 				</div>
@@ -50,7 +56,12 @@
 				{#each outputs as output, index (output.title)}
 					<div class="id-output {output.state}" style:--i={index}>
 						<span>{output.title}</span>
-						<span class="id-state">{#if output.state === 'outdated'}<Flag size={11} strokeWidth={2.6} />{/if}{output.reason ?? STATE[output.state]}</span>
+						<span class="id-state"
+							>{#if output.state === 'outdated'}<Flag
+									size={11}
+									strokeWidth={2.6}
+								/>{/if}{output.reason ?? STATE[output.state]}</span
+						>
 					</div>
 				{/each}
 			</div>

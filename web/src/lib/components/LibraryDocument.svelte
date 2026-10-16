@@ -102,7 +102,7 @@
 	/* Whom and what "@" offers in the text: the company's people and Staff by the names they go
 	 * by, recent documents and Work by title. A pasted link to one of them becomes its chip. */
 	const recentDocuments = documentsQuery(() => companyId);
-	const attentionView = $derived(attentionQuery(companyId, () => ownerAccess));
+	const attentionView = $derived(attentionQuery(companyId, () => ownerAccess, true));
 	const suggestions = $derived<DocumentSuggestion[]>([
 		...people
 			.filter((person) => person.kind !== 'system' && person.display)

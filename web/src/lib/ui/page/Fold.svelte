@@ -9,6 +9,7 @@
 		count,
 		hint,
 		open = $bindable(false),
+		padded = false,
 		children
 	}: {
 		label: string;
@@ -16,8 +17,13 @@
 		/** Quiet text at the end of the row, such as a date. */
 		hint?: string | null;
 		open?: boolean;
+		padded?: boolean;
 		children: Snippet;
 	} = $props();
+	let reached = $state(false);
+	$effect(() => {
+		if (open) reached = true;
+	});
 </script>
 
 <details class="fold" bind:open>
@@ -27,7 +33,9 @@
 		{#if count != null && count !== ''}<span class="fold-count">{count}</span>{/if}
 		{#if hint}<span class="fold-hint">{hint}</span>{/if}
 	</summary>
-	<div class="fold-body">{@render children()}</div>
+	<div class="fold-body" class:padded>
+		{#if open || reached}{@render children()}{/if}
+	</div>
 </details>
 
 <style>
@@ -79,6 +87,9 @@
 	}
 	.fold-body > :global(* + *) {
 		border-top: 1px solid var(--border);
+	}
+	.fold-body.padded {
+		padding: 16px;
 	}
 	.fold-body {
 		border-top: 1px solid var(--border);

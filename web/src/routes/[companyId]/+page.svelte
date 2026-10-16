@@ -68,13 +68,14 @@
 	const owner = $derived(hasOwnerSurfaceAccess(principal));
 	const source = attentionQuery(
 		() => companyId,
-		() => !!principal
+		() => !!principal,
+		() => owner
 	);
 	const collaboration = $derived(
 		collaborationBootstrapQuery(companyId, () => (owner ? null : principal))
 	);
 	const view = $derived(source.view);
-	const loaded = $derived(source.status !== 'unknown');
+	const loaded = $derived(!!view && source.status !== 'unknown');
 
 	let error = $state('');
 	let focusItem = $state<AttentionItem | null>(null);
@@ -124,7 +125,7 @@
 	const selectedItemId = $derived(
 		page.url.searchParams.get('item') ?? page.url.searchParams.get('review')
 	);
-	/* Brand & voice not set yet: the clear Inbox offers to set it up with Exec. */
+	/* Brand not set yet: the clear Inbox offers to set it up with Exec. */
 	const identity = $derived(identityQuery(companyId));
 	const brandMissing = $derived(
 		hasOwnerSurfaceAccess(companyPrincipalQuery(companyId).view) &&
@@ -244,6 +245,8 @@
 	$effect(() => {
 		if (
 			loaded &&
+			view?.sourceHealth.authority === 'available' &&
+			view.sourceHealth.orgintel === 'available' &&
 			selectedItemId &&
 			missingItemRedirect !== selectedItemId &&
 			!items.some((item) => item.id === selectedItemId)

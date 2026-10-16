@@ -39,7 +39,7 @@
 	const collaboration = $derived(
 		collaborationBootstrapQuery(companyId, () => (owner ? null : principal.view))
 	);
-	const attention = $derived(attentionQuery(companyId, () => owner));
+	const attention = $derived(attentionQuery(companyId, () => owner, true));
 	const people = $derived((owner ? cockpit.view?.people : collaboration.view?.people) ?? []);
 	const teams = $derived((owner ? cockpit.view?.teams : collaboration.view?.teams) ?? []);
 	const person = $derived(people.find((candidate) => candidate.actor_id === actorId) ?? null);

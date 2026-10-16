@@ -425,12 +425,6 @@
 		{/if}
 		{#if canSetAside}<div class="set-aside-slot">
 				<SetAsideList {companyId} version={items.length} />
-				<a
-					class="decided"
-					href={`/${encodeURIComponent(companyId)}/company/activity?show=decisions`}
-					title="What you answered lately, and where each stands. Follow up on one from there."
-					>Recently decided</a
-				>
 			</div>{/if}
 		{#if forYou?.failure}<p class="empty">
 				Updates could not be read. <button type="button" onclick={() => forYou?.refresh()}
@@ -455,17 +449,6 @@
 		display: grid;
 		justify-items: start;
 		margin: 12px 8px 8px;
-	}
-	.decided {
-		padding: 6px 8px;
-		border-radius: var(--radius-control);
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-		text-decoration: none;
-	}
-	.decided:hover {
-		background: var(--wash-hover);
-		color: var(--text-secondary);
 	}
 	.inbox {
 		display: grid;

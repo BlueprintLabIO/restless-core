@@ -269,7 +269,8 @@
 		margin: 0;
 		overflow: auto;
 		color: var(--ink);
-		width: min(310px, calc(100vw - 32px));
+		width: min(310px, var(--popover-available-width, calc(100vw - 32px)));
+		max-height: var(--popover-available-height, calc(100dvh - 16px));
 		padding: 8px;
 		border: 1px solid var(--border-strong);
 		border-radius: var(--radius-pane);

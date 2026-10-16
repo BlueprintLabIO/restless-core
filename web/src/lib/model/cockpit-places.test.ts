@@ -24,8 +24,8 @@ test('Company › X links anywhere; a bare section name only on a Needs you line
 		'Raise the cap in [Company › Limits](/reno/company/resources). The Library has it.'
 	);
 	assert.equal(
-		linkCockpitPlaces('Brand voice lives in Company > Brand & voice', root),
-		'Brand voice lives in [Company > Brand & voice](/reno/company/identity)'
+		linkCockpitPlaces('Brand voice lives in Company > Brand', root),
+		'Brand voice lives in [Company > Brand](/reno/company/identity)'
 	);
 });
 

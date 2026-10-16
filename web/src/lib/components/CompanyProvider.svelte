@@ -713,11 +713,11 @@
 			? 'The model catalog this company chooses from.'
 			: 'Sign-ins and keys that belong to this company only, the model catalog, diagnostics and custom harnesses.'}
 	>
-		{#if !hosted}<Fold label="Company-only sign-ins">
-				<div class="pad"><HarnessConnections {companyId} /></div>
+		{#if !hosted}<Fold label="Company-only sign-ins" padded>
+				<HarnessConnections {companyId} />
 			</Fold>
-			<Fold label="Company-only API keys" count={savedCount || null} bind:open={keysOpen}>
-				<div class="pad keys">
+			<Fold padded label="Company-only API keys" count={savedCount || null} bind:open={keysOpen}>
+				<div class="keys">
 					<div class="bar">
 						<Dot
 							show
@@ -895,13 +895,14 @@
 		{/if}
 		<Fold
 			label="Model catalog"
+			padded
 			hint={catalog.pending
 				? 'Refreshing…'
 				: catalog.updatedAt
 					? `Updated ${new Date(catalog.updatedAt).toLocaleDateString([], { dateStyle: 'medium' })}`
 					: 'Bundled suggestions'}
 		>
-			<div class="pad bar">
+			<div class="bar">
 				<span class="quiet"
 					>{catalog.failed
 						? catalog.updatedAt
@@ -919,11 +920,11 @@
 			</div>
 		</Fold>
 		{#if !hosted}
-			<Fold label="Diagnostics">
-				<div class="pad"><HarnessDiagnostics {companyId} /></div>
+			<Fold label="Diagnostics" padded>
+				<HarnessDiagnostics {companyId} />
 			</Fold>
-			<Fold label="Custom harnesses" bind:open={harnessOpen}>
-				<div class="pad" id="harnesses"><CustomHarnesses {companyId} /></div>
+			<Fold padded label="Custom harnesses" bind:open={harnessOpen}>
+				<div id="harnesses"><CustomHarnesses {companyId} embedded /></div>
 			</Fold>
 		{/if}
 	</Section>
@@ -967,9 +968,6 @@
 		gap: var(--space-2);
 	}
 	.bar.pad,
-	.pad {
-		padding: 12px 16px;
-	}
 	.spacer {
 		flex: 1;
 	}

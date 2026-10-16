@@ -229,8 +229,14 @@ pub(super) async fn create(
 
 /// The Apps catalogue from public registries (Sprint 87): the same list for every company on the
 /// plane, refreshed daily.
-pub(super) async fn app_catalogue() -> Response<Body> {
-    Json(restless_engine::app_catalogue::current().await).into_response()
+#[derive(Deserialize, Default)]
+pub(super) struct CatalogueQuery {
+    #[serde(default)]
+    refresh: bool,
+}
+
+pub(super) async fn app_catalogue(Query(query): Query<CatalogueQuery>) -> Response<Body> {
+    Json(restless_engine::app_catalogue::current_with_refresh(query.refresh).await).into_response()
 }
 
 #[derive(Deserialize)]
@@ -252,8 +258,10 @@ pub(super) async fn install_from_catalogue(
     if let Some(refusal) = owner_only(&principal) {
         return refusal;
     }
-    let Some(item) = restless_engine::app_catalogue::item(&input.key).await else {
-        return api_error(StatusCode::NOT_FOUND, "catalogue", "That app is no longer in the catalogue.");
+    let item = match restless_engine::app_catalogue::item(&input.key).await {
+        Ok(Some(item)) => item,
+        Ok(None) => return api_error(StatusCode::NOT_FOUND, "catalogue", "That app is no longer in the catalogue."),
+        Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "catalogue", error.to_string()),
     };
     if item.kind != "skill" {
         return api_error(StatusCode::BAD_REQUEST, "catalogue", "Add a service by its address.");

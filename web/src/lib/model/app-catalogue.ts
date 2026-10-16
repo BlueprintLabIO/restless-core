@@ -1,3 +1,4 @@
+import { bootFetch } from './boot-fetch.ts';
 /* The Apps catalogue drawn from public registries (Sprint 87): services from the official MCP
  * Registry and know-how from Anthropic's public skills, refreshed daily on the plane. Browse
  * shows them beside the hand-checked catalogue; nothing installs until the owner clicks. */
@@ -19,13 +20,21 @@ export type RegistryItem = {
 };
 
 export type RegistryCatalogue = {
+	refreshing?: boolean;
+	sources?: Record<string, { updated_at: number | null; error: string | null }>;
 	updated_at: number | null;
 	items: RegistryItem[];
 	unavailable: string[];
 };
 
-export async function fetchAppCatalogue(): Promise<RegistryCatalogue> {
-	const response = await fetch('/api/app-catalogue', { credentials: 'same-origin' });
+export async function fetchAppCatalogue(
+	signal?: AbortSignal,
+	refresh = false
+): Promise<RegistryCatalogue> {
+	const response = await bootFetch('/api/app-catalogue' + (refresh ? '?refresh=true' : ''), {
+		credentials: 'same-origin',
+		signal
+	});
 	if (!response.ok) throw await responseFailure(response);
 	return response.json();
 }
@@ -48,8 +57,17 @@ export async function installFromCatalogue(
 	return response.json();
 }
 
-/** A connection-safe key for a registry service: lowercase words, at most 40 characters. */
-export function registryKey(name: string): string {
+/** Route identity is a reversible encoding of the registry's canonical key, never its title. */
+export function registryKey(key: string): string {
+	const bytes = new TextEncoder().encode(key);
+	return `r-${btoa(String.fromCharCode(...bytes))
+		.replaceAll('+', '-')
+		.replaceAll('/', '_')
+		.replace(/=+$/, '')}`;
+}
+
+/** Old bookmarks are resolved only when exactly one app has this former display-name key. */
+export function legacyRegistryKey(name: string): string {
 	const slug = name
 		.toLowerCase()
 		.replace(/[^a-z0-9]+/g, '-')
@@ -57,4 +75,14 @@ export function registryKey(name: string): string {
 		.slice(0, 34)
 		.replace(/-+$/, '');
 	return `r-${slug || 'service'}`;
+}
+
+/** Connection names have a separate bounded format; the source retains the full catalogue ID. */
+export async function catalogueConnectionName(entry: {
+	key: string;
+	registryId?: string;
+}): Promise<string> {
+	if (!entry.registryId) return entry.key;
+	const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(entry.registryId));
+	return `r-${Array.from(new Uint8Array(hash).slice(0, 16), (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
 }

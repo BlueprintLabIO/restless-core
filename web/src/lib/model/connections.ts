@@ -1,3 +1,4 @@
+import { bootFetch } from './boot-fetch.ts';
 /* Connected tools (Sprint 57): the services an app connects, such as Stripe. Not the account's
  * AI model accounts (account-connections.ts). The owner adds an MCP server by URL, command or
  * plugin bundle; Restless probes it and the owner grants each observed tool a
@@ -150,11 +151,14 @@ function path(company: string, rest = ''): string {
 }
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
-	const response = await fetch(url, {
-		credentials: 'same-origin',
-		...init,
-		headers: init?.body ? { 'content-type': 'application/json' } : undefined
-	});
+	const response = await (init?.method && init.method.toUpperCase() !== 'GET' ? fetch : bootFetch)(
+		url,
+		{
+			credentials: 'same-origin',
+			...init,
+			headers: init?.body ? { 'content-type': 'application/json' } : undefined
+		}
+	);
 	if (!response.ok) throw await responseFailure(response);
 	return (await response.json()) as T;
 }
@@ -162,8 +166,11 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
 const post = <T>(url: string, body: unknown = {}) =>
 	call<T>(url, { method: 'POST', body: JSON.stringify(body) });
 
-export async function fetchConnections(company: string): Promise<ToolConnection[]> {
-	return (await call<{ connections: ToolConnection[] }>(path(company))).connections;
+export async function fetchConnections(
+	company: string,
+	signal?: AbortSignal
+): Promise<ToolConnection[]> {
+	return (await call<{ connections: ToolConnection[] }>(path(company), { signal })).connections;
 }
 
 export const addConnection = (company: string, input: NewConnection) =>

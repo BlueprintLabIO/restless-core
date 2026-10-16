@@ -3,6 +3,9 @@ declare global {
 		// interface Error {}
 		// interface Locals {}
 		// interface PageData {}
+		interface PageState {
+			appsDiscovery?: { query: string; page: number };
+		}
 		// interface Platform {}
 	}
 }

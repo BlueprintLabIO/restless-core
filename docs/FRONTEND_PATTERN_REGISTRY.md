@@ -252,3 +252,20 @@ and scroll across Company navigation; skill search and agent disclosure; touch m
 44px actions; mobile picker; fresh loading/error/retry and blocked empty states. The real test
 company rendered all three charter revisions (one current), the E edit shortcut, and Doctor's
 missing-provider action. Browser page errors remained empty.
+
+
+## Sprint 90 adoption — discovery and selection
+
+Pattern IDs: `apps-surface`, `viewport-popover`, `recoverable-read`.
+
+Observed owner problems: the catalogue overwhelmed navigation, app details lacked useful information, the model picker closed on disclosure, and short windows trapped the transcript. Discover now has a quiet navigation rail, always-available search, bounded collections/pagination and sourced details. Installed uses native table semantics with a linked identity/description and a stable status column; the access column appears only when services need it. Setup uses the existing native dialog. The shared popover distinguishes choosing a value from executing an action, and only open panels run positioning work.
+
+References consulted again during the final visual pass, 16 October 2026:
+
+- [Beautiful UI](https://www.beautifului.dev/): clear identity/body/action order, compact prompt controls and contextual information.
+- [Cult Minimal Card](https://www.cult-ui.com/docs/components/minimal-card): one restrained boundary and consistent spacing; no decorative carousel or confidence theatre.
+- [Origin UI Svelte](https://originui-svelte.pages.dev/): native control and keyboard conventions, adapted into the existing Bridge tokens.
+
+No upstream code or assets were copied, and no React, second state framework or motion runtime was introduced. Native Escape/focus/outside-click and reduced-motion checks passed; the fast outside-click regression introduced during listener reduction was caught and repaired. Desktop was inspected in the built-in browser; actual 390px Chromium renders were inspected as screenshots because this browser surface does not expose viewport resizing. Captures and the product-quality journeys supplement, rather than replace, this review.
+
+This supersedes Sprint 63's historical removal of phone search: the owner now needs discovery on phones too. Removed approaches include the title-slug identity, the parallel Ask/search interface and hard-coded service-intent guesses, the category count wall, Recently decided, duplicate Brand context and nested Advanced headings. No fake app ratings or verification claims were added.

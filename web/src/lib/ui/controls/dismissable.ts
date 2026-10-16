@@ -22,7 +22,12 @@ export function dismissable(node: HTMLDetailsElement) {
 		leaving = window.setTimeout(finish, 400);
 	};
 	const onSummaryClick = (event: MouseEvent) => {
-		if (!node.open) return;
+		// Native toggle is a later task; arm outside dismissal before opening so a
+		// second fast pointer event cannot arrive before that task has run.
+		if (!node.open) {
+			document.addEventListener('pointerdown', onPointerDown, true);
+			return;
+		}
 		event.preventDefault();
 		close(false);
 	};
@@ -39,12 +44,18 @@ export function dismissable(node: HTMLDetailsElement) {
 	const onClick = (event: MouseEvent) => {
 		if ((event.target as Element | null)?.closest('a[href]')) close(false);
 	};
-	document.addEventListener('pointerdown', onPointerDown, true);
+	const syncOutside = () => {
+		document.removeEventListener('pointerdown', onPointerDown, true);
+		if (node.open) document.addEventListener('pointerdown', onPointerDown, true);
+	};
+	node.addEventListener('toggle', syncOutside);
+	syncOutside();
 	node.addEventListener('keydown', onKeyDown);
 	node.addEventListener('click', onClick);
 	return {
 		destroy() {
 			window.clearTimeout(leaving);
+			node.removeEventListener('toggle', syncOutside);
 			node.querySelector('summary')?.removeEventListener('click', onSummaryClick);
 			document.removeEventListener('pointerdown', onPointerDown, true);
 			node.removeEventListener('keydown', onKeyDown);

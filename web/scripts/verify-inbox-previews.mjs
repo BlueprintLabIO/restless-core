@@ -55,6 +55,10 @@ async function journey(name, viewport, run) {
 	const context = await browser.newContext({ viewport, reducedMotion: 'reduce' });
 	context.setDefaultTimeout(15000);
 	context.setDefaultNavigationTimeout(30000);
+	await context.addInitScript(() => {
+		window.__restlessStrict = true;
+	});
+	await context.tracing.start({ screenshots: true, snapshots: true });
 	const page = await context.newPage(),
 		errors = [];
 	page.on('pageerror', (error) => errors.push(error.message));
@@ -67,6 +71,26 @@ async function journey(name, viewport, run) {
 	} catch (error) {
 		results.push({ name, ok: false, error: String(error) });
 		await page.screenshot({ path: out + '/' + name + '-failed.png' }).catch(() => {});
+		console.log('Failed URL:', page.url(), 'Page errors:', JSON.stringify(errors));
+		await context.tracing.stop({ path: out + '/' + name + '-trace.zip' });
+		console.log(
+			'read states',
+			JSON.stringify(
+				await page.evaluate(() =>
+					window.__restlessQueryClient
+						?.getQueryCache()
+						.findAll()
+						.filter((q) => ['attention', 'work-graph', 'company-principal'].includes(q.queryKey[0]))
+						.map((q) => ({
+							key: q.queryKey,
+							status: q.state.status,
+							fetch: q.state.fetchStatus,
+							health: q.state.data?.sourceHealth,
+							hasData: !!q.state.data
+						}))
+				)
+			)
+		);
 		throw error;
 	} finally {
 		await context.close();
@@ -262,6 +286,14 @@ try {
 			const review = rows.find((row) => row.native_document?.kind === 'review');
 			assert(review, 'Seed a native document review');
 			await page.goto(
+				href(review) + '&preview=' + encodeURIComponent('/' + company + '/company/identity')
+			);
+			await preview(page).getByRole('heading', { name: 'Brand', exact: true, level: 2 }).waitFor();
+			assert.equal(
+				await preview(page).getByRole('heading', { name: 'Brand & voice', exact: true }).count(),
+				0
+			);
+			await page.goto(
 				href(review) + '&preview=' + encodeURIComponent('/' + company + '/company/resources')
 			);
 			await preview(page).getByRole('heading', { name: 'Limits', exact: true }).waitFor();
@@ -370,7 +402,8 @@ try {
 			// A live change stream relaxes Attention's repair poll to 30 seconds.
 			await page.waitForResponse(
 				(response) =>
-					response.request().method() === 'GET' && response.url().endsWith('/attention'),
+					response.request().method() === 'GET' &&
+					new URL(response.url()).pathname.endsWith('/attention'),
 				{ timeout: 45000 }
 			);
 			assert(

@@ -48,7 +48,7 @@
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import PersonProfile from '$lib/components/PersonProfile.svelte';
 	import { askExec, staffDraft, type StaffAsk } from '$lib/model/ask-exec';
-	import { projectOfficeMembers } from '$lib/office/projection';
+	import { FRESH_OBSERVATION_MS, projectOfficeMembers } from '$lib/office/projection';
 	import RoomConversation from '$lib/components/RoomConversation.svelte';
 	import RoomManager from '$lib/components/RoomManager.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
@@ -87,7 +87,7 @@
 	const collaboration = $derived(
 		collaborationBootstrapQuery(companyId, () => (owner ? null : principal.view))
 	);
-	const attention = $derived(attentionQuery(companyId, () => owner));
+	const attention = $derived(attentionQuery(companyId, () => owner, true));
 	const people = $derived(
 		(owner ? cockpit.view?.people : collaboration.view?.people)?.filter(
 			(p) => p.kind !== 'system' && p.actor_id !== principal.view?.actor_id
@@ -273,11 +273,16 @@
 	function personStatus(actorId: string) {
 		const person = people.find((candidate) => candidate.actor_id === actorId);
 		const peopleAreLive = owner ? cockpit.status === 'live' : collaboration.status === 'live';
+		const observedAt =
+			person && 'session_observed_at' in person ? person.session_observed_at : null;
 		const needs = attentionFor(actorId).filter((item) => !item.preparing);
 		const need =
 			needs.find((item) => item.source.kind === 'conversation_owner_need') ?? needs.at(0);
 		return {
-			working: peopleAreLive && person?.session_running === true,
+			working:
+				peopleAreLive &&
+				person?.session_running === true &&
+				(!owner || (!!observedAt && Date.now() - Date.parse(observedAt) <= FRESH_OBSERVATION_MS)),
 			need: need?.source.kind === 'conversation_owner_need' ? 'reply' : need ? 'attention' : null
 		} as const;
 	}
@@ -323,7 +328,8 @@
 				return { text: `Blocked: ${member.work.title}`, tone: 'block', hint };
 			if ((member.presence === 'observed' || member.presence === 'in-motion') && member.work)
 				return { text: member.work.title, tone: 'work', hint };
-			if (member.presence === 'observed') return { text: 'Working', tone: 'work', hint };
+			if (member.presence === 'observed' || status.working)
+				return { text: 'Working', tone: 'work', hint };
 			return { ...fallback, hint };
 		}
 		const team = teams.find((candidate) => candidate.lead_actor_id === actorId);
@@ -874,7 +880,16 @@
 					: person.role;
 		const text = currentWorkTitle(actorId) || role || line.text;
 		return {
-			word: owner ? statusWord(line.tone, personStatus(actorId).need !== null) : '',
+			word:
+				owner &&
+				cockpit.status === 'live' &&
+				!(
+					person.session_running &&
+					!personStatus(actorId).working &&
+					personStatus(actorId).need === null
+				)
+					? statusWord(line.tone, personStatus(actorId).need !== null)
+					: '',
 			text,
 			hint: line.hint || line.text
 		};
@@ -1466,10 +1481,12 @@
 						{/each}
 					</section>
 				{/if}
-				<section class="directory-section chats-section" aria-label="Group chats">
-					<header class="team-directory-head"><span>Chats</span></header>
-					{@render groupChats()}
-				</section>
+				{#if chats.some((chat) => chat.group) || archived.rooms.length || rooms.hasMore}
+					<section class="directory-section chats-section" aria-label="Group chats">
+						<header class="team-directory-head"><span>Chats</span></header>
+						{@render groupChats()}
+					</section>
+				{/if}
 				{#if owner && agents.length && !search.trim()}
 					<button
 						type="button"

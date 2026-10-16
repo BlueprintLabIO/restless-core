@@ -3,7 +3,7 @@
 //! snapshot and never changes saved models.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context as _, Result};
@@ -20,10 +20,11 @@ struct CatalogCache {
     response: Option<Bytes>,
     next_refresh: Option<Instant>,
     last_attempt: Option<Instant>,
+    refreshing: bool,
 }
 
-static CACHE: LazyLock<tokio::sync::Mutex<CatalogCache>> =
-    LazyLock::new(|| tokio::sync::Mutex::new(CatalogCache::default()));
+static CACHE: LazyLock<Arc<tokio::sync::Mutex<CatalogCache>>> = LazyLock::new(Default::default);
+static COMPLETED: LazyLock<tokio::sync::Notify> = LazyLock::new(Default::default);
 static LOOP_STARTED: AtomicBool = AtomicBool::new(false);
 
 pub fn start_refresh_loop() {
@@ -39,6 +40,9 @@ pub fn start_refresh_loop() {
 }
 
 pub async fn refresh(force: bool) -> Option<Bytes> {
+    let notified = COMPLETED.notified();
+    tokio::pin!(notified);
+    notified.as_mut().enable();
     let mut cache = CACHE.lock().await;
     let now = Instant::now();
     let due = cache.next_refresh.is_none_or(|next| now >= next);
@@ -46,20 +50,37 @@ pub async fn refresh(force: bool) -> Option<Bytes> {
         && cache
             .last_attempt
             .is_none_or(|last| now.duration_since(last) >= MANUAL_REFRESH_COOLDOWN);
-    if due || manual_allowed {
+    if !cache.refreshing && (due || manual_allowed) {
         cache.last_attempt = Some(now);
-        match fetch_catalog().await {
-            Ok(body) => {
-                cache.response = Some(body);
-                cache.next_refresh = Some(Instant::now() + REFRESH_AFTER);
+        cache.refreshing = true;
+        tokio::spawn(async {
+            let result = fetch_catalog().await;
+            let mut cache = CACHE.lock().await;
+            match result {
+                Ok(body) => {
+                    cache.response = Some(body);
+                    cache.next_refresh = Some(Instant::now() + REFRESH_AFTER);
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "models.dev refresh failed; keeping the last good catalog");
+                    cache.next_refresh = Some(Instant::now() + RETRY_AFTER_FAILURE);
+                }
             }
-            Err(error) => {
-                tracing::warn!(%error, "models.dev refresh failed; keeping the last good catalog");
-                cache.next_refresh = Some(Instant::now() + RETRY_AFTER_FAILURE);
-            }
-        }
+            cache.refreshing = false;
+            drop(cache);
+            COMPLETED.notify_waiters();
+        });
     }
-    cache.response.clone()
+    let wait = cache.refreshing && (force || cache.response.is_none());
+    let response = cache.response.clone();
+    drop(cache);
+    // Ordinary reads of a warm catalogue never wait behind an external source. An explicit
+    // Refresh and the cold first read retain their bounded, observable completion semantics.
+    if wait {
+        let _ = tokio::time::timeout(Duration::from_secs(50), notified).await;
+        return CACHE.lock().await.response.clone();
+    }
+    response
 }
 
 async fn fetch_catalog() -> Result<Bytes> {

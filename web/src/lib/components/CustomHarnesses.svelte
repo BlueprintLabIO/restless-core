@@ -15,7 +15,7 @@
 		type HarnessConfig as Config,
 		type HarnessRow as Row
 	} from '$lib/model/custom-harnesses';
-	let { companyId }: { companyId: string } = $props();
+	let { companyId, embedded = false }: { companyId: string; embedded?: boolean } = $props();
 	/* Installing or checking models is quick to change, so it is read every few seconds; an
 	 * installed harness is looked at again every half minute for new models; otherwise only on
 	 * change. */
@@ -237,14 +237,14 @@
 	holdQueries(() => [intelligence]);
 </script>
 
-<section class="custom-harnesses" aria-labelledby="custom-harness-title">
+<section class="custom-harnesses" aria-label="Custom harnesses">
 	<header>
-		<h2
-			id="custom-harness-title"
-			title="Install another agent harness and give it its own provider credentials."
-		>
-			Other harnesses
-		</h2>
+		{#if !embedded}<h2
+				id="custom-harness-title"
+				title="Install another agent harness and give it its own provider credentials."
+			>
+				Other harnesses
+			</h2>{/if}
 		<button
 			class="btn small"
 			disabled={!view || !!busy}
@@ -441,6 +441,9 @@
 </section>
 
 <style>
+	header:has(> button:only-child) {
+		justify-content: flex-end;
+	}
 	.custom-harnesses {
 		min-width: 0;
 		border-top: 1px solid var(--control-edge);

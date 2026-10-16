@@ -468,7 +468,6 @@
 					class:on={railOpen}
 					class:working={execWorking}
 					type="button"
-					aria-controls="bridge-exrail"
 					aria-expanded={railOpen}
 					aria-keyshortcuts={isMac ? 'Meta+J' : 'Control+J'}
 					aria-label={execLabel}
@@ -530,7 +529,6 @@
 			class:unavailable={execUnavailable}
 			class:on={railOpen}
 			type="button"
-			aria-controls="bridge-exrail"
 			aria-expanded={railOpen}
 			title={railOpen ? `Close ${execName}` : `Open ${execName}`}
 			onclick={() => onexectoggle?.()}

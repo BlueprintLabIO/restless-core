@@ -65,6 +65,8 @@ mod shell_api;
 pub mod sheets_api;
 #[path = "owner_skills.rs"]
 mod skills_api;
+#[path = "owner_work_graph.rs"]
+mod work_graph_api;
 #[path = "owner_telegram.rs"]
 mod telegram_api;
 #[path = "owner_tool_connections.rs"]
@@ -1553,6 +1555,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(company_settings_api::export_company),
         )
         .route("/companies/{company}/attention", get(attention_view))
+        .route("/companies/{company}/work-graph", get(work_graph_api::view))
         .route("/companies/{company}/direction/requests", get(direction_api::requests))
         .route(
             "/companies/{company}/direction/requests/{request}/decision",
@@ -6405,10 +6408,18 @@ async fn restore_company(
     .into_response()
 }
 
+#[derive(Deserialize)]
+struct AttentionQuery {
+    #[serde(default = "include_graph_default")]
+    include_work_graph: bool,
+}
+fn include_graph_default() -> bool { true }
+
 async fn attention_view(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
+    Query(query): Query<AttentionQuery>,
 ) -> impl IntoResponse {
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
@@ -6454,7 +6465,10 @@ async fn attention_view(
         }
     };
     match projected {
-        Ok(view) => Json(view).into_response(),
+        Ok(mut view) => {
+            if !query.include_work_graph { view.work_graph = None; }
+            Json(view).into_response()
+        },
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "projection",

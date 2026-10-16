@@ -17,8 +17,8 @@ export function anchoredPopover(panel: HTMLElement, initial: () => HTMLElement |
 			top = viewport?.offsetTop ?? 0;
 		const width = viewport?.width ?? innerWidth,
 			height = viewport?.height ?? innerHeight;
-		panel.style.maxWidth = Math.max(0, width - 16) + 'px';
-		panel.style.maxHeight = Math.max(0, height - 16) + 'px';
+		panel.style.setProperty('--popover-available-width', Math.max(0, width - 16) + 'px');
+		panel.style.setProperty('--popover-available-height', Math.max(0, height - 16) + 'px');
 		const trigger = control.getBoundingClientRect();
 		const bounds = panel.getBoundingClientRect();
 		panel.style.left =
@@ -39,28 +39,40 @@ export function anchoredPopover(panel: HTMLElement, initial: () => HTMLElement |
 		cancelAnimationFrame(frame);
 		frame = requestAnimationFrame(place);
 	}
-	panel.addEventListener('toggle', place);
+	let observer: ResizeObserver | undefined;
+	let listening = false;
+	function listen(active: boolean) {
+		if (active === listening) return;
+		listening = active;
+		const method = active ? 'addEventListener' : 'removeEventListener';
+		window[method]('resize', schedule);
+		window[method]('scroll', schedule, true);
+		window.visualViewport?.[method]('resize', schedule);
+		window.visualViewport?.[method]('scroll', schedule);
+		if (active) {
+			observer = new ResizeObserver(schedule);
+			observer.observe(panel);
+		} else {
+			observer?.disconnect();
+			observer = undefined;
+			cancelAnimationFrame(frame);
+		}
+	}
+	function toggle() {
+		listen(panel.matches(':popover-open'));
+		if (listening) place();
+	}
+	panel.addEventListener('toggle', toggle);
 	panel.addEventListener('beforetoggle', schedule);
-	window.addEventListener('resize', schedule);
-	window.addEventListener('scroll', schedule, true);
-	window.visualViewport?.addEventListener('resize', schedule);
-	window.visualViewport?.addEventListener('scroll', schedule);
-	const observer = new ResizeObserver(schedule);
-	observer.observe(panel);
 	return {
 		update(next: () => HTMLElement | undefined) {
 			anchor = next;
-			schedule();
+			if (listening) schedule();
 		},
 		destroy() {
-			cancelAnimationFrame(frame);
-			observer.disconnect();
-			panel.removeEventListener('toggle', place);
+			listen(false);
+			panel.removeEventListener('toggle', toggle);
 			panel.removeEventListener('beforetoggle', schedule);
-			window.removeEventListener('resize', schedule);
-			window.removeEventListener('scroll', schedule, true);
-			window.visualViewport?.removeEventListener('resize', schedule);
-			window.visualViewport?.removeEventListener('scroll', schedule);
 		}
 	};
 }

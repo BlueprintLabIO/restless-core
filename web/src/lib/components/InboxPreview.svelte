@@ -53,7 +53,7 @@
 		<header>
 			<a href={backHref}>← Back to Inbox item</a>
 			{#if target.kind === 'limits'}<h2>Limits</h2>
-			{:else if target.kind === 'identity'}<h2>Brand &amp; voice</h2>
+			{:else if target.kind === 'identity'}<h2>Brand</h2>
 			{:else if target.kind === 'charter'}<h2>Charter</h2>{/if}
 		</header>
 		<div

@@ -23,7 +23,7 @@
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? '');
-	const attention = $derived(attentionQuery(companyId));
+	const attention = $derived(attentionQuery(companyId, true, true));
 	const principal = $derived(companyPrincipalQuery(companyId));
 	/* Who acted, in words: the record holds actor ids such as `owner`. */
 	function actorName(id: string): string {

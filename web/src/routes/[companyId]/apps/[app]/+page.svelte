@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
+	import { useAppsData } from '$lib/model/apps-data.svelte';
+	import { catalogueConnectionName } from '$lib/model/app-catalogue';
 	import { formatDay, formatMoment } from '$lib/ui/time';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import Markdown from '$lib/primitives/Markdown.svelte';
@@ -17,7 +20,6 @@
 		classSummary,
 		currentClasses,
 		disconnectConnection,
-		fetchConnections,
 		fetchReceipts,
 		freezeConnection,
 		setConnectionBrowser,
@@ -39,35 +41,43 @@
 	import {
 		assignSkill,
 		editSkill,
-		fetchSkillLibrary,
 		fetchSkillPackage,
 		setSkillDisposition,
 		shortDigest,
-		type SkillLibrary,
 		type SkillPackage,
 		type SkillRow
 	} from '$lib/model/skills';
-	import { LOCAL_INFO, buildApps, nameForLink, skillName, type App } from '$lib/model/apps';
-	import {
-		fetchAppCatalogue,
-		installFromCatalogue,
-		type RegistryItem
-	} from '$lib/model/app-catalogue';
+	import { LOCAL_INFO, resolveApp, nameForLink, skillName, type App } from '$lib/model/apps';
+	import { installFromCatalogue } from '$lib/model/app-catalogue';
 	import { cockpitQuery, companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import AppMark from '$lib/primitives/AppMark.svelte';
-	import { declineAppRequest, fetchAppRequests, type AppRequest } from '$lib/model/app-requests';
+	import AppOverview from '$lib/components/AppOverview.svelte';
+	import { declineAppRequest } from '$lib/model/app-requests';
 
 	const companyId = $derived(page.params.companyId ?? '');
 	const key = $derived(decodeURIComponent(page.params.app ?? ''));
 	const requestId = $derived(page.url.searchParams.get('request'));
 	const appsHref = $derived(`/${encodeURIComponent(companyId)}/apps`);
+	const backHref = $derived.by(() => {
+		const from = page.url.searchParams.get('from');
+		if (!from) return appsHref;
+		try {
+			const url = new URL(from, page.url.origin);
+			return url.origin === page.url.origin && url.pathname === appsHref
+				? url.pathname + url.search
+				: appsHref;
+		} catch {
+			return appsHref;
+		}
+	});
 	const workHref = (id: string) =>
 		`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(id)}`;
 
-	let connections = $state<ToolConnection[] | null>(null);
-	let library = $state<SkillLibrary | null>(null);
-	let request = $state<AppRequest | null>(null);
+	const data = useAppsData();
+	const library = $derived(data.library);
+	const request = $derived(data.requests.find((row) => row.handoff_id === requestId) ?? null);
 	let receipts = $state<Record<string, ToolReceipts>>({});
+	let receiptErrors = $state<Record<string, string>>({});
 	/* How far back each app's activity reaches; "Show more" widens it. */
 	let reach = $state<Record<string, number>>({});
 	let packages = $state<Record<string, SkillPackage | { error: string }>>({});
@@ -82,8 +92,6 @@
 	let editing = $state<Record<string, { text: string; digest: string }>>({});
 	let declining = $state(false);
 	let declineReason = $state('');
-	/* Parts that could not be read: said, never shown as missing. */
-	let partial = $state('');
 
 	/* Who know-how can be given to: the company's teams and agents (owner only). */
 	const principal = $derived(companyPrincipalQuery(companyId));
@@ -98,137 +106,144 @@
 			: (agents.find((person) => person.actor_id === id)?.display ?? skillName(id));
 
 	async function loadReceipts(connection: ToolConnection) {
-		receipts[connection.name] = await fetchReceipts(
-			companyId,
-			connection.name,
-			reach[connection.name] ?? 20
-		).catch(() => ({ reads: [], effects: [] }));
+		const company = companyId,
+			route = key;
+		try {
+			const result = await fetchReceipts(company, connection.name, reach[connection.name] ?? 20);
+			if (company !== companyId || route !== key) return;
+			receipts[connection.name] = result;
+			delete receiptErrors[connection.name];
+		} catch (cause) {
+			if (company === companyId && route === key)
+				receiptErrors[connection.name] = failureSentence(cause, 'Activity could not be read.');
+		}
 	}
-
 	async function loadPackage(skill: SkillRow) {
+		const company = companyId,
+			route = key;
 		const known = packages[skill.name];
 		if (known && 'package' in known && known.package.digest === skill.digest) return;
-		packages[skill.name] = await fetchSkillPackage(companyId, skill.name).catch((cause) => ({
+		const result = await fetchSkillPackage(company, skill.name).catch((cause) => ({
 			error: failureSentence(cause, 'Its files could not be read from the company computer.')
 		}));
+		if (company === companyId && route === key) packages[skill.name] = result;
 	}
+	$effect(() => {
+		companyId;
+		key;
+		untrack(() => {
+			receipts = {};
+			receiptErrors = {};
+			packages = {};
+			reach = {};
+			draft = {};
+			editing = {};
+			busy = '';
+			failure = '';
+			notice = '';
+		});
+	});
 
 	async function load() {
 		failure = '';
-		partial = '';
-		try {
-			const missing: string[] = [];
-			const [tools, skills, directory] = await Promise.all([
-				fetchConnections(companyId),
-				fetchSkillLibrary(companyId).catch(() => {
-					missing.push('know-how');
-					return library;
-				}),
-				/* The public directory names catalogue know-how and services; extra, never required. */
-				fetchAppCatalogue().catch(() => null)
-			]);
-			connections = tools;
-			library = skills;
-			if (directory) registry = directory.items;
-			if (requestId) {
-				const requests = await fetchAppRequests(companyId).catch(() => {
-					missing.push('the request');
-					return null;
-				});
-				if (requests) request = requests.find((row) => row.handoff_id === requestId) ?? null;
-			}
-			partial = missing.length ? `Couldn’t load ${missing.join(' or ')}` : '';
-			/* History is kept whatever the app's state: a broken app still shows what it did. */
-			await Promise.all([
-				...(app?.connections ?? [])
-					.filter((connection) => connection.status !== 'disconnected')
-					.map(loadReceipts),
-				...(app?.skills ?? []).map(loadPackage)
-			]);
-		} catch (cause) {
-			failure = failureSentence(cause, 'This app could not be read.');
-		}
+		await data.load();
+		await loadDetails(app);
 	}
-
+	async function loadDetails(target: App | undefined) {
+		await Promise.all([
+			...(target?.connections ?? [])
+				.filter((connection) => connection.status !== 'disconnected')
+				.map(loadReceipts),
+			...(target?.skills ?? []).map(loadPackage)
+		]);
+	}
+	const apps = $derived(data.projection);
 	$effect(() => {
-		void companyId;
-		void key;
-		void load();
+		const target = app;
+		untrack(() => {
+			void loadDetails(target);
+		});
 	});
-
-	let registry = $state<RegistryItem[]>([]);
-	const apps = $derived(connections ? buildApps(connections, library, [], registry) : null);
-	/* A catalogue key or a pasted link names an app that is not added yet. */
-	const app = $derived<App | undefined>(
-		apps?.mine.find((candidate) => candidate.key === key) ??
-			apps?.mine.find((candidate) => candidate.catalogue?.key === key) ??
-			/* A connection's own address, also when a plugin bundle holds it. */
-			apps?.mine.find((candidate) =>
-				candidate.connections.some((connection) => `c-${connection.name}` === key)
-			) ??
-			apps?.removed.find((candidate) => candidate.key === key) ??
-			apps?.browse.find((candidate) => candidate.key === key)
-	);
+	const resolved = $derived(resolveApp(apps, key));
+	const app = $derived(resolved.app);
+	/* Discovery health does not obscure an independently available app. */
+	const partial = $derived(app?.catalogue?.registryId ? data.partial : data.companyPartial);
 	const pendingLink = $derived(key.startsWith('link:') ? key.slice('link:'.length) : '');
 	/* A pasted link reads as the service it names: mcp.exa.ai is Exa. */
 	const linkName = $derived(
 		pendingLink ? nameForLink(pendingLink).replace(/^./, (first) => first.toUpperCase()) : ''
 	);
 
-	async function act(id: string, action: () => Promise<unknown>, done = '') {
-		if (busy) return;
+	async function act(id: string, action: () => Promise<unknown>, done = ''): Promise<boolean> {
+		if (busy) return false;
+		const company = companyId,
+			selectedKey = key;
+		const active = () => company === companyId && selectedKey === key;
 		busy = id;
 		failure = '';
 		notice = '';
 		try {
 			await action();
+			if (company !== companyId) return false;
+			// Update the company's shared read before opening a newly created app.
+			await data.load();
+			if (!active()) return false;
 			notice = done;
-			await load();
+			await loadDetails(app);
+			return true;
 		} catch (cause) {
-			failure = failureSentence(cause, 'That change was not made.');
+			if (active()) failure = failureSentence(cause, 'That change was not made.');
+			return false;
 		} finally {
-			busy = '';
+			if (active()) busy = '';
 		}
 	}
 
 	/* Adding checks the app and lands on what it can do; the owner allows it from that list. */
 	async function add(credential?: string) {
+		const company = companyId,
+			selectedKey = key,
+			targetApps = appsHref;
+		const active = () => company === companyId && selectedKey === key;
 		const entry = app?.catalogue;
-		await act('add', async () => {
+		let destination = '';
+		const complete = await act('add', async () => {
 			const { connection } = entry
-				? await addConnection(companyId, {
+				? await addConnection(company, {
 						kind: 'remote',
-						name: entry.key,
+						name: await catalogueConnectionName(entry),
 						endpoint: entry.endpoint,
 						source: `catalogue:${entry.key}`,
 						auth: credential ? { type: 'bearer', credential } : { type: 'none' }
 					})
-				: await addConnection(companyId, {
+				: await addConnection(company, {
 						kind: 'remote',
 						name: nameForLink(pendingLink),
 						endpoint: pendingLink
 					});
-			await goto(
-				`${appsHref}/${encodeURIComponent(`c-${connection.name}`)}${requestId ? `?request=${requestId}` : ''}`,
-				{ replaceState: true }
-			);
+			destination = `${targetApps}/${encodeURIComponent(`c-${connection.name}`)}${requestId ? `?request=${requestId}` : ''}`;
 		});
+		if (complete && active()) await goto(destination, { replaceState: true });
 	}
 
 	/* Know-how from the public catalogue: install its files as a candidate. One without scripts
 	 * is accepted at once, the deliberate click being the owner's yes; one with scripts opens for
 	 * the same review as any candidate (Sprint 87). */
 	async function install() {
+		const company = companyId,
+			selectedKey = key,
+			targetApps = appsHref;
+		const active = () => company === companyId && selectedKey === key;
 		const skill = app?.registrySkill;
 		if (!skill) return;
-		await act('add', async () => {
-			const installed = await installFromCatalogue(companyId, skill.key);
+		let destination = '';
+		const complete = await act('add', async () => {
+			const installed = await installFromCatalogue(company, skill.key);
 			if (!installed.runs_scripts)
-				await setSkillDisposition(companyId, installed.skill.name, 'accepted');
-			await goto(`${appsHref}/${encodeURIComponent(`s-${installed.skill.name}`)}`, {
-				replaceState: true
-			});
+				await setSkillDisposition(company, installed.skill.name, 'accepted');
+			destination = `${targetApps}/${encodeURIComponent(`s-${installed.skill.name}`)}`;
 		});
+		if (complete && active()) await goto(destination, { replaceState: true });
 	}
 
 	/* Where a sign-in began, so the owner gets back there once it completes: the Inbox's
@@ -243,9 +258,13 @@
 		}
 	});
 	async function startSignIn(connection: ToolConnection) {
+		const company = companyId,
+			selectedKey = key;
+		const active = () => company === companyId && selectedKey === key;
 		await act(`signin:${connection.name}`, async () => {
-			if (returnTo) rememberSignInReturn(companyId, connection.name, returnTo);
-			window.location.assign(await signIn(companyId, connection.name));
+			if (returnTo) rememberSignInReturn(company, connection.name, returnTo);
+			const url = await signIn(company, connection.name);
+			if (active()) window.location.assign(url);
 		});
 	}
 
@@ -259,6 +278,9 @@
 		days ? new Date(Date.now() + Number(days) * 86_400_000).toISOString() : null;
 
 	async function allow(connection: ToolConnection) {
+		const company = companyId,
+			selectedKey = key;
+		const active = () => company === companyId && selectedKey === key;
 		const classes = currentClasses(connection);
 		const tools = connection.tools.map((tool) => {
 			const base: GrantedTool | undefined = classes[tool.name];
@@ -271,9 +293,11 @@
 		await act(
 			`grant:${connection.name}`,
 			async () => {
-				await grantTools(companyId, connection.name, tools, until(expiry[connection.name] ?? ''));
-				draft = {};
-				delete expiry[connection.name];
+				await grantTools(company, connection.name, tools, until(expiry[connection.name] ?? ''));
+				if (active()) {
+					draft = {};
+					delete expiry[connection.name];
+				}
 			},
 			request
 				? `${app?.name ?? connection.name} is in use. The work that was waiting on it resumes on its own.`
@@ -283,12 +307,16 @@
 
 	/* Off takes back what it may do and keeps the sign-in; On restores exactly what it allowed. */
 	async function setOn(connection: ToolConnection, on: boolean) {
+		const company = companyId,
+			selectedKey = key;
+		const active = () => company === companyId && selectedKey === key;
 		const name = app?.name ?? connection.name;
 		if (on) {
 			await act(`on:${connection.name}`, () =>
-				grantTools(companyId, connection.name, restoredDecisions(connection))
+				grantTools(company, connection.name, restoredDecisions(connection))
 			);
-			if (!failure) toast(`${name} is on again: ${classSummary(restoredDecisions(connection))}.`);
+			if (active() && !failure)
+				toast(`${name} is on again: ${classSummary(restoredDecisions(connection))}.`);
 			return;
 		}
 		const before: ToolDecision[] = (liveGrant(connection)?.tools ?? []).map((tool) => ({
@@ -296,13 +324,13 @@
 			class: tool.class,
 			party_args: tool.party_args
 		}));
-		await act(`on:${connection.name}`, () => revokeGrant(companyId, connection.name));
-		if (!failure)
+		await act(`on:${connection.name}`, () => revokeGrant(company, connection.name));
+		if (active() && !failure)
 			toast(`${name} is off. Its sign-in is kept.`, {
 				undo: before.length
 					? async () => {
-							await grantTools(companyId, connection.name, before);
-							await load();
+							await grantTools(company, connection.name, before);
+							if (active()) await load();
 						}
 					: undefined
 			});
@@ -313,13 +341,18 @@
 		update: { endpoint?: string; credential?: string },
 		done: string
 	) {
+		const company = companyId,
+			selectedKey = key;
+		const active = () => company === companyId && selectedKey === key;
 		await act(
 			`change:${connection.name}`,
 			async () => {
-				const { connection: changed } = await changeConnection(companyId, connection.name, update);
-				delete address[connection.name];
-				if (changed.status === 'awaiting_sign_in')
-					window.location.assign(await signIn(companyId, changed.name));
+				const { connection: changed } = await changeConnection(company, connection.name, update);
+				if (active()) delete address[connection.name];
+				if (changed.status === 'awaiting_sign_in') {
+					const url = await signIn(company, changed.name);
+					if (active()) window.location.assign(url);
+				}
 			},
 			done
 		);
@@ -381,6 +414,10 @@
 
 	/* Who loses what when the app goes: the agents and Work that used it lately, its know-how. */
 	async function remove() {
+		const company = companyId,
+			selectedKey = key,
+			targetApps = appsHref;
+		const active = () => company === companyId && selectedKey === key;
 		const target = app;
 		if (!target) return;
 		const live = target.connections.filter((connection) => connection.status !== 'disconnected');
@@ -412,15 +449,15 @@
 			action: 'Remove',
 			danger: true
 		});
-		if (!yes) return;
-		await act('disconnect', async () => {
+		if (!yes || !active()) return;
+		const complete = await act('disconnect', async () => {
 			for (const connection of live) {
-				if (granted(connection)) await revokeGrant(companyId, connection.name);
-				await disconnectConnection(companyId, connection.name);
+				if (granted(connection)) await revokeGrant(company, connection.name);
+				await disconnectConnection(company, connection.name);
 			}
-			for (const skill of skills) await setSkillDisposition(companyId, skill.name, 'retired');
-			await goto(appsHref);
+			for (const skill of skills) await setSkillDisposition(company, skill.name, 'retired');
 		});
+		if (complete && active()) await goto(targetApps);
 	}
 
 	const givenTo = (skill: SkillRow) =>
@@ -428,11 +465,12 @@
 			(row) => row.skill_name === skill.name && row.scope !== 'company' && row.enabled
 		) ?? [];
 	async function give(skill: SkillRow, holder: string) {
+		const company = companyId;
 		const [scope, id] = holder.split(':', 2) as ['team' | 'actor', string];
 		if (!id) return;
 		await act(
 			`give:${skill.name}`,
-			() => assignSkill(companyId, skill.name, scope, id, true),
+			() => assignSkill(company, skill.name, scope, id, true),
 			`${skillName(skill.name)} was given to ${holderName(scope, id)}.`
 		);
 	}
@@ -454,12 +492,15 @@
 
 	/* Removing know-how keeps it, so it says so with Undo rather than asking first. */
 	async function retire(skill: SkillRow) {
-		await act(`retired:${skill.name}`, () => setSkillDisposition(companyId, skill.name, 'retired'));
-		if (!failure)
+		const company = companyId,
+			selectedKey = key;
+		const active = () => company === companyId && selectedKey === key;
+		await act(`retired:${skill.name}`, () => setSkillDisposition(company, skill.name, 'retired'));
+		if (active() && !failure)
 			toast(`${skillName(skill.name)} was removed. It is kept under Removed.`, {
 				undo: async () => {
-					await setSkillDisposition(companyId, skill.name, 'accepted');
-					await load();
+					await setSkillDisposition(company, skill.name, 'accepted');
+					if (active()) await load();
 				}
 			});
 	}
@@ -472,13 +513,16 @@
 	const body = (text: string) => text.replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim();
 
 	async function saveSkill(skill: SkillRow) {
+		const company = companyId,
+			selectedKey = key;
+		const active = () => company === companyId && selectedKey === key;
 		const edit = editing[skill.name];
 		if (!edit) return;
 		await act(
 			`edit:${skill.name}`,
 			async () => {
-				await editSkill(companyId, skill.name, edit.text, edit.digest);
-				delete editing[skill.name];
+				await editSkill(company, skill.name, edit.text, edit.digest);
+				if (active()) delete editing[skill.name];
 			},
 			`${skillName(skill.name)} was saved. Agents follow the new version from their next use.`
 		);
@@ -726,6 +770,19 @@
 		</Section>
 	{/if}
 
+	{#if receiptErrors[connection.name]}
+		<Notice
+			tone="warning"
+			title="Activity could not be read"
+			details={receiptErrors[connection.name]}
+		>
+			{#snippet actions()}<button
+					class="btn small"
+					type="button"
+					onclick={() => void loadReceipts(connection)}>Try again</button
+				>{/snippet}
+		</Notice>
+	{/if}
 	{@const recent = receipts[connection.name]}
 	{@const used = uses(recent)}
 	{#if used.length}
@@ -983,8 +1040,12 @@
 	</Section>
 {/snippet}
 
-{#if !apps}
-	{#if failure}<Notice tone="danger" title="This app could not be read" details={failure} />
+{#if !apps || (!app && (data.skillsLoading || data.catalogueLoading))}
+	{#if failure || data.failure}<Notice
+			tone="danger"
+			title="This app could not be read"
+			details={failure || data.failure}
+		/>
 	{:else}<Skeleton label="Reading the app…" variant="page" count={3} />{/if}
 {:else if !app && !pendingLink}
 	{#if partial}
@@ -999,15 +1060,18 @@
 		</Page>
 	{:else}
 		<Page title="App not found">
-			<Notice tone="warning" title="This app is not here" details="It may have been removed." />
+			<Notice
+				tone="warning"
+				title="This app is not here"
+				details={resolved.ambiguous
+					? 'This old link matches several apps. Search Discover to choose the right publisher.'
+					: 'It may have been removed.'}
+			/>
 			<a class="btn small" href={appsHref}>All apps</a>
 		</Page>
 	{/if}
 {:else}
-	<Page
-		title={app?.name ?? linkName}
-		info={app ? `${app.description} ${app.howTip}` : `An MCP server at ${pendingLink}.`}
-	>
+	<Page title={app?.name ?? linkName} info={app ? app.howTip : `A service at ${pendingLink}.`}>
 		{#snippet leading()}
 			<AppMark
 				name={app?.name ?? linkName}
@@ -1017,6 +1081,18 @@
 			/>
 		{/snippet}
 		{#snippet actions()}
+			{#if owner && app?.state === 'available' && (app.catalogue || app.registrySkill) && app.catalogue?.auth !== 'token'}
+				<button
+					class="btn small primary"
+					type="button"
+					disabled={!!busy}
+					title={app.registrySkill?.runsScripts
+						? 'Install as a candidate, then review its scripts.'
+						: app.howTip}
+					onclick={() => (app?.registrySkill ? void install() : void add())}
+					>{busy === 'add' ? 'Adding…' : app.registrySkill ? 'Install' : 'Add'}</button
+				>
+			{/if}
 			{#if owner && app && (app.connections.some((connection) => connection.status !== 'disconnected') || (app.kind === 'bundle' && app.skills.some((skill) => skill.disposition !== 'retired')))}
 				<button
 					class="btn small ghost"
@@ -1028,7 +1104,7 @@
 			{/if}
 		{/snippet}
 
-		<a class="back" href={appsHref}>Apps</a>
+		<a class="back" href={backHref}>Apps</a>
 		{#if signedInReturn}<Notice tone="success" title="Signed in">
 				{#snippet actions()}<a class="btn small primary" href={signedInReturn}
 						>Back to where you started</a
@@ -1065,7 +1141,6 @@
 								'dismiss',
 								async () => {
 									await declineAppRequest(companyId, asked, declineReason);
-									request = null;
 									declining = false;
 									declineReason = '';
 								},
@@ -1087,41 +1162,18 @@
 		{/if}
 
 		{#if app && app.state === 'available'}
-			<Section title="Add">
-				<div class="status">
-					<span title={app.howTip}>{app.how}</span>
-					<span class="spacer"></span>
-					{#if !owner}
-						<span class="quiet" title="Adding an app is the owner's.">Not added</span>
-					{:else if app.registrySkill}
-						<button
-							class="btn small primary"
-							type="button"
-							disabled={!!busy}
-							title={app.registrySkill.runsScripts
-								? 'Installs it as a candidate. It ships scripts, so you review them before the company uses it.'
-								: 'Installs it, ready for the company to use.'}
-							onclick={() => void install()}>{busy === 'add' ? 'Installing…' : 'Install'}</button
-						>
-					{:else if app.catalogue?.auth === 'token'}
-						<TokenPicker
-							{companyId}
-							app={app.catalogue.key}
-							action="Add"
-							busy={busy === 'add'}
-							onchoose={(credential) => add(credential)}
-						/>
-					{:else}
-						<button
-							class="btn small primary"
-							type="button"
-							disabled={!!busy}
-							title="Adds it and checks it answers. You then sign in if it needs one, and choose what it may do."
-							onclick={() => void add()}>{busy === 'add' ? 'Adding…' : 'Add'}</button
-						>
-					{/if}
-				</div>
-			</Section>
+			<AppOverview {app} />
+			{#if owner && app.catalogue?.auth === 'token'}
+				<Section title="Connect">
+					<TokenPicker
+						{companyId}
+						app={app.catalogue.key}
+						action="Add"
+						busy={busy === 'add'}
+						onchoose={(credential) => add(credential)}
+					/>
+				</Section>
+			{:else if !owner}<p class="quiet">Adding this app requires the company owner.</p>{/if}
 		{:else if !app && pendingLink}
 			<Section title="Add">
 				<div class="status">

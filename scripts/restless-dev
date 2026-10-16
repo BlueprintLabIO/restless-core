@@ -475,7 +475,7 @@ promote() {
   # they hold on these exact binaries and image before anything is activated.
   if [ "$skip_smoke" = true ]; then
     printf '\nWARNING: --skip-smoke: promoting %s without the connections smoke.\n' "$short" >&2
-  elif [ -x "${source}/scripts/connections-smoke" ]; then
+  elif [ -f "${source}/scripts/connections-smoke" ]; then
     printf '\nChecking connections on this build…\n'
     if ! RESTLESSD_BIN="${build_root}/target/release/restlessd" \
          RESTLESS_CLI_BIN="${build_root}/target/release/restless" \
@@ -487,6 +487,9 @@ promote() {
         "$short" "${build_root}/connections-smoke-${short}/evidence.json" >&2
       return 1
     fi
+  else
+    printf 'Required connections smoke is missing; nothing was activated.\n' >&2
+    return 1
   fi
 
   local release_env="${build_root}/release.env"

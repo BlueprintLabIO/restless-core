@@ -14,7 +14,8 @@
 	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
 	import { failureSentence } from '$lib/model/failure';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
-	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import Popover from '$lib/ui/controls/Popover.svelte';
+	import { untrack } from 'svelte';
 	import Check from '@lucide/svelte/icons/check';
 	import Brain from '@lucide/svelte/icons/brain';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
@@ -54,41 +55,63 @@
 	let busy = $state(false);
 	let failure = $state('');
 
-	async function choose(model: string) {
+	$effect(() => {
+		companyId;
+		actorId;
+		untrack(() => {
+			busy = false;
+			failure = '';
+			query = '';
+			showOlder = false;
+		});
+	});
+
+	async function choose(model: string, close: () => void) {
+		const company = companyId,
+			actor = actorId,
+			originalSource = source;
+		const active = () => company === companyId && actor === actorId;
 		if (!source.view || !assignment || busy || model === current) return;
 		busy = true;
 		failure = '';
 		try {
-			await assignModel(companyId, actorId, {
+			await assignModel(company, actor, {
 				connection: assignment.connection,
 				model,
 				reset: false,
 				revision: source.view.revision
 			});
-			announceIntelligenceChange(companyId);
+			announceIntelligenceChange(company);
+			if (!active()) return;
 			const chosen = choices.find((row) => row.id === model)?.name ?? modelLabel(model);
 			toast(`${name} will use ${chosen} from their next session.`);
+			close();
 		} catch (cause) {
-			failure = failureSentence(cause, 'Could not change the model.');
+			if (active()) failure = failureSentence(cause, 'Could not change the model.');
 		} finally {
-			await source.refresh();
-			busy = false;
+			await originalSource.refresh();
+			if (active()) busy = false;
 		}
 	}
 	async function chooseEffort(effort: string) {
+		const company = companyId,
+			actor = actorId,
+			originalSource = source;
+		const active = () => company === companyId && actor === actorId;
 		if (!source.view || busy || effort === agent?.thinking_effort) return;
 		busy = true;
 		failure = '';
 		try {
-			await setEffort(companyId, { effort, revision: source.view.revision });
-			announceIntelligenceChange(companyId);
+			await setEffort(company, { effort, revision: source.view.revision });
+			announceIntelligenceChange(company);
+			if (!active()) return;
 			const label = EFFORTS.find((row) => row.value === effort)?.label ?? effort;
 			toast(`Agents will think with ${label.toLowerCase()} effort from their next session.`);
 		} catch (cause) {
-			failure = failureSentence(cause, 'Could not change the effort.');
+			if (active()) failure = failureSentence(cause, 'Could not change the effort.');
 		} finally {
-			await source.refresh();
-			busy = false;
+			await originalSource.refresh();
+			if (active()) busy = false;
 		}
 	}
 	/* The chip names the model, short: the family without its provider or date. */
@@ -107,68 +130,76 @@
 		class="chip"
 		title={`${name} thinks with ${modelLabel(agent.effective_model)}, ${effortLabel(agent.thinking_effort).toLowerCase()} effort`}
 	>
-		<ActionMenu label={`${name}’s model`}>
+		<Popover label={`${name}’s model`}>
 			{#snippet trigger()}<span class="face"
 					><Brain size={14} strokeWidth={1.8} aria-hidden="true" /><span class="model-name"
 						>{shortModel}</span
 					></span
 				>{/snippet}
-			<p class="now">
-				{modelLabel(agent.effective_model)}<i aria-hidden="true">·</i>{effortLabel(
-					agent.thinking_effort
-				)} effort
-			</p>
-			<div class="efforts" role="group" aria-label="Thinking effort for every agent">
-				{#each EFFORTS as effort (effort.value)}
-					<button
+			{#snippet children(close)}
+				<p class="now">
+					{modelLabel(agent.effective_model)}<i aria-hidden="true">·</i>{effortLabel(
+						agent.thinking_effort
+					)} effort
+				</p>
+				<fieldset class="effort-setting">
+					<legend>Effort for every agent</legend>
+					<div class="efforts">
+						{#each EFFORTS as effort (effort.value)}
+							<button
+								type="button"
+								class:on={agent.thinking_effort === effort.value}
+								aria-pressed={agent.thinking_effort === effort.value}
+								disabled={busy}
+								title={`${effort.hint}. Applies to every agent from their next session.`}
+								onclick={() => chooseEffort(effort.value)}>{effort.label}</button
+							>
+						{/each}
+					</div>
+				</fieldset>
+				{#if choices.length >= FILTER_FROM || assignment?.connection.includes('openrouter')}<input
+						class="filter"
+						type="search"
+						placeholder="Find a model"
+						aria-label="Find a model"
+						bind:value={query}
+					/>{/if}
+				<div class="models">
+					{#each shown as model (model.id)}
+						<button
+							type="button"
+							disabled={busy || !assignment}
+							onclick={() => choose(model.id, close)}
+							><span>{model.name}</span>{#if model.id === current}<Check
+									size={14}
+									aria-label="Current"
+								/>{/if}</button
+						>
+					{:else}<p class="now">No listed model matches.</p>{/each}
+				</div>
+				{#if query.trim() && !choices.some((model) => model.id === query.trim())}<button
 						type="button"
-						class:on={agent.thinking_effort === effort.value}
-						aria-pressed={agent.thinking_effort === effort.value}
-						disabled={busy}
-						title={`${effort.hint}. Applies to every agent from their next session.`}
-						onclick={() => chooseEffort(effort.value)}>{effort.label}</button
-					>
-				{/each}
-			</div>
-			{#if choices.length >= FILTER_FROM || assignment?.connection.includes('openrouter')}<input
-					class="filter"
-					type="search"
-					placeholder="Find a model"
-					aria-label="Find a model"
-					bind:value={query}
-				/>{/if}
-			<div class="models">
-				{#each shown as model (model.id)}
-					<button type="button" disabled={busy || !assignment} onclick={() => choose(model.id)}
-						><span>{model.name}</span>{#if model.id === current}<Check
-								size={14}
-								aria-label="Current"
-							/>{/if}</button
-					>
-				{:else}<p class="now">No listed model matches.</p>{/each}
-			</div>
-			{#if query.trim() && !choices.some((model) => model.id === query.trim())}<button
-					type="button"
-					disabled={busy || !assignment}
-					title="Use a model ID this provider offers that the list does not show"
-					onclick={() => choose(query.trim())}>Use model ID “{query.trim()}”</button
-				>{/if}
-			{#if !query && grouped.older.length}<button
-					type="button"
-					class="older"
-					aria-expanded={showOlder}
-					onclick={() => (showOlder = !showOlder)}
-					>{showOlder ? 'Fewer models' : `Older models (${grouped.older.length})`}</button
-				>{/if}
-			{#if failure}<p class="failure" role="alert">{failure}</p>{/if}
-			<a href={`/${encodeURIComponent(companyId)}/company/provider`}>All intelligence settings</a>
-		</ActionMenu>
+						disabled={busy || !assignment}
+						title="Use a model ID this provider offers that the list does not show"
+						onclick={() => choose(query.trim(), close)}>Use model ID “{query.trim()}”</button
+					>{/if}
+				{#if !query && grouped.older.length}<button
+						type="button"
+						class="older"
+						aria-expanded={showOlder}
+						onclick={() => (showOlder = !showOlder)}
+						>{showOlder ? 'Fewer models' : `Older models (${grouped.older.length})`}</button
+					>{/if}
+				{#if failure}<p class="failure" role="alert">{failure}</p>{/if}
+				<a href={`/${encodeURIComponent(companyId)}/company/provider`}>All intelligence settings</a>
+			{/snippet}
+		</Popover>
 	</div>
 {/if}
 
 <style>
 	.chip,
-	.chip :global(.action-menu) {
+	.chip :global(.selection-popover) {
 		flex: 0 1 auto;
 		min-width: 0;
 	}
@@ -195,22 +226,29 @@
 		white-space: nowrap;
 	}
 	.efforts {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 2px;
+		display: grid;
+		grid-template-columns: repeat(5, minmax(0, 1fr));
+		gap: 3px;
 		margin: 0 8px 6px;
 	}
-	.chip :global(.action-menu-panel .efforts button) {
-		flex: 1 0 auto;
+	.efforts button {
+		display: flex;
+		align-items: center;
+		min-width: 0;
+		min-height: 34px;
+		font: inherit;
+		color: var(--text-secondary);
+		background: transparent;
 		justify-content: center;
-		padding: 2px 6px;
+		padding: 2px 4px;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-control);
 		font-size: var(--t-label);
 	}
-	.chip :global(.action-menu-panel .efforts button.on) {
-		border-color: var(--border-strong);
-		background: var(--surface-hover);
+	.efforts button.on {
+		border-color: var(--intent-conversation);
+		background: var(--surface-alt);
+		font-weight: 600;
 		color: var(--ink);
 	}
 	.chip :global(summary:hover) {
@@ -225,9 +263,57 @@
 		color: var(--ink);
 		font: inherit;
 	}
+	.effort-setting {
+		margin: 0;
+		padding: 4px 0 6px;
+		border: 0;
+		min-width: 0;
+	}
+	.effort-setting legend {
+		padding: 0 8px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.chip :global(.selection-popover-panel) {
+		width: 300px;
+		font: inherit;
+	}
+	.models button,
+	.older,
+	.chip :global(.selection-popover-panel > a) {
+		font: inherit;
+		cursor: pointer;
+		width: 100%;
+		min-height: 34px;
+		padding: 7px 10px;
+		border: 0;
+		border-radius: 4px;
+		background: transparent;
+		color: var(--ink);
+		text-align: left;
+		text-decoration: none;
+	}
+	.models button:hover,
+	.older:hover,
+	.chip :global(.selection-popover-panel > a:hover) {
+		background: var(--surface-hover);
+	}
+	.models button:focus-visible,
+	.older:focus-visible,
+	.efforts button:focus-visible {
+		outline: 2px solid var(--intent-feedback);
+		outline-offset: -2px;
+	}
+	.models button span {
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+	.models button :global(svg) {
+		flex: none;
+	}
 	.models {
 		display: grid;
-		max-height: min(320px, 50vh);
+		max-height: min(240px, 38dvh);
 		overflow-y: auto;
 	}
 	.older {
@@ -252,7 +338,7 @@
 		color: var(--text-tertiary);
 		font-style: normal;
 	}
-	.chip :global(.action-menu-panel button) {
+	.chip :global(.selection-popover-panel button) {
 		display: flex;
 		justify-content: space-between;
 		gap: 12px;

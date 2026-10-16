@@ -256,9 +256,7 @@
 		await rejectIdentityProposal(
 			companyId,
 			proposalId,
-			accepted
-				? 'Settled line by line in Brand & voice.'
-				: 'Dismissed line by line in Brand & voice.'
+			accepted ? 'Settled line by line in Brand.' : 'Dismissed line by line in Brand.'
 		);
 		await onSaved();
 	}
@@ -423,7 +421,7 @@
 		);
 		const link = window.document.createElement('a');
 		link.href = url;
-		link.download = documentFileName('Brand & voice', 'md');
+		link.download = documentFileName('Brand', 'md');
 		link.click();
 		setTimeout(() => URL.revokeObjectURL(url), 1_000);
 	}
@@ -482,11 +480,7 @@
 	});
 </script>
 
-<Section
-	title="Brand"
-	info="Your company's truth, voice, visual language and culture, read top to bottom. Every statement can be edited or removed, including ones Exec drafted. Saving creates a new version; earlier work keeps the version it started with. Hover a statement to see where it came from."
-	group={false}
->
+<Section group={false}>
 	{#snippet actions()}
 		{#if editing}
 			<button
@@ -712,7 +706,7 @@
 		</div>
 	{:else if view.current_release || changes || canManage}
 		<article class="brand-doc document-print" bind:this={documentElement}>
-			<h1 class="print-title">Brand & voice</h1>
+			<h1 class="print-title">Brand</h1>
 			{#each IDENTITY_PILLARS as pillar (pillar.key)}
 				{@const items = shown.filter((item) => item.pillar === pillar.key)}
 				<section class="pillar" aria-label={pillar.label}>
@@ -1145,12 +1139,7 @@
 		width: 100%;
 	}
 	.print-title {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		overflow: hidden;
-		clip-path: inset(50%);
-		white-space: nowrap;
+		display: none;
 	}
 	.start-actions {
 		display: flex;

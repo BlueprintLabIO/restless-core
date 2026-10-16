@@ -29,7 +29,7 @@ export const COMPANY_PAGES: CompanyPage[] = [
 	{
 		key: 'identity',
 		group: 'About',
-		label: 'Brand & voice',
+		label: 'Brand',
 		path: '/identity',
 		keywords: 'identity voice brand tone look style logo colours colors'
 	},

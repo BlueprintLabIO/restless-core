@@ -17,7 +17,7 @@
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? '');
-	const attention = $derived(attentionQuery(companyId));
+	const attention = $derived(attentionQuery(companyId, true, true));
 	/* Only the spend summary: an admin reads this page too, and the whole company view is the
 	 * owner's. */
 	const company = $derived(companySpendQuery(companyId));

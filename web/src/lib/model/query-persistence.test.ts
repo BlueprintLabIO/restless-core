@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { QueryClient } from '@tanstack/query-core';
+import { steady } from './steady.ts';
 import * as persistence from './query-persistence.ts';
 import type { PersistedQueryEnvelope, SafeQueryStore } from './query-persistence';
 
@@ -528,5 +529,63 @@ test('verified hydration loads absent data but never clobbers a newer live respo
 		controller.stop();
 		globalThis.fetch = original;
 		client.clear();
+	}
+});
+
+test('safe hydration never cancels the newer live attention read', async () => {
+	const original = globalThis.fetch;
+	globalThis.fetch = (async () =>
+		new Response(
+			JSON.stringify({
+				actor_id: 'alice',
+				membership_role: 'owner',
+				cache_partition: 'partition-live'
+			}),
+			{ status: 200 }
+		)) as typeof fetch;
+	const client = steady(new QueryClient());
+	const key = ['attention', 'acme'];
+	const now = Date.now();
+	const envelope = buildPersistedEnvelope(
+		'acme',
+		'partition-live',
+		[{ queryKey: key, data: attentionView(), dataUpdatedAt: now - 1000 }],
+		now
+	);
+	const store = new MemoryStore();
+	store.values.set(envelope.id, envelope);
+	let release!: () => void;
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	let signal!: AbortSignal;
+	const live = attentionView();
+	live.company.name = 'Fresh live read';
+	const pending = client.fetchQuery({
+		queryKey: key,
+		queryFn: async (context) => {
+			signal = context.signal;
+			await held;
+			return live;
+		}
+	});
+	const controller = startCompanyQueryPersistence(client, 'acme', store);
+	try {
+		await controller.verify();
+		assert.equal(signal.aborted, false, 'The live read survives restoring its safe summary');
+		const cached = client.getQueryData<ReturnType<typeof attentionView>>(key)!;
+		assert.equal(cached.sourceHealth.authority, 'unknown');
+		assert(cached.items.every((item) => item.source.plane === 'orgintel'));
+		release();
+		await pending;
+		assert.equal(
+			client.getQueryData<ReturnType<typeof attentionView>>(key)?.company.name,
+			'Fresh live read'
+		);
+	} finally {
+		release();
+		controller.stop();
+		client.clear();
+		globalThis.fetch = original;
 	}
 });

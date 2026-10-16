@@ -752,7 +752,12 @@ export function startCompanyQueryPersistence(
 				for (const entry of envelope.entries) {
 					const current = client.getQueryState(entry.queryKey);
 					if (!shouldHydratePersistedEntry(current?.dataUpdatedAt, entry.dataUpdatedAt)) continue;
-					client.setQueryData(entry.queryKey, entry.data, { updatedAt: entry.dataUpdatedAt });
+					// Hydration is a read, not a local write. It must not invoke steady's
+					// write-wins cancellation of the newer live read already in flight.
+					client
+						.getQueryCache()
+						.build(client, { queryKey: entry.queryKey })
+						.setData(entry.data, { updatedAt: entry.dataUpdatedAt, manual: true });
 					// Revalidate, but let a read already in flight finish rather
 					// than cancelling it and asking again.
 					void client.invalidateQueries(

@@ -2227,9 +2227,9 @@ async fn project_queue(
                         charter_proposal: None,
                         actions: vec![AttentionAction {
                             id: "decide-identity-drift".into(),
-                            label: "Decide on Brand & voice".into(),
+                            label: "Decide on Brand".into(),
                             role: "inspect",
-                            consequence: "Opens the affected artifact's decision on Brand & voice.".into(),
+                            consequence: "Opens the affected artifact's decision on Brand.".into(),
                             next_state: "Recording a decision clears this item.".into(),
                             href: Some(format!(
                                 "/{}/company/identity?drift={}",

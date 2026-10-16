@@ -75,7 +75,7 @@
 	const companyId = $derived(page.params.companyId ?? '');
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
 	const ownerAccess = $derived(principalProjection.view?.membership_role === 'owner');
-	const attentionProjection = $derived(attentionQuery(companyId, () => ownerAccess));
+	const attentionProjection = $derived(attentionQuery(companyId, () => ownerAccess, true));
 	const cockpitProjection = $derived(cockpitQuery(companyId, () => ownerAccess));
 	const collaborationProjection = $derived(
 		collaborationBootstrapQuery(companyId, () => (ownerAccess ? null : principalProjection.view))

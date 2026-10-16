@@ -23,7 +23,8 @@
 		"format": "prettier --write .",
 		"lint": "prettier --check .",
 		"verify:markdown": "node scripts/verify-streaming-markdown.mjs",
-		"pack:office": "node scripts/pack-office.mjs"
+		"pack:office": "node scripts/pack-office.mjs",
+		"verify:quality": "node scripts/verify-product-quality.mjs"
 	},
 	"devDependencies": {
 		"@hocuspocus/server": "^4.6.0",
@@ -31,6 +32,7 @@
 		"@sveltejs/kit": "^2.63.0",
 		"@sveltejs/vite-plugin-svelte": "^7.1.2",
 		"@types/node": "^22",
+		"axe-core": "4.14.0",
 		"playwright": "1.63.0",
 		"prettier": "^3.8.3",
 		"prettier-plugin-svelte": "^4.1.0",

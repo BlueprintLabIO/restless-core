@@ -13,6 +13,8 @@ import type { QueryClient } from '@tanstack/svelte-query';
 import {
 	getActorConversation,
 	getAttention,
+	getWorkGraph,
+	getWorkContext,
 	openAgentActivityStream,
 	sendActorMessage,
 	interruptActorMessage,
@@ -67,6 +69,8 @@ export const queryKeys = {
 			principal?.cache_partition ?? null
 		] as const,
 	attention: (company: string) => ['attention', company] as const,
+	workGraph: (company: string) => ['work-graph', company] as const,
+	workContext: (company: string) => ['work-context', company] as const,
 	cockpit: (company: string) => ['cockpit', company] as const,
 	company: (company: string, probeCredentials: boolean) =>
 		['company', company, { probeCredentials }] as const,
@@ -180,7 +184,50 @@ function refresh<T>(query: { refetch: () => Promise<T> }): Promise<T> {
 	return query.refetch();
 }
 
-export function attentionQuery(companyId: string | (() => string), enabled: QueryEnabled = true) {
+/** Current Work references suffice for navigation and conversation context. */
+export function workContextQuery(
+	companyId: string | (() => string),
+	enabled: QueryEnabled = true,
+	fullGraph: QueryEnabled = false
+) {
+	const company = () => (typeof companyId === 'function' ? companyId() : companyId);
+	const graph = createQuery(() => ({
+		queryKey: queryKeys.workGraph(company()),
+		queryFn: ({ queryKey, signal }) => getWorkGraph(queryKey[1], signal),
+		enabled: queryEnabled(enabled) && queryEnabled(fullGraph),
+		staleTime: STALE_MS,
+		gcTime: RETAIN_MS,
+		refetchInterval: pollEvery(REFRESH_MS, 120_000),
+		refetchIntervalInBackground: false
+	}));
+	const context = createQuery(() => ({
+		queryKey: queryKeys.workContext(company()),
+		queryFn: ({ queryKey, signal }) => getWorkContext(queryKey[1], signal),
+		enabled: queryEnabled(enabled) && !queryEnabled(fullGraph),
+		staleTime: STALE_MS,
+		gcTime: RETAIN_MS,
+		refetchInterval: pollEvery(REFRESH_MS, 120_000),
+		refetchIntervalInBackground: false
+	}));
+	const current = () => (queryEnabled(fullGraph) ? graph : context);
+	return {
+		get view() {
+			return current().data ?? null;
+		},
+		get status() {
+			return statusOf(current());
+		},
+		get failure() {
+			return current().error;
+		}
+	};
+}
+
+export function attentionQuery(
+	companyId: string | (() => string),
+	enabled: QueryEnabled = true,
+	withGraph: QueryEnabled = false
+) {
 	const currentCompany = () => (typeof companyId === 'function' ? companyId() : companyId);
 	const client = useQueryClient();
 	onMount(() => {
@@ -188,7 +235,7 @@ export function attentionQuery(companyId: string | (() => string), enabled: Quer
 		const channel = new BroadcastChannel('restless-attention');
 		channel.onmessage = (event) => {
 			if (event.data === currentCompany() && queryEnabled(enabled)) {
-				void client.invalidateQueries({ queryKey: queryKeys.attention(currentCompany()) });
+				void invalidateAttentionReads(client, currentCompany());
 			}
 		};
 		return () => channel.close();
@@ -202,20 +249,58 @@ export function attentionQuery(companyId: string | (() => string), enabled: Quer
 		refetchInterval: pollEvery(REFRESH_MS, 30_000),
 		refetchIntervalInBackground: false
 	}));
+	const graph = createQuery(() => ({
+		queryKey: queryKeys.workGraph(currentCompany()),
+		queryFn: ({ queryKey, signal }) => getWorkGraph(queryKey[1], signal),
+		enabled: queryEnabled(enabled) && queryEnabled(withGraph),
+		staleTime: STALE_MS,
+		gcTime: RETAIN_MS,
+		refetchInterval: pollEvery(REFRESH_MS, 120_000),
+		refetchIntervalInBackground: false
+	}));
 	return {
 		get view() {
-			return query.data ?? null;
+			// Track both results even if one is still pending. Query observers only notify
+			// properties their consumer has read; short-circuiting can miss the second answer.
+			const queue = query.data;
+			const work = graph.data;
+			if (!queue || (queryEnabled(withGraph) && !work)) return null;
+			return queryEnabled(withGraph) ? { ...queue, workGraph: work ?? null } : queue;
 		},
 		get status() {
-			return statusOf(query);
+			const queue = statusOf(query);
+			const work = statusOf(graph);
+			// Persisted summaries omit live-only sources and actions. Their absence
+			// is never evidence that an Authority request has been resolved.
+			if (query.data?.sourceHealth.authority === 'unknown' && !query.isError) return 'unknown';
+			return queryEnabled(withGraph) && work !== 'live' ? work : queue;
 		},
 		get failure() {
-			return (query.error as (Error & { status?: number }) | null) ?? null;
+			return (
+				((query.error ?? (queryEnabled(withGraph) ? graph.error : null)) as
+					(Error & { status?: number }) | null) ?? null
+			);
 		},
 		refresh: () => refreshAttention(client, currentCompany()),
 		// An explicit open must perform a read even while cached observers settle.
-		reload: () => refresh(query)
+		reload: () =>
+			Promise.all([refresh(query), ...(queryEnabled(withGraph) ? [refresh(graph)] : [])]).then(
+				([result, ...graphs]) => ({
+					...result,
+					error: result.error ?? graphs.find((value) => value.error)?.error ?? null
+				})
+			)
 	};
+}
+
+async function invalidateAttentionReads(client: QueryClient, company: string) {
+	await Promise.all(
+		[
+			queryKeys.attention(company),
+			queryKeys.workGraph(company),
+			queryKeys.workContext(company)
+		].map((queryKey) => client.invalidateQueries({ queryKey }))
+	);
 }
 
 /** One server-owned queue, refreshed in this window and other open cockpit tabs. */
@@ -225,7 +310,7 @@ export async function refreshAttention(client: QueryClient, companyId: string) {
 		channel.postMessage(companyId);
 		channel.close();
 	}
-	await client.invalidateQueries({ queryKey: queryKeys.attention(companyId) });
+	await invalidateAttentionReads(client, companyId);
 }
 
 /** A confirmed decision leaves the queue without waiting for a full company read. */

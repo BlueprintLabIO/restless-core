@@ -17,9 +17,12 @@
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 
-const base = process.env.RESTLESS_TEST_BASE_URL ?? 'http://127.0.0.1:14912';
-const company = process.env.RESTLESS_TEST_COMPANY ?? 's73_test';
-assert(company.endsWith('_test'), 'only a _test company is read');
+const base = process.env.RESTLESS_SMOKE_ORIGIN ?? process.env.RESTLESS_TEST_BASE_URL;
+const company = process.env.RESTLESS_SMOKE_COMPANY ?? process.env.RESTLESS_TEST_COMPANY;
+assert(
+	base && new URL(base).hostname === '127.0.0.1' && company?.endsWith('_test'),
+	'Set an explicit localhost origin and _test company'
+);
 const wanted = process.argv.slice(2);
 const run = (name) => wanted.length === 0 || wanted.includes(name);
 

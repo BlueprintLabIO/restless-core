@@ -138,12 +138,37 @@ type WireContinuation = {
 	decided_by?: string;
 };
 
-export async function getAttention(company: string, signal?: AbortSignal): Promise<AttentionView> {
-	const response = await bootFetch(`/api/companies/${encodeURIComponent(company)}/attention`, {
+export type WorkContext = Pick<WorkGraphSnapshot, 'work' | 'artifacts'>;
+export async function getWorkGraph(
+	company: string,
+	signal?: AbortSignal
+): Promise<WorkGraphSnapshot> {
+	const response = await bootFetch(`/api/companies/${encodeURIComponent(company)}/work-graph`, {
+		signal,
 		credentials: 'same-origin',
-		cache: 'no-store',
-		signal
+		cache: 'no-store'
 	});
+	if (!response.ok) throw await ownerError(response);
+	return response.json();
+}
+export async function getWorkContext(company: string, signal?: AbortSignal): Promise<WorkContext> {
+	const response = await bootFetch(
+		`/api/companies/${encodeURIComponent(company)}/work-graph?context=true`,
+		{ signal, credentials: 'same-origin', cache: 'no-store' }
+	);
+	if (!response.ok) throw await ownerError(response);
+	return response.json();
+}
+
+export async function getAttention(company: string, signal?: AbortSignal): Promise<AttentionView> {
+	const response = await bootFetch(
+		`/api/companies/${encodeURIComponent(company)}/attention?include_work_graph=false`,
+		{
+			credentials: 'same-origin',
+			cache: 'no-store',
+			signal
+		}
+	);
 	if (!response.ok) throw await ownerError(response);
 	const wire = await response.json();
 	return {

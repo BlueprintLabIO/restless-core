@@ -1,297 +1,119 @@
 <script lang="ts">
-	import ResizableSidebar from '$lib/components/ResizableSidebar.svelte';
-	/* Apps, ask first: the sidebar is where power users go straight to something. Ask (the
-	 * default), what waits on the owner, what is in use by kind, and everything to add by category.
-	 * Counts come from the same read as the page, so they agree. */
 	import { page } from '$app/state';
-	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
-	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
-	import Sparkles from '@lucide/svelte/icons/sparkles';
-	import Inbox from '@lucide/svelte/icons/inbox';
-	import Globe2 from '@lucide/svelte/icons/cloud';
-	import Terminal from '@lucide/svelte/icons/terminal';
-	import BookOpen from '@lucide/svelte/icons/book-open';
-	import Package from '@lucide/svelte/icons/package';
-	import Link2 from '@lucide/svelte/icons/link-2';
-	import BookPlus from '@lucide/svelte/icons/book-plus';
-	import LayoutGrid from '@lucide/svelte/icons/layout-grid';
-	import MessageSquare from '@lucide/svelte/icons/message-square';
-	import Kanban from '@lucide/svelte/icons/kanban';
-	import Code from '@lucide/svelte/icons/code';
-	import Wallet from '@lucide/svelte/icons/wallet';
-	import TrendingUp from '@lucide/svelte/icons/trending-up';
-	import Palette from '@lucide/svelte/icons/palette';
-	import FileText from '@lucide/svelte/icons/file-text';
-	import Globe from '@lucide/svelte/icons/globe';
-	import ArchiveRestore from '@lucide/svelte/icons/archive-restore';
+	import ResizableSidebar from '$lib/components/ResizableSidebar.svelte';
 	import SidebarShell from '$lib/ui/views/SidebarShell.svelte';
-	import SidebarGroup from '$lib/ui/views/SidebarGroup.svelte';
 	import SidebarRow from '$lib/ui/views/SidebarRow.svelte';
-	import SidebarHeadButton from '$lib/ui/views/SidebarHeadButton.svelte';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
-	import {
-		APP_KINDS,
-		BROWSE_CATEGORIES,
-		KIND_INFO,
-		KIND_SECTION,
-		type AppCategory,
-		type AppKind
-	} from '$lib/model/apps';
-	import {
-		createAppsData,
-		provideAppsData,
-		viewFrom,
-		viewKey,
-		type AppsView
-	} from '$lib/model/apps-data.svelte';
+	import Compass from '@lucide/svelte/icons/compass';
+	import PackageCheck from '@lucide/svelte/icons/package-check';
+	import Inbox from '@lucide/svelte/icons/inbox';
+	import ArchiveRestore from '@lucide/svelte/icons/archive-restore';
+	import Plus from '@lucide/svelte/icons/plus';
+	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
+	import { createAppsData, provideAppsData, viewFrom, isKind } from '$lib/model/apps-data.svelte';
 
 	let { children } = $props();
 	const companyId = $derived(page.params.companyId ?? '');
 	const data = createAppsData(() => companyId);
 	provideAppsData(data);
-	/* An admin reads Apps beside the owner; adding apps or writing know-how is the owner's. */
 	const principal = $derived(companyPrincipalQuery(companyId));
-	const owner = $derived(hasOwnerSurfaceAccess(principal.view));
-
-	const ICONS: Record<string, typeof LayoutGrid> = {
-		Communication: MessageSquare,
-		Projects: Kanban,
-		Engineering: Code,
-		Finance: Wallet,
-		Sales: TrendingUp,
-		Design: Palette,
-		Documents: FileText,
-		Websites: Globe,
-		'Know-how': BookOpen,
-		More: Package
-	};
-	const KIND_ICONS: Record<AppKind, typeof LayoutGrid> = {
-		service: Globe2,
-		local: Terminal,
-		skill: BookOpen,
-		bundle: Package
-	};
-
-	const index = $derived(`/${encodeURIComponent(companyId)}/apps`);
-	const href = (view: AppsView) => (view === 'ask' ? index : `${index}?view=${viewKey(view)}`);
-	/* Only the index shows a view; an app's own page leaves the list without a selection. */
-	const current = $derived<AppsView | null>(
+	const owner = $derived(principal.view?.membership_role === 'owner');
+	const index = $derived('/' + encodeURIComponent(companyId) + '/apps');
+	const current = $derived(
 		page.url.pathname.replace(/\/$/, '') === index
-			? (viewFrom(page.url.searchParams.get('view')) ?? 'ask')
+			? (viewFrom(page.url.searchParams.get('view')) ?? 'all')
 			: null
 	);
-	const kinds = $derived(
-		APP_KINDS.map((kind) => ({ kind, count: data.ofKind(kind).length })).filter(
-			(row) => row.count > 0 || row.kind === 'service'
-		)
+	const discover = $derived(
+		!!current && !['in-use', 'waiting', 'removed'].includes(current) && !isKind(current)
 	);
-	const categories = $derived(
-		BROWSE_CATEGORIES.map((category: AppCategory) => ({
-			view: category,
-			count: data.inCategory(category).length
-		}))
-	);
-	/* The phone row: the same places, fewest first. */
-	const narrowViews = $derived<{ view: AppsView; label: string }[]>([
-		{ view: 'ask', label: 'Ask' },
-		...(data.waiting ? [{ view: 'waiting' as const, label: 'Waiting on you' }] : []),
-		{ view: 'in-use', label: 'In use' },
-		{ view: 'all', label: 'Browse' }
+	const installed = $derived(current === 'in-use' || (!!current && isKind(current)));
+	const views = $derived([
+		{ label: 'Discover', href: index, active: discover },
+		{ label: 'Installed', href: index + '?view=in-use', active: installed },
+		...(data.waiting
+			? [{ label: 'Needs setup', href: index + '?view=waiting', active: current === 'waiting' }]
+			: [])
 	]);
 </script>
 
+{#snippet addActions()}
+	{#if owner}
+		<ActionMenu label="Add an app">
+			{#snippet trigger()}<Plus size={16} aria-hidden="true" />{/snippet}
+			<a href={index + '?add=link'}>Add from a link</a>
+			<a href={index + '?add=skill'}>Write know-how</a>
+			<a href={index + '?view=ask'}>Ask Exec</a>
+		</ActionMenu>
+	{/if}
+{/snippet}
+
 <ResizableSidebar area="apps" label="Resize the Apps sidebar">
 	<SidebarShell label="Apps" title="Apps">
-		{#snippet action()}
-			{#if owner}<SidebarHeadButton
-					href={`${index}?add=link`}
-					label="Add from a link: a service's MCP address, a plugin or skill on GitHub, or a command"
-					icon={Link2}
-				/>
-				<SidebarHeadButton
-					href={`${index}?add=skill`}
-					label="Write new know-how: instructions the company follows once you accept them"
-					icon={BookPlus}
-				/>{/if}
-		{/snippet}
+		{#snippet action()}{@render addActions()}{/snippet}
 		{#snippet nav()}
+			<SidebarRow href={index} label="Discover" icon={Compass} active={discover} />
 			<SidebarRow
-				href={href('ask')}
-				label="Ask"
-				icon={Sparkles}
-				active={current === 'ask'}
-				title="Say what the company should be able to do, or search your apps (press /)"
+				href={index + '?view=in-use'}
+				label="Installed"
+				icon={PackageCheck}
+				active={installed}
 			/>
-			<SidebarRow
-				href={href('waiting')}
-				label="Waiting on you"
-				icon={Inbox}
-				active={current === 'waiting'}
-				count={data.waiting}
-				todo={!!data.waiting}
-				title="Apps Exec asked for, and ones that need a sign-in or a decision"
-			/>
-			<SidebarGroup label="In use">
+			{#if data.waiting}
 				<SidebarRow
-					href={href('in-use')}
-					label="All in use"
-					icon={LayoutGrid}
-					active={current === 'in-use'}
-					count={data.inUse.length}
-					title="Everything the company can use, with what it may do"
+					href={index + '?view=waiting'}
+					label="Needs setup"
+					icon={Inbox}
+					active={current === 'waiting'}
+					count={data.waiting}
+					todo
 				/>
-				{#each kinds as row (row.kind)}
-					<SidebarRow
-						href={href(row.kind)}
-						label={KIND_SECTION[row.kind]}
-						icon={KIND_ICONS[row.kind]}
-						active={current === row.kind}
-						count={row.count}
-						title={KIND_INFO[row.kind]}
-					/>
-				{/each}
-				{#if data.removed.length}
-					<SidebarRow
-						href={href('removed')}
-						label="Removed"
-						icon={ArchiveRestore}
-						active={current === 'removed'}
-						count={data.removed.length}
-						title="Know-how you removed. It is kept, so you can restore it."
-					/>
-				{/if}
-			</SidebarGroup>
-			<SidebarGroup label="Browse">
+			{/if}
+			{#if data.removed.length}
 				<SidebarRow
-					href={href('all')}
-					label="All apps"
-					icon={LayoutGrid}
-					active={current === 'all'}
-					count={data.browse.length}
+					href={index + '?view=removed'}
+					label="Removed"
+					icon={ArchiveRestore}
+					active={current === 'removed'}
+					title="Removed know-how, kept so it can be restored"
 				/>
-				{#each categories as row (row.view)}
-					<SidebarRow
-						href={href(row.view)}
-						label={row.view}
-						icon={ICONS[row.view]}
-						active={current === row.view}
-						count={row.count}
-					/>
-				{/each}
-			</SidebarGroup>
+			{/if}
 		{/snippet}
 		{#snippet narrow()}
-			<div class="narrow-row">
-				<div class="views" role="group" aria-label="Apps">
-					{#each narrowViews as row (row.view)}
-						<a
-							class="view"
-							href={href(row.view)}
-							aria-current={current === row.view ? 'page' : undefined}>{row.label}</a
-						>
-					{/each}
-				</div>
-				<!-- Everything else the sidebar holds, so no view or way to add is desktop-only. -->
-				<span
-					class="more"
-					class:current={!!current && !narrowViews.some((row) => row.view === current)}
-				>
-					<ActionMenu label="More views and ways to add">
-						{#snippet trigger()}More{/snippet}
-						{#each kinds as row (row.kind)}
-							<a
-								href={href(row.kind)}
-								title={KIND_INFO[row.kind]}
-								aria-current={current === row.kind ? 'page' : undefined}
-								>{KIND_SECTION[row.kind]} <span class="n">{row.count}</span></a
-							>
-						{/each}
-						{#if data.removed.length}
-							<a href={href('removed')} aria-current={current === 'removed' ? 'page' : undefined}
-								>Removed <span class="n">{data.removed.length}</span></a
-							>
-						{/if}
-						{#each categories as row (row.view)}
-							<a href={href(row.view)} aria-current={current === row.view ? 'page' : undefined}
-								>{row.view} <span class="n">{row.count}</span></a
-							>
-						{/each}
-						{#if owner}<a
-								href={`${index}?add=link`}
-								title="A service's MCP address, a plugin or skill on GitHub, or a command"
-								>Add from a link</a
-							>
-							<a
-								href={`${index}?add=skill`}
-								title="Instructions the company follows once you accept them">Write new know-how</a
-							>{/if}
-					</ActionMenu>
-				</span>
-			</div>
+			<nav class="apps-views" aria-label="Apps">
+				{#each views as view (view.label)}
+					<a href={view.href} aria-current={view.active ? 'page' : undefined}>{view.label}</a>
+				{/each}
+				<span class="add">{@render addActions()}</span>
+			</nav>
 		{/snippet}
 		{@render children()}
 	</SidebarShell>
 </ResizableSidebar>
 
 <style>
-	/* Too narrow for the list: the same views as one row that scrolls sideways, its edge fading
-	 * so the rest read as more rather than cut off. */
-	.narrow-row {
+	.apps-views {
 		display: flex;
-		gap: 6px;
 		align-items: center;
-		padding: 12px 16px 0;
+		gap: 4px;
+		padding: 8px 12px;
+		border-bottom: 1px solid var(--border);
 	}
-	.views {
-		display: flex;
-		flex: 1;
-		min-width: 0;
-		gap: 6px;
-		overflow-x: auto;
-		scrollbar-width: none;
-		mask-image: linear-gradient(to right, black 85%, transparent);
-	}
-	.views::-webkit-scrollbar {
-		display: none;
-	}
-	.view {
-		display: inline-flex;
-		flex: none;
-		align-items: center;
-		height: 28px;
-		padding: 0 11px;
-		border: 1px solid var(--border);
-		border-radius: 14px;
-		background: var(--surface);
+	.apps-views > a {
+		padding: 8px 10px;
+		border-radius: var(--radius-control);
 		color: var(--text-secondary);
 		font-size: var(--t-body);
 		text-decoration: none;
+		white-space: nowrap;
 	}
-	.more :global(.action-menu > summary) {
-		width: auto;
-		height: 28px;
-		padding: 0 11px;
-		border: 1px solid var(--border);
-		border-radius: 14px;
-		background: var(--surface);
-		font-size: var(--t-body);
-	}
-	.more.current :global(.action-menu > summary) {
-		border-color: var(--border-strong);
-		color: var(--ink);
-		font-weight: 600;
-	}
-	.more :global(.n) {
-		margin-left: auto;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	/* The selected view is raised, as it is in the sidebar and the top navigation. */
-	.view[aria-current='page'] {
-		border-color: var(--border-strong);
+	.apps-views > a[aria-current='page'] {
 		background: var(--surface-raised);
-		box-shadow: var(--shadow-soft), var(--bevel);
 		color: var(--ink);
+		box-shadow: var(--shadow-soft);
 		font-weight: 600;
+	}
+	.add {
+		margin-left: auto;
 	}
 </style>

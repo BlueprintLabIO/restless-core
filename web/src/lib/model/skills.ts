@@ -1,3 +1,4 @@
+import { bootFetch } from './boot-fetch.ts';
 /* Company skills, `/goal` and `/loop` (Sprint 55).
  *
  * Skills are the company's reusable methods in the open SKILL.md format. The
@@ -45,11 +46,14 @@ function companyPath(company: string, path: string): string {
 }
 
 async function call<T>(company: string, path: string, init?: RequestInit): Promise<T> {
-	const response = await fetch(companyPath(company, path), {
-		credentials: 'same-origin',
-		...init,
-		headers: init?.body ? { 'content-type': 'application/json' } : undefined
-	});
+	const response = await (init?.method && init.method.toUpperCase() !== 'GET' ? fetch : bootFetch)(
+		companyPath(company, path),
+		{
+			credentials: 'same-origin',
+			...init,
+			headers: init?.body ? { 'content-type': 'application/json' } : undefined
+		}
+	);
 	if (!response.ok) throw await failure(response, `${response.status} ${response.statusText}`);
 	return response.json() as Promise<T>;
 }
@@ -142,8 +146,8 @@ export function setScheduleMissedPolicy(
 	});
 }
 
-export function fetchSkillLibrary(company: string): Promise<SkillLibrary> {
-	return call(company, '/skills');
+export function fetchSkillLibrary(company: string, signal?: AbortSignal): Promise<SkillLibrary> {
+	return call(company, '/skills', { signal });
 }
 
 export function setSkillDisposition(

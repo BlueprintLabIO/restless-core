@@ -5,7 +5,7 @@ import type { ToolConnection } from './connections.ts';
 import type { SkillRow } from './skills.ts';
 
 const { CATALOGUE, buildApps, classifyLink, connectTag } = apps;
-import { registryKey } from './app-catalogue.ts';
+import { registryKey, catalogueConnectionName } from './app-catalogue.ts';
 
 function connection(overrides: Partial<ToolConnection>): ToolConnection {
 	return {
@@ -110,19 +110,6 @@ test('an app turned off keeps its sign-in and reads as off, and removed know-how
 	assert.ok(!mine.some((app) => app.key === 's-old-way'));
 });
 
-test('an ask the catalogue cannot answer is named honestly, never as a catalogue address', () => {
-	assert.deepEqual(
-		apps.unlistedFor('connect my Gmail').map((service) => service.key),
-		['email', 'google-workspace']
-	);
-	assert.deepEqual(
-		apps.unlistedFor('our bookkeeping').map((service) => service.key),
-		['quickbooks']
-	);
-	for (const service of apps.UNLISTED)
-		assert.ok(!CATALOGUE.some((entry) => entry.key === service.key));
-});
-
 test('the public directory adds services and know-how the company lacks, real names first', () => {
 	const registry = [
 		{
@@ -180,5 +167,47 @@ test('the public directory adds services and know-how the company lacks, real na
 	const pdf = browse.find((app) => app.key === 'x-pdf');
 	assert.equal(pdf?.registrySkill?.runsScripts, true);
 	assert.equal(connectTag(pdf!), 'Has scripts');
-	assert.equal(registryKey('Calendar Hub'), 'r-calendar-hub');
+	assert.equal(browse.find((app) => app.name === 'Calendar Hub')?.key, registryKey('mcp:io.cal/b'));
+});
+
+test('same-title and non-Latin registry entries keep distinct identities and legacy links cannot choose the wrong publisher', async () => {
+	const base = {
+		kind: 'mcp' as const,
+		summary: 'Company service',
+		source: 'MCP Registry',
+		homepage: null,
+		files: [],
+		runs_scripts: false
+	};
+	const registry = [
+		{ ...base, key: 'mcp:com.one/mcp', name: 'mcp', endpoint: 'https://one.example/mcp' },
+		{ ...base, key: 'mcp:com.two/mcp', name: 'mcp', endpoint: 'https://two.example/mcp' },
+		{ ...base, key: 'mcp:cn.example/tool', name: '工具', endpoint: 'https://cn.example/mcp' },
+		{ ...base, key: 'mcp:kr.example/tool', name: '도구', endpoint: 'https://kr.example/mcp' }
+	];
+	const projection = buildApps([], null, [], registry);
+	const found = projection.browse.filter((app) => app.catalogue?.registryId);
+	assert.equal(found.length, 4);
+	assert.equal(new Set(found.map((app) => app.key)).size, 4);
+	for (const item of registry) {
+		const resolved = apps.resolveApp(projection, registryKey(item.key));
+		assert.equal(resolved.app?.catalogue?.endpoint, item.endpoint);
+		const entry = resolved.app!.catalogue!;
+		const name = await catalogueConnectionName(entry);
+		assert.match(name, /^[a-z][a-z0-9-]{0,39}$/);
+		assert.equal(await catalogueConnectionName(entry), name);
+	}
+	assert.equal(apps.resolveApp(projection, 'r-mcp').ambiguous, true);
+	assert.equal(apps.resolveApp(projection, 'r-mcp').app, undefined);
+	assert.equal(apps.resolveApp(projection, 'r-service').ambiguous, true);
+	const reordered = buildApps([], null, [], registry.toReversed());
+	assert.equal(
+		apps.resolveApp(reordered, registryKey(registry[0].key)).app?.catalogue?.endpoint,
+		registry[0].endpoint
+	);
+	const renamed = buildApps([], null, [], [{ ...registry[0], name: 'A better display title' }]);
+	assert.equal(
+		apps.resolveApp(renamed, registryKey(registry[0].key)).app?.catalogue?.endpoint,
+		registry[0].endpoint
+	);
 });

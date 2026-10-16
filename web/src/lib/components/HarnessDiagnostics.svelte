@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import { companyQuery } from '$lib/model/queries.svelte';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	let { companyId }: { companyId: string } = $props();
@@ -23,8 +24,7 @@
 	holdQueries(() => [source]);
 </script>
 
-{#if view}<details class="diagnostics">
-		<summary>Installed agent software</summary>
+{#if view}<div class="diagnostics">
 		<div class="harness-status-grid">
 			{#each view.harnesses.options as option (option.id)}
 				<article class="harness-status">
@@ -65,14 +65,20 @@
 				</article>
 			{/each}
 		</div>
-	</details>{/if}
+	</div>{:else if source.failure}<div>
+		<p class="loading">
+			{failureSentence(source.failure, 'Installed software could not be read.')}
+		</p>
+		<button class="btn small" type="button" onclick={() => source.refresh()}>Try again</button>
+	</div>{:else}<p class="loading">Reading installed software…</p>{/if}
 
 <style>
 	.diagnostics {
-		margin-top: var(--space-6);
-		border-top: 1px solid var(--control-edge);
-		padding-top: var(--space-4);
 		overflow-wrap: anywhere;
+	}
+	.loading {
+		margin: 0;
+		color: var(--text-tertiary);
 	}
 	summary {
 		cursor: pointer;

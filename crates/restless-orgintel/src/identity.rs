@@ -202,7 +202,7 @@ impl OrgIntel {
                 sqlx::query(
                     "INSERT INTO company_visual_evidence_details \
                      (evidence_id,kind,purpose,rationale,semantic_role,value,accessibility_notes) \
-                     VALUES ($1,$2,$3,'Set by the owner in Brand & voice',$3,$4,\
+                     VALUES ($1,$2,$3,'Set by the owner in Brand',$3,$4,\
                              'Check contrast and legibility wherever it is used.')",
                 )
                 .bind(id)
@@ -593,7 +593,7 @@ impl OrgIntel {
     }
 
     /// Drift findings nobody has decided, each with the Work and label of the artifact it
-    /// affects: the owner meets them in the Inbox as well as on Brand & voice.
+    /// affects: the owner meets them in the Inbox as well as on Brand.
     pub async fn undecided_identity_drift(
         &self,
     ) -> Result<Vec<(IdentityDriftFindingRow, Option<Uuid>, String)>> {

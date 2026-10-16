@@ -173,10 +173,10 @@
 	holdQueries(() => [principal, source]);
 </script>
 
-<CompanyTitle title="Brand & voice" {companyId} />
+<CompanyTitle title="Brand" {companyId} />
 
 <Page
-	title="Brand & voice"
+	title="Brand"
 	info="How the company looks and sounds. Every site, deck and message the team makes starts from it. Exec proposes changes from your feedback; only you approve them."
 >
 	{#if view}

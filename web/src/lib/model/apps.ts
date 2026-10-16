@@ -8,7 +8,7 @@
  * a local tool, know-how or a bundle) organises the power-user views, and the
  * mechanism behind it (MCP, CLI, skill, plugin) is explained on hover. */
 
-import { registryKey, type RegistryItem } from './app-catalogue.ts';
+import { registryKey, legacyRegistryKey, type RegistryItem } from './app-catalogue.ts';
 import type { SkillAssignmentRow, SkillLibrary, SkillRow } from './skills';
 import type { ToolConnection } from './connections';
 
@@ -42,6 +42,10 @@ export const BROWSE_CATEGORIES: AppCategory[] = [
  * probe, sign-in and grant as any MCP address, and the probe decides. */
 export type CatalogueEntry = {
 	key: string;
+	/** Canonical upstream identity, independent of the connection name and display title. */
+	registryId?: string;
+	source?: string;
+	homepage?: string | null;
 	name: string;
 	description: string;
 	category: AppCategory;
@@ -280,72 +284,6 @@ export const CATALOGUE: CatalogueEntry[] = [
 	}
 ];
 
-/** Services owners ask for that have no address in the catalogue, said honestly. None of them
- * offered a hosted MCP address that passed the probe above (Sprint 63), so none is pretended
- * here. Email as the company already has a real path, its email permissions; for the rest, Exec
- * looks for a working server and brings it back to turn on. */
-export type UnlistedService = {
-	key: string;
-	name: string;
-	/** Words an owner types for it. */
-	terms: string[];
-	/** Why it is not one click, in owner words. */
-	note: string;
-	/** `email`: the company's own email permissions answer this ask. */
-	path: 'email' | 'exec';
-};
-
-export const UNLISTED: UnlistedService[] = [
-	{
-		key: 'email',
-		name: 'Email as the company',
-		terms: ['email', 'e-mail', 'mail', 'inbox', 'gmail', 'outlook', 'newsletter'],
-		note: 'Exec sends email as the company within permissions you set: who it may write to, why, and how many a day.',
-		path: 'email'
-	},
-	{
-		key: 'google-workspace',
-		name: 'Google Workspace',
-		terms: ['google', 'gmail', 'calendar', 'drive', 'docs', 'sheets', 'workspace'],
-		note: 'Google offers no hosted address we could check yet. Exec can look for a working one and bring it here.',
-		path: 'exec'
-	},
-	{
-		key: 'microsoft-365',
-		name: 'Microsoft 365',
-		terms: [
-			'microsoft',
-			'outlook',
-			'office',
-			'teams',
-			'onedrive',
-			'sharepoint',
-			'calendar',
-			'excel'
-		],
-		note: 'Microsoft offers no hosted address we could check yet. Exec can look for a working one and bring it here.',
-		path: 'exec'
-	},
-	{
-		key: 'quickbooks',
-		name: 'QuickBooks',
-		terms: ['quickbooks', 'intuit', 'accounting', 'bookkeeping', 'bookkeeper'],
-		note: 'Not checked yet. Xero, Stripe and PayPal are ready to add; Exec can look for a working QuickBooks server.',
-		path: 'exec'
-	}
-];
-
-/** The unlisted services a typed ask names, by whole word. */
-export function unlistedFor(text: string): UnlistedService[] {
-	const words = new Set(
-		text
-			.toLowerCase()
-			.split(/[^a-z0-9-]+/)
-			.filter(Boolean)
-	);
-	return UNLISTED.filter((service) => service.terms.some((term) => words.has(term)));
-}
-
 export type AppState = 'in_use' | 'needs_you' | 'paused' | 'available';
 
 /** What sort of ability an app is. Each grants differently, so experts can tell them apart. */
@@ -417,11 +355,38 @@ export function pluginOrigin(source?: string | null): string | undefined {
 	return at > 0 ? rest.slice(0, at) : rest;
 }
 
-export function catalogueFor(connection: ToolConnection): CatalogueEntry | undefined {
+function registryEntry(item: RegistryItem): CatalogueEntry {
+	return {
+		key: registryKey(item.key),
+		registryId: item.key,
+		source: item.source,
+		homepage: item.homepage,
+		name: item.name,
+		description: item.summary || 'A service listed in the public directory.',
+		category: 'More',
+		endpoint: item.endpoint!,
+		how: 'Sign in if it asks',
+		howTip: `Listed in ${item.source}. Adding checks the service before you choose what the company may do.`
+	};
+}
+
+export function catalogueFor(
+	connection: ToolConnection,
+	registry: RegistryItem[] = []
+): CatalogueEntry | undefined {
 	const endpoint = connection.endpoint?.replace(/\/+$/, '');
-	return CATALOGUE.find(
+	const curated = CATALOGUE.find(
 		(entry) => entry.key === connection.name || entry.endpoint.replace(/\/+$/, '') === endpoint
 	);
+	if (curated) return curated;
+	const item = registry.find(
+		(item) =>
+			item.kind === 'mcp' &&
+			item.endpoint &&
+			(item.endpoint.replace(/\/+$/, '') === endpoint ||
+				connection.source === `catalogue:${registryKey(item.key)}`)
+	);
+	return item ? registryEntry(item) : undefined;
 }
 
 function connectionState(connection: ToolConnection): { state: AppState; attention?: string } {
@@ -531,7 +496,7 @@ export function buildApps(
 			pluginApp(origin).connections.push(connection);
 			continue;
 		}
-		const entry = catalogueFor(connection);
+		const entry = catalogueFor(connection, registry);
 		const { state, attention } = connectionState(connection);
 		mine.push({
 			key: `c-${connection.name}`,
@@ -609,18 +574,10 @@ export function buildApps(
 	const seen = new Set<string>();
 	for (const item of registry) {
 		if (item.kind === 'mcp' && item.endpoint) {
-			const key = registryKey(item.name);
+			const key = registryKey(item.key);
 			if (endpoints.has(item.endpoint) || owned.has(key) || seen.has(key)) continue;
 			seen.add(key);
-			const entry: CatalogueEntry = {
-				key,
-				name: item.name,
-				description: item.summary || 'A service listed in the public MCP Registry.',
-				category: 'More',
-				endpoint: item.endpoint,
-				how: 'Sign in if it asks',
-				howTip: `Listed in the public MCP Registry${item.homepage ? ` (${item.homepage})` : ''}. Adding it checks the address answers first; it may then ask you to sign in.`
-			};
+			const entry = registryEntry(item);
 			browse.push({
 				key,
 				kind: 'service',
@@ -774,4 +731,25 @@ export function connectTag(app: App): string {
 	if (app.catalogue?.auth === 'token') return 'Token';
 	if (app.how.startsWith('Sign in')) return 'Sign in';
 	return 'No sign-in';
+}
+
+/** An old title-based link may be followed only if its meaning is unambiguous. */
+export function resolveApp(
+	projection: { mine: App[]; browse: App[]; removed: App[] } | null,
+	key: string
+): { app: App | undefined; ambiguous: boolean } {
+	const direct =
+		projection?.mine.find(
+			(app) =>
+				app.key === key ||
+				app.catalogue?.key === key ||
+				app.connections.some((connection) => `c-${connection.name}` === key)
+		) ??
+		projection?.removed.find((app) => app.key === key) ??
+		projection?.browse.find((app) => app.key === key);
+	if (direct) return { app: direct, ambiguous: false };
+	const legacy = [...(projection?.mine ?? []), ...(projection?.browse ?? [])].filter(
+		(app) => app.catalogue?.registryId && legacyRegistryKey(app.name) === key
+	);
+	return { app: legacy.length === 1 ? legacy[0] : undefined, ambiguous: legacy.length > 1 };
 }

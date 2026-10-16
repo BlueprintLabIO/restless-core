@@ -25,6 +25,9 @@ const documentId = process.env.DOCUMENT_ID,
 
 const routes = [
 	['library', '/' + company + '/library'],
+	['apps-discover', '/' + company + '/apps'],
+	['apps-installed', '/' + company + '/apps?view=in-use'],
+	['apps-detail', '/' + company + '/apps/intercom'],
 	...(documentId
 		? [
 				[
@@ -89,6 +92,9 @@ const routes = [
 	['account', '/account/connections'],
 	['not-found', `/${company}/no-such-surface`]
 ].filter(([name]) => !only || only.includes(name));
+
+if (!routes.length || only?.some((name) => !routes.some(([route]) => route === name)))
+	throw new Error('No surfaces selected or unknown ROUTES entry');
 
 await fs.mkdir(out, { recursive: true });
 const browser = await chromium.launch(

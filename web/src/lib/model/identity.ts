@@ -217,7 +217,7 @@ export function attribution(item: IdentityEvidenceRow | null): string {
 	if (!item) return 'New';
 	const kind = item.statement_kind === 'guidance' ? '' : ` · ${item.statement_kind}`;
 	if (item.source === 'owner_identity_editor')
-		return `Written in Brand & voice by ${item.author_id}${kind}`;
+		return `Written in Brand by ${item.author_id}${kind}`;
 	return `${item.author_id} · ${item.source.replaceAll('_', ' ')}${kind} · ${item.evidence_locator}`;
 }
 
@@ -268,8 +268,8 @@ export function identityStatementsPayload(draft: DraftStatement[]): IdentityStat
 }
 
 /** The brand guide as Markdown, for a designer, printer or another tool. */
-export function brandMarkdown(statements: BrandStatement[], title = 'Brand & voice'): string {
-	const out = [`# ${title.trim() || 'Brand & voice'}`];
+export function brandMarkdown(statements: BrandStatement[], title = 'Brand'): string {
+	const out = [`# ${title.trim() || 'Brand'}`];
 	for (const pillar of IDENTITY_PILLARS) {
 		const items = statements.filter((statement) => statement.pillar === pillar.key);
 		out.push('', `## ${pillar.label}`);

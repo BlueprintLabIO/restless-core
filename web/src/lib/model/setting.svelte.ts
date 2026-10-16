@@ -41,6 +41,7 @@ export function settingQuery<T>(options: {
 	key: () => SettingKey;
 	read: (signal: AbortSignal) => Promise<T>;
 	enabled?: () => boolean;
+	retry?: number | false;
 	/** How often to look again while nothing tells us it changed; slow when the change stream is
 	 * live. A function decides from what is on screen (fast while something is installing). */
 	poll?: number | false | ((view: T | undefined) => number | false);
@@ -50,6 +51,7 @@ export function settingQuery<T>(options: {
 		queryKey: options.key(),
 		queryFn: ({ signal }) => options.read(signal),
 		enabled: options.enabled?.() ?? true,
+		retry: options.retry,
 		staleTime: 5_000,
 		refetchInterval:
 			typeof options.poll === 'function'

@@ -63,11 +63,22 @@ export function firstPaint(companyId: () => string) {
 			check();
 		};
 		arm();
+		let queued = false;
+		let disposed = false;
 		const unsubscribe = client.getQueryCache().subscribe(() => {
-			if (companyId() !== company) arm();
-			else check();
+			// Changing a reactive query key can notify inside a derived calculation.
+			// Reveal state belongs to the next update, outside that calculation.
+			if (queued) return;
+			queued = true;
+			queueMicrotask(() => {
+				queued = false;
+				if (disposed) return;
+				if (companyId() !== company) arm();
+				else check();
+			});
 		});
 		return () => {
+			disposed = true;
 			unsubscribe();
 			cancelAnimationFrame(frame);
 		};
@@ -75,7 +86,7 @@ export function firstPaint(companyId: () => string) {
 
 	return {
 		get ready() {
-			return ready;
+			return ready && company === companyId();
 		}
 	};
 }

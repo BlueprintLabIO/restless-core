@@ -266,7 +266,7 @@ export function createCompanySetup(companyIdOf: () => string) {
 			},
 			row(
 				'identity',
-				'Brand & voice',
+				'Brand',
 				identityValue,
 				Fingerprint,
 				proposals || (identityMissing ? 1 : 0),

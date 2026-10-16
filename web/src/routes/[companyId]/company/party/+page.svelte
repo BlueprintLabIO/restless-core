@@ -20,7 +20,7 @@
 	const root = $derived(`/${encodeURIComponent(companyId)}`);
 	const name = $derived((page.url.searchParams.get('name') ?? '').trim());
 	let draft = $state(page.url.searchParams.get('name') ?? '');
-	const attention = $derived(attentionQuery(companyId));
+	const attention = $derived(attentionQuery(companyId, true, true));
 	const matches = (value: string | null | undefined) =>
 		!!value && !!name && value.toLocaleLowerCase().includes(name.toLocaleLowerCase());
 

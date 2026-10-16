@@ -48,6 +48,7 @@
 	import {
 		applianceQuery,
 		attentionQuery,
+		workContextQuery,
 		cockpitQuery,
 		collaborationBootstrapQuery,
 		companiesQuery,
@@ -228,6 +229,21 @@
 	/* Everyone's Inbox is the same projection (the owner's is the company queue), so the badge and
 	 * the notifier read it for members too. */
 	const attention = $derived(attentionQuery(companyId, () => !!principal));
+	// Join the full Work read on surfaces that render it; elsewhere only fetch current references.
+	const workContext = $derived(
+		workContextQuery(
+			companyId,
+			() => ownerAccess,
+			() => {
+				const [surface, section] = page.url.pathname.slice(companyId.length + 2).split('/');
+				return (
+					!surface ||
+					['work', 'library', 'people'].includes(surface) ||
+					(surface === 'company' && ['activity', 'party', 'week'].includes(section))
+				);
+			}
+		)
+	);
 	/* What this person snoozed: off the badge, as it is off the list, until it wakes. */
 	const inboxMarks = createQuery(() => ({
 		queryKey: inboxMarksKey(companyId),
@@ -370,7 +386,7 @@
 			/* Recents are a convenience. */
 		}
 	}
-	const workRows = $derived(attention.view?.workGraph?.work ?? []);
+	const workRows = $derived(workContext.view?.work ?? []);
 	/* Documents the composer offers after `#`: everyone's list holds only what they may read. */
 	const libraryDocuments = $derived(documentsQuery(principal ? companyId : ''));
 	const workTitle = (id: string) => workRows.find((work) => work.id === id)?.title ?? 'Work';
@@ -1145,7 +1161,7 @@
 		const teams = (ownerAccess ? cockpit?.teams : collaboration.view?.teams) ?? [];
 		const goals = (ownerAccess ? cockpit?.goals : collaboration.view?.goals) ?? [];
 		const work = ownerAccess
-			? (attention.view?.workGraph?.work ?? [])
+			? (workContext.view?.work ?? [])
 			: (collaboration.view?.work_graph.work ?? []);
 		const goalTitle = new Map(goals.map((goal) => [goal.id, goal.title]));
 		const leads = teams
@@ -1295,16 +1311,16 @@
 			})),
 			/* Files Work produced are already in hand; documents, sheets and kept files are found by
 			 * the menu's search as the owner types. */
-			...libraryFiles(
-				(attention.view?.workGraph?.artifacts ?? []) as unknown as LibraryArtifact[]
-			).map((file) => ({
-				id: `library:file:${file.id}`,
-				group: 'Library',
-				label: file.label,
-				hint: LIBRARY_KIND_LABEL[file.kind],
-				keywords: file.name,
-				href: `${root}/library?file=${encodeURIComponent(file.id)}`
-			})),
+			...libraryFiles((workContext.view?.artifacts ?? []) as unknown as LibraryArtifact[]).map(
+				(file) => ({
+					id: `library:file:${file.id}`,
+					group: 'Library',
+					label: file.label,
+					hint: LIBRARY_KIND_LABEL[file.kind],
+					keywords: file.name,
+					href: `${root}/library?file=${encodeURIComponent(file.id)}`
+				})
+			),
 			...(attention.view?.items ?? []).map((item) => ({
 				id: `attention:${item.id}`,
 				group: 'Needs you',

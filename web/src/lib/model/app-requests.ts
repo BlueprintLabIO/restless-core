@@ -1,3 +1,4 @@
+import { bootFetch } from './boot-fetch.ts';
 /* App requests (Sprint 63, finishing S57-T7): an owner handoff in which Exec
  * or a lead names the app that would unblock its Work. OrgIntel owns the
  * handoff; allowing the matching app resolves it as observed, so the Work
@@ -50,9 +51,13 @@ function toRequest(row: AppRequestRow): AppRequest {
 	};
 }
 
-export async function fetchAppRequests(company: string): Promise<AppRequest[]> {
-	const response = await fetch(`/api/companies/${encodeURIComponent(company)}/app-requests`, {
+export async function fetchAppRequests(
+	company: string,
+	signal?: AbortSignal
+): Promise<AppRequest[]> {
+	const response = await bootFetch(`/api/companies/${encodeURIComponent(company)}/app-requests`, {
 		credentials: 'same-origin',
+		signal,
 		cache: 'no-store'
 	});
 	if (!response.ok) throw await responseFailure(response);

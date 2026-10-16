@@ -1841,8 +1841,8 @@ fn setting_change_title(kind: &str, body: &serde_json::Value) -> Option<String> 
             text("label").unwrap_or("A model connection")
         ),
         "brand_voice_changed" => match text("account").filter(|account| !account.trim().is_empty()) {
-            Some(account) => format!("Brand & voice changed: {account}"),
-            None => "Brand & voice changed".into(),
+            Some(account) => format!("Brand changed: {account}"),
+            None => "Brand changed".into(),
         },
         _ => return None,
     })

@@ -12,18 +12,20 @@
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context as _, Result};
 use serde::{Deserialize, Serialize};
 
 const REGISTRY_URL: &str = "https://registry.modelcontextprotocol.io/v0/servers";
-const SKILLS_TREE_URL: &str = "https://api.github.com/repos/anthropics/skills/git/trees/main?recursive=1";
+const SKILLS_TREE_URL: &str =
+    "https://api.github.com/repos/anthropics/skills/git/trees/main?recursive=1";
 const SKILLS_RAW: &str = "https://raw.githubusercontent.com/anthropics/skills/main";
 pub const SKILLS_REPO: &str = "https://github.com/anthropics/skills";
 const REFRESH_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
 const RETRY_AFTER_FAILURE: Duration = Duration::from_secs(30 * 60);
+const MANUAL_REFRESH_COOLDOWN: Duration = Duration::from_secs(30);
 /// The registry pages by cursor; this bounds one refresh (100 servers a page).
 const MAX_REGISTRY_PAGES: usize = 40;
 const MAX_SUMMARY: usize = 240;
@@ -47,21 +49,39 @@ pub struct CatalogueItem {
     pub runs_scripts: bool,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Catalogue {
     pub updated_at: Option<u128>,
     pub items: Vec<CatalogueItem>,
-    /// Sources that failed on the last refresh, with why; their last good items stay.
+    /// Sources that failed on the last refresh; their last good items stay.
     pub unavailable: Vec<String>,
+    #[serde(default)]
+    pub sources: BTreeMap<String, SourceStatus>,
+    #[serde(default)]
+    pub refreshing: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SourceStatus {
+    pub updated_at: Option<u128>,
+    pub error: Option<String>,
 }
 
 #[derive(Default)]
 struct Cache {
     catalogue: Catalogue,
+    loaded: bool,
     next_refresh: Option<Instant>,
+    last_attempt: Option<Instant>,
 }
 
-static CACHE: LazyLock<tokio::sync::Mutex<Cache>> = LazyLock::new(Default::default);
+#[derive(Default)]
+struct CatalogueCache {
+    state: tokio::sync::Mutex<Cache>,
+    completed: tokio::sync::Notify,
+}
+
+static CACHE: LazyLock<Arc<CatalogueCache>> = LazyLock::new(Default::default);
 static LOOP_STARTED: AtomicBool = AtomicBool::new(false);
 
 pub fn start_refresh_loop() {
@@ -76,59 +96,189 @@ pub fn start_refresh_loop() {
     });
 }
 
-/// The catalogue now, refreshing it first when due.
-pub async fn current() -> Catalogue {
-    let mut cache = CACHE.lock().await;
-    if cache.next_refresh.is_none_or(|next| Instant::now() >= next) {
-        let client = match reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .user_agent("restless-app-catalogue")
-            .build()
-        {
-            Ok(client) => client,
-            Err(_) => return cache.catalogue.clone(),
-        };
-        let mut unavailable = Vec::new();
-        let mut items: Vec<CatalogueItem> = Vec::new();
-        let previous = std::mem::take(&mut cache.catalogue.items);
-        match fetch_registry(&client).await {
-            Ok(found) => items.extend(found),
-            Err(error) => {
-                tracing::warn!(%error, "MCP Registry refresh failed; keeping its last good items");
-                unavailable.push(format!("MCP Registry: {error:#}"));
-                items.extend(previous.iter().filter(|item| item.kind == "mcp").cloned());
-            }
-        }
-        match fetch_skills(&client).await {
-            Ok(found) => items.extend(found),
-            Err(error) => {
-                tracing::warn!(%error, "skills refresh failed; keeping their last good items");
-                unavailable.push(format!("Anthropic skills: {error:#}"));
-                items.extend(previous.iter().filter(|item| item.kind == "skill").cloned());
-            }
-        }
-        items.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-        let ok = unavailable.is_empty();
-        cache.catalogue = Catalogue {
-            updated_at: SystemTime::now().duration_since(UNIX_EPOCH).ok().map(|at| at.as_millis()),
-            items,
-            unavailable,
-        };
-        cache.next_refresh = Some(Instant::now() + if ok { REFRESH_AFTER } else { RETRY_AFTER_FAILURE });
-    }
-    cache.catalogue.clone()
+fn cache_path() -> std::path::PathBuf {
+    crate::runtime::state_root().join("cache/app-catalogue.json")
 }
 
-/// One catalogue item by key, from the current snapshot.
-pub async fn item(key: &str) -> Option<CatalogueItem> {
-    current().await.items.into_iter().find(|item| item.key == key)
+/// Cached public metadata is readable immediately, even while a slow source refreshes.
+/// Installation still resolves the canonical entry; this snapshot never grants access.
+pub async fn current() -> Catalogue {
+    current_with_refresh(false).await
+}
+
+pub async fn current_with_refresh(force: bool) -> Catalogue {
+    snapshot(CACHE.clone(), Some(cache_path()), force, refresh).await
+}
+
+async fn snapshot<F, Fut>(
+    cache: Arc<CatalogueCache>,
+    path: Option<std::path::PathBuf>,
+    force: bool,
+    refresh: F,
+) -> Catalogue
+where
+    F: FnOnce(Catalogue) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = Catalogue> + Send + 'static,
+{
+    let mut state = cache.state.lock().await;
+    if !state.loaded {
+        if let Some(path) = &path {
+            if let Ok(bytes) = tokio::fs::read(path).await {
+                if let Ok(mut saved) = serde_json::from_slice::<Catalogue>(&bytes) {
+                    saved.refreshing = false;
+                    state.catalogue = saved;
+                }
+            }
+        }
+        state.loaded = true;
+    }
+    let now = Instant::now();
+    let manual_allowed = force
+        && state
+            .last_attempt
+            .is_none_or(|last| now.duration_since(last) >= MANUAL_REFRESH_COOLDOWN);
+    if !state.catalogue.refreshing
+        && (state.next_refresh.is_none_or(|next| now >= next) || manual_allowed)
+    {
+        state.last_attempt = Some(now);
+        let previous = state.catalogue.clone();
+        state.catalogue.refreshing = true;
+        let task_cache = cache.clone();
+        tokio::spawn(async move {
+            let mut catalogue = refresh(previous).await;
+            catalogue.refreshing = false;
+            let ok = catalogue.unavailable.is_empty();
+            {
+                let mut state = task_cache.state.lock().await;
+                state.catalogue = catalogue.clone();
+                state.next_refresh = Some(
+                    Instant::now()
+                        + if ok {
+                            REFRESH_AFTER
+                        } else {
+                            RETRY_AFTER_FAILURE
+                        },
+                );
+            }
+            task_cache.completed.notify_waiters();
+            if let Some(path) = path {
+                // Public, unauthenticated metadata only. An interrupted write cannot destroy the last good file.
+                let saved = async {
+                    tokio::fs::create_dir_all(path.parent().expect("cache parent")).await?;
+                    let temp = path.with_extension("json.tmp");
+                    tokio::fs::write(&temp, serde_json::to_vec(&catalogue)?).await?;
+                    tokio::fs::rename(temp, path).await?;
+                    Ok::<_, anyhow::Error>(())
+                }
+                .await;
+                if let Err(error) = saved {
+                    tracing::warn!(%error, "could not persist app catalogue");
+                }
+            }
+        });
+    }
+    state.catalogue.clone()
+}
+
+fn now_ms() -> Option<u128> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|at| at.as_millis())
+}
+
+async fn refresh(mut previous: Catalogue) -> Catalogue {
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .user_agent("restless-app-catalogue")
+        .build()
+    {
+        Ok(client) => client,
+        Err(error) => {
+            previous.unavailable = vec![error.to_string()];
+            return previous;
+        }
+    };
+    // A request timeout alone does not bound a multi-page feed. Each whole source has a deadline.
+    let (registry, skills) = tokio::join!(
+        tokio::time::timeout(Duration::from_secs(75), fetch_registry(&client)),
+        tokio::time::timeout(Duration::from_secs(60), fetch_skills(&client))
+    );
+    let mut items = Vec::new();
+    previous.unavailable.clear();
+    let mut any_updated = false;
+    for (source, kind, result) in [
+        ("MCP Registry", "mcp", registry),
+        ("Anthropic skills", "skill", skills),
+    ] {
+        let result = result
+            .map_err(anyhow::Error::from)
+            .and_then(|result| result);
+        let status = previous.sources.entry(source.to_owned()).or_default();
+        match result {
+            Ok(found) => {
+                items.extend(found);
+                status.updated_at = now_ms();
+                status.error = None;
+                any_updated = true;
+            }
+            Err(error) => {
+                tracing::warn!(%error, source, "app catalogue source refresh failed");
+                status.error = Some(format!("{error:#}"));
+                previous.unavailable.push(format!("{source}: {error:#}"));
+                items.extend(
+                    previous
+                        .items
+                        .iter()
+                        .filter(|item| item.kind == kind)
+                        .cloned(),
+                );
+            }
+        }
+    }
+    items.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    previous.items = items;
+    if any_updated {
+        previous.updated_at = now_ms();
+    }
+    previous
+}
+
+/// A cold install waits for the bounded initial refresh instead of returning a false "removed".
+pub async fn item(key: &str) -> Result<Option<CatalogueItem>> {
+    let notified = CACHE.completed.notified();
+    tokio::pin!(notified);
+    notified.as_mut().enable();
+    let catalogue = current().await;
+    if let Some(item) = catalogue.items.iter().find(|item| item.key == key) {
+        return Ok(Some(item.clone()));
+    }
+    if catalogue.refreshing {
+        tokio::time::timeout(Duration::from_secs(80), notified)
+            .await
+            .context("The app catalogue is still refreshing. Try again shortly.")?;
+        let state = CACHE.state.lock().await;
+        if let Some(item) = state.catalogue.items.iter().find(|item| item.key == key) {
+            return Ok(Some(item.clone()));
+        }
+        if !state.catalogue.unavailable.is_empty() {
+            bail!("The app catalogue could not be fully refreshed. Try again shortly.");
+        }
+        return Ok(None);
+    }
+    if !catalogue.unavailable.is_empty() {
+        bail!("The app catalogue could not be fully refreshed. Try again shortly.");
+    }
+    Ok(None)
 }
 
 async fn fetch_registry(client: &reqwest::Client) -> Result<Vec<CatalogueItem>> {
     let mut items = BTreeMap::new();
     let mut cursor: Option<String> = None;
     for _ in 0..MAX_REGISTRY_PAGES {
-        let mut request = client.get(REGISTRY_URL).query(&[("limit", "100"), ("version", "latest")]);
+        let mut request = client
+            .get(REGISTRY_URL)
+            .query(&[("limit", "100"), ("version", "latest")]);
         if let Some(cursor) = &cursor {
             request = request.query(&[("cursor", cursor.as_str())]);
         }
@@ -164,12 +314,19 @@ pub fn registry_items(page: &serde_json::Value) -> Vec<CatalogueItem> {
         if status.is_some_and(|status| status != "active") {
             continue;
         }
-        let Some(name) = server["name"].as_str() else { continue };
+        let Some(name) = server["name"].as_str() else {
+            continue;
+        };
         let endpoint = server["remotes"]
             .as_array()
             .into_iter()
             .flatten()
-            .filter(|remote| matches!(remote["type"].as_str(), Some("streamable-http") | Some("sse")))
+            .filter(|remote| {
+                matches!(
+                    remote["type"].as_str(),
+                    Some("streamable-http") | Some("sse")
+                )
+            })
             .filter_map(|remote| remote["url"].as_str())
             .find(|url| url.starts_with("https://") && !url.contains('{'));
         let Some(endpoint) = endpoint else { continue };
@@ -212,10 +369,20 @@ async fn fetch_skills(client: &reqwest::Client) -> Result<Vec<CatalogueItem>> {
     let mut items = Vec::new();
     for (folder, files) in folders {
         let url = format!("{SKILLS_RAW}/skills/{folder}/SKILL.md");
-        let Ok(response) = client.get(&url).send().await else { continue };
-        let Ok(response) = response.error_for_status() else { continue };
-        let Ok(text) = response.text().await else { continue };
-        let Some((name, description)) = frontmatter(&text) else { continue };
+        // A failed file read is a failed source refresh, not evidence that a skill disappeared.
+        let text = client
+            .get(&url)
+            .send()
+            .await
+            .with_context(|| format!("reach skill {folder}"))?
+            .error_for_status()
+            .with_context(|| format!("read skill {folder}"))?
+            .text()
+            .await
+            .with_context(|| format!("decode skill {folder}"))?;
+        let Some((name, description)) = frontmatter(&text) else {
+            continue;
+        };
         let runs_scripts = files.iter().any(|file| is_script(file));
         items.push(CatalogueItem {
             key: format!("skill:anthropics/{folder}"),
@@ -242,10 +409,19 @@ pub fn skill_folders(tree: &serde_json::Value) -> BTreeMap<String, Vec<String>> 
         if entry["type"] != "blob" {
             continue;
         }
-        let Some(path) = entry["path"].as_str() else { continue };
-        let Some(rest) = path.strip_prefix("skills/") else { continue };
-        let Some((folder, file)) = rest.split_once('/') else { continue };
-        folders.entry(folder.to_string()).or_default().push(file.to_string());
+        let Some(path) = entry["path"].as_str() else {
+            continue;
+        };
+        let Some(rest) = path.strip_prefix("skills/") else {
+            continue;
+        };
+        let Some((folder, file)) = rest.split_once('/') else {
+            continue;
+        };
+        folders
+            .entry(folder.to_string())
+            .or_default()
+            .push(file.to_string());
     }
     folders.retain(|_, files| files.iter().any(|file| file == "SKILL.md"));
     folders
@@ -264,16 +440,26 @@ pub fn frontmatter(text: &str) -> Option<(String, String)> {
             description = Some(unquote(value));
         }
     }
-    Some((name.filter(|name| !name.is_empty())?, description.unwrap_or_default()))
+    Some((
+        name.filter(|name| !name.is_empty())?,
+        description.unwrap_or_default(),
+    ))
 }
 
 fn unquote(value: &str) -> String {
-    value.trim().trim_matches('"').trim_matches('\'').trim().to_string()
+    value
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .trim()
+        .to_string()
 }
 
 fn is_script(file: &str) -> bool {
     file.starts_with("scripts/")
-        || [".py", ".sh", ".js", ".mjs", ".ts", ".rb"].iter().any(|ext| file.ends_with(ext))
+        || [".py", ".sh", ".js", ".mjs", ".ts", ".rb"]
+            .iter()
+            .any(|ext| file.ends_with(ext))
 }
 
 fn clip(text: &str) -> String {
@@ -294,7 +480,9 @@ pub async fn skill_file(item: &CatalogueItem, file: &str) -> Result<Vec<u8>> {
     if !item.files.iter().any(|listed| listed == file) || file.contains("..") {
         bail!("{file} is not part of this skill");
     }
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(30)).build()?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()?;
     let response = client
         .get(format!("{SKILLS_RAW}/skills/{folder}/{file}"))
         .send()
@@ -308,6 +496,35 @@ pub async fn skill_file(item: &CatalogueItem, file: &str) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_slow_refresh_never_blocks_cached_reads_or_starts_a_second_fetch() {
+        let cache = Arc::new(CatalogueCache::default());
+        cache.state.lock().await.catalogue.updated_at = Some(42);
+        let (send, receive) = tokio::sync::oneshot::channel();
+        let first = snapshot(cache.clone(), None, false, |previous| async move {
+            receive.await.unwrap();
+            previous
+        })
+        .await;
+        assert!(first.refreshing);
+        let second = tokio::time::timeout(
+            Duration::from_millis(100),
+            snapshot(cache.clone(), None, false, |_| async {
+                panic!("duplicate refresh")
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(second.updated_at, Some(42));
+        assert!(second.refreshing);
+        let notified = cache.completed.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        send.send(()).unwrap();
+        notified.await;
+        assert!(!cache.state.lock().await.catalogue.refreshing);
+    }
 
     #[test]
     fn a_registry_page_offers_active_servers_with_an_https_remote() {
@@ -329,7 +546,10 @@ mod tests {
         let items = registry_items(&page);
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].name, "inference.sh");
-        assert_eq!(items[0].endpoint.as_deref(), Some("https://api.inference.sh/mcp"));
+        assert_eq!(
+            items[0].endpoint.as_deref(),
+            Some("https://api.inference.sh/mcp")
+        );
         assert_eq!(items[0].key, "mcp:ac.inference.sh/mcp");
     }
 
@@ -345,9 +565,14 @@ mod tests {
             {"path": "README.md", "type": "blob"}
         ]});
         let folders = skill_folders(&tree);
-        assert_eq!(folders.keys().collect::<Vec<_>>(), ["frontend-design", "pdf"]);
+        assert_eq!(
+            folders.keys().collect::<Vec<_>>(),
+            ["frontend-design", "pdf"]
+        );
         assert!(folders["pdf"].iter().any(|file| is_script(file)));
-        assert!(!folders["frontend-design"].iter().any(|file| is_script(file)));
+        assert!(!folders["frontend-design"]
+            .iter()
+            .any(|file| is_script(file)));
         assert_eq!(
             frontmatter("---\nname: frontend-design\ndescription: \"Create distinctive interfaces\"\n---\n# Body"),
             Some(("frontend-design".into(), "Create distinctive interfaces".into()))

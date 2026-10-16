@@ -71,7 +71,13 @@
 	const ownerAccess = $derived(principalProjection.view?.membership_role === 'owner');
 	/* Everyone's attention: the owner's is the company queue, anyone else's what is assigned to
 	 * them. The decision on this Work is shown here, not only in the Inbox. */
-	const attentionProjection = $derived(attentionQuery(companyId, () => !!principalProjection.view));
+	const attentionProjection = $derived(
+		attentionQuery(
+			companyId,
+			() => !!principalProjection.view,
+			() => ownerAccess
+		)
+	);
 	const cockpitProjection = $derived(cockpitQuery(companyId, () => ownerAccess));
 	const collaborationProjection = $derived(
 		collaborationBootstrapQuery(companyId, () => (ownerAccess ? null : principalProjection.view))

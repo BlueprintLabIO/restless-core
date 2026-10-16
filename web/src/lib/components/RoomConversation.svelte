@@ -37,6 +37,7 @@
 	} from '$lib/model/room-deep-link';
 	import {
 		attentionQuery,
+		workContextQuery,
 		collaborationBootstrapQuery,
 		companyPrincipalQuery,
 		cockpitQuery
@@ -97,6 +98,7 @@
 	const ownerAccess = $derived(principalProjection.view?.membership_role === 'owner');
 	const principalActorId = $derived(principalProjection.view?.actor_id ?? '');
 	const attention = $derived(attentionQuery(companyId, () => ownerAccess));
+	const workContext = $derived(workContextQuery(companyId, () => ownerAccess, true));
 	const collaboration = $derived(
 		collaborationBootstrapQuery(companyId, () => (ownerAccess ? null : principalProjection.view))
 	);
@@ -739,9 +741,7 @@
 		return items.filter((item) => {
 			const sourceActor =
 				item.responsibleActor?.id ?? item.runtimeAttach?.requestingActor ?? item.briefAuthor?.id;
-			const workOwner = attention.view?.workGraph?.work.find(
-				(work) => work.id === item.workId
-			)?.owner_id;
+			const workOwner = workContext.view?.work.find((work) => work.id === item.workId)?.owner_id;
 			return (sourceActor && members.has(sourceActor)) || (workOwner && members.has(workOwner));
 		});
 	}
@@ -764,7 +764,7 @@
 		const about = [role, team ? `${led ? 'Leads' : 'In'} ${teamName(team.name, companyId)}` : '']
 			.filter(Boolean)
 			.join(' · ');
-		const work = (attention.view?.workGraph?.work ?? [])
+		const work = (workContext.view?.work ?? [])
 			.filter((item) => item.owner_id === person.actor_id && item.status === 'active')
 			.toSorted((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))[0];
 		const asks = [
@@ -1936,7 +1936,7 @@
 				...(threadRootId === null ? options.value : []),
 				...referenceOptions(
 					companyId,
-					attention.view?.workGraph?.work ?? [],
+					workContext.view?.work ?? [],
 					cockpitProjection.view?.goals ?? [],
 					[],
 					libraryDocuments.documents

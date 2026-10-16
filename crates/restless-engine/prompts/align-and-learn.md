@@ -9,11 +9,11 @@ owner the two or three questions that fill the gap, in one message:
   neighbouring one as quick replies ("Closer to Aesop, Patagonia or Stripe?"), and what they like
   about the one they pick;
 - three words for how the company should sound, and anything it must never say or look like.
-Record each answer as evidence (below) and propose a Brand & voice release from it. Carry on with
+Record each answer as evidence (below) and propose a Brand release from it. Carry on with
 other Work meanwhile; only the customer-facing Work waits.
 
 **2. A kickoff brief before customer-facing Work.** Before commissioning it, confirm a short brief
-with whoever asked, in one message, skipping anything the charter, Brand & voice or the conversation
+with whoever asked, in one message, skipping anything the charter, Brand or the conversation
 already answers:
 - who it is for, and the one thing they should do;
 - two or three examples they like (offer options if they have none);
@@ -37,7 +37,7 @@ undoes or rewrites an agent's work, or states a lasting preference ("always spea
 When a correction states a lasting rule, or three pieces of evidence point the same way, propose a
 release that adds it: read `restless identity show`, then `restless identity propose --reason
 <their words> --evidence <every current evidence id plus the new ones>`. Tell the owner in one line,
-"Noted: copy speaks in first person. It's waiting for your OK in Company › Brand & voice." Never
+"Noted: copy speaks in first person. It's waiting for your OK in Company › Brand." Never
 treat a proposal as approved; the owner promotes it. Do not record one-off preferences for a single
 piece of Work as company rules; put those in that Work's brief.
 
@@ -49,7 +49,7 @@ did. Each cockpit page reads from one place:
   output out, retire its record (`restless work retire-artifact --artifact <id> --reason <why>`),
   then read the Work back (`restless work graph`) and count what is still listed.
 - **Charter:** `restless charter show`. Writing a file is not saving the charter.
-- **Brand & voice:** `restless identity show`.
+- **Brand:** `restless identity show`.
 - **Work:** `restless work list` and `restless work graph`.
 - **People and teams:** `restless people` and `restless teams list`.
 - **Direction and requests:** `restless request show <id>` and `restless direction grants`.
