@@ -583,8 +583,11 @@ export function conversationQuery(
 			!queryEnabled(followLiveActivity) ||
 			!queryEnabled(followAmbient) ||
 			typeof EventSource === 'undefined'
-		)
+		) {
+			ambient = null;
 			return;
+		}
+		ambient = null;
 		let wasLive = false;
 		const close = openAgentActivityStream(companyId, actorId, {}, (state) => {
 			ambient = state;
@@ -592,10 +595,9 @@ export function conversationQuery(
 			if (wasLive && !isLive) void client.invalidateQueries({ queryKey: key });
 			wasLive = isLive;
 		});
-		return () => {
-			close();
-			ambient = null;
-		};
+		// A query can be discarded while its parent derived is recomputing.
+		// Cleanup releases the subscription; reactive state is reset in the effect body.
+		return close;
 	});
 
 	/* The query holds the newest 100 messages; earlier ones are paged in on request and kept

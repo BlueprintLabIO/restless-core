@@ -15,15 +15,15 @@ export function teamName(name: string, companyId = ''): string {
 	return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-/** Two letters for an avatar. A team shares its lead's initial, so one letter cannot tell its
- * people apart: a one-word name shows its first two letters ("Bea" is Be, "Bodhi" Bo), and two
- * words their initials. Leading articles and a trailing number are skipped ("The Exec" is Ex). */
+/** A name prefix for an avatar. Team characters are allocated in prefix order, so
+ * multiword names keep that prefix too (Ebenezer Scrooge → Eb, Edna Mode → Ed).
+ * A repeated character retains its number: Eeyore 2 → Ee2, distinct from Eeyore. */
 export function initials(name: string): string {
 	const words = name
+		.trim()
 		.split(/\s+/)
-		.filter((part) => part && !/^(the|a|an)$/i.test(part) && !/^\d+$/.test(part));
-	const [first = '', second] = words;
-	if (second && /^\p{L}/u.test(second))
-		return `${first[0] ?? ''}${second[0] ?? ''}`.toUpperCase();
-	return `${first.charAt(0).toUpperCase()}${first.charAt(1).toLowerCase()}`;
+		.filter((part) => part && !/^(the|a|an)$/i.test(part));
+	const round = words.length > 1 && /^\d+$/.test(words.at(-1) ?? '') ? (words.pop() ?? '') : '';
+	const letters = [...(words[0] ?? '').replace(/[^\p{L}\p{N}]/gu, '')];
+	return (letters[0]?.toUpperCase() ?? '') + (letters[1]?.toLowerCase() ?? '') + round;
 }

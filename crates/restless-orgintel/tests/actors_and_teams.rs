@@ -2043,17 +2043,25 @@ async fn durable_people_and_one_level_rosters_refuse_ghosts_and_poaching() {
     );
 
     let archived = org.archived_agents().await.unwrap();
-    assert!(archived.iter().any(|agent| agent.actor_id == "retiring-researcher"
-        && agent.retirement_reason.contains("no longer exists")));
+    assert!(archived
+        .iter()
+        .any(|agent| agent.actor_id == "retiring-researcher"
+            && agent.retirement_reason.contains("no longer exists")));
     // Sprint 88: re-hiring reverses retirement. The same identity comes back and can take Work.
     assert!(
-        org.restore_actor("retiring-researcher", "exec", "").await.is_err(),
+        org.restore_actor("retiring-researcher", "exec", "")
+            .await
+            .is_err(),
         "re-hiring needs a reason"
     );
     org.restore_actor("retiring-researcher", "exec", "market research is back on")
         .await
         .unwrap();
-    let back = org.active_actor("retiring-researcher").await.unwrap().expect("re-hired");
+    let back = org
+        .active_actor("retiring-researcher")
+        .await
+        .unwrap()
+        .expect("re-hired");
     assert_eq!(back.retired_by, None);
     assert!(org
         .events_of_kind("actor_restored")
@@ -2063,13 +2071,20 @@ async fn durable_people_and_one_level_rosters_refuse_ghosts_and_poaching() {
         .any(|event| event.body["actor_id"] == "retiring-researcher"
             && event.body["reason"] == "market research is back on"));
     assert!(
-        org.restore_actor("retiring-researcher", "exec", "again").await.is_err(),
+        org.restore_actor("retiring-researcher", "exec", "again")
+            .await
+            .is_err(),
         "an active actor is not re-hired twice"
     );
     org.update_actor_model("retiring-researcher", "kimi-k2.5")
         .await
         .expect("a re-hired actor takes a model again");
-    assert!(!org.archived_agents().await.unwrap().iter().any(|agent| agent.actor_id == "retiring-researcher"));
+    assert!(!org
+        .archived_agents()
+        .await
+        .unwrap()
+        .iter()
+        .any(|agent| agent.actor_id == "retiring-researcher"));
 
     let roster_events = org.events_of_kind("team_roster_changed").await.unwrap();
     assert!(roster_events.iter().any(|event| {
@@ -2118,7 +2133,7 @@ async fn fictional_names_are_serial_and_failed_creations_do_not_skip_letters() {
             .map(|a| a.display)
             .collect();
         names.sort();
-        assert_eq!(names, vec!["Ada", "Bea"]);
+        assert_eq!(names, vec!["Aang", "Baloo"]);
         assert!(org
             .create_actor(
                 "site-direction",
@@ -2141,7 +2156,7 @@ async fn fictional_names_are_serial_and_failed_creations_do_not_skip_letters() {
         .await?;
         assert_eq!(
             org.active_actor("quality-reviewer").await?.unwrap().display,
-            "Cleo"
+            "Calcifer"
         );
         Ok::<(), restless_orgintel::OrgIntelError>(())
     }
@@ -2208,14 +2223,14 @@ async fn team_names_follow_leads_through_creation_transfers_and_replacement() {
         .await?;
         assert_eq!(
             org.active_actor("gamma-strategy").await?.unwrap().display,
-            "Cleo",
+            "Calcifer",
             "member names do not consume lead letters"
         );
         org.set_actor_team("alpha-writer", Some(b), "exec", "transfer")
             .await?;
         assert_eq!(
             org.active_actor("alpha-writer").await?.unwrap().display,
-            "Bodhi"
+            "Beast"
         );
         org.set_actor_team("alpha-writer", Some(a), "exec", "return")
             .await?;
@@ -2235,11 +2250,11 @@ async fn team_names_follow_leads_through_creation_transfers_and_replacement() {
         }
         assert_eq!(
             org.active_actor("gamma-strategy").await?.unwrap().display,
-            "Cleo"
+            "Calcifer"
         );
         assert_eq!(
             org.active_actor("beta-strategy").await?.unwrap().display,
-            "Bea"
+            "Baloo"
         );
         Ok::<(), restless_orgintel::OrgIntelError>(())
     }
@@ -2275,6 +2290,174 @@ async fn reopening_company_aligns_legacy_member_names_once() {
         pool.close().await;
         Ok::<(), restless_orgintel::OrgIntelError>(())
     }.await;
+    org.drop_schema().await.unwrap();
+    result.unwrap();
+}
+
+#[tokio::test]
+async fn ordinary_roster_becomes_ordered_characters_once_without_rewriting_identity() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        return;
+    };
+    let company = format!("orderednames{}_test", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    let result = async {
+        org.ensure_actor("owner", "owner", "owner", "Owner").await?;
+        org.ensure_actor("exec", "exec", "exec", "The Exec").await?;
+        org.create_actor("site-direction", "lead", "ignored", None, "exec", "lead")
+            .await?;
+        let team = org
+            .create_team("Studio", "Build the outcome", "site-direction", "exec")
+            .await?;
+        for id in ["site-design", "site-review"] {
+            org.create_actor(
+                id,
+                "specialist",
+                "ignored",
+                None,
+                "site-direction",
+                "independent contribution",
+            )
+            .await?;
+            org.set_actor_team(id, Some(team), "exec", "join the studio")
+                .await?;
+        }
+        let work = org
+            .add_work(NewWork {
+                owner_id: "site-design",
+                title: "Retain identity through a display rename",
+                outcome: "Keep the same producer, conversation and team",
+                goal_id: None,
+                priority: 1,
+                expected_artifact: "design",
+                workspace: WorkspaceSpec::default(),
+                attempt_limit: None,
+            })
+            .await?;
+        let message = org
+            .send_message(
+                "owner",
+                Some("site-design"),
+                "Keep this feedback with the same person",
+            )
+            .await?;
+        org.create_actor(
+            "old-research",
+            "researcher",
+            "ignored",
+            None,
+            "exec",
+            "past contribution",
+        )
+        .await?;
+        org.retire_actor("old-research", "exec", "assignment complete")
+            .await?;
+        let pool = sqlx::PgPool::connect(&url).await?;
+        for (id, display) in [
+            ("site-direction", "Elif"),
+            ("site-design", "Emeka"),
+            ("site-review", "Esra"),
+            ("old-research", "Legacy colleague"),
+        ] {
+            sqlx::query(&format!(
+                "UPDATE {}.actors SET display=$2 WHERE id=$1",
+                org.schema()
+            ))
+            .bind(id)
+            .bind(display)
+            .execute(&pool)
+            .await?;
+        }
+        let retired_name = org
+            .list_actors_including_retired()
+            .await?
+            .into_iter()
+            .find(|a| a.id == "old-research")
+            .unwrap()
+            .display;
+        let before_ids = org
+            .list_actors()
+            .await?
+            .into_iter()
+            .map(|a| a.id)
+            .collect::<std::collections::BTreeSet<_>>();
+        let reopened = OrgIntel::ensure(&url, &company).await?;
+        assert_eq!(
+            reopened
+                .active_actor("site-direction")
+                .await?
+                .unwrap()
+                .display,
+            "Eames"
+        );
+        let mut members = Vec::new();
+        for id in ["site-design", "site-review"] {
+            let actor = reopened.active_actor(id).await?.unwrap();
+            assert_eq!(actor.id, id);
+            assert_eq!(actor.team_id, Some(team));
+            members.push(actor.display);
+        }
+        members.sort();
+        assert_eq!(members, ["Ebenezer Scrooge", "Echo"]);
+        let after_ids = reopened
+            .list_actors()
+            .await?
+            .into_iter()
+            .map(|a| a.id)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(before_ids, after_ids);
+        assert_eq!(
+            reopened.get_work(work).await?.unwrap().owner_id,
+            "site-design"
+        );
+        let recipient: String = sqlx::query_scalar(&format!(
+            "SELECT to_actor FROM {}.messages WHERE id=$1",
+            org.schema()
+        ))
+        .bind(message)
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(recipient, "site-design");
+        assert_eq!(
+            reopened
+                .list_actors_including_retired()
+                .await?
+                .into_iter()
+                .find(|a| a.id == "old-research")
+                .unwrap()
+                .display,
+            retired_name
+        );
+        assert_eq!(
+            reopened.active_actor("exec").await?.unwrap().display,
+            "The Exec"
+        );
+        assert_eq!(
+            reopened.active_actor("owner").await?.unwrap().display,
+            "Owner"
+        );
+        let changes: i64 = sqlx::query_scalar(&format!(
+            "SELECT count(*) FROM {}.events WHERE kind='actor_display_changed'",
+            org.schema()
+        ))
+        .fetch_one(&pool)
+        .await?;
+        let again = OrgIntel::ensure(&url, &company).await?;
+        let unchanged: i64 = sqlx::query_scalar(&format!(
+            "SELECT count(*) FROM {}.events WHERE kind='actor_display_changed'",
+            org.schema()
+        ))
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(changes, unchanged, "reopening does not rename people again");
+        assert_eq!(
+            again.active_actor("site-direction").await?.unwrap().display,
+            "Eames"
+        );
+        pool.close().await;
+        Ok::<(), restless_orgintel::OrgIntelError>(())
+    }
+    .await;
     org.drop_schema().await.unwrap();
     result.unwrap();
 }

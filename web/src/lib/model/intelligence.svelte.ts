@@ -1,5 +1,6 @@
 import { ownerRequest } from './setting.svelte';
 import { ownerJson } from './failure';
+import { bootFetch } from './boot-fetch';
 import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 export type IntelligenceConnection = {
 	id: string;
@@ -65,7 +66,7 @@ export function intelligenceQuery(company: string, enabled: () => boolean = () =
 	const query = createQuery(() => ({
 		queryKey: ['intelligence', company],
 		queryFn: async ({ signal }) => {
-			const r = await fetch(`/api/companies/${encodeURIComponent(company)}/intelligence`, {
+			const r = await bootFetch(`/api/companies/${encodeURIComponent(company)}/intelligence`, {
 				signal
 			});
 			return ownerJson<IntelligenceView>(r);

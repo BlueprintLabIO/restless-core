@@ -395,7 +395,7 @@ impl OrgIntel {
             .connect(database_url)
             .await?;
         let org = Self { pool, schema };
-        org.align_team_member_names().await?;
+        org.align_colleague_names().await?;
         Ok(org)
     }
 

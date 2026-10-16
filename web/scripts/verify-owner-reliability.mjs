@@ -2,6 +2,7 @@
  * real daemon. These checks never touch an owner profile or an external model provider. */
 import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
+import { modelLabel } from '../src/lib/model/intelligence-labels.ts';
 import { mkdir, writeFile } from 'node:fs/promises';
 
 const origin = process.env.RESTLESS_SMOKE_ORIGIN,
@@ -37,6 +38,7 @@ async function journey(name, run, viewport = { width: 1440, height: 900 }) {
 		results.push({ name, ok: false, error: String(error) });
 		throw error;
 	} finally {
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
 		await context.close();
 	}
 }
@@ -178,25 +180,34 @@ try {
 		{ width: 390, height: 844 }
 	);
 	await journey('slow-entry-keeps-loading-wave', async (page) => {
+		let releaseRead;
+		const heldRead = new Promise((resolve) => {
+			releaseRead = resolve;
+		});
 		await page.route('**/api/companies/' + company + '/attention', async (route) => {
-			await new Promise((resolve) => setTimeout(resolve, 3000));
+			await heldRead;
 			await route.continue().catch(() => {});
 		});
-		await page.goto(origin + '/' + company, { waitUntil: 'domcontentloaded' });
-		await page.waitForTimeout(1600);
-		assert(
-			await page.locator('.first-paint-pending').count(),
-			'Slow critical read must hold the entry barrier beyond 1.2 seconds'
-		);
-		assert(
-			await page
-				.locator('body > .boot')
-				.evaluate((element) => getComputedStyle(element).display !== 'none'),
-			'The loading wave stays visible'
-		);
+		try {
+			await page.goto(origin + '/' + company, { waitUntil: 'domcontentloaded' });
+			await page.waitForTimeout(1600);
+			assert(
+				await page.locator('.first-paint-pending').count(),
+				'An unresolved critical read must keep the entry barrier beyond 1.2 seconds'
+			);
+			assert(
+				await page
+					.locator('body > .boot')
+					.evaluate((element) => getComputedStyle(element).display !== 'none'),
+				'The loading wave stays visible'
+			);
+		} finally {
+			releaseRead();
+		}
 		await page.locator('.first-paint-pending').waitFor({ state: 'detached', timeout: 15000 });
 		await page.locator('.attention-index').waitFor();
 	});
+
 	await journey(
 		'health-diagnostic-wraps-and-sends',
 		async (page) => {
@@ -381,6 +392,71 @@ try {
 		{ width: 390, height: 844 }
 	]) {
 		await journey(
+			'conversation-lifecycle-' + viewport.width,
+			async (page) => {
+				await page.addInitScript(() => {
+					const NativeSource = window.EventSource;
+					const active = new Map();
+					let sequence = 0;
+					window.__activeActivity = active;
+					window.EventSource = class extends NativeSource {
+						constructor(url, options) {
+							super(url, options);
+							this.observedId = ++sequence;
+							if (/\/actors\/[^/]+\/activity/.test(String(url)))
+								active.set(this.observedId, String(url));
+						}
+						close() {
+							active.delete(this.observedId);
+							super.close();
+						}
+					};
+				});
+				const cockpit = await api('/cockpit');
+				const targets = ['studio-design', 'copy-editor', 'exec'].map((id) =>
+					cockpit.people.find((person) => person.actor_id === id)
+				);
+				assert(targets.every(Boolean), 'The actual roster supplies the navigation targets');
+				await page.goto(origin + '/' + company + '/people?person=exec');
+				for (const person of [...targets, ...targets]) {
+					if (viewport.width < 600)
+						await page
+							.getByRole('region', { name: 'Selected conversation', exact: true })
+							.getByRole('link', { name: 'People', exact: true })
+							.click();
+					await page
+						.locator(`a.directory-person[href="/${company}/people?person=${person.actor_id}"]`)
+						.click();
+					await page
+						.getByRole('heading', {
+							name: person.display === 'The Exec' ? 'Exec' : person.display,
+							exact: true
+						})
+						.waitFor();
+					await page.waitForFunction(
+						({ actor, company }) => {
+							const streams = [...window.__activeActivity.values()];
+							return (
+								streams.length >= 1 &&
+								streams.length <= 2 &&
+								streams.every((url) =>
+									url.includes(`/companies/${company}/actors/${actor}/activity`)
+								)
+							);
+						},
+						{ actor: person.actor_id, company }
+					);
+				}
+				await page.getByRole('link', { name: 'Work', exact: true }).click();
+				if (viewport.width < 600)
+					await page.getByRole('combobox', { name: 'Work view', exact: true }).waitFor();
+				else await page.getByRole('heading', { name: 'Work', exact: true }).waitFor();
+				await page.getByRole('link', { name: /Inbox, .*items/ }).click();
+				await page.locator('.attention-index').waitFor();
+			},
+			viewport
+		);
+		await journey(
 			'conversation-popovers-' + viewport.width,
 			async (page) => {
 				await page.goto(origin + '/' + company + '/people?person=exec');
@@ -429,11 +505,44 @@ try {
 		await journey(
 			'profile-drawer-' + viewport.width,
 			async (page) => {
-				await page.goto(origin + '/' + company + '/people');
-				await page.locator('summary[aria-label="More for Arlo"]').click();
+				const cockpit = await api('/cockpit');
+				const person =
+					cockpit.people.find((person) => person.actor_id === 'prefix-quality') ??
+					cockpit.people.find((person) => person.actor_id === 'copy-editor');
+				assert(person, 'Seeded active Staff member exists');
+				assert.equal(person.model, null, 'Profile fixture inherits the company model');
+				await page.goto(
+					origin + '/' + company + '/people?person=' + encodeURIComponent(person.actor_id)
+				);
+				await page
+					.locator(`.person-header summary[aria-label="More for ${person.display}"]`)
+					.click();
 				await page.getByRole('button', { name: 'Profile', exact: true }).click();
-				const drawer = page.getByRole('dialog', { name: 'Arlo', exact: true });
+				const drawer = page.getByRole('dialog', { name: person.display, exact: true });
 				await drawer.waitFor();
+				const intelligence = await api('/intelligence');
+				const effective = intelligence.agents.find(
+					(agent) => agent.id === person.actor_id
+				)?.effective_model;
+				assert(effective, 'The seeded Staff member has a real inherited model');
+				await page.waitForFunction(
+					(label) =>
+						document
+							.querySelector('dialog.person-profile p.meta[title]')
+							?.textContent?.includes(label),
+					modelLabel(effective)
+				);
+				await drawer.locator('p.meta[title]').filter({ hasText: 'spent' }).waitFor();
+				await page.waitForFunction(
+					() =>
+						!document
+							.querySelector('dialog.person-profile p.meta[title]')
+							?.textContent?.includes('Checking model')
+				);
+				assert(
+					!/Unavailable|Model unavailable/.test(await drawer.innerText()),
+					'An inherited model is not shown as unavailable'
+				);
 				const rect = await drawer.boundingBox();
 				assert(
 					rect.y === 0 &&
@@ -445,6 +554,7 @@ try {
 					!/rgba\(/.test(await drawer.evaluate((el) => getComputedStyle(el).backgroundColor)),
 					'Profile is opaque'
 				);
+				await drawer.screenshot({ path: out + '/profile-visible-' + viewport.width + '.png' });
 				await drawer.getByRole('button', { name: 'Close', exact: true }).press('Escape');
 				await drawer.waitFor({ state: 'hidden' });
 			},

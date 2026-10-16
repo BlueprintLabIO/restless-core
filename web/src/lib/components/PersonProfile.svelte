@@ -12,6 +12,7 @@
 	} from '$lib/model/queries.svelte';
 	import { personName, teamName } from '$lib/model/initials';
 	import { modelLabel } from '$lib/model/intelligence-labels';
+	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { projectOfficeMembers } from '$lib/office/projection';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
@@ -60,6 +61,17 @@
 			? (cockpit.view?.people.find((candidate) => candidate.actor_id === actorId) ?? null)
 			: null
 	);
+	const intelligence = $derived(
+		intelligenceQuery(
+			companyId,
+			() => owner && Boolean(cockpitPerson && !['human', 'owner'].includes(cockpitPerson.kind))
+		)
+	);
+	const effectiveModel = $derived(
+		intelligence.view?.agents.find((agent) => agent.id === actorId)?.effective_model ??
+			cockpitPerson?.model ??
+			null
+	);
 	/* What they made lately: outputs they recorded or that belong to Work they own, newest first. */
 	const outputs = $derived.by(() => {
 		if (!graph) return [];
@@ -89,7 +101,7 @@
 				? 'Colleague'
 				: ''
 	);
-	holdQueries(() => [principal, cockpit, collaboration, attention]);
+	holdQueries(() => [principal, cockpit, collaboration, attention, intelligence]);
 </script>
 
 <dialog
@@ -162,7 +174,11 @@
 			class="meta"
 			title="The model this person thinks with, and what their model use has cost the company"
 		>
-			{modelLabel(cockpitPerson.model)} · {usd.format(cockpitPerson.spent_usd)} spent
+			{effectiveModel
+				? modelLabel(effectiveModel)
+				: intelligence.view || intelligence.error
+					? 'Model unavailable'
+					: 'Checking model…'} · {usd.format(cockpitPerson.spent_usd)} spent
 		</p>
 	{/if}
 
