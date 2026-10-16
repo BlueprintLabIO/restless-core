@@ -21,7 +21,12 @@
 	} from '$lib/model/apps';
 	import { useAppsData, viewFrom, isKind, type AppsView } from '$lib/model/apps-data.svelte';
 	import AppMark from '$lib/primitives/AppMark.svelte';
-	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
+	import {
+		companyPrincipalQuery,
+		cockpitQuery,
+		collaborationBootstrapQuery
+	} from '$lib/model/queries.svelte';
+	import { skillAudience } from '$lib/model/skill-audience';
 	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
 
 	const data = useAppsData();
@@ -29,6 +34,30 @@
 	/* An admin reads Apps beside the owner: adding, importing, writing or restoring is the owner's. */
 	const principal = $derived(companyPrincipalQuery(companyId));
 	const owner = $derived(hasOwnerSurfaceAccess(principal.view));
+	const cockpit = $derived(cockpitQuery(companyId, () => owner));
+	const collaboration = $derived(
+		collaborationBootstrapQuery(companyId, () => (owner ? null : principal.view))
+	);
+	const audience = (app: App, applied = false) => {
+		const names = app.skills.map((skill) => skill.name);
+		const ids = applied
+			? [
+					...new Set(
+						data.library?.applications
+							?.filter((row) => names.includes(row.skill_name))
+							.map((row) => row.actor_id) ?? []
+					)
+				]
+			: Object.entries(data.library?.availability ?? {})
+					.filter(([, skills]) => names.some((name) => skills.includes(name)))
+					.map(([id]) => id);
+		return skillAudience(
+			ids,
+			(owner ? cockpit.view?.people : collaboration.view?.people) ?? [],
+			(owner ? cockpit.view?.teams : collaboration.view?.teams) ?? [],
+			Object.keys(data.library?.availability ?? {})
+		);
+	};
 	let notice = $state('');
 	let actionFailure = $state('');
 	let busy = $state('');
@@ -374,11 +403,27 @@
 															>{/if}</span
 													>
 													<span class="what">{app.description}</span>
+													{#if app.skills.length && data.library?.availability}
+														<span
+															class="skill-audience"
+															title={`Available: ${audience(app).title}${data.library.applications ? ` · Applied: ${audience(app, true).title}` : ''}`}
+															>Available: {audience(app).label}{#if data.library.applications}
+																· Applied: {audience(app, true).label}{/if}</span
+														>
+													{/if}
 												</span>
 											</a>
 										</td>
 										{#if permissions}<td class="access" title={level.info}>{level.label}</td>{/if}
-										<td><Dot tone={tone(app)} label={status(app)} show /></td>
+										<td
+											><Dot
+												tone={tone(app)}
+												label={app.kind === 'skill' && app.state !== 'paused' && !app.attention
+													? 'Installed'
+													: status(app)}
+												show
+											/></td
+										>
 									</tr>
 								{/each}</tbody
 							>
@@ -492,6 +537,13 @@
 {/key}
 
 <style>
+	.skill-audience {
+		font-size: var(--t-label);
+		color: var(--text-tertiary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
 	.store-toolbar {
 		display: flex;
 		flex: 1;

@@ -43,10 +43,6 @@
 			(['in-use', 'installed-apps', 'installed-know-how', 'waiting'].includes(current) ||
 				isKind(current))
 	);
-	let installedOpen = $state(false);
-	$effect(() => {
-		if (installed) installedOpen = true;
-	});
 	const installedViews = $derived([
 		{ label: 'All', href: index + '?view=in-use', active: current === 'in-use' },
 		...(data.inUse.some((app) => app.kind !== 'skill')
@@ -97,20 +93,16 @@
 		{#snippet action()}{@render addActions()}{/snippet}
 		{#snippet nav()}
 			<SidebarRow href={index} label="Discover" icon={Compass} active={discover} />
-			<details
-				class="installed-group"
-				open={installedOpen}
-				ontoggle={(event) => {
-					installedOpen = event.currentTarget.open;
-				}}
-			>
-				<summary><PackageCheck size={16} aria-hidden="true" /><span>Installed</span></summary>
+			<section class="installed-group" aria-labelledby="apps-installed-label">
+				<h2 id="apps-installed-label">
+					<PackageCheck size={16} aria-hidden="true" /><span>Installed</span>
+				</h2>
 				<nav class="installed-views" aria-label="Installed">
 					{#each installedViews as view (view.label)}
 						<SidebarRow href={view.href} label={view.label} active={view.active} />
 					{/each}
 				</nav>
-			</details>
+			</section>
 			{#if data.removed.length}
 				<SidebarRow
 					href={index + '?view=removed'}
@@ -128,43 +120,28 @@
 				{/each}
 				<span class="add">{@render addActions()}</span>
 			</nav>
-			{#if installed}<nav class="apps-subviews" aria-label="Installed">
-					{#each installedViews as view (view.label)}<a
-							href={view.href}
-							aria-current={view.active ? 'page' : undefined}>{view.label}</a
-						>{/each}
-				</nav>{/if}
+			<nav class="apps-subviews" aria-label="Installed">
+				{#each installedViews as view (view.label)}<a
+						href={view.href}
+						aria-current={view.active ? 'page' : undefined}
+						>{view.label === 'All' ? 'All installed' : view.label}</a
+					>{/each}
+			</nav>
 		{/snippet}
 		{@render children()}
 	</SidebarShell>
 </ResizableSidebar>
 
 <style>
-	.installed-group summary {
+	.installed-group h2 {
 		display: flex;
 		align-items: center;
 		gap: 10px;
 		padding: 10px 12px;
 		color: var(--text-secondary);
 		font-size: var(--t-body);
-		cursor: pointer;
-		list-style: none;
-		border-radius: var(--radius-control);
-	}
-	.installed-group summary::-webkit-details-marker {
-		display: none;
-	}
-	.installed-group summary::after {
-		content: '›';
-		margin-left: auto;
-		transform: rotate(0);
-		transition: transform 120ms;
-	}
-	.installed-group[open] summary::after {
-		transform: rotate(90deg);
-	}
-	.installed-group summary:hover {
-		background: var(--wash-hover);
+		font-weight: 500;
+		margin: 0;
 	}
 	.installed-views {
 		padding-left: 24px;
@@ -188,11 +165,6 @@
 		background: var(--wash-hover);
 		color: var(--ink);
 		font-weight: 600;
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.installed-group summary::after {
-			transition: none;
-		}
 	}
 
 	.apps-views {

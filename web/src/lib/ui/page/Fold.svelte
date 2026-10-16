@@ -10,7 +10,8 @@
 		hint,
 		open = $bindable(false),
 		padded = false,
-		children
+		children,
+		actions
 	}: {
 		label: string;
 		count?: number | string | null;
@@ -19,6 +20,7 @@
 		open?: boolean;
 		padded?: boolean;
 		children: Snippet;
+		actions?: Snippet;
 	} = $props();
 	let reached = $state(false);
 	$effect(() => {
@@ -26,19 +28,35 @@
 	});
 </script>
 
-<details class="fold" bind:open>
-	<summary>
-		<ChevronRight size={14} strokeWidth={1.8} aria-hidden="true" />
-		<span class="fold-label">{label}</span>
-		{#if count != null && count !== ''}<span class="fold-count">{count}</span>{/if}
-		{#if hint}<span class="fold-hint">{hint}</span>{/if}
-	</summary>
-	<div class="fold-body" class:padded>
-		{#if open || reached}{@render children()}{/if}
-	</div>
-</details>
+<div class="fold-shell" class:has-actions={!!actions}>
+	<details class="fold" bind:open>
+		<summary>
+			<ChevronRight size={14} strokeWidth={1.8} aria-hidden="true" />
+			<span class="fold-label">{label}</span>
+			{#if count != null && count !== ''}<span class="fold-count">{count}</span>{/if}
+			{#if hint}<span class="fold-hint">{hint}</span>{/if}
+		</summary>
+		<div class="fold-body" class:padded>
+			{#if open || reached}{@render children()}{/if}
+		</div>
+	</details>
+	{#if actions}<div class="fold-actions">{@render actions()}</div>{/if}
+</div>
 
 <style>
+	.fold-shell {
+		position: relative;
+	}
+	.has-actions summary {
+		padding-right: 52px;
+	}
+	.fold-actions {
+		position: absolute;
+		right: 12px;
+		top: 8px;
+		display: flex;
+		align-items: center;
+	}
 	summary {
 		display: flex;
 		align-items: center;

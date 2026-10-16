@@ -161,7 +161,7 @@ export function createAppsData(companyId: () => string) {
 							const checked = status.updated_at
 								? `Last updated ${new Date(status.updated_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}.`
 								: 'No successful refresh yet.';
-							return `${name}: ${checked}${status.error ? ' Refresh unavailable.' : ''}`;
+							return `${name}: ${checked}${status.error ? ` Refresh unavailable: ${status.error.slice(0, 240)}` : ''}`;
 						})
 						.join(' ') + (snapshot.refreshing ? ' Updating online listings.' : '')
 				: 'Public listings are checked when you add them; a listing is not an access grant.';

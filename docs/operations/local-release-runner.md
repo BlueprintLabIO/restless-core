@@ -202,3 +202,38 @@ any already signed images and builds only the missing ones. An existing tag
 without a valid workflow signature, source label, both architectures and
 attestations stops the run instead of being overwritten. A completed signed
 bundle can be admitted by Cloud even if a later artifact-upload step fails.
+
+### WSL executor DNS recovery (17 October 2026)
+
+Native connection checks now use a job-scoped Docker-container builder through
+`scripts/release/with-company-builder.sh`. Its executor DNS is explicit, its
+cache is bounded, and its cleanup trap removes only that job's builder. The
+runner's default builder and host resolver are unchanged.
+
+Dagger has a separate DNS path. On this pilot, `dagger-engine-v0.21.10` kept the
+WSL-only `10.255.255.254` forwarder in `/etc/dnsmasq-resolv.conf`. Registry reads
+worked while Ubuntu package downloads inside RUN failed. Core run 38923893320
+qualified successfully but could not publish for this reason.
+
+Inspect the running engine's dnsmasq command/config and its `resolv-file` before
+repairing anything. Preserve the original upstream file, then replace only that
+file's upstream nameservers with reachable resolvers (this pilot: `1.1.1.1` and
+`8.8.8.8`). dnsmasq polls this file automatically; no process restart is needed.
+Do not replace the engine's `/etc/resolv.conf`, which points at its internal
+resolver and preserves `dagger.local` service discovery. Do not change the host
+resolver, restart Docker/WSL, recreate the shared engine or prune its cache.
+The [dnsmasq manual](https://thekelleys.org.uk/dnsmasq/docs/dnsmasq-man.html)
+documents `--resolv-file` polling and upstream-file semantics.
+
+The actual Dagger executor probe below failed before the scoped repair (exit 2)
+and resolved Ubuntu's archive afterward (exit 0). Add a unique environment value
+when repeating it to avoid treating a cached execution as a fresh DNS check:
+
+```sh
+dagger core container from --address ubuntu:24.04 \
+  with-env-variable --name RESTLESS_DNS_PROBE --value "$(date +%s)" \
+  with-exec --args=getent,ahostsv4,archive.ubuntu.com stdout
+```
+
+This repair is runner configuration, not a security-check exemption. Publication
+must still pass the image scan, signature and exact-source contract checks.

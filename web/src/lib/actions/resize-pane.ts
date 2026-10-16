@@ -22,6 +22,7 @@ export function resizePane(node: HTMLElement, initial: PaneResize) {
 	let startX = 0,
 		startSize = 0,
 		current = 0;
+	let observedPane: HTMLElement | null = null;
 	const handle = document.createElement('div');
 	handle.className = 'pane-resizer';
 	handle.tabIndex = 0;
@@ -57,6 +58,11 @@ export function resizePane(node: HTMLElement, initial: PaneResize) {
 	}
 	function layout() {
 		const pane = node.querySelector<HTMLElement>(options.target);
+		if (pane !== observedPane) {
+			if (observedPane) observer.unobserve(observedPane);
+			observedPane = pane;
+			if (pane) observer.observe(pane);
+		}
 		const active =
 			options.enabled !== false &&
 			window.innerWidth > (options.breakpoint ?? 980) &&
@@ -189,6 +195,11 @@ export function resizePane(node: HTMLElement, initial: PaneResize) {
 	handle.addEventListener('dblclick', reset);
 	const observer = new ResizeObserver(layout);
 	observer.observe(node);
+	// Conditional panes can arrive after the action's update without changing
+	// their container's size. Watch direct pane insertion and the pane's size,
+	// avoiding transcript-subtree observation during streaming.
+	const children = new MutationObserver(layout);
+	children.observe(node, { childList: true });
 	window.addEventListener('resize', layout);
 	read();
 	layout();
@@ -205,6 +216,7 @@ export function resizePane(node: HTMLElement, initial: PaneResize) {
 			cancelAnimationFrame(glide);
 			end();
 			observer.disconnect();
+			children.disconnect();
 			window.removeEventListener('resize', layout);
 			handle.remove();
 			node.style.removeProperty(options.variable);

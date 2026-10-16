@@ -12,6 +12,7 @@ assert(
 	'Set RESTLESS_TEST_SOURCE_COMPANY to an existing company. Only GET requests are proxied; fixture state stays in this browser.'
 );
 let streams = [],
+	connections = [],
 	done = false;
 const srv = http.createServer((req, res) => {
 	res.writeHead(200, {
@@ -20,8 +21,12 @@ const srv = http.createServer((req, res) => {
 		'Cache-Control': 'no-cache'
 	});
 	res.write(': connected\n\n');
-	streams.push(res);
-	req.on('close', () => (streams = streams.filter((s) => s !== res)));
+	connections.push(res);
+	if (req.url !== '/changes') streams.push(res);
+	req.on('close', () => {
+		streams = streams.filter((s) => s !== res);
+		connections = connections.filter((s) => s !== res);
+	});
 });
 await new Promise((r) => srv.listen(0, '127.0.0.1', r));
 let b;
@@ -47,7 +52,14 @@ try {
 		const req = route.request(),
 			url = req.url();
 		if (req.method() !== 'GET') return route.fulfill({ json: {} });
-		if (url.includes('/activity?'))
+		// A real change subscription never completes, so route.fetch would wait
+		// forever for its body. Keep this fixture's change stream local and quiet.
+		if (new URL(url).pathname.endsWith('/changes'))
+			return route.fulfill({
+				status: 307,
+				headers: { Location: `http://127.0.0.1:${srv.address().port}/changes` }
+			});
+		if (new URL(url).pathname.endsWith('/activity'))
 			return route.fulfill({
 				status: 307,
 				headers: { Location: `http://127.0.0.1:${srv.address().port}/events` }
@@ -68,7 +80,13 @@ try {
 		}
 		return route.continue();
 	});
-	await p.goto(`${base}/${test}`);
+	// Inbox can own the conversation in its middle pane. Exercise the resizable
+	// global rail explicitly on Library, independent of the source inbox state.
+	await p.goto(`${base}/${test}/library`);
+	// The accessible name also announces unread messages.
+	const execToggle = p.locator('button.tb-exec');
+	await execToggle.waitFor();
+	if ((await execToggle.getAttribute('aria-expanded')) !== 'true') await execToggle.click();
 	await p.locator('.turn-summary').waitFor();
 	const deadline = Date.now() + 10000;
 	while (!streams.length && Date.now() < deadline) await p.waitForTimeout(100);
@@ -81,6 +99,7 @@ try {
 			company: test,
 			actorId: 'exec',
 			triggerMessageId: 100,
+			completedMessageId: done ? 101 : null,
 			workId: null,
 			attemptId: null,
 			phase,
@@ -232,9 +251,13 @@ try {
 		'PASS: streaming follows the end, pauses for reading history, and resumes in transcript and expanded activity.'
 	);
 	const seam = p.locator('.bridge-body > .pane-resizer');
+	await seam.waitFor({ state: 'visible' });
 	await seam.focus();
 	await p.keyboard.press('Home');
-	await p.waitForTimeout(150);
+	await p.waitForFunction(() => {
+		const handle = document.querySelector('.bridge-body > .pane-resizer');
+		return handle.getAttribute('aria-valuenow') === handle.getAttribute('aria-valuemin');
+	});
 	const before = Number(await seam.getAttribute('aria-valuenow'));
 	const r = await seam.boundingBox();
 	await p.mouse.move(r.x + 5, r.y + 100);
@@ -244,6 +267,10 @@ try {
 	assert.equal(Number(await seam.getAttribute('aria-valuenow')), before + 100);
 	await seam.focus();
 	await p.keyboard.press('Home');
+	await p.waitForFunction(() => {
+		const handle = document.querySelector('.bridge-body > .pane-resizer');
+		return handle.getAttribute('aria-valuenow') === handle.getAttribute('aria-valuemin');
+	});
 	finalReply =
 		'First streamed words\n\n```text\n' +
 		'long_value_'.repeat(60) +
@@ -254,7 +281,14 @@ try {
 	await p.waitForTimeout(250);
 	const overflow = await p.evaluate(() =>
 		[...document.querySelectorAll('.exr-msgs, .exr-msgs *')]
-			.filter((e) => e.clientWidth && e.scrollWidth > e.clientWidth + 2)
+			// Intentional ellipsis and screen-reader-only labels have clipped
+			// content by design; they cannot spill outside the narrow rail.
+			.filter(
+				(e) =>
+					e.clientWidth &&
+					e.scrollWidth > e.clientWidth + 2 &&
+					!['hidden', 'clip'].includes(getComputedStyle(e).overflowX)
+			)
 			.map((e) => ({ tag: e.tagName, cls: e.className, w: e.clientWidth, scroll: e.scrollWidth }))
 	);
 	console.log('overflow', overflow);
@@ -267,26 +301,28 @@ try {
 	const finishedAt = new Date(new Date(now).getTime() + 7000).toISOString();
 	send(finalReply, 'failed', finishedAt);
 	await p.waitForTimeout(250);
-	assert.equal(await p.locator('.turn-status').innerText(), 'Reply interrupted');
+	assert.equal(await p.locator('.turn-status').innerText(), "Exec couldn't reply");
 	assert.equal(await p.locator('.turn-summary time').innerText(), '7s');
 	await p.waitForTimeout(2200);
 	assert.equal(await p.locator('.turn-summary time').innerText(), '7s');
+	// A completed message id means the server committed that message. Its
+	// conversation query can still be in flight when the terminal frame lands.
+	done = true;
 	send(finalReply, 'complete', finishedAt);
 	await p.waitForTimeout(250);
-	assert.equal(await p.locator('.turn-status').innerText(), 'Exec finished replying');
+	assert.equal(await p.locator('.turn-status').innerText(), 'Replied');
 	assert.equal(await p.locator('.pixel-glimmer, .turn-status.shimmer').count(), 0);
 	// Connection closure must not replace a completed state with "Reconnecting".
 	for (const stream of [...streams]) stream.end();
 	await p.waitForTimeout(2200);
-	assert.equal(await p.locator('.turn-status').innerText(), 'Exec finished replying');
+	assert.equal(await p.locator('.turn-status').innerText(), 'Replied');
 	assert.equal(await p.locator('.turn-summary time').innerText(), '7s');
-	done = true;
 	const reconnected = Date.now() + 10000;
 	while (!streams.length && Date.now() < reconnected) await p.waitForTimeout(100);
 	assert(streams.length, 'EventSource did not reconnect after terminal frame');
 	send(finalReply, 'complete', finishedAt);
 
-	await p.waitForTimeout(1000);
+	await p.locator('.visible-reply').waitFor({ state: 'detached' });
 	assert.equal(await p.locator('.visible-reply').count(), 0);
 	assert.equal(
 		await p
@@ -309,6 +345,6 @@ try {
 	for (const c of b?.contexts() ?? [])
 		for (const p of c.pages()) await p.unrouteAll({ behavior: 'ignoreErrors' });
 	await b?.close();
-	for (const s of streams) s.end();
+	for (const s of connections) s.end();
 	await new Promise((r) => srv.close(r));
 }

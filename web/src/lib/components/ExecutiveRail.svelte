@@ -17,7 +17,7 @@
 		excerptOf,
 		openQuestionIndex as findOpenQuestion
 	} from '$lib/model/open-question';
-	import { untrack } from 'svelte';
+	import { untrack, type Snippet } from 'svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	/* One contextual conversation rail. It normally belongs to the Exec; while
@@ -122,6 +122,7 @@
 		focusRequest = 0,
 		draftRequest = null,
 		wide = false,
+		header,
 		focusMessage = 0,
 		uploadProgress = null,
 		onstopturn = null,
@@ -196,6 +197,7 @@
 		draftRequest?: { text: string; key: number } | null;
 		/** The same conversation at full width, in People. */
 		wide?: boolean;
+		header?: Snippet<[Snippet, Snippet]>;
 		/** A message a link points at; the conversation scrolls to it. */
 		focusMessage?: number;
 		/** How much of a sending message's files has gone, 0 to 1, while they go. */
@@ -1261,124 +1263,130 @@
 	inert={!open}
 >
 	<div class="exr-inner">
-		<header class="exr-head">
-			<div class="exr-head-primary">
-				{#if review || workContext}
+		{#snippet conversationTools()}<div class="exr-tools">
+				{#if newFocusAvailable}
 					<button
-						class="rail-back"
 						type="button"
-						aria-label="Back to the Inbox"
-						title="Back to the Inbox"
-						onclick={(review ?? workContext)!.onback}
+						class="exr-tool"
+						aria-label="New conversation"
+						title={working || sending
+							? `New conversation · available once ${participantName} has finished replying`
+							: !connected
+								? `New conversation · available once ${participantName} can be reached`
+								: 'New conversation · fresh working context, company memory kept'}
+						disabled={!connected || working || sending}
+						onclick={beginNewFocus}><SquarePen size={15} strokeWidth={1.9} /></button
 					>
-						<ArrowLeft size={18} aria-hidden="true" />
-					</button>
 				{/if}
-				{#if topics.length && ontopic}
-					<!-- Who you are talking to, and about what. One menu switches both. -->
-					<div class="exr-who topic-switch">
-						<ActionMenu label="Switch conversation">
-							{#snippet trigger()}<span class="topic-face"
-									>{#if wide}{:else if participantId === 'exec'}<SemanticMark
-											meaning="executive"
-											size="small"
-										/>{:else}<span class="exr-initials" aria-hidden="true"
-											>{initials(participantName)}</span
-										>{/if}<span class="topic-text"
-										>{#if !wide}<strong class="exr-name">{participantName}</strong
-											>{/if}{#if topicLabel || wide}<span class="topic-label"
-												>{topicLabel || 'Conversation'}</span
-											>{/if}</span
-									>{#if anyTopicNew}<i
-											class="topic-new"
-											title="Something new in another conversation"
-										></i>{/if}<ChevronDown size={14} aria-hidden="true" /></span
-								>{/snippet}
-							{#each topics as entry (entry.key)}
-								<button type="button" onclick={() => ontopic(entry.topic)}
-									><span class="topic-option"
-										><span>{entry.label}</span><small>{entry.hint}</small></span
-									>{#if topicHasNew(entry)}<i class="topic-new" aria-label="New"
-										></i>{/if}{#if entry.key === currentTopicKey}<Check
-											size={14}
-											aria-label="Current"
-										/>{/if}</button
-								>
-							{/each}
-						</ActionMenu>
-					</div>
-				{:else}
-					<div class="exr-who">
-						{#if wide && !review && !workContext}{:else if review || workContext || participantId === 'exec'}<SemanticMark
-								meaning={review || workContext ? 'work' : 'executive'}
-								size="small"
-							/>{:else}<span class="exr-initials" aria-hidden="true"
-								>{initials(participantName)}</span
+
+				<ConversationHistoryTools
+					{messages}
+					{participantName}
+					onjump={jumpToMessage}
+					more={hasEarlier}
+					onsearchall={directRoom && isDirectTopic ? searchAll : null}
+				/>
+
+				{#if !review && !workContext && !wide}
+					<a
+						class="exr-tool"
+						href={`/${encodeURIComponent(companyId)}/people?person=${encodeURIComponent(participantId)}`}
+						aria-label="Open full width"
+						title="Open this conversation full width"><Maximize2 size={14} strokeWidth={1.9} /></a
+					>
+				{/if}
+				{#if onclose}
+					<button
+						type="button"
+						class="exr-tool"
+						aria-label="Close"
+						title="Close · the Exec button brings it back"
+						onclick={onclose}><PanelRightClose size={15} strokeWidth={1.9} /></button
+					>
+				{/if}
+			</div>{/snippet}
+		{#snippet conversationMenu()}{#if messages.length}<button
+					type="button"
+					title={hasEarlier
+						? `Copies the ${messages.length} loaded messages; show earlier messages to include them`
+						: 'Copies the whole conversation as text'}
+					onclick={() => void copyConversation()}>Copy loaded messages</button
+				>{#if canOperate}<button
+						type="button"
+						disabled={savingConversation}
+						title="Keep the loaded messages as a Library document only you can open until you share it"
+						onclick={() => void keepConversation()}
+						>{savingConversation ? 'Saving…' : 'Save messages to Library'}</button
+					>{/if}{/if}{/snippet}
+		{#if header}
+			{@render header(conversationTools, conversationMenu)}
+		{:else}
+			<header class="exr-head">
+				<div class="exr-head-primary">
+					{#if review || workContext}
+						<button
+							class="rail-back"
+							type="button"
+							aria-label="Back to the Inbox"
+							title="Back to the Inbox"
+							onclick={(review ?? workContext)!.onback}
+						>
+							<ArrowLeft size={18} aria-hidden="true" />
+						</button>
+					{/if}
+					{#if topics.length && ontopic}
+						<!-- Who you are talking to, and about what. One menu switches both. -->
+						<div class="exr-who topic-switch">
+							<ActionMenu label="Switch conversation">
+								{#snippet trigger()}<span class="topic-face"
+										>{#if wide}{:else if participantId === 'exec'}<SemanticMark
+												meaning="executive"
+												size="small"
+											/>{:else}<span class="exr-initials" aria-hidden="true"
+												>{initials(participantName)}</span
+											>{/if}<span class="topic-text"
+											>{#if !wide}<strong class="exr-name">{participantName}</strong
+												>{/if}{#if topicLabel || wide}<span class="topic-label"
+													>{topicLabel || 'Conversation'}</span
+												>{/if}</span
+										>{#if anyTopicNew}<i
+												class="topic-new"
+												title="Something new in another conversation"
+											></i>{/if}<ChevronDown size={14} aria-hidden="true" /></span
+									>{/snippet}
+								{#each topics as entry (entry.key)}
+									<button type="button" onclick={() => ontopic(entry.topic)}
+										><span class="topic-option"
+											><span>{entry.label}</span><small>{entry.hint}</small></span
+										>{#if topicHasNew(entry)}<i class="topic-new" aria-label="New"
+											></i>{/if}{#if entry.key === currentTopicKey}<Check
+												size={14}
+												aria-label="Current"
+											/>{/if}</button
+									>
+								{/each}
+							</ActionMenu>
+						</div>
+					{:else}
+						<div class="exr-who">
+							{#if wide && !review && !workContext}{:else if review || workContext || participantId === 'exec'}<SemanticMark
+									meaning={review || workContext ? 'work' : 'executive'}
+									size="small"
+								/>{:else}<span class="exr-initials" aria-hidden="true"
+									>{initials(participantName)}</span
+								>{/if}
+							{#if !wide}<strong class="exr-name">{participantName}</strong>{/if}
+						</div>
+					{/if}
+					<div class="exr-tools">
+						{@render conversationTools()}
+						{#if messages.length}<ActionMenu label="Conversation actions"
+								>{@render conversationMenu()}</ActionMenu
 							>{/if}
-						{#if !wide}<strong class="exr-name">{participantName}</strong>{/if}
 					</div>
-				{/if}
-				<div class="exr-tools">
-					{#if newFocusAvailable}
-						<button
-							type="button"
-							class="exr-tool"
-							aria-label="New conversation"
-							title={working || sending
-								? `New conversation · available once ${participantName} has finished replying`
-								: !connected
-									? `New conversation · available once ${participantName} can be reached`
-									: 'New conversation · fresh working context, company memory kept'}
-							disabled={!connected || working || sending}
-							onclick={beginNewFocus}><SquarePen size={15} strokeWidth={1.9} /></button
-						>
-					{/if}
-					{#if visibleMessages.length}
-						<ConversationHistoryTools
-							{messages}
-							{participantName}
-							onjump={jumpToMessage}
-							more={hasEarlier}
-							onsearchall={directRoom && isDirectTopic ? searchAll : null}
-						/>
-					{/if}
-					{#if messages.length}
-						<ActionMenu label="Conversation actions"
-							><button
-								type="button"
-								title={hasEarlier
-									? `Copies the ${messages.length} loaded messages; show earlier messages to include them`
-									: 'Copies the whole conversation as text'}
-								onclick={() => void copyConversation()}>Copy loaded messages</button
-							>{#if canOperate}<button
-									type="button"
-									disabled={savingConversation}
-									title="Keep the loaded messages as a Library document only you can open until you share it"
-									onclick={() => void keepConversation()}
-									>{savingConversation ? 'Saving…' : 'Save messages to Library'}</button
-								>{/if}</ActionMenu
-						>
-					{/if}
-					{#if !review && !workContext && !wide}
-						<a
-							class="exr-tool"
-							href={`/${encodeURIComponent(companyId)}/people?person=${encodeURIComponent(participantId)}`}
-							aria-label="Open full width"
-							title="Open this conversation full width"><Maximize2 size={14} strokeWidth={1.9} /></a
-						>
-					{/if}
-					{#if onclose}
-						<button
-							type="button"
-							class="exr-tool"
-							aria-label="Close"
-							title="Close · the Exec button brings it back"
-							onclick={onclose}><PanelRightClose size={15} strokeWidth={1.9} /></button
-						>
-					{/if}
 				</div>
-			</div>
-		</header>
+			</header>
+		{/if}
 		{#if pinnedMessages.length}
 			<details class="pinned" bind:open={pinsOpen}>
 				<summary

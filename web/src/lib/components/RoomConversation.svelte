@@ -3,7 +3,7 @@
 	import { presentNow } from '$lib/model/presence.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
-	import { onDestroy, tick, untrack } from 'svelte';
+	import { onDestroy, tick, untrack, type Snippet } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
@@ -86,6 +86,8 @@
 	import Composer from '$lib/primitives/Composer.svelte';
 	import { followChat } from '$lib/actions/follow-chat';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
+
+	let { header }: { header?: Snippet<[Snippet, Snippet]> } = $props();
 
 	const SEARCH_DEBOUNCE_MS = 250;
 
@@ -1425,100 +1427,109 @@
 	<section class="room-conversation cockpit-pane">
 		{#if focusStatus}<p class="exact-target-state" role="status">{focusStatus}</p>{/if}
 		{#if selectedRoomId}
-			<header class="room-head">
-				<div class="room-head-copy">
-					<!-- The conversation's name is its heading, so a screen reader can jump to it. -->
-					<h2 class="room-heading">
-						{#if directPerson}
-							<button
-								type="button"
-								class="room-contact"
-								title={`${directPerson.display}: role, team, current Work and recent outputs`}
-								onclick={() => (profileOpen = true)}
-								><span class="person-avatar" aria-hidden="true"
-									>{initials(directPerson.display)}</span
-								><strong>{directPerson.display}</strong>{#if hereNow}<small
-										class="here-now"
-										title={`${directPerson.display} has the cockpit open now`}>Here now</small
-									>{/if}</button
-							>
-						{:else}<strong>{roomLabel(selectedRoomId)}</strong>{/if}
-					</h2>
-					{#if participantSummary && !directPerson}<small>{participantSummary}</small>{/if}
-				</div>
-				<button
-					type="button"
-					class="message-search-toggle"
-					class:active={messageSearchOpen}
-					aria-expanded={messageSearchOpen}
-					aria-label={messageSearchOpen ? 'Close search' : 'Search this conversation (Ctrl+F)'}
-					title={messageSearchOpen ? 'Close search' : 'Search this conversation (Ctrl+F)'}
-					onclick={() => {
-						messageSearchOpen = !messageSearchOpen;
-						if (!messageSearchOpen) messageSearch = '';
-					}}
-				>
-					{#if messageSearchOpen}
-						<X size={15} strokeWidth={2} aria-hidden="true" />
-					{:else}
-						<Search size={15} strokeWidth={2} aria-hidden="true" />
-					{/if}
-				</button>
-				{#if selectedRoom?.kind === 'direct' && canExtendDirect}
-					<RoomManager
-						{companyId}
-						actorId={currentActorId}
-						{people}
-						teams={teams.map((team) => ({ id: team.id, name: teamName(team.name, companyId) }))}
-						label="Add people"
-						initialParticipants={participants
-							.filter((p) => p.actor_id !== currentActorId)
-							.map((p) => p.actor_id)}
-						initialContext={roomMessages.at(-1)?.body ?? ''}
-						oncreated={(room) => goto(roomHref(room.id))}
-					/>
-				{:else if selectedRoom?.kind === 'direct'}
+			{#snippet roomTools()}<div class="room-header-tools">
 					<button
 						type="button"
-						class="btn small"
-						disabled
-						title="Participants must finish loading before starting a group.">Add people</button
+						class="message-search-toggle"
+						class:active={messageSearchOpen}
+						aria-expanded={messageSearchOpen}
+						aria-label={messageSearchOpen ? 'Close search' : 'Search this conversation (Ctrl+F)'}
+						title={messageSearchOpen ? 'Close search' : 'Search this conversation (Ctrl+F)'}
+						onclick={() => {
+							messageSearchOpen = !messageSearchOpen;
+							if (!messageSearchOpen) messageSearch = '';
+						}}
 					>
-				{:else if selectedRoom && !archivedRoom}
-					<RoomManager
-						{companyId}
-						actorId={currentActorId}
-						{people}
-						room={selectedRoom}
-						{participants}
-						muted={!!groupConversations.conversations.find((row) => row.room_id === selectedRoomId)
-							?.muted}
-						onclosed={() => goto(`/${encodeURIComponent(companyId)}/people?view=chats`)}
-					/>
-				{/if}
-				<!-- Quiet while live: the stream only earns a chip when it is not. -->
-				{#if !online || activity?.transport !== 'live'}
-					<div
-						class="room-transport"
-						class:degraded={!online || activity?.transport === 'reconnecting'}
-						role="status"
-						aria-live="polite"
-						title={!online
-							? 'This device is offline. Messages will send when it reconnects.'
-							: 'New messages appear when the live connection is restored; nothing is lost.'}
-					>
-						{#if !online}
-							<WifiOff size={13} strokeWidth={2} aria-hidden="true" /> Offline
-						{:else if activity?.transport === 'reconnecting'}
-							<WifiOff size={13} strokeWidth={2} aria-hidden="true" /> Reconnecting
+						{#if messageSearchOpen}
+							<X size={15} strokeWidth={2} aria-hidden="true" />
 						{:else}
-							<Wifi size={13} strokeWidth={2} aria-hidden="true" /> Connecting
+							<Search size={15} strokeWidth={2} aria-hidden="true" />
 						{/if}
+					</button>
+					{#if selectedRoom?.kind === 'direct' && canExtendDirect}
+						<RoomManager
+							{companyId}
+							actorId={currentActorId}
+							{people}
+							teams={teams.map((team) => ({ id: team.id, name: teamName(team.name, companyId) }))}
+							label="Add people"
+							initialParticipants={participants
+								.filter((p) => p.actor_id !== currentActorId)
+								.map((p) => p.actor_id)}
+							initialContext={roomMessages.at(-1)?.body ?? ''}
+							oncreated={(room) => goto(roomHref(room.id))}
+						/>
+					{:else if selectedRoom?.kind === 'direct'}
+						<button
+							type="button"
+							class="btn small"
+							disabled
+							title="Participants must finish loading before starting a group.">Add people</button
+						>
+					{:else if selectedRoom && !archivedRoom}
+						<RoomManager
+							{companyId}
+							actorId={currentActorId}
+							{people}
+							room={selectedRoom}
+							{participants}
+							muted={!!groupConversations.conversations.find(
+								(row) => row.room_id === selectedRoomId
+							)?.muted}
+							onclosed={() => goto(`/${encodeURIComponent(companyId)}/people?view=chats`)}
+						/>
+					{/if}
+					<!-- Quiet while live: the stream only earns a chip when it is not. -->
+					{#if !online || activity?.transport !== 'live'}
+						<div
+							class="room-transport"
+							class:degraded={!online || activity?.transport === 'reconnecting'}
+							role="status"
+							aria-live="polite"
+							title={!online
+								? 'This device is offline. Messages will send when it reconnects.'
+								: 'New messages appear when the live connection is restored; nothing is lost.'}
+						>
+							{#if !online}
+								<WifiOff size={13} strokeWidth={2} aria-hidden="true" /> Offline
+							{:else if activity?.transport === 'reconnecting'}
+								<WifiOff size={13} strokeWidth={2} aria-hidden="true" /> Reconnecting
+							{:else}
+								<Wifi size={13} strokeWidth={2} aria-hidden="true" /> Connecting
+							{/if}
+						</div>
+					{:else}
+						<span class="sr-only" role="status">Live</span>
+					{/if}
+				</div>{/snippet}
+			{#snippet roomMenu()}{/snippet}
+			{#if header}
+				{@render header(roomTools, roomMenu)}
+			{:else}
+				<header class="room-head">
+					<div class="room-head-copy">
+						<!-- The conversation's name is its heading, so a screen reader can jump to it. -->
+						<h2 class="room-heading">
+							{#if directPerson}
+								<button
+									type="button"
+									class="room-contact"
+									title={`${directPerson.display}: role, team, current Work and recent outputs`}
+									onclick={() => (profileOpen = true)}
+									><span class="person-avatar" aria-hidden="true"
+										>{initials(directPerson.display)}</span
+									><strong>{directPerson.display}</strong>{#if hereNow}<small
+											class="here-now"
+											title={`${directPerson.display} has the cockpit open now`}>Here now</small
+										>{/if}</button
+								>
+							{:else}<strong>{roomLabel(selectedRoomId)}</strong>{/if}
+						</h2>
+						{#if participantSummary && !directPerson}<small>{participantSummary}</small>{/if}
 					</div>
-				{:else}
-					<span class="sr-only" role="status">Live</span>
-				{/if}
-			</header>
+					{@render roomTools()}
+				</header>
+			{/if}
 			{#if exactTargetState === 'invalid' && threadRootId === null}
 				<div class="exact-target-state unavailable" role="status">
 					This linked message address is invalid.
@@ -2040,6 +2051,11 @@
 	/>{/if}
 
 <style>
+	.room-header-tools {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
 	.mention-gap {
 		display: flex;
 		flex-wrap: wrap;

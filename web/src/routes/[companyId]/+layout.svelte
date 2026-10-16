@@ -8,7 +8,7 @@
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import { page } from '$app/state';
-	import { setContext, tick, untrack } from 'svelte';
+	import { setContext, tick, untrack, type Snippet } from 'svelte';
 	const setupDraft = $state<{ name: string | null }>({ name: null });
 	setContext('company-setup-draft', setupDraft);
 	import { afterNavigate, goto } from '$app/navigation';
@@ -1647,10 +1647,11 @@
 
 <CompanyQueryPersistence {companyId} />
 
-{#snippet executiveRail(wide = false)}
+{#snippet executiveRail(wide = false, header?: Snippet<[Snippet, Snippet]>)}
 	{#if ExecutiveRail}
 		<ExecutiveRail
 			{wide}
+			{header}
 			focusMessage={wide ? Number(page.url.searchParams.get('focus')) || 0 : 0}
 			messages={railConversation.messages}
 			participantName={railActorName}

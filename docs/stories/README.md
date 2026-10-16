@@ -123,7 +123,7 @@ These describe the accepted outcomes. A story row alone is not completion eviden
 | --- | --- | --- | --- | --- |
 | US-295 | core | I want one decision for one owner action. Up to two current chat details support the prepared decision, never a second item that survives my answer; unrelated questions stay visible. | S91 | canonical pending/resolved decision and independent-question regressions |
 | US-296 | core | I want a missing live session to be described honestly. Reopening a conversation never invents a failed reply or a zero-second failure; actual failures still explain recovery. | S91 | absent activity, restart and actual-failure journeys |
-| US-297 | core | I want a person's name, role, model and controls to form one aligned header. Long roles and phone widths stay readable without an extra white card or repeated ownership labels. | S91 | rendered desktop/phone header and overlay review |
+| US-297 | core | I want a person's name, role and controls to form one aligned header. Long roles and phone widths stay readable without an extra white card or repeated ownership labels; the model stays available in the composer and profile. | S91 | rendered desktop/phone header and overlay review |
 | US-298 | core | I want Installed to group All, Apps and Know-how, with Needs setup only when needed. Empty groups stay hidden, search and Back work, and the sidebar stays compact. | S91 | populated hierarchy, empty groups, search and deep-link journeys |
 | US-299 | core | I want company-authored know-how to remain discoverable in Installed. I can see who can use it and which agent has actually applied which version, without confusing installation or selection with current loaded context. | S91 | company skill observation, assignment precedence and recorded-activation checks |
 | US-300 | core | I want Company overview to explain the company's purpose and present state. Needs attention never sits beside a blanket Everything is set up claim; the quiet state remains useful and restrained. | S91 | pending, quiet and missing-data overview journeys |
@@ -134,3 +134,19 @@ These describe the accepted outcomes. A story row alone is not completion eviden
 | ID | Tier | Story: I want … and I see … | Fix | Check |
 | --- | --- | --- | --- | --- |
 | US-302 | full | I want the local and hosted company computers to run the qualified patched browser. A vulnerable pinned binary blocks publication; a successful UI build never overrides that gate. | S91 | official archive digests, isolated native browser launch, exact runtime image scan and installed/deployed identity |
+## From the owner, 17 October — compact and complete surfaces (Sprint 92)
+
+| ID | Tier | Story: I want … and I see … | Fix | Check |
+| --- | --- | --- | --- | --- |
+| US-303 | core | I want legal details directly in their section, with one deliberate save and no duplicate Add/empty-card step. My draft survives refresh and never crosses companies. | S92 | legal empty/saved/failure and scoped-draft journey |
+| US-304 | core | I want Installed's subcategories always visible, with no folding control or duplicate chevrons. | S92 | Discover/Installed navigation at desktop/phone widths |
+| US-305 | core | I want online discovery failures to identify what failed, preserve usable results and recover without blocking installed apps. | S92 | actual-source diagnosis and partial/failed refresh journey |
+| US-306 | core | I want aligned Telegram setup and visible access to existing email and device preferences from Notifications. No channel is silently enabled. | S92 | notification settings, failure and permission-boundary journey |
+| US-307 | core | I want schedules to show readable timing and a concise result before I ask for settings or older history. Started work is not described as a successful outcome. | S92 | long schedule, failed result and bounded-history review |
+| US-308 | core | I want Show all, Clear done and view controls grouped right with clear button borders, remaining reachable in narrow windows. | S92 | Work toolbar desktop/phone rendered review |
+| US-309 | core | I want eligible unassigned legacy staff out of Everyone and recoverable in Archived, with their history preserved and live obligations handled explicitly. | S92 | actual actor/archive boundary and archived history review |
+| US-310 | core | I want one compact conversation header containing identity, search and actions, with a strict height bound and full role details on demand. | S92 | long-identity header/keyboard/phone journey |
+| US-311 | core | I want know-how lists to show who can use each method and who recently applied it, using All/team summaries where accurate rather than a pile of pills. | S92 | assignment precedence, applied-use and compressed-summary journey |
+| US-312 | core | I want compact skill details with readable complete source instructions and Copy all. A catalogue preview never installs or grants a skill. | S92 | remote Claude API content, copy and read-failure journey |
+| US-313 | core | I want an app’s activity to remain steady while catalogue and permission metadata refresh. One scoped cached read owns the result; retry, pagination and late responses cannot replace another connection’s history. | S92 | receipt failure/recovery, held-source and late-company journeys |
+| US-314 | core | I want an opened conversation's resize handle available on first load, even when its pane arrives after company data. Keyboard and pointer resizing remain usable without watching every streamed message for layout changes. | S92 | delayed pane, keyboard/pointer resize and streaming Markdown journey |

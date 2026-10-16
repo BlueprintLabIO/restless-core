@@ -14,16 +14,7 @@
 	import { isLocalHost } from '$lib/model/reenter';
 	import { forgetThisBrowser } from '$lib/model/sign-out';
 	import { linkPreference, setCompanyBrowserLinks } from '$lib/model/link-preference.svelte';
-	import {
-		disablePush,
-		enablePush,
-		pushSupported,
-		readNotifyPreferences,
-		saveNotifyPreferences,
-		type NotifyPreferences
-	} from '$lib/model/notify-preferences';
-	import { failureSentence } from '$lib/model/failure';
-	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { notificationSettings } from '$lib/model/notification-settings.svelte';
 
 	let {
 		name,
@@ -48,11 +39,9 @@
 	 * is this origin, so an unread status still offers it. */
 	let signOut = $state(false);
 	/* Email is sent by the hosted plane; a local appliance sends none, so it offers no switch. */
-	let emailDelivered = $state(false);
 	onMount(() => {
 		if (isLocalHost(window.location.hostname)) return;
 		void planeStatus().then((status) => {
-			emailDelivered = status ? Boolean(status.hosted) : true;
 			signOut = status
 				? Boolean(status.hosted) &&
 					(!status.home_url || new URL(status.home_url).origin === window.location.origin)
@@ -60,63 +49,15 @@
 		});
 	});
 	const shown = $derived(present.slice(0, 3));
-	/* Email reaches this person with every tab closed; desktop notifications reach this device, and
-	 * where the plane pushes, with the cockpit closed too. */
-	let prefs = $state<NotifyPreferences | null>(null);
-	const pushKey = $derived(pushSupported() ? (prefs?.push_key ?? null) : null);
-	$effect(() => {
-		const company = companyId;
-		prefs = null;
-		if (!company) return;
-		let current = true;
-		void readNotifyPreferences(company)
-			.then((value) => {
-				if (!current) return;
-				prefs = value;
-				/* A browser that already notifies stays subscribed for this company too. */
-				if (desktopNotify.active && value.push_key && pushSupported())
-					void enablePush(company, value.push_key).catch(() => undefined);
-			})
-			.catch(() => undefined);
-		return () => {
-			current = false;
-		};
-	});
-	async function toggleDesktop() {
-		await desktopNotify.toggle();
-		if (!pushKey || !companyId) return;
-		try {
-			if (desktopNotify.active) await enablePush(companyId, pushKey);
-			else await disablePush(companyId);
-		} catch (cause) {
-			toast(
-				failureSentence(
-					cause,
-					'This browser could not be reached with the cockpit closed; it is notified while the cockpit is open.'
-				),
-				{ tone: 'failure' }
-			);
-		}
-	}
-	async function save(change: { email?: boolean; digest?: string }, failure: string) {
-		if (!prefs || !companyId) return;
-		const before = prefs;
-		prefs = {
-			...prefs,
-			...(change.email === undefined ? {} : { email: change.email }),
-			...(change.digest === undefined ? {} : { digest: change.digest || null })
-		};
-		try {
-			prefs = await saveNotifyPreferences(companyId, change);
-		} catch (cause) {
-			prefs = before;
-			toast(failureSentence(cause, failure), { tone: 'failure' });
-		}
-	}
-	const toggleEmail = () =>
-		prefs && save({ email: !prefs.email }, 'Your email choice was not saved.');
-	const toggleDigest = () =>
-		prefs && save({ digest: prefs.digest ? '' : '08:00' }, 'Your digest choice was not saved.');
+	const notifications = notificationSettings(() => companyId, true);
+	const prefs = $derived(notifications.preferences);
+	const pushKey = $derived(notifications.pushKey);
+	const emailDelivered = $derived(notifications.emailDelivered);
+	const toggleDesktop = () => notifications.toggleDesktop();
+	const save = (change: { email?: boolean; digest?: string }, _failure: string) =>
+		notifications.save(change);
+	const toggleEmail = () => prefs && notifications.save({ email: !prefs.email });
+	const toggleDigest = () => prefs && notifications.save({ digest: prefs.digest ? '' : '08:00' });
 </script>
 
 <div class="profile">
@@ -162,6 +103,7 @@
 					: pushKey
 						? 'Notify this device when something needs you, even with the cockpit closed'
 						: 'Notify this device when something needs you while the cockpit is in the background'}
+				disabled={notifications.busy}
 				onclick={() => void toggleDesktop()}
 				><span>Desktop notifications</span>{#if desktopNotify.active}<Check
 						size={14}
@@ -173,6 +115,7 @@
 			<button
 				type="button"
 				title="Email me when something needs me and I have not seen it here, even with every tab closed. Applies on every device."
+				disabled={notifications.busy}
 				onclick={() => void toggleEmail()}
 				><span>Email notifications</span>{#if prefs.email}<Check
 						size={14}
@@ -183,6 +126,7 @@
 				<button
 					type="button"
 					title="One email a day with what still needs you, instead of one as each thing happens"
+					disabled={notifications.busy}
 					onclick={() => void toggleDigest()}
 					><span>Daily email digest</span>{#if prefs.digest}<Check
 							size={14}
@@ -203,6 +147,9 @@
 				{/if}
 			{/if}
 		{/if}
+		{#if companyId}<a href={`/${encodeURIComponent(companyId)}/company/notifications`}
+				>Notification settings</a
+			>{/if}
 		{#if owner}
 			<button
 				type="button"

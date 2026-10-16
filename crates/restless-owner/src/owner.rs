@@ -1326,6 +1326,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/appliance/resume", post(appliance_api::resume))
         .route("/model-catalog", get(model_catalog_api::get_catalog))
         .route("/app-catalogue", get(skills_api::app_catalogue))
+        .route("/app-catalogue/skill", get(skills_api::catalogue_instructions))
         .route(
             "/companies/{company}/app-catalogue/install",
             post(skills_api::install_from_catalogue),

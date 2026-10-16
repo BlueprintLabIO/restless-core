@@ -48,7 +48,13 @@
 	// No raw HTML or model-supplied components: Markdown becomes Svelte nodes,
 	// with Streamdown's URL checks at the link/image boundary.
 	const theme = {
-		code: { header: 'md-code-header', buttons: 'md-code-buttons', line: 'md-code-line' },
+		code: {
+			header: 'md-code-header',
+			buttons: 'md-code-buttons',
+			line: 'md-code-line',
+			container: 'md-code-container',
+			pre: 'md-code-pre'
+		},
 		components: { button: 'md-code-button' }
 	};
 
@@ -244,6 +250,18 @@
 </div>
 
 <style>
+	/* The highlighter's light palette is designed for white, not its default
+	 * translucent grey. Use the app's themed surface for readable code. */
+	.markdown :global(.md-code-container),
+	.markdown :global(.md-code-pre) {
+		background: var(--surface-raised);
+		color: var(--ink);
+	}
+	.markdown :global(.md-code-pre) {
+		margin: 0;
+		overflow-x: auto;
+		font-family: var(--font-mono);
+	}
 	.markdown :global([data-streamdown-code]),
 	.markdown :global([data-streamdown-table]) {
 		min-width: 0;

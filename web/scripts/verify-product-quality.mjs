@@ -109,7 +109,11 @@ try {
 			const firstPage = await page.locator('.app-card').first().getAttribute('href');
 			await page.getByRole('button', { name: 'Next', exact: true }).click();
 			await page.waitForURL((url) => url.searchParams.get('page') === '2');
-			assert.equal(await page.locator('.app-card').count(), 24);
+			assert(
+				(await page.locator('.app-card').count()) > 0 &&
+					(await page.locator('.app-card').count()) <= 24,
+				'The next page contains the remaining entries, up to the page size'
+			);
 			assert.notEqual(await page.locator('.app-card').first().getAttribute('href'), firstPage);
 			assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 			await accessibility(page, 'discovery-' + name);
@@ -615,13 +619,14 @@ try {
 			'A failed activity source is not empty history'
 		);
 		fail = false;
+		assert.equal(reads, 1, 'Other app metadata does not restart the failed activity read');
 		await page
 			.getByRole('status')
 			.filter({ hasText: 'Activity could not be read' })
 			.getByRole('button', { name: 'Try again', exact: true })
 			.click();
 		await visible(page.getByRole('heading', { name: 'Activity', exact: true }));
-		assert(reads >= 2, 'Retry rereads the activity source');
+		assert.equal(reads, 2, 'Retry makes one fresh activity read');
 		assert.equal(await page.getByText('Activity could not be read', { exact: true }).count(), 0);
 	});
 	await journey(
@@ -779,7 +784,6 @@ try {
 				await page.waitForResponse((response) =>
 					response.url().includes('/' + next + '/tool-connections')
 				);
-				await page.locator('.installed-group > summary').click();
 				await page
 					.locator(`a[href="/${next}/apps?view=in-use"]:visible`)
 					.waitFor({ state: 'visible' });

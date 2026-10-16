@@ -23,6 +23,16 @@
 		saving = $state(false),
 		failure = $state('');
 	let form = $state<LegalProfileInput>(blank());
+	let loadedCompany = $state('');
+	$effect(() => {
+		if (view.sources.authority.status === 'available' && loadedCompany !== companyId) {
+			loadedCompany = companyId;
+			form = blank();
+			editing = false;
+			saving = false;
+			void edit(companyId);
+		}
+	});
 
 	function blank(): LegalProfileInput {
 		return {
@@ -36,11 +46,12 @@
 		};
 	}
 
-	async function edit() {
+	async function edit(id = companyId) {
 		failure = '';
 		loading = true;
 		try {
-			const saved = legal ? await readLegalProfile(companyId) : null;
+			const saved = legal ? await readLegalProfile(id) : null;
+			if (id !== companyId) return;
 			form = saved
 				? {
 						...saved,
@@ -50,9 +61,10 @@
 				: blank();
 			editing = true;
 		} catch (cause) {
+			if (id !== companyId) return;
 			failure = failureSentence(cause, 'The legal profile could not be read.');
 		} finally {
-			loading = false;
+			if (id === companyId) loading = false;
 		}
 	}
 
@@ -61,21 +73,22 @@
 		if (saving) return;
 		saving = true;
 		failure = '';
+		const company = companyId;
 		const optional = (value?: string | null) => value?.trim() || null;
 		try {
-			onsaved(
-				await saveLegalProfile(companyId, {
-					...form,
-					trading_name: optional(form.trading_name),
-					invoice_email: optional(form.invoice_email)
-				})
-			);
-			editing = false;
+			const saved = await saveLegalProfile(company, {
+				...form,
+				trading_name: optional(form.trading_name),
+				invoice_email: optional(form.invoice_email)
+			});
+			if (company !== companyId) return;
+			onsaved(saved);
 			toast('Legal profile saved');
 		} catch (cause) {
+			if (company !== companyId) return;
 			failure = failureSentence(cause, 'The legal profile was not saved.');
 		} finally {
-			saving = false;
+			if (company === companyId) saving = false;
 		}
 	}
 </script>
@@ -84,36 +97,42 @@
 	title="Legal profile"
 	info="Legal details approved for use in company output. Supporting evidence stays private."
 >
-	{#snippet actions()}
-		{#if !editing && view.sources.authority.status === 'available'}<button
-				class="btn small"
-				type="button"
-				disabled={loading}
-				onclick={edit}>{legal ? 'Edit' : 'Add'}</button
-			>{/if}
-	{/snippet}
-	{#if failure}<Notice tone="danger" title="Legal profile">{failure}</Notice>{/if}
-	{#if editing}
+	{#if failure}<Notice tone="danger" title="Legal profile"
+			>{failure}
+			{#snippet actions()}<button class="btn small" type="button" onclick={() => edit()}
+					>Retry</button
+				>{/snippet}
+		</Notice>{/if}
+	{#if loading}<p role="status">Loading legal details…</p>{/if}
+	{#if editing && view.sources.authority.status === 'available'}
 		<form onsubmit={save}>
 			<Row label="Legal name">
 				<input
 					class="wide"
+					aria-label="Legal name"
 					bind:value={form.legal_name}
 					required
 					maxlength="240"
-					disabled={saving}
+					disabled={saving || loading}
 				/>
 			</Row>
 			<Row label="Trading as" info="Optional: the name customers know, if different.">
-				<input class="wide" bind:value={form.trading_name} maxlength="240" disabled={saving} />
+				<input
+					class="wide"
+					aria-label="Trading as"
+					bind:value={form.trading_name}
+					maxlength="240"
+					disabled={saving || loading}
+				/>
 			</Row>
 			<Row label="Form" info="Such as Pty Ltd, LLC or sole trader.">
 				<input
 					class="wide"
+					aria-label="Form"
 					bind:value={form.entity_type}
 					required
 					maxlength="80"
-					disabled={saving}
+					disabled={saving || loading}
 				/>
 			</Row>
 			<Row
@@ -122,10 +141,11 @@
 			>
 				<input
 					class="wide"
+					aria-label="Jurisdiction"
 					bind:value={form.jurisdiction}
 					required
 					maxlength="80"
-					disabled={saving}
+					disabled={saving || loading}
 				/>
 			</Row>
 			<Row
@@ -139,7 +159,7 @@
 					title="The kind of number, such as ABN, EIN or company number"
 					required
 					maxlength="40"
-					disabled={saving}
+					disabled={saving || loading}
 				/>
 				<input
 					class="number"
@@ -148,7 +168,7 @@
 					title="The number itself, such as 12 345 678 901"
 					required
 					maxlength="80"
-					disabled={saving}
+					disabled={saving || loading}
 				/>
 			</Row>
 			<Row
@@ -157,48 +177,37 @@
 			>
 				<textarea
 					class="wide"
+					aria-label="Business address"
 					bind:value={form.approved_business_address}
 					required
 					maxlength="500"
 					rows="2"
-					disabled={saving}></textarea>
+					disabled={saving || loading}></textarea>
 			</Row>
 			<Row label="Invoice email" info="Optional: where customers send invoice questions.">
 				<input
 					class="wide"
 					type="email"
+					aria-label="Invoice email"
 					bind:value={form.invoice_email}
 					maxlength="320"
-					disabled={saving}
+					disabled={saving || loading}
 				/>
 			</Row>
 			<div class="form-bar">
-				<button class="btn primary small" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+				<button class="btn primary small" disabled={saving || loading}
+					>{saving ? 'Saving…' : 'Save'}</button
+				>
 				<button
 					class="btn small ghost"
 					type="button"
-					disabled={saving}
-					onclick={() => (editing = false)}>Cancel</button
+					disabled={saving || loading}
+					onclick={() => edit()}>Reset</button
 				>
 			</div>
 		</form>
 	{:else if view.sources.authority.status !== 'available'}
 		<Empty compact title="Legal details are unavailable right now" />
-	{:else if legal}
-		<Row label="Legal name">{legal.legal_name}</Row>
-		{#if legal.trading_name}<Row label="Trading as">{legal.trading_name}</Row>{/if}
-		<Row label="Form">{legal.entity_type}</Row>
-		<Row label="Jurisdiction">{legal.jurisdiction}</Row>
-	{:else}
-		<Empty
-			compact
-			title="No legal details yet"
-			info="Add them once the company is registered, so invoices and contracts carry the right name and number."
-		>
-			{#snippet action()}<button class="btn small" type="button" disabled={loading} onclick={edit}
-					>Add legal details</button
-				>{/snippet}
-		</Empty>
 	{/if}
 </Section>
 

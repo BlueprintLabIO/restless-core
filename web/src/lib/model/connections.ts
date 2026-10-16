@@ -250,8 +250,8 @@ export const setConnectionBrowser = (company: string, name: string, browser: boo
 export const disconnectConnection = (company: string, name: string) =>
 	post(named(company, name, 'disconnect'));
 
-export const fetchReceipts = (company: string, name: string, limit = 20) =>
-	call<ToolReceipts>(`${named(company, name, 'receipts')}?limit=${limit}`);
+export const fetchReceipts = (company: string, name: string, limit = 20, signal?: AbortSignal) =>
+	call<ToolReceipts>(`${named(company, name, 'receipts')}?limit=${limit}`, { signal });
 
 /** Turned off on purpose: working, signed in, nothing allowed now, and a grant that ended. */
 export function isOff(connection: ToolConnection): boolean {

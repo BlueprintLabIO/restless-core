@@ -258,6 +258,45 @@ pub(super) struct CatalogueInstallInput {
     key: String,
 }
 
+/// Public source preview. It reads only a canonical listed SKILL.md; no company
+/// files, install, wake, assignment or account access is involved.
+pub(super) async fn catalogue_instructions(
+    Query(input): Query<CatalogueInstallInput>,
+) -> Response<Body> {
+    let item = match restless_engine::app_catalogue::item(&input.key).await {
+        Ok(Some(item)) if item.kind == "skill" => item,
+        Ok(_) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "catalogue",
+                "This know-how is not in the catalogue.",
+            )
+        }
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "catalogue",
+                error.to_string(),
+            )
+        }
+    };
+    match restless_engine::app_catalogue::skill_instructions(&item).await {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(skill_md) => Json(json!({ "skill_md": skill_md })).into_response(),
+            Err(_) => api_error(
+                StatusCode::BAD_GATEWAY,
+                "catalogue",
+                "The publisher's instructions are not readable text.",
+            ),
+        },
+        Err(error) => api_error(
+            StatusCode::BAD_GATEWAY,
+            "catalogue",
+            format!("The publisher's instructions could not be read: {error:#}"),
+        ),
+    }
+}
+
 /// Install a catalogue skill as candidate know-how: its files are fetched from its repository and
 /// written into the company computer's candidate folder, then registered like know-how the owner
 /// wrote. The web accepts one without scripts at once; one with scripts goes through the same

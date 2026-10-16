@@ -1,5 +1,10 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import { createQuery, createQueries, useQueryClient } from '@tanstack/svelte-query';
+	import { pollEvery } from '$lib/model/connection.svelte';
+	import CopyButton from '$lib/ui/controls/CopyButton.svelte';
+	import { skillAudience } from '$lib/model/skill-audience';
+	import { fetchCatalogueInstructions } from '$lib/model/app-catalogue';
 	import { personName } from '$lib/model/initials';
 	import { useAppsData } from '$lib/model/apps-data.svelte';
 	import { catalogueConnectionName } from '$lib/model/app-catalogue';
@@ -50,7 +55,11 @@
 	} from '$lib/model/skills';
 	import { LOCAL_INFO, resolveApp, nameForLink, skillName, type App } from '$lib/model/apps';
 	import { installFromCatalogue } from '$lib/model/app-catalogue';
-	import { cockpitQuery, companyPrincipalQuery } from '$lib/model/queries.svelte';
+	import {
+		cockpitQuery,
+		companyPrincipalQuery,
+		collaborationBootstrapQuery
+	} from '$lib/model/queries.svelte';
 	import AppMark from '$lib/primitives/AppMark.svelte';
 	import AppOverview from '$lib/components/AppOverview.svelte';
 	import { declineAppRequest } from '$lib/model/app-requests';
@@ -75,10 +84,11 @@
 		`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(id)}`;
 
 	const data = useAppsData();
+	const apps = $derived(data.projection);
+	const resolved = $derived(resolveApp(apps, key));
+	const app = $derived(resolved.app);
 	const library = $derived(data.library);
 	const request = $derived(data.requests.find((row) => row.handoff_id === requestId) ?? null);
-	let receipts = $state<Record<string, ToolReceipts>>({});
-	let receiptErrors = $state<Record<string, string>>({});
 	/* How far back each app's activity reaches; "Show more" widens it. */
 	let reach = $state<Record<string, number>>({});
 	let packages = $state<Record<string, SkillPackage | { error: string }>>({});
@@ -99,26 +109,70 @@
 	/* An admin reads every app beside the owner; adding, allowing or changing one is the owner's. */
 	const owner = $derived(principal.view?.membership_role === 'owner');
 	const cockpit = $derived(cockpitQuery(companyId, () => owner));
-	const teams = $derived(cockpit.view?.teams ?? []);
-	const agents = $derived(cockpit.view?.people ?? []);
+	const collaboration = $derived(
+		collaborationBootstrapQuery(companyId, () => (owner ? null : principal.view))
+	);
+	const teams = $derived((owner ? cockpit.view?.teams : collaboration.view?.teams) ?? []);
+	const agents = $derived((owner ? cockpit.view?.people : collaboration.view?.people) ?? []);
 	const holderName = (scope: string, id: string) =>
 		scope === 'team'
 			? (teams.find((team) => team.id === id)?.name ?? id)
 			: personName(agents.find((person) => person.actor_id === id)?.display ?? skillName(id));
 
+	const queryClient = useQueryClient();
+	const activityConnections = $derived(
+		app?.connections.filter((connection) => connection.status !== 'disconnected') ?? []
+	);
+	const activity = createQueries(() => ({
+		queries: activityConnections.map((connection) => {
+			const company = companyId,
+				name = connection.name,
+				limit = reach[name] ?? 20;
+			return {
+				queryKey: ['connection-receipts', company, name, limit],
+				placeholderData: () =>
+					queryClient
+						.getQueriesData<ToolReceipts>({ queryKey: ['connection-receipts', company, name] })
+						.filter(([key, data]) => data !== undefined && Number(key[3]) <= limit)
+						.sort(([left], [right]) => Number(right[3]) - Number(left[3]))[0]?.[1],
+				queryFn: ({ signal }: { signal: AbortSignal }) =>
+					fetchReceipts(company, name, limit, signal),
+				staleTime: 30_000,
+				refetchInterval: pollEvery(30_000, 120_000),
+				// Metadata updates can reattach observers; a settled failure waits
+				// for explicit Retry, the poll or a connection/focus recovery.
+				retryOnMount: false,
+				retry: false
+			};
+		})
+	}));
+	const receipts = $derived(
+		Object.fromEntries(
+			activityConnections.flatMap((connection, index) =>
+				activity[index]?.data ? [[connection.name, activity[index].data as ToolReceipts]] : []
+			)
+		)
+	);
+	const receiptErrors = $derived(
+		Object.fromEntries(
+			activityConnections.flatMap((connection, index) =>
+				activity[index]?.error
+					? [
+							[
+								connection.name,
+								failureSentence(activity[index].error, 'Activity could not be read.')
+							]
+						]
+					: []
+			)
+		)
+	);
 	async function loadReceipts(connection: ToolConnection) {
-		const company = companyId,
-			route = key;
-		try {
-			const result = await fetchReceipts(company, connection.name, reach[connection.name] ?? 20);
-			if (company !== companyId || route !== key) return;
-			receipts[connection.name] = result;
-			delete receiptErrors[connection.name];
-		} catch (cause) {
-			if (company === companyId && route === key)
-				receiptErrors[connection.name] = failureSentence(cause, 'Activity could not be read.');
-		}
+		await queryClient.invalidateQueries({
+			queryKey: ['connection-receipts', companyId, connection.name]
+		});
 	}
+
 	async function loadPackage(skill: SkillRow) {
 		const company = companyId,
 			route = key;
@@ -133,8 +187,6 @@
 		companyId;
 		key;
 		untrack(() => {
-			receipts = {};
-			receiptErrors = {};
 			packages = {};
 			reach = {};
 			draft = {};
@@ -158,15 +210,35 @@
 			...(target?.skills ?? []).map(loadPackage)
 		]);
 	}
-	const apps = $derived(data.projection);
+	// Directory and permission metadata may refresh independently. Only a changed
+	// package version rereads its files; activity has its own scoped cached query.
+	const packageSource = $derived(
+		`${companyId}:${key}:${app?.skills.map((skill) => `${skill.name}:${skill.digest}`).join(',') ?? ''}`
+	);
 	$effect(() => {
-		const target = app;
+		packageSource;
 		untrack(() => {
-			void loadDetails(target);
+			void Promise.all((app?.skills ?? []).map(loadPackage));
 		});
 	});
-	const resolved = $derived(resolveApp(apps, key));
-	const app = $derived(resolved.app);
+
+	const preview = createQuery(() => ({
+		queryKey: ['catalogue-instructions', app?.registrySkill?.key ?? ''],
+		queryFn: ({ signal }) => fetchCatalogueInstructions(app!.registrySkill!.key, signal),
+		enabled: !!app?.registrySkill && app.state === 'available',
+		staleTime: 300_000,
+		retry: false
+	}));
+	const audience = (name: string) =>
+		skillAudience(
+			Object.entries(library?.availability ?? {})
+				.filter(([, names]) => names.includes(name))
+				.map(([id]) => id),
+			agents,
+			teams,
+			Object.keys(library?.availability ?? {})
+		);
+
 	/* Discovery health does not obscure an independently available app. */
 	const partial = $derived(app?.catalogue?.registryId ? data.partial : data.companyPartial);
 	const pendingLink = $derived(key.startsWith('link:') ? key.slice('link:'.length) : '');
@@ -832,11 +904,12 @@
 	{@const uses = library?.usage?.[skill.name] ?? 0}
 	{@const read = packages[skill.name]}
 	{@const edit = editing[skill.name]}
-	<Section title={app && app.skills.length > 1 ? skillName(skill.name) : 'Know-how'}>
+	<Section title={app && app.skills.length > 1 ? skillName(skill.name) : undefined}>
 		<p class="description">{skill.description || 'No description.'}</p>
 		{#if library?.availability}
 			<Fold
 				label="Available to"
+				hint={audience(skill.name).label}
 				count={Object.values(library.availability).filter((names) => names.includes(skill.name))
 					.length}
 				padded
@@ -852,6 +925,14 @@
 		{#if library?.applications}
 			<Fold
 				label="Recently applied"
+				hint={skillAudience(
+					library.applications
+						.filter((row) => row.skill_name === skill.name)
+						.map((row) => row.actor_id),
+					agents,
+					teams,
+					Object.keys(library.availability ?? {})
+				).label}
 				count={library.applications.filter((row) => row.skill_name === skill.name).length}
 				padded
 			>
@@ -1056,6 +1137,10 @@
 				count={read.package.files.length ? `${read.package.files.length + 1} files` : null}
 				open={skill.disposition === 'candidate'}
 			>
+				{#snippet actions()}<CopyButton
+						value={read.package.skill_md}
+						label="Copy all instructions"
+					/>{/snippet}
 				{#if read.changed}<p class="quiet inset">
 						The files in the company computer changed since this version was recorded.
 					</p>{/if}
@@ -1199,6 +1284,28 @@
 
 		{#if app && app.state === 'available'}
 			<AppOverview {app} />
+			{#if app.registrySkill}
+				<Section
+					><Fold label="Instructions" hint={preview.error ? 'Unavailable' : undefined}>
+						{#snippet actions()}{#if preview.data}<CopyButton
+									value={preview.data.skill_md}
+									label="Copy all instructions"
+								/>{/if}{/snippet}
+						{#if preview.data}
+							<div class="skill-body"><Markdown text={body(preview.data.skill_md)} /></div>
+						{:else if preview.error}<Notice
+								tone="warning"
+								title="Instructions could not be read"
+								details={failureSentence(preview.error, 'The publisher could not be reached.')}
+							>
+								{#snippet actions()}<button class="btn small" onclick={() => preview.refetch()}
+										>Try again</button
+									>{/snippet}
+							</Notice>
+						{:else}<p role="status" class="quiet inset">Reading publisher instructions…</p>{/if}
+					</Fold></Section
+				>
+			{/if}
 			{#if owner && app.catalogue?.auth === 'token'}
 				<Section title="Connect">
 					<TokenPicker
@@ -1236,8 +1343,8 @@
 <style>
 	.know-how-agents {
 		display: grid;
-		gap: 10px;
-		max-height: 280px;
+		gap: 6px;
+		max-height: 180px;
 		overflow-y: auto;
 	}
 	.know-how-agents > div {

@@ -764,7 +764,7 @@
 
 {#snippet clearDone()}
 	<button
-		class="btn small ghost"
+		class="btn small"
 		type="button"
 		disabled={clearingDone}
 		title="Clear completed work from the current view. You can also archive goals whose tasks are all complete."
@@ -1111,30 +1111,32 @@
 						</ActionMenu>
 					</div>
 				</div>
-				{#if done.length || archiveCandidates.length}
-					<div class="completed-actions" aria-label="Completed work actions">
-						{#if view === 'board' && done.length > RECENT_DONE}
-							<button
-								class="btn small ghost"
-								type="button"
-								onclick={() => (showAllDone = !showAllDone)}
-							>
-								{showAllDone ? 'Show recent only' : 'Show all ' + done.length}
-							</button>
-						{/if}
-						{#if !archivedOpen}{@render clearDone()}{/if}
+				<div class="secondary-actions">
+					{#if done.length || archiveCandidates.length}
+						<div class="completed-actions" aria-label="Completed work actions">
+							{#if view === 'board' && done.length > RECENT_DONE}
+								<button
+									class="btn small"
+									type="button"
+									onclick={() => (showAllDone = !showAllDone)}
+								>
+									{showAllDone ? 'Show recent only' : 'Show all ' + done.length}
+								</button>
+							{/if}
+							{#if !archivedOpen}{@render clearDone()}{/if}
+						</div>
+					{/if}
+					<div class="view-switch">
+						<Segmented
+							label="View"
+							value={view}
+							options={[
+								{ value: 'list', label: 'List' },
+								{ value: 'board', label: 'Board' }
+							]}
+							onchange={(value) => setQuery('view', value === 'board' ? 'board' : '')}
+						/>
 					</div>
-				{/if}
-				<div class="view-switch">
-					<Segmented
-						label="View"
-						value={view}
-						options={[
-							{ value: 'list', label: 'List' },
-							{ value: 'board', label: 'Board' }
-						]}
-						onchange={(value) => setQuery('view', value === 'board' ? 'board' : '')}
-					/>
 				</div>
 			</header>
 
@@ -1370,6 +1372,20 @@
 	}
 	.view-switch {
 		display: flex;
+	}
+	.secondary-actions {
+		display: flex;
+		flex: 1 0 100%;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+		align-items: center;
+		gap: 8px;
+	}
+	.completed-actions {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+		gap: 8px;
 	}
 	.filters {
 		display: flex;

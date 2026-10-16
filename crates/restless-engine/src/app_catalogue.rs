@@ -16,6 +16,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context as _, Result};
+use futures_util::{stream, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 
 const REGISTRY_URL: &str = "https://registry.modelcontextprotocol.io/v0/servers";
@@ -209,18 +210,30 @@ async fn refresh(mut previous: Catalogue) -> Catalogue {
     let mut any_updated = false;
     for (source, kind, result) in [
         ("MCP Registry", "mcp", registry),
-        ("Anthropic skills", "skill", skills),
+        (
+            "Anthropic skills",
+            "skill",
+            skills.map(|result| result.map(|items| (items, None))),
+        ),
     ] {
         let result = result
             .map_err(anyhow::Error::from)
             .and_then(|result| result);
         let status = previous.sources.entry(source.to_owned()).or_default();
         match result {
-            Ok(found) => {
-                items.extend(found);
-                status.updated_at = now_ms();
-                status.error = None;
-                any_updated = true;
+            Ok((found, error)) => {
+                if let Some(error) = error {
+                    // A later broken page cannot erase earlier successful pages or the last
+                    // complete snapshot. Canonical registry keys determine replacement.
+                    status.error = Some(error.clone());
+                    previous.unavailable.push(format!("{source}: {error}"));
+                    items.extend(merge_partial_source(&previous.items, kind, found));
+                } else {
+                    items.extend(found);
+                    status.updated_at = now_ms();
+                    status.error = None;
+                    any_updated = true;
+                }
             }
             Err(error) => {
                 tracing::warn!(%error, source, "app catalogue source refresh failed");
@@ -272,7 +285,23 @@ pub async fn item(key: &str) -> Result<Option<CatalogueItem>> {
     Ok(None)
 }
 
-async fn fetch_registry(client: &reqwest::Client) -> Result<Vec<CatalogueItem>> {
+fn merge_partial_source(
+    previous: &[CatalogueItem],
+    kind: &str,
+    found: Vec<CatalogueItem>,
+) -> Vec<CatalogueItem> {
+    previous
+        .iter()
+        .filter(|item| item.kind == kind)
+        .cloned()
+        .chain(found)
+        .map(|item| (item.key.clone(), item))
+        .collect::<BTreeMap<_, _>>()
+        .into_values()
+        .collect()
+}
+
+async fn fetch_registry(client: &reqwest::Client) -> Result<(Vec<CatalogueItem>, Option<String>)> {
     let mut items = BTreeMap::new();
     let mut cursor: Option<String> = None;
     for _ in 0..MAX_REGISTRY_PAGES {
@@ -282,15 +311,25 @@ async fn fetch_registry(client: &reqwest::Client) -> Result<Vec<CatalogueItem>> 
         if let Some(cursor) = &cursor {
             request = request.query(&[("cursor", cursor.as_str())]);
         }
-        let page: serde_json::Value = request
-            .send()
-            .await
-            .context("reach the MCP Registry")?
-            .error_for_status()
-            .context("MCP Registry answered with an error")?
-            .json()
-            .await
-            .context("read the MCP Registry page")?;
+        let page: Result<serde_json::Value> = async {
+            request
+                .send()
+                .await
+                .context("reach the MCP Registry")?
+                .error_for_status()
+                .context("MCP Registry answered with an error")?
+                .json()
+                .await
+                .context("read the MCP Registry page")
+        }
+        .await;
+        let page = match page {
+            Ok(page) => page,
+            Err(error) if !items.is_empty() => {
+                return Ok((items.into_values().collect(), Some(format!("{error:#}"))))
+            }
+            Err(error) => return Err(error),
+        };
         for item in registry_items(&page) {
             items.insert(item.key.clone(), item);
         }
@@ -302,7 +341,11 @@ async fn fetch_registry(client: &reqwest::Client) -> Result<Vec<CatalogueItem>> 
     if items.is_empty() {
         bail!("the MCP Registry listed no servers with a remote address");
     }
-    Ok(items.into_values().collect())
+    let error = cursor.map(|_| {
+        "The registry exceeded this refresh's 40-page limit; available listings are shown."
+            .to_string()
+    });
+    Ok((items.into_values().collect(), error))
 }
 
 /// The servers on one registry page that Apps can add: active, with an https remote address.
@@ -366,36 +409,43 @@ async fn fetch_skills(client: &reqwest::Client) -> Result<Vec<CatalogueItem>> {
         .await
         .context("read the skills tree")?;
     let folders = skill_folders(&tree);
-    let mut items = Vec::new();
-    for (folder, files) in folders {
-        let url = format!("{SKILLS_RAW}/skills/{folder}/SKILL.md");
-        // A failed file read is a failed source refresh, not evidence that a skill disappeared.
-        let text = client
-            .get(&url)
-            .send()
-            .await
-            .with_context(|| format!("reach skill {folder}"))?
-            .error_for_status()
-            .with_context(|| format!("read skill {folder}"))?
-            .text()
-            .await
-            .with_context(|| format!("decode skill {folder}"))?;
-        let Some((name, description)) = frontmatter(&text) else {
-            continue;
-        };
-        let runs_scripts = files.iter().any(|file| is_script(file));
-        items.push(CatalogueItem {
-            key: format!("skill:anthropics/{folder}"),
-            kind: "skill".into(),
-            name,
-            summary: clip(&description),
-            source: "Anthropic skills".into(),
-            homepage: Some(format!("{SKILLS_REPO}/tree/main/skills/{folder}")),
-            endpoint: None,
-            files,
-            runs_scripts,
-        });
-    }
+    let items = stream::iter(folders)
+        .map(|(folder, files)| async move {
+            let url = format!("{SKILLS_RAW}/skills/{folder}/SKILL.md");
+            // A failed file read is a failed source refresh, not evidence that a skill disappeared.
+            let text = client
+                .get(&url)
+                .send()
+                .await
+                .with_context(|| format!("reach skill {folder}"))?
+                .error_for_status()
+                .with_context(|| format!("read skill {folder}"))?
+                .text()
+                .await
+                .with_context(|| format!("decode skill {folder}"))?;
+            let Some((name, description)) = frontmatter(&text) else {
+                return Ok::<_, anyhow::Error>(None);
+            };
+            let runs_scripts = files.iter().any(|file| is_script(file));
+            Ok(Some(CatalogueItem {
+                key: format!("skill:anthropics/{folder}"),
+                kind: "skill".into(),
+                name,
+                summary: clip(&description),
+                source: "Anthropic skills".into(),
+                homepage: Some(format!("{SKILLS_REPO}/tree/main/skills/{folder}")),
+                endpoint: None,
+                files,
+                runs_scripts,
+            }))
+        })
+        // One slow publisher file must not serialise every other listing behind it.
+        .buffer_unordered(4)
+        .try_collect::<Vec<_>>()
+        .await?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
     if items.is_empty() {
         bail!("the skills repository listed no skills");
     }
@@ -429,30 +479,8 @@ pub fn skill_folders(tree: &serde_json::Value) -> BTreeMap<String, Vec<String>> 
 
 /// The `name` and `description` from a SKILL.md's frontmatter.
 pub fn frontmatter(text: &str) -> Option<(String, String)> {
-    let body = text.strip_prefix("---")?;
-    let end = body.find("\n---")?;
-    let mut name = None;
-    let mut description = None;
-    for line in body[..end].lines() {
-        if let Some(value) = line.strip_prefix("name:") {
-            name = Some(unquote(value));
-        } else if let Some(value) = line.strip_prefix("description:") {
-            description = Some(unquote(value));
-        }
-    }
-    Some((
-        name.filter(|name| !name.is_empty())?,
-        description.unwrap_or_default(),
-    ))
-}
-
-fn unquote(value: &str) -> String {
-    value
-        .trim()
-        .trim_matches('"')
-        .trim_matches('\'')
-        .trim()
-        .to_string()
+    let parsed = restless_contracts::skill_package::parse_frontmatter(text)?;
+    (!parsed.name.is_empty()).then_some((parsed.name, parsed.description))
 }
 
 fn is_script(file: &str) -> bool {
@@ -473,6 +501,19 @@ fn clip(text: &str) -> String {
 
 /// The raw bytes of one file of a catalogue skill, for installing it.
 pub async fn skill_file(item: &CatalogueItem, file: &str) -> Result<Vec<u8>> {
+    read_skill_file(item, file, None).await
+}
+
+/// Preview is bounded independently from installation's package rules.
+pub async fn skill_instructions(item: &CatalogueItem) -> Result<Vec<u8>> {
+    read_skill_file(item, "SKILL.md", Some(2 * 1024 * 1024)).await
+}
+
+async fn read_skill_file(
+    item: &CatalogueItem,
+    file: &str,
+    limit: Option<usize>,
+) -> Result<Vec<u8>> {
     let folder = item
         .key
         .strip_prefix("skill:anthropics/")
@@ -483,14 +524,30 @@ pub async fn skill_file(item: &CatalogueItem, file: &str) -> Result<Vec<u8>> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .build()?;
-    let response = client
+    let mut response = client
         .get(format!("{SKILLS_RAW}/skills/{folder}/{file}"))
         .send()
         .await
         .context("reach GitHub")?
         .error_for_status()
         .context("GitHub answered with an error")?;
-    Ok(response.bytes().await?.to_vec())
+    let Some(limit) = limit else {
+        return Ok(response.bytes().await?.to_vec());
+    };
+    if response
+        .content_length()
+        .is_some_and(|length| length > limit as u64)
+    {
+        bail!("the instructions exceed the 2 MB preview limit");
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        if chunk.len() > limit.saturating_sub(bytes.len()) {
+            bail!("the instructions exceed the 2 MB preview limit");
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
 }
 
 #[cfg(test)]
@@ -554,6 +611,37 @@ mod tests {
     }
 
     #[test]
+    fn a_late_registry_failure_retains_old_and_new_entries_by_canonical_key() {
+        let item = |key: &str, name: &str| CatalogueItem {
+            key: key.into(),
+            kind: "mcp".into(),
+            name: name.into(),
+            summary: String::new(),
+            source: "MCP Registry".into(),
+            homepage: None,
+            endpoint: Some("https://example.test/mcp".into()),
+            files: vec![],
+            runs_scripts: false,
+        };
+        let previous = vec![item("mcp:one", "Original"), item("mcp:two", "Same title")];
+        let merged = merge_partial_source(
+            &previous,
+            "mcp",
+            vec![item("mcp:one", "Updated"), item("mcp:three", "Same title")],
+        );
+        assert_eq!(merged.len(), 3);
+        assert_eq!(
+            merged
+                .iter()
+                .find(|item| item.key == "mcp:one")
+                .unwrap()
+                .name,
+            "Updated"
+        );
+        assert!(merged.iter().any(|item| item.key == "mcp:two"));
+    }
+
+    #[test]
     fn skills_come_from_folders_with_a_skill_md_and_scripts_are_flagged() {
         let tree = serde_json::json!({"tree": [
             {"path": "skills/frontend-design/SKILL.md", "type": "blob"},
@@ -578,5 +666,11 @@ mod tests {
             Some(("frontend-design".into(), "Create distinctive interfaces".into()))
         );
         assert_eq!(frontmatter("no frontmatter"), None);
+        assert_eq!(frontmatter("---\nname: claude-api\ndescription: |-\n  Build applications with Claude.\n  Supports several languages.\n---\n# Instructions"),
+            Some(("claude-api".into(), "Build applications with Claude. Supports several languages.".into())));
+        assert_eq!(
+            frontmatter("---\nname: ''\ndescription: example\n---"),
+            None
+        );
     }
 }

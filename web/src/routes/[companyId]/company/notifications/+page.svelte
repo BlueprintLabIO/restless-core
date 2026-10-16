@@ -4,6 +4,7 @@
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import TelegramChannel from '$lib/components/TelegramChannel.svelte';
 	import AwayMode from '$lib/components/AwayMode.svelte';
+	import NotificationPreferences from '$lib/components/NotificationPreferences.svelte';
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
 	import { Page } from '$lib/ui/page';
@@ -16,9 +17,9 @@
 
 <CompanyTitle title="Notifications" {companyId} />
 
-<Page
-	title="Notifications"
-	info="How the company reaches you away from the cockpit. Email and desktop notifications are yours alone, in your profile menu."
->
-	{#key companyId}<AwayMode {companyId} {owner} /><TelegramChannel {companyId} />{/key}
+<Page title="Notifications" info="How the company reaches you away from the cockpit.">
+	{#key companyId}<NotificationPreferences {companyId} /><AwayMode
+			{companyId}
+			{owner}
+		/><TelegramChannel {companyId} />{/key}
 </Page>

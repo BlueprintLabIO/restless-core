@@ -91,7 +91,10 @@
 	>
 		{#snippet actions()}
 			{#if view?.paired}<Dot show tone="success" label="Paired" />
-			{:else if waiting}<Dot show tone="progress" label="Waiting for the code" />{/if}
+			{:else if waiting}<Dot show tone="progress" label="Waiting for the code" />
+			{:else}<a class="btn small" href="https://t.me/BotFather" target="_blank" rel="noopener"
+					>Open BotFather</a
+				>{/if}
 		{/snippet}
 		{#if error}<Notice tone="danger" title="Telegram did not respond" details={error} />{/if}
 		{#if view?.paired && view.link}
@@ -136,12 +139,10 @@
 					label="Bot token"
 					info="In Telegram, open BotFather, send /newbot and follow its two questions. Paste the token it replies with here; it is kept in the company Vault. A Vault reference such as env:TELEGRAM_BOT_TOKEN works too."
 				>
-					<div class="line">
-						<a class="btn small ghost" href="https://t.me/BotFather" target="_blank" rel="noopener"
-							>Open BotFather</a
-						>
+					<div class="token-field">
 						<input
 							class="wide"
+							type="password"
 							bind:value={reference}
 							aria-label="Bot token"
 							placeholder="123456789:AA…"
@@ -168,7 +169,15 @@
 		gap: var(--space-2);
 	}
 	.wide {
-		width: min(320px, 100%);
+		width: 100%;
+		min-width: 0;
+	}
+	.token-field {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: center;
+		gap: var(--space-2);
+		width: min(420px, 100%);
 	}
 	code {
 		font-size: var(--t-body);

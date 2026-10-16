@@ -1,16 +1,13 @@
 <script lang="ts">
 	/* The person at the top of their page in People (S88-03): who they are, their team and who owns
-	 * it, their model, and what can be done about them. No Message button: the composer below is the
-	 * action. A colleague shows their access instead of a model. */
+	 * it, and what can be done about them. No Message button: the composer below is the
+	 * action. Model controls remain in the composer and profile. */
 	import type { Snippet } from 'svelte';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
-	import IntelligenceChip from '$lib/components/IntelligenceChip.svelte';
 	import { initials } from '$lib/model/initials';
 	import PanelRight from '@lucide/svelte/icons/panel-right';
 
 	let {
-		companyId,
-		actorId,
 		name,
 		kind,
 		role,
@@ -20,10 +17,10 @@
 		archived = false,
 		workOpen = null,
 		ontogglework,
-		menu
+		menu,
+		tools,
+		conversationMenu
 	}: {
-		companyId: string;
-		actorId: string;
 		name: string;
 		kind: string;
 		role: string;
@@ -36,10 +33,13 @@
 		workOpen?: boolean | null;
 		ontogglework?: () => void;
 		menu?: Snippet;
+		tools?: Snippet;
+		conversationMenu?: Snippet;
 	} = $props();
 
-	const agent = $derived(kind !== 'human');
-	const facts = $derived([role, team].filter(Boolean));
+	const facts = $derived(
+		[role, team, access, ownedBy && ownedBy !== 'you' ? `Owned by ${ownedBy}` : ''].filter(Boolean)
+	);
 </script>
 
 <header class="person-header" class:archived>
@@ -53,19 +53,9 @@
 		{#if facts.length}<p class="person-header-facts" title={facts.join(' · ')}>
 				{facts.join(' · ')}
 			</p>{/if}
-		<div class="person-header-meta">
-			{#if agent && !archived}<IntelligenceChip
-					{companyId}
-					{actorId}
-					{name}
-				/>{:else if access}<span>{access}</span>{/if}
-			{#if ownedBy && ownedBy !== 'you'}<span
-					class="person-header-owner"
-					title="This person owns their team">Owned by {ownedBy}</span
-				>{/if}
-		</div>
 	</div>
 	<div class="person-header-tools">
+		{@render tools?.()}
 		{#if workOpen !== null}<button
 				type="button"
 				class="person-header-tool"
@@ -76,7 +66,9 @@
 				onclick={ontogglework}
 				><PanelRight size={15} strokeWidth={1.9} aria-hidden="true" /><span>Work</span></button
 			>{/if}
-		{#if menu}<ActionMenu label={`More for ${name}`}>{@render menu()}</ActionMenu>{/if}
+		{#if menu || conversationMenu}<ActionMenu label={`More for ${name}`}
+				>{@render menu?.()}{@render conversationMenu?.()}</ActionMenu
+			>{/if}
 	</div>
 </header>
 
@@ -84,10 +76,12 @@
 	.person-header {
 		display: flex;
 		flex: none;
-		align-items: flex-start;
+		align-items: center;
 		gap: 12px;
 		min-width: 0;
-		padding: 12px 16px;
+		height: 60px;
+		box-sizing: border-box;
+		padding: 8px 16px;
 		border-bottom: 1px solid var(--border);
 		background: transparent;
 	}
@@ -110,7 +104,7 @@
 	.person-header-copy {
 		display: grid;
 		flex: 1;
-		gap: 5px;
+		gap: 2px;
 		min-width: 0;
 	}
 	h2 {
@@ -119,7 +113,7 @@
 		gap: 8px;
 		margin: 0;
 		overflow: hidden;
-		font-size: var(--t-head);
+		font-size: var(--t-body);
 		font-weight: 650;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -134,30 +128,16 @@
 		color: var(--text-secondary);
 		font-size: var(--t-body);
 		line-height: 1.45;
-		overflow-wrap: anywhere;
-	}
-	.person-header-meta {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 4px 12px;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-		min-width: 0;
-	}
-	.person-header-meta :global(.chip) {
-		margin-left: -6px;
-	}
-	.person-header-owner {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	@media (max-width: 560px) {
 		.person-header {
 			display: grid;
 			grid-template-columns: 32px minmax(0, 1fr) auto;
 			gap: 8px 10px;
-			padding: 12px;
+			padding: 8px 12px;
 		}
 		.person-header-avatar {
 			width: 32px;

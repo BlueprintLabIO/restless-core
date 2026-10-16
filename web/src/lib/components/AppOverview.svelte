@@ -61,7 +61,7 @@
 <style>
 	.app-overview {
 		display: grid;
-		gap: 24px;
+		gap: 16px;
 		min-width: 0;
 	}
 	.description {
@@ -74,9 +74,9 @@
 	.facts {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
-		gap: 24px;
+		gap: 16px;
 		margin: 0;
-		padding-block: 22px;
+		padding-block: 14px;
 		border-block: 1px solid var(--border);
 	}
 	.facts > div:last-child {

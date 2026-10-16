@@ -39,6 +39,19 @@ export async function fetchAppCatalogue(
 	return response.json();
 }
 
+/** Read public instructions without installing a package or waking a company. */
+export async function fetchCatalogueInstructions(
+	key: string,
+	signal?: AbortSignal
+): Promise<{ skill_md: string }> {
+	const response = await bootFetch(`/api/app-catalogue/skill?key=${encodeURIComponent(key)}`, {
+		credentials: 'same-origin',
+		signal
+	});
+	if (!response.ok) throw await responseFailure(response);
+	return response.json();
+}
+
 /** Install a catalogue skill as candidate know-how. */
 export async function installFromCatalogue(
 	company: string,

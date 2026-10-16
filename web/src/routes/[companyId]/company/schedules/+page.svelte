@@ -196,7 +196,9 @@
 		return { line, full: line === full ? '' : full };
 	}
 	const latestProblem = (item: MonitoredSchedule) =>
-		item.recent_outcomes.find((outcome) => ['blocked', 'needs_human'].includes(outcome.state));
+		item.recent_outcomes[0] && ['blocked', 'needs_human'].includes(item.recent_outcomes[0].state)
+			? item.recent_outcomes[0]
+			: undefined;
 	const stateTone = (state: string) =>
 		state === 'blocked' || state === 'needs_human'
 			? 'danger'
@@ -286,6 +288,7 @@
 			{@const problem = latestProblem(item)}
 			{@const paused = !!item.schedule.paused_at}
 			<Item
+				stacked
 				title={item.schedule.reason}
 				meta={[
 					cadenceText(item),
@@ -360,6 +363,9 @@
 					{/if}{/snippet}
 				{#if open === item.schedule.id}
 					<div class="detail">
+						{#if item.schedule.reason.length > 160}<p class="schedule-prompt">
+								{item.schedule.reason}
+							</p>{/if}
 						{#if problem}
 							{@const text = headline(problem.outcome, problem.outcome_reason)}
 							<Notice tone="warning" title="The last run didn’t finish" details={text.full || null}
@@ -411,27 +417,47 @@
 									<dd><RelativeTime value={item.schedule.fire_at} /></dd>
 								</div>{/if}
 						</dl>
+						{#if !problem && item.recent_outcomes[0]}
+							{@const latest = item.recent_outcomes[0]}
+							<p class="latest-result">
+								<Dot
+									tone={stateTone(latest.state)}
+									label={latest.state.replaceAll('_', ' ')}
+								/><span
+									>{['running', 'pending'].includes(latest.state)
+										? 'Check in progress'
+										: headline(latest.outcome, latest.outcome_reason).line}</span
+								>
+							</p>
+						{/if}
+						{#if item.recent_outcomes.length || item.prior_responsibility_outcomes.length}
+							<details class="result-history">
+								<summary
+									>Results <span
+										>{item.recent_outcomes.length + item.prior_responsibility_outcomes.length}</span
+									></summary
+								>
+								<ul class="runs" aria-label="Recent runs">
+									{#each [...item.recent_outcomes, ...item.prior_responsibility_outcomes] as outcome (outcome.opportunity_id)}
+										{@const text = headline(outcome.outcome, outcome.outcome_reason)}
+										<li title={text.full || undefined}>
+											<Dot
+												tone={stateTone(outcome.state)}
+												label={outcome.state.replaceAll('_', ' ')}
+											/>
+											<span>{text.line}</span>
+											<RelativeTime value={outcome.created_at} />
+										</li>
+									{/each}
+								</ul>
+							</details>
+						{/if}
 						<ScheduleHistory
 							{companyId}
 							schedule={item.schedule}
 							{canManage}
 							onchanged={() => void query.refetch()}
 						/>
-						{#if item.recent_outcomes.length || item.prior_responsibility_outcomes.length}
-							<ul class="runs" aria-label="Recent runs">
-								{#each [...item.recent_outcomes, ...item.prior_responsibility_outcomes] as outcome (outcome.opportunity_id)}
-									{@const text = headline(outcome.outcome, outcome.outcome_reason)}
-									<li title={text.full || undefined}>
-										<Dot
-											tone={stateTone(outcome.state)}
-											label={outcome.state.replaceAll('_', ' ')}
-										/>
-										<span>{text.line}</span>
-										<RelativeTime value={outcome.created_at} />
-									</li>
-								{/each}
-							</ul>
-						{/if}
 					</div>
 				{/if}
 			</Item>
@@ -446,6 +472,13 @@
 </Page>
 
 <style>
+	.latest-result {
+		display: flex;
+		align-items: baseline;
+		gap: 10px;
+		margin: 0;
+		line-height: 1.6;
+	}
 	.full {
 		width: 100%;
 	}
@@ -458,6 +491,11 @@
 		display: grid;
 		gap: 14px;
 		padding-top: 6px;
+	}
+	.schedule-prompt {
+		margin: 0;
+		line-height: 1.6;
+		overflow-wrap: anywhere;
 	}
 	.edit {
 		display: grid;
@@ -498,6 +536,17 @@
 		padding: 0;
 		border-top: 1px solid var(--border);
 		list-style: none;
+		max-height: 360px;
+		overflow-y: auto;
+	}
+	.result-history summary {
+		cursor: pointer;
+		padding: 8px 0;
+		font-weight: 500;
+	}
+	.result-history summary span {
+		color: var(--text-tertiary);
+		margin-left: 8px;
 	}
 	.runs li {
 		display: grid;

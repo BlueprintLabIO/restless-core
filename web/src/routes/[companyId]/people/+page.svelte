@@ -78,7 +78,10 @@
 
 	/* The Exec and team leads open in the same conversation as the rail, at
 	 * full width; the layout owns it. */
-	const wide = getContext<{ actor: string; render: () => Snippet<[boolean]> }>('wide-conversation');
+	const wide = getContext<{
+		actor: string;
+		render: () => Snippet<[boolean, Snippet<[Snippet, Snippet]>?]>;
+	}>('wide-conversation');
 
 	const companyId = $derived(page.params.companyId ?? '');
 	const principal = $derived(companyPrincipalQuery(companyId));
@@ -1595,56 +1598,59 @@
 	</aside>
 	<section class="conversation-main" aria-label="Selected conversation">
 		<a class="back" href={indexHref()}><ArrowLeft size={16} /> People</a>
-		{#if headerPerson}
-			{@const person = headerPerson}
-			{@const membership = person.kind === 'human' ? membershipFor(person.actor_id) : null}
-			<PersonHeader
-				{companyId}
-				actorId={person.actor_id}
-				name={personName(person.display)}
-				kind={person.kind}
-				role={person.kind === 'exec' ? 'Runs the company' : person.role}
-				team={headerTeam ? teamName(headerTeam.name, companyId) : ''}
-				ownedBy={headerTeam
-					? teamOwnerId(headerTeam)
-						? teamOwnerName(teamOwnerId(headerTeam) ?? '')
-						: owner
-							? 'you'
-							: ''
-					: ''}
-				access={membership
-					? membership.role.charAt(0).toUpperCase() + membership.role.slice(1)
-					: ''}
-				archived={person.archived}
-				workOpen={person.archived ? null : workOpen}
-				ontogglework={toggleWork}
-			>
-				{#snippet menu()}
-					{#if person.archived}
-						{#if owner}<button
-								type="button"
-								disabled={staffingBusy}
-								onclick={() => void rehire(person)}>Re-hire</button
-							>{/if}
-					{:else}
-						<button type="button" onclick={() => (profileId = person.actor_id)}>Profile</button>
-						{#if owner && person.kind !== 'human'}
-							<a href={`/${encodeURIComponent(companyId)}/company/provider`}>Change model</a>
+		{#snippet personHeading(tools?: Snippet, conversationMenu?: Snippet)}
+			{#if headerPerson}
+				{@const person = headerPerson}
+				{@const membership = person.kind === 'human' ? membershipFor(person.actor_id) : null}
+				<PersonHeader
+					{tools}
+					{conversationMenu}
+					name={personName(person.display)}
+					kind={person.kind}
+					role={person.kind === 'exec' ? 'Runs the company' : person.role}
+					team={headerTeam ? teamName(headerTeam.name, companyId) : ''}
+					ownedBy={headerTeam
+						? teamOwnerId(headerTeam)
+							? teamOwnerName(teamOwnerId(headerTeam) ?? '')
+							: owner
+								? 'you'
+								: ''
+						: ''}
+					access={membership
+						? membership.role.charAt(0).toUpperCase() + membership.role.slice(1)
+						: ''}
+					archived={person.archived}
+					workOpen={person.archived ? null : workOpen}
+					ontogglework={toggleWork}
+				>
+					{#snippet menu()}
+						{#if person.archived}
+							{#if owner}<button
+									type="button"
+									disabled={staffingBusy}
+									onclick={() => void rehire(person)}>Re-hire</button
+								>{/if}
+						{:else}
+							<button type="button" onclick={() => (profileId = person.actor_id)}>Profile</button>
+							{#if owner && person.kind !== 'human'}
+								<a href={`/${encodeURIComponent(companyId)}/company/provider`}>Change model</a>
+							{/if}
+							{#if owner && person.kind === 'staff'}
+								<button type="button" onclick={() => askAbout('move', person)}>Move team…</button>
+								<button type="button" onclick={() => askAbout('rebrief', person)}
+									>Ask Exec to re-brief…</button
+								>
+								<button type="button" disabled={staffingBusy} onclick={() => void archive(person)}
+									>Archive…</button
+								>
+							{/if}
 						{/if}
-						{#if owner && person.kind === 'staff'}
-							<button type="button" onclick={() => askAbout('move', person)}>Move team…</button>
-							<button type="button" onclick={() => askAbout('rebrief', person)}
-								>Ask Exec to re-brief…</button
-							>
-							<button type="button" disabled={staffingBusy} onclick={() => void archive(person)}
-								>Archive…</button
-							>
-						{/if}
-					{/if}
-				{/snippet}
-			</PersonHeader>
-		{/if}
+					{/snippet}
+				</PersonHeader>
+			{/if}
+		{/snippet}
 		{#if headerPerson?.archived}
+			{@render personHeading()}
 			<div class="archived-page">
 				<p>
 					{personName(headerPerson.display)} is archived{/* The default reason only repeats it. */ headerPerson.reason &&
@@ -1661,12 +1667,13 @@
 					>{/if}
 			</div>
 		{:else if wide.actor && wide.actor === personId && !roomId}
-			{@render wide.render()(true)}
+			{@render wide.render()(true, personHeading)}
 		{:else if personId === 'exec' && !roomId}
+			{@render personHeading()}
 			<!-- Exec's chat is the rail itself, widened into this pane a moment after it mounts; a
 			     room view's skeleton would only flash first. -->
 		{:else if roomId || personId}
-			<RoomConversation />
+			<RoomConversation header={headerPerson ? personHeading : undefined} />
 		{:else}
 			<div class="conversation-empty cockpit-pane">
 				<span class="conversation-empty-mark" aria-hidden="true">

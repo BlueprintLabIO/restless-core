@@ -89,68 +89,85 @@
 </script>
 
 {#if canManage}
-	<form class="policy" onsubmit={savePolicy}>
-		<label
-			for={`missed-${schedule.id}`}
-			title="When the computer was asleep or off at a run's time. Skipped runs stay in the list below, and can be recovered."
-			>When a run is missed</label
-		>
-		<select id={`missed-${schedule.id}`} bind:value={policy} disabled={!!busy}>
-			{#each POLICIES as option (option.value)}<option value={option.value}>{option.label}</option
-				>{/each}
-		</select>
-		{#if policy !== 'skip'}
-			<label for={`grace-${schedule.id}`}>if less than</label>
-			<input
-				id={`grace-${schedule.id}`}
-				class="hours"
-				type="number"
-				min="1"
-				max="168"
-				step="1"
-				bind:value={hours}
-				disabled={!!busy}
-			/><span>hours late</span>
+	<details class="history-settings">
+		<summary>Dispatch history</summary>
+		<form class="policy" onsubmit={savePolicy}>
+			<label
+				for={`missed-${schedule.id}`}
+				title="When the computer was asleep or off at a run's time. Skipped runs stay in the list below, and can be recovered."
+				>When a run is missed</label
+			>
+			<select id={`missed-${schedule.id}`} bind:value={policy} disabled={!!busy}>
+				{#each POLICIES as option (option.value)}<option value={option.value}>{option.label}</option
+					>{/each}
+			</select>
+			{#if policy !== 'skip'}
+				<label for={`grace-${schedule.id}`}>if less than</label>
+				<input
+					id={`grace-${schedule.id}`}
+					class="hours"
+					type="number"
+					min="1"
+					max="168"
+					step="1"
+					bind:value={hours}
+					disabled={!!busy}
+				/><span>hours late</span>
+			{/if}
+			{#if changed}<button class="btn small" disabled={!!busy}
+					>{busy === 'policy' ? 'Saving…' : 'Save'}</button
+				>{/if}
+		</form>
+		{#if history.error}<Notice tone="warning" title="Run history is unavailable" />{/if}
+		{#if history.data?.length}
+			<ul class="runs" aria-label="Run history">
+				{#each history.data as run (run.scheduled_for)}
+					{@const skipped = run.disposition === 'skipped'}
+					<li title={run.detail ?? undefined}>
+						<Dot
+							tone={skipped && !run.recovered_at ? 'warning' : 'muted'}
+							label={skipped ? 'Skipped' : 'Dispatched'}
+						/>
+						<span
+							>{skipped
+								? run.recovered_at
+									? 'Skipped, then recovered'
+									: 'Skipped'
+								: run.superseded_count
+									? `Ran once for ${run.superseded_count + 1} missed times`
+									: 'Dispatched'}</span
+						>
+						<RelativeTime value={run.scheduled_for} />
+						{#if skipped && !run.recovered_at}<button
+								class="btn small ghost"
+								type="button"
+								disabled={!!busy}
+								title="Wake Exec once for this run"
+								onclick={() => void recover(run.scheduled_for)}
+								>{busy === run.scheduled_for ? 'Recovering…' : 'Recover'}</button
+							>{/if}
+					</li>
+				{/each}
+			</ul>
 		{/if}
-		{#if changed}<button class="btn small" disabled={!!busy}
-				>{busy === 'policy' ? 'Saving…' : 'Save'}</button
-			>{/if}
-	</form>
-	{#if history.data?.length}
-		<ul class="runs" aria-label="Run history">
-			{#each history.data as run (run.scheduled_for)}
-				{@const skipped = run.disposition === 'skipped'}
-				<li title={run.detail ?? undefined}>
-					<Dot
-						tone={skipped && !run.recovered_at ? 'warning' : 'muted'}
-						label={skipped ? 'Skipped' : 'Ran'}
-					/>
-					<span
-						>{skipped
-							? run.recovered_at
-								? 'Skipped, then recovered'
-								: 'Skipped'
-							: run.superseded_count
-								? `Ran once for ${run.superseded_count + 1} missed times`
-								: 'Ran'}</span
-					>
-					<RelativeTime value={run.scheduled_for} />
-					{#if skipped && !run.recovered_at}<button
-							class="btn small ghost"
-							type="button"
-							disabled={!!busy}
-							title="Wake Exec once for this run"
-							onclick={() => void recover(run.scheduled_for)}
-							>{busy === run.scheduled_for ? 'Recovering…' : 'Recover'}</button
-						>{/if}
-				</li>
-			{/each}
-		</ul>
-	{/if}
+	</details>
 	{#if failure}<Notice tone="danger" title="Nothing changed">{failure}</Notice>{/if}
 {/if}
 
 <style>
+	.history-settings summary {
+		cursor: pointer;
+		font-weight: 500;
+		padding: 8px 0;
+	}
+	.history-settings[open] {
+		display: grid;
+		gap: 12px;
+	}
+	.runs {
+		max-height: 280px;
+		overflow-y: auto;
+	}
 	.policy {
 		display: flex;
 		flex-wrap: wrap;
