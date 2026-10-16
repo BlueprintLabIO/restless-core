@@ -128,3 +128,9 @@ These describe the accepted outcomes. A story row alone is not completion eviden
 | US-299 | core | I want company-authored know-how to remain discoverable in Installed. I can see who can use it and which agent has actually applied which version, without confusing installation or selection with current loaded context. | S91 | company skill observation, assignment precedence and recorded-activation checks |
 | US-300 | core | I want Company overview to explain the company's purpose and present state. Needs attention never sits beside a blanket Everything is set up claim; the quiet state remains useful and restrained. | S91 | pending, quiet and missing-data overview journeys |
 | US-301 | core | I want saved sites, private previews and published sites to be labelled truthfully. A Library entry or merged commit is not presented as public hosting or a verified cloud deployment. | S91 | source hosting contract and observed release/deployment identity |
+
+## From release acceptance, 17 October — patched company browser
+
+| ID | Tier | Story: I want … and I see … | Fix | Check |
+| --- | --- | --- | --- | --- |
+| US-302 | full | I want the local and hosted company computers to run the qualified patched browser. A vulnerable pinned binary blocks publication; a successful UI build never overrides that gate. | S91 | official archive digests, isolated native browser launch, exact runtime image scan and installed/deployed identity |

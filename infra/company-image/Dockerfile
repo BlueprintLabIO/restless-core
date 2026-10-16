@@ -74,14 +74,14 @@ FROM --platform=$BUILDPLATFORM ubuntu:24.04@sha256:a853f94d226358a79c740cfc7bce0
 ARG TARGETARCH
 RUN set -eu; \
     case "$TARGETARCH" in \
-        amd64) browser_platform=linux64; browser_sha256=55672d1f392fd3e7b7a08621b6e804e6bcb39d40cf155504abb74b3a021ea8ea ;; \
-        arm64) browser_platform=linux-arm64; browser_sha256=b9d44e5d183260ca941a4c4d8d21c8a437d81ef778a489047ef98968b0475dc5 ;; \
+        amd64) browser_platform=linux64; browser_sha256=bcd9a79130d7e44d70f93be87042e9bcee7fe0f0b3898e06b8c9bed5fb619dcd ;; \
+        arm64) browser_platform=linux-arm64; browser_sha256=6ba365c60cb1cff5e742caaa1e8b6f2c019f93f7a644fa42ea0bcfcf029d7e67 ;; \
         *) echo "Unsupported browser architecture: $TARGETARCH" >&2; exit 1 ;; \
     esac; \
     apt-get update; \
     apt-get install -y --no-install-recommends ca-certificates curl unzip; \
     curl --fail --location --show-error --retry 3 --connect-timeout 30 \
-        "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.39/${browser_platform}/chrome-${browser_platform}.zip" \
+        "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.79/${browser_platform}/chrome-${browser_platform}.zip" \
         --output /tmp/chrome.zip; \
     printf '%s  %s\n' "$browser_sha256" /tmp/chrome.zip | sha256sum --check --status; \
     unzip -q /tmp/chrome.zip -d /browser; \
