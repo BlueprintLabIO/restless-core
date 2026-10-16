@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import { personName } from '$lib/model/initials';
 	import { useAppsData } from '$lib/model/apps-data.svelte';
 	import { catalogueConnectionName } from '$lib/model/app-catalogue';
 	import { formatDay, formatMoment } from '$lib/ui/time';
@@ -103,7 +104,7 @@
 	const holderName = (scope: string, id: string) =>
 		scope === 'team'
 			? (teams.find((team) => team.id === id)?.name ?? id)
-			: (agents.find((person) => person.actor_id === id)?.display ?? skillName(id));
+			: personName(agents.find((person) => person.actor_id === id)?.display ?? skillName(id));
 
 	async function loadReceipts(connection: ToolConnection) {
 		const company = companyId,
@@ -833,9 +834,44 @@
 	{@const edit = editing[skill.name]}
 	<Section title={app && app.skills.length > 1 ? skillName(skill.name) : 'Know-how'}>
 		<p class="description">{skill.description || 'No description.'}</p>
-		<div class="status">
-			<span title="Work that explicitly chose this know-how" class="quiet">Used on {uses} Work</span
+		{#if library?.availability}
+			<Fold
+				label="Available to"
+				count={Object.values(library.availability).filter((names) => names.includes(skill.name))
+					.length}
+				padded
 			>
+				<div class="know-how-agents">
+					{#each agents.filter( (agent) => library?.availability?.[agent.actor_id]?.includes(skill.name) ) as agent (agent.actor_id)}<a
+							href={`/${encodeURIComponent(companyId)}/people?person=${encodeURIComponent(agent.actor_id)}`}
+							>{personName(agent.display)}</a
+						>{:else}<span class="quiet">No active agents.</span>{/each}
+				</div>
+			</Fold>
+		{/if}
+		{#if library?.applications}
+			<Fold
+				label="Recently applied"
+				count={library.applications.filter((row) => row.skill_name === skill.name).length}
+				padded
+			>
+				<div class="know-how-agents">
+					{#each library.applications.filter((row) => row.skill_name === skill.name) as row (row.actor_id)}<div
+						>
+							<a
+								href={`/${encodeURIComponent(companyId)}/people?person=${encodeURIComponent(row.actor_id)}`}
+								>{holderName('actor', row.actor_id)}</a
+							><span class="quiet" title={row.digest}
+								>Version {shortDigest(row.digest)} · {formatDay(row.last_used_at)}</span
+							>
+						</div>{:else}<span class="quiet">No recorded applications.</span>{/each}
+				</div>
+			</Fold>
+		{/if}
+		<div class="status">
+			{#if uses}<span title="Work that explicitly chose this know-how" class="quiet"
+					>Selected for {uses} Work</span
+				>{/if}
 			<span
 				class="quiet"
 				title={`Version ${skill.digest}${skill.origin_ref ? `, from commit ${skill.origin_ref}` : ''}${skill.origin_url ? ` of ${skill.origin_url}` : ''}. ${skill.added_by ? `Added by ${skill.added_by}.` : ''}`}
@@ -1198,6 +1234,18 @@
 {/if}
 
 <style>
+	.know-how-agents {
+		display: grid;
+		gap: 10px;
+		max-height: 280px;
+		overflow-y: auto;
+	}
+	.know-how-agents > div {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: space-between;
+		gap: 4px 12px;
+	}
 	.back {
 		align-self: flex-start;
 		color: var(--text-tertiary);

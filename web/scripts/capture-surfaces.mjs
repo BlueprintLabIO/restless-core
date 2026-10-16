@@ -27,6 +27,8 @@ const routes = [
 	['library', '/' + company + '/library'],
 	['apps-discover', '/' + company + '/apps'],
 	['apps-installed', '/' + company + '/apps?view=in-use'],
+	['apps-know-how', '/' + company + '/apps?view=installed-know-how'],
+	['people-person', '/' + company + '/people?person=studio-design'],
 	['apps-detail', '/' + company + '/apps/intercom'],
 	...(documentId
 		? [

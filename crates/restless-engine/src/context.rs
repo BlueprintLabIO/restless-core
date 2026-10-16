@@ -670,7 +670,11 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          than promising to return later. Do not create approval gates merely to report a result.\n\
          When a proactive update asks the owner for anything, end it with the intent marker \
          described below (kind conversation) and put the exact question in `ownerNeed`; \
-         a question asked only in prose never reaches the owner's Attention.\n\
+         a question asked only in prose never reaches the owner's Attention. If the input is already \
+         an existing prepared owner handoff, include its exact UUID in `ownerNeedHandoff` beside \
+         `ownerNeed`. That handoff remains the single decision: your update is supporting context, \
+         never a second approval or separate question. Omit `ownerNeedHandoff` for a genuinely different \
+         conversational question; never choose a source from similar wording or invent an ID.\n\
          The Runtime atomically saves your final response into the existing Exec-owner conversation \
          and acknowledges the exact input facts together, including on background wakes. Never \
          send an owner reply with `restless message`. Check recent conversation before repeating \
@@ -692,7 +696,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          atomically persists that final response with the exact consumed inputs; do not use \
          `restless message` to reply to the owner. Follow the shared conversation contract below, \
          then end the response with exactly one machine-readable line:\n\
-         <!--restless-intent:{{\"kind\":\"conversation|work_feedback|direction|authority\",\"summary\":\"your one-line takeaway, said to the owner as you: address them as you, never as the owner in the third person, and do not grade your own work\",\"outcome\":\"optional concrete result\",\"nextStep\":\"optional next owner and action\",\"ownerNeed\":\"optional exact owner input\"}}-->\n\
+         <!--restless-intent:{{\"kind\":\"conversation|work_feedback|direction|authority\",\"summary\":\"your one-line takeaway, said to the owner as you: address them as you, never as the owner in the third person, and do not grade your own work\",\"outcome\":\"optional concrete result\",\"nextStep\":\"optional next owner and action\",\"ownerNeed\":\"optional exact owner input\",\"ownerNeedHandoff\":\"optional exact existing handoff UUID for the same decision\"}}-->\n\
          Choose one real kind, not the pipe-separated example. If direction changed the plan, update \
          `/company/org/exec/current-plan.md` before claiming that it did. Conversational agreement \
          never substitutes for an explicit cockpit approval or owner-judgement action. Omit each \

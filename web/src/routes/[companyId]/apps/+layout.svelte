@@ -6,7 +6,6 @@
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import Compass from '@lucide/svelte/icons/compass';
 	import PackageCheck from '@lucide/svelte/icons/package-check';
-	import Inbox from '@lucide/svelte/icons/inbox';
 	import ArchiveRestore from '@lucide/svelte/icons/archive-restore';
 	import Plus from '@lucide/svelte/icons/plus';
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
@@ -19,20 +18,65 @@
 	const principal = $derived(companyPrincipalQuery(companyId));
 	const owner = $derived(principal.view?.membership_role === 'owner');
 	const index = $derived('/' + encodeURIComponent(companyId) + '/apps');
-	const current = $derived(
-		page.url.pathname.replace(/\/$/, '') === index
-			? (viewFrom(page.url.searchParams.get('view')) ?? 'all')
-			: null
-	);
+	const current = $derived.by(() => {
+		if (page.url.pathname.replace(/\/$/, '') === index)
+			return viewFrom(page.url.searchParams.get('view')) ?? 'all';
+		// Details retain the selected list's navigation context; foreign/from-another-company URLs do not.
+		const from = page.url.searchParams.get('from');
+		if (!from) return null;
+		try {
+			const list = new URL(from, page.url.origin);
+			return list.origin === page.url.origin && list.pathname === index
+				? (viewFrom(list.searchParams.get('view')) ?? 'all')
+				: null;
+		} catch {
+			return null;
+		}
+	});
 	const discover = $derived(
-		!!current && !['in-use', 'waiting', 'removed'].includes(current) && !isKind(current)
+		!!current &&
+			!['in-use', 'installed-apps', 'installed-know-how', 'waiting', 'removed'].includes(current) &&
+			!isKind(current)
 	);
-	const installed = $derived(current === 'in-use' || (!!current && isKind(current)));
+	const installed = $derived(
+		!!current &&
+			(['in-use', 'installed-apps', 'installed-know-how', 'waiting'].includes(current) ||
+				isKind(current))
+	);
+	let installedOpen = $state(false);
+	$effect(() => {
+		if (installed) installedOpen = true;
+	});
+	const installedViews = $derived([
+		{ label: 'All', href: index + '?view=in-use', active: current === 'in-use' },
+		...(data.inUse.some((app) => app.kind !== 'skill')
+			? [
+					{
+						label: 'Apps',
+						href: index + '?view=installed-apps',
+						active:
+							current === 'installed-apps' || (!!current && isKind(current) && current !== 'skill')
+					}
+				]
+			: []),
+		...(data.inUse.some((app) => app.skills.length > 0)
+			? [
+					{
+						label: 'Know-how',
+						href: index + '?view=installed-know-how',
+						active: current === 'installed-know-how' || current === 'skill'
+					}
+				]
+			: []),
+		...(data.waiting
+			? [{ label: 'Needs setup', href: index + '?view=waiting', active: current === 'waiting' }]
+			: [])
+	]);
 	const views = $derived([
 		{ label: 'Discover', href: index, active: discover },
 		{ label: 'Installed', href: index + '?view=in-use', active: installed },
-		...(data.waiting
-			? [{ label: 'Needs setup', href: index + '?view=waiting', active: current === 'waiting' }]
+		...(data.removed.length
+			? [{ label: 'Removed', href: index + '?view=removed', active: current === 'removed' }]
 			: [])
 	]);
 </script>
@@ -53,22 +97,20 @@
 		{#snippet action()}{@render addActions()}{/snippet}
 		{#snippet nav()}
 			<SidebarRow href={index} label="Discover" icon={Compass} active={discover} />
-			<SidebarRow
-				href={index + '?view=in-use'}
-				label="Installed"
-				icon={PackageCheck}
-				active={installed}
-			/>
-			{#if data.waiting}
-				<SidebarRow
-					href={index + '?view=waiting'}
-					label="Needs setup"
-					icon={Inbox}
-					active={current === 'waiting'}
-					count={data.waiting}
-					todo
-				/>
-			{/if}
+			<details
+				class="installed-group"
+				open={installedOpen}
+				ontoggle={(event) => {
+					installedOpen = event.currentTarget.open;
+				}}
+			>
+				<summary><PackageCheck size={16} aria-hidden="true" /><span>Installed</span></summary>
+				<nav class="installed-views" aria-label="Installed">
+					{#each installedViews as view (view.label)}
+						<SidebarRow href={view.href} label={view.label} active={view.active} />
+					{/each}
+				</nav>
+			</details>
 			{#if data.removed.length}
 				<SidebarRow
 					href={index + '?view=removed'}
@@ -86,12 +128,73 @@
 				{/each}
 				<span class="add">{@render addActions()}</span>
 			</nav>
+			{#if installed}<nav class="apps-subviews" aria-label="Installed">
+					{#each installedViews as view (view.label)}<a
+							href={view.href}
+							aria-current={view.active ? 'page' : undefined}>{view.label}</a
+						>{/each}
+				</nav>{/if}
 		{/snippet}
 		{@render children()}
 	</SidebarShell>
 </ResizableSidebar>
 
 <style>
+	.installed-group summary {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 10px 12px;
+		color: var(--text-secondary);
+		font-size: var(--t-body);
+		cursor: pointer;
+		list-style: none;
+		border-radius: var(--radius-control);
+	}
+	.installed-group summary::-webkit-details-marker {
+		display: none;
+	}
+	.installed-group summary::after {
+		content: '›';
+		margin-left: auto;
+		transform: rotate(0);
+		transition: transform 120ms;
+	}
+	.installed-group[open] summary::after {
+		transform: rotate(90deg);
+	}
+	.installed-group summary:hover {
+		background: var(--wash-hover);
+	}
+	.installed-views {
+		padding-left: 24px;
+	}
+	.apps-subviews {
+		display: flex;
+		gap: 4px;
+		overflow-x: auto;
+		padding: 6px 12px;
+		border-bottom: 1px solid var(--border);
+	}
+	.apps-subviews a {
+		flex: none;
+		padding: 7px 10px;
+		border-radius: var(--radius-control);
+		color: var(--text-secondary);
+		text-decoration: none;
+		font-size: var(--t-label);
+	}
+	.apps-subviews a[aria-current='page'] {
+		background: var(--wash-hover);
+		color: var(--ink);
+		font-weight: 600;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.installed-group summary::after {
+			transition: none;
+		}
+	}
+
 	.apps-views {
 		display: flex;
 		align-items: center;

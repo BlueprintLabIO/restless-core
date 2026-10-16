@@ -21,11 +21,25 @@ import {
 
 /** A view of the area: Ask (the default), what waits on the owner, what is in use (all of it or
  * one kind), everything to add, or one category. */
-export type AppsView = 'ask' | 'waiting' | 'in-use' | 'removed' | AppKind | 'all' | AppCategory;
+export type AppsView =
+	| 'ask'
+	| 'waiting'
+	| 'in-use'
+	| 'installed-apps'
+	| 'installed-know-how'
+	| 'removed'
+	| AppKind
+	| 'all'
+	| AppCategory;
 
 export function viewFrom(value: string | null): AppsView | null {
 	if (value === null) return null;
-	if (['ask', 'waiting', 'in-use', 'removed', 'all'].includes(value)) return value as AppsView;
+	if (
+		['ask', 'waiting', 'in-use', 'installed-apps', 'installed-know-how', 'removed', 'all'].includes(
+			value
+		)
+	)
+		return value as AppsView;
 	if ((APP_KINDS as string[]).includes(value)) return value as AppKind;
 	const category = BROWSE_CATEGORIES.find((name) => name.toLowerCase() === value);
 	return category ?? null;

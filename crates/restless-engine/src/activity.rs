@@ -52,6 +52,8 @@ pub enum AgentActivityPhase {
     Responding,
     Complete,
     Failed,
+    /// The volatile stream is absent; no reply failure was observed.
+    Unavailable,
 }
 
 impl AgentActivityPhase {
@@ -164,7 +166,7 @@ impl AgentActivityState {
         work_id: Option<Uuid>,
     ) -> Self {
         let mut state = Self::queued(company, actor, trigger_message_id, work_id, None);
-        state.fail("No live agent session is available to reconnect to.");
+        state.phase = AgentActivityPhase::Unavailable;
         state
     }
 
@@ -849,7 +851,8 @@ mod tests {
         assert_eq!(state.phase, AgentActivityPhase::Acting);
 
         let absent = streams.subscribe("company_test", "other", Some(99), None);
-        assert_eq!(absent.borrow().phase, AgentActivityPhase::Failed);
+        assert_eq!(absent.borrow().phase, AgentActivityPhase::Unavailable);
+        assert!(absent.borrow().error.is_none(), "missing telemetry is not a failed reply");
 
         // Ambient activity is idle until a turn nobody's message started begins,
         // and that turn reaches the connection opened before it.

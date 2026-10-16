@@ -79,7 +79,20 @@ pub(super) async fn list(
         Ok(usage) => usage,
         Err(error) => return orgintel_error(error),
     };
+    let availability = match org.skill_agent_availability().await {
+        Ok(rows) => rows,
+        Err(error) => return orgintel_error(error),
+    };
+    // Work/session activity is owner context; library readership does not expand that access.
+    let applications = if principal.membership_role() == "owner" {
+        match org.skill_agent_applications().await {
+            Ok(rows) => Some(rows),
+            Err(error) => return orgintel_error(error),
+        }
+    } else { None };
     Json(json!({
+        "availability": availability,
+        "applications": applications,
         "usage": usage,
         "skills": skills,
         "assignments": assignments,

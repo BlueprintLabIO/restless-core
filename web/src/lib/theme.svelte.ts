@@ -1,5 +1,6 @@
 /* Appearance: System, Light or Dark. app.html resolves it before first paint;
  * this keeps it resolved while the page lives and when the owner changes it. */
+import { untrack } from 'svelte';
 import { inPlace } from './transition';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
@@ -28,7 +29,7 @@ function apply(preference: ThemePreference) {
 let preference = $state<ThemePreference>(typeof window === 'undefined' ? 'system' : read());
 
 if (typeof window !== 'undefined') {
-	apply(preference);
+	untrack(() => apply(preference));
 	window
 		.matchMedia('(prefers-color-scheme: dark)')
 		.addEventListener('change', () => preference === 'system' && apply(preference));

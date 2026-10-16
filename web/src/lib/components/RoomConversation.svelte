@@ -669,7 +669,13 @@
 	const agentTurns = $derived(
 		watchedAgents.flatMap((actor) => {
 			const state = agentActivity[actor];
-			if (!state || state.phase === 'complete' || state.phase === 'failed') return [];
+			if (
+				!state ||
+				state.phase === 'complete' ||
+				state.phase === 'failed' ||
+				state.phase === 'unavailable'
+			)
+				return [];
 			const turn: ActiveAgentTurn = {
 				triggerMessageId: 0,
 				since: state.startedAt ?? state.updatedAt,

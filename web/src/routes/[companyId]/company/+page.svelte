@@ -3,6 +3,7 @@
 	 * carries every area's value; where it steps out (a narrow pane, a phone) the overview lists the
 	 * sections itself. A value that could not be read says so rather than guessing. */
 	import { formatMoney } from '$lib/ui/time';
+	import Markdown from '$lib/primitives/Markdown.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { Page, Section, Item } from '$lib/ui/page';
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
@@ -19,6 +20,15 @@
 
 	const setup = useCompanySetup();
 	const companyId = $derived(setup.companyId);
+	// A bounded excerpt of the first body paragraph; the full authored charter stays one click away.
+	const purpose = $derived(
+		(setup.entry?.mission ?? '')
+			.split('\n')
+			.filter((line) => !/^\s*#{1,6}\s/.test(line))
+			.join('\n')
+			.trim()
+			.split(/\n\s*\n/)[0] ?? ''
+	);
 
 	const plural = (count: number, one: string, many = `${one}s`) =>
 		`${count} ${count === 1 ? one : many}`;
@@ -77,6 +87,10 @@
 	{#snippet actions()}{#if setup.owner}<a class="btn small" href={`${setup.href('charter')}#name`}
 				>Name & logo</a
 			>{/if}{/snippet}
+	{#if purpose}<div class="company-purpose">
+			<div class="company-purpose-copy"><Markdown text={purpose} /></div>
+			<a href={setup.href('charter')}>Charter <ChevronRight size={14} aria-hidden="true" /></a>
+		</div>{/if}
 	{#if setup.owner}
 		<p class="company-facts">
 			<a
@@ -86,9 +100,11 @@
 				><i aria-hidden="true" class="dot {setup.health ?? 'unknown'}"></i>{setup.health ===
 				'healthy'
 					? 'Healthy'
-					: setup.health
-						? 'Needs attention'
-						: 'Checking…'}</a
+					: setup.health === 'unavailable'
+						? 'Health unavailable'
+						: setup.health
+							? 'Needs attention'
+							: 'Checking…'}</a
 			>
 			{#if spendLine}<span aria-hidden="true">·</span><a href={setup.href('limits')}>{spendLine}</a
 				><InfoTip text={spendWhy} />{/if}
@@ -115,7 +131,41 @@
 				{/each}
 			</Section>
 		{:else}
-			<p class="company-done">Everything is set up.</p>
+			<div class="company-current">
+				{#if setup.health === 'unavailable' || setup.rows.some((row) => row.unavailable)}
+					<a class="current-action" href={setup.href('health')}
+						><span
+							><strong>Company details unavailable</strong><span
+								>Open Health to check the connection and try again.</span
+							></span
+						><ChevronRight size={16} aria-hidden="true" /></a
+					>
+				{:else if setup.health && setup.health !== 'healthy'}
+					<a class="current-action" href={setup.href('health')}
+						><span
+							><strong>Review company health</strong><span>A current check needs attention.</span
+							></span
+						><ChevronRight size={16} aria-hidden="true" /></a
+					>
+				{:else if setup.entry?.card?.decisions_waiting}
+					<a class="current-action" href={`/${encodeURIComponent(companyId)}`}
+						><span
+							><strong>{plural(setup.entry.card.decisions_waiting, 'decision')} waiting</strong
+							><span>Review what the company has prepared for you.</span></span
+						><ChevronRight size={16} aria-hidden="true" /></a
+					>
+				{:else if setup.health === 'healthy'}
+					<a class="current-action" href={`/${encodeURIComponent(companyId)}/work`}
+						><span
+							><strong>No setup tasks outstanding</strong><span
+								>{working
+									? `${plural(working, 'person', 'people')} working. View current outcomes.`
+									: 'View the company’s current work and outcomes.'}</span
+							></span
+						><ChevronRight size={16} aria-hidden="true" /></a
+					>
+				{:else}<p class="company-done">Checking the company's current state…</p>{/if}
+			</div>
 		{/if}
 	{/if}
 
@@ -156,6 +206,63 @@
 </Page>
 
 <style>
+	.company-purpose {
+		display: grid;
+		gap: 8px;
+		padding-block: 4px 8px;
+	}
+	.company-purpose-copy {
+		max-width: 64ch;
+		margin: 0;
+		font-size: var(--t-body);
+		line-height: 1.65;
+		color: var(--text-secondary);
+		white-space: pre-line;
+		display: -webkit-box;
+		-webkit-line-clamp: 3;
+		line-clamp: 3;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+	}
+	.company-purpose > a {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		width: fit-content;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		text-decoration: none;
+	}
+	.company-current {
+		border-block: 1px solid var(--border);
+		padding-block: 4px;
+	}
+	.current-action {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16px;
+		padding: 16px 0;
+		color: var(--ink);
+		text-decoration: none;
+	}
+	.current-action > span {
+		display: grid;
+		gap: 5px;
+	}
+	.current-action strong {
+		font-size: var(--t-body);
+		font-weight: 600;
+	}
+	.current-action span span {
+		color: var(--text-secondary);
+		font-size: var(--t-body);
+	}
+	.current-action:hover strong {
+		text-decoration: underline;
+		text-underline-offset: 3px;
+	}
+
 	/* The current value sits beside the chevron, so it survives on phones where row meta hides. */
 	.row-value {
 		max-width: min(46ch, 44vw);

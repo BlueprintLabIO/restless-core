@@ -2830,6 +2830,34 @@ impl OrgIntel {
             .await
     }
 
+    /// Latest message in each active human/agent direct Room, only when that agent spoke last.
+    /// Uses the same canonical Room, participation, revision and deletion boundaries as human_conversation.
+    /// One queue read must not fan out into one database round trip per active Staff member.
+    pub async fn latest_human_agent_messages(
+        &self,
+        human_actor: &str,
+        agents: &[String],
+    ) -> Result<Vec<MessageRow>> {
+        let keys = agents
+            .iter()
+            .map(|actor| crate::rooms::direct_room_canonical_key(human_actor, actor))
+            .collect::<Vec<_>>();
+        Ok(sqlx::query_as(
+            "SELECT latest.* FROM unnest($1::text[],$2::text[]) AS wanted(actor_id,canonical_key) \
+             JOIN rooms room ON room.canonical_key=wanted.canonical_key AND room.kind='direct' AND room.archived_at IS NULL \
+             JOIN room_participants human ON human.room_id=room.id AND human.actor_id=$3 AND human.left_at IS NULL \
+             JOIN actors human_actor ON human_actor.id=human.actor_id AND human_actor.actor_class='human' AND human_actor.retired_at IS NULL \
+             JOIN room_participants partner ON partner.room_id=room.id AND partner.actor_id=wanted.actor_id AND partner.left_at IS NULL \
+             JOIN actors agent ON agent.id=partner.actor_id AND agent.actor_class='agent' AND agent.retired_at IS NULL \
+             JOIN LATERAL ( \
+               SELECT message.id,message.from_actor,message.to_actor,COALESCE(revision.body,message.body) AS body, \
+                      message.outcome_standard,message.created_at,message.read_at \
+               FROM messages message LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
+               WHERE message.room_id=room.id AND message.deleted_at IS NULL ORDER BY message.id DESC LIMIT 1 \
+             ) latest ON latest.from_actor=wanted.actor_id"
+        ).bind(agents).bind(keys).bind(human_actor).fetch_all(&self.pool).await?)
+    }
+
     /// The direct conversation's newest messages older than `before_message_id`
     /// (or the newest of all), oldest first: how a reader pages back through the
     /// whole history.

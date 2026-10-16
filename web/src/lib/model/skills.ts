@@ -19,6 +19,11 @@ export type SkillLibrary = {
 	skills: SkillRow[];
 	assignments: SkillAssignmentRow[];
 	usage?: Record<string, number>;
+	/** Skills each active agent may use now, after actor/team/company overrides. */
+	availability?: Record<string, string[]>;
+	/** Recorded applications, not an assertion about currently loaded prompts. Owner-only. */
+	applications?:
+		{ actor_id: string; skill_name: string; digest: string; last_used_at: string }[] | null;
 	/** Names the current viewer may select now. */
 	usable: string[];
 	scan: { state: 'observed' } | { state: 'unavailable'; message: string };

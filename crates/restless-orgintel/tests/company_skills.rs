@@ -299,3 +299,67 @@ async fn loop_is_an_idempotent_coalescing_interval_and_goal_closes_once() {
     assert!(!org.close_goal(goal, "exec").await.unwrap());
     assert!(org.list_goals().await.unwrap()[0].closed_at.is_some());
 }
+
+
+#[tokio::test]
+async fn agent_availability_and_actual_applications_are_distinct() {
+    let Some(org) = company().await else {
+        return;
+    };
+    org.ensure_actor("owner", "owner", "owner", "Owner").await.unwrap();
+    org.observe_skills(&[skill("company-method", "company", "one")])
+        .await
+        .unwrap();
+    for actor in ["web-writer", "web-designer"] {
+        let matrix = org.skill_agent_availability().await.unwrap();
+        assert_eq!(matrix.get(actor).unwrap(), &vec!["company-method".to_string()]);
+        assert_eq!(
+            matrix.get(actor).cloned().unwrap_or_default(),
+            org.actor_skills(actor)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|skill| skill.name)
+                .collect::<Vec<_>>()
+        );
+    }
+    org.assign_skill("company-method", "company", "", Some(false), "owner")
+        .await
+        .unwrap();
+    org.assign_skill("company-method", "actor", "web-writer", Some(true), "owner")
+        .await
+        .unwrap();
+    let matrix = org.skill_agent_availability().await.unwrap();
+    assert_eq!(
+        matrix.get("web-writer").unwrap(),
+        &vec!["company-method".to_string()]
+    );
+    assert!(!matrix.contains_key("web-designer"));
+    assert!(
+        org.skill_agent_applications().await.unwrap().is_empty(),
+        "availability is not application"
+    );
+    for digest in ["sha256:one", "sha256:two"] {
+        org.record_skill_activation(
+            "web-writer",
+            &restless_orgintel::SelectedSkill {
+                skill_name: "company-method".into(),
+                digest: digest.into(),
+            },
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    }
+    let used = org.skill_agent_applications().await.unwrap();
+    assert_eq!(used.len(), 1, "one latest application per agent/skill");
+    assert_eq!(used[0]["digest"], "sha256:two");
+    assert_eq!(used[0]["actor_id"], "web-writer");
+    assert_eq!(used[0]["skill_name"], "company-method");
+    assert!(
+        used[0].get("work_id").is_none(),
+        "usage summary exposes no private Work context"
+    );
+    org.drop_schema().await.unwrap();
+}

@@ -50,16 +50,20 @@
 		<h2>
 			{name}{#if archived}<span class="person-header-state">Archived</span>{/if}
 		</h2>
-		<p>
-			{#if facts.length}<span class="person-header-facts" title={facts.join(' · ')}
-					>{facts.join(' · ')}</span
-				>{/if}{#if agent && !archived}<IntelligenceChip
+		{#if facts.length}<p class="person-header-facts" title={facts.join(' · ')}>
+				{facts.join(' · ')}
+			</p>{/if}
+		<div class="person-header-meta">
+			{#if agent && !archived}<IntelligenceChip
 					{companyId}
 					{actorId}
 					{name}
-				/>{:else if access}<span class="person-header-facts">{access}</span>{/if}
-		</p>
-		{#if ownedBy}<small class="person-header-owner">Owned by {ownedBy}</small>{/if}
+				/>{:else if access}<span>{access}</span>{/if}
+			{#if ownedBy && ownedBy !== 'you'}<span
+					class="person-header-owner"
+					title="This person owns their team">Owned by {ownedBy}</span
+				>{/if}
+		</div>
 	</div>
 	<div class="person-header-tools">
 		{#if workOpen !== null}<button
@@ -68,6 +72,7 @@
 				class:active={workOpen}
 				aria-pressed={workOpen}
 				title={workOpen ? 'Hide their Work' : 'Show their Work'}
+				aria-label={workOpen ? 'Hide work' : 'Show work'}
 				onclick={ontogglework}
 				><PanelRight size={15} strokeWidth={1.9} aria-hidden="true" /><span>Work</span></button
 			>{/if}
@@ -84,7 +89,7 @@
 		min-width: 0;
 		padding: 12px 16px;
 		border-bottom: 1px solid var(--border);
-		background: var(--surface-raised);
+		background: transparent;
 	}
 	.person-header-avatar {
 		display: grid;
@@ -105,7 +110,7 @@
 	.person-header-copy {
 		display: grid;
 		flex: 1;
-		gap: 2px;
+		gap: 5px;
 		min-width: 0;
 	}
 	h2 {
@@ -124,26 +129,51 @@
 		font-size: var(--t-label);
 		font-weight: 600;
 	}
-	/* Role and team on one line that ellipsizes; the model chip sits beside it, or below on a phone. */
-	p {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 0 10px;
+	.person-header-facts {
 		margin: 0;
 		color: var(--text-secondary);
 		font-size: var(--t-body);
+		line-height: 1.45;
+		overflow-wrap: anywhere;
 	}
-	.person-header-facts {
+	.person-header-meta {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 4px 12px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
 		min-width: 0;
-		max-width: 100%;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+	}
+	.person-header-meta :global(.chip) {
+		margin-left: -6px;
 	}
 	.person-header-owner {
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
+	}
+	@media (max-width: 560px) {
+		.person-header {
+			display: grid;
+			grid-template-columns: 32px minmax(0, 1fr) auto;
+			gap: 8px 10px;
+			padding: 12px;
+		}
+		.person-header-avatar {
+			width: 32px;
+			height: 32px;
+		}
+		.person-header-tool span {
+			display: none;
+		}
+		.person-header-tool {
+			padding: 0 8px;
+		}
+		.person-header-tools {
+			grid-column: 3;
+			grid-row: 1;
+			justify-content: flex-start;
+		}
 	}
 	.person-header-tools {
 		display: flex;

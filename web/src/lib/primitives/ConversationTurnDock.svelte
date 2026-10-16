@@ -50,7 +50,7 @@
 	let observedTurn = $state<number | null>(null);
 
 	const phase = $derived(turn.live?.phase ?? 'queued');
-	const terminal = $derived(phase === 'complete' || phase === 'failed');
+	const terminal = $derived(phase === 'complete' || phase === 'failed' || phase === 'unavailable');
 	const working = $derived(!terminal && turn.transport !== 'idle');
 	const reply = $derived(turn.live?.reply ?? '');
 	const stopped = $derived(phase === 'failed' && turnStopped(turn.live?.error));
@@ -229,51 +229,68 @@
 	data-transport={turn.transport}
 	aria-label={terminal ? `${participantName} reply activity` : `${participantName} live work`}
 >
-	<div class="turn-head">
-		<button
-			type="button"
-			class="turn-summary"
-			title={terminal
-				? 'View activity from this reply. This status does not indicate whether delegated work is complete.'
-				: 'Show or hide live tools and activity. Reply text streams below.'}
-			aria-expanded={expanded}
-			aria-controls={`turn-${turn.triggerMessageId}`}
-			onclick={toggleExpanded}
-		>
-			{#if terminal}
-				<span class="terminal-mark" aria-hidden="true">
-					{#if phase === 'complete'}<Check size={16} />{:else}<CircleAlert size={16} />{/if}
-				</span>
-			{:else}
-				<span class="pixel-glimmer" class:working aria-hidden="true">
-					{#each glimmerDelays as delay, index (index)}
-						<i style={`animation-delay: ${delay}ms`}></i>
-					{/each}
-				</span>
-			{/if}
-			<span class="turn-status" class:shimmer={working} role="status" aria-live="polite"
-				>{statusLabel}</span
+	{#if phase === 'unavailable'}
+		<p class="turn-unavailable" role="status">Live activity is unavailable.</p>
+	{:else}
+		<div class="turn-head">
+			<button
+				type="button"
+				class="turn-summary"
+				title={terminal
+					? 'View activity from this reply. This status does not indicate whether delegated work is complete.'
+					: 'Show or hide live tools and activity. Reply text streams below.'}
+				aria-expanded={expanded}
+				aria-controls={`turn-${turn.triggerMessageId}`}
+				onclick={toggleExpanded}
 			>
-			<time
-				title={[latestUpdate, contextLabel, outputLabel && `${outputLabel} tokens`]
-					.filter(Boolean)
-					.join(' · ')}>{elapsedLabel}</time
-			>
-			{#if visibleActivity.length}
-				<span class="action-count"
-					>{visibleActivity.length} action{visibleActivity.length === 1 ? '' : 's'}</span
+				{#if terminal}
+					<span class="terminal-mark" aria-hidden="true">
+						{#if phase === 'complete'}<Check size={16} />{:else}<CircleAlert size={16} />{/if}
+					</span>
+				{:else}
+					<span class="pixel-glimmer" class:working aria-hidden="true">
+						{#each glimmerDelays as delay, index (index)}
+							<i style={`animation-delay: ${delay}ms`}></i>
+						{/each}
+					</span>
+				{/if}
+				<span class="turn-status" class:shimmer={working} role="status" aria-live="polite"
+					>{statusLabel}</span
 				>
-			{/if}
-			<!-- Model usage is an internal; it shows only while the owner looks inside. -->
-			{#if expanded && contextLabel}<span class="context-usage" title="Latest context-window usage"
-					>{contextLabel}</span
+				<time
+					title={[latestUpdate, contextLabel, outputLabel && `${outputLabel} tokens`]
+						.filter(Boolean)
+						.join(' · ')}>{elapsedLabel}</time
+				>
+				{#if visibleActivity.length}
+					<span class="action-count"
+						>{visibleActivity.length} action{visibleActivity.length === 1 ? '' : 's'}</span
+					>
+				{/if}
+				<!-- Model usage is an internal; it shows only while the owner looks inside. -->
+				{#if expanded && contextLabel}<span
+						class="context-usage"
+						title="Latest context-window usage">{contextLabel}</span
+					>{/if}
+				{#if expanded && outputLabel}<span
+						class="output-usage"
+						title="Reported generated output tokens">{outputLabel}</span
+					>{/if}
+				<span class="turn-chevron" aria-hidden="true">⌄</span>
+			</button>
+			{#if touchedWork}<a
+					class="turn-action"
+					href={touchedWork}
+					title={`${participantName} worked on this instead of replying`}>Open Work</a
 				>{/if}
-			{#if expanded && outputLabel}<span
-					class="output-usage"
-					title="Reported generated output tokens">{outputLabel}</span
+			{#if action}<button
+					type="button"
+					class="turn-action"
+					title={action.title}
+					disabled={acting}
+					onclick={() => void act(action.run)}>{action.label}</button
 				>{/if}
-			<span class="turn-chevron" aria-hidden="true">⌄</span>
-		</button>
+		</div>
 		{#if failure}
 			<!-- What happened and what to do, as a sentence with the fix as a link. The runtime's own
 		     words stay in the title, for whoever looks into it; never in view (S85-06). -->
@@ -288,71 +305,61 @@
 					)}{:else}{failure}{/if}
 			</p>
 		{/if}
-		{#if touchedWork}<a
-				class="turn-action"
-				href={touchedWork}
-				title={`${participantName} worked on this instead of replying`}>Open Work</a
-			>{/if}
-		{#if action}<button
-				type="button"
-				class="turn-action"
-				title={action.title}
-				disabled={acting}
-				onclick={() => void act(action.run)}>{action.label}</button
-			>{/if}
-	</div>
-	{#if actionError}<p class="turn-action-error" role="alert">{actionError}</p>{/if}
+		{#if actionError}<p class="turn-action-error" role="alert">{actionError}</p>{/if}
 
-	{#if reply && !expanded && turn.transport !== 'idle' && !turn.replyLanded && !(phase === 'failed' && replyIsError(reply, turn.live?.error))}
-		<article
-			class="streamed-reply visible-reply"
-			aria-label={`${participantName} streaming reply`}
-			aria-busy={working}
-		>
-			<div class="streamed-copy"><Markdown text={reply} streaming={working} /></div>
-			{#if working}<span class="stream-caret" aria-hidden="true"></span>{/if}
-		</article>
-	{/if}
+		{#if reply && !expanded && turn.transport !== 'idle' && !turn.replyLanded && !(phase === 'failed' && replyIsError(reply, turn.live?.error))}
+			<article
+				class="streamed-reply visible-reply"
+				aria-label={`${participantName} streaming reply`}
+				aria-busy={working}
+			>
+				<div class="streamed-copy"><Markdown text={reply} streaming={working} /></div>
+				{#if working}<span class="stream-caret" aria-hidden="true"></span>{/if}
+			</article>
+		{/if}
 
-	<div id={`turn-${turn.triggerMessageId}`} class="turn-disclosure" aria-hidden={!expanded}>
-		<div class="turn-clip">
-			<div class="turn-body" use:followChat={String(turn.triggerMessageId)}>
-				{#if expanded && timeline.length}
-					<article class="streamed-reply" data-live={working}>
-						<header><strong>{participantName}</strong><span>live notes</span></header>
-						<div class="live-sequence" aria-label="Chronological live activity">
-							{#each timeline as item (item.id)}
-								{#if item.kind === 'text'}
-									<div class="streamed-copy"><Markdown text={item.text} streaming={working} /></div>
-								{:else if item.activity.kind === 'thinking'}
-									<details class="trace-thinking">
-										<summary>{item.activity.label || 'Thinking'}</summary>
-										{#if item.activity.detail && item.activity.detail !== item.activity.label}
-											<p>{item.activity.detail}</p>
-										{/if}
-									</details>
-								{:else}
-									<div class="trace-row" class:active={item.activity.status === 'active'}>
-										<span class="trace-state" aria-hidden="true"></span>
-										<span class="trace-copy">
-											<strong>{item.activity.label}</strong>
+		<div id={`turn-${turn.triggerMessageId}`} class="turn-disclosure" aria-hidden={!expanded}>
+			<div class="turn-clip">
+				<div class="turn-body" use:followChat={String(turn.triggerMessageId)}>
+					{#if expanded && timeline.length}
+						<article class="streamed-reply" data-live={working}>
+							<header><strong>{participantName}</strong><span>live notes</span></header>
+							<div class="live-sequence" aria-label="Chronological live activity">
+								{#each timeline as item (item.id)}
+									{#if item.kind === 'text'}
+										<div class="streamed-copy">
+											<Markdown text={item.text} streaming={working} />
+										</div>
+									{:else if item.activity.kind === 'thinking'}
+										<details class="trace-thinking">
+											<summary>{item.activity.label || 'Thinking'}</summary>
 											{#if item.activity.detail && item.activity.detail !== item.activity.label}
-												<small>{item.activity.detail}</small>
+												<p>{item.activity.detail}</p>
 											{/if}
-										</span>
-										<small class="trace-status">{activityStatus(item.activity.status)}</small>
-									</div>
-								{/if}
-							{/each}
-						</div>
-						{#if working}<span class="stream-caret" aria-hidden="true"></span>{/if}
-					</article>
-				{:else if allActivity.length === 0 && phase !== 'failed'}
-					<p class="turn-awaiting">The first live update will appear here.</p>
-				{/if}
+										</details>
+									{:else}
+										<div class="trace-row" class:active={item.activity.status === 'active'}>
+											<span class="trace-state" aria-hidden="true"></span>
+											<span class="trace-copy">
+												<strong>{item.activity.label}</strong>
+												{#if item.activity.detail && item.activity.detail !== item.activity.label}
+													<small>{item.activity.detail}</small>
+												{/if}
+											</span>
+											<small class="trace-status">{activityStatus(item.activity.status)}</small>
+										</div>
+									{/if}
+								{/each}
+							</div>
+							{#if working}<span class="stream-caret" aria-hidden="true"></span>{/if}
+						</article>
+					{:else if allActivity.length === 0 && phase !== 'failed'}
+						<p class="turn-awaiting">The first live update will appear here.</p>
+					{/if}
+				</div>
 			</div>
 		</div>
-	</div>
+	{/if}
 </section>
 
 <style>
@@ -383,6 +390,12 @@
 	.conversation-turn-dock[data-phase='failed']:not(.expanded) .terminal-mark :global(svg) {
 		width: 12px;
 		height: 12px;
+	}
+	.turn-unavailable {
+		margin: 0;
+		padding: 6px 14px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
 	}
 	.turn-head {
 		display: flex;
@@ -706,6 +719,8 @@
 
 	/* Under the quiet status line, in view: what happened and the link that fixes it. */
 	.reply-failure {
+		flex: 0 0 100%;
+		box-sizing: border-box;
 		margin: 0;
 		padding: 0 14px 8px 34px;
 		color: var(--text-secondary);

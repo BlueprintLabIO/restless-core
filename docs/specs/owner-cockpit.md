@@ -146,6 +146,10 @@ The cockpit is not initially:
 
 The default home is the **Attention Inbox**, not a dashboard full of activity.
 
+A prepared decision and a chat reminder about that same decision are one Attention item. The prepared source owns the action and its resolution; the latest supporting conversation details live inside it. Resolving that source must not leave an independently actionable reminder. Identity comes from an explicit source reference, never similar titles or prose. Independent questions remain visible, including direct questions from non-lead Staff. Queue reads retain canonical Room audience and participation boundaries.
+
+Missing volatile live activity is unavailable telemetry, not an observed failed reply or completed turn. Persisted messages and Work remain independent evidence; reopening a page must not invent a red zero-second failure.
+
 The UI should prioritise:
 
 - owner decisions;

@@ -447,6 +447,41 @@ impl OrgIntel {
         .await?)
     }
 
+    /// The same assignment precedence as actor_skills, for the active agent roster in one read.
+    pub async fn skill_agent_availability(&self) -> Result<BTreeMap<String, Vec<String>>> {
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT a.id,s.name FROM actors a CROSS JOIN skills s \
+             WHERE a.actor_class='agent' AND a.retired_at IS NULL \
+               AND (s.disposition='accepted' OR (s.disposition='candidate' AND s.added_by=a.id)) \
+               AND COALESCE( \
+                 (SELECT enabled FROM skill_assignments x WHERE x.skill_name=s.name AND x.scope='actor' AND x.scope_id=a.id), \
+                 (SELECT enabled FROM skill_assignments x WHERE x.skill_name=s.name AND x.scope='team' AND x.scope_id=a.team_id::text), \
+                 (SELECT enabled FROM skill_assignments x WHERE x.skill_name=s.name AND x.scope='company'), TRUE) \
+             ORDER BY a.id,s.name"
+        ).fetch_all(&self.pool).await?;
+        let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for (actor, skill) in rows {
+            out.entry(actor).or_default().push(skill);
+        }
+        Ok(out)
+    }
+
+    /// Latest recorded application per agent/skill, bounded to the 200 most recent pairs.
+    /// An activation says the agent used the exact version; it does not prove present prompt contents.
+    pub async fn skill_agent_applications(&self) -> Result<Vec<serde_json::Value>> {
+        let rows: Vec<(String, serde_json::Value, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT actor_id,body,created_at FROM ( \
+               SELECT DISTINCT ON (actor_id,body->>'skill') actor_id,body,created_at,id FROM events \
+               WHERE kind='skill.activated.v1' AND actor_id IS NOT NULL \
+                 AND jsonb_typeof(body->'skill')='string' AND jsonb_typeof(body->'digest')='string' \
+               ORDER BY actor_id,body->>'skill',created_at DESC,id DESC \
+             ) latest ORDER BY created_at DESC,id DESC LIMIT 200"
+        ).fetch_all(&self.pool).await?;
+        Ok(rows.into_iter().map(|(actor, body, at)| serde_json::json!({
+            "actor_id": actor, "skill_name": body["skill"], "digest": body["digest"], "last_used_at": at
+        })).collect())
+    }
+
     /// Record an explicit owner or member selection beside its Message. Retries
     /// of the same Message are idempotent and keep the first pinned digest.
     pub async fn record_message_skill_selections(

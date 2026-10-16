@@ -543,7 +543,12 @@ export interface ActiveAgentTurn {
 export function turnWorking(turn: ActiveAgentTurn | null | undefined): boolean {
 	if (!turn) return false;
 	const phase = turn.live?.phase ?? 'queued';
-	return phase !== 'complete' && phase !== 'failed' && turn.transport !== 'idle';
+	return (
+		phase !== 'complete' &&
+		phase !== 'failed' &&
+		phase !== 'unavailable' &&
+		turn.transport !== 'idle'
+	);
 }
 
 /**
@@ -622,7 +627,9 @@ export function conversationQuery(
 					void client.invalidateQueries({ queryKey: key });
 				} else if (
 					state.completedMessageId === null &&
-					(state.phase === 'complete' || state.phase === 'failed') &&
+					(state.phase === 'complete' ||
+						state.phase === 'failed' ||
+						state.phase === 'unavailable') &&
 					!invalidatedTerminalWithoutReply
 				) {
 					invalidatedTerminalWithoutReply = true;
@@ -633,7 +640,8 @@ export function conversationQuery(
 				if (
 					followingMessageId === messageId &&
 					live?.phase !== 'complete' &&
-					live?.phase !== 'failed'
+					live?.phase !== 'failed' &&
+					live?.phase !== 'unavailable'
 				)
 					transport = 'reconnecting';
 			}
@@ -649,7 +657,7 @@ export function conversationQuery(
 			return;
 		}
 		if (last && last.from_actor !== viewerActorId) {
-			if (live?.phase === 'complete' || live?.phase === 'failed') {
+			if (live?.phase === 'complete' || live?.phase === 'failed' || live?.phase === 'unavailable') {
 				stop?.();
 				stop = null;
 				followingMessageId = null;
@@ -676,7 +684,8 @@ export function conversationQuery(
 		let wasLive = false;
 		const close = openAgentActivityStream(companyId, actorId, {}, (state) => {
 			ambient = state;
-			const isLive = state.phase !== 'complete' && state.phase !== 'failed';
+			const isLive =
+				state.phase !== 'complete' && state.phase !== 'failed' && state.phase !== 'unavailable';
 			if (wasLive && !isLive) void client.invalidateQueries({ queryKey: key });
 			wasLive = isLive;
 		});
@@ -753,6 +762,7 @@ export function conversationQuery(
 			const replyLanded = held.some(
 				(message) => message.id > messageId && message.from_actor === actorId
 			);
+			if (current?.phase === 'unavailable' && replyLanded) return null;
 			return {
 				triggerMessageId: messageId,
 				since: current?.startedAt ?? pending?.createdAt ?? new Date(),
@@ -767,7 +777,13 @@ export function conversationQuery(
 		/** A turn no person's message started, while it runs; its reply text is not shown. */
 		get ambientTurn(): ActiveAgentTurn | null {
 			const current = ambient;
-			if (!current || current.phase === 'complete' || current.phase === 'failed') return null;
+			if (
+				!current ||
+				current.phase === 'complete' ||
+				current.phase === 'failed' ||
+				current.phase === 'unavailable'
+			)
+				return null;
 			return {
 				triggerMessageId: 0,
 				since: current.startedAt ?? current.updatedAt,

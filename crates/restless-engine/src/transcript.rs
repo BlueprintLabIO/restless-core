@@ -55,6 +55,9 @@ pub struct OwnerIntentReceipt {
     pub next_step: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner_need: Option<String>,
+    /// When this is commentary on an existing prepared decision, that handoff owns the only action.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_need_handoff: Option<String>,
     /// Up to three short answers the agent expects to `owner_need`. The
     /// cockpit offers them as drafts; the owner still sends their own words.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -264,14 +267,16 @@ pub fn decode_body(raw: &str) -> DecodedBody<'_> {
 /// reads this decoded receipt, never the prose.
 pub fn conversation_owner_need(
     message: restless_orgintel::MessageRow,
-) -> Option<(String, String)> {
+) -> Option<(String, String, Option<String>)> {
     let decoded = decode_body(&message.body);
-    let need = decoded.intent?.owner_need?;
+    let intent = decoded.intent?;
+    let handoff = intent.owner_need_handoff;
+    let need = intent.owner_need?;
     let need = need.trim();
     if need.is_empty() {
         return None;
     }
-    Some((decoded.body.to_string(), need.to_owned()))
+    Some((decoded.body.to_string(), need.to_owned(), handoff))
 }
 
 #[cfg(test)]

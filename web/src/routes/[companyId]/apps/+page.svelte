@@ -84,6 +84,8 @@
 		ask: 'Apps',
 		waiting: 'Needs setup',
 		'in-use': 'Installed',
+		'installed-apps': 'Apps',
+		'installed-know-how': 'Know-how',
 		removed: 'Removed',
 		all: 'Discover',
 		More: 'Community'
@@ -127,7 +129,16 @@
 	const status = (app: App) => app.attention ?? (app.state === 'paused' ? 'Paused' : 'In use');
 
 	const tableApps = $derived(
-		(view === 'in-use' ? data.inUse : isKind(view) ? data.ofKind(view) : []).filter((app) =>
+		(view === 'in-use'
+			? data.inUse
+			: view === 'installed-apps'
+				? data.inUse.filter((app) => app.kind !== 'skill')
+				: view === 'installed-know-how'
+					? data.inUse.filter((app) => app.skills.length > 0)
+					: isKind(view)
+						? data.ofKind(view)
+						: []
+		).filter((app) =>
 			tileQuery
 				.toLowerCase()
 				.split(/\s+/)
@@ -138,15 +149,24 @@
 	const tiles = $derived(
 		view === 'all'
 			? data.browse
-			: !isKind(view) && !['ask', 'waiting', 'in-use', 'removed'].includes(view)
+			: !isKind(view) &&
+				  !['ask', 'waiting', 'in-use', 'installed-apps', 'installed-know-how', 'removed'].includes(
+						view
+				  )
 				? data.inCategory(view as never)
 				: []
 	);
 	const showWaiting = $derived(view === 'waiting');
 	const discovering = $derived(
-		view === 'all' || (!isKind(view) && !['ask', 'waiting', 'in-use', 'removed'].includes(view))
+		view === 'all' ||
+			(!isKind(view) &&
+				!['ask', 'waiting', 'in-use', 'installed-apps', 'installed-know-how', 'removed'].includes(
+					view
+				))
 	);
-	const installed = $derived(view === 'in-use' || isKind(view));
+	const installed = $derived(
+		['in-use', 'installed-apps', 'installed-know-how'].includes(view) || isKind(view)
+	);
 	const partial = $derived(discovering ? data.partial : data.companyPartial);
 	const PAGE_SIZE = 24;
 	const tileQuery = $derived(

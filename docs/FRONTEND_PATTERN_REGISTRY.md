@@ -269,3 +269,10 @@ References consulted again during the final visual pass, 16 October 2026:
 No upstream code or assets were copied, and no React, second state framework or motion runtime was introduced. Native Escape/focus/outside-click and reduced-motion checks passed; the fast outside-click regression introduced during listener reduction was caught and repaired. Desktop was inspected in the built-in browser; actual 390px Chromium renders were inspected as screenshots because this browser surface does not expose viewport resizing. Captures and the product-quality journeys supplement, rather than replace, this review.
 
 This supersedes Sprint 63's historical removal of phone search: the owner now needs discovery on phones too. Removed approaches include the title-slug identity, the parallel Ask/search interface and hard-coded service-intent guesses, the category count wall, Recently decided, duplicate Brand context and nested Advanced headings. No fake app ratings or verification claims were added.
+
+
+### S91 — owner feedback on populated-company headers and Installed
+
+The person header is one transparent surface: avatar, shared text baseline, role, quiet model metadata and persistent controls. Default self-ownership is redundant; another person's ownership remains visible. Installed is a native disclosure containing a small, conditional navigation hierarchy, mirrored by a bounded mobile sub-navigation. Know-how availability and observed applications are distinct disclosures; none is labelled loaded context.
+
+Calibrated against [Beautiful UI task rows/sidebar](https://www.beautifului.dev/), [Cult UI Minimal Card](https://www.cult-ui.com/docs/components/minimal-card) and [Origin UI Svelte](https://originui-svelte.pages.dev/): restrained surfaces, consistent insets, stable controls and clear type rhythm. No upstream code or new frontend runtime was added. Desktop/phone rendered acceptance remains the gate.

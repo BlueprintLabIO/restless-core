@@ -11,7 +11,6 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use futures_util::{stream, StreamExt, TryStreamExt};
 use restless_orgintel::OrgIntel;
 use serde::Serialize;
 
@@ -294,34 +293,43 @@ pub fn without_local_addresses(text: &str) -> String {
 // A request belongs to the current direct conversation, not to a separate workflow.
 // Only the latest message can ask for input: replying or a superseding agent reply
 // clears the old request. Merely reading/opening a conversation does not clear it.
+struct ConversationRequest {
+    item: AttentionItem,
+    handoff_id: Option<uuid::Uuid>,
+}
+
 async fn conversation_requests(
     org: &OrgIntel,
     company: &str,
     actors: Vec<AttentionActorRef>,
-) -> Result<Vec<AttentionItem>> {
+) -> Result<Vec<ConversationRequest>> {
     let human = org
         .current_membership_owner_actor_id()
         .await?
         .unwrap_or_else(|| "owner".into());
-    let results: Vec<Option<AttentionItem>> = stream::iter(actors.into_iter().map(|actor| {
-        let human = &human;
-        async move {
-            let Some(message) = org.human_conversation(human, &actor.id, 1).await?.pop() else {
-                return Ok::<_, anyhow::Error>(None);
-            };
-            if message.from_actor != actor.id {
-                return Ok(None);
-            }
-            let message_id = message.id;
-            let created_at = message.created_at;
-            let Some((body, need)) = crate::transcript::conversation_owner_need(message) else {
-                return Ok(None);
-            };
-            // The request comes from the latest direct message. Point Reply at
-            // that message so the owner lands on the actual question, even if
-            // the conversation has a longer history.
-            let href = format!("/{company}/people?person={}&focus={message_id}", actor.id);
-            Ok(Some(AttentionItem {
+    let actors = actors
+        .into_iter()
+        .map(|actor| (actor.id.clone(), actor))
+        .collect::<HashMap<_, _>>();
+    let ids = actors.keys().cloned().collect::<Vec<_>>();
+    let mut requests = Vec::new();
+    for message in org.latest_human_agent_messages(&human, &ids).await? {
+        let Some(actor) = actors.get(&message.from_actor).cloned() else {
+            continue;
+        };
+        let message_id = message.id;
+        let created_at = message.created_at;
+        let Some((body, need, handoff)) = crate::transcript::conversation_owner_need(message)
+        else {
+            continue;
+        };
+        // The request comes from the latest direct message. Point Reply at
+        // that message so the owner lands on the actual question, even if
+        // the conversation has a longer history.
+        let href = format!("/{company}/people?person={}&focus={message_id}", actor.id);
+        requests.push(ConversationRequest {
+            handoff_id: handoff.and_then(|id| uuid::Uuid::parse_str(id.trim()).ok()),
+            item: AttentionItem {
                 id: format!("conversation:{}:{message_id}", actor.id),
                 work_id: None,
                 source: AttentionSource {
@@ -348,7 +356,9 @@ async fn conversation_requests(
                 responsible_actor: Some(actor),
                 runtime_attach: None,
                 review_target: None,
-                native_document: None, direction_request: None, charter_proposal: None,
+                native_document: None,
+                direction_request: None,
+                charter_proposal: None,
                 actions: vec![AttentionAction {
                     id: "continue-conversation".into(),
                     label: "Reply".into(),
@@ -360,13 +370,58 @@ async fn conversation_requests(
                 preparing: false,
                 can_continue: false,
                 created_at,
-            }))
+            },
+        });
+    }
+    Ok(requests)
+}
+
+/// Prepared decisions are the action, never a second conversation-question lifecycle.
+/// Only an explicit, observed source identity coalesces; similar prose and titles prove nothing.
+fn merge_conversation_requests(
+    items: &mut Vec<AttentionItem>,
+    mut requests: Vec<ConversationRequest>,
+    handoffs: &[restless_orgintel::OwnerHandoffRow],
+) {
+    let known: HashSet<_> = handoffs.iter().map(|handoff| handoff.id).collect();
+    requests.sort_by_key(|request| (Reverse(request.item.created_at), request.item.id.clone()));
+    for request in requests {
+        if let Some(id) = request.handoff_id.filter(|id| known.contains(id)) {
+            if let Some(decision) = items
+                .iter_mut()
+                .find(|item| item.id == format!("orgintel:handoff:{id}"))
+            {
+                if decision
+                    .review_sources
+                    .iter()
+                    .filter(|source| source.provider == "conversation")
+                    .count()
+                    < 2
+                {
+                    decision.review_sources.push(ReviewSourceRef {
+                        label: format!(
+                            "{}'s context",
+                            request
+                                .item
+                                .responsible_actor
+                                .as_ref()
+                                .map_or("Agent", |actor| actor.display.as_str())
+                        ),
+                        provider: "conversation".into(),
+                        reference: request.item.source.reference,
+                        verification: "source-authored".into(),
+                        uri: None,
+                        content: request.item.what_happened,
+                        observed_at: request.item.created_at,
+                    });
+                }
+            }
+            // A resolved/withdrawn or differently assigned source is not another owner question.
+            continue;
         }
-    }))
-    .buffer_unordered(8)
-    .try_collect()
-    .await?;
-    Ok(results.into_iter().flatten().collect())
+        // Missing, malformed or unknown provenance must never swallow an independent question.
+        items.push(request.item);
+    }
 }
 
 /// Compose the live queue from its owners. Authority remains independently
@@ -2249,7 +2304,10 @@ async fn project_queue(
             .filter_map(|id| actors.get(id).cloned())
             .collect();
         match conversation_requests(org, &config.name, contacts).await {
-            Ok(requests) => items.extend(requests),
+            Ok(requests) => merge_conversation_requests(
+                &mut items, requests,
+                work_graph.as_ref().map(|graph| graph.handoffs.as_slice()).unwrap_or_default(),
+            ),
             Err(error) => {
                 tracing::warn!(%error, "conversation attention unavailable");
                 orgintel_health = "unavailable".into();
@@ -2729,7 +2787,6 @@ async fn actor_directory(org: Option<&OrgIntel>) -> ActorDirectory {
         .filter(|actor| {
             actor.actor_class == "agent"
                 && actor.retired_at.is_none()
-                && (actor.id == "exec" || team_leads.values().any(|lead| lead == &actor.id))
         })
         .map(|actor| actor.id.clone())
         .collect::<HashSet<_>>();
@@ -3557,7 +3614,10 @@ mod tests {
         };
         let request = "Which repository?\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Need repository\",\"ownerNeed\":\"The Cloud repository URL\"}-->";
         let id = org.send_message(&contact.id, None, request).await.unwrap();
-        let read = || conversation_requests(&org, &company, vec![contact.clone()]);
+        let read = || async {
+            conversation_requests(&org, &company, vec![contact.clone()]).await
+                .map(|rows| rows.into_iter().map(|request| request.item).collect::<Vec<_>>())
+        };
         let pending = read().await.unwrap();
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].requested_action, "The Cloud repository URL");
@@ -3567,6 +3627,9 @@ mod tests {
             .as_ref()
             .unwrap()
             .ends_with(&format!("person=hosting-engineering&focus={id}")));
+        org.ensure_actor("human-peer", "human", "member", "Peer").await.unwrap();
+        org.send_message(&contact.id, Some("human-peer"), "Peer-only question\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Peer input\",\"ownerNeed\":\"Private peer input\"}-->").await.unwrap();
+        assert_eq!(read().await.unwrap()[0].source.reference, id.to_string(), "another human's direct Room never enters the owner's queue");
         org.mark_read(id).await.unwrap();
         assert_eq!(read().await.unwrap().len(), 1, "reading is not answering");
         org.send_owner_conversation_message("exec", "Unrelated question", false)
@@ -4311,6 +4374,37 @@ mod person_queue_tests {
             .await
             .unwrap();
         assert!(sam.items.is_empty(), "nothing is assigned to Sam");
+
+        // The prepared source owns one action. An explicit chat reminder is context, and resolving
+        // that source must not leave a second question behind. Identical prose alone is not identity.
+        let reminder = |source: Option<uuid::Uuid>| format!(
+            "The sign-in check is ready.\n\n<!--restless-intent:{}-->",
+            serde_json::json!({"kind":"conversation", "summary":"Sign-in ready", "ownerNeed":"Pass the check", "ownerNeedHandoff":source.map(|id| id.to_string())})
+        );
+        org.send_message("exec", None, &reminder(Some(owners))).await.unwrap();
+        let pending = project(&config, &authority, Some(&org)).await.unwrap();
+        assert_eq!(pending.items.iter().filter(|item| item.source.reference == owners.to_string()).count(), 1);
+        assert!(pending.items.iter().all(|item| item.source.kind != "conversation_owner_need"));
+        let single = pending.items.iter().find(|item| item.source.reference == owners.to_string()).unwrap();
+        assert_eq!(single.review_sources.iter().filter(|source| source.provider == "conversation").count(), 1);
+        assert!(single.review_sources.iter().any(|source| source.content == "The sign-in check is ready."));
+        let mut latest = Vec::new();
+        for actor in ["exec", "site-direction", "site-design"] {
+            latest.push(org.send_message(actor, None, &reminder(Some(owners))).await.unwrap().to_string());
+        }
+        let combined = project(&config, &authority, Some(&org)).await.unwrap();
+        let combined = combined.items.iter().find(|item| item.source.reference == owners.to_string()).unwrap();
+        let detail_ids = combined.review_sources.iter().filter(|source| source.provider == "conversation").map(|source| source.reference.clone()).collect::<Vec<_>>();
+        latest.reverse();latest.truncate(2);
+        assert_eq!(detail_ids, latest, "one item keeps at most two stable, newest supporting details");
+        org.resolve_owner_handoff(owners, restless_orgintel::OwnerHandoffState::Resolved, "completed").await.unwrap();
+        let resolved = project(&config, &authority, Some(&org)).await.unwrap();
+        assert!(resolved.items.iter().all(|item| item.source.reference != owners.to_string() && item.source.kind != "conversation_owner_need"));
+        for source in [None, Some(uuid::Uuid::new_v4())] {
+            org.send_message("exec", None, &reminder(source)).await.unwrap();
+            let independent = project(&config, &authority, Some(&org)).await.unwrap();
+            assert_eq!(independent.items.iter().filter(|item| item.source.kind == "conversation_owner_need").count(), 1, "unknown provenance or an independent question stays visible");
+        }
         org.drop_schema().await.unwrap();
     }
 }

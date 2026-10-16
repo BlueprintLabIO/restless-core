@@ -2,6 +2,10 @@
 	/* One person, in a sentence or two: who they are, who they work with, what they are on now and
 	 * what they have made lately; for the owner, what they think with and what they have cost. The
 	 * same projection feeds the office floor, so both say the same thing about the same person. */
+	import { skillName } from '$lib/model/apps';
+	import { Fold } from '$lib/ui/page';
+	import { settingQuery } from '$lib/model/setting.svelte';
+	import { fetchSkillLibrary, shortDigest } from '$lib/model/skills';
 	import X from '@lucide/svelte/icons/x';
 	import { onMount, type Snippet } from 'svelte';
 	import {
@@ -43,6 +47,16 @@
 	const people = $derived((owner ? cockpit.view?.people : collaboration.view?.people) ?? []);
 	const teams = $derived((owner ? cockpit.view?.teams : collaboration.view?.teams) ?? []);
 	const person = $derived(people.find((candidate) => candidate.actor_id === actorId) ?? null);
+	const knowHow = settingQuery({
+		key: () => ['skill-library', companyId],
+		read: (signal) => fetchSkillLibrary(companyId, signal),
+		enabled: () => owner && !!person && !['human', 'owner'].includes(person.kind),
+		retry: false
+	});
+	const available = $derived(knowHow.view?.availability?.[actorId] ?? []);
+	const applied = $derived(
+		(knowHow.view?.applications ?? []).filter((row) => row.actor_id === actorId)
+	);
 	const ledTeam = $derived(teams.find((team) => team.lead_actor_id === actorId) ?? null);
 	const team = $derived(ledTeam ?? teams.find((team) => team.id === person?.team_id) ?? null);
 	const lead = $derived(
@@ -182,10 +196,75 @@
 		</p>
 	{/if}
 
+	{#if owner && person && !['human', 'owner'].includes(person.kind)}
+		<section class="profile-know-how" aria-label="Know-how">
+			{#if knowHow.failure}<p class="meta">
+					Know-how could not be read. <button
+						type="button"
+						class="btn small ghost"
+						onclick={() => void knowHow.refresh()}>Retry</button
+					>
+				</p>
+			{:else if knowHow.loading}<p class="meta">Loading know-how…</p>
+			{:else}
+				<Fold label="Know-how" count={available.length} padded>
+					<h3
+						title="Accepted know-how this agent may use, after company, team and individual settings"
+					>
+						Available
+					</h3>
+					<ul class="know-how-list">
+						{#each available as name (name)}<li>
+								<a
+									href={`/${encodeURIComponent(companyId)}/apps/${encodeURIComponent('s-' + name)}`}
+									>{skillName(name)}</a
+								>
+							</li>{:else}<li class="meta">None available.</li>{/each}
+					</ul>
+					<h3
+						title="The agent recorded applying these exact versions. This is history, not a claim about its currently loaded context."
+					>
+						Recently applied
+					</h3>
+					<ul class="know-how-list">
+						{#each applied as row (row.skill_name)}<li>
+								<a
+									href={`/${encodeURIComponent(companyId)}/apps/${encodeURIComponent('s-' + row.skill_name)}`}
+									>{skillName(row.skill_name)}</a
+								><span class="meta" title={row.digest}
+									>Version {shortDigest(row.digest)} · <RelativeTime
+										value={row.last_used_at}
+									/></span
+								>
+							</li>{:else}<li class="meta">No recorded applications.</li>{/each}
+					</ul>
+				</Fold>
+			{/if}
+		</section>
+	{/if}
+
 	{#if actions}<div class="profile-actions">{@render actions()}</div>{/if}
 </dialog>
 
 <style>
+	.know-how-list {
+		display: grid;
+		gap: 10px;
+		padding: 0;
+		margin: 8px 0 18px;
+		list-style: none;
+		max-height: 280px;
+		overflow-y: auto;
+	}
+	.know-how-list li {
+		display: grid;
+		gap: 3px;
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+	.profile-know-how {
+		margin-block: 16px;
+	}
 	dialog {
 		position: fixed;
 		inset: 0 0 0 auto;

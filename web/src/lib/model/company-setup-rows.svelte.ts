@@ -270,7 +270,7 @@ export function createCompanySetup(companyIdOf: () => string) {
 				identityValue,
 				Fingerprint,
 				proposals || (identityMissing ? 1 : 0),
-				proposals ? 'Review what Exec learned' : 'Set the brand and voice'
+				proposals ? 'Review the Brand proposal' : 'Define the brand'
 			),
 			row('provider', 'Intelligence', model, Brain, modelMissing ? 1 : 0, 'Choose a model'),
 			row('vault', 'Vault', counted(secrets, 'secret', 'No secrets stored'), KeyRound),
@@ -418,7 +418,7 @@ export function createCompanySetup(companyIdOf: () => string) {
 			return rows.filter((candidate) => candidate.todo > 0);
 		},
 		get health() {
-			return view?.computer.doctor.status;
+			return source.failure ? 'unavailable' : view?.computer.doctor.status;
 		},
 		get spend() {
 			return spend;

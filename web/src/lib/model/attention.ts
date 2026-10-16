@@ -358,7 +358,10 @@ export function openAgentActivityStream(
 		/* A failed turn that is retried streams on the open connection. Once the server ends a
 		 * message's stream after its last word, reconnecting would only replay that word. A Work
 		 * stream stays open for the next Attempt. */
-		if (scope.messageId !== undefined && (phase === 'complete' || phase === 'failed')) {
+		if (
+			scope.messageId !== undefined &&
+			(phase === 'complete' || phase === 'failed' || phase === 'unavailable')
+		) {
 			source.close();
 			return;
 		}

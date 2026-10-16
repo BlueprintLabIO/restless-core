@@ -3457,6 +3457,7 @@ model = \"anthropic/claude-sonnet-5-5\"
                     outcome: Some("The launch plan is ready for review.".into()),
                     next_step: Some("Exec checks the prepared plan.".into()),
                     owner_need: None,
+                    owner_need_handoff: None,
                     owner_replies: Vec::new(),
                     owner_fields: Vec::new(),
                     readback: Vec::new(),

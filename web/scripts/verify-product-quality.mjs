@@ -136,6 +136,171 @@ try {
 			);
 		});
 	}
+	for (const [name, viewport] of [
+		['desktop', { width: 1440, height: 900 }],
+		['phone', { width: 390, height: 844 }]
+	]) {
+		await journey('installed-hierarchy-' + name, viewport, async (page) => {
+			await page.goto(apps + '?view=in-use');
+			await visible(page.getByRole('table', { name: 'Installed', exact: true }));
+			const hierarchy = page
+				.getByRole('navigation', { name: 'Installed', exact: true })
+				.filter({ visible: true });
+			await hierarchy.getByRole('link', { name: 'Know-how', exact: true }).click();
+			await page.waitForURL((url) => url.searchParams.get('view') === 'installed-know-how');
+			await visible(page.getByRole('heading', { name: 'Know-how', exact: true }));
+			const table = page.getByRole('table');
+			await visible(table.getByRole('link', { name: 'Landing page design', exact: true }));
+			await page.getByRole('searchbox', { name: 'Search apps', exact: true }).fill('Landing');
+			await table.getByRole('link', { name: 'Landing page design', exact: true }).click();
+			await visible(page.getByRole('heading', { name: 'Landing page design', exact: true }));
+			assert.equal(
+				await hierarchy
+					.getByRole('link', { name: 'Know-how', exact: true })
+					.getAttribute('aria-current'),
+				'page',
+				'Details keep their selected category'
+			);
+			await page.locator('a.back').click();
+			await page.waitForURL((url) => url.searchParams.get('view') === 'installed-know-how');
+			assert.equal(new URL(page.url()).searchParams.get('view'), 'installed-know-how');
+			assert.equal(
+				await page.getByRole('searchbox', { name: 'Search apps', exact: true }).inputValue(),
+				'Landing'
+			);
+			assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+			await accessibility(page, 'installed-hierarchy-' + name);
+		});
+		await journey('person-header-and-know-how-' + name, viewport, async (page) => {
+			await page.goto(origin + '/' + company + '/people?person=studio-design');
+			const header = page.locator('.person-header');
+			await visible(header.getByRole('heading'));
+			assert.equal(await header.getByText('Owned by you', { exact: true }).count(), 0);
+			assert.equal(
+				await header.evaluate((element) => getComputedStyle(element).backgroundColor),
+				'rgba(0, 0, 0, 0)'
+			);
+			await header.locator('summary[aria-label^="More for "]').click();
+			await page.getByRole('button', { name: 'Profile', exact: true }).click();
+			await page.locator('.profile-know-how summary').click();
+			await visible(
+				page.locator('.profile-know-how').getByRole('heading', { name: 'Available', exact: true })
+			);
+			await visible(
+				page
+					.locator('.profile-know-how')
+					.getByRole('heading', { name: 'Recently applied', exact: true })
+			);
+			assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+			await accessibility(page, 'person-header-' + name);
+		});
+	}
+	if (process.env.RESTLESS_VERIFY_AUTHORED_SKILL) {
+		await journey('authored-know-how-application', { width: 1280, height: 720 }, async (page) => {
+			const skill = process.env.RESTLESS_VERIFY_AUTHORED_SKILL;
+			await page.goto(apps + '/s-' + encodeURIComponent(skill));
+			await page
+				.locator('summary')
+				.filter({ hasText: /Available to/ })
+				.click();
+			await visible(
+				page.locator('.know-how-agents').getByRole('link', { name: 'Exec', exact: true })
+			);
+			await page
+				.locator('summary')
+				.filter({ hasText: /Recently applied/ })
+				.click();
+			const recent = page
+				.locator('.fold')
+				.filter({ has: page.locator('summary').filter({ hasText: /Recently applied/ }) });
+			await visible(recent.getByRole('link', { name: 'Exec', exact: true }));
+			assert.match(
+				await recent.innerText(),
+				/Version [0-9a-f]{12}/,
+				'Actual applied version is visible'
+			);
+			await accessibility(page, 'authored-know-how');
+		});
+	}
+	await journey('missing-live-session-is-neutral', { width: 1280, height: 720 }, async (page) => {
+		await page.route('**/actors/exec/conversation', async (route) => {
+			const response = await route.fetch();
+			const body = await response.json();
+			body.messages.push({
+				id: 987654321,
+				from_actor: 'owner',
+				to_actor: 'exec',
+				body: 'Synthetic already-received question for missing-stream acceptance.',
+				created_at: new Date().toISOString(),
+				read_at: new Date().toISOString(),
+				intent: null,
+				attachments: [],
+				details: null,
+				context_path: null,
+				outcome_standard: null
+			});
+			await route.fulfill({ response, json: body });
+		});
+		await page.goto(origin + '/' + company + '/people?person=exec');
+		await visible(page.getByText('Live activity is unavailable.', { exact: true }));
+		assert.equal(await page.getByText(/couldn't reply/).count(), 0);
+		assert.equal(
+			await page.locator('.conversation-turn-dock time').count(),
+			0,
+			'No invented zero-second failure'
+		);
+		await accessibility(page, 'missing-live-session');
+	});
+	await journey('company-overview-current-state', { width: 1280, height: 720 }, async (page) => {
+		// Read-only, explicitly synthetic release/health projections exercise complete setup states.
+		await page.route('**/api/companies/' + company + '/company/identity', async (route) => {
+			const response = await route.fetch();
+			const body = await response.json();
+			body.pending_proposals = [];
+			body.current_release = {
+				id: '00000000-0000-4000-8000-000000000091',
+				predecessor: null,
+				effective_from: new Date().toISOString(),
+				promoted_by: 'owner',
+				authority_record_id: '0',
+				change_account: 'Synthetic overview projection only',
+				created_at: new Date().toISOString()
+			};
+			await route.fulfill({ response, json: body });
+		});
+		let health = 'degraded';
+		await page.route('**/api/companies/' + company + '/company', async (route) => {
+			if (health === 'failed')
+				return route.fulfill({
+					status: 503,
+					json: { message: 'Synthetic company read unavailable' }
+				});
+			const response = await route.fetch();
+			const body = await response.json();
+			body.computer.doctor.status = health;
+			await route.fulfill({ response, json: body });
+		});
+		await page.goto(origin + '/' + company + '/company');
+		await visible(page.locator('.company-purpose-copy'));
+		await visible(page.getByText('Review company health', { exact: true }));
+		assert.equal(await page.getByText('Everything is set up.', { exact: true }).count(), 0);
+		assert(
+			!(await page.locator('.company-purpose-copy').innerText()).trim().startsWith('#'),
+			'Mission is rendered, not raw Markdown'
+		);
+		await accessibility(page, 'company-overview');
+		health = 'healthy';
+		await page.reload();
+		await visible(
+			page
+				.locator('.company-current .current-action')
+				.filter({ hasText: /decision|No setup tasks/ })
+		);
+		health = 'failed';
+		await page.reload();
+		await visible(page.getByText('Company details unavailable', { exact: true }));
+		assert.equal(await page.getByText('Everything is set up.', { exact: true }).count(), 0);
+	});
 	await journey('picker-short-window', { width: 1280, height: 720 }, async (page) => {
 		let changes = 0;
 		page.on('request', (request) => {
@@ -614,6 +779,7 @@ try {
 				await page.waitForResponse((response) =>
 					response.url().includes('/' + next + '/tool-connections')
 				);
+				await page.locator('.installed-group > summary').click();
 				await page
 					.locator(`a[href="/${next}/apps?view=in-use"]:visible`)
 					.waitFor({ state: 'visible' });

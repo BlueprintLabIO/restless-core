@@ -15,6 +15,10 @@ export type ReadbackLine = { label: string, text: string, };
 
 export type OwnerIntentReceipt = { kind: OwnerIntentKind, summary: string, outcome?: string | null, nextStep?: string | null, ownerNeed?: string | null,
 /**
+ * When this is commentary on an existing prepared decision, that handoff owns the only action.
+ */
+ownerNeedHandoff?: string | null,
+/**
  * Up to three short answers the agent expects to `owner_need`. The
  * cockpit offers them as drafts; the owner still sends their own words.
  */
@@ -48,7 +52,7 @@ export type ConversationSendResponse = { message_id: number, created: boolean, i
 
 export type ConversationInterruptResponse = { message_id: number, cancelled: boolean, interrupted: boolean, };
 
-export type AgentActivityPhase = "queued" | "thinking" | "acting" | "responding" | "complete" | "failed";
+export type AgentActivityPhase = "queued" | "thinking" | "acting" | "responding" | "complete" | "failed" | "unavailable";
 
 export type AgentActivityItem = { id: string, kind: string, label: string, detail: string, status: string,
 /**
