@@ -16,7 +16,7 @@ const NAMES: [&[&str]; 26] = [
     ],
     &["Daria", "Della Duck", "Dipper Pines", "Dobby", "Drax"],
     &["Eames", "Ebenezer Scrooge", "Echo", "Edna Mode", "Eeyore"],
-    &["Falcor", "Ferdinand", "Finn", "Flik", "Frodo"],
+    &["Falkor", "Ferdinand", "Finn", "Flik", "Frodo"],
     &["Gandalf", "Geralt", "Gimli", "Goku", "Grinch"],
     &[
         "Harry Potter",
