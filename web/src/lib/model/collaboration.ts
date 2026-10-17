@@ -1,4 +1,4 @@
-import { bootFetch } from './boot-fetch';
+import { bootFetch } from './boot-fetch.ts';
 import type {
 	ArtifactRefState,
 	OwnerBrief,

@@ -7,6 +7,7 @@ const COMPANY_SECTIONS: Record<string, string> = {
 	charter: 'company/charter',
 	'brand & voice': 'company/identity',
 	'brand and voice': 'company/identity',
+	brand: 'company/identity',
 	identity: 'company/identity',
 	intelligence: 'company/provider',
 	limits: 'company/resources',

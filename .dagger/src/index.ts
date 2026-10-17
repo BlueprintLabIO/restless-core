@@ -281,6 +281,7 @@ export class RestlessCore {
         .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'company_projection::tests'])
         .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'public_jwks_routes_are_method_and_path_exact']).sync()),
       timed(timings, 'cockpit check and build', () => cockpit(source).sync()),
+      timed(timings, 'cockpit unit tests', () => project(source, 'web').withExec(['npm', 'test']).sync()),
       timed(timings, 'browser overlays', () => this.verifyOverlays(source).sync()),
       timed(timings, 'ui artifact consumer', () => this.verifyUiArtifact(source).sync()),
       timed(timings, 'native documents check and build', () => project(source, 'services/native-documents-collaboration')

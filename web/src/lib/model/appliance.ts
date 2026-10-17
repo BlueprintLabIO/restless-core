@@ -1,5 +1,5 @@
 import { ownerRequest } from './setting.svelte';
-import { bootFetch } from './boot-fetch';
+import { bootFetch } from './boot-fetch.ts';
 
 export interface ApplianceStatus {
 	profile: 'stable' | 'dev' | 'test';

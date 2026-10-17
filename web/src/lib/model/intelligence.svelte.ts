@@ -1,6 +1,6 @@
 import { ownerRequest } from './setting.svelte';
 import { ownerJson } from './failure';
-import { bootFetch } from './boot-fetch';
+import { bootFetch } from './boot-fetch.ts';
 import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 export type IntelligenceConnection = {
 	id: string;
