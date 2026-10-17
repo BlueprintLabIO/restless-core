@@ -1,4 +1,4 @@
-import { openLiveEvents } from './live-events';
+import { openLiveEvents } from './live-events.ts';
 import type { AttentionItem, DecisionContinuation } from './view';
 import { ownerAttention } from './attention-presentation';
 import type { WorkGraphSnapshot } from './generated/orgintel';

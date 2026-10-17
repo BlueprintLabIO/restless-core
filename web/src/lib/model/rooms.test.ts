@@ -267,9 +267,15 @@ test('Room lifecycle transports preserve strict cursors and idempotency headers'
 			'delete-command'
 		);
 		assert.equal(calls[4]?.init?.body, undefined);
-		assert.equal(calls[0]?.init?.signal, controller.signal);
-		assert.equal(calls[1]?.init?.signal, controller.signal);
-		assert.equal(calls[2]?.init?.signal, controller.signal);
+		controller.abort();
+		for (const call of calls.slice(0, 3)) {
+			assert(call.init?.signal instanceof AbortSignal);
+			assert.equal(
+				call.init.signal.aborted,
+				true,
+				'Caller cancellation reaches timeout-composed reads'
+			);
+		}
 	} finally {
 		globalThis.fetch = original;
 	}

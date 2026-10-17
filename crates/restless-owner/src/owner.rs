@@ -8813,6 +8813,7 @@ async fn room_events_live(
     Query(query): Query<RoomEventQuery>,
     headers: HeaderMap,
     session_lease: Option<Extension<SessionLease>>,
+    upgrade: event_transport::Upgrade,
 ) -> Response<Body> {
     let (after_event_id, limit) = match room_event_bounds(query, Some(&headers)) {
         Ok(bounds) => bounds,
@@ -8889,13 +8890,14 @@ async fn room_events_live(
         },
         first_page,
     );
-    Sse::new(stream)
+    let response = Sse::new(stream)
         .keep_alive(
             KeepAlive::new()
                 .interval(Duration::from_secs(15))
                 .text("still-connected"),
         )
-        .into_response()
+        .into_response();
+    event_transport::respond(response, upgrade)
 }
 
 /// Body-free "something changed" hints for one company's owner surfaces.

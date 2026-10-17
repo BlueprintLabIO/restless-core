@@ -19,7 +19,8 @@ try {
 		pages.push(page);
 		page.on('websocket', (socket) => sockets.push(socket.url()));
 		page.on('request', (request) => {
-			if (/\/changes$|\/actors\/exec\/activity$/.test(request.url())) sse.push(request.url());
+			if (/\/changes(?:\?|$)|\/activity(?:\?|$)|\/events\/live(?:\?|$)/.test(request.url()))
+				sse.push(request.url());
 		});
 		await page.goto(`${origin}/${company}/company/accounting`);
 		await page
@@ -56,6 +57,37 @@ try {
 		`/api/companies/${company}/actors/exec/activity`
 	);
 	assert.match(activity, /event: activity/);
+	const direct = await (
+		await fetch(`${origin}/api/companies/${company}/direct-conversations`)
+	).json();
+	const room = direct.find((row) => row.person_actor_id === 'exec');
+	assert(room, 'Seed the direct Room');
+	const roomFrame = await page.evaluate(
+		async (path) =>
+			new Promise((resolve, reject) => {
+				const socket = new WebSocket(new URL(path, location.origin).href.replace(/^http:/, 'ws:'));
+				socket.binaryType = 'arraybuffer';
+				const timer = setTimeout(() => {
+					socket.close();
+					reject(new Error('No replayed Room event'));
+				}, 5000);
+				let received = '';
+				socket.onmessage = (event) => {
+					received += new TextDecoder().decode(event.data);
+					if (!received.includes('event: room-event')) return;
+					clearTimeout(timer);
+					socket.close();
+					resolve(received);
+				};
+				socket.onerror = () => {
+					clearTimeout(timer);
+					reject(new Error('Room socket failed'));
+				};
+			}),
+		`/api/companies/${company}/rooms/${room.room_id}/events/live?after_event_id=0`
+	);
+	assert.match(roomFrame, /event: room-event/);
+
 	const activityResponse = await fetch(`${origin}/api/companies/${company}/actors/exec/activity`, {
 		signal: AbortSignal.timeout(5000)
 	});
@@ -95,7 +127,8 @@ try {
 		liveSockets: sockets.length,
 		sseRequests: sse.length,
 		legacySse: 200,
-		crossOriginSocket: refused
+		crossOriginSocket: refused,
+		roomReplay: true
 	};
 	await writeFile(`${out}/multi-tab-results.json`, JSON.stringify(result, null, 2));
 	console.log(JSON.stringify(result));

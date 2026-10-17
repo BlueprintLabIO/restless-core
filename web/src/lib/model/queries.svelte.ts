@@ -1,4 +1,4 @@
-import { openLiveEvents } from './live-events';
+import { openLiveEvents } from './live-events.ts';
 /**
  * Owner-facing server state belongs to TanStack Query. The daemon remains the
  * writer; these helpers only choose cache keys, freshness and invalidation.

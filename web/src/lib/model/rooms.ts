@@ -1,3 +1,4 @@
+import { openLiveEvents } from './live-events.ts';
 import { responseFailure } from './failure.ts';
 import { bootFetch } from './boot-fetch.ts';
 export type RoomKind = 'company' | 'group' | 'direct';
@@ -607,7 +608,7 @@ export function openRoomEventStream(
 	ontyping?: (actorId: string) => void
 ): () => void {
 	ontransport('connecting');
-	const source = new EventSource(
+	const source = openLiveEvents(
 		`${roomPath(company, room)}/events/live?after_event_id=${encodeURIComponent(afterEventId)}`
 	);
 	let retired = false;
