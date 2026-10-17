@@ -30,6 +30,7 @@ import History from '@lucide/svelte/icons/history';
 import HeartPulse from '@lucide/svelte/icons/heart-pulse';
 import CalendarRange from '@lucide/svelte/icons/calendar-range';
 import LinkIcon from '@lucide/svelte/icons/link';
+import Receipt from '@lucide/svelte/icons/receipt';
 
 /** 'refused': this plane does not keep the area (a hosted plane's vault lives with the account). */
 type Count = number | 'unavailable' | 'refused' | null;
@@ -304,16 +305,18 @@ export function createCompanySetup(companyIdOf: () => string) {
 			if (target.key === 'overview') continue;
 			const setupRow = byKey.get(target.key);
 			const record =
-				target.key === 'activity'
-					? History
-					: target.key === 'week'
-						? CalendarRange
-						: target.key === 'health'
-							? HeartPulse
-							: null;
+				target.key === 'spend'
+					? Receipt
+					: target.key === 'activity'
+						? History
+						: target.key === 'week'
+							? CalendarRange
+							: target.key === 'health'
+								? HeartPulse
+								: null;
 			if (
 				!setupRow &&
-				!(record && (owner || (admin && (target.key === 'activity' || target.key === 'week'))))
+				!(record && (owner || (admin && ['activity', 'week', 'spend'].includes(target.key))))
 			)
 				continue;
 			let group = out.find((candidate) => candidate.label === target.group);
@@ -339,11 +342,13 @@ export function createCompanySetup(companyIdOf: () => string) {
 							icon: record!,
 							todo: 0,
 							tooltip:
-								target.key === 'health'
-									? 'Checks on the company computer, model and tools'
-									: target.key === 'week'
-										? 'What the company finished, decided, sent and spent in the last seven days'
-										: 'Decisions, receipts and external actions',
+								target.key === 'spend'
+									? 'Recorded spend, estimated token value and measurement gaps'
+									: target.key === 'health'
+										? 'Checks on the company computer, model and tools'
+										: target.key === 'week'
+											? 'What the company finished, decided, sent and spent in the last seven days'
+											: 'Decisions, receipts and external actions',
 							...(target.key === 'health' && health
 								? health === 'healthy'
 									? { reading: 'Healthy', readingTone: 'work' as const }

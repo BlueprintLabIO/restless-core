@@ -1599,6 +1599,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/companies/{company}/cockpit", get(cockpit_view))
         .route("/companies/{company}/company", get(company_view))
         .route("/companies/{company}/company/spend", get(company_spend))
+        .route("/companies/{company}/company/spend/report", get(company_spend_report))
         .route(
             "/companies/{company}/members",
             get(members_api::members_view),
@@ -2562,6 +2563,7 @@ fn admin_reads_company_record(method: &Method, path: &str) -> bool {
     matches!(
         tail.as_slice(),
         ["company", "spend"]
+            | ["company", "spend", "report"]
             | ["company", "away"]
             | ["company", "activity"]
             | ["company", "activity", "payments"]
@@ -6745,6 +6747,23 @@ async fn company_spend(
     match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => Json(company_projection::spend_view(&state.daemon, &config)).into_response(),
         Err(error) => api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+    }
+}
+
+async fn company_spend_report(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    Query(query): Query<crate::spend_report::SpendReportQuery>,
+) -> Response<Body> {
+    if runtime::CompanyConfig::load(&state.daemon.root, &company).is_err() {
+        return api_error(StatusCode::NOT_FOUND, "company", "company does not exist");
+    }
+    if query.days.is_some_and(|days| days > 3660) {
+        return api_error(StatusCode::BAD_REQUEST, "spend", "Choose up to ten years, or all time.");
+    }
+    match crate::spend_report::report(&state.daemon, &company, query).await {
+        Ok(report) => Json(report).into_response(),
+        Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "spend", format!("Spend could not be read: {error:#}")),
     }
 }
 

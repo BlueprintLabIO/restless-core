@@ -85,6 +85,13 @@ export const COMPANY_PAGES: CompanyPage[] = [
 		keywords: 'decisions history receipts effects external'
 	},
 	{
+		key: 'spend',
+		group: 'Records',
+		label: 'Spend',
+		path: '/spend',
+		keywords: 'cost tokens consumption usage estimates billing money budget'
+	},
+	{
 		key: 'week',
 		group: 'Records',
 		label: 'Weekly review',

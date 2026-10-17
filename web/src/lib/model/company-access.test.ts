@@ -52,6 +52,13 @@ test('navigation stays empty until a principal has been authenticated', () => {
 	assert.deepEqual(companyShellTabs('acme', '/acme', null), []);
 });
 
+test('Spend keeps financial records scoped to owners and admins', () => {
+	assert.equal(mayOpenCompanyRoute('acme', '/acme/company/spend', principal('owner')), true);
+	assert.equal(mayOpenCompanyRoute('acme', '/acme/company/spend', principal('admin')), true);
+	assert.equal(mayOpenCompanyRoute('acme', '/acme/company/spend', principal('member')), false);
+	assert.equal(mayOpenCompanyRoute('acme', '/other/company/spend', principal('admin')), false);
+});
+
 test('owner navigation keeps the six canonical company areas', () => {
 	const tabs = companyShellTabs('acme', '/acme/company/computer', principal('owner'), 3);
 	assert.deepEqual(

@@ -7,6 +7,9 @@ Restless is built in sprints. The cadence (see `CLAUDE.md` → "How we work"):
 
 ## Sprint specs
 
+- [Sprint 93 — spend and attributable usage](sprint-93.md): current owner-requested Spend page,
+  with the follow-up plan for efficient operation, one-click publishing and scoped developer access.
+
 Each sprint is one file: `sprint-NN-short-slug.md`. A complete spec states:
 
 - **Outcome** — the useful artifact, decision, or external outcome this sprint produces. A schema, API,

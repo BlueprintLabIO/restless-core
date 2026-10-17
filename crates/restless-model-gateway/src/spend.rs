@@ -667,7 +667,9 @@ impl SpendStore {
                     && record.occurred_at < before
                     && !state.corrected_requests.contains(&record.request_id)
             })
-            .fold(0_u64, |total, record| total.saturating_add(record.cost_micro_usd))
+            .fold(0_u64, |total, record| {
+                total.saturating_add(record.cost_micro_usd)
+            })
     }
 
     #[must_use]
@@ -683,6 +685,29 @@ impl SpendStore {
             .collect::<Vec<_>>();
         records.sort_by_key(|record| (record.occurred_at, record.request_id));
         records
+    }
+
+    /// Reporting includes unknown terminals and excludes corrected duplicate requests. Keep
+    /// the existing charging spool format readable by the installed rollback release.
+    pub fn report_records_for_company(&self, company_id: &str) -> GatewayResult<Vec<SpendRecord>> {
+        let state = self.state.lock().map_err(|_| GatewayError::Upstream)?;
+        let mut records = HashMap::new();
+        for record in state
+            .unknown_requests
+            .values()
+            .chain(state.records.values())
+        {
+            if record.company_id == company_id
+                && !state.corrected_requests.contains(&record.request_id)
+                && record.model != POISON_MARKER
+                && record.model != POISON_CLEARED
+            {
+                records.insert(record.request_id, record.clone());
+            }
+        }
+        let mut records: Vec<_> = records.into_values().collect();
+        records.sort_by_key(|record| (record.occurred_at, record.request_id));
+        Ok(records)
     }
 
     #[must_use]
@@ -1385,6 +1410,9 @@ mod tests {
         assert_eq!(correction.delta_micro_usd, -1_580_000);
         assert_eq!(correction.corrected_by, "owner");
         assert_eq!(store.accounted_micro_usd("acme"), 2_380_000);
+        let report = store.report_records_for_company("acme").unwrap();
+        assert_eq!(report.iter().map(|row| row.cost_micro_usd).sum::<u64>(), 2_380_000);
+        assert!(store.report_records_for_company("other").unwrap().is_empty());
         assert_eq!(
             store.breakdown_micro_usd("acme"),
             vec![("lead".into(), "kimi-k3".into(), 2_380_000)]

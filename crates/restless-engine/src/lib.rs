@@ -73,6 +73,7 @@ pub mod schedule_test;
 pub mod schedule_test_proxy;
 pub mod skills;
 pub mod spend;
+pub mod spend_report;
 pub mod staff;
 pub mod telegram;
 pub mod telemetry;

@@ -2731,6 +2731,7 @@ model = \"anthropic/claude-sonnet-5-5\"
         let member = RequestPrincipal::from_verified(&identity("member")).unwrap();
         for path in [
             "/api/companies/aris/company/spend",
+            "/api/companies/aris/company/spend/report",
             "/api/companies/aris/company/activity",
             "/api/companies/aris/company/activity/payments",
             "/api/companies/aris/attention/history",

@@ -140,7 +140,11 @@ async fn fetch_catalog() -> Result<Bytes> {
                         "release_date": entry["release_date"],
                         // List price per million tokens, for the Exec's
                         // staffing economics (see prompts/run-the-business.md).
-                        "cost": { "input": entry["cost"]["input"], "output": entry["cost"]["output"] },
+                        "cost": {
+                            "input": entry["cost"]["input"], "output": entry["cost"]["output"],
+                            "cache_read": entry["cost"]["cache_read"],
+                            "cache_write": entry["cost"]["cache_write"],
+                        },
                     }),
                 );
             }
@@ -197,4 +201,11 @@ pub async fn list_price(model: &str) -> Option<(f64, f64)> {
     let catalog: serde_json::Value = serde_json::from_slice(&body).ok()?;
     let cost = &catalog["catalog"][provider]["models"][id]["cost"];
     Some((cost["input"].as_f64()?, cost["output"].as_f64()?))
+}
+
+/// A local read of the shared public pricing snapshot. Spend reporting never waits on an
+/// external catalogue or changes the prices/budgets used to admit a model call.
+pub async fn pricing_snapshot() -> Option<serde_json::Value> {
+    let body = CACHE.lock().await.response.clone()?;
+    serde_json::from_slice(&body).ok()
 }

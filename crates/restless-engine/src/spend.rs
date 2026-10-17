@@ -761,6 +761,12 @@ impl SpendLedger {
             .unwrap_or_default()
     }
 
+    pub fn report_records(&self, company: &str) -> Result<Vec<SpendRecord>> {
+        self.store(company)?
+            .report_records_for_company(company)
+            .map_err(|error| anyhow::anyhow!("read company spend: {error}"))
+    }
+
     /// Requests whose provider terminal could not be settled exactly.
     #[must_use]
     pub fn unknown_requests(&self, company: &str) -> Vec<SpendRecord> {

@@ -150,3 +150,16 @@ These describe the accepted outcomes. A story row alone is not completion eviden
 | US-312 | core | I want compact skill details with readable complete source instructions and Copy all. A catalogue preview never installs or grants a skill. | S92 | remote Claude API content, copy and read-failure journey |
 | US-313 | core | I want an app’s activity to remain steady while catalogue and permission metadata refresh. One scoped cached read owns the result; retry, pagination and late responses cannot replace another connection’s history. | S92 | receipt failure/recovery, held-source and late-company journeys |
 | US-314 | core | I want an opened conversation's resize handle available on first load, even when its pane arrives after company data. Keyboard and pointer resizing remain usable without watching every streamed message for layout changes. | S92 | delayed pane, keyboard/pointer resize and streaming Markdown journey |
+
+## From the owner, 17 October — spend, publishing and efficient operation
+
+| ID | Tier | Story: I want … and I see … | Fix | Check |
+| --- | --- | --- | --- | --- |
+| US-315 | core | I want Company → Spend to show known spend and tokens, with estimates visibly labelled and missing usage shown as unknown rather than free. | S93 | populated, empty, unavailable and subscription-backed report |
+| US-316 | core | I want to trace usage to an employee, model, Work and time period, including recorded failed calls and archived employees, without double-counting retries or cumulative snapshots. | S93 | request identity, corrected duplicate, filter/paging and restart checks |
+| US-317 | core | I want cached input and reasoning accounted for correctly, and an API-equivalent estimate kept separate from an invoice or subscription quota percentage. | S93 | cache rates, absent splits, invalid counts and output/reasoning checks |
+| US-318 | full | I want known payments shown in their own currency, with pending and failed transfers separate from settled spend, and unconnected bills called out as unobserved. | S93 | payment state/currency and source-failure checks |
+| US-319 | full | I want an unexpected burst of usage or repetitive work made visible, and explicit budgets that can include subscription-backed models. | Planned in S93 | attributable burn-rate and useful-outcome-per-token scenario; no silent new cap |
+| US-320 | full | I want to publish a prepared Library site with one authorised click, see its verified live URL and cost, and roll back or unpublish it. | Planned in S93 | exact-candidate preview/publish/health/rollback journey |
+| US-321 | full | I want to grant a developer scoped, expiring and revocable access to debug my hosted company, with their identity visible. | Planned in S93 | normal sign-in, scope/expiry/revocation and authority checks |
+| US-322 | core | I want Installed's heading and child rows to follow one consistent navigation grid. | Planned in S93 | desktop/narrow navigation visual review |

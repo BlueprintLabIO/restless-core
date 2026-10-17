@@ -2964,22 +2964,31 @@ impl MeteredStream {
     }
 
     fn record_unmetered(&mut self, detail: &str) {
-        if self.request.billing == ModelBilling::MeteredApi && !self.settled {
-            self.meter.record_unknown(self.request.spend_record(
+        if !self.settled {
+            let record = self.request.spend_record(
                 0,
                 0,
                 0,
                 None,
                 0,
-                restless_model_gateway::SpendSettlement::MeteringUnknown,
-            ));
-            tracing::warn!(
-                company = %self.request.company,
-                actor = %self.request.actor,
-                session = %self.request.session,
-                request_id = %self.request.request_id,
-                "metered model response had no terminal charged usage; spend is now a lower bound: {detail}"
+                if self.request.billing == ModelBilling::MeteredApi {
+                    restless_model_gateway::SpendSettlement::MeteringUnknown
+                } else {
+                    restless_model_gateway::SpendSettlement::Accounted
+                },
             );
+            if self.request.billing == ModelBilling::MeteredApi {
+                self.meter.record_unknown(record);
+                tracing::warn!(
+                    company = %self.request.company,
+                    actor = %self.request.actor,
+                    session = %self.request.session,
+                    request_id = %self.request.request_id,
+                    "metered model response had no terminal charged usage; spend is now a lower bound: {detail}"
+                );
+            } else {
+                self.meter.record_exact(record);
+            }
             self.settled = true;
         }
     }
@@ -4745,6 +4754,27 @@ mission = "Choose native intelligence"
         assert_eq!(exhausted.status(), StatusCode::PAYMENT_REQUIRED);
 
         drop(spend);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn interrupted_subscription_is_observed_once_without_inventing_tokens_or_charge() {
+        let root = test_root();
+        let (_issuer, ledger, _state) = test_relay_state(&root);
+        let mut request = metered_request("acme_test", "exec", "interrupted", "openai-codex/gpt-6.1-sol");
+        request.billing = ModelBilling::Subscription;
+        let inner = futures_util::stream::empty::<std::result::Result<Bytes, reqwest::Error>>();
+        let mut stream = MeteredStream::new_responses(inner, ledger.meter(), request);
+        stream.record_unmetered("connection lost");
+        stream.record_unmetered("dropped after connection lost");
+        let records = ledger.report_records("acme_test").unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].cost_micro_usd, 0);
+        assert_eq!(records[0].total_tokens, 0);
+        assert!(ledger.unknown_requests("acme_test").is_empty());
+        assert!(ledger.report_records("another_test").unwrap().is_empty());
+        drop(stream);
+        drop(ledger);
         std::fs::remove_dir_all(root).unwrap();
     }
 
