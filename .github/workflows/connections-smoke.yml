@@ -81,3 +81,6 @@ jobs:
         run: |
           docker image rm "$IMAGE" >/dev/null 2>&1 || true
           rm -rf "$EVIDENCE"
+      - name: Reclaim runner disk
+        if: always()
+        run: test ! -x scripts/release/reclaim-runner.sh || scripts/release/reclaim-runner.sh

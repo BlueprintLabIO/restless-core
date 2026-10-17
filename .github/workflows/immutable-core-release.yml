@@ -129,6 +129,9 @@ jobs:
           else
             node scripts/release/timings-summary.mjs prebuild < "$PREBUILD/output" >> "$GITHUB_STEP_SUMMARY"
           fi
+      - name: Reclaim runner disk
+        if: always()
+        run: test ! -x scripts/release/reclaim-runner.sh || scripts/release/reclaim-runner.sh
 
   publish:
     name: Publish exact platform artifacts
@@ -181,6 +184,9 @@ jobs:
       - name: Remove the job's temporary registry credentials
         if: always()
         run: rm -f "$RUNNER_TEMP/restless-core/docker/config.json"
+      - name: Reclaim runner disk
+        if: always()
+        run: test ! -x scripts/release/reclaim-runner.sh || scripts/release/reclaim-runner.sh
 
   seal:
     name: Seal and verify the Core contract
@@ -233,3 +239,6 @@ jobs:
           reference="$(jq -er .bundle "$RUNNER_TEMP/core-release/core-release-handoff.json")"
           printf '### Qualified Core candidate\n\nSource: %s\n\nPlatform: %s\n\nBundle: %s\n' \
             "$GITHUB_SHA" "$PLATFORM" "$reference" >> "$GITHUB_STEP_SUMMARY"
+      - name: Reclaim runner disk
+        if: always()
+        run: test ! -x scripts/release/reclaim-runner.sh || scripts/release/reclaim-runner.sh

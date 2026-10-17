@@ -76,3 +76,6 @@ jobs:
           docker buildx imagetools inspect "$reference" >/dev/null
           echo "restless-identity: \`${reference}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "$reference"
+      - name: Reclaim runner disk
+        if: always()
+        run: test ! -x scripts/release/reclaim-runner.sh || scripts/release/reclaim-runner.sh

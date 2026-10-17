@@ -69,3 +69,6 @@ jobs:
       - name: Remove owned job export
         if: always()
         run: rm -rf -- "$RUNNER_TEMP/core-libraries/$GITHUB_SHA"
+      - name: Reclaim runner disk
+        if: always()
+        run: test ! -x scripts/release/reclaim-runner.sh || scripts/release/reclaim-runner.sh
