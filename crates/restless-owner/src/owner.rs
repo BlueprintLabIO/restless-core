@@ -7,6 +7,8 @@
 //! approval actions, and browser attach/lease transport. It is not a generic
 //! REST facade over the company computer.
 
+#[path = "owner_accounting.rs"]
+mod accounting_api;
 #[path = "owner_appliance.rs"]
 mod appliance_api;
 #[path = "owner_agent_exchanges.rs"]
@@ -1600,6 +1602,8 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/companies/{company}/company", get(company_view))
         .route("/companies/{company}/company/spend", get(company_spend))
         .route("/companies/{company}/company/spend/report", get(company_spend_report))
+        .route("/companies/{company}/company/accounting", get(accounting_api::list))
+        .route("/companies/{company}/company/accounting/{id}", axum::routing::put(accounting_api::save))
         .route(
             "/companies/{company}/members",
             get(members_api::members_view),
@@ -2564,6 +2568,7 @@ fn admin_reads_company_record(method: &Method, path: &str) -> bool {
         tail.as_slice(),
         ["company", "spend"]
             | ["company", "spend", "report"]
+            | ["company", "accounting"]
             | ["company", "away"]
             | ["company", "activity"]
             | ["company", "activity", "payments"]

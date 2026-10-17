@@ -78,6 +78,8 @@ const routes = [
 	...(roomId ? [['people-room', `/${company}/people?room=${roomId}`]] : []),
 	['authority', `/${company}/authority`],
 	['company', `/${company}/company`],
+	['company-tokens', `/${company}/company/tokens`],
+	['company-accounting', `/${company}/company/accounting`],
 	['company-identity', `/${company}/company/identity`],
 	['company-provider', `/${company}/company/provider`],
 	['company-members', `/${company}/company/members`],

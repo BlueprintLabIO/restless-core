@@ -112,3 +112,13 @@ test('members open the shared areas and the Company sections that describe it', 
 	assert.match(refusedRouteReason('acme', '/acme/company/vault'), /managed by the owner/);
 	assert.match(refusedRouteReason('acme', '/acme/company/computer'), /owner/);
 });
+
+test('financial records remain owner/admin reads', () => {
+	for (const section of ['tokens', 'accounting']) {
+		assert.equal(mayOpenCompanyRoute('acme', `/acme/company/${section}`, principal('admin')), true);
+		assert.equal(
+			mayOpenCompanyRoute('acme', `/acme/company/${section}`, principal('member')),
+			false
+		);
+	}
+});

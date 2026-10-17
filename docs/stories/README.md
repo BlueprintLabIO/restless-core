@@ -155,7 +155,7 @@ These describe the accepted outcomes. A story row alone is not completion eviden
 
 | ID | Tier | Story: I want … and I see … | Fix | Check |
 | --- | --- | --- | --- | --- |
-| US-315 | core | I want Company → Spend to show known spend and tokens, with estimates visibly labelled and missing usage shown as unknown rather than free. | S93 | populated, empty, unavailable and subscription-backed report |
+| US-315 | core | I want Company → Tokens to show token consumption and estimates, with estimates visibly labelled and missing usage shown as unknown rather than free. | S93; split S94 | populated, empty, unavailable and subscription-backed report |
 | US-316 | core | I want to trace usage to an employee, model, Work and time period, including recorded failed calls and archived employees, without double-counting retries or cumulative snapshots. | S93 | request identity, corrected duplicate, filter/paging and restart checks |
 | US-317 | core | I want cached input and reasoning accounted for correctly, and an API-equivalent estimate kept separate from an invoice or subscription quota percentage. | S93 | cache rates, absent splits, invalid counts and output/reasoning checks |
 | US-318 | full | I want known payments shown in their own currency, with pending and failed transfers separate from settled spend, and unconnected bills called out as unobserved. | S93 | payment state/currency and source-failure checks |
@@ -164,3 +164,11 @@ These describe the accepted outcomes. A story row alone is not completion eviden
 | US-321 | full | I want to grant a developer scoped, expiring and revocable access to debug my hosted company, with their identity visible. | Planned in S93 | normal sign-in, scope/expiry/revocation and authority checks |
 | US-322 | core | I want Installed's heading and child rows to follow one consistent navigation grid. | Planned in S93 | desktop/narrow navigation visual review |
 | US-323 | full | I want releases to retain enough disk headroom to update my company, preserving its data and running/rollback images while old unused release images are reclaimed. | Cloud PR 90; S93 recovery receipts | live disk/image inventory, protected-image and bounded-cleanup checks, successful desired-image pull and current company/heartbeat evidence |
+
+## From the owner, 17 October — business accounting and compact topics
+
+| ID | Tier | Story: I want … and I see … | Fix | Check |
+| --- | --- | --- | --- | --- |
+| US-324 | core | I want Tokens and Accounting to separate consumption estimates from actual business records. Saved Spend links still reach Tokens and Limits remains the place to control budgets. | S94 | redirect, owner/admin access and desktop/phone journey |
+| US-325 | core | I want to record sales and other income as well as business expenses, with dates, currency, payment status and source evidence. Corrections and voids preserve one record; different currencies and outstanding amounts never turn into fictional settled revenue or spend. | S94 | integer precision, idempotent retries, stale-edit refusal, persistence and company isolation |
+| US-326 | core | I want Exec and a meaningful topic in one compact row, with no General subtitle. Long topics never expand the header or displace search and actions. | S94 | default/long-topic desktop/phone height, clipping and history checks |

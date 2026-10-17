@@ -176,7 +176,7 @@
 			onback: () => void;
 		} | null;
 		workContext?: { onback: () => void } | null;
-		/** What this conversation is about: General, or one piece of Work. */
+		/** The optional Work topic; the default conversation needs no subtitle. */
 		topicLabel?: string;
 		topics?: {
 			key: string;
@@ -1346,8 +1346,9 @@
 												>{initials(participantName)}</span
 											>{/if}<span class="topic-text"
 											>{#if !wide}<strong class="exr-name">{participantName}</strong
-												>{/if}{#if topicLabel || wide}<span class="topic-label"
-													>{topicLabel || 'Conversation'}</span
+												>{/if}{#if topicLabel || wide}<span
+													class="topic-label"
+													title={topicLabel || undefined}>{topicLabel || 'Conversation'}</span
 												>{/if}</span
 										>{#if anyTopicNew}<i
 												class="topic-new"
@@ -2159,10 +2160,12 @@
 	/* The switcher is the name, not a bar: it sizes to its words and only
 	 * shows a wash on hover or while its menu is open. */
 	.topic-switch {
-		flex: 0 1 auto !important;
+		flex: 1 1 auto !important;
 		overflow: hidden;
 	}
 	.topic-switch :global(.action-menu) {
+		flex: 0 1 auto;
+		max-width: 100%;
 		min-width: 0;
 	}
 	.topic-switch :global(summary) {
@@ -2171,9 +2174,9 @@
 		width: auto;
 		max-width: 100%;
 		min-width: 0;
-		min-height: 42px;
-		height: auto;
-		padding: 4px 6px 4px 2px;
+		min-height: 30px;
+		height: 30px;
+		padding: 2px 4px 2px 0;
 		border-color: transparent !important;
 		overflow: hidden;
 	}
@@ -2219,6 +2222,8 @@
 		justify-content: center;
 	}
 	.topic-face {
+		flex: 1 1 auto;
+		max-width: 100%;
 		display: flex;
 		align-items: center;
 		gap: 8px;
@@ -2229,17 +2234,19 @@
 		flex: none;
 		color: var(--text-tertiary);
 	}
-	/* Keep the topic under the person's name throughout the cockpit. */
+	/* Identity and topic share one bounded line; full titles stay available on hover. */
 	.topic-text {
+		flex: 1 1 auto;
+		overflow: hidden;
 		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		gap: 0;
+		flex-direction: row;
+		align-items: center;
+		gap: 6px;
 		min-width: 0;
 	}
 	.topic-face .exr-name {
 		flex: none;
-		max-width: 100%;
+		max-width: 110px;
 	}
 	.topic-label {
 		flex: 1 1 auto;
@@ -2249,6 +2256,18 @@
 		font-size: var(--t-label);
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.topic-text .exr-name + .topic-label {
+		border-left: 1px solid var(--border);
+		padding-left: 6px;
+	}
+	:global(.bridge-root) .exr-head {
+		flex: none;
+		height: 44px;
+		min-height: 44px;
+		max-height: 44px;
+		box-sizing: border-box;
+		padding: 4px 8px;
 	}
 	.topic-option {
 		display: grid;

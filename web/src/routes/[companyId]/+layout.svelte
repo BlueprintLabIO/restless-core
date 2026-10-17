@@ -466,7 +466,7 @@
 	);
 	const railTopics = $derived.by(() => {
 		const entries: { key: string; label: string; hint: string; topic: RailTopic | null }[] = [
-			{ key: 'general', label: 'General', hint: 'Exec', topic: null }
+			{ key: 'general', label: 'Exec', hint: 'Company conversation', topic: null }
 		];
 		const add = (topic: RailTopic, hint?: string) => {
 			const key = `${topic.actorId}:${topic.workId ?? ''}`;
@@ -542,7 +542,7 @@
 				? workTitle(chosenTopic.workId)
 				: chosenTopic
 					? ''
-					: 'General'
+					: ''
 	);
 	const railConversation = $derived(
 		conversationQuery(

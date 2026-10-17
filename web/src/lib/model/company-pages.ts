@@ -85,11 +85,18 @@ export const COMPANY_PAGES: CompanyPage[] = [
 		keywords: 'decisions history receipts effects external'
 	},
 	{
-		key: 'spend',
+		key: 'tokens',
 		group: 'Records',
-		label: 'Spend',
-		path: '/spend',
-		keywords: 'cost tokens consumption usage estimates billing money budget'
+		label: 'Tokens',
+		path: '/tokens',
+		keywords: 'spend cost tokens consumption usage estimates model'
+	},
+	{
+		key: 'accounting',
+		group: 'Records',
+		label: 'Accounting',
+		path: '/accounting',
+		keywords: 'money income revenue expenses invoices receipts payments finance bookkeeping'
 	},
 	{
 		key: 'week',

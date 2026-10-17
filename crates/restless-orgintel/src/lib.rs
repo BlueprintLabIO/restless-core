@@ -13,6 +13,7 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{PgPool, Postgres, Row as _, Transaction};
 use uuid::Uuid;
 
+mod accounting;
 mod access;
 mod actor_context;
 mod actors;
@@ -51,6 +52,7 @@ mod visual;
 mod voice;
 mod work_collaboration;
 
+pub use accounting::*;
 pub use access::*;
 pub use actor_context::*;
 pub use completion_repairs::*;

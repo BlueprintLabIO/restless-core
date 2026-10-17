@@ -2732,6 +2732,7 @@ model = \"anthropic/claude-sonnet-5-5\"
         for path in [
             "/api/companies/aris/company/spend",
             "/api/companies/aris/company/spend/report",
+            "/api/companies/aris/company/accounting",
             "/api/companies/aris/company/activity",
             "/api/companies/aris/company/activity/payments",
             "/api/companies/aris/attention/history",
@@ -2747,6 +2748,7 @@ model = \"anthropic/claude-sonnet-5-5\"
             (Method::GET, "/api/companies/aris/company"),
             (Method::POST, "/api/companies/aris/company/activity/payments"),
             (Method::DELETE, "/api/companies/aris/company/activity/payments"),
+            (Method::PUT, "/api/companies/aris/company/accounting/record-id"),
             (Method::POST, "/api/companies/aris/company/spend-limit"),
             (Method::POST, "/api/companies/aris/tool-connections"),
             (Method::POST, "/api/companies/aris/company/payment-rail"),

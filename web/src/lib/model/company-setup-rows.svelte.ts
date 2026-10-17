@@ -304,19 +304,21 @@ export function createCompanySetup(companyIdOf: () => string) {
 		for (const target of COMPANY_PAGES) {
 			if (target.key === 'overview') continue;
 			const setupRow = byKey.get(target.key);
-			const record =
-				target.key === 'spend'
-					? Receipt
-					: target.key === 'activity'
-						? History
-						: target.key === 'week'
-							? CalendarRange
-							: target.key === 'health'
-								? HeartPulse
-								: null;
+			const record = ['tokens', 'accounting'].includes(target.key)
+				? Receipt
+				: target.key === 'activity'
+					? History
+					: target.key === 'week'
+						? CalendarRange
+						: target.key === 'health'
+							? HeartPulse
+							: null;
 			if (
 				!setupRow &&
-				!(record && (owner || (admin && ['activity', 'week', 'spend'].includes(target.key))))
+				!(
+					record &&
+					(owner || (admin && ['activity', 'week', 'tokens', 'accounting'].includes(target.key)))
+				)
 			)
 				continue;
 			let group = out.find((candidate) => candidate.label === target.group);
@@ -342,13 +344,15 @@ export function createCompanySetup(companyIdOf: () => string) {
 							icon: record!,
 							todo: 0,
 							tooltip:
-								target.key === 'spend'
-									? 'Recorded spend, estimated token value and measurement gaps'
-									: target.key === 'health'
-										? 'Checks on the company computer, model and tools'
-										: target.key === 'week'
-											? 'What the company finished, decided, sent and spent in the last seven days'
-											: 'Decisions, receipts and external actions',
+								target.key === 'tokens'
+									? 'Token consumption and clearly labelled API-equivalent estimates'
+									: target.key === 'accounting'
+										? 'Business income, expenses and observed payments'
+										: target.key === 'health'
+											? 'Checks on the company computer, model and tools'
+											: target.key === 'week'
+												? 'What the company finished, decided, sent and spent in the last seven days'
+												: 'Decisions, receipts and external actions',
 							...(target.key === 'health' && health
 								? health === 'healthy'
 									? { reading: 'Healthy', readingTone: 'work' as const }

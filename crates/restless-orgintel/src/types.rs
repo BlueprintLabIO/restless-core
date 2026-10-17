@@ -307,6 +307,8 @@ pub struct InitialWorkGate<'a> {
 
 #[derive(Debug, thiserror::Error)]
 pub enum OrgIntelError {
+    #[error("invalid accounting record: {0}")]
+    InvalidAccounting(String),
     #[error("invalid company schema name {0:?}")]
     BadSchemaName(String),
     #[error(transparent)]
@@ -343,7 +345,8 @@ impl OrgIntelError {
     /// fault is not the person's doing, so it says so instead of quoting the database.
     pub fn plain_message(&self) -> String {
         let reason = match self {
-            Self::InvalidWork(reason)
+            Self::InvalidAccounting(reason)
+            | Self::InvalidWork(reason)
             | Self::InvalidRoom(reason)
             | Self::RoomAccessDenied(reason)
             | Self::RoomCommandConflict(reason)

@@ -1,17 +1,11 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
-	import { Page, Section, Notice, Empty, Segmented, Row } from '$lib/ui/page';
+	import { Page, Section, Notice, Empty, Segmented } from '$lib/ui/page';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import { mayReadCompanyRecord } from '$lib/model/company-access';
-	import {
-		spendReportQuery,
-		usd,
-		tokenCount,
-		paymentAmount,
-		costBasis
-	} from '$lib/model/spend.svelte';
+	import { spendReportQuery, usd, tokenCount, costBasis } from '$lib/model/spend.svelte';
 	import { formatMoment } from '$lib/ui/time';
 	import { failureSentence } from '$lib/model/failure';
 
@@ -46,17 +40,17 @@
 		`/${encodeURIComponent(company)}/work?goal=${encodeURIComponent(id)}`;
 </script>
 
-<CompanyTitle title="Spend" companyId={company} />
+<CompanyTitle title="Tokens" companyId={company} />
 <Page
-	title="Spend"
-	info="Best-effort company spend and token consumption. Estimates are labelled and missing measurements remain unknown."
+	title="Tokens"
+	info="Token consumption by employee, model and time. API-equivalent values are estimates; actual business income and expenses are in Accounting."
 >
 	{#snippet actions()}
 		<button class="btn small" disabled={report.reading} onclick={() => void report.refresh()}
 			>{report.reading ? 'Refreshing…' : 'Refresh'}</button
 		>
 	{/snippet}
-	<div class="spend-filters" aria-label="Spend filters">
+	<div class="spend-filters" aria-label="Token filters">
 		<label for="spend-period">Period</label>
 		<select id="spend-period" bind:value={days}>
 			<option value="1">Last 24 hours</option><option value="7">Last 7 days</option>
@@ -68,30 +62,24 @@
 	</div>
 	{#if report.failure}<Notice
 			tone="danger"
-			title={failureSentence(report.failure, 'Spend could not be refreshed.')}
+			title={failureSentence(report.failure, 'Token consumption could not be refreshed.')}
 		/>{/if}
 	{#if view && totals}
 		<div class="spend-summary">
 			<div>
-				<span>Recorded model spend · USD</span><strong>{usd(totals.recorded_usd)}</strong><small
-					title="Ledger amounts may include tariff estimates and older records whose pricing source was not stored. Subscription usage is shown separately."
-					>Best-effort ledger total</small
-				>
+				<span>Tokens consumed</span><strong
+					>{tokenCount(totals.tokens)}{totals.calls_without_tokens ? '+' : ''}</strong
+				><small>{tokenCount(totals.calls)} recorded model calls</small>
 			</div>
 			<div>
 				<span>Estimated token value · USD</span><strong>{usd(totals.estimated_usd)}</strong><small
 					>Estimate · API equivalent, not a charge</small
 				>
 			</div>
-			<div>
-				<span>Tokens consumed</span><strong
-					>{tokenCount(totals.tokens)}{totals.calls_without_tokens ? '+' : ''}</strong
-				><small>{tokenCount(totals.calls)} recorded model calls</small>
-			</div>
 		</div>
 		<p class="estimate-note">
-			Estimated token value is separate from recorded spend. It does not show how much of your
-			subscription allowance was used.
+			Estimates are not charges or subscription allowance percentages.
+			<a href={`/${company}/company/accounting`}>View Accounting</a> for business income and expenses.
 		</p>
 		{#if totals.calls_without_tokens || totals.calls_without_estimate || totals.unknown_charges}
 			<Notice title="Some measurements are missing" tone="warning">
@@ -239,35 +227,6 @@
 					>{report.readingMore ? 'Reading…' : 'Show earlier'}</button
 				>{/if}
 		</Section>
-		<Section
-			title="Payments"
-			info="Known payment intents, grouped by their recorded currency. Pending and failed payments are not counted as settled spend."
-		>
-			{#if model}<Empty compact title="Payments are outside this model filter" />
-			{:else if view.payments_status === 'unavailable'}<Notice
-					title="Payment records could not be read"
-					tone="warning"
-				/>
-			{:else}
-				{#each view.payment_totals as total (total.currency)}<Row
-						label={`${total.currency} settled`}
-						>{paymentAmount(total.settled_minor, total.currency)}</Row
-					>{#if total.pending_minor}<Row label={`${total.currency} pending`}
-							>{paymentAmount(total.pending_minor, total.currency)}</Row
-						>{/if}{/each}
-				{#each view.payments as payment (payment.id)}<Row
-						label={payment.purpose}
-						info={`${payment.state} · ${formatMoment(payment.occurred_at)}`}
-						><span>{payment.state.replaceAll('_', ' ')}</span><a href={workHref(payment.work_id)}
-							>{paymentAmount(payment.amount_minor, payment.currency)}</a
-						></Row
-					>{:else}<Empty
-						compact
-						title="No recorded payments in this period"
-						info="Off-platform purchases and unconnected invoices are not automatically observed."
-					/>{/each}
-			{/if}
-		</Section>
 		<Section title="Measurement details" group={false}>
 			<details class="coverage">
 				<summary>Sources and coverage</summary>
@@ -307,7 +266,7 @@
 			</details>
 		</Section>
 	{:else if !report.failure}<Skeleton
-			label="Reading spend and token consumption…"
+			label="Reading token consumption…"
 			variant="page"
 			count={6}
 		/>{/if}
@@ -335,7 +294,7 @@
 	}
 	.spend-summary {
 		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 1fr));
+		grid-template-columns: repeat(2, minmax(0, 1fr));
 		gap: 20px;
 	}
 	.spend-summary > div {
@@ -433,11 +392,19 @@
 	}
 	.spend-call summary {
 		cursor: pointer;
+		position: relative;
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) auto auto;
 		gap: 18px;
 		align-items: center;
-		padding: 12px 0;
+		padding: 12px 0 12px 18px;
+	}
+
+	.spend-call summary::before {
+		position: absolute;
+		left: 0;
+		top: 18px;
+		margin: 0;
 	}
 	.call-person,
 	.call-measure {

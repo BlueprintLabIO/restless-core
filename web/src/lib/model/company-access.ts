@@ -27,7 +27,15 @@ export function mayManageCompanySetup(principal: CompanyPrincipal | null | undef
 const SHARED_COMPANY_SECTIONS = ['', '/charter', '/identity', '/members', '/schedules'];
 /** What an admin also reads, to run the company with the owner: what it sent and decided,
  * what it spends, and the apps it uses. Changing them stays the owner's. */
-const ADMIN_READ_SECTIONS = ['/activity', '/spend', '/resources', '/week', '/party'];
+const ADMIN_READ_SECTIONS = [
+	'/activity',
+	'/spend',
+	'/tokens',
+	'/accounting',
+	'/resources',
+	'/week',
+	'/party'
+];
 
 /** An admin reads Activity, spend and Apps beside the owner. */
 export function mayReadCompanyRecord(principal: CompanyPrincipal | null | undefined): boolean {

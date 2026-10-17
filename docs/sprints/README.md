@@ -158,3 +158,5 @@ The detailed Cloud roadmap, Fleet/cell/multiplayer sprint plans and public-opera
 separate [restless-cloud repository](https://github.com/BlueprintLabIO/restless-cloud/tree/main/docs/sprints).
 Core retains only its release-contract and cell responsibilities; these plans do not authorise a Core
 deployment, provider connection or customer cell.
+
+- [Sprint 94 — business books and compact conversations](./sprint-94.md)

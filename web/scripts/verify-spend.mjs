@@ -1,4 +1,4 @@
-/* Company Spend acceptance. Synthetic records live only in the owned *_test stack. */
+/* Company Tokens acceptance. Synthetic records live only in the owned *_test stack. */
 import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -40,9 +40,9 @@ for (const [name, viewport] of [
 	page.on('pageerror', (error) => errors.push(error.message));
 	try {
 		await page.goto(`${origin}/${company}/company/spend`);
-		await page.getByRole('heading', { name: 'Spend', exact: true }).waitFor();
+		await page.getByRole('heading', { name: 'Tokens', exact: true }).waitFor();
 		await page.getByText('246,000+', { exact: true }).waitFor();
-		assert.equal(await page.getByRole('heading', { name: 'Spend', exact: true }).count(), 1);
+		assert.equal(await page.getByRole('heading', { name: 'Tokens', exact: true }).count(), 1);
 		await page.getByRole('button', { name: 'reviewer', exact: true }).click();
 		await page.getByText('122,400', { exact: true }).first().waitFor();
 		await page.getByRole('button', { name: 'All employees ×', exact: true }).click();
@@ -115,12 +115,6 @@ for (const [name, viewport] of [
 			'An empty filter never retains the previous activity'
 		);
 		await page.unroute(`**/api/companies/${company}/company/spend/report?**`);
-		await page.route(`**/api/companies/${company}/company/spend/report?**`, (route) =>
-			route.fulfill({ json: { ...first, payments_status: 'unavailable' } })
-		);
-		await page.getByLabel('Period', { exact: true }).selectOption('1');
-		await page.getByText('Payment records could not be read', { exact: true }).waitFor();
-		await page.getByText('246,000+', { exact: true }).waitFor();
 		results.push({ name, passed: true });
 	} catch (error) {
 		await page.screenshot({ path: `${output}/${name}-failed.png` });
