@@ -11,8 +11,9 @@ records contain substantial subscription-backed token consumption while its doll
   employee/model/day breakdowns, paged request evidence, Work links and known payment currencies.
 - [x] Verify cache-aware estimates, missing counts, corrected duplicates, restart/read failures,
   company isolation and owner/admin access. Review the populated page at desktop and phone widths.
-- [ ] Integrate verified source and install the supported local stack. Hosted rollout remains a
-  separate observed completion gate; the previous rollout's company image pull failed on disk space.
+- [x] Integrate verified source and install the supported local stack.
+- [x] Observe the hosted release identity and both company runtimes after recovering host disk
+  headroom. Installation receipts and the remaining follow-ups are recorded below.
 
 Reuse the company request spool, payment intents, shared public model catalogue and owner page/query
 primitives. Do not add a parallel charging ledger, an accounting platform, model-generated telemetry
@@ -43,15 +44,15 @@ current catalogue snapshot and never rewrite historical charges or imply a subsc
    Start read-only; additional effects require the existing authority. Reuse the Fleet assertion and
    plane membership boundaries. Neon access is for database operations, not session fabrication or
    an owner-impersonation login backdoor. Store any normal existing sign-in in the approved vault.
-4. **Finish operational polish.** Recover hosted disk capacity safely, retain running/rollback images
-   and company volumes, and report installed versus desired versions. Keep the Installed alignment
+4. **Finish operational polish.** Hosted disk recovery and bounded image retention are complete
+   (receipts below). Keep installed-versus-desired versions observable and the Installed alignment
    correction outstanding. Make publishing, app activation and schedules expose a useful latest
    outcome and recovery action. Measure navigation latency before claiming a performance gain.
 
 Acceptance for these follow-ups must include a real owner journey, not only an implementation or
 passing component checks. No one-click publishing, production support grant, automatic cost import
-from unrelated developer chats, burn-rate protection or hosted disk recovery is claimed implemented
-by this sprint's Spend page.
+from unrelated developer chats or burn-rate protection is claimed implemented by this sprint's
+Spend page. Disk recovery was a separate Cloud operations fix, verified below.
 
 Optional developer-usage import should read only consented local usage metadata, not prompts or
 company credentials. Keep external chats outside company totals unless a real attribution exists;
@@ -81,6 +82,37 @@ waiting for external builds, and no repeated broad verification after a bounded 
 - Final visual calibration uses Beautiful UI, Cult UI and Origin UI Svelte: aligned numeric columns,
   restrained hierarchy, bounded disclosure and the existing page primitives, with no imported UI
   framework or component runtime. Local/hosted installation receipts remain separate from tests.
+
+## Installation and recovery receipts — 17 October
+
+- Core product source is `243528f5aa5fdd8be691ac8693c67b25999088b6`. The supported local
+  appliance installed release `8f91e9fdddbb2dd62105`; a fresh status check reports ready, owner HTTP
+  200, the correct source, and no drain or repair. The populated Sydney Resale Spend page renders
+  recorded spend separately from the labelled API-equivalent estimate and exposes request/session
+  identities and input/output/cache evidence. The local runtime subsequently exited cleanly at
+  01:25 UTC with exit 0 and no OOM; verification preserves its existing Asleep state. A current
+  doctor therefore reports that stopped runtime rather than claiming every component is running.
+- [Immutable Core release 39010654627](https://github.com/BlueprintLabIO/restless-core/actions/runs/39010654627)
+  passed qualification, platform publication, signing and contract verification. The sealed bundle
+  is `ghcr.io/blueprintlabio/restless-core-release@sha256:20eb4718fe61eb3199833739bc3dc6bebc03241d5e5660b6441ae7bf98975936`;
+  its release manifest digest is `sha256:7a919bbf1f85d5ca5864a958be339681567214c1d71157f748eec5afd12157f0`.
+- [Cloud release 39013031451](https://github.com/BlueprintLabIO/restless-cloud/actions/runs/39013031451)
+  passed all four image builds/scans, signed release composition and Northflank deployment/smoke
+  checks from Cloud `061f5c4e105a53d26d0022c61d4d404e650168c1`. Live owner health reports the
+  exact Core product source above. Both companies report current/running at the manifest's runtime
+  digest `sha256:47978c7d3b7e9df3c5ea36856ff3e4a11e01c575799f3314464ad7c048f9c1a6`.
+- The owner VM previously had 1.9 GiB free (98% used) and 158 images. Authorized image-only cleanup
+  removed 137 old versions while preserving container references, six recent component versions
+  and all company/database volumes. The previously failing runtime pull succeeded. After the Spend
+  rollout, a fresh provider heartbeat reports desired/applied revision 53, healthy, no error and
+  54,093,074,432 free bytes. [Cloud PR 90](https://github.com/BlueprintLabIO/restless-cloud/pull/90)
+  adds bounded reclamation below 12 GiB, protected desired/current/previous references and a
+  24-attempt limit. Its tested agent was checksum-verified and installed on the existing VM, with
+  the prior script retained. New VMs also receive it through cloud-init.
+- Verification used the installed local UI and hosted release/owner/heartbeat evidence. A signed-in
+  visual review of the hosted company is still an owner review step; no developer session was
+  fabricated from database access. The planned publishing, support-access, efficiency and alignment
+  stories remain planned rather than being marked complete by this operational rollout.
 
 Sources consulted: [OpenAI usage guidance](https://learn.chatgpt.com/docs/pricing),
 [prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching), existing Core
