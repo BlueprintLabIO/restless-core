@@ -1,3 +1,4 @@
+import { openLiveEvents } from './live-events';
 /**
  * Owner-facing server state belongs to TanStack Query. The daemon remains the
  * writer; these helpers only choose cache keys, freshness and invalidation.
@@ -1015,7 +1016,7 @@ export function companyChangeStream(companyId: () => string, enabled: QueryEnabl
 	$effect(() => {
 		const company = companyId();
 		if (!company || !queryEnabled(enabled) || typeof EventSource === 'undefined') return;
-		const source = new EventSource(`/api/companies/${encodeURIComponent(company)}/changes`);
+		const source = openLiveEvents(`/api/companies/${encodeURIComponent(company)}/changes`);
 		/* The stream ends when the session does (a role change, removal, an update). Ask at once
 		 * whether this person may still be here, so a lapsed session re-enters within a second
 		 * instead of at the next slow poll; once it is back, catch up on any hint it missed. */

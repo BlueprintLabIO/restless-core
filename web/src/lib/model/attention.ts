@@ -1,3 +1,4 @@
+import { openLiveEvents } from './live-events';
 import type { AttentionItem, DecisionContinuation } from './view';
 import { ownerAttention } from './attention-presentation';
 import type { WorkGraphSnapshot } from './generated/orgintel';
@@ -340,7 +341,7 @@ export function openAgentActivityStream(
 			: scope.workId !== undefined
 				? `work_id=${encodeURIComponent(scope.workId)}`
 				: '';
-	const source = new EventSource(
+	const source = openLiveEvents(
 		`/api/companies/${encodeURIComponent(company)}/actors/${encodeURIComponent(actor)}/activity${query ? `?${query}` : ''}`
 	);
 	let phase: AgentActivityState['phase'] | null = null;

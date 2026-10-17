@@ -50,3 +50,27 @@ company money book; automatic imports and reconciliation need a later observed i
 Accounting is an operational money book, with manually evidenced business records and a separate
 payment-rail feed. Automatic bank/invoice imports and reconciliation remain future integrations;
 model estimates never become accounting entries or charge totals.
+
+## Installed review — local connection starvation
+
+The initial `10ebe406` appliance installed successfully, but its Tokens link stalled with three
+local browser tabs. A single fresh browser worked. A controlled three-tab production probe
+reproduced six long-lived requests (`changes` and Exec `activity` per tab) and a 15-second
+navigation timeout: Chromium's HTTP/1 per-origin connection limit was consumed by live updates.
+The hosted dispatcher was held while the installed path was investigated.
+
+Local loopback HTTP now carries the existing SSE frames over WebSockets for company change hints
+and agent activity. HTTPS retains native EventSource; legacy SSE clients keep the same endpoints.
+The same authenticated route, membership lease, stream admission, ambient redaction and origin
+checks remain authoritative. The adapter only sends existing response bytes and accepts no commands.
+The client reconnects with bounded backoff, resynchronises through the existing callbacks and
+cancels its retry on close. No shared cross-tab credentials, leader election or new server event
+protocol. Room replay streams remain on their existing transport.
+
+The isolated production-build regression passes with eight open tabs, 105ms navigation, live
+activity bytes, no HTTP SSE requests from the application, legacy SSE 200 and cross-origin socket
+403. The fixture scheduler is disabled, with no model work, and its plane/database cleanup is empty.
+Framing and reconnect/close tests pass, along with owner and frontend diagnostics. This directly
+contrasts the recorded three-tab/15-second failure from the first installed candidate; it is not
+inferred from a single-tab shell. The original hosted candidate was cancelled as superseded before
+deployment, and the final candidate must repeat the release qualification gates.

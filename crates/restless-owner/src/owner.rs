@@ -7,6 +7,8 @@
 //! approval actions, and browser attach/lease transport. It is not a generic
 //! REST facade over the company computer.
 
+#[path = "owner_event_transport.rs"]
+mod event_transport;
 #[path = "owner_accounting.rs"]
 mod accounting_api;
 #[path = "owner_appliance.rs"]
@@ -8907,6 +8909,7 @@ async fn company_changes(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
     session_lease: Option<Extension<SessionLease>>,
+    upgrade: event_transport::Upgrade,
 ) -> Response<Body> {
     if runtime::CompanyConfig::load(&state.daemon.root, &company).is_err() {
         return api_error(StatusCode::NOT_FOUND, "company", "no such company");
@@ -8938,7 +8941,7 @@ async fn company_changes(
         .daemon
         .cell_wakes
         .subscribe_company(&company, &database_url);
-    Sse::new(company_change_stream(
+    let response = Sse::new(company_change_stream(
         company,
         wakes,
         admission,
@@ -8949,7 +8952,8 @@ async fn company_changes(
             .interval(Duration::from_secs(15))
             .text("still-connected"),
     )
-    .into_response()
+    .into_response();
+    event_transport::respond(response, upgrade)
 }
 
 /// How long one burst of notifications is gathered into a single hint. A
@@ -9597,6 +9601,7 @@ async fn agent_activity_live(
     AxumPath((company, actor)): AxumPath<(String, String)>,
     Query(query): Query<AgentActivityQuery>,
     session_lease: Option<Extension<SessionLease>>,
+    upgrade: event_transport::Upgrade,
 ) -> Response<Body> {
     if state.entry.network().is_some()
         && session_lease
@@ -9678,13 +9683,14 @@ async fn agent_activity_live(
         session_lease.map(|Extension(lease)| lease),
         ambient,
     );
-    Sse::new(stream)
+    let response = Sse::new(stream)
         .keep_alive(
             KeepAlive::new()
                 .interval(Duration::from_secs(15))
                 .text("still-connected"),
         )
-        .into_response()
+        .into_response();
+    event_transport::respond(response, upgrade)
 }
 
 fn agent_activity_stream(
