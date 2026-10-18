@@ -11,7 +11,8 @@ import { completeHandoffHumanStep, dismissAttention, restoreAttention } from '$l
 import { fetchAppRequests } from '$lib/model/app-requests';
 import { failureSentence } from '$lib/model/failure';
 import { setInboxMarks, withMarks, type InboxMark, type InboxMarkChange } from '$lib/model/for-you';
-import { refreshAttention } from '$lib/model/queries.svelte';
+import { queryKeys, refreshAttention } from '$lib/model/queries.svelte';
+import { getCompanyPrincipal } from '$lib/model/query-persistence';
 
 export const inboxMarksKey = (companyId: string) => ['inbox-marks', companyId] as const;
 
@@ -135,10 +136,22 @@ export function markDoneSoon(
 /** The handoffs that are app requests: adding the app resumes them, so they have no Mark done.
  * The owner's only (Apps are the owner's); a refused read is the query's error to show. */
 export function appRequestHandoffs(companyId: () => string, enabled: () => boolean) {
+	/* Admins can set Inbox items aside too, but app requests are read by the owner alone: the
+	 * gateway refuses anyone else, and the multiplayer smoke caught an admin's every screen asking. */
+	const principal = createQuery(() => ({
+		queryKey: queryKeys.principal(companyId()),
+		queryFn: ({ signal }) => getCompanyPrincipal(companyId(), signal),
+		enabled: Boolean(companyId()),
+		staleTime: 60_000
+	}));
 	return createQuery(() => ({
 		queryKey: ['app-requests', companyId()],
 		queryFn: () => fetchAppRequests(companyId()),
-		enabled: enabled() && Boolean(companyId()),
+		enabled:
+			enabled() &&
+			Boolean(companyId()) &&
+			(principal.data as { membership_role?: string } | null | undefined)?.membership_role ===
+				'owner',
 		staleTime: 30_000,
 		refetchInterval: 60_000,
 		retry: 1
