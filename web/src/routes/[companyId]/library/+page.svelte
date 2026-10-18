@@ -685,9 +685,9 @@
 		query.set('file', id);
 		return `${root}/library?${query}`;
 	};
+	/* Every kept file opens in the viewer, which offers a download for kinds a browser cannot show.
+	 * Linking the gateway path itself would send the app's router to an API path it has no page for. */
 	const uploadHref = (row: RetainedAttachment) => {
-		if (!attachmentReadKind(row.canonical_media_type, row.canonical_name))
-			return attachmentHref(companyId, row.attachment_id);
 		const query = new URLSearchParams(page.url.search);
 		query.delete('file');
 		query.set('upload', row.attachment_id);
