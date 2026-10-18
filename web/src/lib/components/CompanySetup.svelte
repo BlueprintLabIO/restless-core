@@ -29,6 +29,7 @@
 	} from '$lib/model/company-setup.svelte';
 	import Composer from '$lib/primitives/Composer.svelte';
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
+	import SetupBrand from '$lib/components/SetupBrand.svelte';
 	import ConnectModel from '$lib/components/ConnectModel.svelte';
 	import { MAX_UPLOAD_BYTES, MAX_UPLOAD_FILES } from '$lib/model/attachments';
 	import IntelligenceChip from '$lib/components/IntelligenceChip.svelte';
@@ -157,6 +158,26 @@
 	let focusKey = $state(0);
 	let pane = $state<HTMLElement>();
 	let thread = $state<HTMLElement>();
+	let readbackCard = $state<HTMLElement>();
+	/* The read-back grows as Brand & voice arrives; it stays read from its first line. */
+	function pinReadback() {
+		if (!thread || !readbackCard) return;
+		thread.scrollTo({
+			top: Math.max(
+				0,
+				thread.scrollTop +
+					readbackCard.getBoundingClientRect().top -
+					thread.getBoundingClientRect().top -
+					16
+			)
+		});
+	}
+	$effect(() => {
+		if (!readbackCard) return;
+		const observer = new ResizeObserver(() => pinReadback());
+		observer.observe(readbackCard);
+		return () => observer.disconnect();
+	});
 	/* The charter is saved but the company's name did not change: say so, and offer it again. */
 	let nameFailure = $state('');
 	/* The charter this page saved; a changed read-back is saved again. */
@@ -177,7 +198,10 @@
 		void step;
 		void waiting;
 		void tick().then(() => {
-			thread?.scrollTo({ top: thread.scrollHeight });
+			/* The read-back is read from its first line; everything else follows the newest line. */
+			if (step === 'readback' && readbackCard && thread) {
+				pinReadback();
+			} else thread?.scrollTo({ top: thread.scrollHeight });
 			if (step === 'idea' || step === 'readback') focusKey += 1;
 		});
 	});
@@ -477,6 +501,7 @@
 				{:else if step === 'readback'}
 					<div
 						class="setup-card readback"
+						bind:this={readbackCard}
 						role="group"
 						aria-label="How Exec understands your company"
 					>
@@ -517,6 +542,7 @@
 								</div>
 							{/each}
 						</dl>
+						<SetupBrand {companyId} />
 						{#if nameFailure}
 							<p class="setup-note" role="alert">
 								The charter is saved, but the name is still {currentName || 'unchanged'}: {nameFailure}
