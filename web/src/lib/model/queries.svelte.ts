@@ -52,6 +52,8 @@ type QueryEnabled = boolean | (() => boolean);
 const STALE_MS = 5_000;
 const REFRESH_MS = 10_000;
 const RETAIN_MS = 10 * 60_000;
+/* How long an ambient turn's working line outlives the turn, in case the next one starts. */
+const AMBIENT_GAP_MS = 1_200;
 
 function queryEnabled(value: QueryEnabled): boolean {
 	return typeof value === 'function' ? value() : value;
@@ -685,16 +687,29 @@ export function conversationQuery(
 		}
 		ambient = null;
 		let wasLive = false;
+		/* One turn often ends just before the next starts (a Staff result wakes the actor again).
+		 * The working line holds through that gap rather than vanishing and coming back. */
+		let ending: ReturnType<typeof setTimeout> | null = null;
 		const close = openAgentActivityStream(companyId, actorId, {}, (state) => {
-			ambient = state;
 			const isLive =
 				state.phase !== 'complete' && state.phase !== 'failed' && state.phase !== 'unavailable';
-			if (wasLive && !isLive) void client.invalidateQueries({ queryKey: key });
+			if (ending) clearTimeout(ending);
+			ending = null;
+			if (wasLive && !isLive) {
+				ending = setTimeout(() => {
+					ending = null;
+					ambient = state;
+				}, AMBIENT_GAP_MS);
+				void client.invalidateQueries({ queryKey: key });
+			} else ambient = state;
 			wasLive = isLive;
 		});
 		// A query can be discarded while its parent derived is recomputing.
 		// Cleanup releases the subscription; reactive state is reset in the effect body.
-		return close;
+		return () => {
+			if (ending) clearTimeout(ending);
+			close();
+		};
 	});
 
 	/* The query holds the newest 100 messages; earlier ones are paged in on request and kept

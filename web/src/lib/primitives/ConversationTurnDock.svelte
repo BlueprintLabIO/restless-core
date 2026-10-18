@@ -433,7 +433,9 @@
 		min-width: 0;
 		display: flex;
 		align-items: center;
-		flex-wrap: wrap;
+		/* One line whatever the tool is called: a long label wrapped the time and count onto a
+		 * second line and the row jumped with every action. The label gives way instead. */
+		flex-wrap: nowrap;
 		gap: 6px;
 		padding: 4px 14px;
 		border: 0;
@@ -514,8 +516,8 @@
 		color: var(--text-tertiary);
 		font: 500 var(--t-caption) var(--font-ui);
 		font-variant-numeric: tabular-nums;
-		white-space: normal;
-		overflow-wrap: anywhere;
+		flex: none;
+		white-space: nowrap;
 	}
 	.output-usage + .turn-chevron,
 	.context-usage + .turn-chevron {

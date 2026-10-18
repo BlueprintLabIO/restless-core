@@ -106,51 +106,91 @@
 				background: #171d28;
 				color: #8cabc5;
 			}
-			.boot-wave {
-				display: flex;
-				align-items: center;
-				gap: 6px;
-				height: 110px;
+			/* The one loading screen: the brand's dot field filling the page, the same one Cloud shows
+			 * while it opens a company (lib/ui/glyph/MatrixField.svelte draws it in the app). */
+			.boot-field {
+				position: absolute;
+				inset: 0;
+				width: 100%;
+				height: 100%;
+				color: var(--accent, #48546c);
+				opacity: 0.9;
+				mask-image: radial-gradient(ellipse at 50% 50%, black 20%, transparent 85%);
+				animation: boot-breathe 4.8s ease-in-out infinite;
 			}
-			.boot-wave i {
-				width: 8px;
-				height: 90px;
-				background: repeating-linear-gradient(to top, currentColor 0 7px, transparent 7px 12px);
-				animation: boot-wave 1600ms steps(7, end) infinite;
-				animation-delay: calc(var(--i) * -90ms);
+			html[data-theme='dark'] .boot-field {
+				color: #aab4c8;
 			}
-			@keyframes boot-wave {
+			@keyframes boot-breathe {
 				0%,
 				100% {
-					height: 18px;
-					opacity: 0.35;
+					opacity: 0.9;
 				}
 				50% {
-					height: 90px;
-					opacity: 0.9;
+					opacity: 0.63;
 				}
 			}
 			body:has(.app-mount > *):not(:has(.first-paint-pending)) > .boot {
 				display: none;
 			}
 			@media (prefers-reduced-motion: reduce) {
-				.boot-wave i {
+				.boot-field {
 					animation: none;
-					height: 42px;
-					opacity: 0.7;
 				}
 			}
 		</style>
 	</head>
 	<body data-sveltekit-preload-data="hover">
 		<div class="boot bridge-tokens" role="status" aria-label="Opening your workspace">
-			<span class="boot-wave" aria-hidden="true"
-				><i style="--i: 0"></i><i style="--i: 1"></i><i style="--i: 2"></i><i style="--i: 3"></i
-				><i style="--i: 4"></i><i style="--i: 5"></i><i style="--i: 6"></i><i style="--i: 7"></i
-				><i style="--i: 8"></i><i style="--i: 9"></i><i style="--i: 10"></i><i style="--i: 11"></i
-				><i style="--i: 12"></i
-			></span>
+			<canvas class="boot-field" aria-hidden="true"></canvas>
 		</div>
+		<script>
+			/* Draws the field while the loading screen shows; entering a company shows it again, so
+			 * it rests while hidden rather than stopping. Same pattern and clock as MatrixField. */
+			(function () {
+				var boot = document.querySelector('.boot');
+				var canvas = boot && boot.querySelector('canvas');
+				var context = canvas && canvas.getContext && canvas.getContext('2d');
+				if (!context) return;
+				var still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+				var step = 9;
+				var drawn = false;
+				function draw() {
+					if (!canvas.offsetParent && getComputedStyle(boot).display === 'none') {
+						drawn = false;
+						return setTimeout(draw, 250);
+					}
+					if (!still || !drawn) {
+						var time = Date.now();
+						var ratio = Math.min(2, devicePixelRatio || 1);
+						var width = canvas.clientWidth;
+						var height = canvas.clientHeight;
+						if (canvas.width !== Math.round(width * ratio)) {
+							canvas.width = Math.round(width * ratio);
+							canvas.height = Math.round(height * ratio);
+						}
+						context.setTransform(ratio, 0, 0, ratio, 0, 0);
+						context.clearRect(0, 0, width, height);
+						context.fillStyle = getComputedStyle(canvas).color;
+						for (var y = 0; y < height; y += step)
+							for (var x = 0; x < width; x += step) {
+								var v =
+									Math.sin(x * 0.021 + time * 0.0006) +
+									Math.cos(y * 0.05 - time * 0.0004) +
+									Math.sin((x + y) * 0.013);
+								var strength = Math.max(0, (v + 0.6) * 0.55);
+								if (strength > 0.15) {
+									context.globalAlpha = Math.min(0.5, strength * 0.35);
+									context.fillRect(x, y, 2, 2);
+								}
+							}
+						drawn = true;
+					}
+					requestAnimationFrame(draw);
+				}
+				draw();
+			})();
+		</script>
 		<div class="app-mount" style="display: contents">%sveltekit.body%</div>
 	</body>
 </html>

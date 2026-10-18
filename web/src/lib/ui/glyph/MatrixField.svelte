@@ -14,7 +14,11 @@
 		const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
 		let frame = 0;
 		let visible = true;
-		const draw = (time: number) => {
+		/* The wall clock, not the frame's: every field on screen, and the loading screen in
+		 * app.html, shows the same moment of the wave, so one page handing to the next
+		 * does not jump. */
+		const draw = () => {
+			const time = Date.now();
 			const ratio = Math.min(2, devicePixelRatio || 1);
 			const width = element.clientWidth;
 			const height = element.clientHeight;
