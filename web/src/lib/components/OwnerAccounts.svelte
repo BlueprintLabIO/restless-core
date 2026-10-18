@@ -56,7 +56,9 @@
 			accounts = await client.list();
 			failure = '';
 		} catch (cause) {
-			if ((cause as { status?: number }).status === 404) available = false;
+			/* Not on this plane, or not this person's to manage: the section is not theirs to see. */
+			const status = (cause as { status?: number }).status;
+			if (status === 404 || status === 403) available = false;
 			else failure = failureSentence(cause, 'Your accounts could not be loaded.');
 		} finally {
 			loaded = true;
@@ -171,7 +173,9 @@
 			if (asked?.company) {
 				request = asked.request;
 				editGrant(created, null, asked.company);
-				toast(`${created.label} added. Save ${companyName(asked.company)}'s access to answer the request.`);
+				toast(
+					`${created.label} added. Save ${companyName(asked.company)}'s access to answer the request.`
+				);
 			} else toast(`${created.label} added. Give a company access below.`);
 		} catch (cause) {
 			toast(failureSentence(cause, 'The account was not added.'), { tone: 'failure' });
@@ -245,7 +249,10 @@
 				const site = params.get('site') ?? '';
 				if (kind === 'api') form.baseUrl = site;
 				else if (kind !== 'github') form.url = site;
-				pendingGrant = { company: params.get('company') ?? '', request: params.get('request') ?? '' };
+				pendingGrant = {
+					company: params.get('company') ?? '',
+					request: params.get('request') ?? ''
+				};
 			});
 			return;
 		}
@@ -537,15 +544,15 @@
 			<InfoTip
 				text="Logins, API keys and apps you hold once and let companies use. Companies act with them through Restless and never see the password or key."
 			/>
-			<button
-				type="button"
-				class="btn small"
-				aria-expanded={adding}
-				onclick={() => {
-					adding = !adding;
-					draft = null;
-				}}>{adding ? 'Cancel' : 'Add account'}</button
-			>
+			{#if !adding}<button
+					type="button"
+					class="btn small"
+					aria-expanded="false"
+					onclick={() => {
+						adding = true;
+						draft = null;
+					}}>Add account</button
+				>{/if}
 		</header>
 
 		{#if adding}
@@ -558,8 +565,7 @@
 							aria-checked={addKind === entry.kind}
 							class:on={addKind === entry.kind}
 							title={entry.hint}
-							onclick={() => (addKind = entry.kind)}
-							><span class="mark" aria-hidden="true">{entry.mark}</span>{entry.label}</button
+							onclick={() => (addKind = entry.kind)}>{entry.label}</button
 						>
 					{/each}
 				</div>
@@ -633,38 +639,42 @@
 								bind:value={form.secret}
 								autocomplete="off"
 								placeholder="github_pat_…"
-							/></label
+							/><small
+								>A <a
+									href="https://github.com/settings/personal-access-tokens/new"
+									target="_blank"
+									rel="noreferrer">fine-grained token</a
+								> for just the repositories your companies need.</small
+							></label
 						>
-						<p class="hint">
-							Make a <a
-								href="https://github.com/settings/personal-access-tokens/new"
-								target="_blank"
-								rel="noreferrer">fine-grained token</a
-							> for just the repositories your companies need. Restless checks it with GitHub and shows
-							whose it is.
-						</p>
 					{:else}
 						<p class="hint">
 							After you add it, sign in once in your browser. Companies use that session, never the
 							password.
 						</p>
 					{/if}
-					<label><span>Name (optional)</span><input bind:value={form.label} /></label>
+					<label><span>Name</span><input bind:value={form.label} placeholder="Optional" /></label>
+					{#if addKind !== 'api'}
+						<label class="personal" title={PERSONAL_NOTICE}
+							><input type="checkbox" bind:checked={form.personal} /><span
+								>This is a personal login</span
+							></label
+						>
+						{#if form.personal}<p class="notice">{PERSONAL_NOTICE}</p>{/if}
+					{/if}
 				</div>
-				{#if addKind !== 'api'}
-					<label class="personal"
-						><input type="checkbox" bind:checked={form.personal} /><span
-							>This is a personal login</span
-						></label
-					>
-					{#if form.personal}<p class="notice">{PERSONAL_NOTICE}</p>{/if}
-				{/if}
 				<div class="add-actions">
+					<small>Kept in your account’s vault and never shown again.</small>
+					<button
+						type="button"
+						class="btn small"
+						onclick={() => {
+							adding = false;
+							draft = null;
+						}}>Cancel</button
+					>
 					<button class="btn small primary" disabled={busy || !canAdd}
 						>{busy ? 'Adding…' : 'Add account'}</button
-					>
-					<small
-						>Saved to your account’s vault. It is never shown again, here or to a company.</small
 					>
 				</div>
 			</form>
@@ -849,28 +859,37 @@
 		border-radius: var(--radius-pane);
 		background: var(--surface-pane);
 	}
+	/* One segmented switch: the kind is a setting of the form, not four cards. */
 	.kinds {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 6px;
-	}
-	.kinds button {
 		display: inline-flex;
-		align-items: center;
-		gap: 8px;
-		min-height: 36px;
-		padding: 0 12px 0 6px;
+		justify-self: start;
+		max-width: 100%;
+		padding: 2px;
+		overflow-x: auto;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-control);
-		background: var(--surface-raised);
+		background: var(--surface-alt);
+	}
+	.kinds button {
+		flex: none;
+		min-height: 28px;
+		padding: 0 12px;
+		border: 0;
+		border-radius: calc(var(--radius-control) - 2px);
+		background: transparent;
 		color: var(--text-secondary);
 		font: inherit;
+		font-size: var(--t-label);
+		white-space: nowrap;
 		cursor: pointer;
 	}
-	.kinds button.on {
-		border-color: var(--intent-conversation);
+	.kinds button:hover {
 		color: var(--ink);
-		box-shadow: 0 0 0 1px var(--intent-conversation);
+	}
+	.kinds button.on {
+		background: var(--surface-pane);
+		color: var(--ink);
+		box-shadow: 0 0 0 1px var(--border);
 	}
 	.kinds button:disabled {
 		cursor: default;
@@ -897,10 +916,21 @@
 		margin: 0;
 		color: var(--text-tertiary);
 	}
+	/* One column a field wide, each field's help one quiet line under it. */
 	.fields {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-		gap: 10px 14px;
+		gap: 12px;
+		max-width: 440px;
+	}
+	label > small {
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	label > small a {
+		color: inherit;
+	}
+	label > small a:hover {
+		color: var(--ink);
 	}
 	label {
 		display: grid;
@@ -942,7 +972,14 @@
 		align-items: center;
 		gap: 10px;
 	}
+	.add-actions {
+		justify-content: flex-end;
+		margin: 2px -14px -14px;
+		padding: 10px 14px;
+		border-top: 1px solid var(--border);
+	}
 	.add-actions small {
+		flex: 1 1 200px;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
@@ -1026,9 +1063,7 @@
 		font-size: var(--t-label);
 	}
 	.status {
-		padding: 2px 8px;
-		border-radius: 99px;
-		background: var(--surface-alt);
+		justify-self: end;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 		white-space: nowrap;
@@ -1200,8 +1235,13 @@
 			grid-template-columns: 36px minmax(0, 1fr) auto;
 		}
 		.uses,
-		.status {
+		.status,
+		.row-actions {
 			grid-column: 2 / -1;
+			justify-self: start;
+		}
+		.add-actions small {
+			flex-basis: 100%;
 		}
 		.detail {
 			margin-left: 12px;
