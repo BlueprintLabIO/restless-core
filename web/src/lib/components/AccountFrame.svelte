@@ -87,6 +87,11 @@
 	const groups = $derived<AccountGroup[]>([
 		{
 			label: 'Companies',
+			/* On Cloud a company is made on the account's own page; locally, Home makes it. */
+			action: {
+				label: 'New company',
+				href: status?.hosted && status.home_url ? `${status.home_url}#new-company` : '/'
+			},
 			items: catalog.view
 				.filter((company) => company.lifecycle_status === 'active')
 				.map((company) => ({
