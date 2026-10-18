@@ -110,6 +110,7 @@
 		attachmentHref,
 		attachmentObjectUrl,
 		attachmentReadKind,
+		distinctKept,
 		deleteAttachment,
 		fileSize,
 		listRetainedAttachments,
@@ -738,7 +739,7 @@
 		also: file.name
 	});
 	const keptEntries = $derived<Entry[]>(
-		keptRows.map((row) => ({
+		distinctKept(keptRows).map((row) => ({
 			id: row.attachment_id,
 			kind: 'upload' as const,
 			title: row.canonical_name,

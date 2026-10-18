@@ -23,9 +23,23 @@ export interface RetainedAttachment {
 	size_bytes: number;
 	/** Null for a file added straight to the Library. */
 	message_id: number | null;
+	content_sha256?: string;
 	created_at: string;
 	purge_requested_at: string | null;
 	purged_at: string | null;
+}
+
+/** One row per file a person kept: the same bytes under the same name from the same sender (an
+ * upload that also went out in a message, or one sent twice) list once, newest first. */
+export function distinctKept(rows: RetainedAttachment[]): RetainedAttachment[] {
+	const seen = new Set<string>();
+	return rows.filter((row) => {
+		if (!row.content_sha256) return true;
+		const key = `${row.sender_actor_id}\n${row.canonical_name}\n${row.content_sha256}`;
+		if (seen.has(key)) return false;
+		seen.add(key);
+		return true;
+	});
 }
 
 export interface AttachmentUsage {
