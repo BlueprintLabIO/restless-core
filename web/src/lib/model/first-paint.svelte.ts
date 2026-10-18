@@ -12,16 +12,7 @@
 
 import { useQueryClient } from '@tanstack/svelte-query';
 import { onMount } from 'svelte';
-
-const CRITICAL = new Set([
-	'companies',
-	'appliance',
-	'company-principal',
-	'attention',
-	'cockpit',
-	'company-collaboration',
-	'company'
-]);
+import { holdsReveal } from './first-paint-hold.ts';
 
 export function firstPaint(companyId: () => string) {
 	const client = useQueryClient();
@@ -34,15 +25,7 @@ export function firstPaint(companyId: () => string) {
 		client
 			.getQueryCache()
 			.findAll()
-			.some(
-				(query) =>
-					CRITICAL.has(String(query.queryKey[0])) &&
-					(['companies', 'appliance'].includes(String(query.queryKey[0])) ||
-						query.queryKey[1] === companyId()) &&
-					query.state.data === undefined &&
-					query.state.status === 'pending' &&
-					query.state.fetchStatus === 'fetching'
-			);
+			.some((query) => holdsReveal(query, companyId()));
 
 	onMount(() => {
 		let frame = 0;
