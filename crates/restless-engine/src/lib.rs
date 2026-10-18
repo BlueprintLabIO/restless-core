@@ -4,6 +4,7 @@
 //! The owner API (restless-owner) and the daemon binary sit on top of it.
 
 pub mod account_broker;
+pub mod account_browser;
 pub mod account_git;
 pub mod accounts;
 pub mod acp;

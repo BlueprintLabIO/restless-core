@@ -60,6 +60,7 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/tools/{company}", any(handle))
         .layer(DefaultBodyLimit::max(MAX_REQUEST_BYTES))
         .route("/git/{company}/{*rest}", any(handle_git))
+        .route("/browser/{company}/{account}/{pass}/{*rest}", any(handle_browser))
         .with_state(daemon)
 }
 
@@ -70,12 +71,169 @@ pub fn hosted_router(daemon: Arc<Daemon>) -> Router {
         .route("/tools/{company}", any(handle_hosted))
         .layer(DefaultBodyLimit::max(MAX_REQUEST_BYTES))
         .route("/git/{company}/{*rest}", any(handle_git_hosted))
+        .route("/browser/{company}/{account}/{pass}/{*rest}", any(handle_browser_hosted))
         .with_state(daemon)
 }
 
 pub fn is_hosted_tool_gateway_path(path: &str) -> bool {
-    path.strip_prefix(HOSTED_TOOL_GATEWAY_PREFIX)
-        .is_some_and(|suffix| suffix.starts_with("/tools/") || suffix.starts_with("/git/"))
+    path.strip_prefix(HOSTED_TOOL_GATEWAY_PREFIX).is_some_and(|suffix| {
+        suffix.starts_with("/tools/") || suffix.starts_with("/git/") || suffix.starts_with("/browser/")
+    })
+}
+
+/// Where an agent reaches a borrowed account browser: the gateway's base, then the account and
+/// this session's pass (S98-04).
+fn browser_endpoint(company: &str, account: &str, pass: &str) -> String {
+    let tools = runtime_url(company);
+    let base = tools.strip_suffix(&format!("/tools/{company}")).unwrap_or(&tools);
+    format!("{base}/browser/{company}/{account}/{pass}")
+}
+
+async fn handle_browser(
+    State(daemon): State<Arc<Daemon>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    AxumPath((company, account, pass, rest)): AxumPath<(String, String, String, String)>,
+    upgrade: std::result::Result<axum::extract::WebSocketUpgrade, axum::extract::ws::rejection::WebSocketUpgradeRejection>,
+) -> Response {
+    if !local_runtime_peer(peer.ip()) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    serve_browser(daemon, company, account, pass, rest, upgrade.ok()).await
+}
+
+async fn handle_browser_hosted(
+    State(daemon): State<Arc<Daemon>>,
+    AxumPath((company, account, pass, rest)): AxumPath<(String, String, String, String)>,
+    headers: HeaderMap,
+    upgrade: std::result::Result<axum::extract::WebSocketUpgrade, axum::extract::ws::rejection::WebSocketUpgradeRejection>,
+) -> Response {
+    if hosted_entry_host().is_none() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    if headers.contains_key("cookie") {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    serve_browser(daemon, company, account, pass, rest, upgrade.ok()).await
+}
+
+/// DevTools discovery and the socket for a borrowed account browser. Only the session that holds
+/// the account's lease reaches it, and methods that read sign-in state are answered with an error.
+async fn serve_browser(
+    daemon: Arc<Daemon>,
+    company: String,
+    account: String,
+    pass: String,
+    rest: String,
+    upgrade: Option<axum::extract::WebSocketUpgrade>,
+) -> Response {
+    use crate::account_browser as identity;
+    let Ok(grant) = daemon.capabilities.verify_tool_session(&pass) else {
+        return (StatusCode::UNAUTHORIZED, "This browser session has ended. Borrow the browser again.").into_response();
+    };
+    if grant.company != company || !identity::holds_lease(&account, &company, &grant.actor).await {
+        return (StatusCode::FORBIDDEN, "Borrow the account's browser first; another session may hold it.").into_response();
+    }
+    let endpoint = browser_endpoint(&company, &account, &pass);
+    let socket_base = endpoint.replacen("https://", "wss://", 1).replacen("http://", "ws://", 1);
+    let rewrite = |mut target: serde_json::Value| {
+        for field in ["webSocketDebuggerUrl"] {
+            if let Some(url) = target[field].as_str().and_then(|url| url::Url::parse(url).ok()) {
+                target[field] = serde_json::json!(format!("{socket_base}{}", url.path()));
+            }
+        }
+        if let Some(object) = target.as_object_mut() {
+            object.remove("devtoolsFrontendUrl");
+        }
+        target
+    };
+    match (rest.as_str(), upgrade) {
+        ("json/version" | "json/version/", None) => match identity::version(&account).await {
+            Ok(version) => axum::Json(rewrite(version)).into_response(),
+            Err(_) => (StatusCode::BAD_GATEWAY, "The account's browser is not answering.").into_response(),
+        },
+        ("json" | "json/" | "json/list" | "json/list/", None) => match identity::pages(&account).await {
+            Ok(pages) => axum::Json(pages.into_iter().map(rewrite).collect::<Vec<_>>()).into_response(),
+            Err(_) => (StatusCode::BAD_GATEWAY, "The account's browser is not answering.").into_response(),
+        },
+        (path, Some(upgrade)) if path.starts_with("devtools/") && !path.contains("..") => {
+            let path = format!("/{path}");
+            let upstream = match identity::connect(&account, &path).await {
+                Ok(upstream) => upstream,
+                Err(_) => return (StatusCode::BAD_GATEWAY, "The account's browser is not answering.").into_response(),
+            };
+            upgrade
+                .max_message_size(256 * 1024 * 1024)
+                .on_upgrade(move |socket| relay_devtools(socket, upstream, account, company, grant.actor))
+                .into_response()
+        }
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+async fn relay_devtools(
+    socket: axum::extract::ws::WebSocket,
+    upstream: tokio_tungstenite::WebSocketStream<crate::runtime::DesktopStream>,
+    account: String,
+    company: String,
+    actor: String,
+) {
+    use axum::extract::ws::Message as Client;
+    use futures_util::{SinkExt as _, StreamExt as _};
+    use tokio_tungstenite::tungstenite::Message as Upstream;
+    let (mut to_client, mut from_client) = socket.split();
+    let (mut to_upstream, mut from_upstream) = upstream.split();
+    let (replies, mut refused) = tokio::sync::mpsc::channel::<String>(16);
+    let deadline = tokio::time::sleep(crate::account_browser::LEASE);
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            _ = &mut deadline => break,
+            message = from_client.next() => {
+                let Some(Ok(message)) = message else { break };
+                let forwarded = match message {
+                    Client::Text(text) => {
+                        if let Some(reply) = crate::account_browser::refusal(&text) {
+                            let _ = replies.send(reply).await;
+                            continue;
+                        }
+                        Upstream::Text(text.as_str().into())
+                    }
+                    Client::Binary(bytes) => Upstream::Binary(bytes),
+                    Client::Ping(bytes) => Upstream::Ping(bytes),
+                    Client::Pong(bytes) => Upstream::Pong(bytes),
+                    Client::Close(_) => break,
+                };
+                if to_upstream.send(forwarded).await.is_err() {
+                    break;
+                }
+            }
+            reply = refused.recv() => {
+                let Some(reply) = reply else { break };
+                if to_client.send(Client::Text(reply.into())).await.is_err() {
+                    break;
+                }
+            }
+            message = from_upstream.next() => {
+                let Some(Ok(message)) = message else { break };
+                let forwarded = match message {
+                    Upstream::Text(text) => Client::Text(text.as_str().into()),
+                    Upstream::Binary(bytes) => Client::Binary(bytes),
+                    Upstream::Ping(bytes) => Client::Ping(bytes),
+                    Upstream::Pong(bytes) => Client::Pong(bytes),
+                    Upstream::Close(_) => break,
+                    Upstream::Frame(_) => continue,
+                };
+                if to_client.send(forwarded).await.is_err() {
+                    break;
+                }
+            }
+        }
+        if !crate::account_browser::holds_lease(&account, &company, &actor).await {
+            break;
+        }
+    }
+    let _ = to_client.close().await;
+    let _ = to_upstream.close().await;
 }
 
 /// Git as an owner's GitHub account, from a local company computer (S98-02).
@@ -832,6 +990,9 @@ impl ServerHandler for ToolScope {
         if request.name.ends_with("__git_remote") && crate::account_broker::is_account_tool(&request.name) {
             return Ok(self.git_remote(&request.name, request.arguments).await);
         }
+        if crate::account_broker::is_browser_tool(&request.name) {
+            return Ok(self.browser_tool(&request.name, request.arguments).await);
+        }
         self.caller()
             .await?
             .call(&request.name, request.arguments)
@@ -840,6 +1001,131 @@ impl ServerHandler for ToolScope {
 }
 
 impl ToolScope {
+    /// Borrow an account's signed-in browser, or type its sign-in into it (S98-04).
+    async fn browser_tool(&self, name: &str, arguments: Option<JsonObject>) -> CallToolResponse {
+        use crate::account_broker::{self as broker, Decision};
+        use crate::account_browser as identity;
+        let company = self.grant.company.clone();
+        let actor = self.grant.actor.clone();
+        let pool = self.daemon.authority.pool();
+        let accounts = broker::usable(pool, &company, &actor).await.unwrap_or_default();
+        let Some(usable) = accounts.into_iter().find(|usable| {
+            broker::browser_tool_definitions(usable).iter().any(|(tool, _, _)| tool == name)
+        }) else {
+            return text_error("That account is not granted to you, or the owner removed the grant.");
+        };
+        let account_id = usable.account.id.clone();
+        let arguments = arguments.unwrap_or_default();
+        let text = |field: &str| arguments.get(field).and_then(serde_json::Value::as_str).map(str::trim).filter(|value| !value.is_empty());
+        let domains = identity::account_domains(usable.settings());
+        let filling = name.ends_with("__fill");
+        let now = chrono::Utc::now();
+        let (spent, today) = broker::grant_usage(pool, &usable.grant, now).await.unwrap_or((0, 0));
+        let decision = broker::decide(&usable.account, &usable.grant, &actor, "act", true, None, spent, today, now);
+        let action = if filling { format!("sign in ({})", text("field").unwrap_or("field")) } else { "browser session".to_string() };
+        let record = |result: &'static str| {
+            let usable = usable.clone();
+            let action = action.clone();
+            let company = company.clone();
+            let actor = actor.clone();
+            let target = domains.first().cloned();
+            async move {
+                let _ = broker::record_use(pool, &usable, &company, &actor, None, &action, "act", target.as_deref(), result, None).await;
+            }
+        };
+        match &decision {
+            Decision::Refuse(reason) => {
+                record("refused").await;
+                return text_error(format!("Nothing was opened. {reason}"));
+            }
+            Decision::Ask(reason) => {
+                record("refused").await;
+                return text_error(format!("{reason} An account's browser cannot wait for approval: ask the owner to allow acting with it."));
+            }
+            Decision::Run | Decision::RunAndTell => {}
+        }
+        if filling {
+            if !identity::holds_lease(&account_id, &company, &actor).await {
+                return text_error(format!("Borrow the browser first with {}.", name.replace("__fill", "__browser")));
+            }
+            let field = text("field").unwrap_or_default();
+            let value = match field {
+                "username" => usable.settings()["username"].as_str().map(str::to_string).ok_or_else(|| anyhow::anyhow!("the account has no username")),
+                "password" | "code" => {
+                    let reference = usable.secret_reference(if field == "password" { "password" } else { "totp_secret" });
+                    match reference {
+                        None if field == "code" => Err(anyhow::anyhow!("the owner has not given this account a one-time-code secret; ask them for the code")),
+                        None => Err(anyhow::anyhow!("the account has no password stored")),
+                        Some(reference) => match crate::credential::resolve_reference(reference).await {
+                            Ok(secret) if field == "code" => identity::totp(&secret, now.timestamp().max(0) as u64),
+                            Ok(secret) => Ok(secret),
+                            Err(_) => Err(anyhow::anyhow!("the vault did not give the account's {field}")),
+                        },
+                    }
+                }
+                _ => Err(anyhow::anyhow!("`field` is username, password or code")),
+            };
+            let value = match value {
+                Ok(value) => value,
+                Err(error) => return text_error(format!("Nothing was typed: {error:#}.")),
+            };
+            return match identity::fill(&account_id, &domains, text("target_id"), &value, field).await {
+                Ok(done) => {
+                    record("ok").await;
+                    CallToolResult::success(vec![ContentBlock::text(done)]).into()
+                }
+                Err(error) => {
+                    record("failed").await;
+                    text_error(format!("Nothing was typed: {error:#}"))
+                }
+            };
+        }
+        if arguments.get("release").and_then(serde_json::Value::as_bool) == Some(true) {
+            identity::release_lease(&account_id, &company, &actor).await;
+            return CallToolResult::success(vec![ContentBlock::text(format!("Handed {}'s browser back.", usable.account.label))]).into();
+        }
+        if text("purpose").is_none() {
+            return text_error(format!("Borrowing {}'s browser acts as the account: add `purpose`, one sentence saying why.", usable.account.label));
+        }
+        if usable.account.health != "signed_in" {
+            return text_error(format!(
+                "{} is not signed in yet. The owner signs it in from Settings › Accounts; ask them, then try again.",
+                usable.account.label
+            ));
+        }
+        if let Err(busy) = identity::take_lease(&account_id, &company, &actor).await {
+            return text_error(busy);
+        }
+        if let Err(error) = identity::ensure_running(&account_id).await {
+            identity::release_lease(&account_id, &company, &actor).await;
+            return text_error(format!("The account's browser did not start: {error:#}"));
+        }
+        if let Some(url) = text("url") {
+            let host = url::Url::parse(url).ok().and_then(|url| url.host_str().map(str::to_string)).unwrap_or_default();
+            if !identity::on_account_domain(&host, &domains) {
+                return text_error(format!("{url} is not on the account's own domains ({}).", domains.join(", ")));
+            }
+            if let Err(error) = identity::open_page(&account_id, url).await {
+                return text_error(format!("The page did not open: {error:#}"));
+            }
+        }
+        let Ok(pass) = self.daemon.capabilities.issue_tool_session(&company, &actor, None, None) else {
+            return text_error("A pass for the browser could not be issued; try again.");
+        };
+        record("ok").await;
+        let endpoint = browser_endpoint(&company, &account_id, &pass);
+        CallToolResult::success(vec![ContentBlock::text(format!(
+            "{}'s browser is yours for up to 30 minutes, signed in as the owner's account.\n\
+             DevTools endpoint: {endpoint}\n\n\
+             Playwright: `const browser = await chromium.connectOverCDP('<endpoint>'); const page = browser.contexts()[0].pages()[0];`\n\
+             To sign in again, click into a field and call {} with field username, password or code. \
+             Hand it back with `release: true` when done. Keep the endpoint out of messages and files.",
+            usable.account.label,
+            name.replace("__browser", "__fill")
+        ))])
+        .into()
+    }
+
     /// A git remote for one repository as a granted GitHub account (S98-02). The URL carries a
     /// fresh tool-session pass for this actor, never the GitHub token.
     async fn git_remote(&self, name: &str, arguments: Option<JsonObject>) -> CallToolResponse {
@@ -901,8 +1187,12 @@ impl ToolCaller<'_> {
                 Vec::new()
             });
         for usable in &accounts {
-            let definitions = std::iter::once(crate::account_broker::tool_definition(usable))
-                .chain(crate::account_broker::git_tool_definition(usable));
+            let brokered = crate::account_broker::BROKERED_KINDS.contains(&usable.account.kind.as_str());
+            let definitions = brokered
+                .then(|| crate::account_broker::tool_definition(usable))
+                .into_iter()
+                .chain(crate::account_broker::git_tool_definition(usable))
+                .chain(crate::account_broker::browser_tool_definitions(usable));
             for (name, description, schema) in definitions {
                 let serde_json::Value::Object(schema) = schema else { continue };
                 let mut tool = Tool::new(name, description, Arc::new(schema));

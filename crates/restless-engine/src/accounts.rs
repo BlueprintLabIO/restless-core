@@ -493,6 +493,32 @@ pub async fn create(pool: &PgPool, input: NewAccount) -> Result<Account> {
     get(pool, &account).await?.context("the new account was not found")
 }
 
+/// The settings of an account's preferred credential (never its secrets).
+pub async fn credential_settings(pool: &PgPool, account: &str) -> Result<Option<serde_json::Value>> {
+    Ok(sqlx::query_scalar(
+        "SELECT settings FROM restless_authority.owner_account_credentials \
+         WHERE account_id = $1 ORDER BY pinned DESC, updated_at DESC LIMIT 1",
+    )
+    .bind(account)
+    .fetch_optional(pool)
+    .await?)
+}
+
+/// Record whether an account is signed in, on the account and its credentials.
+pub async fn set_health(pool: &PgPool, account: &str, health: &str) -> Result<()> {
+    sqlx::query("UPDATE restless_authority.owner_accounts SET health = $2, updated_at = now() WHERE id = $1")
+        .bind(account)
+        .bind(health)
+        .execute(pool)
+        .await?;
+    sqlx::query("UPDATE restless_authority.owner_account_credentials SET health = $2, updated_at = now() WHERE account_id = $1")
+        .bind(account)
+        .bind(health)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 /// Who a GitHub token signs in as; a token GitHub refuses is not saved.
 async fn github_login(token: &str) -> Result<String> {
     let response = reqwest::Client::builder()

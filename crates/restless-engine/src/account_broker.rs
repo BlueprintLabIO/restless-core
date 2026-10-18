@@ -276,7 +276,72 @@ pub fn tool_name(account: &Account) -> String {
 }
 
 pub fn is_account_tool(name: &str) -> bool {
-    name.starts_with(TOOL_PREFIX) && (name.ends_with(TOOL_SUFFIX) || name.ends_with(GIT_SUFFIX))
+    name.starts_with(TOOL_PREFIX)
+        && [TOOL_SUFFIX, GIT_SUFFIX, BROWSER_SUFFIX, FILL_SUFFIX].iter().any(|suffix| name.ends_with(suffix))
+}
+
+const BROWSER_SUFFIX: &str = "__browser";
+const FILL_SUFFIX: &str = "__fill";
+
+pub fn is_browser_tool(name: &str) -> bool {
+    name.starts_with(TOOL_PREFIX) && (name.ends_with(BROWSER_SUFFIX) || name.ends_with(FILL_SUFFIX))
+}
+
+/// The browser tools a website-login or browser-profile account adds (S98-04).
+pub fn browser_tool_definitions(usable: &Usable) -> Vec<(String, String, serde_json::Value)> {
+    let account = &usable.account;
+    if !crate::account_browser::BROWSER_KINDS.contains(&account.kind.as_str()) {
+        return Vec::new();
+    }
+    let base = tool_name(account);
+    let domains = crate::account_browser::account_domains(&usable.settings).join(", ");
+    let mut tools = vec![(
+        base.replace(TOOL_SUFFIX, BROWSER_SUFFIX),
+        format!(
+            "[{} · the owner's signed-in browser for {domains}, granted to this company] Borrow it: answers a DevTools endpoint to drive with Playwright \
+             (`chromium.connectOverCDP(endpoint)`) or any CDP client, already signed in. One session at a time holds it for up to 30 minutes; \
+             `release: true` hands it back. Cookies and site storage cannot be read through it. Needs `purpose`.",
+            account.label
+        ),
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "purpose": {"type": "string", "description": "One sentence: why you need the account's browser."},
+                "url": {"type": "string", "description": "Optional page to open first, on the account's own domains."},
+                "release": {"type": "boolean", "description": "True to hand the browser back when you are done."}
+            }
+        }),
+    )];
+    if account.kind == "website_login" {
+        tools.push((
+            base.replace(TOOL_SUFFIX, FILL_SUFFIX),
+            format!(
+                "[{} · sign-in] Type the account's username, password or current one-time code into the focused field of the borrowed browser, \
+                 only on {domains}. The value is typed by Restless and never shown to you. Click into the field first.",
+                account.label
+            ),
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "field": {"type": "string", "enum": ["username", "password", "code"]},
+                    "target_id": {"type": "string", "description": "Optional DevTools target id of the page; defaults to the page you are attached to."}
+                },
+                "required": ["field"]
+            }),
+        ));
+    }
+    tools
+}
+
+/// What one browser account keeps: its settings, and the vault reference for a secret field.
+impl Usable {
+    pub fn settings(&self) -> &serde_json::Value {
+        &self.settings
+    }
+
+    pub fn secret_reference(&self, field: &str) -> Option<&str> {
+        self.secrets.get(field).and_then(|value| value.as_str())
+    }
 }
 
 const GIT_SUFFIX: &str = "__git_remote";
@@ -312,7 +377,9 @@ pub fn git_tool_definition(usable: &Usable) -> Option<(String, String, serde_jso
 pub async fn usable(pool: &PgPool, company: &str, actor: &str) -> Result<Vec<Usable>> {
     let mut out = Vec::new();
     for (grant, account) in crate::accounts::company_grants(pool, company).await? {
-        if !BROKERED_KINDS.contains(&account.kind.as_str()) {
+        if !BROKERED_KINDS.contains(&account.kind.as_str())
+            && !crate::account_browser::BROWSER_KINDS.contains(&account.kind.as_str())
+        {
             continue;
         }
         if let Who::Actors { actors } = &grant.who {

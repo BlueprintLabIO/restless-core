@@ -231,34 +231,40 @@ account_use: {
   45-minute session pass, never the token); S98-03 tiers and limits (`account_broker::decide`);
   S98-06 use log and notices (first use, first spend, new destination, burst; Fine and Freeze);
   requests, receipts (`account_uses`); GitHub as a token account until the App.
-- **Not yet:** `directed_by` (uses record the agent only); S98-04 and S98-11 below; the GitHub App
+- **Not yet:** `directed_by` (uses record the agent only); the Inbox code relay below; the GitHub App
   (S98-05 proper: install flow, per-task installation tokens).
 
-## S98-04 and S98-11 design (browser identities)
+## S98-04 and S98-11 design (browser identities, as built)
 
-Each company computer runs one Chromium behind the CDP gate (`infra/company-image/browser-broker.mjs`).
-A browser identity is not a second browser; it is an isolated browser context in that Chromium,
-made for one lease and destroyed after it.
+A shared company Chromium cannot keep a session from its agents: its DevTools port is on the same
+loopback they use. So each website-login or browser-profile account has **its own browser**: a
+container on the owner's host (`restless-co-identity-<id>`) running only a display, a window
+manager, the desktop bridge and Chromium, from the company image, with its profile on its own volume
+and on its own network. Nothing in it listens off loopback; the host reaches it through the same
+private `docker exec socat` bridge as the company desktop (`account_browser.rs`).
 
-- **Sign-in (S98-11).** `POST /api/accounts/{id}/sign-in` picks one of the owner's company computers,
-  creates a fresh context (`Target.createBrowserContext`) at the account's sign-in page, and answers a
-  desktop ticket to it. The owner signs in by hand. `…/done` reads that context's cookies for the
-  account's domains only, stores them in the vault under the account
-  (`infisical:/owner/accounts/{acct}/{cred}/COOKIES`), disposes the context and sets health.
-- **Use (S98-04).** `acct_<name>__browser { url }` takes the identity's lease (one session at a
-  time, others wait seconds), makes a fresh context in the calling company's Chromium, sets the
-  stored cookies, opens the tab (refused off the account's domains) and answers its target id. On
-  release (idle or the turn ends) the broker reads back the refreshed cookies, saves them, and
-  disposes the context, so no company keeps a session after its lease.
-- **No lifting.** The CDP gate refuses, for identity contexts, every method that reads or exports
-  credentials: `Network.getCookies`, `Network.getAllCookies`, `Storage.getCookies`,
-  `Storage.getStorageKeyForFrame` and the `DOMStorage`/`IndexedDB` read families, and runtime
-  evaluation that touches `document.cookie` is allowed only as the page itself runs. Password and
-  TOTP fill happen host-side through `Input.insertText` only when the focused frame's origin is on
-  the account's domains; a look-alike domain gets nothing.
-- **2FA.** A push or SMS prompt the fill cannot answer becomes an `account_code` Inbox item; the
-  answer is typed into the page by the broker and never stored.
-- **Stable exit.** Later, per identity, when a platform needs it.
+- **Sign-in (S98-11).** `POST /api/accounts/{id}/sign-in` starts the account's browser at its sign-in
+  page and answers `{session, desktop_url}`; the desktop is served owner-only at
+  `/api/accounts/{id}/desktop/…` with full control. The owner signs in by hand. `…/done` checks the
+  browser holds cookies for the account's domains and sets health (`signed_in` or `signed_out`);
+  `DELETE` abandons it. Cookies never leave the profile.
+- **Use (S98-04).** `acct_<name>_<id6>__browser { purpose, url?, release? }` checks the grant (Act),
+  takes the identity's lease (one session at a time, up to 30 minutes), and answers a DevTools
+  endpoint on the tool gateway (`/browser/{company}/{account}/{pass}`) for
+  `chromium.connectOverCDP`. The gateway relays only for the lease holder and answers an error for
+  every method that reads sign-in state (`Network.getCookies`, `Network.getAllCookies`,
+  `Storage.getCookies`, DOM storage, IndexedDB and Cache Storage reads, and a few that would close
+  the browser). Known gap: page script can still read non-HttpOnly cookies as the site itself can.
+- **Sign-in fill.** `acct_<name>_<id6>__fill { field: username | password | code }` types into the
+  focused field only when the page itself reports a host on the account's own domains (a look-alike
+  gets nothing), only a password into a password field, never into a frame. One-time codes are
+  computed on the host from the stored TOTP secret (RFC 6238).
+- **Still to do:** relaying a push or SMS code through the Inbox (`account_code`), and a stable exit
+  per identity.
+
+Verified: an opt-in test (`RESTLESS_IDENTITY_E2E=1`) starts a real identity browser from the company
+image, opens a page, refuses to type on a foreign domain, types on its own, serves the desktop and
+removes the container and volume.
 
 ## Order
 

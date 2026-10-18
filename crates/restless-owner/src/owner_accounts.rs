@@ -87,7 +87,11 @@ pub(super) async fn remove(
         return refusal;
     }
     match accounts::delete(state.daemon.authority.pool(), &id).await {
-        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(true) => {
+            // Its signed-in browser goes with it.
+            restless_engine::account_browser::remove(&id).await;
+            StatusCode::NO_CONTENT.into_response()
+        }
         Ok(false) => api_error(StatusCode::NOT_FOUND, "accounts", "That account no longer exists."),
         Err(error) => refuse(error),
     }
@@ -145,6 +149,187 @@ pub(super) async fn remove_grant(
         Ok(false) => api_error(StatusCode::NOT_FOUND, "accounts", "That grant no longer exists."),
         Err(error) => refuse(error),
     }
+}
+
+/// The account's browser identity, for the owner's sign-in (S98-11). Answers the account's
+/// settings when it is a browser account.
+async fn browser_account(state: &OwnerState, id: &str) -> std::result::Result<(accounts::Account, serde_json::Value), Response<Body>> {
+    let pool = state.daemon.authority.pool();
+    let account = match accounts::get(pool, id).await {
+        Ok(Some(account)) => account,
+        Ok(None) => return Err(api_error(StatusCode::NOT_FOUND, "accounts", "That account no longer exists.")),
+        Err(error) => return Err(refuse(error)),
+    };
+    if !restless_engine::account_browser::BROWSER_KINDS.contains(&account.kind.as_str()) {
+        return Err(api_error(StatusCode::BAD_REQUEST, "accounts", "Only website logins and browser profiles sign in through a browser."));
+    }
+    match accounts::credential_settings(pool, id).await {
+        Ok(Some(settings)) => Ok((account, settings)),
+        Ok(None) => Err(api_error(StatusCode::NOT_FOUND, "accounts", "That account has no sign-in details.")),
+        Err(error) => Err(refuse(error)),
+    }
+}
+
+/// Start signing an account in: its browser opens at the sign-in page, and the owner signs in by
+/// hand in the desktop this answers.
+pub(super) async fn sign_in(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(id): AxumPath<String>,
+) -> Response<Body> {
+    if let Some(refusal) = owner_only(&principal) {
+        return refusal;
+    }
+    let (_, settings) = match browser_account(&state, &id).await {
+        Ok(found) => found,
+        Err(refusal) => return refusal,
+    };
+    let Some(page) = restless_engine::account_browser::sign_in_page(&settings) else {
+        return api_error(StatusCode::BAD_REQUEST, "accounts", "The account has no sign-in page.");
+    };
+    match restless_engine::account_browser::begin_sign_in(&id, &page).await {
+        Ok(session) => Json(serde_json::json!({
+            "session": session,
+            "desktop_url": format!(
+                "/api/accounts/{id}/desktop/vnc.html?autoconnect=1&reconnect=1&reconnect_delay=1000&resize=remote&path=api/accounts/{id}/desktop/websockify"
+            ),
+        }))
+        .into_response(),
+        Err(error) => {
+            tracing::warn!(account = %id, "identity browser did not start: {error:#}");
+            api_error(StatusCode::SERVICE_UNAVAILABLE, "accounts", "The account's browser did not start. Try again in a moment.")
+        }
+    }
+}
+
+/// The owner finished signing in: the browser keeps its profile, and the account's health says
+/// whether the sign-in took.
+pub(super) async fn sign_in_done(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((id, session)): AxumPath<(String, String)>,
+) -> Response<Body> {
+    if let Some(refusal) = owner_only(&principal) {
+        return refusal;
+    }
+    let (_, settings) = match browser_account(&state, &id).await {
+        Ok(found) => found,
+        Err(refusal) => return refusal,
+    };
+    if !restless_engine::account_browser::end_sign_in(&id, &session).await {
+        return api_error(StatusCode::NOT_FOUND, "accounts", "That sign-in has ended; start it again.");
+    }
+    let domains = restless_engine::account_browser::account_domains(&settings);
+    let health = match restless_engine::account_browser::signed_in(&id, &domains).await {
+        Ok(true) => "signed_in",
+        Ok(false) => "signed_out",
+        Err(_) => "unknown",
+    };
+    let pool = state.daemon.authority.pool();
+    if let Err(error) = accounts::set_health(pool, &id, health).await {
+        return refuse(error);
+    }
+    match accounts::get(pool, &id).await {
+        Ok(Some(account)) => Json(account).into_response(),
+        Ok(None) => api_error(StatusCode::NOT_FOUND, "accounts", "That account no longer exists."),
+        Err(error) => refuse(error),
+    }
+}
+
+pub(super) async fn sign_in_cancel(
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((id, session)): AxumPath<(String, String)>,
+) -> Response<Body> {
+    if let Some(refusal) = owner_only(&principal) {
+        return refusal;
+    }
+    restless_engine::account_browser::end_sign_in(&id, &session).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+/// The account browser's desktop page and assets, for the owner only.
+pub(super) async fn desktop_asset(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((id, asset)): AxumPath<(String, String)>,
+) -> Response<Body> {
+    if let Some(refusal) = owner_only(&principal) {
+        return refusal;
+    }
+    if let Err(refusal) = browser_account(&state, &id).await {
+        return refusal;
+    }
+    let key = restless_engine::account_browser::identity_key(&id);
+    match runtime::desktop_asset(&key, &asset).await {
+        Ok(bytes) => {
+            let mut response = Response::new(Body::from(bytes));
+            response.headers_mut().insert(
+                CONTENT_TYPE,
+                HeaderValue::from_static(super::desktop_api::desktop_content_type(&asset)),
+            );
+            response.headers_mut().insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            response
+        }
+        Err(_) => api_error(StatusCode::BAD_GATEWAY, "desktop", "The account's browser is not running; start its sign-in again."),
+    }
+}
+
+/// The account browser's desktop socket: full control, for the owner signing in by hand.
+pub(super) async fn desktop_socket(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(id): AxumPath<String>,
+    upgrade: WebSocketUpgrade,
+) -> Response<Body> {
+    if let Some(refusal) = owner_only(&principal) {
+        return refusal;
+    }
+    if let Err(refusal) = browser_account(&state, &id).await {
+        return refusal;
+    }
+    let key = restless_engine::account_browser::identity_key(&id);
+    upgrade
+        .on_upgrade(move |socket| async move {
+            if let Err(error) = relay_identity_desktop(socket, &key).await {
+                tracing::debug!(identity = %key, "identity desktop ended: {error:#}");
+            }
+        })
+        .into_response()
+}
+
+async fn relay_identity_desktop(browser: WebSocket, key: &str) -> anyhow::Result<()> {
+    use futures_util::{SinkExt as _, StreamExt as _};
+    let stream = runtime::desktop_stream(key).await?;
+    let (desktop, _) = client_async("ws://127.0.0.1:6080/websockify", stream).await?;
+    let (mut to_browser, mut from_browser) = browser.split();
+    let (mut to_desktop, mut from_desktop) = desktop.split();
+    loop {
+        tokio::select! {
+            message = from_browser.next() => {
+                let Some(Ok(message)) = message else { break };
+                let forwarded = match message {
+                    AxumMessage::Binary(bytes) => tungstenite::Message::Binary(bytes),
+                    AxumMessage::Ping(bytes) => tungstenite::Message::Ping(bytes),
+                    AxumMessage::Pong(bytes) => tungstenite::Message::Pong(bytes),
+                    AxumMessage::Text(_) => continue,
+                    AxumMessage::Close(_) => break,
+                };
+                to_desktop.send(forwarded).await?;
+            }
+            message = from_desktop.next() => {
+                let Some(Ok(message)) = message else { break };
+                let forwarded = match message {
+                    tungstenite::Message::Binary(bytes) => AxumMessage::Binary(bytes),
+                    tungstenite::Message::Ping(bytes) => AxumMessage::Ping(bytes),
+                    tungstenite::Message::Pong(bytes) => AxumMessage::Pong(bytes),
+                    tungstenite::Message::Close(_) => break,
+                    _ => continue,
+                };
+                to_browser.send(forwarded).await?;
+            }
+        }
+    }
+    Ok(())
 }
 
 #[derive(Deserialize)]

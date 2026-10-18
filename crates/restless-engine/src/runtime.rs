@@ -3296,6 +3296,11 @@ pub async fn desktop_stream(company: &str) -> Result<DesktopStream> {
     private_tcp_stream(company, 6080).await
 }
 
+/// The same private bridge to Chrome's DevTools port, for host-side automation only.
+pub async fn devtools_stream(company: &str) -> Result<DesktopStream> {
+    private_tcp_stream(company, 9222).await
+}
+
 async fn private_tcp_stream(company: &str, port: u16) -> Result<DesktopStream> {
     let mut child = tokio::process::Command::new("docker")
         .args([
