@@ -104,6 +104,11 @@
 		class:selection-popover-panel={mode === 'selection'}
 		role={mode === 'selection' ? 'dialog' : undefined}
 		aria-label={mode === 'selection' ? label : undefined}
+		ontoggle={(event: ToggleEvent) => {
+			/* Hidden by anything else (a dialog, a navigation that was stayed), the menu is closed:
+			 * otherwise the next click only closes the still-open details and nothing shows. */
+			if (event.newState === 'closed' && details?.open) details.open = false;
+		}}
 		use:anchoredPopover={() => details?.querySelector('summary') ?? undefined}
 	>
 		{#if reached}{@render children(() => {
