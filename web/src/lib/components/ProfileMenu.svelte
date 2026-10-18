@@ -77,7 +77,7 @@
 			<strong>{name}</strong>
 			<small>{role}</small>
 		</div>
-		{#if owner}<a href="/account">Account</a>{/if}
+		{#if owner}<a href="/account/settings">Account</a>{/if}
 		<div class="group" role="group" aria-label="This device">
 			<div class="row">
 				<span>Theme</span>

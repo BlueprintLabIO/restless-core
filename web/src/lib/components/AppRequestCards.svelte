@@ -123,7 +123,12 @@
 					class="btn primary small"
 					disabled={!!busy}
 					title="Adds it, checks it works and lets the company use it. Anything that acts asks you first."
-					onclick={() => add(request)}>{busy === request.handoff_id ? 'Adding…' : 'Add'}</button
+					onclick={() => add(request)}
+					>{busy === request.handoff_id
+						? 'Adding…'
+						: request.addLabel.startsWith('Add a ')
+							? 'Add a token'
+							: 'Add'}</button
 				>{/if}
 			<a
 				class="more"

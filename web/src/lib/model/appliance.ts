@@ -58,7 +58,8 @@ export async function getApplianceStatus(signal?: AbortSignal): Promise<Applianc
  * plane whose account issuer has an origin of its own. Not on Cloud's one address, where the
  * account service does, nor when the check is refused (a member, a lapsed session). */
 export async function planeAnswersAccountPaths(): Promise<boolean> {
-	const status = await getApplianceStatus().catch(() => null);
+	/* The page's one shared read: an Account link must not wait on a fresh status round trip. */
+	const status = await planeStatus();
 	if (!status) return false;
 	if (!status.hosted || !status.home_url) return true;
 	return new URL(status.home_url).origin !== window.location.origin;

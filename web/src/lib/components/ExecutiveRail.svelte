@@ -1763,8 +1763,8 @@
 										class:off={!includeContext}
 										aria-pressed={includeContext}
 										title={includeContext
-											? `This message links to ${contextLabel}; click to send it without the link`
-											: `Link ${contextLabel} to this message`}
+											? `This message links to ${contextLabel}, the screen you are on, so ${participantName} opens what you see. Click to send it without the link`
+											: `Link ${contextLabel}, the screen you are on, to this message`}
 										onclick={toggleContext}
 									>
 										<MatrixGlyph rows={GLYPHS.work} size={8} />

@@ -1092,7 +1092,7 @@
 						class="btn primary small"
 						href={appRequest.href(companyId)}
 						title="Opens the app with this request attached. Allowing it resumes the work on its own."
-						>Add {appRequest.name}</a
+						>{appRequest.addLabel}</a
 					>
 					<button class="btn small ghost" disabled={acting} onclick={() => (declining = true)}
 						>Not doing this</button

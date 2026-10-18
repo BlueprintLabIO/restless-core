@@ -23,6 +23,8 @@ export type AppRequest = AppRequestRow & {
 	name: string;
 	/** The catalogue entry it names, when it names one. */
 	catalogueKey?: string;
+	/** The add button, named for what the app's page asks: a token is pasted, not installed. */
+	addLabel: string;
 	/** Who asked, in words: Exec, or the lead or worker by role. */
 	asker: string;
 	/** Why, in the requester's words. */
@@ -39,6 +41,7 @@ function toRequest(row: AppRequestRow): AppRequest {
 		...row,
 		name: entry?.name ?? row.app,
 		catalogueKey: entry?.key,
+		addLabel: entry?.auth === 'token' ? `Add a ${entry.name} token` : `Add ${entry?.name ?? row.app}`,
 		asker:
 			row.requested_by === 'exec'
 				? 'Exec'
