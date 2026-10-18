@@ -1871,7 +1871,11 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
                 }
             }
             // Kept files move to their own volume before the shell that held them goes.
-            preserve_attachments(company, &image).await?;
+            if let Err(error) = preserve_attachments(company, &image).await {
+                // Never remove the only copy: the old computer comes back as it was.
+                let _ = run_ok(&["start", &name]).await;
+                return Err(error);
+            }
             // Only the replaceable container is removed; the named company
             // volume remains the durable computer (§13.4).
             run_ok(&["rm", &name]).await?;
