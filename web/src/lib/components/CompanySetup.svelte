@@ -9,7 +9,12 @@
 	import { goto } from '$app/navigation';
 	import { getContext, tick, untrack } from 'svelte';
 	import { useQueryClient } from '@tanstack/svelte-query';
-	import { companiesQuery, companyQuery, conversationQuery } from '$lib/model/queries.svelte';
+	import {
+		companiesQuery,
+		companyQuery,
+		conversationQuery,
+		queryKeys
+	} from '$lib/model/queries.svelte';
 	import { excerptOf } from '$lib/model/open-question';
 	import { renameInAccount, reviseCompanyCharter } from '$lib/model/company';
 	import { failureSentence } from '$lib/model/failure';
@@ -278,11 +283,14 @@
 		await renameInAccount(companyId, name);
 		const current = await readCompanySetup(companyId);
 		await saveCompanySetup(companyId, { ...current, display_name: name });
-		/* The top bar says the new name at once; every read of this company catches up. */
+		/* The top bar says the new name at once; the reads that show it catch up. */
 		if (header) header.name = name;
-		void queryClient.invalidateQueries({
-			predicate: (query) => JSON.stringify(query.queryKey).includes(companyId)
-		});
+		for (const queryKey of [
+			queryKeys.companies,
+			queryKeys.attention(companyId),
+			queryKeys.cockpit(companyId)
+		])
+			void queryClient.invalidateQueries({ queryKey });
 	}
 	const header = getContext<{ name: string | null } | undefined>('company-setup-draft');
 	const queryClient = useQueryClient();
