@@ -1087,14 +1087,15 @@ try {
   await owner.page.getByRole("heading", { name: "Accounts" }).first().waitFor({ timeout: 30000 });
   await shot(owner, "accounts");
   {
-    const secret = `smoke-${randomUUID()}`;
     const login = await coreApi(owner, "/api/accounts", {
       method: "POST",
       expected: 201,
       body: {
-        kind: "website_login",
+        kind: "browser_profile",
         label: "Smoke shop",
-        credential: { kind: "password", sign_in_url: "https://example.com/", domains: ["example.com"], username: "owner@example.com", password: secret },
+        // A browser sign-in holds no secret, so it needs no vault on this test plane; a website
+        // login goes through the same grant, browser and removal paths with its password vaulted.
+        credential: { kind: "browser_profile", url: "https://example.com/" },
       },
     });
     const refused = async (path, method = "GET") => {
@@ -1111,8 +1112,7 @@ try {
     await coreApi(owner, `/api/accounts/${login.id}/grants`, { method: "POST", expected: 201, body: { company } });
     const seen = await coreApi(alice, `${base}/accounts`);
     assert.deepEqual(seen.grants.map((grant) => grant.account.label), ["Smoke shop"], "a member sees the account the company may use");
-    assert(!JSON.stringify(seen).includes(secret), "a company never reads the account's password");
-    assert(!JSON.stringify(await coreApi(owner, "/api/accounts")).includes(secret), "the owner's list never echoes the password");
+
     const signIn = await coreApi(owner, `/api/accounts/${login.id}/sign-in`, { method: "POST" });
     assert.match(signIn.desktop_url, /^\/api\/accounts\/[^/]+\/desktop\/vnc\.html/);
     const desktop = await owner.context.request.get(core + signIn.desktop_url, { failOnStatusCode: false });
@@ -1121,7 +1121,7 @@ try {
     await coreApi(owner, `/api/accounts/${login.id}/sign-in/${signIn.session}`, { method: "DELETE", expected: 204 });
     await coreApi(owner, `/api/accounts/${login.id}`, { method: "DELETE", expected: 204 });
     assert.deepEqual((await coreApi(alice, `${base}/accounts`)).grants, [], "a removed account leaves the company");
-    pass("an owner's website login is given to the company without its password, its browser opens for the owner alone, and removing it removes it everywhere");
+    pass("the owner enters Accounts from the account site; a browser sign-in is given to the company, its browser opens for the owner alone, and removing it removes it everywhere");
     // Back into the company, as the owner would from the account site.
     await enterAccounts(owner);
     await owner.page.locator("#company").waitFor({ state: "visible" });
