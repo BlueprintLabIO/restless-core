@@ -5,7 +5,7 @@
 	 * Exec's messages, its question card with likely answers, and the composer, which never
 	 * leaves the page. "Let's do it" saves the read-back as the charter and the name as the name,
 	 * and this chat narrows into Exec's rail as the company's own tabs take the bar. */
-	import { readCompanySetup, saveCompanySetup } from '$lib/model/company';
+	import { readCompanySetup, saveCompanySetup, writeSetupOpening } from '$lib/model/company';
 	import { goto } from '$app/navigation';
 	import { getContext, tick, untrack } from 'svelte';
 	import { useQueryClient } from '@tanstack/svelte-query';
@@ -29,6 +29,8 @@
 	} from '$lib/model/company-setup.svelte';
 	import Composer from '$lib/primitives/Composer.svelte';
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
+	import ConnectModel from '$lib/components/ConnectModel.svelte';
+	import { MAX_UPLOAD_BYTES, MAX_UPLOAD_FILES } from '$lib/model/attachments';
 	import IntelligenceChip from '$lib/components/IntelligenceChip.svelte';
 
 	let { companyId, viewerActorId }: { companyId: string; viewerActorId: string } = $props();
@@ -76,10 +78,36 @@
 		if (first.length > 90) return `${first.slice(0, 90)}…`;
 		return /[.!?]$/.test(first) ? first : `${first}.`;
 	});
+	/* Some models end a turn early (S97): a reply that promised the read-back without its lines, or
+	 * stopped with no question, gets one button that asks Exec to carry on, and "Let's do it" never
+	 * shows with nothing to save. */
+	const readbackMissing = $derived(
+		!!reply &&
+			!waiting &&
+			!readback.length &&
+			(suggestions.some((option) => /let.?s do it/i.test(option)) ||
+				/here(?:.?s| is) what i.?m hearing/i.test(visible(reply.text)))
+	);
+	const stoppedShort = $derived(!!reply && !waiting && !readback.length && !question);
+	/* No reply and no turn running for a while: the answer comes back to send again, instead of
+	 * thinking forever. */
+	let quiet = $state(false);
+	$effect(() => {
+		if (!waiting || stalled || conversation.activeTurn) {
+			quiet = false;
+			return;
+		}
+		const timer = window.setTimeout(() => (quiet = true), 45_000);
+		return () => window.clearTimeout(timer);
+	});
+	/* How many questions Exec has asked, so the step tab shows the interview moving. */
+	const asked = $derived(
+		messages.filter((message) => message.from !== 'you' && message.intent?.ownerNeed).length
+	);
 	const lastWords = $derived(lastOwner >= 0 ? messages[lastOwner].text : '');
 	let refilledFor = '';
 	$effect(() => {
-		if (!stalled || refilledFor === lastWords) return;
+		if (!(stalled || quiet) || refilledFor === lastWords) return;
 		refilledFor = lastWords;
 		if (!answer.trim()) answer = visible(lastWords);
 	});
@@ -99,6 +127,7 @@
 	$effect(() => {
 		companySetup.step = step;
 		companySetup.needsModel = !!cannotStart;
+		companySetup.asked = asked;
 	});
 
 	/* What a message says on screen: no metadata, and an answer without the question it quotes. */
@@ -115,6 +144,12 @@
 	}
 
 	let answer = $state('');
+	/* Files the owner adds while setting up (a deck, docs, brand files, screenshots) travel with the
+	 * next answer, the way the rail sends them, so Exec reads them during the interview and they land
+	 * with the company's other uploads (S97). */
+	let files = $state<File[]>([]);
+	const attachmentHref = (attachment: { uploadId: string }) =>
+		`/api/companies/${encodeURIComponent(companyId)}/attachments/${encodeURIComponent(attachment.uploadId)}`;
 	let sending = $state(false);
 	let starting = $state(false);
 	let error = $state('');
@@ -167,6 +202,7 @@
 			settleNameHere(companyId);
 			nameSettledLocal = true;
 			void catalog.refresh();
+			void openSetup();
 		} catch (cause) {
 			error = failureSentence(cause, 'The name didn’t save. Try again.');
 		} finally {
@@ -174,16 +210,54 @@
 		}
 	}
 
+	/* Exec's opening lines are saved once the name is settled, and always before the first answer,
+	 * so the conversation reads in order everywhere (S97-01). */
+	const opened = $derived(messages.some((message) => message.from !== 'you'));
+	let opening: Promise<void> | null = null;
+	function openSetup(): Promise<void> {
+		opening ??= writeSetupOpening(companyId).catch((cause) => {
+			opening = null;
+			throw cause;
+		});
+		return opening;
+	}
+	$effect(() => {
+		if (step !== 'name' && conversation.status === 'live' && !opened)
+			void openSetup().catch(() => {
+				/* The first answer tries again before it is sent. */
+			});
+	});
+
 	async function say(text: string) {
-		const words = text.trim();
+		const attached = files;
+		const words =
+			text.trim() ||
+			(attached.length ? `Attached: ${attached.map((file) => file.name).join(', ')}` : '');
 		if (!words || sending) return;
+		const tooLarge = attached.find((file) => file.size > MAX_UPLOAD_BYTES);
+		if (tooLarge || attached.length > MAX_UPLOAD_FILES) {
+			error = tooLarge
+				? `${tooLarge.name} is larger than ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB, the most one file can be.`
+				: `Attach at most ${MAX_UPLOAD_FILES} files to one message.`;
+			return;
+		}
 		sending = true;
 		error = '';
+		if (!opened) {
+			try {
+				await openSetup();
+			} catch (cause) {
+				error = failureSentence(cause, 'That didn’t reach Exec. Try again.');
+				sending = false;
+				return;
+			}
+		}
 		/* Sending the same words again resends them as first written, quote included. */
-		const body = stalled && words === visible(lastWords) ? lastWords : asAnswer(words);
+		const body = (stalled || quiet) && words === visible(lastWords) ? lastWords : asAnswer(words);
 		try {
-			await conversation.send(body, [], `/${companyId}/welcome`);
+			await conversation.send(body, attached, `/${companyId}/welcome`);
 			answer = '';
+			files = [];
 		} catch (cause) {
 			error = failureSentence(cause, 'That didn’t reach Exec. Try again.');
 		} finally {
@@ -268,8 +342,18 @@
 		nameFailure = '';
 		try {
 			await conversation.send(asAnswer('Let’s do it'), [], `/${companyId}/welcome`);
-			/* The rail grows out of this chat as the company's tabs take the bar. */
-			if (pane) rememberSetupHandoff(pane.getBoundingClientRect());
+			/* On a phone the setup chat simply is Exec's chat from here on. Wider, a still copy of it
+			 * morphs into Exec's rail as the company's tabs take the bar. */
+			if (window.matchMedia('(max-width: 760px)').matches) {
+				await goto(`/${companyId}/people?person=exec`);
+				return;
+			}
+			if (pane) {
+				const chat = pane.cloneNode(true) as HTMLElement;
+				const thread = chat.querySelector('.setup-thread');
+				chat.dataset.scroll = String(thread ? thread.scrollHeight : 0);
+				rememberSetupHandoff({ rect: pane.getBoundingClientRect(), chat });
+			}
 			await goto(`/${companyId}?tour=1`);
 		} catch (cause) {
 			error = failureSentence(cause, 'That didn’t reach Exec. Try again.');
@@ -327,13 +411,13 @@
 <section class="setup cockpit-pane" aria-label="Setting up your company" bind:this={pane}>
 	<div class="setup-thread" bind:this={thread}>
 		<div class="setup-column">
-			<ConversationMessage
-				sender="agent"
-				author="Exec"
-				text={`Hi, I’m Exec. I’ll run ${currentName || 'this company'} with you. A few quick questions and we’re off.`}
-				createdAt={introAt}
-				copyable={false}
-			/>
+			{#if !opened}<ConversationMessage
+					sender="agent"
+					author="Exec"
+					text={`Hi, I’m Exec. I’ll run ${currentName || 'this company'} with you. A few quick questions and we’re off.`}
+					createdAt={introAt}
+					copyable={false}
+				/>{/if}
 
 			{#if step === 'name'}
 				<form
@@ -360,19 +444,21 @@
 					</div>
 				</form>
 			{:else}
-				<ConversationMessage
-					sender="agent"
-					author="Exec"
-					text="So, tell me about this idea of yours."
-					createdAt={introAt}
-					copyable={false}
-					continued
-				/>
+				{#if !opened}<ConversationMessage
+						sender="agent"
+						author="Exec"
+						text="So, tell me about this idea of yours."
+						createdAt={introAt}
+						copyable={false}
+						continued
+					/>{/if}
 				{#each shown as message, i (message.id)}
 					<ConversationMessage
 						sender={message.from === 'you' ? 'owner' : 'agent'}
 						author={message.from === 'you' ? 'You' : 'Exec'}
 						text={messageText(message)}
+						attachments={message.attachments}
+						hrefFor={attachmentHref}
 						createdAt={message.createdAt}
 						copyable={false}
 						continued={i > 0 && shown[i - 1].from === message.from}
@@ -381,8 +467,12 @@
 
 				{#if step === 'model'}
 					<div class="setup-card" role="group" aria-label="Exec needs a model">
-						<p>I can’t think until I have a model. Choose one, and I’ll pick up right here.</p>
-						<div><a class="btn primary" href={connectHref}>Choose a model</a></div>
+						<p>I can’t think until I have a model. Connect one here and I’ll pick up right away.</p>
+						<ConnectModel
+							{companyId}
+							returnTo={`/${companyId}/welcome`}
+							onready={() => void catalog.refresh()}
+						/>
 					</div>
 				{:else if step === 'readback'}
 					<div
@@ -446,10 +536,35 @@
 							</div>
 						{/if}
 					</div>
+				{:else if readbackMissing || stoppedShort}
+					<div class="setup-card" role="group" aria-label="Exec stopped short">
+						<p>
+							{readbackMissing
+								? 'I didn’t finish the read-back.'
+								: 'I stopped before finishing that thought.'}
+						</p>
+						<div class="setup-actions">
+							<button
+								type="button"
+								class="btn primary"
+								disabled={sending}
+								onclick={() =>
+									say(
+										readbackMissing
+											? 'Please send the full read-back so I can check it.'
+											: 'Please carry on.'
+									)}>{readbackMissing ? 'Show me the read-back' : 'Carry on'}</button
+							>
+						</div>
+					</div>
 				{:else if stalled}
 					<p class="setup-status" role="alert" title={stallReason}>
 						I couldn’t reply{stallLine ? `: ${stallLine}` : '.'} Your answer is back in the box. Send
 						it again and I’ll try once more.
+					</p>
+				{:else if quiet}
+					<p class="setup-status" role="alert">
+						I haven’t replied. Your answer is back in the box: send it again and I’ll pick it up.
 					</p>
 				{:else if waiting}
 					<p class="setup-status" role="status">
@@ -487,7 +602,8 @@
 	>
 		<Composer
 			bind:value={answer}
-			allowAttachments={false}
+			bind:files
+			allowAttachments={composerOpen}
 			minlength={1}
 			disabled={!composerOpen || sending || starting || (waiting && !stalled)}
 			{focusKey}

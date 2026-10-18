@@ -1768,6 +1768,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(archived_agents),
         )
         .route(
+            "/companies/{company}/setup/opening",
+            post(setup_opening),
+        )
+        .route(
             "/companies/{company}/actors/{actor}/archive",
             post(archive_agent),
         )
@@ -5904,6 +5908,52 @@ async fn rehire_agent(
     Json(input): Json<AgentStaffingInput>,
 ) -> Response<Body> {
     staffing_change(state, principal, company, actor, input, false).await
+}
+
+/// Exec's opening lines when a new company is set up (S97-01), written once into the Exec
+/// conversation so the setup chat, the rail it becomes and every device show the whole setup.
+/// The words are the server's own, with the company's own name; the browser supplies nothing.
+/// Owner only, only while the company has no charter, and only while Exec has said nothing yet.
+pub(crate) fn setup_opening_lines(name: &str) -> [String; 2] {
+    [
+        format!("Hi, I’m Exec. I’ll run {name} with you. A few quick questions and we’re off."),
+        "So, tell me about this idea of yours.".to_string(),
+    ]
+}
+
+async fn setup_opening(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    if principal.membership_role() != "owner" || !principal.permits_company(&company) {
+        return api_error(StatusCode::FORBIDDEN, "setup", "Only the owner sets up a company.");
+    }
+    let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, "setup", "That company does not exist."),
+    };
+    if !config.mission.trim().is_empty() {
+        return api_error(StatusCode::CONFLICT, "setup", "This company is already set up.");
+    }
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
+    };
+    let said = match org.human_conversation_before(principal.actor_id(), "exec", None, 100).await {
+        Ok(messages) => messages.iter().any(|message| message.from_actor == "exec"),
+        Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
+    };
+    if said {
+        return Json(serde_json::json!({ "written": false })).into_response();
+    }
+    let name = config.display_name.clone().unwrap_or_else(|| company_display_name(&config.name));
+    for line in setup_opening_lines(&name) {
+        if let Err(error) = org.send_message("exec", None, &line).await {
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}"));
+        }
+    }
+    Json(serde_json::json!({ "written": true })).into_response()
 }
 
 async fn staffing_change(

@@ -12,6 +12,8 @@
 </script>
 
 <script lang="ts">
+	import { page } from '$app/state';
+	import ConnectModel from './ConnectModel.svelte';
 	import {
 		answerIndex,
 		excerptOf,
@@ -1613,7 +1615,12 @@
 								<p class="exr-empty-p">
 									{needsProvider ? providerReason : capabilityHint}
 								</p>
-								{#if needsProvider && ownerFixes}
+								{#if needsProvider && ownerFixes && neverConnected}
+									<!-- Connected right here, without leaving the conversation (S97-02). -->
+									<div class="provider-connect-inline">
+										<ConnectModel {companyId} returnTo={page.url.pathname + page.url.search} />
+									</div>
+								{:else if needsProvider && ownerFixes}
 									<a
 										class="btn primary small provider-connect"
 										href={`/${companyId}/company/provider`}
@@ -1802,6 +1809,12 @@
 </aside>
 
 <style>
+	.provider-connect-inline {
+		width: 100%;
+		max-width: 320px;
+		margin-top: 4px;
+		text-align: left;
+	}
 	.command-line {
 		display: flex;
 		gap: 6px;

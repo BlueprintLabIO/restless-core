@@ -31,3 +31,9 @@ test('tabs mark earlier steps done and the current one on', () => {
 		['Name', 'Model', 'Your idea', 'Read back']
 	);
 });
+
+test('while Exec asks, the current step counts its questions', () => {
+	assert.equal(setupTabs('idea', false, 3)[1].label, 'Your idea · 3');
+	assert.equal(setupTabs('idea', false, 0)[1].label, 'Your idea');
+	assert.equal(setupTabs('readback', false, 4)[1].label, 'Your idea');
+});

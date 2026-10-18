@@ -654,3 +654,14 @@ export async function saveLegalProfile(
 		})
 	);
 }
+
+/** Exec's opening setup lines, written once into its conversation, so the setup chat and the rail
+ * it becomes show the whole setup (S97-01). The words are the server's; repeating is harmless. */
+export async function writeSetupOpening(company: string): Promise<void> {
+	await ownerJson(
+		await fetch(`/api/companies/${encodeURIComponent(company)}/setup/opening`, {
+			method: 'POST',
+			credentials: 'same-origin'
+		})
+	);
+}

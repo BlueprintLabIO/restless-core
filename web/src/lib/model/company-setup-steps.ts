@@ -30,16 +30,21 @@ export function currentSetupStep(state: {
 	return 'idea';
 }
 
-/** The top bar's tabs for a step: earlier ones done, this one current. */
+/** The top bar's tabs for a step: earlier ones done, this one current. While Exec asks its
+ * questions, the step counts them, so the interview is seen moving. */
 export function setupTabs(
 	step: SetupStep,
-	needsModel: boolean
+	needsModel: boolean,
+	asked = 0
 ): { key: string; label: string; done: boolean; on: boolean }[] {
 	const steps = setupSteps(needsModel || step === 'model');
 	const at = steps.indexOf(step);
 	return steps.map((key, index) => ({
 		key: `setup-${key}`,
-		label: SETUP_STEP_LABEL[key],
+		label:
+			key === 'idea' && index === at && asked > 0
+				? `${SETUP_STEP_LABEL[key]} · ${asked}`
+				: SETUP_STEP_LABEL[key],
 		done: index < at,
 		on: index === at
 	}));

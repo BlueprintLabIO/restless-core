@@ -1379,7 +1379,7 @@
 						class="directory-section team-section"
 						aria-label={teamName(entry.team.name, companyId)}
 					>
-						<header class="team-directory-head" title={entry.team.brief}>
+						<header class="team-directory-head">
 							<span>{teamName(entry.team.name, companyId)}</span><em
 								>{entry.members.length + (entry.lead ? 1 : 0)}</em
 							>{#if owner}<div class="team-menu">
@@ -1411,6 +1411,10 @@
 									</ActionMenu>
 								</div>{/if}
 						</header>
+						{#if entry.team.brief?.trim()}
+							<!-- What the team is for, as a quiet line, not a tooltip over the rows below. -->
+							<p class="team-brief">{entry.team.brief}</p>
+						{/if}
 						{#if teamOwnerId(entry.team)}
 							<p class="team-owner">Owned by {teamOwnerName(teamOwnerId(entry.team) ?? '')}</p>
 						{:else if owner}
@@ -1938,6 +1942,18 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.team-brief {
+		display: -webkit-box;
+		margin: -2px 0 4px;
+		padding: 0 8px;
+		overflow: hidden;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		line-height: 1.4;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
 	}
 	.team-directory-head em {
 		color: var(--text-tertiary);

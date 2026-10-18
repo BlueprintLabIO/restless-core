@@ -611,40 +611,93 @@
 	const welcoming = $derived(page.url.pathname === `/${companyId}/welcome`);
 	/* While setting up, the top bar's tabs are the setup's steps, as the setup page reports them. */
 	const setupShellTabs = $derived(
-		setupTabs(companySetup.step, companySetup.needsModel).map((tab) => ({
+		setupTabs(companySetup.step, companySetup.needsModel, companySetup.asked).map((tab) => ({
 			...tab,
 			href: page.url.pathname
 		}))
 	);
-	/* Setup hands over to the cockpit (S96): Exec's rail grows out of the setup chat, and the
-	 * page fills in beside it. Without a rail on screen (a phone) the page simply arrives. */
+	/* Setup hands over to the cockpit (S97-01): a still copy of the setup chat sits exactly where it
+	 * was and narrows into Exec's rail, its text reflowing and its newest line kept in view; then the
+	 * live rail, holding the same conversation, takes its place. Without a rail on screen the page
+	 * simply arrives. Reduced motion skips straight to the end. */
 	$effect(() => {
 		if (welcoming || !touring) return;
-		void tick().then(() =>
-			requestAnimationFrame(() => {
-				const from = takeSetupHandoff();
-				if (!from || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-				const rail = document.querySelector<HTMLElement>('.bridge-exrail.open');
-				const to = rail?.getBoundingClientRect();
-				document.querySelector('.bridge-content')?.animate([{ opacity: 0 }, { opacity: 1 }], {
-					duration: 320,
-					delay: rail ? 180 : 0,
-					easing: 'ease-out',
-					fill: 'backwards'
+		const handoff = takeSetupHandoff();
+		if (!handoff || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+		const root = document.querySelector<HTMLElement>('.bridge-root');
+		if (!root) return;
+		/* The copy is on screen at once, where the chat was, so nothing flashes while the cockpit
+		 * and its rail open around it. */
+		const { rect: from, chat } = handoff;
+		const layer = (parseInt(getComputedStyle(root).getPropertyValue('--z-rail'), 10) || 40) + 2;
+		chat.inert = true;
+		chat.setAttribute('aria-hidden', 'true');
+		Object.assign(chat.style, {
+			position: 'fixed',
+			left: `${from.left}px`,
+			top: `${from.top}px`,
+			width: `${from.width}px`,
+			height: `${from.height}px`,
+			margin: '0',
+			zIndex: String(layer),
+			pointerEvents: 'none'
+		});
+		root.append(chat);
+		document.querySelector('.bridge-content')?.animate([{ opacity: 0 }, { opacity: 1 }], {
+			duration: 320,
+			delay: 240,
+			easing: 'ease-out',
+			fill: 'backwards'
+		});
+		const thread = chat.querySelector<HTMLElement>('.setup-thread');
+		let morphing = true;
+		const pin = () => {
+			if (thread) thread.scrollTop = thread.scrollHeight;
+			if (morphing) requestAnimationFrame(pin);
+		};
+		pin();
+		const fadeOut = () =>
+			chat
+				.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180, easing: 'ease-out' })
+				.finished.finally(() => {
+					morphing = false;
+					chat.remove();
 				});
-				if (!rail || !to?.width || !to.height) return;
-				/* The chat moves, it does not stretch: from the middle of the setup pane, where its
-				 * column sat, to the rail, fading the last of the way in. */
-				const dx = from.left + from.width / 2 - (to.left + to.width / 2);
-				rail.animate(
+		void (async () => {
+			/* The rail opens a moment after the page; wait for it, briefly. */
+			let rail: HTMLElement | null = null;
+			for (let frame = 0; frame < 45 && !rail?.getBoundingClientRect().width; frame++) {
+				await new Promise((resolve) => requestAnimationFrame(resolve));
+				rail = document.querySelector<HTMLElement>('.bridge-exrail.open');
+			}
+			const to = rail?.getBoundingClientRect();
+			if (!rail || !to?.width || !to.height) return void fadeOut();
+			rail.style.opacity = '0';
+			const done = () => {
+				rail.style.opacity = '';
+				rail.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160, easing: 'ease-out' });
+				void fadeOut();
+			};
+			chat
+				.animate(
 					[
-						{ transform: `translateX(${dx}px)`, opacity: 0.4 },
-						{ transform: 'none', opacity: 1 }
+						{
+							left: `${from.left}px`,
+							top: `${from.top}px`,
+							width: `${from.width}px`,
+							height: `${from.height}px`
+						},
+						{
+							left: `${to.left}px`,
+							top: `${to.top}px`,
+							width: `${to.width}px`,
+							height: `${to.height}px`
+						}
 					],
-					{ duration: 520, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }
-				);
-			})
-		);
+					{ duration: 560, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' }
+				)
+				.finished.then(done, done);
+		})();
 	});
 	/* Straight after meeting Exec: the conversation is now the rail, and a short tour shows the
 	 * owner around. */

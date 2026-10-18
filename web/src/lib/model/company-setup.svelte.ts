@@ -3,23 +3,25 @@
  * out of it instead of appearing somewhere else. */
 import type { SetupStep } from './company-setup-steps';
 
-export const companySetup = $state<{ step: SetupStep; needsModel: boolean }>({
+export const companySetup = $state<{ step: SetupStep; needsModel: boolean; asked: number }>({
 	step: 'name',
-	needsModel: false
+	needsModel: false,
+	asked: 0
 });
 
-let handoff: DOMRect | null = null;
+export type SetupHandoff = { rect: DOMRect; chat: HTMLElement };
+let handoff: SetupHandoff | null = null;
 
-/** The setup chat's place on screen as it hands over to the cockpit. */
-export function rememberSetupHandoff(rect: DOMRect) {
-	handoff = rect;
+/** The setup chat as it hands over to the cockpit: where it sat, and a still copy of it. */
+export function rememberSetupHandoff(next: SetupHandoff) {
+	handoff = next;
 }
 
-/** Read once: the rail grows from it the first time it appears after setup. */
-export function takeSetupHandoff(): DOMRect | null {
-	const rect = handoff;
+/** Read once: the copy morphs into Exec's rail the first time the rail appears after setup. */
+export function takeSetupHandoff(): SetupHandoff | null {
+	const taken = handoff;
 	handoff = null;
-	return rect;
+	return taken;
 }
 
 /* The name step is settled on this device once the owner continues past it. Exec's later

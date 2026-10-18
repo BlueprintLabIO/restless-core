@@ -298,9 +298,16 @@
 	}
 
 	$effect(() => {
-		void tabs.map((tab) => `${tab.key}:${tab.on}:${tab.badge ?? 0}`).join();
-		/* The first placement lands without travel; only later moves animate. */
-		if (placeIndicator()) requestAnimationFrame(() => (indicatorPlaced = true));
+		void tabs
+			.map((tab) => `${tab.key}:${tab.on}:${tab.done}:${tab.label}:${tab.badge ?? 0}`)
+			.join();
+		/* The first placement lands without travel; only later moves animate. A label that changed
+		 * width (a setup step's check or count) is measured again once it has laid out. */
+		if (placeIndicator())
+			requestAnimationFrame(() => {
+				placeIndicator();
+				indicatorPlaced = true;
+			});
 	});
 
 	$effect(() => {
