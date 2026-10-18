@@ -188,6 +188,11 @@ pub fn split_intent_receipt(body: &str) -> (&str, Option<OwnerIntentReceipt>) {
                 .map(str::trim)
                 .filter(|name| !name.is_empty() && name.chars().count() <= 80)
                 .map(str::to_string);
+            // A name is proposed with a read-back, never alone: without one there is nothing for
+            // the owner to confirm, and setup would stall on an empty read-back (18 October).
+            if receipt.readback.is_empty() {
+                receipt.proposed_name = None;
+            }
             receipt.owner_fields = if receipt.owner_need.is_some() {
                 receipt
                     .owner_fields
@@ -282,6 +287,25 @@ pub fn conversation_owner_need(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_proposed_name_needs_a_read_back_beside_it() {
+        let alone = concat!(
+            "Does this sound right?",
+            "\n\n<!--restless-intent:{\"kind\":\"direction\",\"summary\":\"Setting up.\",",
+            "\"ownerNeed\":\"Does this sound right?\",\"proposedName\":\"Frankensurf\"}-->"
+        );
+        assert_eq!(split_intent_receipt(alone).1.unwrap().proposed_name, None);
+        let with_readback = concat!(
+            "Here is what I heard.",
+            "\n\n<!--restless-intent:{\"kind\":\"direction\",\"summary\":\"Setting up.\",",
+            "\"proposedName\":\"Frankensurf\",\"readback\":[{\"label\":\"What it is\",\"text\":\"A web layer.\"}]}-->"
+        );
+        assert_eq!(
+            split_intent_receipt(with_readback).1.unwrap().proposed_name.as_deref(),
+            Some("Frankensurf")
+        );
+    }
 
     #[test]
     fn only_a_valid_exec_intent_receipt_is_promoted_to_ui_metadata() {

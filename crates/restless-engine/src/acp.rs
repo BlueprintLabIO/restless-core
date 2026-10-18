@@ -928,6 +928,10 @@ impl TurnTranscript {
         match update {
             SessionUpdate::AgentMessageChunk(chunk) => {
                 if let ContentBlock::Text(text) = &chunk.content {
+                    if is_runtime_notice(&text.text) {
+                        tracing::info!(notice = %text.text.trim(), "agent runtime notice kept out of the reply");
+                        return;
+                    }
                     let message_id = chunk.message_id.as_ref().map(ToString::to_string);
                     if self.last_message_id.is_some()
                         && message_id.is_some()
@@ -983,9 +987,17 @@ impl TurnTranscript {
     }
 }
 
+/// OMP's own status lines, sent as agent text: a stalled stream it is retrying. They are the
+/// runtime talking, not the agent, so they never reach a conversation (18 October: one showed in
+/// the owner's chat as if Exec had said it).
+fn is_runtime_notice(text: &str) -> bool {
+    text.trim_start().starts_with("Thinking loop detected")
+}
+
 fn live_event(update: &SessionUpdate) -> Option<LiveSessionEvent> {
     match update {
         SessionUpdate::AgentMessageChunk(chunk) => match &chunk.content {
+            ContentBlock::Text(text) if is_runtime_notice(&text.text) => None,
             ContentBlock::Text(text) => Some(LiveSessionEvent::ReplyDelta {
                 message_id: chunk.message_id.as_ref().map(ToString::to_string),
                 text: text.text.clone(),
