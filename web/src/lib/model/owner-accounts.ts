@@ -127,7 +127,7 @@ export const ACCOUNT_KINDS: { kind: AccountKind; label: string; mark: string; hi
 		kind: 'github',
 		label: 'GitHub',
 		mark: 'GH',
-		hint: 'Repositories, issues and pull requests, through the Restless GitHub App.'
+		hint: 'Repositories, issues and pull requests, with a GitHub token.'
 	},
 	{
 		kind: 'mcp_tool',
@@ -138,6 +138,12 @@ export const ACCOUNT_KINDS: { kind: AccountKind; label: string; mark: string; hi
 	{ kind: 'ai_provider', label: 'AI account', mark: 'AI', hint: 'A model provider.' }
 ];
 
+/** "an API key", "a website login", "a GitHub account": for a sentence about a kind. */
+export function kindPhrase(kind: AccountKind) {
+	const label = kindOf(kind).label;
+	const words = /[A-Z]/.test(label.slice(1)) ? label : label.toLowerCase();
+	return `${/^[aeiou]/i.test(words) ? 'an' : 'a'} ${words}`;
+}
 export function kindOf(kind: AccountKind) {
 	return ACCOUNT_KINDS.find((entry) => entry.kind === kind) ?? ACCOUNT_KINDS[0];
 }

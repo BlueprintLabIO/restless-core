@@ -18,7 +18,8 @@
 	import { tick, untrack, type Snippet } from 'svelte';
 	import AttentionFooter from './AttentionFooter.svelte';
 	import AccountUseNote from './AccountUseNote.svelte';
-	import { grantSummary, kindOf } from '$lib/model/owner-accounts';
+	import { grantSummary, kindPhrase } from '$lib/model/owner-accounts';
+	import { ownerAccounts } from '$lib/model/owner-accounts-client';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import type { AttentionItem } from '$lib/model/view';
 	import {
@@ -155,6 +156,15 @@
 	const authorizeOnline = $derived(action('authorize-publication'));
 	const declineOnline = $derived(action('decline-publication'));
 	const record = $derived(action('record-decision'));
+	/* Accounts (S98-09/10): a notice is answered Fine or Freeze, an admin's request Approve, Approve
+	 * with limits (Settings, with the grant open) or Deny. The reference is the notice or request. */
+	const accountNotice = $derived(item.source.kind === 'account_notice' && !!item.accountUse);
+	const noticeFine = $derived(accountNotice ? action('fine') : undefined);
+	const noticeFreeze = $derived(accountNotice ? action('freeze') : undefined);
+	const accountAsk = $derived(item.source.kind === 'account_request');
+	const requestApprove = $derived(accountAsk ? action('approve') : undefined);
+	const requestLimits = $derived(accountAsk ? action('approve-with-limits') : undefined);
+	const requestDeny = $derived(accountAsk ? action('deny') : undefined);
 	const open = $derived(action('open-outcome'));
 	const review = $derived(item.actions.some((candidate) => candidate.id === 'accept-review'));
 	let requestingReviewChanges = $state(false),
@@ -457,6 +467,32 @@
 			'The payee decision was not recorded. Try again.',
 			execHref
 		);
+	const answerNotice = (decision: 'fine' | 'freeze') =>
+		run(
+			async () => {
+				await ownerAccounts.decideNotice(
+					item.accountUse!.account.id,
+					item.source.reference,
+					decision
+				);
+				await refreshAttention(client, companyId);
+			},
+			decision === 'fine'
+				? 'Fine. The company keeps using it.'
+				: 'Frozen. This company can’t use the account until you unfreeze it.',
+			'That was not recorded. Try again.'
+		);
+	const answerRequest = (decision: 'approved' | 'denied') =>
+		run(
+			async () => {
+				await ownerAccounts.settleRequest(item.source.reference, { decision });
+				await refreshAttention(client, companyId);
+			},
+			decision === 'approved'
+				? 'Approved. The company can use it now.'
+				: 'Denied. The company is told.',
+			'That was not recorded. Try again.'
+		);
 	/* A prepared publication: the owner's yes puts the exact build online; no stops it. */
 	const decidePublication = (authorize: boolean) =>
 		run(
@@ -600,7 +636,7 @@
 									>{item.accountRequest.requested_by_display} asks for {item.accountRequest
 										.account_id
 										? 'more on an account'
-										: `a ${kindOf(item.accountRequest.kind).label.toLowerCase()}`}</strong
+										: kindPhrase(item.accountRequest.kind)}</strong
 								>
 								<span
 									>{grantSummary({
@@ -948,6 +984,45 @@
 							disabled={acting}
 							title={`${decline.consequence} ${decline.nextState}`}
 							onclick={() => (approvalNote = 'decline')}>{decline.label}</button
+						>{/if}
+				{:else if noticeFine || noticeFreeze}
+					{#if noticeFine}<button
+							class="btn small primary"
+							disabled={acting}
+							title={`${noticeFine.consequence} ${noticeFine.nextState}`}
+							onclick={() => void answerNotice('fine')}>{noticeFine.label}</button
+						>{/if}
+					{#if noticeFreeze}<button
+							class="btn small"
+							disabled={acting}
+							title={`${noticeFreeze.consequence} ${noticeFreeze.nextState}`}
+							onclick={() => void answerNotice('freeze')}>{noticeFreeze.label}</button
+						>{/if}
+				{:else if requestApprove || requestLimits || requestDeny}
+					{#if requestApprove}
+						{#key `${item.id}:${attempt}`}
+							<HoldApprove
+								small
+								completeLabel="Saving approval…"
+								label="Hold to approve"
+								disabled={acting}
+								title={`${requestApprove.consequence} ${requestApprove.nextState}`}
+								onapprove={() => void answerRequest('approved')}
+							/>
+						{/key}
+					{/if}
+					{#if requestLimits?.href}<a
+							class="btn small"
+							class:primary={!requestApprove}
+							href={requestLimits.href}
+							title={`${requestLimits.consequence} ${requestLimits.nextState}`}
+							>{requestLimits.label}</a
+						>{/if}
+					{#if requestDeny}<button
+							class="btn small"
+							disabled={acting}
+							title={`${requestDeny.consequence} ${requestDeny.nextState}`}
+							onclick={() => void answerRequest('denied')}>{requestDeny.label}</button
 						>{/if}
 				{:else if approveMandate}
 					{#key `${item.id}:${attempt}`}

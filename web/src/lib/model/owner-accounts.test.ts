@@ -4,6 +4,7 @@ import {
 	DEFAULT_ABILITIES,
 	EMPTY_LIMITS,
 	grantSummary,
+	kindPhrase,
 	limitsSummary,
 	money,
 	presetOf,
@@ -112,4 +113,11 @@ test('a use on an Inbox item or a message is one short line', () => {
 		}),
 		'eBay · Spend · Exec, for Bianca · $12.50'
 	);
+});
+
+test('a kind reads as a phrase in a sentence', () => {
+	assert.equal(kindPhrase('api'), 'an API key');
+	assert.equal(kindPhrase('website_login'), 'a website login');
+	assert.equal(kindPhrase('github'), 'a GitHub');
+	assert.equal(kindPhrase('ai_provider'), 'an AI account');
 });

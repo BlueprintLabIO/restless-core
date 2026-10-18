@@ -67,7 +67,7 @@
 	});
 
 	/* ---- adding an account ---- */
-	const ADDABLE: AccountKind[] = ['website_login', 'api', 'browser_profile'];
+	const ADDABLE: AccountKind[] = ['website_login', 'api', 'browser_profile', 'github'];
 	let adding = $state(false);
 	let addKind = $state<AccountKind>('website_login');
 	let busy = $state(false);
@@ -147,13 +147,21 @@
 									secret: form.secret
 								}
 							})
-						: await client.create({
-								kind: 'browser_profile',
-								label: label || domainOf(form.url) || 'Browser sign-in',
-								provider: domainOf(form.url) || null,
-								personal: form.personal,
-								credential: { kind: 'browser_profile', url: fullUrl(form.url) }
-							});
+						: addKind === 'github'
+							? await client.create({
+									kind: 'github',
+									label: label || 'GitHub',
+									provider: 'github.com',
+									personal: form.personal,
+									credential: { kind: 'token', secret: form.secret }
+								})
+							: await client.create({
+									kind: 'browser_profile',
+									label: label || domainOf(form.url) || 'Browser sign-in',
+									provider: domainOf(form.url) || null,
+									personal: form.personal,
+									credential: { kind: 'browser_profile', url: fullUrl(form.url) }
+								});
 			accounts = [...accounts, created];
 			adding = false;
 			resetForm();
@@ -175,7 +183,9 @@
 				? !!domainOf(form.baseUrl) &&
 					!!form.secret &&
 					(form.auth === 'bearer' || form.auth === 'basic' || !!form.authName.trim())
-				: !!domainOf(form.url)
+				: addKind === 'github'
+					? !!form.secret.trim()
+					: !!domainOf(form.url)
 	);
 
 	/* ---- managing one account ---- */
@@ -519,17 +529,15 @@
 		{#if adding}
 			<form class="add" onsubmit={add}>
 				<div class="kinds" role="radiogroup" aria-label="Kind of account">
-					{#each ACCOUNT_KINDS.filter((entry) => ADDABLE.includes(entry.kind) || entry.kind === 'github') as entry (entry.kind)}
+					{#each ACCOUNT_KINDS.filter( (entry) => ADDABLE.includes(entry.kind) ) as entry (entry.kind)}
 						<button
 							type="button"
 							role="radio"
 							aria-checked={addKind === entry.kind}
 							class:on={addKind === entry.kind}
-							disabled={entry.kind === 'github'}
-							title={entry.kind === 'github' ? 'The GitHub App arrives next' : entry.hint}
+							title={entry.hint}
 							onclick={() => (addKind = entry.kind)}
-							><span class="mark" aria-hidden="true">{entry.mark}</span
-							>{entry.label}{#if entry.kind === 'github'}<small>Soon</small>{/if}</button
+							><span class="mark" aria-hidden="true">{entry.mark}</span>{entry.label}</button
 						>
 					{/each}
 				</div>
@@ -596,6 +604,23 @@
 								autocomplete="off"
 							/></label
 						>
+					{:else if addKind === 'github'}
+						<label
+							><span>Token</span><input
+								type="password"
+								bind:value={form.secret}
+								autocomplete="off"
+								placeholder="github_pat_…"
+							/></label
+						>
+						<p class="hint">
+							Make a <a
+								href="https://github.com/settings/personal-access-tokens/new"
+								target="_blank"
+								rel="noreferrer">fine-grained token</a
+							> for just the repositories your companies need. Restless checks it with GitHub and shows
+							whose it is.
+						</p>
 					{:else}
 						<p class="hint">
 							After you add it, sign in once in your browser. Companies use that session, never the
@@ -828,10 +853,6 @@
 	.kinds button:disabled {
 		cursor: default;
 		opacity: 0.55;
-	}
-	.kinds small {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
 	}
 	.mark {
 		display: grid;
