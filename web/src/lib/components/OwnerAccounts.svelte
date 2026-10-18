@@ -101,6 +101,11 @@
 			return '';
 		}
 	};
+	/* Owners type ebay.com.au/signin; the owner plane wants a full https:// URL. */
+	const fullUrl = (url: string) => {
+		const trimmed = url.trim();
+		return !trimmed || /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+	};
 	async function add(event: SubmitEvent) {
 		event.preventDefault();
 		if (busy) return;
@@ -116,7 +121,7 @@
 							personal: form.personal,
 							credential: {
 								kind: 'password',
-								sign_in_url: form.url.trim(),
+								sign_in_url: fullUrl(form.url),
 								domains: [domainOf(form.url)].filter(Boolean),
 								username: form.username.trim(),
 								password: form.password,
@@ -131,7 +136,7 @@
 								personal: false,
 								credential: {
 									kind: 'api_key',
-									base_url: form.baseUrl.trim(),
+									base_url: fullUrl(form.baseUrl),
 									auth: form.auth,
 									...(form.auth === 'header' || form.auth === 'query'
 										? { auth_name: form.authName.trim() }
@@ -144,7 +149,7 @@
 								label: label || domainOf(form.url) || 'Browser sign-in',
 								provider: domainOf(form.url) || null,
 								personal: form.personal,
-								credential: { kind: 'browser_profile', url: form.url.trim() }
+								credential: { kind: 'browser_profile', url: fullUrl(form.url) }
 							});
 			accounts = [...accounts, created];
 			adding = false;

@@ -200,6 +200,7 @@
 		place-items: center;
 		min-width: 28px;
 		height: 22px;
+		margin-right: 8px;
 		padding: 0 4px;
 		border: 1px solid var(--border);
 		border-radius: 6px;
