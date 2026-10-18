@@ -30,6 +30,21 @@ async fn owner_gate(
     require_authority_owner(state, company, principal).await
 }
 
+/// What Exec asked for is company record an admin reads with the owner (the boundary's
+/// `admin_reads_company_record`); answering or declining a request stays the owner's.
+async fn record_reader_gate(
+    state: &OwnerState,
+    company: &str,
+    principal: &RequestPrincipal,
+) -> Result<(), Response<Body>> {
+    if principal.membership_role() != "admin" {
+        return owner_gate(state, company, principal).await;
+    }
+    runtime::CompanyConfig::load(&state.daemon.root, company)
+        .map(|_| ())
+        .map_err(|error| api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")))
+}
+
 /// Connected tools reach agents through the tool gateway on this plane's
 /// Runtime relay, which a hosted (externally managed) Runtime does not use.
 /// Say so instead of adding an app that no agent could ever call.
@@ -504,7 +519,7 @@ pub(super) async fn app_requests(
     Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
 ) -> Response<Body> {
-    if let Err(refusal) = owner_gate(&state, &company, &principal).await {
+    if let Err(refusal) = record_reader_gate(&state, &company, &principal).await {
         return refusal;
     }
     // A request the owner set aside stays out of the way until it is restored.
