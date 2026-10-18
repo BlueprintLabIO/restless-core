@@ -276,7 +276,35 @@ pub fn tool_name(account: &Account) -> String {
 }
 
 pub fn is_account_tool(name: &str) -> bool {
-    name.starts_with(TOOL_PREFIX) && name.ends_with(TOOL_SUFFIX)
+    name.starts_with(TOOL_PREFIX) && (name.ends_with(TOOL_SUFFIX) || name.ends_with(GIT_SUFFIX))
+}
+
+const GIT_SUFFIX: &str = "__git_remote";
+
+/// The git tool a GitHub account adds: it answers a remote for one repository.
+pub fn git_tool_name(account: &Account) -> Option<String> {
+    (account.kind == "github").then(|| tool_name(account).replace(TOOL_SUFFIX, GIT_SUFFIX))
+}
+
+pub fn git_tool_definition(usable: &Usable) -> Option<(String, String, serde_json::Value)> {
+    let name = git_tool_name(&usable.account)?;
+    let scope = if usable.grant.limits.scope.is_empty() {
+        String::new()
+    } else {
+        format!(" Only: {}.", usable.grant.limits.scope.join(", "))
+    };
+    let description = format!(
+        "[{} · the owner's GitHub account, granted to this company] A git remote URL for one repository, to clone, fetch and push as this account. \
+         The GitHub token never reaches this computer; the URL holds only this session's pass and stops working when the session ends (ask again). \
+         Pushing a branch drafts; pushing the default branch, a tag, or deleting acts.{scope}",
+        usable.account.label
+    );
+    let schema = serde_json::json!({
+        "type": "object",
+        "properties": { "repo": {"type": "string", "description": "owner/repo, such as yail259/frankensurf"} },
+        "required": ["repo"]
+    });
+    Some((name, description, schema))
 }
 
 /// The brokered accounts granted to this company that this actor may name. Frozen and expired

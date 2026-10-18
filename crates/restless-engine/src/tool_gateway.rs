@@ -59,6 +59,7 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
     Router::new()
         .route("/tools/{company}", any(handle))
         .layer(DefaultBodyLimit::max(MAX_REQUEST_BYTES))
+        .route("/git/{company}/{*rest}", any(handle_git))
         .with_state(daemon)
 }
 
@@ -68,12 +69,42 @@ pub fn hosted_router(daemon: Arc<Daemon>) -> Router {
     Router::new()
         .route("/tools/{company}", any(handle_hosted))
         .layer(DefaultBodyLimit::max(MAX_REQUEST_BYTES))
+        .route("/git/{company}/{*rest}", any(handle_git_hosted))
         .with_state(daemon)
 }
 
 pub fn is_hosted_tool_gateway_path(path: &str) -> bool {
     path.strip_prefix(HOSTED_TOOL_GATEWAY_PREFIX)
-        .is_some_and(|suffix| suffix.starts_with("/tools/"))
+        .is_some_and(|suffix| suffix.starts_with("/tools/") || suffix.starts_with("/git/"))
+}
+
+/// Git as an owner's GitHub account, from a local company computer (S98-02).
+async fn handle_git(
+    State(daemon): State<Arc<Daemon>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    AxumPath((company, rest)): AxumPath<(String, String)>,
+    request: Request<Body>,
+) -> Response {
+    if !local_runtime_peer(peer.ip()) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let (parts, body) = request.into_parts();
+    crate::account_git::serve(daemon, company, rest, parts.method, parts.uri.query().map(str::to_string), parts.headers, body).await
+}
+
+async fn handle_git_hosted(
+    State(daemon): State<Arc<Daemon>>,
+    AxumPath((company, rest)): AxumPath<(String, String)>,
+    request: Request<Body>,
+) -> Response {
+    if hosted_entry_host().is_none() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let (parts, body) = request.into_parts();
+    if parts.headers.contains_key("cookie") || parts.headers.contains_key("origin") {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    crate::account_git::serve(daemon, company, rest, parts.method, parts.uri.query().map(str::to_string), parts.headers, body).await
 }
 
 /// The plane's entry host when its Runtimes are hosted elsewhere.
@@ -798,10 +829,61 @@ impl ServerHandler for ToolScope {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> std::result::Result<CallToolResponse, ErrorData> {
+        if request.name.ends_with("__git_remote") && crate::account_broker::is_account_tool(&request.name) {
+            return Ok(self.git_remote(&request.name, request.arguments).await);
+        }
         self.caller()
             .await?
             .call(&request.name, request.arguments)
             .await
+    }
+}
+
+impl ToolScope {
+    /// A git remote for one repository as a granted GitHub account (S98-02). The URL carries a
+    /// fresh tool-session pass for this actor, never the GitHub token.
+    async fn git_remote(&self, name: &str, arguments: Option<JsonObject>) -> CallToolResponse {
+        let company = &self.grant.company;
+        let pool = self.daemon.authority.pool();
+        let accounts = crate::account_broker::usable(pool, company, &self.grant.actor).await.unwrap_or_default();
+        let Some(usable) = accounts
+            .into_iter()
+            .find(|usable| crate::account_broker::git_tool_name(&usable.account).as_deref() == Some(name))
+        else {
+            return text_error("That GitHub account is not granted to you, or the owner removed the grant.");
+        };
+        let repo = arguments
+            .as_ref()
+            .and_then(|arguments| arguments.get("repo"))
+            .and_then(serde_json::Value::as_str)
+            .map(|repo| repo.trim().trim_end_matches(".git").trim_start_matches("https://github.com/").to_string())
+            .unwrap_or_default();
+        let valid = repo.split('/').count() == 2
+            && repo.split('/').all(|part| {
+                !part.is_empty() && part != "." && part != ".." && part.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+            });
+        if !valid {
+            return text_error("`repo` is owner/repo, such as yail259/frankensurf.");
+        }
+        let target = repo.to_ascii_lowercase();
+        if !crate::account_broker::in_scope("github", &usable.grant.limits.scope, Some(&target), "read") {
+            return text_error(format!(
+                "{repo} is outside what this company may touch with {} ({}). Ask the owner to widen the grant.",
+                usable.account.label,
+                usable.grant.limits.scope.join(", ")
+            ));
+        }
+        let Ok(pass) = self.daemon.capabilities.issue_tool_session(company, &self.grant.actor, None, None) else {
+            return text_error("A pass for git could not be issued; try again.");
+        };
+        let url = crate::account_git::remote_url(&runtime_url(company), company, &usable.account.id, &repo, &pass);
+        CallToolResult::success(vec![ContentBlock::text(format!(
+            "Remote for {repo} as {} (works for about 45 minutes; ask again after):\n{url}\n\n\
+             Use it directly, for example `git remote set-url origin '<url>'` or `git push '<url>' HEAD:my-branch`. \
+             Do not print it in messages or files others read.",
+            usable.account.identity.display.as_deref().unwrap_or(&usable.account.label)
+        ))])
+        .into()
     }
 }
 
@@ -819,11 +901,14 @@ impl ToolCaller<'_> {
                 Vec::new()
             });
         for usable in &accounts {
-            let (name, description, schema) = crate::account_broker::tool_definition(usable);
-            let serde_json::Value::Object(schema) = schema else { continue };
-            let mut tool = Tool::new(name, description, Arc::new(schema));
-            tool.annotations = Some(ToolAnnotations::new().read_only(false).destructive(false));
-            listed.push(tool);
+            let definitions = std::iter::once(crate::account_broker::tool_definition(usable))
+                .chain(crate::account_broker::git_tool_definition(usable));
+            for (name, description, schema) in definitions {
+                let serde_json::Value::Object(schema) = schema else { continue };
+                let mut tool = Tool::new(name, description, Arc::new(schema));
+                tool.annotations = Some(ToolAnnotations::new().read_only(false).destructive(false));
+                listed.push(tool);
+            }
         }
         if !accounts.is_empty()
             || tools
