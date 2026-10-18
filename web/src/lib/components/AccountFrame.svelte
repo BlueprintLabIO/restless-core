@@ -106,7 +106,7 @@
 					label: 'Settings',
 					href: '/account/connections',
 					active: settings,
-					tooltip: 'AI accounts and appearance',
+					tooltip: 'Accounts and appearance',
 					icon: Settings
 				},
 				...(issuer
@@ -138,7 +138,7 @@
 				href: `/${encodeURIComponent(company.id)}`
 			})),
 		{ id: 'home', group: 'Go to', label: 'Home', hint: 'Your companies', href: home },
-		{ id: 'connections', group: 'Settings', label: 'AI accounts', href: '/account/connections' },
+		{ id: 'connections', group: 'Settings', label: 'Accounts', href: '/account/connections' },
 		{ id: 'appearance', group: 'Settings', label: 'Appearance', href: '/account/appearance' },
 		...(status && !status.hosted
 			? [
@@ -165,7 +165,7 @@
 		...(issuer ? [{ label: 'Billing', items: issued('Plan & credit', 'billing') }] : []),
 		{
 			label: 'Integrations',
-			items: [own('AI accounts', '/account/connections')]
+			items: [own('Accounts', '/account/connections')]
 		},
 		...(status && !status.hosted
 			? [{ label: 'This computer', items: [own('Release and backup', '/account/appliance')] }]

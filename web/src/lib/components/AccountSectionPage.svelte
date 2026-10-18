@@ -7,6 +7,9 @@
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import AccountFrame from '$lib/components/AccountFrame.svelte';
 	import AccountConnections from '$lib/components/AccountConnections.svelte';
+	import OwnerAccounts from '$lib/components/OwnerAccounts.svelte';
+	import { ownerAccounts } from '$lib/model/owner-accounts-client';
+	import { companiesQuery } from '$lib/model/queries.svelte';
 	import AccountAppearance from '$lib/components/AccountAppearance.svelte';
 	import AccountAppliance from '$lib/components/AccountAppliance.svelte';
 	import AccountPage from '$lib/ui/views/AccountPage.svelte';
@@ -18,9 +21,9 @@
 	const SECTIONS: Record<Id, AccountSection> = {
 		connections: {
 			id: 'connections',
-			title: 'AI accounts',
+			title: 'Accounts',
 			tooltip:
-				'Connect an AI model account (Anthropic, OpenAI and others) once, then give individual companies access. Each company keeps its own model choice. Services such as Stripe are added in each company’s Apps.'
+				'Accounts you hold once and let companies use: AI models, website logins, API keys and browser sign-ins. Each company gets only what you give it, and never sees a password or key.'
 		},
 
 		appliance: {
@@ -36,6 +39,13 @@
 		}
 	};
 	const current = $derived(SECTIONS[id]);
+	/* The owner's companies, to give accounts to (S98-07). */
+	const catalog = companiesQuery(() => id === 'connections');
+	const grantable = $derived(
+		catalog.view
+			.filter((company) => company.lifecycle_status === 'active')
+			.map((company) => ({ id: company.id, name: company.name }))
+	);
 </script>
 
 <svelte:head><title>{current.title} — {PRODUCT_NAME}</title></svelte:head>
@@ -45,7 +55,9 @@
 		{#snippet settings(nav)}
 			<AccountPage title="Settings" sections={[current]} {nav}>
 				{#snippet section()}
-					{#if id === 'connections'}<AccountConnections
+					{#if id === 'connections'}<AccountConnections /><OwnerAccounts
+							client={ownerAccounts}
+							companies={grantable}
 						/>{:else if id === 'appliance'}<AccountAppliance />{:else}<AccountAppearance />{/if}
 				{/snippet}
 			</AccountPage>
