@@ -93,16 +93,18 @@
 		{#snippet action()}{@render addActions()}{/snippet}
 		{#snippet nav()}
 			<SidebarRow href={index} label="Discover" icon={Compass} active={discover} />
-			<section class="installed-group" aria-labelledby="apps-installed-label">
-				<h2 id="apps-installed-label">
-					<PackageCheck size={16} aria-hidden="true" /><span>Installed</span>
-				</h2>
-				<nav class="installed-views" aria-label="Installed">
-					{#each installedViews as view (view.label)}
-						<SidebarRow href={view.href} label={view.label} active={view.active} />
-					{/each}
-				</nav>
-			</section>
+			<!-- Installed opens everything installed; its views sit under it, their text in line with its own. -->
+			<SidebarRow
+				href={index + '?view=in-use'}
+				label="Installed"
+				icon={PackageCheck}
+				title="Everything this company has installed"
+			/>
+			<nav class="installed-views" aria-label="Installed">
+				{#each installedViews as view (view.label)}
+					<SidebarRow href={view.href} label={view.label} active={view.active} indent />
+				{/each}
+			</nav>
 			{#if data.removed.length}
 				<SidebarRow
 					href={index + '?view=removed'}
@@ -133,19 +135,6 @@
 </ResizableSidebar>
 
 <style>
-	.installed-group h2 {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		padding: 10px 12px;
-		color: var(--text-secondary);
-		font-size: var(--t-body);
-		font-weight: 500;
-		margin: 0;
-	}
-	.installed-views {
-		padding-left: 24px;
-	}
 	.apps-subviews {
 		display: flex;
 		gap: 4px;
