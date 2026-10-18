@@ -25,6 +25,12 @@ struct ClaudeCallback {
 static JOBS: LazyLock<tokio::sync::Mutex<HashMap<Uuid, LoginJob>>> =
     LazyLock::new(|| tokio::sync::Mutex::new(HashMap::new()));
 
+/// The last model list per provider and signed-in account. Asking the runtime takes about two
+/// seconds, and every company page asked again on each load; a sign-in's models change rarely.
+static MODELS: LazyLock<tokio::sync::Mutex<HashMap<(String, String), (std::time::Instant, serde_json::Value)>>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(HashMap::new()));
+const MODELS_FRESH: std::time::Duration = std::time::Duration::from_secs(600);
+
 /// List models offered by the account's actual OAuth runtime. The public API
 /// catalog is not a reliable list of models available through a subscription.
 pub(super) async fn account_models(
@@ -47,6 +53,12 @@ pub(super) async fn account_models(
     };
     if !matches!((&connection.account_key, model_gateway::oauth_account_key(&provider).await), (Some(expected), Ok(Some(actual))) if expected == &actual) {
         return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The account sign-in is unavailable. Reconnect it in Account settings.");
+    }
+    let cache_key = (provider.clone(), connection.account_key.clone().unwrap_or_default());
+    if let Some((at, body)) = MODELS.lock().await.get(&cache_key) {
+        if at.elapsed() < MODELS_FRESH {
+            return Json(body.clone()).into_response();
+        }
     }
     let (program, profile) = match model_gateway::oauth_login_command() {
         Ok(command) => command,
@@ -94,7 +106,9 @@ pub(super) async fn account_models(
             default["default"] = serde_json::Value::Bool(true);
         }
     }
-    Json(serde_json::json!({"provider": provider, "source": "connected_runtime", "models": models})).into_response()
+    let body = serde_json::json!({"provider": provider, "source": "connected_runtime", "models": models});
+    MODELS.lock().await.insert(cache_key, (std::time::Instant::now(), body.clone()));
+    Json(body).into_response()
 }
 
 pub(super) async fn start_codex_login(
