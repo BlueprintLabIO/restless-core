@@ -4,6 +4,7 @@ import type { QueryClient } from '@tanstack/svelte-query';
 import { toast } from '$lib/ui/feedback/toast.svelte';
 import { failureSentence } from './failure';
 import type { InfiniteData } from '@tanstack/svelte-query';
+import { revalidateAfterEvent } from './room-revalidate';
 import {
 	locateRoomMessageTarget,
 	type RoomMessageTarget,
@@ -704,7 +705,7 @@ export function roomActivityStream(companyId: string, roomId: string) {
 				: undefined,
 			readOnly
 				? client.invalidateQueries({ queryKey: roomQueryKeys.readCursor(companyId, roomId) })
-				: client.invalidateQueries({ queryKey: roomQueryKeys.messages(companyId, roomId) }),
+				: revalidateAfterEvent(client, roomQueryKeys.messages(companyId, roomId)),
 			client.invalidateQueries({ queryKey: roomQueryKeys.recentDirect(companyId) }),
 			client.invalidateQueries({ queryKey: roomQueryKeys.recentGroups(companyId) }),
 			event?.message_id
