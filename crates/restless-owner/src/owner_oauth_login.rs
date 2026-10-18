@@ -14,6 +14,40 @@ struct LoginJob {
     message: Option<String>,
     #[serde(skip)]
     callback: Option<ClaudeCallback>,
+    #[serde(skip)]
+    cancel: Option<Arc<tokio::sync::Notify>>,
+}
+
+/// A sign-in nobody finishes stops on its own, so an abandoned tab never blocks the next one.
+const LOGIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+/// Make room for a new sign-in. One that is only waiting for the owner was abandoned (the owner is
+/// the only one who can start one), so it is stopped and replaced; one already finishing is left
+/// to finish.
+fn replace_waiting_logins(jobs: &mut HashMap<Uuid, LoginJob>) -> Result<(), Response<Body>> {
+    if jobs.values().any(|job| job.state == "completing") {
+        return Err(api_error(StatusCode::CONFLICT, "connections", "The last sign-in is finishing. Try again in a moment."));
+    }
+    for job in jobs.values_mut() {
+        if let Some(cancel) = job.cancel.take() {
+            cancel.notify_one();
+        }
+    }
+    jobs.clear();
+    Ok(())
+}
+
+/// The sign-in's outcome: it ran to completion (true when the helper succeeded), or it was
+/// cancelled or ran out of time, which ends it as failed with this message.
+async fn until_cancelled(
+    cancel: Arc<tokio::sync::Notify>,
+    work: impl std::future::Future<Output = bool>,
+) -> Result<bool, &'static str> {
+    tokio::select! {
+        done = work => Ok(done),
+        () = cancel.notified() => Err("Sign-in cancelled."),
+        () = tokio::time::sleep(LOGIN_TIMEOUT) => Err("Sign-in timed out. Start again."),
+    }
 }
 
 #[derive(Clone)]
@@ -189,17 +223,9 @@ pub(super) async fn start_codex_login(
         }
     };
     let mut jobs = JOBS.lock().await;
-    if jobs
-        .values()
-        .any(|job| matches!(job.state, "starting" | "waiting" | "completing"))
-    {
-        return api_error(
-            StatusCode::CONFLICT,
-            "connections",
-            "Finish the current sign-in before starting another.",
-        );
+    if let Err(response) = replace_waiting_logins(&mut jobs) {
+        return response;
     }
-    jobs.retain(|_, job| matches!(job.state, "starting" | "waiting" | "completing"));
     let mut child = match tokio::process::Command::new(program)
         .current_dir(&state.daemon.root)
         .env("OMP_PROFILE", profile)
@@ -227,6 +253,7 @@ pub(super) async fn start_codex_login(
         );
     };
     let id = Uuid::new_v4();
+    let cancel = Arc::new(tokio::sync::Notify::new());
     jobs.insert(
         id,
         LoginJob {
@@ -235,10 +262,13 @@ pub(super) async fn start_codex_login(
             code: None,
             message: None,
             callback: None,
+            cancel: Some(cancel.clone()),
         },
     );
     drop(jobs);
     tokio::spawn(async move {
+        // Dropping the work on cancel or timeout drops the helper, which kills it.
+        let outcome = until_cancelled(cancel, async move {
         let mut lines = BufReader::new(stdout).lines();
         // The device flow prints an HTTPS authorization URL followed by
         // `Enter code: ...`. Never return arbitrary subprocess output.
@@ -263,7 +293,20 @@ pub(super) async fn start_codex_login(
                 }
             }
         }
-        let completed = child.wait().await.is_ok_and(|status| status.success());
+        child.wait().await.is_ok_and(|status| status.success())
+        }).await;
+        let completed = match outcome {
+            Ok(completed) => completed,
+            Err(message) => {
+                if let Some(job) = JOBS.lock().await.get_mut(&id) {
+                    job.state = "failed";
+                    job.url = None;
+                    job.code = None;
+                    job.message = Some(message.to_owned());
+                }
+                return;
+            }
+        };
         if completed {
             let actual_account = model_gateway::oauth_account_key("openai-codex").await.ok().flatten();
             let same_account = actual_account.as_ref().is_some_and(|actual| expected_account.as_ref().is_none_or(|expected| expected == actual));
@@ -336,10 +379,9 @@ pub(super) async fn start_claude_login(
         Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The model sign-in helper is unavailable on this host."),
     };
     let mut jobs = JOBS.lock().await;
-    if jobs.values().any(|job| matches!(job.state, "starting" | "waiting" | "completing")) {
-        return api_error(StatusCode::CONFLICT, "connections", "Finish the current sign-in before starting another.");
+    if let Err(response) = replace_waiting_logins(&mut jobs) {
+        return response;
     }
-    jobs.retain(|_, job| matches!(job.state, "starting" | "waiting" | "completing"));
     let mut child = match tokio::process::Command::new(program)
         .current_dir(&state.daemon.root)
         .env("OMP_PROFILE", profile)
@@ -360,9 +402,12 @@ pub(super) async fn start_claude_login(
     };
     let stdin = child.stdin.take();
     let id = Uuid::new_v4();
-    jobs.insert(id, LoginJob { state: "starting", url: None, code: None, message: None, callback: None });
+    let cancel = Arc::new(tokio::sync::Notify::new());
+    jobs.insert(id, LoginJob { state: "starting", url: None, code: None, message: None, callback: None, cancel: Some(cancel.clone()) });
     drop(jobs);
     tokio::spawn(async move {
+        // Dropping the work on cancel or timeout drops the helper, which kills it.
+        let outcome = until_cancelled(cancel, async move {
         let _stdin = stdin;
         let mut lines = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = lines.next_line().await {
@@ -379,7 +424,20 @@ pub(super) async fn start_claude_login(
                 job.state = "waiting";
             }
         }
-        let completed = child.wait().await.is_ok_and(|status| status.success());
+        child.wait().await.is_ok_and(|status| status.success())
+        }).await;
+        let completed = match outcome {
+            Ok(completed) => completed,
+            Err(message) => {
+                if let Some(job) = JOBS.lock().await.get_mut(&id) {
+                    job.state = "failed";
+                    job.url = None;
+                    job.callback = None;
+                    job.message = Some(message.to_owned());
+                }
+                return;
+            }
+        };
         if completed {
             let actual_account = model_gateway::oauth_account_key("anthropic").await.ok().flatten();
             let same_account = actual_account.as_ref().is_some_and(|actual| expected_account.as_ref().is_none_or(|expected| expected == actual));
@@ -502,5 +560,64 @@ pub(super) async fn oauth_login_status(
             "connections",
             "This sign-in is no longer available. Start again.",
         ),
+    }
+}
+
+/// The owner closed the sign-in: stop its helper so the next one can start at once.
+pub(super) async fn cancel_oauth_login(
+    State(_state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(job): AxumPath<Uuid>,
+) -> Response<Body> {
+    if !principal.is_account_owner() {
+        return api_error(StatusCode::FORBIDDEN, "connections", "Only the account owner can cancel this sign-in.");
+    }
+    let mut jobs = JOBS.lock().await;
+    if let Some(status) = jobs.get_mut(&job) {
+        if matches!(status.state, "starting" | "waiting") {
+            if let Some(cancel) = status.cancel.take() {
+                cancel.notify_one();
+            }
+            status.state = "failed";
+            status.url = None;
+            status.code = None;
+            status.callback = None;
+            status.message = Some("Sign-in cancelled.".to_owned());
+        }
+    }
+    Json(serde_json::json!({"state": "cancelled"})).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn job(state: &'static str, cancel: Option<Arc<tokio::sync::Notify>>) -> LoginJob {
+        LoginJob { state, url: None, code: None, message: None, callback: None, cancel }
+    }
+
+    #[tokio::test]
+    async fn a_new_sign_in_stops_an_abandoned_one() {
+        let cancel = Arc::new(tokio::sync::Notify::new());
+        let mut jobs = HashMap::from([(Uuid::new_v4(), job("waiting", Some(cancel.clone())))]);
+        assert!(replace_waiting_logins(&mut jobs).is_ok());
+        assert!(jobs.is_empty());
+        // The abandoned helper is told to stop, even though it was not yet listening.
+        tokio::time::timeout(std::time::Duration::from_secs(1), cancel.notified()).await.expect("cancelled");
+    }
+
+    #[tokio::test]
+    async fn one_already_finishing_is_left_to_finish() {
+        let mut jobs = HashMap::from([(Uuid::new_v4(), job("completing", None))]);
+        assert!(replace_waiting_logins(&mut jobs).is_err());
+        assert_eq!(jobs.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn cancelling_ends_the_work_without_waiting_for_it() {
+        let cancel = Arc::new(tokio::sync::Notify::new());
+        cancel.notify_one();
+        let outcome = until_cancelled(cancel, std::future::pending::<bool>()).await;
+        assert_eq!(outcome, Err("Sign-in cancelled."));
     }
 }

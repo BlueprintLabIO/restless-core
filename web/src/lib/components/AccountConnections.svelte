@@ -13,6 +13,7 @@
 	import {
 		accountConnectionsKey,
 		addApiKeyConnection,
+		cancelSignIn,
 		companyHasDefaultModel,
 		companyProviderRevision,
 		completeSignInCallback,
@@ -279,6 +280,23 @@
 			busy = false;
 		}
 	}
+	/* The provider's page opens in its own tab. It is opened on the click itself, before the
+	 * address exists, because a tab opened later is a popup the browser blocks. */
+	let signInTab: Window | null = null;
+	let signInTabSent = false;
+	function sendSignInTab(url: string) {
+		if (signInTabSent || !signInTab || signInTab.closed) return;
+		signInTabSent = true;
+		signInTab.opener = null;
+		signInTab.location.replace(url);
+	}
+	/* Cancelled or finished, the provider's tab has nothing left to show. A provider page that cuts
+	 * itself off from its opener stays open; the owner closes it. */
+	function closeSignInTab() {
+		if (signInTab && !signInTab.closed) signInTab.close();
+		signInTab = null;
+		signInTabSent = false;
+	}
 	async function startSignIn(provider: 'codex' | 'claude') {
 		if (oauthJob) return;
 		oauthProvider = provider;
@@ -287,13 +305,37 @@
 		oauthCode = '';
 		oauthCallback = '';
 		oauthState = '';
+		closeSignInTab();
+		signInTab = window.open('', '_blank');
 		try {
 			const body = await startOAuthSignIn(provider);
 			oauthJob = body.job;
 			oauthState = 'starting';
 			void pollSignIn(body.job);
 		} catch (cause) {
+			closeSignInTab();
 			oauthMessage = failureSentence(cause, 'Could not start sign-in.');
+		}
+	}
+	async function cancelSignInJob() {
+		const job = oauthJob;
+		oauthJob = '';
+		oauthUrl = '';
+		oauthCode = '';
+		oauthCallback = '';
+		oauthState = '';
+		oauthMessage = '';
+		closeSignInTab();
+		if (job) await cancelSignIn(job).catch(() => {});
+	}
+	/* Claude's last page carries the code in its address. Pasting a whole one finishes at once. */
+	function pastedCallback() {
+		try {
+			const url = new URL(oauthCallback.trim());
+			if (url.searchParams.get('code') && url.searchParams.get('state'))
+				void completeClaudeSignIn();
+		} catch {
+			/* Not a whole address yet. */
 		}
 	}
 	async function completeClaudeSignIn() {
@@ -311,15 +353,19 @@
 		}
 	}
 	async function pollSignIn(job: string) {
-		for (let attempt = 0; attempt < 300 && oauthJob === job; attempt++) {
+		/* Core stops an unfinished sign-in after 15 minutes. */
+		for (let attempt = 0; attempt < 900 && oauthJob === job; attempt++) {
 			try {
 				const body = await readSignInJob(job);
+				if (oauthJob !== job) return;
 				oauthState = body.state;
 				oauthUrl = body.url ?? '';
+				if (oauthUrl) sendSignInTab(oauthUrl);
 				oauthCode = body.code ?? '';
 				oauthMessage = body.message ?? '';
 				if (body.state === 'connected' || body.state === 'failed') {
 					oauthJob = '';
+					closeSignInTab();
 					if (body.state === 'connected') {
 						await refresh();
 						announceIntelligenceChange();
@@ -329,11 +375,13 @@
 			} catch (cause) {
 				oauthMessage = failureSentence(cause, 'Could not check sign-in.');
 				oauthJob = '';
+				closeSignInTab();
 				return;
 			}
 			await new Promise((resolve) => setTimeout(resolve, 1000));
 		}
-		oauthJob = '';
+		if (oauthJob !== job) return;
+		await cancelSignInJob();
 		oauthMessage = 'Sign-in timed out. Start again.';
 	}
 	function statusText(item: AccountConnection) {
@@ -655,46 +703,50 @@
 {/snippet}
 
 {#snippet signInProgress(provider: 'codex' | 'claude')}
-	{#if oauthProvider === provider && (oauthUrl || oauthMessage || ['connected', 'completing', 'waiting'].includes(oauthState))}
+	{#if oauthProvider === provider && (oauthUrl || oauthMessage || ['starting', 'connected', 'completing', 'waiting'].includes(oauthState))}
+		{@const tabName = provider === 'codex' ? 'ChatGPT' : 'Claude'}
 		<div class="sign-in-progress" aria-live="polite">
-			{#if oauthUrl}<a class="btn small" href={oauthUrl} target="_blank" rel="noreferrer"
-					>Open {provider === 'codex' ? 'Codex' : 'Claude'} sign-in ↗</a
-				>{/if}
-			{#if provider === 'codex' && oauthCode}<span
-					>Enter code <strong class="code">{oauthCode}</strong></span
-				>{/if}
-			{#if provider === 'claude' && oauthUrl && oauthState === 'waiting'}<div
-					class="callback-label"
+			{#if oauthJob && !oauthUrl}<p class="sign-in-step">Opening {tabName} sign-in…</p>
+			{:else if provider === 'codex' && oauthUrl}<p class="sign-in-step">
+					Enter <strong class="code">{oauthCode || '…'}</strong> in the {tabName} tab, then come back
+					here.
+					<a href={oauthUrl} target="_blank" rel="noreferrer">Open it again ↗</a>
+				</p>
+			{:else if provider === 'claude' && oauthUrl && oauthState === 'waiting'}<p
+					class="sign-in-step"
 				>
-					<span class="callback-head"
-						><label for={callbackId}
-							>{plane?.hosted
-								? 'After you approve, copy the address of the page that won’t load and paste it here'
-								: 'Callback URL'}</label
-						><InfoTip
-							text={plane?.hosted
-								? 'Claude finishes sign-in on a localhost address your browser cannot open from here. That address carries the code that completes it.'
-								: 'If your browser cannot reach the callback on this computer, copy its final localhost URL and paste it here.'}
-						/></span
-					><input
+					{#if plane?.hosted}Approve in the {tabName} tab. It ends on a page that won’t load: copy that
+						page’s address and paste it here.{:else}Approve in the {tabName} tab. If it ends on a page
+						that won’t load, paste that page’s address here.{/if}
+					<a href={oauthUrl} target="_blank" rel="noreferrer">Open it again ↗</a>
+				</p>
+				<div class="callback-field">
+					<input
 						id={callbackId}
 						type="url"
+						aria-label="Address of the page that won’t load"
 						bind:value={oauthCallback}
-						placeholder="http://localhost:54545/callback?code=…"
+						oninput={pastedCallback}
+						placeholder="http://localhost:…/callback?code=…"
 						autocomplete="off"
+						spellcheck="false"
+						disabled={callbackBusy}
 					/>
+					<button
+						class="btn primary small"
+						disabled={!oauthCallback.trim() || callbackBusy}
+						onclick={() => void completeClaudeSignIn()}
+						>{callbackBusy ? 'Finishing…' : 'Finish'}</button
+					>
 				</div>
-				<button
-					class="btn primary small"
-					disabled={!oauthCallback.trim() || callbackBusy}
-					onclick={() => void completeClaudeSignIn()}
-					>{callbackBusy ? 'Finishing…' : 'Finish sign-in'}</button
-				>{/if}
-			{#if oauthMessage}<span role="status">{oauthMessage}</span
-				>{:else if oauthState === 'completing'}<span role="status">Finishing sign-in…</span
-				>{:else if oauthState === 'connected'}<span role="status"
-					>Connected. Give companies access below.</span
-				>{/if}
+			{/if}
+			{#if oauthMessage}<p class="sign-in-step" role="status">{oauthMessage}</p>
+			{:else if oauthState === 'completing'}<p class="sign-in-step" role="status">
+					Finishing sign-in…
+				</p>
+			{:else if oauthState === 'connected'}<p class="sign-in-step" role="status">
+					Connected. Give companies access with Manage access.
+				</p>{/if}
 		</div>
 	{/if}
 {/snippet}
@@ -819,7 +871,7 @@
 						</div>
 						<div class="provider-uses">
 							{#if item?.companies.length}{#each item.companies as company (company.id)}<a
-										class="company-chip"
+										class="company-use"
 										class:in-use={company.in_use}
 										title={company.in_use ? 'In use by this company' : 'Available to this company'}
 										href={`/${encodeURIComponent(company.id)}/company/provider`}>{company.name}</a
@@ -829,19 +881,22 @@
 							class="status"
 							class:connected={signedIn}
 							class:failed={item?.status === 'invalid' || item?.status === 'absent'}
-							>{item ? statusText(item) : 'Not connected'}</span
+							>{oauthJob && oauthProvider === row.oauth
+								? 'Signing in'
+								: item
+									? statusText(item)
+									: 'Not connected'}</span
 						>
 						<div class="provider-actions">
-							{#if row.oauth && (!item || !signedIn) && accountScope === 'account'}<button
+							{#if row.oauth && oauthJob && oauthProvider === row.oauth}<button
+									class="btn small"
+									onclick={() => void cancelSignInJob()}>Cancel</button
+								>{:else if row.oauth && (!item || !signedIn) && accountScope === 'account'}<button
 									class="btn small"
 									class:primary={!!item}
 									disabled={!!oauthJob || checking}
 									onclick={() => void startSignIn(row.oauth!)}
-									>{oauthJob && oauthProvider === row.oauth
-										? 'Signing in…'
-										: item
-											? 'Reconnect'
-											: 'Connect'}</button
+									>{item ? 'Reconnect' : 'Connect'}</button
 								>{/if}
 							{#if item && accountScope === 'account'}<button
 									class="btn small"
@@ -1029,40 +1084,44 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+	/* Companies as a short list of plain rows: a dot when one is using it now. */
 	.provider-uses {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 6px;
+		display: grid;
+		align-content: center;
 		min-width: 0;
 	}
-	.company-chip {
-		display: inline-flex;
+	.company-use {
+		display: flex;
 		align-items: center;
-		gap: 5px;
-		padding: 3px 8px;
-		border: 1px solid var(--border);
-		border-radius: 99px;
+		gap: 7px;
+		min-width: 0;
+		overflow: hidden;
 		color: var(--text-secondary);
 		font-size: var(--t-label);
+		line-height: 20px;
 		text-decoration: none;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
-	.company-chip.in-use::before {
+	.company-use::before {
 		content: '';
+		flex: none;
 		width: 6px;
 		height: 6px;
+		border: 1px solid var(--text-tertiary);
 		border-radius: 50%;
+		box-sizing: border-box;
+	}
+	.company-use.in-use::before {
+		border-color: var(--state-success);
 		background: var(--state-success);
 	}
-	.company-chip:hover {
-		border-color: var(--intent-conversation);
+	.company-use:hover {
 		color: var(--ink);
 	}
 	.status {
 		justify-self: end;
-		padding: 3px 8px;
-		border-radius: 99px;
-		background: var(--surface-alt);
-		color: var(--text-secondary);
+		color: var(--text-tertiary);
 		font-size: var(--t-label);
 		white-space: nowrap;
 	}
@@ -1079,32 +1138,40 @@
 		gap: 6px;
 		min-width: 132px;
 	}
+	/* Under the provider's name, in its column, never wider than a sentence and a field. */
 	.sign-in-progress {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 10px 14px;
-		margin: 0 14px 12px 60px;
+		display: grid;
+		gap: 8px;
+		max-width: 560px;
+		margin: -2px 14px 14px 60px;
 		color: var(--text-secondary);
 		font-size: var(--t-label);
+	}
+	.sign-in-step {
+		margin: 0;
+		line-height: 1.5;
+	}
+	.sign-in-step a {
+		margin-left: 4px;
+		color: var(--text-tertiary);
+		white-space: nowrap;
+	}
+	.sign-in-step a:hover {
+		color: var(--ink);
 	}
 	.code {
 		font-family: var(--font-mono);
 		letter-spacing: 0.08em;
 		color: var(--ink);
 	}
-	.callback-label {
-		display: grid;
-		gap: 4px;
-		flex: 1 1 320px;
-		color: var(--text-tertiary);
-	}
-	.callback-head {
+	.callback-field {
 		display: flex;
-		align-items: center;
-		gap: 4px;
+		gap: 8px;
 	}
-	.callback-label input,
+	.callback-field .btn {
+		flex: none;
+	}
+	.callback-field input,
 	.model-picker select,
 	.model-picker input:not([type='checkbox']),
 	.form-grid input,
@@ -1321,7 +1388,7 @@
 	.legacy-body .text-button {
 		margin-top: 8px;
 	}
-	:is(.native-row a, .company-chip, .text-button):focus-visible {
+	:is(.native-row a, .company-use, .sign-in-step a, .text-button):focus-visible {
 		outline: 2px solid var(--intent-conversation);
 		outline-offset: 2px;
 	}

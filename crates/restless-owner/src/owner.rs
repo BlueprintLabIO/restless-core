@@ -1379,7 +1379,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/connections/import/company-codex", post(native_import_api::import_company_codex))
         .route("/connections/oauth/codex", post(oauth_login_api::start_codex_login))
         .route("/connections/oauth/claude", post(oauth_login_api::start_claude_login))
-        .route("/connections/oauth/jobs/{job}", get(oauth_login_api::oauth_login_status))
+        .route("/connections/oauth/jobs/{job}", get(oauth_login_api::oauth_login_status).delete(oauth_login_api::cancel_oauth_login))
         .route("/connections/oauth/jobs/{job}/callback", post(oauth_login_api::complete_claude_login))
         .route(
             "/companies/{company}/connections/{connection}",

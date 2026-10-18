@@ -80,6 +80,12 @@ export function readSignInJob(job: string) {
 	return ownerRequest<SignInJob>(`/api/connections/oauth/jobs/${encodeURIComponent(job)}`);
 }
 
+export function cancelSignIn(job: string) {
+	return ownerRequest<unknown>(`/api/connections/oauth/jobs/${encodeURIComponent(job)}`, {
+		method: 'DELETE'
+	});
+}
+
 export function completeSignInCallback(job: string, callbackUrl: string) {
 	return ownerRequest<unknown>(`/api/connections/oauth/jobs/${encodeURIComponent(job)}/callback`, {
 		method: 'POST',
