@@ -195,6 +195,9 @@
 	const navigation = $derived(
 		item.actions.filter((candidate) => candidate.href && candidate.role !== 'conversation')
 	);
+	/* A refused model offers two ways out (Top up, or another account the owner already holds);
+	 * both are buttons, since the free one is often the right one. */
+	const inlineNavigation = $derived(item.source.kind === 'model_cooldown' ? 2 : 1);
 	/* A provider approval opens in the owner's own browser: the company browser would leave
 	 * its approver session with the agents that drive it. */
 	const ownBrowser = (candidate: { role: string }) =>
@@ -562,7 +565,7 @@
 				href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(item.workId)}`}
 				>Open the work</a
 			>{/if}
-		{#each navigation.slice(1) as extra (extra.id)}<a
+		{#each navigation.slice(inlineNavigation) as extra (extra.id)}<a
 				href={extra.href}
 				target={extra.href?.startsWith('/') ? undefined : '_blank'}
 				rel="noreferrer"
@@ -1140,6 +1143,15 @@
 						title={`${navigation[0].consequence} ${navigation[0].nextState}`}
 						>{navigation[0].label}</a
 					>
+					{#if inlineNavigation > 1 && navigation[1]}<a
+							class="btn small"
+							href={navigation[1].href}
+							target={navigation[1].href?.startsWith('/') ? undefined : '_blank'}
+							rel="noreferrer"
+							data-open-externally={ownBrowser(navigation[1])}
+							title={`${navigation[1].consequence} ${navigation[1].nextState}`}
+							>{navigation[1].label}</a
+						>{/if}
 				{:else if item.source.kind === 'conversation_owner_need'}
 					<a
 						class="btn primary small"
