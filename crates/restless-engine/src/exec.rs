@@ -1549,11 +1549,10 @@ async fn gather_snapshot(
                 })
                 .take(25)
                 .map(|row| {
-                    let directory =
-                        format!("/var/lib/restless-owner-attachments/{}", row.attachment_id);
-                    let path = crate::runtime::owner_attachment_alias(&row.canonical_name)
-                        .map(|alias| format!("{directory}/{alias}"))
-                        .unwrap_or_else(|| format!("{directory}/content"));
+                    // The stored `content` file always exists; a readable-name link exists only for
+                    // uploads made after Library uploads were linked like message attachments.
+                    let path =
+                        format!("/var/lib/restless-owner-attachments/{}/content", row.attachment_id);
                     let size = match row.size_bytes {
                         bytes if bytes >= 1024 * 1024 => format!("{:.1} MB", bytes as f64 / 1_048_576.0),
                         bytes if bytes >= 1024 => format!("{} KB", bytes / 1024),

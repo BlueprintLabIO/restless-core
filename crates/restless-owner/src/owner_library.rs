@@ -271,6 +271,12 @@ pub(super) async fn upload_attachments(
             rollback_attachment_attempt(&org, &company, &staged).await;
             return files_not_stored();
         }
+        // Exec reads it by a name that keeps its extension, as it does a message's attachment.
+        if let Err(error) =
+            runtime::link_owner_attachment_name(&company, item.attachment.upload_id, &item.attachment.name).await
+        {
+            tracing::warn!(%error, %company, "library upload keeps only its canonical path");
+        }
     }
     let ids = staged
         .iter()
