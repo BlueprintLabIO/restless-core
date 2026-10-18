@@ -45,6 +45,7 @@
 	import NotebookText from '@lucide/svelte/icons/notebook-text';
 	import FileSpreadsheet from '@lucide/svelte/icons/file-spreadsheet';
 	import Upload from '@lucide/svelte/icons/upload';
+	import FolderUp from '@lucide/svelte/icons/folder-up';
 	import Pin from '@lucide/svelte/icons/pin';
 	import FileIcon from '@lucide/svelte/icons/file';
 	import Lock from '@lucide/svelte/icons/lock';
@@ -1239,7 +1240,7 @@
 		dropping = false;
 		if (!carriesFiles(event) || filter === 'archived') return;
 		event.preventDefault();
-		void creator?.upload([...(event.dataTransfer?.files ?? [])]);
+		creator?.drop(event.dataTransfer);
 	}
 	async function uploaded() {
 		await loadKept();
@@ -1570,9 +1571,17 @@
 							>
 						{:else if filter === 'yours'}
 							<button
+								class="btn small"
+								type="button"
+								title="Add a whole folder; it becomes a collection. You can also drop folders and zips here"
+								onclick={() => creator?.pickFolder()}
+								><FolderUp size={14} strokeWidth={2} aria-hidden="true" /><span>Upload folder</span
+								></button
+							>
+							<button
 								class="btn small primary new"
 								type="button"
-								title="Add files from this device; you can also drop them here"
+								title="Add files from this device; a zip opens into its files. You can also drop them here"
 								onclick={() => creator?.pick()}
 								><Upload size={14} strokeWidth={2} aria-hidden="true" /><span>Upload files</span
 								></button
@@ -1602,6 +1611,12 @@
 										title={`Add files from this device; you can also drop them on the list. ${YOURS_HINT}`}
 										onclick={() => creator?.pick()}
 										><Upload size={14} strokeWidth={1.8} aria-hidden="true" />Upload files…</button
+									>
+									<button
+										type="button"
+										title="Add a whole folder; it becomes a collection"
+										onclick={() => creator?.pickFolder()}
+										><FolderUp size={14} strokeWidth={1.8} aria-hidden="true" />Upload a folder…</button
 									>
 								</ActionMenu>
 							</div>
