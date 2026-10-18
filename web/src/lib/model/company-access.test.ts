@@ -122,3 +122,9 @@ test('financial records remain owner/admin reads', () => {
 		);
 	}
 });
+
+test('every member may open Company › Accounts, to direct agents to use what the company may use', () => {
+	for (const role of ['owner', 'admin', 'member'] as const)
+		assert.equal(mayOpenCompanyRoute('acme', '/acme/company/accounts', principal(role)), true);
+	assert.equal(mayOpenCompanyRoute('acme', '/acme/company/vault', principal('member')), false);
+});

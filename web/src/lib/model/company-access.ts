@@ -24,7 +24,15 @@ export function mayManageCompanySetup(principal: CompanyPrincipal | null | undef
 }
 
 /** The Company sections every person in the company can open; the owner sees them all. */
-const SHARED_COMPANY_SECTIONS = ['', '/charter', '/identity', '/members', '/schedules'];
+/* Accounts are shared too (S98-08): members direct agents to use what the company may use. */
+const SHARED_COMPANY_SECTIONS = [
+	'',
+	'/charter',
+	'/identity',
+	'/members',
+	'/schedules',
+	'/accounts'
+];
 /** What an admin also reads, to run the company with the owner: what it sent and decided,
  * what it spends, and the apps it uses. Changing them stays the owner's. */
 const ADMIN_READ_SECTIONS = [

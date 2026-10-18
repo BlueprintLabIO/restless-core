@@ -48,6 +48,13 @@ export const COMPANY_PAGES: CompanyPage[] = [
 		keywords: 'model provider connection api key codex claude'
 	},
 	{
+		key: 'accounts',
+		group: 'Capabilities',
+		label: 'Accounts',
+		path: '/accounts',
+		keywords: 'logins passwords api keys github ebay facebook shared access grants'
+	},
+	{
 		key: 'vault',
 		group: 'Capabilities',
 		label: 'Vault',

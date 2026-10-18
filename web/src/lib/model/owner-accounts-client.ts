@@ -1,7 +1,14 @@
 /* The owner plane's accounts API (S98-01), as one client the Accounts page is given, so a
  * gallery or a test can hand it another. */
 import { ownerRequest } from './setting.svelte';
-import type { Account, AccountKind, AccountUse, Grant, GrantInput } from './owner-accounts';
+import type {
+	Abilities,
+	Account,
+	AccountKind,
+	AccountUse,
+	Grant,
+	GrantInput
+} from './owner-accounts';
 
 export type NewAccount = {
 	kind: AccountKind;
@@ -59,3 +66,27 @@ export const ownerAccounts: AccountsClient = {
 		return ownerRequest(`${one(id)}/uses${search ? `?${search}` : ''}`);
 	}
 };
+
+/** A grant as the company sees it: what it may do with which account (S98-08). Any member. */
+export type CompanyAccountGrant = Grant & {
+	account: Pick<Account, 'id' | 'kind' | 'label' | 'provider' | 'health'>;
+};
+
+export async function companyAccounts(company: string): Promise<CompanyAccountGrant[]> {
+	return (
+		await ownerRequest<{ grants: CompanyAccountGrant[] }>(
+			`/api/companies/${encodeURIComponent(company)}/accounts`
+		)
+	).grants;
+}
+
+/** An admin asks the owner for an account, or for more on one; it lands in the owner's Inbox. */
+export function requestCompanyAccount(
+	company: string,
+	body: ({ account_id: string } | { kind: AccountKind }) & { abilities: Abilities; reason: string }
+) {
+	return ownerRequest<unknown>(`/api/companies/${encodeURIComponent(company)}/accounts/requests`, {
+		method: 'POST',
+		json: body
+	});
+}
