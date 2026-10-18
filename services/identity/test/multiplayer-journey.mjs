@@ -1073,6 +1073,47 @@ try {
   assert.equal(bob.principal.membership_role, "member", "Bob comes back a member");
   pass("a role change reaches Core at once both ways; as an admin Bob's screens make no refused request, and a member is told who may act");
 
+  // 9k. The owner's accounts (S98): a website login added once at the owner level, given to the
+  //     company, read by its people without its secret; its own browser starts for the owner's
+  //     sign-in and goes when the account is removed. Members cannot add or read accounts.
+  {
+    const secret = `smoke-${randomUUID()}`;
+    const login = await coreApi(owner, "/api/accounts", {
+      method: "POST",
+      expected: 201,
+      body: {
+        kind: "website_login",
+        label: "Smoke shop",
+        credential: { kind: "password", sign_in_url: "https://example.com/", username: "owner@example.com", password: secret },
+      },
+    });
+    const refused = async (path, method = "GET") => {
+      const response = await alice.context.request.fetch(core + path, {
+        method,
+        headers: { Origin: core, "Content-Type": "application/json" },
+        data: method === "GET" ? undefined : JSON.stringify({ company }),
+        failOnStatusCode: false,
+      });
+      assert([401, 403, 404].includes(response.status()), `${method} ${path} as a member answered ${response.status()}`);
+    };
+    await refused("/api/accounts");
+    await refused(`/api/accounts/${login.id}/grants`, "POST");
+    await coreApi(owner, `/api/accounts/${login.id}/grants`, { method: "POST", expected: 201, body: { company } });
+    const seen = await coreApi(alice, `${base}/accounts`);
+    assert.deepEqual(seen.grants.map((grant) => grant.account.label), ["Smoke shop"], "a member sees the account the company may use");
+    assert(!JSON.stringify(seen).includes(secret), "a company never reads the account's password");
+    assert(!JSON.stringify(await coreApi(owner, "/api/accounts")).includes(secret), "the owner's list never echoes the password");
+    const signIn = await coreApi(owner, `/api/accounts/${login.id}/sign-in`, { method: "POST" });
+    assert.match(signIn.desktop_url, /^\/api\/accounts\/[^/]+\/desktop\/vnc\.html/);
+    const desktop = await owner.context.request.get(core + signIn.desktop_url, { failOnStatusCode: false });
+    assert.equal(desktop.status(), 200, "the account's own browser desktop answers the owner");
+    await refused(signIn.desktop_url);
+    await coreApi(owner, `/api/accounts/${login.id}/sign-in/${signIn.session}`, { method: "DELETE", expected: 204 });
+    await coreApi(owner, `/api/accounts/${login.id}`, { method: "DELETE", expected: 204 });
+    assert.deepEqual((await coreApi(alice, `${base}/accounts`)).grants, [], "a removed account leaves the company");
+    pass("an owner's website login is given to the company without its password, its browser opens for the owner alone, and removing it removes it everywhere");
+  }
+
   // 10. Removal from Members closes Bob's live document connection and session.
   await bob.page.goto(documentUrl);
   await bob.page.getByLabel("Collaborative document body").waitFor({ timeout: 30000 });

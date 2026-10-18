@@ -206,6 +206,16 @@ async function cleanup() {
   });
   await attempt(() => removeNamedContainer(`restless-${namespace}-co-${company}`));
   await attempt(() => removeNamedVolume(`restless-${namespace}-vol-${company}`));
+  // An account's browser (S98) the journey started, should it stop before removing the account:
+  // only this run's namespace, never another plane's identities.
+  await attempt(async () => {
+    const prefix = `restless-${namespace}-co-identity-`;
+    const names = (await shell("docker", ["ps", "-a", "--format", "{{.Names}}", "--filter", `name=${prefix}`])).split(/\s+/).filter((name) => name.startsWith(prefix));
+    for (const name of names) await shell("docker", ["rm", "-f", name]);
+    const volumes = (await shell("docker", ["volume", "ls", "-q", "--filter", `name=restless-${namespace}-identity-`])).split(/\s+/).filter((name) => name.startsWith(`restless-${namespace}-identity-`));
+    for (const volume of volumes) await shell("docker", ["volume", "rm", volume]);
+    await shell("docker", ["network", "rm", `restless-${namespace}-identities`]).catch(() => {});
+  });
   await attempt(async () => {
     const docs = (await shell("docker", ["ps", "-aq", "--filter", `label=com.restless.local-documents-root=${state}`])).split(/\s+/).filter(Boolean);
     assert.equal(docs.length, 0, "namespace Documents containers remain after cleanup");
