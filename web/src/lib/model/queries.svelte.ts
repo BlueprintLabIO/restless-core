@@ -525,6 +525,8 @@ function threadMessage(
 		attachments: message.attachments ?? [],
 		details: message.details ?? null,
 		intent: message.intent ?? null,
+		/* Not in the generated view until core sends it (S98-09). */
+		accountUses: (message as { account_uses?: ThreadMessage['accountUses'] }).account_uses ?? [],
 		contextPath: message.context_path ?? null,
 		readAt: message.read_at ?? null
 	};

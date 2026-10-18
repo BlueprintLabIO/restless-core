@@ -32,6 +32,9 @@ export function isOutcomeReview(item: AttentionItem): boolean {
  * file items into categories; the owner reads one list. */
 export function attentionKindLabel(item: AttentionItem): string {
 	if (item.source.kind === 'spend_stopped') return 'Spend';
+	if (item.source.kind === 'account_notice') return 'Account';
+	if (item.source.kind === 'account_code') return 'Sign-in code';
+	if (item.source.kind === 'account_request') return 'Account request';
 	if (item.source.kind === 'identity_drift') return 'Brand';
 	if (item.source.kind === 'effect_outcome' || item.source.kind === 'payment_outcome')
 		return 'Outside action';

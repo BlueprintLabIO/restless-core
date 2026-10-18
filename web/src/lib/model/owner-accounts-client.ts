@@ -27,14 +27,37 @@ export type AccountsClient = {
 	grant(id: string, input: GrantInput & { company: string }): Promise<Grant>;
 	updateGrant(id: string, grant: string, patch: GrantInput): Promise<Grant>;
 	removeGrant(id: string, grant: string): Promise<void>;
-	uses(
-		id: string,
-		query?: { company?: string; before?: string; limit?: number }
-	): Promise<{
-		uses: AccountUse[];
-		next_before: string | null;
-	}>;
+	uses(id: string, query?: UseQuery): Promise<UsePage>;
+	/** "Fine" or "Freeze" on a notice (S98-10). Freeze pauses that company's grant. */
+	decideNotice(id: string, notice: string, decision: 'fine' | 'freeze'): Promise<AccountUse>;
+	/** The owner signs in by hand in the account's managed browser (S98-11). */
+	signIn(id: string): Promise<{ session: string; desktop_url: string }>;
+	signInDone(id: string, session: string): Promise<Account>;
+	signInCancel(id: string, session: string): Promise<void>;
+	/** Settles an admin's request once the owner saved a grant for it (S98-09). */
+	settleRequest(
+		request: string,
+		body: { decision: 'approved' | 'denied'; grant_id?: string }
+	): Promise<void>;
 };
+
+export type UseQuery = {
+	company?: string;
+	actor?: string;
+	directed_by?: string;
+	tier?: string;
+	before?: string;
+	limit?: number;
+};
+export type UsePage = { uses: AccountUse[]; next_before: string | null };
+
+function useSearch(query: UseQuery): string {
+	const params = new URLSearchParams();
+	for (const [key, value] of Object.entries(query))
+		if (value !== undefined && value !== '') params.set(key, String(value));
+	const search = params.toString();
+	return search ? `?${search}` : '';
+}
 
 const base = '/api/accounts';
 const one = (id: string) => `${base}/${encodeURIComponent(id)}`;
@@ -57,13 +80,30 @@ export const ownerAccounts: AccountsClient = {
 			method: 'DELETE'
 		});
 	},
-	uses: (id, query = {}) => {
-		const params = new URLSearchParams();
-		if (query.company) params.set('company', query.company);
-		if (query.before) params.set('before', query.before);
-		if (query.limit) params.set('limit', String(query.limit));
-		const search = params.toString();
-		return ownerRequest(`${one(id)}/uses${search ? `?${search}` : ''}`);
+	uses: (id, query = {}) => ownerRequest<UsePage>(`${one(id)}/uses${useSearch(query)}`),
+	decideNotice: (id, notice, decision) =>
+		ownerRequest<AccountUse>(`${one(id)}/notices/${encodeURIComponent(notice)}`, {
+			method: 'POST',
+			json: { decision }
+		}),
+	signIn: (id) =>
+		ownerRequest<{ session: string; desktop_url: string }>(`${one(id)}/sign-in`, {
+			method: 'POST'
+		}),
+	signInDone: (id, session) =>
+		ownerRequest<Account>(`${one(id)}/sign-in/${encodeURIComponent(session)}/done`, {
+			method: 'POST'
+		}),
+	signInCancel: async (id, session) => {
+		await ownerRequest<unknown>(`${one(id)}/sign-in/${encodeURIComponent(session)}`, {
+			method: 'DELETE'
+		});
+	},
+	settleRequest: async (request, body) => {
+		await ownerRequest<unknown>(`${base}/requests/${encodeURIComponent(request)}`, {
+			method: 'POST',
+			json: body
+		});
 	}
 };
 
@@ -89,4 +129,14 @@ export function requestCompanyAccount(
 		method: 'POST',
 		json: body
 	});
+}
+
+/** What agents in this company did with its accounts, newest first (S98-09). Any member. */
+export function companyAccountUses(
+	company: string,
+	query: { before?: string; limit?: number } = {}
+) {
+	return ownerRequest<UsePage>(
+		`/api/companies/${encodeURIComponent(company)}/accounts/uses${useSearch(query)}`
+	);
 }

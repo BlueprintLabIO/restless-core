@@ -1,3 +1,4 @@
+import type { AccountRequest, AccountUseReceipt, AccountUseRef } from './owner-accounts';
 import type { CharterProposal, DirectionRequest } from './generated/direction';
 /** The small owner-surface contract. Source-owned reads map into these shapes. */
 
@@ -39,10 +40,15 @@ export interface AttentionItem {
 	requestFields?: Array<{
 		id: string;
 		label: string;
-		type: 'text' | 'amount' | 'date' | 'boolean' | 'choice';
+		/** `code`: a one-time sign-in code (S98-11); the broker takes it out before anything is stored. */
+		type: 'text' | 'amount' | 'date' | 'boolean' | 'choice' | 'code';
 		required?: boolean;
 		options?: string[];
 	}>;
+	/** The account an agent used or wants to use (S98-09). */
+	accountUse?: AccountUseRef;
+	/** An admin asking the owner for an account, or for more on one (S98-09). */
+	accountRequest?: AccountRequest;
 	ifNoAction: string;
 	uncertainty?: string;
 	deadline?: string;
@@ -178,6 +184,8 @@ export interface ThreadMessage {
 	attachments: MessageAttachment[];
 	details?: string | null;
 	intent?: MessageIntentReceipt | null;
+	/** The accounts used in the turn that wrote this message (S98-09). */
+	accountUses?: AccountUseReceipt[];
 	/** When the recipient's turn consumed this message, for sent / seen receipts. */
 	readAt?: Date | string | null;
 	/** A key that stays the same when a just-sent message gets its saved id, so it is not redrawn. */

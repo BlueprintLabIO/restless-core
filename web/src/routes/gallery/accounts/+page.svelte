@@ -2,11 +2,14 @@
 	/* Settings › Accounts (S98-07) on example data, with an in-memory client, for reviewing the
 	 * page before the owner plane serves accounts. Not a product surface. */
 	import OwnerAccounts from '$lib/components/OwnerAccounts.svelte';
+	import AccountUseNote from '$lib/components/AccountUseNote.svelte';
 	import type { AccountsClient } from '$lib/model/owner-accounts-client';
 	import {
 		DEFAULT_ABILITIES,
 		EMPTY_LIMITS,
 		type Account,
+		type AccountUse,
+		type AccountUseRef,
 		type Grant
 	} from '$lib/model/owner-accounts';
 
@@ -52,6 +55,7 @@
 			provider: 'ebay.com.au',
 			identity: { display: 'yail.sells', key: null },
 			personal: true,
+			open_notices: 1,
 			credentials: [
 				{
 					id: 'c1',
@@ -105,6 +109,69 @@
 			]
 		})
 	];
+	const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+	const log: AccountUse[] = [
+		{
+			id: 3,
+			account_id: 'ebay',
+			grant_id: null,
+			company: 'snake-oil',
+			actor: 'exec',
+			actor_display: 'Exec',
+			directed_by: 'bianca',
+			directed_by_display: 'Bianca',
+			action: 'listed',
+			target: 'Vintage tonic bottle, set of 6',
+			tier: 'act',
+			result: 'ok',
+			cost_micros: null,
+			notice: { id: 'n1', kind: 'first_use', state: 'open' },
+			at: ago(12)
+		},
+		{
+			id: 2,
+			account_id: 'ebay',
+			grant_id: null,
+			company: 'sydney-resale',
+			actor: 'exec',
+			actor_display: 'Exec',
+			directed_by: null,
+			action: 'bought postage for',
+			target: 'Canon AE-1',
+			tier: 'spend',
+			result: 'ok',
+			cost_micros: 12_500_000,
+			at: ago(95)
+		},
+		{
+			id: 1,
+			account_id: 'ebay',
+			grant_id: null,
+			company: 'sydney-resale',
+			actor: 'eames',
+			actor_display: 'Eames',
+			directed_by: 'yail',
+			directed_by_display: 'Yail',
+			action: 'replied to a buyer about',
+			target: 'Canon AE-1',
+			tier: 'act',
+			result: 'ok',
+			cost_micros: null,
+			at: ago(240)
+		}
+	];
+	const usesOf = (accountId: string) => log.filter((use) => use.account_id === accountId);
+	const ref: AccountUseRef = {
+		account: { id: 'ebay', label: 'eBay', kind: 'website_login', provider: 'ebay.com.au' },
+		grant_id: null,
+		company: 'sydney-resale',
+		tier: 'spend',
+		action: 'buy postage for',
+		target: 'Canon AE-1',
+		actor_display: 'Exec',
+		directed_by_display: 'Bianca',
+		cost_micros: 12_500_000
+	};
 	/* Plain copies: what the page hands over may be reactive, as JSON over the wire would not be. */
 	const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 	const find = (account: string) => store.find((row) => row.id === account)!;
@@ -157,7 +224,33 @@
 		removeGrant: async (accountId, grantId) => {
 			find(accountId).grants = find(accountId).grants.filter((item) => item.id !== grantId);
 		},
-		uses: async () => ({ uses: [], next_before: null })
+		uses: async (accountId, query = {}) => ({
+			uses: clone(
+				usesOf(accountId).filter(
+					(use) =>
+						(!query.company || use.company === query.company) &&
+						(!query.directed_by || use.directed_by === query.directed_by) &&
+						(!query.tier || use.tier === query.tier)
+				)
+			),
+			next_before: null
+		}),
+		decideNotice: async (accountId, notice, decision) => {
+			const use = usesOf(accountId).find((row) => row.notice?.id === notice)!;
+			use.notice = { ...use.notice!, state: decision === 'fine' ? 'fine' : 'frozen' };
+			find(accountId).open_notices = 0;
+			if (decision === 'freeze') {
+				const row = find(accountId).grants.find((item) => item.company === use.company);
+				if (row) row.frozen = true;
+			}
+			return clone(use);
+		},
+		signIn: async () => {
+			throw Object.assign(new Error('Not here yet.'), { status: 404 });
+		},
+		signInDone: async (accountId) => clone(find(accountId)),
+		signInCancel: async () => {},
+		settleRequest: async () => {}
 	};
 </script>
 
@@ -167,6 +260,14 @@
 	<main>
 		<h2>Accounts</h2>
 		<OwnerAccounts {client} {companies} />
+		<h3>On an Inbox approval</h3>
+		<AccountUseNote use={ref} owner />
+		<h3>Under a chat message</h3>
+		<AccountUseNote
+			use={{ ...ref, tier: 'act', action: 'listed', cost_micros: null, directed_by_display: null }}
+			result="ok"
+			compact
+		/>
 	</main>
 </div>
 
@@ -182,6 +283,10 @@
 	main {
 		max-width: 760px;
 		margin: 0 auto;
+	}
+	h3 {
+		margin: 28px 0 4px;
+		font-size: var(--t-head);
 	}
 	h2 {
 		margin: 0;

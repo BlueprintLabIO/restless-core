@@ -1501,6 +1501,7 @@
 							createdAt={message.createdAt}
 							details={message.details}
 							intent={message.intent}
+							accountUses={message.accountUses}
 							attachments={message.attachments}
 							hrefFor={attachmentHref}
 							context={message.from === 'you' ? sentFrom(message.contextPath) : null}

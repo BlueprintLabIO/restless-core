@@ -6,7 +6,9 @@ import {
 	grantSummary,
 	limitsSummary,
 	money,
-	presetOf
+	presetOf,
+	useRefLine,
+	useSentence
 } from './owner-accounts.ts';
 
 test('a new grant is permissive: read and draft allowed, act tells, spend asks, admin off', () => {
@@ -64,4 +66,50 @@ test('limits read in plain words, and none means nothing to show', () => {
 		['Only restless-core', 'Up to 20 actions a day', 'Until 2026-12-01', 'Only Bianca']
 	);
 	assert.equal(money(12_500_000), '$12.50');
+});
+
+test('a use reads as one sentence naming who asked, and leaves out what the page already says', () => {
+	const use = {
+		actor: 'actor_exec',
+		actor_display: 'Exec',
+		directed_by: 'actor_bianca',
+		directed_by_display: 'Bianca',
+		action: 'listed',
+		target: 'Canon AE-1'
+	};
+	assert.equal(
+		useSentence(use, { account: 'eBay', company: 'Sydney Resale' }),
+		'Exec, at Bianca’s request, listed “Canon AE-1”, using eBay in Sydney Resale.'
+	);
+	assert.equal(useSentence(use), 'Exec, at Bianca’s request, listed “Canon AE-1”.');
+	assert.equal(
+		useSentence({ actor: 'Exec', action: 'orders.read', target: null }),
+		'Exec orders read.'
+	);
+	assert.equal(
+		useSentence({
+			actor: 'Exec',
+			directed_by_display: 'Exec',
+			action: 'read orders',
+			target: null
+		}),
+		'Exec read orders.'
+	);
+});
+
+test('a use on an Inbox item or a message is one short line', () => {
+	assert.equal(
+		useRefLine({
+			account: { id: 'a', label: 'eBay', kind: 'website_login', provider: 'ebay.com.au' },
+			grant_id: 'g',
+			company: 'c',
+			tier: 'spend',
+			action: 'bought postage',
+			target: null,
+			actor_display: 'Exec',
+			directed_by_display: 'Bianca',
+			cost_micros: 12_500_000
+		}),
+		'eBay · Spend · Exec, for Bianca · $12.50'
+	);
 });

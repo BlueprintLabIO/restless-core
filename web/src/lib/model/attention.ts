@@ -69,6 +69,8 @@ type WireItem = {
 	recommendation: string;
 	requested_action: string;
 	request_fields?: AttentionItem['requestFields'];
+	account_use?: AttentionItem['accountUse'];
+	account_request?: AttentionItem['accountRequest'];
 	if_no_action: string;
 	uncertainty?: string;
 	deadline?: string;
@@ -197,6 +199,8 @@ export async function getAttention(company: string, signal?: AbortSignal): Promi
 					: item.recommendation,
 				requestedAction: item.requested_action,
 				requestFields: item.request_fields,
+				accountUse: item.account_use,
+				accountRequest: item.account_request,
 				preparing: item.preparing,
 				ifNoAction: item.if_no_action,
 				uncertainty: item.uncertainty,

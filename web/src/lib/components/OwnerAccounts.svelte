@@ -5,6 +5,9 @@
 	 * grant per company, each edited in place: what the company may do (permissive by default,
 	 * the owner's choice), optional limits, and who. Secrets go in and never come back out. */
 	import { untrack } from 'svelte';
+	import { page } from '$app/state';
+	import AccountActivity from '$lib/components/AccountActivity.svelte';
+	import AccountSignIn from '$lib/components/AccountSignIn.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
@@ -207,6 +210,29 @@
 		}
 	}
 
+	/* "Approve with limits" on an admin's request lands here (S98-09): the account opens with that
+	 * company's grant in the editor, and saving it settles the request. */
+	let request = $state('');
+	let linked = false;
+	$effect(() => {
+		if (linked || !loaded) return;
+		const params = page.url.searchParams;
+		const target = accounts.find((account) => account.id === params.get('account'));
+		if (!target) return;
+		linked = true;
+		const company = params.get('company') ?? '';
+		untrack(() => {
+			managing = target.id;
+			request = params.get('request') ?? '';
+			if (company)
+				editGrant(
+					target,
+					target.grants.find((grant) => grant.company === company) ?? null,
+					company
+				);
+		});
+	});
+
 	/* ---- a grant, edited in place ---- */
 	type Draft = {
 		account: string;
@@ -304,6 +330,20 @@
 			);
 			toast(`${companyName(d.company)} ${d.grant ? 'access updated' : 'can use it now'}.`);
 			draft = null;
+			if (request) {
+				const settled = request;
+				request = '';
+				await client
+					.settleRequest(settled, { decision: 'approved', grant_id: saved.id })
+					.catch((cause) =>
+						toast(
+							failureSentence(cause, 'Access saved, but the request is still open in the Inbox.'),
+							{
+								tone: 'failure'
+							}
+						)
+					);
+			}
 		} catch (cause) {
 			toast(failureSentence(cause, 'That access was not saved.'), { tone: 'failure' });
 		} finally {
@@ -618,6 +658,17 @@
 										title={grantSummary(grant)}>{companyName(grant.company)}</span
 									>{:else}<span class="unused">No company access</span>{/each}
 							</div>
+							{#if account.open_notices}
+								<button
+									type="button"
+									class="notices"
+									title="Uses you were told about and have not answered"
+									onclick={() => {
+										managing = account.id;
+										draft = null;
+									}}>{account.open_notices} to look at</button
+								>
+							{/if}
 							<span class="status" class:ok={account.health === 'signed_in'}
 								>{account.frozen ? 'Frozen' : HEALTH_LABEL[account.health]}</span
 							>
@@ -650,6 +701,11 @@
 												credential.health
 											]}{/each}
 									</p>
+								{/if}
+								{#if account.kind === 'browser_profile' || account.kind === 'website_login'}
+									<div class="detail-block sign-in-block">
+										<AccountSignIn {client} {account} onsigned={replace} />
+									</div>
 								{/if}
 								{#each account.grants as grant (grant.id)}
 									{#if draft?.grant === grant.id}
@@ -691,6 +747,14 @@
 										onclick={() => editGrant(account, null)}>Give a company access</button
 									>
 								{/if}
+								<div class="detail-block">
+									<AccountActivity
+										{client}
+										{account}
+										{companyName}
+										onchanged={() => void refresh()}
+									/>
+								</div>
 							</div>
 						{/if}
 					</article>
@@ -710,6 +774,17 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
+	}
+	.notices {
+		padding: 2px 8px;
+		border: 1px solid var(--state-warning, var(--border));
+		border-radius: 999px;
+		background: none;
+		color: var(--text-secondary);
+		font: inherit;
+		font-size: var(--t-label);
+		white-space: nowrap;
+		cursor: pointer;
 	}
 	.head h3 {
 		margin: 0;
@@ -931,6 +1006,12 @@
 		border-radius: var(--radius-control);
 		background: var(--surface-raised);
 		overflow: hidden;
+	}
+	.detail-block {
+		padding: 8px 12px 10px;
+	}
+	.sign-in-block {
+		border-bottom: 1px solid var(--border);
 	}
 	.creds {
 		margin: 0;

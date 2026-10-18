@@ -16,6 +16,8 @@
 	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
 	import type { MessageAttachment, MessageIntentReceipt } from '$lib/model/view';
 	import { initials } from '$lib/model/initials';
+	import AccountUseNote from '$lib/components/AccountUseNote.svelte';
+	import type { AccountUseReceipt } from '$lib/model/owner-accounts';
 
 	let {
 		sender,
@@ -25,6 +27,7 @@
 		details = null,
 		attachments = [],
 		intent = null,
+		accountUses = [],
 		hrefFor,
 		copyable = true,
 		pending = false,
@@ -46,6 +49,8 @@
 		details?: string | null;
 		attachments?: MessageAttachment[];
 		intent?: MessageIntentReceipt | null;
+		/** Receipts for the accounts used in the turn that wrote this message (S98-09). */
+		accountUses?: AccountUseReceipt[];
 		hrefFor?: (attachment: MessageAttachment) => string;
 		copyable?: boolean;
 		pending?: boolean;
@@ -182,6 +187,11 @@
 				/></button
 			>{/if}
 		<AttachmentList {attachments} {hrefFor} />
+		{#each accountUses as use (use.use_id)}<AccountUseNote
+				{use}
+				result={use.result}
+				compact
+			/>{/each}
 		{#if context}<a class="message-context" href={context.href} title="Sent from this screen"
 				>{context.label}</a
 			>{/if}

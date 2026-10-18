@@ -634,6 +634,7 @@
 							createdAt={message.createdAt}
 							details={message.details}
 							intent={message.intent}
+							accountUses={message.accountUses}
 							attachments={message.attachments}
 							hrefFor={attachmentHref}
 							messageId={message.id}

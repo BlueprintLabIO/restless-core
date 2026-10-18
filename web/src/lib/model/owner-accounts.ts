@@ -52,21 +52,53 @@ export type Account = {
 	updated_at: string;
 	credentials: Credential[];
 	grants: Grant[];
+	/** Uses the owner was told about and has not answered (S98-10). */
+	open_notices?: number;
 };
+/** Why the owner is told about a use (S98-10): notices, not blocks. */
+export type NoticeKind = 'first_use' | 'burst' | 'first_spend' | 'new_destination';
+export type UseNotice = { id: string; kind: NoticeKind; state: 'open' | 'fine' | 'frozen' };
+export type UseResult = 'ok' | 'refused' | 'failed' | 'asked';
 export type AccountUse = {
-	id: string;
+	id: number | string;
 	account_id: string;
-	grant_id: string;
+	grant_id: string | null;
 	company: string;
 	actor: string;
+	actor_display?: string | null;
 	directed_by: string | null;
+	directed_by_display?: string | null;
 	action: string;
 	tier: Tier;
 	target: string | null;
-	result: 'ok' | 'refused' | 'failed' | 'asked';
+	result: UseResult;
 	cost_micros: number | null;
+	notice?: UseNotice | null;
 	at: string;
 };
+/** A use as it travels on an Inbox item or a chat message (S98-09): which account, which ability,
+ * which company, who did it and at whose request. */
+export type AccountUseRef = {
+	account: Pick<Account, 'id' | 'label' | 'kind' | 'provider'>;
+	grant_id: string | null;
+	company: string;
+	tier: Tier;
+	action: string;
+	target: string | null;
+	actor_display: string;
+	directed_by_display: string | null;
+	cost_micros: number | null;
+};
+export type AccountRequest = {
+	id: string;
+	company: string;
+	account_id: string | null;
+	kind: AccountKind;
+	abilities: Abilities;
+	reason: string;
+	requested_by_display: string;
+};
+export type AccountUseReceipt = AccountUseRef & { use_id: number | string; result: UseResult };
 export type GrantInput = Partial<
 	Pick<Grant, 'abilities' | 'spend_cap' | 'limits' | 'who' | 'frozen'>
 > & { company?: string };
@@ -216,3 +248,64 @@ export const HEALTH_LABEL: Record<AccountHealth, string> = {
 /** Shown once, quietly, for a personal login or browser sign-in (owner decision, S98). */
 export const PERSONAL_NOTICE =
 	'Use this account within the platform’s own rules. You are responsible for how it is used; Restless is not responsible for misuse.';
+
+export const NOTICE_LABEL: Record<NoticeKind, string> = {
+	first_use: 'First use by this company',
+	burst: 'Much busier than usual',
+	first_spend: 'First spend',
+	new_destination: 'Somewhere new'
+};
+
+export const RESULT_LABEL: Record<UseResult, string> = {
+	ok: 'Done',
+	refused: 'Refused',
+	failed: 'Failed',
+	asked: 'Waiting for you'
+};
+
+export const TIER_LABEL = Object.fromEntries(
+	TIERS.map(({ tier, label }) => [tier, label])
+) as Record<Tier, string>;
+
+/** An action as the engine names it ("listing.create", "listed an item"), in words. */
+function actionWords(action: string): string {
+	return action.includes(' ') ? action : action.replace(/[._-]+/g, ' ').trim();
+}
+
+/** One use as one sentence: "Exec, at Bianca's request, listed “Canon AE-1”, using eBay in
+ * Sydney Resale." `account` and `company` are left out where the page already says them. */
+export function useSentence(
+	use: {
+		actor: string;
+		actor_display?: string | null;
+		directed_by?: string | null;
+		directed_by_display?: string | null;
+		action: string;
+		target: string | null;
+	},
+	where: { account?: string; company?: string } = {}
+): string {
+	const actor = use.actor_display || use.actor;
+	const directed = use.directed_by_display || use.directed_by;
+	let sentence = actor;
+	if (directed && directed !== actor) sentence += `, at ${directed}’s request,`;
+	sentence += ` ${actionWords(use.action)}`;
+	if (use.target) sentence += ` “${use.target}”`;
+	if (where.account) sentence += `${where.company ? ',' : ''} using ${where.account}`;
+	if (where.company) sentence += ` in ${where.company}`;
+	return `${sentence}.`;
+}
+
+/** A use reference from an Inbox item or a message, in a line: "eBay · Act · Exec, for Bianca". */
+export function useRefLine(ref: AccountUseRef): string {
+	const who =
+		ref.directed_by_display && ref.directed_by_display !== ref.actor_display
+			? `${ref.actor_display}, for ${ref.directed_by_display}`
+			: ref.actor_display;
+	return [
+		ref.account.label,
+		TIER_LABEL[ref.tier],
+		who,
+		...(ref.cost_micros ? [money(ref.cost_micros)] : [])
+	].join(' · ');
+}

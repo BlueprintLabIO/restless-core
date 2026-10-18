@@ -7,6 +7,7 @@
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { Page, Section, Item, Notice, Empty } from '$lib/ui/page';
 	import { failureSentence } from '$lib/model/failure';
+	import { formatRelative } from '$lib/ui/time';
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import {
@@ -17,10 +18,16 @@
 		grantSummary,
 		kindOf,
 		limitsSummary,
+		money,
+		RESULT_LABEL,
+		TIER_LABEL,
+		useSentence,
+		type AccountUse,
 		type Abilities,
 		type AccountKind
 	} from '$lib/model/owner-accounts';
 	import {
+		companyAccountUses,
 		companyAccounts,
 		requestCompanyAccount,
 		type CompanyAccountGrant
@@ -51,7 +58,22 @@
 	}
 	$effect(() => {
 		untrack(() => void refresh());
+		untrack(() => void loadUses());
 	});
+
+	/* What agents here did with these accounts, newest first (S98-09). Hidden until served. */
+	let uses = $state<AccountUse[]>([]);
+	let usesShown = $state(false);
+	async function loadUses() {
+		try {
+			uses = (await companyAccountUses(companyId, { limit: 20 })).uses;
+			usesShown = true;
+		} catch {
+			usesShown = false;
+		}
+	}
+	const accountLabel = (id: string) =>
+		grants.find((grant) => grant.account.id === id)?.account.label ?? 'an account';
 
 	/* An admin's request: a new account by kind, or more on one the company has. */
 	let asking = $state<{ account: CompanyAccountGrant | null } | null>(null);
@@ -191,6 +213,27 @@
 				/>
 			{/each}
 		</Section>
+		{#if usesShown}
+			<Section title="Recent use" count={uses.length || null}>
+				{#each uses as use (use.id)}
+					<Item
+						title={useSentence(use, { account: accountLabel(use.account_id) })}
+						meta={[
+							TIER_LABEL[use.tier] ?? use.tier,
+							...(use.cost_micros ? [money(use.cost_micros)] : []),
+							...(use.result !== 'ok' ? [RESULT_LABEL[use.result] ?? use.result] : []),
+							formatRelative(use.at)
+						].join(' · ')}
+					/>
+				{:else}
+					<Empty
+						compact
+						title="Nothing yet"
+						info="Every time an agent uses an account, it shows here with who asked."
+					/>
+				{/each}
+			</Section>
+		{/if}
 	{/if}
 </Page>
 

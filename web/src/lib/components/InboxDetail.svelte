@@ -17,6 +17,8 @@
 	import { failureSentence } from '$lib/model/failure';
 	import { tick, untrack, type Snippet } from 'svelte';
 	import AttentionFooter from './AttentionFooter.svelte';
+	import AccountUseNote from './AccountUseNote.svelte';
+	import { grantSummary, kindOf } from '$lib/model/owner-accounts';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import type { AttentionItem } from '$lib/model/view';
 	import {
@@ -588,6 +590,27 @@
 						{:else}
 							<div class="ask"><Markdown text={item.requestedAction} /></div>
 						{/if}
+						{#if item.accountUse}<AccountUseNote
+								use={item.accountUse}
+								owner={!canPassToOwner}
+							/>{/if}
+						{#if item.accountRequest}
+							<p class="account-request">
+								<strong
+									>{item.accountRequest.requested_by_display} asks for {item.accountRequest
+										.account_id
+										? 'more on an account'
+										: `a ${kindOf(item.accountRequest.kind).label.toLowerCase()}`}</strong
+								>
+								<span
+									>{grantSummary({
+										abilities: item.accountRequest.abilities,
+										spend_cap: null
+									})}</span
+								>
+								{#if item.accountRequest.reason}<q>{item.accountRequest.reason}</q>{/if}
+							</p>
+						{/if}
 						{#each drafts as draft, index (index)}
 							<pre
 								class="draft"
@@ -751,6 +774,10 @@
 												? 'number'
 												: 'text'}
 										step={field.type === 'amount' ? '0.01' : undefined}
+										inputmode={field.type === 'code' ? 'numeric' : undefined}
+										autocomplete={field.type === 'code' ? 'one-time-code' : undefined}
+										maxlength={field.type === 'code' ? 12 : undefined}
+										class:code={field.type === 'code'}
 										bind:value={fieldValues[field.id]}
 										required={field.required}
 										disabled={acting}
@@ -1052,6 +1079,23 @@
 </article>
 
 <style>
+	.account-request {
+		display: grid;
+		gap: 2px;
+		margin: 8px 0 0;
+		font-size: var(--t-label);
+	}
+	.account-request span {
+		color: var(--text-tertiary);
+	}
+	.account-request q {
+		color: var(--text-secondary);
+	}
+	input.code {
+		max-width: 12ch;
+		font-family: var(--font-mono);
+		letter-spacing: 0.2em;
+	}
 	.inbox-detail {
 		display: flex;
 		flex-direction: column;
