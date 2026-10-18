@@ -2,6 +2,7 @@
  * Library (S64). Both are the same retained attachments, under the same per-person and company
  * limits; the gateway lists each person's own (the owner's, everyone's) and serves each one by id. */
 import { responseFailure } from './failure.ts';
+import { textFormat, type TextFormat } from './file-text.ts';
 
 /** The most files one upload carries and the largest one file may be (the gateway's own caps). */
 export const MAX_UPLOAD_FILES = 6;
@@ -216,6 +217,29 @@ export async function attachmentObjectUrl(
 	if (!response.ok) throw await responseFailure(response);
 	const type = kind === 'pdf' ? 'application/pdf' : mediaType.split(';')[0].trim().toLowerCase();
 	return URL.createObjectURL(new Blob([await response.arrayBuffer()], { type }));
+}
+
+/** The largest kept text file read in place; a bigger one downloads. */
+const MAX_TEXT_BYTES = 2 * 1024 * 1024;
+
+/** A kept text file (Markdown, CSV, JSON, plain text) read as text, to show in place; null when it
+ * is not text or too large. It is rendered, never run. */
+export async function attachmentText(
+	company: string,
+	id: string,
+	name: string,
+	size: number,
+	signal?: AbortSignal
+): Promise<{ text: string; format: TextFormat } | null> {
+	const format = textFormat(name);
+	if (!format || size > MAX_TEXT_BYTES) return null;
+	const response = await fetch(attachmentHref(company, id), {
+		credentials: 'same-origin',
+		signal,
+		cache: 'no-store'
+	});
+	if (!response.ok) throw await responseFailure(response);
+	return { text: await response.text(), format };
 }
 
 /** A size an owner reads: 840 KB, 3.2 MB. */

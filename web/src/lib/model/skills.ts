@@ -608,17 +608,13 @@ export function skillMdFromUpload(fileName: string, text: string): string {
 	return composeSkillMd(skillSlug(base), heading, text);
 }
 
-/** Install an uploaded Library file as know-how: a candidate the owner reviews in Apps. */
+/** Install an uploaded Library file (its text, as read) as know-how: a candidate the owner reviews in Apps. */
 export async function installUploadAsKnowHow(
 	company: string,
 	read: () => Promise<string>,
 	fileName: string
 ): Promise<SkillRow> {
-	const url = await read();
-	try {
-		const text = await (await fetch(url)).text();
-		return await createSkill(company, skillMdFromUpload(fileName, text));
-	} finally {
-		URL.revokeObjectURL(url);
-	}
+	const text = await read();
+	if (!text.trim()) throw new Error('That file is empty or too large to install.');
+	return createSkill(company, skillMdFromUpload(fileName, text));
 }

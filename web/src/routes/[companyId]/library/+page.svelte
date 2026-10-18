@@ -14,6 +14,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { installUploadAsKnowHow } from '$lib/model/skills';
+	import { textFormat, type TextFormat } from '$lib/model/file-text';
 	import { Item, Notice, Empty, Dot } from '$lib/ui/page';
 	import FileX from '@lucide/svelte/icons/file-x';
 	import FileDown from '@lucide/svelte/icons/file-down';
@@ -110,6 +111,7 @@
 	import {
 		attachmentHref,
 		attachmentObjectUrl,
+		attachmentText,
 		attachmentReadKind,
 		distinctKept,
 		deleteAttachment,
@@ -492,7 +494,9 @@
 	const uploadRow = $derived(keptRows.find((row) => row.attachment_id === openUploadId) ?? null);
 	/* Keyed by value, so refreshing the kept list does not read an open file again. */
 	const uploadKey = $derived(
-		uploadRow && attachmentReadKind(uploadRow.canonical_media_type, uploadRow.canonical_name)
+		uploadRow &&
+			(attachmentReadKind(uploadRow.canonical_media_type, uploadRow.canonical_name) ||
+				textFormat(uploadRow.canonical_name))
 			? JSON.stringify([
 					companyId,
 					uploadRow.attachment_id,
@@ -507,7 +511,7 @@
 	const uploadFile = $derived.by((): LibraryFile | null => {
 		if (!uploadKey) return null;
 		const [, id, mediaType, fileName, sender, createdAt, size] = JSON.parse(uploadKey);
-		const kind = attachmentReadKind(mediaType, fileName)!;
+		const kind = attachmentReadKind(mediaType, fileName) ?? 'text';
 		/* The viewer picks its reader from the locator's extension, so the locator carries one. */
 		const extension =
 			kind === 'pdf' && !/\.pdf$/i.test(fileName)
@@ -541,9 +545,23 @@
 	const uploadResolver = $derived.by(() => {
 		const key = uploadKey;
 		if (!key) return null;
-		const [target, id, mediaType, fileName] = JSON.parse(key) as string[];
-		return async () => {
+		const [target, id, mediaType, fileName, , , size] = JSON.parse(key) as [
+			string,
+			string,
+			string,
+			string,
+			string,
+			string,
+			number
+		];
+		return async (): Promise<string | { url: string; text: string; format: TextFormat }> => {
 			try {
+				/* A note, table or data file reads as text in place, rendered, never run. */
+				if (!attachmentReadKind(mediaType, fileName)) {
+					const read = await attachmentText(target, id, fileName, size);
+					if (!read) throw new Error('This file is too large to read here; download it.');
+					return { url: '', ...read };
+				}
 				const url = await attachmentObjectUrl(target, id, mediaType, fileName);
 				/* A read that finishes after the owner moved on must not revoke the newer copy on
 				 * screen; the viewer ignores its answer, so it lets its own copy go. */
@@ -572,15 +590,23 @@
 	const installKnowHow = $derived.by(() => {
 		const key = uploadKey;
 		if (!key || !owner) return null;
-		const [target, id, mediaType, fileName] = JSON.parse(key) as string[];
-		if (!/\.md$/i.test(fileName) && mediaType !== 'text/markdown') return null;
+		const [target, id, mediaType, fileName, , , size] = JSON.parse(key) as [
+			string,
+			string,
+			string,
+			string,
+			string,
+			string,
+			number
+		];
+		if (textFormat(fileName) !== 'markdown' && mediaType !== 'text/markdown') return null;
 		return {
 			label: 'Install as know-how',
 			run: async () => {
 				try {
 					const created = await installUploadAsKnowHow(
 						companyId,
-						() => attachmentObjectUrl(target, id, mediaType, fileName),
+						async () => (await attachmentText(target, id, fileName, size))?.text ?? '',
 						fileName
 					);
 					toast(`${created.name} is ready to review in Apps.`, {

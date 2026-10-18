@@ -56,7 +56,7 @@
 		backLabel?: string;
 		showDiscuss?: boolean;
 		/** Where this file is read from, when it is not a Work file the gateway opens by id. */
-		resolve?: (() => Promise<string>) | null;
+		resolve?: (() => Promise<string | OpenedFile>) | null;
 		/** Make this Word, Excel or CSV file an editable document or sheet, when it can be one. */
 		convert?: { label: string; run: () => Promise<void> } | null;
 	} = $props();
@@ -97,7 +97,9 @@
 		slide = 1;
 		total = 0;
 		void (
-			resolve ? resolve().then((url): OpenedFile => ({ url })) : openLibraryFile(companyId, which)
+			resolve
+				? resolve().then((answer): OpenedFile => (typeof answer === 'string' ? { url: answer } : answer))
+				: openLibraryFile(companyId, which)
 		)
 			.then((next) => {
 				if (target === fileKey) opened = next;
