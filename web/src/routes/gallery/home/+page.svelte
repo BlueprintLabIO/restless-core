@@ -28,7 +28,7 @@
 		{ label: 'Billing', items: [section('Plan & credit', 'billing')] },
 		{
 			label: 'Integrations',
-			items: [section('AI accounts', 'connections')]
+			items: [section('Accounts', 'connections')]
 		},
 		{ label: 'Help', items: [section('Support', 'support')] }
 	]);

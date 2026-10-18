@@ -540,7 +540,7 @@
 	});
 </script>
 
-<svelte:head><title>AI accounts — {PRODUCT_NAME}</title></svelte:head>
+<svelte:head><title>Accounts — {PRODUCT_NAME}</title></svelte:head>
 
 {#snippet accessManager(item: AccountConnection)}
 	<div class="access-manager" aria-label={`Company access for ${item.label}`}>

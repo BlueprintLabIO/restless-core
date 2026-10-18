@@ -481,7 +481,7 @@
 			}}
 		/>
 		<a class="btn small" href={manageUrl}
-			>{accountScope === 'company' ? 'Open account' : 'AI accounts'}
+			>{accountScope === 'company' ? 'Open account' : 'Accounts'}
 			<span aria-hidden="true">↗</span></a
 		>
 	{/snippet}
@@ -518,8 +518,8 @@
 		/>{/if}
 
 	<Section
-		title="AI accounts"
-		info="Sign-ins and API keys for AI models belong to your account, not to one company, so one sign-in can serve every company. Add or connect them in Account → AI accounts, then give each company access. A company uses only the connections you give it."
+		title="Accounts"
+		info="Sign-ins and API keys for AI models belong to your account, not to one company, so one sign-in can serve every company. Add or connect them in Settings → Accounts, then give each company access. A company uses only the connections you give it."
 		count={reusableConnections.length || null}
 	>
 		{#snippet actions()}
@@ -527,7 +527,7 @@
 				class="btn small"
 				href="/account/connections"
 				title="Sign-ins and API keys for AI models are added once, in your account, and then given to each company that should use them."
-				>{accountScope === 'account' ? 'Add in your account' : 'AI accounts'}</a
+				>{accountScope === 'account' ? 'Add in your account' : 'Accounts'}</a
 			>
 		{/snippet}
 		{#if accountLoading}
@@ -764,7 +764,7 @@
 						<button
 							class="btn small"
 							disabled={!status || busy}
-							title="Only for a key this company alone uses, or a host environment variable. Keys most companies share are added in Account → AI accounts."
+							title="Only for a key this company alone uses, or a host environment variable. Keys most companies share are added in Settings → Accounts."
 							onclick={() => {
 								choose('');
 								editorOpen = true;
@@ -875,7 +875,7 @@
 							<label
 								class="field-label"
 								title={mode === 'oauth'
-									? 'Kept for compatibility. Give reusable sign-ins from Account → AI accounts.'
+									? 'Kept for compatibility. Give reusable sign-ins from Settings → Accounts.'
 									: undefined}
 								><span>Reference</span><input
 									bind:value={reference}
