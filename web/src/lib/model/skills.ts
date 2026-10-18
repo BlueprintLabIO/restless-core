@@ -598,3 +598,27 @@ function restartLoop(company: string, loop: ScheduleRow): Promise<unknown> {
 			)
 		: addLoop(company, `${loop.interval_seconds ?? 0}s`, loop.reason);
 }
+
+/** A SKILL.md as uploaded: kept as written when it names itself, otherwise named from its file
+ * and described by its first heading. */
+export function skillMdFromUpload(fileName: string, text: string): string {
+	if (/^---\s*\n[\s\S]*?\bname:\s*\S/.test(text)) return text;
+	const base = fileName.replace(/\.md$/i, '').replace(/[-_ ]?skill$/i, '');
+	const heading = text.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? base;
+	return composeSkillMd(skillSlug(base), heading, text);
+}
+
+/** Install an uploaded Library file as know-how: a candidate the owner reviews in Apps. */
+export async function installUploadAsKnowHow(
+	company: string,
+	read: () => Promise<string>,
+	fileName: string
+): Promise<SkillRow> {
+	const url = await read();
+	try {
+		const text = await (await fetch(url)).text();
+		return await createSkill(company, skillMdFromUpload(fileName, text));
+	} finally {
+		URL.revokeObjectURL(url);
+	}
+}

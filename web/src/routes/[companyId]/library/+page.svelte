@@ -13,6 +13,7 @@
 	} from '$lib/model/company-actions';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import { installUploadAsKnowHow } from '$lib/model/skills';
 	import { Item, Notice, Empty, Dot } from '$lib/ui/page';
 	import FileX from '@lucide/svelte/icons/file-x';
 	import FileDown from '@lucide/svelte/icons/file-down';
@@ -561,6 +562,36 @@
 						: failureSentence(cause, 'This file could not be opened.'),
 					cause instanceof Error ? cause.message : String(cause)
 				);
+			}
+		};
+	});
+
+	/* A know-how file the owner uploaded (a SKILL.md) becomes company know-how: it lands as a
+	 * candidate to review in Apps, like any other. Sydney Resale's resale-deals-SKILL.md sat in the
+	 * Library with no way to install it (18 October). */
+	const installKnowHow = $derived.by(() => {
+		const key = uploadKey;
+		if (!key || !owner) return null;
+		const [target, id, mediaType, fileName] = JSON.parse(key) as string[];
+		if (!/\.md$/i.test(fileName) && mediaType !== 'text/markdown') return null;
+		return {
+			label: 'Install as know-how',
+			run: async () => {
+				try {
+					const created = await installUploadAsKnowHow(
+						companyId,
+						() => attachmentObjectUrl(target, id, mediaType, fileName),
+						fileName
+					);
+					toast(`${created.name} is ready to review in Apps.`, {
+						action: {
+							label: 'Review',
+							run: () => goto(`/${encodeURIComponent(companyId)}/apps?view=installed-know-how`)
+						}
+					});
+				} catch (cause) {
+					toast(failureSentence(cause, 'That know-how was not installed.'), { tone: 'failure' });
+				}
 			}
 		};
 	});
@@ -1442,6 +1473,7 @@
 				owner={name(uploadFile.createdBy)}
 				{backHref}
 				resolve={uploadResolver}
+				convert={installKnowHow}
 			/>
 		{:else if openFileId && !loading && (attention.view || collaboration.view)}
 			{@const gone = replacedFile(artifacts, files, openFileId, libraryWorks)}

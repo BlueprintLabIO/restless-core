@@ -109,3 +109,12 @@ test('a skill applied in a tool call reads as that skill', () => {
 	assert.equal(skillInUse('restless skill list'), null);
 	assert.equal(skillLabel('frontend-design'), 'Frontend design');
 });
+
+test('an uploaded SKILL.md keeps its own name, or is named from its file and first heading', () => {
+	const named = '---\nname: resale-deals\ndescription: "Find deals"\n---\n\n# Resale deals\n';
+	assert.equal(skills.skillMdFromUpload('anything.md', named), named);
+	const plain = '# Resale deals\n\nOnly flag a deal above A$100 profit.\n';
+	const made = skills.skillMdFromUpload('resale-deals-SKILL.md', plain);
+	assert.match(made, /^---\nname: resale-deals\ndescription: "Resale deals"\n---\n/);
+	assert.ok(made.includes('A$100 profit'));
+});
