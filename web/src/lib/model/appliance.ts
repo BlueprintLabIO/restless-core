@@ -45,13 +45,23 @@ export function hostPlace(status: ApplianceStatus | null): string {
 	return status?.hosted ? 'in your account' : 'on this computer';
 }
 
-export async function getApplianceStatus(signal?: AbortSignal): Promise<ApplianceStatus> {
-	const response = await bootFetch('/api/appliance', {
-		headers: { accept: 'application/json' },
-		signal
+/* Readers that ask at once share one request: the frame, the page and the companies list each
+ * read it on arrival, and three round trips to a distant plane held the first paint. */
+let inflight: Promise<ApplianceStatus> | null = null;
+
+export function getApplianceStatus(signal?: AbortSignal): Promise<ApplianceStatus> {
+	inflight ??= (async () => {
+		const response = await bootFetch('/api/appliance', { headers: { accept: 'application/json' } });
+		if (!response.ok) throw new Error(`Could not read appliance status (${response.status}).`);
+		return (await response.json()) as ApplianceStatus;
+	})().finally(() => (inflight = null));
+	if (!signal) return inflight;
+	const shared = inflight;
+	return new Promise((resolve, reject) => {
+		if (signal.aborted) return reject(signal.reason);
+		signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+		shared.then(resolve, reject);
 	});
-	if (!response.ok) throw new Error(`Could not read appliance status (${response.status}).`);
-	return (await response.json()) as ApplianceStatus;
 }
 
 /** Whether this plane answers its account pages for this viewer: locally, or for the owner of a
