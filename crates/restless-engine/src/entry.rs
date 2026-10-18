@@ -1545,6 +1545,25 @@ impl SessionStore {
         })
     }
 
+    /// Renew a session in use: once less than half its lifetime remains, it lasts `ttl` from now.
+    /// A session that has lapsed or was revoked is not brought back. True when it was renewed.
+    pub fn renew_if_half_spent(&self, token: &str, ttl: Duration) -> bool {
+        let mut sessions = self.sessions.lock().expect("session store poisoned");
+        let now = SystemTime::now();
+        let Some(session) = sessions.get_mut(token) else {
+            return false;
+        };
+        if session.expires_at <= now || session.cancellation.is_cancelled() {
+            return false;
+        }
+        let remaining = session.expires_at.duration_since(now).unwrap_or(Duration::ZERO);
+        if remaining >= ttl / 2 {
+            return false;
+        }
+        session.expires_at = now + ttl;
+        true
+    }
+
     pub fn revoke(&self, token: &str) {
         if let Some(session) = self
             .sessions
@@ -1736,6 +1755,34 @@ pub fn mint_from_env() -> anyhow::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_session_in_use_is_renewed_only_once_half_spent() {
+        let store = SessionStore::default();
+        let identity = VerifiedIdentity {
+            user: "user_1".into(),
+            issuer: Some("https://issuer.test".into()),
+            owner: "owner".into(),
+            scope: CompanyScope::Owner,
+            role: "owner".into(),
+            actor: Some("owner".into()),
+            company_id: None,
+            cell_id: None,
+            membership_id: None,
+            membership_version: None,
+            display_name: None,
+        };
+        let ttl = Duration::from_secs(3600);
+        let fresh = store.establish(identity.clone(), ttl);
+        assert!(!store.renew_if_half_spent(&fresh, ttl), "a fresh session is left alone");
+        let ageing = store.establish(identity, Duration::from_secs(600));
+        let before = store.resolve_lease(&ageing).unwrap().expires_at;
+        assert!(store.renew_if_half_spent(&ageing, ttl));
+        assert!(store.resolve_lease(&ageing).unwrap().expires_at > before + Duration::from_secs(3000));
+        store.revoke(&ageing);
+        assert!(!store.renew_if_half_spent(&ageing, ttl), "a revoked session stays revoked");
+        assert!(!store.renew_if_half_spent("unknown", ttl));
+    }
     use std::sync::Arc;
 
     use axum::{routing::get, Router};

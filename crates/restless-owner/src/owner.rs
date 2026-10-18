@@ -2250,9 +2250,31 @@ async fn enforce_owner_boundary(
             if let Some(session_lease) = session_lease {
                 request.extensions_mut().insert(session_lease);
             }
+            // A session in use slides: once half its hour is spent it is renewed, and the browser's
+            // cookie with it, so an owner at work is not sent back through the account every hour.
+            let renewed_cookie = sessions
+                .iter()
+                .fold(false, |renewed, (token, _)| {
+                    state.sessions.renew_if_half_spent(token, network.session_ttl()) || renewed
+                })
+                .then(|| {
+                    let name = session_cookie_name(&network);
+                    cookie_value(request.headers(), &name).map(|value| {
+                        format!(
+                            "{name}={value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}",
+                            network.session_ttl().as_secs()
+                        )
+                    })
+                })
+                .flatten();
             let public_read = matches!(*request.method(), Method::GET | Method::HEAD)
                 && !is_owner_data_surface(&path);
             let mut response = next.run(request).await;
+            if let Some(cookie) = renewed_cookie.and_then(|cookie| HeaderValue::from_str(&cookie).ok()) {
+                if !response.headers().contains_key(SET_COOKIE) {
+                    response.headers_mut().append(SET_COOKIE, cookie);
+                }
+            }
             // Include this on 304 responses too, so an existing cached shell
             // acquires the same framing policy after an upgrade.
             if public_read {
