@@ -22,6 +22,14 @@ const TOKEN_VERSION: &str = "r1";
 const KEY_FILE: &str = "runtime-capability.key";
 const RUNTIME_BRIDGE_TTL: Duration = Duration::hours(24);
 const SESSION_TTL: Duration = Duration::minutes(45);
+/// A Work Attempt is one supervised process that can run for hours, and its grants are set once
+/// in its environment: a 45-minute grant expired under long Work (Frankensurf, 18 October:
+/// "invalid model capability: capability expired") and blocked it. Conversations keep 45 minutes.
+const WORK_SESSION_TTL: Duration = Duration::hours(12);
+
+fn session_ttl(work_id: Option<Uuid>) -> Duration {
+    if work_id.is_some() { WORK_SESSION_TTL } else { SESSION_TTL }
+}
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -351,7 +359,7 @@ impl CapabilityIssuer {
             source_revision: None,
             model_credential_reference: None,
             session: session.to_string(),
-            expires_at: Utc::now() + SESSION_TTL,
+            expires_at: Utc::now() + session_ttl(work_id),
         })
     }
 
@@ -391,7 +399,7 @@ impl CapabilityIssuer {
             source_revision: None,
             model_credential_reference: None,
             session: format!("tools-{}", Uuid::new_v4().simple()),
-            expires_at: Utc::now() + SESSION_TTL,
+            expires_at: Utc::now() + session_ttl(work_id),
         })
     }
 
@@ -466,7 +474,7 @@ impl CapabilityIssuer {
             source_revision: None,
             model_credential_reference,
             session: session.to_string(),
-            expires_at: Utc::now() + SESSION_TTL,
+            expires_at: Utc::now() + session_ttl(work_id),
         })
     }
 
@@ -805,6 +813,24 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         let issuer = CapabilityIssuer::open(&root).unwrap();
         (root, issuer)
+    }
+
+    #[test]
+    fn a_work_attempts_grants_outlast_a_long_attempt_and_a_conversations_do_not() {
+        let (root, issuer) = issuer();
+        let (work, attempt) = (Some(Uuid::new_v4()), Some(Uuid::new_v4()));
+        let lasts = |token: String| issuer.verify(&token).unwrap().expires_at - Utc::now();
+        let for_work = [
+            issuer.issue_actor_session("acme_test", "researcher", "s", work, attempt).unwrap(),
+            issuer.issue_tool_session("acme_test", "researcher", work, attempt).unwrap(),
+            issuer.issue_model_session("acme_test", "researcher", "s", "moonshot", "moonshot/kimi-k3", "metered_api", "work:x", work, attempt).unwrap(),
+        ];
+        for token in for_work {
+            assert!(lasts(token) > Duration::hours(11), "a Work grant expires under a long attempt");
+        }
+        let conversation = issuer.issue_actor_session("acme_test", "exec", "s", None, None).unwrap();
+        assert!(lasts(conversation) <= SESSION_TTL);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
