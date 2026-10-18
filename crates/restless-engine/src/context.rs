@@ -577,6 +577,8 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          Productive machine work has one form: Staff-owned `restless work add`. Give each node a stable outcome, \
          existing owner role/model, expected artifact and exact workspace. The title and outcome you \
          write are rendered to the owner exactly as written; follow the shared writing rule below. \
+         Pass every title, outcome and message to the shell in single quotes, or from a file: in \
+         double quotes the shell expands `$`, so `A$500` reaches the owner as `A00`. \
          Declare its initial \
          repository coordinates with `--repo <name> --base-ref <ref>` whenever the outcome edits or \
          tests a repository; those fields let the Runtime create and launch the Attempt inside the \

@@ -72,7 +72,8 @@ pub fn team_capacity_context(team: &TeamRow, actors: &[ActorRow]) -> String {
          one Staff producer: commission one end-to-end worker by default, and add more only when a \
          stable independently useful seam repays coordination cost. Create each producer's bounded \
          Work with `restless work add` before it starts; messages are not assignments, and lead-owned \
-         production Work is invalid. Only when a registered external message from `world` caused the outcome, add \
+         production Work is invalid. Quote titles and outcomes in single quotes, or pass them from a \
+         file: double quotes let the shell expand `$`, so `A$500` would read `A00`. Only when a registered external message from `world` caused the outcome, add \
          `--source-message <message-id>` so source linkage and Work creation commit once together. Do not pass an owner or Exec conversation message id; commission their directions as ordinary Work.\n",
         team.name,
         team.brief,
