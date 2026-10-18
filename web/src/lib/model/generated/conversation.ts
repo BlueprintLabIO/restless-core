@@ -44,7 +44,12 @@ export type ConversationActorView = { id: string, display: string, kind: string,
 
 export type ConversationFocusView = { after_message_id: number, started_at: string | null, };
 
-export type ConversationMessageView = { id: number, from_actor: string, to_actor: string | null, body: string, outcome_standard: OutcomeStandard | null, attachments: Array<OwnerAttachment>, details: string | null, intent: OwnerIntentReceipt | null, context_path: string | null, created_at: string, read_at: string | null, };
+export type ConversationMessageView = { id: number, from_actor: string, to_actor: string | null, body: string, outcome_standard: OutcomeStandard | null, attachments: Array<OwnerAttachment>, details: string | null, intent: OwnerIntentReceipt | null, context_path: string | null, created_at: string, read_at: string | null,
+/**
+ * The owner's accounts the turn that wrote this message used (S98-09), one receipt each:
+ * `account_use` with `use_id` and `result`.
+ */
+account_uses: Array<Record<string, unknown>>, };
 
 export type ConversationView = { actor: ConversationActorView, focus: ConversationFocusView | null, messages: Array<ConversationMessageView>, };
 

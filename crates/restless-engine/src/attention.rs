@@ -728,7 +728,19 @@ async fn account_items(
             format!("authority:account_request:{}", request.id),
             "account_request",
             request.id.clone(),
-            format!("{who} asks for {}", request.kind.as_deref().map(|kind| format!("a {} account", kind.replace('_', " "))).unwrap_or_else(|| "more on an account".into())),
+            format!(
+                "{who} asks for {}",
+                match (request.account_id.as_deref(), request.kind.as_deref()) {
+                    (Some(_), _) => "more on an account",
+                    (None, Some("api")) => "an API key",
+                    (None, Some("github")) => "a GitHub account",
+                    (None, Some("website_login")) => "a website login",
+                    (None, Some("browser_profile")) => "a browser profile",
+                    (None, Some("mcp_tool")) => "a tool connection",
+                    (None, Some("ai_provider")) => "an AI account",
+                    _ => "an account",
+                }
+            ),
             request.created_at,
         );
         item.what_happened = if request.reason.is_empty() { format!("{who} asked for an account.") } else { request.reason.clone() };

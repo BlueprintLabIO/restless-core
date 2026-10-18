@@ -525,8 +525,8 @@ function threadMessage(
 		attachments: message.attachments ?? [],
 		details: message.details ?? null,
 		intent: message.intent ?? null,
-		/* Not in the generated view until core sends it (S98-09). */
-		accountUses: (message as { account_uses?: ThreadMessage['accountUses'] }).account_uses ?? [],
+		/* Core sends each receipt as the account_use block (S98-09); its shape lives in owner-accounts. */
+		accountUses: (message.account_uses ?? []) as unknown as ThreadMessage['accountUses'],
 		contextPath: message.context_path ?? null,
 		readAt: message.read_at ?? null
 	};
@@ -948,7 +948,8 @@ export function conversationQuery(
 										intent: null,
 										context_path: contextPath ?? null,
 										created_at: sentAt.toISOString(),
-										read_at: null
+										read_at: null,
+										account_uses: []
 									}
 								]
 							}

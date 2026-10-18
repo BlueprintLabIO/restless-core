@@ -401,6 +401,10 @@ struct ConversationMessageView {
     context_path: Option<String>,
     created_at: chrono::DateTime<Utc>,
     read_at: Option<chrono::DateTime<Utc>>,
+    /// The owner's accounts the turn that wrote this message used (S98-09), one receipt each:
+    /// `account_use` with `use_id` and `result`.
+    #[ts(type = "Array<Record<string, unknown>>")]
+    account_uses: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, ts_rs::TS)]
@@ -9667,6 +9671,8 @@ async fn actor_conversation(
     } else {
         None
     };
+    let mut messages = messages.into_iter().map(conversation_message_view).collect::<Vec<_>>();
+    attach_account_uses(state.daemon.authority.pool(), &company, &actor, &mut messages).await;
     Json(ConversationView {
         actor: ConversationActorView {
             id: actor_row.id,
@@ -9678,10 +9684,7 @@ async fn actor_conversation(
             after_message_id: focus.after_message_id,
             started_at: focus.started_at,
         }),
-        messages: messages
-            .into_iter()
-            .map(conversation_message_view)
-            .collect(),
+        messages,
     })
     .into_response()
 }
@@ -9700,6 +9703,52 @@ fn conversation_message_view(message: restless_orgintel::MessageRow) -> Conversa
         context_path: decoded.context_path,
         created_at: message.created_at,
         read_at: message.read_at,
+        account_uses: Vec::new(),
+    }
+}
+
+/// Put each use of an owner's account under the agent's message that closed the turn it was
+/// made in: after the message before it, up to this one.
+async fn attach_account_uses(
+    pool: &sqlx::PgPool,
+    company: &str,
+    actor: &str,
+    messages: &mut [ConversationMessageView],
+) {
+    let Some(last) = messages.iter().filter(|message| message.from_actor == actor).map(|message| message.created_at).max() else {
+        return;
+    };
+    let filter = restless_engine::accounts::UseFilter {
+        company: Some(company),
+        actor: Some(actor),
+        before: Some(last + chrono::Duration::seconds(1)),
+        ..Default::default()
+    };
+    let Ok(uses) = restless_engine::accounts::uses(pool, filter, 200).await else { return };
+    if uses.is_empty() {
+        return;
+    }
+    let Ok(accounts) = restless_engine::accounts::list(pool).await else { return };
+    let mut order = (0..messages.len()).collect::<Vec<_>>();
+    order.sort_by_key(|&index| (messages[index].created_at, messages[index].id));
+    for used in uses {
+        let Some(account) = accounts.iter().find(|account| account.id == used.account_id) else { continue };
+        let mut previous: Option<chrono::DateTime<Utc>> = None;
+        for &index in &order {
+            let message = &messages[index];
+            let after_previous = previous.is_none_or(|at| used.at > at);
+            if message.from_actor == actor && after_previous && used.at <= message.created_at {
+                let mut block = restless_engine::account_broker::use_block(account, company, used.grant_id.as_deref(), &used);
+                block["use_id"] = serde_json::json!(used.id);
+                block["result"] = serde_json::json!(used.result);
+                messages[index].account_uses.push(block);
+                break;
+            }
+            previous = Some(message.created_at);
+        }
+    }
+    for message in messages.iter_mut() {
+        message.account_uses.sort_by_key(|block| block["use_id"].as_i64());
     }
 }
 

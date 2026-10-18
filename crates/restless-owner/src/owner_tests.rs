@@ -3469,6 +3469,7 @@ model = \"anthropic/claude-sonnet-5-5\"
                 context_path: Some("/demo_test/company".into()),
                 created_at: at,
                 read_at: None,
+                account_uses: Vec::new(),
             }],
         };
 
