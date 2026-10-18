@@ -1,0 +1,36 @@
+[package]
+name = "restless-machine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = """
+A machine the owner pairs with their plane (S99): the link both ends speak, the Docker filter that
+keeps the plane to Restless's own containers, and the helper that runs on the machine.
+"""
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "restless-machine"
+path = "src/bin/restless-machine.rs"
+
+[dependencies]
+anyhow = "1"
+base64 = "0.23.1"
+bytes = "1"
+futures-util = "0.3"
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio", "server", "service", "http1"] }
+reqwest = { version = "0.12", features = ["rustls-tls", "json"], default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tokio-util = { version = "0.7", features = ["io"] }
+url = "2"
