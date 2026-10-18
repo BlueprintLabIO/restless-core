@@ -455,6 +455,18 @@
 		filter var(--motion-state) var(--ease-standard);
 }
 
+/* The quiet companion to Send while a reply runs: it waits instead of redirecting. */
+.bridge-root .hc-send.hc-send-later {
+	border-color: var(--border-strong);
+	background: var(--surface-raised);
+	box-shadow: none;
+	color: var(--text-secondary);
+}
+
+.bridge-root .hc-send.hc-send-later:hover:not(:disabled) {
+	color: var(--ink);
+}
+
 .bridge-root .hc-send:active:not(:disabled) {
 	transform: translateY(1px);
 	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--highlight) 24%, transparent);

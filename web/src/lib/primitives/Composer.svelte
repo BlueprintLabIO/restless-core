@@ -17,6 +17,7 @@
 	import { onMount, type Snippet } from 'svelte';
 	import Mic from '@lucide/svelte/icons/mic';
 	import Square from '@lucide/svelte/icons/square';
+	import Clock from '@lucide/svelte/icons/clock';
 	import AttachmentPicker from '$lib/primitives/AttachmentPicker.svelte';
 	import AttachmentTray from '$lib/primitives/AttachmentTray.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
@@ -325,7 +326,8 @@
 		if (composerKeyAction(event, composing) !== 'send') return;
 		event.preventDefault();
 		if (!sendable) return;
-		interrupt = interruptible;
+		// Alt+Enter waits for the current reply instead of redirecting it.
+		interrupt = interruptible && !event.altKey;
 		/* requestSubmit, never submit: submit() skips HTML validation. */
 		inputEl?.form?.requestSubmit();
 	}
@@ -486,7 +488,7 @@
 	     removing one there needs no file input. -->
 	{#if showHint && !menu}<span class="hc-hint" aria-hidden="true"
 			>{interruptible
-				? 'Enter sends now · Shift+Enter adds a line'
+				? 'Enter sends now · Alt+Enter sends after this reply · Shift+Enter adds a line'
 				: options.length
 					? 'Enter sends · Shift+Enter adds a line · / $ # @ open menus'
 					: 'Enter sends · Shift+Enter adds a line'}</span
@@ -622,6 +624,18 @@
 						<Square size={15} fill="currentColor" strokeWidth={0} aria-hidden="true" />
 					</button>
 				{:else}
+					{#if interruptible && sendable}
+						<!-- Waits for the reply in progress: for "here are the files", not a change of course. -->
+						<button
+							class="hc-send hc-send-later"
+							type="submit"
+							aria-label="Send after this reply"
+							title="Send after this reply, without interrupting it (Alt+Enter)"
+							onclick={() => (interrupt = false)}
+						>
+							<Clock size={14} strokeWidth={2} aria-hidden="true" />
+						</button>
+					{/if}
 					<button
 						class="hc-send"
 						type="submit"
