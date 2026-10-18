@@ -3851,7 +3851,7 @@ model = \"anthropic/claude-sonnet-5-5\"
             runtime_attach: None,
             review_target: None,
             native_document: None,
-            direction_request: None, charter_proposal: None,
+            direction_request: None, charter_proposal: None, account_use: None, account_request: None,
             actions: vec![attention::AttentionAction {
                 id: "chat-lead".into(),
                 label: "Work through this with Ari".into(),

@@ -102,6 +102,12 @@ pub struct AttentionItem {
     /// with the draft in it, not a copy of the text.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub charter_proposal: Option<crate::direction::CharterProposal>,
+    /// The use of an owner's account this item is about (S98-09, S98-10): a notice or an approval.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_use: Option<serde_json::Value>,
+    /// A company asking the owner for an account or for more on one (S98-08).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_request: Option<serde_json::Value>,
     pub actions: Vec<AttentionAction>,
     pub can_continue: bool,
     pub preparing: bool,
@@ -358,7 +364,7 @@ async fn conversation_requests(
                 review_target: None,
                 native_document: None,
                 direction_request: None,
-                charter_proposal: None,
+                charter_proposal: None, account_use: None, account_request: None,
                 actions: vec![AttentionAction {
                     id: "continue-conversation".into(),
                     label: "Reply".into(),
@@ -514,7 +520,7 @@ fn spend_warning_item(
         review_target: None,
         native_document: None,
         direction_request: None,
-        charter_proposal: None,
+        charter_proposal: None, account_use: None, account_request: None,
         actions: vec![AttentionAction {
             id: "open-spend-limit".into(),
             label: "Open spend limit".into(),
@@ -585,7 +591,7 @@ fn spend_stopped_item(config: &CompanyConfig, what_happened: String, created_at:
         review_target: None,
         native_document: None,
         direction_request: None,
-        charter_proposal: None,
+        charter_proposal: None, account_use: None, account_request: None,
         actions: vec![AttentionAction {
             id: "open-spend-limit".into(),
             label: "Raise spend limit".into(),
@@ -629,6 +635,131 @@ const EFFECT_UNKNOWN_AFTER_MINUTES: i64 = 10;
 /// A call the owner allowed, or a payment the owner approved, that then failed or whose outcome
 /// is unknown. One item each, with the Work it served; it clears when a later run succeeds or the
 /// owner sets it aside.
+/// The owner's accounts as this company used them (S98-10) and asked for them (S98-08): one item
+/// per open notice, with Fine and Freeze, and one per open request, with Approve and Deny.
+async fn account_items(
+    config: &CompanyConfig,
+    authority: &crate::authority::AuthorityStore,
+    actors: &HashMap<String, AttentionActorRef>,
+) -> Result<Vec<AttentionItem>> {
+    use crate::account_broker as broker;
+    let pool = authority.pool();
+    let company = config.name.as_str();
+    let name = |actor: &str| actors.get(actor).map(|actor| actor.display.clone()).unwrap_or_else(|| actor.to_string());
+    let action = |id: &str, label: &str, consequence: &str, next_state: &str, href: Option<String>| AttentionAction {
+        id: id.into(),
+        label: label.into(),
+        role: "decision",
+        consequence: consequence.into(),
+        next_state: next_state.into(),
+        href,
+    };
+    let blank = |id: String, kind: &str, reference: String, title: String, created_at: DateTime<Utc>| AttentionItem {
+        id,
+        work_id: None,
+        source: AttentionSource { plane: "authority", kind: kind.into(), reference, party: None, call_key: None },
+        category: "approval".into(),
+        title,
+        what_happened: String::new(),
+        why_it_matters: String::new(),
+        recommendation: String::new(),
+        requested_action: String::new(),
+        if_no_action: String::new(),
+        uncertainty: None,
+        deadline: None,
+        brief_status: "source-authored",
+        brief_author: None,
+        briefed_at: Some(created_at),
+        evidence: Vec::new(),
+        review_sources: Vec::new(),
+        responsible_actor: None,
+        runtime_attach: None,
+        review_target: None,
+        native_document: None,
+        direction_request: None,
+        charter_proposal: None,
+        account_use: None,
+        account_request: None,
+        actions: Vec::new(),
+        can_continue: true,
+        preparing: false,
+        created_at,
+    };
+    let mut items = Vec::new();
+    for (notice, used, account) in broker::open_company_notices(pool, company).await? {
+        let who = name(&used.actor);
+        let what = match notice.kind.as_str() {
+            "first_use" => format!("{} used {} for the first time", config.display_name.clone().unwrap_or_else(|| company.to_string()), account.label),
+            "first_spend" => format!("First spend with {}", account.label),
+            "new_destination" => format!("{} acted somewhere new with {}", who, account.label),
+            _ => format!("{} is being used much more than usual", account.label),
+        };
+        let mut block = broker::use_block(&account, company, used.grant_id.as_deref(), &used);
+        block["actor_display"] = serde_json::json!(who);
+        let mut item = blank(
+            format!("authority:account_notice:{}", notice.id),
+            "account_notice",
+            notice.id.clone(),
+            what,
+            used.at,
+        );
+        item.category = "review".into();
+        item.what_happened = format!(
+            "{who} {} with {}: {}{}.",
+            match used.tier.as_str() { "read" => "read", "draft" => "drafted", "spend" => "spent", "admin" => "changed settings", _ => "acted" },
+            account.label,
+            used.action,
+            used.target.as_deref().map(|target| format!(" on {target}")).unwrap_or_default()
+        );
+        item.why_it_matters = "Your accounts act for every company you grant them to; you hear about the first use, a first spend, somewhere new and an unusual burst.".into();
+        item.recommendation = "Fine if you expected it; Freeze stops this company using the account until you unfreeze it.".into();
+        item.requested_action = "Fine or Freeze.".into();
+        item.if_no_action = "Nothing changes; the use stays in the account's log.".into();
+        item.account_use = Some(block);
+        item.actions = vec![
+            action("fine", "Fine", "Closes the notice.", "The company keeps using the account as granted.", None),
+            action("freeze", "Freeze", "Pauses this company's grant of the account.", "Nothing more is sent with it from this company until you unfreeze it.", None),
+        ];
+        items.push(item);
+    }
+    for request in broker::open_requests(pool, company).await? {
+        let who = name(&request.requested_by);
+        let mut item = blank(
+            format!("authority:account_request:{}", request.id),
+            "account_request",
+            request.id.clone(),
+            format!("{who} asks for {}", request.kind.as_deref().map(|kind| format!("a {} account", kind.replace('_', " "))).unwrap_or_else(|| "more on an account".into())),
+            request.created_at,
+        );
+        item.what_happened = if request.reason.is_empty() { format!("{who} asked for an account.") } else { request.reason.clone() };
+        item.why_it_matters = "Companies use your accounts only as you grant them; nothing is shared until you say so.".into();
+        item.recommendation = "Approve as asked, or approve with limits to choose the abilities, scope and caps.".into();
+        item.requested_action = "Approve, approve with limits, or deny.".into();
+        item.if_no_action = "The company goes without it.".into();
+        let mut href = format!("/account/connections?company={company}&request={}", request.id);
+        if let Some(account) = &request.account_id {
+            href.push_str(&format!("&account={account}"));
+        }
+        item.account_request = Some(serde_json::json!({
+            "id": request.id,
+            "company": company,
+            "account_id": request.account_id,
+            "kind": request.kind,
+            "abilities": request.abilities,
+            "reason": request.reason,
+            "requested_by_display": who,
+        }));
+        item.actions = Vec::new();
+        if request.account_id.is_some() {
+            item.actions.push(action("approve", "Approve", "Grants the account with the abilities asked for.", "The company can use it now.", None));
+        }
+        item.actions.push(action("approve-with-limits", "Approve with limits", "Opens the grant in Settings, filled in as asked.", "Saving the grant answers the request.", Some(href)));
+        item.actions.push(action("deny", "Deny", "Nothing is granted; the company is told.", "The company goes without it.", None));
+        items.push(item);
+    }
+    Ok(items)
+}
+
 async fn effect_outcome_items(
     config: &CompanyConfig,
     authority: &crate::authority::AuthorityStore,
@@ -845,7 +976,7 @@ fn effect_outcome_item(outcome: EffectOutcome) -> AttentionItem {
         review_target: None,
         native_document: None,
         direction_request: None,
-        charter_proposal: None,
+        charter_proposal: None, account_use: None, account_request: None,
         actions,
         can_continue: true,
         preparing: false,
@@ -920,7 +1051,7 @@ async fn stranded_agent_items(config: &runtime::CompanyConfig, org: Option<&OrgI
             review_target: None,
             native_document: None,
             direction_request: None,
-            charter_proposal: None,
+            charter_proposal: None, account_use: None, account_request: None,
             actions: vec![AttentionAction {
                 id: "open-intelligence-provider".into(),
                 label: "Open Intelligence".into(),
@@ -1013,7 +1144,7 @@ async fn direction_items(
                 preparing: false,
                 created_at: request.decision.as_ref().filter(|_| failure.is_some()).map_or(request.filed_at, |decision| decision.decided_at),
                 direction_request: Some(request),
-                charter_proposal: None,
+                charter_proposal: None, account_use: None, account_request: None,
             }
         })
         .collect())
@@ -1130,7 +1261,7 @@ async fn publication_items(
             review_target: None,
             native_document: None,
             direction_request: None,
-            charter_proposal: None,
+            charter_proposal: None, account_use: None, account_request: None,
             actions: vec![
                 AttentionAction {
                     id: "authorize-publication".into(),
@@ -1207,7 +1338,7 @@ async fn charter_item(
             preparing: false,
             created_at: proposal.proposed_at,
             direction_request: None,
-            charter_proposal: Some(proposal),
+            charter_proposal: Some(proposal), account_use: None, account_request: None,
         }
     }))
 }
@@ -1401,7 +1532,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
-            native_document: None, direction_request: None, charter_proposal: None,
+            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None,
             actions: vec![
                 AttentionAction {
                     id: "grant".into(),
@@ -1483,7 +1614,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
-            native_document: None, direction_request: None, charter_proposal: None,
+            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None,
             actions: vec![
                 AttentionAction {
                     id: "grant".into(),
@@ -1557,7 +1688,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
-            native_document: None, direction_request: None, charter_proposal: None,
+            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None,
             actions: vec![AttentionAction {
                 id: "open-app".into(),
                 label: "Sign in again".into(),
@@ -2163,7 +2294,7 @@ async fn project_queue(
             responsible_actor,
             runtime_attach,
             review_target,
-            native_document: None, direction_request: None, charter_proposal: None,
+            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None,
             actions,
             preparing,
             can_continue: false,
@@ -2233,7 +2364,7 @@ async fn project_queue(
                 runtime_attach: None,
                 review_target: None,
                 created_at: request.created_at,
-                native_document: Some(request), direction_request: None, charter_proposal: None,
+                native_document: Some(request), direction_request: None, charter_proposal: None, account_use: None, account_request: None,
                 actions,
                 preparing: false,
                 can_continue: false,
@@ -2279,7 +2410,7 @@ async fn project_queue(
                         review_target: None,
                         native_document: None,
                         direction_request: None,
-                        charter_proposal: None,
+                        charter_proposal: None, account_use: None, account_request: None,
                         actions: vec![AttentionAction {
                             id: "decide-identity-drift".into(),
                             label: "Decide on Brand".into(),
@@ -2398,7 +2529,7 @@ async fn project_queue(
                                     responsible_actor: actors.get("exec").cloned(),
                                     runtime_attach: None,
                                     review_target: None,
-                                    native_document: None, direction_request: None, charter_proposal: None,
+                                    native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None,
                                     actions: vec![action],
                                     can_continue: false,
                                     preparing: false,
@@ -2433,7 +2564,7 @@ async fn project_queue(
             uncertainty: Some("Exec makes a judgment on each proposed send against this mandate. It can make mistakes; approval of this mandate is not a guarantee that every send will be appropriate.".into()),
             deadline: Some(proposal.expires_at.to_rfc3339()), brief_status: "source-observed", brief_author: None, briefed_at: None,
             evidence: vec![AttentionEvidence { label: "Exact proposed email mandate".into(), uri: None, content: Some(limits), kind: "authority-email-mandate-proposal" }, AttentionEvidence { label: "Exec judgement".into(), uri: None, content: Some(if note.is_empty() { "No additional rationale supplied.".into() } else { note.into() }), kind: "exec-judgement" }],
-            review_sources: Vec::new(), responsible_actor: None, runtime_attach: None, review_target: None, native_document: None, direction_request: None, charter_proposal: None,
+            review_sources: Vec::new(), responsible_actor: None, runtime_attach: None, review_target: None, native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None,
             actions: vec![
                 AttentionAction { id: "approve-email-mandate".into(), label: "Approve mandate".into(), role: "decision", consequence: "Grants the exact reviewed email mandate and its limits.".into(), next_state: "The pending proposal is resolved and the mandate becomes active.".into(), href: None },
                 AttentionAction { id: "decline-email-mandate".into(), label: "Decline mandate".into(), role: "decision", consequence: "Declines this exact email mandate proposal.".into(), next_state: "The proposal is resolved without granting email authority.".into(), href: None },
@@ -2568,7 +2699,7 @@ async fn project_queue(
                     responsible_actor: None,
                     runtime_attach: None,
                     review_target: None,
-                    native_document: None, direction_request: None, charter_proposal: None,
+                    native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None,
                     actions: vec![AttentionAction {
                         id: if route_missing { "open-intelligence-provider".into() } else { "open-company-health".into() },
                         label: if route_missing { "Choose intelligence".into() } else { "Open Health".into() },
@@ -2621,7 +2752,7 @@ async fn project_queue(
                     review_target: None,
                     native_document: None,
                     direction_request: None,
-                    charter_proposal: None,
+                    charter_proposal: None, account_use: None, account_request: None,
                     actions: vec![
                         AttentionAction {
                             id: "approve-payee".into(),
@@ -2651,6 +2782,10 @@ async fn project_queue(
     match effect_outcome_items(config, authority, &actors).await {
         Ok(outcomes) => items.extend(outcomes),
         Err(error) => tracing::warn!(%error, "outside-action outcomes unavailable"),
+    }
+    match account_items(config, authority, &actors).await {
+        Ok(accounts) => items.extend(accounts),
+        Err(error) => tracing::warn!(%error, "account notices and requests unavailable"),
     }
     if let Some(warning) = spend.and_then(|spend| spend_warning_item(config, spend)) {
         items.push(warning);

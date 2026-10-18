@@ -1353,7 +1353,11 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             axum::routing::patch(accounts_api::update_grant).delete(accounts_api::remove_grant),
         )
         .route("/accounts/{id}/uses", get(accounts_api::uses))
+        .route("/accounts/{id}/notices/{notice}", post(accounts_api::decide_notice))
+        .route("/accounts/requests/{request}", post(accounts_api::settle_request))
         .route("/companies/{company}/accounts", get(accounts_api::company))
+        .route("/companies/{company}/accounts/uses", get(accounts_api::company_uses))
+        .route("/companies/{company}/accounts/requests", post(accounts_api::request))
         .route("/connections/import", post(import_owner_connection))
         .route("/connections/{connection}", axum::routing::delete(remove_owner_connection))
         .route(
@@ -2356,7 +2360,16 @@ async fn network_session_is_current(
 fn is_company_accounts_read(path: &str) -> bool {
     path.strip_prefix("/api/companies/")
         .and_then(|rest| rest.split_once('/'))
-        .is_some_and(|(company, tail)| !company.is_empty() && tail == "accounts")
+        .is_some_and(|(company, tail)| !company.is_empty() && matches!(tail, "accounts" | "accounts/uses"))
+}
+
+/// An admin asks the owner for an account or for more on one (S98-08); the handler checks the role.
+fn is_company_account_request(method: &Method, path: &str) -> bool {
+    method == Method::POST
+        && path
+            .strip_prefix("/api/companies/")
+            .and_then(|rest| rest.split_once('/'))
+            .is_some_and(|(company, tail)| !company.is_empty() && tail == "accounts/requests")
 }
 
 fn membership_boundary_violation(
@@ -2401,6 +2414,7 @@ fn membership_boundary_violation(
         // Everyone in a company sees which of the owner's accounts it may use (S98); the handler
         // checks the company and returns grants only, never a credential.
         || (method == Method::GET && is_company_accounts_read(path))
+        || (principal.membership_role() == "admin" && is_company_account_request(method, path))
         // Chat lists, message search and reactions answer only from the
         // Rooms the caller takes part in.
         || is_company_route_family(path, "direct-conversations")

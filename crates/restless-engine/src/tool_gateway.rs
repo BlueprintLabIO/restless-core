@@ -112,7 +112,9 @@ pub async fn session_servers(
     work_id: Option<Uuid>,
     attempt_id: Option<Uuid>,
 ) -> anyhow::Result<Vec<McpServer>> {
-    if connections::usable_tools(pool, company, actor).await?.is_empty() {
+    if connections::usable_tools(pool, company, actor).await?.is_empty()
+        && crate::account_broker::usable(pool, company, actor).await?.is_empty()
+    {
         return Ok(Vec::new());
     }
     let (work_id, attempt_id) = match (work_id, attempt_id) {
@@ -810,13 +812,190 @@ impl ToolCaller<'_> {
             .await
             .map_err(|_| ErrorData::internal_error("connected tools are unavailable", None))?;
         let mut listed = tools.iter().map(gateway_tool).collect::<Vec<_>>();
-        if tools
-            .iter()
-            .any(|tool| tool.grant.class != ToolClass::Reads)
+        let accounts = crate::account_broker::usable(self.authority.pool(), self.company(), &self.grant.actor)
+            .await
+            .unwrap_or_else(|error| {
+                tracing::warn!(company = %self.company(), "granted accounts are unavailable: {error:#}");
+                Vec::new()
+            });
+        for usable in &accounts {
+            let (name, description, schema) = crate::account_broker::tool_definition(usable);
+            let serde_json::Value::Object(schema) = schema else { continue };
+            let mut tool = Tool::new(name, description, Arc::new(schema));
+            tool.annotations = Some(ToolAnnotations::new().read_only(false).destructive(false));
+            listed.push(tool);
+        }
+        if !accounts.is_empty()
+            || tools
+                .iter()
+                .any(|tool| tool.grant.class != ToolClass::Reads)
         {
             listed.push(reconcile_tool());
         }
         Ok(listed)
+    }
+
+    /// A call to one of the owner's accounts granted to this company (S98-02).
+    async fn call_account(&self, name: &str, arguments: Option<JsonObject>) -> CallToolResponse {
+        use crate::account_broker::{self as broker, Decision};
+        let pool = self.authority.pool();
+        let accounts = match broker::usable(pool, self.company(), &self.grant.actor).await {
+            Ok(accounts) => accounts,
+            Err(_) => return text_error("Granted accounts are unavailable right now; nothing was sent."),
+        };
+        let Some(usable) = accounts.into_iter().find(|usable| usable.tool_name() == name) else {
+            return text_error("That account is not granted to you, or the owner removed the grant.");
+        };
+        let arguments = arguments.unwrap_or_default();
+        let call = match broker::parse_call(&arguments) {
+            Ok(call) => call,
+            Err(error) => return text_error(format!("{error:#}")),
+        };
+        let kind = usable.account.kind.clone();
+        let tier = broker::call_tier(&kind, call.method.as_str(), &call.path, call.declared_tier.as_deref());
+        let target = broker::call_target(&kind, &call.path);
+        let scoped = broker::in_scope(&kind, &usable.grant.limits.scope, target.as_deref(), tier);
+        let now = chrono::Utc::now();
+        let (spent, today) = broker::grant_usage(pool, &usable.grant, now).await.unwrap_or((0, 0));
+        let decision = broker::decide(
+            &usable.account,
+            &usable.grant,
+            &self.grant.actor,
+            tier,
+            scoped,
+            call.cost_micros,
+            spent,
+            today,
+            now,
+        );
+        let action = format!("{} {}", call.method, call.path.split('?').next().unwrap_or_default());
+        let record = |result: &'static str| {
+            let usable = usable.clone();
+            let action = action.clone();
+            let target = target.clone();
+            async move {
+                if let Err(error) = broker::record_use(
+                    pool, &usable, self.company(), &self.grant.actor, None, &action, tier,
+                    target.as_deref(), result, call.cost_micros,
+                )
+                .await
+                {
+                    tracing::warn!(company = %self.company(), "an account use was not recorded: {error:#}");
+                }
+            }
+        };
+        if let Decision::Refuse(reason) = &decision {
+            record("refused").await;
+            return text_error(format!("Nothing was sent. {reason}"));
+        }
+        let answer_text = |answer: &broker::Answer| {
+            serde_json::to_string_pretty(answer).unwrap_or_default()
+        };
+        let secret = match broker::secret(&usable).await {
+            Ok(secret) => secret,
+            Err(error) => {
+                record("failed").await;
+                return text_error(format!("{error:#}"));
+            }
+        };
+        if tier == "read" && decision == Decision::Run {
+            return match broker::send(&usable, &call, &secret).await {
+                Ok(answer) => {
+                    record(if answer.status < 400 { "ok" } else { "failed" }).await;
+                    CallToolResult::success(vec![ContentBlock::text(answer_text(&answer))]).into()
+                }
+                Err(error) => {
+                    record("failed").await;
+                    text_error(format!("The read failed: {error:#}. Reads have no side effects; it is safe to try again."))
+                }
+            };
+        }
+        if call.purpose.is_empty() {
+            return text_error(format!("This call can {tier} with {}: add `purpose`, one sentence saying why.", usable.account.label));
+        }
+        let Some(_lease) = self.lifecycle.try_enter() else {
+            return text_error("Nothing was sent: new work is paused for a restart or update; retry once it is back.");
+        };
+        let connection = format!("account_{}", usable.account.id);
+        let tool_label = format!("{} ({tier})", usable.account.label);
+        let mut command = arguments.clone();
+        command.remove("key");
+        command.remove("purpose");
+        let command = serde_json::Value::Object(command);
+        let key = call.key.clone().unwrap_or_else(|| {
+            let scope = self.grant.attempt_id.map(|id| id.to_string()).unwrap_or_else(|| self.grant.session.clone());
+            let digest = canonical_digest(&serde_json::json!({"scope": scope, "account": usable.account.id, "call": command}));
+            format!("acct-{}", &digest[..32])
+        });
+        let effect = crate::effect::ToolCall {
+            connection: &connection,
+            tool: &tool_label,
+            reserved: matches!(decision, Decision::Ask(_)),
+            contract_digest: "account-broker-v1",
+            arguments: command,
+            parties: Vec::new(),
+            work_id: self.grant.work_id,
+        };
+        let live = std::sync::Mutex::new(None::<broker::Answer>);
+        let receipt = crate::effect::request_tool_effect(
+            &self.config,
+            self.authority,
+            self.org.as_ref(),
+            effect,
+            &call.purpose,
+            &key,
+            &self.grant.actor,
+            |_| async {
+                let answer = broker::send(&usable, &call, &secret).await?;
+                let is_error = answer.status >= 400;
+                let value = serde_json::to_value(&answer)?;
+                *live.lock().expect("account answer lock") = Some(answer);
+                Ok(crate::effect::ToolResult { is_error, result: value })
+            },
+        )
+        .await;
+        match receipt {
+            Ok(receipt) => {
+                let answer = live.into_inner().ok().flatten();
+                if !receipt.replayed {
+                    record(if receipt.success { "ok" } else { "failed" }).await;
+                }
+                let text = answer
+                    .as_ref()
+                    .map(answer_text)
+                    .unwrap_or_else(|| receipt.outcome.get("result").map(|value| value.to_string()).unwrap_or_default());
+                let told = if decision == Decision::RunAndTell { " The owner sees this use." } else { "" };
+                let note = format!(
+                    "restless receipt {} (key {}{}).{told}",
+                    receipt.id,
+                    receipt.idempotency_key,
+                    if receipt.replayed { ", replayed: this call already ran" } else { "" }
+                );
+                let mut result = if receipt.success {
+                    CallToolResult::success(vec![ContentBlock::text(text)])
+                } else {
+                    CallToolResult::error(vec![ContentBlock::text(text)])
+                };
+                result.content.push(ContentBlock::text(note));
+                fit_for_context(result).into()
+            }
+            Err(error) => {
+                let message = format!("{error:#}");
+                if matches!(decision, Decision::Ask(_)) && message.contains("waiting in Attention") {
+                    record("waiting").await;
+                    let Decision::Ask(why) = &decision else { unreachable!() };
+                    return text_error(format!("{why} The prepared call is waiting for the owner; once approved, make the same call again with key {key}."));
+                }
+                if message.contains("did not answer") || message.contains("timed out") {
+                    record("unknown").await;
+                    return text_error(format!(
+                        "The call's outcome is unknown (key {key}). Do not retry it. Read the state through {name}, then settle it with {RECONCILE_TOOL}."
+                    ));
+                }
+                record("failed").await;
+                text_error(message)
+            }
+        }
     }
 
     pub async fn call(
@@ -827,6 +1006,9 @@ impl ToolCaller<'_> {
         let name = name.to_string();
         if name == RECONCILE_TOOL {
             return Ok(self.reconcile(arguments).await);
+        }
+        if crate::account_broker::is_account_tool(&name) {
+            return Ok(self.call_account(&name, arguments).await);
         }
         let Some((connection, _)) = name.split_once(TOOL_SEPARATOR) else {
             return Err(ErrorData::invalid_params("unknown tool", None));

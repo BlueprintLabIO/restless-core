@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 pub const KINDS: &[&str] = &["ai_provider", "api", "website_login", "browser_profile", "github", "mcp_tool"];
 /// Kinds created through this model; the others are listed from their own stores.
-const OWN_KINDS: &[&str] = &["api", "website_login", "browser_profile"];
+const OWN_KINDS: &[&str] = &["api", "website_login", "browser_profile", "github"];
 const MODES: &[&str] = &["allow", "tell", "ask", "off"];
 
 pub async fn ensure_schema(pool: &PgPool) -> Result<()> {
@@ -151,6 +151,8 @@ pub struct Account {
     pub updated_at: DateTime<Utc>,
     pub credentials: Vec<Credential>,
     pub grants: Vec<Grant>,
+    /// Notices about its uses the owner has not answered (S98-10).
+    pub open_notices: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -167,6 +169,8 @@ pub struct Use {
     pub result: String,
     pub cost_micros: Option<i64>,
     pub at: DateTime<Utc>,
+    /// The notice this use raised, if any (S98-10).
+    pub notice: Option<crate::account_broker::Notice>,
 }
 
 /// What the owner sends to add an account (the Settings › Accounts form).
@@ -271,7 +275,7 @@ fn host_name(value: &str) -> bool {
 /// Check an owner's new account and split its credential into settings and secrets.
 pub fn validate_new(account: &NewAccount) -> Result<(serde_json::Value, BTreeMap<&'static str, String>)> {
     if !OWN_KINDS.contains(&account.kind.as_str()) {
-        bail!("Add AI accounts and tool connections from their own pages; this form adds API, website-login and browser-profile accounts.");
+        bail!("Add AI accounts and tool connections from their own pages; this form adds API, GitHub, website-login and browser-profile accounts.");
     }
     let label = account.label.trim();
     if label.is_empty() || label.chars().count() > 80 {
@@ -314,6 +318,15 @@ pub fn validate_new(account: &NewAccount) -> Result<(serde_json::Value, BTreeMap
             }
             secrets.insert("secret", secret.to_string());
             serde_json::json!({ "base_url": base.as_str(), "auth": auth, "auth_name": auth_name })
+        }
+        ("github", "token") => {
+            // Until the Restless GitHub App (S98-05): a token the broker attaches, never handed out.
+            let secret = present(&credential.secret).context("Paste a GitHub token (fine-grained is best).")?;
+            if secret.len() > 1024 || secret.chars().any(char::is_whitespace) {
+                bail!("That does not look like a GitHub token.");
+            }
+            secrets.insert("secret", secret.to_string());
+            serde_json::json!({})
         }
         ("browser_profile", "browser_profile") => {
             let url = present(&credential.url)
@@ -387,6 +400,7 @@ pub async fn list(pool: &PgPool) -> Result<Vec<Account>> {
     let grants = sqlx::query("SELECT * FROM restless_authority.owner_account_grants ORDER BY created_at")
         .fetch_all(pool)
         .await?;
+    let open = crate::account_broker::open_notices(pool).await.unwrap_or_default();
     let mut out = Vec::with_capacity(accounts.len());
     for row in accounts {
         let id: String = row.try_get("id")?;
@@ -419,6 +433,7 @@ pub async fn list(pool: &PgPool) -> Result<Vec<Account>> {
                 .filter(|grant| grant.try_get::<String, _>("account_id").is_ok_and(|account| account == id))
                 .map(row_grant)
                 .collect::<Result<_>>()?,
+            open_notices: open.get(&id).copied().unwrap_or(0),
             id,
         });
     }
@@ -432,6 +447,10 @@ pub async fn get(pool: &PgPool, id: &str) -> Result<Option<Account>> {
 /// Store a new account: its secrets in the vault first, then the rows that point at them.
 pub async fn create(pool: &PgPool, input: NewAccount) -> Result<Account> {
     let (settings, secrets) = validate_new(&input)?;
+    let github_login = match (input.kind.as_str(), secrets.get("secret")) {
+        ("github", Some(token)) => Some(github_login(token).await?),
+        _ => None,
+    };
     let account = new_id();
     let credential = new_id();
     let mut references = serde_json::Map::new();
@@ -452,7 +471,7 @@ pub async fn create(pool: &PgPool, input: NewAccount) -> Result<Account> {
     .bind(&input.kind)
     .bind(input.label.trim())
     .bind(provider)
-    .bind(settings.get("username").and_then(|value| value.as_str()))
+    .bind(github_login.as_deref().or_else(|| settings.get("username").and_then(|value| value.as_str())))
     .bind(input.personal)
     .bind(if input.kind == "browser_profile" { "unknown" } else { "signed_in" })
     .execute(&mut *transaction)
@@ -472,6 +491,28 @@ pub async fn create(pool: &PgPool, input: NewAccount) -> Result<Account> {
     .await?;
     transaction.commit().await?;
     get(pool, &account).await?.context("the new account was not found")
+}
+
+/// Who a GitHub token signs in as; a token GitHub refuses is not saved.
+async fn github_login(token: &str) -> Result<String> {
+    let response = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .user_agent("Restless-Account-Broker")
+        .build()?
+        .get("https://api.github.com/user")
+        .bearer_auth(token)
+        .header("accept", "application/vnd.github+json")
+        .send()
+        .await
+        .context("GitHub did not answer; try again in a moment.")?;
+    if !response.status().is_success() {
+        bail!("GitHub refused that token. Check it has not expired and try again.");
+    }
+    let user: serde_json::Value = response.json().await.context("GitHub answered oddly; try again.")?;
+    user.get("login")
+        .and_then(|login| login.as_str())
+        .map(str::to_string)
+        .context("GitHub did not say who the token belongs to.")
 }
 
 pub async fn update(pool: &PgPool, id: &str, label: Option<&str>, frozen: Option<bool>) -> Result<Option<Account>> {
@@ -606,42 +647,60 @@ pub async fn company_grants(pool: &PgPool, company: &str) -> Result<Vec<(Grant, 
         .collect())
 }
 
-pub async fn uses(
-    pool: &PgPool,
-    account: &str,
-    company: Option<&str>,
-    before: Option<DateTime<Utc>>,
-    limit: i64,
-) -> Result<Vec<Use>> {
+/// Filters on a use log; every one is optional.
+#[derive(Debug, Default, Clone)]
+pub struct UseFilter<'a> {
+    pub account: Option<&'a str>,
+    pub company: Option<&'a str>,
+    pub actor: Option<&'a str>,
+    pub directed_by: Option<&'a str>,
+    pub tier: Option<&'a str>,
+    pub before: Option<DateTime<Utc>>,
+}
+
+pub fn use_from_row(row: &sqlx::postgres::PgRow) -> Result<Use> {
+    Ok(Use {
+        id: row.try_get("id")?,
+        account_id: row.try_get("account_id")?,
+        grant_id: row.try_get("grant_id")?,
+        company: row.try_get("company")?,
+        actor: row.try_get("actor")?,
+        directed_by: row.try_get("directed_by")?,
+        action: row.try_get("action")?,
+        tier: row.try_get("tier")?,
+        target: row.try_get("target")?,
+        result: row.try_get("result")?,
+        cost_micros: row.try_get("cost_micros")?,
+        at: row.try_get("at")?,
+        notice: None,
+    })
+}
+
+/// Uses newest first, each with the notice it raised.
+pub async fn uses(pool: &PgPool, filter: UseFilter<'_>, limit: i64) -> Result<Vec<Use>> {
     let rows = sqlx::query(
-        "SELECT * FROM restless_authority.owner_account_uses WHERE account_id = $1 \
-           AND ($2::text IS NULL OR company = $2) AND ($3::timestamptz IS NULL OR at < $3) \
-         ORDER BY at DESC LIMIT $4",
+        "SELECT * FROM restless_authority.owner_account_uses WHERE ($1::text IS NULL OR account_id = $1) \
+           AND ($2::text IS NULL OR company = $2) AND ($3::text IS NULL OR actor = $3) \
+           AND ($4::text IS NULL OR directed_by = $4) AND ($5::text IS NULL OR tier = $5) \
+           AND ($6::timestamptz IS NULL OR at < $6) \
+         ORDER BY at DESC, id DESC LIMIT $7",
     )
-    .bind(account)
-    .bind(company)
-    .bind(before)
+    .bind(filter.account)
+    .bind(filter.company)
+    .bind(filter.actor)
+    .bind(filter.directed_by)
+    .bind(filter.tier)
+    .bind(filter.before)
     .bind(limit.clamp(1, 200))
     .fetch_all(pool)
     .await?;
-    rows.iter()
-        .map(|row| -> Result<Use> {
-            Ok(Use {
-                id: row.try_get("id")?,
-                account_id: row.try_get("account_id")?,
-                grant_id: row.try_get("grant_id")?,
-                company: row.try_get("company")?,
-                actor: row.try_get("actor")?,
-                directed_by: row.try_get("directed_by")?,
-                action: row.try_get("action")?,
-                tier: row.try_get("tier")?,
-                target: row.try_get("target")?,
-                result: row.try_get("result")?,
-                cost_micros: row.try_get("cost_micros")?,
-                at: row.try_get("at")?,
-            })
-        })
-        .collect()
+    let mut out = rows.iter().map(use_from_row).collect::<Result<Vec<_>>>()?;
+    let ids = out.iter().map(|row| row.id).collect::<Vec<_>>();
+    let mut notices = crate::account_broker::notices_for_uses(pool, &ids).await?;
+    for row in &mut out {
+        row.notice = notices.remove(&row.id);
+    }
+    Ok(out)
 }
 
 /// The owner's AI connections as accounts, read from their own store (no behaviour change).
@@ -671,6 +730,7 @@ pub fn ai_provider_accounts(root: &std::path::Path) -> Result<Vec<Account>> {
                 updated_at: now,
             }],
             grants: Vec::new(),
+            open_notices: 0,
         })
         .collect())
 }
