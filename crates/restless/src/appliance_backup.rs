@@ -59,6 +59,10 @@ pub struct CompanyEntry {
     /// Local tools with data of their own, by connection name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<String>,
+    /// Kept files (Library uploads, files sent in messages) have their own volume. Older
+    /// archives have none, and restore without it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub attachments: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -116,11 +120,13 @@ pub fn backup(output: PathBuf, force: bool) -> Result<BackupReport> {
             .is_file();
         let volume = docker_ok(&["volume", "inspect", &profile.docker_volume_name(&name)])?;
         let tools = tool_data_volumes(&profile, &name)?;
+        let attachments = docker_ok(&["volume", "inspect", &attachments_volume_name(&profile, &name)])?;
         companies.push(CompanyEntry {
             name,
             database,
             volume,
             tools,
+            attachments,
         });
     }
     let manifest = BackupManifest {
@@ -166,6 +172,12 @@ pub fn backup(output: PathBuf, force: bool) -> Result<BackupReport> {
             &piece,
             &format!("volumes/{}.tar", company.name),
         )?;
+    }
+    // The plane is stopped, so no file is being kept while its volume is read.
+    for company in companies.iter().filter(|company| company.attachments) {
+        let image = helper_image(&profile, &company.name)?;
+        export_volume(&attachments_volume_name(&profile, &company.name), &image, &piece)?;
+        append_piece(&mut builder, &piece, &format!("attachments/{}.tar", company.name))?;
     }
     // A tool runs only while it is called; the plane is stopped, so its data is at rest.
     for company in &companies {
@@ -368,6 +380,13 @@ pub fn restore(archive: PathBuf, force: bool) -> Result<RestoreReport> {
         let volume = profile.docker_volume_name(&company.name);
         let image = helper_image(&profile, &company.name)?;
         import_volume(&profile, &volume, &image, &piece, &[])?;
+        std::fs::remove_file(&piece)?;
+    }
+    for company in manifest.companies.iter().filter(|company| company.attachments) {
+        let entry = next_entry(&mut entries, &format!("attachments/{}.tar", company.name))?;
+        stream_to(entry, &piece)?;
+        let image = helper_image(&profile, &company.name)?;
+        import_volume(&profile, &attachments_volume_name(&profile, &company.name), &image, &piece, &[])?;
         std::fs::remove_file(&piece)?;
     }
     for company in &manifest.companies {
@@ -962,6 +981,15 @@ fn import_volume(
 }
 
 /// The data volume of one local tool, named as the engine names it.
+/// The engine's `runtime::attachments_volume_name`, for this machine's profile.
+fn attachments_volume_name(profile: &MachineProfile, company: &str) -> String {
+    if profile.resource_namespace.is_empty() {
+        format!("restless-att-{company}")
+    } else {
+        format!("restless-{}-att-{company}", profile.resource_namespace)
+    }
+}
+
 fn tool_volume_name(profile: &MachineProfile, company: &str, tool: &str) -> String {
     if profile.resource_namespace.is_empty() {
         format!("restless-mcp-data-{company}-{tool}")

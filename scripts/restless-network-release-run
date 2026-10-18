@@ -54,7 +54,7 @@ cleanup() {
   if [[ -n "$daemon_pid" ]]; then kill "$daemon_pid" 2>/dev/null; wait "$daemon_pid" 2>/dev/null; fi
   if [[ -n "$jwks_pid" ]]; then kill "$jwks_pid" 2>/dev/null; wait "$jwks_pid" 2>/dev/null; fi
   docker rm -f "$cell" "$postgres" "$registry" >/dev/null 2>&1
-  docker volume rm "$cell_volume" >/dev/null 2>&1
+  docker volume rm "$cell_volume" "restless-att-${company}" >/dev/null 2>&1
   docker network rm "$network" >/dev/null 2>&1
   find "$scratch" -depth -delete 2>/dev/null
 }

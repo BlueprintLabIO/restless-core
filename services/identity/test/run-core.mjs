@@ -206,6 +206,7 @@ async function cleanup() {
   });
   await attempt(() => removeNamedContainer(`restless-${namespace}-co-${company}`));
   await attempt(() => removeNamedVolume(`restless-${namespace}-vol-${company}`));
+  await attempt(() => removeNamedVolume(`restless-${namespace}-att-${company}`));
   // An account's browser (S98) the journey started, should it stop before removing the account:
   // only this run's namespace, never another plane's identities.
   await attempt(async () => {

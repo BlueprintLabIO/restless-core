@@ -1335,6 +1335,73 @@ pub fn volume_name(company: &str) -> String {
     }
 }
 
+/// Where a company's kept files (Library uploads, files sent in messages) live, so they outlast
+/// the computer's shell. They were in the container's own layer, and every replacement (a new
+/// image on release) lost them: Sydney Resale's uploads were gone from its computer on 19 October.
+pub fn attachments_volume_name(company: &str) -> String {
+    match std::env::var("RESTLESS_RESOURCE_NAMESPACE") {
+        Ok(namespace) if !namespace.is_empty() => format!("restless-{namespace}-att-{company}"),
+        _ => format!("restless-att-{company}"),
+    }
+}
+
+const OWNER_ATTACHMENT_ROOT: &str = "/var/lib/restless-owner-attachments";
+
+async fn container_mounts_attachments(company: &str) -> Result<bool> {
+    let mounted = inspect_value(&[
+        "inspect",
+        "-f",
+        &format!("{{{{range .Mounts}}}}{{{{if eq .Destination \"{OWNER_ATTACHMENT_ROOT}\"}}}}{{{{.Name}}}}{{{{end}}}}{{{{end}}}}"),
+        &container_name(company),
+    ])
+    .await?;
+    Ok(mounted.as_deref() == Some(attachments_volume_name(company).as_str()))
+}
+
+/// Before a shell that keeps attachments in its own layer is replaced, copy them into the
+/// attachments volume so the replacement mounts them. Runs once per company: a shell that
+/// already mounts the volume has nothing of its own to carry.
+async fn preserve_attachments(company: &str, image: &str) -> Result<()> {
+    let volume = attachments_volume_name(company);
+    run_ok(&["volume", "create", &volume]).await?;
+    if container_mounts_attachments(company).await.unwrap_or(false) {
+        return Ok(());
+    }
+    let name = container_name(company);
+    // `docker cp` reads a stopped container too, as a tar stream holding the directory itself.
+    let mut source = tokio::process::Command::new("docker")
+        .args(["cp", &format!("{name}:{OWNER_ATTACHMENT_ROOT}"), "-"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("spawn docker cp for kept files")?;
+    let mount = format!("{volume}:{OWNER_ATTACHMENT_ROOT}");
+    let mut sink = tokio::process::Command::new("docker")
+        .args([
+            "run", "--rm", "-i", "--user", "0", "--network", "none", "-v", &mount,
+            "--entrypoint", "tar", image, "-x", "-p", "-C", "/var/lib",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()
+        .context("spawn the copy of kept files")?;
+    let mut from = source.stdout.take().expect("piped");
+    let mut to = sink.stdin.take().expect("piped");
+    let copied = tokio::io::copy(&mut from, &mut to).await;
+    drop(to);
+    let source_status = source.wait().await?;
+    let sink_status = sink.wait().await?;
+    // No directory yet (a computer that never kept a file) is nothing to carry.
+    if !source_status.success() {
+        return Ok(());
+    }
+    copied.context("copy kept files")?;
+    if !sink_status.success() {
+        bail!("kept files could not be copied into {volume}; the old computer was left in place");
+    }
+    Ok(())
+}
+
 /// The package cache shared by a company's host-side local MCP workers. It is
 /// company data like the Runtime volume, so it is namespaced the same way and
 /// removed with the company.
@@ -1784,7 +1851,8 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
         fetched = ensure_image_available(&image).await?;
         if status(company).await? != ContainerStatus::Absent
             && (container_uses_old_image(company).await?
-                || !container_uses_company_volume(company).await?)
+                || !container_uses_company_volume(company).await?
+                || !container_mounts_attachments(company).await?)
         {
             // Reconciliation replaces the shell. A configured monthly hours
             // cap must gate that replacement before it stops live work.
@@ -1802,6 +1870,8 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
                     crate::runtime_usage::observe(&state_root(), config).await?;
                 }
             }
+            // Kept files move to their own volume before the shell that held them goes.
+            preserve_attachments(company, &image).await?;
             // Only the replaceable container is removed; the named company
             // volume remains the durable computer (§13.4).
             run_ok(&["rm", &name]).await?;
@@ -1886,6 +1956,9 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             // silently talk to another plane (or fail while agent turns work).
             let coordinator_env = format!("RESTLESS_COORDINATOR={}", crate::runtime_coordinator()?);
             let volume_mount = format!("{volume}:/company");
+            let attachments = attachments_volume_name(company);
+            run_ok(&["volume", "create", "--label", &profile_label, "--label", &namespace_label, &attachments]).await?;
+            let attachments_mount = format!("{attachments}:{OWNER_ATTACHMENT_ROOT}");
             if let Some(network) = internal_network.as_deref() {
                 args.extend(["--network", network]);
                 // Native model calls from an isolated test Runtime may leave
@@ -1909,6 +1982,8 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
                 &coordinator_env,
                 "-v",
                 &volume_mount,
+                "-v",
+                &attachments_mount,
                 &image,
             ]);
             run_ok(&args).await?;
@@ -3848,6 +3923,15 @@ pub async fn destroy(
         remove_volume_when_free(&volume, "company volume").await?;
         removed.push("volume");
     }
+    let attachments = attachments_volume_name(company);
+    if docker_observe(&["volume", "inspect", &attachments])
+        .await?
+        .status
+        .success()
+    {
+        remove_volume_when_free(&attachments, "kept files").await?;
+        removed.push("kept files");
+    }
     let cache = mcp_cache_volume_name(company);
     if docker_observe(&["volume", "inspect", &cache])
         .await?
@@ -4223,6 +4307,39 @@ pub fn state_root() -> PathBuf {
     }
     let home = std::env::var("HOME").expect("HOME");
     PathBuf::from(home).join(".restless")
+}
+
+#[cfg(test)]
+mod kept_files_e2e {
+    /// A shell that kept files in its own layer is replaced without losing them (opt in:
+    /// RESTLESS_RUNTIME_E2E=1 with RESTLESS_COMPANY_IMAGE and a RESTLESS_RESOURCE_NAMESPACE).
+    #[tokio::test]
+    async fn kept_files_survive_the_shell_being_replaced() {
+        if std::env::var("RESTLESS_RUNTIME_E2E").as_deref() != Ok("1") {
+            return;
+        }
+        let company = format!("keep{}_test", uuid::Uuid::new_v4().simple());
+        let name = super::container_name(&company);
+        let image = super::company_image();
+        let volume = super::attachments_volume_name(&company);
+        let result = async {
+            // The old shape: no attachments volume, the file in the container's own layer.
+            super::run_ok(&["run", "-d", "--name", &name, "--user", "0", "--entrypoint", "sleep", &image, "600"]).await?;
+            super::run_ok(&["exec", &name, "sh", "-c", "mkdir -p /var/lib/restless-owner-attachments/a1 && printf kept > /var/lib/restless-owner-attachments/a1/content"]).await?;
+            super::run_ok(&["stop", "--time", "1", &name]).await?;
+            super::preserve_attachments(&company, &image).await?;
+            let mount = format!("{volume}:/var/lib/restless-owner-attachments");
+            let read = super::docker_observe(&["run", "--rm", "-v", &mount, "--entrypoint", "cat", &image, "/var/lib/restless-owner-attachments/a1/content"]).await?;
+            anyhow::ensure!(String::from_utf8_lossy(&read.stdout) == "kept", "the kept file did not reach its volume");
+            // A second replacement of a shell that never kept anything is nothing to carry.
+            super::preserve_attachments(&company, &image).await?;
+            anyhow::Ok(())
+        }
+        .await;
+        let _ = super::docker_observe(&["rm", "-f", &name]).await;
+        let _ = super::docker_observe(&["volume", "rm", &volume]).await;
+        result.unwrap();
+    }
 }
 
 #[cfg(test)]
