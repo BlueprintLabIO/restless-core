@@ -44,10 +44,12 @@ jobs:
         with:
           node-version: 24
 
-      - name: Install Playwright Chromium
+      - name: Install Playwright Chromium and the Sheets worker
         run: |
           npm --prefix web ci --ignore-scripts
           npx --prefix web playwright install chromium
+          # Core runs the Native Sheets model as a Node worker from this checkout.
+          npm --prefix services/native-sheets ci --no-audit --no-fund
 
       - name: Choose the company image
         env:
