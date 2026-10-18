@@ -285,17 +285,10 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
         "apps-search" => {
             // The public Apps catalogue (Sprint 87): what Exec may recommend, each with the page in
             // Apps where the owner installs it. Read-only; nothing is added here.
-            let words = request.common.body.as_deref().unwrap_or_default().to_lowercase();
-            let terms: Vec<&str> = words.split_whitespace().collect();
+            let words = request.common.body.as_deref().unwrap_or_default();
             let catalogue = crate::app_catalogue::current().await;
-            let mut found: Vec<_> = catalogue
-                .items
-                .iter()
-                .filter(|item| {
-                    let text = format!("{} {}", item.name, item.summary).to_lowercase();
-                    !terms.is_empty() && terms.iter().all(|term| text.contains(term))
-                })
-                .take(10)
+            let mut found: Vec<_> = crate::app_catalogue::search(&catalogue.items, words, 10)
+                .into_iter()
                 .map(|item| {
                     let page = if item.kind == "skill" {
                         format!("x-{}", item.key.rsplit('/').next().unwrap_or(&item.name))
@@ -319,7 +312,14 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 ));
             }
             found.truncate(10);
-            Response::ok(serde_json::json!({ "items": found }))
+            if catalogue.unavailable.is_empty() {
+                Response::ok(serde_json::json!({ "items": found }))
+            } else {
+                Response::ok(serde_json::json!({
+                    "items": found,
+                    "note": format!("Some of the directory could not be read just now, so this may be incomplete: {}", catalogue.unavailable.join("; ")),
+                }))
+            }
         }
         "direction-operation" => {
             // Exec acts on a person's direction; nobody else names a requester.

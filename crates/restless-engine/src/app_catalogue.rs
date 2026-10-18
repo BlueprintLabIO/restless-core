@@ -36,7 +36,7 @@ const MAX_SUMMARY: usize = 240;
 
 /// One thing Apps can offer. `kind` is `mcp` (added by its address) or `skill` (installed as
 /// know-how from its files).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct CatalogueItem {
     pub key: String,
     pub kind: String,
@@ -556,9 +556,38 @@ async fn read_skill_file(
     Ok(bytes)
 }
 
+/// The entries a search names, best first: ranked by how many of its words appear in the name or
+/// summary, so "facebook marketplace ebay" finds what matches any of them, not only an entry
+/// that names all three.
+pub fn search<'a>(items: &'a [CatalogueItem], words: &str, limit: usize) -> Vec<&'a CatalogueItem> {
+    let words = words.to_lowercase();
+    let terms: Vec<&str> = words.split_whitespace().collect();
+    let mut scored: Vec<_> = items
+        .iter()
+        .filter_map(|item| {
+            let text = format!("{} {}", item.name, item.summary).to_lowercase();
+            let hits = terms.iter().filter(|term| text.contains(**term)).count();
+            (hits > 0).then_some((hits, item))
+        })
+        .collect();
+    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.into_iter().map(|(_, item)| item).take(limit).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_search_finds_any_of_its_words_best_match_first() {
+        let item = |name: &str, summary: &str| CatalogueItem { name: name.into(), summary: summary.into(), ..Default::default() };
+        let items = [item("Slack", "Messages"), item("eBay", "Listings and sold prices"), item("Marketplace Scout", "Facebook Marketplace and eBay listings")];
+        let names = |words: &str| search(&items, words, 10).into_iter().map(|item| item.name.as_str()).collect::<Vec<_>>();
+        assert_eq!(names("facebook marketplace ebay gumtree"), ["Marketplace Scout", "eBay"]);
+        assert_eq!(names("EBAY"), ["eBay", "Marketplace Scout"]);
+        assert!(names("").is_empty());
+        assert!(names("stripe").is_empty());
+    }
 
     #[tokio::test]
     async fn a_slow_refresh_never_blocks_cached_reads_or_starts_a_second_fetch() {
