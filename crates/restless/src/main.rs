@@ -43,6 +43,20 @@ enum AppsCommand {
         #[arg(required = true)]
         words: Vec<String>,
     },
+    /// Ask the owner for an account the company does not have: a site login (eBay, Facebook
+    /// Marketplace, a supplier portal), an API key or GitHub. It goes to the owner's Inbox; once
+    /// given from Settings › Accounts, its tools appear in your tool list. Never ask for a password.
+    AskAccount {
+        /// website_login, api or github.
+        #[arg(long)]
+        kind: String,
+        /// The site or service, such as facebook.com or Stripe.
+        #[arg(long)]
+        site: String,
+        /// What you need it for, in a sentence or two.
+        #[arg(long)]
+        reason: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2655,6 +2669,12 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 "cmd": "apps-search",
                 "company": company.context("no company: pass -c or set RESTLESS_COMPANY")?,
                 "body": words.join(" "),
+            }),
+            AppsCommand::AskAccount { kind, site, reason } => serde_json::json!({
+                "cmd": "account-ask",
+                "company": company.context("no company: pass -c or set RESTLESS_COMPANY")?,
+                "tool": kind,
+                "body": format!("{}: {}", site.trim(), reason.trim()),
             }),
         },
         Command::Direction { company, command } => {

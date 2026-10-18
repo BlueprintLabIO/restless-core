@@ -282,6 +282,41 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 }, Err(error) => Response::err(format!("{error:#}")),
             }
         }
+        "account-ask" => {
+            // An agent asks the owner for an account the company does not have (S98-08): a site
+            // login, an API key or GitHub. It lands in the owner's Inbox as an account request.
+            // Sydney Resale's Exec (18 October) needed Facebook and eBay and could only say so in
+            // chat, without knowing the owner can give logins from Settings › Accounts.
+            let actor = if principal == Principal::Owner { "owner" } else {
+                match request.orgintel.actor.as_deref() { Some(actor) => actor, None => return Response::err("Missing authenticated actor") }
+            };
+            let kind = request.tool.as_deref().unwrap_or_default();
+            if !matches!(kind, "website_login" | "api" | "github") {
+                return Response::err("The kind is website_login, api or github.");
+            }
+            let asked = request.common.body.as_deref().unwrap_or_default().trim();
+            let Some((site, reason)) = asked.split_once(": ").filter(|(site, reason)| !site.trim().is_empty() && !reason.trim().is_empty()) else {
+                return Response::err("Name the site and why: restless apps ask-account --kind website_login --site facebook.com --reason '...'");
+            };
+            let pool = daemon.authority.pool();
+            if let Ok(open) = crate::account_broker::open_requests(pool, company).await {
+                if let Some(same) = open.iter().find(|open| open.kind.as_deref() == Some(kind) && open.reason.starts_with(&format!("{}:", site.trim()))) {
+                    return Response::ok(serde_json::json!({
+                        "requested": false,
+                        "message": format!("The owner already has this request in their Inbox (asked by {}). Carry on without it until they answer.", same.requested_by),
+                    }));
+                }
+            }
+            let asked = format!("{}: {}", site.trim().chars().take(120).collect::<String>(), reason.trim().chars().take(800).collect::<String>());
+            match crate::account_broker::create_request(pool, company, None, Some(kind), None, &asked, actor).await {
+                Ok(request) => Response::ok(serde_json::json!({
+                    "requested": true,
+                    "id": request.id,
+                    "message": format!("Asked. The owner sees {} in their Inbox. When they add it in Settings › Accounts and give it to this company, its tools appear in your tool list.", site.trim()),
+                })),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
         "apps-search" => {
             // The public Apps catalogue (Sprint 87): what Exec may recommend, each with the page in
             // Apps where the owner installs it. Read-only; nothing is added here.
@@ -4593,6 +4628,7 @@ pub fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Re
         | "decision-ask"
         | "tools-list"
         | "tools-check"
+        | "account-ask"
         | "document-review-request" => pin_actor(&mut request.orgintel.actor, actor, "actor")?,
         "publish-build" | "publish-candidate" | "publish-request" => {
             pin_actor(&mut request.publication.actor, actor, "publication actor")?
