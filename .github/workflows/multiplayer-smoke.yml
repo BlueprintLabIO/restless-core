@@ -3,11 +3,13 @@ name: Multiplayer smoke
 # Nightly: three real accounts in one isolated `_test` company over authenticated
 # network entry with local company computers (scripts/multiplayer-smoke).
 #
-# Runs only on the self-hosted WSL runner. That host provides, as repository
-# variables naming things already on it:
+# Runs only on the self-hosted WSL runner. That host provides, as a repository
+# variable naming a file already on it:
 #   RESTLESS_SMOKE_DATABASE_URL_FILE  absolute 0600 file with a PostgreSQL admin URL
-#   RESTLESS_SMOKE_COMPANY_IMAGE      installed company image, repository@sha256:<digest>
-# plus Docker, Node 24, Rust, and plane.localhost resolving to loopback.
+#                                     (the host's own restless-smoke-postgres container)
+# plus Docker, Node 24, Rust, and plane.localhost resolving to loopback. The company
+# image is built from this commit, as the connections smoke does, unless
+# RESTLESS_SMOKE_COMPANY_IMAGE pins an installed one (repository@sha256:<digest>).
 
 on:
   schedule:
@@ -24,8 +26,14 @@ permissions:
 jobs:
   smoke:
     runs-on: [self-hosted, linux, x64, restless-core]
-    timeout-minutes: 60
+    timeout-minutes: 75
+    env:
+      IMAGE: restless-company-image:ci-multiplayer-${{ github.run_id }}
     steps:
+      - name: The host's Rust toolchain
+        # The runner service does not inherit a login PATH; rustup lives here.
+        run: test -x "$HOME/.cargo/bin/cargo" && echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
@@ -41,12 +49,27 @@ jobs:
           npm --prefix web ci --ignore-scripts
           npx --prefix web playwright install chromium
 
+      - name: Choose the company image
+        env:
+          PINNED: ${{ vars.RESTLESS_SMOKE_COMPANY_IMAGE }}
+        run: |
+          if [ -n "$PINNED" ]; then
+            echo "COMPANY_IMAGE=$PINNED" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          npm --prefix infra/host-tools ci --no-audit --no-fund
+          bash scripts/release/with-company-builder.sh bash -c '
+            source scripts/lib/dev-release.sh
+            dev_build_company_image "$PWD" "$IMAGE" "$GITHUB_SHA"
+          '
+          pinned="$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE")"
+          echo "COMPANY_IMAGE=$pinned" >> "$GITHUB_ENV"
+
       - name: Run the multiplayer smoke
         env:
           RESTLESS_TEST_DATABASE_URL_FILE: ${{ vars.RESTLESS_SMOKE_DATABASE_URL_FILE }}
-          RESTLESS_COMPANY_IMAGE: ${{ vars.RESTLESS_SMOKE_COMPANY_IMAGE }}
           RESTLESS_IDENTITY_TEST_OUTPUT: ${{ runner.temp }}/multiplayer-smoke-${{ github.run_id }}
-        run: scripts/multiplayer-smoke
+        run: RESTLESS_COMPANY_IMAGE="$COMPANY_IMAGE" scripts/multiplayer-smoke
 
       - name: Keep the evidence
         if: always()
@@ -57,9 +80,11 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      - name: Remove the evidence from the runner
+      - name: Remove the image and evidence from the runner
         if: always()
-        run: rm -rf "${{ runner.temp }}/multiplayer-smoke-${{ github.run_id }}"
+        run: |
+          rm -rf "${{ runner.temp }}/multiplayer-smoke-${{ github.run_id }}"
+          docker image rm "$IMAGE" >/dev/null 2>&1 || true
       - name: Reclaim runner disk
         if: always()
         run: test ! -x scripts/release/reclaim-runner.sh || scripts/release/reclaim-runner.sh
