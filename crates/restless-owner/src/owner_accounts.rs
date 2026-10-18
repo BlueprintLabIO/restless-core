@@ -7,6 +7,15 @@ use restless_engine::accounts::{self, GrantInput, NewAccount};
 fn refuse(error: anyhow::Error) -> Response<Body> {
     // Validation errors are already sentences for the owner; storage errors are not shown raw.
     let message = format!("{error:#}");
+    // A plane with no vault cannot keep a password or key at all; retrying would not help.
+    if message.contains("INFISICAL_") && !restless_engine::credential::infisical_configured() {
+        tracing::warn!(error = %message, "account change failed: no vault");
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "vault_unavailable",
+            "This plane has no vault to keep passwords and keys, so nothing was saved. A browser sign-in needs no vault; for the rest, set up the vault (see self-hosting).",
+        );
+    }
     if message.ends_with('.') && message.chars().count() <= 200 && !message.contains("error") {
         api_error(StatusCode::BAD_REQUEST, "accounts", message)
     } else {
