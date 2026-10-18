@@ -119,6 +119,7 @@ async function refresh() {
   $("account-identity").textContent =
     `${state.user.name} · ${state.user.email}`;
   $("enter-company").hidden = !state.role;
+  $("enter-account").hidden = state.role !== "owner";
   $("bootstrap-company").hidden = !state.canBootstrap;
   $("no-access").hidden = !!state.role || state.canBootstrap || !!invitation;
   $("suspended").hidden = state.status !== "suspended";
@@ -230,6 +231,21 @@ $("enter-company").addEventListener("click", () =>
       landing.value = returnTo;
       form.append(landing);
     }
+    document.body.append(form);
+    form.submit();
+  }),
+);
+$("enter-account").addEventListener("click", () =>
+  action($("enter-account"), async () => {
+    const entry = await api("/api/enter-account", { companyId: selectedCompany });
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = entry.action;
+    const token = document.createElement("input");
+    token.type = "hidden";
+    token.name = "assertion";
+    token.value = entry.assertion;
+    form.append(token);
     document.body.append(form);
     form.submit();
   }),

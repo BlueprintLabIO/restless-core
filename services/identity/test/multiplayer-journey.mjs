@@ -1076,16 +1076,17 @@ try {
   // 9k. The owner's accounts (S98): a website login added once at the owner level, given to the
   //     company, read by its people without its secret; its own browser starts for the owner's
   //     sign-in and goes when the account is removed. Members cannot add or read accounts.
-  const accountWide = (await owner.context.request.fetch(`${core}/api/accounts`, { failOnStatusCode: false })).status() === 200;
-  if (!accountWide) {
-    // The self-hosted account service enters one company, and accounts belong to the owner's
-    // account-wide session (Cloud Home, or the local appliance). Say so plainly rather than fail.
-    const scoped = await owner.context.request.fetch(`${core}/api/accounts`, { failOnStatusCode: false });
-    assert.equal(scoped.status(), 403);
-    assert.match(await scoped.text(), /account owner/);
-    note("accounts: a self-hosted network owner has a company session, so Settings › Accounts is not reachable here (gap)");
-    pass("a company-scoped session cannot manage the owner's accounts, and is told why");
-  } else {
+  // A company session cannot manage the owner's accounts and is told why; the owner opens
+  // "Logins and keys" on the account site, which enters account-wide and lands on Accounts.
+  const scoped = await owner.context.request.fetch(`${core}/api/accounts`, { failOnStatusCode: false });
+  assert.equal(scoped.status(), 403, "a company session does not manage the owner's accounts");
+  assert.match(await scoped.text(), /account owner/);
+  await enterAccounts(owner);
+  await owner.page.locator("#enter-account").click();
+  await owner.page.waitForURL((url) => url.origin === core && url.pathname === "/account/connections", { timeout: 30000 });
+  await owner.page.getByRole("heading", { name: "Accounts" }).first().waitFor({ timeout: 30000 });
+  await shot(owner, "accounts");
+  {
     const secret = `smoke-${randomUUID()}`;
     const login = await coreApi(owner, "/api/accounts", {
       method: "POST",
@@ -1121,6 +1122,10 @@ try {
     await coreApi(owner, `/api/accounts/${login.id}`, { method: "DELETE", expected: 204 });
     assert.deepEqual((await coreApi(alice, `${base}/accounts`)).grants, [], "a removed account leaves the company");
     pass("an owner's website login is given to the company without its password, its browser opens for the owner alone, and removing it removes it everywhere");
+    // Back into the company, as the owner would from the account site.
+    await enterAccounts(owner);
+    await owner.page.locator("#company").waitFor({ state: "visible" });
+    await openCompany(owner);
   }
 
   // 10. Removal from Members closes Bob's live document connection and session.

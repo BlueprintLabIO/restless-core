@@ -315,6 +315,11 @@ export async function createSelfHostedIssuer(
           refuse(503, "The company is offline. It will be available when its host reconnects. Your account and membership are unchanged.");
         return json(200, await store.enter(user, target));
       }
+      if (path === "/api/enter-account") {
+        if (placement.checkReady && !(await placement.checkReady(input.companyId ?? companyId)))
+          refuse(503, "The company is offline. It will be available when its host reconnects.");
+        return json(200, await store.enterAccount(user, input.companyId ?? companyId));
+      }
       refuse(404, "Account action not found.");
     } catch (error) {
       return failure(error);

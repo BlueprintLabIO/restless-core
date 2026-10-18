@@ -306,6 +306,33 @@ export async function createSqlMembershipStore({
     };
   }
 
+  /**
+   * The owner's account-wide entry: Settings › Accounts, where accounts are held once and given
+   * to companies. Only the company's owner gets it; Core lands them on /account/connections.
+   */
+  async function enterAccount(user, companyId) {
+    const coordinates = await placed(companyId);
+    const member = await membership(companyId, user.id);
+    if (!member || member.status !== "active" || member.ending || member.role !== "owner")
+      refuse(403, "Only the owner manages the account's logins and keys.");
+    if (coordinates.ready === false)
+      refuse(503, "The company is starting. Try again in a moment.");
+    return {
+      action: coordinates.coreOrigin + "/entry/account",
+      assertion: await sign(
+        {
+          aud: "restless-core-account-owner",
+          sub: member.user_id,
+          jti: randomUUID(),
+          owner_id: coordinates.ownerId,
+          plane_id: coordinates.planeId,
+          ...(user.name ? { display_name: user.name } : {}),
+        },
+        "restless-account-owner+jwt",
+      ),
+    };
+  }
+
   /** Deliver one claimed control. Returns true once Core confirms it. */
   async function deliver(control) {
     let receipt;
@@ -409,6 +436,7 @@ export async function createSqlMembershipStore({
     change,
     transferOwnership,
     enter,
+    enterAccount,
     jwks,
     deliverDue,
     async close() {
