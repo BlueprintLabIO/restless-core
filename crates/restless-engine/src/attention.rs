@@ -609,6 +609,99 @@ fn spend_stopped_item(config: &CompanyConfig, what_happened: String, created_at:
     }
 }
 
+/// A company model the provider refused for a reason only the owner can fix: credit used up, a
+/// refused sign-in or key, or a model no longer offered. Raised from the cooldown itself, so it
+/// shows even when no Exec turn has run since (18 October: Frankensurf's credit ran out at
+/// 10:03 and the Inbox stayed empty while every wake was refused).
+fn model_cooldown_items(config: &CompanyConfig, cooldowns: &[crate::authority::ModelCooldown]) -> Vec<AttentionItem> {
+    cooldowns
+        .iter()
+        .filter(|cooldown| matches!(cooldown.kind.as_str(), "quota" | "credential" | "model"))
+        .map(|cooldown| {
+            // "[quota] provider refused … owner action required: 402 AI credit is used up. …": the
+            // provider's own words, first line only.
+            let reason = cooldown.reason.lines().next().unwrap_or_default();
+            let reason = reason.split_once("] ").filter(|(tag, _)| tag.starts_with('[')).map_or(reason, |(_, rest)| rest);
+            let reason = reason.split_once("owner action required: ").map_or(reason, |(_, rest)| rest);
+            let credit = cooldown.reason.contains("AI credit is used up");
+            // Only Restless's own billing page, never a link a provider wrote.
+            let top_up = cooldown
+                .reason
+                .split_whitespace()
+                .find(|word| word.starts_with("https://") && word.contains("/account/settings#billing"))
+                .map(|word| word.trim_end_matches(|c: char| !c.is_ascii_alphanumeric()).to_string())
+                .map(|url| if url.ends_with("#billing") { url } else { format!("{url}#billing") });
+            let title = match (cooldown.kind.as_str(), credit) {
+                (_, true) => "AI credit is used up".to_string(),
+                ("quota", _) => format!("{} refused: out of credit or quota", cooldown.model),
+                ("credential", _) => format!("{} refused its sign-in or key", cooldown.model),
+                _ => format!("{} is not available", cooldown.model),
+            };
+            let mut actions = Vec::new();
+            if let Some(url) = top_up {
+                actions.push(AttentionAction {
+                    id: "top-up-ai-credit".into(),
+                    label: "Top up".into(),
+                    role: "inspect",
+                    consequence: "Opens your plan and credit.".into(),
+                    next_state: "Work resumes within minutes of a top-up.".into(),
+                    href: Some(url),
+                });
+            }
+            actions.push(AttentionAction {
+                id: "open-intelligence-provider".into(),
+                label: if credit { "Use another account".into() } else { "Fix the model".into() },
+                role: "inspect",
+                consequence: "Opens the model and the accounts this company may use.".into(),
+                next_state: "The next turn uses what you choose.".into(),
+                href: Some(format!("/{}/company/provider", config.name)),
+            });
+            AttentionItem {
+                id: format!("authority:model_cooldown:{}", cooldown.model),
+                work_id: None,
+                source: AttentionSource {
+                    plane: "authority",
+                    kind: "model_cooldown".into(),
+                    reference: cooldown.model.clone(),
+                    party: None,
+                    call_key: None,
+                },
+                category: "blocker".into(),
+                title,
+                what_happened: reason.to_string(),
+                why_it_matters: format!(
+                    "Exec and the team use {}, so no one in the company can think until this is fixed; work waits.",
+                    cooldown.model
+                ),
+                recommendation: if credit {
+                    "Top up, or give the company another account you hold, such as a ChatGPT or Claude sign-in.".into()
+                } else {
+                    "Fix the account or choose another model for the company.".into()
+                },
+                requested_action: if credit { "Top up or use another account.".into() } else { "Fix the model.".into() },
+                if_no_action: format!("Restless tries again at {} and keeps trying; nothing runs meanwhile.", cooldown.retry_at.format("%H:%M UTC")),
+                uncertainty: None,
+                deadline: None,
+                brief_status: "source-observed",
+                brief_author: None,
+                briefed_at: None,
+                evidence: Vec::new(),
+                review_sources: Vec::new(),
+                responsible_actor: None,
+                runtime_attach: None,
+                review_target: None,
+                native_document: None,
+                direction_request: None,
+                charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+                actions,
+                can_continue: false,
+                preparing: false,
+                created_at: Utc::now(),
+            }
+        })
+        .collect()
+}
+
 /// The ledger's view of a stopped company, worded for the owner.
 fn ledger_spend_stopped_item(config: &CompanyConfig, spend: &crate::spend::SpendLedger) -> Option<AttentionItem> {
     let period = spend.period_spend(config);
@@ -2838,6 +2931,12 @@ async fn project_queue(
         Ok(accounts) => items.extend(accounts),
         Err(error) => tracing::warn!(%error, "account notices and requests unavailable"),
     }
+    if !items.iter().any(|item| item.source.kind == "exec_startup_blocked") {
+        match authority.active_model_cooldowns(&config.name).await {
+            Ok(cooldowns) => items.extend(model_cooldown_items(config, &cooldowns)),
+            Err(error) => tracing::warn!(%error, "model cooldowns unavailable"),
+        }
+    }
     if let Some(warning) = spend.and_then(|spend| spend_warning_item(config, spend)) {
         items.push(warning);
     }
@@ -3754,6 +3853,31 @@ fn external_source_verification(metadata: &serde_json::Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_refused_company_model_reaches_the_inbox_with_a_way_out() {
+        let config: CompanyConfig = toml::from_str("name = \"acme_test\"\nmission = \"test\"\n").unwrap();
+        let cooldown = |kind: &str, reason: &str| crate::authority::ModelCooldown {
+            model: "litellm/deepseek-v4.1-flash".into(),
+            kind: kind.into(),
+            reason: reason.into(),
+            retry_at: Utc::now(),
+        };
+        let items = model_cooldown_items(&config, &[
+            cooldown("quota", "[quota] provider refused on quota or credit — owner action required: 402 AI credit is used up. Top up to continue: https://app.restless.run/account/settings#billing"),
+            cooldown("transport", "[transport] connection reset"),
+        ]);
+        assert_eq!(items.len(), 1, "a passing network fault is not the owner's to fix");
+        let item = &items[0];
+        assert_eq!(item.title, "AI credit is used up");
+        assert_eq!(item.what_happened, "402 AI credit is used up. Top up to continue: https://app.restless.run/account/settings#billing");
+        assert_eq!(item.actions[0].href.as_deref(), Some("https://app.restless.run/account/settings#billing"));
+        assert_eq!(item.actions[1].href.as_deref(), Some("/acme_test/company/provider"));
+        // A link a provider wrote is never offered.
+        let other = model_cooldown_items(&config, &[cooldown("quota", "[quota] 402 insufficient credits, see https://evil.example/pay")]);
+        assert_eq!(other[0].actions.len(), 1);
+        assert_eq!(other[0].actions[0].id, "open-intelligence-provider");
+    }
 
     #[test]
     fn an_owner_never_reads_an_address_only_the_company_computer_can_open() {
