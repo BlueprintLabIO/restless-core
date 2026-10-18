@@ -279,9 +279,44 @@ pub async fn open_page(account_id: &str, url: &str) -> Result<()> {
 pub async fn signed_in(account_id: &str, domains: &[String]) -> Result<bool> {
     let mut cdp = Cdp::open(account_id).await?;
     let cookies = cdp.call("Storage.getCookies", serde_json::json!({}), None).await?;
-    Ok(cookies["cookies"]
+    let has_cookie = cookies["cookies"]
         .as_array()
-        .is_some_and(|cookies| cookies.iter().any(|cookie| cookie["domain"].as_str().is_some_and(|domain| on_account_domain(domain.trim_start_matches('.'), domains)))))
+        .is_some_and(|cookies| cookies.iter().any(|cookie| cookie["domain"].as_str().is_some_and(|domain| on_account_domain(domain.trim_start_matches('.'), domains))));
+    if !has_cookie {
+        return Ok(false);
+    }
+    // Sites set consent and tracking cookies before anyone signs in, so a cookie alone is not a
+    // sign-in: a page of the account's own that still asks for a password says it did not take.
+    Ok(!asks_for_password(&mut cdp, domains).await.unwrap_or(false))
+}
+
+/// Whether an open page on the account's domains shows a password field.
+async fn asks_for_password(cdp: &mut Cdp, domains: &[String]) -> Result<bool> {
+    let targets = cdp.call("Target.getTargets", serde_json::json!({}), None).await?;
+    let pages = targets["targetInfos"].as_array().cloned().unwrap_or_default();
+    for page in pages.iter().filter(|info| info["type"] == "page") {
+        let host = page["url"].as_str().and_then(|url| reqwest::Url::parse(url).ok()).and_then(|url| url.host_str().map(str::to_string));
+        if !host.is_some_and(|host| on_account_domain(&host, domains)) {
+            continue;
+        }
+        let attached = cdp.call("Target.attachToTarget", serde_json::json!({ "targetId": page["targetId"], "flatten": true }), None).await?;
+        let Some(session) = attached["sessionId"].as_str().map(str::to_string) else { continue };
+        let shown = cdp
+            .call(
+                "Runtime.evaluate",
+                serde_json::json!({
+                    "expression": "[...document.querySelectorAll('input[type=password]')].some((e) => e.offsetParent !== null)",
+                    "returnByValue": true
+                }),
+                Some(&session),
+            )
+            .await;
+        let _ = cdp.call("Target.detachFromTarget", serde_json::json!({ "sessionId": session }), None).await;
+        if shown?["result"]["value"] == true {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// The owner's sign-in sessions in progress: session → account.
@@ -593,6 +628,12 @@ mod tests {
             fill(&account, &["example.com".to_string()], Some(&target), "hunter2", "password").await?;
             let value = cdp.call("Runtime.evaluate", serde_json::json!({"expression": "document.getElementById('p').value", "returnByValue": true}), Some(&session)).await?;
             assert_eq!(value["result"]["value"], "hunter2");
+            // A site cookie with the sign-in form still showing is not a sign-in; without it, it is.
+            let domains = ["example.com".to_string()];
+            cdp.call("Runtime.evaluate", serde_json::json!({"expression": "document.cookie = 'consent=1; path=/'; 'ok'"}), Some(&session)).await?;
+            assert!(!signed_in(&account, &domains).await?, "a consent cookie beside a password field counted as signed in");
+            cdp.call("Runtime.evaluate", serde_json::json!({"expression": "document.body.innerHTML = '<p>Welcome back</p>'; 'ok'"}), Some(&session)).await?;
+            assert!(signed_in(&account, &domains).await?, "signed in, with no password field left");
             assert!(crate::runtime::desktop_asset(&identity_key(&account), "vnc.html").await?.len() > 100);
             assert!(browser_socket_path(&account).await?.starts_with("/devtools/browser/"));
             anyhow::Ok(())
