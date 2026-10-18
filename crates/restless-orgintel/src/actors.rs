@@ -434,13 +434,14 @@ impl OrgIntel {
                 "only the owner or Exec may re-hire a retired actor".into(),
             ));
         }
-        let retired: bool = sqlx::query_scalar(
-            "SELECT retired_at IS NOT NULL FROM actors WHERE id=$1 FOR UPDATE",
-        )
-        .bind(actor_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| OrgIntelError::InvalidWork(format!("actor {actor_id:?} does not exist")))?;
+        let retired: bool =
+            sqlx::query_scalar("SELECT retired_at IS NOT NULL FROM actors WHERE id=$1 FOR UPDATE")
+                .bind(actor_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or_else(|| {
+                    OrgIntelError::InvalidWork(format!("actor {actor_id:?} does not exist"))
+                })?;
         if !retired {
             return Err(OrgIntelError::InvalidWork(format!(
                 "{actor_id} is not retired"
@@ -1303,17 +1304,30 @@ impl OrgIntel {
             ));
         }
         let mut tx = self.pool.begin().await?;
-        let (candidate_work_id, delegated_from): (Uuid, Option<String>) = sqlx::query_as(
+        let candidate: Option<(Uuid, Option<String>)> = sqlx::query_as(
             "SELECT work_id, escalated_from FROM owner_handoffs \
              WHERE id=$1 AND state='pending' AND assigned_to=$2",
         )
         .bind(id)
         .bind(from_actor)
         .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| {
-            OrgIntelError::InvalidWork("no pending handoff is assigned to that actor".into())
-        })?;
+        .await?;
+        let Some((candidate_work_id, delegated_from)) = candidate else {
+            // A pending handoff with no assignee is already the owner's: it is in their Inbox, and
+            // there is nothing above it. Say so, so nobody retries or escalates as someone else.
+            let with_owner: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM owner_handoffs \
+                 WHERE id=$1 AND state='pending' AND assigned_to IS NULL)",
+            )
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+            return Err(OrgIntelError::InvalidWork(if with_owner {
+                "that handoff is already waiting on the owner and shows in their Inbox; there is nothing above it to escalate to".into()
+            } else {
+                "no pending handoff is assigned to that actor".into()
+            }));
+        };
         let accountability = lock_work_accountability_in_tx(&mut tx, candidate_work_id).await?;
         let from_person = accountability.responsible_actor_id.as_deref() == Some(from_actor);
         // A handoff the owner handed to this person goes straight back to the owner.
@@ -1416,10 +1430,12 @@ impl OrgIntel {
                 "only a pending handoff waiting on the owner can be handed on".into(),
             ));
         }
-        sqlx::query("INSERT INTO events (kind, actor_id, body) VALUES ('handoff_delegated','owner',$1)")
-            .bind(serde_json::json!({ "handoff_id": id, "to_actor": to_actor, "note": note.trim() }))
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "INSERT INTO events (kind, actor_id, body) VALUES ('handoff_delegated','owner',$1)",
+        )
+        .bind(serde_json::json!({ "handoff_id": id, "to_actor": to_actor, "note": note.trim() }))
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(())
     }
