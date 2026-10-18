@@ -1,20 +1,21 @@
 <script lang="ts">
-	/* The person's own circle: who they are here, appearance, notifications on
-	 * this device, the keyboard shortcuts and signing out. The owner also reaches their Account;
-	 * a member's account pages are not theirs, so the menu keeps only what applies to them.
-	 * Other people present sit beside it. */
+	/* The person's own circle, in four short groups: who they are (and, for the owner, their
+	 * Account); how the cockpit looks and opens links on this device; where to go for
+	 * notifications and shortcuts; and signing out. Notification switches live on the
+	 * Notifications page, not here, so each setting has one home. Other people present sit
+	 * beside it. */
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import Check from '@lucide/svelte/icons/check';
 	import { initials } from '$lib/model/initials';
 	import { theme } from '$lib/theme.svelte';
-	import { BLOCKED_HINT, desktopNotify } from '$lib/model/desktop-notify.svelte';
+	import { desktopNotify } from '$lib/model/desktop-notify.svelte';
+	import Segmented from '$lib/ui/page/Segmented.svelte';
 	import type { PresentPerson } from '$lib/model/presence.svelte';
 	import { onMount } from 'svelte';
 	import { planeStatus } from '$lib/model/appliance';
 	import { isLocalHost } from '$lib/model/reenter';
 	import { forgetThisBrowser } from '$lib/model/sign-out';
 	import { linkPreference, setCompanyBrowserLinks } from '$lib/model/link-preference.svelte';
-	import { notificationSettings } from '$lib/model/notification-settings.svelte';
 
 	let {
 		name,
@@ -38,7 +39,6 @@
 	 * its own address; a member cannot read the plane's status, and on the one address the issuer
 	 * is this origin, so an unread status still offers it. */
 	let signOut = $state(false);
-	/* Email is sent by the hosted plane; a local appliance sends none, so it offers no switch. */
 	onMount(() => {
 		if (isLocalHost(window.location.hostname)) return;
 		void planeStatus().then((status) => {
@@ -49,15 +49,6 @@
 		});
 	});
 	const shown = $derived(present.slice(0, 3));
-	const notifications = notificationSettings(() => companyId, true);
-	const prefs = $derived(notifications.preferences);
-	const pushKey = $derived(notifications.pushKey);
-	const emailDelivered = $derived(notifications.emailDelivered);
-	const toggleDesktop = () => notifications.toggleDesktop();
-	const save = (change: { email?: boolean; digest?: string }, _failure: string) =>
-		notifications.save(change);
-	const toggleEmail = () => prefs && notifications.save({ email: !prefs.email });
-	const toggleDigest = () => prefs && notifications.save({ digest: prefs.digest ? '' : '08:00' });
 </script>
 
 <div class="profile">
@@ -87,80 +78,41 @@
 			<small>{role}</small>
 		</div>
 		{#if owner}<a href="/account">Account</a>{/if}
-		<div class="group" role="group" aria-label="Appearance">
-			{#each ['system', 'light', 'dark'] as const as choice (choice)}
-				<button type="button" onclick={() => theme.set(choice)}
-					><span>{{ system: 'Match system', light: 'Light', dark: 'Dark' }[choice]}</span
-					>{#if theme.preference === choice}<Check size={14} aria-label="Current" />{/if}</button
-				>
-			{/each}
-		</div>
-		{#if desktopNotify.permission !== 'unsupported'}
-			<button
-				type="button"
-				title={desktopNotify.blocked
-					? BLOCKED_HINT
-					: pushKey
-						? 'Notify this device when something needs you, even with the cockpit closed'
-						: 'Notify this device when something needs you while the cockpit is in the background'}
-				disabled={notifications.busy}
-				onclick={() => void toggleDesktop()}
-				><span>Desktop notifications</span>{#if desktopNotify.active}<Check
-						size={14}
-						aria-label="On"
-					/>{:else if desktopNotify.blocked}<small class="blocked">Blocked</small>{/if}</button
-			>
-		{/if}
-		{#if prefs && emailDelivered}
-			<button
-				type="button"
-				title="Email me when something needs me and I have not seen it here, even with every tab closed. Applies on every device."
-				disabled={notifications.busy}
-				onclick={() => void toggleEmail()}
-				><span>Email notifications</span>{#if prefs.email}<Check
-						size={14}
-						aria-label="On"
-					/>{/if}</button
-			>
-			{#if prefs.email}
+		<div class="group" role="group" aria-label="This device">
+			<div class="row">
+				<span>Theme</span>
+				<Segmented
+					label="Theme"
+					value={theme.preference}
+					options={[
+						{ value: 'system', label: 'Auto', title: 'Match this device' },
+						{ value: 'light', label: 'Light' },
+						{ value: 'dark', label: 'Dark' }
+					]}
+					onchange={(choice) => theme.set(choice)}
+				/>
+			</div>
+			{#if owner}
 				<button
 					type="button"
-					title="One email a day with what still needs you, instead of one as each thing happens"
-					disabled={notifications.busy}
-					onclick={() => void toggleDigest()}
-					><span>Daily email digest</span>{#if prefs.digest}<Check
+					role="switch"
+					aria-checked={linkPreference.company}
+					title="Open links in the company computer’s browser, where the company’s sign-ins are, instead of a new tab here. It wakes the computer and adds a tab the agents can see. Applies on this device."
+					onclick={() => setCompanyBrowserLinks(!linkPreference.company)}
+					><span>Open links in company browser</span>{#if linkPreference.company}<Check
 							size={14}
 							aria-label="On"
 						/>{/if}</button
 				>
-				{#if prefs.digest}
-					<label class="digest" title="When the daily email arrives, in your time zone">
-						<span>Arrives at</span>
-						<input
-							type="time"
-							value={prefs.digest}
-							onchange={(event) =>
-								event.currentTarget.value &&
-								void save({ digest: event.currentTarget.value }, 'Your digest time was not saved.')}
-						/>
-					</label>
-				{/if}
 			{/if}
-		{/if}
-		{#if companyId}<a href={`/${encodeURIComponent(companyId)}/company/notifications`}
-				>Notification settings</a
+		</div>
+		{#if companyId}<a
+				href={`/${encodeURIComponent(companyId)}/company/notifications`}
+				title="Browser, email and Telegram notifications, and away mode"
+				><span>Notifications</span>{#if desktopNotify.blocked}<small class="note"
+						>Browser blocked</small
+					>{/if}</a
 			>{/if}
-		{#if owner}
-			<button
-				type="button"
-				title="Open links in the company computer’s browser, where the company’s sign-ins are, instead of a new tab here. It wakes the computer and adds a tab the agents can see. Applies on this device."
-				onclick={() => setCompanyBrowserLinks(!linkPreference.company)}
-				><span>Open links in company browser</span>{#if linkPreference.company}<Check
-						size={14}
-						aria-label="On"
-					/>{/if}</button
-			>
-		{/if}
 		<button type="button" onclick={onshortcuts}><span>Keyboard shortcuts</span><kbd>?</kbd></button>
 		{#if signOut}
 			<form class="sign-out" method="POST" action="/account?/signOut" onsubmit={forgetThisBrowser}>
@@ -237,24 +189,23 @@
 		display: grid;
 		border-top: 1px solid var(--border);
 	}
-	.digest {
+	/* Theme is one row: its label, then a compact switch that keeps its own button styling
+	 * rather than the menu's full-width rows. */
+	.row {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 8px;
-		padding: 4px 10px;
-		color: var(--text-secondary);
+		gap: 12px;
+		padding: 4px 6px 4px 10px;
 	}
-	.digest input {
-		font: inherit;
-		color: var(--ink);
-		background: transparent;
-		border: 1px solid var(--border);
-		border-radius: 4px;
-		padding: 2px 4px;
+	.profile :global(.action-menu-panel .row .segmented button) {
+		width: auto;
+		min-height: 24px;
+		padding: 0 9px;
+		justify-content: center;
 	}
 	kbd,
-	.blocked {
+	.note {
 		color: var(--text-tertiary);
 		font: inherit;
 		font-size: var(--t-label);

@@ -36,11 +36,11 @@
 			} else if (panel.matches(':popover-open')) panel.hidePopover();
 		}
 		function choose(event: MouseEvent) {
-			if (
-				mode === 'action' &&
-				(event.target as Element).closest('.action-menu-panel :is(button:not(:disabled),a[href])')
-			)
-				node.open = false;
+			const item = (event.target as Element).closest(
+				'.action-menu-panel :is(button:not(:disabled),a[href])'
+			);
+			// Actions close the menu; settings (anything with a checked state) leave it open.
+			if (mode === 'action' && item && !item.hasAttribute('aria-checked')) node.open = false;
 		}
 		function keyboard(event: KeyboardEvent) {
 			if (

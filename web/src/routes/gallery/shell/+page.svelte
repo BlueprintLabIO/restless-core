@@ -61,6 +61,8 @@
 <AppShell
 	companyId="lantern"
 	companyName="Lantern Studio"
+	viewerName="Sam Rivera"
+	viewerRole="Owner"
 	{companies}
 	{tabs}
 	commands={[
