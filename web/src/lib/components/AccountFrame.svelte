@@ -37,6 +37,9 @@
 	 * account issuer. */
 	const home = $derived(status?.home_url ?? '/');
 	const issuer = $derived(status?.home_url ? new URL(status.home_url).origin : null);
+	/* Cloud's account pages (Profile, Security, Plan, Support) live on the issuer at this same
+	 * address; a self-hosted account service has its own address and none of them. */
+	const cloudPages = $derived(issuer && issuer === page.url.origin ? issuer : null);
 
 	/* The account pages the issuer returns to after entry (Cloud's accountReturn). */
 	const ACCOUNT_RETURNS = new Set(['/account/connections', '/account/appearance']);
@@ -73,7 +76,7 @@
 	const settings = $derived(path.startsWith('/account'));
 	const own = (label: string, href: string): AccountTab => ({ label, href, active: path === href });
 	const issued = (label: string, hash: string): AccountTab[] =>
-		issuer ? [{ label, href: `${issuer}/account/settings#${hash}` }] : [];
+		cloudPages ? [{ label, href: `${cloudPages}/account/settings#${hash}` }] : [];
 
 	const tabs = $derived<AccountTab[]>([
 		{
@@ -114,11 +117,11 @@
 					tooltip: 'Accounts and appearance',
 					icon: Settings
 				},
-				...(issuer
+				...(cloudPages
 					? [
 							{
 								label: 'Help',
-								href: `${issuer}/account/settings#support`,
+								href: `${cloudPages}/account/settings#support`,
 								tooltip: 'Support for entry and service health',
 								icon: CircleHelp
 							}
@@ -167,7 +170,7 @@
 				own('Appearance', '/account/appearance')
 			]
 		},
-		...(issuer ? [{ label: 'Billing', items: issued('Plan & credit', 'billing') }] : []),
+		...(cloudPages ? [{ label: 'Billing', items: issued('Plan & credit', 'billing') }] : []),
 		{
 			label: 'Integrations',
 			items: [own('Accounts', '/account/connections')]
@@ -175,7 +178,7 @@
 		...(status && !status.hosted
 			? [{ label: 'This computer', items: [own('Release and backup', '/account/appliance')] }]
 			: []),
-		...(issuer ? [{ label: 'Help', items: issued('Support', 'support') }] : [])
+		...(cloudPages ? [{ label: 'Help', items: issued('Support', 'support') }] : [])
 	]);
 </script>
 
@@ -193,7 +196,7 @@
 	>
 		{#snippet accountMenu()}
 			<a href="/account/connections">Settings</a>
-			{#if issuer}
+			{#if cloudPages}
 				<!-- The account's own page: a full load, so the edge sends it to the account, not this plane. -->
 				<a href={`${issuer}/account/settings#support`} data-sveltekit-reload>Support</a>
 				{#if issuer === page.url.origin}
