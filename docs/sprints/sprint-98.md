@@ -223,6 +223,43 @@ account_use: {
   through the item's normal reply action; the broker takes the code out before anything is
   stored, so it never reaches a transcript.
 
+## Status (18 October)
+
+- **Landed in core:** S98-01; S98-02 broker as the tool gateway's `acct_<name>_<id6>__request`
+  (credential attached host-side, cut from answers; acting calls through the effect runner) and
+  `__git_remote` (smart-HTTP git at `/git/{company}/{account}/{owner}/{repo}.git`, the remote holds a
+  45-minute session pass, never the token); S98-03 tiers and limits (`account_broker::decide`);
+  S98-06 use log and notices (first use, first spend, new destination, burst; Fine and Freeze);
+  requests, receipts (`account_uses`); GitHub as a token account until the App.
+- **Not yet:** `directed_by` (uses record the agent only); S98-04 and S98-11 below; the GitHub App
+  (S98-05 proper: install flow, per-task installation tokens).
+
+## S98-04 and S98-11 design (browser identities)
+
+Each company computer runs one Chromium behind the CDP gate (`infra/company-image/browser-broker.mjs`).
+A browser identity is not a second browser; it is an isolated browser context in that Chromium,
+made for one lease and destroyed after it.
+
+- **Sign-in (S98-11).** `POST /api/accounts/{id}/sign-in` picks one of the owner's company computers,
+  creates a fresh context (`Target.createBrowserContext`) at the account's sign-in page, and answers a
+  desktop ticket to it. The owner signs in by hand. `…/done` reads that context's cookies for the
+  account's domains only, stores them in the vault under the account
+  (`infisical:/owner/accounts/{acct}/{cred}/COOKIES`), disposes the context and sets health.
+- **Use (S98-04).** `acct_<name>__browser { url }` takes the identity's lease (one session at a
+  time, others wait seconds), makes a fresh context in the calling company's Chromium, sets the
+  stored cookies, opens the tab (refused off the account's domains) and answers its target id. On
+  release (idle or the turn ends) the broker reads back the refreshed cookies, saves them, and
+  disposes the context, so no company keeps a session after its lease.
+- **No lifting.** The CDP gate refuses, for identity contexts, every method that reads or exports
+  credentials: `Network.getCookies`, `Network.getAllCookies`, `Storage.getCookies`,
+  `Storage.getStorageKeyForFrame` and the `DOMStorage`/`IndexedDB` read families, and runtime
+  evaluation that touches `document.cookie` is allowed only as the page itself runs. Password and
+  TOTP fill happen host-side through `Input.insertText` only when the focused frame's origin is on
+  the account's domains; a look-alike domain gets nothing.
+- **2FA.** A push or SMS prompt the fill cannot answer becomes an `account_code` Inbox item; the
+  answer is typed into the page by the broker and never stored.
+- **Stable exit.** Later, per identity, when a platform needs it.
+
 ## Order
 
 1. S98-01 model and migration, with S98-07 Accounts page on top of it (owner can see and grant).
