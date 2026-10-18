@@ -169,6 +169,60 @@ Cloud session (`cloud`): owner and company surfaces.
 - **S98-11 2FA and browser sign-in.** The owner's managed-browser sign-in flow for a browser
   profile account, and the Inbox card for a relayed 2FA code.
 
+## Interfaces between core and the surfaces (S98-09 to S98-11)
+
+Proposed by `cloud` on 2026-10-18 so the UI can land ahead of the engine; every surface hides itself
+or says "arrives with the next update" on a 404, so either side can ship first. Names in
+`snake_case` are wire fields.
+
+**A use, as everyone sees it.** `AccountUse` (the `Use` record) gains three optional fields:
+`directed_by_display` (the person's name), `actor_display` (the agent's name), and
+`notice: { id, kind: "first_use" | "burst" | "first_spend" | "new_destination", state: "open" | "fine" | "frozen" } | null`.
+A short `account_use` block reuses them wherever a use shows up:
+
+```
+account_use: {
+  account: { id, label, kind, provider },
+  grant_id, company, tier, action, target | null,
+  actor_display, directed_by_display | null, cost_micros | null
+}
+```
+
+**S98-09 Receipts, requests and approvals.**
+- `ConversationMessageView.account_uses: Array<account_use & { use_id, result }>`: the uses made
+  in the turn that wrote the message. The chat shows one quiet receipt line per use under it.
+- Act-then-tell and ask-first approvals are ordinary attention items with `account_use` set; the
+  card shows the account, the tier, the company and who asked, above the usual actions.
+- An admin's request: `POST /api/companies/{company}/accounts/requests`
+  `{ account_id | kind, abilities, reason }` makes an owner attention item with
+  `source.kind = "account_request"`, `account_request: { id, company, account_id | null, kind,
+  abilities, reason, requested_by_display }`, and actions `approve`, `deny`, plus one with
+  `href = /account/connections?account=<id>&company=<company>&request=<id>` for "Approve with limits".
+  The Settings page opens that grant editor prefilled; saving it settles the request
+  (`POST /api/accounts/requests/{id} { decision: "approved" | "denied", grant_id? }`).
+- A company's recent uses: `GET /api/companies/{company}/accounts/uses?before&limit`, any member,
+  shaped like the owner's `/api/accounts/{id}/uses`.
+
+**S98-10 Use log, notices, freeze.**
+- `GET /api/accounts/{id}/uses` also takes `actor`, `directed_by` and `tier` filters.
+- A notice is an owner attention item in the company that used the account:
+  `source.kind = "account_notice"`, `account_use` set, actions `fine` and `freeze` (freeze pauses
+  that company's grant). The same decision from Settings:
+  `POST /api/accounts/{id}/notices/{notice} { decision: "fine" | "freeze" }` returns the `Use`.
+- `Account.open_notices: number`, for the "to look at" count on the account row.
+- Freeze an account, freeze a grant: already there (`PATCH … { frozen }`).
+
+**S98-11 Browser sign-in and 2FA.**
+- `POST /api/accounts/{id}/sign-in` returns `{ session, desktop_url }`, a desktop ticket into the
+  account's managed browser identity opened at its sign-in page. The owner signs in by hand in
+  Settings. `POST /api/accounts/{id}/sign-in/{session}/done` keeps the profile and returns the
+  `Account` with health set; `DELETE` on the same path abandons it.
+- A relayed 2FA prompt is an attention item for the owner (or the grant's named person):
+  `source.kind = "account_code"`, `account_use` set, one `request_fields` entry of type `"code"`
+  (`{ id: "code", label, type: "code", required: true }`), and a `deadline`. The answer goes
+  through the item's normal reply action; the broker takes the code out before anything is
+  stored, so it never reaches a transcript.
+
 ## Order
 
 1. S98-01 model and migration, with S98-07 Accounts page on top of it (owner can see and grant).
