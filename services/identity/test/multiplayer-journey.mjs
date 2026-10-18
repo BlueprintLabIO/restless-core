@@ -1094,7 +1094,7 @@ try {
       body: {
         kind: "website_login",
         label: "Smoke shop",
-        credential: { kind: "password", sign_in_url: "https://example.com/", username: "owner@example.com", password: secret },
+        credential: { kind: "password", sign_in_url: "https://example.com/", domains: ["example.com"], username: "owner@example.com", password: secret },
       },
     });
     const refused = async (path, method = "GET") => {
