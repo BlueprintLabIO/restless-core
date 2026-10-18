@@ -11315,7 +11315,20 @@ async fn download_attachment(
     let bytes = match runtime::read_owner_attachment(&company, attachment).await {
         Ok(value) => value,
         Err(error) => {
-            return api_error(StatusCode::NOT_FOUND, "attachment", format!("{error:#}"));
+            let message = format!("{error:#}");
+            // Lost before kept files had their own volume (19 October): once the computer keeps
+            // them durably, a file it lacks is gone for good, so the entry leaves the Library
+            // instead of sitting beside its re-upload. Recorded like any purge.
+            if message.contains("absent") && runtime::kept_files_are_durable(&company).await {
+                let _ = org
+                    .request_owner_attachment_purge(
+                        attachment,
+                        "owner",
+                        "The file was lost from the company computer before kept files had their own volume.",
+                    )
+                    .await;
+            }
+            return api_error(StatusCode::NOT_FOUND, "attachment", message);
         }
     };
     let inline = query.inline.as_deref() == Some("1");

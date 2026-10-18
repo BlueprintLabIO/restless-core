@@ -1347,6 +1347,12 @@ pub fn attachments_volume_name(company: &str) -> String {
 
 const OWNER_ATTACHMENT_ROOT: &str = "/var/lib/restless-owner-attachments";
 
+/// Whether this company's computer keeps files on their own volume, so a file it does not have
+/// is truly gone rather than waiting in an older shell.
+pub async fn kept_files_are_durable(company: &str) -> bool {
+    container_mounts_attachments(company).await.unwrap_or(false)
+}
+
 async fn container_mounts_attachments(company: &str) -> Result<bool> {
     let mounted = inspect_value(&[
         "inspect",
