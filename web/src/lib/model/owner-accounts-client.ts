@@ -131,6 +131,15 @@ export function requestCompanyAccount(
 	});
 }
 
+/** The owner gives a sign-in code an agent is waiting on (S98-11). Core types it into the waiting
+ * page and never stores it, which is why it does not go through the ordinary Inbox reply. */
+export function answerAccountCode(company: string, request: string, code: string) {
+	return ownerRequest<{ typed: boolean; message: string }>(
+		`/api/companies/${encodeURIComponent(company)}/accounts/codes/${encodeURIComponent(request)}`,
+		{ method: 'POST', json: { code } }
+	);
+}
+
 /** What agents in this company did with its accounts, newest first (S98-09). Any member. */
 export function companyAccountUses(
 	company: string,

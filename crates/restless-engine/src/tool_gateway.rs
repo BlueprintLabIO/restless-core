@@ -1049,6 +1049,29 @@ impl ToolScope {
                 return text_error(format!("Borrow the browser first with {}.", name.replace("__fill", "__browser")));
             }
             let field = text("field").unwrap_or_default();
+            let ask_owner = arguments.get("ask_owner").and_then(serde_json::Value::as_bool) == Some(true);
+            if field == "code" && (ask_owner || usable.secret_reference("totp_secret").is_none()) {
+                // Only a person has this code (a text message, an app prompt): the owner types it in
+                // their Inbox and Restless types it into this page. It is never stored.
+                let id = identity::ask_for_code(identity::CodeRequest {
+                    id: uuid::Uuid::new_v4().simple().to_string(),
+                    account_id: account_id.clone(),
+                    account_label: usable.account.label.clone(),
+                    company: company.clone(),
+                    actor: actor.clone(),
+                    target: text("target_id").map(str::to_string),
+                    domains: domains.clone(),
+                    created_at: now,
+                })
+                .await;
+                record("waiting").await;
+                return CallToolResult::success(vec![ContentBlock::text(format!(
+                    "Asked the owner for the sign-in code ({id}). When they answer in their Inbox, Restless types it into the \
+                     focused field on this page, so keep the code field focused and do not close the page. Check the page in a \
+                     minute or two; the request lapses after 10 minutes."
+                ))])
+                .into();
+            }
             let value = match field {
                 "username" => usable.settings()["username"].as_str().map(str::to_string).ok_or_else(|| anyhow::anyhow!("the account has no username")),
                 "password" | "code" => {

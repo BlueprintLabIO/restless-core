@@ -108,6 +108,9 @@ pub struct AttentionItem {
     /// A company asking the owner for an account or for more on one (S98-08).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub account_request: Option<serde_json::Value>,
+    /// Fields the answer fills in, such as a sign-in code (S98-11).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_fields: Option<serde_json::Value>,
     pub actions: Vec<AttentionAction>,
     pub can_continue: bool,
     pub preparing: bool,
@@ -364,7 +367,7 @@ async fn conversation_requests(
                 review_target: None,
                 native_document: None,
                 direction_request: None,
-                charter_proposal: None, account_use: None, account_request: None,
+                charter_proposal: None, account_use: None, account_request: None, request_fields: None,
                 actions: vec![AttentionAction {
                     id: "continue-conversation".into(),
                     label: "Reply".into(),
@@ -520,7 +523,7 @@ fn spend_warning_item(
         review_target: None,
         native_document: None,
         direction_request: None,
-        charter_proposal: None, account_use: None, account_request: None,
+        charter_proposal: None, account_use: None, account_request: None, request_fields: None,
         actions: vec![AttentionAction {
             id: "open-spend-limit".into(),
             label: "Open spend limit".into(),
@@ -591,7 +594,7 @@ fn spend_stopped_item(config: &CompanyConfig, what_happened: String, created_at:
         review_target: None,
         native_document: None,
         direction_request: None,
-        charter_proposal: None, account_use: None, account_request: None,
+        charter_proposal: None, account_use: None, account_request: None, request_fields: None,
         actions: vec![AttentionAction {
             id: "open-spend-limit".into(),
             label: "Raise spend limit".into(),
@@ -679,7 +682,7 @@ async fn account_items(
         direction_request: None,
         charter_proposal: None,
         account_use: None,
-        account_request: None,
+        account_request: None, request_fields: None,
         actions: Vec::new(),
         can_continue: true,
         preparing: false,
@@ -720,6 +723,42 @@ async fn account_items(
             action("fine", "Fine", "Closes the notice.", "The company keeps using the account as granted.", None),
             action("freeze", "Freeze", "Pauses this company's grant of the account.", "Nothing more is sent with it from this company until you unfreeze it.", None),
         ];
+        items.push(item);
+    }
+    for code in crate::account_browser::open_code_requests(company).await {
+        let who = name(&code.actor);
+        let mut item = blank(
+            format!("authority:account_code:{}", code.id),
+            "account_code",
+            code.id.clone(),
+            format!("{who} needs the sign-in code for {}", code.account_label),
+            code.created_at,
+        );
+        item.category = "human_step".into();
+        item.what_happened = format!(
+            "{} sent a sign-in code to your phone, email or app while {who} was signing in on {}.",
+            code.account_label,
+            code.domains.join(", ")
+        );
+        item.why_it_matters = "Restless types the code straight into the waiting page; it is not kept anywhere.".into();
+        item.recommendation = "Type the code if you expected this sign-in. If you did not, leave it; it lapses.".into();
+        item.requested_action = format!("Enter the code {} just sent you.", code.account_label);
+        item.if_no_action = "The sign-in waits, and the request lapses after 10 minutes.".into();
+        item.deadline = Some((code.created_at + crate::account_browser::CODE_WAIT).to_rfc3339());
+        item.account_use = Some(serde_json::json!({
+            "account": { "id": code.account_id, "label": code.account_label, "kind": "website_login", "provider": serde_json::Value::Null },
+            "grant_id": serde_json::Value::Null,
+            "company": company,
+            "tier": "act",
+            "action": "sign in (code)",
+            "target": code.domains.first(),
+            "actor_display": who,
+            "directed_by_display": serde_json::Value::Null,
+            "cost_micros": serde_json::Value::Null,
+        }));
+        item.request_fields = Some(serde_json::json!([
+            { "id": "code", "label": format!("Code from {}", code.account_label), "type": "code", "required": true }
+        ]));
         items.push(item);
     }
     for request in broker::open_requests(pool, company).await? {
@@ -988,7 +1027,7 @@ fn effect_outcome_item(outcome: EffectOutcome) -> AttentionItem {
         review_target: None,
         native_document: None,
         direction_request: None,
-        charter_proposal: None, account_use: None, account_request: None,
+        charter_proposal: None, account_use: None, account_request: None, request_fields: None,
         actions,
         can_continue: true,
         preparing: false,
@@ -1063,7 +1102,7 @@ async fn stranded_agent_items(config: &runtime::CompanyConfig, org: Option<&OrgI
             review_target: None,
             native_document: None,
             direction_request: None,
-            charter_proposal: None, account_use: None, account_request: None,
+            charter_proposal: None, account_use: None, account_request: None, request_fields: None,
             actions: vec![AttentionAction {
                 id: "open-intelligence-provider".into(),
                 label: "Open Intelligence".into(),
@@ -1156,7 +1195,7 @@ async fn direction_items(
                 preparing: false,
                 created_at: request.decision.as_ref().filter(|_| failure.is_some()).map_or(request.filed_at, |decision| decision.decided_at),
                 direction_request: Some(request),
-                charter_proposal: None, account_use: None, account_request: None,
+                charter_proposal: None, account_use: None, account_request: None, request_fields: None,
             }
         })
         .collect())
@@ -1273,7 +1312,7 @@ async fn publication_items(
             review_target: None,
             native_document: None,
             direction_request: None,
-            charter_proposal: None, account_use: None, account_request: None,
+            charter_proposal: None, account_use: None, account_request: None, request_fields: None,
             actions: vec![
                 AttentionAction {
                     id: "authorize-publication".into(),
@@ -1350,7 +1389,7 @@ async fn charter_item(
             preparing: false,
             created_at: proposal.proposed_at,
             direction_request: None,
-            charter_proposal: Some(proposal), account_use: None, account_request: None,
+            charter_proposal: Some(proposal), account_use: None, account_request: None, request_fields: None,
         }
     }))
 }
@@ -1544,7 +1583,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
-            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None,
+            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None,
             actions: vec![
                 AttentionAction {
                     id: "grant".into(),
@@ -1626,7 +1665,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
-            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None,
+            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None,
             actions: vec![
                 AttentionAction {
                     id: "grant".into(),
@@ -1700,7 +1739,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
-            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None,
+            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None,
             actions: vec![AttentionAction {
                 id: "open-app".into(),
                 label: "Sign in again".into(),
@@ -2306,7 +2345,7 @@ async fn project_queue(
             responsible_actor,
             runtime_attach,
             review_target,
-            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None,
+            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None,
             actions,
             preparing,
             can_continue: false,
@@ -2376,7 +2415,7 @@ async fn project_queue(
                 runtime_attach: None,
                 review_target: None,
                 created_at: request.created_at,
-                native_document: Some(request), direction_request: None, charter_proposal: None, account_use: None, account_request: None,
+                native_document: Some(request), direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None,
                 actions,
                 preparing: false,
                 can_continue: false,
@@ -2422,7 +2461,7 @@ async fn project_queue(
                         review_target: None,
                         native_document: None,
                         direction_request: None,
-                        charter_proposal: None, account_use: None, account_request: None,
+                        charter_proposal: None, account_use: None, account_request: None, request_fields: None,
                         actions: vec![AttentionAction {
                             id: "decide-identity-drift".into(),
                             label: "Decide on Brand".into(),
@@ -2541,7 +2580,7 @@ async fn project_queue(
                                     responsible_actor: actors.get("exec").cloned(),
                                     runtime_attach: None,
                                     review_target: None,
-                                    native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None,
+                                    native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None,
                                     actions: vec![action],
                                     can_continue: false,
                                     preparing: false,
@@ -2576,7 +2615,7 @@ async fn project_queue(
             uncertainty: Some("Exec makes a judgment on each proposed send against this mandate. It can make mistakes; approval of this mandate is not a guarantee that every send will be appropriate.".into()),
             deadline: Some(proposal.expires_at.to_rfc3339()), brief_status: "source-observed", brief_author: None, briefed_at: None,
             evidence: vec![AttentionEvidence { label: "Exact proposed email mandate".into(), uri: None, content: Some(limits), kind: "authority-email-mandate-proposal" }, AttentionEvidence { label: "Exec judgement".into(), uri: None, content: Some(if note.is_empty() { "No additional rationale supplied.".into() } else { note.into() }), kind: "exec-judgement" }],
-            review_sources: Vec::new(), responsible_actor: None, runtime_attach: None, review_target: None, native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None,
+            review_sources: Vec::new(), responsible_actor: None, runtime_attach: None, review_target: None, native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None,
             actions: vec![
                 AttentionAction { id: "approve-email-mandate".into(), label: "Approve mandate".into(), role: "decision", consequence: "Grants the exact reviewed email mandate and its limits.".into(), next_state: "The pending proposal is resolved and the mandate becomes active.".into(), href: None },
                 AttentionAction { id: "decline-email-mandate".into(), label: "Decline mandate".into(), role: "decision", consequence: "Declines this exact email mandate proposal.".into(), next_state: "The proposal is resolved without granting email authority.".into(), href: None },
@@ -2711,7 +2750,7 @@ async fn project_queue(
                     responsible_actor: None,
                     runtime_attach: None,
                     review_target: None,
-                    native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None,
+                    native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None,
                     actions: vec![AttentionAction {
                         id: if route_missing { "open-intelligence-provider".into() } else { "open-company-health".into() },
                         label: if route_missing { "Choose intelligence".into() } else { "Open Health".into() },
@@ -2764,7 +2803,7 @@ async fn project_queue(
                     review_target: None,
                     native_document: None,
                     direction_request: None,
-                    charter_proposal: None, account_use: None, account_request: None,
+                    charter_proposal: None, account_use: None, account_request: None, request_fields: None,
                     actions: vec![
                         AttentionAction {
                             id: "approve-payee".into(),

@@ -1367,6 +1367,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/companies/{company}/accounts", get(accounts_api::company))
         .route("/companies/{company}/accounts/uses", get(accounts_api::company_uses))
         .route("/companies/{company}/accounts/requests", post(accounts_api::request))
+        .route("/companies/{company}/accounts/codes/{code}", post(accounts_api::answer_code))
         .route("/connections/import", post(import_owner_connection))
         .route("/connections/{connection}", axum::routing::delete(remove_owner_connection))
         .route(

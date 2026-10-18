@@ -19,7 +19,7 @@
 	import AttentionFooter from './AttentionFooter.svelte';
 	import AccountUseNote from './AccountUseNote.svelte';
 	import { grantSummary, kindPhrase } from '$lib/model/owner-accounts';
-	import { ownerAccounts } from '$lib/model/owner-accounts-client';
+	import { answerAccountCode, ownerAccounts } from '$lib/model/owner-accounts-client';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import type { AttentionItem } from '$lib/model/view';
 	import {
@@ -373,7 +373,11 @@
 		replyReady &&
 		run(
 			async () => {
-				await resolveHandoffDecision(companyId, item.source.reference, answer());
+				/* A sign-in code goes straight to the waiting page and is never stored, so it does not
+				 * travel as an ordinary reply (S98-11). */
+				if (item.source.kind === 'account_code')
+					await answerAccountCode(companyId, item.source.reference, fieldValues.code ?? '');
+				else await resolveHandoffDecision(companyId, item.source.reference, answer());
 				await refreshAttention(client, companyId);
 			},
 			`Sent to ${recipient}`,

@@ -367,6 +367,65 @@ pub fn refusal(message: &str) -> Option<String> {
     Some(reply.to_string())
 }
 
+/// A sign-in code only a person can give (a text message, an app prompt), waiting in the owner's
+/// Inbox (S98-11). Held in memory only: the code itself is never stored, and a request lapses.
+#[derive(Debug, Clone)]
+pub struct CodeRequest {
+    pub id: String,
+    pub account_id: String,
+    pub account_label: String,
+    pub company: String,
+    pub actor: String,
+    pub target: Option<String>,
+    pub domains: Vec<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// How long the owner has to answer a code request.
+pub const CODE_WAIT: chrono::TimeDelta = chrono::TimeDelta::minutes(10);
+
+static CODES: LazyLock<Mutex<Vec<CodeRequest>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+
+/// Ask the owner for a code; one open request per account and company.
+pub async fn ask_for_code(request: CodeRequest) -> String {
+    let mut codes = CODES.lock().await;
+    let now = chrono::Utc::now();
+    codes.retain(|open| now - open.created_at < CODE_WAIT);
+    if let Some(open) = codes.iter_mut().find(|open| open.account_id == request.account_id && open.company == request.company) {
+        open.target = request.target.or(open.target.take());
+        return open.id.clone();
+    }
+    let id = request.id.clone();
+    codes.push(request);
+    id
+}
+
+/// The code requests still open for one company, for its owner's Inbox.
+pub async fn open_code_requests(company: &str) -> Vec<CodeRequest> {
+    let mut codes = CODES.lock().await;
+    let now = chrono::Utc::now();
+    codes.retain(|open| now - open.created_at < CODE_WAIT);
+    codes.iter().filter(|open| open.company == company).cloned().collect()
+}
+
+/// Take one open request to answer it; put it back with `return_code_request` if typing failed.
+pub async fn take_code_request(company: &str, id: &str) -> Option<CodeRequest> {
+    let mut codes = CODES.lock().await;
+    let index = codes.iter().position(|open| open.company == company && open.id == id)?;
+    let request = codes.remove(index);
+    (chrono::Utc::now() - request.created_at < CODE_WAIT).then_some(request)
+}
+
+pub async fn return_code_request(request: CodeRequest) {
+    CODES.lock().await.push(request);
+}
+
+/// A code as people type it: digits and letters, maybe spaced or dashed.
+pub fn clean_code(code: &str) -> Option<String> {
+    let cleaned = code.chars().filter(|c| !c.is_whitespace() && *c != '-').collect::<String>();
+    (4..=12).contains(&cleaned.len()).then_some(()).filter(|_| cleaned.chars().all(|c| c.is_ascii_alphanumeric())).map(|_| cleaned)
+}
+
 /// RFC 6238 one-time code (SHA-1, 30 seconds, 6 digits) from a base32 secret.
 pub fn totp(secret: &str, unix_seconds: u64) -> Result<String> {
     let key = base32(secret).context("the one-time-code secret is not base32")?;
@@ -543,6 +602,35 @@ mod tests {
         result.unwrap();
         let gone = docker(&["inspect", &container(&account)]).await.unwrap();
         assert!(!gone.status.success(), "the identity's container stayed");
+    }
+
+    #[tokio::test]
+    async fn a_code_request_waits_once_per_account_and_is_taken_once() {
+        let company = format!("codes_{}", uuid::Uuid::new_v4().simple());
+        let request = |id: &str| CodeRequest {
+            id: id.into(),
+            account_id: "acct".into(),
+            account_label: "eBay".into(),
+            company: company.clone(),
+            actor: "exec".into(),
+            target: Some("t1".into()),
+            domains: vec!["ebay.com".into()],
+            created_at: chrono::Utc::now(),
+        };
+        let first = ask_for_code(request("a")).await;
+        assert_eq!(ask_for_code(request("b")).await, first, "one open request per account");
+        assert_eq!(open_code_requests(&company).await.len(), 1);
+        let taken = take_code_request(&company, &first).await.unwrap();
+        assert!(take_code_request(&company, &first).await.is_none(), "taken once");
+        return_code_request(taken).await;
+        assert_eq!(open_code_requests(&company).await.len(), 1, "a failed attempt can be retried");
+        let mut stale = request("old");
+        stale.account_id = "other".into();
+        stale.created_at = chrono::Utc::now() - CODE_WAIT - chrono::TimeDelta::seconds(1);
+        ask_for_code(stale).await;
+        assert_eq!(open_code_requests(&company).await.len(), 1, "a lapsed request is gone");
+        assert_eq!(clean_code(" 123-456 ").as_deref(), Some("123456"));
+        assert!(clean_code("12").is_none() && clean_code("12<34>").is_none());
     }
 
     #[tokio::test]

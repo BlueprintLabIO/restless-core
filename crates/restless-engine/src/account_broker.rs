@@ -317,14 +317,16 @@ pub fn browser_tool_definitions(usable: &Usable) -> Vec<(String, String, serde_j
             base.replace(TOOL_SUFFIX, FILL_SUFFIX),
             format!(
                 "[{} · sign-in] Type the account's username, password or current one-time code into the focused field of the borrowed browser, \
-                 only on {domains}. The value is typed by Restless and never shown to you. Click into the field first.",
+                 only on {domains}. The value is typed by Restless and never shown to you. Click into the field first. \
+                 A code the site sent to a phone or app comes from the owner: use field `code` with `ask_owner: true`.",
                 account.label
             ),
             serde_json::json!({
                 "type": "object",
                 "properties": {
                     "field": {"type": "string", "enum": ["username", "password", "code"]},
-                    "target_id": {"type": "string", "description": "Optional DevTools target id of the page; defaults to the page you are attached to."}
+                    "target_id": {"type": "string", "description": "Optional DevTools target id of the page; defaults to the page you are attached to."},
+                    "ask_owner": {"type": "boolean", "description": "For `code`: the site sent the code to a phone, email or app, so the owner must give it. They answer in their Inbox and Restless types it here."}
                 },
                 "required": ["field"]
             }),

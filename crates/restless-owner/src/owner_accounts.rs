@@ -247,6 +247,61 @@ pub(super) async fn sign_in_cancel(
     StatusCode::NO_CONTENT.into_response()
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct CodeAnswer {
+    code: String,
+}
+
+/// The owner gives a sign-in code an agent is waiting on (S98-11): it is typed into the waiting
+/// page on the account's own domains and never stored or logged.
+pub(super) async fn answer_code(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, id)): AxumPath<(String, String)>,
+    Json(input): Json<CodeAnswer>,
+) -> Response<Body> {
+    use restless_engine::account_browser as identity;
+    if let Some(refusal) = owner_only(&principal) {
+        return refusal;
+    }
+    let Some(code) = identity::clean_code(&input.code) else {
+        return api_error(StatusCode::BAD_REQUEST, "accounts", "Type the code as the site sent it: 4 to 12 letters or digits.");
+    };
+    let Some(request) = identity::take_code_request(&company, &id).await else {
+        return api_error(StatusCode::NOT_FOUND, "accounts", "That sign-in no longer waits for a code.");
+    };
+    let typed = identity::fill(&request.account_id, &request.domains, request.target.as_deref(), &code, "code").await;
+    let pool = state.daemon.authority.pool();
+    let usable = restless_engine::account_broker::usable(pool, &company, &request.actor)
+        .await
+        .ok()
+        .and_then(|accounts| accounts.into_iter().find(|usable| usable.account.id == request.account_id));
+    if let Some(usable) = &usable {
+        let _ = restless_engine::account_broker::record_use(
+            pool,
+            usable,
+            &company,
+            &request.actor,
+            Some(principal.actor_id()),
+            "sign in (code from the owner)",
+            "act",
+            request.domains.first().map(String::as_str),
+            if typed.is_ok() { "ok" } else { "failed" },
+            None,
+        )
+        .await;
+    }
+    match typed {
+        Ok(_) => Json(serde_json::json!({ "typed": true, "message": format!("Typed into {}'s sign-in.", request.account_label) })).into_response(),
+        Err(error) => {
+            let message = format!("{error:#}");
+            identity::return_code_request(request).await;
+            api_error(StatusCode::CONFLICT, "accounts", format!("The code was not typed: {message} Try again once the page shows the code field."))
+        }
+    }
+}
+
 /// The account browser's desktop page and assets, for the owner only.
 pub(super) async fn desktop_asset(
     State(state): State<OwnerState>,
