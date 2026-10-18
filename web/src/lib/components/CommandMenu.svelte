@@ -266,9 +266,10 @@
 	}
 </script>
 
+<!-- Carries its own design tokens: account pages mount it outside the cockpit's token root. -->
 <dialog
 	bind:this={dialog}
-	class="command-menu"
+	class="command-menu bridge-tokens"
 	data-closing={leaving ? '' : undefined}
 	aria-label="Search and jump"
 	onclose={() => {

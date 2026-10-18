@@ -265,6 +265,13 @@
 	margin: 2px 0 4px;
 }
 
+/* Three companies in view, the rest a scroll away (or found by the search above). */
+.bridge-root .company-switcher-menu .switcher-list {
+	max-height: calc(3 * 50px);
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+
 .bridge-root .company-switcher-menu a:hover,
 .bridge-root .company-switcher-menu a.current {
 	background: var(--intent-feedback-soft);

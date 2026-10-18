@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { readAccountCompanies, type AccountCompany } from '$lib/model/account-companies';
 	import { setupTabs } from '$lib/model/company-setup-steps';
 	import { companySetup, takeSetupHandoff } from '$lib/model/company-setup.svelte';
 	import { reenterIfLapsed } from '$lib/model/reenter';
@@ -192,6 +193,16 @@
 		() => desktopNotify.active
 	);
 	const companies = $derived(companyCatalog.view);
+	/* Cloud: the account's other companies, for the switcher (this plane lists only its own). */
+	let accountCompanies = $state<AccountCompany[]>([]);
+	$effect(() => {
+		if (!ownerAccess) return;
+		const reading = new AbortController();
+		void readAccountCompanies(reading.signal).then((list) => {
+			if (!reading.signal.aborted) accountCompanies = list;
+		});
+		return () => reading.abort();
+	});
 	/* The rail keeps the owner's last choice per company, so a reload does not
 	 * open it only to close it again. Phones always start with the overlay
 	 * closed. "setup" marks a rail closed because intelligence was missing;
@@ -1778,6 +1789,7 @@
 		present={others.present}
 		homeHref={ownerAccess ? (applianceIdentity.view?.home_url ?? '/') : collaboratorHome(companyId)}
 		canSwitchCompanies={ownerAccess}
+		{accountCompanies}
 		execHref={!!principal &&
 		!welcoming &&
 		(page.url.pathname === `/${companyId}/people` ||

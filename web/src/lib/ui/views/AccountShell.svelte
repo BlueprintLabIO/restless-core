@@ -500,12 +500,6 @@
 		background: transparent;
 		color: var(--text-tertiary);
 		cursor: pointer;
-		opacity: 0;
-		transition: opacity var(--motion-state) var(--ease-standard);
-	}
-	.account-group:hover .account-group-add,
-	.account-group-add:focus-visible {
-		opacity: 1;
 	}
 	.account-group-add:hover {
 		background: var(--wash-hover, var(--surface-alt));

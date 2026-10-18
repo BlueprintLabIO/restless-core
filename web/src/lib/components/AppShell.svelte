@@ -48,6 +48,7 @@
 		companyId,
 		companyName,
 		companies = [],
+		accountCompanies = [],
 		tabs,
 		homeHref = '/',
 		canSwitchCompanies = true,
@@ -75,6 +76,8 @@
 		companyId: string;
 		companyName: string;
 		companies?: CompanyCatalogEntry[];
+		/** The account's other companies on the one address, which this plane's session cannot list. */
+		accountCompanies?: { id: string; name: string; decisions_waiting: number }[];
 		tabs: ShellTab[];
 		/** Owner portfolio for owners; the current collaboration home for members. */
 		homeHref?: string;
@@ -131,12 +134,72 @@
 		if (parts[0] !== companyId || parts.length < 2) return '';
 		return `/${parts.slice(1, parts[1] === 'company' ? 3 : 2).join('/')}`;
 	});
+	/* The companies opened most recently come first, so the three the owner uses sit in view and
+	 * the rest are a scroll or a search away. Remembered in this browser only. */
+	const RECENT_KEY = 'restless.recent-companies';
+	let recent = $state<string[]>([]);
+	$effect(() => {
+		const id = companyId;
+		let stored: string[] = [];
+		try {
+			stored = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]');
+		} catch {
+			stored = [];
+		}
+		const next = [
+			id,
+			...(Array.isArray(stored) ? stored : []).filter((other) => other !== id)
+		].slice(0, 30);
+		recent = next;
+		try {
+			localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+		} catch {
+			/* A private window keeps no history; the order falls back to names. */
+		}
+	});
+	type SwitcherEntry = {
+		id: string;
+		name: string;
+		logo_url?: string;
+		runtime: string;
+		status: string;
+		waiting: number;
+	};
+	const switcherEntries = $derived.by((): SwitcherEntry[] => {
+		const local = activeCompanies.map((company) => ({
+			id: company.id,
+			name: company.name,
+			logo_url: company.logo_url,
+			runtime: company.unstartable_reason ? 'blocked' : company.runtime_status,
+			status: company.unstartable_reason
+				? 'Can’t start'
+				: (RUNTIME_LABEL[company.runtime_status] ?? company.runtime_status),
+			waiting: company.card?.decisions_waiting ?? 0
+		}));
+		const here = new Set(local.map((entry) => entry.id));
+		const elsewhere = accountCompanies
+			.filter((company) => !here.has(company.id))
+			.map((company) => ({
+				id: company.id,
+				name: company.name,
+				runtime: '',
+				status: '',
+				waiting: company.decisions_waiting
+			}));
+		const rank = (id: string) => {
+			const at = recent.indexOf(id);
+			return at < 0 ? Number.MAX_SAFE_INTEGER : at;
+		};
+		return [...local, ...elsewhere].sort(
+			(a, b) => rank(a.id) - rank(b.id) || a.name.localeCompare(b.name)
+		);
+	});
 	let switcherQuery = $state('');
 	const switchable = $derived.by(() => {
 		const q = switcherQuery.trim().toLocaleLowerCase();
 		return q
-			? activeCompanies.filter((company) => company.name.toLocaleLowerCase().includes(q))
-			: activeCompanies;
+			? switcherEntries.filter((company) => company.name.toLocaleLowerCase().includes(q))
+			: switcherEntries;
 	});
 	/* The bar names the company; an uploaded logo sits beside the name, a generated mark does not. */
 	const currentLogo = $derived(
@@ -342,54 +405,53 @@
 							<span><strong>All companies</strong></span>
 						</a>
 						<div class="company-switcher-rule" role="separator"></div>
-						{#if activeCompanies.length > 6}<input
+						{#if switcherEntries.length > 3}<input
 								class="switcher-search"
 								type="search"
 								placeholder="Find a company"
 								aria-label="Find a company"
 								bind:value={switcherQuery}
 							/>{/if}
-						{#each switchable as company (company.id)}
-							<a
-								class:current={company.id === companyId}
-								href={`/${company.id}${company.id === companyId ? '' : switchSuffix}`}
-								aria-current={company.id === companyId ? 'page' : undefined}
-							>
-								<span class="switcher-mark" class:logo={!!company.logo_url} aria-hidden="true"
-									><CompanyMark id={company.id} logoUrl={company.logo_url} size={8} /><i
-										class="runtime-{company.unstartable_reason
-											? 'blocked'
-											: company.runtime_status}"
-									></i></span
+						<div class="switcher-list">
+							{#each switchable as company (company.id)}
+								<a
+									class:current={company.id === companyId}
+									href={`/${company.id}${company.id === companyId ? '' : switchSuffix}`}
+									aria-current={company.id === companyId ? 'page' : undefined}
 								>
-								<span
-									><strong>{company.name}</strong><small
-										>{company.unstartable_reason
-											? 'Can’t start'
-											: (RUNTIME_LABEL[company.runtime_status] ?? company.runtime_status)}{company
-											.card?.decisions_waiting
-											? ` · ${company.card.decisions_waiting} waiting`
-											: ''}</small
-									></span
-								>
-								{#if company.id === companyId}<Check
+									<span class="switcher-mark" class:logo={!!company.logo_url} aria-hidden="true"
+										><CompanyMark
+											id={company.id}
+											logoUrl={company.logo_url}
+											size={8}
+										/>{#if company.runtime}<i class="runtime-{company.runtime}"></i>{/if}</span
+									>
+									<span
+										><strong>{company.name}</strong>{#if company.status || company.waiting}<small
+												>{[company.status, company.waiting ? `${company.waiting} waiting` : '']
+													.filter(Boolean)
+													.join(' · ')}</small
+											>{/if}</span
+									>
+									{#if company.id === companyId}<Check
+											class="switcher-current"
+											size={14}
+											strokeWidth={2.2}
+											aria-label="Current company"
+										/>{/if}
+								</a>
+							{:else}
+								<a class="current" href={`/${companyId}`} aria-current="page">
+									<i aria-hidden="true"></i><span><strong>{companyName}</strong></span>
+									<Check
 										class="switcher-current"
 										size={14}
 										strokeWidth={2.2}
 										aria-label="Current company"
-									/>{/if}
-							</a>
-						{:else}
-							<a class="current" href={`/${companyId}`} aria-current="page">
-								<i aria-hidden="true"></i><span><strong>{companyName}</strong></span>
-								<Check
-									class="switcher-current"
-									size={14}
-									strokeWidth={2.2}
-									aria-label="Current company"
-								/>
-							</a>
-						{/each}
+									/>
+								</a>
+							{/each}
+						</div>
 						<div class="company-switcher-rule" role="separator"></div>
 						<a
 							class="company-overview-link"
