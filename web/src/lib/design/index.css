@@ -41,6 +41,7 @@
 @import '../ui/style/type.css'; /* mono, display, caption, headings */
 @import './chrome.css'; /* company identity, four tabs, presence, account mark */
 @import '../ui/style/primitives.css'; /* bounded buttons and hold-to-confirm */
+@import '../ui/style/forms.css'; /* one form: rows, segmented switch, footer */
 @import './chat.css'; /* transcript separators, attachments, the composer */
 @import './patterns.css'; /* company door */
 @import './surfaces.css'; /* focused evidence + persistent executive transcript */

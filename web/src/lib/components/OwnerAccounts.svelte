@@ -13,6 +13,9 @@
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
+	import Field from '$lib/ui/forms/Field.svelte';
+	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
+	import Segmented from '$lib/ui/forms/Segmented.svelte';
 	import {
 		ACCOUNT_KINDS,
 		DEFAULT_ABILITIES,
@@ -111,9 +114,15 @@
 		const trimmed = url.trim();
 		return !trimmed || /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 	};
+	let addError = $state('');
 	async function add(event: SubmitEvent) {
 		event.preventDefault();
 		if (busy) return;
+		if (!canAdd) {
+			addError = missingForAdd;
+			return;
+		}
+		addError = '';
 		busy = true;
 		try {
 			const label = form.label.trim();
@@ -186,6 +195,24 @@
 			form.totp = '';
 		}
 	}
+	/* What the form still needs, said when Add account is pressed too early. */
+	const missingForAdd = $derived(
+		addKind === 'website_login'
+			? !domainOf(form.url)
+				? 'Add the sign-in page.'
+				: !form.username.trim()
+					? 'Add the username or email.'
+					: 'Add the password.'
+			: addKind === 'api'
+				? !domainOf(form.baseUrl)
+					? 'Add the service address.'
+					: !form.secret
+						? 'Add the key or token.'
+						: `Add the ${form.auth === 'header' ? 'header' : 'parameter'} name.`
+				: addKind === 'github'
+					? 'Add the token.'
+					: 'Add the website.'
+	);
 	const canAdd = $derived(
 		addKind === 'website_login'
 			? !!domainOf(form.url) && !!form.username.trim() && !!form.password
@@ -292,6 +319,34 @@
 	};
 	let draft = $state<Draft | null>(null);
 	let limitsOpen = $state(false);
+	let abilitiesOpen = $state(false);
+	let grantError = $state('');
+	const SHORT_MODE: Record<string, string> = {
+		allow: 'Allowed',
+		tell: 'Tell me',
+		ask: 'Ask first',
+		off: 'Off'
+	};
+	const MODE_CHOICES = MODES.map(({ mode, label }) => ({
+		value: mode,
+		label: SHORT_MODE[mode] ?? label
+	}));
+	/* What an access level allows, in one line: "Read and Draft freely, Act telling you, asks before Spend, no Admin." */
+	function abilitySummary(abilities: Abilities) {
+		const by = (mode: string) =>
+			TIERS.filter(({ tier }) => abilities[tier] === mode).map(({ label }) => label);
+		const join = (names: string[]) =>
+			names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
+		const text = [
+			by('allow').length ? `${join(by('allow'))} freely` : '',
+			by('tell').length ? `${join(by('tell'))}, telling you` : '',
+			by('ask').length ? `asks before ${join(by('ask'))}` : '',
+			by('off').length ? `no ${join(by('off'))}` : ''
+		]
+			.filter(Boolean)
+			.join(', ');
+		return `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
+	}
 	function editGrant(account: Account, grant: Grant | null, company = '') {
 		const cap = grant?.spend_cap ?? null;
 		const limits = grant?.limits ?? EMPTY_LIMITS;
@@ -313,13 +368,20 @@
 			actors: grant && grant.who !== 'everyone' ? grant.who.actors.join(', ') : ''
 		};
 		limitsOpen = limitsSummary(limits, grant?.who ?? 'everyone').length > 0;
+		abilitiesOpen = !presetOf(draft.abilities);
+		grantError = '';
 	}
 	function usePreset(abilities: Abilities) {
 		if (draft) draft.abilities = { ...abilities };
 	}
 	async function saveGrant(event: SubmitEvent) {
 		event.preventDefault();
-		if (!draft || busy || !draft.company) return;
+		if (!draft || busy) return;
+		if (!draft.company) {
+			grantError = 'Choose a company first.';
+			return;
+		}
+		grantError = '';
 		const d = draft;
 		const dollars = Number.parseFloat(d.capDollars);
 		const input = {
@@ -428,112 +490,132 @@
 
 {#snippet grantEditor(account: Account)}
 	{#if draft && draft.account === account.id}
-		<form class="grant-editor" onsubmit={saveGrant}>
-			<div class="grant-editor-head">
-				<strong>{draft.grant ? companyName(draft.company) : 'Give a company access'}</strong>
-				{#if !draft.grant}
-					<select bind:value={draft.company} aria-label="Company">
-						<option value="" disabled>Choose a company…</option>
+		{@const preset = presetOf(draft.abilities)}
+		<form class="form plain grant-editor" onsubmit={saveGrant}>
+			<header class="form-head">
+				<strong
+					>{draft.grant
+						? `${companyName(draft.company)}’s access`
+						: 'Give a company access'}</strong
+				>
+			</header>
+			{#if !draft.grant}
+				<Field label="Company" for={`grant-company-${account.id}`}>
+					<select id={`grant-company-${account.id}`} bind:value={draft.company}>
+						<option value="" disabled>Choose a company</option>
 						{#each ungranted(account) as company (company.id)}<option value={company.id}
 								>{company.name}</option
 							>{/each}
 					</select>
-				{/if}
-			</div>
-			<div class="presets" role="group" aria-label="Quick choices">
-				{#each PRESETS as preset (preset.key)}
+				</Field>
+			{/if}
+			<Field label="Access" hint="What its people and agents may do">
+				<Segmented
+					label="Access"
+					options={[
+						...PRESETS.map((entry) => ({ value: entry.key, label: entry.label })),
+						...(preset ? [] : [{ value: 'custom' as const, label: 'Custom' }])
+					]}
+					value={preset ?? 'custom'}
+					onchange={(key) => {
+						const chosen = PRESETS.find((entry) => entry.key === key);
+						if (chosen) usePreset(chosen.abilities);
+					}}
+				/>
+				<small class="field-hint"
+					>{abilitySummary(draft.abilities)}
 					<button
 						type="button"
-						class:on={presetOf(draft.abilities) === preset.key}
-						aria-pressed={presetOf(draft.abilities) === preset.key}
-						onclick={() => usePreset(preset.abilities)}>{preset.label}</button
-					>
-				{/each}
-				{#if !presetOf(draft.abilities)}<span class="custom">Custom</span>{/if}
-			</div>
-			<div class="tiers">
+						class="text-button inline"
+						onclick={() => (abilitiesOpen = !abilitiesOpen)}
+						>{abilitiesOpen ? 'Hide details' : 'Customize'}</button
+					></small
+				>
+			</Field>
+			{#if abilitiesOpen}
 				{#each TIERS as { tier, label, hint } (tier)}
-					<label class="tier">
-						<span title={hint}>{label}</span>
-						<select bind:value={draft.abilities[tier]} aria-label={`${label}: ${hint}`}>
-							{#each MODES as { mode, label: modeLabel } (mode)}<option value={mode}
-									>{modeLabel}</option
-								>{/each}
-						</select>
-					</label>
+					<Field {label} {hint}>
+						<Segmented {label} options={MODE_CHOICES} bind:value={draft.abilities[tier]} />
+					</Field>
 				{/each}
-			</div>
-			{#if draft.abilities.spend !== 'off'}
-				<label class="cap">
-					<input type="checkbox" bind:checked={draft.capOn} />
-					<span>Spend without asking up to</span>
-					<input
-						class="money"
-						inputmode="decimal"
-						bind:value={draft.capDollars}
-						disabled={!draft.capOn}
-						aria-label="Spend cap in dollars"
-					/>
-					<select bind:value={draft.capPeriod} disabled={!draft.capOn} aria-label="Per">
-						<option value="day">a day</option>
-						<option value="week">a week</option>
-						<option value="month">a month</option>
-					</select>
-				</label>
 			{/if}
-			<button type="button" class="link" onclick={() => (limitsOpen = !limitsOpen)}
-				>{limitsOpen ? 'Hide limits' : 'Add limits (optional)'}</button
-			>
-			{#if limitsOpen}
-				<div class="limits">
-					<label
-						><span>Only these (repos, pages, stores, recipient domains)</span><input
-							bind:value={draft.scope}
-							placeholder="Anything, when empty"
-						/></label
-					>
-					<label
-						><span>Actions a day, at most</span><input
-							inputmode="numeric"
-							bind:value={draft.perDay}
-							placeholder="No limit"
-						/></label
-					>
-					<label><span>Until</span><input type="date" bind:value={draft.expires} /></label>
-					<label class="inline"
-						><input type="checkbox" bind:checked={draft.quietOn} /><span>Quiet hours</span><input
-							type="time"
-							bind:value={draft.quietStart}
-							disabled={!draft.quietOn}
-							aria-label="From"
-						/><span>to</span><input
-							type="time"
-							bind:value={draft.quietEnd}
-							disabled={!draft.quietOn}
-							aria-label="To"
-						/></label
-					>
-					<label class="inline"
-						><input type="checkbox" bind:checked={draft.everyone} /><span
-							>Everyone in the company, and their agents</span
-						></label
-					>
-					{#if !draft.everyone}
+			{#if draft.abilities.spend !== 'off'}
+				<Field label="Spending" hint="Optional">
+					<div class="field-inline">
+						<label class="form-check" style="padding-top:0"
+							><input type="checkbox" bind:checked={draft.capOn} />Without asking, up to $</label
+						>
+						<input
+							class="money"
+							inputmode="decimal"
+							bind:value={draft.capDollars}
+							disabled={!draft.capOn}
+							aria-label="Spend cap in dollars"
+						/>
+						<select bind:value={draft.capPeriod} disabled={!draft.capOn} aria-label="Per">
+							<option value="day">a day</option>
+							<option value="week">a week</option>
+							<option value="month">a month</option>
+						</select>
+					</div>
+				</Field>
+			{/if}
+			<Field label="Limits" hint="Optional">
+				{#if limitsOpen}
+					<div class="limits">
 						<label
-							><span>Only these people or agents</span><input
-								bind:value={draft.actors}
-								placeholder="Names, separated by commas"
+							><span>Only these</span><input
+								bind:value={draft.scope}
+								placeholder="Repos, pages, stores or recipient domains"
 							/></label
 						>
-					{/if}
-				</div>
-			{/if}
-			<div class="grant-actions">
-				<button class="btn small primary" disabled={busy || !draft.company}
-					>{busy ? 'Saving…' : draft.grant ? 'Save' : 'Give access'}</button
-				>
-				<button type="button" class="btn small ghost" onclick={() => (draft = null)}>Cancel</button>
-			</div>
+						<label
+							><span>Actions a day, at most</span><input
+								inputmode="numeric"
+								bind:value={draft.perDay}
+								placeholder="No limit"
+							/></label
+						>
+						<label><span>Until</span><input type="date" bind:value={draft.expires} /></label>
+						<div class="field-inline">
+							<label class="form-check" style="padding-top:0"
+								><input type="checkbox" bind:checked={draft.quietOn} />Quiet hours</label
+							><input
+								type="time"
+								bind:value={draft.quietStart}
+								disabled={!draft.quietOn}
+								aria-label="From"
+							/>to<input
+								type="time"
+								bind:value={draft.quietEnd}
+								disabled={!draft.quietOn}
+								aria-label="To"
+							/>
+						</div>
+						<label class="form-check"
+							><input type="checkbox" bind:checked={draft.everyone} />Everyone in the company, and
+							their agents</label
+						>
+						{#if !draft.everyone}
+							<label
+								><span>Only these people or agents</span><input
+									bind:value={draft.actors}
+									placeholder="Names, separated by commas"
+								/></label
+							>
+						{/if}
+					</div>
+				{:else}<button type="button" class="text-button" onclick={() => (limitsOpen = true)}
+						>Add limits</button
+					>{/if}
+			</Field>
+			{#if grantError}<p class="form-error" role="alert">{grantError}</p>{/if}
+			<FormFoot
+				submit={draft.grant ? 'Save' : 'Give access'}
+				{busy}
+				busyLabel="Saving…"
+				oncancel={() => (draft = null)}
+			/>
 		</form>
 	{/if}
 {/snippet}
@@ -556,127 +638,126 @@
 		</header>
 
 		{#if adding}
-			<form class="add" onsubmit={add}>
-				<div class="kinds" role="radiogroup" aria-label="Kind of account">
-					{#each ACCOUNT_KINDS.filter( (entry) => ADDABLE.includes(entry.kind) ) as entry (entry.kind)}
-						<button
-							type="button"
-							role="radio"
-							aria-checked={addKind === entry.kind}
-							class:on={addKind === entry.kind}
-							title={entry.hint}
-							onclick={() => (addKind = entry.kind)}>{entry.label}</button
+			<form class="form add" onsubmit={add}>
+				<header class="form-head">
+					<strong>Add account</strong>
+					<Segmented
+						label="Kind of account"
+						options={ACCOUNT_KINDS.filter((entry) => ADDABLE.includes(entry.kind)).map((entry) => ({
+							value: entry.kind,
+							label: entry.label,
+							title: entry.hint
+						}))}
+						bind:value={addKind}
+						onchange={() => (addError = '')}
+					/>
+				</header>
+				<p class="form-intro">{kindOf(addKind).hint}</p>
+				{#if addKind === 'website_login' || addKind === 'browser_profile'}
+					<Field label={addKind === 'website_login' ? 'Sign-in page' : 'Website'} for="add-url">
+						<input
+							id="add-url"
+							bind:value={form.url}
+							placeholder="ebay.com.au/signin"
+							autocomplete="off"
+						/>
+					</Field>
+				{/if}
+				{#if addKind === 'website_login'}
+					<Field label="Username or email" for="add-username">
+						<input id="add-username" bind:value={form.username} autocomplete="off" />
+					</Field>
+					<Field label="Password" for="add-password">
+						<input
+							id="add-password"
+							type="password"
+							bind:value={form.password}
+							autocomplete="new-password"
+						/>
+					</Field>
+					<Field
+						label="Authenticator secret"
+						hint="Optional, for sites that ask for a 6-digit code"
+						for="add-totp"
+					>
+						<input id="add-totp" bind:value={form.totp} autocomplete="off" />
+					</Field>
+				{:else if addKind === 'api'}
+					<Field label="Service address" for="add-base">
+						<input
+							id="add-base"
+							bind:value={form.baseUrl}
+							placeholder="api.example.com"
+							autocomplete="off"
+						/>
+					</Field>
+					<Field label="How the key is sent" for="add-auth">
+						<select id="add-auth" bind:value={form.auth}>
+							<option value="bearer">Bearer token</option>
+							<option value="header">A header</option>
+							<option value="query">A query parameter</option>
+							<option value="basic">Basic sign-in</option>
+						</select>
+					</Field>
+					{#if form.auth === 'header' || form.auth === 'query'}
+						<Field
+							label={form.auth === 'header' ? 'Header name' : 'Parameter name'}
+							for="add-auth-name"
 						>
-					{/each}
-				</div>
-				<p class="hint">{kindOf(addKind).hint}</p>
-				<div class="fields">
-					{#if addKind === 'website_login' || addKind === 'browser_profile'}
-						<label
-							><span>{addKind === 'website_login' ? 'Sign-in page' : 'Website'}</span><input
-								bind:value={form.url}
-								placeholder="ebay.com.au/signin"
-								autocomplete="off"
-							/></label
-						>
+							<input
+								id="add-auth-name"
+								bind:value={form.authName}
+								placeholder={form.auth === 'header' ? 'X-Api-Key' : 'api_key'}
+							/>
+						</Field>
 					{/if}
-					{#if addKind === 'website_login'}
-						<label
-							><span>Username or email</span><input
-								bind:value={form.username}
-								autocomplete="off"
-							/></label
-						>
-						<label
-							><span>Password</span><input
-								type="password"
-								bind:value={form.password}
-								autocomplete="new-password"
-							/></label
-						>
-						<label
-							><span>Authenticator secret (optional)</span><input
-								bind:value={form.totp}
-								autocomplete="off"
-								placeholder="For sites that ask for a 6-digit code"
-							/></label
-						>
-					{:else if addKind === 'api'}
-						<label
-							><span>Service address</span><input
-								bind:value={form.baseUrl}
-								placeholder="api.example.com"
-								autocomplete="off"
-							/></label
-						>
-						<label
-							><span>How the key is sent</span><select bind:value={form.auth}>
-								<option value="bearer">Bearer token</option>
-								<option value="header">A header</option>
-								<option value="query">A query parameter</option>
-								<option value="basic">Basic sign-in</option>
-							</select></label
-						>
-						{#if form.auth === 'header' || form.auth === 'query'}
-							<label
-								><span>{form.auth === 'header' ? 'Header name' : 'Parameter name'}</span><input
-									bind:value={form.authName}
-									placeholder={form.auth === 'header' ? 'X-Api-Key' : 'api_key'}
-								/></label
-							>
-						{/if}
-						<label
-							><span>Key or token</span><input
-								type="password"
-								bind:value={form.secret}
-								autocomplete="off"
-							/></label
-						>
-					{:else if addKind === 'github'}
-						<label
-							><span>Token</span><input
-								type="password"
-								bind:value={form.secret}
-								autocomplete="off"
-								placeholder="github_pat_…"
-							/><small
-								>A <a
-									href="https://github.com/settings/personal-access-tokens/new"
-									target="_blank"
-									rel="noreferrer">fine-grained token</a
-								> for just the repositories your companies need.</small
-							></label
-						>
-					{:else}
-						<p class="hint">
-							After you add it, sign in once in your browser. Companies use that session, never the
-							password.
-						</p>
-					{/if}
-					<label><span>Name</span><input bind:value={form.label} placeholder="Optional" /></label>
-					{#if addKind !== 'api'}
-						<label class="personal" title={PERSONAL_NOTICE}
+					<Field label="Key or token" for="add-secret">
+						<input id="add-secret" type="password" bind:value={form.secret} autocomplete="off" />
+					</Field>
+				{:else if addKind === 'github'}
+					<Field label="Token" for="add-token">
+						<input
+							id="add-token"
+							type="password"
+							bind:value={form.secret}
+							autocomplete="off"
+							placeholder="github_pat_…"
+						/>
+						{#snippet help()}A <a
+								href="https://github.com/settings/personal-access-tokens/new"
+								target="_blank"
+								rel="noreferrer">fine-grained token</a
+							> for just the repositories your companies need.{/snippet}
+					</Field>
+				{/if}
+				<Field label="Name" hint="Optional" for="add-label">
+					<input id="add-label" bind:value={form.label} placeholder={kindOf(addKind).label} />
+				</Field>
+				{#if addKind !== 'api'}
+					<Field label="Personal login">
+						<label class="form-check"
 							><input type="checkbox" bind:checked={form.personal} /><span
-								>This is a personal login</span
+								>It’s yours, not the business’s<small>{PERSONAL_NOTICE}</small></span
 							></label
 						>
-						{#if form.personal}<p class="notice">{PERSONAL_NOTICE}</p>{/if}
-					{/if}
-				</div>
-				<div class="add-actions">
-					<small>Kept in your account’s vault and never shown again.</small>
-					<button
-						type="button"
-						class="btn small"
-						onclick={() => {
-							adding = false;
-							draft = null;
-						}}>Cancel</button
-					>
-					<button class="btn small primary" disabled={busy || !canAdd}
-						>{busy ? 'Adding…' : 'Add account'}</button
-					>
-				</div>
+					</Field>
+				{/if}
+				{#if addKind === 'browser_profile'}<p class="form-intro" style="padding-bottom:12px">
+						After you add it, sign in once in your browser. Companies use that session, never the
+						password.
+					</p>{/if}
+				{#if addError}<p class="form-error" role="alert">{addError}</p>{/if}
+				<FormFoot
+					note="Kept in your account’s vault and never shown again."
+					submit="Add account"
+					{busy}
+					busyLabel="Adding…"
+					oncancel={() => {
+						adding = false;
+						draft = null;
+						addError = '';
+					}}
+				/>
 			</form>
 		{/if}
 
@@ -859,42 +940,6 @@
 		border-radius: var(--radius-pane);
 		background: var(--surface-pane);
 	}
-	/* One segmented switch: the kind is a setting of the form, not four cards. */
-	.kinds {
-		display: inline-flex;
-		justify-self: start;
-		max-width: 100%;
-		padding: 2px;
-		overflow-x: auto;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
-		background: var(--surface-alt);
-	}
-	.kinds button {
-		flex: none;
-		min-height: 28px;
-		padding: 0 12px;
-		border: 0;
-		border-radius: calc(var(--radius-control) - 2px);
-		background: transparent;
-		color: var(--text-secondary);
-		font: inherit;
-		font-size: var(--t-label);
-		white-space: nowrap;
-		cursor: pointer;
-	}
-	.kinds button:hover {
-		color: var(--ink);
-	}
-	.kinds button.on {
-		background: var(--surface-pane);
-		color: var(--ink);
-		box-shadow: 0 0 0 1px var(--border);
-	}
-	.kinds button:disabled {
-		cursor: default;
-		opacity: 0.55;
-	}
 	.mark {
 		display: grid;
 		place-items: center;
@@ -911,77 +956,38 @@
 		border-color: color-mix(in srgb, var(--state-success) 35%, var(--border));
 		color: var(--state-success);
 	}
-	.hint,
 	.empty {
 		margin: 0;
 		color: var(--text-tertiary);
 	}
-	/* One column a field wide, each field's help one quiet line under it. */
-	.fields {
+	/* The optional limits: small stacked fields inside the Limits row. */
+	.limits {
 		display: grid;
-		gap: 12px;
-		max-width: 440px;
+		gap: 10px;
+		width: 100%;
+		max-width: 420px;
 	}
-	label > small {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	label > small a {
-		color: inherit;
-	}
-	label > small a:hover {
-		color: var(--ink);
-	}
-	label {
+	.limits > label:not(.form-check) {
 		display: grid;
 		gap: 4px;
 		min-width: 0;
 	}
-	label > span {
+	.limits > label:not(.form-check) > span {
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
-	label input:not([type='checkbox']),
-	label select {
-		width: 100%;
-		font: inherit;
+	.money {
+		width: 80px !important;
 	}
-	.personal,
-	label.inline {
-		display: flex;
-		align-items: center;
-		gap: 8px;
+	.grant-editor {
+		margin: 8px 12px 12px;
 	}
-	label.inline > span,
-	.personal > span {
-		color: var(--text-secondary);
-		font-size: var(--t-body);
-	}
-	label.inline input[type='time'] {
-		width: auto;
-	}
-	.notice {
-		margin: -4px 0 0;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.add-actions,
-	.grant-actions {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 10px;
-	}
-	.add-actions {
-		justify-content: flex-end;
-		margin: 2px -14px -14px;
-		padding: 10px 14px;
-		border-top: 1px solid var(--border);
-	}
-	.add-actions small {
-		flex: 1 1 200px;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
+	.text-button.inline {
+		min-height: 0;
+		padding: 0 2px;
+		font-size: inherit;
+		text-decoration: underline;
+		text-underline-offset: 2px;
 	}
 	.failure {
 		margin: 0;
@@ -1156,79 +1162,8 @@
 		justify-self: start;
 		margin: 10px 12px;
 	}
-	.grant-editor {
-		display: grid;
-		gap: 12px;
-		padding: 12px;
-		background: color-mix(in srgb, var(--surface-alt) 40%, var(--surface-raised));
-	}
 	.grant-editor + .add-grant {
 		display: none;
-	}
-	.grant-editor-head {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 10px;
-	}
-	.grant-editor-head strong {
-		font-weight: 600;
-	}
-	.presets {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 4px;
-	}
-	.presets button {
-		min-height: 30px;
-		padding: 0 10px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
-		background: var(--surface-raised);
-		color: var(--text-secondary);
-		font: inherit;
-		cursor: pointer;
-	}
-	.presets button.on {
-		border-color: var(--intent-conversation);
-		color: var(--ink);
-	}
-	.custom {
-		margin-left: 6px;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.tiers {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-		gap: 8px 12px;
-	}
-	.tier > span {
-		color: var(--text-secondary);
-		font-size: var(--t-body);
-		font-weight: 500;
-	}
-	.cap {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 8px;
-	}
-	.cap > span {
-		color: var(--text-secondary);
-		font-size: var(--t-body);
-	}
-	.cap .money {
-		width: 80px;
-	}
-	.cap select {
-		width: auto;
-	}
-	.limits {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-		gap: 10px 14px;
 	}
 	@media (max-width: 760px) {
 		.main {
@@ -1239,9 +1174,6 @@
 		.row-actions {
 			grid-column: 2 / -1;
 			justify-self: start;
-		}
-		.add-actions small {
-			flex-basis: 100%;
 		}
 		.detail {
 			margin-left: 12px;

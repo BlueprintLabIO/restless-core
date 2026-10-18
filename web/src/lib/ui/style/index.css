@@ -12,6 +12,7 @@
 @import './motion.css';
 @import './type.css';
 @import './primitives.css';
+@import './forms.css';
 
 :is(.bridge-root, .bridge-tokens) {
 	--z-palette: 95;
