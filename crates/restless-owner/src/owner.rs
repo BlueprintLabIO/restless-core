@@ -9672,7 +9672,7 @@ async fn actor_conversation(
         None
     };
     let mut messages = messages.into_iter().map(conversation_message_view).collect::<Vec<_>>();
-    attach_account_uses(state.daemon.authority.pool(), &company, &actor, &mut messages).await;
+    attach_account_uses(state.daemon.authority.pool(), &company, &actor, &actor_row.display, &mut messages).await;
     Json(ConversationView {
         actor: ConversationActorView {
             id: actor_row.id,
@@ -9713,6 +9713,7 @@ async fn attach_account_uses(
     pool: &sqlx::PgPool,
     company: &str,
     actor: &str,
+    actor_display: &str,
     messages: &mut [ConversationMessageView],
 ) {
     let Some(last) = messages.iter().filter(|message| message.from_actor == actor).map(|message| message.created_at).max() else {
@@ -9739,6 +9740,7 @@ async fn attach_account_uses(
             let after_previous = previous.is_none_or(|at| used.at > at);
             if message.from_actor == actor && after_previous && used.at <= message.created_at {
                 let mut block = restless_engine::account_broker::use_block(account, company, used.grant_id.as_deref(), &used);
+                block["actor_display"] = serde_json::json!(actor_display);
                 block["use_id"] = serde_json::json!(used.id);
                 block["result"] = serde_json::json!(used.result);
                 messages[index].account_uses.push(block);
