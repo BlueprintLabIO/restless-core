@@ -404,6 +404,10 @@
 		height: 100dvh;
 		padding-bottom: calc(var(--dock-h) + env(safe-area-inset-bottom) + var(--app-gutter));
 	}
+	/* Setting up has no dock: the setup chat runs to the bottom edge. */
+	.bridge-root.setup:not(.immersive) {
+		padding-bottom: calc(env(safe-area-inset-bottom) + var(--app-gutter));
+	}
 
 	.bridge-root:not(.immersive) .bridge-exrail.open {
 		bottom: calc(var(--dock-h) + env(safe-area-inset-bottom) + var(--app-gutter));
@@ -510,4 +514,33 @@
 
 .bridge-root .bridge-content:focus {
 	outline: none;
+}
+
+/* Setting up a company (S96): the tabs are its steps. They are not links; a step done carries a
+ * check. On a phone, where the tabs give way, one line says where the owner is. */
+.bridge-topbar .tb-setup-step {
+	cursor: default;
+}
+.bridge-topbar .tb-setup-step.done .tb-tab-mark {
+	color: var(--intent-feedback);
+}
+.bridge-topbar .tb-setup-compact {
+	display: none;
+	color: var(--text-secondary);
+	font-size: var(--t-body);
+	white-space: nowrap;
+}
+@media (max-width: 760px) {
+	.bridge-topbar .tb-setup-compact {
+		display: inline;
+		margin-left: auto;
+	}
+}
+.bridge-topbar .tb-setup-step .tb-tab-mark {
+	font-size: var(--t-label);
+	font-weight: 600;
+	color: var(--text-tertiary);
+}
+.bridge-topbar .tb-setup-step.on .tb-tab-mark {
+	color: var(--intent-conversation);
 }

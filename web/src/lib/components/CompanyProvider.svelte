@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { Page, Section, Item, Notice, Empty, Dot, Fold } from '$lib/ui/page';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
@@ -19,7 +20,7 @@
 	import { page } from '$app/state';
 	import { needsAnotherModel, startLinkLabel } from '$lib/model/company-start';
 	import { modelLabel } from '$lib/model/intelligence-labels';
-	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
+	import { agentRouteState, intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import {
 		announceIntelligenceChange,
 		watchIntelligenceChanges,
@@ -58,6 +59,30 @@
 	const returnTo = $derived.by(() => {
 		const path = page.url.searchParams.get('return') ?? '';
 		return path.startsWith(`/${companyId}/`) && !path.startsWith('//') ? path : '';
+	});
+	/* Arriving from setup (S96): once Exec can think, setup carries on by itself. */
+	let neededModel = false;
+	/* While setup waits on a model, look every few seconds instead of every half minute. */
+	$effect(() => {
+		if (!returnTo || (!setupIssue && agentRouteState(intelligence.view, 'exec') === 'ready'))
+			return;
+		const timer = window.setInterval(() => {
+			void catalogProjection.refresh();
+			void intelligence.refresh();
+		}, 3000);
+		return () => window.clearInterval(timer);
+	});
+	$effect(() => {
+		if (setupIssue) neededModel = true;
+		/* Back only once Exec's own route is live, so the first answer does not meet a session
+		 * that has not picked the connection up yet. */
+		else if (
+			neededModel &&
+			returnTo &&
+			catalogProjection.view.length &&
+			agentRouteState(intelligence.view, 'exec') === 'ready'
+		)
+			void goto(returnTo);
 	});
 	/* A model the connection does not serve is fixed in Models; the connection itself is fine. */
 	const connectionIssue = $derived(setupIssue && !needsAnotherModel(setupIssue) ? setupIssue : '');
@@ -463,8 +488,7 @@
 
 	{#if returnTo && !setupIssue && catalogProjection.view.length}
 		<Notice tone="success" title="Exec can think now">
-			{#snippet actions()}<a class="btn small primary" href={returnTo}>Back to the welcome</a
-				>{/snippet}
+			{#snippet actions()}<a class="btn small primary" href={returnTo}>Back to setup</a>{/snippet}
 		</Notice>
 	{/if}
 	{#if setupIssue}

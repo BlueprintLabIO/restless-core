@@ -731,7 +731,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         // A company with no charter is meeting its owner: Exec interviews instead of working.
         welcome = if snapshot.mission.trim().is_empty() && snapshot.human_is_membership_owner {
             format!(
-                "\n# Meeting the owner for the first time [owner-only shared contract]\n{}\n\nThe company is called \"{}\" for now.\n",
+                "\n# Meeting the owner for the first time [owner-only shared contract]\n{}\n\nThe owner named the company \"{}\".\n",
                 crate::owner_brief::WELCOME_THE_OWNER.trim(),
                 snapshot.company_display
             )

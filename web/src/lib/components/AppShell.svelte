@@ -7,6 +7,8 @@
 		dot?: string;
 		href: string;
 		on?: boolean;
+		/** A setup step already behind the owner (S96). */
+		done?: boolean;
 	};
 </script>
 
@@ -58,6 +60,7 @@
 		blocked = false,
 		railOpen = true,
 		immersive = false,
+		setup = false,
 		onexectoggle = null,
 		commands = [],
 		recents = [],
@@ -90,6 +93,9 @@
 		railOpen?: boolean;
 		/** Gives a prepared live outcome the full browser window while preserving one bounded Exec control. */
 		immersive?: boolean;
+		/** A new company being set up (S96): the tabs are its steps, and search, the Exec control
+		 * and the phone dock wait until it is done. */
+		setup?: boolean;
 		/** The one control for the rail: presence lamp and open/close in a single stable button. */
 		onexectoggle?: (() => void) | null;
 		/** Destinations and actions for the command menu (⌘K). */
@@ -313,7 +319,7 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="bridge-root" class:immersive inert={blocked} use:tooltips use:selectMenu>
+<div class="bridge-root" class:immersive class:setup inert={blocked} use:tooltips use:selectMenu>
 	<a class="skip-link" href="#main-content">Skip to content</a>
 	<header class="bridge-topbar" aria-label="Global navigation">
 		<div class="tb-brand">
@@ -407,7 +413,11 @@
 			{/if}
 		</div>
 
-		<nav class="tb-tabs" aria-label="Company navigation" bind:this={tabNav}>
+		<nav
+			class="tb-tabs"
+			aria-label={setup ? 'Setup steps' : 'Company navigation'}
+			bind:this={tabNav}
+		>
 			{#if indicator}
 				<span
 					class="tb-indicator"
@@ -418,24 +428,45 @@
 					aria-hidden="true"
 				></span>
 			{/if}
-			{#each tabs as tab (tab.key)}
-				{@render surfaceTab(tab)}
-			{/each}
+			{#if setup}
+				{#each tabs as tab, step (tab.key)}
+					<span
+						class="tb-tab tb-setup-step"
+						class:on={tab.on}
+						class:done={tab.done}
+						data-surface={tab.key}
+						aria-current={tab.on ? 'step' : undefined}
+						><span class="tb-tab-mark" aria-hidden="true"
+							>{#if tab.done}<Check size={12} strokeWidth={2.6} />{:else}{step + 1}{/if}</span
+						><span class="tb-tab-label">{tab.label}</span></span
+					>
+				{/each}
+			{:else}
+				{#each tabs as tab (tab.key)}
+					{@render surfaceTab(tab)}
+				{/each}
+			{/if}
 		</nav>
+		{#if setup}
+			{@const at = tabs.findIndex((tab) => tab.on)}
+			<span class="tb-setup-compact" aria-hidden="true"
+				>{at + 1} of {tabs.length} · {tabs[at]?.label ?? ''}</span
+			>
+		{/if}
 
 		<div class="tb-right">
-			<button
-				class="tb-search"
-				type="button"
-				aria-label="Search and jump"
-				aria-keyshortcuts={isMac ? 'Meta+K' : 'Control+K'}
-				title={`Search and jump · ${menuShortcut}`}
-				onclick={() => (commandMenuOpen = true)}
-			>
-				<SearchIcon size={15} strokeWidth={2} aria-hidden="true" />
-				<span class="tb-search-label">Search</span>
-				<kbd aria-hidden="true">{menuShortcut}</kbd>
-			</button>
+			{#if !setup}<button
+					class="tb-search"
+					type="button"
+					aria-label="Search and jump"
+					aria-keyshortcuts={isMac ? 'Meta+K' : 'Control+K'}
+					title={`Search and jump · ${menuShortcut}`}
+					onclick={() => (commandMenuOpen = true)}
+				>
+					<SearchIcon size={15} strokeWidth={2} aria-hidden="true" />
+					<span class="tb-search-label">Search</span>
+					<kbd aria-hidden="true">{menuShortcut}</kbd>
+				</button>{/if}
 			<!-- The avatar keeps its place before the name is known, and shows the right letter
 			     once, rather than a placeholder letter that changes. -->
 			{#if viewerName}<ProfileMenu
@@ -513,7 +544,7 @@
 
 	<CommandMenu bind:open={commandMenuOpen} commands={menuCommands} {recents} {search} {ask} />
 
-	{#if !immersive}
+	{#if !immersive && !setup}
 		<nav class="bridge-dock" aria-label="Company navigation">
 			{#each tabs as tab (tab.key)}
 				{@render surfaceTab(tab)}
