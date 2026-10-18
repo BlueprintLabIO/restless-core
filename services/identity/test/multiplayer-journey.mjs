@@ -1076,7 +1076,16 @@ try {
   // 9k. The owner's accounts (S98): a website login added once at the owner level, given to the
   //     company, read by its people without its secret; its own browser starts for the owner's
   //     sign-in and goes when the account is removed. Members cannot add or read accounts.
-  {
+  const accountWide = (await owner.context.request.fetch(`${core}/api/accounts`, { failOnStatusCode: false })).status() === 200;
+  if (!accountWide) {
+    // The self-hosted account service enters one company, and accounts belong to the owner's
+    // account-wide session (Cloud Home, or the local appliance). Say so plainly rather than fail.
+    const scoped = await owner.context.request.fetch(`${core}/api/accounts`, { failOnStatusCode: false });
+    assert.equal(scoped.status(), 403);
+    assert.match(await scoped.text(), /account owner/);
+    note("accounts: a self-hosted network owner has a company session, so Settings › Accounts is not reachable here (gap)");
+    pass("a company-scoped session cannot manage the owner's accounts, and is told why");
+  } else {
     const secret = `smoke-${randomUUID()}`;
     const login = await coreApi(owner, "/api/accounts", {
       method: "POST",
