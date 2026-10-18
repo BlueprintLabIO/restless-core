@@ -173,3 +173,17 @@ These describe the accepted outcomes. A story row alone is not completion eviden
 | US-325 | core | I want to record sales and other income as well as business expenses, with dates, currency, payment status and source evidence. Corrections and voids preserve one record; different currencies and outstanding amounts never turn into fictional settled revenue or spend. | S94 | integer precision, idempotent retries, stale-edit refusal, persistence and company isolation |
 | US-326 | core | I want Exec and a meaningful topic in one compact row, with no General subtitle. Long topics never expand the header or displace search and actions. | S94 | default/long-topic desktop/phone height, clipping and history checks |
 | US-327 | core | I want several local company tabs open without freezing navigation or losing live chat. Company hints and agent snapshots must leave ordinary HTTP connections available; reconnect and session/origin boundaries still apply. | S94 installed review | eight-tab production navigation, activity snapshot, SSE compatibility, origin refusal and reconnect/close checks |
+
+## From the owner's peers, 18–19 October — dogfooding on Cloud
+
+| ID | Tier | Story: I want … and I see … | Fix | Check |
+| --- | --- | --- | --- | --- |
+| US-328 | core | As an admin, I want every screen to load without a refused request: I read what Exec asked for, and only the owner answers it. | 762de2bd, 71f950dc | multiplayer smoke: "an admin's screens make no refused requests" |
+| US-329 | core | As a member or the owner, I want the cockpit to appear once, settled, with no flash of placeholder content. | 339d0a3e | multiplayer smoke: "the cockpit appears once, settled" |
+| US-330 | core | I want a room message written while someone's first read is still loading to reach them. | 212be98a | `room-revalidate.test.ts`; multiplayer room chat |
+| US-331 | core | I want Exec to read any file I upload to the Library, by its name or its content path. | 13220773 | Library upload read from the company computer |
+| US-332 | core | I want the avatar menu's Account to open my account settings, not the Companies home. | e046b394 | hosted owner: avatar → Account lands on /account/settings |
+| US-333 | core | I want an app request for a token-based app to say "Add a GitHub token", matching the page it opens. | e046b394 | Inbox detail and rail card wording |
+| US-334 | core | I want a row's ⋯ menu to open on the next click after something else hid it. | 41530c78 | popover hidden externally, then clicked once |
+| US-335 | core | I want Settings → Accounts named Accounts everywhere, since it holds website logins, keys and browser sign-ins as well as AI accounts. | e0b6be8b | tab title and hints |
+| US-336 | full | I want to add a website login once, sign in by hand in its own browser, give a company access, and see the agent ask before it acts, with 2FA codes coming to my Inbox. | S98-04/11 | planned accounts journey on a fake local site with a password and TOTP |
