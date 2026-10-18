@@ -883,6 +883,13 @@ async fn account_items(
         let mut href = format!("/account/connections?company={company}&request={}", request.id);
         if let Some(account) = &request.account_id {
             href.push_str(&format!("&account={account}"));
+        } else if let Some(kind) = &request.kind {
+            // An account the owner does not hold yet: Settings opens Add account for it, with the
+            // site an agent named ("facebook.com: …"), and saving the grant answers the request.
+            href.push_str(&format!("&kind={kind}"));
+            if let Some((site, _)) = request.reason.split_once(": ").filter(|(site, _)| !site.contains(char::is_whitespace) && site.len() <= 120) {
+                href.push_str(&format!("&site={}", url::form_urlencoded::byte_serialize(site.as_bytes()).collect::<String>()));
+            }
         }
         item.account_request = Some(serde_json::json!({
             "id": request.id,
@@ -897,7 +904,11 @@ async fn account_items(
         if request.account_id.is_some() {
             item.actions.push(action("approve", "Approve", "Grants the account with the abilities asked for.", "The company can use it now.", None));
         }
-        item.actions.push(action("approve-with-limits", "Approve with limits", "Opens the grant in Settings, filled in as asked.", "Saving the grant answers the request.", Some(href)));
+        if request.account_id.is_some() {
+            item.actions.push(action("approve-with-limits", "Approve with limits", "Opens the grant in Settings, filled in as asked.", "Saving the grant answers the request.", Some(href)));
+        } else {
+            item.actions.push(action("approve-with-limits", "Add it", "Opens Add account in Settings for this company.", "Adding it and saving the company's access answers the request.", Some(href)));
+        }
         item.actions.push(action("deny", "Deny", "Nothing is granted; the company is told.", "The company goes without it.", None));
         items.push(item);
     }

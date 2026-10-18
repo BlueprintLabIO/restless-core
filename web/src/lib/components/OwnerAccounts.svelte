@@ -166,7 +166,13 @@
 			adding = false;
 			resetForm();
 			managing = created.id;
-			toast(`${created.label} added. Give a company access below.`);
+			const asked = pendingGrant;
+			pendingGrant = null;
+			if (asked?.company) {
+				request = asked.request;
+				editGrant(created, null, asked.company);
+				toast(`${created.label} added. Save ${companyName(asked.company)}'s access to answer the request.`);
+			} else toast(`${created.label} added. Give a company access below.`);
 		} catch (cause) {
 			toast(failureSentence(cause, 'The account was not added.'), { tone: 'failure' });
 		} finally {
@@ -224,9 +230,25 @@
 	 * company's grant in the editor, and saving it settles the request. */
 	let request = $state('');
 	let linked = false;
+	/* A request for an account not held yet ("Add it" in the Inbox): Add account opens for its kind
+	 * and site, and once it is added the company's access opens, so saving it answers the request. */
+	let pendingGrant = $state<{ company: string; request: string } | null>(null);
 	$effect(() => {
 		if (linked || !loaded) return;
 		const params = page.url.searchParams;
+		const kind = params.get('kind') as AccountKind | null;
+		if (!params.get('account') && kind && ADDABLE.includes(kind) && params.get('request')) {
+			linked = true;
+			untrack(() => {
+				adding = true;
+				addKind = kind;
+				const site = params.get('site') ?? '';
+				if (kind === 'api') form.baseUrl = site;
+				else if (kind !== 'github') form.url = site;
+				pendingGrant = { company: params.get('company') ?? '', request: params.get('request') ?? '' };
+			});
+			return;
+		}
 		const target = accounts.find((account) => account.id === params.get('account'));
 		if (!target) return;
 		linked = true;
