@@ -123,6 +123,9 @@ pub struct ContextSnapshot {
     /// "2h ago · Yail: Spend limit set to $200". Exec reads it so it never carries on as if a
     /// limit, a name or a model were still what it last saw (Sprint 86).
     pub people_changes: Vec<String>,
+    /// Files the owner added to the Library without sending them in a message, as paths Exec can
+    /// open on the company computer. Exec acts for the owner, so it sees them; Staff do not.
+    pub library_uploads: Vec<String>,
 }
 
 /// The assembled prompt pair and its content digest (sha256, hex). Standing
@@ -430,6 +433,18 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         );
         for change in &snapshot.people_changes {
             block.push_str(&format!("- {change}\n"));
+        }
+        block
+    };
+    let changes = if snapshot.library_uploads.is_empty() {
+        changes
+    } else {
+        let mut block = changes;
+        block.push_str(
+            "\n# Files the owner added to the Library [fact — open one with your file reader when it bears on the work; do not ask the owner to send it again]\n",
+        );
+        for file in &snapshot.library_uploads {
+            block.push_str(&format!("- {file}\n"));
         }
         block
     };
@@ -911,6 +926,7 @@ mod tests {
             org_signals: vec!["\"ship the thing\" is blocked and waiting on someone".into()],
             staffing_routes: "- openai/gpt-6-sol — used by Exec — metered".into(),
             people_changes: Vec::new(),
+            library_uploads: Vec::new(),
         }
     }
 
@@ -1080,6 +1096,18 @@ mod tests {
         assert!(package.system_prompt.contains("# Changed by people"));
         assert!(package.system_prompt.contains("- 2h ago · The owner: Spend limit set to $200"));
         assert!(package.system_prompt.contains("Company renamed from S73 Test to Reno"));
+    }
+
+    #[test]
+    fn exec_sees_the_files_the_owner_added_to_the_library() {
+        assert!(!assemble(&snapshot()).system_prompt.contains("# Files the owner added"));
+        let mut uploaded = snapshot();
+        uploaded.library_uploads = vec![
+            "pitch.md (4 KB, added 2m ago): /var/lib/restless-owner-attachments/00000000-0000-0000-0000-000000000001/pitch.md".into(),
+        ];
+        let package = assemble(&uploaded);
+        assert!(package.system_prompt.contains("# Files the owner added to the Library"));
+        assert!(package.system_prompt.contains("- pitch.md (4 KB, added 2m ago): /var/lib/restless-owner-attachments/"));
     }
 
     #[test]

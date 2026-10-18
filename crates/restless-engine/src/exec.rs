@@ -1533,8 +1533,40 @@ async fn gather_snapshot(
             })
             .collect()
     };
+    // Files the owner added to the Library on their own, not in a message. Exec could not find
+    // them (18 October): only a message's attachments reached it.
+    let library_uploads = org
+        .owner_attachment_retention_page("owner", None, 40, false, Some("owner"))
+        .await
+        .map(|page| {
+            page.attachments
+                .into_iter()
+                .filter(|row| {
+                    row.message_id.is_none()
+                        && row.staging_finished_at.is_some()
+                        && row.purge_requested_at.is_none()
+                        && row.purged_at.is_none()
+                })
+                .take(25)
+                .map(|row| {
+                    let directory =
+                        format!("/var/lib/restless-owner-attachments/{}", row.attachment_id);
+                    let path = crate::runtime::owner_attachment_alias(&row.canonical_name)
+                        .map(|alias| format!("{directory}/{alias}"))
+                        .unwrap_or_else(|| format!("{directory}/content"));
+                    let size = match row.size_bytes {
+                        bytes if bytes >= 1024 * 1024 => format!("{:.1} MB", bytes as f64 / 1_048_576.0),
+                        bytes if bytes >= 1024 => format!("{} KB", bytes / 1024),
+                        bytes => format!("{bytes} B"),
+                    };
+                    format!("{} ({size}, added {}): {path}", row.canonical_name, ago(row.created_at))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     Ok(ContextSnapshot {
         people_changes,
+        library_uploads,
         company: config.name.clone(),
         company_display: config
             .display_name
