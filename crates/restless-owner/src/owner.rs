@@ -11,6 +11,8 @@
 mod event_transport;
 #[path = "owner_accounting.rs"]
 mod accounting_api;
+#[path = "owner_accounts.rs"]
+mod accounts_api;
 #[path = "owner_appliance.rs"]
 mod appliance_api;
 #[path = "owner_agent_exchanges.rs"]
@@ -1340,6 +1342,18 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/connections",
             get(list_owner_connections).post(create_owner_connection),
         )
+        .route("/accounts", get(accounts_api::list).post(accounts_api::create))
+        .route(
+            "/accounts/{id}",
+            axum::routing::patch(accounts_api::update).delete(accounts_api::remove),
+        )
+        .route("/accounts/{id}/grants", post(accounts_api::grant))
+        .route(
+            "/accounts/{id}/grants/{grant}",
+            axum::routing::patch(accounts_api::update_grant).delete(accounts_api::remove_grant),
+        )
+        .route("/accounts/{id}/uses", get(accounts_api::uses))
+        .route("/companies/{company}/accounts", get(accounts_api::company))
         .route("/connections/import", post(import_owner_connection))
         .route("/connections/{connection}", axum::routing::delete(remove_owner_connection))
         .route(
@@ -2339,6 +2353,12 @@ async fn network_session_is_current(
     .map_err(Into::into)
 }
 
+fn is_company_accounts_read(path: &str) -> bool {
+    path.strip_prefix("/api/companies/")
+        .and_then(|rest| rest.split_once('/'))
+        .is_some_and(|(company, tail)| !company.is_empty() && tail == "accounts")
+}
+
 fn membership_boundary_violation(
     method: &Method,
     path: &str,
@@ -2378,6 +2398,9 @@ fn membership_boundary_violation(
                 || admin_reads_company_record(method, path)
                 || admin_deputy_route(method, path)))
         || is_company_route_family(path, "rooms")
+        // Everyone in a company sees which of the owner's accounts it may use (S98); the handler
+        // checks the company and returns grants only, never a credential.
+        || (method == Method::GET && is_company_accounts_read(path))
         // Chat lists, message search and reactions answer only from the
         // Rooms the caller takes part in.
         || is_company_route_family(path, "direct-conversations")

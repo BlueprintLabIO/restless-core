@@ -3,6 +3,7 @@
 //! harnesses and tools, and the coordination socket the CLI and actors use.
 //! The owner API (restless-owner) and the daemon binary sit on top of it.
 
+pub mod accounts;
 pub mod acp;
 pub mod activity;
 pub mod airwallex;
