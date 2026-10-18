@@ -163,10 +163,6 @@
 	box-shadow: var(--shadow-soft);
 }
 
-.bridge-root .tb-mark {
-	color: var(--intent-direction);
-}
-
 .bridge-root .tb-brand-home {
 	display: flex;
 	align-items: center;

@@ -1,6 +1,4 @@
 <script lang="ts">
-	import MatrixGlyph, { GLYPHS } from './MatrixGlyph.svelte';
-
 	/* The product signs its name in the pixel grid its marks already speak in.
 	 * Silkscreen is bitmap-derived and only resolves on integer multiples of its 8px
 	 * design size, so `size` should stay a multiple of 8.
@@ -10,12 +8,10 @@
 	let {
 		name = 'Restless',
 		size = 16,
-		mark = true,
 		restless = false
 	}: {
 		name?: string;
 		size?: number;
-		mark?: boolean;
 		restless?: boolean;
 	} = $props();
 
@@ -23,7 +19,6 @@
 </script>
 
 <span class="wordmark" class:restless style:--wm-size="{size}px">
-	{#if mark}<span class="wm-mark"><MatrixGlyph rows={GLYPHS.r} size={Math.round(size * 0.8)} glow /></span>{/if}
 	<span class="wm-name" role="img" aria-label={name}>
 		{#each letters as letter (letter.index)}
 			<span class="wm-letter" style:--wm-i={letter.index} aria-hidden="true">{letter.char}</span>
@@ -35,13 +30,8 @@
 	.wordmark {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.6em;
 		font-size: var(--wm-size);
 		color: inherit;
-	}
-	.wm-mark {
-		display: flex;
-		flex: 0 0 auto;
 	}
 	.wm-name {
 		display: inline-flex;

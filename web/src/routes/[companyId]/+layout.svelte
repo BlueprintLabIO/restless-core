@@ -1772,7 +1772,7 @@
 			{:else}
 				<section class="company-access-state cockpit-pane" role="status" aria-live="polite">
 					<span class="access-mark" aria-hidden="true"
-						><MatrixGlyph rows={GLYPHS.r} size={11} /></span
+						><MatrixGlyph rows={GLYPHS.dots} size={11} /></span
 					>
 					<p>{principal ? 'Opening your company workspace…' : 'Verifying company access…'}</p>
 				</section>

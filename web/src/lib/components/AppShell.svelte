@@ -29,6 +29,7 @@
 	import { resizePane } from '$lib/actions/resize-pane';
 	import Check from '@lucide/svelte/icons/check';
 	import Plus from '@lucide/svelte/icons/plus';
+	import LayoutGrid from '@lucide/svelte/icons/layout-grid';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
 	import SearchIcon from '@lucide/svelte/icons/search';
@@ -317,7 +318,6 @@
 	<header class="bridge-topbar" aria-label="Global navigation">
 		<div class="tb-brand">
 			<a class="tb-brand-home" href={homeHref} aria-label={`${PRODUCT_NAME} company home`}>
-				<span class="tb-mark"><MatrixGlyph rows={GLYPHS.r} size={13} glow /></span>
 				<span class="tb-name">{PRODUCT_NAME}</span>
 			</a>
 			<span class="tb-company-slash" aria-hidden="true">/</span>
@@ -332,7 +332,7 @@
 					</summary>
 					<div class="company-switcher-menu">
 						<a class="company-overview-link" href={homeHref}>
-							<MatrixGlyph rows={GLYPHS.r} size={8} />
+							<LayoutGrid size={14} strokeWidth={2} aria-hidden="true" />
 							<span><strong>All companies</strong></span>
 						</a>
 						<div class="company-switcher-rule" role="separator"></div>

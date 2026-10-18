@@ -19,7 +19,7 @@
 <div class="bridge-root error-root">
 	<main class="error-state">
 		<span class="error-mark" aria-hidden="true">
-			<MatrixGlyph rows={missing ? GLYPHS.r : GLYPHS.alert} size={12} />
+			<MatrixGlyph rows={GLYPHS.alert} size={12} />
 		</span>
 		<h1>{missing ? 'This page does not exist' : 'This page could not open'}</h1>
 		<p>

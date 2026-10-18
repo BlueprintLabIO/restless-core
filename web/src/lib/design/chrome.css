@@ -24,11 +24,6 @@
 	text-decoration: none;
 }
 
-.bridge-topbar .tb-mark {
-	flex: 0 0 auto;
-	display: flex;
-}
-
 /* The wordmark is set in the same pixel grid the MatrixGlyph marks already
  * speak in — the one place the product signs its name. It sits outside the type
  * ramp on purpose: Silkscreen is bitmap-derived and only resolves on integer
@@ -362,9 +357,11 @@
 }
 
 /* Tablet widths cannot hold the wordmark, four tabs and a labelled search;
- * the mark stays, and search keeps its icon with the shortcut in its tip. */
+ * the company switcher leads (its menu links home), and search keeps its icon
+ * with the shortcut in its tip. */
 @media (min-width: 761px) and (max-width: 1100px) {
-	.bridge-topbar .tb-name,
+	.bridge-topbar .tb-brand-home,
+	.bridge-topbar .tb-company-slash,
 	.bridge-root .tb-search-label,
 	.bridge-root .tb-search kbd {
 		display: none;
@@ -383,7 +380,8 @@
 		padding-inline: 10px;
 	}
 
-	.bridge-topbar .tb-name,
+	.bridge-topbar .tb-brand-home,
+	.bridge-topbar .tb-company-slash,
 	.bridge-topbar .tb-tabs,
 	.bridge-root .tb-search-label,
 	.bridge-root .tb-search kbd {
@@ -512,10 +510,4 @@
 
 .bridge-root .bridge-content:focus {
 	outline: none;
-}
-
-@media (min-width: 1101px) {
-	.bridge-topbar .tb-mark {
-		display: none;
-	}
 }
