@@ -187,3 +187,10 @@ These describe the accepted outcomes. A story row alone is not completion eviden
 | US-334 | core | I want a row's ⋯ menu to open on the next click after something else hid it. | 41530c78 | popover hidden externally, then clicked once |
 | US-335 | core | I want Settings → Accounts named Accounts everywhere, since it holds website logins, keys and browser sign-ins as well as AI accounts. | e0b6be8b | tab title and hints |
 | US-336 | full | I want to add a website login once, sign in by hand in its own browser, give a company access, and see the agent ask before it acts, with 2FA codes coming to my Inbox. | S98-04/11 | planned accounts journey on a fake local site with a password and TOTP |
+| US-337 | core | I want Work that runs for hours to keep its model and tools to the end, not stop at "capability expired". | 7eedfd82 | capability test: Work grants outlast a long attempt |
+| US-338 | core | I want a price I write, like A$500, to reach a Work title as written. | 33e3a129 | agent instructions quote titles |
+| US-339 | core | I want Exec's Apps search to find what matches any of my words, and to say when part of the directory was unreadable. | 8ae2d88c | `app_catalogue::search` test |
+| US-340 | core | I want a website login to read as signed in only once the site stops asking for a password. | 562a65b8 | identity browser e2e: consent cookie beside a password field |
+| US-341 | core | When my AI credit runs out or a model refuses its key, I want an Inbox card that says so, with Top up and Use another account. | 98c1e837 | `a_refused_company_model_reaches_the_inbox_with_a_way_out` |
+| US-342 | core | I want an agent that needs a site login to ask me in the Inbox, and "Add it" to open Add account for that site. | 2fc4b526, b5183b46 | `restless apps ask-account`; account request deep link |
+| US-343 | full | As a self-hosting owner, I want a member whose session lapsed to land back on their page, and to reach Settings › Accounts from the account site. | 28f90a3b, 270ff2b4 | multiplayer smoke: admin re-entry, Logins and keys, website-login flow |
