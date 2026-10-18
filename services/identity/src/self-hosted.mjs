@@ -23,6 +23,8 @@ const AUTH_ROUTES = new Set([
 ]);
 const ASSETS = new Map([
   ["/", ["index.html", "text/html; charset=utf-8"]],
+  // Core sends a signed-out page load to the issuer's /account (Cloud's Home); here it is this page.
+  ["/account", ["index.html", "text/html; charset=utf-8"]],
   ["/app.js", ["app.js", "text/javascript; charset=utf-8"]],
   ["/style.css", ["style.css", "text/css; charset=utf-8"]],
 ]);

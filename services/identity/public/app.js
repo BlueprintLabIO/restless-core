@@ -1,7 +1,10 @@
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 let invitation = params.get("invite");
-let selectedCompany = params.get("company");
+/* Core sends a signed-out page load here as /account?return=/<company>/<page>: enter that company
+ * again and land on the same page. */
+const returnTo = /^\/[^/]/.test(params.get("return") ?? "") ? params.get("return") : null;
+let selectedCompany = params.get("company") ?? (returnTo ? decodeURIComponent(returnTo.split(/[/?#]/)[1]) : null);
 let refreshVersion = 0;
 let mode = params.has("token") ? "reset" : "sign-in";
 function message(id, text) {
@@ -220,6 +223,13 @@ $("enter-company").addEventListener("click", () =>
     token.name = "assertion";
     token.value = entry.assertion;
     form.append(token);
+    if (returnTo && returnTo.split(/[/?#]/)[1] === encodeURIComponent(selectedCompany ?? "")) {
+      const landing = document.createElement("input");
+      landing.type = "hidden";
+      landing.name = "return_to";
+      landing.value = returnTo;
+      form.append(landing);
+    }
     document.body.append(form);
     form.submit();
   }),
