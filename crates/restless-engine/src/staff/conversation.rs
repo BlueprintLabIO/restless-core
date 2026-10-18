@@ -585,7 +585,7 @@ pub async fn dispatch_actor_conversation(
     .await?;
     let billings = candidates
         .iter()
-        .map(|model| crate::model_gateway::billing_for_model(model))
+        .map(|model| crate::model_gateway::billing_for_company_model(config, model))
         .collect::<Result<Vec<_>>>()?;
     let budget = runtime.spend.budget_state(config);
     if conversation_waits_for_metered_budget(budget.is_available(), &billings) {

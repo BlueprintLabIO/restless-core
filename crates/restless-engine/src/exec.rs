@@ -1573,7 +1573,7 @@ async fn gather_snapshot(
 /// and its list price: the facts behind the Exec's labour-for-tokens choices.
 /// Built from the same resolution the Runtime uses to start an actor.
 async fn staffing_routes(org: &OrgIntel, config: &CompanyConfig) -> String {
-    use crate::model_gateway::{billing_for_model, ModelBilling};
+    use crate::model_gateway::ModelBilling;
     let Ok(actors) = org.list_actors().await else {
         return "(unavailable this wake; `restless people` shows each actor's model)".into();
     };
@@ -1631,7 +1631,7 @@ async fn staffing_routes(org: &OrgIntel, config: &CompanyConfig) -> String {
         if !users.is_empty() {
             notes.push(format!("used by {}", users.join(", ")));
         }
-        let billing = match billing_for_model(&model) {
+        let billing = match crate::model_gateway::billing_for_company_model(config, &model) {
             Ok(ModelBilling::Subscription) => {
                 "subscription: no per-turn charge, shares the account's rate limits".to_string()
             }

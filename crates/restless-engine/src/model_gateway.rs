@@ -311,6 +311,8 @@ pub fn provider_fingerprint(configs: &[CompanyConfig]) -> String {
 #[derive(Clone)]
 pub struct ClientConfig {
     providers: BTreeMap<String, ModelBilling>,
+    /// Where company configs live, to read a company's own binding on a dual provider.
+    root: std::path::PathBuf,
     runtime_url: String,
 }
 
@@ -340,7 +342,22 @@ impl ClientConfig {
         attempt_id: Option<uuid::Uuid>,
     ) -> Result<AgentGatewayAuth> {
         let (provider, _) = split_model(model)?;
-        let billing = self.billing_for(model)?;
+        if sign_in_unavailable(provider)
+            && crate::runtime::CompanyConfig::load(&self.root, company)
+                .map(|config| company_billing(&config, provider) == ModelBilling::Subscription)
+                .unwrap_or(true)
+        {
+            bail!(
+                "this company uses the account's {provider} sign-in, which could not be loaded; reconnect it in Account → Connections"
+            );
+        }
+        let billing = if is_dual_provider(provider) {
+            crate::runtime::CompanyConfig::load(&self.root, company)
+                .map(|config| company_billing(&config, provider))
+                .unwrap_or(ModelBilling::Subscription)
+        } else {
+            self.billing_for(model)?
+        };
         Ok(AgentGatewayAuth {
             token_env: MODEL_CAPABILITY_ENV.to_string(),
             token: capabilities.issue_model_session(
@@ -764,12 +781,24 @@ pub async fn start(
     let mut provider_credentials = provider_credentials(configs).await?;
     for provider in account_oauth {
         match provider_credentials.get(&provider) {
-            Some(ProviderCredential::ApiKey(_)) => bail!(
-                "account OAuth connection for {provider} conflicts with a company API key; choose one credential before starting the gateway"
-            ),
-            Some(ProviderCredential::OmpOauth) => {},
+            Some(existing @ ProviderCredential::ApiKey(_)) => {
+                let Some(merged) = existing.merged(&ProviderCredential::OmpOauth, &provider) else {
+                    bail!(
+                        "account OAuth connection for {provider} conflicts with a company API key; choose one credential before starting the gateway"
+                    );
+                };
+                provider_credentials.insert(provider, merged);
+            }
+            Some(ProviderCredential::OmpOauth | ProviderCredential::OauthWithApiKey(_)) => {},
             None => { provider_credentials.insert(provider, ProviderCredential::OmpOauth); },
         }
+    }
+    if let Ok(mut dual) = DUAL_PROVIDERS.write() {
+        *dual = provider_credentials
+            .iter()
+            .filter(|(_, credential)| matches!(credential, ProviderCredential::OauthWithApiKey(_)))
+            .map(|(provider, _)| provider.clone())
+            .collect();
     }
     let broker_only = provider_credentials.is_empty();
     if broker_only {
@@ -887,13 +916,46 @@ pub async fn start(
             );
         }
     }
-    let unadmitted = reconcile_credentials(
+    let mut unadmitted = reconcile_credentials(
         &http,
         &broker_token,
         &endpoints.broker_url,
         &provider_credentials,
     )
     .await?;
+    // A sign-in that will not load must not take the API key down with it: the key carries on
+    // alone, and companies bound to the sign-in are refused at grant time (`auth_for`).
+    let mut lost_sign_in = BTreeSet::new();
+    for provider in unadmitted.clone() {
+        let Some(ProviderCredential::OauthWithApiKey(key)) = provider_credentials.get(&provider).cloned() else {
+            continue;
+        };
+        let fallback = BTreeMap::from([(provider.clone(), ProviderCredential::ApiKey(key.clone()))]);
+        let loaded = http
+            .post(format!("{}/v1/credential", endpoints.broker_url))
+            .bearer_auth(&broker_token)
+            .json(&serde_json::json!({
+                "provider": provider,
+                "credential": { "type": "api_key", "key": key }
+            }))
+            .send()
+            .await
+            .is_ok_and(|response| response.status().is_success());
+        if loaded
+            && reconcile_credentials(&http, &broker_token, &endpoints.broker_url, &fallback)
+                .await?
+                .is_empty()
+        {
+            tracing::warn!(provider, "account sign-in unavailable; the API key serves its companies alone");
+            provider_credentials.insert(provider.clone(), ProviderCredential::ApiKey(key));
+            unadmitted.remove(&provider);
+            lost_sign_in.insert(provider);
+        }
+    }
+    if let (Ok(mut dual), Ok(mut lost)) = (DUAL_PROVIDERS.write(), SIGN_IN_UNAVAILABLE.write()) {
+        dual.retain(|provider| !lost_sign_in.contains(provider));
+        *lost = lost_sign_in;
+    }
     provider_credentials.retain(|provider, _| !unadmitted.contains(provider));
     if provider_credentials.is_empty() {
         remember_loaded(provider_credentials.keys().cloned().collect(), None);
@@ -1021,6 +1083,7 @@ pub async fn start(
         (Ok(mut client), Ok(mut hosted)) => {
             *client = Some(ClientConfig {
                 providers,
+                root: root.to_path_buf(),
                 runtime_url: endpoints.relay_runtime_url.clone(),
             });
             *hosted = Some(relay_state);
@@ -1171,7 +1234,9 @@ async fn reconcile_credentials(
             ProviderCredential::ApiKey(expected_key) => {
                 canonical_api_key_credential(&snapshot, provider, expected_key)
             }
-            ProviderCredential::OmpOauth => canonical_oauth_credential(&snapshot, provider),
+            ProviderCredential::OmpOauth | ProviderCredential::OauthWithApiKey(_) => {
+                canonical_oauth_credential(&snapshot, provider)
+            }
         };
         let (keep_id, superseded_ids) = match canonical {
             Ok(canonical) => canonical,
@@ -1208,7 +1273,9 @@ async fn reconcile_credentials(
                 ProviderCredential::ApiKey(expected_key) => {
                     active[0].api_key() == Some(expected_key.as_str())
                 }
-                ProviderCredential::OmpOauth => active[0].is_oauth(),
+                ProviderCredential::OmpOauth | ProviderCredential::OauthWithApiKey(_) => {
+                    active[0].is_oauth()
+                }
             };
         if !matches {
             tracing::warn!(
@@ -1297,8 +1364,32 @@ struct DirectResponsesRoute {
 
 #[derive(Clone)]
 struct DirectAnthropicRoute {
+    /// The owner's API key, sent straight to Anthropic, for companies billed per token.
+    api: Option<(String, String)>,
+    /// The account's Claude sign-in through OMP's translated gateway, for subscription companies.
+    oauth: Option<(String, String)>,
+}
+
+/// The one credential a request may use, chosen by the company's billing in its capability.
+struct ResolvedAnthropicRoute {
     base_url: String,
     credential: AnthropicRouteCredential,
+}
+
+impl DirectAnthropicRoute {
+    fn for_billing(&self, billing: &str) -> Option<ResolvedAnthropicRoute> {
+        match billing {
+            "metered_api" => self.api.as_ref().map(|(base_url, key)| ResolvedAnthropicRoute {
+                base_url: base_url.clone(),
+                credential: AnthropicRouteCredential::ApiKey(key.clone()),
+            }),
+            "subscription" => self.oauth.as_ref().map(|(base_url, token)| ResolvedAnthropicRoute {
+                base_url: base_url.clone(),
+                credential: AnthropicRouteCredential::AccountOauth(token.clone()),
+            }),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -1441,12 +1532,16 @@ fn direct_anthropic_routes(
     gateway_token: &str,
 ) -> Result<BTreeMap<String, DirectAnthropicRoute>> {
     let mut routes = BTreeMap::new();
-    if let Some(ProviderCredential::OmpOauth) = credentials.get("anthropic") {
-        routes.insert("anthropic".to_string(), DirectAnthropicRoute {
-            base_url: format!("{}/v1", gateway_url.trim_end_matches('/')),
-            credential: AnthropicRouteCredential::AccountOauth(gateway_token.to_owned()),
-        });
-    } else if let Some(ProviderCredential::ApiKey(api_key)) = credentials.get("anthropic") {
+    let (oauth, api_key) = match credentials.get("anthropic") {
+        Some(ProviderCredential::OmpOauth) => (true, None),
+        Some(ProviderCredential::ApiKey(key)) => (false, Some(key)),
+        Some(ProviderCredential::OauthWithApiKey(key)) => (true, Some(key)),
+        None => (false, None),
+    };
+    let oauth = oauth.then(|| {
+        (format!("{}/v1", gateway_url.trim_end_matches('/')), gateway_token.to_owned())
+    });
+    if let Some(api_key) = api_key {
         let mut url = reqwest::Url::parse(
             &std::env::var("RESTLESS_ANTHROPIC_BASE_URL")
                 .unwrap_or_else(|_| "https://api.anthropic.com/v1".to_string()),
@@ -1466,10 +1561,12 @@ fn direct_anthropic_routes(
         routes.insert(
             "anthropic".to_string(),
             DirectAnthropicRoute {
-                base_url: url.as_str().trim_end_matches('/').to_string(),
-                credential: AnthropicRouteCredential::ApiKey(api_key.clone()),
+                api: Some((url.as_str().trim_end_matches('/').to_string(), api_key.clone())),
+                oauth,
             },
         );
+    } else if oauth.is_some() {
+        routes.insert("anthropic".to_string(), DirectAnthropicRoute { api: None, oauth });
     }
     Ok(routes)
 }
@@ -1613,6 +1710,14 @@ async fn relay_pi_stream(
             )
         }
     };
+    if billing == ModelBilling::MeteredApi && is_dual_provider(provider) {
+        // The broker holds this provider's account sign-in; a per-token company is served by
+        // the Messages relay with its own key, so nothing it sends is billed to the sign-in.
+        return relay_error(
+            StatusCode::FORBIDDEN,
+            "this company's API key is served by the Messages route, not the account sign-in",
+        );
+    }
     if billing == ModelBilling::MeteredApi {
         let budget = state.spend.budget_state(&config);
         if !budget.is_available() {
@@ -1992,6 +2097,12 @@ async fn relay_anthropic_messages(
             "provider has no admitted Anthropic Messages contract",
         );
     };
+    let Some(route) = route.for_billing(&grant.billing) else {
+        return relay_error(
+            StatusCode::FORBIDDEN,
+            "model billing does not match the admitted Anthropic connection",
+        );
+    };
     let encoded = match serde_json::to_vec(&request) {
         Ok(encoded) => encoded,
         Err(_) => return relay_error(StatusCode::BAD_REQUEST, "could not encode model request"),
@@ -2136,6 +2247,12 @@ async fn relay_anthropic_count_tokens(
             "provider has no admitted Anthropic Messages contract",
         );
     };
+    let Some(route) = route.for_billing(&grant.billing) else {
+        return relay_error(
+            StatusCode::FORBIDDEN,
+            "model billing does not match the admitted Anthropic connection",
+        );
+    };
     let encoded = match serde_json::to_vec(&request) {
         Ok(encoded) => encoded,
         Err(_) => return relay_error(StatusCode::BAD_REQUEST, "could not encode token count"),
@@ -2275,6 +2392,17 @@ fn detach_metered_stream(
 }
 
 fn bearer_capability(headers: &HeaderMap) -> std::result::Result<&str, String> {
+    if headers.get(AUTHORIZATION).is_none() {
+        // An Anthropic Messages client carries its key as `x-api-key`; here that key is the
+        // same scoped capability, verified the same way.
+        if let Some(token) = headers
+            .get("x-api-key")
+            .and_then(|value| value.to_str().ok())
+            .filter(|token| !token.is_empty())
+        {
+            return Ok(token);
+        }
+    }
     let raw = headers
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
@@ -3347,7 +3475,12 @@ pub async fn import_codex_oauth(
     Ok(())
 }
 
-pub fn models_config(model: &str, runtime_url: &str, token_env: &str) -> Result<String> {
+pub fn models_config(
+    model: &str,
+    runtime_url: &str,
+    token_env: &str,
+    billing: ModelBilling,
+) -> Result<String> {
     let (provider, model_id) = split_model(model)?;
     if !provider
         .bytes()
@@ -3368,6 +3501,15 @@ pub fn models_config(model: &str, runtime_url: &str, token_env: &str) -> Result<
     });
     if !recognised_runtime_relay || token_env != MODEL_CAPABILITY_ENV {
         bail!("refusing an unrecognised model gateway route");
+    }
+    if provider == "anthropic" && billing == ModelBilling::MeteredApi && is_dual_provider(provider) {
+        // The broker's Anthropic credential is the account sign-in, so this per-token company
+        // goes to the relay's Messages route, which sends its own API key to Anthropic.
+        let id = serde_json::to_string(&runtime_model_id(model_id))?;
+        return Ok(format!(
+            "# Managed by Restless. Contains a gateway route, never a provider credential.\n\
+providers:\n  anthropic:\n    baseUrl: {runtime_url}\n    apiKey: {token_env}\n    api: anthropic-messages\n    models:\n      - id: {id}\n        name: {id}\n"
+        ));
     }
     let api = if matches!(provider, "moonshot" | "zai" | "zhipu-coding-plan") {
         // Moonshot and GLM expose these ACP-compatible routes as Chat
@@ -3412,14 +3554,88 @@ providers:\n  {provider}:\n    baseUrl: {runtime_url}\n    apiKey: {token_env}\n
 enum ProviderCredential {
     ApiKey(String),
     OmpOauth,
+    /// Anthropic only: the account's Claude sign-in (held by the broker, for companies granted it)
+    /// and an API key (held by the relay alone, for companies that chose it). Each company is
+    /// billed by its own binding; an API-key company never reaches the broker's sign-in.
+    OauthWithApiKey(String),
 }
 
 impl ProviderCredential {
     fn billing(&self) -> ModelBilling {
         match self {
             Self::ApiKey(_) => ModelBilling::MeteredApi,
-            Self::OmpOauth => ModelBilling::Subscription,
+            Self::OmpOauth | Self::OauthWithApiKey(_) => ModelBilling::Subscription,
         }
+    }
+
+    /// Two companies' credentials for one provider, if the gateway can hold both: the same
+    /// credential, or Anthropic's sign-in beside one API key.
+    fn merged(&self, other: &Self, provider: &str) -> Option<Self> {
+        if self == other {
+            return Some(self.clone());
+        }
+        if provider != "anthropic" {
+            return None;
+        }
+        match (self, other) {
+            (Self::ApiKey(key), Self::OmpOauth) | (Self::OmpOauth, Self::ApiKey(key)) => {
+                Some(Self::OauthWithApiKey(key.clone()))
+            }
+            (Self::OauthWithApiKey(held), Self::ApiKey(key))
+            | (Self::ApiKey(key), Self::OauthWithApiKey(held))
+                if held == key =>
+            {
+                Some(Self::OauthWithApiKey(held.clone()))
+            }
+            (Self::OauthWithApiKey(held), Self::OmpOauth)
+            | (Self::OmpOauth, Self::OauthWithApiKey(held)) => Some(Self::OauthWithApiKey(held.clone())),
+            _ => None,
+        }
+    }
+}
+
+/// Providers whose companies may be billed either way, by each company's own binding.
+static DUAL_PROVIDERS: std::sync::LazyLock<RwLock<BTreeSet<String>>> =
+    std::sync::LazyLock::new(|| RwLock::new(BTreeSet::new()));
+
+/// Dual providers whose account sign-in could not be loaded this start: the API key carries on
+/// alone, and a company bound to the sign-in is refused rather than billed to the key.
+static SIGN_IN_UNAVAILABLE: std::sync::LazyLock<RwLock<BTreeSet<String>>> =
+    std::sync::LazyLock::new(|| RwLock::new(BTreeSet::new()));
+
+fn sign_in_unavailable(provider: &str) -> bool {
+    SIGN_IN_UNAVAILABLE.read().is_ok_and(|providers| providers.contains(provider))
+}
+
+fn is_dual_provider(provider: &str) -> bool {
+    DUAL_PROVIDERS.read().is_ok_and(|dual| dual.contains(provider))
+}
+
+/// How this company pays for this model: by its own binding where the provider holds both.
+fn company_billing(config: &CompanyConfig, provider: &str) -> ModelBilling {
+    let reference = config
+        .credentials
+        .get(&format!("model.inference.{provider}"))
+        .or_else(|| {
+            config
+                .model
+                .starts_with(&format!("{provider}/"))
+                .then(|| config.credentials.get("model.inference"))
+                .flatten()
+        });
+    match reference.map(|reference| crate::credential::omp_oauth_provider(reference)) {
+        Some(Ok(None)) => ModelBilling::MeteredApi,
+        _ => ModelBilling::Subscription,
+    }
+}
+
+/// `billing_for_model`, for one company: where the provider holds both a sign-in and a key, the
+/// company's own binding decides.
+pub fn billing_for_company_model(config: &CompanyConfig, model: &str) -> Result<ModelBilling> {
+    let billing = billing_for_model(model)?;
+    match split_model(model) {
+        Ok((provider, _)) if is_dual_provider(provider) => Ok(company_billing(config, provider)),
+        _ => Ok(billing),
     }
 }
 
@@ -3554,11 +3770,12 @@ async fn provider_credentials(
                 },
             };
             if let Some(existing) = credentials.get(provider) {
-                if existing != &credential {
+                let Some(merged) = existing.merged(&credential, provider) else {
                     bail!(
                         "V0 model gateway refuses different {provider} credentials across companies; separate provider custody before multi-account use"
                     );
-                }
+                };
+                credentials.insert(provider.to_string(), merged);
             } else {
                 credentials.insert(provider.to_string(), credential);
             }
@@ -3840,6 +4057,105 @@ async fn wait_for_gateway(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn dual_company(name: &str, reference: &str) -> CompanyConfig {
+        toml::from_str(&format!(
+            "name = \"{name}\"\nmission = \"\"\nmodel = \"anthropic/claude-sonnet-5-5\"\n\n[credentials]\n\"model.inference.anthropic\" = \"{reference}\"\n"
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn an_anthropic_sign_in_and_api_key_are_held_together_and_nothing_else_is() {
+        let key = ProviderCredential::ApiKey("sk-ant-key".into());
+        let both = ProviderCredential::OauthWithApiKey("sk-ant-key".into());
+        assert_eq!(key.merged(&ProviderCredential::OmpOauth, "anthropic"), Some(both.clone()));
+        assert_eq!(ProviderCredential::OmpOauth.merged(&key, "anthropic"), Some(both.clone()));
+        assert_eq!(both.merged(&key, "anthropic"), Some(both.clone()));
+        assert_eq!(both.merged(&ProviderCredential::OmpOauth, "anthropic"), Some(both.clone()));
+        // Two different keys, or any other provider, stay refused as before.
+        assert_eq!(both.merged(&ProviderCredential::ApiKey("other".into()), "anthropic"), None);
+        assert_eq!(key.merged(&ProviderCredential::ApiKey("other".into()), "anthropic"), None);
+        assert_eq!(key.merged(&ProviderCredential::OmpOauth, "openai-codex"), None);
+    }
+
+    #[test]
+    fn each_company_is_billed_by_its_own_anthropic_binding() {
+        let signed_in = dual_company("signed_in_test", "omp-oauth:anthropic");
+        let keyed = dual_company("keyed_test", "env:ANTHROPIC_API_KEY");
+        assert_eq!(company_billing(&signed_in, "anthropic"), ModelBilling::Subscription);
+        assert_eq!(company_billing(&keyed, "anthropic"), ModelBilling::MeteredApi);
+    }
+
+    #[test]
+    fn the_relay_route_hands_each_billing_only_its_own_credential() {
+        let credentials = BTreeMap::from([(
+            "anthropic".to_string(),
+            ProviderCredential::OauthWithApiKey("sk-ant-key".into()),
+        )]);
+        let routes = direct_anthropic_routes(&credentials, "http://127.0.0.1:9", "gateway-token").unwrap();
+        let route = &routes["anthropic"];
+        match route.for_billing("metered_api").unwrap().credential {
+            AnthropicRouteCredential::ApiKey(key) => assert_eq!(key, "sk-ant-key"),
+            AnthropicRouteCredential::AccountOauth(_) => panic!("a per-token company reached the sign-in"),
+        }
+        match route.for_billing("subscription").unwrap().credential {
+            AnthropicRouteCredential::AccountOauth(token) => assert_eq!(token, "gateway-token"),
+            AnthropicRouteCredential::ApiKey(_) => panic!("a subscription company reached the API key"),
+        }
+        assert!(route.for_billing("native_api_unmetered").is_none());
+        // A key alone still has no sign-in route, and a sign-in alone no key route.
+        let key_only = direct_anthropic_routes(
+            &BTreeMap::from([("anthropic".to_string(), ProviderCredential::ApiKey("k".into()))]),
+            "http://127.0.0.1:9",
+            "t",
+        )
+        .unwrap();
+        assert!(key_only["anthropic"].for_billing("subscription").is_none());
+        let oauth_only = direct_anthropic_routes(
+            &BTreeMap::from([("anthropic".to_string(), ProviderCredential::OmpOauth)]),
+            "http://127.0.0.1:9",
+            "t",
+        )
+        .unwrap();
+        assert!(oauth_only["anthropic"].for_billing("metered_api").is_none());
+    }
+
+    #[test]
+    fn the_relay_accepts_its_capability_as_an_anthropic_api_key() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-api-key", "capability-token".parse().unwrap());
+        assert_eq!(bearer_capability(&headers).unwrap(), "capability-token");
+        headers.insert(AUTHORIZATION, "Bearer bearer-token".parse().unwrap());
+        assert_eq!(bearer_capability(&headers).unwrap(), "bearer-token");
+    }
+
+    #[test]
+    fn a_per_token_company_on_a_dual_provider_talks_messages_to_the_relay() {
+        if let Ok(mut dual) = DUAL_PROVIDERS.write() {
+            dual.insert("anthropic".to_string());
+        }
+        let keyed = models_config(
+            "anthropic/claude-sonnet-5-5",
+            RELAY_RUNTIME_URL,
+            MODEL_CAPABILITY_ENV,
+            ModelBilling::MeteredApi,
+        )
+        .unwrap();
+        assert!(keyed.contains("api: anthropic-messages"));
+        assert!(!keyed.contains("pi-native"));
+        let signed_in = models_config(
+            "anthropic/claude-sonnet-5-5",
+            RELAY_RUNTIME_URL,
+            MODEL_CAPABILITY_ENV,
+            ModelBilling::Subscription,
+        )
+        .unwrap();
+        assert!(signed_in.contains("transport: pi-native"));
+        if let Ok(mut dual) = DUAL_PROVIDERS.write() {
+            dual.remove("anthropic");
+        }
+    }
     static FINGERPRINT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     struct OAuthProbeServer {
@@ -4270,7 +4586,7 @@ mission = "Choose native intelligence"
     #[test]
     fn runtime_model_config_contains_only_the_narrow_gateway_route() {
         let config =
-            models_config("moonshot/kimi-k3", RELAY_RUNTIME_URL, MODEL_CAPABILITY_ENV).unwrap();
+            models_config("moonshot/kimi-k3", RELAY_RUNTIME_URL, MODEL_CAPABILITY_ENV, ModelBilling::Subscription).unwrap();
         assert!(config.contains("\n  moonshot:\n    baseUrl:"));
         assert!(config.contains("transport: pi-native"));
         assert!(config.contains("api: openai-completions"));
@@ -4295,25 +4611,25 @@ mission = "Choose native intelligence"
         assert!(models_config(
             "moonshot\nheaders/kimi-k3",
             RELAY_RUNTIME_URL,
-            MODEL_CAPABILITY_ENV
+            MODEL_CAPABILITY_ENV, ModelBilling::Subscription
         )
         .is_err());
         assert!(models_config(
             "moonshot/kimi-k3",
             "https://example.invalid",
-            MODEL_CAPABILITY_ENV
+            MODEL_CAPABILITY_ENV, ModelBilling::Subscription
         )
         .is_err());
         assert!(models_config(
             "moonshot/kimi-k3",
             "http://host.docker.internal:17790/v1",
-            MODEL_CAPABILITY_ENV
+            MODEL_CAPABILITY_ENV, ModelBilling::Subscription
         )
         .is_err());
         assert!(models_config(
             "moonshot/kimi-k3",
             "http://host.docker.internal:17790",
-            MODEL_CAPABILITY_ENV
+            MODEL_CAPABILITY_ENV, ModelBilling::Subscription
         )
         .is_ok());
     }
@@ -4323,7 +4639,7 @@ mission = "Choose native intelligence"
         let config = models_config(
             "litellm/gpt-5.6-sol",
             RELAY_RUNTIME_URL,
-            MODEL_CAPABILITY_ENV,
+            MODEL_CAPABILITY_ENV, ModelBilling::Subscription
         )
         .unwrap();
         assert!(config.contains("\n  litellm:\n    baseUrl:"));
@@ -4336,7 +4652,7 @@ mission = "Choose native intelligence"
     #[test]
     fn runtime_pins_an_admitted_model_missing_from_the_bundled_catalogue() {
         let config =
-            models_config("zai/glm-5.3-flash", RELAY_RUNTIME_URL, MODEL_CAPABILITY_ENV).unwrap();
+            models_config("zai/glm-5.3-flash", RELAY_RUNTIME_URL, MODEL_CAPABILITY_ENV, ModelBilling::Subscription).unwrap();
         assert!(config.contains("    discovery:\n      type: proxy\n"));
         assert!(config.contains("    modelOverrides:\n      glm-5.3-flash:\n"));
         assert!(config.contains("        input: [text, image]\n"));
@@ -4351,7 +4667,7 @@ mission = "Choose native intelligence"
         let config = models_config(
             "zhipu-coding-plan/glm-5.3-flash",
             RELAY_RUNTIME_URL,
-            MODEL_CAPABILITY_ENV,
+            MODEL_CAPABILITY_ENV, ModelBilling::Subscription
         )
         .unwrap();
         assert!(config.contains("\n  zhipu-coding-plan:\n    baseUrl:"));
@@ -4660,6 +4976,7 @@ mission = "Choose native intelligence"
         let (issuer, _spend, _state) = test_relay_state(&root);
         let client = ClientConfig {
             providers: BTreeMap::from([("moonshot".into(), ModelBilling::MeteredApi)]),
+            root: std::path::PathBuf::new(),
             runtime_url: RELAY_RUNTIME_URL.into(),
         };
         let work_id = uuid::Uuid::new_v4();

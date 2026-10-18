@@ -315,21 +315,8 @@ pub(super) async fn start_claude_login(
             None => return api_error(StatusCode::CONFLICT, "connections", "The existing Claude account identity cannot be verified. Restore that connection before reconnecting."),
         }
     } else { None };
-    let companies = match crate::configured_companies(&state.daemon.root) {
-        Ok(companies) => companies,
-        Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "Could not check company connections."),
-    };
-    for company in companies {
-        let Ok(config) = runtime::CompanyConfig::load(&state.daemon.root, &company) else {
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "Could not check company connections.");
-        };
-        let current = config.credentials.get("model.inference.anthropic").or_else(|| {
-            config.model.starts_with("anthropic/").then(|| config.credentials.get("model.inference")).flatten()
-        });
-        if current.is_some_and(|reference| credential::omp_oauth_provider(reference).ok().flatten() != Some("anthropic")) {
-            return api_error(StatusCode::CONFLICT, "connections", "A company already uses a different Anthropic credential. Change that company connection before adding account sign-in.");
-        }
-    }
+    // A company on an Anthropic API key keeps it: the gateway holds the account sign-in beside
+    // it, and each company is billed by its own binding.
     let (program, profile) = match model_gateway::oauth_login_command() {
         Ok(command) => command,
         Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The model sign-in helper is unavailable on this host."),

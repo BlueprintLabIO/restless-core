@@ -790,6 +790,7 @@ pub async fn prepare_agent_runtime(
             &auth.model,
             &auth.gateway_url,
             &auth.gateway_token_env,
+            auth.billing,
         )?;
         write_private_container_file(
             container,
