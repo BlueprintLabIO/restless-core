@@ -28,7 +28,10 @@ const REFRESH_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
 const RETRY_AFTER_FAILURE: Duration = Duration::from_secs(30 * 60);
 const MANUAL_REFRESH_COOLDOWN: Duration = Duration::from_secs(30);
 /// The registry pages by cursor; this bounds one refresh (100 servers a page).
-const MAX_REGISTRY_PAGES: usize = 40;
+/// A bound on one refresh, not a statement about the registry: past it the listings already read
+/// are complete enough to browse, so reaching it is logged, not shown as a failure (the registry
+/// passed 40 pages in October and every Apps page warned of a refresh failure).
+const MAX_REGISTRY_PAGES: usize = 150;
 const MAX_SUMMARY: usize = 240;
 
 /// One thing Apps can offer. `kind` is `mcp` (added by its address) or `skill` (installed as
@@ -341,11 +344,14 @@ async fn fetch_registry(client: &reqwest::Client) -> Result<(Vec<CatalogueItem>,
     if items.is_empty() {
         bail!("the MCP Registry listed no servers with a remote address");
     }
-    let error = cursor.map(|_| {
-        "The registry exceeded this refresh's 40-page limit; available listings are shown."
-            .to_string()
-    });
-    Ok((items.into_values().collect(), error))
+    if cursor.is_some() {
+        tracing::info!(
+            listings = items.len(),
+            pages = MAX_REGISTRY_PAGES,
+            "MCP Registry refresh stopped at its page bound; the listings read are shown"
+        );
+    }
+    Ok((items.into_values().collect(), None))
 }
 
 /// The servers on one registry page that Apps can add: active, with an https remote address.
