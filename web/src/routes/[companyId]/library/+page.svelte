@@ -574,10 +574,14 @@
 				return url;
 			} catch (cause) {
 				const status = (cause as { status?: number }).status;
+				const detail = cause instanceof Error ? cause.message : String(cause);
 				throw new LibraryOpenError(
-					status === 404
-						? 'This file could not be read from the company computer. If it is asleep, try again in a moment.'
-						: failureSentence(cause, 'This file could not be opened.'),
+					/* Before kept files had their own volume, replacing the computer lost them. */
+					/absent/i.test(detail)
+						? 'This file is no longer on the company computer: an earlier update lost it. Upload it again to keep it.'
+						: status === 404
+							? 'This file could not be read from the company computer. If it is asleep, try again in a moment.'
+							: failureSentence(cause, 'This file could not be opened.'),
 					cause instanceof Error ? cause.message : String(cause)
 				);
 			}
