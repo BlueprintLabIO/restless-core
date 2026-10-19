@@ -2,4 +2,4 @@
 	import AccountSectionPage from '$lib/components/AccountSectionPage.svelte';
 </script>
 
-<AccountSectionPage id="appliance" />
+<AccountSectionPage id="this-computer" />

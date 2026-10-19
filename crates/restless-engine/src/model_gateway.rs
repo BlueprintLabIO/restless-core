@@ -5939,16 +5939,16 @@ mission = "Choose native intelligence"
                 axum::http::Response::builder().status(status).body(body.to_owned()).unwrap(),
             )
         };
-        let relay = r#"{"error":{"code":"ai_credit_exhausted","message":"AI credit is used up. Top up to continue: https://app.restless.run/account/settings#billing"}}"#;
+        let relay = r#"{"error":{"code":"ai_credit_exhausted","message":"AI credit is used up. Top up to continue: https://app.restless.run/account/settings/billing"}}"#;
         let message = refusal_message(StatusCode::PAYMENT_REQUIRED, refusal(402, relay), "test/model").await;
         assert_eq!(
             message,
-            "402 AI credit is used up. Top up to continue: https://app.restless.run/account/settings#billing"
+            "402 AI credit is used up. Top up to continue: https://app.restless.run/account/settings/billing"
         );
         // It reads as a quota block, owner action required, and keeps the link.
         let blocked = crate::health::classify_provider_error(&message).expect("classified");
         assert_eq!(blocked.kind, crate::health::BlockKind::Quota);
-        assert!(blocked.message().contains("account/settings#billing"));
+        assert!(blocked.message().contains("account/settings/billing"));
         // Other refusals, and a 402 without a readable message, keep the plain words.
         assert_eq!(
             refusal_message(StatusCode::FORBIDDEN, refusal(403, relay), "test/model").await,

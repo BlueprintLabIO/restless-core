@@ -3773,17 +3773,13 @@ async fn consume_account_entry_assertion(
     let cookie_name = session_cookie_name(&network);
     let value = entered_session_cookie_value(&state.sessions, &headers, &cookie_name, &identity, &token);
     let cookie = format!("{cookie_name}={value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}", ttl.as_secs());
-    // An account page the owner was opening is where they land; only these exact pages are
-    // accepted, so a return can never point anywhere else.
-    let account_return = request
-        .return_to
-        .as_deref()
-        .filter(|path| matches!(*path, "/account/connections" | "/account/ai-apps" | "/account/appearance"));
+    // On Cloud's one address the account service opens this session in the background before it
+    // mounts this plane's account sections (Cloud ADR 0008), so a form entry only ever opens a
+    // company's settings.
     let mut response = if form_post {
         Redirect::to(&request.target_company.as_ref()
             .map(|company| format!("/{company}/company"))
-            .or_else(|| account_return.map(str::to_owned))
-            .unwrap_or_else(|| "/account/connections".to_owned())).into_response()
+            .unwrap_or_else(|| "/account/settings/accounts".to_owned())).into_response()
     } else {
         Json(serde_json::json!({"entered": true, "account": true})).into_response()
     };
@@ -4559,7 +4555,7 @@ async fn list_owner_connections(State(state): State<OwnerState>, Extension(princ
         "connections": connections,
         "included_providers": included_model_providers(&state.daemon.root),
         "scope": if account_owner { "account" } else { "company" },
-        "manage_url": "/account/connections",
+        "manage_url": "/account/settings/accounts",
     })).into_response()
 }
 

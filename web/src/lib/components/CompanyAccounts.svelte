@@ -134,7 +134,7 @@
 >
 	{#snippet actions()}
 		{#if isOwner}
-			<a class="btn small" href="/account/connections">Manage in Settings</a>
+			<a class="btn small" href="/account/settings/accounts">Manage in Settings</a>
 		{:else if canRequest && available}
 			<button class="btn primary small" onclick={() => (asking ? (asking = null) : openAsk(null))}
 				>{asking && !asking.account ? 'Cancel' : 'Request an account'}</button

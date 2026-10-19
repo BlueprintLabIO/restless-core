@@ -51,7 +51,7 @@ export async function readAccountConnections(
 		connections: body.connections ?? [],
 		includedProviders: body.included_providers ?? [],
 		scope: body.scope === 'company' ? 'company' : 'account',
-		manageUrl: body.manage_url ?? '/account/connections'
+		manageUrl: body.manage_url ?? '/account/settings/accounts'
 	};
 }
 

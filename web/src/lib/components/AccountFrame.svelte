@@ -1,21 +1,19 @@
 <script lang="ts">
-	/* The frame every non-company page shares, after Firecrawl's. The rail is the same on every
-	 * page: Home, the owner's companies, then Settings and Help, with the owner's menu at the foot.
-	 * A settings page lists settings' own sections in the page (`settings` receives them). On Cloud
-	 * the account service owns Profile, Security, Plan and Support, so they sit in the same list
-	 * (ADR 0007). Locally the account is this computer, so the menu says which appliance it is. */
-	import { readAccountConnections } from '$lib/model/account-connections';
+	/* The frame every non-company page shares, after Firecrawl's, when this plane draws its own
+	 * account pages: a computer of its own, or an account service at an address of its own. The rail
+	 * is the same on every page: Home, the owner's companies, then Settings, with the owner's menu at
+	 * the foot. A settings page lists settings' own sections in the page (`settings` receives them).
+	 * On Cloud's one address the account service draws every account page instead (Cloud ADR 0008). */
 	import type { Snippet } from 'svelte';
 	import { page } from '$app/state';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import AccountShell from '$lib/ui/views/AccountShell.svelte';
 	import House from '@lucide/svelte/icons/house';
 	import Settings from '@lucide/svelte/icons/settings';
-	import CircleHelp from '@lucide/svelte/icons/circle-help';
 	import type { AccountGroup, AccountTab } from '$lib/ui/account';
 	import { planeLabel, type ApplianceStatus } from '$lib/model/appliance';
 	import { applianceQuery, companiesQuery } from '$lib/model/queries.svelte';
-	import { forgetThisBrowser } from '$lib/model/sign-out';
+	import { ACCOUNT_SECTIONS, type AccountSectionId } from '$lib/model/account-sections';
 	import CommandMenu, { type Command } from '$lib/components/CommandMenu.svelte';
 
 	let {
@@ -33,64 +31,31 @@
 	const identity = applianceQuery(() => !appliance);
 	const status = $derived(appliance ?? identity.view);
 	const profile = $derived(planeLabel(status));
-	/* On a hosted plane, Home (the one company list) and the account service's sections are on the
-	 * account issuer. */
+	/* An account service at an address of its own keeps Home, the one company list. */
 	const home = $derived(status?.home_url ?? '/');
-	const issuer = $derived(status?.home_url ? new URL(status.home_url).origin : null);
-	/* Cloud's account pages (Profile, Security, Plan, Support) live on the issuer at this same
-	 * address; a self-hosted account service has its own address and none of them. */
-	const cloudPages = $derived(issuer && issuer === page.url.origin ? issuer : null);
-
-	/* The account pages the issuer returns to after entry (Cloud's accountReturn). */
-	const ACCOUNT_RETURNS = new Set(['/account/connections', '/account/appearance']);
-	$effect(() => {
-		const accountHome = status?.home_url;
-		const path = page.url.pathname;
-		if (!status?.hosted || !accountHome || !ACCOUNT_RETURNS.has(path)) return;
-		const controller = new AbortController();
-		void readAccountConnections(controller.signal)
-			.catch(() => null)
-			.then((body) => {
-				if (body?.scope !== 'company') return;
-				// Once per page and minute, so a failed entry cannot loop.
-				const key = `account-reentry:${path}`;
-				try {
-					const last = Number(sessionStorage.getItem(key) ?? 0);
-					if (Date.now() - last < 60_000) return;
-					sessionStorage.setItem(key, String(Date.now()));
-				} catch {
-					return;
-				}
-				const target = new URL(accountHome);
-				target.searchParams.set('return', path);
-				location.replace(target);
-			})
-			.catch(() => {
-				// The page still works as the company's view.
-			});
-		return () => controller.abort();
-	});
+	/* Release and backup are this computer's own; a hosted plane has none to show. */
+	const sectionIds = $derived<AccountSectionId[]>([
+		'accounts',
+		'computers',
+		'appearance',
+		...(status && !status.hosted ? (['this-computer'] as const) : [])
+	]);
 
 	const catalog = companiesQuery();
 	const path = $derived(page.url.pathname);
-	const settings = $derived(path.startsWith('/account'));
-	const own = (label: string, href: string): AccountTab => ({ label, href, active: path === href });
-	const issued = (label: string, hash: string): AccountTab[] =>
-		cloudPages ? [{ label, href: `${cloudPages}/account/settings#${hash}` }] : [];
+	const own = (id: AccountSectionId): AccountTab => ({
+		label: ACCOUNT_SECTIONS[id].title,
+		href: ACCOUNT_SECTIONS[id].href,
+		active: path === ACCOUNT_SECTIONS[id].href
+	});
 
 	const tabs = $derived<AccountTab[]>([
-		{
-			label: 'Home',
-			href: home,
-			active: path === '/',
-			tooltip: 'Your companies',
-			icon: House
-		}
+		{ label: 'Home', href: home, active: path === '/', tooltip: 'Your companies', icon: House }
 	]);
 	const groups = $derived<AccountGroup[]>([
 		{
 			label: 'Companies',
-			/* On Cloud a company is made on the account's own page; locally, Home makes it. */
+			/* With an account service a company is made on its Home; locally, Home makes it. */
 			action: {
 				label: 'New company',
 				href: status?.hosted && status.home_url ? `${status.home_url}#new-company` : '/'
@@ -112,21 +77,11 @@
 			items: [
 				{
 					label: 'Settings',
-					href: '/account/connections',
-					active: settings,
-					tooltip: 'Accounts and appearance',
+					href: ACCOUNT_SECTIONS.accounts.href,
+					active: path.startsWith('/account/settings'),
+					tooltip: 'Accounts, computers and appearance',
 					icon: Settings
-				},
-				...(cloudPages
-					? [
-							{
-								label: 'Help',
-								href: `${cloudPages}/account/settings#support`,
-								tooltip: 'Support for entry and service health',
-								icon: CircleHelp
-							}
-						]
-					: [])
+				}
 			]
 		}
 	]);
@@ -146,40 +101,20 @@
 				href: `/${encodeURIComponent(company.id)}`
 			})),
 		{ id: 'home', group: 'Go to', label: 'Home', hint: 'Your companies', href: home },
-		{ id: 'connections', group: 'Settings', label: 'Accounts', href: '/account/connections' },
-		{ id: 'computers', group: 'Settings', label: 'Computers', href: '/account/computers' },
-		{ id: 'appearance', group: 'Settings', label: 'Appearance', href: '/account/appearance' },
-		...(status && !status.hosted
-			? [
-					{
-						id: 'appliance',
-						group: 'Settings',
-						label: 'This computer',
-						hint: 'Release and backup',
-						href: '/account/appliance'
-					}
-				]
-			: [])
+		...sectionIds.map((id) => ({
+			id,
+			group: 'Settings',
+			label: ACCOUNT_SECTIONS[id].title,
+			href: ACCOUNT_SECTIONS[id].href
+		}))
 	]);
 	/* Settings' own list, shown in the page beside the section. */
 	const settingsNav = $derived<AccountGroup[]>([
-		{
-			label: 'Account',
-			items: [
-				...issued('Profile', 'account'),
-				...issued('Security', 'security'),
-				own('Appearance', '/account/appearance')
-			]
-		},
-		...(cloudPages ? [{ label: 'Billing', items: issued('Plan & credit', 'billing') }] : []),
-		{
-			label: 'Integrations',
-			items: [own('Accounts', '/account/connections'), own('Computers', '/account/computers')]
-		},
-		...(status && !status.hosted
-			? [{ label: 'This computer', items: [own('Release and backup', '/account/appliance')] }]
-			: []),
-		...(cloudPages ? [{ label: 'Help', items: issued('Support', 'support') }] : [])
+		{ label: 'Account', items: [own('appearance')] },
+		{ label: 'Integrations', items: [own('accounts'), own('computers')] },
+		...(sectionIds.includes('this-computer')
+			? [{ label: 'This computer', items: [own('this-computer')] }]
+			: [])
 	]);
 </script>
 
@@ -196,17 +131,7 @@
 		}}
 	>
 		{#snippet accountMenu()}
-			<a href="/account/connections">Settings</a>
-			{#if cloudPages}
-				<!-- The account's own page: a full load, so the edge sends it to the account, not this plane. -->
-				<a href={`${issuer}/account/settings#support`} data-sveltekit-reload>Support</a>
-				{#if issuer === page.url.origin}
-					<hr />
-					<form method="POST" action="/account?/signOut" onsubmit={forgetThisBrowser}>
-						<button>Sign out</button>
-					</form>
-				{/if}
-			{/if}
+			<a href={ACCOUNT_SECTIONS.accounts.href}>Settings</a>
 		{/snippet}
 		{#if settingsPage}{@render settingsPage(settingsNav)}{:else}{@render children?.()}{/if}
 	</AccountShell>

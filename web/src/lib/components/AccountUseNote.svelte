@@ -22,7 +22,7 @@
 		/** Under a chat message: the action is the line; no label. */
 		compact?: boolean;
 	} = $props();
-	const href = $derived(`/account/connections?account=${encodeURIComponent(use.account.id)}`);
+	const href = $derived(`/account/settings/accounts?account=${encodeURIComponent(use.account.id)}`);
 	const action = $derived(
 		[use.action, use.target ? `“${use.target}”` : ''].filter(Boolean).join(' ')
 	);

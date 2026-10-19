@@ -168,6 +168,10 @@
 	--primary: var(--intent-conversation);
 	--primary-edge: color-mix(in srgb, var(--intent-conversation) 70%, #0d1626);
 	--on-primary: #fff;
+	/* The one primary button's fill. Its own name: a host such as Cloud may already mean something
+	 * else by --primary. */
+	--fill-primary: var(--intent-conversation);
+	--on-fill-primary: #fff;
 	--tooltip-bg: rgba(24, 30, 43, 0.94);
 	--tooltip-ink: #f4f6fa;
 	--canvas-glow: rgba(156, 149, 203, 0.07);
@@ -231,8 +235,10 @@
  * (canvas < pane < raised < menu), borders become light at low alpha,
  * shadows deepen and the lit top edge dims to a hairline. Intent colours
  * shift lighter and less saturated so they keep their meaning on dark
- * without glowing. Resolved on <html data-theme> before first paint. */
-:root[data-theme='dark'] :is(.bridge-root, .bridge-tokens) {
+ * without glowing. Resolved on <html data-theme> before first paint, which may itself be the
+ * token root (a host page that puts .bridge-tokens on <html>). */
+:root[data-theme='dark'] :is(.bridge-root, .bridge-tokens),
+:root[data-theme='dark']:is(.bridge-root, .bridge-tokens) {
 	--bg-app: #0e1014;
 	--surface: rgba(24, 27, 33, 0.92);
 	--surface-alt: #1a1d23;
@@ -296,6 +302,8 @@
 	--primary: #4b6f9b;
 	--primary-edge: #5b80ad;
 	--on-primary: #fff;
+	--fill-primary: #4b6f9b; /* white reads 5:1 on it; the light conversation blue read 2:1 */
+	--on-fill-primary: #fff;
 	--tooltip-bg: rgba(238, 241, 246, 0.96);
 	--tooltip-ink: #14171d;
 	--canvas-glow: rgba(120, 110, 190, 0.07);

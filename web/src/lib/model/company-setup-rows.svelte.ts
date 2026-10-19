@@ -367,7 +367,7 @@ export function createCompanySetup(companyIdOf: () => string) {
 			capabilities.rows.splice(at + 1, 0, {
 				key: 'account-connections',
 				label: 'Model connections',
-				href: '/account/connections',
+				href: '/account/settings/accounts',
 				icon: LinkIcon,
 				todo: 0,
 				reading: 'Account',

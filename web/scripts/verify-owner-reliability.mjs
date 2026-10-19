@@ -170,7 +170,7 @@ try {
 				false
 			);
 			await page.goto(origin + '/account/ai-apps');
-			await page.waitForURL('**/account/connections');
+			await page.waitForURL('**/account/settings/accounts');
 			assert.equal(await page.getByRole('link', { name: 'AI apps', exact: true }).count(), 0);
 			assert.equal(
 				await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),

@@ -464,7 +464,7 @@ await journey('screens', async (page) => {
 	const opened = {};
 	for (const path of [
 		`/${company}/company/provider`,
-		'/account/connections',
+		'/account/settings/accounts',
 		`/${company}/company/vault`,
 		`/${company}/company/resources`,
 		`/${company}/company/doctor`,

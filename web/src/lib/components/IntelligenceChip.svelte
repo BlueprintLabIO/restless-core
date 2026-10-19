@@ -59,7 +59,11 @@
 	/* The slider shows where it is dragged; the saved effort once let go. */
 	let draftEffort = $state<number | null>(null);
 	const effortIndex = $derived(
-		draftEffort ?? Math.max(0, EFFORTS.findIndex((row) => row.value === agent?.thinking_effort))
+		draftEffort ??
+			Math.max(
+				0,
+				EFFORTS.findIndex((row) => row.value === agent?.thinking_effort)
+			)
 	);
 
 	$effect(() => {
@@ -201,7 +205,8 @@
 						>{/if}
 				</div>
 				{#if failure}<p class="failure" role="alert">{failure}</p>{/if}
-				<a class="more" href={`/${encodeURIComponent(companyId)}/company/provider`}>More settings</a>
+				<a class="more" href={`/${encodeURIComponent(companyId)}/company/provider`}>More settings</a
+				>
 			{/snippet}
 		</Popover>
 	</div>
@@ -264,7 +269,7 @@
 	.effort input {
 		width: 100%;
 		margin: 0;
-		accent-color: var(--primary, var(--intent-conversation));
+		accent-color: var(--fill-primary);
 		cursor: pointer;
 	}
 	.filter {
@@ -314,7 +319,7 @@
 	}
 	.models button :global(svg) {
 		flex: none;
-		color: var(--primary, var(--intent-conversation));
+		color: var(--fill-primary);
 	}
 	.models .older {
 		color: var(--text-tertiary);

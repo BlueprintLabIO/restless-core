@@ -93,7 +93,7 @@ export async function readReusableConnections(signal?: AbortSignal): Promise<Reu
 		includedProviders: body.included_providers ?? [],
 		scope,
 		manageUrl:
-			scope === 'company' ? (body.manage_url ?? '/account/connections') : '/account/connections',
+			scope === 'company' ? (body.manage_url ?? '/account/settings/accounts') : '/account/settings/accounts',
 		companies: companies.filter((row) => row.lifecycle_status === 'active')
 	};
 }

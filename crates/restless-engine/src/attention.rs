@@ -910,13 +910,14 @@ fn model_cooldown_items(config: &CompanyConfig, cooldowns: &[crate::authority::M
                 "anthropic" | "claude" => "Claude",
                 _ => "AI",
             };
-            // Only Restless's own billing page, never a link a provider wrote.
+            // Only Restless's own billing page, never a link a provider wrote. A relay from before
+            // settings had an address per section still says `/account/settings#billing`.
             let top_up = cooldown
                 .reason
                 .split_whitespace()
-                .find(|word| word.starts_with("https://") && word.contains("/account/settings#billing"))
-                .map(|word| word.trim_end_matches(|c: char| !c.is_ascii_alphanumeric()).to_string())
-                .map(|url| if url.ends_with("#billing") { url } else { format!("{url}#billing") });
+                .filter(|word| word.starts_with("https://"))
+                .find(|word| word.contains("/account/settings/billing") || word.contains("/account/settings#billing"))
+                .and_then(|word| word.find("/account/settings").map(|at| format!("{}/account/settings/billing", &word[..at])));
             let title = match (cooldown.kind.as_str(), credit) {
                 _ if usage => format!("Your {account} account hit its usage limit"),
                 (_, true) => "AI credit is used up".to_string(),
@@ -1169,7 +1170,7 @@ async fn account_items(
         item.recommendation = "Approve as asked, or approve with limits to choose the abilities, scope and caps.".into();
         item.requested_action = "Approve, approve with limits, or deny.".into();
         item.if_no_action = "The company goes without it.".into();
-        let mut href = format!("/account/connections?company={company}&request={}", request.id);
+        let mut href = format!("/account/settings/accounts?company={company}&request={}", request.id);
         // The site an agent named ("facebook.com: …"), so the card can fill in the sign-in page.
         let site = request
             .reason
@@ -4343,7 +4344,13 @@ mod tests {
         let item = &items[0];
         assert_eq!(item.title, "AI credit is used up");
         assert_eq!(item.what_happened, "402 AI credit is used up. Top up to continue: https://app.restless.run/account/settings#billing");
-        assert_eq!(item.actions[0].href.as_deref(), Some("https://app.restless.run/account/settings#billing"));
+        // The relay of the time said #billing; the button goes to the section's own address.
+        assert_eq!(item.actions[0].href.as_deref(), Some("https://app.restless.run/account/settings/billing"));
+        let current = model_cooldown_items(&config, &[cooldown(
+            "quota",
+            "[quota] 402 AI credit is used up. Top up to continue: https://app.restless.run/account/settings/billing",
+        )]);
+        assert_eq!(current[0].actions[0].href.as_deref(), Some("https://app.restless.run/account/settings/billing"));
         assert_eq!(item.actions[1].href.as_deref(), Some("/acme_test/company/provider"));
         // A link a provider wrote is never offered.
         let other = model_cooldown_items(&config, &[cooldown("quota", "[quota] 402 insufficient credits, see https://evil.example/pay")]);

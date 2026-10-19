@@ -28,7 +28,6 @@
 		type CompanyUse
 	} from '$lib/model/account-connections';
 	import { accountGrantFix } from '$lib/model/company-start';
-	import { page } from '$app/state';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import Field from '$lib/ui/forms/Field.svelte';
@@ -122,7 +121,7 @@
 		)
 	);
 	const accountScope = $derived(source.view?.scope ?? 'account');
-	const manageUrl = $derived(source.view?.manageUrl ?? '/account/connections');
+	const manageUrl = $derived(source.view?.manageUrl ?? '/account/settings/accounts');
 	/* Only the first load shows a skeleton; a background read keeps the page as it is. */
 	const loading = $derived(source.loading);
 	let actionError = $state('');
@@ -541,8 +540,8 @@
 	let deepLinkHandled = false;
 	$effect(() => {
 		if (deepLinkHandled || loading || !companies.length) return;
-		const companyId = page.url.searchParams.get('grant');
-		const connectionId = page.url.searchParams.get('connection');
+		const companyId = new URLSearchParams(location.search).get('grant');
+		const connectionId = new URLSearchParams(location.search).get('connection');
 		if (!companyId) return;
 		deepLinkHandled = true;
 		const item =
@@ -1024,10 +1023,11 @@
 	.page-head:not(:has(.btn)) {
 		display: none;
 	}
-	/* In Settings the action sits on the section title's line, as Other accounts' does. */
-	:global(.settings-section) > .account-connections > .page-head {
+	/* In Settings the action sits on the section title's line, as Other accounts' does: the title
+	 * is the frame's, 16px above the body, whichever app draws the frame. */
+	:global(.account-section-body) > .account-connections > .page-head {
 		position: absolute;
-		top: 11px;
+		top: -27px;
 		right: 0;
 		margin: 0;
 		transform: translateY(-50%);

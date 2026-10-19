@@ -5,7 +5,6 @@
 	 * grant per company, each edited in place: what the company may do (permissive by default,
 	 * the owner's choice), optional limits, and who. Secrets go in and never come back out. */
 	import { untrack } from 'svelte';
-	import { page } from '$app/state';
 	import AccountActivity from '$lib/components/AccountActivity.svelte';
 	import AccountSignIn from '$lib/components/AccountSignIn.svelte';
 	import { failureSentence } from '$lib/model/failure';
@@ -268,7 +267,7 @@
 	let pendingGrant = $state<{ company: string; request: string } | null>(null);
 	$effect(() => {
 		if (linked || !loaded) return;
-		const params = page.url.searchParams;
+		const params = new URLSearchParams(location.search);
 		const kind = params.get('kind') as AccountKind | null;
 		if (!params.get('account') && kind && ADDABLE.includes(kind) && params.get('request')) {
 			linked = true;

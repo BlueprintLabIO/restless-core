@@ -71,13 +71,13 @@
  * the same as Cloud's, so the product has one button. */
 :is(.bridge-root, .bridge-tokens) .btn.primary {
 	border-color: transparent;
-	background: var(--primary, var(--intent-conversation));
-	color: var(--on-primary, #fff);
+	background: var(--fill-primary);
+	color: var(--on-fill-primary);
 }
 
 :is(.bridge-root, .bridge-tokens) .btn.primary:hover:not(:disabled) {
 	border-color: transparent;
-	background: color-mix(in srgb, var(--primary, var(--intent-conversation)) 86%, black);
+	background: color-mix(in srgb, var(--fill-primary) 86%, black);
 }
 
 :is(.bridge-root, .bridge-tokens) .btn.danger {

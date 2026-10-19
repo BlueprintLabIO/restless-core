@@ -44,7 +44,7 @@
 				disabled={busy}
 				onclick={() => void run(op)}>{APPLIANCE_OPERATIONS[op].label}…</button
 			>{/each}
-		<a class="btn small ghost" href="/account/appliance">Details</a>
+		<a class="btn small ghost" href="/account/settings/this-computer">Details</a>
 	</span>
 {/if}
 

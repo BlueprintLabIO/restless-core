@@ -142,7 +142,7 @@
 				</div>
 			{:else if !owned.some((machine) => machine.kind === 'own')}
 				<p class="hint">
-					Want it to run at home or in your office? <a href="/account/computers"
+					Want it to run at home or in your office? <a href="/account/settings/computers"
 						>Add a computer of your own</a
 					>.
 				</p>

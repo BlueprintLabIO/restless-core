@@ -135,7 +135,7 @@
 				</header>
 				<ul class="home-account-list">
 					<li>
-						<a href="/account/appliance">
+						<a href="/account/settings/this-computer">
 							<strong>Last backup</strong>
 							<small class:warning={!backup}
 								>{backup

@@ -6,7 +6,8 @@
 	"packageManager": "npm@11.19.0",
 	"scripts": {
 		"dev": "vite dev",
-		"build": "vite build",
+		"build": "vite build && npm run build:plane-ui",
+		"build:plane-ui": "vite build -c vite.plane-ui.config.ts",
 		"preview": "vite preview",
 		"test": "node --test",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && npm run check:type && npm run check:ui && npm run check:document-search",

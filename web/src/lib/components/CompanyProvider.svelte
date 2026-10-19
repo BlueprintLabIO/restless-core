@@ -134,7 +134,7 @@
 	const reusableConnections = $derived(reusableSource.view?.connections ?? []);
 	/* Providers the plan's included AI serves; they take no key of the owner's own. */
 	const accountScope = $derived(reusableSource.view?.scope ?? 'account');
-	const manageUrl = $derived(reusableSource.view?.manageUrl ?? '/account/connections');
+	const manageUrl = $derived(reusableSource.view?.manageUrl ?? '/account/settings/accounts');
 	let accountActionError = $state('');
 	const accountError = $derived(
 		accountActionError ||
@@ -533,7 +533,7 @@
 		{#snippet actions()}
 			<a
 				class="btn small"
-				href="/account/connections"
+				href="/account/settings/accounts"
 				title="Sign-ins and API keys for AI models are added once, in your account, and then given to each company that should use them."
 				>{accountScope === 'account' ? 'Add in your account' : 'Accounts'}</a
 			>

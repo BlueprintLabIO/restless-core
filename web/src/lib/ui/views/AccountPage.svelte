@@ -198,9 +198,6 @@
 		outline: 2px solid var(--intent-conversation);
 		outline-offset: -2px;
 	}
-	.settings-section {
-		position: relative;
-	}
 	.settings-section h2 {
 		display: flex;
 		align-items: center;

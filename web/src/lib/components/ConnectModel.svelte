@@ -40,7 +40,7 @@
 	/* Keys belong to the account. Where the account lives on this computer a key can be pasted here;
 	 * on Cloud the account page holds them. */
 	let canPaste = $state(true);
-	let manageUrl = $state('/account/connections');
+	let manageUrl = $state('/account/settings/accounts');
 	let busy = $state(false);
 	let waiting = $state(false);
 	let failure = $state('');

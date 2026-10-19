@@ -249,8 +249,8 @@
 	padding: 10px 18px;
 	border: 1px solid transparent;
 	border-radius: var(--radius-control);
-	background: var(--primary, var(--intent-conversation));
-	color: var(--on-primary, #fff);
+	background: var(--fill-primary);
+	color: var(--on-fill-primary);
 	font: 600 var(--t-body) var(--font-ui);
 	cursor: pointer;
 	transition:
@@ -259,7 +259,7 @@
 }
 
 .bridge-root .computer-enter:hover:not(:disabled) {
-	background: color-mix(in srgb, var(--primary, var(--intent-conversation)) 86%, black);
+	background: color-mix(in srgb, var(--fill-primary) 86%, black);
 }
 
 .bridge-root .computer-enter:active:not(:disabled) {
