@@ -1122,6 +1122,48 @@ try {
     await coreApi(owner, `/api/accounts/${login.id}`, { method: "DELETE", expected: 204 });
     assert.deepEqual((await coreApi(alice, `${base}/accounts`)).grants, [], "a removed account leaves the company");
     pass("the owner enters Accounts from the account site; a browser sign-in is given to the company, its browser opens for the owner alone, and removing it removes it everywhere");
+
+    // 9m. Computers (S99): a code and one line, through the plane's real routes. The machine side
+    // here is a stand-in speaking the helper's protocol; the helper itself is proven against a
+    // Docker host in the engine's machines e2e.
+    const pairing = await coreApi(owner, "/api/machines/pairings", { method: "POST", body: { label: "Smoke PC" }, expected: 201 });
+    assert.match(pairing.code, /^[2-9A-Z]{4}-[2-9A-Z]{4}$/);
+    assert.ok(pairing.commands.unix.includes(`${core}/connect`), pairing.commands.unix);
+    const script = await fetch(`${core}/connect`);
+    assert.equal(script.status, 200);
+    assert.ok((await script.text()).includes(`PLANE="${core}"`), "the install script names this plane");
+    const facts = { hostname: "smoke-pc", os: "Ubuntu 24.04", arch: "x86_64", cpus: 4, memory_bytes: 8 * 1024 ** 3, docker_version: "27.0", helper_version: "smoke" };
+    const paired = await fetch(`${core}/machines/pair`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: pairing.code, facts }) });
+    assert.equal(paired.status, 200, await paired.clone().text());
+    const { machine_id: machineId, credential } = await paired.json();
+    const again = await fetch(`${core}/machines/pair`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: pairing.code, facts }) });
+    assert.equal(again.status, 403, "a code works once");
+    const WebSocket = createRequire(join(repo, "web/package.json"))("ws");
+    const strangerLink = new WebSocket(`${core.replace(/^http/, "ws")}/machines/link`, { headers: { Authorization: "Bearer not-a-credential-not-a-credential-0000" } });
+    await new Promise((resolve) => strangerLink.once("unexpected-response", (_, response) => { assert.equal(response.statusCode, 401); resolve(); }));
+    const link = new WebSocket(`${core.replace(/^http/, "ws")}/machines/link`, { headers: { Authorization: `Bearer ${credential}` } });
+    const settings = await new Promise((resolve, reject) => {
+      link.once("message", (data, binary) => (binary ? reject(new Error("binary first")) : resolve(JSON.parse(String(data)))));
+      link.once("error", reject);
+    });
+    assert.equal(settings.type, "settings");
+    assert.equal(settings.machine_id, machineId);
+    link.send(JSON.stringify({ type: "heartbeat", facts }));
+    await until(async () => {
+      const { machines } = await coreApi(owner, "/api/machines");
+      return machines.some((machine) => machine.id === machineId && machine.online && machine.facts.os === facts.os);
+    }, "the paired computer shows as connected");
+    await coreApi(alice, "/api/machines", { expected: 403 });
+    await coreApi(alice, "/api/machines/pairings", { method: "POST", body: {}, expected: 403 });
+    const closed = new Promise((resolve) => link.once("close", resolve));
+    await coreApi(owner, `/api/machines/${machineId}`, { method: "DELETE", expected: 204 });
+    await closed;
+    const afterRemoval = await fetch(`${core}/machines/pair`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: pairing.code, facts }) });
+    assert.equal(afterRemoval.status, 403);
+    const { machines: left } = await coreApi(owner, "/api/machines");
+    assert.ok(!left.some((machine) => machine.id === machineId), "a removed computer is gone");
+    pass("the owner added a computer with a code and one line; it linked, showed as connected, members were refused, and removing it closed the link");
+
     // Back into the company, as the owner would from the account site.
     await enterAccounts(owner);
     await owner.page.locator("#company").waitFor({ state: "visible" });
