@@ -194,3 +194,18 @@ These describe the accepted outcomes. A story row alone is not completion eviden
 | US-341 | core | When my AI credit runs out or a model refuses its key, I want an Inbox card that says so, with Top up and Use another account. | 98c1e837 | `a_refused_company_model_reaches_the_inbox_with_a_way_out` |
 | US-342 | core | I want an agent that needs a site login to ask me in the Inbox, and "Add it" to open Add account for that site. | 2fc4b526, b5183b46 | `restless apps ask-account`; account request deep link |
 | US-343 | full | As a self-hosting owner, I want a member whose session lapsed to land back on their page, and to reach Settings › Accounts from the account site. | 28f90a3b, 270ff2b4 | multiplayer smoke: admin re-entry, Logins and keys, website-login flow |
+
+## From the owner, 19 October — machines the owner holds, assigned to companies (S99)
+
+| ID | Tier | Story: I want … and I see … | Fix | Check |
+| --- | --- | --- | --- | --- |
+| US-344 | core | I want to add my own computer with a code and one line, and see it appear in Settings › Computers as connected, with its OS and memory. | S99-1/2/3 | machines e2e: pair a local Docker host, see it online |
+| US-345 | core | I want to remove a computer and have it cut off at once, with its code and credential useless afterwards. | S99-1 | machines e2e: removed credential refused, open connection closed |
+| US-346 | core | I want Restless to manage only its own containers on my computer, never my files or my other containers. | S99-2 | Docker filter tests: privileged, host mount, foreign container, unknown image, host endpoints all refused |
+| US-347 | core | I want to run a company's whole computer on my own machine, and move it back, without losing its files, kept files or history. | S99-4/5 | machines e2e: move a test company there and back, files read back |
+| US-348 | core | I want the desktop of any machine a company uses, from the same page, with the same observer/controller rules. | S99-3/6 | desktop over a `connect` stream; observer input refused |
+| US-349 | core | When a company's main computer is offline, I want the Inbox to say so and offer to move it back to the cloud. | S99-5 | attention item test |
+| US-350 | core | I want my own computers to cost nothing on my plan; only cloud computers count. | S99-1 | allowance test |
+| US-351 | core | I want Company › Computers to show every machine the company uses, what runs there now, and a Desktop button, while members see only their companies' machines. | S99-6 | multiplayer smoke: owner and member views |
+| US-352 | cloud | I want my cloud computer created in the region closest to me, chosen in set-up, so it is fast and never needs moving. | Cloud | Cloud smoke: wizard defaults to the nearest region |
+| US-353 | full | As Sydney Resale's owner, I want marketplace work to run on my home PC while everything else keeps running in the cloud when my PC is off. | S100 (step 2) | helper placement e2e |

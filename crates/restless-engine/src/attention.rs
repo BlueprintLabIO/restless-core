@@ -666,6 +666,52 @@ async fn account_headroom_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> a
         requested_action: "Add a fallback, or lighten the load.".into(),
         if_no_action: "Work continues until the limit, then waits for the reset.".into(),
         uncertainty: Some(format!("As reported by the account at {}.", window.observed_at.format("%H:%M UTC"))),
+/// The company's computer runs on one of the owner's machines, and that machine is offline or
+/// paused (S99, US-349): nothing runs until it is back.
+async fn machine_offline_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> anyhow::Result<Option<AttentionItem>> {
+    let main = crate::machines::main_machine(pool, &config.name).await?;
+    if main == crate::machines::PLANE_MACHINE {
+        return Ok(None);
+    }
+    let Some(machine) = crate::machines::get(pool, &main).await? else {
+        return Ok(None);
+    };
+    if machine.online && !machine.paused {
+        return Ok(None);
+    }
+    let since = machine
+        .last_seen_at
+        .map(|seen| format!(" since {}", seen.format("%H:%M UTC on %-d %b")))
+        .unwrap_or_default();
+    let what_happened = if machine.paused {
+        format!("{} is paused, so {} is paused too.", machine.label, config.name)
+    } else {
+        format!("{} has been offline{since}, so {} is paused.", machine.label, config.name)
+    };
+    Ok(Some(AttentionItem {
+        id: format!("authority:machine_offline:{}", machine.id),
+        work_id: None,
+        source: AttentionSource {
+            plane: "authority",
+            kind: "machine_offline".into(),
+            reference: machine.id.clone(),
+            party: None,
+            call_key: None,
+        },
+        category: "blocker".into(),
+        title: format!("{} is offline", machine.label),
+        what_happened,
+        why_it_matters: format!(
+            "{}'s computer runs on {}, so no one in the company can work until it is back.",
+            config.name, machine.label
+        ),
+        recommendation: format!(
+            "Turn {} on, or check Docker is running there. Its work carries on by itself when it reconnects.",
+            machine.label
+        ),
+        requested_action: "Bring the computer back online.".into(),
+        if_no_action: "Work, messages and schedules wait until the computer is back.".into(),
+        uncertainty: None,
         deadline: None,
         brief_status: "source-observed",
         brief_author: None,
@@ -685,6 +731,12 @@ async fn account_headroom_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> a
             consequence: "Opens the model and its fallbacks for this company.".into(),
             next_state: "When the account runs out, the next fallback takes over.".into(),
             href: Some(format!("/{}/company/provider", config.name)),
+            id: "open-company-computer".into(),
+            label: "See where it runs".into(),
+            role: "inspect",
+            consequence: "Opens this company's computer and the machines it uses.".into(),
+            next_state: "Move it to another computer there, once both are online.".into(),
+            href: Some(format!("/{}/company/computer", config.name)),
         }],
         can_continue: false,
         preparing: false,
@@ -3034,6 +3086,10 @@ async fn project_queue(
     match account_items(config, authority, &actors).await {
         Ok(accounts) => items.extend(accounts),
         Err(error) => tracing::warn!(%error, "account notices and requests unavailable"),
+    }
+    match machine_offline_item(config, authority.pool()).await {
+        Ok(offline) => items.extend(offline),
+        Err(error) => tracing::warn!(%error, "machine placement unavailable"),
     }
     if !items.iter().any(|item| item.source.kind == "exec_startup_blocked") {
         match authority.active_model_cooldowns(&config.name).await {

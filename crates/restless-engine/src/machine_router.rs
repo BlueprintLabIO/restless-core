@@ -74,6 +74,24 @@ pub fn local_socket() -> PathBuf {
     ROUTER.get().map(|router| router.local.clone()).unwrap_or_else(|| PathBuf::from(LOCAL_DOCKER))
 }
 
+/// A request without its API version, for a machine: the plane's Docker client negotiates its
+/// version with the plane's own daemon, and a machine's Docker may be older. Unversioned, each
+/// daemon answers in its own current API.
+fn unversioned(uri: &http::Uri) -> http::Uri {
+    let path = uri.path();
+    let stripped = path
+        .strip_prefix("/v")
+        .and_then(|rest| rest.find('/').map(|slash| (&rest[..slash], &rest[slash..])))
+        .filter(|(version, _)| !version.is_empty() && version.chars().all(|c| c.is_ascii_digit() || c == '.'))
+        .map(|(_, rest)| rest)
+        .unwrap_or(path);
+    let rebuilt = match uri.query() {
+        Some(query) => format!("{stripped}?{query}"),
+        None => stripped.to_string(),
+    };
+    rebuilt.parse().unwrap_or_else(|_| uri.clone())
+}
+
 pub fn socket_path() -> PathBuf {
     crate::runtime::state_root().join("docker-router.sock")
 }
@@ -213,7 +231,10 @@ impl Router {
             Err(refusal) => return refusal,
         };
         let upgrade = Some(hyper::upgrade::on(&mut request));
-        let (parts, body) = request.into_parts();
+        let (mut parts, body) = request.into_parts();
+        if matches!(target, Target::Machine(_)) {
+            parts.uri = unversioned(&parts.uri);
+        }
         let forwarded = Request::from_parts(parts, incoming(body));
         let response = match http_forward::forward_upgrading(&socket, forwarded, upgrade).await {
             Ok(response) => response,
@@ -255,6 +276,9 @@ impl Router {
             Err(refusal) => return refusal,
         };
         parts.headers.insert(http::header::CONTENT_LENGTH, HeaderValue::from(bytes.len()));
+        if matches!(target, Target::Machine(_)) {
+            parts.uri = unversioned(&parts.uri);
+        }
         let response = match http_forward::forward(&socket, Request::from_parts(parts, full(bytes))).await {
             Ok(response) => response,
             Err(error) => return message(StatusCode::BAD_GATEWAY, &format!("{error:#}")),
@@ -285,10 +309,10 @@ impl Router {
         sockets.extend(machines.iter().filter(|id| crate::machines::is_online(id)).map(|id| crate::machines::docker_socket(id)));
         let mut merged: Option<Value> = None;
         let mut first_parts = None;
-        for socket in sockets {
+        for (index, socket) in sockets.into_iter().enumerate() {
             let mut copy = Request::new(full(Bytes::new()));
             *copy.method_mut() = parts.method.clone();
-            *copy.uri_mut() = parts.uri.clone();
+            *copy.uri_mut() = if index == 0 { parts.uri.clone() } else { unversioned(&parts.uri) };
             *copy.headers_mut() = parts.headers.clone();
             let Ok(response) = http_forward::forward(&socket, copy).await else { continue };
             let (response_parts, body) = response.into_parts();
@@ -456,6 +480,16 @@ mod tests {
             router.create_target(Some("restless-browser"), &json!({ "HostConfig": { "NetworkMode": format!("container:{name}") } })),
             Target::Machine("m1".into())
         );
+    }
+
+    #[test]
+    fn a_machine_gets_requests_in_its_own_api_version() {
+        let uri: http::Uri = "/v1.52/containers/json?all=1".parse().unwrap();
+        assert_eq!(unversioned(&uri).to_string(), "/containers/json?all=1");
+        let uri: http::Uri = "/_ping".parse().unwrap();
+        assert_eq!(unversioned(&uri).to_string(), "/_ping");
+        let uri: http::Uri = "/volumes/v1.2".parse().unwrap();
+        assert_eq!(unversioned(&uri).to_string(), "/volumes/v1.2");
     }
 
     #[test]

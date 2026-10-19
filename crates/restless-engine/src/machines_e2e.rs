@@ -245,6 +245,47 @@ async fn a_paired_machine_runs_only_what_restless_may() {
     );
     assert!(ok && text == "plane", "plane port: {text}");
 
+    // A company moves there and back with its files (US-347), and while it is there every Docker
+    // call the plane makes for it goes to the machine.
+    crate::machine_router::start(pool.clone()).await.expect("router");
+    let company = "moving_test";
+    let workspace = crate::runtime::volume_name(company);
+    let kept = crate::runtime::attachments_volume_name(company);
+    let container = crate::runtime::container_name(company);
+    for (volume, file) in [(&workspace, "workspace"), (&kept, "kept")] {
+        must(&format!(
+            "docker volume create {volume} >/dev/null && docker run --rm -v {volume}:/v {COMPANY_IMAGE} sh -c 'echo {file} > /v/{file}.txt'"
+        ));
+    }
+    for volume in [&workspace, &kept] {
+        assert!(crate::machine_move::copy_volume(company, volume, machines::PLANE_MACHINE, &machine_id).await.expect("copy out"));
+    }
+    machines::assign(&pool, company, &machine_id, machines::ROLE_MAIN).await.unwrap();
+    crate::machine_router::refresh(&pool).await.unwrap();
+    let router = format!("DOCKER_HOST=unix://{} docker", crate::machine_router::socket_path().display());
+    must(&format!("{router} run -d --name {container} -v {workspace}:/company -v {kept}:/kept {COMPANY_IMAGE} sleep 600"));
+    let on_machine = must(&format!("docker exec {DIND} docker ps --format '{{{{.Names}}}}'"));
+    assert!(on_machine.contains(&container), "the company computer runs on the machine: {on_machine}");
+    assert!(!sh(&format!("docker -H unix:///var/run/docker.sock inspect {container} >/dev/null 2>&1")).0, "and not on the plane");
+    assert_eq!(must(&format!("{router} exec {container} cat /company/workspace.txt /kept/kept.txt")), "workspace\nkept");
+    must(&format!("{router} exec {container} sh -c 'echo changed there > /company/workspace.txt'"));
+    let listed = must(&format!("{router} ps --format '{{{{.Names}}}}'"));
+    assert!(listed.contains(&container), "the plane's lists include the machine: {listed}");
+    must(&format!("{router} stop --time 1 {container} >/dev/null"));
+    // And back: the plane's stale copy is replaced by the machine's.
+    for volume in [&workspace, &kept] {
+        assert!(crate::machine_move::copy_volume(company, volume, &machine_id, machines::PLANE_MACHINE).await.expect("copy back"));
+    }
+    machines::forget_company(&pool, company).await.unwrap();
+    crate::machine_router::refresh(&pool).await.unwrap();
+    must(&format!("{router} rm -f {container} >/dev/null 2>&1 || true"));
+    assert_eq!(
+        must(&format!("docker run --rm -v {workspace}:/v {COMPANY_IMAGE} cat /v/workspace.txt")),
+        "changed there"
+    );
+    must(&format!("docker exec {DIND} docker rm -f {container} >/dev/null 2>&1 || true"));
+    must(&format!("docker volume rm {workspace} {kept} >/dev/null"));
+
     // Removing the computer cuts it off: the link closes, the credential stops working, and the
     // helper forgets it.
     machines::remove(&pool, &machine_id).await.expect("remove the computer");

@@ -83,7 +83,7 @@ async fn volume_labels(machine: &str, volume: &str) -> Result<Option<Vec<String>
 
 /// Copy one named volume from one machine to another. The target's copy is replaced: it can only
 /// be a stale one, since the company's main computer is the source.
-async fn copy_volume(company: &str, volume: &str, from: &str, to: &str) -> Result<bool> {
+pub(crate) async fn copy_volume(company: &str, volume: &str, from: &str, to: &str) -> Result<bool> {
     let Some(labels) = volume_labels(from, volume).await? else {
         return Ok(false);
     };
