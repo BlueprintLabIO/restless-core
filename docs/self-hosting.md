@@ -152,3 +152,26 @@ remove it once the restored installation works.
 
 An archive restores only into the profile that created it, because database and
 volume names depend on that profile.
+
+## Run a company on another computer
+
+Settings › Computers lists where your companies run: this appliance, and any other computer you
+add. To add one, choose **Add a computer**. You get a one-time code (ten minutes, single use) and
+one line to paste into a terminal on that computer, for macOS and Linux or for Windows PowerShell.
+The computer needs Docker running.
+
+The line starts one container, `restless-machine`, that opens a single outbound connection to this
+appliance. Nothing listens on that computer and no port is opened. Through that connection Restless
+can manage only its own containers, volumes and networks there, named `restless-…` and labelled with
+that computer's id. It cannot read the computer's files, touch its other containers, run privileged
+containers, mount host paths or use the host network, and it never prunes anything. The company
+image comes from this appliance over the same connection, so no registry credential leaves it.
+
+To move a company, open the company › Computer › Where it runs and choose **Move to**. Work pauses,
+the workspace and kept files are copied, and the company starts on the new computer. The old copy is
+kept, stopped and renamed `…-moved-<time>`, until you remove it. Moves need both computers online.
+If anything fails, the company starts again where it was.
+
+A company whose computer is offline is paused, and its Inbox says so. **Pause** in Settings ›
+Computers stops new work there; **Remove** cuts the computer off at once and the helper forgets its
+pairing. Anything Restless left there stays for you to delete with Docker.
