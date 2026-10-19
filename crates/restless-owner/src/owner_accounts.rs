@@ -121,8 +121,95 @@ pub(super) async fn grant(
         }
     }
     match accounts::create_grant(state.daemon.authority.pool(), &id, input, principal.actor_id()).await {
-        Ok(grant) => (StatusCode::CREATED, Json(grant)).into_response(),
+        Ok(grant) => {
+            resolve_account_requests(&state, &grant.company).await;
+            (StatusCode::CREATED, Json(grant)).into_response()
+        }
         Err(error) => refuse(error),
+    }
+}
+
+/// The app names an account answers to when Exec or a lead asked for an app: its kind and its
+/// provider (`github`), as the app catalogue keys them.
+fn account_app_names(account: &accounts::Account) -> Vec<String> {
+    let mut names = vec![account.kind.clone()];
+    if let Some(provider) = account.provider.as_deref().filter(|provider| !provider.is_empty()) {
+        names.push(provider.to_string());
+    }
+    names.retain(|name| !matches!(name.as_str(), "api" | "website_login" | "browser_profile"));
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// An account the owner gave a company satisfies the app requests it answers (19 October: the
+/// owner granted their GitHub account in Settings › Accounts and Exec's "Add a GitHub token"
+/// request stayed open and overdue). Resolved as an observation, so the Work resumes.
+pub(crate) async fn resolve_account_requests(state: &OwnerState, company: &str) -> usize {
+    let pool = state.daemon.authority.pool();
+    let Ok(granted) = accounts::company_grants(pool, company).await else {
+        return 0;
+    };
+    let Ok(org) = state.daemon.orgintel.get(company).await else {
+        return 0;
+    };
+    let mut resolved = 0;
+    for (grant, account) in granted.iter().filter(|(grant, account)| !grant.frozen && !account.frozen) {
+        let names = account_app_names(account);
+        if names.is_empty() {
+            continue;
+        }
+        let Ok(requests) = org.app_requests_for(&names).await else { continue };
+        for id in requests {
+            let outcome = org
+                .resolve_observed_handoff(
+                    id,
+                    "daemon",
+                    &format!(
+                        "The owner gave the company their {} account ({}) in Settings › Accounts. Use it through the account broker.",
+                        account.label,
+                        account.identity.display.as_deref().unwrap_or(&account.kind)
+                    ),
+                )
+                .await;
+            match outcome {
+                Ok(true) => resolved += 1,
+                Ok(false) => {}
+                Err(error) => tracing::warn!(company, handoff = %id, grant = %grant.id, error = %error, "app request was not resolved by an account"),
+            }
+        }
+    }
+    resolved
+}
+
+#[cfg(test)]
+mod account_request_tests {
+    use super::*;
+
+    fn account(kind: &str, provider: Option<&str>) -> accounts::Account {
+        accounts::Account {
+            id: "a1".into(),
+            kind: kind.into(),
+            label: "GitHub".into(),
+            provider: provider.map(str::to_string),
+            identity: accounts::Identity { display: Some("yail259".into()), key: None },
+            personal: true,
+            health: "ok".into(),
+            frozen: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            credentials: Vec::new(),
+            grants: Vec::new(),
+            open_notices: 0,
+        }
+    }
+
+    #[test]
+    fn a_github_account_answers_a_request_for_github() {
+        assert_eq!(account_app_names(&account("github", None)), ["github"]);
+        assert_eq!(account_app_names(&account("api", Some("firecrawl"))), ["firecrawl"]);
+        // A website login names no app.
+        assert!(account_app_names(&account("website_login", None)).is_empty());
     }
 }
 

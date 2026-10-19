@@ -1304,6 +1304,18 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
 
     telegram_api::spawn(state.clone());
     notification_delivery_api::spawn_push(state.clone());
+    // Accounts granted before they resolved app requests still answer the ones left open.
+    {
+        let state = state.clone();
+        tokio::spawn(async move {
+            for company in crate::configured_companies(&state.daemon.root).unwrap_or_default() {
+                let resolved = accounts_api::resolve_account_requests(&state, &company).await;
+                if resolved > 0 {
+                    tracing::info!(%company, resolved, "granted accounts resolved open app requests");
+                }
+            }
+        });
+    }
     // Finish ownership handovers whose Authority half did not complete when the issuer's control
     // arrived, including across a restart. Only a shared company can have one.
     if state.entry.network().is_some() {
