@@ -1,36 +1,53 @@
-/* A model list a person can scan: the newest model of each family first, older versions folded
- * away, and a filter when a provider offers many (OpenRouter offers hundreds). The model in use
- * always stays in view. */
+/* A model list a person can scan: the newest releases first, older ones folded away, and a filter
+ * when a provider offers many (OpenRouter offers hundreds). The model in use always stays in view. */
 
 export type ModelChoice = { id: string; name: string; default?: boolean };
 
-/** "Claude Sonnet 5.5" → family "claude sonnet", version 5.5. Names without a version are their
- * own family at version 0. */
-export function family(name: string): { family: string; version: number } {
-	const match = name.trim().match(/^(.*?)[\s-]*(\d+(?:\.\d+)*)\s*([a-z-]*)$/i);
-	if (!match) return { family: name.trim().toLowerCase(), version: 0 };
-	const parts = match[2].split('.').map(Number);
-	const version = parts.reduce((total, part, index) => total + part / 1000 ** index, 0);
-	return { family: `${match[1]} ${match[3]}`.trim().toLowerCase(), version };
+/** How many of the newest releases show before "Older models". */
+export const LATEST_COUNT = 5;
+
+const ALIAS = /\s*\(\s*latest\s*\)|[\s-]+latest\b/gi;
+
+/** "Claude Opus 4.5 (latest)" → base "Claude Opus 4.5", version 4.5, an alias. The version is
+ * the first number in the name wherever it sits; dates (20250514) are not versions. A name with
+ * no version is version 0. */
+export function release(name: string): { base: string; version: number; alias: boolean } {
+	const trimmed = name.trim();
+	const alias = /\blatest\b/i.test(trimmed);
+	const base = trimmed.replace(ALIAS, '').replace(/\s+/g, ' ').trim();
+	let version = 0;
+	for (const match of base.matchAll(/(?<![\d.])(\d+(?:\.\d+){0,2})(?![\d.])/g)) {
+		const parts = match[1].split('.').map(Number);
+		if (parts[0] >= 1000) continue;
+		version = parts.reduce((total, part, index) => total + part / 1000 ** index, 0);
+		break;
+	}
+	return { base, version, alias };
 }
 
-/** Newest per family first (in the catalogue's order), then everything older. */
+/** The newest releases first (highest version, then the catalogue's order), then everything older.
+ * A "(latest)" alias of a model already listed is left out unless it is the one in use. */
 export function splitModels(
 	models: ModelChoice[],
-	current = ''
+	current = '',
+	count = LATEST_COUNT
 ): { latest: ModelChoice[]; older: ModelChoice[] } {
-	const newest = new Map<string, number>();
-	for (const model of models) {
-		const { family: name, version } = family(model.name || model.id);
-		newest.set(name, Math.max(newest.get(name) ?? -1, version));
+	const facts = models.map((model, index) => ({ model, index, ...release(model.name || model.id) }));
+	const named = new Map<string, (typeof facts)[number]>();
+	for (const fact of facts) {
+		const key = fact.base.toLowerCase();
+		const held = named.get(key);
+		if (!held || (held.alias && !fact.alias)) named.set(key, fact);
 	}
-	const latest: ModelChoice[] = [];
-	const older: ModelChoice[] = [];
-	for (const model of models) {
-		const { family: name, version } = family(model.name || model.id);
-		if (version === newest.get(name) || model.id === current || model.default) latest.push(model);
-		else older.push(model);
-	}
+	const kept = facts.filter(
+		(fact) => named.get(fact.base.toLowerCase()) === fact || fact.model.id === current
+	);
+	kept.sort((a, b) => b.version - a.version || a.index - b.index);
+	const ordered = kept.map((fact) => fact.model);
+	const latest = ordered.slice(0, count);
+	const older = ordered.slice(count);
+	const inUse = older.findIndex((model) => model.id === current);
+	if (inUse >= 0) latest.push(...older.splice(inUse, 1));
 	return { latest, older };
 }
 

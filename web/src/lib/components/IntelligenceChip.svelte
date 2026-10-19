@@ -51,7 +51,9 @@
 	let showOlder = $state(false);
 	const filtered = $derived(filterModels(choices, query));
 	const grouped = $derived(splitModels(filtered, current));
-	const shown = $derived(query || showOlder ? filtered : grouped.latest);
+	const shown = $derived(
+		query ? filtered : showOlder ? [...grouped.latest, ...grouped.older] : grouped.latest
+	);
 	let busy = $state(false);
 	let failure = $state('');
 	/* The slider shows where it is dragged; the saved effort once let go. */
