@@ -38,7 +38,9 @@ fn owner_only(principal: &RequestPrincipal) -> Option<Response<Body>> {
 
 /// The plane's own origin as the browser reached it, for the install line.
 fn plane_origin(headers: &HeaderMap) -> Option<String> {
-    let host = headers.get("x-forwarded-host").or_else(|| headers.get(HOST))?.to_str().ok()?;
+    // Cloud's edge sends an empty X-Forwarded-Host and names the plane in Host.
+    let named = |name: &str| headers.get(name).and_then(|value| value.to_str().ok()).filter(|value| !value.is_empty());
+    let host = named("x-forwarded-host").or_else(|| named(HOST.as_str()))?;
     if host.is_empty() || !host.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '[' | ']')) {
         return None;
     }
@@ -395,6 +397,9 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(HOST, HeaderValue::from_static("owner-ab12.restless.run"));
         headers.insert("x-forwarded-proto", HeaderValue::from_static("https"));
+        assert_eq!(plane_origin(&headers).as_deref(), Some("https://owner-ab12.restless.run"));
+        // As Cloud's edge sends it: an empty forwarded host beside the real one.
+        headers.insert("x-forwarded-host", HeaderValue::from_static(""));
         assert_eq!(plane_origin(&headers).as_deref(), Some("https://owner-ab12.restless.run"));
         headers.insert(HOST, HeaderValue::from_static("evil.example/$(rm -rf ~)"));
         assert_eq!(plane_origin(&headers), None);
