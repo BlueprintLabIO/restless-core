@@ -910,6 +910,11 @@ fn exec_owner_update(
     if let Some(blocked) = crate::health::classify_provider_error_content(&reply) {
         anyhow::bail!("Exec's final text was a provider error, not a reply: {blocked:?}");
     }
+    // The model gateway's own refusal (model_gateway.rs), e.g. an expired turn capability.
+    anyhow::ensure!(
+        !reply.starts_with("invalid model capability:"),
+        "Exec's final text was a model gateway refusal, not a reply"
+    );
     Ok(Some(reply))
 }
 
@@ -1551,6 +1556,11 @@ mod tests {
         assert!(exec_owner_update(
             Some("429 Rate limit exceeded: free-models-per-min.  retry-after-ms=54287"),
             true
+        )
+        .is_err());
+        assert!(exec_owner_update(
+            Some("invalid model capability: capability expired at 2026-10-19T16:34:09Z"),
+            false
         )
         .is_err());
     }

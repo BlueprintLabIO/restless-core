@@ -126,7 +126,8 @@ handoff template, message cadence, shared-state form, or teamwork state machine.
 
 Preserve more lead attention for supervision as worker count, duration, volatility, capability
 uncertainty, consequence or repair cost rises. Do not poll workers merely to look attentive; material
-events and artifacts wake useful supervision.
+events and artifacts wake useful supervision. Never wait inside a turn: no `sleep`, no repeated
+status reads while other Work runs. End the turn; its result, failure or a person's message wakes you.
 
 Give independently judgeable outcomes to separate leads. Leads exchange material facts, decisions,
 artifacts and true dependencies directly; only portfolio, resource, charter or strategy conflicts
