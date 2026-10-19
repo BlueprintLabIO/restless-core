@@ -875,6 +875,13 @@ async fn reserve_operation(
 /// replace a company's identity or configuration. Even a provisioning newer
 /// reservation fences an old daemon before it can republish credentials.
 /// Both reservation and completion call this under the canonical locks.
+///
+/// The configuration fingerprint is the signup baseline as this Core renders
+/// it, so it guards a company until its first ready receipt. After that the
+/// saved configuration is the owner's and a release may render the baseline
+/// differently: S103 dropped `outcome_standard` from it and every admitted
+/// company's re-admission was refused (rev 78, 19 October). An admitted
+/// company is still fenced on identity, owner, plane, model and effort.
 async fn validate_company_lineage(
     tx: &mut Transaction<'_, Postgres>,
     request: &CompanyBootstrapRequest,
@@ -887,7 +894,11 @@ async fn validate_company_lineage(
            company_id IS DISTINCT FROM $1 OR cell_id IS DISTINCT FROM $2 \
            OR company_handle IS DISTINCT FROM $3 OR owner_id IS DISTINCT FROM $4 \
            OR plane_id IS DISTINCT FROM $5 OR plane_hostname IS DISTINCT FROM $6 \
-           OR config_fingerprint IS DISTINCT FROM $7 OR model IS DISTINCT FROM $8 \
+           OR (config_fingerprint IS DISTINCT FROM $7 AND NOT EXISTS ( \
+             SELECT 1 FROM restless_authority.company_bootstrap_operations ready \
+             WHERE ready.company_id=$1 AND ready.cell_id=$2 AND ready.company_handle=$3 \
+               AND ready.status='ready' AND ready.receipt_bytes IS NOT NULL)) \
+           OR model IS DISTINCT FROM $8 \
            OR reasoning_effort IS DISTINCT FROM $9 OR plane_desired_revision > $10 \
            OR (plane_desired_revision = $10 AND (account_plane_image IS DISTINCT FROM $11 \
              OR core_release IS DISTINCT FROM $12 OR release_manifest_digest IS DISTINCT FROM $13))))",
@@ -1465,6 +1476,97 @@ mod tests {
                 Err(BootstrapFailure::Invalid)
             ));
         }
+    }
+
+    #[tokio::test]
+    async fn an_admitted_company_is_readmitted_after_its_baseline_rendering_changes() {
+        let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping baseline-change re-admission");
+            return;
+        };
+        let authority = AuthorityStore::connect(&database_url).await.unwrap();
+        let mut original = request();
+        original.operation_id = Uuid::new_v4();
+        original.company_id = Uuid::new_v4();
+        original.cell_id = Uuid::new_v4();
+        let handle = company_handle(original.company_id);
+        let root = std::env::temp_dir().join(format!(
+            "restless-company-bootstrap-baseline-{}",
+            original.operation_id
+        ));
+        let service_for = |request: &CompanyBootstrapRequest| {
+            let mut deployment = deployment();
+            deployment.owner_id = request.owner_id;
+            deployment.plane_id = request.plane_id;
+            deployment.plane_hostname = request.plane_hostname.clone();
+            deployment.plane_desired_revision = request.plane_desired_revision;
+            deployment.account_plane_image = request.account_plane_image.clone();
+            deployment.core_release = request.core_release.clone();
+            deployment.release_manifest_digest = request.release_manifest_digest.clone();
+            CompanyBootstrapService {
+                deployment,
+                root: root.clone(),
+                database_url: database_url.clone(),
+                authority: authority.clone(),
+                native_documents_credential_publisher: NativeDocumentsCredentialPublisher::Recorded(
+                    Arc::new(std::sync::Mutex::new(Vec::new())),
+                ),
+                local_documents_issuer: None,
+                daemon: None,
+            }
+        };
+        service_for(&original).execute(original.clone()).await.unwrap();
+        // An older Core rendered the signup baseline with outcome_standard in it.
+        sqlx::query(
+            "UPDATE restless_authority.company_bootstrap_operations \
+             SET config_fingerprint=$2 WHERE operation_id=$1",
+        )
+        .bind(original.operation_id)
+        .bind(digest(b"outcome_standard = \"exceptional\""))
+        .execute(authority.pool())
+        .await
+        .unwrap();
+        let mut next = original.clone();
+        next.operation_id = Uuid::new_v4();
+        next.plane_desired_revision += 1;
+        next.core_release = "0.1.1".into();
+        service_for(&next)
+            .execute(next.clone())
+            .await
+            .expect("an admitted company is re-admitted by a release that renders its baseline anew");
+
+        // Before its first ready receipt a company is still held to its baseline.
+        let mut fresh = request();
+        fresh.operation_id = Uuid::new_v4();
+        fresh.company_id = Uuid::new_v4();
+        fresh.cell_id = Uuid::new_v4();
+        let fresh_handle = company_handle(fresh.company_id);
+        let mut earlier = fresh.clone();
+        earlier.operation_id = Uuid::new_v4();
+        reserve_operation(
+            &authority,
+            &earlier,
+            &fresh_handle,
+            &digest(&serde_json::to_vec(&earlier).unwrap()),
+            &digest(b"another baseline"),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            service_for(&fresh).execute(fresh.clone()).await,
+            Err(BootstrapFailure::Conflict)
+        ));
+        // Other scenarios here rebuild the historic one-row-per-company constraints over this
+        // shared table, so this one leaves no rows behind.
+        sqlx::query(
+            "DELETE FROM restless_authority.company_bootstrap_operations \
+             WHERE company_id = ANY($1)",
+        )
+        .bind(vec![original.company_id, fresh.company_id])
+        .execute(authority.pool())
+        .await
+        .unwrap();
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[tokio::test]
