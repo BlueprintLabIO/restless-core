@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
 /* S101: every attention card is completed inside the card. An action that only links away must
@@ -27,11 +27,12 @@ function linkingActions(source: string): string[] {
 	return [...ids].sort();
 }
 
-test('every attention action that links away is answered inside its card', () => {
-	const source = readFileSync(
-		new URL('../../../../crates/restless-engine/src/attention.rs', import.meta.url),
-		'utf8'
-	);
+const ENGINE = new URL('../../../../crates/restless-engine/src/attention.rs', import.meta.url);
+
+/* The web is also qualified on its own, without the engine beside it; the guard runs wherever
+ * the whole repository is checked out. */
+test('every attention action that links away is answered inside its card', { skip: !existsSync(ENGINE) }, () => {
+	const source = readFileSync(ENGINE, 'utf8');
 	const linking = linkingActions(source);
 	assert.ok(linking.length > 3, 'the guard found the linking actions');
 	const unanswered = linking.filter((id) => !(id in ANSWERED_INLINE));
