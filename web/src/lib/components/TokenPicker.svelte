@@ -1,7 +1,9 @@
 <script lang="ts">
 	/* The token an app uses, chosen where it is needed: paste it (kept in the company Vault under
 	 * the app's own name) or pick a secret the Vault already holds. The token itself never leaves
-	 * the owner's plane; the app keeps only which secret to use. */
+	 * the owner's plane; the app keeps only which secret to use. The same picker answers an Inbox card
+	 * asking for the app (S101); there the card's footer carries its button. */
+	import { cardActions, inCardSlot } from './inbox/card-actions.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { readVault, saveVaultSecret, type VaultView } from '$lib/model/harness-auth';
 
@@ -49,8 +51,17 @@
 			.catch((cause) => (readFailure = failureSentence(cause, 'The Vault could not be read.')));
 	});
 
+	const slotted = inCardSlot();
+	const readyToSave = $derived(!!vault && ready && (mode === 'paste' ? !!token : !!picked));
+	cardActions(() => ({
+		primary: { label: action, busyLabel: 'Saving…', disabled: !readyToSave, run: save }
+	}));
+
 	async function submit(event: SubmitEvent) {
 		event.preventDefault();
+		await save();
+	}
+	async function save() {
 		if (saving || busy || !vault) return;
 		saving = true;
 		failure = '';
@@ -75,7 +86,13 @@
 	}
 </script>
 
-<form class="token" onsubmit={submit}>
+<svelte:element
+	this={slotted ? 'div' : 'form'}
+	class="token"
+	role={slotted ? 'group' : undefined}
+	aria-label={slotted ? 'Token' : undefined}
+	onsubmit={slotted ? undefined : submit}
+>
 	{#if readFailure || (vault && !ready)}
 		<p class="quiet" role="status">
 			{readFailure ||
@@ -103,12 +120,12 @@
 					>{/each}
 			</select>
 		{/if}
-		<button
-			class="btn small primary"
-			type="submit"
-			disabled={!vault || saving || busy || (mode === 'paste' ? !token : !picked)}
-			>{saving || busy ? 'Saving…' : action}</button
-		>
+		{#if !slotted}<button
+				class="btn small primary"
+				type="submit"
+				disabled={!vault || saving || busy || (mode === 'paste' ? !token : !picked)}
+				>{saving || busy ? 'Saving…' : action}</button
+			>{/if}
 		{#if secrets.length}
 			<button
 				class="link-button"
@@ -119,7 +136,7 @@
 		{/if}
 	{/if}
 	{#if failure}<p class="error" role="alert">{failure}</p>{/if}
-</form>
+</svelte:element>
 
 <style>
 	.token {

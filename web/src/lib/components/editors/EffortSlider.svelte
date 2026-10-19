@@ -1,13 +1,15 @@
 <script lang="ts">
 	/* Thinking effort, one company setting (S101), as the slider beside every conversation's model
 	 * chip and in a card where an agent proposes a change: Low to Max, the chosen step named on the
-	 * right and what it costs under it. It shows where it is dragged; `onchange` fires when let go. */
+	 * right and what it costs under it. It shows where it is dragged; `onchange` fires when let go,
+	 * and the slider stays there until the change it returns has settled. */
 	import { EFFORTS } from '$lib/model/intelligence.svelte';
 
 	let {
 		value,
 		disabled = false,
 		hint = true,
+		id: listId = undefined,
 		onchange
 	}: {
 		/** The effort chosen now, such as "high". */
@@ -15,10 +17,13 @@
 		disabled?: boolean;
 		/** The chosen step's cost in a line under the slider. */
 		hint?: boolean;
-		onchange: (effort: string) => void;
+		/** Names its step list; one is made up when left out. */
+		id?: string;
+		onchange: (effort: string) => unknown;
 	} = $props();
 
-	const id = $props.id();
+	const generated = $props.id();
+	const id = $derived(listId ?? generated);
 	let draft = $state<number | null>(null);
 	const index = $derived(
 		draft ??
@@ -43,8 +48,8 @@
 		oninput={(event) => (draft = +event.currentTarget.value)}
 		onchange={(event) => {
 			const chosen = EFFORTS[+event.currentTarget.value];
-			draft = null;
-			if (chosen) onchange(chosen.value);
+			if (!chosen) return void (draft = null);
+			void Promise.resolve(onchange(chosen.value)).finally(() => (draft = null));
 		}}
 	/>
 	<datalist id={`${id}-steps`}

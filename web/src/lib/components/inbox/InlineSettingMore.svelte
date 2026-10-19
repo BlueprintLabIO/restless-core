@@ -7,7 +7,8 @@
 	import { onMount } from 'svelte';
 	import type { SettingProposal } from '$lib/model/view';
 	import { decideSetting } from '$lib/model/setting-proposals';
-	import { loadModelChoices, switchModel, type ModelOption } from '$lib/model/inline-model';
+	import { loadModelChoices, type ModelOption } from '$lib/model/inline-model';
+	import ModelAccountEditor from '../editors/ModelAccountEditor.svelte';
 	import { modelLabel } from '$lib/model/intelligence-labels';
 	import type { ProviderStatus } from '$lib/model/provider';
 	import { monitorSchedules, updateSchedule, type MonitoredSchedule } from '$lib/model/skills';
@@ -114,23 +115,8 @@
 		if (!owner) return {};
 		if (failed) return { primary: { label: 'Try again', busyLabel: 'Reading…', run: load } };
 		if (!loaded) return {};
-		if (proposal.setting === 'model') {
-			const option = picked;
-			const now = provider;
-			return {
-				secondary: [decline],
-				primary: {
-					label: option ? `Switch to ${option.connection.label}` : 'Switch model',
-					busyLabel: 'Switching…',
-					disabled: !option || !now,
-					run: () =>
-						finish(
-							() => switchModel(companyId, option!, now!.revision),
-							`The company now runs on ${option!.connection.label} (${modelLabel(option!.model)}).`
-						)
-				}
-			};
-		}
+		/* The model's editor offers the switch; Decline stays here. */
+		if (proposal.setting === 'model') return { secondary: [decline] };
 		if (proposal.setting === 'schedule') {
 			const row = schedule;
 			const pause = proposal.paused;
@@ -185,6 +171,24 @@
 					bind:value={choice}
 				/>
 			</Field>
+			{#if picked && provider}
+				{@const option = picked}
+				{#key option.connection.id}<ModelAccountEditor
+						{companyId}
+						connection={option.connection}
+						revision={provider.revision}
+						model={option.model}
+						makeDefault
+						offerDefault={false}
+						action={`Switch to ${option.connection.label}`}
+						onsaved={async (_status, model) => {
+							await decideSetting(companyId, proposal.proposal, { applied: true });
+							ondone(
+								`The company now runs on ${option.connection.label} (${modelLabel(model)}). ${asker} has been told.`
+							);
+						}}
+					/>{/key}
+			{/if}
 		{/if}
 	</InlinePanel>
 {:else if proposal.setting === 'schedule'}

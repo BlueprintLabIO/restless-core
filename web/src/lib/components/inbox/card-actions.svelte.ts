@@ -67,6 +67,12 @@ export function provideCardActions(): CardActions {
 	return setContext(KEY, new CardActions());
 }
 
+/** Whether a footer renders actions here: a control used both inside an editor and on its own
+ * (a token picker) draws its own button only where there is none. */
+export function inCardSlot(): boolean {
+	return !!getContext<CardActions | undefined>(KEY);
+}
+
 /** A panel's actions, kept current as its choice changes and withdrawn when it goes. */
 export function cardActions(read: () => Contribution): void {
 	const slot = getContext<CardActions | undefined>(KEY);

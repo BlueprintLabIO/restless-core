@@ -9,12 +9,18 @@
 
 	let {
 		title = '',
+		framed = false,
+		head = undefined,
 		note = '',
 		oncancel = undefined,
 		children
 	}: {
 		/** The form's head, such as "Model budget"; none when the section already names it. */
 		title?: string;
+		/** A card of its own, for a form standing alone on the page (Add account). */
+		framed?: boolean;
+		/** More in the form's head beside the title, such as the kind of account. */
+		head?: Snippet;
 		note?: string;
 		oncancel?: () => void;
 		children: Snippet;
@@ -25,13 +31,16 @@
 </script>
 
 <form
-	class="form plain"
+	class="form"
+	class:plain={!framed}
 	onsubmit={(event) => {
 		event.preventDefault();
 		if (primary && !primary.hold) void slot.invoke(primary);
 	}}
 >
-	{#if title}<header class="form-head"><strong>{title}</strong></header>{/if}
+	{#if title || head}<header class="form-head">
+			{#if title}<strong>{title}</strong>{/if}{@render head?.()}
+		</header>{/if}
 	{@render children()}
 	<footer class="form-foot">
 		{#if note}<small class="form-note">{note}</small>{/if}

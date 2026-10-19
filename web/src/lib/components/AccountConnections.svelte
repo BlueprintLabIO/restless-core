@@ -32,6 +32,8 @@
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import Field from '$lib/ui/forms/Field.svelte';
 	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
+	import EditorForm from './editors/EditorForm.svelte';
+	import ApiKeyEditor from './editors/ApiKeyEditor.svelte';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
 	import { modelLabel } from '$lib/model/intelligence-labels';
 	import {
@@ -133,9 +135,7 @@
 	);
 	let addOpen = $state(false);
 	let busy = $state(false);
-	let label = $state('');
 	let provider = $state('anthropic');
-	let secret = $state('');
 	let oauthJob = $state('');
 	let oauthProvider = $state<'codex' | 'claude'>('codex');
 	let oauthUrl = $state('');
@@ -257,37 +257,17 @@
 			actionError = failureSentence(cause, 'Could not remove this connection.');
 		}
 	}
-	let addError = $state('');
 	let grantError = $state('');
-	async function create(event: SubmitEvent) {
-		event.preventDefault();
-		if (busy) return;
-		addError = !label.trim()
-			? 'Add a name for this key.'
-			: !secret.trim()
-				? 'Paste the API key.'
-				: '';
-		if (addError) return;
-		busy = true;
-		actionError = '';
-		try {
-			const body = await addApiKeyConnection({ label: label.trim(), provider, secret });
-			label = '';
-			secret = '';
-			addOpen = false;
-			await refresh();
-			announceIntelligenceChange();
-			/* Saved, but the provider could not be asked whether it accepts the key. */
-			if (body.unverified)
-				toast(
-					`${providerName(provider)} key saved. Restless couldn't check it yet, so the first reply will tell.`
-				);
-		} catch (cause) {
-			secret = '';
-			actionError = failureSentence(cause, 'Could not save this connection.');
-		} finally {
-			busy = false;
-		}
+	/* A key saved by the editor the model card in the Inbox shows too (S101). */
+	async function added(body: { unverified?: boolean }, provider: string) {
+		addOpen = false;
+		await refresh();
+		announceIntelligenceChange();
+		/* Saved, but the provider could not be asked whether it accepts the key. */
+		if (body.unverified)
+			toast(
+				`${providerName(provider)} key saved. Restless couldn't check it yet, so the first reply will tell.`
+			);
 	}
 	/* The provider's page opens in its own tab. It is opened on the click itself, before the
 	 * address exists, because a tab opened later is a popup the browser blocks. */
@@ -808,44 +788,19 @@
 	{/if}
 
 	{#if addOpen && accountScope === 'account'}
-		<form class="form add-form" onsubmit={create}>
-			<header class="form-head"><strong>Add API key</strong></header>
-			<Field label="Provider" for="key-provider">
-				<select id="key-provider" bind:value={provider}
-					>{#each providerOptions.filter(([id]) => !includedProviders.includes(id)) as [id, name]}<option
-							value={id}>{name}</option
-						>{/each}</select
-				>
-			</Field>
-			<Field label="Name" for="key-label">
-				<input
-					id="key-label"
-					bind:value={label}
-					maxlength="80"
-					placeholder={`${providerName(provider)} team key`}
-				/>
-			</Field>
-			<Field label="API key" for="key-secret">
-				<input
-					id="key-secret"
-					bind:value={secret}
-					type="password"
-					autocomplete="new-password"
-					placeholder="Paste the key"
-				/>
-			</Field>
-			{#if addError}<p class="form-error" role="alert">{addError}</p>{/if}
-			<FormFoot
+		<div class="add-form">
+			<EditorForm
+				framed
+				title="Add API key"
 				note="No company uses it until you give access."
-				submit="Save API key"
-				{busy}
-				busyLabel="Saving…"
-				oncancel={() => {
-					addOpen = false;
-					addError = '';
-				}}
-			/>
-		</form>
+				oncancel={() => (addOpen = false)}
+			>
+				<ApiKeyEditor
+					providers={providerOptions.filter(([id]) => !includedProviders.includes(id)) as [string, string][]}
+					onadded={added}
+				/>
+			</EditorForm>
+		</div>
 	{/if}
 
 	{#if loading && !connections.length}<Skeleton

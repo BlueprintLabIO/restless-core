@@ -19,6 +19,8 @@
 	import ModelFallbacks from './ModelFallbacks.svelte';
 	import ModelHeadroom from './ModelHeadroom.svelte';
 	import CopyCompanySetting from './CopyCompanySetting.svelte';
+	import EditorForm from './editors/EditorForm.svelte';
+	import ModelAccountEditor from './editors/ModelAccountEditor.svelte';
 	import { companiesQuery } from '$lib/model/queries.svelte';
 	import { page } from '$app/state';
 	import { needsAnotherModel, startLinkLabel } from '$lib/model/company-start';
@@ -93,7 +95,6 @@
 	let editorOpen = $state(false);
 	/* What each form still needs, said when its action is pressed too early. */
 	let editorProblem = $state('');
-	let grantProblem = $state('');
 	let importProblem = $state('');
 	const labels: Record<string, string> = {
 		anthropic: 'Anthropic',
@@ -148,8 +149,6 @@
 	let grantSelection = $state('');
 	let replaceGrantId = $state('');
 	let grantMakeDefault = $state(false);
-	let grantModels = $state<Record<string, string>>({});
-	let grantCustomModels = $state<Record<string, boolean>>({});
 	const companies = $derived(reusableSource.view?.companies ?? []);
 	const otherCompanies = $derived(companies.filter((company) => company.id !== companyId));
 	let importOpen = $state(false);
@@ -311,14 +310,7 @@
 		const model = models.find((item) => 'default' in item && item.default)?.id ?? models[0]?.id;
 		return model ? routeModel(provider, model) : '';
 	}
-	function modelForGrant(connection: ReusableConnection) {
-		return (
-			grantModels[connection.id] ?? defaultModel(connection.provider, connection.kind ?? 'api_key')
-		);
-	}
 	function beginGrant(connection: ReusableConnection) {
-		delete grantModels[connection.id];
-		grantCustomModels[connection.id] = false;
 		grantSelection = connection.id;
 		grantMakeDefault = !(intelligence.view?.default ?? intelligence.view?.base_default);
 		replaceGrantId = '';
@@ -364,33 +356,14 @@
 		};
 		settleTimer = setTimeout(() => void tick(), 1_000);
 	}
-	async function grantConnection(connection: ReusableConnection) {
-		if (!status || accountBusy) return;
-		accountBusy = true;
-		accountActionError = '';
-		try {
-			const result = await requestGrant(
-				connection.id,
-				modelForGrant(connection),
-				replaceGrantId === connection.id,
-				grantMakeDefault
-			);
-			if (result.replaceRequired) {
-				replaceGrantId = connection.id;
-				accountActionError = '';
-				return;
-			}
-			providerSource.accept(result.provider);
-			grantSelection = '';
-			replaceGrantId = '';
-			settle();
-			await Promise.all([refreshReusableConnections(), intelligence.refresh()]);
-			announceIntelligenceChange(companyId);
-		} catch (cause) {
-			accountActionError = failureSentence(cause, 'Could not use this connection in the company.');
-		} finally {
-			accountBusy = false;
-		}
+	/* "Use here" saved, by the editor the model card in the Inbox shows too (S101). */
+	async function granted(provider: ProviderStatus) {
+		providerSource.accept(provider);
+		grantSelection = '';
+		replaceGrantId = '';
+		settle();
+		await Promise.all([refreshReusableConnections(), intelligence.refresh()]);
+		announceIntelligenceChange(companyId);
 	}
 	async function revokeConnection(connection: ReusableConnection) {
 		if (!status || accountBusy) return;
@@ -618,74 +591,24 @@
 								></ActionMenu
 							>{/if}
 					{/snippet}
-					{#if grantSelection === item.id}
-						<form
-							class="form plain"
-							onsubmit={(event) => {
-								event.preventDefault();
-								grantProblem = !validModel(item.provider, modelForGrant(item))
-									? 'Choose a model first.'
-									: item.status !== 'present'
-										? 'This connection is not signed in. Reconnect it in Settings first.'
-										: '';
-								if (!grantProblem) void grantConnection(item);
+					{#if grantSelection === item.id && status}
+						<EditorForm
+							oncancel={() => {
+								grantSelection = '';
+								replaceGrantId = '';
 							}}
 						>
-							<Field label="Model" for={`cp-model-${item.id}`}>
-								<select
-									id={`cp-model-${item.id}`}
-									value={grantCustomModels[item.id] ? '__custom' : modelForGrant(item)}
-									onchange={(event) => {
-										grantProblem = '';
-										grantCustomModels[item.id] = event.currentTarget.value === '__custom';
-										grantModels[item.id] = grantCustomModels[item.id]
-											? ''
-											: event.currentTarget.value;
-									}}
-								>
-									{#each modelChoices(item.provider, item.kind ?? 'api_key') as model}<option
-											value={routeModel(item.provider, model.id)}>{model.name ?? model.id}</option
-										>{/each}
-									<option value="__custom">Custom model ID…</option>
-								</select>
-								{#snippet help()}{catalog.source(item.provider, item.kind ?? 'api_key') ===
-									'connected'
-										? 'Models from this account’s connected runtime.'
-										: 'Suggestions; what is available depends on this connection.'}{/snippet}
-							</Field>
-							{#if grantCustomModels[item.id]}
-								<Field label="Full model ID" for={`cp-custom-${item.id}`}>
-									<input
-										id={`cp-custom-${item.id}`}
-										placeholder={`${item.provider}/model-id`}
-										bind:value={grantModels[item.id]}
-									/>
-								</Field>
-							{/if}
-							{#if status?.primary_provider !== 'unconfigured'}
-								<Field label="Company default">
-									<label class="form-check"
-										><input type="checkbox" bind:checked={grantMakeDefault} />Use it for everyone
-										unless an agent has its own</label
-									>
-								</Field>
-							{/if}
-							{#if replaceGrantId === item.id}<p class="form-error" role="alert">
-									This replaces the company’s current {name} connection.
-								</p>{:else if grantProblem}<p class="form-error" role="alert">
-									{grantProblem}
-								</p>{/if}
-							<FormFoot
-								submit={replaceGrantId === item.id ? 'Replace' : 'Use in this company'}
-								busy={accountBusy}
-								busyLabel="Saving…"
-								oncancel={() => {
-									grantSelection = '';
-									replaceGrantId = '';
-									grantProblem = '';
-								}}
+							<ModelAccountEditor
+								{companyId}
+								connection={item}
+								revision={status.revision}
+								makeDefault={grantMakeDefault}
+								offerDefault={status.primary_provider !== 'unconfigured'}
+								replacing={replaceGrantId === item.id}
+								providerName={name}
+								onsaved={(provider) => granted(provider)}
 							/>
-						</form>
+						</EditorForm>
 					{/if}
 				</Item>
 			{:else}

@@ -107,16 +107,32 @@
 			/>
 		</div>
 		<div class="bar">
-			<span class="state" class:you={control.owner}>{control.owner ? 'You have control' : 'Watching'}</span>
-			{#if control.idleSeconds}<span class="state" role="status">· handing back in {control.idleSeconds}s</span
-				><button class="btn small ghost" type="button" onclick={() => control.stillHere()}>Still here</button>{/if}
-			<span class="spacer"></span>
-			{#if url && host}<button class="btn small ghost" type="button" disabled={connecting} onclick={() => void connect(true)}
-					>Reopen {host}</button
+			<span class="state" class:you={control.owner}
+				>{control.owner ? 'You have control' : 'Watching'}</span
+			>
+			{#if control.idleSeconds}<span class="state" role="status"
+					>· handing back in {control.idleSeconds}s</span
+				><button class="btn small ghost" type="button" onclick={() => control.stillHere()}
+					>Still here</button
 				>{/if}
-			{#if control.owner}<button class="btn small ghost" type="button" disabled={!!control.working} onclick={() => void control.release()}
+			<span class="spacer"></span>
+			{#if url && host}<button
+					class="btn small ghost"
+					type="button"
+					disabled={connecting}
+					onclick={() => void connect(true)}>Reopen {host}</button
+				>{/if}
+			{#if control.owner}<button
+					class="btn small ghost"
+					type="button"
+					disabled={!!control.working}
+					onclick={() => void control.release()}
 					>{control.working === 'return' ? 'Handing back…' : 'Hand back'}</button
-				>{:else}<button class="btn small ghost" type="button" disabled={!!control.working} onclick={() => void control.take()}
+				>{:else}<button
+					class="btn small ghost"
+					type="button"
+					disabled={!!control.working}
+					onclick={() => void control.take()}
 					>{control.working === 'control' ? 'Taking control…' : 'Take control'}</button
 				>{/if}
 		</div>

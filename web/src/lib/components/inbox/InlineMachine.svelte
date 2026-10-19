@@ -1,21 +1,21 @@
 <script lang="ts">
-	/* The company's computer is offline or paused, fixed in its card (S101): where it stands on
-	 * top; below, the other computers you hold that are online. The footer resumes a paused one
-	 * or moves the company to the one chosen; an offline one clears the card when it is back. */
+	/* The company's computer is offline or paused, fixed in its card (S101) with Company ›
+	 * Computer's own rows and move: where it stands on top; below, where else it could run. The
+	 * footer resumes a paused one or moves the company to the one chosen; an offline one clears the
+	 * card when it is back. */
+	import MachineRows from '../editors/MachineRows.svelte';
+	import MoveCompanyEditor from '../editors/MoveCompanyEditor.svelte';
 	import { onMount } from 'svelte';
 	import {
 		changeMachine,
 		companyMachines,
 		listMachines,
-		machineStatus,
 		machineSummary,
-		moveCompany,
 		type Machine,
 		type MoveProgress
 	} from '$lib/model/machines';
 	import { failureSentence } from '$lib/model/failure';
 	import InlinePanel from './InlinePanel.svelte';
-	import InlineChoice from './InlineChoice.svelte';
 	import { cardActions } from './card-actions.svelte';
 
 	let {
@@ -34,14 +34,12 @@
 	let move = $state<MoveProgress | null>(null);
 	let loaded = $state(false);
 	let error = $state('');
-	let target = $state<string | null>(null);
 	let finished = false;
 	const current = $derived(machines.find((machine) => machine.id === machineId) ?? null);
 	const others = $derived(
 		machines.filter((machine) => machine.id !== machineId && !machine.paused && machine.online)
 	);
 	const moving = $derived(!!move && !move.done);
-	const chosen = $derived(others.find((machine) => machine.id === target) ?? null);
 
 	function finish(receipt: string) {
 		if (finished) return;
@@ -84,15 +82,6 @@
 
 	cardActions(() => {
 		if (!owner || !current || moving) return {};
-		if (chosen)
-			return {
-				primary: {
-					label: `Move to ${chosen.label}`,
-					busyLabel: 'Starting the move…',
-					title: 'Copies the company’s computer there and runs it from there. Nothing is lost.',
-					run: () => attempt(() => moveCompany(companyId, chosen.id))
-				}
-			};
 		if (current.paused)
 			return {
 				primary: {
@@ -114,62 +103,39 @@
 </script>
 
 {#if !owner}
-	<InlinePanel label="The company's computer" note="The owner looks after the company's computers." />
+	<InlinePanel
+		label="The company's computer"
+		note="The owner looks after the company's computers."
+	/>
 {:else if !loaded}
 	<InlinePanel label="The company's computer" note="Checking the computer…" />
 {:else if current}
-	{@const health = machineStatus(current)}
-	<InlinePanel label="The company's computer" {note} error={error || (move?.error ? `The move stopped: ${move.error}` : '')}>
+	<InlinePanel
+		label="The company's computer"
+		{note}
+		form={others.length > 0 && !moving}
+		error={error || (move?.error ? `The move stopped: ${move.error}` : '')}
+	>
 		{#snippet status()}
-			<div class="state">
-				<span class="who"><strong>{current.label}</strong><small>{machineSummary(current.facts)}</small></span>
-				<span class="mark {health.tone}">{health.label}</span>
-			</div>
+			<MachineRows
+				rows={[
+					{
+						...current,
+						detail: current.kind === 'plane' ? 'Managed by Restless' : machineSummary(current.facts)
+					}
+				]}
+			/>
 		{/snippet}
 		{#if others.length && !moving}
-			<InlineChoice
-				label={`Or move ${companyId} to`}
-				options={others.map((machine) => ({
-					value: machine.id,
-					title: `Move to ${machine.label}`,
-					detail: machine.kind === 'plane' ? 'Always on' : machineSummary(machine.facts)
-				}))}
-				bind:value={target}
+			<MoveCompanyEditor
+				{companyId}
+				companyName={companyId}
+				from={current.label}
+				choices={others}
+				onstarted={() => poll()}
 			/>
 		{/if}
 	</InlinePanel>
 {:else}
 	<InlinePanel label="The company's computer" note="This computer is no longer on your account." />
 {/if}
-
-<style>
-	.state {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-		align-items: center;
-		gap: 8px;
-	}
-	.who {
-		display: grid;
-		min-width: 0;
-	}
-	.who strong {
-		font-weight: 500;
-	}
-	.who small {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.mark {
-		font-size: var(--t-label);
-	}
-	.mark.ok {
-		color: var(--state-success);
-	}
-	.mark.warn {
-		color: var(--state-warning, var(--state-danger));
-	}
-	.mark.muted {
-		color: var(--text-tertiary);
-	}
-</style>

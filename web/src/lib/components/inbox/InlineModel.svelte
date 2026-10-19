@@ -1,21 +1,15 @@
 <script lang="ts">
-	/* The company's model, fixed in its card (S101): the account's headroom on top, the same meters
-	 * as Company › Intelligence; below, the other accounts you hold, or a key to add. The footer
-	 * switches to the one chosen, or adds it as the fallback that takes over by itself; Top up opens
-	 * the plan where credit ran out. An agent on a refused model of its own gets the Intelligence
-	 * page's model editor, starting from the company model. */
+	/* The company's model, fixed in its card (S101) with Company › Intelligence's own parts: the
+	 * account's headroom on top; below, the other accounts you hold, and for the one chosen the
+	 * "Use here" editor (which model, then switch, or keep it as the fallback that takes over by
+	 * itself), or Settings › Accounts' Add API key. Top up opens the plan where credit ran out. An
+	 * agent on a refused model of its own gets the Intelligence page's model editor, starting from
+	 * the company model. */
 	import { onMount } from 'svelte';
-	import { failureSentence } from '$lib/model/failure';
 	import { modelLabel } from '$lib/model/intelligence-labels';
-	import {
-		addFallback,
-		loadModelChoices,
-		switchModel,
-		type ModelOption
-	} from '$lib/model/inline-model';
+	import { addFallback, loadModelChoices, type ModelOption } from '$lib/model/inline-model';
 	import { popupFeatures } from '$lib/model/inline-credentials';
 	import type { ProviderStatus } from '$lib/model/provider';
-	import { addApiKeyConnection } from '$lib/model/account-connections';
 	import { MODEL_PRESETS } from '$lib/model/model-presets';
 	import type { IntelligenceView } from '$lib/model/intelligence.svelte';
 	import { ownerRequest } from '$lib/model/setting.svelte';
@@ -24,6 +18,8 @@
 	import Field from '$lib/ui/forms/Field.svelte';
 	import ModelHeadroom from '../ModelHeadroom.svelte';
 	import ModelAssignmentEditor from '../editors/ModelAssignmentEditor.svelte';
+	import ModelAccountEditor from '../editors/ModelAccountEditor.svelte';
+	import ApiKeyEditor from '../editors/ApiKeyEditor.svelte';
 	import { cardActions, type CardAction } from './card-actions.svelte';
 
 	let {
@@ -47,10 +43,8 @@
 	let provider = $state<ProviderStatus | null>(null);
 	let options = $state<ModelOption[]>([]);
 	let loadFailed = $state(false);
-	let error = $state('');
 	let choice = $state<string | null>(null);
-	let keyProvider = $state('anthropic');
-	let keySecret = $state('');
+	const KEY_PROVIDERS = MODEL_PRESETS.map((preset) => [preset.id, preset.name] as [string, string]);
 	const picked = $derived(options.find((option) => option.connection.id === choice) ?? null);
 	/* Agents the owner put on the refused model themselves: the company default does not reach
 	 * them, so the card puts them back on it (19 October: Snake Oil's Exec on GPT-6 Luna). */
@@ -90,83 +84,25 @@
 		if (owner) void load();
 	});
 
-	async function attempt(work: () => Promise<string | null>, failure: string) {
-		error = '';
-		try {
-			const receipt = await work();
-			if (receipt) ondone(receipt);
-		} catch (cause) {
-			error = failureSentence(cause, failure);
-		}
-	}
-
+	/* The editors offer the switch, the fallback and the key; the card adds Top up. */
 	cardActions(() => {
 		if (!owner) return {};
 		if (loadFailed) return { primary: { label: 'Try again', busyLabel: 'Reading…', run: load } };
-		if (!provider) return {};
-		/* The model editor offers what to do for an agent on its own model. */
-		if (stranded.length && intelligence) return {};
-		const secondary: CardAction[] = [];
-		if (topUpHref)
-			secondary.push({
-				label: 'Top up credit',
-				run: () => void window.open(topUpHref, 'restless-top-up', popupFeatures(560, 760))
-			});
-		if (choice === ADD) {
-			const name = MODEL_PRESETS.find((preset) => preset.id === keyProvider)?.name ?? keyProvider;
-			return {
-				secondary,
-				primary: {
-					label: `Add ${name} key`,
-					busyLabel: 'Adding…',
-					disabled: !keySecret.trim(),
-					run: () =>
-						attempt(async () => {
-							await addApiKeyConnection({
-								label: name,
-								provider: keyProvider,
-								secret: keySecret.trim()
-							});
-							keySecret = '';
-							choice = null;
-							await load();
-							return null;
-						}, 'The key was not added. Check it and try again.')
-				}
-			};
-		}
-		if (!picked) return { secondary };
-		const option = picked;
-		const current = provider;
-		if (!option.inUse)
-			secondary.push({
-				label: 'Add as fallback',
-				busyLabel: 'Adding…',
-				title: 'Takes over by itself whenever the main model cannot answer',
-				run: () =>
-					attempt(async () => {
-						await addFallback(companyId, option, current);
-						return `${option.connection.label} is the fallback now: it takes over by itself whenever the main model can't answer.`;
-					}, 'That did not save. Try again.')
-			});
+		if (!provider || (stranded.length && intelligence) || !topUpHref) return {};
+		const href = topUpHref;
 		return {
-			secondary,
-			primary: {
-				label: `Switch to ${option.connection.label}`,
-				busyLabel: 'Switching…',
-				run: () =>
-					attempt(async () => {
-						await switchModel(companyId, option, current.revision);
-						return `The company now runs on ${option.connection.label} (${modelLabel(option.model)}). Work carries on.`;
-					}, 'That did not save. Try again.')
-			}
+			secondary: [
+				{
+					label: 'Top up credit',
+					run: () => void window.open(href, 'restless-top-up', popupFeatures(560, 760))
+				}
+			]
 		};
 	});
 </script>
 
 <InlinePanel
 	label="Fix the company's model"
-	{error}
 	form={owner && !!provider}
 	note={!owner
 		? "The owner chooses the company's model."
@@ -220,19 +156,40 @@
 			/>
 		</Field>
 		{#if choice === ADD}
-			<Field label="Provider" for={`${id}-provider`}>
-				<select id={`${id}-provider`} bind:value={keyProvider}>
-					{#each MODEL_PRESETS as preset (preset.id)}<option value={preset.id}>{preset.name}</option
-						>{/each}
-				</select>
-			</Field>
-			<Field
-				label="API key"
-				hint="Kept in your account; usable by any company you give it to."
-				for={`${id}-key`}
-			>
-				<input id={`${id}-key`} type="password" bind:value={keySecret} autocomplete="off" />
-			</Field>
+			<ApiKeyEditor
+				providers={KEY_PROVIDERS}
+				action="Add key"
+				onadded={async () => {
+					choice = null;
+					await load();
+				}}
+			/>
+		{:else if picked && provider}
+			{@const option = picked}
+			{@const current = provider}
+			{#key option.connection.id}<ModelAccountEditor
+					{companyId}
+					connection={option.connection}
+					revision={current.revision}
+					makeDefault
+					offerDefault={false}
+					action={`Switch to ${option.connection.label}`}
+					fallback={option.inUse
+						? undefined
+						: {
+								label: 'Add as fallback',
+								run: async (model) => {
+									await addFallback(companyId, { ...option, model }, current);
+									ondone(
+										`${option.connection.label} is the fallback now: it takes over by itself whenever the main model can't answer.`
+									);
+								}
+							}}
+					onsaved={(_provider, model) =>
+						ondone(
+							`The company now runs on ${option.connection.label} (${modelLabel(model)}). Work carries on.`
+						)}
+				/>{/key}
 		{/if}
 	{/if}
 </InlinePanel>

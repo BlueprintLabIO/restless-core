@@ -15,6 +15,7 @@
 	import { failureSentence } from '$lib/model/failure';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import Popover from '$lib/ui/controls/Popover.svelte';
+	import EffortSlider from './editors/EffortSlider.svelte';
 	import { untrack } from 'svelte';
 	import Check from '@lucide/svelte/icons/check';
 	import Brain from '@lucide/svelte/icons/brain';
@@ -56,15 +57,6 @@
 	);
 	let busy = $state(false);
 	let failure = $state('');
-	/* The slider shows where it is dragged; the saved effort once let go. */
-	let draftEffort = $state<number | null>(null);
-	const effortIndex = $derived(
-		draftEffort ??
-			Math.max(
-				0,
-				EFFORTS.findIndex((row) => row.value === agent?.thinking_effort)
-			)
-	);
 
 	$effect(() => {
 		companyId;
@@ -149,29 +141,15 @@
 				>{/snippet}
 			{#snippet children(close)}
 				<!-- Only what choosing needs: effort, the models, a way to the rest. -->
-				<label class="effort" title="Applies to every agent from their next session">
-					<span class="effort-head"
-						><span>Effort</span><strong>{EFFORTS[effortIndex]?.label}</strong></span
-					>
-					<input
-						type="range"
-						min="0"
-						max={EFFORTS.length - 1}
-						step="1"
-						list={`efforts-${actorId}`}
-						value={effortIndex}
+				<div class="effort">
+					<EffortSlider
+						id={`efforts-${actorId}`}
+						value={agent?.thinking_effort}
 						disabled={busy}
-						aria-valuetext={EFFORTS[effortIndex]?.label}
-						oninput={(event) => (draftEffort = +event.currentTarget.value)}
-						onchange={(event) => {
-							const chosen = EFFORTS[+event.currentTarget.value];
-							if (chosen) void chooseEffort(chosen.value).finally(() => (draftEffort = null));
-						}}
+						hint={false}
+						onchange={(effort) => chooseEffort(effort)}
 					/>
-					<datalist id={`efforts-${actorId}`}
-						>{#each EFFORTS as _, index (index)}<option value={index}></option>{/each}</datalist
-					>
-				</label>
+				</div>
 				{#if choices.length >= FILTER_FROM || assignment?.connection.includes('openrouter')}<input
 						class="filter"
 						type="search"
@@ -256,22 +234,7 @@
 		padding: 8px 8px 10px;
 		border-bottom: 1px solid var(--border);
 	}
-	.effort-head {
-		display: flex;
-		justify-content: space-between;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.effort-head strong {
-		color: var(--ink);
-		font-weight: 500;
-	}
-	.effort input {
-		width: 100%;
-		margin: 0;
-		accent-color: var(--fill-primary);
-		cursor: pointer;
-	}
+
 	.filter {
 		width: calc(100% - 8px);
 		margin: 2px 4px 4px;

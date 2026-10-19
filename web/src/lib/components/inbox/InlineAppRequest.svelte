@@ -1,8 +1,10 @@
 <script lang="ts">
-	/* An agent asked for an app (S101), answered in its card: choose an account you already hold,
-	 * or a new one, by token or by the provider's own sign-in in a small window the card watches.
-	 * The footer gives it. When it works the request resolves and the Work resumes. Only the owner
-	 * adds apps; anyone else sees who it is waiting on. */
+	/* An agent asked for an app (S101), answered in its card with the editors its own pages use: an
+	 * account you already hold is given with Settings › Accounts' access editor; a new GitHub token
+	 * is added with Add account's GitHub form; another token app takes its token with the Apps
+	 * page's token picker, kept in the company Vault; an app that signs in with its provider opens
+	 * that sign-in in a small window the card watches. When it works the request resolves and the
+	 * Work resumes. Only the owner adds apps; anyone else sees who it is waiting on. */
 	import { onDestroy } from 'svelte';
 	import { CATALOGUE } from '$lib/model/apps';
 	import type { AppRequest } from '$lib/model/app-requests';
@@ -10,17 +12,19 @@
 	import {
 		addTokenApp,
 		finishAppSignIn,
-		grantHeldAccount,
 		matchingAccounts,
 		popupFeatures,
-		startAppSignIn,
-		tokenHelp
+		startAppSignIn
 	} from '$lib/model/inline-credentials';
-	import type { Account } from '$lib/model/owner-accounts';
+	import type { Account, GrantInput } from '$lib/model/owner-accounts';
 	import { ownerAccounts } from '$lib/model/owner-accounts-client';
+	import Field from '$lib/ui/forms/Field.svelte';
+	import TokenPicker from '../TokenPicker.svelte';
+	import AccountFieldsEditor from '../editors/AccountFieldsEditor.svelte';
+	import GrantEditor from '../editors/GrantEditor.svelte';
 	import InlinePanel from './InlinePanel.svelte';
 	import InlineChoice from './InlineChoice.svelte';
-	import { cardActions, type CardAction } from './card-actions.svelte';
+	import { cardActions } from './card-actions.svelte';
 
 	let {
 		companyId,
@@ -38,13 +42,11 @@
 
 	const NEW = '__new';
 	const entry = $derived(CATALOGUE.find((candidate) => candidate.key === request.catalogueKey));
+	const github = $derived(request.catalogueKey === 'github');
 	const usesToken = $derived(entry?.auth === 'token');
-	const help = $derived(tokenHelp(request.catalogueKey ?? ''));
 
 	let held = $state<Account[]>([]);
 	let choice = $state<string | null>(NEW);
-	let token = $state('');
-	let showToken = $state(false);
 	let error = $state('');
 	let waiting = $state<{ name: string; window: Window | null } | null>(null);
 	let timer: ReturnType<typeof setInterval> | undefined;
@@ -63,35 +65,37 @@
 			.catch(() => (held = []));
 	});
 
-	async function attempt(work: () => Promise<string | null>) {
-		error = '';
-		try {
-			const receipt = await work();
-			if (receipt) ondone(receipt);
-		} catch (cause) {
-			error = failureSentence(cause, `${request.name} was not added. Try again.`);
-		}
+	async function give(account: Account, input: GrantInput) {
+		await ownerAccounts.grant(account.id, { company: companyId, ...input });
+		ondone(
+			`Gave the company ${account.label}${account.identity.display ? ` (${account.identity.display})` : ''}. ${request.asker} carries on.`
+		);
 	}
 
 	function signInWithProvider() {
 		/* Opened now, inside the click, so no popup blocker stops it; pointed at the provider once
 		 * its address is known. */
 		const popup = window.open('about:blank', 'restless-sign-in', popupFeatures());
-		return attempt(async () => {
-			const { connection, url } = await startAppSignIn(companyId, request);
-			if (!url) {
+		error = '';
+		return (async () => {
+			try {
+				const { connection, url } = await startAppSignIn(companyId, request);
+				if (!url) {
+					popup?.close();
+					if (await finishAppSignIn(companyId, connection.name))
+						ondone(`${request.name} is connected. ${request.asker} carries on.`);
+					return;
+				}
+				if (popup) popup.location.href = url;
+				else window.open(url, 'restless-sign-in', popupFeatures());
+				waiting = { name: connection.name, window: popup };
+				clearInterval(timer);
+				timer = setInterval(() => void check(), 2_000);
+			} catch (cause) {
 				popup?.close();
-				return (await finishAppSignIn(companyId, connection.name))
-					? `${request.name} is connected. ${request.asker} carries on.`
-					: null;
+				error = failureSentence(cause, `${request.name} was not added. Try again.`);
 			}
-			if (popup) popup.location.href = url;
-			else window.open(url, 'restless-sign-in', popupFeatures());
-			waiting = { name: connection.name, window: popup };
-			clearInterval(timer);
-			timer = setInterval(() => void check(), 2_000);
-			return null;
-		});
+		})();
 	}
 
 	async function check() {
@@ -105,114 +109,84 @@
 
 	onDestroy(() => clearInterval(timer));
 
-	cardActions(() => {
-		if (!owner) return {};
-		let primary: CardAction;
-		if (chosen) {
-			const account = chosen;
-			primary = {
-				label: `Give ${account.label}`,
-				busyLabel: 'Giving…',
-				run: () =>
-					attempt(async () => {
-						await grantHeldAccount(companyId, account);
-						return `Gave the company ${account.label}${account.identity.display ? ` (${account.identity.display})` : ''}. ${request.asker} carries on.`;
-					})
-			};
-		} else if (usesToken) {
-			primary = {
-				label: 'Save token and give it',
-				busyLabel: 'Saving…',
-				disabled: !token.trim(),
-				run: () =>
-					attempt(async () => {
-						const { label } = await addTokenApp(companyId, request, token);
-						token = '';
-						return `${label} added with your token and given to the company. ${request.asker} carries on.`;
-					})
-			};
-		} else {
-			primary = {
-				label: waiting ? 'Open the sign-in again' : `Sign in with ${request.name}`,
-				busyLabel: 'Opening…',
-				run: signInWithProvider
-			};
-		}
-		return { primary };
-	});
+	/* Only the provider's sign-in is this card's own; every other way is an editor's. */
+	cardActions(() =>
+		owner && !chosen && !usesToken
+			? {
+					primary: {
+						label: waiting ? 'Open the sign-in again' : `Sign in with ${request.name}`,
+						busyLabel: 'Opening…',
+						run: signInWithProvider
+					}
+				}
+			: {}
+	);
 </script>
 
 <InlinePanel
 	label={`Add ${request.name}`}
 	{error}
+	form={owner && (!!chosen || usesToken || held.length > 0)}
 	note={!owner
 		? `Waiting for the owner to add ${request.name}.`
-		: chosen
+		: chosen || usesToken
 			? ''
-			: usesToken
-				? 'It goes straight to your vault and is never shown again.'
-				: waiting
-					? `Finish signing in to ${request.name} in the window that opened. This card completes by itself.`
-					: `${request.name}'s own sign-in opens in a small window. Anything that acts asks you first.`}
+			: waiting
+				? `Finish signing in to ${request.name} in the window that opened. This card completes by itself.`
+				: `${request.name}'s own sign-in opens in a small window. Anything that acts asks you first.`}
 >
 	{#if owner}
 		{#if held.length}
-			<InlineChoice
-				label={`Which ${request.name} account`}
-				options={[
-					...held.map((account) => ({
-						value: account.id,
-						title: account.label,
-						detail: account.identity.display ?? undefined,
-						mark: given(account) ? 'Already given' : undefined,
-						disabled: given(account)
-					})),
-					{
-						value: NEW,
-						title: usesToken ? 'A new token' : `Another ${request.name} account`,
-						detail: usesToken ? 'Paste it below' : 'Sign in with the provider'
-					}
-				]}
-				bind:value={choice}
-			/>
-		{/if}
-		{#if usesToken && !chosen}
-			<div class="token-row">
-				<input
-					type={showToken ? 'text' : 'password'}
-					autocomplete="off"
-					spellcheck="false"
-					aria-label={`${request.name} token`}
-					placeholder={request.catalogueKey === 'github' ? 'github_pat_…' : `${request.name} token`}
-					bind:value={token}
+			<Field label={`Which ${request.name} account`}>
+				<InlineChoice
+					label={`Which ${request.name} account`}
+					options={[
+						...held.map((account) => ({
+							value: account.id,
+							title: account.label,
+							detail: account.identity.display ?? undefined,
+							mark: given(account) ? 'Already given' : undefined,
+							disabled: given(account)
+						})),
+						{
+							value: NEW,
+							title: usesToken ? 'A new token' : `Another ${request.name} account`,
+							detail: usesToken ? 'Add it below' : 'Sign in with the provider'
+						}
+					]}
+					bind:value={choice}
 				/>
-				<button
-					class="btn small ghost"
-					type="button"
-					aria-pressed={showToken}
-					aria-label={showToken ? 'Hide the token' : 'Show the token'}
-					onclick={() => (showToken = !showToken)}>{showToken ? 'Hide' : 'Show'}</button
-				>
-			</div>
-			{#if help}<p class="help">{help.text} <a href={help.href} target="_blank" rel="noreferrer">Make one ↗</a></p>{/if}
+			</Field>
+		{/if}
+		{#if chosen}
+			{@const account = chosen}
+			{#key account.id}<GrantEditor
+					company={companyId}
+					action={`Give ${account.label}`}
+					onsave={(input) => give(account, input)}
+				/>{/key}
+		{:else if github}
+			<AccountFieldsEditor
+				client={ownerAccounts}
+				kind="github"
+				action="Add account"
+				onadded={(created) => {
+					held = [...held, created];
+					choice = created.id;
+				}}
+			/>
+		{:else if usesToken}
+			<Field label="Token" hint="Kept in the company Vault; agents never see it.">
+				<TokenPicker
+					{companyId}
+					app={request.catalogueKey ?? request.name}
+					action={`Add ${request.name}`}
+					onchoose={async (credential) => {
+						const { label } = await addTokenApp(companyId, request, credential);
+						ondone(`${label} added with your token. ${request.asker} carries on.`);
+					}}
+				/>
+			</Field>
 		{/if}
 	{/if}
 </InlinePanel>
-
-<style>
-	.token-row {
-		display: flex;
-		gap: 6px;
-		min-width: 0;
-	}
-	.token-row input {
-		flex: 1;
-		min-width: 0;
-		font-family: var(--font-mono, monospace);
-	}
-	.help {
-		margin: 0;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-</style>
