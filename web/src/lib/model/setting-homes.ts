@@ -46,7 +46,7 @@ export function settingHome(
 		case 'notifications':
 			return { key, label: 'Company › Notifications', href: company(companyId, '/notifications') };
 		case 'accounts':
-			return { key, label: 'Settings › Accounts', href: '/account/connections' };
+			return { key, label: 'Settings › Accounts', href: '/account/settings/accounts' };
 		case 'people':
 			return {
 				key,
