@@ -13,7 +13,7 @@ const ANSWERED_INLINE: Record<string, string> = {
 	'open-app': 'InlineReconnect for connection_sign_in',
 	'decide-identity-drift': 'InlineBrandDrift',
 	'open-intelligence-provider': 'InlineModel',
-	'open-company-health': 'Discuss with Exec; Health is the diagnosis, not the fix',
+	'open-company-health': 'InlineStartComputer starts the stopped computer',
 	'open-external-human-step': 'InlineDesktop opens the page on the company computer',
 	'top-up-ai-credit': 'InlineModel opens the plan in a small window',
 	'open-spend-limit': 'InlineSpendLimit',

@@ -1,9 +1,12 @@
 <script lang="ts">
-	/* The spend limit, raised inside its Inbox card (S101): what is spent, the limit, and a new one
-	 * with quick steps. Saving answers the warning or restarts stopped work. */
+	/* The spend limit, raised in its card (S101): what is spent against the limit on top, the new
+	 * limit chosen below. The footer saves it, which answers the warning or restarts work. */
 	import { companyQuery } from '$lib/model/queries.svelte';
 	import { saveSpendLimit } from '$lib/model/company';
 	import { failureSentence } from '$lib/model/failure';
+	import InlinePanel from './InlinePanel.svelte';
+	import InlineChoice from './InlineChoice.svelte';
+	import { cardActions } from './card-actions.svelte';
 
 	let {
 		companyId,
@@ -14,87 +17,96 @@
 	const source = $derived(companyQuery(companyId, () => owner));
 	$effect(() => source.attach());
 	const spend = $derived(source.view?.limits.spend ?? null);
-	let limit = $state('');
-	let saving = $state(false);
-	let error = $state('');
 	const money = (usd: number) => `US$${usd.toFixed(usd < 100 ? 2 : 0)}`;
+	const period = $derived(spend?.period === 'monthly' ? ' a month' : '');
 	const steps = $derived(
-		spend ? [1.5, 2, 3].map((factor) => Math.ceil((spend.ceiling_usd * factor) / 10) * 10).filter((value, i, all) => all.indexOf(value) === i) : []
+		spend
+			? [1.5, 2, 3]
+					.map((factor) => Math.ceil((spend.ceiling_usd * factor) / 10) * 10)
+					.filter((value, index, all) => all.indexOf(value) === index)
+			: []
 	);
+	let choice = $state<string | null>(null);
+	let other = $state('');
+	let error = $state('');
+	$effect(() => {
+		if (choice === null && steps.length) choice = String(steps[1] ?? steps[0]);
+	});
+	const ceiling = $derived(choice === 'other' ? Number(other) : Number(choice));
+	const valid = $derived(!!spend && Number.isFinite(ceiling) && ceiling > spend.accounted_usd);
 
-	async function save(value: string) {
-		if (!spend || saving) return;
-		const ceiling = Number(value);
-		if (!Number.isFinite(ceiling) || ceiling <= spend.accounted_usd) {
-			error = `Enter more than ${money(spend.accounted_usd)}, what is already spent${spend.period === 'monthly' ? ' this month' : ''}.`;
-			return;
-		}
-		saving = true;
-		error = '';
-		try {
-			const result = await saveSpendLimit(companyId, {
-				ceiling: String(ceiling),
-				expected_ceiling: String(spend.ceiling_usd),
-				period: spend.period,
-				warning_percent: spend.warning_percent
-			});
-			source.accept(result);
-			ondone(`Spend limit raised to ${money(ceiling)}${spend.period === 'monthly' ? ' a month' : ''}. Work carries on.`);
-		} catch (cause) {
-			error = failureSentence(cause, 'The limit was not saved. Try again.');
-		} finally {
-			saving = false;
-		}
-	}
+	cardActions(() => ({
+		primary:
+			owner && spend
+				? {
+						label: valid ? `Raise to ${money(ceiling)}${period}` : 'Raise the limit',
+						busyLabel: 'Saving…',
+						disabled: !valid,
+						run: async () => {
+							error = '';
+							try {
+								source.accept(
+									await saveSpendLimit(companyId, {
+										ceiling: String(ceiling),
+										expected_ceiling: String(spend.ceiling_usd),
+										period: spend.period,
+										warning_percent: spend.warning_percent
+									})
+								);
+								ondone(`Spend limit raised to ${money(ceiling)}${period}. Work carries on.`);
+							} catch (cause) {
+								error = failureSentence(cause, 'The limit was not saved. Try again.');
+							}
+						}
+					}
+				: owner && source.failure
+					? { label: 'Try again', busyLabel: 'Reading…', run: () => source.refresh() }
+					: null
+	}));
 </script>
 
-<section class="inline-limit" aria-label="Spend limit">
-	{#if !owner}
-		<p class="quiet">The owner sets the spend limit.</p>
-	{:else if spend}
-		{@const share = Math.min(100, (spend.accounted_usd / Math.max(spend.ceiling_usd, 0.01)) * 100)}
-		<div class="line">
-			<span>{money(spend.accounted_usd)} of {money(spend.ceiling_usd)}{spend.period === 'monthly' ? ' this month' : ''}</span>
-			<span class="figure" class:full={share >= 100}>{Math.round(share)}%</span>
-		</div>
-		<div class="meter" class:full={share >= 100} role="meter" aria-label="Spend used" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(share)}>
-			<span style:width={`${share}%`}></span>
-		</div>
-		<form
-			class="raise"
-			onsubmit={(event) => {
-				event.preventDefault();
-				void save(limit);
-			}}
-		>
-			<span class="quiet">Raise to</span>
-			{#each steps as step (step)}
-				<button class="btn small" type="button" disabled={saving} onclick={() => void save(String(step))}>{money(step)}</button>
-			{/each}
-			<label class="custom"
-				><span class="sr-only">Another limit in US dollars</span><input
-					inputmode="decimal"
-					placeholder="Other"
-					bind:value={limit}
-					disabled={saving}
-				/></label
-			>
-			<button class="btn small primary" disabled={saving || !limit.trim()}>{saving ? 'Saving…' : 'Save'}</button>
-		</form>
-		{#if error}<p class="error" role="alert">{error}</p>{/if}
-	{/if}
-</section>
+{#if !owner}
+	<InlinePanel label="Spend limit" note="The owner sets the spend limit." />
+{:else if spend}
+	{@const share = Math.min(100, (spend.accounted_usd / Math.max(spend.ceiling_usd, 0.01)) * 100)}
+	<InlinePanel
+		label="Spend limit"
+		{error}
+		note={choice === 'other' && other && !valid
+			? `Enter more than ${money(spend.accounted_usd)}, what is already spent.`
+			: ''}
+	>
+		{#snippet status()}
+			<div class="line">
+				<span>{money(spend.accounted_usd)} of {money(spend.ceiling_usd)}{spend.period === 'monthly' ? ' this month' : ''}</span>
+				<span class="figure" class:full={share >= 100}>{Math.round(share)}% used</span>
+			</div>
+			<div class="meter" class:full={share >= 100} role="meter" aria-label="Spend used" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(share)}>
+				<span style:width={`${share}%`}></span>
+			</div>
+		{/snippet}
+		<InlineChoice
+			label="New limit"
+			options={[
+				...steps.map((step) => ({ value: String(step), title: `${money(step)}${period}`, detail: `${Math.round((step / spend.ceiling_usd) * 10) / 10}× the current limit` })),
+				{ value: 'other', title: 'Another amount' }
+			]}
+			bind:value={choice}
+		/>
+		{#if choice === 'other'}<input
+				inputmode="decimal"
+				bind:value={other}
+				aria-label="New limit in US dollars"
+				placeholder="Limit in US dollars"
+			/>{/if}
+	</InlinePanel>
+{:else if source.failure}
+	<InlinePanel label="Spend limit" note="The spend limit could not be read." />
+{:else}
+	<InlinePanel label="Spend limit" note="Reading the spend limit…" />
+{/if}
 
 <style>
-	.inline-limit {
-		display: grid;
-		gap: 8px;
-		margin-top: 12px;
-		padding: 12px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
-		background: var(--surface);
-	}
 	.line {
 		display: flex;
 		justify-content: space-between;
@@ -118,33 +130,5 @@
 	}
 	.meter.full span {
 		background: var(--state-danger);
-	}
-	.raise {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 6px;
-	}
-	.custom input {
-		width: 7em;
-	}
-	.quiet {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.quiet,
-	.error {
-		margin: 0;
-	}
-	.error {
-		color: var(--state-danger);
-		font-size: var(--t-label);
-	}
-	.sr-only {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		overflow: hidden;
-		clip: rect(0 0 0 0);
 	}
 </style>

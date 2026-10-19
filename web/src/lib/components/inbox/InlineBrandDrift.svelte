@@ -1,9 +1,12 @@
 <script lang="ts">
-	/* A brand change made an artifact stale; its fate is decided inside the Inbox card (S101):
-	 * keep, revise or retire, with an optional reason for the record. */
+	/* A brand change made an artifact stale; its fate is chosen in the card (S101): revise, keep
+	 * or retire, with an optional reason for the record. The footer records it. */
 	import { decideIdentityMigration } from '$lib/model/identity';
 	import type { IdentityMigrationDisposition } from '$lib/model/identity';
 	import { failureSentence } from '$lib/model/failure';
+	import InlinePanel from './InlinePanel.svelte';
+	import InlineChoice from './InlineChoice.svelte';
+	import { cardActions } from './card-actions.svelte';
 
 	let {
 		companyId,
@@ -17,107 +20,46 @@
 		ondone: (receipt: string) => void;
 	} = $props();
 
-	const CHOICES: {
-		value: IdentityMigrationDisposition;
-		label: string;
-		title: string;
-		receipt: string;
-	}[] = [
-		{
-			value: 'revise',
-			label: 'Revise it',
-			title: 'Have the artifact revised to the new brand.',
-			receipt: 'It will be revised to the new brand.'
-		},
-		{
-			value: 'retain',
-			label: 'Keep as is',
-			title: 'Keep the artifact as it was made.',
-			receipt: 'It stays as it was made.'
-		},
-		{
-			value: 'retire',
-			label: 'Retire it',
-			title: 'Stop using the artifact.',
-			receipt: 'It is retired.'
-		}
+	const CHOICES: { value: IdentityMigrationDisposition; title: string; detail: string; receipt: string }[] = [
+		{ value: 'revise', title: 'Revise it', detail: 'Exec redoes it in the new brand', receipt: 'It will be revised to the new brand.' },
+		{ value: 'retain', title: 'Keep as is', detail: 'It stays as it was made', receipt: 'It stays as it was made.' },
+		{ value: 'retire', title: 'Retire it', detail: 'Stop using it anywhere', receipt: 'It is retired.' }
 	];
+	let choice = $state<IdentityMigrationDisposition | null>('revise');
 	let reason = $state('');
-	let saving = $state<IdentityMigrationDisposition | ''>('');
 	let error = $state('');
+	const picked = $derived(CHOICES.find((option) => option.value === choice) ?? null);
 
-	async function decide(choice: (typeof CHOICES)[number]) {
-		if (saving) return;
-		saving = choice.value;
-		error = '';
-		try {
-			await decideIdentityMigration(
-				companyId,
-				finding,
-				choice.value,
-				reason.trim() || `${choice.label}, decided from the Inbox.`
-			);
-			ondone(`Decision recorded. ${choice.receipt}`);
-		} catch (cause) {
-			error = failureSentence(cause, 'The decision was not recorded. Try again.');
-		} finally {
-			saving = '';
-		}
-	}
+	cardActions(() => ({
+		primary:
+			owner && picked
+				? {
+						label: picked.title,
+						busyLabel: 'Recording…',
+						run: async () => {
+							error = '';
+							try {
+								await decideIdentityMigration(
+									companyId,
+									finding,
+									picked.value,
+									reason.trim() || `${picked.title}, decided from the Inbox.`
+								);
+								ondone(`Decision recorded. ${picked.receipt}`);
+							} catch (cause) {
+								error = failureSentence(cause, 'The decision was not recorded. Try again.');
+							}
+						}
+					}
+				: null
+	}));
 </script>
 
-<section class="inline-drift" aria-label="Decide on this artifact">
-	{#if owner}
-		<textarea
-			bind:value={reason}
-			rows="2"
-			aria-label="Reason, optional"
-			placeholder="Reason, optional"
-			disabled={!!saving}
-		></textarea>
-		<div class="choices">
-			{#each CHOICES as choice, index (choice.value)}
-				<button
-					class="btn small"
-					class:primary={index === 0}
-					type="button"
-					title={choice.title}
-					disabled={!!saving}
-					onclick={() => void decide(choice)}
-					>{saving === choice.value ? 'Recording…' : choice.label}</button
-				>
-			{/each}
-		</div>
-	{:else}
-		<p class="quiet">The owner decides what happens to brand-affected work.</p>
-	{/if}
-	{#if error}<p class="error" role="alert">{error}</p>{/if}
-</section>
-
-<style>
-	.inline-drift {
-		display: grid;
-		gap: 8px;
-		margin-top: 12px;
-	}
-	textarea {
-		width: 100%;
-		resize: vertical;
-	}
-	.choices {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 6px;
-	}
-	.quiet,
-	.error {
-		margin: 0;
-		font-size: var(--t-label);
-	}
-	.quiet {
-		color: var(--text-tertiary);
-	}
-	.error {
-		color: var(--state-danger);
-	}
-</style>
+{#if owner}
+	<InlinePanel label="What happens to this artifact" {error}>
+		<InlineChoice label="What happens to this artifact" options={CHOICES} bind:value={choice} />
+		<input bind:value={reason} aria-label="Reason, optional" placeholder="Reason, optional" autocomplete="off" />
+	</InlinePanel>
+{:else}
+	<InlinePanel label="Brand decision" note="The owner decides what happens to brand-affected work." />
+{/if}

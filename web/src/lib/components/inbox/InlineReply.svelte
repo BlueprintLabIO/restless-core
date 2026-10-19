@@ -1,8 +1,8 @@
 <script lang="ts">
-	/* An agent's question answered inside its Inbox card (S101): the last few messages for context,
-	 * the question, its own choices as one-tap answers, and a reply that goes to the agent as a
-	 * message. Exec and every lead ask this way, so any chat that needs you is a card you can
-	 * finish here. */
+	/* An agent's question answered in its card (S101): the last few messages for context on top,
+	 * the question's own choices below with a way to write your own. The footer sends the answer
+	 * to the agent as a message. Exec and every lead ask this way, so any chat that needs you is
+	 * a card you finish here. */
 	import { onMount, tick } from 'svelte';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
@@ -10,6 +10,9 @@
 	import { failureSentence } from '$lib/model/failure';
 	import { quickAnswers, replyBody } from '$lib/model/inline-reply';
 	import type { ConversationMessageView } from '$lib/model/generated/conversation';
+	import InlinePanel from './InlinePanel.svelte';
+	import InlineChoice from './InlineChoice.svelte';
+	import { cardActions } from './card-actions.svelte';
 
 	let {
 		companyId,
@@ -26,17 +29,25 @@
 		/** What the agent asked, as its card states it. */
 		question: string;
 		workId?: string | null;
-		/** One-tap answers the card knows better than its question's wording. */
+		/** Answers the card knows better than its question's wording. */
 		answers?: string[];
 		ondone: (receipt: string) => void;
 	} = $props();
 
+	const OWN = '__own';
 	let recent = $state<ConversationMessageView[]>([]);
-	let answer = $state('');
-	let sending = $state(false);
+	let own = $state('');
 	let error = $state('');
 	let field = $state<HTMLTextAreaElement | null>(null);
 	const choices = $derived(answers ?? quickAnswers(question));
+	let choice = $state<string | null>(null);
+	$effect(() => {
+		if (choice === null) choice = choices.length ? null : OWN;
+	});
+	$effect(() => {
+		if (choice === OWN && choices.length) void tick().then(() => field?.focus());
+	});
+	const answer = $derived(choice === OWN ? own.trim() : (choice ?? ''));
 
 	onMount(() => {
 		void getActorConversation(companyId, actorId, workId ?? undefined)
@@ -44,54 +55,52 @@
 			.catch(() => (recent = []));
 	});
 
-	async function pick(choice: string) {
-		answer = choice;
-		await tick();
-		field?.focus();
-	}
-
-	async function send(event?: SubmitEvent) {
-		event?.preventDefault();
-		if (sending || !answer.trim()) return;
-		sending = true;
+	async function send() {
+		if (!answer) return;
 		error = '';
 		try {
 			await sendActorMessage(companyId, actorId, replyBody(question, answer), workId ?? undefined);
-			answer = '';
+			own = '';
 			ondone(`Sent to ${actorName}. They carry on with your answer.`);
 		} catch (cause) {
 			error = failureSentence(cause, 'The reply was not sent. Try again.');
-		} finally {
-			sending = false;
 		}
 	}
+
+	cardActions(() => ({
+		primary: { label: `Send to ${actorName}`, busyLabel: 'Sending…', disabled: !answer, run: send }
+	}));
 </script>
 
-<section class="inline-reply" aria-label={`Reply to ${actorName}`}>
-	{#if recent.length > 1}
-		<ol class="thread" aria-label="Recent messages">
-			{#each recent.slice(0, -1) as message (message.id)}
-				<li class:mine={message.from_actor !== actorId}>
-					<span class="who">{message.from_actor === actorId ? actorName : 'You'}</span>
-					<RelativeTime value={message.created_at} />
-					<div class="text"><Markdown text={message.body.length > 600 ? `${message.body.slice(0, 600)}…` : message.body} /></div>
-				</li>
-			{/each}
-		</ol>
-	{/if}
+{#snippet thread()}
+	<ol class="thread" aria-label="Recent messages">
+		{#each recent.slice(0, -1) as message (message.id)}
+			<li class:mine={message.from_actor !== actorId}>
+				<span class="who">{message.from_actor === actorId ? actorName : 'You'}</span>
+				<RelativeTime value={message.created_at} />
+				<div class="text"><Markdown text={message.body.length > 600 ? `${message.body.slice(0, 600)}…` : message.body} /></div>
+			</li>
+		{/each}
+	</ol>
+{/snippet}
+
+<InlinePanel label={`Reply to ${actorName}`} {error} status={recent.length > 1 ? thread : undefined}>
 	{#if choices.length}
-		<div class="choices" aria-label="Answers to choose">
-			{#each choices as choice (choice)}
-				<button type="button" class:on={answer === choice} onclick={() => void pick(choice)}>{choice}</button>
-			{/each}
-		</div>
+		<InlineChoice
+			label="Your answer"
+			options={[
+				...choices.map((text) => ({ value: text, title: text })),
+				{ value: OWN, title: 'Write my own' }
+			]}
+			bind:value={choice}
+		/>
 	{/if}
-	<form onsubmit={send}>
+	{#if choice === OWN}
 		<label class="sr-only" for={`reply-${actorId}`}>Your reply to {actorName}</label>
 		<textarea
 			id={`reply-${actorId}`}
 			bind:this={field}
-			bind:value={answer}
+			bind:value={own}
 			rows="3"
 			placeholder={`Reply to ${actorName}…`}
 			onkeydown={(event) => {
@@ -101,20 +110,10 @@
 				}
 			}}
 		></textarea>
-		<div class="foot">
-			<span class="hint">⌘↵ to send · goes to {actorName} as a message</span>
-			<button class="btn small primary" disabled={sending || !answer.trim()}>{sending ? 'Sending…' : 'Send'}</button>
-		</div>
-	</form>
-	{#if error}<p class="error" role="alert">{error}</p>{/if}
-</section>
+	{/if}
+</InlinePanel>
 
 <style>
-	.inline-reply {
-		display: grid;
-		gap: 10px;
-		margin-top: 12px;
-	}
 	.thread {
 		display: grid;
 		gap: 8px;
@@ -142,48 +141,9 @@
 		max-height: 7.5em;
 		overflow: hidden;
 	}
-	.choices {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 6px;
-	}
-	.choices button {
-		max-width: 100%;
-		padding: 5px 10px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
-		background: var(--surface);
-		color: var(--ink);
-		font-size: var(--t-label);
-		text-align: left;
-		cursor: pointer;
-	}
-	.choices button.on,
-	.choices button:hover {
-		border-color: var(--text-secondary);
-	}
-	form {
-		display: grid;
-		gap: 6px;
-	}
 	textarea {
 		width: 100%;
 		resize: vertical;
-	}
-	.foot {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 10px;
-	}
-	.hint {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.error {
-		margin: 0;
-		color: var(--state-danger);
-		font-size: var(--t-label);
 	}
 	.sr-only {
 		position: absolute;

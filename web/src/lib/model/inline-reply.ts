@@ -16,7 +16,20 @@ export function quickAnswers(question: string): string[] {
 		.map((part) => part.replace(/^(?:either\s+)/i, '').trim())
 		.filter((part) => part.length > 1);
 	if (parts.length < 2 || parts.length > 3 || parts.some((part) => part.length > 90)) return [];
-	return parts.map((part) => part.charAt(0).toUpperCase() + part.slice(1));
+	return balanced(parts).map((part) => part.charAt(0).toUpperCase() + part.slice(1));
+}
+
+const AMOUNT = /^(?:[A-Z]{0,3}\$|£|€)?\d/;
+
+/** "announce 3 November or 10 November": the words before the first choice belong to every
+ * choice, so the buttons read "3 November" and "10 November". Only when the choices are
+ * amounts or dates, where the shared lead-in is unmistakable. */
+function balanced(parts: string[]): string[] {
+	if (!parts.slice(1).every((part) => AMOUNT.test(part))) return parts;
+	const words = parts[0].split(/\s+/);
+	const start = words.findIndex((word, index) => index > 0 && AMOUNT.test(word));
+	if (start < 1 || start > 3) return parts;
+	return [words.slice(start).join(' '), ...parts.slice(1)];
 }
 
 /** The reply as sent: the question quoted, so the agent knows what it answers, then the answer. */

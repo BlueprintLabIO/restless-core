@@ -49,9 +49,11 @@
 	import InlineModel from './inbox/InlineModel.svelte';
 	import InlineSpendLimit from './inbox/InlineSpendLimit.svelte';
 	import InlineDesktop from './inbox/InlineDesktop.svelte';
+	import { provideCardActions } from './inbox/card-actions.svelte';
 	import InlineBrandDrift from './inbox/InlineBrandDrift.svelte';
 	import InlineMachine from './inbox/InlineMachine.svelte';
 	import InlineReconnect from './inbox/InlineReconnect.svelte';
+	import InlineStartComputer from './inbox/InlineStartComputer.svelte';
 	import {
 		discussInbox,
 		appRequestHandoffs,
@@ -133,10 +135,16 @@
 	);
 	/* An approval answer is announced to Exec, whoever prepared the draft. */
 	const execHref = $derived(`/${encodeURIComponent(companyId)}/people?person=exec&view=people`);
+	/* What the card's inline panel chose, done from the footer like every other answer. */
+	const cardSlot = provideCardActions();
 	const approval = $derived(item.category === 'approval');
-	/* The exact draft an approval asks about, shown under the ask rather than folded away. */
+	/* The exact thing an approval asks about (a command's draft, the build and limits put online,
+	 * a payment's amount and payee), shown under the ask rather than folded away. */
+	const EXACT_KINDS = ['command', 'authority-publication', 'authority-payment'];
 	const drafts = $derived(
-		approval ? item.evidence.filter((entry) => entry.kind === 'command' && entry.content) : []
+		approval || item.evidence.some((entry) => entry.kind === 'authority-payment')
+			? item.evidence.filter((entry) => EXACT_KINDS.includes(entry.kind) && entry.content)
+			: []
 	);
 	/* Files the item points at (a receipt, an invoice, a draft's attachment), each opening in the
 	 * Library viewer. Other evidence stays in the fold. */
@@ -217,6 +225,9 @@
 	const driftSurface = $derived(item.source.kind === 'identity_drift');
 	const machineSurface = $derived(item.source.kind === 'machine_offline');
 	const reconnectSurface = $derived(item.source.kind === 'connection_sign_in');
+	const startSurface = $derived(
+		item.source.kind === 'overdue_dispatch_blocked' && !!action('open-company-health')
+	);
 	/* An outside action that failed or went unanswered: the answer goes to whoever ran it. */
 	const outcomeSurface = $derived(
 		item.source.kind === 'effect_outcome' || item.source.kind === 'payment_outcome'
@@ -227,7 +238,7 @@
 			: ['Fix it and retry', 'Drop it']
 	);
 	const navigation = $derived(
-		modelSurface || spendSurface || driftSurface || machineSurface || reconnectSurface
+		modelSurface || spendSurface || driftSurface || machineSurface || reconnectSurface || startSurface
 			? []
 			: item.actions.filter(
 					(candidate) =>
@@ -619,7 +630,7 @@
 				href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(item.workId)}`}
 				>Open the work</a
 			>{/if}
-		{#each navigation.slice(inlineNavigation) as extra (extra.id)}<a
+		{#each navigation.slice(cardSlot.primary ? 0 : inlineNavigation) as extra (extra.id)}<a
 				href={extra.href}
 				target={extra.href?.startsWith('/') ? undefined : '_blank'}
 				rel="noreferrer"
@@ -687,6 +698,64 @@
 						{:else}
 							<div class="ask"><Markdown text={item.requestedAction} /></div>
 						{/if}
+						{#if item.accountUse}<AccountUseNote
+								use={item.accountUse}
+								owner={!canPassToOwner}
+							/>{/if}
+						{#if item.accountRequest && !canPassToOwner && !item.preparing}
+							<!-- The owner's form below carries the kind and abilities; only the why stays. -->
+							{@const why = item.accountRequest.reason
+								.replace(/\s*\bsite:\s*\S+\s*/i, ' ')
+								.trim()}
+							{#if why}<p class="account-request"><q>{why}</q></p>{/if}
+						{:else if item.accountRequest}
+							<p class="account-request">
+								<strong
+									>{item.accountRequest.requested_by_display} asks for {item.accountRequest
+										.account_id
+										? 'more on an account'
+										: kindPhrase(item.accountRequest.kind)}</strong
+								>
+								<span
+									>{grantSummary({
+										abilities: item.accountRequest.abilities,
+										spend_cap: null
+									})}</span
+								>
+								{#if item.accountRequest.reason}<q>{item.accountRequest.reason}</q>{/if}
+							</p>
+						{/if}
+						{#each drafts as draft, index (index)}
+							<pre
+								class="draft"
+								aria-label={draft.label}
+								title={draft.kind === 'command'
+									? 'The exact draft. Allowing it lets exactly this run.'
+									: `${draft.label}: exactly what your answer covers.`}>{draft.content}</pre>
+						{/each}
+						{#if files.length}
+							<div class="attach-list files">
+								{#each item.workId ? files.slice(0, 6) : files as file (file.href)}
+									<a
+										class="attach-file"
+										href={file.href}
+										title={`Open in the Library · ${file.path}`}
+									>
+										<span class="a-kind">{file.ext}</span>
+										<span class="af-main"><span class="a-name">{file.label}</span></span>
+									</a>
+								{/each}
+								{#if files.length > 6 && item.workId}<a
+										class="link"
+										href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(item.workId)}`}
+										>All {files.length} files</a
+									>{/if}
+							</div>
+						{/if}
+						{#if item.uncertainty}<p class="uncertain" title="What the team is not sure about">
+								<span>Not certain</span>{item.uncertainty}
+							</p>{/if}
+						<!-- One panel answers the card (S101); the footer acts on it. -->
 						{#if appRequest && humanStep && !item.preparing}<InlineAppRequest
 								{companyId}
 								request={appRequest}
@@ -724,6 +793,11 @@
 								owner={!canPassToOwner}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
+						{#if startSurface}<InlineStartComputer
+								{companyId}
+								owner={!canPassToOwner}
+								ondone={(receipt) => void completedInline(receipt)}
+							/>{/if}
 						{#if reconnectSurface}<InlineReconnect
 								{companyId}
 								name={item.source.reference}
@@ -753,69 +827,17 @@
 									itemId={item.id}
 									attached={!!item.runtimeAttach}
 									url={stepUrl}
-									fullHref={item.runtimeAttach
-										? `${base}&computer=${encodeURIComponent(item.id)}`
-										: `/${encodeURIComponent(companyId)}/company/computer?focus=desktop`}
 								/>{/key}{/if}
 						{#if spendSurface}<InlineSpendLimit
 								{companyId}
 								owner={!canPassToOwner}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
-						{#if item.accountUse}<AccountUseNote
-								use={item.accountUse}
-								owner={!canPassToOwner}
-							/>{/if}
-						{#if item.accountRequest}
-							<p class="account-request">
-								<strong
-									>{item.accountRequest.requested_by_display} asks for {item.accountRequest
-										.account_id
-										? 'more on an account'
-										: kindPhrase(item.accountRequest.kind)}</strong
-								>
-								<span
-									>{grantSummary({
-										abilities: item.accountRequest.abilities,
-										spend_cap: null
-									})}</span
-								>
-								{#if item.accountRequest.reason}<q>{item.accountRequest.reason}</q>{/if}
-							</p>
-						{/if}
 						{#if item.accountRequest && !item.preparing}<InlineAccountRequest
 								ask={item.accountRequest}
 								owner={!canPassToOwner}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
-						{#each drafts as draft, index (index)}
-							<pre
-								class="draft"
-								aria-label={draft.label}
-								title="The exact draft. Allowing it lets exactly this run.">{draft.content}</pre>
-						{/each}
-						{#if files.length}
-							<div class="attach-list files">
-								{#each item.workId ? files.slice(0, 6) : files as file (file.href)}
-									<a
-										class="attach-file"
-										href={file.href}
-										title={`Open in the Library · ${file.path}`}
-									>
-										<span class="a-kind">{file.ext}</span>
-										<span class="af-main"><span class="a-name">{file.label}</span></span>
-									</a>
-								{/each}
-								{#if files.length > 6 && item.workId}<a
-										class="link"
-										href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(item.workId)}`}
-										>All {files.length} files</a
-									>{/if}
-							</div>
-						{/if}
-						{#if item.uncertainty}<p class="uncertain" title="What the team is not sure about">
-								<span>Not certain</span>{item.uncertainty}
-							</p>{/if}
 					</div>
 				</div>
 
@@ -1040,7 +1062,51 @@
 		{:else}
 			<div class="action-row">
 				{@render secondaryActions()}
-				{#if review}
+				{#if cardSlot.primary}
+					{@const primary = cardSlot.primary}
+					{#if humanStep && !appRequest}<button
+							class="btn small"
+							type="button"
+							disabled={acting || markingDone || !!cardSlot.busy}
+							title={`${humanStep.consequence} ${humanStep.nextState} Undo stays available for a few seconds.`}
+							onclick={markDone}>{markingDone ? 'Marking done…' : 'Mark done'}</button
+						>{/if}
+					{#if requestDeny}<button
+							class="btn small"
+							disabled={acting || !!cardSlot.busy}
+							title={`${requestDeny.consequence} ${requestDeny.nextState}`}
+							onclick={() => void answerRequest('denied')}>{requestDeny.label}</button
+						>{/if}
+					{#each cardSlot.secondary as extra (extra.label)}<button
+							class="btn small"
+							type="button"
+							disabled={!!cardSlot.busy || extra.disabled}
+							title={extra.title}
+							onclick={() => void cardSlot.invoke(extra)}
+							>{cardSlot.busy === extra.label ? (extra.busyLabel ?? extra.label) : extra.label}</button
+						>{/each}
+					{#if primary.hold}
+						{#key `${item.id}:${primary.label}`}
+							<HoldApprove
+								small
+								label={`Hold to ${primary.label.charAt(0).toLowerCase()}${primary.label.slice(1)}`}
+								completeLabel={primary.busyLabel ?? 'Saving…'}
+								disabled={!!cardSlot.busy || primary.disabled}
+								title={primary.title ?? primary.label}
+								onapprove={() => void cardSlot.invoke(primary)}
+							/>
+						{/key}
+					{:else}<button
+							class="btn small primary"
+							type="button"
+							disabled={!!cardSlot.busy || primary.disabled}
+							title={primary.title}
+							onclick={() => void cardSlot.invoke(primary)}
+							>{cardSlot.busy === primary.label
+								? (primary.busyLabel ?? primary.label)
+								: primary.label}</button
+						>{/if}
+				{:else if review}
 					{#if requestingReviewChanges}
 						<button
 							class="btn primary small"
@@ -1235,7 +1301,8 @@
 					>
 				{:else if navigation[0]}
 					<a
-						class="btn primary small"
+						class="btn small"
+						class:primary={!outcomeSurface}
 						href={navigation[0].href}
 						target={navigation[0].href?.startsWith('/') ? undefined : '_blank'}
 						rel="noreferrer"
