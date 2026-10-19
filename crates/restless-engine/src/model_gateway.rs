@@ -1768,9 +1768,10 @@ async fn relay_pi_stream(
 
     let status = upstream.status();
     let upstream_headers = upstream.headers().clone();
+    let account = observe_account_usage(&config, &grant.model, &grant.company, &upstream_headers);
     let request_id = uuid::Uuid::new_v4();
     let stream = MeteredStream::new(
-        upstream.bytes_stream(),
+        watch_rate_limit_events(upstream.bytes_stream(), account, grant.company.clone()),
         state.spend.meter(),
         MeteredRequest {
             request_id,
@@ -1811,6 +1812,69 @@ async fn relay_pi_stream(
 /// capability: the host-side OMP gateway retains the provider credential and
 /// the relay rewrites the unqualified Codex model id to the provider-qualified
 /// route only after verifying that capability.
+/// The account behind a company's model, and what its response headers say about its limits
+/// (S100). Passive: these are the headers of a call the company was making anyway. Returns the
+/// account so the stream's own rate-limit event can be recorded against it too.
+fn observe_account_usage(
+    config: &crate::runtime::CompanyConfig,
+    model: &str,
+    company: &str,
+    headers: &HeaderMap,
+) -> Option<String> {
+    let (provider, _) = split_model(model).ok()?;
+    let reference = config.credentials.get(&format!("model.inference.{provider}"))?;
+    let account = crate::account_usage::account_of(reference)?;
+    let header = |name: &str| headers.get(name).and_then(|value| value.to_str().ok()).map(str::to_string);
+    let now = chrono::Utc::now();
+    let mut windows = crate::account_usage::codex_header_windows(header, now);
+    windows.extend(crate::account_usage::claude_header_windows(header, now));
+    if !windows.is_empty() {
+        let (account, company) = (account.clone(), company.to_string());
+        tokio::spawn(async move { crate::account_usage::observe(&account, &company, &windows, "headers").await });
+    }
+    Some(account)
+}
+
+/// Pass a model stream through untouched, recording any `codex.rate_limits` event it carries.
+fn watch_rate_limit_events<S, E>(
+    inner: S,
+    account: Option<String>,
+    company: String,
+) -> impl futures_util::Stream<Item = Result<Bytes, E>>
+where
+    S: futures_util::Stream<Item = Result<Bytes, E>>,
+{
+    use futures_util::StreamExt as _;
+    let mut carry: Vec<u8> = Vec::new();
+    inner.map(move |chunk| {
+        if let (Ok(bytes), Some(account)) = (&chunk, &account) {
+            carry.extend_from_slice(bytes);
+            // Only whole lines are read; a partial last line waits for the next chunk.
+            while let Some(end) = carry.iter().position(|byte| *byte == b'\n') {
+                let line: Vec<u8> = carry.drain(..=end).collect();
+                let Some(data) = line.strip_prefix(b"data:") else { continue };
+                if !data.windows(17).any(|window| window == b"codex.rate_limits") {
+                    continue;
+                }
+                if let Ok(event) = serde_json::from_slice::<serde_json::Value>(data) {
+                    let windows = crate::account_usage::codex_event_windows(&event, chrono::Utc::now());
+                    if !windows.is_empty() {
+                        let (account, company) = (account.clone(), company.clone());
+                        tokio::spawn(async move {
+                            crate::account_usage::observe(&account, &company, &windows, "stream").await
+                        });
+                    }
+                }
+            }
+            // A line this long is a model's content, not a rate-limit event.
+            if carry.len() > 64 * 1024 {
+                carry.clear();
+            }
+        }
+        chunk
+    })
+}
+
 async fn relay_responses(
     State(state): State<RelayState>,
     headers: HeaderMap,
@@ -1985,9 +2049,10 @@ async fn relay_responses(
 
     let status = upstream.status();
     let upstream_headers = upstream.headers().clone();
+    let account = observe_account_usage(&config, &grant.model, &grant.company, &upstream_headers);
     let request_id = uuid::Uuid::new_v4();
     let stream = MeteredStream::new_responses(
-        upstream.bytes_stream(),
+        watch_rate_limit_events(upstream.bytes_stream(), account, grant.company.clone()),
         state.spend.meter(),
         MeteredRequest {
             request_id,
@@ -2151,6 +2216,7 @@ async fn relay_anthropic_messages(
 
     let status = upstream.status();
     let upstream_headers = upstream.headers().clone();
+    let _ = observe_account_usage(&config, &grant.model, &grant.company, &upstream_headers);
     let request_id = uuid::Uuid::new_v4();
     let metered = if streaming {
         MeteredStream::new_anthropic

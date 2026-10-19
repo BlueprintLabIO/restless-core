@@ -526,6 +526,12 @@ pub fn usage_limit_reset_seconds(lower: &str) -> Option<i64> {
     if let Some(seconds) = number_after("resets_in_seconds") {
         return Some(seconds);
     }
+    // Newer Codex errors give the reset as a Unix time.
+    if let Some(at) = number_after("resets_at") {
+        let at = if at > 100_000_000_000 { at / 1000 } else { at };
+        let seconds = at - chrono::Utc::now().timestamp();
+        return (seconds > 0).then_some(seconds);
+    }
     let rest = &lower[lower.find("try again in ")? + "try again in ".len()..];
     let words: Vec<&str> = rest.split(|c: char| c.is_whitespace() || c == ',' || c == '.').filter(|w| !w.is_empty()).collect();
     let mut seconds = 0i64;

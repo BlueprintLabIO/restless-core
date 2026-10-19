@@ -13,6 +13,8 @@ mod event_transport;
 mod accounting_api;
 #[path = "owner_accounts.rs"]
 mod accounts_api;
+#[path = "owner_account_usage.rs"]
+mod account_usage_api;
 #[path = "owner_appliance.rs"]
 mod appliance_api;
 #[path = "owner_agent_exchanges.rs"]
@@ -1346,6 +1348,8 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/connections",
             get(list_owner_connections).post(create_owner_connection),
         )
+        .route("/accounts/usage", get(account_usage_api::accounts))
+        .route("/companies/{company}/model/headroom", get(account_usage_api::company))
         .route("/accounts", get(accounts_api::list).post(accounts_api::create))
         .route(
             "/accounts/{id}",

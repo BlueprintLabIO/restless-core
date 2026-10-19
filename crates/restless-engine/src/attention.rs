@@ -613,6 +613,89 @@ fn spend_stopped_item(config: &CompanyConfig, what_happened: String, created_at:
 /// refused sign-in or key, or a model no longer offered. Raised from the cooldown itself, so it
 /// shows even when no Exec turn has run since (18 October: Frankensurf's credit ran out at
 /// 10:03 and the Inbox stayed empty while every wake was refused).
+/// The account behind the company's model is past [`crate::account_usage::WARN_PERCENT`] of a
+/// window (S100): say how full, when it resets, when it runs out at this pace, and offer a fallback.
+async fn account_headroom_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> anyhow::Result<Option<AttentionItem>> {
+    let Some(model) = config.configured_model() else { return Ok(None) };
+    let provider = model.split('/').next().unwrap_or_default();
+    let Some(account) = config
+        .credentials
+        .get(&format!("model.inference.{provider}"))
+        .and_then(|reference| crate::account_usage::account_of(reference))
+    else {
+        return Ok(None);
+    };
+    let now = Utc::now();
+    let Some(window) = crate::account_usage::fullest(pool, &account, now).await? else { return Ok(None) };
+    if window.used_percent < crate::account_usage::WARN_PERCENT || window.used_percent >= 100.0 {
+        return Ok(None);
+    }
+    let name = match provider {
+        "openai-codex" => "ChatGPT",
+        "anthropic" => "Claude",
+        _ => "AI",
+    };
+    let resets = window
+        .resets_at
+        .map(|reset| format!(" It resets at {}.", reset.format("%H:%M UTC on %-d %b")))
+        .unwrap_or_default();
+    let pace = window
+        .runs_out_at
+        .map(|at| format!(" At the pace of the last hour it runs out around {}.", at.format("%H:%M UTC")))
+        .unwrap_or_default();
+    let users = if window.by_company.len() > 1 {
+        let named: Vec<String> = window.by_company.iter().take(3).map(|(company, points)| format!("{company} {points:.0}%")).collect();
+        format!(" Used so far: {}.", named.join(", "))
+    } else {
+        String::new()
+    };
+    Ok(Some(AttentionItem {
+        id: format!("authority:account_headroom:{account}:{}", window.name),
+        work_id: None,
+        source: AttentionSource {
+            plane: "authority",
+            kind: "account_headroom".into(),
+            reference: account.clone(),
+            party: None,
+            call_key: None,
+        },
+        category: "risk".into(),
+        title: format!("Your {name} account is {:.0}% through its {} limit", window.used_percent, window.label.to_lowercase()),
+        what_happened: format!("{:.0}% of the {} window is used.{resets}{pace}{users}", window.used_percent, window.label.to_lowercase()),
+        why_it_matters: format!(
+            "{} stops when the account reaches its limit, until it resets, unless it has a fallback.",
+            config.name
+        ),
+        recommendation: "Add a fallback model from another account, so work carries on when this one runs out.".into(),
+        requested_action: "Add a fallback, or lighten the load.".into(),
+        if_no_action: "Work continues until the limit, then waits for the reset.".into(),
+        uncertainty: Some(format!("As reported by the account at {}.", window.observed_at.format("%H:%M UTC"))),
+        deadline: None,
+        brief_status: "source-observed",
+        brief_author: None,
+        briefed_at: None,
+        evidence: Vec::new(),
+        review_sources: Vec::new(),
+        responsible_actor: None,
+        runtime_attach: None,
+        review_target: None,
+        native_document: None,
+        direction_request: None,
+        charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+        actions: vec![AttentionAction {
+            id: "open-intelligence-provider".into(),
+            label: "Add a fallback".into(),
+            role: "inspect",
+            consequence: "Opens the model and its fallbacks for this company.".into(),
+            next_state: "When the account runs out, the next fallback takes over.".into(),
+            href: Some(format!("/{}/company/provider", config.name)),
+        }],
+        can_continue: false,
+        preparing: false,
+        created_at: Utc::now(),
+    }))
+}
+
 fn model_cooldown_items(config: &CompanyConfig, cooldowns: &[crate::authority::ModelCooldown]) -> Vec<AttentionItem> {
     cooldowns
         .iter()
@@ -682,7 +765,7 @@ fn model_cooldown_items(config: &CompanyConfig, cooldowns: &[crate::authority::M
                     cooldown.model
                 ),
                 recommendation: if usage {
-                    format!("Wait for the reset, or give the company another account you hold for now. Work resumes by itself at {} either way.", cooldown.retry_at.format("%H:%M UTC on %-d %b"))
+                    format!("Wait for the reset, or add a fallback model from another account you hold so work carries on now. Work resumes by itself at {} either way.", cooldown.retry_at.format("%H:%M UTC on %-d %b"))
                 } else if credit {
                     "Top up, or give the company another account you hold, such as a ChatGPT or Claude sign-in.".into()
                 } else {
@@ -2956,6 +3039,13 @@ async fn project_queue(
         match authority.active_model_cooldowns(&config.name).await {
             Ok(cooldowns) => items.extend(model_cooldown_items(config, &cooldowns)),
             Err(error) => tracing::warn!(%error, "model cooldowns unavailable"),
+        }
+    }
+    // Warn before the account runs out, not after (S100); the cooldown card covers "ran out".
+    if !items.iter().any(|item| item.source.kind == "model_cooldown") {
+        match account_headroom_item(config, authority.pool()).await {
+            Ok(warning) => items.extend(warning),
+            Err(error) => tracing::warn!(%error, "account headroom unavailable"),
         }
     }
     if let Some(warning) = spend.and_then(|spend| spend_warning_item(config, spend)) {

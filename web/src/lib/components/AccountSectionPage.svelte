@@ -8,6 +8,7 @@
 	import AccountFrame from '$lib/components/AccountFrame.svelte';
 	import AccountConnections from '$lib/components/AccountConnections.svelte';
 	import OwnerAccounts from '$lib/components/OwnerAccounts.svelte';
+	import AccountUsage from '$lib/components/AccountUsage.svelte';
 	import { ownerAccounts } from '$lib/model/owner-accounts-client';
 	import { companiesQuery } from '$lib/model/queries.svelte';
 	import AccountAppearance from '$lib/components/AccountAppearance.svelte';
@@ -55,7 +56,9 @@
 		{#snippet settings(nav)}
 			<AccountPage title="Settings" sections={[current]} {nav}>
 				{#snippet section()}
-					{#if id === 'connections'}<AccountConnections /><OwnerAccounts
+					{#if id === 'connections'}<AccountConnections /><AccountUsage
+							companies={grantable}
+						/><OwnerAccounts
 							client={ownerAccounts}
 							companies={grantable}
 						/>{:else if id === 'appliance'}<AccountAppliance />{:else}<AccountAppearance />{/if}

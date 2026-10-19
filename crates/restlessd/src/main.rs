@@ -317,6 +317,7 @@ async fn run() -> Result<()> {
     if daemon.runtime_bridges.is_hosted() {
         runtime_bridge::remember_identity_pool(daemon.authority.pool().clone());
     }
+    restless_engine::account_usage::remember_pool(daemon.authority.pool().clone());
     daemon.lifecycle.begin_recovery();
     runtime::begin_startup_recovery();
 
