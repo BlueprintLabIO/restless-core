@@ -789,27 +789,22 @@
 										kindOf(account.kind).label}{account.personal ? ' · personal' : ''}</small
 								>
 							</div>
-							<div class="uses">
-								{#each account.grants as grant (grant.id)}<span
-										class="chip"
-										class:paused={grant.frozen}
-										title={grantSummary(grant)}>{companyName(grant.company)}</span
-									>{:else}<span class="unused">No company access</span>{/each}
-							</div>
-							{#if account.open_notices}
-								<button
-									type="button"
-									class="notices"
-									title="Uses you were told about and have not answered"
-									onclick={() => {
-										managing = account.id;
-										draft = null;
-									}}>{account.open_notices} to look at</button
+							<div class="state">
+								{#if account.open_notices}
+									<button
+										type="button"
+										class="notices"
+										title="Uses you were told about and have not answered"
+										onclick={() => {
+											managing = account.id;
+											draft = null;
+										}}>{account.open_notices} to look at</button
+									>
+								{/if}
+								<span class="status" class:ok={account.health === 'signed_in'}
+									>{account.frozen ? 'Frozen' : HEALTH_LABEL[account.health]}</span
 								>
-							{/if}
-							<span class="status" class:ok={account.health === 'signed_in'}
-								>{account.frozen ? 'Frozen' : HEALTH_LABEL[account.health]}</span
-							>
+							</div>
 							<div class="row-actions">
 								<button
 									type="button"
@@ -818,7 +813,7 @@
 									onclick={() => {
 										managing = open ? '' : account.id;
 										draft = null;
-									}}>{open ? 'Done' : 'Manage'}</button
+									}}>Manage</button
 								>
 								<ActionMenu label={`${account.label} options`}>
 									<button type="button" onclick={() => void freeze(account, !account.frozen)}
@@ -894,6 +889,18 @@
 									/>
 								</div>
 							</div>
+						{:else if account.grants.length}
+							<!-- Who uses it, one quiet row each under the account, so the account row never grows. -->
+							<div class="detail uses" aria-label={`Companies using ${account.label}`}>
+								{#each account.grants as grant (grant.id)}
+									<div class="use" class:paused={grant.frozen}>
+										<strong>{companyName(grant.company)}</strong>
+										<span>{grant.frozen ? 'Paused' : grantSummary(grant)}</span>
+									</div>
+								{/each}
+							</div>
+						{:else}
+							<p class="no-uses">No company has access yet.</p>
 						{/if}
 					</article>
 				{/each}
@@ -1000,6 +1007,10 @@
 		background: var(--surface-pane);
 		overflow: hidden;
 	}
+	/* A grid item sizes to its longest unwrapped line unless told it may shrink. */
+	.row {
+		min-width: 0;
+	}
 	.row + .row {
 		border-top: 1px solid var(--border);
 	}
@@ -1010,12 +1021,13 @@
 	.row.frozen .uses {
 		opacity: 0.6;
 	}
+	/* The account row is one line high whatever it holds; who uses it sits underneath. */
 	.main {
 		display: grid;
-		grid-template-columns: 36px minmax(150px, 1fr) minmax(0, 1.1fr) auto auto;
+		grid-template-columns: 36px minmax(0, 1fr) auto auto;
 		align-items: center;
 		gap: 14px;
-		min-height: 62px;
+		min-height: 60px;
 		padding: 10px 12px 10px 14px;
 	}
 	.main .mark {
@@ -1038,35 +1050,55 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.uses {
+	.state {
 		display: flex;
-		flex-wrap: wrap;
-		gap: 6px;
-		min-width: 0;
-	}
-	.chip {
-		display: inline-flex;
 		align-items: center;
-		gap: 5px;
-		padding: 3px 8px;
-		border: 1px solid var(--border);
-		border-radius: 99px;
-		color: var(--text-secondary);
-		font-size: var(--t-label);
+		gap: 10px;
 	}
-	.chip::before {
+	.use {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		min-height: 40px;
+		padding: 4px 12px;
+		box-sizing: border-box;
+	}
+	.use + .use {
+		border-top: 1px solid var(--border);
+	}
+	.use::before {
 		content: '';
+		flex: none;
 		width: 6px;
 		height: 6px;
 		border-radius: 50%;
 		background: var(--state-success);
 	}
-	.chip.paused::before {
+	.use.paused::before {
 		background: var(--text-tertiary);
 	}
-	.unused {
+	.use strong {
+		margin-right: auto;
+		font-weight: 500;
+		white-space: nowrap;
+	}
+	.use span {
+		min-width: 0;
+		overflow: hidden;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.no-uses {
+		margin: -4px 14px 14px 64px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.row-actions .btn[aria-expanded='true'] {
+		border-color: var(--control-edge);
+		background: var(--surface-alt);
+		box-shadow: inset 0 1px 2px color-mix(in srgb, var(--ink) 8%, transparent);
 	}
 	.status {
 		justify-self: end;
@@ -1084,6 +1116,7 @@
 	}
 	.detail {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: 0;
 		margin: 0 12px 12px 64px;
 		border: 1px solid var(--border);
@@ -1169,11 +1202,24 @@
 		.main {
 			grid-template-columns: 36px minmax(0, 1fr) auto;
 		}
-		.uses,
-		.status,
+		/* Narrow: the buttons stay on the account's line, its state goes under the name. */
+		.main {
+			row-gap: 2px;
+		}
+		.main .mark {
+			grid-row: 1 / span 2;
+		}
 		.row-actions {
-			grid-column: 2 / -1;
+			grid-column: 3;
+			grid-row: 1 / span 2;
+		}
+		.state {
+			grid-column: 2;
+			grid-row: 2;
 			justify-self: start;
+		}
+		.no-uses {
+			margin-left: 64px;
 		}
 		.detail {
 			margin-left: 12px;

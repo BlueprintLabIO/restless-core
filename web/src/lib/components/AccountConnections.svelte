@@ -605,9 +605,25 @@
 		{#if companyError}<span class="replace-warning" role="alert">{companyError}</span>{/if}
 		{#each companies as company (company.id)}
 			{@const granted = item.companies.find((use) => use.id === company.id)}
-			<div class="access-row" class:selected={selectedCompany === company.id}>
+			<div
+				class="access-row"
+				class:selected={selectedCompany === company.id}
+				class:in-use={granted?.in_use}
+				class:none={!granted}
+			>
 				<strong>{company.name}</strong>
-				{#if granted}<span
+				{#if granted && granted.in_use && confirmRevocation === `${item.id}:${company.id}`}
+					<!-- The question takes the row's own line, so confirming never pushes the list down. -->
+					<span class="access-state danger" role="alert">AI work here stops until another is chosen</span>
+					<button
+						class="text-button danger"
+						disabled={busyCompany}
+						onclick={() => void revoke(item, granted)}>Remove access</button
+					>
+					<button class="text-button" disabled={busyCompany} onclick={() => (confirmRevocation = '')}
+						>Keep</button
+					>
+				{:else if granted}<span
 						class="access-state"
 						title={granted.models?.length
 							? `${company.name} runs ${granted.models.map(modelLabel).join(', ')} through this connection.`
@@ -622,28 +638,14 @@
 						href={`/${encodeURIComponent(company.id)}/company/provider`}
 						title={`Choose which model ${company.name} uses, for everyone or per agent`}
 						>{granted.in_use ? 'Change model' : 'Use it'}</a
-					>{#if granted.in_use && confirmRevocation === `${item.id}:${company.id}`}
-						<span class="replace-warning" role="alert"
-							>AI work using this connection will stop until another is selected.</span
-						>
-						<button
-							class="text-button danger"
-							disabled={busyCompany}
-							onclick={() => void revoke(item, granted)}>Remove access now</button
-						>
-						<button
-							class="text-button"
-							disabled={busyCompany}
-							onclick={() => (confirmRevocation = '')}>Keep access</button
-						>
-					{:else}<button
+					><button
 							class="text-button danger"
 							disabled={busyCompany}
 							onclick={() => {
 								if (granted.in_use) confirmRevocation = `${item.id}:${company.id}`;
 								else void revoke(item, granted);
 							}}>Remove</button
-						>{/if}
+						>
 				{:else if selectedCompany === company.id}
 					<span class="access-state">Choosing a model</span>
 				{:else}<button
@@ -893,14 +895,6 @@
 											: 'Sign in with Claude')}</small
 							>
 						</div>
-						<div class="provider-uses">
-							{#if item?.companies.length}{#each item.companies as company (company.id)}<a
-										class="company-use"
-										class:in-use={company.in_use}
-										title={company.in_use ? 'In use by this company' : 'Available to this company'}
-										href={`/${encodeURIComponent(company.id)}/company/provider`}>{company.name}</a
-									>{/each}{:else if item}<span class="unused">No company access</span>{/if}
-						</div>
 						<span
 							class="status"
 							class:connected={signedIn}
@@ -923,10 +917,10 @@
 									>{item ? 'Reconnect' : 'Connect'}</button
 								>{/if}
 							{#if item && accountScope === 'account'}<button
-									class="btn small"
+									class="btn small manage"
 									aria-expanded={managingId === item.id}
 									onclick={() => toggleManage(item)}
-									>{managingId === item.id ? 'Done' : 'Manage access'}</button
+									>Manage access</button
 								>{/if}
 							{#if item && accountScope === 'account'}<ActionMenu label={`${row.title} options`}
 									>{#if row.oauth && signedIn}<button
@@ -940,7 +934,30 @@
 						</div>
 					</div>
 					{#if row.oauth}{@render signInProgress(row.oauth)}{/if}
-					{#if item && managingId === item.id}{@render accessManager(item)}{/if}
+					{#if item && managingId === item.id}{@render accessManager(item)}
+					{:else if item?.companies.length}
+						<!-- The companies with access, one quiet row each under the account, the same rows
+						     Manage access opens into, so the account row never grows. -->
+						<div class="access-manager uses" aria-label={`Companies using ${row.title}`}>
+							{#each item.companies as company (company.id)}
+								<a
+									class="access-row use-row"
+									class:in-use={company.in_use}
+									href={`/${encodeURIComponent(company.id)}/company/provider`}
+									title={`Choose which model ${company.name} uses`}
+									><strong>{company.name}</strong><span class="access-state"
+										>{company.in_use
+											? company.models?.length
+												? company.models.map(modelLabel).join(', ')
+												: 'In use'
+											: 'Has access'}</span
+									></a
+								>
+							{/each}
+						</div>
+					{:else if item && accountScope === 'account'}
+						<p class="no-uses">No company has access yet.</p>
+					{/if}
 				</article>
 			{/each}
 		</section>
@@ -1046,14 +1063,17 @@
 		font-weight: 600;
 	}
 
-	/* One list, one row per provider: who it is, which companies use it, its
-	 * state and one action. Detail opens inside the row it belongs to. */
+	/* One list, one row per provider: who it is, its state and its actions, always one line high.
+	 * The companies using it sit underneath as their own rows; detail opens there too. */
 	.provider-list {
 		display: grid;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-pane);
 		background: var(--surface-pane);
 		overflow: hidden;
+	}
+	.provider-row {
+		min-width: 0;
 	}
 	.provider-row + .provider-row {
 		border-top: 1px solid var(--border);
@@ -1063,10 +1083,10 @@
 	}
 	.provider-main {
 		display: grid;
-		grid-template-columns: 32px minmax(150px, 1fr) minmax(0, 1.1fr) auto auto;
+		grid-template-columns: 32px minmax(0, 1fr) auto auto;
 		align-items: center;
 		gap: 14px;
-		min-height: 62px;
+		min-height: 60px;
 		padding: 10px 12px 10px 14px;
 	}
 	.provider-mark {
@@ -1092,14 +1112,20 @@
 	}
 	.provider-copy strong {
 		display: flex;
+		min-width: 0;
+		white-space: nowrap;
 		align-items: baseline;
 		gap: 6px;
 		font-size: var(--t-body);
 		font-weight: 600;
 	}
 	.provider-label {
+		min-width: 0;
+		overflow: hidden;
 		color: var(--text-tertiary);
 		font-weight: 400;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.provider-copy small {
 		overflow: hidden;
@@ -1107,41 +1133,6 @@
 		font-size: var(--t-label);
 		text-overflow: ellipsis;
 		white-space: nowrap;
-	}
-	/* Companies as a short list of plain rows: a dot when one is using it now. */
-	.provider-uses {
-		display: grid;
-		align-content: center;
-		min-width: 0;
-	}
-	.company-use {
-		display: flex;
-		align-items: center;
-		gap: 7px;
-		min-width: 0;
-		overflow: hidden;
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-		line-height: 20px;
-		text-decoration: none;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.company-use::before {
-		content: '';
-		flex: none;
-		width: 6px;
-		height: 6px;
-		border: 1px solid var(--text-tertiary);
-		border-radius: 50%;
-		box-sizing: border-box;
-	}
-	.company-use.in-use::before {
-		border-color: var(--state-success);
-		background: var(--state-success);
-	}
-	.company-use:hover {
-		color: var(--ink);
 	}
 	.status {
 		justify-self: end;
@@ -1154,6 +1145,12 @@
 	}
 	.status.failed {
 		color: var(--state-danger);
+	}
+	/* A toggle keeps its label and looks pressed while open, so nothing in the row moves. */
+	.manage[aria-expanded='true'] {
+		border-color: var(--control-edge);
+		background: var(--surface-alt);
+		box-shadow: inset 0 1px 2px color-mix(in srgb, var(--ink) 8%, transparent);
 	}
 	.provider-actions {
 		display: flex;
@@ -1209,6 +1206,7 @@
 	}
 	.access-manager {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		margin: 0 12px 12px 60px;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-control);
@@ -1219,8 +1217,54 @@
 		align-items: center;
 		flex-wrap: wrap;
 		gap: 8px 10px;
-		min-height: 44px;
-		padding: 6px 8px 6px 12px;
+		min-height: 40px;
+		padding: 4px 8px 4px 12px;
+		box-sizing: border-box;
+	}
+	/* A company using the account: a dot, filled while it runs on it, and its model. */
+	.use-row {
+		flex-wrap: nowrap;
+		color: var(--ink);
+		text-decoration: none;
+		transition: background-color var(--motion-state) var(--ease-standard);
+	}
+	.access-row::before {
+		content: '';
+		flex: none;
+		width: 6px;
+		height: 6px;
+		border: 1px solid var(--text-tertiary);
+		border-radius: 50%;
+		box-sizing: border-box;
+	}
+	.access-row.in-use::before {
+		border-color: var(--state-success);
+		background: var(--state-success);
+	}
+	.access-row.none::before {
+		border-style: dashed;
+		border-color: var(--border-strong, var(--border));
+	}
+	.use-row:hover {
+		background: var(--surface-alt);
+	}
+	.use-row .access-state {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.access-row:first-child {
+		border-top-left-radius: inherit;
+		border-top-right-radius: inherit;
+	}
+	.access-row:last-child {
+		border-bottom-left-radius: inherit;
+		border-bottom-right-radius: inherit;
+	}
+	.no-uses {
+		margin: -4px 14px 14px 60px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
 	}
 	.access-row + .access-row {
 		border-top: 1px solid var(--border);
@@ -1237,6 +1281,9 @@
 	.unused {
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
+	}
+	.access-state.danger {
+		color: var(--state-danger);
 	}
 	.replace-warning {
 		flex-basis: 100%;
@@ -1372,26 +1419,27 @@
 	.legacy-body .text-button {
 		margin-top: 8px;
 	}
-	:is(.native-row a, .company-use, .sign-in-step a, .text-button):focus-visible {
+	:is(.native-row a, .use-row, .sign-in-step a, .text-button):focus-visible {
 		outline: 2px solid var(--intent-conversation);
 		outline-offset: 2px;
 	}
 	@media (max-width: 860px) {
+		/* Narrow: the buttons stay on the account's line, its state goes under the name. */
 		.provider-main {
 			grid-template-columns: 32px minmax(0, 1fr) auto;
+			row-gap: 2px;
 		}
-		.provider-uses {
-			grid-column: 2 / -1;
-			grid-row: 2;
+		.provider-mark {
+			grid-row: 1 / span 2;
 		}
 		.status {
-			grid-column: 3;
-			grid-row: 1;
+			grid-column: 2;
+			grid-row: 2;
+			justify-self: start;
 		}
 		.provider-actions {
-			grid-column: 2 / -1;
-			grid-row: 3;
-			justify-content: flex-start;
+			grid-column: 3;
+			grid-row: 1 / span 2;
 			min-width: 0;
 		}
 		.sign-in-progress,
