@@ -43,7 +43,14 @@ fn owner_only(principal: &RequestPrincipal) -> Option<Response<Body>> {
 fn plane_origin(state: &OwnerState, headers: &HeaderMap) -> Option<String> {
     if let Some(network) = state.entry.network() {
         let scheme = if network.issuer().starts_with("http://") { "http" } else { "https" };
-        return valid_host(network.host()).map(|host| format!("{scheme}://{host}"));
+        let configured = valid_host(network.host())?;
+        // The configured host carries no port; keep the one the browser used to reach it.
+        let reached = headers.get(HOST).and_then(|value| value.to_str().ok()).and_then(valid_host);
+        let host = match reached {
+            Some(reached) if reached.rsplit_once(':').map_or(reached, |(name, _)| name) == configured => reached,
+            _ => configured,
+        };
+        return Some(format!("{scheme}://{host}"));
     }
     request_origin(headers)
 }
