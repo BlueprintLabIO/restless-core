@@ -624,6 +624,13 @@ fn model_cooldown_items(config: &CompanyConfig, cooldowns: &[crate::authority::M
             let reason = reason.split_once("] ").filter(|(tag, _)| tag.starts_with('[')).map_or(reason, |(_, rest)| rest);
             let reason = reason.split_once("owner action required: ").map_or(reason, |(_, rest)| rest);
             let credit = cooldown.reason.contains("AI credit is used up");
+            // A subscription sign-in out of its plan's allowance comes back on its own at the reset.
+            let usage = cooldown.reason.contains("usage limit was reached");
+            let account = match cooldown.model.split('/').next().unwrap_or_default() {
+                "openai-codex" => "ChatGPT",
+                "anthropic" | "claude" => "Claude",
+                _ => "AI",
+            };
             // Only Restless's own billing page, never a link a provider wrote.
             let top_up = cooldown
                 .reason
@@ -632,6 +639,7 @@ fn model_cooldown_items(config: &CompanyConfig, cooldowns: &[crate::authority::M
                 .map(|word| word.trim_end_matches(|c: char| !c.is_ascii_alphanumeric()).to_string())
                 .map(|url| if url.ends_with("#billing") { url } else { format!("{url}#billing") });
             let title = match (cooldown.kind.as_str(), credit) {
+                _ if usage => format!("Your {account} account hit its usage limit"),
                 (_, true) => "AI credit is used up".to_string(),
                 ("quota", _) => format!("{} refused: out of credit or quota", cooldown.model),
                 ("credential", _) => format!("{} refused its sign-in or key", cooldown.model),
@@ -650,7 +658,7 @@ fn model_cooldown_items(config: &CompanyConfig, cooldowns: &[crate::authority::M
             }
             actions.push(AttentionAction {
                 id: "open-intelligence-provider".into(),
-                label: if credit { "Use another account".into() } else { "Fix the model".into() },
+                label: if credit || usage { "Use another account".into() } else { "Fix the model".into() },
                 role: "inspect",
                 consequence: "Opens the model and the accounts this company may use.".into(),
                 next_state: "The next turn uses what you choose.".into(),
@@ -673,12 +681,14 @@ fn model_cooldown_items(config: &CompanyConfig, cooldowns: &[crate::authority::M
                     "Exec and the team use {}, so no one in the company can think until this is fixed; work waits.",
                     cooldown.model
                 ),
-                recommendation: if credit {
+                recommendation: if usage {
+                    format!("Wait for the reset, or give the company another account you hold for now. Work resumes by itself at {} either way.", cooldown.retry_at.format("%H:%M UTC on %-d %b"))
+                } else if credit {
                     "Top up, or give the company another account you hold, such as a ChatGPT or Claude sign-in.".into()
                 } else {
                     "Fix the account or choose another model for the company.".into()
                 },
-                requested_action: if credit { "Top up or use another account.".into() } else { "Fix the model.".into() },
+                requested_action: if usage { "Wait, or use another account.".into() } else if credit { "Top up or use another account.".into() } else { "Fix the model.".into() },
                 if_no_action: format!("Restless tries again at {} and keeps trying; nothing runs meanwhile.", cooldown.retry_at.format("%H:%M UTC")),
                 uncertainty: None,
                 deadline: None,

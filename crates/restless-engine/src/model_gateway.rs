@@ -560,6 +560,13 @@ pub async fn record_cooldown(
         crate::health::BlockKind::Quota if reason.contains("AI credit is used up") => {
             chrono::Duration::minutes(10)
         }
+        // A subscription's usage limit says when it resets: try again just after, so queued work
+        // resumes by itself. Without a reset time, look again within the hour.
+        crate::health::BlockKind::Quota if reason.contains("usage limit was reached") => {
+            crate::health::usage_limit_reset_seconds(&reason.to_lowercase())
+                .map(|seconds| chrono::Duration::seconds(seconds.clamp(60, 8 * 86_400) + 60))
+                .unwrap_or_else(|| chrono::Duration::hours(1))
+        }
         crate::health::BlockKind::Quota => chrono::Duration::hours(1),
         crate::health::BlockKind::NoOp => chrono::Duration::minutes(15),
         crate::health::BlockKind::Transport => chrono::Duration::minutes(2),
