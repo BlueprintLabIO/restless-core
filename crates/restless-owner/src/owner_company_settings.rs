@@ -1488,11 +1488,17 @@ pub(super) async fn decide_setting(
     }
     if let (Some((record, waiting)), Ok(org)) = (pending, state.daemon.orgintel.get(&company).await) {
         let asker = record.actor_id.unwrap_or_else(|| "exec".into());
-        let what = waiting.change.summary();
+        // "Set the spend limit to US$200" reads mid-sentence with only its first letter lowered.
+        let summary = waiting.change.summary();
+        let mut letters = summary.chars();
+        let what = letters
+            .next()
+            .map(|first| first.to_lowercase().chain(letters).collect::<String>())
+            .unwrap_or_default();
         let mut body = if input.applied {
-            format!("Done: {}. It is saved in Settings.", what.to_lowercase())
+            format!("Done: {what}. It is saved in Settings.")
         } else {
-            format!("I declined your proposal: {}. The setting stays as it is.", what.to_lowercase())
+            format!("I declined your proposal to {what}. The setting stays as it is.")
         };
         if let Some(note) = input.note.as_deref().map(str::trim).filter(|note| !note.is_empty()) {
             body.push_str(&format!(" “{note}”"));

@@ -772,8 +772,15 @@
 								owner={!canPassToOwner}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
+<!-- A task on a site: the computer first, the conversation beside it shorter. -->
+						{#if siteAsk && !desktopSurface}{#key item.id}<InlineDesktop
+									{companyId}
+									itemId="runtime-rescue"
+									attached={false}
+								/>{/key}{/if}
 						{#if item.source.kind === 'conversation_owner_need' && item.responsibleActor}<InlineConversation
 								{companyId}
+								compact={siteAsk}
 								actorId={item.responsibleActor.id}
 								actorName={asker}
 								question={item.requestedAction}
@@ -835,11 +842,6 @@
 										completedInline(receipt)
 									)}
 							/>{/if}
-						{#if siteAsk && !desktopSurface}{#key item.id}<InlineDesktop
-									{companyId}
-									itemId="runtime-rescue"
-									attached={false}
-								/>{/key}{/if}
 						{#if desktopSurface}{#key item.id}<InlineDesktop
 									{companyId}
 									itemId={item.id}

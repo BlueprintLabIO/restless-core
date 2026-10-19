@@ -16,6 +16,7 @@
 		question = '',
 		workId,
 		answers,
+		compact = false,
 		ondone
 	}: {
 		companyId: string;
@@ -26,6 +27,8 @@
 		workId?: string | null;
 		/** Answers the card knows better than its question's wording. */
 		answers?: string[];
+		/** Shorter, beside a computer the card also shows. */
+		compact?: boolean;
 		/** A one-tap answer went: the card shows the receipt. */
 		ondone?: (receipt: string) => void;
 	} = $props();
@@ -57,7 +60,7 @@
 	}
 </script>
 
-<div class="inline-conversation" aria-label={`Conversation with ${actorName}`}>
+<div class="inline-conversation" class:compact aria-label={`Conversation with ${actorName}`}>
 	<RoomConversation person={actorId} embedded />
 </div>
 {#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -71,6 +74,10 @@
 		border: 1px solid var(--border);
 		border-radius: var(--radius-control);
 		overflow: hidden;
+	}
+	.inline-conversation.compact {
+		height: min(380px, 45dvh);
+		min-height: 280px;
 	}
 	.inline-conversation > :global(*) {
 		flex: 1;

@@ -14,6 +14,13 @@ test('a question with two choices offers both as answers', () => {
 	);
 });
 
+test('a step the owner is asked to do is answered as done, or as the wait it offers', () => {
+	assert.deepEqual(
+		quickAnswers("Needs you: Register renostudio.au in GoDaddy and tell me when it's done, or should I wait?"),
+		["It's done", 'Wait']
+	);
+});
+
 test('an open question offers nothing to click', () => {
 	assert.deepEqual(quickAnswers('What should the launch post say about pricing?'), []);
 });

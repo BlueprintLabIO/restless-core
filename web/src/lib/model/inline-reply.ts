@@ -16,7 +16,15 @@ export function quickAnswers(question: string): string[] {
 		.map((part) => part.replace(/^(?:either\s+)/i, '').trim())
 		.filter((part) => part.length > 1);
 	if (parts.length < 2 || parts.length > 3 || parts.some((part) => part.length > 90)) return [];
-	return balanced(parts).map((part) => part.charAt(0).toUpperCase() + part.slice(1));
+	return balanced(parts.map(asAnswer)).map((part) => part.charAt(0).toUpperCase() + part.slice(1));
+}
+
+/** A choice phrased as the agent's own step reads as the owner's answer: "should I wait" is
+ * "Wait", and "do X and tell me when it's done" is answered "It's done". */
+function asAnswer(part: string): string {
+	if (/\btell me (?:when|once) (?:it'?s|it is|you'?ve|you have) (?:done|finished|registered|paid)\b/i.test(part))
+		return "It's done";
+	return part.replace(/^(?:should|shall|can|could) (?:i|we)\s+/i, '');
 }
 
 const AMOUNT = /^(?:[A-Z]{0,3}\$|£|€)?\d/;
