@@ -2131,7 +2131,8 @@ enum LegalCommand {
 
 #[derive(Subcommand)]
 enum SettingCommand {
-    /// Propose one change: --spend-limit, --effort or --legal (with the legal details you know;
+    /// Propose one change: --spend-limit, --effort, --model, --schedule (--pause|--resume),
+    /// --email/--digest, or --legal (with the legal details you know;
     /// leave out what only the owner knows, such as the ABN, and they type it in the card).
     Propose {
         /// The spend limit in US dollars for the company's period.
@@ -2140,6 +2141,25 @@ enum SettingCommand {
         /// How hard every agent thinks by default: low, medium, high, xhigh or max.
         #[arg(long, conflicts_with = "legal")]
         effort: Option<String>,
+        /// The model the company runs on by default, as provider/model.
+        #[arg(long, conflicts_with_all = ["effort", "legal", "spend_limit"])]
+        model: Option<String>,
+        /// Pause (--pause) or resume (--resume) the schedule with this id.
+        #[arg(long, conflicts_with_all = ["effort", "legal", "spend_limit", "model"])]
+        schedule: Option<String>,
+        #[arg(long, requires = "schedule", conflicts_with = "resume")]
+        pause: bool,
+        #[arg(long, requires = "schedule")]
+        resume: bool,
+        /// The schedule's name, for the owner's card.
+        #[arg(long, requires = "schedule")]
+        schedule_name: Option<String>,
+        /// Email from the company: on or off.
+        #[arg(long, conflicts_with_all = ["effort", "legal", "spend_limit", "model", "schedule"])]
+        email: Option<String>,
+        /// One email a day at this local time (HH:MM).
+        #[arg(long, conflicts_with_all = ["effort", "legal", "spend_limit", "model", "schedule"])]
+        digest: Option<String>,
         /// The company's legal details, for invoices, contracts and registrations.
         #[arg(long)]
         legal: bool,
@@ -2960,6 +2980,13 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             SettingCommand::Propose {
                 spend_limit,
                 effort,
+                model,
+                schedule,
+                pause,
+                resume,
+                schedule_name,
+                email,
+                digest,
                 legal,
                 legal_name,
                 trading_name,
@@ -2976,6 +3003,21 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                     serde_json::json!({"setting": "spend_limit", "ceiling_usd": ceiling})
                 } else if let Some(effort) = effort {
                     serde_json::json!({"setting": "reasoning_effort", "effort": effort})
+                } else if let Some(model) = model {
+                    serde_json::json!({"setting": "model", "model": model})
+                } else if let Some(schedule) = schedule {
+                    if pause == resume {
+                        anyhow::bail!("say --pause or --resume for the schedule");
+                    }
+                    serde_json::json!({"setting": "schedule", "schedule_id": schedule, "paused": pause, "label": schedule_name})
+                } else if email.is_some() || digest.is_some() {
+                    let email = match email.as_deref() {
+                        None => None,
+                        Some("on") => Some(true),
+                        Some("off") => Some(false),
+                        Some(_) => anyhow::bail!("--email takes on or off"),
+                    };
+                    serde_json::json!({"setting": "notifications", "email": email, "digest": digest})
                 } else if legal {
                     serde_json::json!({
                         "setting": "legal_profile",
@@ -2989,7 +3031,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                         "invoice_email": invoice_email,
                     })
                 } else {
-                    anyhow::bail!("propose one change: --spend-limit, --effort or --legal");
+                    anyhow::bail!("propose one change: --spend-limit, --effort, --model, --schedule, --email/--digest or --legal");
                 };
                 let mut body = change;
                 body["reason"] = serde_json::Value::String(reason);

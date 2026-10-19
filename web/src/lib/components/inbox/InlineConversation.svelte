@@ -1,13 +1,16 @@
 <script lang="ts">
 	/* Talking to anyone from their Inbox card (S101): the People tab's own conversation (the
 	 * thread, threads, files, the composer) embedded in the card, so a question from Exec, a lead
-	 * or a teammate is answered where it is asked. Answers the question itself offers are one tap
-	 * in the footer; anything else is typed in the conversation. */
+	 * or a teammate is answered where it is asked. The answers the asker offers are one tap in the
+	 * footer; the facts they ask for are fields above the conversation, sent as one reply; anything
+	 * else is typed in the conversation. */
 	import RoomConversation from '$lib/components/RoomConversation.svelte';
 	import { sendActorMessage } from '$lib/model/attention';
 	import { failureSentence } from '$lib/model/failure';
 	import { quickAnswers, replyBody } from '$lib/model/inline-reply';
-	import { cardActions } from './card-actions.svelte';
+	import InlinePanel from './InlinePanel.svelte';
+	import { showingConversation } from '$lib/model/embedded-conversations.svelte';
+	import { cardActions, type CardAction } from './card-actions.svelte';
 
 	let {
 		companyId,
@@ -16,6 +19,7 @@
 		question = '',
 		workId,
 		answers,
+		fields = [],
 		compact = false,
 		ondone
 	}: {
@@ -25,45 +29,73 @@
 		/** What they asked, as the card states it; its choices become one-tap answers. */
 		question?: string;
 		workId?: string | null;
-		/** Answers the card knows better than its question's wording. */
+		/** The answers the asker offers, or the card knows better than the question's wording. */
 		answers?: string[];
+		/** The facts the asker wants, a field each. */
+		fields?: { id: string; label: string }[];
 		/** Shorter, beside a computer the card also shows. */
 		compact?: boolean;
-		/** A one-tap answer went: the card shows the receipt. */
+		/** A reply from the card went: the card shows the receipt. */
 		ondone?: (receipt: string) => void;
 	} = $props();
 
-	const choices = $derived(answers ?? (question ? quickAnswers(question) : []));
+	/* The rail steps aside while this card shows the same conversation. */
+	$effect(() => showingConversation(actorId));
+	const choices = $derived(answers?.length ? answers : question ? quickAnswers(question) : []);
+	let values = $state<Record<string, string>>({});
 	let error = $state('');
+	const filled = $derived(fields.every((field) => (values[field.id] ?? '').trim()));
 
-	cardActions(() =>
-		choices.length && ondone
-			? { secondary: choices.map((answer) => send(answer)) }
-			: {}
-	);
-
-	function send(answer: string) {
-		return {
-			label: answer,
-			busyLabel: 'Sending…',
-			title: `Sends “${answer}” to ${actorName}`,
-			run: async () => {
-				error = '';
-				try {
-					await sendActorMessage(companyId, actorId, replyBody(question, answer), workId ?? undefined);
-					ondone?.(`Sent to ${actorName}: “${answer}”. They carry on with your answer.`);
-				} catch (cause) {
-					error = failureSentence(cause, 'The reply was not sent. Try again.');
-				}
-			}
-		};
+	async function send(text: string, receipt: string) {
+		error = '';
+		try {
+			await sendActorMessage(companyId, actorId, replyBody(question, text), workId ?? undefined);
+			ondone?.(receipt);
+		} catch (cause) {
+			error = failureSentence(cause, 'The reply was not sent. Try again.');
+		}
 	}
+
+	const answer = (text: string): CardAction => ({
+		label: text,
+		busyLabel: 'Sending…',
+		title: `Sends “${text}” to ${actorName}`,
+		run: () => send(text, `Sent to ${actorName}: “${text}”. They carry on with your answer.`)
+	});
+
+	cardActions(() => {
+		if (!ondone) return {};
+		if (fields.length)
+			return {
+				secondary: choices.map(answer),
+				primary: {
+					label: `Send to ${actorName}`,
+					busyLabel: 'Sending…',
+					disabled: !filled,
+					run: () =>
+						send(
+							fields.map((field) => `${field.label}: ${(values[field.id] ?? '').trim()}`).join('\n'),
+							`Sent to ${actorName}. They carry on with your answer.`
+						)
+				}
+			};
+		return choices.length ? { secondary: choices.map(answer) } : {};
+	});
 </script>
 
+{#if fields.length && ondone}
+	<InlinePanel label={`What ${actorName} asks for`} {error}>
+		<div class="pair">
+			{#each fields as field (field.id)}
+				<label class="field">{field.label}<input bind:value={values[field.id]} autocomplete="off" /></label>
+			{/each}
+		</div>
+	</InlinePanel>
+{/if}
 <div class="inline-conversation" class:compact aria-label={`Conversation with ${actorName}`}>
 	<RoomConversation person={actorId} embedded />
 </div>
-{#if error}<p class="error" role="alert">{error}</p>{/if}
+{#if error && !fields.length}<p class="error" role="alert">{error}</p>{/if}
 
 <style>
 	.inline-conversation {

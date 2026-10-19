@@ -268,20 +268,35 @@ pub fn decode_body(raw: &str) -> DecodedBody<'_> {
     DecodedBody { body, intent, details, attachments, context_path }
 }
 
+/// What a message asks the owner for, from its decoded receipt.
+pub struct OwnerNeed {
+    /// The message's visible text.
+    pub body: String,
+    pub need: String,
+    pub handoff: Option<String>,
+    /// The short answers the agent offers, one tap each in the card.
+    pub replies: Vec<String>,
+    /// The separate facts it asks for, a field each in the card.
+    pub fields: Vec<String>,
+}
+
 /// The exact owner input a message asks for, with its visible text. Attention
 /// reads this decoded receipt, never the prose.
-pub fn conversation_owner_need(
-    message: restless_orgintel::MessageRow,
-) -> Option<(String, String, Option<String>)> {
+pub fn conversation_owner_need(message: restless_orgintel::MessageRow) -> Option<OwnerNeed> {
     let decoded = decode_body(&message.body);
     let intent = decoded.intent?;
-    let handoff = intent.owner_need_handoff;
     let need = intent.owner_need?;
     let need = need.trim();
     if need.is_empty() {
         return None;
     }
-    Some((decoded.body.to_string(), need.to_owned(), handoff))
+    Some(OwnerNeed {
+        body: decoded.body.to_string(),
+        need: need.to_owned(),
+        handoff: intent.owner_need_handoff,
+        replies: intent.owner_replies,
+        fields: intent.owner_fields,
+    })
 }
 
 #[cfg(test)]

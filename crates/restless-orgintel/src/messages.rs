@@ -2858,6 +2858,34 @@ impl OrgIntel {
         ).bind(agents).bind(keys).bind(human_actor).fetch_all(&self.pool).await?)
     }
 
+    /// The newest direct message between this person and each of the given teammates, when that
+    /// teammate wrote it and it is recent: a teammate waiting on a reply (S101). A reply from
+    /// this person makes theirs no longer the newest, which answers it.
+    pub async fn latest_human_peer_messages(
+        &self,
+        human_actor: &str,
+        peers: &[String],
+        since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<MessageRow>> {
+        let keys = peers
+            .iter()
+            .map(|actor| crate::rooms::direct_room_canonical_key(human_actor, actor))
+            .collect::<Vec<_>>();
+        Ok(sqlx::query_as(
+            "SELECT latest.* FROM unnest($1::text[],$2::text[]) AS wanted(actor_id,canonical_key) \
+             JOIN rooms room ON room.canonical_key=wanted.canonical_key AND room.kind='direct' AND room.archived_at IS NULL \
+             JOIN room_participants human ON human.room_id=room.id AND human.actor_id=$3 AND human.left_at IS NULL \
+             JOIN room_participants partner ON partner.room_id=room.id AND partner.actor_id=wanted.actor_id AND partner.left_at IS NULL \
+             JOIN actors peer ON peer.id=partner.actor_id AND peer.actor_class='human' AND peer.retired_at IS NULL \
+             JOIN LATERAL ( \
+               SELECT message.id,message.from_actor,message.to_actor,COALESCE(revision.body,message.body) AS body, \
+                      message.outcome_standard,message.created_at,message.read_at \
+               FROM messages message LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
+               WHERE message.room_id=room.id AND message.deleted_at IS NULL ORDER BY message.id DESC LIMIT 1 \
+             ) latest ON latest.from_actor=wanted.actor_id AND latest.created_at >= $4"
+        ).bind(peers).bind(keys).bind(human_actor).bind(since).fetch_all(&self.pool).await?)
+    }
+
     /// The direct conversation's newest messages older than `before_message_id`
     /// (or the newest of all), oldest first: how a reader pages back through the
     /// whole history.

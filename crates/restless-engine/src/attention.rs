@@ -114,6 +114,9 @@ pub struct AttentionItem {
     /// A setting change a company actor proposes, with its current value (S101).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub setting_proposal: Option<serde_json::Value>,
+    /// The short answers the asker offers, one tap each in the card (S101).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub owner_replies: Vec<String>,
     pub actions: Vec<AttentionAction>,
     pub can_continue: bool,
     pub preparing: bool,
@@ -305,6 +308,84 @@ pub fn without_local_addresses(text: &str) -> String {
 // A request belongs to the current direct conversation, not to a separate workflow.
 // Only the latest message can ask for input: replying or a superseding agent reply
 // clears the old request. Merely reading/opening a conversation does not clear it.
+/// Direct messages from human teammates still waiting on this person's reply, newest first.
+async fn teammate_messages(
+    org: &OrgIntel,
+    company: &str,
+    actors: &HashMap<String, AttentionActorRef>,
+) -> Result<Vec<AttentionItem>> {
+    let human = org
+        .current_membership_owner_actor_id()
+        .await?
+        .unwrap_or_else(|| "owner".into());
+    let peers = org
+        .list_actors()
+        .await?
+        .into_iter()
+        .filter(|actor| actor.actor_class == "human" && actor.retired_at.is_none() && actor.id != human)
+        .map(|actor| actor.id)
+        .collect::<Vec<_>>();
+    if peers.is_empty() {
+        return Ok(Vec::new());
+    }
+    let since = Utc::now() - chrono::Duration::days(14);
+    let mut items = Vec::new();
+    for message in org.latest_human_peer_messages(&human, &peers, since).await? {
+        let Some(actor) = actors.get(&message.from_actor).cloned() else {
+            continue;
+        };
+        let text = crate::transcript::decode_body(&message.body).body.trim().to_string();
+        if text.is_empty() {
+            continue;
+        }
+        let preview: String = text.chars().take(280).collect();
+        let href = format!("/{company}/people?person={}&focus={}", actor.id, message.id);
+        items.push(AttentionItem {
+            id: format!("conversation:{}:{}", actor.id, message.id),
+            work_id: None,
+            source: AttentionSource {
+                plane: "orgintel",
+                kind: "teammate_message".into(),
+                reference: message.id.to_string(),
+                party: None,
+                call_key: None,
+            },
+            category: "conversation".into(),
+            title: format!("{} wrote to you", actor.display),
+            what_happened: text.clone(),
+            why_it_matters: format!("{} is waiting on your reply.", actor.display),
+            recommendation: "Reply in the conversation here.".into(),
+            requested_action: if preview.len() < text.len() { format!("{preview}…") } else { preview },
+            if_no_action: "The message waits for your reply.".into(),
+            uncertainty: None,
+            deadline: None,
+            brief_status: "source-authored",
+            brief_author: Some(actor.clone()),
+            briefed_at: Some(message.created_at),
+            evidence: Vec::new(),
+            review_sources: Vec::new(),
+            responsible_actor: Some(actor),
+            runtime_attach: None,
+            review_target: None,
+            native_document: None,
+            direction_request: None,
+            charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
+            actions: vec![AttentionAction {
+                id: "continue-conversation".into(),
+                label: "Reply".into(),
+                role: "conversation",
+                consequence: "Opens the conversation with them.".into(),
+                next_state: "Your reply clears this.".into(),
+                href: Some(href),
+            }],
+            can_continue: true,
+            preparing: false,
+            created_at: message.created_at,
+        });
+    }
+    Ok(items)
+}
+
 struct ConversationRequest {
     item: AttentionItem,
     handoff_id: Option<uuid::Uuid>,
@@ -331,10 +412,21 @@ async fn conversation_requests(
         };
         let message_id = message.id;
         let created_at = message.created_at;
-        let Some((body, need, handoff)) = crate::transcript::conversation_owner_need(message)
+        let Some(crate::transcript::OwnerNeed { body, need, handoff, replies, fields }) =
+            crate::transcript::conversation_owner_need(message)
         else {
             continue;
         };
+        // The facts the asker wants, each a field the card sends back as "Label: answer".
+        let request_fields = (!fields.is_empty()).then(|| {
+            serde_json::Value::Array(
+                fields
+                    .iter()
+                    .enumerate()
+                    .map(|(index, label)| serde_json::json!({ "id": format!("f{index}"), "label": label, "type": "text" }))
+                    .collect(),
+            )
+        });
         // The request comes from the latest direct message. Point Reply at
         // that message so the owner lands on the actual question, even if
         // the conversation has a longer history.
@@ -370,7 +462,7 @@ async fn conversation_requests(
                 review_target: None,
                 native_document: None,
                 direction_request: None,
-                charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
+                charter_proposal: None, account_use: None, account_request: None, request_fields, setting_proposal: None, owner_replies: replies,
                 actions: vec![AttentionAction {
                     id: "continue-conversation".into(),
                     label: "Reply".into(),
@@ -526,7 +618,7 @@ fn spend_warning_item(
         review_target: None,
         native_document: None,
         direction_request: None,
-        charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
+        charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
         actions: vec![AttentionAction {
             id: "open-spend-limit".into(),
             label: "Open spend limit".into(),
@@ -597,7 +689,7 @@ fn spend_stopped_item(config: &CompanyConfig, what_happened: String, created_at:
         review_target: None,
         native_document: None,
         direction_request: None,
-        charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
+        charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
         actions: vec![AttentionAction {
             id: "open-spend-limit".into(),
             label: "Raise spend limit".into(),
@@ -684,7 +776,7 @@ async fn account_headroom_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> a
         review_target: None,
         native_document: None,
         direction_request: None,
-        charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
+        charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
         actions: vec![AttentionAction {
             id: "open-intelligence-provider".into(),
             label: "Add a fallback".into(),
@@ -756,7 +848,7 @@ async fn machine_offline_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> an
         review_target: None,
         native_document: None,
         direction_request: None,
-        charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
+        charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
         actions: vec![AttentionAction {
             id: "open-company-computer".into(),
             label: "See where it runs".into(),
@@ -864,7 +956,7 @@ fn model_cooldown_items(config: &CompanyConfig, cooldowns: &[crate::authority::M
                 review_target: None,
                 native_document: None,
                 direction_request: None,
-                charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
+                charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
                 actions,
                 can_continue: false,
                 preparing: false,
@@ -947,7 +1039,7 @@ async fn account_items(
         direction_request: None,
         charter_proposal: None,
         account_use: None,
-        account_request: None, request_fields: None, setting_proposal: None,
+        account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
         actions: Vec::new(),
         can_continue: true,
         preparing: false,
@@ -1310,7 +1402,7 @@ fn effect_outcome_item(outcome: EffectOutcome) -> AttentionItem {
         review_target: None,
         native_document: None,
         direction_request: None,
-        charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
+        charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
         actions,
         can_continue: true,
         preparing: false,
@@ -1385,7 +1477,7 @@ async fn stranded_agent_items(config: &runtime::CompanyConfig, org: Option<&OrgI
             review_target: None,
             native_document: None,
             direction_request: None,
-            charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
+            charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
             actions: vec![AttentionAction {
                 id: "open-intelligence-provider".into(),
                 label: "Open Intelligence".into(),
@@ -1478,7 +1570,7 @@ async fn direction_items(
                 preparing: false,
                 created_at: request.decision.as_ref().filter(|_| failure.is_some()).map_or(request.filed_at, |decision| decision.decided_at),
                 direction_request: Some(request),
-                charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
+                charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
             }
         })
         .collect())
@@ -1595,7 +1687,7 @@ async fn publication_items(
             review_target: None,
             native_document: None,
             direction_request: None,
-            charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
+            charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
             actions: vec![
                 AttentionAction {
                     id: "authorize-publication".into(),
@@ -1672,7 +1764,7 @@ async fn charter_item(
             preparing: false,
             created_at: proposal.proposed_at,
             direction_request: None,
-            charter_proposal: Some(proposal), account_use: None, account_request: None, request_fields: None, setting_proposal: None,
+            charter_proposal: Some(proposal), account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
         }
     }))
 }
@@ -1866,7 +1958,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
-            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
+            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
             actions: vec![
                 AttentionAction {
                     id: "grant".into(),
@@ -1948,7 +2040,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
-            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
+            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
             actions: vec![
                 AttentionAction {
                     id: "grant".into(),
@@ -2022,7 +2114,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
-            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
+            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
             actions: vec![AttentionAction {
                 id: "open-app".into(),
                 label: "Sign in again".into(),
@@ -2632,7 +2724,7 @@ async fn project_queue(
             responsible_actor,
             runtime_attach,
             review_target,
-            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
+            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
             actions,
             preparing,
             can_continue: false,
@@ -2702,7 +2794,7 @@ async fn project_queue(
                 runtime_attach: None,
                 review_target: None,
                 created_at: request.created_at,
-                native_document: Some(request), direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
+                native_document: Some(request), direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
                 actions,
                 preparing: false,
                 can_continue: false,
@@ -2748,7 +2840,7 @@ async fn project_queue(
                         review_target: None,
                         native_document: None,
                         direction_request: None,
-                        charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
+                        charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
                         actions: vec![AttentionAction {
                             id: "decide-identity-drift".into(),
                             label: "Decide on Brand".into(),
@@ -2781,6 +2873,13 @@ async fn project_queue(
                 tracing::warn!(%error, "conversation attention unavailable");
                 orgintel_health = "unavailable".into();
             }
+        }
+
+        // A teammate who wrote to this person and is waiting on a reply (S101): the card holds
+        // the conversation itself, so anyone in the company is answered from the Inbox.
+        match teammate_messages(org, &config.name, &actors).await {
+            Ok(messages) => items.extend(messages),
+            Err(error) => tracing::warn!(%error, "teammate messages unavailable"),
         }
 
         // Scheduled opportunity failures are shown in Schedules. Only an explicit
@@ -2867,7 +2966,7 @@ async fn project_queue(
                                     responsible_actor: actors.get("exec").cloned(),
                                     runtime_attach: None,
                                     review_target: None,
-                                    native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
+                                    native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
                                     actions: vec![action],
                                     can_continue: false,
                                     preparing: false,
@@ -2902,7 +3001,7 @@ async fn project_queue(
             uncertainty: Some("Exec makes a judgment on each proposed send against this mandate. It can make mistakes; approval of this mandate is not a guarantee that every send will be appropriate.".into()),
             deadline: Some(proposal.expires_at.to_rfc3339()), brief_status: "source-observed", brief_author: None, briefed_at: None,
             evidence: vec![AttentionEvidence { label: "Exact proposed email mandate".into(), uri: None, content: Some(limits), kind: "authority-email-mandate-proposal" }, AttentionEvidence { label: "Exec judgement".into(), uri: None, content: Some(if note.is_empty() { "No additional rationale supplied.".into() } else { note.into() }), kind: "exec-judgement" }],
-            review_sources: Vec::new(), responsible_actor: None, runtime_attach: None, review_target: None, native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
+            review_sources: Vec::new(), responsible_actor: None, runtime_attach: None, review_target: None, native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
             actions: vec![
                 AttentionAction { id: "approve-email-mandate".into(), label: "Approve mandate".into(), role: "decision", consequence: "Grants the exact reviewed email mandate and its limits.".into(), next_state: "The pending proposal is resolved and the mandate becomes active.".into(), href: None },
                 AttentionAction { id: "decline-email-mandate".into(), label: "Decline mandate".into(), role: "decision", consequence: "Declines this exact email mandate proposal.".into(), next_state: "The proposal is resolved without granting email authority.".into(), href: None },
@@ -3037,7 +3136,7 @@ async fn project_queue(
                     responsible_actor: None,
                     runtime_attach: None,
                     review_target: None,
-                    native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
+                    native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
                     actions: vec![AttentionAction {
                         id: if route_missing { "open-intelligence-provider".into() } else { "open-company-health".into() },
                         label: if route_missing { "Choose intelligence".into() } else { "Open Health".into() },
@@ -3090,7 +3189,7 @@ async fn project_queue(
                     review_target: None,
                     native_document: None,
                     direction_request: None,
-                    charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
+                    charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
                     actions: vec![
                         AttentionAction {
                             id: "approve-payee".into(),
@@ -3132,7 +3231,12 @@ async fn project_queue(
                     crate::setting_proposals::SettingChange::ReasoningEffort { .. } => {
                         serde_json::json!({ "effort": config.reasoning_effort })
                     }
-                    crate::setting_proposals::SettingChange::LegalProfile { .. } => serde_json::Value::Null,
+                    crate::setting_proposals::SettingChange::Model { .. } => {
+                        serde_json::json!({ "model": config.configured_model() })
+                    }
+                    crate::setting_proposals::SettingChange::LegalProfile { .. }
+                    | crate::setting_proposals::SettingChange::Schedule { .. }
+                    | crate::setting_proposals::SettingChange::Notifications { .. } => serde_json::Value::Null,
                 };
                 // Already true: answered by someone changing it in Settings, so nothing to ask.
                 let settled = match &proposal.change {
@@ -3142,7 +3246,12 @@ async fn project_queue(
                     crate::setting_proposals::SettingChange::ReasoningEffort { effort } => {
                         config.reasoning_effort == *effort
                     }
-                    crate::setting_proposals::SettingChange::LegalProfile { .. } => false,
+                    crate::setting_proposals::SettingChange::Model { model } => {
+                        config.configured_model() == Some(model.as_str())
+                    }
+                    crate::setting_proposals::SettingChange::LegalProfile { .. }
+                    | crate::setting_proposals::SettingChange::Schedule { .. }
+                    | crate::setting_proposals::SettingChange::Notifications { .. } => false,
                 };
                 if settled {
                     continue;
@@ -3182,7 +3291,7 @@ async fn project_queue(
                     native_document: None,
                     direction_request: None,
                     charter_proposal: None, account_use: None, account_request: None, request_fields: None,
-                    setting_proposal: Some(change),
+                    setting_proposal: Some(change), owner_replies: Vec::new(),
                     actions: vec![
                         AttentionAction {
                             id: "apply-setting".into(),

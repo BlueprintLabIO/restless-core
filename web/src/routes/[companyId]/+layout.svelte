@@ -20,6 +20,7 @@
 	import { COMPANY_PAGES, companyPageHref } from '$lib/model/company-pages';
 	import { workStatusLabel } from '$lib/work/status';
 	import { companyBrowserLinks } from '$lib/actions/company-browser-links';
+	import { conversationShown } from '$lib/model/embedded-conversations.svelte';
 	import { linkPreference } from '$lib/model/link-preference.svelte';
 	import CompanyQueryPersistence from '$lib/components/CompanyQueryPersistence.svelte';
 	import { referenceOptions } from '$lib/model/composer-options.svelte';
@@ -1855,7 +1856,7 @@
 		execWorking={railActorId === 'exec' &&
 			(railConversation.working || !!railConversation.ambientTurn)}
 		execUnavailable={!!providerIssue}
-		railOpen={execRailOpen}
+		railOpen={execRailOpen && !conversationShown(railActorId)}
 		immersive={immersiveComputer}
 		blocked={startupBlocking}
 		onexectoggle={() => inPlace(() => (execRailOpen = !execRailOpen))}

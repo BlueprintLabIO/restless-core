@@ -17,6 +17,9 @@ export interface NativeDocumentAttention {
 export type SettingProposal = { proposal: number; current: Record<string, unknown> | null } & (
 	| { setting: 'spend_limit'; ceiling_usd: number }
 	| { setting: 'reasoning_effort'; effort: string }
+	| { setting: 'model'; model: string }
+	| { setting: 'schedule'; schedule_id: string; paused: boolean; label?: string | null }
+	| { setting: 'notifications'; email?: boolean | null; digest?: string | null }
 	| {
 			setting: 'legal_profile';
 			legal_name?: string | null;
@@ -68,6 +71,8 @@ export interface AttentionItem {
 	accountRequest?: AccountRequest;
 	/** A setting change a company actor proposes, with the value now (S101). */
 	settingProposal?: SettingProposal;
+	/** The short answers the asker offers (S101). */
+	ownerReplies?: string[];
 	ifNoAction: string;
 	uncertainty?: string;
 	deadline?: string;

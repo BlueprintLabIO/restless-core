@@ -55,6 +55,7 @@
 	import InlineReconnect from './inbox/InlineReconnect.svelte';
 	import InlineStartComputer from './inbox/InlineStartComputer.svelte';
 	import InlineSettingProposal from './inbox/InlineSettingProposal.svelte';
+	import InlineSettingMore from './inbox/InlineSettingMore.svelte';
 	import {
 		discussInbox,
 		appRequestHandoffs,
@@ -778,17 +779,19 @@
 									itemId="runtime-rescue"
 									attached={false}
 								/>{/key}{/if}
-						{#if item.source.kind === 'conversation_owner_need' && item.responsibleActor}<InlineConversation
+						{#if (item.source.kind === 'conversation_owner_need' || item.source.kind === 'teammate_message') && item.responsibleActor}<InlineConversation
 								{companyId}
 								compact={siteAsk}
 								actorId={item.responsibleActor.id}
 								actorName={asker}
 								question={item.requestedAction}
 								workId={item.workId}
+								answers={item.ownerReplies}
+								fields={fields.map((field) => ({ id: field.id, label: field.label }))}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
 						<!-- Discussing keeps the card's own decision in the footer; the talk is the People thread. -->
-						{#if discussing && item.source.kind !== 'conversation_owner_need'}<InlineConversation
+						{#if discussing && item.source.kind !== 'conversation_owner_need' && item.source.kind !== 'teammate_message'}<InlineConversation
 								{companyId}
 								actorId={askerId}
 								actorName={asker}
@@ -806,7 +809,13 @@
 								owner={!canPassToOwner}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
-						{#if item.settingProposal}<InlineSettingProposal
+						{#if item.settingProposal && ['model', 'schedule', 'notifications'].includes(item.settingProposal.setting)}<InlineSettingMore
+								{companyId}
+								proposal={item.settingProposal}
+								asker={asker}
+								owner={!canPassToOwner}
+								ondone={(receipt) => void completedInline(receipt)}
+							/>{:else if item.settingProposal}<InlineSettingProposal
 								{companyId}
 								proposal={item.settingProposal}
 								asker={asker}

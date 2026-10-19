@@ -2219,9 +2219,11 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+	/* Documents read like Claude Docs (S101): a 672px column, 16px/1.5 text, headings on a
+	 * 2 / 1.375 / 1.125 / 1 em scale with more room above than below, and .6em between blocks. */
 	.paper-title {
 		position: relative;
-		max-width: 840px;
+		max-width: 672px;
 		margin: 0 auto var(--space-4);
 	}
 	.paper-title textarea {
@@ -2234,8 +2236,8 @@
 		border: 0;
 		background: transparent;
 		color: var(--ink);
-		font: 700 var(--t-hero) / 1.2 var(--font-ui);
-		letter-spacing: -0.02em;
+		font: 500 var(--t-hero) / 1.2 var(--font-ui);
+		letter-spacing: -0.01em;
 	}
 	.paper-title textarea::placeholder {
 		color: var(--text-tertiary);
@@ -2817,7 +2819,7 @@
 	}
 	.editor-mount,
 	.named-version-projection {
-		max-width: 840px;
+		max-width: 672px;
 		margin: 0 auto;
 	}
 	/* Above the brief "Show in document" mark, which sits behind the text. */
@@ -2843,7 +2845,7 @@
 		min-height: 55vh;
 		padding: 0 2px 64px;
 		color: var(--ink);
-		font: 400 var(--t-body) / 1.72 var(--font-ui);
+		font: 400 var(--t-head) / 1.5 var(--font-ui);
 		outline: none;
 	}
 	/* The body is a page, not a field: the app's focus ring (for controls) never draws around it. */
@@ -2853,7 +2855,16 @@
 	}
 	:global(.native-document-body > *) {
 		position: relative;
-		margin: 0 0 var(--space-3);
+		margin: 0.6em 0;
+	}
+	:global(.native-document-body > :first-child) {
+		margin-top: 0;
+	}
+	:global(.native-document-body li) {
+		margin: 0.25em 0;
+	}
+	:global(.native-document-body li > p) {
+		margin: 0;
 	}
 	:global(.native-document-body h1),
 	:global(.native-document-body h2),
@@ -2861,18 +2872,35 @@
 	:global(.native-document-body h4),
 	:global(.native-document-body h5),
 	:global(.native-document-body h6) {
-		margin-top: var(--space-6);
-		margin-bottom: var(--space-3);
-		font-size: var(--t-title);
+		margin: 1.3em 0 0.3em;
+		font-size: 1em;
 		font-weight: 600;
-		line-height: 1.25;
-		letter-spacing: -0.02em;
+		line-height: 1.4;
+		letter-spacing: -0.01em;
+	}
+	:global(.native-document-body h1) {
+		margin: 1.6em 0 0.4em;
+		font-size: 2em;
+		font-weight: 500;
+		line-height: 1.2;
+	}
+	:global(.native-document-body h2) {
+		margin: 1.6em 0 0.5em;
+		font-size: 1.375em;
+		font-weight: 500;
+		line-height: 1.3;
+	}
+	:global(.native-document-body h3) {
+		margin: 1.4em 0 0.4em;
+		font-size: 1.125em;
+		font-weight: 500;
+		line-height: 1.35;
 	}
 	:global(.native-document-body blockquote) {
-		padding-left: var(--space-4);
-		border-left: 2px solid var(--surface-attention);
+		margin: 0.8em 0;
+		padding: 0.1em 1em;
+		border-left: 3px solid var(--border-strong);
 		color: var(--text-secondary);
-		font-style: italic;
 	}
 	:global(.native-document-body pre) {
 		padding: var(--space-3);
@@ -2897,8 +2925,10 @@
 	}
 	:global(.native-document-body table) {
 		width: 100%;
-		margin: var(--space-5) 0;
+		margin: 0.8em 0;
 		border-collapse: collapse;
+		font-size: 0.94em;
+		line-height: 1.45;
 	}
 	:global(.native-document-body th),
 	:global(.native-document-body td) {

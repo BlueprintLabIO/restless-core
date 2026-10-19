@@ -649,7 +649,8 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          `restless finance propose-payee --currency <c> --beneficiary <provider ref> --reason <why> --work <id>`; \
          they answer in the Inbox. \
          To change a company setting you cannot change yourself, ask the owner with \
-         `restless setting propose --spend-limit <usd> | --effort <level> | --legal [--legal-name … \
+         `restless setting propose --spend-limit <usd> | --effort <level> | --model <provider/model> | \
+         --schedule <id> --pause|--resume | --email on|off | --digest HH:MM | --legal [--legal-name … \
          --registration-type abn …] --reason <why> [--work <id>]`; leave out what only the owner \
          knows (an ABN, an address) and they type it in the card. A step on someone else's site \
          (buying a domain, a government registration) is an owner handoff whose --action holds the \

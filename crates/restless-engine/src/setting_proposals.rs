@@ -18,6 +18,24 @@ pub enum SettingChange {
     SpendLimit { ceiling_usd: f64 },
     /// How hard every agent thinks by default: low, medium, high, xhigh or max.
     ReasoningEffort { effort: String },
+    /// The model the company runs on by default, as provider/model.
+    Model { model: String },
+    /// Pause or resume one schedule.
+    Schedule {
+        schedule_id: String,
+        paused: bool,
+        /// The schedule's name, for the card; the id decides.
+        #[serde(default)]
+        label: Option<String>,
+    },
+    /// How the owner hears from the company: email on or off, and a daily digest time (HH:MM,
+    /// local) or none for email as things happen.
+    Notifications {
+        #[serde(default)]
+        email: Option<bool>,
+        #[serde(default)]
+        digest: Option<String>,
+    },
     /// The company's legal details, for invoices, contracts and registrations. Every field is
     /// optional: what the actor knows is proposed, the rest the owner fills in.
     LegalProfile {
@@ -49,6 +67,15 @@ impl SettingChange {
         match self {
             Self::SpendLimit { ceiling_usd } => format!("Set the spend limit to US${ceiling_usd:.0}"),
             Self::ReasoningEffort { effort } => format!("Set the company's thinking effort to {effort}"),
+            Self::Model { model } => format!("Run the company on {model}"),
+            Self::Schedule { paused, label, .. } => format!(
+                "{} the schedule {}",
+                if *paused { "Pause" } else { "Resume" },
+                label.as_deref().map(|label| format!("“{label}”")).unwrap_or_else(|| "it names".into())
+            ),
+            Self::Notifications { email: Some(false), .. } => "Turn off email from the company".into(),
+            Self::Notifications { digest: Some(time), .. } => format!("Send one email a day at {time}"),
+            Self::Notifications { .. } => "Email you as things happen".into(),
             Self::LegalProfile { .. } => "Fill in the company's legal details".into(),
         }
     }
@@ -63,6 +90,34 @@ impl SettingChange {
             Self::ReasoningEffort { effort } => {
                 if !EFFORTS.contains(&effort.as_str()) {
                     bail!("propose an effort of low, medium, high, xhigh or max");
+                }
+            }
+            Self::Model { model } => {
+                let (provider, name) = model.split_once('/').unwrap_or_default();
+                if provider.trim().is_empty() || name.trim().is_empty() || model.len() > 200 {
+                    bail!("propose a model as provider/model, e.g. anthropic/claude-sonnet-5");
+                }
+            }
+            Self::Schedule { schedule_id, label, .. } => {
+                if schedule_id.trim().is_empty() || schedule_id.len() > 200 {
+                    bail!("name the schedule by its id");
+                }
+                if label.as_ref().is_some_and(|label| label.len() > 200) {
+                    bail!("keep the schedule's name to 200 characters");
+                }
+            }
+            Self::Notifications { email, digest } => {
+                if email.is_none() && digest.is_none() {
+                    bail!("propose --email on|off or a --digest time");
+                }
+                if let Some(time) = digest {
+                    let valid = time.len() == 5
+                        && time.as_bytes()[2] == b':'
+                        && time[..2].parse::<u8>().is_ok_and(|hour| hour < 24)
+                        && time[3..].parse::<u8>().is_ok_and(|minute| minute < 60);
+                    if !valid {
+                        bail!("give the digest time as HH:MM, e.g. 08:30");
+                    }
                 }
             }
             Self::LegalProfile {
@@ -214,5 +269,12 @@ mod tests {
         );
         assert!(SettingChange::ReasoningEffort { effort: "extreme".into() }.validate().is_err());
         assert!(SettingChange::SpendLimit { ceiling_usd: -5.0 }.validate().is_err());
+        assert!(SettingChange::Model { model: "sonnet".into() }.validate().is_err());
+        assert!(SettingChange::Notifications { email: None, digest: Some("8:30".into()) }.validate().is_err());
+        assert!(SettingChange::Notifications { email: None, digest: Some("08:30".into()) }.validate().is_ok());
+        assert_eq!(
+            SettingChange::Schedule { schedule_id: "s1".into(), paused: true, label: Some("Monday report".into()) }.summary(),
+            "Pause the schedule “Monday report”"
+        );
     }
 }

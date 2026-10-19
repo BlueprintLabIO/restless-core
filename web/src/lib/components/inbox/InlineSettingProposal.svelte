@@ -212,7 +212,7 @@
 			bind:value={effort}
 		/>
 	</InlinePanel>
-{:else}
+{:else if proposal.setting === 'legal_profile'}
 	<InlinePanel
 		label="Legal details"
 		{error}
