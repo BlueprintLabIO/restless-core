@@ -863,6 +863,31 @@ async fn machine_offline_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> an
     }))
 }
 
+/// The cooldowns that still stop someone: on the company's default or fallback models, or on a
+/// model an agent runs on. A limit or credit refusal on the company's path is answered when a
+/// fallback there still answers: work carries on, so adding a fallback in the card answers it
+/// too (S101). A refused key or a withdrawn model still needs the owner.
+fn cooldowns_in_use(
+    cooldowns: Vec<crate::authority::ModelCooldown>,
+    candidates: &[String],
+    agent_models: &[String],
+) -> Vec<crate::authority::ModelCooldown> {
+    let cooling: Vec<&str> = cooldowns.iter().map(|cooldown| cooldown.model.as_str()).collect();
+    let answered = candidates.iter().any(|model| !cooling.contains(&model.as_str()));
+    cooldowns
+        .into_iter()
+        .filter(|cooldown| {
+            (candidates.is_empty() && agent_models.is_empty())
+                || candidates.contains(&cooldown.model)
+                || agent_models.contains(&cooldown.model)
+        })
+        .filter(|cooldown| {
+            !(answered && cooldown.kind == "quota" && candidates.contains(&cooldown.model)
+                && !agent_models.contains(&cooldown.model))
+        })
+        .collect()
+}
+
 /// A company model the provider refused for a reason only the owner can fix: credit used up, a
 /// refused sign-in or key, or a model no longer offered. Raised from the cooldown itself, so it
 /// shows even when no Exec turn has run since (18 October: Frankensurf's credit ran out at
@@ -3338,16 +3363,15 @@ async fn project_queue(
                     .model_candidates()
                     .map(|models| models.into_iter().map(str::to_string).collect())
                     .unwrap_or_default();
-                // A limit or credit refusal with a fallback that still answers is handled: work
-                // carries on there, so adding a fallback in the card answers it too (S101). A
-                // refused key or a withdrawn model still needs the owner.
-                let cooling: Vec<String> = cooldowns.iter().map(|cooldown| cooldown.model.clone()).collect();
-                let answered = candidates.iter().any(|model| !cooling.contains(model));
-                let current: Vec<_> = cooldowns
-                    .into_iter()
-                    .filter(|cooldown| candidates.is_empty() || candidates.contains(&cooldown.model))
-                    .filter(|cooldown| !(answered && cooldown.kind == "quota"))
+                // An agent can run on its own model (Exec on GPT-6 Luna while the company default is
+                // Sol): a refusal there stops that agent, so it is a card too (19 October, Snake Oil).
+                let agent_models: Vec<String> = config
+                    .agent_intelligence
+                    .keys()
+                    .filter(|actor| actor.as_str() != "default")
+                    .filter_map(|actor| config.for_agent(actor).configured_model().map(str::to_string))
                     .collect();
+                let current = cooldowns_in_use(cooldowns, &candidates, &agent_models);
                 items.extend(model_cooldown_items(config, &current))
             }
             Err(error) => tracing::warn!(%error, "model cooldowns unavailable"),
@@ -4275,6 +4299,31 @@ fn external_source_verification(metadata: &serde_json::Value) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_refusal_on_an_agents_own_model_is_a_card() {
+        let cooldown = |model: &str, kind: &str| crate::authority::ModelCooldown {
+            model: model.into(),
+            kind: kind.into(),
+            reason: "[quota] provider refused".into(),
+            retry_at: Utc::now() + chrono::Duration::minutes(30),
+        };
+        let company = vec!["openai-codex/gpt-6.1-sol".to_string()];
+        let exec = vec!["openai-codex/gpt-6-luna".to_string()];
+        // 19 October, Snake Oil: Exec runs on Luna, the company default is Sol; Luna was refused.
+        let shown = cooldowns_in_use(vec![cooldown("openai-codex/gpt-6-luna", "quota")], &company, &exec);
+        assert_eq!(shown.len(), 1, "the agent's refused model raises a card");
+        // A model nobody runs on any more is no card.
+        let shown = cooldowns_in_use(vec![cooldown("anthropic/claude-opus-4", "quota")], &company, &exec);
+        assert!(shown.is_empty());
+        // The company's default refused while its fallback answers: work carries on, no card.
+        let with_fallback = vec!["openai-codex/gpt-6.1-sol".to_string(), "anthropic/claude-sonnet-5".to_string()];
+        let shown = cooldowns_in_use(vec![cooldown("openai-codex/gpt-6.1-sol", "quota")], &with_fallback, &[]);
+        assert!(shown.is_empty());
+        // A refused key still needs the owner even with a fallback.
+        let shown = cooldowns_in_use(vec![cooldown("openai-codex/gpt-6.1-sol", "credential")], &with_fallback, &[]);
+        assert_eq!(shown.len(), 1);
+    }
+
     use super::*;
 
     #[test]

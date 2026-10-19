@@ -11,6 +11,8 @@
 	import type { ProviderStatus } from '$lib/model/provider';
 	import { addApiKeyConnection } from '$lib/model/account-connections';
 	import { MODEL_PRESETS } from '$lib/model/model-presets';
+	import { assignModel, type IntelligenceView } from '$lib/model/intelligence.svelte';
+	import { ownerRequest } from '$lib/model/setting.svelte';
 	import InlinePanel from './InlinePanel.svelte';
 	import InlineChoice from './InlineChoice.svelte';
 	import { cardActions, type CardAction } from './card-actions.svelte';
@@ -19,12 +21,15 @@
 		companyId,
 		owner,
 		topUpHref,
+		refusedModel = null,
 		ondone
 	}: {
 		companyId: string;
 		owner: boolean;
 		/** Restless's own plan page, where credit is what ran out. */
 		topUpHref?: string | null;
+		/** The model that was refused, as provider/model; an agent may run on it alone. */
+		refusedModel?: string | null;
 		ondone: (receipt: string) => void;
 	} = $props();
 
@@ -39,10 +44,22 @@
 	let keyProvider = $state('anthropic');
 	let keySecret = $state('');
 	const picked = $derived(options.find((option) => option.connection.id === choice) ?? null);
+	/* Agents the owner put on the refused model themselves: the company default does not reach
+	 * them, so the card puts them back on it (19 October: Snake Oil's Exec on GPT-6 Luna). */
+	let intelligence = $state<IntelligenceView | null>(null);
+	const stranded = $derived(
+		refusedModel && intelligence
+			? intelligence.agents.filter((agent) => agent.assignment && agent.effective_model === refusedModel)
+			: []
+	);
 
 	async function load() {
 		loadFailed = false;
 		try {
+			if (refusedModel)
+				intelligence = await ownerRequest<IntelligenceView>(
+					`/api/companies/${encodeURIComponent(companyId)}/intelligence`
+				).catch(() => null);
 			const loaded = await loadModelChoices(companyId);
 			provider = loaded.status;
 			options = loaded.options;
@@ -74,6 +91,28 @@
 		if (!owner) return {};
 		if (loadFailed) return { primary: { label: 'Try again', busyLabel: 'Reading…', run: load } };
 		if (!provider) return {};
+		if (stranded.length && intelligence) {
+			const view = intelligence;
+			const company = provider;
+			const names = stranded.map((agent) => agent.name).join(' and ');
+			return {
+				primary: {
+					label: `Put ${names} on the company model`,
+					busyLabel: 'Saving…',
+					run: () =>
+						attempt(async () => {
+							for (const agent of stranded)
+								await assignModel(companyId, agent.id, {
+									connection: agent.assignment!.connection,
+									model: agent.assignment!.model,
+									reset: true,
+									revision: view.revision
+								});
+							return `${names} now ${stranded.length > 1 ? 'run' : 'runs'} on the company model, ${modelLabel(company.primary_model)}.`;
+						}, 'That did not save. Try again.')
+				}
+			};
+		}
 		const secondary: CardAction[] = [];
 		if (topUpHref)
 			secondary.push({
@@ -159,13 +198,20 @@
 				{/each}
 			</div>
 		{/if}
-		{#if owner && provider}
+		{#if owner && provider && !stranded.length}
 			<p class="current">
 				Runs on <strong>{modelLabel(provider.primary_model)}</strong>{#if provider.model_failover?.length}, then {provider.model_failover.map((model) => modelLabel(model)).join(', then ')}{/if}.
 			</p>
 		{/if}
 	{/snippet}
-	{#if owner && provider}
+	{#if owner && provider && stranded.length}
+		<p class="current">
+			{stranded.map((agent) => agent.name).join(' and ')}
+			{stranded.length > 1 ? 'run' : 'runs'} on <strong>{modelLabel(refusedModel)}</strong>, chosen for
+			{stranded.length > 1 ? 'them' : 'it'} alone. The rest of the company runs on
+			<strong>{modelLabel(provider.primary_model)}</strong>.
+		</p>
+	{:else if owner && provider}
 		<InlineChoice
 			label="Run the company on"
 			options={[

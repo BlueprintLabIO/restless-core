@@ -85,6 +85,19 @@
 			})
 		},
 		{
+			key: 'agent-model',
+			label: 'Agent model refused',
+			item: base({
+				id: 'agent-model',
+				title: 'ChatGPT reached its usage limit',
+				category: 'blocker',
+				source: { plane: 'authority', kind: 'model_cooldown', reference: 'openai-codex/gpt-6-luna' },
+				whatHappened: 'The Exec could not reply: GPT-6 Luna on ChatGPT reached its usage limit.',
+				requestedAction: 'Put the Exec back on a model that answers.',
+				actions: []
+			})
+		},
+		{
 			key: 'spend',
 			label: 'Spend limit',
 			item: base({
@@ -292,6 +305,13 @@
 			included_providers: [], scope: 'account'
 		}],
 		[/^\/api\/companies$/, []],
+		[/\/intelligence$/, {
+			revision: 'r1', default: { connection: 'account:openai-codex@x', model: 'gpt-6.1-sol' }, has_connections: true, connections: [],
+			agents: [
+				{ id: 'exec', name: 'The Exec', role: 'exec', assignment: { connection: 'account:openai-codex@x', model: 'gpt-6-luna' }, effective_model: 'openai-codex/gpt-6-luna', harness: 'restless-managed' },
+				{ id: 'print-design', name: 'Abu', role: 'design', assignment: null, effective_model: 'openai-codex/gpt-6.1-sol', harness: 'restless-managed' }
+			]
+		}],
 		[/\/model\/headroom$/, {
 			model: 'openai-codex/gpt-5.6-sol', account: 'ChatGPT Pro',
 			windows: [

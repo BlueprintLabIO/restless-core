@@ -801,6 +801,7 @@
 								{companyId}
 								owner={!canPassToOwner}
 								topUpHref={action('top-up-ai-credit')?.href}
+								refusedModel={item.source.kind === 'model_cooldown' ? item.source.reference : null}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
 						{#if driftSurface}<InlineBrandDrift
