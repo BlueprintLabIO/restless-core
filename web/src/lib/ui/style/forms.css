@@ -5,8 +5,8 @@
  *
  *   <form class="form">
  *     <header class="form-head"><h3>Add account</h3>…</header>
- *     <div class="field"><div class="field-label"><label for=…>Token</label><small>…</small></div>
- *       <div class="field-control"><input id=…></div></div>
+ *     <div class="form-row"><div class="form-label"><label for=…>Token</label><small>…</small></div>
+ *       <div class="form-control"><input id=…></div></div>
  *     <footer class="form-foot"><small class="form-note">…</small><button class="btn small">Cancel</button>
  *       <button class="btn small primary">Add account</button></footer>
  *   </form>
@@ -56,7 +56,7 @@
 	line-height: 1.5;
 }
 
-:is(.bridge-root, .bridge-tokens) .field {
+:is(.bridge-root, .bridge-tokens) .form-row {
 	display: grid;
 	grid-template-columns: minmax(120px, 168px) minmax(0, 1fr);
 	align-items: start;
@@ -64,48 +64,48 @@
 	padding: 12px 16px;
 }
 
-:is(.bridge-root, .bridge-tokens) .field + .field,
-:is(.bridge-root, .bridge-tokens) .form-intro + .field,
-:is(.bridge-root, .bridge-tokens) .form-section + .field,
-:is(.bridge-root, .bridge-tokens) .field + .form-section {
+:is(.bridge-root, .bridge-tokens) .form-row + .form-row,
+:is(.bridge-root, .bridge-tokens) .form-intro + .form-row,
+:is(.bridge-root, .bridge-tokens) .form-section + .form-row,
+:is(.bridge-root, .bridge-tokens) .form-row + .form-section {
 	border-top: 1px solid var(--border);
 }
 
-:is(.bridge-root, .bridge-tokens) .form-intro + .field {
+:is(.bridge-root, .bridge-tokens) .form-intro + .form-row {
 	border-top: 0;
 }
 
-:is(.bridge-root, .bridge-tokens) .field-label {
+:is(.bridge-root, .bridge-tokens) .form-label {
 	display: grid;
 	gap: 2px;
 	min-width: 0;
 	padding-top: 7px;
 }
 
-:is(.bridge-root, .bridge-tokens) .field-label > :is(label, span, strong) {
+:is(.bridge-root, .bridge-tokens) .form-label > :is(label, span, strong) {
 	color: var(--ink);
 	font-size: var(--t-body);
 	font-weight: 500;
 }
 
-:is(.bridge-root, .bridge-tokens) :is(.field-label, .field-control) > small,
-:is(.bridge-root, .bridge-tokens) .field-hint {
+:is(.bridge-root, .bridge-tokens) :is(.form-label, .form-control) > small,
+:is(.bridge-root, .bridge-tokens) .form-hint {
 	color: var(--text-tertiary);
 	font-size: var(--t-label);
 	line-height: 1.45;
 }
 
-:is(.bridge-root, .bridge-tokens) :is(.field-label, .field-control) small a {
+:is(.bridge-root, .bridge-tokens) :is(.form-label, .form-control) small a {
 	color: inherit;
 	text-decoration: underline;
 	text-underline-offset: 2px;
 }
 
-:is(.bridge-root, .bridge-tokens) :is(.field-label, .field-control) small a:hover {
+:is(.bridge-root, .bridge-tokens) :is(.form-label, .form-control) small a:hover {
 	color: var(--ink);
 }
 
-:is(.bridge-root, .bridge-tokens) .field-control {
+:is(.bridge-root, .bridge-tokens) .form-control {
 	display: grid;
 	justify-items: start;
 	gap: 6px;
@@ -113,7 +113,7 @@
 }
 
 /* Controls in a row: an amount and its period, a field and its button. */
-:is(.bridge-root, .bridge-tokens) .field-inline {
+:is(.bridge-root, .bridge-tokens) .form-inline {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
@@ -122,7 +122,13 @@
 	color: var(--text-secondary);
 }
 
-:is(.bridge-root, .bridge-tokens) .form :is(input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file']), select, textarea) {
+:is(.bridge-root, .bridge-tokens)
+	.form
+	:is(
+		input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file']),
+		select,
+		textarea
+	) {
 	width: 100%;
 	max-width: 420px;
 	min-width: 0;
@@ -144,7 +150,7 @@
 	resize: vertical;
 }
 
-:is(.bridge-root, .bridge-tokens) .form .field-inline :is(input, select) {
+:is(.bridge-root, .bridge-tokens) .form .form-inline :is(input, select) {
 	width: auto;
 }
 
@@ -224,57 +230,13 @@
 	font-size: var(--t-label);
 }
 
-/* One choice among a few: a single switch, not a row of cards. */
-:is(.bridge-root, .bridge-tokens) .segmented {
-	display: inline-flex;
-	max-width: 100%;
-	padding: 2px;
-	overflow-x: auto;
-	border: 1px solid var(--border);
-	border-radius: var(--radius-control);
-	background: var(--surface-alt);
-	scrollbar-width: none;
-}
-
-:is(.bridge-root, .bridge-tokens) .segmented > button {
-	flex: none;
-	min-height: 26px;
-	padding: 0 12px;
-	border: 0;
-	border-radius: calc(var(--radius-control) - 2px);
-	background: transparent;
-	color: var(--text-secondary);
-	font: inherit;
-	font-size: var(--t-body);
-	white-space: nowrap;
-	cursor: pointer;
-	transition:
-		background-color var(--motion-state) var(--ease-standard),
-		color var(--motion-state) var(--ease-standard);
-}
-
-:is(.bridge-root, .bridge-tokens) .segmented > button:hover:not(:disabled) {
-	color: var(--ink);
-}
-
-:is(.bridge-root, .bridge-tokens) .segmented > button[aria-checked='true'] {
-	background: var(--surface-pane, var(--surface));
-	color: var(--ink);
-	box-shadow: 0 0 0 1px var(--border);
-}
-
-:is(.bridge-root, .bridge-tokens) .segmented > button:disabled {
-	opacity: 0.45;
-	cursor: not-allowed;
-}
-
 /* Narrow: the label sits over its control, and the footer's note takes its own line. */
 @container (max-width: 520px) {
-	:is(.bridge-root, .bridge-tokens) .field {
+	:is(.bridge-root, .bridge-tokens) .form-row {
 		grid-template-columns: minmax(0, 1fr);
 		gap: 6px;
 	}
-	:is(.bridge-root, .bridge-tokens) .field-label {
+	:is(.bridge-root, .bridge-tokens) .form-label {
 		padding-top: 0;
 	}
 	:is(.bridge-root, .bridge-tokens) .form-note {
@@ -283,10 +245,9 @@
 }
 
 @media (pointer: coarse) {
-	:is(.bridge-root, .bridge-tokens) .segmented > button {
-		min-height: 36px;
-	}
-	:is(.bridge-root, .bridge-tokens) .form :is(input:not([type='checkbox'], [type='radio']), select) {
+	:is(.bridge-root, .bridge-tokens)
+		.form
+		:is(input:not([type='checkbox'], [type='radio']), select) {
 		min-height: 40px;
 	}
 }

@@ -21,12 +21,12 @@
 	} = $props();
 </script>
 
-<div class="field">
-	<div class="field-label">
+<div class="form-row">
+	<div class="form-label">
 		{#if target}<label for={target}>{label}</label>{:else}<span>{label}</span>{/if}
 		{#if hint}<small>{hint}</small>{/if}
 	</div>
-	<div class="field-control">
+	<div class="form-control">
 		{@render children()}
 		{#if help}<small>{@render help()}</small>{/if}
 	</div>

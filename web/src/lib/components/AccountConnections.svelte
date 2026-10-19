@@ -31,6 +31,8 @@
 	import { page } from '$app/state';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
+	import Field from '$lib/ui/forms/Field.svelte';
+	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
 	import { modelLabel } from '$lib/model/intelligence-labels';
 	import {
@@ -256,9 +258,17 @@
 			actionError = failureSentence(cause, 'Could not remove this connection.');
 		}
 	}
+	let addError = $state('');
+	let grantError = $state('');
 	async function create(event: SubmitEvent) {
 		event.preventDefault();
 		if (busy) return;
+		addError = !label.trim()
+			? 'Add a name for this key.'
+			: !secret.trim()
+				? 'Paste the API key.'
+				: '';
+		if (addError) return;
 		busy = true;
 		actionError = '';
 		try {
@@ -635,68 +645,76 @@
 							}}>Remove</button
 						>{/if}
 				{:else if selectedCompany === company.id}
-					<label class="model-picker"
-						><span>Model</span><select
-							value={selectedCustomModel ? '__custom' : selectedModel}
-							onchange={(event) => {
-								modelTouched = true;
-								selectedCustomModel = event.currentTarget.value === '__custom';
-								selectedModel = selectedCustomModel ? '' : event.currentTarget.value;
-							}}
-							aria-label={`Model for ${item.label} in ${company.name}`}
-							><option value="">Choose a model…</option
-							>{#each modelChoices(item.provider, item.kind) as model (model.id)}<option
-									value={routeModel(item.provider, model.id)}>{model.name ?? model.id}</option
-								>{/each}<option value="__custom">Custom model ID…</option></select
-						></label
-					>
-					{#if selectedCustomModel}<label class="model-picker"
-							><span>Full model ID</span><input
-								aria-label="Full model ID"
-								placeholder={`${item.provider}/model-id`}
-								bind:value={selectedModel}
-							/></label
-						>{/if}
-					<label
-						class="model-picker inline"
-						title={catalog.source(item.provider, item.kind) === 'connected'
-							? 'Models from this account’s connected runtime'
-							: 'Model suggestions; availability depends on this connection'}
-						><input type="checkbox" bind:checked={selectedMakeDefault} /> Company default</label
-					>
-					{#if replaceRequired}<span class="replace-warning" role="alert"
-							>This replaces the current {providerName(item.provider)} connection for {company.name}.</span
-						><button
-							class="btn primary small"
-							disabled={busyCompany || !validModel(item.provider, selectedModel)}
-							onclick={() => void grant(item, company.id, true)}
-							>{busyCompany ? 'Replacing…' : 'Confirm replacement'}</button
-						><button
-							class="text-button"
-							disabled={busyCompany}
-							onclick={() => {
-								selectedCompany = '';
-								replaceRequired = false;
-							}}>Keep current</button
-						>
-					{:else}<button
-							class="btn primary small"
-							disabled={busyCompany ||
-								!validModel(item.provider, selectedModel) ||
-								item.status !== 'present'}
-							onclick={() => void grant(item, company.id)}
-							>{busyCompany ? 'Giving access…' : 'Give access'}</button
-						><button
-							class="text-button"
-							disabled={busyCompany}
-							onclick={() => (selectedCompany = '')}>Cancel</button
-						>{/if}
+					<span class="access-state">Choosing a model</span>
 				{:else}<button
 						class="btn small"
 						disabled={busyCompany || item.status !== 'present'}
 						onclick={() => beginGrant(item, company.id)}>Give access…</button
 					>{/if}
 			</div>
+			{#if !granted && selectedCompany === company.id}
+				<form
+					class="form plain access-grant"
+					onsubmit={(event) => {
+						event.preventDefault();
+						if (!validModel(item.provider, selectedModel)) {
+							grantError = 'Choose a model first.';
+							return;
+						}
+						grantError = '';
+						void grant(item, company.id, replaceRequired);
+					}}
+				>
+					<Field label="Model" for={`grant-model-${item.id}`}>
+						<select
+							id={`grant-model-${item.id}`}
+							value={selectedCustomModel ? '__custom' : selectedModel}
+							onchange={(event) => {
+								modelTouched = true;
+								grantError = '';
+								selectedCustomModel = event.currentTarget.value === '__custom';
+								selectedModel = selectedCustomModel ? '' : event.currentTarget.value;
+							}}
+							><option value="">Choose a model</option
+							>{#each modelChoices(item.provider, item.kind) as model (model.id)}<option
+									value={routeModel(item.provider, model.id)}>{model.name ?? model.id}</option
+								>{/each}<option value="__custom">Custom model ID…</option></select
+						>
+						{#snippet help()}{catalog.source(item.provider, item.kind) === 'connected'
+								? 'Models from this account’s connected runtime.'
+								: 'Suggestions; what is available depends on this connection.'}{/snippet}
+					</Field>
+					{#if selectedCustomModel}
+						<Field label="Full model ID" for={`grant-custom-${item.id}`}>
+							<input
+								id={`grant-custom-${item.id}`}
+								placeholder={`${item.provider}/model-id`}
+								bind:value={selectedModel}
+							/>
+						</Field>
+					{/if}
+					<Field label="Company default">
+						<label class="form-check"
+							><input type="checkbox" bind:checked={selectedMakeDefault} />Use it for everyone in {company.name}
+							unless an agent has its own</label
+						>
+					</Field>
+					{#if replaceRequired}<p class="form-error" role="alert">
+							This replaces the current {providerName(item.provider)} connection for {company.name}.
+						</p>{:else if grantError}<p class="form-error" role="alert">{grantError}</p>{/if}
+					<FormFoot
+						submit={replaceRequired ? 'Replace connection' : 'Give access'}
+						busy={busyCompany}
+						busyLabel={replaceRequired ? 'Replacing…' : 'Giving access…'}
+						oncancel={() => {
+							selectedCompany = '';
+							replaceRequired = false;
+							grantError = '';
+						}}
+						cancelLabel={replaceRequired ? 'Keep current' : 'Cancel'}
+					/>
+				</form>
+			{/if}
 		{/each}
 		{#if !companies.length}<span class="unused">No active companies available.</span>{/if}
 	</div>
@@ -789,37 +807,43 @@
 	{/if}
 
 	{#if addOpen && accountScope === 'account'}
-		<form class="add-form" onsubmit={create}>
-			<div class="form-grid">
-				<label
-					>Provider<select bind:value={provider}
-						>{#each providerOptions.filter(([id]) => !includedProviders.includes(id)) as [id, name]}<option
-								value={id}>{name}</option
-							>{/each}</select
-					></label
-				><label
-					>Name<input
-						bind:value={label}
-						required
-						maxlength="80"
-						placeholder="e.g. Anthropic team key"
-					/></label
-				><label class="full"
-					>API key<input
-						bind:value={secret}
-						type="password"
-						required
-						autocomplete="new-password"
-						placeholder="Paste API key"
-					/></label
+		<form class="form add-form" onsubmit={create}>
+			<header class="form-head"><strong>Add API key</strong></header>
+			<Field label="Provider" for="key-provider">
+				<select id="key-provider" bind:value={provider}
+					>{#each providerOptions.filter(([id]) => !includedProviders.includes(id)) as [id, name]}<option
+							value={id}>{name}</option
+						>{/each}</select
 				>
-			</div>
-			<div class="actions">
-				<button class="btn primary small" disabled={busy}
-					>{busy ? 'Saving…' : 'Save API key'}</button
-				><span class="unused">Saved to this account; no company uses it until you give access.</span
-				>
-			</div>
+			</Field>
+			<Field label="Name" for="key-label">
+				<input
+					id="key-label"
+					bind:value={label}
+					maxlength="80"
+					placeholder={`${providerName(provider)} team key`}
+				/>
+			</Field>
+			<Field label="API key" for="key-secret">
+				<input
+					id="key-secret"
+					bind:value={secret}
+					type="password"
+					autocomplete="new-password"
+					placeholder="Paste the key"
+				/>
+			</Field>
+			{#if addError}<p class="form-error" role="alert">{addError}</p>{/if}
+			<FormFoot
+				note="No company uses it until you give access."
+				submit="Save API key"
+				{busy}
+				busyLabel="Saving…"
+				oncancel={() => {
+					addOpen = false;
+					addError = '';
+				}}
+			/>
 		</form>
 	{/if}
 
@@ -1171,11 +1195,7 @@
 	.callback-field .btn {
 		flex: none;
 	}
-	.callback-field input,
-	.model-picker select,
-	.model-picker input:not([type='checkbox']),
-	.form-grid input,
-	.form-grid select {
+	.callback-field input {
 		width: 100%;
 		min-width: 0;
 		min-height: 34px;
@@ -1218,17 +1238,6 @@
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
-	.model-picker {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.model-picker select {
-		width: auto;
-		max-width: 220px;
-	}
 	.replace-warning {
 		flex-basis: 100%;
 		color: var(--state-danger);
@@ -1255,32 +1264,7 @@
 	}
 	.add-form {
 		margin-bottom: 18px;
-		padding: 16px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-pane);
-		background: var(--surface-pane);
 		animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
-	}
-	.form-grid {
-		display: grid;
-		grid-template-columns: 220px 1fr;
-		gap: var(--space-3);
-	}
-	.form-grid label {
-		display: grid;
-		gap: var(--space-1);
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-	}
-	.form-grid .full {
-		grid-column: 1 / -1;
-	}
-	.actions {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: var(--space-3);
-		margin-top: var(--space-3);
 	}
 	.error {
 		display: flex;
@@ -1428,9 +1412,6 @@
 		}
 	}
 	@media (max-width: 620px) {
-		.form-grid {
-			grid-template-columns: 1fr;
-		}
 		.needs-access-row {
 			grid-template-columns: 8px minmax(0, 1fr);
 		}

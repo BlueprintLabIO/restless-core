@@ -15,7 +15,7 @@
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import Field from '$lib/ui/forms/Field.svelte';
 	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
-	import Segmented from '$lib/ui/forms/Segmented.svelte';
+	import Segmented from '$lib/ui/page/Segmented.svelte';
 	import {
 		ACCOUNT_KINDS,
 		DEFAULT_ABILITIES,
@@ -522,7 +522,7 @@
 						if (chosen) usePreset(chosen.abilities);
 					}}
 				/>
-				<small class="field-hint"
+				<small class="form-hint"
 					>{abilitySummary(draft.abilities)}
 					<button
 						type="button"
@@ -541,7 +541,7 @@
 			{/if}
 			{#if draft.abilities.spend !== 'off'}
 				<Field label="Spending" hint="Optional">
-					<div class="field-inline">
+					<div class="form-inline">
 						<label class="form-check" style="padding-top:0"
 							><input type="checkbox" bind:checked={draft.capOn} />Without asking, up to $</label
 						>
@@ -577,7 +577,7 @@
 							/></label
 						>
 						<label><span>Until</span><input type="date" bind:value={draft.expires} /></label>
-						<div class="field-inline">
+						<div class="form-inline">
 							<label class="form-check" style="padding-top:0"
 								><input type="checkbox" bind:checked={draft.quietOn} />Quiet hours</label
 							><input

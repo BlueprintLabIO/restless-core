@@ -3,24 +3,30 @@
 	 * view switch. Arrow keys move between options, as with native radios. */
 	let {
 		options,
-		value,
+		value = $bindable(),
 		label,
 		disabled = false,
 		onchange
 	}: {
-		options: { value: T; label: string; title?: string }[];
+		options: readonly { value: T; label: string; title?: string }[];
 		value: T;
 		label: string;
 		disabled?: boolean;
-		onchange: (value: T) => void;
+		/** Called after `value` changes; forms usually just bind `value`. */
+		onchange?: (value: T) => void;
 	} = $props();
 
+	function choose(next: T) {
+		if (next === value) return;
+		value = next;
+		onchange?.(next);
+	}
 	function key(event: KeyboardEvent, index: number) {
 		const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
 		if (!step) return;
 		event.preventDefault();
 		const next = options[(index + step + options.length) % options.length];
-		onchange(next.value);
+		choose(next.value);
 		const group = (event.currentTarget as HTMLElement).parentElement;
 		requestAnimationFrame(() =>
 			group?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus()
@@ -37,7 +43,7 @@
 			tabindex={option.value === value ? 0 : -1}
 			title={option.title}
 			{disabled}
-			onclick={() => onchange(option.value)}
+			onclick={() => choose(option.value)}
 			onkeydown={(event) => key(event, index)}>{option.label}</button
 		>
 	{/each}
@@ -46,6 +52,9 @@
 <style>
 	.segmented {
 		display: inline-flex;
+		max-width: 100%;
+		overflow-x: auto;
+		scrollbar-width: none;
 		gap: 2px;
 		padding: 2px;
 		border: 1px solid var(--border-strong);
@@ -53,6 +62,8 @@
 		background: var(--surface-alt);
 	}
 	button {
+		flex: none;
+		white-space: nowrap;
 		min-height: 26px;
 		padding: 0 12px;
 		border: 0;

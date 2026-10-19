@@ -79,8 +79,8 @@ export {
 	portfolioSignal
 } from './portfolio';
 
-/* One form everywhere (style/forms.css): a row per field, a segmented switch for one choice among
- * a few, and one footer. */
+/* One form everywhere (style/forms.css): a row per field and one footer; one choice among a few is
+ * the page kit's Segmented. */
 export { default as Field } from './forms/Field.svelte';
-export { default as Segmented } from './forms/Segmented.svelte';
+export { default as Segmented } from './page/Segmented.svelte';
 export { default as FormFoot } from './forms/FormFoot.svelte';
