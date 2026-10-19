@@ -45,7 +45,7 @@
 	import SnoozeChoices from './SnoozeChoices.svelte';
 	import InlineAppRequest from './inbox/InlineAppRequest.svelte';
 	import InlineAccountRequest from './inbox/InlineAccountRequest.svelte';
-	import InlineReply from './inbox/InlineReply.svelte';
+	import InlineConversation from './inbox/InlineConversation.svelte';
 	import InlineModel from './inbox/InlineModel.svelte';
 	import InlineSpendLimit from './inbox/InlineSpendLimit.svelte';
 	import InlineDesktop from './inbox/InlineDesktop.svelte';
@@ -630,7 +630,7 @@
 				href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(item.workId)}`}
 				>Open the work</a
 			>{/if}
-		{#each navigation.slice(cardSlot.primary ? 0 : inlineNavigation) as extra (extra.id)}<a
+		{#each navigation.slice(cardSlot.primary || cardSlot.secondary.length ? 0 : inlineNavigation) as extra (extra.id)}<a
 				href={extra.href}
 				target={extra.href?.startsWith('/') ? undefined : '_blank'}
 				rel="noreferrer"
@@ -762,7 +762,7 @@
 								owner={!canPassToOwner}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
-						{#if item.source.kind === 'conversation_owner_need' && item.responsibleActor}<InlineReply
+						{#if item.source.kind === 'conversation_owner_need' && item.responsibleActor}<InlineConversation
 								{companyId}
 								actorId={item.responsibleActor.id}
 								actorName={asker}
@@ -770,16 +770,12 @@
 								workId={item.workId}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
-						{#if discussing && item.source.kind !== 'conversation_owner_need'}<InlineReply
+						<!-- Discussing keeps the card's own decision in the footer; the talk is the People thread. -->
+						{#if discussing && item.source.kind !== 'conversation_owner_need'}<InlineConversation
 								{companyId}
 								actorId={askerId}
 								actorName={asker}
-								question={item.requestedAction}
 								workId={item.workId}
-								ondone={(receipt) => {
-									discussing = false;
-									onresolved?.({ text: receipt, href: conversationHref });
-								}}
 							/>{/if}
 						{#if modelSurface}<InlineModel
 								{companyId}
@@ -810,7 +806,7 @@
 								owner={!canPassToOwner}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
-						{#if outcomeSurface && canSetAside}<InlineReply
+						{#if outcomeSurface && canSetAside}<InlineConversation
 								{companyId}
 								actorId={item.responsibleActor?.id ?? 'exec'}
 								actorName={item.responsibleActor?.display ?? 'Exec'}
@@ -1062,7 +1058,7 @@
 		{:else}
 			<div class="action-row">
 				{@render secondaryActions()}
-				{#if cardSlot.primary}
+				{#if cardSlot.primary || cardSlot.secondary.length}
 					{@const primary = cardSlot.primary}
 					{#if humanStep && !appRequest}<button
 							class="btn small"
@@ -1085,7 +1081,9 @@
 							onclick={() => void cardSlot.invoke(extra)}
 							>{cardSlot.busy === extra.label ? (extra.busyLabel ?? extra.label) : extra.label}</button
 						>{/each}
-					{#if primary.hold}
+					{#if !primary}
+						<!-- Equal choices, none recommended over another. -->
+					{:else if primary.hold}
 						{#key `${item.id}:${primary.label}`}
 							<HoldApprove
 								small

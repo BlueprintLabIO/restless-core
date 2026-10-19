@@ -87,7 +87,19 @@
 	import { followChat } from '$lib/actions/follow-chat';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
-	let { header }: { header?: Snippet<[Snippet, Snippet]> } = $props();
+	let {
+		header,
+		person = '',
+		embedded = false
+	}: {
+		header?: Snippet<[Snippet, Snippet]>;
+		/** Embedded (an Inbox card, S101): this person's conversation, the People tab's own UI.
+		 * Threads and focus stay inside the card instead of moving the page. */
+		person?: string;
+		embedded?: boolean;
+	} = $props();
+	let localThread = $state<number | null>(null);
+	let localFocus = $state<number | null>(null);
 
 	const SEARCH_DEBOUNCE_MS = 250;
 
@@ -109,8 +121,8 @@
 	const groupConversations = $derived(
 		recentGroupConversationsQuery(companyId, () => !!principalProjection.view?.actor_id)
 	);
-	const requestedRoomId = $derived(page.url.searchParams.get('room') ?? '');
-	const requestedPersonId = $derived(page.url.searchParams.get('person') ?? '');
+	const requestedRoomId = $derived(embedded ? '' : (page.url.searchParams.get('room') ?? ''));
+	const requestedPersonId = $derived(embedded ? person : (page.url.searchParams.get('person') ?? ''));
 	let resolvedPersonRoom = $state<{ key: string; room: Room } | null>(null);
 	let resolvingPersonKey = $state('');
 	let attemptedPersonKey = $state('');
@@ -124,10 +136,16 @@
 				? resolvedPersonRoom.room.id
 				: '')
 	);
-	const threadRootId = $derived(parsePositiveRoomMessageId(page.url.searchParams.get('thread')));
-	const focusedMessageId = $derived(parsePositiveRoomMessageId(page.url.searchParams.get('focus')));
+	const threadRootId = $derived(
+		embedded ? localThread : parsePositiveRoomMessageId(page.url.searchParams.get('thread'))
+	);
+	const focusedMessageId = $derived(
+		embedded ? localFocus : parsePositiveRoomMessageId(page.url.searchParams.get('focus'))
+	);
 	let focusStatus = $state('');
-	const requestedMessageTarget = $derived(parseRoomMessageTarget(page.url.searchParams));
+	const requestedMessageTarget = $derived(
+		parseRoomMessageTarget(embedded ? new URLSearchParams() : page.url.searchParams)
+	);
 	const exactMessageTarget = $derived(
 		requestedMessageTarget.kind === 'target' ? requestedMessageTarget.target : null
 	);
@@ -889,6 +907,11 @@
 		messageSearch = '';
 		messageSearchOpen = false;
 		const root = message.thread_root_message_id;
+		if (embedded && message.room_id === selectedRoomId) {
+			localThread = root ?? null;
+			localFocus = message.id;
+			return;
+		}
 		const suffix = root ? `&thread=${encodeURIComponent(root)}` : '';
 		void goto(`${roomHref(message.room_id)}${suffix}&focus=${message.id}`, {
 			keepFocus: true,
@@ -982,11 +1005,13 @@
 	}
 
 	function openThread(messageId: number) {
-		void goto(threadHref(messageId), { keepFocus: true, noScroll: true });
+		if (embedded) localThread = messageId;
+		else void goto(threadHref(messageId), { keepFocus: true, noScroll: true });
 	}
 
 	function closeThread() {
-		void goto(roomHref(selectedRoomId), { keepFocus: true, noScroll: true });
+		if (embedded) localThread = null;
+		else void goto(roomHref(selectedRoomId), { keepFocus: true, noScroll: true });
 	}
 
 	async function loadOlderRoomMessages() {
@@ -1424,7 +1449,7 @@
 	class:room-selected={selectedRoomId !== '' || requestedPersonId !== ''}
 	class:thread-selected={threadRootId !== null}
 >
-	<section class="room-conversation cockpit-pane">
+	<section class="room-conversation cockpit-pane" class:embedded>
 		{#if focusStatus}<p class="exact-target-state" role="status">{focusStatus}</p>{/if}
 		{#if selectedRoomId}
 			{#snippet roomTools()}<div class="room-header-tools">
