@@ -46,6 +46,8 @@
 	import InlineAppRequest from './inbox/InlineAppRequest.svelte';
 	import InlineAccountRequest from './inbox/InlineAccountRequest.svelte';
 	import InlineReply from './inbox/InlineReply.svelte';
+	import InlineModel from './inbox/InlineModel.svelte';
+	import InlineSpendLimit from './inbox/InlineSpendLimit.svelte';
 	import {
 		discussInbox,
 		appRequestHandoffs,
@@ -201,8 +203,15 @@
 	const documentRequest = $derived(
 		item.source.kind === 'document_collaboration' || item.source.kind === 'document_review'
 	);
+	/* Cards whose task the card itself does (S101): their links out are not shown. */
+	const MODEL_KINDS = ['model_cooldown', 'account_headroom', 'exec_startup_blocked', 'agent_model_unavailable'];
+	const SPEND_KINDS = ['spend_warning', 'spend_stopped'];
+	const modelSurface = $derived(MODEL_KINDS.includes(item.source.kind));
+	const spendSurface = $derived(SPEND_KINDS.includes(item.source.kind));
 	const navigation = $derived(
-		item.actions.filter((candidate) => candidate.href && candidate.role !== 'conversation')
+		modelSurface || spendSurface
+			? []
+			: item.actions.filter((candidate) => candidate.href && candidate.role !== 'conversation')
 	);
 	/* A refused model offers two ways out (Top up, or another account the owner already holds);
 	 * both are buttons, since the free one is often the right one. */
@@ -666,6 +675,17 @@
 									discussing = false;
 									onresolved?.({ text: receipt, href: conversationHref });
 								}}
+							/>{/if}
+						{#if modelSurface}<InlineModel
+								{companyId}
+								owner={!canPassToOwner}
+								topUpHref={action('top-up-ai-credit')?.href}
+								ondone={(receipt) => void completedInline(receipt)}
+							/>{/if}
+						{#if spendSurface}<InlineSpendLimit
+								{companyId}
+								owner={!canPassToOwner}
+								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
 						{#if item.accountUse}<AccountUseNote
 								use={item.accountUse}

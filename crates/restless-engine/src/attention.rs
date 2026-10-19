@@ -613,6 +613,10 @@ fn spend_stopped_item(config: &CompanyConfig, what_happened: String, created_at:
 /// window (S100): say how full, when it resets, when it runs out at this pace, and offer a fallback.
 async fn account_headroom_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> anyhow::Result<Option<AttentionItem>> {
     let Some(model) = config.configured_model() else { return Ok(None) };
+    // With a fallback set, running out is already handled: the warning has done its job.
+    if !config.model_failover.is_empty() {
+        return Ok(None);
+    }
     let provider = model.split('/').next().unwrap_or_default();
     let Some(account) = config
         .credentials
@@ -3120,7 +3124,18 @@ async fn project_queue(
     }
     if !items.iter().any(|item| item.source.kind == "exec_startup_blocked") {
         match authority.active_model_cooldowns(&config.name).await {
-            Ok(cooldowns) => items.extend(model_cooldown_items(config, &cooldowns)),
+            // Only the models the company still runs on: switching away answers the card (S101).
+            Ok(cooldowns) => {
+                let candidates: Vec<String> = config
+                    .model_candidates()
+                    .map(|models| models.into_iter().map(str::to_string).collect())
+                    .unwrap_or_default();
+                let current: Vec<_> = cooldowns
+                    .into_iter()
+                    .filter(|cooldown| candidates.is_empty() || candidates.contains(&cooldown.model))
+                    .collect();
+                items.extend(model_cooldown_items(config, &current))
+            }
             Err(error) => tracing::warn!(%error, "model cooldowns unavailable"),
         }
     }
