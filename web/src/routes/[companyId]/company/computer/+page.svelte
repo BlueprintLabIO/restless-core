@@ -12,6 +12,7 @@
 	import { desktopWindows, focusDesktopWindow, type DesktopWindow } from '$lib/model/desktop';
 	import DesktopViewport from '$lib/components/DesktopViewport.svelte';
 	import ComputerFiles from '$lib/components/ComputerFiles.svelte';
+	import CompanyMachines from '$lib/components/CompanyMachines.svelte';
 	import { dropComputerFile } from '$lib/model/computer-files';
 	import { issueDesktopTicket } from '$lib/model/attention';
 	import { DesktopControl } from '$lib/model/desktop-control.svelte';
@@ -651,6 +652,8 @@
 				</div>
 			</section>
 		</section>
+
+		<CompanyMachines {companyId} companyName={view?.company.name ?? 'This company'} />
 
 		<footer class="computer-portal-footer">
 			<div>

@@ -7,6 +7,7 @@
 
 pub mod docker_filter;
 pub mod docker_proxy;
+pub mod http_forward;
 pub mod link;
 pub mod machine;
 pub mod protocol;

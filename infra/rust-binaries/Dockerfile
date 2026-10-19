@@ -51,8 +51,8 @@ RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/reg
     --mount=type=cache,id=restless-cargo-release-${BUILDARCH}-${TARGETARCH}-v1,target=/src/target,sharing=locked \
     target="$(cat /rust-target)" \
     && . /rust-env \
-    && cargo build --release --locked --target "$target" -p restlessd -p restless -p restless-runtime-bridge \
-    && for binary in restlessd restless restless-runtime-bridge; do \
+    && cargo build --release --locked --target "$target" -p restlessd -p restless -p restless-runtime-bridge -p restless-machine \
+    && for binary in restlessd restless restless-runtime-bridge restless-machine; do \
          install -Dm755 "/src/target/$target/release/$binary" "/out/$binary"; \
        done
 

@@ -316,6 +316,11 @@ async fn run() -> Result<()> {
     });
     if daemon.runtime_bridges.is_hosted() {
         runtime_bridge::remember_identity_pool(daemon.authority.pool().clone());
+    } else if let Err(error) =
+        restless_engine::machine_router::start(daemon.authority.pool().clone()).await
+    {
+        // Companies on the plane run as before; only paired machines need the router.
+        tracing::warn!(error = %format!("{error:#}"), "machine router not started");
     }
     restless_engine::account_usage::remember_pool(daemon.authority.pool().clone());
     daemon.lifecycle.begin_recovery();

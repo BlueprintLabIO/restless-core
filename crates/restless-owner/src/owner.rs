@@ -15,6 +15,8 @@ mod accounting_api;
 mod accounts_api;
 #[path = "owner_account_usage.rs"]
 mod account_usage_api;
+#[path = "owner_machines.rs"]
+mod machines_api;
 #[path = "owner_appliance.rs"]
 mod appliance_api;
 #[path = "owner_agent_exchanges.rs"]
@@ -1380,6 +1382,12 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/accounts/{id}/desktop/websockify", get(accounts_api::desktop_socket))
         .route("/accounts/{id}/desktop/{*asset}", get(accounts_api::desktop_asset))
         .route("/accounts/requests/{request}", post(accounts_api::settle_request))
+        .route("/machines", get(machines_api::list))
+        .route("/machines/pairings", post(machines_api::create_pairing))
+        .route("/machines/{id}", axum::routing::patch(machines_api::change).delete(machines_api::remove))
+        .route("/companies/{company}/machines", get(machines_api::company).post(machines_api::assign_helper))
+        .route("/companies/{company}/machines/{machine}", axum::routing::delete(machines_api::unassign))
+        .route("/companies/{company}/machines/move", post(machines_api::move_main))
         .route("/companies/{company}/accounts", get(accounts_api::company))
         .route("/companies/{company}/accounts/uses", get(accounts_api::company_uses))
         .route("/companies/{company}/accounts/requests", post(accounts_api::request))
@@ -2072,6 +2080,11 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
                 async move { mcp_api::serve(state, api, request).await }
             }),
         )
+        .route(restless_machine::protocol::PAIR_PATH, post(machines_api::pair))
+        .route(restless_machine::protocol::LINK_PATH, get(machines_api::link))
+        .route(restless_machine::protocol::CONNECT_SH_PATH, get(machines_api::connect_sh))
+        .route(restless_machine::protocol::CONNECT_PS1_PATH, get(machines_api::connect_ps1))
+        .route(machines_api::HELPER_IMAGE_PATH, get(machines_api::helper_image))
         .route("/entry", post(consume_entry_assertion))
         .route("/entry/account", post(consume_account_entry_assertion))
         .route("/entry/logout", post(end_entry_session))
@@ -2152,6 +2165,7 @@ async fn enforce_owner_boundary(
         || crate::model_gateway::is_hosted_model_gateway_path(request.uri().path())
         || crate::tool_gateway::is_hosted_tool_gateway_path(request.uri().path())
         || crate::owner_cell_readiness::is_cell_readiness_path(request.uri().path())
+        || machines_api::is_machine_path(request.uri().path())
     {
         // Fleet's dedicated file-backed bearer and exact deployment tuple are
         // the complete authority for this machine contract. It must not be

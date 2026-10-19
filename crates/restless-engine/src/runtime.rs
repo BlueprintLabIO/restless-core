@@ -2052,7 +2052,7 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
 const INTERNAL_NETWORK_LABEL: &str = "io.restless.company";
 const STARTUP_DOCKER_TIMEOUT: Duration = Duration::from_secs(30);
 
-fn company_network_name(company: &str) -> String {
+pub(crate) fn company_network_name(company: &str) -> String {
     match std::env::var("RESTLESS_RESOURCE_NAMESPACE") {
         Ok(namespace) if !namespace.is_empty() => {
             format!("restless-{namespace}-net-{company}")

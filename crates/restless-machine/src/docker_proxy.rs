@@ -16,19 +16,18 @@ use bytes::Bytes;
 use futures_util::StreamExt as _;
 use http::header::{CONTENT_LENGTH, HOST};
 use http::{HeaderValue, Method, Request, Response, StatusCode};
-use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt as _, Full, StreamBody};
 use hyper::body::{Frame, Incoming};
 use hyper_util::rt::TokioIo;
 use serde_json::{json, Value};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::UnixStream;
 
 use crate::docker_filter::{self, Route, Scope};
 use crate::link::Link;
-use crate::protocol::STREAM_IMAGE;
+use crate::protocol::{AllowedImage, STREAM_IMAGE};
 
-pub type Body = BoxBody<Bytes, std::io::Error>;
+pub use crate::http_forward::Body;
+use crate::http_forward::{self, incoming};
 
 const MAX_REWRITTEN_BODY: usize = 1024 * 1024;
 const MAX_LIST_BODY: usize = 32 * 1024 * 1024;
@@ -47,10 +46,6 @@ fn message(status: StatusCode, text: &str) -> Response<Body> {
 
 fn absent(what: &str, name: &str) -> Response<Body> {
     message(StatusCode::NOT_FOUND, &format!("No such {what}: {name}"))
-}
-
-fn incoming(body: Incoming) -> Body {
-    body.map_err(std::io::Error::other).boxed()
 }
 
 pub struct DockerProxy {
@@ -115,14 +110,7 @@ impl DockerProxy {
     }
 
     async fn forward(&self, request: Request<Body>) -> anyhow::Result<Response<Incoming>> {
-        let socket = UnixStream::connect(&self.socket).await?;
-        let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(socket)).await?;
-        tokio::spawn(async move {
-            if let Err(error) = connection.with_upgrades().await {
-                tracing::debug!(%error, "docker socket connection ended");
-            }
-        });
-        Ok(sender.send_request(request).await?)
+        http_forward::forward(&self.socket, request).await
     }
 
     async fn labels_of(&self, path: &str, labels_at: &[&str]) -> Option<Value> {
@@ -274,21 +262,7 @@ impl DockerProxy {
         upgrade: Option<hyper::upgrade::OnUpgrade>,
     ) -> anyhow::Result<Response<Body>> {
         let (parts, body) = request.into_parts();
-        let mut response = self.forward(Self::rebuild(&parts, incoming(body), None)).await?;
-        if response.status() == StatusCode::SWITCHING_PROTOCOLS {
-            if let Some(server_side) = upgrade {
-                let docker_side = hyper::upgrade::on(&mut response);
-                tokio::spawn(async move {
-                    let (Ok(plane), Ok(docker)) = (server_side.await, docker_side.await) else {
-                        return;
-                    };
-                    let (mut plane, mut docker) = (TokioIo::new(plane), TokioIo::new(docker));
-                    let _ = tokio::io::copy_bidirectional(&mut plane, &mut docker).await;
-                });
-            }
-        }
-        let (parts, body) = response.into_parts();
-        Ok(Response::from_parts(parts, incoming(body)))
+        http_forward::forward_upgrading(&self.socket, Self::rebuild(&parts, incoming(body), None), upgrade).await
     }
 
     async fn read_json(body: Incoming, limit: usize) -> Result<Value, Response<Body>> {
@@ -337,11 +311,10 @@ impl DockerProxy {
         }
         // Docker does not pull on create; the plane's runtime pulls on its own host, so here the
         // helper fetches an allowed image the machine does not yet have.
-        if let Some(image) = value.get("Image").and_then(Value::as_str).map(str::to_string) {
-            if image.starts_with("sha256:") {
-                if let Err(error) = self.ensure_image(&image).await {
-                    return message(StatusCode::BAD_GATEWAY, &format!("could not fetch the company image: {error:#}"));
-                }
+        let image = value.get("Image").and_then(Value::as_str).unwrap_or_default().to_string();
+        if let Some(allowed) = docker_filter::allowed_image(&image, scope) {
+            if let Err(error) = self.ensure_image(allowed).await {
+                return message(StatusCode::BAD_GATEWAY, &format!("could not fetch the company image: {error:#}"));
             }
         }
         self.send_json(&parts, &value).await
@@ -454,10 +427,10 @@ impl DockerProxy {
     }
 
     async fn pull(&self, image: &str, scope: &Scope) -> Response<Body> {
-        let Some(id) = docker_filter::local_id(image, scope) else {
+        let Some(allowed) = docker_filter::allowed_image(image, scope) else {
             return message(StatusCode::FORBIDDEN, "this image is not one Restless may run here");
         };
-        match self.ensure_image(&id).await {
+        match self.ensure_image(allowed).await {
             Ok(()) => {
                 let status = json!({ "status": format!("Status: Image is up to date for {image}") });
                 let mut response = Response::new(full(status.to_string() + "\n"));
@@ -468,46 +441,57 @@ impl DockerProxy {
         }
     }
 
-    async fn has_image(&self, id: &str) -> bool {
-        matches!(self.call(Method::GET, &format!("/images/{id}/json"), None).await, Ok((status, _)) if status.is_success())
+    async fn has_image(&self, reference: &str) -> bool {
+        matches!(self.call(Method::GET, &format!("/images/{reference}/json"), None).await, Ok((status, _)) if status.is_success())
     }
 
-    /// Make sure the machine has exactly the image `id`, loading it from the plane if not. Docker
-    /// load keeps an image's id (its config digest), so the id it ends up with proves what came.
-    pub async fn ensure_image(&self, id: &str) -> anyhow::Result<()> {
-        if self.has_image(id).await {
+    /// Make sure the machine has an allowed image, under its [`docker_filter::local_tag`], loading
+    /// it from the plane over the link if not.
+    pub async fn ensure_image(&self, allowed: &AllowedImage) -> anyhow::Result<()> {
+        let tag = docker_filter::local_tag(allowed);
+        if self.has_image(&tag).await {
             return Ok(());
         }
         let _one_at_a_time = self.loading.lock().await;
-        if self.has_image(id).await {
+        if self.has_image(&tag).await {
             return Ok(());
         }
         let link = self.link.read().unwrap().clone().ok_or_else(|| anyhow::anyhow!("not linked to the plane"))?;
-        let stream = link.open(STREAM_IMAGE, id).await?;
+        let stream = link.open(STREAM_IMAGE, &allowed.id).await?;
         let body = StreamBody::new(
             tokio_util::io::ReaderStream::with_capacity(stream, 64 * 1024).map(|chunk| chunk.map(Frame::data)),
         );
         let request = Request::builder()
             .method(Method::POST)
-            .uri("/images/load?quiet=1")
+            .uri("/images/load")
             .header(HOST, "docker")
             .header(http::header::CONTENT_TYPE, "application/x-tar")
             .body(http_body_util::BodyExt::boxed(body))?;
         let response = self.forward(request).await?;
         let status = response.status();
         let bytes = response.into_body().collect().await?.to_bytes();
-        let failed = String::from_utf8_lossy(&bytes)
-            .lines()
-            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-            .find_map(|event| event.get("error").and_then(Value::as_str).map(str::to_string));
-        if let Some(error) = failed {
-            anyhow::bail!("{error}");
+        let mut loaded = None;
+        for event in String::from_utf8_lossy(&bytes).lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()) {
+            if let Some(error) = event.get("error").and_then(Value::as_str) {
+                anyhow::bail!("{error}");
+            }
+            let text = event.get("stream").and_then(Value::as_str).unwrap_or_default().trim();
+            if let Some(found) = text.strip_prefix("Loaded image ID: ").or_else(|| text.strip_prefix("Loaded image: ")) {
+                loaded = Some(found.trim().to_string());
+            }
         }
         if !status.is_success() {
             anyhow::bail!("Docker answered {status}");
         }
-        if !self.has_image(id).await {
-            anyhow::bail!("the plane sent a different image than {id}");
+        let loaded = loaded.ok_or_else(|| anyhow::anyhow!("Docker did not say which image it loaded"))?;
+        let (repo, version) = tag.split_once(':').expect("a local tag has a version");
+        let query: String = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("repo", repo)
+            .append_pair("tag", version)
+            .finish();
+        let (tagged, answer) = self.call(Method::POST, &format!("/images/{loaded}/tag?{query}"), None).await?;
+        if !tagged.is_success() {
+            anyhow::bail!("could not name the loaded image: {}", String::from_utf8_lossy(&answer));
         }
         Ok(())
     }

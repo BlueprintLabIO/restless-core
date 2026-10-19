@@ -179,7 +179,7 @@ export class RestlessCore {
     return verifyRuntimeToolsImage(await this.runtimeTools(source, platform), source.file('infra/company-image/verify-desktop.mjs'));
   }
 
-  /** Compile every release Rust binary once (restlessd, restless, restless-runtime-bridge) for all images. */
+  /** Compile every release Rust binary once (restlessd, restless, restless-runtime-bridge, restless-machine) for all images. */
   @func()
   rustBinaries(
     @argument({ ignore: ['**', '!infra/rust-binaries/Dockerfile', '!Cargo.toml', '!Cargo.lock', '!crates/**',

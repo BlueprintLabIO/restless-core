@@ -54,13 +54,14 @@ RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/reg
     --mount=type=cache,id=restless-cargo-native-${BUILDARCH}-${TARGETARCH}-v2,target=/src/target,sharing=locked \
     target="$(cat /rust-target)" \
     && . /rust-env \
-    && cargo build --release --locked --target "$target" -p restless -p restless-runtime-bridge \
+    && cargo build --release --locked --target "$target" -p restless -p restless-runtime-bridge -p restless-machine \
     && install -Dm755 /src/target/$target/release/restless /out/restless \
-    && install -Dm755 /src/target/$target/release/restless-runtime-bridge /out/restless-runtime-bridge
+    && install -Dm755 /src/target/$target/release/restless-runtime-bridge /out/restless-runtime-bridge \
+    && install -Dm755 /src/target/$target/release/restless-machine /out/restless-machine
 
 FROM cli AS binaries-build
 FROM scratch AS binaries-prebuilt
-COPY prebuilt-rust/restless prebuilt-rust/restless-runtime-bridge /out/
+COPY prebuilt-rust/restless prebuilt-rust/restless-runtime-bridge prebuilt-rust/restless-machine /out/
 FROM binaries-${RUST_BINARIES} AS binaries
 
 FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS node-runtime
@@ -408,8 +409,8 @@ COPY tools/scenario/restless-scenario.mjs \
     tools/codex-runner/restless-codex-task-run.mjs \
     tools/codex-runner/restless-codex-longitudinal-run.mjs \
     /layer/usr/local/lib/restless/
-# The coordination CLI and the Runtime bridge.
-COPY --from=binaries /out/restless /out/restless-runtime-bridge /layer/usr/local/bin/
+# The coordination CLI, the Runtime bridge, and the helper a paired machine runs (S99).
+COPY --from=binaries /out/restless /out/restless-runtime-bridge /out/restless-machine /layer/usr/local/bin/
 RUN set -eu; \
     layer=/layer; \
     for mapping in \
@@ -450,7 +451,7 @@ RUN set -eu; \
         "$layer/usr/local/lib/restless/restless-codex-task-run.mjs" \
         "$layer/usr/local/lib/restless/restless-codex-longitudinal-run.mjs"; \
     chmod 0444 "$layer/usr/local/lib/restless/gpt-6-sol-0.156.1-model-catalog.json"; \
-    chmod 0755 "$layer/usr/local/bin/restless" "$layer/usr/local/bin/restless-runtime-bridge"; \
+    chmod 0755 "$layer/usr/local/bin/restless" "$layer/usr/local/bin/restless-runtime-bridge" "$layer/usr/local/bin/restless-machine"; \
     chmod -R a=rX "$layer/opt/restless/skills"; \
     ln -s /usr/local/lib/restless/restless-scenario.mjs "$layer/usr/local/bin/restless-scenario"; \
     ln -s /usr/local/lib/restless/restless-web-review.mjs "$layer/usr/local/bin/restless-web-review"; \

@@ -13,10 +13,11 @@
 	import { companiesQuery } from '$lib/model/queries.svelte';
 	import AccountAppearance from '$lib/components/AccountAppearance.svelte';
 	import AccountAppliance from '$lib/components/AccountAppliance.svelte';
+	import AccountComputers from '$lib/components/AccountComputers.svelte';
 	import AccountPage from '$lib/ui/views/AccountPage.svelte';
 	import type { AccountSection } from '$lib/ui/account';
 
-	type Id = 'connections' | 'appearance' | 'appliance';
+	type Id = 'connections' | 'computers' | 'appearance' | 'appliance';
 	let { id }: { id: Id } = $props();
 
 	const SECTIONS: Record<Id, AccountSection> = {
@@ -27,6 +28,12 @@
 				'Accounts you hold once and let companies use: AI models, website logins, API keys and browser sign-ins. Each company gets only what you give it, and never sees a password or key.'
 		},
 
+		computers: {
+			id: 'computers',
+			title: 'Computers',
+			tooltip:
+				"Where your companies' computers run: this plane, and any computer of your own you add. Restless runs only its own sealed containers on a computer you add."
+		},
 		appliance: {
 			id: 'appliance',
 			title: 'This computer',
@@ -41,7 +48,7 @@
 	};
 	const current = $derived(SECTIONS[id]);
 	/* The owner's companies, to give accounts to (S98-07). */
-	const catalog = companiesQuery(() => id === 'connections');
+	const catalog = companiesQuery(() => id === 'connections' || id === 'computers');
 	const grantable = $derived(
 		catalog.view
 			.filter((company) => company.lifecycle_status === 'active')
@@ -60,6 +67,8 @@
 							companies={grantable}
 						/><OwnerAccounts
 							client={ownerAccounts}
+							companies={grantable}
+						/>{:else if id === 'computers'}<AccountComputers
 							companies={grantable}
 						/>{:else if id === 'appliance'}<AccountAppliance />{:else}<AccountAppearance />{/if}
 				{/snippet}

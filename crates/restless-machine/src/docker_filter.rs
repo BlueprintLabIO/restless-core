@@ -94,7 +94,9 @@ pub fn classify(method: &Method, path: &str, query: &str) -> Route {
         ["containers", "json"] if get => Route::ListContainers,
         ["containers", "create"] if method == Method::POST => match query_value(query, "name") {
             Some(name) if is_restless_name(&name) => Route::CreateContainer { name },
-            _ => Route::Refused("containers here must be named restless-…"),
+            // Docker names it; the machine label still marks it as Restless's.
+            None => Route::CreateContainer { name: String::new() },
+            Some(_) => Route::Refused("containers here must be named restless-…"),
         },
         ["containers", "prune"] => Route::Refused("pruning is never allowed"),
         ["containers", id, "exec"] if method == Method::POST => Route::CreateExec { container: (*id).into() },
@@ -103,7 +105,7 @@ pub fn classify(method: &Method, path: &str, query: &str) -> Route {
             if matches!(
                 *action,
                 "json" | "start" | "stop" | "restart" | "kill" | "wait" | "attach" | "logs" | "archive"
-                    | "resize" | "top" | "stats" | "update" | "changes"
+                    | "resize" | "top" | "stats" | "update" | "changes" | "rename"
             ) =>
         {
             Route::Container { id: (*id).into() }
@@ -166,22 +168,32 @@ pub fn labelled_ours(labels: Option<&Value>, scope: &Scope) -> bool {
         .is_some_and(|machine| machine == scope.machine_id)
 }
 
-/// The local image id an allowed reference stands for: by exact reference, by its digest, or by
-/// the id itself.
-pub fn local_id(image: &str, scope: &Scope) -> Option<String> {
+/// The allowed image a reference stands for: by exact reference, by its digest, or by the plane's
+/// id for it.
+pub fn allowed_image<'a>(image: &str, scope: &'a Scope) -> Option<&'a AllowedImage> {
     let image = image.trim();
-    scope
-        .allowed_images
-        .iter()
-        .find(|allowed| {
-            image == allowed.reference
-                || image == allowed.id
-                || allowed
-                    .reference
-                    .split_once('@')
-                    .is_some_and(|(_, digest)| image == digest || image.ends_with(&format!("@{digest}")))
-        })
-        .map(|allowed| allowed.id.clone())
+    scope.allowed_images.iter().find(|allowed| {
+        image == allowed.reference
+            || image == allowed.id
+            || image == local_tag(allowed)
+            || allowed
+                .reference
+                .split_once('@')
+                .is_some_and(|(_, digest)| image == digest || image.ends_with(&format!("@{digest}")))
+    })
+}
+
+/// The name an allowed image has on a machine. Docker gives an image a different id in a different
+/// image store (the plane's may be containerd's, the machine's the classic one), so the machine
+/// names what the plane sent by the plane's id instead of trusting its own.
+pub fn local_tag(allowed: &AllowedImage) -> String {
+    let hex: String = allowed.id.trim_start_matches("sha256:").chars().take(32).collect();
+    format!("restless-company:{hex}")
+}
+
+/// Where an allowed reference runs from on this machine.
+pub fn local_id(image: &str, scope: &Scope) -> Option<String> {
+    allowed_image(image, scope).map(local_tag)
 }
 
 /// Whether an image is one the plane may run here: an allowed one, or one Restless made here
@@ -302,6 +314,29 @@ pub fn rewrite_container_create(
         }
         host.insert("ExtraHosts".into(), Value::Array(hosts));
     }
+    let joined_machine_network = host.get("NetworkMode").and_then(Value::as_str) == Some(MACHINE_NETWORK);
+    // The CLI names the network a second time, per endpoint; keep the two in step, and allow only
+    // Restless's own networks there too.
+    if let Some(endpoints) = body
+        .get_mut("NetworkingConfig")
+        .and_then(|config| config.get_mut("EndpointsConfig"))
+        .and_then(Value::as_object_mut)
+    {
+        for name in ["default", "bridge", ""] {
+            if let Some(endpoint) = endpoints.remove(name) {
+                if joined_machine_network {
+                    endpoints.insert(MACHINE_NETWORK.into(), endpoint);
+                }
+            }
+        }
+        if endpoints.keys().any(|name| !is_restless_name(name) && name != MACHINE_NETWORK) {
+            return Err("host and foreign networks are not allowed");
+        }
+    }
+    let host = body
+        .get_mut("HostConfig")
+        .and_then(Value::as_object_mut)
+        .ok_or("HostConfig must be an object")?;
     if let Some(ports) = host.get("PortBindings").and_then(Value::as_object) {
         if !ports.is_empty() {
             return Err("publishing ports on this machine is not allowed");
@@ -415,18 +450,24 @@ mod tests {
 
     #[test]
     fn allowed_images_run_by_their_exact_id() {
-        assert_eq!(local_id("ghcr.io/x/company@sha256:abc", &scope()).as_deref(), Some("sha256:c0f"));
-        assert_eq!(local_id("sha256:c0f", &scope()).as_deref(), Some("sha256:c0f"));
+        assert_eq!(local_id("ghcr.io/x/company@sha256:abc", &scope()).as_deref(), Some("restless-company:c0f"));
+        assert_eq!(local_id("sha256:c0f", &scope()).as_deref(), Some("restless-company:c0f"));
+        assert_eq!(local_id("restless-company:c0f", &scope()).as_deref(), Some("restless-company:c0f"));
         assert_eq!(local_id("alpine", &scope()), None);
         let mut body = create(json!({}));
         rewrite_container_create(&mut body, &scope(), |_| false).unwrap();
-        assert_eq!(body["Image"], "sha256:c0f");
+        assert_eq!(body["Image"], "restless-company:c0f");
     }
 
     #[test]
     fn a_company_container_is_labelled_and_joined_to_the_machine() {
         let mut body = create(json!({ "Binds": ["restless-acme:/company"], "ExtraHosts": ["host.docker.internal:host-gateway"] }));
+        body["NetworkingConfig"] = json!({ "EndpointsConfig": { "default": {} } });
         rewrite_container_create(&mut body, &scope(), |_| false).unwrap();
+        assert_eq!(body["NetworkingConfig"]["EndpointsConfig"], json!({ MACHINE_NETWORK: {} }));
+        let mut foreign = create(json!({}));
+        foreign["NetworkingConfig"] = json!({ "EndpointsConfig": { "host": {} } });
+        assert!(rewrite_container_create(&mut foreign, &scope(), |_| false).is_err());
         assert_eq!(body["Labels"][MACHINE_LABEL], "m1");
         assert_eq!(body["HostConfig"]["NetworkMode"], MACHINE_NETWORK);
         assert_eq!(body["HostConfig"]["ExtraHosts"], json!(["host.docker.internal:172.30.0.2"]));

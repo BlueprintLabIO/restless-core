@@ -44,7 +44,7 @@ export async function verifyCompanyRuntimeImage(image: Container, revision: stri
       + 'restless --help; links="$(ldd /usr/local/bin/restless-runtime-bridge)"; '
       + 'printf "%s\\n" "$links"; ! printf "%s" "$links" | grep -q "not found"; '
       + 'test "$RESTLESS_SOURCE_REVISION" = "$EXPECTED_REVISION"; '
-      + 'test -x /usr/local/bin/company-init; test -x /usr/local/bin/start-runtime-bridge; '
+      + 'test -x /usr/local/bin/company-init; test -x /usr/local/bin/start-runtime-bridge; test -x /usr/local/bin/restless-machine; '
       + 'test -s /opt/restless/skills/scenario-evidence/SKILL.md; '
       + 'printf "Company Runtime binaries link and release metadata matches\\n"',
     ], { useEntrypoint: false });

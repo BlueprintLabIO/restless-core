@@ -147,6 +147,7 @@
 			})),
 		{ id: 'home', group: 'Go to', label: 'Home', hint: 'Your companies', href: home },
 		{ id: 'connections', group: 'Settings', label: 'Accounts', href: '/account/connections' },
+		{ id: 'computers', group: 'Settings', label: 'Computers', href: '/account/computers' },
 		{ id: 'appearance', group: 'Settings', label: 'Appearance', href: '/account/appearance' },
 		...(status && !status.hosted
 			? [
@@ -173,7 +174,7 @@
 		...(cloudPages ? [{ label: 'Billing', items: issued('Plan & credit', 'billing') }] : []),
 		{
 			label: 'Integrations',
-			items: [own('Accounts', '/account/connections')]
+			items: [own('Accounts', '/account/connections'), own('Computers', '/account/computers')]
 		},
 		...(status && !status.hosted
 			? [{ label: 'This computer', items: [own('Release and backup', '/account/appliance')] }]

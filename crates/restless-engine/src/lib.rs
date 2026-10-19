@@ -55,6 +55,11 @@ pub mod mentions;
 pub mod model_catalog;
 pub mod app_catalogue;
 pub mod model_connections;
+pub mod machine_move;
+pub mod machine_router;
+pub mod machines;
+#[cfg(test)]
+mod machines_e2e;
 pub mod model_gateway;
 pub mod native_harness;
 pub mod outside_actions;
