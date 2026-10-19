@@ -1430,16 +1430,17 @@ pub(super) async fn decide_payee(
     if let (Some((record, payee)), Ok(org)) = (pending, state.daemon.orgintel.get(&company).await) {
         let asker = record.actor_id.unwrap_or_else(|| "exec".into());
         let mut body = format!(
-            "{} {} {} as a {} payee.",
-            principal.actor_id(),
+            "The owner {} {} as a {} payee.",
             if input.approve { "approved" } else { "declined" },
             payee.beneficiary_ref,
             payee.currency
         );
         if let Some(note) = input.note.as_deref().map(str::trim).filter(|note| !note.is_empty()) {
-            body.push_str(&format!(" “{note}”"));
+            body.push_str(&format!(" Their note: “{note}”"));
         }
-        if let Err(error) = org.send_message(principal.actor_id(), Some(&asker), &body).await {
+        // A notice, not the owner's words: see the setting decision above.
+        let _ = org.ensure_actor("daemon", "system", "system-sender", "The daemon").await;
+        if let Err(error) = org.send_message("daemon", Some(&asker), &body).await {
             tracing::warn!(%error, "could not tell the asker about a payee decision");
         }
     }
@@ -1496,14 +1497,17 @@ pub(super) async fn decide_setting(
             .map(|first| first.to_lowercase().chain(letters).collect::<String>())
             .unwrap_or_default();
         let mut body = if input.applied {
-            format!("Done: {what}. It is saved in Settings.")
+            format!("The owner applied your proposal to {what}. It is saved in Settings.")
         } else {
-            format!("I declined your proposal to {what}. The setting stays as it is.")
+            format!("The owner declined your proposal to {what}. The setting stays as it is.")
         };
         if let Some(note) = input.note.as_deref().map(str::trim).filter(|note| !note.is_empty()) {
-            body.push_str(&format!(" “{note}”"));
+            body.push_str(&format!(" Their note: “{note}”"));
         }
-        if let Err(error) = org.send_message(principal.actor_id(), Some(&asker), &body).await {
+        // A notice, not the owner's words: sent as the daemon so it never stands in for the
+        // owner's reply to something else the asker is waiting on.
+        let _ = org.ensure_actor("daemon", "system", "system-sender", "The daemon").await;
+        if let Err(error) = org.send_message("daemon", Some(&asker), &body).await {
             tracing::warn!(%error, "could not tell the asker about a setting decision");
         }
     }

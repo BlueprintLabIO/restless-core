@@ -9,6 +9,7 @@
 	import { failureSentence } from '$lib/model/failure';
 	import { quickAnswers, replyBody } from '$lib/model/inline-reply';
 	import InlinePanel from './InlinePanel.svelte';
+	import InlineChoice from './InlineChoice.svelte';
 	import { showingConversation } from '$lib/model/embedded-conversations.svelte';
 	import { cardActions, type CardAction } from './card-actions.svelte';
 
@@ -44,7 +45,12 @@
 	const choices = $derived(answers?.length ? answers : question ? quickAnswers(question) : []);
 	let values = $state<Record<string, string>>({});
 	let error = $state('');
-	const filled = $derived(fields.every((field) => (values[field.id] ?? '').trim()));
+	/* With facts to fill in, the offered answers are a choice beside them and one Send carries
+	 * both, so "Tuesday" never goes without the supplier's name. */
+	let picked = $state<string | null>(null);
+	const filled = $derived(
+		fields.every((field) => (values[field.id] ?? '').trim()) && (!choices.length || !!picked)
+	);
 
 	async function send(text: string, receipt: string) {
 		error = '';
@@ -67,14 +73,16 @@
 		if (!ondone) return {};
 		if (fields.length)
 			return {
-				secondary: choices.map(answer),
 				primary: {
 					label: `Send to ${actorName}`,
 					busyLabel: 'Sending…',
 					disabled: !filled,
 					run: () =>
 						send(
-							fields.map((field) => `${field.label}: ${(values[field.id] ?? '').trim()}`).join('\n'),
+							[
+								...(picked ? [picked] : []),
+								...fields.map((field) => `${field.label}: ${(values[field.id] ?? '').trim()}`)
+							].join('\n'),
 							`Sent to ${actorName}. They carry on with your answer.`
 						)
 				}
@@ -85,6 +93,13 @@
 
 {#if fields.length && ondone}
 	<InlinePanel label={`What ${actorName} asks for`} {error}>
+		{#if choices.length}
+			<InlineChoice
+				label="Your answer"
+				options={choices.map((text) => ({ value: text, title: text }))}
+				bind:value={picked}
+			/>
+		{/if}
 		<div class="pair">
 			{#each fields as field (field.id)}
 				<label class="field">{field.label}<input bind:value={values[field.id]} autocomplete="off" /></label>
