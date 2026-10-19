@@ -115,7 +115,7 @@ export default {
 		[html, '2 decisions waiting', 'observed decisions lead the card'],
 		[html, '3 people working', 'observed work reads as people'],
 		[css, '--intent-direction', 'tokens stylesheet'],
-		[String(imports.length), '4', 'the four design stylesheets, and not the document reset'],
+		[String(imports.length), '5', 'the five design stylesheets (forms included), and not the document reset'],
 		[String(imports.includes('./base.css')), 'false', 'style.css leaves the host document alone']
 	];
 	const hosted =
