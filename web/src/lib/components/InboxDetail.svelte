@@ -217,6 +217,8 @@
 		item.source.kind === 'document_collaboration' || item.source.kind === 'document_review'
 	);
 	/* Cards whose task the card itself does (S101): their links out are not shown. */
+	const SITE_ASK =
+		/company browser|shared desktop|https?:\/\/|\b[a-z0-9-]+\.(?:com|net|org|io|co|au|nz|uk)\b|\b(?:sign|log) in\b|\bregister\b|\bpay\b|\bcheckout\b/i;
 	const MODEL_KINDS = ['model_cooldown', 'account_headroom', 'exec_startup_blocked', 'agent_model_unavailable'];
 	const SPEND_KINDS = ['spend_warning', 'spend_stopped'];
 	const modelSurface = $derived(
@@ -295,6 +297,13 @@
 			!appRequest &&
 			!item.preparing &&
 			((!!item.runtimeAttach && item.category !== 'review') || !!stepUrl)
+	);
+	/* An agent's question about doing something on a site (register a domain, sign in, pay) shows
+	 * the company computer too, at the page the agent left open, so it is done in the card. */
+	const siteAsk = $derived(
+		item.source.kind === 'conversation_owner_need' &&
+			canSetAside &&
+			SITE_ASK.test(`${item.requestedAction} ${item.whatHappened}`)
 	);
 	/* A live outcome to review renders in the card's content beside the decision. */
 	const outcomeInline = $derived(item.category === 'review' && !!item.reviewTarget);
@@ -826,6 +835,11 @@
 										completedInline(receipt)
 									)}
 							/>{/if}
+						{#if siteAsk && !desktopSurface}{#key item.id}<InlineDesktop
+									{companyId}
+									itemId="runtime-rescue"
+									attached={false}
+								/>{/key}{/if}
 						{#if desktopSurface}{#key item.id}<InlineDesktop
 									{companyId}
 									itemId={item.id}
