@@ -84,17 +84,19 @@ These are product soul, not legacy mechanics. They survive the rebuild.
 owns the portfolio and dispatches production assignments to one accountable lead. Explicit bounded
 edits to an existing shared native document are direct collaboration: Exec applies and verifies them
 in the current conversation under existing document edit access (ARCHITECTURE.md §4.3). A lead owns
-one coherent native outcome and remains a non-producing supervisor. At least one Staff worker owns
-production for an executable outcome. Staff owns an independently useful semantic
-contribution or locally closing unit in a repeated queue. A hand or ordinary tool owns only a bounded
-operation; if another model exercises project judgement, it is Staff and its contribution must be
-attributable.
+one coherent native outcome and produces it directly by default, through Work it owns. Staff owns an
+independently useful semantic contribution or locally closing unit in a repeated queue. A hand or
+ordinary tool owns only a bounded operation; if another model exercises project judgement, it is
+Staff and its contribution must be attributable.
 
-The current prior is a wide, shallow organisation: several supervisor leads run concurrently, each
-with one end-to-end worker by default. Add workers temporarily only when specialisation, independent
-evidence, locally closing units, unused parallel capacity or context saturation can repay briefing,
-communication, integration and review. This is model judgement, not a team-size rule. Fast inference
-makes extra intra-lead boundaries especially expensive, but does not make teams obsolete.
+The current prior is a wide, shallow organisation: several leads run concurrently, each producing
+its own outcome. Add workers only when specialisation, independent evidence, locally closing units,
+unused parallel capacity or context saturation can repay briefing, communication, integration and
+review. This is model judgement, not a team-size rule. Fast inference makes extra intra-lead
+boundaries especially expensive, but does not make teams obsolete. (Owner decision, 2026-10-19:
+leads produce directly and scale up members only when the need arises; this replaced the earlier
+non-producing-supervisor invariant, whose serial Exec/lead/worker chain EXP-17 measured at
+1.73x-3.30x the cost of solo work for matched quality.)
 
 That prior applies mainly to several minds coauthoring one result. Repeated independent units—sales
 accounts, support cases, recruiting screens or similar queues—may justify a large elastic Staff pool
@@ -103,9 +105,9 @@ the charter, calibration, aggregate result and exceptions; each worker-owned uni
 central model rewrite. The Work graph records real batches or territories rather than mirroring every
 unit.
 
-Lead supervision is a product invariant, not a posture selected by local cost. The lead frames,
-commissions, observes, guides, redirects, repairs through workers and judges the exact outcome; it does
-no planned production, silent artifact repair or private parallel implementation. Supervision is
+When a lead does add Staff, it frames, commissions, observes, guides, redirects, repairs through
+those workers and judges the exact outcome; it does not silently repair a worker's artifact or run a
+private parallel implementation of the same seam. Supervision is
 driven by material events and artifacts, never polling or status theatre. Staff does not send progress
 or completion mail merely to trigger supervision. After the Runtime observes artifacts, gates and the
 final Work state, a recoverable terminal exception wakes the accountable lead; a successful result
@@ -115,10 +117,11 @@ contradiction that needs judgement before completion.
 
 EXP-17 makes the implementation constraint explicit: across four exact GPT-5.6 Sol pairs, a serial
 Exec/lead/worker/lead call chain matched solo outcome quality but cost 1.73x-3.30x and took
-1.77x-2.94x. Preserve the accountable lead, but treat one capable end-to-end worker as the default
-producing topology beneath it. Keep the lead's identity, charter, authority and context durable/hot;
-do not manufacture fresh high-effort model turns merely to restate an exact brief or acknowledge an
-already passing bounded artifact. Wake supervisory intelligence for material ambiguity, changed
+1.77x-2.94x. Preserve the accountable lead and let it produce. Exec commissions a production
+outcome as Work owned by the lead; do not manufacture fresh high-effort model turns merely to
+restate an exact brief or acknowledge an already passing bounded artifact. Every model call
+resends its session, so a wake starts lean: a hot session is resumed only while it is small, and
+otherwise the wake reconstructs from durable state. Wake supervisory intelligence for material ambiguity, changed
 requirements, failed evidence, lineage conflict, unsafe effects, worker blockage or owner-facing
 judgement. Deterministic routing and gates may carry routine facts without pretending to replace the
 lead's decision rights.

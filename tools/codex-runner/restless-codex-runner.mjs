@@ -428,6 +428,11 @@ async function launch(operation) {
     ]),
     ...(solCatalogPath ? ['-c', `model_catalog_json=${JSON.stringify(solCatalogPath)}`] : []),
     '-c', `model_reasoning_effort=${JSON.stringify(effort)}`,
+    // Every call resends the whole thread. Codex otherwise compacts near the
+    // model window: sydney_resale's Exec reached 244k tokens a call. Compact at
+    // 64k and keep at most ~3k tokens of any one tool result in history.
+    '-c', 'model_auto_compact_token_limit=64000',
+    '-c', 'tool_output_token_limit=3000',
     ...mcp.args,
   ];
   // An isolated schedule probe has no direct egress. Its Runtime supplies a

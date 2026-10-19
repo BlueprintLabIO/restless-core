@@ -843,6 +843,22 @@ pub struct TurnUsage {
     pub turn_cost_usd: Option<f64>,
 }
 
+/// Context size above which a hot provider session is not resumed by the next
+/// wake. Every later call resends the whole session, so a wake that resumes a
+/// large history pays for it on every tool call. On sydney_resale (30 days to
+/// 2026-10-19) Exec resumed one session that had grown to 180k-244k tokens,
+/// and 85% of all input tokens were history the wake started with. Durable
+/// files, messages, Work and the wake's bounded snapshot already form the
+/// reconstruction that a context overflow uses; retiring at this size uses it
+/// before the history becomes the bill.
+pub const LEAN_SESSION_TOKENS: u64 = 48_000;
+
+impl TurnUsage {
+    pub fn outgrew_lean_session(&self) -> bool {
+        self.used > LEAN_SESSION_TOKENS
+    }
+}
+
 /// One observed turn: the agent's visible text plus the tool calls it made.
 /// This is observability, not a governed record (§4.4).
 #[derive(Debug)]

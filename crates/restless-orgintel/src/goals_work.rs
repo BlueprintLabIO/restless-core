@@ -820,11 +820,6 @@ impl OrgIntel {
             ));
         }
         let accountable_lead = live_team.as_ref().map(|(_, lead)| lead.clone());
-        if accountable_lead.as_deref() == Some(work.owner_id) {
-            return Err(OrgIntelError::InvalidWork(
-                "an accountable team lead cannot own unsettled productive Work".into(),
-            ));
-        }
         let commissioned_by = commissioned_by
             .map(str::to_string)
             .or_else(|| accountable_lead.clone())

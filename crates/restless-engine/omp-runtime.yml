@@ -45,5 +45,13 @@ retry:
 compaction:
   enabled: true
   midTurnEnabled: true
-  thresholdTokens: 80000
+  thresholdTokens: 64000
   keepRecentTokens: 20000
+# A tool result stays in context for every later call. Keep at most ~3k tokens
+# of a large result inline (head and tail); the full output is saved as an
+# artifact the actor can read when it needs the middle.
+tools:
+  artifactSpillThreshold: 12
+  artifactHeadBytes: 4
+  artifactTailBytes: 8
+  artifactTailLines: 200

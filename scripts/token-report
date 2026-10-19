@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""Summarise where a company's model tokens go, per actor and per model session.
+
+Reads the owner spend report (`/company/spend/report`), which already records every
+gateway call with its actor, session, Work, Attempt and input/cached/output split.
+It adds the shape that matters for token efficiency: how many calls each session made,
+how large its first request was (the fixed prefix every later call resends) and how
+large its context grew.
+
+    scripts/token-report <company> [--base http://127.0.0.1:7788] [--days 7] [--since ISO]
+    scripts/token-report <company> --json        # machine-readable totals for comparison
+"""
+import argparse
+import json
+import statistics
+import sys
+import urllib.parse
+import urllib.request
+from collections import defaultdict
+
+
+def fetch_rows(base, company, days, since):
+    rows, before = [], None
+    while True:
+        query = {"days": str(days)}
+        if before:
+            query["before"] = before
+        url = f"{base}/api/companies/{urllib.parse.quote(company)}/company/spend/report?{urllib.parse.urlencode(query)}"
+        with urllib.request.urlopen(url, timeout=60) as response:
+            report = json.load(response)
+        page = report.get("activity") or []
+        rows.extend(page)
+        before = report.get("next_before")
+        if not before or not page:
+            break
+        if since and page[-1]["occurred_at"] < since:
+            break
+    if since:
+        rows = [row for row in rows if row["occurred_at"] >= since]
+    rows.sort(key=lambda row: row["occurred_at"])
+    return rows
+
+
+def input_of(row):
+    # Native harness turns report one total without an input/output split.
+    return row.get("input_tokens") or row.get("tokens") or 0
+
+
+def summarise(rows):
+    sessions = defaultdict(list)
+    for row in rows:
+        sessions[(row["actor"], row["session_id"])].append(row)
+    out = []
+    for (actor, session), calls in sessions.items():
+        inputs = [input_of(row) for row in calls]
+        out.append(
+            {
+                "actor": actor,
+                "session": session,
+                "model": calls[0]["model"],
+                "calls": len(calls),
+                "input": sum(inputs),
+                "cached": sum(row.get("cached_input_tokens") or 0 for row in calls),
+                "output": sum(row.get("output_tokens") or 0 for row in calls),
+                "first_input": inputs[0],
+                "min_input": min(inputs),
+                "max_input": max(inputs),
+                "mean_input": round(statistics.mean(inputs)),
+                "usd": round(sum(row.get("estimated_usd") or 0 for row in calls), 4),
+                "work_ids": sorted({row["work_id"] for row in calls if row.get("work_id")}),
+            }
+        )
+    out.sort(key=lambda item: -item["input"])
+    return out
+
+
+def totals(rows, sessions):
+    calls = len(rows)
+    input_tokens = sum(input_of(row) for row in rows)
+    return {
+        "calls": calls,
+        "sessions": len(sessions),
+        "input": input_tokens,
+        "cached": sum(row.get("cached_input_tokens") or 0 for row in rows),
+        "output": sum(row.get("output_tokens") or 0 for row in rows),
+        "mean_input_per_call": round(input_tokens / calls) if calls else 0,
+        "median_first_input": round(statistics.median([s["min_input"] for s in sessions])) if sessions else 0,
+        "usd": round(sum(row.get("estimated_usd") or 0 for row in rows), 4),
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("company")
+    parser.add_argument("--base", default="http://127.0.0.1:7788")
+    parser.add_argument("--days", type=int, default=7)
+    parser.add_argument("--since")
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--top", type=int, default=15)
+    args = parser.parse_args()
+    rows = fetch_rows(args.base.rstrip("/"), args.company, args.days, args.since)
+    sessions = summarise(rows)
+    total = totals(rows, sessions)
+    if args.json:
+        json.dump({"totals": total, "sessions": sessions}, sys.stdout, indent=2)
+        print()
+        return
+    print(
+        f"{args.company}: {total['calls']} calls in {total['sessions']} sessions; "
+        f"input {total['input']:,} ({total['cached']:,} cached), output {total['output']:,}; "
+        f"mean input/call {total['mean_input_per_call']:,}; median smallest request {total['median_first_input']:,}; "
+        f"est ${total['usd']}"
+    )
+    by_actor = defaultdict(lambda: [0, 0, 0])
+    for s in sessions:
+        by_actor[s["actor"]][0] += s["calls"]
+        by_actor[s["actor"]][1] += s["input"]
+        by_actor[s["actor"]][2] += s["output"]
+    print("\nby actor (calls, input, output):")
+    for actor, (calls, inp, outp) in sorted(by_actor.items(), key=lambda kv: -kv[1][1]):
+        print(f"  {actor:<28} {calls:>6} {inp:>14,} {outp:>10,}")
+    print(f"\ntop {args.top} sessions (calls, input, smallest request, mean, max):")
+    for s in sessions[: args.top]:
+        print(
+            f"  {s['actor']:<22} {s['session'][:12]:<12} {s['calls']:>5} {s['input']:>13,} "
+            f"{s['min_input']:>9,} {s['mean_input']:>9,} {s['max_input']:>9,}  {s['model']}"
+        )
+
+
+if __name__ == "__main__":
+    main()

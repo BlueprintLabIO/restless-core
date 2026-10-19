@@ -817,12 +817,12 @@ remain the default for code, datasets, designed publications and other productiv
 
 **Core contract**
 
-The accountable lead owns the complete outcome as a non-producing supervisor. It first forms a causal
-understanding and commissions one end-to-end worker by default. It adds another actor only for a stable,
+The accountable lead owns the complete outcome and produces it directly by default, through Work it
+owns (owner decision, 2026-10-19). It first forms a causal understanding. It adds another actor only for a stable,
 independently useful responsibility whose expected quality, evidence, specialisation or parallel value
 can repay communication, integration and review cost, or for independently valuable units in a real
-throughput queue. The lead reserves attention for supervision, guidance, redirection, worker-mediated
-repair and final judgement. For one shared result, it inspects and promotes one exact worker artifact.
+throughput queue. When workers contribute, the lead reserves attention for supervision, guidance,
+redirection, worker-mediated repair and final judgement. For one shared result, it inspects and promotes one exact worker artifact.
 For repeated units that close locally without a central model rewrite, it owns the charter,
 calibration, aggregate result, quality sampling and exceptions rather than recreating every accepted
 unit. It prepares the native review target and makes the outcome-level completion judgement.
@@ -1330,9 +1330,8 @@ For every proposed feature:
 - The Exec is the primary persistent organisational actor.
 - The Exec delegates every executable owner request to one accountable team lead and returns to
   availability; it does not own production or integration work.
-- A team lead remains a non-producing supervisor. Every executable outcome has at least one Staff
-  worker; further Staff are added only when quality, evidence, specialisation or parallel value from
-  a stable ownership seam can repay coordination cost.
+- A team lead produces its outcome directly by default; Staff are added only when quality, evidence,
+  specialisation or parallel value from a stable ownership seam can repay coordination cost.
 - Actor identity persists independently of model sessions and runtime replacement.
 - A thin runtime bridge connects OrgIntel to ACP processes; ACP over local stdio is the initial agent transport.
 - Productive work uses normal Linux files, Git, browsers, and applications.

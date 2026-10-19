@@ -11,6 +11,7 @@
 	import Pending from '$lib/ui/feedback/Pending.svelte';
 	import { onMount, tick, untrack } from 'svelte';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
+	import { defaultChoice } from '$lib/model/model-groups';
 	const catalog = modelCatalog();
 	import HarnessConnections from './HarnessConnections.svelte';
 	import HarnessDiagnostics from './HarnessDiagnostics.svelte';
@@ -307,7 +308,7 @@
 	}
 	function defaultModel(provider: string, kind: 'api_key' | 'oauth' = 'api_key') {
 		const models = modelChoices(provider, kind);
-		const model = models.find((item) => 'default' in item && item.default)?.id ?? models[0]?.id;
+		const model = defaultChoice(models)?.id;
 		return model ? routeModel(provider, model) : '';
 	}
 	function beginGrant(connection: ReusableConnection) {

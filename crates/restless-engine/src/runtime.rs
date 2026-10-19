@@ -522,7 +522,7 @@ pub struct CompanyConfig {
     /// intelligence connection. Empty never means "infer from host state".
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub model: String,
-    /// Certified harness used by Exec and non-producing lead conversations.
+    /// Certified harness used by Exec and lead conversations.
     #[serde(default)]
     pub coordination_harness: AgentHarness,
     /// Certified harness used by productive Staff Attempts. The legacy

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { filterModels, release, splitModels } from './model-groups.ts';
+import { defaultChoice, filterModels, release, splitModels } from './model-groups.ts';
 
 const choices = (names: string[]) =>
 	names.map((name) => ({ id: name.toLowerCase().replaceAll(' ', '-'), name }));
@@ -74,4 +74,14 @@ test('filtering matches every word against name and id', () => {
 		['Claude Opus 4.8', 'Claude Opus 4.7']
 	);
 	assert.equal(filterModels(anthropic, '').length, anthropic.length);
+});
+
+test('a new connection starts on the newest everyday tier, not the flagship', () => {
+	assert.equal(defaultChoice(anthropic)?.name, 'Claude Sonnet 5.5');
+	const openai = [
+		{ id: 'gpt-6-sol', name: 'GPT-6 Sol', default: true },
+		{ id: 'gpt-5.6-terra', name: 'GPT-5.6 Terra' }
+	];
+	assert.equal(defaultChoice(openai)?.id, 'gpt-5.6-terra');
+	assert.equal(defaultChoice([{ id: 'x-large', name: 'X Large', default: true }, { id: 'x-small', name: 'X Small' }])?.id, 'x-large');
 });

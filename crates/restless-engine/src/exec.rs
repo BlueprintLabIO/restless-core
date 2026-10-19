@@ -567,37 +567,14 @@ pub async fn wake(
             // provider history, so retain all durable company state and drop
             // only the exact portfolio-session locator. The next wake then
             // reconstructs from the bounded company snapshot.
-            if hosted_identity.is_none() {
-                match harness {
-                    crate::runtime::AgentHarness::RestlessManaged
-                    | crate::runtime::AgentHarness::ClaudeAgent
-                    | crate::runtime::AgentHarness::CustomAcp => {
-                        acp::discard_session_locator(
-                            &container,
-                            harness,
-                            &config.name,
-                            "exec",
-                            &responsibility,
-                        )
-                        .await?;
-                    }
-                    crate::runtime::AgentHarness::Codex => {
-                        crate::codex::discard_session_locator(
-                            &container,
-                            &config.name,
-                            "exec",
-                            &responsibility,
-                        )
-                        .await?;
-                    }
-                }
-            } else if harness == crate::runtime::AgentHarness::Codex {
-                crate::codex::discard_hosted_session_locator(
-                    &config.name,
-                    "exec",
-                    &responsibility,
-                )?;
-            }
+            discard_exec_session(
+                &container,
+                harness,
+                hosted_identity.is_some(),
+                &config.name,
+                &responsibility,
+            )
+            .await?;
             org.emit_event(
                 "model_context_reconstruction_scheduled",
                 Some("exec"),
@@ -613,6 +590,28 @@ pub async fn wake(
             report.failovers = failovers;
             record_outcome(org, &report).await?;
             return Ok(report);
+        }
+        if let Some(usage) = usage.filter(acp::TurnUsage::outgrew_lean_session) {
+            // The turn is settled; only the next wake's starting point changes.
+            discard_exec_session(
+                &container,
+                harness,
+                hosted_identity.is_some(),
+                &config.name,
+                &responsibility,
+            )
+            .await?;
+            org.emit_event(
+                "model_session_retired",
+                Some("exec"),
+                serde_json::json!({
+                    "model": model,
+                    "responsibility": &responsibility,
+                    "context_tokens": usage.used,
+                    "lean_session_tokens": acp::LEAN_SESSION_TOKENS,
+                }),
+            )
+            .await?;
         }
         if let Some(kind) = failover_kind {
             crate::model_gateway::record_cooldown(
@@ -653,6 +652,29 @@ pub async fn wake(
         return Ok(report);
     }
     unreachable!("validated company model policy always has a primary candidate")
+}
+
+/// Forget the exact portfolio-session locator so the next wake reconstructs
+/// from the bounded company snapshot. A hosted ACP session keeps no locator here.
+async fn discard_exec_session(
+    container: &str,
+    harness: crate::runtime::AgentHarness,
+    hosted: bool,
+    company: &str,
+    responsibility: &str,
+) -> Result<()> {
+    match (harness, hosted) {
+        (crate::runtime::AgentHarness::Codex, true) => {
+            crate::codex::discard_hosted_session_locator(company, "exec", responsibility)
+        }
+        (crate::runtime::AgentHarness::Codex, false) => {
+            crate::codex::discard_session_locator(container, company, "exec", responsibility).await
+        }
+        (_, true) => Ok(()),
+        (harness, false) => {
+            acp::discard_session_locator(container, harness, company, "exec", responsibility).await
+        }
+    }
 }
 
 /// Context utilisation, rounded. Sprint 01 burned 95% of its dollars on

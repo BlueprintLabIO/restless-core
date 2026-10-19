@@ -58,8 +58,6 @@ impl OrgIntel {
             "SELECT EXISTS( \
                SELECT 1 FROM work w \
                WHERE w.status IN ('proposed','active') \
-                 AND NOT EXISTS (SELECT 1 FROM teams t \
-                                 WHERE t.lead_actor_id = w.owner_id AND t.disbanded_at IS NULL) \
                  AND w.owner_id NOT IN ('owner','exec','world','daemon') \
                  AND NOT EXISTS (SELECT 1 FROM work_attempts a \
                                  WHERE a.work_id = w.id AND a.state = 'running') \
@@ -115,8 +113,6 @@ impl OrgIntel {
              FROM work w \
              WHERE w.status IN ('proposed','active') \
                AND w.owner_id <> ALL($1::text[]) \
-               AND NOT EXISTS (SELECT 1 FROM teams t \
-                               WHERE t.lead_actor_id = w.owner_id AND t.disbanded_at IS NULL) \
                AND w.owner_id NOT IN ('owner','exec','world','daemon') \
                AND NOT EXISTS (SELECT 1 FROM work_attempts a \
                                WHERE a.work_id = w.id AND a.state = 'running') \

@@ -63,3 +63,17 @@ export function filterModels(models: ModelChoice[], query: string): ModelChoice[
 
 /** A list long enough to need a filter. */
 export const FILTER_FROM = 15;
+
+/* Every model call resends the company's whole context, so a new connection starts on the
+ * provider's everyday tier when it has one; the owner can still give any agent a stronger model. */
+const EVERYDAY_TIER = /\b(terra|sonnet|flash)\b/i;
+
+/** The model a new connection starts on: the newest everyday-tier model, else the provider's own
+ * default, else the first listed. */
+export function defaultChoice(models: ModelChoice[]): ModelChoice | undefined {
+	return (
+		splitModels(models).latest.find((model) => EVERYDAY_TIER.test(model.name || model.id)) ??
+		models.find((model) => model.default) ??
+		models[0]
+	);
+}

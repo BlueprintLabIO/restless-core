@@ -8,6 +8,7 @@
 	import { untrack } from 'svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
+	import { defaultChoice } from '$lib/model/model-groups';
 	import { agentRouteState, intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
 	import { companiesQuery } from '$lib/model/queries.svelte';
@@ -72,7 +73,7 @@
 	const PROVIDERS = Object.keys(PROVIDER_LABELS);
 	function defaultModel(id: string, kind: 'api_key' | 'oauth' = 'api_key') {
 		const models = catalog.models(id, kind);
-		const model = models.find((item) => 'default' in item && item.default)?.id ?? models[0]?.id;
+		const model = defaultChoice(models)?.id;
 		return model ? (model.startsWith(`${id}/`) ? model : `${id}/${model}`) : '';
 	}
 	const label = (row: ReusableConnection) =>

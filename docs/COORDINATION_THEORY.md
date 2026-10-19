@@ -97,12 +97,13 @@ The Work graph should remain sparse. It records an actor's real queue, batch, te
 responsibility and observable results; it need not mirror every call, prospect or support ticket as a
 new organisational plan node.
 
-## Supervision is a distinct required function
+## Supervision is a function the lead adds when workers do
 
-Restless makes lead/worker separation an owner-decided product invariant. The accountable lead retains
-the broad mission context and independent judgement while workers enter narrow production contexts. It
-frames, commissions, observes, guides, redirects, repairs through workers and accepts or rejects the
-exact outcome. It does no planned production, silent artifact repair or private parallel implementation.
+The accountable lead retains the broad mission context and independent judgement, and produces the
+outcome directly by default (owner decision, 2026-10-19, replacing an earlier lead/worker separation
+invariant). When workers enter narrow production contexts, the lead frames, commissions, observes,
+guides, redirects, repairs through them and accepts or rejects the exact outcome, without silently
+repairing a worker's artifact or running a private parallel implementation of the same seam.
 
 This separation can catch drift, absorb Exec updates and prevent worker confidence from becoming the
 company's final judgement. It also spends another mind, adds a handoff and can increase local latency.
@@ -180,7 +181,7 @@ even a very fast lead remains serial while a valuable queue can grow in parallel
 
 - Use the smallest effective number of minds.
 - Distinguish decomposing one shared outcome from replicating independently valuable units.
-- Preserve the lead as a non-producing mission keeper and independent final judge.
+- Preserve the lead as mission keeper and final judge; let it produce until a seam repays a worker.
 - Give every outcome one accountable integrator.
 - Split only across stable, independently valuable seams.
 - Communicate changed facts, decisions and artifacts rather than activity.

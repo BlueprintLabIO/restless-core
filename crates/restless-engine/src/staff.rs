@@ -1001,8 +1001,8 @@ mod tests {
         assert!(context.contains("Sera Morn · environmental readability specialist"));
         assert!(!context.contains("Mina Vale"));
         assert!(context.contains("available capacity, not a headcount target"));
-        assert!(context.contains("commission one end-to-end worker by default"));
-        assert!(context.contains("lead-owned production Work is invalid"));
+        assert!(context.contains("Produce the outcome yourself by default"));
+        assert!(!context.contains("lead-owned production Work is invalid"));
         assert!(context.contains("restless work add"));
     }
 
@@ -1288,7 +1288,7 @@ mod tests {
     fn one_actor_keeps_one_organisational_posture_across_wake_types() {
         let rules = crate::context::COMPANY_OPERATING_RULES;
         assert!(rules.contains("causal understanding of the outcome"));
-        assert!(rules.contains("Lead production is never valid"));
+        assert!(rules.contains("then produces it directly by"));
         assert!(rules.contains("handoff template, message cadence, shared-state form"));
         assert!(rules.contains("scheduler-created"));
         assert!(rules.contains("prove that another actor contributed"));
@@ -1303,8 +1303,8 @@ mod tests {
 
         let lead = actor_posture(true);
         assert!(lead.contains("ACCOUNTABLE LEAD"));
-        assert!(lead.contains("non-producing supervisor"));
-        assert!(lead.contains("at least one Staff worker"));
+        assert!(lead.contains("Produce the outcome yourself by default"));
+        assert!(!lead.contains("non-producing"));
         assert!(lead.contains("truthful attribution"));
         assert!(lead.contains("material Staff exception is a decision boundary"));
         assert!(lead.contains("Clean passing completion remains observable state"));
@@ -1316,11 +1316,7 @@ mod tests {
         assert!(specialist.contains("bounded responsibility"));
         assert!(!specialist.contains("ACCOUNTABLE LEAD"));
 
-        let lead_end = termination_prompt(true);
-        assert!(lead_end.contains("must never receive a productive Work Attempt"));
-        assert!(lead_end.contains("supervisor invariant"));
-
-        let specialist_end = termination_prompt(false);
+        let specialist_end = termination_prompt();
         assert!(specialist_end.contains("assigned specialist task"));
         assert!(!specialist_end.contains("accountable outcome Work"));
     }

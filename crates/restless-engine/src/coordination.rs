@@ -2375,10 +2375,10 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
             (Ok(Some(work_id)), Some(new_owner), Some(changed_by), Some(reason)) => {
                 match daemon.orgintel.get(company).await {
                     Ok(org) => {
-                        let staff_lead = match org.team_lead_for(new_owner).await {
+                        let staff_lead = match production_accountable_lead(&org, new_owner).await {
                             Ok(Some(lead)) => lead,
                             Ok(None) => return Response::err(format!(
-                                "new Work owner {new_owner:?} must be Staff under an accountable lead; Exec, unassigned actors, and team leads cannot own production Work"
+                                "new Work owner {new_owner:?} must lead or belong to an active team; Exec and unassigned actors cannot own production Work"
                             )),
                             Err(error) => return Response::err(format!("{error:#}")),
                         };
@@ -2408,10 +2408,10 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
             (Some(owner), Some(role), Some(title), Some(outcome), Some(commissioned_by)) => {
                 match daemon.orgintel.get(company).await {
                     Ok(org) => {
-                        let accountable_lead = match org.team_lead_for(owner).await {
+                        let accountable_lead = match production_accountable_lead(&org, owner).await {
                             Ok(Some(lead)) => lead,
                             Ok(None) => return Response::err(format!(
-                                "Work owner {owner:?} must be Staff under an accountable lead; Exec, unassigned actors, and team leads cannot own production Work"
+                                "Work owner {owner:?} must lead or belong to an active team; Exec and unassigned actors cannot own production Work"
                             )),
                             Err(error) => return Response::err(format!("{error:#}")),
                         };
@@ -2463,7 +2463,7 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                             owner,
                         ) {
                             return Response::err(format!(
-                                "production Work for {owner:?} must be commissioned by accountable lead {accountable_lead:?}; Exec may route coherent-single-worker only when that team has exactly one active non-lead worker"
+                                "production Work for {owner:?} must be commissioned by accountable lead {accountable_lead:?}; Exec may commission the lead's own Work, or route coherent-single-worker only when that team has exactly one active non-lead worker"
                             ));
                         }
                         if actor.role != role {
@@ -4993,6 +4993,24 @@ pub async fn send_mandated_email(
     }))
 }
 
+/// Who is accountable for production Work owned by `owner`: the lead of its
+/// team, or the owner itself when it leads an active team. A lead produces its
+/// outcome directly by default, so it may own its own Work.
+async fn production_accountable_lead(
+    org: &restless_orgintel::OrgIntel,
+    owner: &str,
+) -> Result<Option<String>> {
+    if let Some(lead) = org.team_lead_for(owner).await? {
+        return Ok(Some(lead));
+    }
+    let leads_a_team = org
+        .list_teams()
+        .await?
+        .iter()
+        .any(|team| team.lead_actor_id == owner && team.disbanded_at.is_none());
+    Ok(leads_a_team.then(|| owner.to_string()))
+}
+
 pub fn work_commission_is_admitted(
     commissioned_by: &str,
     accountable_lead: &str,
@@ -5002,8 +5020,10 @@ pub fn work_commission_is_admitted(
 ) -> bool {
     commissioned_by == accountable_lead
         || (commissioned_by == "exec"
-            && producing_topology == restless_orgintel::ProducingTopology::CoherentSingleWorker
-            && active_workers == [requested_owner])
+            && (requested_owner == accountable_lead
+                || (producing_topology
+                    == restless_orgintel::ProducingTopology::CoherentSingleWorker
+                    && active_workers == [requested_owner])))
 }
 
 /// `/loop`: an interval recurrence addressed to Exec or an accountable lead.
@@ -5545,6 +5565,22 @@ mod tests {
             restless_orgintel::ProducingTopology::LocallyClosingParallelUnit,
             &[],
             "product-builder",
+        ));
+        // A lead produces directly: Exec may hand the outcome to the lead as
+        // the lead's own Work, whatever the team's size.
+        assert!(work_commission_is_admitted(
+            "exec",
+            "product-direction",
+            restless_orgintel::ProducingTopology::LocallyClosingParallelUnit,
+            &["product-builder".into(), "product-reviewer".into()],
+            "product-direction",
+        ));
+        assert!(!work_commission_is_admitted(
+            "product-builder",
+            "product-direction",
+            restless_orgintel::ProducingTopology::CoherentSingleWorker,
+            &[],
+            "product-direction",
         ));
     }
 

@@ -450,46 +450,7 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
             // the same oversized history. Drop only this responsibility's
             // locator; the addressed message, Work graph, files and evidence
             // stay durable and form the next wake's compact reconstruction.
-            match run.worker_harness {
-                crate::runtime::AgentHarness::RestlessManaged => {
-                    acp::discard_session_locator(
-                        &run.container,
-                        run.worker_harness,
-                        &run.company,
-                        &run.actor,
-                        &run.responsibility,
-                    )
-                    .await?;
-                }
-                crate::runtime::AgentHarness::Codex => {
-                    if hosted_identity.is_some() {
-                        crate::codex::discard_hosted_session_locator(
-                            &run.company,
-                            &run.actor,
-                            &run.responsibility,
-                        )?;
-                    } else {
-                        crate::codex::discard_session_locator(
-                            &run.container,
-                            &run.company,
-                            &run.actor,
-                            &run.responsibility,
-                        )
-                        .await?;
-                    }
-                }
-                crate::runtime::AgentHarness::ClaudeAgent
-                | crate::runtime::AgentHarness::CustomAcp => {
-                    acp::discard_session_locator(
-                        &run.container,
-                        run.worker_harness,
-                        &run.company,
-                        &run.actor,
-                        &run.responsibility,
-                    )
-                    .await?;
-                }
-            }
+            discard_staff_session(&run, hosted_identity.is_some()).await?;
             let reason = match &outcome {
                 Ok((_, reason, _, _)) => reason.clone(),
                 Err(error) => format!("{error:#}"),
@@ -510,6 +471,27 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
                 summary,
                 output_tokens,
             });
+        }
+
+        let ended_context = match &outcome {
+            Ok((_, _, spent, _)) => spent.last().copied(),
+            Err(_) => None,
+        };
+        if let Some(usage) = ended_context.filter(acp::TurnUsage::outgrew_lean_session) {
+            // The turn is settled; only the next wake's starting point changes.
+            discard_staff_session(&run, hosted_identity.is_some()).await?;
+            run.org
+                .emit_event(
+                    "model_session_retired",
+                    Some(&run.actor),
+                    serde_json::json!({
+                        "model": model,
+                        "responsibility": run.responsibility,
+                        "context_tokens": usage.used,
+                        "lean_session_tokens": acp::LEAN_SESSION_TOKENS,
+                    }),
+                )
+                .await?;
         }
 
         if let Some(kind) = failure_kind.filter(|kind| health::is_provider_failover_kind(*kind)) {
@@ -579,6 +561,35 @@ fn model_invocation_command_id(
     let source_sha256 = format!("{:x}", sha2::Sha256::digest(source_identity.as_bytes()));
     let model_sha256 = format!("{:x}", sha2::Sha256::digest(model.as_bytes()));
     format!("runtime-model-invocation:v2:{source_sha256}:{model_sha256}")
+}
+
+/// Forget only this responsibility's hot provider session; the next wake
+/// reconstructs from durable state.
+async fn discard_staff_session(run: &StaffRun, hosted: bool) -> Result<()> {
+    match (run.worker_harness, hosted) {
+        (crate::runtime::AgentHarness::Codex, true) => {
+            crate::codex::discard_hosted_session_locator(&run.company, &run.actor, &run.responsibility)
+        }
+        (crate::runtime::AgentHarness::Codex, false) => {
+            crate::codex::discard_session_locator(
+                &run.container,
+                &run.company,
+                &run.actor,
+                &run.responsibility,
+            )
+            .await
+        }
+        (harness, _) => {
+            acp::discard_session_locator(
+                &run.container,
+                harness,
+                &run.company,
+                &run.actor,
+                &run.responsibility,
+            )
+            .await
+        }
+    }
 }
 
 /// The only production call into the provider-backed Staff process. The
@@ -801,12 +812,9 @@ const SPECIALIST_TERMINATION_PROMPT: &str = "Your assigned specialist task is en
 
 const STAFF_TERMINATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2 * 60);
 
-pub fn termination_prompt(accountable_lead: bool) -> &'static str {
-    if accountable_lead {
-        "A team lead must never receive a productive Work Attempt; end with JSON only: {\"decision\":\"blocked\",\"reason\":\"lead-owned production Work violates the supervisor invariant and must be reassigned to Staff\"}"
-    } else {
-        SPECIALIST_TERMINATION_PROMPT
-    }
+/// A lead that owns Work judges it exactly as Staff judge theirs.
+pub fn termination_prompt() -> &'static str {
+    SPECIALIST_TERMINATION_PROMPT
 }
 
 trait CognitiveSession: Sync {
@@ -1641,7 +1649,7 @@ async fn run_staff(
         spend_ceiling,
         task: task.clone(),
         productive_invocation_id,
-        termination_prompt: termination_prompt(accountable_lead),
+        termination_prompt: termination_prompt(),
         cancellation,
     };
     match worker_harness {

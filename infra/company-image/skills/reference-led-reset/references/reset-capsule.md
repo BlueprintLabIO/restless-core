@@ -52,7 +52,7 @@ Before the producer begins, the lead verifies:
 - the generated worktree did not previously exist;
 - bound artifacts are exactly the allow-listed references;
 - no stale task-specific company mission contradicts the capsule; and
-- the producer is Staff, while the accountable lead remains non-producing.
+- the producer is the accountable lead or attributable Staff, never an unrecorded subagent.
 
 If any check fails, repair the commission before model work starts. A prompt that says “ignore it” is
 not a substitute for a clean provenance boundary.

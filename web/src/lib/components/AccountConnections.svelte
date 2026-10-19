@@ -35,6 +35,7 @@
 	import EditorForm from './editors/EditorForm.svelte';
 	import ApiKeyEditor from './editors/ApiKeyEditor.svelte';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
+	import { defaultChoice } from '$lib/model/model-groups';
 	import { modelLabel } from '$lib/model/intelligence-labels';
 	import {
 		announceIntelligenceChange,
@@ -405,7 +406,7 @@
 	}
 	function defaultModel(providerId: string, kind: 'api_key' | 'oauth' = 'api_key') {
 		const models = modelChoices(providerId, kind);
-		const model = models.find((item) => 'default' in item && item.default)?.id ?? models[0]?.id;
+		const model = defaultChoice(models)?.id;
 		return model ? routeModel(providerId, model) : '';
 	}
 	function toggleManage(item: AccountConnection) {

@@ -1635,8 +1635,9 @@ enum WorkCommand {
         #[arg(long)]
         model: Option<String>,
         /// coherent-single-worker or locally-closing-parallel-unit. Exec may
-        /// use the coherent route only when the team has exactly one worker;
-        /// every other production commission belongs to the accountable lead.
+        /// commission the accountable lead's own Work, or use the coherent route
+        /// when the team has exactly one worker; every other production
+        /// commission belongs to the accountable lead.
         #[arg(long, default_value = "coherent-single-worker")]
         topology: String,
         #[arg(long)]
