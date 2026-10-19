@@ -444,6 +444,8 @@ struct Linked {
     control: mpsc::UnboundedSender<String>,
     epoch: i64,
     since: Instant,
+    /// Ends the link's websocket from the plane's side, whatever the machine does.
+    cut: std::sync::Arc<tokio::sync::Notify>,
 }
 
 static LINKS: LazyLock<Mutex<HashMap<String, Linked>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -458,11 +460,18 @@ fn linked(id: &str) -> Option<Link> {
 
 /// Close a machine's link, telling it first when it was removed.
 fn disconnect(id: &str, removed: bool) {
-    if let Some(linked) = LINKS.lock().unwrap().remove(id) {
+    let linked = LINKS.lock().unwrap().remove(id);
+    if let Some(linked) = linked {
         if removed {
             let _ = linked.control.send(serde_json::to_string(&Control::Removed).unwrap());
         }
         linked.link.close();
+        // Give the Removed message a moment to leave, then close the websocket regardless.
+        let cut = linked.cut;
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            cut.notify_one();
+        });
     }
 }
 
@@ -616,12 +625,13 @@ pub async fn serve_link(
     outbound: mpsc::Sender<WireMessage>,
 ) {
     let (link, mut frames) = Link::new(restless_machine::link::Side::Plane);
+    let cut = std::sync::Arc::new(tokio::sync::Notify::new());
     let (control, mut controls) = mpsc::unbounded_channel::<String>();
     let allowed = allowed_images().await;
     let _ = control.send(settings(&machine_id, allowed.clone()));
     let previous = LINKS.lock().unwrap().insert(
         machine_id.clone(),
-        Linked { link: link.clone(), control: control.clone(), epoch, since: Instant::now() },
+        Linked { link: link.clone(), control: control.clone(), epoch, since: Instant::now(), cut: std::sync::Arc::clone(&cut) },
     );
     if let Some(previous) = previous {
         previous.link.close();
@@ -639,7 +649,11 @@ pub async fn serve_link(
             }
         }
     });
-    while let Some(message) = inbound.recv().await {
+    loop {
+        let message = tokio::select! {
+            message = inbound.recv() => match message { Some(message) => message, None => break },
+            _ = cut.notified() => break,
+        };
         if link.is_closed() {
             break;
         }
