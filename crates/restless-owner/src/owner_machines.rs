@@ -36,19 +36,34 @@ fn owner_only(principal: &RequestPrincipal) -> Option<Response<Body>> {
     })
 }
 
-/// The plane's own origin as the browser reached it, for the install line.
-fn plane_origin(headers: &HeaderMap) -> Option<String> {
-    // Cloud's edge sends an empty X-Forwarded-Host and names the plane in Host.
-    let named = |name: &str| headers.get(name).and_then(|value| value.to_str().ok()).filter(|value| !value.is_empty());
-    let host = named("x-forwarded-host").or_else(|| named(HOST.as_str()))?;
-    if host.is_empty() || !host.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '[' | ']')) {
-        return None;
+/// Where a machine reaches this plane, for the install line and the helper. A network plane names
+/// its own host (on Cloud `owner-….restless.run`, behind its tunnel; owners browse it through
+/// `app.restless.run`) with the account site's scheme. A local appliance is the host the browser
+/// used.
+fn plane_origin(state: &OwnerState, headers: &HeaderMap) -> Option<String> {
+    if let Some(network) = state.entry.network() {
+        let scheme = if network.issuer().starts_with("http://") { "http" } else { "https" };
+        return valid_host(network.host()).map(|host| format!("{scheme}://{host}"));
     }
+    request_origin(headers)
+}
+
+fn valid_host(host: &str) -> Option<&str> {
+    (!host.is_empty() && host.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '[' | ']')))
+        .then_some(host)
+}
+
+/// The origin a browser used, from its Host (Cloud's edge sends an empty X-Forwarded-Host).
+fn request_origin(headers: &HeaderMap) -> Option<String> {
+    let named = |name: &str| headers.get(name).and_then(|value| value.to_str().ok()).filter(|value| !value.is_empty());
+    let host = valid_host(named("x-forwarded-host").or_else(|| named(HOST.as_str()))?)?;
+    let bare = host.rsplit_once(':').map_or(host, |(name, _)| name);
+    let local = bare == "localhost" || bare.ends_with(".localhost") || bare == "127.0.0.1" || bare == "[::1]";
     let scheme = headers
         .get("x-forwarded-proto")
         .and_then(|value| value.to_str().ok())
         .filter(|scheme| matches!(*scheme, "http" | "https"))
-        .unwrap_or(if host.starts_with("127.0.0.1") || host.starts_with("localhost") { "http" } else { "https" });
+        .unwrap_or(if local { "http" } else { "https" });
     Some(format!("{scheme}://{host}"))
 }
 
@@ -91,7 +106,7 @@ pub(super) async fn create_pairing(
     if let Some(refusal) = owner_only(&principal) {
         return refusal;
     }
-    let Some(origin) = plane_origin(&headers) else {
+    let Some(origin) = plane_origin(&state, &headers) else {
         return api_error(StatusCode::BAD_REQUEST, "machines", "This plane's address is unknown.");
     };
     match machines::create_pairing(state.daemon.authority.pool(), input.label.as_deref()).await {
@@ -370,8 +385,8 @@ pub(crate) async fn helper_image(State(state): State<OwnerState>, headers: Heade
 const CONNECT_SH: &str = include_str!("machine_connect.sh");
 const CONNECT_PS1: &str = include_str!("machine_connect.ps1");
 
-fn script(headers: &HeaderMap, template: &str, content_type: &'static str) -> Response<Body> {
-    let Some(origin) = plane_origin(headers) else {
+fn script(state: &OwnerState, headers: &HeaderMap, template: &str, content_type: &'static str) -> Response<Body> {
+    let Some(origin) = plane_origin(state, headers) else {
         return api_error(StatusCode::BAD_REQUEST, "machines", "This plane's address is unknown.");
     };
     let mut response = Response::new(Body::from(template.replace("__RESTLESS_PLANE__", &origin)));
@@ -380,12 +395,12 @@ fn script(headers: &HeaderMap, template: &str, content_type: &'static str) -> Re
     response
 }
 
-pub(crate) async fn connect_sh(headers: HeaderMap) -> Response<Body> {
-    script(&headers, CONNECT_SH, "text/x-shellscript; charset=utf-8")
+pub(crate) async fn connect_sh(State(state): State<OwnerState>, headers: HeaderMap) -> Response<Body> {
+    script(&state, &headers, CONNECT_SH, "text/x-shellscript; charset=utf-8")
 }
 
-pub(crate) async fn connect_ps1(headers: HeaderMap) -> Response<Body> {
-    script(&headers, CONNECT_PS1, "text/plain; charset=utf-8")
+pub(crate) async fn connect_ps1(State(state): State<OwnerState>, headers: HeaderMap) -> Response<Body> {
+    script(&state, &headers, CONNECT_PS1, "text/plain; charset=utf-8")
 }
 
 #[cfg(test)]
@@ -397,12 +412,12 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(HOST, HeaderValue::from_static("owner-ab12.restless.run"));
         headers.insert("x-forwarded-proto", HeaderValue::from_static("https"));
-        assert_eq!(plane_origin(&headers).as_deref(), Some("https://owner-ab12.restless.run"));
+        assert_eq!(request_origin(&headers).as_deref(), Some("https://owner-ab12.restless.run"));
         // As Cloud's edge sends it: an empty forwarded host beside the real one.
         headers.insert("x-forwarded-host", HeaderValue::from_static(""));
-        assert_eq!(plane_origin(&headers).as_deref(), Some("https://owner-ab12.restless.run"));
+        assert_eq!(request_origin(&headers).as_deref(), Some("https://owner-ab12.restless.run"));
         headers.insert(HOST, HeaderValue::from_static("evil.example/$(rm -rf ~)"));
-        assert_eq!(plane_origin(&headers), None);
+        assert_eq!(request_origin(&headers), None);
     }
 
     #[test]

@@ -424,7 +424,7 @@ try {
   assert.deepEqual(waiting.items.map((item) => [item.email, item.access]), [[bob.email.toLowerCase(), "comment"]]);
   await owner.page.goto(`${core}/${company}/company/members`);
   for (const who of [alice, bob]) {
-    const field = owner.page.getByLabel("Emails to invite");
+    const field = owner.page.getByLabel("Emails", { exact: true });
     if (!(await field.isVisible())) await owner.page.getByRole("button", { name: "Invite", exact: true }).click();
     await field.fill(who.email);
     await owner.page.getByRole("button", { name: "Send invite" }).click();
