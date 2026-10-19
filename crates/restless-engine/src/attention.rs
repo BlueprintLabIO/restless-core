@@ -609,10 +609,6 @@ fn spend_stopped_item(config: &CompanyConfig, what_happened: String, created_at:
     }
 }
 
-/// A company model the provider refused for a reason only the owner can fix: credit used up, a
-/// refused sign-in or key, or a model no longer offered. Raised from the cooldown itself, so it
-/// shows even when no Exec turn has run since (18 October: Frankensurf's credit ran out at
-/// 10:03 and the Inbox stayed empty while every wake was refused).
 /// The account behind the company's model is past [`crate::account_usage::WARN_PERCENT`] of a
 /// window (S100): say how full, when it resets, when it runs out at this pace, and offer a fallback.
 async fn account_headroom_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> anyhow::Result<Option<AttentionItem>> {
@@ -696,6 +692,10 @@ async fn account_headroom_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> a
     }))
 }
 
+/// A company model the provider refused for a reason only the owner can fix: credit used up, a
+/// refused sign-in or key, or a model no longer offered. Raised from the cooldown itself, so it
+/// shows even when no Exec turn has run since (18 October: Frankensurf's credit ran out at
+/// 10:03 and the Inbox stayed empty while every wake was refused).
 fn model_cooldown_items(config: &CompanyConfig, cooldowns: &[crate::authority::ModelCooldown]) -> Vec<AttentionItem> {
     cooldowns
         .iter()
