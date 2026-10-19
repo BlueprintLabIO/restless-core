@@ -45,6 +45,7 @@
 	import SnoozeChoices from './SnoozeChoices.svelte';
 	import InlineAppRequest from './inbox/InlineAppRequest.svelte';
 	import InlineAccountRequest from './inbox/InlineAccountRequest.svelte';
+	import InlineReply from './inbox/InlineReply.svelte';
 	import {
 		discussInbox,
 		appRequestHandoffs,
@@ -105,6 +106,8 @@
 
 	const client = useQueryClient();
 	const discussionHref = $derived(inboxDiscussionHref(page.url, companyId, item.id));
+	/* Working something through with the agent happens in the card, not on another page (S101). */
+	let discussing = $state(false);
 	const asker = $derived(attentionAsker(item));
 	const askerId = $derived(item.responsibleActor?.id ?? item.briefAuthor?.id ?? 'exec');
 	const conversationHref = $derived(
@@ -645,6 +648,25 @@
 								owner={!canPassToOwner}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
+						{#if item.source.kind === 'conversation_owner_need' && item.responsibleActor}<InlineReply
+								{companyId}
+								actorId={item.responsibleActor.id}
+								actorName={asker}
+								question={item.requestedAction}
+								workId={item.workId}
+								ondone={(receipt) => void completedInline(receipt)}
+							/>{/if}
+						{#if discussing && item.source.kind !== 'conversation_owner_need'}<InlineReply
+								{companyId}
+								actorId={askerId}
+								actorName={asker}
+								question={item.requestedAction}
+								workId={item.workId}
+								ondone={(receipt) => {
+									discussing = false;
+									onresolved?.({ text: receipt, href: conversationHref });
+								}}
+							/>{/if}
 						{#if item.accountUse}<AccountUseNote
 								use={item.accountUse}
 								owner={!canPassToOwner}
@@ -910,10 +932,11 @@
 						: 'Write your answer first'}
 					onclick={sendReply}>{acting ? 'Sending…' : 'Send'}</button
 				>
-				{#if discuss}<a
+				{#if discuss}<button
 						class="btn small ghost"
-						href={discussionHref}
-						onclick={(event) => void discussInbox(event)}>Discuss</a
+						type="button"
+						aria-expanded={discussing}
+						onclick={() => (discussing = !discussing)}>Discuss</button
 					>{/if}
 				<span class="hint" title={`Goes to ${recipient} as a message in your conversation`}
 					>To {recipient} · ⌘ ↵</span
@@ -1130,17 +1153,12 @@
 							title={`${navigation[1].consequence} ${navigation[1].nextState}`}
 							>{navigation[1].label}</a
 						>{/if}
-				{:else if item.source.kind === 'conversation_owner_need'}
-					<a
-						class="btn primary small"
-						href={action('continue-conversation')?.href ?? conversationHref}
-						>Reply in conversation</a
-					>
 				{/if}
-				{#if discuss && !humanStep}<a
+				{#if discuss && !humanStep}<button
 						class="btn small ghost"
-						href={discussionHref}
-						onclick={(event) => void discussInbox(event)}>Discuss</a
+						type="button"
+						aria-expanded={discussing}
+						onclick={() => (discussing = !discussing)}>Discuss</button
 					>{/if}
 			</div>
 		{/if}
