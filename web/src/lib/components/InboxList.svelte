@@ -29,6 +29,8 @@
 		inboxMarksKey,
 		markInbox,
 		setAsideInboxItem,
+		skipHandoffSoon,
+		skipsByHandoff,
 		snoozeInboxItem,
 		wakeInboxItem
 	} from './inbox-actions';
@@ -122,12 +124,13 @@
 	const stamp = (item: AttentionItem) => String(item.briefedAt ?? item.createdAt);
 	const href = (id: string) => inboxItemHref(companyId, id);
 	const canDecline = (item: AttentionItem) =>
-		item.actions.some(
-			(action) =>
-				action.id === 'record-decision' ||
-				action.id === 'complete-human-step' ||
-				(action.id === 'decline' && item.category === 'approval')
-		);
+		item.category === 'approval' && item.actions.some((action) => action.id === 'decline');
+	const canSkip = (item: AttentionItem) => canSetAside || skipsByHandoff(item);
+	const skip = (item: AttentionItem) => {
+		const who = attentionAsker(item);
+		if (skipsByHandoff(item)) void skipHandoffSoon(client, companyId, item.source.reference, who);
+		else void setAsideInboxItem(client, companyId, item.id, who);
+	};
 	const canDiscuss = (item: AttentionItem) =>
 		item.actions.some((action) => action.id === 'chat-lead');
 	/* An app request resumes when the app is added and allowed, so it has no Mark done here
@@ -388,7 +391,7 @@
 									{#if canComplete(item)}<button disabled={!!completing} onclick={() => done(item)}
 											>{completing === item.id ? 'Recording…' : 'Mark done'} <kbd>E</kbd></button
 										>{/if}
-									{#if canDecline(item)}<a href={`${href(item.id)}&decline=1`}>Not doing this…</a
+									{#if canDecline(item)}<a href={`${href(item.id)}&decline=1`}>Decline…</a
 										>{/if}
 									{#if snoozedNow}
 										<button onclick={() => void wakeInboxItem(client, companyId, item.id)}
@@ -397,10 +400,9 @@
 									{:else}
 										<SnoozeChoices shortcut onpick={(until) => snooze(item, until)} />
 									{/if}
-									{#if canSetAside}<button
-											title="Not needed: off your Inbox, kept under Set aside. Whoever asked stops waiting."
-											onclick={() => void setAsideInboxItem(client, companyId, item.id)}
-											>Set aside</button
+									{#if canSkip(item)}<button
+											title={`${attentionAsker(item)} carries on without it. You can undo.`}
+											onclick={() => skip(item)}>Skip</button
 										>{/if}
 									<button onclick={() => copy(item)}>Copy link</button>
 								</ActionMenu>

@@ -2,9 +2,10 @@
 	/* One Inbox item, read as a message from whoever is asking and answered
 	 * from one action bar at the bottom.
 	 *
-	 * A reply or a "Not doing this" goes to the Work's owner as a message in
-	 * the owner's conversation with them (the handoff decision endpoint posts
-	 * it), so the owner is told where it went, even when a lead asked. Approvals keep hold-to-confirm, with the exact
+	 * A reply goes to the Work's owner as a message in the owner's conversation
+	 * with them (the handoff decision endpoint posts it), so the owner is told
+	 * where it went, even when a lead asked. Skip is one click with Undo: the
+	 * company carries on without it. Approvals keep hold-to-confirm, with the exact
 	 * draft shown under the ask; declining one, or asking for changes, can carry
 	 * a note that reaches the company with the decision. Files the item points
 	 * at open alongside the decision in Inbox. Context and the rest of the evidence are folded
@@ -49,6 +50,8 @@
 		inboxMarksKey,
 		markDoneSoon,
 		setAsideInboxItem,
+		skipHandoffSoon,
+		skipsByHandoff,
 		snoozeInboxItem,
 		wakeInboxItem
 	} from './inbox-actions';
@@ -82,18 +85,19 @@
 		preview?: Snippet;
 		/** The Work graph's artifact references, so a file the item names opens in the Library. */
 		artifacts?: readonly LibraryArtifact[];
-		/** Open straight into "Not doing this", as the list's quick action does. */
+		/** Open an approval straight into its decline, as the list's quick action does. */
 		declining?: boolean;
 		/** Who owns the item's Work: a reply or decline is delivered to them. */
 		workOwnerId?: string;
 		onopenDocument?: () => Promise<unknown>;
 		/** Where the answer went, for the page to confirm after the item leaves. */
 		onresolved?: (sent: { text: string; href?: string }) => void;
-		/** Setting an item aside is the owner's: it answers for the whole company queue. */
+		/** Skipping what is not a request owed to this person is the owner's: it answers for the
+		 * whole company queue. */
 		canSetAside?: boolean;
 		/** A member's own item: a judgement they should not make can go up to the owner. */
 		canPassToOwner?: boolean;
-		/** The item was snoozed or set aside here: the page moves on to the next one. */
+		/** The item was snoozed or skipped here: the page moves on to the next one. */
 		onleave?: () => void;
 	} = $props();
 
@@ -246,7 +250,6 @@
 	let error = $state('');
 	let reply = $state('');
 	let reason = $state('');
-	let declining = $state(false);
 	/* An approval answered with words: a plain decline (the note is optional) or a request for a
 	 * changed draft (the note says what should change). */
 	let approvalNote = $state<'' | 'decline' | 'changes'>('');
@@ -258,7 +261,6 @@
 		const start = startDeclining;
 		void item.id;
 		untrack(() => {
-			declining = start && !!(record || humanStep);
 			if (start && grant && decline) approvalNote = 'decline';
 		});
 	});
@@ -296,13 +298,21 @@
 		}
 	}
 
-	/* Set aside: off the Inbox until it is raised again, with Undo, and whoever asked is told so
-	 * in their conversation. It grants and declines nothing. The list's row menu does the same. */
-	async function setAside() {
+	/* Skip, as the list's row menu does. A request the company waits on closes after a few
+	 * seconds of Undo and wakes whoever owns the Work, who judges whether it changes anything.
+	 * Anything else stays off the Inbox under Skipped, restorable, until it is raised again. */
+	const byHandoff = $derived(skipsByHandoff(item));
+	const skipWho = $derived(byHandoff ? recipient : asker);
+	async function skip() {
 		if (acting) return;
+		if (byHandoff) {
+			onleave?.();
+			await skipHandoffSoon(client, companyId, item.source.reference, skipWho);
+			return;
+		}
 		acting = true;
 		try {
-			if (await setAsideInboxItem(client, companyId, item.id)) onleave?.();
+			if (await setAsideInboxItem(client, companyId, item.id, skipWho)) onleave?.();
 		} finally {
 			acting = false;
 		}
@@ -385,17 +395,6 @@
 			},
 			`Sent to ${recipient}`,
 			'Your answer was not sent. Try again.',
-			recipientHref
-		);
-	const sendDecline = () =>
-		reason.trim() &&
-		run(
-			async () => {
-				await resolveHandoffDecision(companyId, item.source.reference, reason.trim(), true);
-				await refreshAttention(client, companyId);
-			},
-			`Declined. ${recipient} has your reason.`,
-			'That was not recorded. Try again.',
 			recipientHref
 		);
 	/* Mark done resumes the Work, so it waits out a few seconds of Undo first. */
@@ -548,14 +547,12 @@
 </script>
 
 {#snippet secondaryActions()}
-	{#if canSetAside}<button
+	{#if byHandoff || canSetAside}<button
 			type="button"
 			class="btn ghost small dismiss"
-			disabled={acting}
-			title={item.responsibleActor
-				? `Not needed. Off your Inbox and kept under Set aside; ${asker} stops waiting on it.`
-				: 'Not needed. Off your Inbox and kept under Set aside, until it comes up again.'}
-			onclick={() => void setAside()}>Set aside</button
+			disabled={acting || markingDone}
+			title={`${skipWho} carries on without it. You can undo.`}
+			onclick={() => void skip()}>Skip</button
 		>{/if}
 	<ActionMenu label="More">
 		{#if discuss}<a href={discussionHref} onclick={(event) => void discussInbox(event)}>Discuss</a
@@ -779,13 +776,6 @@
 					placeholder={`Anything ${handingTo.display} should know? Optional.`}
 					disabled={acting}
 					onkeydown={(event) => keys(event, handOn)}></textarea>
-			{:else if declining}
-				<textarea
-					bind:value={reason}
-					aria-label="Why not"
-					placeholder={`Why not? ${asker} will see this.`}
-					disabled={acting}
-					onkeydown={(event) => keys(event, sendDecline)}></textarea>
 			{:else if approvalNote}
 				<textarea
 					bind:value={reason}
@@ -845,7 +835,6 @@
 		approveMandate ||
 		passing ||
 		handingTo ||
-		declining ||
 		approvalNote ||
 		record
 			? responseFields
@@ -867,16 +856,6 @@
 					>{acting ? 'Handing on…' : `Hand to ${handingTo.display}`}</button
 				>
 				<button class="btn small ghost" disabled={acting} onclick={() => (handingTo = null)}
-					>Back</button
-				>
-				<span class="hint">⌘ ↵</span>
-			</div>
-		{:else if declining}<div class="action-row">
-				{@render secondaryActions()}
-				<button class="btn primary small" disabled={acting || !reason.trim()} onclick={sendDecline}
-					>{acting ? 'Sending…' : 'Decline'}</button
-				>
-				<button class="btn small ghost" disabled={acting} onclick={() => (declining = false)}
 					>Back</button
 				>
 				<span class="hint">⌘ ↵</span>
@@ -910,9 +889,6 @@
 						? `${record.consequence} ${record.nextState}`
 						: 'Write your answer first'}
 					onclick={sendReply}>{acting ? 'Sending…' : 'Send'}</button
-				>
-				<button class="btn small" disabled={acting} onclick={() => (declining = true)}
-					>Not doing this</button
 				>
 				{#if discuss}<a
 						class="btn small ghost"
@@ -1097,9 +1073,6 @@
 						title="Opens the app with this request attached. Allowing it resumes the work on its own."
 						>{appRequest.addLabel}</a
 					>
-					<button class="btn small ghost" disabled={acting} onclick={() => (declining = true)}
-						>Not doing this</button
-					>
 				{:else if humanStep}
 					{#if instructionLink}<a
 							class="btn primary small"
@@ -1119,9 +1092,6 @@
 						disabled={acting || markingDone || item.preparing}
 						title={`${humanStep.consequence} ${humanStep.nextState} Undo stays available for a few seconds.`}
 						onclick={markDone}>{markingDone ? 'Marking done…' : 'Mark done'}</button
-					>
-					<button class="btn small ghost" disabled={acting} onclick={() => (declining = true)}
-						>Not doing this</button
 					>
 				{:else if open && !open.href}
 					<a

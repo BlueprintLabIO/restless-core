@@ -125,16 +125,18 @@ try {
 				await footer.getByRole('button', { name: 'Cancel', exact: true }).click();
 			}
 			if (kind === 'handoff') {
-				await footer.getByRole('button', { name: 'Not doing this', exact: true }).click();
-				await footer
-					.getByRole('textbox', { name: 'Why not', exact: true })
-					.fill('Long reply context. '.repeat(80));
-				const reply = await geometry();
-				assert(
-					reply.visible && Math.abs(reply.bottom - before.bottom) < 1,
-					'Growing reply leaves controls at pane bottom'
-				);
-				await footer.getByRole('button', { name: 'Back', exact: true }).click();
+				/* Skip is one click with Undo, so it is found, never pressed: nothing is answered. */
+				await footer.getByRole('button', { name: 'Skip', exact: true }).waitFor();
+				const replyBox = footer.getByRole('textbox', { name: /^Reply to / });
+				if (await replyBox.count()) {
+					await replyBox.fill('Long reply context. '.repeat(80));
+					const reply = await geometry();
+					assert(
+						reply.visible && Math.abs(reply.bottom - before.bottom) < 1,
+						'Growing reply leaves controls at pane bottom'
+					);
+					await replyBox.fill('');
+				}
 			}
 			if (kind === 'outcome') {
 				await footer.getByRole('button', { name: 'Accept outcome', exact: true }).waitFor();

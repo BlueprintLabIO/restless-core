@@ -1,6 +1,6 @@
 <script lang="ts">
-	/* What the owner set aside as not needed: one quiet fold, out of the way, each item restorable,
-	 * with who asked and when it was set aside. The gateway drops items whose request has gone
+	/* What the owner skipped as not needed: one quiet fold, out of the way, each item restorable,
+	 * with who asked and when it was skipped. The gateway drops items whose request has gone
 	 * away, so what is listed can come back. A list that cannot be read says so. */
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
@@ -50,7 +50,7 @@
 			/* Keep what was listed, and say plainly that the list could not be read. */
 			stale = failureSentence(
 				cause,
-				items.length ? 'Set aside could not be refreshed.' : 'Set aside could not be read.'
+				items.length ? 'Skipped could not be refreshed.' : 'Skipped could not be read.'
 			);
 		}
 	}
@@ -78,8 +78,8 @@
 
 {#if items.length || message || stale}
 	<details class="set-aside">
-		<summary title="Items you marked not needed. Restore one to bring it back."
-			>Set aside{#if items.length}<span>{items.length}</span>{/if}</summary
+		<summary title="Items you skipped. Restore one to bring it back."
+			>Skipped{#if items.length}<span>{items.length}</span>{/if}</summary
 		>
 		{#if message || stale}<p class="set-aside-message" role="status">
 				{message || stale}
@@ -93,7 +93,7 @@
 				class="set-aside-search"
 				type="search"
 				bind:value={query}
-				aria-label="Search set aside"
+				aria-label="Search skipped"
 				placeholder="Search"
 			/>{/if}
 		{#each shown as entry (entry.item_id)}
@@ -102,7 +102,7 @@
 					<span class="set-aside-title" title={entry.title}>{entry.title}</span>
 					<span class="set-aside-meta"
 						>{#if asker(entry)}{asker(entry)} ·
-						{/if}set aside <RelativeTime value={entry.dismissed_at} /></span
+						{/if}skipped <RelativeTime value={entry.dismissed_at} /></span
 					>
 				</span>
 				<button

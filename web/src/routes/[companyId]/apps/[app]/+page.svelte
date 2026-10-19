@@ -1265,7 +1265,7 @@
 									declining = false;
 									declineReason = '';
 								},
-								'Set aside. Kept under Set aside in your Inbox.'
+								'Skipped. Kept under Skipped in your Inbox.'
 							);
 						}}
 					>
