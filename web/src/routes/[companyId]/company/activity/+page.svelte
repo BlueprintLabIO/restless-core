@@ -1,5 +1,6 @@
 <script lang="ts">
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
+	import MyRequests from '$lib/components/MyRequests.svelte';
 	/* One timeline of what was decided and what reached the outside world: your
 	 * recorded decisions and the company's governed external effects, newest
 	 * first, filterable. Internal chats, builds and edits stay with their Work. */
@@ -350,6 +351,7 @@
 	{#if !loaded}
 		<Skeleton label="Reading activity…" variant="page" count={4} />
 	{:else}
+		<MyRequests {companyId} all />
 		{#if !externalAvailable && filter !== 'decisions'}<Notice
 				tone="warning"
 				title="External activity is unavailable right now"

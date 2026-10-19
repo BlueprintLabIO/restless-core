@@ -72,7 +72,11 @@
 {#if all}
 	{#if shown.length}
 		<section class="my-requests all" aria-label="Your requests">
-			<h3 title="What you asked Exec to change that someone else decides">Your requests</h3>
+			<h3>Changes you asked for</h3>
+			<p class="explain">
+				Changes you asked Exec to make that someone else in the company decides, and what they
+				said.
+			</p>
 			{#each shown as request (request.id)}
 				<details data-state={withdrawn(request) ? 'withdrawn' : request.state}>
 					<summary>
@@ -114,7 +118,7 @@
 			</li>
 		{/each}
 		{#if more || recent.length > shown.length}<li class="all-link">
-				<a href={`/${encodeURIComponent(companyId)}?requests=mine`}>All your requests</a>
+				<a href={`/${encodeURIComponent(companyId)}/company/activity`}>All your requests</a>
 			</li>{/if}
 	</ul>
 {/if}
@@ -181,6 +185,12 @@
 		color: var(--text-secondary);
 		font-size: var(--t-label);
 		font-weight: 600;
+	}
+	.explain {
+		margin: 0 0 6px;
+		padding: 0 8px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
 	}
 	details {
 		border-radius: var(--radius-control);

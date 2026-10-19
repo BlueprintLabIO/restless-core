@@ -35,7 +35,6 @@
 	import { celebrate } from '$lib/ui/celebrate';
 	import InboxUpdate from './InboxUpdate.svelte';
 	import { inboxFeed } from '$lib/model/inbox-feed';
-	import MyRequests from './MyRequests.svelte';
 	import DirectionToday from './DirectionToday.svelte';
 	import { useForYou } from '$lib/model/for-you.svelte';
 	import { getInboxMarks, type InboxMarkChange } from '$lib/model/for-you';
@@ -326,7 +325,6 @@
 	<DirectionToday
 		{companyId}
 		{requestsOnly}
-		weekly={canSetAside}
 		onrequests={(only) => {
 			requestsOnly = only;
 		}}
@@ -437,10 +435,6 @@
 				disabled={forYou.loadingMore}
 				onclick={() => forYou?.loadMore()}>Show earlier updates</button
 			>{/if}
-		<details class="my-requests" open={page.url.searchParams.get('requests') === 'mine'}>
-			<summary>Your requests</summary>
-			<MyRequests {companyId} all />
-		</details>
 	</div>
 </div>
 
@@ -470,14 +464,6 @@
 		color: var(--ink);
 		font-size: var(--t-head);
 		font-weight: 600;
-	}
-	.my-requests {
-		margin: 8px 16px;
-		color: var(--text-secondary);
-	}
-	.my-requests summary {
-		cursor: pointer;
-		font-size: var(--t-label);
 	}
 
 	.spacer {
