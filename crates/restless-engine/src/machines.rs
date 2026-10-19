@@ -352,7 +352,7 @@ pub struct CompanyMachine {
 /// plane.
 pub async fn company_assignments(pool: &PgPool, company: &str) -> Result<Vec<CompanyMachine>> {
     let rows = sqlx::query(
-        "SELECT machine_id, role FROM restless_authority.company_machines WHERE company = $1          ORDER BY (role = main) DESC, assigned_at",
+        "SELECT machine_id, role FROM restless_authority.company_machines WHERE company = $1 ORDER BY (role = 'main') DESC, assigned_at",
     )
     .bind(company)
     .fetch_all(pool)
@@ -714,6 +714,21 @@ mod tests {
         assert!(code.chars().all(|c| c == '-' || CODE_ALPHABET.contains(&(c as u8))));
         assert_eq!(normalize_code(" k7qf-3mxp "), "K7QF3MXP");
         assert_ne!(new_code(), new_code());
+    }
+
+    /// Every company's Computer page reads this; an unquoted role once made it a 503 everywhere.
+    #[tokio::test]
+    async fn a_company_reads_its_machines() {
+        let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            return;
+        };
+        let pool = PgPool::connect(&url).await.unwrap();
+        sqlx::query("CREATE SCHEMA IF NOT EXISTS restless_authority").execute(&pool).await.unwrap();
+        ensure_schema(&pool).await.unwrap();
+        let company = format!("machines_{}_test", uuid::Uuid::new_v4().simple());
+        let assignments = company_assignments(&pool, &company).await.unwrap();
+        assert_eq!(assignments.len(), 1, "a company never assigned runs on the plane");
+        assert_eq!((assignments[0].machine_id.as_str(), assignments[0].role.as_str()), (PLANE_MACHINE, ROLE_MAIN));
     }
 
     #[test]
