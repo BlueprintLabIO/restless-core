@@ -76,3 +76,11 @@
 		{/snippet}
 	</AccountFrame>
 </div>
+
+<style>
+	/* The sections under Accounts wait until its list has loaded, then appear in place, instead of
+	 * showing first and being pushed down a few hundred pixels under the reader's eye. */
+	:global(.account-connections[aria-busy='true'] ~ *) {
+		visibility: hidden;
+	}
+</style>

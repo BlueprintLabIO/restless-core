@@ -198,6 +198,9 @@
 		outline: 2px solid var(--intent-conversation);
 		outline-offset: -2px;
 	}
+	.settings-section {
+		position: relative;
+	}
 	.settings-section h2 {
 		display: flex;
 		align-items: center;
@@ -215,12 +218,18 @@
 		.settings-nav {
 			position: static;
 			display: flex;
-			flex-wrap: wrap;
 			gap: 4px 8px;
+			margin-inline: -4px;
+			padding-inline: 4px;
+			overflow-x: auto;
+			scrollbar-width: none;
+		}
+		.settings-nav::-webkit-scrollbar {
+			display: none;
 		}
 		.settings-nav-group {
 			display: flex;
-			flex-wrap: wrap;
+			flex: none;
 			gap: 2px;
 		}
 		.settings-nav-label {

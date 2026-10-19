@@ -558,7 +558,7 @@
 							? null
 							: name,
 						item.kind === 'oauth' ? 'Account sign-in' : 'API key',
-						item.companies.length && !companyGrant ? `used by ${item.companies.length} other` : null
+						item.companies.length && !companyGrant ? `used by ${item.companies.length} other ${item.companies.length === 1 ? 'company' : 'companies'}` : null
 					]
 						.filter(Boolean)
 						.join(' · ')}

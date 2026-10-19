@@ -771,13 +771,13 @@
 	{/if}
 {/snippet}
 
-<div class="account-connections">
+<div class="account-connections" aria-busy={loading && !connections.length}>
 	<div class="page-head">
 		<span class="page-head-actions">
 			{#if accountScope === 'account'}<button
 					class="btn small"
 					aria-expanded={addOpen}
-					onclick={() => (addOpen = !addOpen)}>{addOpen ? 'Cancel' : 'Add API key'}</button
+					onclick={() => (addOpen = !addOpen)}>Add API key</button
 				>{:else if connections.length}<a class="btn small primary" href={manageUrl}
 					>Open account ↗</a
 				>{/if}
@@ -852,7 +852,7 @@
 	{#if loading && !connections.length}<Skeleton
 			label="Loading connections"
 			variant="list"
-			count={2}
+			count={3}
 		/>
 	{:else if accountScope === 'company' && !connections.length}
 		<div class="empty">
@@ -964,11 +964,12 @@
 	{/if}
 
 	<!-- Legacy sign-ins are shown only when some exist: "None." is not news. -->
-	{#if nativeLoading || nativeError || nativeSignIns.length}<details class="legacy">
+	<!-- Not while checking: a "Checking…" section that then vanishes pulls Usage up under the cursor. -->
+	{#if !nativeLoading && (nativeError || nativeSignIns.length)}<details class="legacy">
 			<summary
 				><span class="legacy-chevron" aria-hidden="true">›</span>Company-only sign-ins
 				<span class="legacy-count"
-					>{nativeLoading ? 'Checking…' : nativeSignIns.length}{legacyProblems ===
+					>{nativeSignIns.length}{legacyProblems ===
 						nativeSignIns.length && legacyProblems
 						? ' · none signed in'
 						: legacyProblems
@@ -1022,6 +1023,14 @@
 	}
 	.page-head:not(:has(.btn)) {
 		display: none;
+	}
+	/* In Settings the action sits on the section title's line, as Other accounts' does. */
+	:global(.settings-section) > .account-connections > .page-head {
+		position: absolute;
+		top: 11px;
+		right: 0;
+		margin: 0;
+		transform: translateY(-50%);
 	}
 	.page-head-actions {
 		margin-left: auto;

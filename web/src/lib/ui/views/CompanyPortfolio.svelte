@@ -338,27 +338,39 @@
 			transition: none;
 		}
 	}
+	/* A phone keeps every row two lines high: name and state, then what it needs with its action
+	 * at the end. A long reason is cut short (its tip holds it) rather than growing the row. */
 	@media (max-width: 560px) {
 		.portfolio-card {
-			grid-template-columns: auto minmax(0, 1fr);
-			align-items: start;
-			gap: 12px;
+			grid-template-columns: auto minmax(0, 1fr) auto;
+			grid-template-rows: auto auto;
+			column-gap: 12px;
+			row-gap: 2px;
 			padding-right: 56px;
 		}
-		.portfolio-menu {
-			top: 8px;
-			transform: none;
+		.portfolio-mark {
+			grid-row: 1 / span 2;
 		}
-		.portfolio-signal {
-			white-space: normal;
-		}
-		.portfolio-primary {
-			grid-column: 2;
-			justify-self: start;
+		.portfolio-copy {
+			display: contents;
 		}
 		.portfolio-title {
-			flex-wrap: wrap;
-			row-gap: 2px;
+			grid-column: 2 / span 2;
+			grid-row: 1;
+		}
+		.portfolio-signal,
+		.portfolio-card.blocked .portfolio-signal {
+			grid-column: 2;
+			grid-row: 2;
+			white-space: nowrap;
+		}
+		.portfolio-primary {
+			grid-column: 3;
+			grid-row: 2;
+		}
+		.portfolio-card:not(:has(.portfolio-signal)) .portfolio-primary {
+			grid-column: 2 / span 2;
+			justify-self: start;
 		}
 	}
 </style>

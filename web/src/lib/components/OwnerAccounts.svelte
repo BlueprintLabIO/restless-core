@@ -52,7 +52,9 @@
 	let failure = $state('');
 	let available = $state(true);
 	const shown = $derived(accounts.filter((account) => account.kind !== 'ai_provider'));
-	const companyName = (id: string) => companies.find((company) => company.id === id)?.name ?? id;
+	/* Never a raw id: blank while the list loads, then a plain word for one no longer active. */
+	const companyName = (id: string) =>
+		companies.find((company) => company.id === id)?.name ?? (companies.length ? 'An archived company' : '');
 
 	async function refresh() {
 		try {
@@ -527,8 +529,8 @@
 					<button
 						type="button"
 						class="text-button inline"
-						onclick={() => (abilitiesOpen = !abilitiesOpen)}
-						>{abilitiesOpen ? 'Hide details' : 'Customize'}</button
+						aria-expanded={abilitiesOpen}
+						onclick={() => (abilitiesOpen = !abilitiesOpen)}>Customize</button
 					></small
 				>
 			</Field>

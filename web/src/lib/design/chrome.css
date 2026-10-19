@@ -374,6 +374,20 @@
 	}
 }
 
+/* Narrow tablets cannot also hold six tab marks: the tabs ran under search and the avatar and
+ * the company name shrank to one letter. The words stay; the marks go. */
+@media (min-width: 761px) and (max-width: 960px) {
+	.bridge-topbar {
+		gap: 16px;
+	}
+	.bridge-topbar .tb-tabs .tb-tab:not(.tb-setup-step) .tb-tab-mark {
+		display: none;
+	}
+	.bridge-topbar .tb-tab {
+		padding: 0 9px;
+	}
+}
+
 @media (max-width: 760px) {
 	.bridge-topbar {
 		gap: 8px;

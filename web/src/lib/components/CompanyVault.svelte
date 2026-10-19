@@ -172,12 +172,11 @@
 		</span>
 		<button
 			class="btn primary small"
-			disabled={busy || view?.status !== 'connected'}
+			disabled={busy || adding || view?.status !== 'connected'}
 			title={view?.status === 'connected'
 				? 'Store a company secret'
 				: 'Secure storage must be connected first'}
-			onclick={() => (adding ? closeForm() : openForm(null))}
-			>{adding ? 'Cancel' : 'Add secret'}</button
+			onclick={() => openForm(null)}>Add secret</button
 		>
 		<ActionMenu label="Vault options"
 			><button onclick={refresh} disabled={busy}>Refresh</button></ActionMenu

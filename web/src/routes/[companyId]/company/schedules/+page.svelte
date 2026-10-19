@@ -216,7 +216,8 @@
 <Page title="Schedules" info="Recurring check-ins Exec runs on its own, and what came of them.">
 	{#snippet actions()}{#if canManage}<button
 				class="btn primary small"
-				onclick={() => (creating = !creating)}>{creating ? 'Cancel' : 'New schedule'}</button
+				disabled={creating}
+				onclick={() => (creating = true)}>New schedule</button
 			>{/if}{/snippet}
 
 	{#if failure}<Notice tone="danger" title="Schedules could not be updated" details={failure}>

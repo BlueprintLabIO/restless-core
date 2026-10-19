@@ -660,7 +660,7 @@
 					method: 'POST',
 					body: JSON.stringify({
 						id: crypto.randomUUID(),
-						title: `${title} — recovered`
+						title: `${title} (recovered)`
 					})
 				}),
 			(copy) => void navigate(`${sheetHref(company, copy.id)}&rename=1`)

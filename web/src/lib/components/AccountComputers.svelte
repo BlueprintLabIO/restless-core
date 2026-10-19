@@ -40,7 +40,9 @@
 	let before = new Set<string>();
 	let joined = $state<Machine | null>(null);
 
-	const companyName = (id: string) => companies.find((company) => company.id === id)?.name ?? id;
+	/* Never a raw id: blank while the list loads, then a plain word for one no longer active. */
+	const companyName = (id: string) =>
+		companies.find((company) => company.id === id)?.name ?? (companies.length ? 'An archived company' : '');
 	const secondsLeft = $derived(
 		pairing ? Math.max(0, Math.round((Date.parse(pairing.expires_at) - now) / 1000)) : 0
 	);

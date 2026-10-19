@@ -249,8 +249,11 @@
 		padding: 0 0 12px;
 		border-bottom: 1px solid var(--border);
 	}
+	/* The Work just opened: a soft wash that reaches past the text, not a square ring hugging it. */
 	.work-now.highlighted {
-		box-shadow: 0 0 0 2px color-mix(in srgb, var(--intent-conversation) 45%, transparent);
+		border-radius: var(--radius-control);
+		background: var(--intent-conversation-soft);
+		box-shadow: 0 0 0 8px var(--intent-conversation-soft);
 	}
 	.work-now-title {
 		color: var(--ink);

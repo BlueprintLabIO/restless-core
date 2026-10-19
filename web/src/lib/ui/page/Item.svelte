@@ -182,14 +182,34 @@
 		gap: 4px;
 	}
 	@media (hover: hover) and (pointer: fine) {
+		/* Hidden actions take no room: they float over the row's end on hover, so every row's time
+		 * lines up whatever actions it has. */
 		.item-actions {
+			position: absolute;
+			top: 50%;
+			right: 8px;
+			padding-left: 8px;
+			border-radius: var(--radius-control);
+			background: var(--surface-hover);
+			transform: translateY(-50%);
 			opacity: 0;
+			/* Unseen is unclickable: a hidden Resume must never take a click meant for the row. */
+			pointer-events: none;
 			transition: opacity var(--motion-state) var(--ease-standard);
+		}
+		.selected .item-actions {
+			background: var(--surface-alt);
+		}
+		.item:not(.stacked):has(.item-actions:not(:empty)):is(:hover, :focus-within)
+			> .item-row
+			> .item-trailing:not(:has(:global(a, button, details, input, label))) {
+			visibility: hidden;
 		}
 		.item:hover .item-actions,
 		.item:focus-within .item-actions,
 		.item-actions:has(:global(details[open])) {
 			opacity: 1;
+			pointer-events: auto;
 		}
 	}
 	.dim .item-title,
@@ -256,6 +276,7 @@
 		right: 8px;
 		border-radius: var(--radius-control);
 		background: var(--surface-hover);
+		transform: none;
 	}
 	@media (hover: hover) and (pointer: fine) {
 		.stacked:has(.item-actions:not(:empty)):is(:hover, :focus-within)

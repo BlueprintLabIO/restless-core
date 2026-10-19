@@ -25,7 +25,9 @@
 	let failed = $state(false);
 	let now = $state(Date.now());
 
-	const companyName = (id: string) => companies.find((company) => company.id === id)?.name ?? id;
+	/* Never a raw id: blank while the list loads, then a plain word for one no longer active. */
+	const companyName = (id: string) =>
+		companies.find((company) => company.id === id)?.name ?? (companies.length ? 'An archived company' : '');
 	/* Sign-ins report limits; keys bill per use. Every sign-in is listed, reported or not. */
 	const rows = $derived(
 		connections

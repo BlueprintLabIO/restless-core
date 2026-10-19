@@ -478,9 +478,10 @@
 							<a href="?view=all&browse=1">Browse all</a>
 						</div>{/if}
 					<div class="app-grid">
-						{#each shownTiles as app (app.key)}<AppCard {app} href={route(app.key)} />
+						<!-- Whole, once the first read is in: tiles arriving source by source pushed the page down. -->
+						{#each data.ready ? shownTiles : [] as app (app.key)}<AppCard {app} href={route(app.key)} />
 						{:else}
-							{#if data.catalogueLoading}<Skeleton
+							{#if data.catalogueLoading || !data.ready}<Skeleton
 									label="Reading the catalogue…"
 									variant="list"
 									count={3}
@@ -496,7 +497,7 @@
 								</Empty>{/if}
 						{/each}
 					</div>
-					{#if landing}
+					{#if landing && data.ready}
 						{#if knowHow.length}
 							<div class="collection-heading">
 								<h2>Know-how</h2>

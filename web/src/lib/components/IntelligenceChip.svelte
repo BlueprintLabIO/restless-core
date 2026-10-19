@@ -319,8 +319,11 @@
 	.older {
 		color: var(--text-tertiary);
 	}
+	/* One line, never "Choose / a / model": the context chip beside it gives way instead. */
 	.chip-link {
+		flex: none;
 		padding: 0 8px;
+		white-space: nowrap;
 		color: var(--text-secondary);
 		font-size: var(--t-label);
 		text-decoration: none;

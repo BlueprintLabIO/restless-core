@@ -465,7 +465,7 @@
 					type="button"
 					class="btn small"
 					aria-expanded={showJobs}
-					onclick={() => (showJobs = !showJobs)}>{showJobs ? 'Hide files' : 'Show files'}</button
+					onclick={() => (showJobs = !showJobs)}>Files</button
 				>{/if}
 			{#if totals.failed && !totals.active}<button
 					type="button"

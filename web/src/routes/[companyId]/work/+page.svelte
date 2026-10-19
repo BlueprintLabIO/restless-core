@@ -1377,9 +1377,12 @@
 	.view-switch {
 		display: flex;
 	}
+	/* One toolbar row where it fits: title, filters, then the view. A narrow page keeps the title
+	 * and the view on top and puts the filters on their own row, left-aligned, not a ragged stack. */
 	.secondary-actions {
 		display: flex;
-		flex: 1 0 100%;
+		flex: none;
+		margin-left: auto;
 		flex-wrap: wrap;
 		justify-content: flex-end;
 		align-items: center;
@@ -1396,6 +1399,16 @@
 		flex-wrap: wrap;
 		gap: 6px;
 		margin-left: auto;
+	}
+	@container page (max-width: 560px) {
+		.head .title {
+			flex: 1 1 0;
+		}
+		.filters {
+			order: 2;
+			flex: 1 0 100%;
+			margin-left: 0;
+		}
 	}
 	.goal-head {
 		display: grid;
