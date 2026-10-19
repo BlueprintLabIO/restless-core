@@ -1763,6 +1763,8 @@ async fn relay_pi_stream(
             upstream_status = %status,
             "host model gateway refused Runtime request"
         );
+        // A refusal at the limit carries the same headers: record that the account is full.
+        let _ = observe_account_usage(&config, &grant.model, &grant.company, upstream.headers());
         return relay_error(status, &refusal_message(status, upstream, &grant.model).await);
     }
 
@@ -2044,6 +2046,8 @@ async fn relay_responses(
             upstream_status = %status,
             "host model gateway refused Runtime Responses request"
         );
+        // A refusal at the limit carries the same headers: record that the account is full.
+        let _ = observe_account_usage(&config, &grant.model, &grant.company, upstream.headers());
         return relay_error(status, &refusal_message(status, upstream, &grant.model).await);
     }
 
