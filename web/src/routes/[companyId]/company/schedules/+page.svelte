@@ -1,6 +1,7 @@
 <script lang="ts">
+	import Field from '$lib/ui/forms/Field.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
-	import { Page, Section, Item, Notice, Empty, Dot, Row } from '$lib/ui/page';
+	import { Page, Section, Item, Notice, Empty, Dot } from '$lib/ui/page';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
@@ -246,31 +247,29 @@
 
 	{#if creating}
 		<Section title="New schedule">
-			<form onsubmit={create}>
-				<Row label="What Exec should check" stack>
+			<form class="form plain" onsubmit={create}>
+				<Field label="What Exec should check" for="new-schedule-prompt">
 					<textarea
+						id="new-schedule-prompt"
 						class="full"
 						bind:value={prompt}
 						aria-label="What Exec should check"
 						placeholder="Review inbound leads and flag the ones needing a reply"
 						required
 						maxlength="2000"></textarea>
-				</Row>
-				<Row
+				</Field>
+				<Field
 					label="Repeat"
-					stack
 					info={`An interval counts from when the schedule is made. A time of day runs in the zone you choose; what happens to a missed run is chosen on each schedule, and a skipped one can be recovered. Each run wakes the company computer${runtimeLimits?.sleep_after_minutes ? `, and one due within ${runtimeLimits.sleep_after_minutes} minutes keeps it from sleeping, using its monthly hours` : ''}.`}
 				>
 					<ScheduleCadence bind:cadence id="new-schedule-repeat" disabled={!!busy} />
-				</Row>
-				<div class="form-bar">
-					<button class="btn primary small" disabled={!!busy || !cadenceReady(cadence)}
+				</Field>
+				<footer class="form-foot">
+					<button class="btn small" type="button" onclick={() => (creating = false)}>Cancel</button
+					><button class="btn primary small" disabled={!!busy || !cadenceReady(cadence)}
 						>{busy === 'create' ? 'Creating…' : 'Create schedule'}</button
 					>
-					<button class="btn small ghost" type="button" onclick={() => (creating = false)}
-						>Cancel</button
-					>
-				</div>
+				</footer>
 			</form>
 		</Section>
 	{/if}
@@ -377,30 +376,31 @@
 							>
 						{/if}
 						{#if editing === item.schedule.id}
-							<form class="edit" onsubmit={(event) => saveEdit(event, item)}>
-								<label for={`prompt-${item.schedule.id}`}>What Exec should check</label>
-								<textarea
-									id={`prompt-${item.schedule.id}`}
-									class="full"
-									bind:value={editPrompt}
-									required
-									maxlength="2000"></textarea>
-								<label for={`cadence-${item.schedule.id}`}>Repeat</label>
-								<ScheduleCadence
-									bind:cadence={editCadence}
-									id={`cadence-${item.schedule.id}`}
-									disabled={!!busy}
-								/>
-								<div class="edit-bar">
-									<button
+							<form class="form plain" onsubmit={(event) => saveEdit(event, item)}>
+								<Field label="What Exec should check" for={`prompt-${item.schedule.id}`}>
+									<textarea
+										id={`prompt-${item.schedule.id}`}
+										class="full"
+										bind:value={editPrompt}
+										required
+										maxlength="2000"></textarea>
+								</Field>
+								<Field label="Repeat">
+									<ScheduleCadence
+										bind:cadence={editCadence}
+										id={`cadence-${item.schedule.id}`}
+										disabled={!!busy}
+									/>
+								</Field>
+								<footer class="form-foot">
+									<button class="btn small" type="button" onclick={() => (editing = '')}
+										>Cancel</button
+									><button
 										class="btn primary small"
 										disabled={!!busy || !editPrompt.trim() || !cadenceReady(editCadence)}
 										>{busy ? 'Saving…' : 'Save'}</button
 									>
-									<button class="btn small ghost" type="button" onclick={() => (editing = '')}
-										>Cancel</button
-									>
-								</div>
+								</footer>
 							</form>
 						{/if}
 						<dl class="facts">
@@ -482,11 +482,6 @@
 	.full {
 		width: 100%;
 	}
-	.form-bar {
-		display: flex;
-		gap: var(--space-2);
-		padding: 12px 16px;
-	}
 	.detail {
 		display: grid;
 		gap: 14px;
@@ -496,20 +491,6 @@
 		margin: 0;
 		line-height: 1.6;
 		overflow-wrap: anywhere;
-	}
-	.edit {
-		display: grid;
-		gap: 6px;
-		font-size: var(--t-body);
-	}
-	.edit label {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.edit-bar {
-		display: flex;
-		gap: var(--space-2);
-		margin-top: 6px;
 	}
 	.facts {
 		display: flex;

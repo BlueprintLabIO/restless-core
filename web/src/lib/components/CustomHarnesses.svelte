@@ -306,7 +306,7 @@
 				</Field>
 				<Field
 					label="ACP command"
-					hint={'A JSON array. ${SYSTEM_PROMPT_FILE} marks the system-instruction file'}
+					info={'A JSON array. ${SYSTEM_PROMPT_FILE} marks the system-instruction file'}
 					for="harness-command"
 				>
 					<textarea id="harness-command" bind:value={command} rows="2" required></textarea>
@@ -394,7 +394,7 @@
 					</Field>
 					<Field
 						label="ACP command"
-						hint={'A JSON array. ${SYSTEM_PROMPT_FILE} marks the system-instruction file'}
+						info={'A JSON array. ${SYSTEM_PROMPT_FILE} marks the system-instruction file'}
 						for={`edit-command-${row.id}`}
 					>
 						<textarea id={`edit-command-${row.id}`} bind:value={editCommand} rows="2" required

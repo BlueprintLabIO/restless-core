@@ -228,7 +228,7 @@
 		</Field>
 		<Field
 			label="Read-only key"
-			hint={provider?.keys_bound
+			info={provider?.keys_bound
 				? 'Stored. Leave empty to keep it'
 				: 'Balances and transfers, read only'}
 			for="rail-read"
@@ -243,7 +243,7 @@
 		</Field>
 		<Field
 			label="Payments key"
-			hint={provider?.keys_bound
+			info={provider?.keys_bound
 				? 'Stored. Leave empty to keep it'
 				: 'Transfers only: no beneficiary or admin rights'}
 			for="rail-submit"

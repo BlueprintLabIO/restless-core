@@ -1,6 +1,7 @@
 <script lang="ts">
+	import Field from '$lib/ui/forms/Field.svelte';
 	import { useQueryClient } from '@tanstack/svelte-query';
-	import { Section, Row, Item, Notice, Empty } from '$lib/ui/page';
+	import { Section, Item, Notice, Empty } from '$lib/ui/page';
 	import { describeFailure, failureSentence } from '$lib/model/failure';
 	import { refreshAttention } from '$lib/model/queries.svelte';
 	import { settingQuery } from '$lib/model/setting.svelte';
@@ -290,15 +291,15 @@
 
 	{#if editing}
 		<form
+			class="form plain"
 			onsubmit={(event) => {
 				event.preventDefault();
 				void save();
 			}}
 		>
-			<Row
+			<Field
 				label="Purpose"
 				info="What these emails should achieve. Nothing is sent until you approve the proposal in the Inbox."
-				stack
 			>
 				<textarea
 					class="full"
@@ -308,8 +309,8 @@
 					bind:value={draft.purpose}
 					disabled={saving}
 					placeholder="What should these emails achieve?"></textarea>
-			</Row>
-			<Row label="Audience" info="The prospects Exec should consider." stack>
+			</Field>
+			<Field label="Audience" hint="The prospects Exec should consider.">
 				<textarea
 					class="full"
 					aria-label="Audience guidance"
@@ -318,8 +319,8 @@
 					bind:value={draft.audience_guidance}
 					disabled={saving}
 					placeholder="Describe the prospects Exec should consider."></textarea>
-			</Row>
-			<Row label="Sending address">
+			</Field>
+			<Field label="Sending address">
 				<input
 					class="field"
 					type="email"
@@ -330,8 +331,8 @@
 					disabled={saving}
 					placeholder="you@company.com"
 				/>
-			</Row>
-			<Row label="Sender name">
+			</Field>
+			<Field label="Sender name">
 				<input
 					class="field"
 					type="text"
@@ -341,32 +342,34 @@
 					disabled={saving}
 					placeholder="Optional"
 				/>
-			</Row>
-			<Row label="Limits">
-				<input
-					class="count"
-					type="number"
-					min="1"
-					step="1"
-					required
-					aria-label="Maximum emails per day"
-					title="Maximum emails per day"
-					bind:value={draft.max_per_day}
-					disabled={saving}
-				/><span class="unit">a day</span>
-				<input
-					class="count"
-					type="number"
-					min="1"
-					step="1"
-					required
-					aria-label="Maximum emails in total"
-					title="Maximum emails in total"
-					bind:value={draft.max_total}
-					disabled={saving}
-				/><span class="unit">total</span>
-			</Row>
-			<Row label="Quota timezone">
+			</Field>
+			<Field label="Limits">
+				<div class="form-inline">
+					<input
+						class="count"
+						type="number"
+						min="1"
+						step="1"
+						required
+						aria-label="Maximum emails per day"
+						title="Maximum emails per day"
+						bind:value={draft.max_per_day}
+						disabled={saving}
+					/><span class="unit">a day</span>
+					<input
+						class="count"
+						type="number"
+						min="1"
+						step="1"
+						required
+						aria-label="Maximum emails in total"
+						title="Maximum emails in total"
+						bind:value={draft.max_total}
+						disabled={saving}
+					/><span class="unit">total</span>
+				</div>
+			</Field>
+			<Field label="Quota timezone">
 				<input
 					class="field"
 					type="text"
@@ -376,8 +379,8 @@
 					disabled={saving}
 					placeholder="Australia/Sydney"
 				/>
-			</Row>
-			<Row label="Expires" info="In your local time.">
+			</Field>
+			<Field label="Expires" hint="In your local time.">
 				<input
 					class="field"
 					type="datetime-local"
@@ -386,25 +389,24 @@
 					bind:value={draft.expires_at}
 					disabled={saving}
 				/>
-			</Row>
-			<div class="form-bar">
-				<button class="btn primary small" type="submit" disabled={saving}
-					>{saving
-						? 'Submitting…'
-						: replacing
-							? 'Request approval for changes'
-							: 'Request approval'}</button
-				>
+			</Field>
+			<footer class="form-foot">
 				<button
-					class="btn small ghost"
+					class="btn small"
 					type="button"
 					disabled={saving}
 					onclick={() => {
 						editing = false;
 						error = '';
 					}}>Cancel</button
+				><button class="btn primary small" type="submit" disabled={saving}
+					>{saving
+						? 'Submitting…'
+						: replacing
+							? 'Request approval for changes'
+							: 'Request approval'}</button
 				>
-			</div>
+			</footer>
 		</form>
 	{/if}
 </Section>
@@ -421,11 +423,6 @@
 	}
 	.unit {
 		color: var(--text-tertiary);
-	}
-	.form-bar {
-		display: flex;
-		gap: var(--space-2);
-		padding: 12px 16px;
 	}
 	.facts {
 		display: grid;

@@ -866,7 +866,7 @@
 							<Field
 								label="Credential source"
 								for="cp-mode"
-								hint={mode === 'oauth'
+								info={mode === 'oauth'
 									? 'Kept for compatibility; share sign-ins from Settings.'
 									: ''}
 							>

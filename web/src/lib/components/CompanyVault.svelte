@@ -1,6 +1,7 @@
 <script lang="ts">
+	import Field from '$lib/ui/forms/Field.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
-	import { Page, Section, Item, Notice, Empty, Dot, Row } from '$lib/ui/page';
+	import { Page, Section, Item, Notice, Empty, Dot } from '$lib/ui/page';
 	import KeyRound from '@lucide/svelte/icons/key-round';
 	import Link from '@lucide/svelte/icons/link';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
@@ -196,10 +197,10 @@
 
 	{#if (adding || replacing) && view?.secrets}
 		<Section title={replacing ? `Replace ${replacing.name}` : 'Store a secret'}>
-			<form id="vault-form" onsubmit={saveSecret}>
-				{#if !replacing}<Row
+			<form class="form plain" id="vault-form" onsubmit={saveSecret}>
+				{#if !replacing}<Field
 						label="Name"
-						info="Letters, numbers, - and _. Agents refer to the secret by this name."
+						hint="Letters, numbers, - and _. Agents refer to the secret by this name."
 					>
 						<input
 							class="wide"
@@ -211,8 +212,8 @@
 							required
 							disabled={busy}
 						/>
-					</Row>{/if}
-				<Row
+					</Field>{/if}
+				<Field
 					label={replacing ? 'New value' : 'Value'}
 					info={replacing
 						? 'The old value is replaced. Everything that uses this secret picks up the new one.'
@@ -228,15 +229,13 @@
 						required
 						disabled={busy}
 					/>
-				</Row>
-				<div class="form-bar">
-					<button class="btn primary small" type="submit" disabled={busy}
+				</Field>
+				<footer class="form-foot">
+					<button class="btn small" type="button" disabled={busy} onclick={closeForm}>Cancel</button
+					><button class="btn primary small" type="submit" disabled={busy}
 						>{busy ? 'Saving…' : replacing ? 'Replace' : 'Save secret'}</button
 					>
-					<button class="btn small ghost" type="button" disabled={busy} onclick={closeForm}
-						>Cancel</button
-					>
-				</div>
+				</footer>
 			</form>
 		</Section>
 	{/if}
@@ -298,10 +297,5 @@
 	}
 	.search {
 		width: 200px;
-	}
-	.form-bar {
-		display: flex;
-		gap: var(--space-2);
-		padding: 12px 16px;
 	}
 </style>

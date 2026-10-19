@@ -1,7 +1,8 @@
 <script lang="ts">
+	import Field from '$lib/ui/forms/Field.svelte';
 	/* The legal profile on Company › Charter: what is approved for company output, and a form for
 	 * the owner to add or correct it. Authority keeps it; evidence and documents never come here. */
-	import { Section, Row, Empty, Notice } from '$lib/ui/page';
+	import { Section, Empty, Notice } from '$lib/ui/page';
 	import { failureSentence } from '$lib/model/failure';
 	import {
 		readLegalProfile,
@@ -105,8 +106,8 @@
 		</Notice>{/if}
 	{#if loading}<p role="status">Loading legal details…</p>{/if}
 	{#if editing && view.sources.authority.status === 'available'}
-		<form onsubmit={save}>
-			<Row label="Legal name">
+		<form class="form plain" onsubmit={save}>
+			<Field label="Legal name">
 				<input
 					class="wide"
 					aria-label="Legal name"
@@ -115,8 +116,8 @@
 					maxlength="240"
 					disabled={saving || loading}
 				/>
-			</Row>
-			<Row label="Trading as" info="Optional: the name customers know, if different.">
+			</Field>
+			<Field label="Trading as" hint="Optional: the name customers know, if different.">
 				<input
 					class="wide"
 					aria-label="Trading as"
@@ -124,8 +125,8 @@
 					maxlength="240"
 					disabled={saving || loading}
 				/>
-			</Row>
-			<Row label="Form" info="Such as Pty Ltd, LLC or sole trader.">
+			</Field>
+			<Field label="Form" hint="Such as Pty Ltd, LLC or sole trader.">
 				<input
 					class="wide"
 					aria-label="Form"
@@ -134,10 +135,10 @@
 					maxlength="80"
 					disabled={saving || loading}
 				/>
-			</Row>
-			<Row
+			</Field>
+			<Field
 				label="Jurisdiction"
-				info="Where the company is registered, such as Victoria, Australia."
+				hint="Where the company is registered, such as Victoria, Australia."
 			>
 				<input
 					class="wide"
@@ -147,31 +148,33 @@
 					maxlength="80"
 					disabled={saving || loading}
 				/>
-			</Row>
-			<Row
+			</Field>
+			<Field
 				label="Registration"
-				info="The kind of number and the number, such as ABN 12 345 678 901."
+				hint="The kind of number and the number, such as ABN 12 345 678 901."
 			>
-				<input
-					class="kind"
-					bind:value={form.registration_identifier.kind}
-					aria-label="Registration number kind"
-					title="The kind of number, such as ABN, EIN or company number"
-					required
-					maxlength="40"
-					disabled={saving || loading}
-				/>
-				<input
-					class="number"
-					bind:value={form.registration_identifier.value}
-					aria-label="Registration number"
-					title="The number itself, such as 12 345 678 901"
-					required
-					maxlength="80"
-					disabled={saving || loading}
-				/>
-			</Row>
-			<Row
+				<div class="form-inline">
+					<input
+						class="kind"
+						bind:value={form.registration_identifier.kind}
+						aria-label="Registration number kind"
+						title="The kind of number, such as ABN, EIN or company number"
+						required
+						maxlength="40"
+						disabled={saving || loading}
+					/>
+					<input
+						class="number"
+						bind:value={form.registration_identifier.value}
+						aria-label="Registration number"
+						title="The number itself, such as 12 345 678 901"
+						required
+						maxlength="80"
+						disabled={saving || loading}
+					/>
+				</div>
+			</Field>
+			<Field
 				label="Business address"
 				info="The address that may appear on invoices and contracts. Never a private home address you do not want shown."
 			>
@@ -183,8 +186,8 @@
 					maxlength="500"
 					rows="2"
 					disabled={saving || loading}></textarea>
-			</Row>
-			<Row label="Invoice email" info="Optional: where customers send invoice questions.">
+			</Field>
+			<Field label="Invoice email" hint="Optional: where customers send invoice questions.">
 				<input
 					class="wide"
 					type="email"
@@ -193,18 +196,14 @@
 					maxlength="320"
 					disabled={saving || loading}
 				/>
-			</Row>
-			<div class="form-bar">
-				<button class="btn primary small" disabled={saving || loading}
+			</Field>
+			<footer class="form-foot">
+				<button class="btn small" type="button" disabled={saving || loading} onclick={() => edit()}
+					>Reset</button
+				><button class="btn primary small" disabled={saving || loading}
 					>{saving ? 'Saving…' : 'Save'}</button
 				>
-				<button
-					class="btn small ghost"
-					type="button"
-					disabled={saving || loading}
-					onclick={() => edit()}>Reset</button
-				>
-			</div>
+			</footer>
 		</form>
 	{:else if view.sources.authority.status !== 'available'}
 		<Empty compact title="Legal details are unavailable right now" />
@@ -220,10 +219,5 @@
 	}
 	.number {
 		width: min(240px, 100%);
-	}
-	.form-bar {
-		display: flex;
-		gap: var(--space-2);
-		padding: 12px 16px;
 	}
 </style>

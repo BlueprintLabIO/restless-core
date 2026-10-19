@@ -97,7 +97,13 @@
 	padding-top: 7px;
 }
 
-:is(.bridge-root, .bridge-tokens) .form-label > :is(label, span, strong) {
+:is(.bridge-root, .bridge-tokens) .form-label-line {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+}
+
+:is(.bridge-root, .bridge-tokens) .form-label :is(label, span, strong):not(.info-tip *) {
 	color: var(--ink);
 	font-size: var(--t-body);
 	font-weight: 500;

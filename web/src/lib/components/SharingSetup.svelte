@@ -330,7 +330,7 @@
 			</Field>
 			<Field
 				label="Company address"
-				hint={access === 'private'
+				info={access === 'private'
 					? 'Reachable by your team on its private network'
 					: 'Where people open the company'}
 				for="sharing-company"
@@ -523,9 +523,9 @@
 		outline-offset: 3px;
 	}
 	@media (pointer: coarse) {
-	.sharing-close,
-	.sharing-actions :global(button),
-	input {
+		.sharing-close,
+		.sharing-actions :global(button),
+		input {
 			min-height: 44px;
 		}
 		.sharing-close {

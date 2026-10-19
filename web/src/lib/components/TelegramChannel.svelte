@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Field from '$lib/ui/forms/Field.svelte';
 	/* The owner's Telegram channel: paste the bot's token (kept in the Vault) or a
 	 * reference to one, pair one chat with a one-time code, unpair. Only the Authority owner sees it; the API
 	 * refuses everyone else, and this section then stays hidden. */
@@ -134,8 +135,8 @@
 				</div>
 			</Row>
 		{:else}
-			<form onsubmit={pair}>
-				<Row
+			<form class="form plain" onsubmit={pair}>
+				<Field
 					label="Bot token"
 					info="In Telegram, open BotFather, send /newbot and follow its two questions. Paste the token it replies with here; it is kept in the company Vault. A Vault reference such as env:TELEGRAM_BOT_TOKEN works too."
 				>
@@ -155,7 +156,7 @@
 							>{busy ? 'Checking…' : view?.configured ? 'New code' : 'Pair'}</button
 						>
 					</div>
-				</Row>
+				</Field>
 			</form>
 		{/if}
 	</Section>
