@@ -161,6 +161,51 @@
 			})
 		},
 		{
+			key: 'setting-spend',
+			label: 'Setting: spend limit',
+			item: base({
+				id: 'setting-spend',
+				title: 'Set the spend limit to US$200',
+				category: 'approval',
+				source: { plane: 'authority', kind: 'setting_proposal', reference: '41' },
+				whatHappened: 'The November launch doubles ad copy and research; US$100 runs out by the 20th.',
+				requestedAction: 'Set the spend limit to US$200?',
+				settingProposal: { proposal: 41, setting: 'spend_limit', ceiling_usd: 200, current: { ceiling_usd: '100', period: 'monthly', warning_percent: 80 } },
+				actions: [
+					{ id: 'apply-setting', label: 'Apply', role: 'decision', consequence: '', nextState: '' },
+					{ id: 'decline-setting', label: 'Decline', role: 'decision', consequence: '', nextState: '' }
+				]
+			})
+		},
+		{
+			key: 'setting-effort',
+			label: 'Setting: effort',
+			item: base({
+				id: 'setting-effort',
+				title: 'Set the company’s thinking effort to high',
+				category: 'approval',
+				source: { plane: 'authority', kind: 'setting_proposal', reference: '42' },
+				whatHappened: 'Quotes went out with arithmetic slips twice this week.',
+				requestedAction: 'Set the company’s thinking effort to high?',
+				settingProposal: { proposal: 42, setting: 'reasoning_effort', effort: 'high', current: { effort: 'medium' } },
+				actions: []
+			})
+		},
+		{
+			key: 'setting-legal',
+			label: 'Setting: ABN',
+			item: base({
+				id: 'setting-legal',
+				title: 'Fill in the company’s legal details',
+				category: 'approval',
+				source: { plane: 'authority', kind: 'setting_proposal', reference: '43' },
+				whatHappened: 'The domain registrar needs the company’s ABN for a .com.au domain.',
+				requestedAction: 'Fill in the company’s legal details?',
+				settingProposal: { proposal: 43, setting: 'legal_profile', legal_name: 'Lantern Studio Pty Ltd', entity_type: 'Pty Ltd', jurisdiction: 'AU', registration_kind: 'abn', current: null },
+				actions: []
+			})
+		},
+		{
 			key: 'start',
 			label: 'Computer stopped',
 			item: base({

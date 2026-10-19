@@ -111,6 +111,9 @@ pub struct AttentionItem {
     /// Fields the answer fills in, such as a sign-in code (S98-11).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_fields: Option<serde_json::Value>,
+    /// A setting change a company actor proposes, with its current value (S101).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub setting_proposal: Option<serde_json::Value>,
     pub actions: Vec<AttentionAction>,
     pub can_continue: bool,
     pub preparing: bool,
@@ -367,7 +370,7 @@ async fn conversation_requests(
                 review_target: None,
                 native_document: None,
                 direction_request: None,
-                charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+                charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
                 actions: vec![AttentionAction {
                     id: "continue-conversation".into(),
                     label: "Reply".into(),
@@ -523,7 +526,7 @@ fn spend_warning_item(
         review_target: None,
         native_document: None,
         direction_request: None,
-        charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+        charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
         actions: vec![AttentionAction {
             id: "open-spend-limit".into(),
             label: "Open spend limit".into(),
@@ -594,7 +597,7 @@ fn spend_stopped_item(config: &CompanyConfig, what_happened: String, created_at:
         review_target: None,
         native_document: None,
         direction_request: None,
-        charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+        charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
         actions: vec![AttentionAction {
             id: "open-spend-limit".into(),
             label: "Raise spend limit".into(),
@@ -681,7 +684,7 @@ async fn account_headroom_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> a
         review_target: None,
         native_document: None,
         direction_request: None,
-        charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+        charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
         actions: vec![AttentionAction {
             id: "open-intelligence-provider".into(),
             label: "Add a fallback".into(),
@@ -753,7 +756,7 @@ async fn machine_offline_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> an
         review_target: None,
         native_document: None,
         direction_request: None,
-        charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+        charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
         actions: vec![AttentionAction {
             id: "open-company-computer".into(),
             label: "See where it runs".into(),
@@ -861,7 +864,7 @@ fn model_cooldown_items(config: &CompanyConfig, cooldowns: &[crate::authority::M
                 review_target: None,
                 native_document: None,
                 direction_request: None,
-                charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+                charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
                 actions,
                 can_continue: false,
                 preparing: false,
@@ -944,7 +947,7 @@ async fn account_items(
         direction_request: None,
         charter_proposal: None,
         account_use: None,
-        account_request: None, request_fields: None,
+        account_request: None, request_fields: None, setting_proposal: None,
         actions: Vec::new(),
         can_continue: true,
         preparing: false,
@@ -1307,7 +1310,7 @@ fn effect_outcome_item(outcome: EffectOutcome) -> AttentionItem {
         review_target: None,
         native_document: None,
         direction_request: None,
-        charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+        charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
         actions,
         can_continue: true,
         preparing: false,
@@ -1382,7 +1385,7 @@ async fn stranded_agent_items(config: &runtime::CompanyConfig, org: Option<&OrgI
             review_target: None,
             native_document: None,
             direction_request: None,
-            charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+            charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
             actions: vec![AttentionAction {
                 id: "open-intelligence-provider".into(),
                 label: "Open Intelligence".into(),
@@ -1475,7 +1478,7 @@ async fn direction_items(
                 preparing: false,
                 created_at: request.decision.as_ref().filter(|_| failure.is_some()).map_or(request.filed_at, |decision| decision.decided_at),
                 direction_request: Some(request),
-                charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+                charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
             }
         })
         .collect())
@@ -1592,7 +1595,7 @@ async fn publication_items(
             review_target: None,
             native_document: None,
             direction_request: None,
-            charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+            charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
             actions: vec![
                 AttentionAction {
                     id: "authorize-publication".into(),
@@ -1669,7 +1672,7 @@ async fn charter_item(
             preparing: false,
             created_at: proposal.proposed_at,
             direction_request: None,
-            charter_proposal: Some(proposal), account_use: None, account_request: None, request_fields: None,
+            charter_proposal: Some(proposal), account_use: None, account_request: None, request_fields: None, setting_proposal: None,
         }
     }))
 }
@@ -1863,7 +1866,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
-            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
             actions: vec![
                 AttentionAction {
                     id: "grant".into(),
@@ -1945,7 +1948,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
-            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
             actions: vec![
                 AttentionAction {
                     id: "grant".into(),
@@ -2019,7 +2022,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
-            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
             actions: vec![AttentionAction {
                 id: "open-app".into(),
                 label: "Sign in again".into(),
@@ -2629,7 +2632,7 @@ async fn project_queue(
             responsible_actor,
             runtime_attach,
             review_target,
-            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+            native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
             actions,
             preparing,
             can_continue: false,
@@ -2699,7 +2702,7 @@ async fn project_queue(
                 runtime_attach: None,
                 review_target: None,
                 created_at: request.created_at,
-                native_document: Some(request), direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+                native_document: Some(request), direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
                 actions,
                 preparing: false,
                 can_continue: false,
@@ -2745,7 +2748,7 @@ async fn project_queue(
                         review_target: None,
                         native_document: None,
                         direction_request: None,
-                        charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+                        charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
                         actions: vec![AttentionAction {
                             id: "decide-identity-drift".into(),
                             label: "Decide on Brand".into(),
@@ -2864,7 +2867,7 @@ async fn project_queue(
                                     responsible_actor: actors.get("exec").cloned(),
                                     runtime_attach: None,
                                     review_target: None,
-                                    native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+                                    native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
                                     actions: vec![action],
                                     can_continue: false,
                                     preparing: false,
@@ -2899,7 +2902,7 @@ async fn project_queue(
             uncertainty: Some("Exec makes a judgment on each proposed send against this mandate. It can make mistakes; approval of this mandate is not a guarantee that every send will be appropriate.".into()),
             deadline: Some(proposal.expires_at.to_rfc3339()), brief_status: "source-observed", brief_author: None, briefed_at: None,
             evidence: vec![AttentionEvidence { label: "Exact proposed email mandate".into(), uri: None, content: Some(limits), kind: "authority-email-mandate-proposal" }, AttentionEvidence { label: "Exec judgement".into(), uri: None, content: Some(if note.is_empty() { "No additional rationale supplied.".into() } else { note.into() }), kind: "exec-judgement" }],
-            review_sources: Vec::new(), responsible_actor: None, runtime_attach: None, review_target: None, native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+            review_sources: Vec::new(), responsible_actor: None, runtime_attach: None, review_target: None, native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
             actions: vec![
                 AttentionAction { id: "approve-email-mandate".into(), label: "Approve mandate".into(), role: "decision", consequence: "Grants the exact reviewed email mandate and its limits.".into(), next_state: "The pending proposal is resolved and the mandate becomes active.".into(), href: None },
                 AttentionAction { id: "decline-email-mandate".into(), label: "Decline mandate".into(), role: "decision", consequence: "Declines this exact email mandate proposal.".into(), next_state: "The proposal is resolved without granting email authority.".into(), href: None },
@@ -3034,7 +3037,7 @@ async fn project_queue(
                     responsible_actor: None,
                     runtime_attach: None,
                     review_target: None,
-                    native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+                    native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
                     actions: vec![AttentionAction {
                         id: if route_missing { "open-intelligence-provider".into() } else { "open-company-health".into() },
                         label: if route_missing { "Choose intelligence".into() } else { "Open Health".into() },
@@ -3087,7 +3090,7 @@ async fn project_queue(
                     review_target: None,
                     native_document: None,
                     direction_request: None,
-                    charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+                    charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None,
                     actions: vec![
                         AttentionAction {
                             id: "approve-payee".into(),
@@ -3113,6 +3116,98 @@ async fn project_queue(
             }
         }
         Err(error) => tracing::warn!(%error, "payee proposals unavailable"),
+    }
+    // A setting change a company actor proposes (S101): the card shows the value now and the one
+    // proposed, and applies it through the Settings page's own save.
+    match crate::setting_proposals::pending(authority, &config.name).await {
+        Ok(proposals) => {
+            for (record, proposal) in proposals {
+                let asker = record.actor_id.as_deref().unwrap_or("exec");
+                let current = match &proposal.change {
+                    crate::setting_proposals::SettingChange::SpendLimit { .. } => serde_json::json!({
+                        "ceiling_usd": config.spend_ceiling_usd,
+                        "period": config.spend_period,
+                        "warning_percent": config.spend_warning_percent,
+                    }),
+                    crate::setting_proposals::SettingChange::ReasoningEffort { .. } => {
+                        serde_json::json!({ "effort": config.reasoning_effort })
+                    }
+                    crate::setting_proposals::SettingChange::LegalProfile { .. } => serde_json::Value::Null,
+                };
+                // Already true: answered by someone changing it in Settings, so nothing to ask.
+                let settled = match &proposal.change {
+                    crate::setting_proposals::SettingChange::SpendLimit { ceiling_usd } => {
+                        (config.spend_ceiling_usd.as_usd() - ceiling_usd).abs() < 0.005
+                    }
+                    crate::setting_proposals::SettingChange::ReasoningEffort { effort } => {
+                        config.reasoning_effort == *effort
+                    }
+                    crate::setting_proposals::SettingChange::LegalProfile { .. } => false,
+                };
+                if settled {
+                    continue;
+                }
+                let summary = proposal.change.summary();
+                let mut change = serde_json::to_value(&proposal.change).unwrap_or_default();
+                change["proposal"] = serde_json::json!(record.id);
+                change["current"] = current;
+                items.push(AttentionItem {
+                    id: format!("authority:setting:{}", record.id),
+                    work_id: proposal.work_id,
+                    source: AttentionSource {
+                        plane: "authority",
+                        kind: "setting_proposal".into(),
+                        reference: record.id.to_string(),
+                        party: None,
+                        call_key: None,
+                    },
+                    category: "approval".into(),
+                    title: summary.clone(),
+                    what_happened: format!("{} proposed this change.", actors.get(asker).map(|actor| actor.display.as_str()).unwrap_or("Exec")),
+                    why_it_matters: "Applying changes the setting exactly as Settings would; you can change it back there.".into(),
+                    recommendation: "Apply if this is right for the company; adjust the value first if it is not.".into(),
+                    // The why is what the owner decides on, so it is the ask the card leads with.
+                    requested_action: proposal.reason.clone(),
+                    if_no_action: "The setting stays as it is.".into(),
+                    uncertainty: None,
+                    deadline: None,
+                    brief_status: "source-authored",
+                    brief_author: actors.get(asker).cloned(),
+                    briefed_at: Some(record.created_at),
+                    evidence: Vec::new(),
+                    review_sources: Vec::new(),
+                    responsible_actor: actors.get(asker).cloned(),
+                    runtime_attach: None,
+                    review_target: None,
+                    native_document: None,
+                    direction_request: None,
+                    charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+                    setting_proposal: Some(change),
+                    actions: vec![
+                        AttentionAction {
+                            id: "apply-setting".into(),
+                            label: "Apply".into(),
+                            role: "decision",
+                            consequence: "Saves the setting through Settings, then tells the company.".into(),
+                            next_state: "The company works with the new setting.".into(),
+                            href: None,
+                        },
+                        AttentionAction {
+                            id: "decline-setting".into(),
+                            label: "Decline".into(),
+                            role: "decision",
+                            consequence: "The setting stays as it is; the company is told.".into(),
+                            next_state: "Nothing changes.".into(),
+                            href: None,
+                        },
+                    ],
+                    can_continue: true,
+                    preparing: false,
+                    created_at: record.created_at,
+                });
+            }
+        }
+        Err(error) => tracing::warn!(%error, "setting proposals unavailable"),
     }
     match effect_outcome_items(config, authority, &actors).await {
         Ok(outcomes) => items.extend(outcomes),

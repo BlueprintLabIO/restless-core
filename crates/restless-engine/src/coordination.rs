@@ -1358,6 +1358,19 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
             },
             None => Response::err("finance-payee-propose needs a payee proposal"),
         },
+        "setting-propose" => match request.common.body.as_deref() {
+            Some(body) => match serde_json::from_str::<crate::setting_proposals::SettingProposalInput>(body) {
+                Ok(input) => match crate::setting_proposals::propose(&daemon.authority, company, "exec", input).await {
+                    Ok(id) => Response::ok(serde_json::json!({
+                        "proposal": id,
+                        "status": "waiting for the owner in the Inbox",
+                    })),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("invalid setting proposal: {error}")),
+            },
+            None => Response::err("setting-propose needs a setting proposal"),
+        },
         "finance-submit" => match (
             runtime::CompanyConfig::load(&daemon.root, company),
             request.authority.key.as_deref(),

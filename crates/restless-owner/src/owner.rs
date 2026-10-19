@@ -1719,6 +1719,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(company_settings_api::decide_payee),
         )
         .route(
+            "/companies/{company}/company/settings/{proposal}/decide",
+            post(company_settings_api::decide_setting),
+        )
+        .route(
             "/companies/{company}/company/legal",
             get(company_settings_api::legal_profile).put(company_settings_api::save_legal_profile),
         )

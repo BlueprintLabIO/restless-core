@@ -85,6 +85,14 @@ enum Command {
         #[command(subcommand)]
         command: LegalCommand,
     },
+    /// Exec only: ask the owner to change a company setting. The owner answers in its Inbox card,
+    /// which applies it exactly as the Settings page would.
+    Setting {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: SettingCommand,
+    },
     /// Bounded operating-money observation, preparation and provider submission.
     Finance {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
@@ -2122,6 +2130,46 @@ enum LegalCommand {
 }
 
 #[derive(Subcommand)]
+enum SettingCommand {
+    /// Propose one change: --spend-limit, --effort or --legal (with the legal details you know;
+    /// leave out what only the owner knows, such as the ABN, and they type it in the card).
+    Propose {
+        /// The spend limit in US dollars for the company's period.
+        #[arg(long, conflicts_with_all = ["effort", "legal"])]
+        spend_limit: Option<f64>,
+        /// How hard every agent thinks by default: low, medium, high, xhigh or max.
+        #[arg(long, conflicts_with = "legal")]
+        effort: Option<String>,
+        /// The company's legal details, for invoices, contracts and registrations.
+        #[arg(long)]
+        legal: bool,
+        #[arg(long, requires = "legal")]
+        legal_name: Option<String>,
+        #[arg(long, requires = "legal")]
+        trading_name: Option<String>,
+        #[arg(long, requires = "legal")]
+        entity_type: Option<String>,
+        #[arg(long, requires = "legal")]
+        jurisdiction: Option<String>,
+        /// abn, acn, company_number…
+        #[arg(long, requires = "legal")]
+        registration_type: Option<String>,
+        #[arg(long, requires = "legal")]
+        registration_value: Option<String>,
+        #[arg(long, requires = "legal")]
+        business_address: Option<String>,
+        #[arg(long, requires = "legal")]
+        invoice_email: Option<String>,
+        /// Why the company needs it, in a sentence or two.
+        #[arg(long)]
+        reason: String,
+        /// The Work that needs it.
+        #[arg(long)]
+        work: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
 enum FinanceCommand {
     /// Show envelopes, payments, provider metadata and last observed balances.
     Show,
@@ -2907,6 +2955,50 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                     "invoice_email": invoice_email,
                 }).to_string(),
             }),
+        },
+        Command::Setting { company, command } => match command {
+            SettingCommand::Propose {
+                spend_limit,
+                effort,
+                legal,
+                legal_name,
+                trading_name,
+                entity_type,
+                jurisdiction,
+                registration_type,
+                registration_value,
+                business_address,
+                invoice_email,
+                reason,
+                work,
+            } => {
+                let change = if let Some(ceiling) = spend_limit {
+                    serde_json::json!({"setting": "spend_limit", "ceiling_usd": ceiling})
+                } else if let Some(effort) = effort {
+                    serde_json::json!({"setting": "reasoning_effort", "effort": effort})
+                } else if legal {
+                    serde_json::json!({
+                        "setting": "legal_profile",
+                        "legal_name": legal_name,
+                        "trading_name": trading_name,
+                        "entity_type": entity_type,
+                        "jurisdiction": jurisdiction,
+                        "registration_kind": registration_type,
+                        "registration_value": registration_value,
+                        "approved_business_address": business_address,
+                        "invoice_email": invoice_email,
+                    })
+                } else {
+                    anyhow::bail!("propose one change: --spend-limit, --effort or --legal");
+                };
+                let mut body = change;
+                body["reason"] = serde_json::Value::String(reason);
+                body["work_id"] = work.map(serde_json::Value::String).unwrap_or(serde_json::Value::Null);
+                serde_json::json!({
+                    "cmd": "setting-propose", "company": company,
+                    "body": body.to_string(),
+                })
+            }
         },
         Command::Finance { company, command } => match command {
             FinanceCommand::Show => serde_json::json!({

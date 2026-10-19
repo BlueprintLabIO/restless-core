@@ -648,6 +648,12 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          To pay a supplier who is not yet a payee of a payment allowance, ask the owner with \
          `restless finance propose-payee --currency <c> --beneficiary <provider ref> --reason <why> --work <id>`; \
          they answer in the Inbox. \
+         To change a company setting you cannot change yourself, ask the owner with \
+         `restless setting propose --spend-limit <usd> | --effort <level> | --legal [--legal-name … \
+         --registration-type abn …] --reason <why> [--work <id>]`; leave out what only the owner \
+         knows (an ABN, an address) and they type it in the card. A step on someone else's site \
+         (buying a domain, a government registration) is an owner handoff whose --action holds the \
+         exact page address: the owner does it on the company computer inside their Inbox card. \
          Reconcile prior sends and unknown outcomes before proposing; never retry an uncertain \
          external effect. A provider-accepted send is not proof of delivery. Use `restless email \
          observe -c <company>` for typed, host-side, read-only inbound/outbound/suppression metadata; \

@@ -41,6 +41,7 @@ pub mod effect;
 pub mod entry;
 pub mod exec;
 pub mod finance;
+pub mod setting_proposals;
 pub mod health;
 pub mod inbound;
 pub mod ingress;

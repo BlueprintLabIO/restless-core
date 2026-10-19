@@ -1446,6 +1446,64 @@ pub(super) async fn decide_payee(
     Json(serde_json::json!({"decided": true})).into_response()
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct SettingDecisionInput {
+    /// The card saved the change through the settings API first; false declines it.
+    applied: bool,
+    #[serde(default)]
+    note: Option<String>,
+}
+
+/// The owner answers a setting change from the Inbox (S101). Applying happens first, through the
+/// same settings route the Settings page saves with; this records the answer and tells the asker.
+pub(super) async fn decide_setting(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, proposal)): AxumPath<(String, i64)>,
+    Json(input): Json<SettingDecisionInput>,
+) -> Response<Body> {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "setting",
+            "Only the owner can answer a setting change.",
+        );
+    }
+    let pending = restless_engine::setting_proposals::pending(&state.daemon.authority, &company)
+        .await
+        .ok()
+        .and_then(|pending| pending.into_iter().find(|(record, _)| record.id == proposal));
+    if let Err(e) = restless_engine::setting_proposals::decide(
+        &state.daemon.authority,
+        &company,
+        principal.actor_id(),
+        proposal,
+        input.applied,
+        input.note.as_deref(),
+    )
+    .await
+    {
+        return api_error(StatusCode::CONFLICT, "setting", format!("{e:#}"));
+    }
+    if let (Some((record, waiting)), Ok(org)) = (pending, state.daemon.orgintel.get(&company).await) {
+        let asker = record.actor_id.unwrap_or_else(|| "exec".into());
+        let what = waiting.change.summary();
+        let mut body = if input.applied {
+            format!("Done: {}. It is saved in Settings.", what.to_lowercase())
+        } else {
+            format!("I declined your proposal: {}. The setting stays as it is.", what.to_lowercase())
+        };
+        if let Some(note) = input.note.as_deref().map(str::trim).filter(|note| !note.is_empty()) {
+            body.push_str(&format!(" “{note}”"));
+        }
+        if let Err(error) = org.send_message(principal.actor_id(), Some(&asker), &body).await {
+            tracing::warn!(%error, "could not tell the asker about a setting decision");
+        }
+    }
+    Json(serde_json::json!({"decided": true})).into_response()
+}
+
 #[derive(Serialize)]
 struct AwayView {
     away: Option<restless_engine::away::Away>,

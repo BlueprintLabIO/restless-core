@@ -13,6 +13,23 @@ export interface NativeDocumentAttention {
 	named_version_id: string | null;
 }
 
+/** What a setting change proposes (S101); `current` is the value now, null when unknown. */
+export type SettingProposal = { proposal: number; current: Record<string, unknown> | null } & (
+	| { setting: 'spend_limit'; ceiling_usd: number }
+	| { setting: 'reasoning_effort'; effort: string }
+	| {
+			setting: 'legal_profile';
+			legal_name?: string | null;
+			trading_name?: string | null;
+			entity_type?: string | null;
+			jurisdiction?: string | null;
+			registration_kind?: string | null;
+			registration_value?: string | null;
+			approved_business_address?: string | null;
+			invoice_email?: string | null;
+	  }
+);
+
 export interface AttentionItem {
 	preparing?: boolean;
 	/** A request someone asked Exec for that waits on this person (S80). */
@@ -49,6 +66,8 @@ export interface AttentionItem {
 	accountUse?: AccountUseRef;
 	/** An admin asking the owner for an account, or for more on one (S98-09). */
 	accountRequest?: AccountRequest;
+	/** A setting change a company actor proposes, with the value now (S101). */
+	settingProposal?: SettingProposal;
 	ifNoAction: string;
 	uncertainty?: string;
 	deadline?: string;

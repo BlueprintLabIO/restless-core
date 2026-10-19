@@ -54,6 +54,7 @@
 	import InlineMachine from './inbox/InlineMachine.svelte';
 	import InlineReconnect from './inbox/InlineReconnect.svelte';
 	import InlineStartComputer from './inbox/InlineStartComputer.svelte';
+	import InlineSettingProposal from './inbox/InlineSettingProposal.svelte';
 	import {
 		discussInbox,
 		appRequestHandoffs,
@@ -786,6 +787,13 @@
 						{#if driftSurface}<InlineBrandDrift
 								{companyId}
 								finding={item.source.reference}
+								owner={!canPassToOwner}
+								ondone={(receipt) => void completedInline(receipt)}
+							/>{/if}
+						{#if item.settingProposal}<InlineSettingProposal
+								{companyId}
+								proposal={item.settingProposal}
+								asker={asker}
 								owner={!canPassToOwner}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
