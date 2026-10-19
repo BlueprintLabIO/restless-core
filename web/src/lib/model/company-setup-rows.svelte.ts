@@ -31,6 +31,7 @@ import HeartPulse from '@lucide/svelte/icons/heart-pulse';
 import CalendarRange from '@lucide/svelte/icons/calendar-range';
 import LinkIcon from '@lucide/svelte/icons/link';
 import Receipt from '@lucide/svelte/icons/receipt';
+import ChartColumn from '@lucide/svelte/icons/chart-column';
 
 /** 'refused': this plane does not keep the area (a hosted plane's vault lives with the account). */
 type Count = number | 'unavailable' | 'refused' | null;
@@ -304,15 +305,19 @@ export function createCompanySetup(companyIdOf: () => string) {
 		for (const target of COMPANY_PAGES) {
 			if (target.key === 'overview') continue;
 			const setupRow = byKey.get(target.key);
-			const record = ['tokens', 'accounting'].includes(target.key)
-				? Receipt
-				: target.key === 'activity'
-					? History
-					: target.key === 'week'
-						? CalendarRange
-						: target.key === 'health'
-							? HeartPulse
-							: null;
+			/* Each record its own mark: model usage is a chart, money in and out a receipt. */
+			const record =
+				target.key === 'tokens'
+					? ChartColumn
+					: target.key === 'accounting'
+						? Receipt
+						: target.key === 'activity'
+							? History
+							: target.key === 'week'
+								? CalendarRange
+								: target.key === 'health'
+									? HeartPulse
+									: null;
 			if (
 				!setupRow &&
 				!(

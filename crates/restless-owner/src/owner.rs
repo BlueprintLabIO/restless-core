@@ -1353,6 +1353,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/connections",
             get(list_owner_connections).post(create_owner_connection),
         )
+        .route("/session/scope", get(session_scope))
         .route("/accounts/usage", get(account_usage_api::accounts))
         .route("/companies/{company}/model/headroom", get(account_usage_api::company))
         .route("/accounts", get(accounts_api::list).post(accounts_api::create))
@@ -2118,7 +2119,13 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
 /// may still need their old fingerprinted files until they reload.
 async fn cockpit_cache_policy(request: Request, next: Next) -> Response<Body> {
     let fingerprinted_path = request.uri().path().starts_with("/_app/immutable/");
+    // The account sections Cloud's Settings mounts (ADR 0008) keep one address across releases,
+    // so they are not immutable; kept but revalidated, a repeat visit costs a 304 instead of the
+    // whole module (about a second on Cloud, 19 October). Private: only a signed-in owner gets it.
+    let plane_ui = request.uri().path().starts_with("/plane-ui/");
     let mut response = next.run(request).await;
+    let revalidated = plane_ui
+        && (response.status().is_success() || response.status() == StatusCode::NOT_MODIFIED);
     let immutable = fingerprinted_path
         && response.status().is_success()
         && !response.headers().get(CONTENT_TYPE).is_some_and(|value| {
@@ -2128,6 +2135,8 @@ async fn cockpit_cache_policy(request: Request, next: Next) -> Response<Body> {
         CACHE_CONTROL,
         HeaderValue::from_static(if immutable {
             "public, max-age=31536000, immutable"
+        } else if revalidated {
+            "private, no-cache"
         } else {
             "no-store"
         }),
@@ -4457,6 +4466,21 @@ fn company_connection_is_assigned(config: &runtime::CompanyConfig, connection: &
                     || runtime::account_intelligence_route(&route.connection)
                         .is_some_and(|(provider, id, _)| format!("{provider}@{id}") == exact)
             })
+}
+
+/// Which session this browser holds on the plane: an account owner's, one company's, or none.
+/// Cloud's Settings asks before it mounts a plane section (Cloud ADR 0008). Answering from the
+/// principal alone keeps the check to one request; `/connections` used to answer it, and probes
+/// every saved credential on the way (about a second, 19 October).
+async fn session_scope(Extension(principal): Extension<RequestPrincipal>) -> Response<Body> {
+    let scope = if principal.is_account_owner() {
+        "account"
+    } else if principal.scoped_company().is_some() {
+        "company"
+    } else {
+        "none"
+    };
+    Json(serde_json::json!({ "scope": scope })).into_response()
 }
 
 async fn list_owner_connections(State(state): State<OwnerState>, Extension(principal): Extension<RequestPrincipal>) -> Response<Body> {
@@ -13177,5 +13201,33 @@ async fn adopt_first_native_connection(state: OwnerState, company: String, harne
             return;
         }
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    }
+}
+
+#[cfg(test)]
+mod cache_policy_tests {
+    use super::cockpit_cache_policy;
+    use axum::{body::Body, http::Request, middleware, routing::get, Router};
+    use tower::ServiceExt;
+
+    async fn cache_control(path: &str) -> String {
+        let app = Router::new()
+            .fallback(get(|| async { "ok" }))
+            .layer(middleware::from_fn(cockpit_cache_policy));
+        let response = app
+            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        response.headers()["cache-control"].to_str().unwrap().to_owned()
+    }
+
+    #[tokio::test]
+    async fn the_account_sections_module_is_revalidated_and_the_rest_keeps_its_policy() {
+        assert_eq!(cache_control("/plane-ui/account-sections.js").await, "private, no-cache");
+        assert_eq!(cache_control("/").await, "no-store");
+        assert_eq!(
+            cache_control("/_app/immutable/entry/app.js").await,
+            "public, max-age=31536000, immutable"
+        );
     }
 }
