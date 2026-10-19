@@ -666,6 +666,32 @@ async fn account_headroom_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> a
         requested_action: "Add a fallback, or lighten the load.".into(),
         if_no_action: "Work continues until the limit, then waits for the reset.".into(),
         uncertainty: Some(format!("As reported by the account at {}.", window.observed_at.format("%H:%M UTC"))),
+        deadline: None,
+        brief_status: "source-observed",
+        brief_author: None,
+        briefed_at: None,
+        evidence: Vec::new(),
+        review_sources: Vec::new(),
+        responsible_actor: None,
+        runtime_attach: None,
+        review_target: None,
+        native_document: None,
+        direction_request: None,
+        charter_proposal: None, account_use: None, account_request: None, request_fields: None,
+        actions: vec![AttentionAction {
+            id: "open-intelligence-provider".into(),
+            label: "Add a fallback".into(),
+            role: "inspect",
+            consequence: "Opens the model and its fallbacks for this company.".into(),
+            next_state: "When the account runs out, the next fallback takes over.".into(),
+            href: Some(format!("/{}/company/provider", config.name)),
+        }],
+        can_continue: false,
+        preparing: false,
+        created_at: Utc::now(),
+    }))
+}
+
 /// The company's computer runs on one of the owner's machines, and that machine is offline or
 /// paused (S99, US-349): nothing runs until it is back.
 async fn machine_offline_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> anyhow::Result<Option<AttentionItem>> {
@@ -725,12 +751,6 @@ async fn machine_offline_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> an
         direction_request: None,
         charter_proposal: None, account_use: None, account_request: None, request_fields: None,
         actions: vec![AttentionAction {
-            id: "open-intelligence-provider".into(),
-            label: "Add a fallback".into(),
-            role: "inspect",
-            consequence: "Opens the model and its fallbacks for this company.".into(),
-            next_state: "When the account runs out, the next fallback takes over.".into(),
-            href: Some(format!("/{}/company/provider", config.name)),
             id: "open-company-computer".into(),
             label: "See where it runs".into(),
             role: "inspect",
