@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Field from '$lib/ui/forms/Field.svelte';
+	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
 	import { formatMoment } from '$lib/ui/time';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
@@ -234,7 +236,11 @@
 		editing = !editing;
 	}
 	async function saveEdit() {
-		if (!work || editBusy || !editTitle.trim()) return;
+		if (!work || editBusy) return;
+		if (!editTitle.trim()) {
+			editFailure = 'Give it a title.';
+			return;
+		}
 		const details: Parameters<typeof setWorkDetails>[2] = {};
 		if (editTitle.trim() !== work.title) details.title = editTitle.trim();
 		if (editOutcome.trim() !== work.outcome.trim()) details.outcome = editOutcome.trim();
@@ -830,29 +836,28 @@
 
 			{#if editing && work}
 				<form
-					class="work-steer-form work-edit-form"
+					class="form work-edit-form"
 					onsubmit={(event) => {
 						event.preventDefault();
 						void saveEdit();
 					}}
 				>
-					<label><span>Title</span><input bind:value={editTitle} maxlength="200" required /></label>
-					<label><span>Brief</span><textarea bind:value={editOutcome} rows="6"></textarea></label>
-					<label
-						><span>Expected output</span><input
-							bind:value={editExpected}
-							placeholder="What it should produce"
-						/></label
-					>
-					{#if editFailure}<p class="steer-failure" role="alert">{editFailure}</p>{/if}
-					<div class="steer-actions">
-						<button class="btn small primary" disabled={editBusy || !editTitle.trim()}
-							>{editBusy ? 'Saving…' : 'Save'}</button
-						>
-						<button class="btn small ghost" type="button" onclick={() => (editing = false)}
-							>Cancel</button
-						>
-					</div>
+					<Field label="Title" for="work-edit-title">
+						<input id="work-edit-title" bind:value={editTitle} maxlength="200" required />
+					</Field>
+					<Field label="Brief" for="work-edit-brief">
+						<textarea id="work-edit-brief" bind:value={editOutcome} rows="6"></textarea>
+					</Field>
+					<Field label="Expected output" hint="What it should produce." for="work-edit-output">
+						<input id="work-edit-output" bind:value={editExpected} />
+					</Field>
+					{#if editFailure}<p class="form-error" role="alert">{editFailure}</p>{/if}
+					<FormFoot
+						submit="Save"
+						busy={editBusy}
+						busyLabel="Saving…"
+						oncancel={() => (editing = false)}
+					/>
 				</form>
 			{/if}
 
@@ -1482,21 +1487,8 @@
 		flex-basis: 100%;
 		margin: 0;
 	}
-	.work-edit-form label {
-		display: grid;
-		gap: 4px;
-	}
-	.work-edit-form label span {
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-	}
-	.work-edit-form input {
-		padding: 6px 10px;
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-control);
-		background: var(--surface-raised);
-		color: var(--ink);
-		font: inherit;
+	.work-edit-form {
+		max-width: 720px;
 	}
 	.workspace-path {
 		font-size: var(--t-label);

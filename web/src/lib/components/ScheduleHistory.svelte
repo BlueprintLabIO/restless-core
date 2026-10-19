@@ -1,6 +1,7 @@
 <script lang="ts">
 	/* A schedule's runs, fired and skipped, so a skipped run never disappears silently; a skipped
 	 * one can be recovered with one wake. Beside them, what happens when a run is missed. */
+	import Field from '$lib/ui/forms/Field.svelte';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { Dot, Notice } from '$lib/ui/page';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
@@ -91,32 +92,36 @@
 {#if canManage}
 	<details class="history-settings">
 		<summary>Dispatch history</summary>
-		<form class="policy" onsubmit={savePolicy}>
-			<label
+		<form class="form plain" onsubmit={savePolicy}>
+			<Field
+				label="When a run is missed"
+				info="When the computer was asleep or off at a run's time. Skipped runs stay in the list below, and can be recovered."
 				for={`missed-${schedule.id}`}
-				title="When the computer was asleep or off at a run's time. Skipped runs stay in the list below, and can be recovered."
-				>When a run is missed</label
 			>
-			<select id={`missed-${schedule.id}`} bind:value={policy} disabled={!!busy}>
-				{#each POLICIES as option (option.value)}<option value={option.value}>{option.label}</option
-					>{/each}
-			</select>
-			{#if policy !== 'skip'}
-				<label for={`grace-${schedule.id}`}>if less than</label>
-				<input
-					id={`grace-${schedule.id}`}
-					class="hours"
-					type="number"
-					min="1"
-					max="168"
-					step="1"
-					bind:value={hours}
-					disabled={!!busy}
-				/><span>hours late</span>
-			{/if}
-			{#if changed}<button class="btn small" disabled={!!busy}
-					>{busy === 'policy' ? 'Saving…' : 'Save'}</button
-				>{/if}
+				<div class="form-inline">
+					<select id={`missed-${schedule.id}`} bind:value={policy} disabled={!!busy}>
+						{#each POLICIES as option (option.value)}<option value={option.value}
+								>{option.label}</option
+							>{/each}
+					</select>
+					{#if policy !== 'skip'}
+						<label for={`grace-${schedule.id}`}>if less than</label>
+						<input
+							id={`grace-${schedule.id}`}
+							class="amount"
+							type="number"
+							min="1"
+							max="168"
+							step="1"
+							bind:value={hours}
+							disabled={!!busy}
+						/><span>hours late</span>
+					{/if}
+					{#if changed}<button class="btn small primary" disabled={!!busy}
+							>{busy === 'policy' ? 'Saving…' : 'Save'}</button
+						>{/if}
+				</div>
+			</Field>
 		</form>
 		{#if history.error}<Notice tone="warning" title="Run history is unavailable" />{/if}
 		{#if history.data?.length}
@@ -167,19 +172,6 @@
 	.runs {
 		max-height: 280px;
 		overflow-y: auto;
-	}
-	.policy {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: var(--space-2);
-		font-size: var(--t-body);
-	}
-	.policy label:first-child {
-		color: var(--text-tertiary);
-	}
-	.hours {
-		width: 4.5rem;
 	}
 	.runs {
 		display: grid;

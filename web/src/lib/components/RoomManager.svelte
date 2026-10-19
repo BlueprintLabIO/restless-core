@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { failureSentence } from '$lib/model/failure';
+	import Field from '$lib/ui/forms/Field.svelte';
+	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
 	import { initials } from '$lib/model/initials';
 	import Plus from '@lucide/svelte/icons/plus';
 	import Users from '@lucide/svelte/icons/users';
@@ -275,7 +277,11 @@
 		const requestedActorId = actorId;
 		const requestedScope = scopeKey;
 		const requestedParticipants = uniqueParticipantIds(selected);
-		if (!requestedCompanyId || !requestedActorId || !requestedParticipants.length) return;
+		if (!requestedCompanyId || !requestedActorId) return;
+		if (!requestedParticipants.length) {
+			failure = 'Choose who should be in it.';
+			return;
+		}
 		const addingPeople = initialParticipants.length > 0;
 		const includesAdditionalPerson = requestedParticipants.some(
 			(id) => !initialParticipantSet.has(id)
@@ -427,73 +433,80 @@
 		>
 	</header>
 	{#if room}
-		{#if canManage}
-			<form
-				class="rename"
-				onsubmit={(event) => {
-					event.preventDefault();
-					void lifecycle('rename');
-				}}
-			>
-				<label
-					>Name<input
-						bind:this={renameInput}
-						bind:value={renaming}
-						maxlength={160}
-						autocomplete="off"
-						disabled={busy}
-						aria-label="Conversation name"
-					/></label
-				>
-				{#if renaming.trim() && renaming.trim() !== room.title}<button type="submit" disabled={busy}
-						>Rename</button
-					>{/if}
-			</form>
-		{/if}
-		<div class="member-list">
-			{#each active as member (member.actor_id)}
-				<div class="member">
-					<span>{displayFor(member.actor_id)}{member.actor_id === actorId ? ' (you)' : ''}</span>
-					{#if member.role === 'owner'}<span class="muted">Owner</span>{:else if canManage}<span
-							class="member-actions"
-							>{#if room.kind === 'group' && isPerson(member.actor_id)}<button
-									type="button"
-									disabled={busy}
-									title="Hand the group to them; you stay as a member"
-									onclick={() => void handOver(member.actor_id)}>Make owner</button
-								>{/if}<button
-								type="button"
-								disabled={busy}
-								onclick={() => membership(member.actor_id, false)}
-								aria-label={`Remove ${people.find((p) => p.actor_id === member.actor_id)?.display ?? member.actor_id}`}
-								>Remove</button
-							></span
-						>{/if}
+		<form
+			class="form flush"
+			onsubmit={(event) => {
+				event.preventDefault();
+				if (canManage) void lifecycle('rename');
+			}}
+		>
+			{#if canManage}
+				<Field label="Name" for={`${dialogId}-name`}>
+					<div class="form-inline name-line">
+						<input
+							id={`${dialogId}-name`}
+							bind:this={renameInput}
+							bind:value={renaming}
+							maxlength={160}
+							autocomplete="off"
+							disabled={busy}
+						/>
+						{#if renaming.trim() && renaming.trim() !== room.title}<button
+								class="btn small"
+								type="submit"
+								disabled={busy}>Rename</button
+							>{/if}
+					</div>
+				</Field>
+			{/if}
+			<Field label="Members">
+				<div class="member-list">
+					{#each active as member (member.actor_id)}
+						<div class="member">
+							<span>{displayFor(member.actor_id)}{member.actor_id === actorId ? ' (you)' : ''}</span
+							>
+							{#if member.role === 'owner'}<span class="muted">Owner</span>{:else if canManage}<span
+									class="member-actions"
+									>{#if room.kind === 'group' && isPerson(member.actor_id)}<button
+											type="button"
+											disabled={busy}
+											title="Hand the group to them; you stay as a member"
+											onclick={() => void handOver(member.actor_id)}>Make owner</button
+										>{/if}<button
+										type="button"
+										disabled={busy}
+										onclick={() => membership(member.actor_id, false)}
+										aria-label={`Remove ${people.find((p) => p.actor_id === member.actor_id)?.display ?? member.actor_id}`}
+										>Remove</button
+									></span
+								>{/if}
+						</div>
+					{/each}
 				</div>
-			{/each}
-		</div>
-		{#if canManage}
-			<p class="history-note" id={`${dialogId}-history-note`}>
-				People added here can read the conversation that is already in this room.
-			</p>
-			<label
-				>Add a member<select
-					aria-label="Add a member"
-					aria-describedby={`${dialogId}-history-note`}
-					disabled={busy}
-					value=""
-					onchange={(event) => {
-						const value = event.currentTarget.value;
-						event.currentTarget.value = '';
-						if (value) void membership(value, true);
-					}}
-					><option value="">Choose a person…</option
-					>{#each availablePeople.filter((p) => !active.some((m) => m.actor_id === p.actor_id)) as person}<option
-							value={person.actor_id}>{person.display}</option
-						>{/each}</select
-				></label
-			>
-		{/if}
+			</Field>
+			{#if canManage}
+				<Field
+					label="Add a member"
+					hint="They can read what is already in this conversation."
+					for={`${dialogId}-add`}
+				>
+					<select
+						id={`${dialogId}-add`}
+						disabled={busy}
+						value=""
+						onchange={(event) => {
+							const value = event.currentTarget.value;
+							event.currentTarget.value = '';
+							if (value) void membership(value, true);
+						}}
+						><option value="">Choose a person…</option
+						>{#each availablePeople.filter((p) => !active.some((m) => m.actor_id === p.actor_id)) as person}<option
+								value={person.actor_id}>{person.display}</option
+							>{/each}</select
+					>
+				</Field>
+			{/if}
+		</form>
 		{#if canLeave}
 			<div class="room-exit">
 				{#if confirmLeave}
@@ -541,90 +554,77 @@
 			</div>
 		{/if}
 	{:else}
-		<form onsubmit={create}>
-			{#if !initialParticipants.length}<label
-					>Conversation name (optional)<input
+		<form class="form flush" onsubmit={create}>
+			{#if !initialParticipants.length}
+				<Field label="Name" hint="Optional" for={`${dialogId}-title`}>
+					<input
+						id={`${dialogId}-title`}
 						bind:value={title}
 						maxlength={160}
 						autocomplete="off"
 						disabled={busy}
-					/></label
-				>{/if}
-			<fieldset disabled={busy}>
-				<legend
-					>Members{#if selected.length}<span class="muted">{` · ${selected.length} chosen`}</span
-						>{/if}</legend
-				>
-				{#if availablePeople.length > 6}<input
-						class="picker-filter"
-						type="search"
-						placeholder="Find people or a team"
-						aria-label="Find people or a team"
-						autocomplete="off"
-						bind:value={pickerQuery}
-					/>{/if}
-				<div class="member-list">
-					{#each pickerGroups as group (group.label)}
-						<div class="picker-group" role="group" aria-label={group.label}>
-							{#if pickerGroups.length > 1}<p class="picker-head">{group.label}</p>{/if}
-							{#each group.people as person (person.actor_id)}<label class="choice"
-									><input
-										type="checkbox"
-										disabled={initialParticipantSet.has(person.actor_id)}
-										bind:group={selected}
-										value={person.actor_id}
-									/><span class="avatar" aria-hidden="true">{initials(person.display)}</span
-									>{person.display}</label
-								>{/each}
-						</div>
-					{:else}
-						<p class="muted">Nobody matches.</p>
-					{/each}
-				</div>
-			</fieldset>
+					/>
+				</Field>
+			{/if}
+			<Field label="Members" hint={selected.length ? `${selected.length} chosen` : ''}>
+				<fieldset class="picker" disabled={busy}>
+					{#if availablePeople.length > 6}<input
+							class="picker-filter"
+							type="search"
+							placeholder="Find people or a team"
+							aria-label="Find people or a team"
+							autocomplete="off"
+							bind:value={pickerQuery}
+						/>{/if}
+					<div class="member-list">
+						{#each pickerGroups as group (group.label)}
+							<div class="picker-group" role="group" aria-label={group.label}>
+								{#if pickerGroups.length > 1}<p class="picker-head">{group.label}</p>{/if}
+								{#each group.people as person (person.actor_id)}<label class="choice"
+										><input
+											type="checkbox"
+											disabled={initialParticipantSet.has(person.actor_id)}
+											bind:group={selected}
+											value={person.actor_id}
+										/><span class="avatar" aria-hidden="true">{initials(person.display)}</span
+										>{person.display}</label
+									>{/each}
+							</div>
+						{:else}
+							<p class="muted">Nobody matches.</p>
+						{/each}
+					</div>
+				</fieldset>
+			</Field>
 			{#if initialParticipants.length}
-				{#if contextOpen}<label
-						>Context<textarea
+				<Field
+					label="Context"
+					hint="Opens as a draft in the new group, to send when you are ready."
+					for={`${dialogId}-context`}
+				>
+					{#if contextOpen}<textarea
+							id={`${dialogId}-context`}
 							bind:value={context}
 							rows="3"
 							disabled={busy}
-							placeholder="What the group should know…"></textarea></label
-					>
-					<p class="muted">It opens as a draft in the new group; send it when you are ready.</p>
-				{:else}<button type="button" class="add-context" onclick={() => (contextOpen = true)}
-						>Add context</button
-					>{/if}
+							placeholder="What the group should know…"></textarea>
+					{:else}<button type="button" class="btn small" onclick={() => (contextOpen = true)}
+							>Add context</button
+						>{/if}
+				</Field>
 			{/if}
-			<button
-				class="create"
-				type="submit"
-				disabled={busy ||
-					!selected.length ||
-					(!!initialParticipants.length && selected.every((id) => initialParticipantSet.has(id)))}
-				>{busy
-					? 'Opening…'
-					: initialParticipants.length
-						? 'Start group'
-						: 'Start conversation'}</button
-			>
+			{#if failure}<p class="form-error" role="alert">{failure}</p>{/if}
+			<FormFoot
+				submit={initialParticipants.length ? 'Start group' : 'Start conversation'}
+				{busy}
+				busyLabel="Opening…"
+			/>
 		</form>
 	{/if}
-	{#if failure}<p class="failure" role="alert">{failure}</p>{/if}
+	{#if failure && room}<p class="failure" role="alert">{failure}</p>{/if}
 </dialog>
 
 <style>
-	textarea {
-		width: 100%;
-		box-sizing: border-box;
-		resize: vertical;
-		padding: 8px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
-		background: var(--surface);
-		color: var(--ink);
-		font: inherit;
-		font-size: var(--t-body);
-	}
 	.room-manage-trigger {
 		gap: 5px;
 	}
@@ -665,31 +665,22 @@
 		border: 0;
 		color: inherit;
 	}
-	label {
-		display: grid;
-		gap: 8px;
-		margin-block: 12px;
-		font-size: var(--t-body);
-	}
-	input:not([type='checkbox']),
-	select {
+	.picker {
 		width: 100%;
 		min-width: 0;
-		padding: 8px;
-		border: 1px solid var(--border);
-		border-radius: 5px;
-		background: var(--surface);
-		color: inherit;
-	}
-	fieldset {
-		min-width: 0;
+		margin: 0;
 		padding: 0;
 		border: 0;
 	}
-	legend {
-		font-size: var(--t-body);
+	.name-line {
+		flex-wrap: nowrap;
+		width: 100%;
+	}
+	.name-line input {
+		flex: 1;
 	}
 	.member-list {
+		width: 100%;
 		max-height: 260px;
 		overflow: auto;
 	}
@@ -708,6 +699,7 @@
 	}
 	.choice {
 		display: flex;
+		min-height: 32px;
 		align-items: center;
 		gap: 10px;
 	}
@@ -723,18 +715,6 @@
 		font-size: var(--t-label);
 		font-weight: 600;
 	}
-	.add-context {
-		justify-self: start;
-		padding: 0;
-		border: 0;
-		background: none;
-		color: var(--text-secondary);
-		font: inherit;
-		font-size: var(--t-label);
-		text-decoration: underline;
-		text-underline-offset: 2px;
-		cursor: pointer;
-	}
 	.member {
 		min-height: 38px;
 		font-size: var(--t-body);
@@ -742,8 +722,7 @@
 	.member span:first-child {
 		overflow-wrap: anywhere;
 	}
-	.member button,
-	.create {
+	.member button {
 		border: 1px solid var(--border);
 		border-radius: 5px;
 		padding: 6px 10px;
@@ -751,26 +730,10 @@
 		color: inherit;
 		cursor: pointer;
 	}
-	.create {
-		display: block;
-		margin-left: auto;
-		margin-top: 16px;
-	}
 	.muted {
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
-	.rename {
-		display: flex;
-		align-items: flex-end;
-		gap: 8px;
-		margin-bottom: 8px;
-	}
-	.rename label {
-		flex: 1;
-		margin-block: 0;
-	}
-	.rename button,
 	.room-exit button {
 		flex: none;
 		border: 1px solid var(--border);
@@ -799,12 +762,6 @@
 	.room-exit .danger {
 		border-color: color-mix(in srgb, var(--state-danger) 40%, var(--border));
 		color: var(--state-danger);
-	}
-	.history-note {
-		margin: 12px 0;
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-		line-height: 1.45;
 	}
 	.failure {
 		color: var(--intent-danger, #a22);

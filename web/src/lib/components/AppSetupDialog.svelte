@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Dialog from '$lib/ui/controls/Dialog.svelte';
-	import { Notice } from '$lib/ui/page';
+	import Field from '$lib/ui/forms/Field.svelte';
+	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { addConnection, importPlugin } from '$lib/model/connections';
 	import { composeSkillMd, createSkill, skillSlug } from '$lib/model/skills';
@@ -37,6 +38,26 @@
 	async function submit(event: SubmitEvent) {
 		event.preventDefault();
 		if (busy) return;
+		const missing =
+			mode === 'skill'
+				? !skillSlug(name)
+					? 'Give it a name.'
+					: !when.trim()
+						? 'Say when to use it.'
+						: !steps.trim()
+							? 'Say how to do it.'
+							: ''
+				: mode === 'link'
+					? link.trim()
+						? ''
+						: 'Paste a link or a command.'
+					: need.trim()
+						? ''
+						: 'Say what the company should be able to do.';
+		if (missing) {
+			failure = missing;
+			return;
+		}
 		const target = company;
 		busy = true;
 		failure = '';
@@ -92,92 +113,43 @@
 </script>
 
 <Dialog {title} {busy} {onclose}>
-	<form onsubmit={submit}>
-		{#if failure}<Notice tone="danger" title={failure} />{/if}
-		<fieldset disabled={busy}>
-			{#if mode === 'link'}
-				<label
-					>Link or command<input
-						bind:value={link}
-						required
-						autocomplete="off"
-						placeholder="Service address, GitHub link or local command"
-					/></label
-				>
-			{:else if mode === 'skill'}
-				<label
-					>Name<input
-						bind:value={name}
-						required
-						autocomplete="off"
-						placeholder="Reply to refund requests"
-					/></label
-				>
-				<label>When to use it<input bind:value={when} required autocomplete="off" /></label>
-				<label
-					>How to do it<textarea
-						bind:value={steps}
-						required
-						rows="8"
-						placeholder="Steps, standards and what to avoid"></textarea></label
-				>
-			{:else}
-				<label
-					>What should the company be able to do?<textarea bind:value={need} required rows="4"
-					></textarea></label
-				>
-			{/if}
-		</fieldset>
-		<footer>
-			<button class="btn small ghost" type="button" disabled={busy} onclick={onclose}>Cancel</button
+	<form class="form flush" onsubmit={submit}>
+		{#if mode === 'link'}
+			<Field
+				label="Link or command"
+				hint="A service address, a GitHub link or a local command."
+				for="setup-link"
 			>
-			<button
-				class="btn small primary"
-				type="submit"
-				disabled={busy ||
-					(mode === 'skill' && !skillSlug(name)) ||
-					(mode === 'link' && !link.trim()) ||
-					(mode === 'ask' && !need.trim())}
-				>{busy
-					? 'Saving…'
-					: mode === 'skill'
-						? 'Save for review'
-						: mode === 'ask'
-							? 'Ask Exec'
-							: 'Add'}</button
-			>
-		</footer>
+				<input id="setup-link" bind:value={link} required autocomplete="off" disabled={busy} />
+			</Field>
+		{:else if mode === 'skill'}
+			<Field label="Name" for="setup-name">
+				<input
+					id="setup-name"
+					bind:value={name}
+					required
+					autocomplete="off"
+					placeholder="Reply to refund requests"
+					disabled={busy}
+				/>
+			</Field>
+			<Field label="When to use it" for="setup-when">
+				<input id="setup-when" bind:value={when} required autocomplete="off" disabled={busy} />
+			</Field>
+			<Field label="How to do it" hint="Steps, standards and what to avoid." for="setup-steps">
+				<textarea id="setup-steps" bind:value={steps} required rows="8" disabled={busy}></textarea>
+			</Field>
+		{:else}
+			<Field label="What should the company be able to do?" for="setup-need">
+				<textarea id="setup-need" bind:value={need} required rows="4" disabled={busy}></textarea>
+			</Field>
+		{/if}
+		{#if failure}<p class="form-error" role="alert">{failure}</p>{/if}
+		<FormFoot
+			submit={mode === 'skill' ? 'Save for review' : mode === 'ask' ? 'Ask Exec' : 'Add'}
+			{busy}
+			busyLabel="Saving…"
+			oncancel={busy ? undefined : onclose}
+		/>
 	</form>
 </Dialog>
-
-<style>
-	form,
-	fieldset,
-	label {
-		display: grid;
-		gap: 8px;
-		min-width: 0;
-	}
-	form {
-		gap: 20px;
-	}
-	fieldset {
-		border: 0;
-		padding: 0;
-		margin: 0;
-		gap: 16px;
-	}
-	label {
-		font-size: var(--t-body);
-		color: var(--text-secondary);
-	}
-	textarea {
-		resize: vertical;
-		min-width: 0;
-	}
-	footer {
-		display: flex;
-		justify-content: flex-end;
-		gap: 8px;
-	}
-</style>

@@ -231,6 +231,28 @@
 	text-transform: uppercase;
 }
 
+/* Options a person rarely needs, folded under one quiet line: <details class="form-more">. */
+:is(.bridge-root, .bridge-tokens) .form-more > summary {
+	padding: 10px 16px;
+	border-top: 1px solid var(--border);
+	color: var(--text-tertiary);
+	font-size: var(--t-label);
+	cursor: pointer;
+}
+
+:is(.bridge-root, .bridge-tokens) .form-more > summary:hover,
+:is(.bridge-root, .bridge-tokens) .form-more[open] > summary {
+	color: var(--text-secondary);
+}
+
+:is(.bridge-root, .bridge-tokens) .form-more > .form-row {
+	border-top: 1px solid var(--border);
+}
+
+:is(.bridge-root, .bridge-tokens) .form.flush .form-more > summary {
+	padding-inline: 0;
+}
+
 /* What went wrong, in the form, above its footer. */
 :is(.bridge-root, .bridge-tokens) .form-error {
 	margin: 0;

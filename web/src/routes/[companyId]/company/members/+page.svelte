@@ -4,6 +4,9 @@
 	import { mayManageCompanySetup } from '$lib/model/company-access';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { Page, Section, Item, Notice, Empty } from '$lib/ui/page';
+	import Field from '$lib/ui/forms/Field.svelte';
+	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
+	import Segmented from '$lib/ui/page/Segmented.svelte';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import UserPlus from '@lucide/svelte/icons/user-plus';
 	import Mail from '@lucide/svelte/icons/mail';
@@ -246,7 +249,7 @@
 		if (!emails.length) {
 			failure = invalid.length
 				? `${invalid.join(', ')} ${invalid.length === 1 ? 'is not an email address' : 'are not email addresses'}.`
-				: '';
+				: 'Enter at least one email address.';
 			return;
 		}
 		busy = 'invite';
@@ -458,32 +461,45 @@
 		</Notice>
 	{:else if issuer && viewer}
 		{#if inviting}
-			<form class="invite" onsubmit={invite}>
-				<input
-					aria-label="Emails to invite"
-					type="text"
-					inputmode="email"
-					autocomplete="off"
-					spellcheck="false"
-					placeholder="colleague@example.com, another@example.com"
-					title="Paste several addresses, separated by commas or spaces"
-					required
-					bind:value={inviteEmail}
+			<form class="form invite" onsubmit={invite}>
+				<Field
+					label="Emails"
+					hint="Paste several, separated by commas or spaces."
+					for="invite-emails"
+				>
+					<input
+						id="invite-emails"
+						type="text"
+						inputmode="email"
+						autocomplete="off"
+						spellcheck="false"
+						placeholder="colleague@example.com"
+						required
+						bind:value={inviteEmail}
+					/>
+				</Field>
+				{#if viewer.role === 'owner'}
+					<Field
+						label="Access"
+						info="Members work in the company. Admins can also invite and remove members. Only the owner adds or changes admins."
+					>
+						<Segmented
+							label="Access"
+							options={[
+								{ value: 'member', label: 'Member' },
+								{ value: 'admin', label: 'Admin' }
+							]}
+							bind:value={inviteRole}
+						/>
+					</Field>
+				{/if}
+				<FormFoot
+					note={viewer.role === 'owner' ? '' : 'They join as members.'}
+					submit="Send invite"
+					busy={busy === 'invite'}
+					busyLabel="Sending…"
+					oncancel={() => (inviting = false)}
 				/>
-				<select
-					aria-label="Access"
-					bind:value={inviteRole}
-					title="Members work in the company. Admins can also invite and remove members. Only the owner adds or changes admins."
-				>
-					<option value="member">Member</option>
-					{#if viewer.role === 'owner'}<option value="admin">Admin</option>{/if}
-				</select>
-				<button class="btn small primary" type="submit" disabled={busy === 'invite'}
-					>{busy === 'invite' ? 'Sending…' : 'Send invite'}</button
-				>
-				<button class="btn small ghost" type="button" onclick={() => (inviting = false)}
-					>Cancel</button
-				>
 			</form>
 		{/if}
 
@@ -640,15 +656,6 @@
 		font-weight: 600;
 	}
 	.invite {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto auto auto;
-		gap: var(--space-2);
-		align-items: center;
-		padding: 12px;
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-lg);
-		background: var(--surface-raised);
-		box-shadow: var(--shadow-soft);
 		animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
 	}
 	.role {
@@ -660,10 +667,5 @@
 	}
 	.state.pending {
 		color: var(--intent-authority);
-	}
-	@container page (max-width: 560px) {
-		.invite {
-			grid-template-columns: 1fr;
-		}
 	}
 </style>

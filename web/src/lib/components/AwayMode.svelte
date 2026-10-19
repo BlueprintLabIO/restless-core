@@ -2,6 +2,8 @@
 	/* "I'm away until …": one setting that pauses the schedules the owner picks, names an admin
 	 * who may answer single approvals meanwhile, and keeps Telegram to what blocks the company.
 	 * It ends on the date, or when the owner says they are back; what it paused resumes. */
+	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
+	import Field from '$lib/ui/forms/Field.svelte';
 	import { Section, Row, Item, Notice } from '$lib/ui/page';
 	import { failureSentence } from '$lib/model/failure';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
@@ -116,42 +118,45 @@
 		/>
 	{:else if editing}
 		<form
-			class="away-form"
+			class="form plain"
 			onsubmit={(event) => {
 				event.preventDefault();
 				void save();
 			}}
 		>
-			<label>Back on <input type="date" required bind:value={until} disabled={saving} /></label>
-			<label title="An active admin who may allow or decline single approvals while you are away"
-				>Deputy
-				<select bind:value={deputy} disabled={saving}>
+			<Field label="Back on" for="away-until">
+				<input id="away-until" type="date" required bind:value={until} disabled={saving} />
+			</Field>
+			<Field
+				label="Deputy"
+				hint="An active admin who may allow or decline single approvals while you are away."
+				for="away-deputy"
+			>
+				<select id="away-deputy" bind:value={deputy} disabled={saving}>
 					<option value="">Nobody; approvals wait for me</option>
 					{#each admins as admin (admin.actor_id)}<option value={admin.actor_id}
 							>{admin.display}</option
 						>{/each}
 				</select>
-			</label>
+			</Field>
 			{#if schedules.length}
-				<fieldset disabled={saving}>
-					<legend>Pause while I’m away</legend>
-					{#each schedules as item (item.schedule.id)}<label class="check"
-							><input type="checkbox" value={item.schedule.id} bind:group={pause} />{item.schedule
-								.reason}</label
+				<Field label="Pause while I’m away">
+					{#each schedules as item (item.schedule.id)}<label class="form-check"
+							><input
+								type="checkbox"
+								value={item.schedule.id}
+								bind:group={pause}
+								disabled={saving}
+							/>{item.schedule.reason}</label
 						>{/each}
-				</fieldset>
+				</Field>
 			{/if}
-			<div class="buttons">
-				<button class="btn primary small" disabled={saving || !until}
-					>{saving ? 'Turning on…' : 'Turn on away mode'}</button
-				>
-				<button
-					class="btn small ghost"
-					type="button"
-					disabled={saving}
-					onclick={() => (editing = false)}>Cancel</button
-				>
-			</div>
+			<FormFoot
+				submit="Turn on away mode"
+				busy={saving}
+				busyLabel="Turning on…"
+				oncancel={() => (editing = false)}
+			/>
 		</form>
 	{:else}
 		<Row label="Away mode">
@@ -167,39 +172,5 @@
 <style>
 	.quiet {
 		color: var(--text-tertiary);
-	}
-	.away-form {
-		display: grid;
-		gap: var(--space-3);
-		padding: 12px 16px;
-		font-size: var(--t-body);
-	}
-	.away-form label {
-		display: grid;
-		gap: 4px;
-		max-width: 320px;
-		color: var(--text-secondary);
-	}
-	.away-form fieldset {
-		display: grid;
-		gap: 6px;
-		margin: 0;
-		padding: 0;
-		border: 0;
-	}
-	.away-form legend {
-		margin-bottom: 4px;
-		color: var(--text-secondary);
-	}
-	.away-form .check {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		max-width: none;
-		color: var(--ink);
-	}
-	.buttons {
-		display: flex;
-		gap: var(--space-2);
 	}
 </style>

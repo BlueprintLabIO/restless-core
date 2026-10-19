@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Field from '$lib/ui/forms/Field.svelte';
+	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
 	import Dialog from '$lib/ui/controls/Dialog.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import ResizableSidebar from '$lib/components/ResizableSidebar.svelte';
@@ -734,7 +736,11 @@
 
 	function saveGoal() {
 		const row = selectedGoalRow;
-		if (!row || !goalTitle.trim()) return;
+		if (!row) return;
+		if (!goalTitle.trim()) {
+			goalFailure = 'Give the goal a name.';
+			return;
+		}
 		const details: Parameters<typeof setGoalDetails>[2] = {};
 		if (goalTitle.trim() !== row.title) details.title = goalTitle.trim();
 		if (goalDoneWhen.trim() !== finishLine(row)) details.done_when = goalDoneWhen.trim();
@@ -1248,30 +1254,28 @@
 {#if goalEditing && selectedGoalRow}
 	<Dialog title="Edit goal" busy={goalBusy} onclose={() => (goalEditing = false)}>
 		<form
-			class="goal-form"
+			class="form flush"
 			onsubmit={(event) => {
 				event.preventDefault();
 				saveGoal();
 			}}
 		>
-			<label><span>Goal</span><input bind:value={goalTitle} required /></label>
-			<label
-				><span>Done when</span><input
-					bind:value={goalDoneWhen}
-					maxlength="400"
-					placeholder="What you will see when it is done"
-				/></label
-			>
-			<label><span>Due</span><input type="date" bind:value={goalDue} /></label>
-			<div class="goal-form-actions">
-				<button class="btn small primary" disabled={goalBusy || !goalTitle.trim()}
-					>{goalBusy ? 'Saving…' : 'Save'}</button
-				>
-				<button class="btn small ghost" type="button" onclick={() => (goalEditing = false)}
-					>Cancel</button
-				>
-			</div>
-			{#if goalFailure}<p class="standard-failure" role="alert">{goalFailure}</p>{/if}
+			<Field label="Goal" for="goal-title">
+				<input id="goal-title" bind:value={goalTitle} required />
+			</Field>
+			<Field label="Done when" hint="What you will see when it is done." for="goal-done">
+				<input id="goal-done" bind:value={goalDoneWhen} maxlength="400" />
+			</Field>
+			<Field label="Due" hint="Optional" for="goal-due">
+				<input id="goal-due" type="date" bind:value={goalDue} />
+			</Field>
+			{#if goalFailure}<p class="form-error" role="alert">{goalFailure}</p>{/if}
+			<FormFoot
+				submit="Save"
+				busy={goalBusy}
+				busyLabel="Saving…"
+				oncancel={() => (goalEditing = false)}
+			/>
 		</form>
 	</Dialog>
 {/if}
@@ -1416,33 +1420,6 @@
 		margin: 0;
 		color: var(--text-secondary);
 		font-size: var(--t-label);
-	}
-	.goal-form {
-		display: grid;
-		gap: 8px;
-		max-width: 520px;
-	}
-	.goal-form label {
-		display: grid;
-		gap: 4px;
-	}
-	.goal-form label span {
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-	}
-	.goal-form input {
-		padding: 6px 10px;
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-control);
-		background: var(--surface-raised);
-		color: var(--ink);
-		font: inherit;
-	}
-	.goal-form-actions {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 6px;
 	}
 	.body {
 		min-height: 0;

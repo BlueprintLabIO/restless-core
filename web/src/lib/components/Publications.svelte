@@ -1,6 +1,7 @@
 <script lang="ts">
 	/* What the company put online, and the owner's controls over it: authorise a prepared build,
 	 * invite people, revoke an invitation at once, and stop it. */
+	import Field from '$lib/ui/forms/Field.svelte';
 	import { Section, Item, Notice, Fold, Dot } from '$lib/ui/page';
 	import CopyButton from '$lib/ui/controls/CopyButton.svelte';
 	import { failureSentence } from '$lib/model/failure';
@@ -206,34 +207,40 @@
 				<div class="manage">
 					{#if meta(item).audience === 'named-invitees'}
 						<form
-							class="invite"
+							class="form plain"
 							onsubmit={(event) => {
 								event.preventDefault();
 								void invite(item, publication);
 							}}
 						>
-							<label for={`invitee-${publication}`} class="sr-only">Invite who</label>
-							<input
-								id={`invitee-${publication}`}
-								type="text"
-								required
-								maxlength="200"
-								placeholder="Who is it for"
-								bind:value={invitee}
-								disabled={!!busy}
-								title="A name or address that identifies the person; the invitation is scoped to them"
-							/>
-							<label for={`days-${publication}`}>for</label>
-							<input
-								id={`days-${publication}`}
-								class="days"
-								type="number"
-								min="1"
-								max="90"
-								bind:value={days}
-								disabled={!!busy}
-							/><span>days</span>
-							<button class="btn small" disabled={!!busy || !invitee.trim()}>Invite</button>
+							<Field
+								label="Invite"
+								hint="A name or address for them. The code works only for them."
+								for={`invitee-${publication}`}
+							>
+								<div class="form-inline">
+									<input
+										id={`invitee-${publication}`}
+										type="text"
+										required
+										maxlength="200"
+										placeholder="Who is it for"
+										bind:value={invitee}
+										disabled={!!busy}
+									/>
+									<label for={`days-${publication}`}>for</label>
+									<input
+										id={`days-${publication}`}
+										class="amount"
+										type="number"
+										min="1"
+										max="90"
+										bind:value={days}
+										disabled={!!busy}
+									/><span>days</span>
+									<button class="btn small primary" disabled={!!busy}>Invite</button>
+								</div>
+							</Field>
 						</form>
 					{/if}
 					{#if issued}
@@ -287,20 +294,6 @@
 		display: grid;
 		gap: var(--space-2);
 		padding: var(--space-2) 0 var(--space-3) var(--space-5);
-	}
-	.invite {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: var(--space-2);
-		font-size: var(--t-body);
-	}
-	.invite input[type='text'] {
-		flex: 1;
-		min-width: 10rem;
-	}
-	.days {
-		width: 4rem;
 	}
 	.bar {
 		display: flex;

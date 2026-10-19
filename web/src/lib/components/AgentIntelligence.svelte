@@ -9,6 +9,8 @@
 	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
 	import { Section, Item, Notice, Empty } from '$lib/ui/page';
+	import Field from '$lib/ui/forms/Field.svelte';
+	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
 	import Bot from '@lucide/svelte/icons/bot';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	const catalog = modelCatalog();
@@ -148,6 +150,10 @@
 	}
 	async function save(reset = false) {
 		if (!source.view || busy) return;
+		if (!reset && (!connection || !model.trim())) {
+			error = connection ? 'Enter the full model ID.' : 'Choose a connection.';
+			return;
+		}
 		busy = true;
 		error = '';
 		try {
@@ -219,14 +225,15 @@
 				{/snippet}
 				{#if editing === agent.id}
 					<form
-						class="editor"
+						class="form plain"
 						onsubmit={(event) => {
 							event.preventDefault();
 							void save();
 						}}
 					>
-						<label
-							><span>Connection</span><select
+						<Field label="Connection" for={`connection-${agent.id}`}>
+							<select
+								id={`connection-${agent.id}`}
 								value={accounts.find((c) => account(c.id) === account(connection))?.id ?? ''}
 								onchange={(event) => {
 									const next = event.currentTarget.value;
@@ -245,31 +252,19 @@
 											: 'Ready once the company restarts, which it does on its own.'}
 										>{label(c.id.replace(/^account-harness:[^:]+:/, 'account:'))}</option
 									>{/each}</select
-							></label
-						>
-						{#if harnesses.length > 1}<details
-								class="runs-with"
-								open={harnessName(connection) !== 'Built in'}
 							>
-								<summary>More options</summary>
-								<label
-									title="Which agent program runs this model. Built in is the default; Claude Code and Codex are the model makers' own programs."
-									><span>Runs with</span><select
-										value={connection}
-										disabled={busy}
-										onchange={(event) => (connection = event.currentTarget.value)}
-										>{#each harnesses as c}<option value={c.id}>{harnessName(c.id)}</option
-											>{/each}</select
-									></label
-								>
-							</details>{/if}
-						<label
-							title={selected?.kind === 'harness'
+						</Field>
+						<Field
+							label="Model"
+							hint={selected?.kind === 'harness'
 								? selected.models?.length
-									? 'Models offered by this connection.'
-									: 'Catalog suggestions; the connection confirms availability.'
-								: undefined}
-							><span>Model</span><select
+									? 'Offered by this connection.'
+									: 'Suggestions; the connection confirms them.'
+								: ''}
+							for={`model-${agent.id}`}
+						>
+							<select
+								id={`model-${agent.id}`}
 								value={custom ? '__custom' : model}
 								disabled={busy}
 								onchange={(event) => {
@@ -283,32 +278,41 @@
 								{#each presets as m}<option value={m.id}
 										>{m.name}{'default' in m && m.default ? ' (recommended)' : ''}</option
 									>{/each}<option value="__custom">Custom model ID…</option>
-							</select></label
-						>
-						{#if custom}<label
-								><span>Full model ID</span><input
-									bind:value={model}
-									required
-									disabled={busy}
-								/></label
-							>{/if}
-						<div class="bar">
-							<button class="btn primary small" disabled={busy || !connection || !model.trim()}
-								>{busy ? 'Saving…' : 'Save'}</button
+							</select>
+						</Field>
+						{#if custom}
+							<Field label="Full model ID" for={`custom-${agent.id}`}>
+								<input id={`custom-${agent.id}`} bind:value={model} required disabled={busy} />
+							</Field>
+						{/if}
+						{#if harnesses.length > 1}<details
+								class="form-more"
+								open={harnessName(connection) !== 'Built in'}
 							>
+								<summary>More options</summary>
+								<Field
+									label="Runs with"
+									info="Which agent program runs this model. Built in is the default; Claude Code and Codex are the model makers' own programs."
+									for={`harness-${agent.id}`}
+								>
+									<select
+										id={`harness-${agent.id}`}
+										value={connection}
+										disabled={busy}
+										onchange={(event) => (connection = event.currentTarget.value)}
+										>{#each harnesses as c}<option value={c.id}>{harnessName(c.id)}</option
+											>{/each}</select
+									>
+								</Field>
+							</details>{/if}
+						<FormFoot submit="Save" {busy} busyLabel="Saving…" oncancel={() => (editing = '')}>
 							{#if agent.assignment && agent.id !== 'default'}<button
 									class="btn small"
 									type="button"
 									disabled={busy}
 									onclick={() => save(true)}>Use company default</button
 								>{/if}
-							<button
-								class="btn small ghost"
-								type="button"
-								disabled={busy}
-								onclick={() => (editing = '')}>Cancel</button
-							>
-						</div>
+						</FormFoot>
 					</form>
 				{/if}
 			</Item>
@@ -331,41 +335,6 @@
 </Section>
 
 <style>
-	.editor {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: flex-end;
-		gap: 12px;
-		padding-top: 4px;
-	}
-	.editor label {
-		display: grid;
-		gap: 4px;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.editor select,
-	.editor input {
-		min-width: 200px;
-	}
-	.bar {
-		display: flex;
-		gap: var(--space-2);
-		order: 2;
-	}
-	/* How it runs is a detail: after the model, folded unless it is not the default. */
-	.runs-with {
-		flex-basis: 100%;
-		order: 1;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.runs-with summary {
-		cursor: pointer;
-	}
-	.runs-with label {
-		margin-top: 6px;
-	}
 	.more {
 		width: 100%;
 		min-height: 40px;
