@@ -48,6 +48,7 @@
 	import InlineReply from './inbox/InlineReply.svelte';
 	import InlineModel from './inbox/InlineModel.svelte';
 	import InlineSpendLimit from './inbox/InlineSpendLimit.svelte';
+	import InlineDesktop from './inbox/InlineDesktop.svelte';
 	import {
 		discussInbox,
 		appRequestHandoffs,
@@ -211,7 +212,12 @@
 	const navigation = $derived(
 		modelSurface || spendSurface
 			? []
-			: item.actions.filter((candidate) => candidate.href && candidate.role !== 'conversation')
+			: item.actions.filter(
+					(candidate) =>
+						candidate.href &&
+						candidate.role !== 'conversation' &&
+						!(candidate.id === 'open-external-human-step' && canSetAside && !item.preparing)
+				)
 	);
 	/* A refused model offers two ways out (Top up, or another account the owner already holds);
 	 * both are buttons, since the free one is often the right one. */
@@ -250,6 +256,19 @@
 			return undefined;
 		}
 	});
+	/* A step done on the company computer happens on the live desktop inside the card (S101):
+	 * a prepared computer connects by itself, a provider page opens there when asked. */
+	const stepUrl = $derived(
+		humanStep ? (action('open-external-human-step')?.href ?? instructionLink?.href ?? null) : null
+	);
+	const desktopSurface = $derived(
+		canSetAside &&
+			!appRequest &&
+			!item.preparing &&
+			((!!item.runtimeAttach && item.category !== 'review') || (!!humanStep && !!stepUrl))
+	);
+	/* A live outcome to review renders in the card's content beside the decision. */
+	const outcomeInline = $derived(item.category === 'review' && !!item.reviewTarget);
 	const showRecommendation = $derived(
 		!!item.recommendation.trim() &&
 			item.recommendation.trim() !== item.whatHappened.trim() &&
@@ -682,6 +701,15 @@
 								topUpHref={action('top-up-ai-credit')?.href}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
+						{#if desktopSurface}{#key item.id}<InlineDesktop
+									{companyId}
+									itemId={item.id}
+									attached={!!item.runtimeAttach}
+									url={stepUrl}
+									fullHref={item.runtimeAttach
+										? `${base}&computer=${encodeURIComponent(item.id)}`
+										: `/${encodeURIComponent(companyId)}/company/computer?focus=desktop`}
+								/>{/key}{/if}
 						{#if spendSurface}<InlineSpendLimit
 								{companyId}
 								owner={!canPassToOwner}
@@ -1125,7 +1153,9 @@
 				{:else if appRequest && humanStep}
 					<!-- Answered in the card above; the footer keeps skip and the menu. -->
 				{:else if humanStep}
-					{#if instructionLink}<a
+					{#if desktopSurface}
+						<!-- The step happens on the computer in the card above. -->
+					{:else if instructionLink}<a
 							class="btn primary small"
 							href={instructionLink.href}
 							target="_blank"
@@ -1139,11 +1169,13 @@
 						>{/if}
 					<button
 						class="btn small"
-						class:primary={!instructionLink && !navigation[0]}
+						class:primary={desktopSurface || (!instructionLink && !navigation[0])}
 						disabled={acting || markingDone || item.preparing}
 						title={`${humanStep.consequence} ${humanStep.nextState} Undo stays available for a few seconds.`}
 						onclick={markDone}>{markingDone ? 'Marking done…' : 'Mark done'}</button
 					>
+				{:else if open && !open.href && (desktopSurface || outcomeInline)}
+					<!-- The outcome or the computer is in the card above. -->
 				{:else if open && !open.href}
 					<a
 						class="btn primary small"

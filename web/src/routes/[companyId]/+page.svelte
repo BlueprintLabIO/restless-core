@@ -943,7 +943,9 @@
 			{companyId}
 			{item}
 			{artifacts}
-			content={isOutcomeReview(item) ? outcomeContent : undefined}
+			content={isOutcomeReview(item) || (item.category === 'review' && !!item.reviewTarget)
+				? outcomeContent
+				: undefined}
 			preview={previewTarget ? previewContent : undefined}
 			workOwnerId={graph?.work.find((work) => work.id === item.workId)?.owner_id}
 			canSetAside={owner}
