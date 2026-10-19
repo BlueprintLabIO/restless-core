@@ -1,6 +1,8 @@
 <script lang="ts">
 	/* The owner's ordered fallback models: when the main model is out of quota or unreachable, the
 	 * company tries each in turn instead of stopping. Exact per-agent choices never fall back. */
+	import Field from '$lib/ui/forms/Field.svelte';
+	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
 	import { Section, Item, Notice, Empty } from '$lib/ui/page';
 	import { failureSentence } from '$lib/model/failure';
 	import { modelLabel } from '$lib/model/intelligence-labels';
@@ -113,55 +115,42 @@
 	{/each}
 	{#if adding}
 		<form
-			class="add"
+			class="form plain"
 			onsubmit={(event) => {
 				event.preventDefault();
 				void add();
 			}}
 		>
-			<label for="fallback-model" class="sr-only">Fallback model</label>
-			<input
-				id="fallback-model"
-				type="text"
-				list="fallback-model-options"
-				required
-				placeholder="provider/model"
-				bind:value={draft}
-				disabled={saving}
-				title="A full provider/model ID, such as anthropic/claude-sonnet-4-6"
-			/>
-			<datalist id="fallback-model-options">
-				{#each suggestions.filter((item) => !models.includes(item) && item !== status.primary_model) as item (item)}<option
-						value={item}>{modelLabel(item)}</option
-					>{/each}
-			</datalist>
-			<button class="btn primary small" disabled={saving || !draft.trim()}
-				>{saving ? 'Saving…' : 'Add'}</button
+			<Field
+				label="Fallback model"
+				hint="A full provider/model ID, such as anthropic/claude-sonnet-4-6."
+				for="fallback-model"
 			>
-			<button
-				class="btn small ghost"
-				type="button"
-				disabled={saving}
-				onclick={() => {
+				<input
+					id="fallback-model"
+					type="text"
+					list="fallback-model-options"
+					required
+					placeholder="provider/model"
+					bind:value={draft}
+					disabled={saving}
+				/>
+				<datalist id="fallback-model-options">
+					{#each suggestions.filter((item) => !models.includes(item) && item !== status.primary_model) as item (item)}<option
+							value={item}>{modelLabel(item)}</option
+						>{/each}
+				</datalist>
+			</Field>
+			<FormFoot
+				submit="Add"
+				busy={saving}
+				busyLabel="Saving…"
+				oncancel={() => {
 					adding = false;
 					draft = '';
-				}}>Cancel</button
-			>
+				}}
+			/>
 		</form>
 	{/if}
 	{#if failure}<Notice tone="danger" title="Nothing changed">{failure}</Notice>{/if}
 </Section>
-
-<style>
-	.add {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-2);
-		align-items: center;
-		padding: var(--space-2) 0;
-	}
-	.add input {
-		flex: 1;
-		min-width: 12rem;
-	}
-</style>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Field from '$lib/ui/forms/Field.svelte';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import { failureSentence } from '$lib/model/failure';
@@ -179,25 +180,28 @@
 			<details>
 				<summary>Use an API key</summary>
 				<form
+					class="form plain"
 					onsubmit={(e) => {
 						e.preventDefault();
 						void act(c, 'api_key');
 					}}
 				>
-					<label for={`key-${c.harness}`}
-						>{c.harness === 'codex' ? 'OpenAI' : 'Anthropic'} API key</label
+					<Field
+						label={`${c.harness === 'codex' ? 'OpenAI' : 'Anthropic'} API key`}
+						for={`key-${c.harness}`}
 					>
-					<div class="row">
-						<input
-							id={`key-${c.harness}`}
-							type="password"
-							bind:value={keys[c.harness]}
-							autocomplete="new-password"
-							placeholder="Paste API key"
-						/><button class="btn small" disabled={!!busy || !keys[c.harness]?.trim()}
-							>Save key</button
-						>
-					</div>
+						<div class="form-inline">
+							<input
+								id={`key-${c.harness}`}
+								type="password"
+								bind:value={keys[c.harness]}
+								autocomplete="new-password"
+								placeholder="Paste API key"
+							/><button class="btn small primary" disabled={!!busy || !keys[c.harness]?.trim()}
+								>Save key</button
+							>
+						</div>
+					</Field>
 				</form>
 			</details>
 			<details>
@@ -247,10 +251,6 @@
 	header {
 		margin-bottom: var(--space-4);
 		flex-wrap: wrap;
-	}
-	label {
-		display: block;
-		margin-block: var(--space-3) var(--space-2);
 	}
 	input {
 		min-width: 0;

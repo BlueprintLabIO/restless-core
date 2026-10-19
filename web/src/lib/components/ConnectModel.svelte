@@ -3,6 +3,8 @@
 	 * account already has, or paste an API key, which is saved to the account and given to this
 	 * company. Sign-ins with a ChatGPT or Claude plan stay on Intelligence, which returns here by
 	 * itself. Once connected, the card waits until Exec's route is live, then says so. */
+	import Field from '$lib/ui/forms/Field.svelte';
+	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
 	import { untrack } from 'svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
@@ -135,7 +137,10 @@
 	function pasteKey(event: SubmitEvent) {
 		event.preventDefault();
 		const key = secret.trim();
-		if (!key) return;
+		if (!key) {
+			failure = 'Paste the API key.';
+			return;
+		}
 		void run(async () => {
 			const created = await createConnection({
 				label: PROVIDER_LABELS[provider] ?? provider,
@@ -193,36 +198,33 @@
 				>, and it shows up here.
 			</p>
 		{:else}
-			<form class="connect-key" onsubmit={pasteKey}>
-				<label>
-					<span>Provider</span>
-					<select bind:value={provider} disabled={busy}>
+			<form class="form flush" onsubmit={pasteKey}>
+				<Field label="Provider" for="connect-provider">
+					<select id="connect-provider" bind:value={provider} disabled={busy}>
 						{#each PROVIDERS as id (id)}<option value={id}>{PROVIDER_LABELS[id]}</option>{/each}
 					</select>
-				</label>
-				<label>
-					<span>API key</span>
+				</Field>
+				<Field
+					label="API key"
+					hint="Saved to your account, so your other companies can use it too."
+					for="connect-secret"
+				>
 					<input
+						id="connect-secret"
 						type="password"
 						bind:value={secret}
 						autocomplete="off"
 						placeholder="Paste your API key"
 						disabled={busy}
 					/>
-				</label>
-				<div class="connect-actions">
-					<button class="btn small primary" disabled={busy || !secret.trim()}
-						>{busy ? 'Connecting…' : 'Connect'}</button
-					>
+				</Field>
+				<FormFoot submit="Connect" {busy} busyLabel="Connecting…">
 					{#if reusable.length}<button
 							type="button"
-							class="connect-link"
+							class="btn small"
 							onclick={() => (pasting = false)}>Use a saved connection</button
 						>{/if}
-				</div>
-				<small class="connect-note"
-					>Saved to your account, so your other companies can use it too.</small
-				>
+				</FormFoot>
 			</form>
 		{/if}
 		<a class="connect-link" href={intelligenceHref}>Sign in with ChatGPT or Claude instead</a>
@@ -260,33 +262,9 @@
 	.connect-list strong {
 		font-weight: 600;
 	}
-	.connect-list small,
-	.connect-note {
+	.connect-list small {
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
-	}
-	.connect-key {
-		display: grid;
-		gap: 8px;
-	}
-	.connect-key label {
-		display: grid;
-		gap: 4px;
-	}
-	.connect-key label span {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.connect-key select,
-	.connect-key input {
-		width: 100%;
-		font: inherit;
-	}
-	.connect-actions {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 8px 12px;
 	}
 	.connect-link {
 		justify-self: start;

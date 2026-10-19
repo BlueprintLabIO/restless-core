@@ -3,6 +3,9 @@
 	 * plain words and any limits. Members direct agents to use them; nobody here sees a password or
 	 * key. An admin asks the owner for an account, or for more on one; the request reaches the
 	 * owner's Inbox. The owner manages accounts in Settings › Accounts. */
+	import Field from '$lib/ui/forms/Field.svelte';
+	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
+	import Segmented from '$lib/ui/page/Segmented.svelte';
 	import { untrack } from 'svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { Page, Section, Item, Notice, Empty } from '$lib/ui/page';
@@ -79,6 +82,13 @@
 	let asking = $state<{ account: CompanyAccountGrant | null } | null>(null);
 	let askKind = $state<AccountKind>('website_login');
 	let askAbilities = $state<Abilities>({ ...DEFAULT_ABILITIES });
+	const askPreset = $derived(
+		PRESETS.find(
+			(preset) =>
+				grantSummary({ abilities: preset.abilities, spend_cap: null }) ===
+				grantSummary({ abilities: askAbilities, spend_cap: null })
+		)?.key ?? ('' as 'standard')
+	);
 	let reason = $state('');
 	let sending = $state(false);
 	let sent = $state('');
@@ -90,7 +100,11 @@
 	}
 	async function sendAsk(event: SubmitEvent) {
 		event.preventDefault();
-		if (!asking || sending || !reason.trim()) return;
+		if (!asking || sending) return;
+		if (!reason.trim()) {
+			failure = 'Say why the company needs it.';
+			return;
+		}
 		sending = true;
 		failure = '';
 		try {
@@ -141,42 +155,40 @@
 		<Section
 			title={asking.account ? `More on ${asking.account.account.label}` : 'Request an account'}
 		>
-			<form class="ask" onsubmit={sendAsk}>
+			<form class="form plain" onsubmit={sendAsk}>
 				{#if !asking.account}
-					<label
-						><span>Kind</span><select bind:value={askKind}>
+					<Field label="Kind" for="ask-kind">
+						<select id="ask-kind" bind:value={askKind}>
 							{#each REQUESTABLE as entry (entry.kind)}<option value={entry.kind}
 									>{entry.label}</option
 								>{/each}
-						</select></label
-					>
+						</select>
+					</Field>
 				{/if}
-				<div class="presets" role="group" aria-label="What it should allow">
-					{#each PRESETS as preset (preset.key)}
-						<button
-							type="button"
-							class:on={grantSummary({ abilities: askAbilities, spend_cap: null }) ===
-								grantSummary({ abilities: preset.abilities, spend_cap: null })}
-							onclick={() => (askAbilities = { ...preset.abilities })}>{preset.label}</button
-						>
-					{/each}
-				</div>
-				<p class="hint">{grantSummary({ abilities: askAbilities, spend_cap: null })}</p>
-				<label
-					><span>Why the company needs it</span><textarea
+				<Field label="Access" hint={grantSummary({ abilities: askAbilities, spend_cap: null })}>
+					<Segmented
+						label="What it should allow"
+						options={PRESETS.map((preset) => ({ value: preset.key, label: preset.label }))}
+						value={askPreset}
+						onchange={(key) =>
+							(askAbilities = {
+								...(PRESETS.find((preset) => preset.key === key)?.abilities ?? askAbilities)
+							})}
+					/>
+				</Field>
+				<Field label="Why the company needs it" for="ask-reason">
+					<textarea
+						id="ask-reason"
 						bind:value={reason}
 						rows="3"
-						placeholder="e.g. Sydney Resale lists items on eBay and answers buyers."
-					></textarea></label
-				>
-				<div class="ask-actions">
-					<button class="btn small primary" disabled={sending || !reason.trim()}
-						>{sending ? 'Sending…' : 'Ask the owner'}</button
-					>
-					<button type="button" class="btn small ghost" onclick={() => (asking = null)}
-						>Cancel</button
-					>
-				</div>
+						placeholder="e.g. Sydney Resale lists items on eBay and answers buyers."></textarea>
+				</Field>
+				<FormFoot
+					submit="Ask the owner"
+					busy={sending}
+					busyLabel="Sending…"
+					oncancel={() => (asking = null)}
+				/>
 			</form>
 		</Section>
 	{/if}
@@ -257,53 +269,6 @@
 	}
 	.health.ok {
 		color: var(--state-success);
-	}
-	.ask {
-		display: grid;
-		gap: 10px;
-		padding: 12px 14px;
-	}
-	label {
-		display: grid;
-		gap: 4px;
-	}
-	label > span {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	label select,
-	label textarea {
-		width: 100%;
-		max-width: 520px;
-		font: inherit;
-	}
-	.presets {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 4px;
-	}
-	.presets button {
-		min-height: 30px;
-		padding: 0 10px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
-		background: var(--surface-raised);
-		color: var(--text-secondary);
-		font: inherit;
-		cursor: pointer;
-	}
-	.presets button.on {
-		border-color: var(--intent-conversation);
-		color: var(--ink);
-	}
-	.hint {
-		margin: 0;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.ask-actions {
-		display: flex;
-		gap: 8px;
 	}
 	.link {
 		padding: 0;
