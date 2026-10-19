@@ -63,4 +63,25 @@ once bash returns output.
 - [x] 7 Snapshot carries status
 - [x] 8 Lead-direct text and ask-before-appoint
 - [x] 9 Cache-expiry retirement
-- [ ] Live smoke on a `_test` company
+- [x] Live smoke on a `_test` company (see Result)
+
+## Result (2026-10-20, one paid bakery run, not a win yet)
+
+Run on `tokpaid_test`: primary `openrouter/poolside/laguna-s-2.1`, everyday
+`laguna-xs-2.1`, decisions from `typesafe/jev-1.14`, effort `high` as in the baseline arm. The
+free-tier run before it was abandoned: `:free` models share one 20 req/min cap per key, and a
+concurrent session on the same key hit it too.
+
+- Working as built: Exec commissioned in one `restless commission` call (third try, after two id
+  errors); bash returned output and needed no service-mode read-backs; the produced site carried
+  every brief fact, used no corporate language, and passed an independent critic apart from two small
+  defects.
+- **Not cheaper:** the run had reached 467 calls / 20.6M input (84% cached, $0.63) when stopped
+  during the critic-driven revision, against the baseline's 266 calls / 10.8M for the whole scenario.
+  Where it went: one Exec wake made 131 calls over 45 minutes, polling with `sleep` + `work graph`
+  until its turn capability expired. Exec also appointed before asking (so the first Work was
+  abandoned once the owner answered), and it added a critic review the baseline never ran. These
+  are behaviours of this model on this path, and n=1.
+- Fixed from the run: the shared rules now forbid waiting inside a turn; Exec never posts a
+  streamed provider error or the gateway's own refusal as an owner reply (both happened).
+- Next: rerun both arms, n≥2 each, with the no-waiting rule, before claiming a saving.

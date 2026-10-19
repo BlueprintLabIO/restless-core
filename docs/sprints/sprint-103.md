@@ -36,4 +36,4 @@ Nothing replaces it in this sprint. The owner will decide later whether an ambit
 - [x] Prompts, CLI and owner API
 - [x] Cockpit and generated bindings
 - [x] Live docs
-- [ ] Upgrade smoke on a `_test` company
+- [x] Upgrade smoke: migration 0110 applied to the pre-existing `tokbase_test`, keeping its team and Work

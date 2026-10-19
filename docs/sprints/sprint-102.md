@@ -84,4 +84,16 @@ Deferred, with reasons:
 - [x] 3 Active Exec result gate
 - [x] 4 Work tiering and cascade
 - [x] 5 Everyday model for conversation turns
-- [ ] Live smoke on a `_test` company
+- [x] Live smoke on a `_test` company (see Result)
+
+## Result (2026-10-20)
+
+- Integration test against OpenRouter: a routine result was consumed (0.22 / 0.12, `active`) and
+  the owner-asked deliverable woke Exec (0.92 / 0.74).
+- Live bakery run: the site Work was rated 0.28 routine and the critic Work 0.16, so both correctly
+  stayed on the primary model. A completed site result scored 0.83 / 0.73 and woke Exec. The
+  everyday model took the lead's conversation turns; under a free-tier 429 it failed over to the
+  primary as designed.
+- The everyday tier carried 1 of 7 recorded turns (34k of 294k turn tokens) in this run. Exec and
+  Work turns dominate cost, so the everyday tier only pays off where conversation turns are
+  frequent.
