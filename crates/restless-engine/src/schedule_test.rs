@@ -245,7 +245,6 @@ pub async fn run_actor(
     config.credentials.clear();
     config.approved_parties.clear();
     config.model_failover.clear();
-    config.outcome_standard = Default::default();
     config.reasoning_effort = crate::acp::DEFAULT_REASONING_EFFORT.to_string();
     config.spend_ceiling_usd = runtime::SpendCeiling::from_micro_usd(1_000_000);
     runtime::CompanyConfig::save(&daemon.root, &config)?;

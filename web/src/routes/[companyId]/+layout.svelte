@@ -810,7 +810,6 @@
 		includeContext: boolean,
 		newFocus: boolean,
 		interrupt: boolean,
-		outcomeStandard?: import('$lib/model/company').OutcomeStandard,
 		skills: string[] = [],
 		retryCommandId?: string
 	): Promise<{ error?: string; notice?: string; retryCommandId?: string }> {
@@ -823,7 +822,6 @@
 				contextPath,
 				newFocus,
 				interrupt,
-				outcomeStandard,
 				skills,
 				retryCommandId
 			);

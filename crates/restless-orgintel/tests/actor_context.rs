@@ -656,7 +656,6 @@ async fn focused_mention_bootstrap_is_exact_linked_and_not_room_history() {
             "Should this exact candidate ship?",
             Some(root.message.id),
             "focused-question",
-            None,
             &[NewRoomMessageMention::actor("delivery-build")],
             None,
         )

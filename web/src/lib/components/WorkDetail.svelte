@@ -22,8 +22,6 @@
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import Check from '@lucide/svelte/icons/check';
 	import X from '@lucide/svelte/icons/x';
-	import { STANDARDS, setWorkStandard, standardLabel } from '$lib/model/standards';
-	import type { OutcomeStandard } from '$lib/model/company';
 	import { failureSentence } from '$lib/model/failure';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { celebrate } from '$lib/ui/celebrate';
@@ -360,32 +358,6 @@
 		return () => (current = false);
 	});
 	const goalInfo = $derived(goal ? goalAbout(goal) : '');
-	/* The bar this Work is held to: its own, else its Goal's. */
-	const ownStandard = $derived(
-		((graph && 'standards' in graph ? graph.standards : undefined) ?? []).find(
-			(row) => row.work_id === work?.id
-		)?.outcome_standard ?? null
-	);
-	const goalStandard = $derived(
-		(goal && 'outcome_standard' in goal ? goal.outcome_standard : undefined) as
-			OutcomeStandard | undefined
-	);
-	const effectiveStandard = $derived(ownStandard ?? goalStandard ?? 'exceptional');
-	let standardBusy = $state(false);
-	let standardFailure = $state('');
-	async function chooseStandard(standard: OutcomeStandard | null) {
-		if (!work || standardBusy) return;
-		standardBusy = true;
-		standardFailure = '';
-		try {
-			await setWorkStandard(companyId, work.id, standard);
-			await attentionProjection.reload();
-		} catch (cause) {
-			standardFailure = failureSentence(cause, 'The quality bar did not change.');
-		} finally {
-			standardBusy = false;
-		}
-	}
 	const attempts = $derived(
 		(graph?.attempts ?? [])
 			.filter((attempt) => attempt.work_id === workId)
@@ -1192,7 +1164,7 @@
 						{#snippet mover(label: string)}
 							{#if movable && candidates.length}
 								<ActionMenu label={`Move this Work from ${label}`}>
-									{#snippet trigger()}<span class="standard-face">{label}</span>{/snippet}
+									{#snippet trigger()}<span class="pick-face">{label}</span>{/snippet}
 									{#each candidates as person (person.actor_id)}
 										<button type="button" onclick={() => openSteer('reassign', person.actor_id)}
 											><span>{person.display}</span></button
@@ -1202,7 +1174,7 @@
 							{:else}{label}{/if}
 						{/snippet}
 						<dt>Lead <InfoTip text="The lead accountable for integrating the whole outcome" /></dt>
-						<dd class="standard-cell">
+						<dd class="pick-cell">
 							{#if workIsLeadOwned}{@render mover(
 									accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)
 								)}{:else}{accountableLead?.display ??
@@ -1210,13 +1182,13 @@
 						</dd>
 						{#if !workIsLeadOwned}
 							<dt>Staff <InfoTip text="The Staff member doing this work under the lead" /></dt>
-							<dd class="standard-cell">{@render mover(ownerName(work.owner_id))}</dd>
+							<dd class="pick-cell">{@render mover(ownerName(work.owner_id))}</dd>
 						{/if}
 						<dt>Goal</dt>
-						<dd class="standard-cell">
+						<dd class="pick-cell">
 							{#if maySteer && goals.length}
 								<ActionMenu label="Goal">
-									{#snippet trigger()}<span class="standard-face">{goal?.title ?? 'No goal'}</span
+									{#snippet trigger()}<span class="pick-face">{goal?.title ?? 'No goal'}</span
 										>{/snippet}
 									{#each goals.filter((row) => !row.closed_at || row.id === goal?.id) as option (option.id)}
 										<button
@@ -1246,10 +1218,10 @@
 								>{/if}
 						</dd>
 						<dt>Priority <InfoTip text="Higher priority Work is picked up first" /></dt>
-						<dd class="standard-cell">
+						<dd class="pick-cell">
 							{#if maySteer}
 								<ActionMenu label="Priority">
-									{#snippet trigger()}<span class="standard-face"
+									{#snippet trigger()}<span class="pick-face"
 											>{priorityLabel(work.priority).replace(' priority', '') || 'Normal'}</span
 										>{/snippet}
 									{#each PRIORITIES as option (option.value)}
@@ -1267,8 +1239,7 @@
 									{/each}
 								</ActionMenu>
 							{:else}{priorityLabel(work.priority).replace(' priority', '') || 'Normal'}{/if}
-							{#if detailFailure}<span class="standard-failure" role="alert">{detailFailure}</span
-								>{/if}
+							{#if detailFailure}<span class="pick-failure" role="alert">{detailFailure}</span>{/if}
 						</dd>
 						{#if ownerAccess && spend !== null}
 							<dt>Cost <InfoTip text="Metered model spend on this Work so far" /></dt>
@@ -1280,48 +1251,6 @@
 										: 'Nothing metered yet'}
 							</dd>
 						{/if}
-						<dt>
-							Quality bar <InfoTip
-								text="How far this Work should go before it is called done. Set on its Goal; a piece of Work can hold itself to its own."
-							/>
-						</dt>
-						<dd class="standard-cell">
-							{#if ownerAccess}
-								<ActionMenu label="Quality bar">
-									{#snippet trigger()}<span class="standard-face"
-											>{standardLabel(effectiveStandard)}{#if !ownStandard && goal}<small
-													>from Goal</small
-												>{/if}</span
-										>{/snippet}
-									{#if goal}
-										<button
-											type="button"
-											disabled={standardBusy}
-											onclick={() => chooseStandard(null)}
-											><span>Same as Goal · {standardLabel(goalStandard)}</span
-											>{#if !ownStandard}<Check size={14} aria-label="Current" />{/if}</button
-										>
-									{/if}
-									{#each STANDARDS as option (option.value)}
-										<button
-											type="button"
-											title={option.title}
-											disabled={standardBusy}
-											onclick={() => chooseStandard(option.value)}
-											><span>{option.label}</span>{#if ownStandard === option.value}<Check
-													size={14}
-													aria-label="Current"
-												/>{/if}</button
-										>
-									{/each}
-								</ActionMenu>
-								{#if standardFailure}<span class="standard-failure" role="alert"
-										>{standardFailure}</span
-									>{/if}
-							{:else}
-								{standardLabel(effectiveStandard)}
-							{/if}
-						</dd>
 						{#if latestAttempt}
 							<dt>Latest run</dt>
 							<dd>{runStateLabel(latestAttempt.state)}</dd>

@@ -1,5 +1,5 @@
 <script lang="ts" generics="T extends string">
-	/* A small set of mutually exclusive choices shown at once: a quality bar, a
+	/* A small set of mutually exclusive choices shown at once, such as a
 	 * view switch. Arrow keys move between options, as with native radios. */
 	let {
 		options,

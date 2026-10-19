@@ -1256,7 +1256,6 @@ mod tests {
             native_monthly_turn_limit: None,
             native_monthly_token_limit: None,
             auto_sleep_after_minutes: None,
-            outcome_standard: Default::default(),
             model: "litellm/gpt-5.6-terra".into(),
             coordination_harness: crate::runtime::AgentHarness::RestlessManaged,
             worker_harness: crate::runtime::AgentHarness::RestlessManaged,
@@ -1264,6 +1263,8 @@ mod tests {
             model_failover: Vec::new(),
             credentials: std::collections::BTreeMap::new(),
             approved_parties: Vec::new(),
+            everyday_model: None,
+            decision_model: None,
         };
         let base_a = command(
             &container,

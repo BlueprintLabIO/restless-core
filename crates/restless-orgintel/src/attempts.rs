@@ -313,9 +313,9 @@ impl OrgIntel {
             effective_base_ref.as_deref().unwrap_or("")
         ));
         let feedback = sqlx::query_as::<_, MessageRow>(
-            "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM (\
+            "SELECT id,from_actor,to_actor,body,created_at,read_at FROM (\
                SELECT m.id,m.from_actor,m.to_actor,COALESCE(revision.body,m.body) AS body,\
-                      m.outcome_standard,m.created_at,m.read_at \
+                      m.created_at,m.read_at \
                FROM work_feedback f JOIN messages m ON m.id=f.message_id \
                LEFT JOIN room_message_revisions revision ON revision.id=m.latest_revision_id \
                WHERE f.work_id=$1 \

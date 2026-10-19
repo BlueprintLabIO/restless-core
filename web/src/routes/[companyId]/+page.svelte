@@ -114,7 +114,6 @@
 						handoffs: [],
 						attempt_inputs: [],
 						attempt_feedback: [],
-						standards: [],
 						...collaboration.view.work_graph
 					} as unknown as NonNullable<typeof view>['workGraph'])
 				: null
@@ -735,8 +734,9 @@
 	>
 		{#if sent}<div class="attention-resolution-notice" role="status">
 				{sent.text}{#if sent.result}<a href={sent.result.href}>{sent.result.label}</a
-					>{/if}{#if sent.home}<a href={sent.home.href} title={`Where this lives: ${sent.home.label}`}
-						>{sent.home.label}</a
+					>{/if}{#if sent.home}<a
+						href={sent.home.href}
+						title={`Where this lives: ${sent.home.label}`}>{sent.home.label}</a
 					>{/if}{#if sent.href}<a href={sent.href}>Open conversation</a>{/if}<button
 					aria-label="Dismiss notification"
 					onclick={() => (sent = null)}>×</button

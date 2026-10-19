@@ -669,7 +669,6 @@ mod tests {
             native_monthly_turn_limit: None,
             native_monthly_token_limit: None,
             auto_sleep_after_minutes: None,
-            outcome_standard: Default::default(),
             model: "moonshot/kimi-k3".to_string(),
             coordination_harness: crate::runtime::AgentHarness::RestlessManaged,
             worker_harness: crate::runtime::AgentHarness::RestlessManaged,
@@ -677,6 +676,8 @@ mod tests {
             model_failover: Vec::new(),
             credentials: std::collections::BTreeMap::new(),
             approved_parties: approved.iter().map(|s| (*s).to_string()).collect(),
+            everyday_model: None,
+            decision_model: None,
         }
     }
 

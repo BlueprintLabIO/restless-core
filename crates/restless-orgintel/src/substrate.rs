@@ -231,7 +231,7 @@ impl OrgIntel {
         let cursor: i64 = attempt.get("feedback_checkpoint_cursor");
         let messages = sqlx::query_as::<_, MessageRow>(
             "SELECT message.id,message.from_actor,message.to_actor,\
-                    COALESCE(revision.body,message.body) AS body,message.outcome_standard, \
+                    COALESCE(revision.body,message.body) AS body, \
                     message.created_at, message.read_at \
              FROM messages message \
              LEFT JOIN work_feedback feedback ON feedback.message_id=message.id \

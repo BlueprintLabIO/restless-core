@@ -240,8 +240,7 @@ try {
 				intent: null,
 				attachments: [],
 				details: null,
-				context_path: null,
-				outcome_standard: null
+				context_path: null
 			});
 			await route.fulfill({ response, json: body });
 		});

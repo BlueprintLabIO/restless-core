@@ -56,7 +56,6 @@
 		type ActiveAgentTurn,
 		type QuerySourceStatus
 	} from '$lib/model/queries.svelte';
-	import type { OutcomeStandard } from '$lib/model/company';
 	import type { ThreadMessage } from '$lib/model/view';
 	import { execCommandsFor, runExecCommand } from '$lib/model/skills';
 	import { PIN, reactionsQuery, roomPinsQuery } from '$lib/model/reactions.svelte';
@@ -167,7 +166,6 @@
 					includeContext: boolean,
 					newFocus: boolean,
 					interrupt: boolean,
-					outcomeStandard?: OutcomeStandard,
 					skills?: string[],
 					retryCommandId?: string
 			  ) => Promise<{ error?: string; notice?: string; retryCommandId?: string }>)
@@ -840,7 +838,6 @@
 				includeContext,
 				newFocusPending,
 				working && interruptNext,
-				undefined,
 				[]
 			);
 			if (outcome.error) {
@@ -1186,7 +1183,6 @@
 				includeContext,
 				newFocusPending,
 				working && interruptNext,
-				undefined,
 				skills,
 				retryCommandId && retryBody === outgoing ? retryCommandId : undefined
 			);

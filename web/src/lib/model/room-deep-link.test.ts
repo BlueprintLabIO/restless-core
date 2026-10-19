@@ -13,7 +13,6 @@ function message(id: number, deletedAt: string | null = null): RoomMessage {
 		from_actor: 'owner',
 		to_actor: null,
 		body: deletedAt ? '' : `Message ${id}`,
-		outcome_standard: null,
 		parent_message_id: id === 10 ? null : 10,
 		thread_root_message_id: id === 10 ? null : 10,
 		client_command_id: `command-${id}`,

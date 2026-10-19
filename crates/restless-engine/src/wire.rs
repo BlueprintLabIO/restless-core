@@ -206,10 +206,6 @@ pub struct OrgIntelInput {
     #[serde(default)]
     pub schedule_id: Option<String>,
     #[serde(default)]
-    pub outcome_standard: Option<String>,
-    #[serde(default)]
-    pub outcome_standard_source: Option<String>,
-    #[serde(default)]
     pub requires: Vec<String>,
     #[serde(default)]
     pub revises: Vec<String>,
@@ -824,15 +820,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "actor-create" => &["as_actor", "role", "name", "actor", "reason", "model"],
         "actor-model" => &["as_actor", "model", "actor", "reason"],
         "actor-retire" => &["as_actor", "actor", "reason"],
-        "team-create" => &[
-            "name",
-            "to",
-            "body",
-            "actor",
-            "outcome_standard",
-            "outcome_standard_source",
-            "source_message_id",
-        ],
+        "team-create" => &["name", "to", "body", "actor"],
         "team-update" => &["name", "new_name", "body", "actor", "reason"],
         "team-assign" => &["as_actor", "name", "actor", "reason"],
         "team-lead" => &["name", "to", "actor", "reason"],
@@ -851,8 +839,6 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "goal-add" => &["title", "body", "actor", "done_when", "due", "team_name"],
         "goal-update" => &["goal", "title", "actor", "done_when", "due", "team_name"],
         "goal-close" => &["goal", "actor"],
-        "goal-standard" => &["goal", "outcome_standard", "actor"],
-        "work-standard" => &["id", "outcome_standard", "actor"],
         "skill-list" => &["as_actor", "include_retired"],
         "skill-observe" => &["as_actor", "observed_skills"],
         "skill-activate" => &[
@@ -1707,9 +1693,7 @@ mod tests {
             "goal-update",
             "message-react",
             "message-unreact",
-            "goal-standard",
             "work-goal",
-            "work-standard",
             "work",
             "work-graph",
             "work-attempts",

@@ -52,7 +52,6 @@
 			unstartable_reason: 'No model route'
 		}
 	];
-	let choice = $state('exceptional');
 	let approved = $state(false);
 </script>
 
@@ -95,15 +94,6 @@
 					text="The most the company may spend on models before it asks you."
 				/></span
 			>
-			<label>
-				Standard
-				<select bind:value={choice} aria-label="Outcome standard">
-					<option value="fast">Fast</option>
-					<option value="thorough">Thorough</option>
-					<option value="exceptional">Exceptional</option>
-					<option value="frontier">Frontier</option>
-				</select>
-			</label>
 			<HoldApprove label="Approve" onapprove={() => (approved = true)} />
 			<span class="note">{approved ? 'Approved' : 'Hold to approve'}</span>
 		</div>

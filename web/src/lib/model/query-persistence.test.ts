@@ -127,7 +127,6 @@ function roomMessage(id: number, room = 'general') {
 		from_actor: id % 2 ? 'alice' : 'exec',
 		to_actor: null,
 		body: `Message ${id}`,
-		outcome_standard: null,
 		parent_message_id: null,
 		thread_root_message_id: null,
 		client_command_id: `command-${id}`,

@@ -127,30 +127,26 @@ fn owner_reason<'a>(reason: &'a str, fallback: &'a str) -> &'a str {
     }
 }
 
-/// The owner forms a team around an accountable lead, as `restless team create` does, at the
-/// company's own outcome standard. Owner only: the boundary refuses everyone else.
+/// The owner forms a team around an accountable lead, as `restless team create` does.
+/// Owner only: the boundary refuses everyone else.
 pub(super) async fn create_team(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
     Json(input): Json<NewTeamInput>,
 ) -> Response<Body> {
-    let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
-        Ok(config) => config,
-        Err(_) => return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
-    };
+    if runtime::CompanyConfig::load(&state.daemon.root, &company).is_err() {
+        return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist.");
+    }
     let org = match org_for(&state, &company).await {
         Ok(org) => org,
         Err(response) => return response,
     };
     match org
-        .create_team_with_standard(
+        .create_team(
             input.name.trim(),
             input.brief.trim(),
             input.lead.trim(),
             "owner",
-            config.outcome_standard,
-            restless_orgintel::OutcomeStandardSource::CompanyDefault,
-            None,
         )
         .await
     {
@@ -169,8 +165,16 @@ pub(super) async fn change_team(
         Ok(org) => org,
         Err(response) => return response,
     };
-    let name = input.name.as_deref().map(str::trim).filter(|n| !n.is_empty());
-    let brief = input.brief.as_deref().map(str::trim).filter(|b| !b.is_empty());
+    let name = input
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|n| !n.is_empty());
+    let brief = input
+        .brief
+        .as_deref()
+        .map(str::trim)
+        .filter(|b| !b.is_empty());
     match org
         .update_team(
             team,
@@ -205,8 +209,9 @@ pub(super) async fn set_team_lead(
         )
         .await
     {
-        Ok(()) => Json(serde_json::json!({ "team_id": team, "lead": input.lead.trim() }))
-            .into_response(),
+        Ok(()) => {
+            Json(serde_json::json!({ "team_id": team, "lead": input.lead.trim() })).into_response()
+        }
         Err(error) => api_error(StatusCode::BAD_REQUEST, "team", error.plain_message()),
     }
 }
@@ -310,7 +315,10 @@ pub(super) async fn delegate_handoff(
         Ok(org) => org,
         Err(response) => return response,
     };
-    match org.delegate_handoff(handoff, input.to.trim(), input.note.trim()).await {
+    match org
+        .delegate_handoff(handoff, input.to.trim(), input.note.trim())
+        .await
+    {
         Ok(()) => Json(serde_json::json!({ "handoff_id": handoff, "handed_to": input.to.trim() }))
             .into_response(),
         Err(error) => refused("handoff", error),

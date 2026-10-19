@@ -3445,7 +3445,6 @@ model = \"anthropic/claude-sonnet-5-5\"
                 from_actor: "owner".into(),
                 to_actor: Some("exec".into()),
                 body: "Please verify the launch plan.".into(),
-                outcome_standard: Some(restless_orgintel::OutcomeStandard::Exceptional),
                 attachments: vec![OwnerAttachment {
                     upload_id: Uuid::nil(),
                     name: "plan.md".into(),
@@ -3609,7 +3608,6 @@ model = \"anthropic/claude-sonnet-5-5\"
                 name: "Fixture Test".into(),
                 mission: "Verify the owner projection.".into(),
                 model: "fixture/model".into(),
-                outcome_standard: restless_orgintel::OutcomeStandard::Exceptional,
             },
             source_health,
             people: vec![CockpitPerson {
@@ -3628,9 +3626,6 @@ model = \"anthropic/claude-sonnet-5-5\"
                 id: Uuid::from_u128(3),
                 name: "Research".into(),
                 brief: "Research the fixture.".into(),
-                outcome_standard: restless_orgintel::OutcomeStandard::Exceptional,
-                outcome_standard_source: restless_orgintel::OutcomeStandardSource::CompanyDefault,
-                standard_source_message_id: None,
                 frontier_phase: "building".into(),
                 lead_actor_id: "exec".into(),
                 responsible_actor_id: None,
@@ -3647,7 +3642,6 @@ model = \"anthropic/claude-sonnet-5-5\"
                 created_by: "owner".into(),
                 created_at: at(),
                 closed_at: None,
-                outcome_standard: restless_orgintel::OutcomeStandard::Thorough,
                 done_when: "The contract is observable".into(),
                 due_on: None,
                 team_id: None,
@@ -4180,12 +4174,11 @@ model = \"anthropic/claude-sonnet-5-5\"
 
         let (message_id, _, created) = fixture
             .org
-            .send_human_runtime_conversation_message_idempotent_with_standard(
+            .send_human_runtime_conversation_message_idempotent(
                 "owner",
                 "exec",
                 &body,
                 false,
-                None,
                 &[attachment_id],
                 &command_id,
                 &digest,
@@ -4431,12 +4424,11 @@ model = \"anthropic/claude-sonnet-5-5\"
             .is_empty());
         assert!(fixture
             .org
-            .send_human_runtime_conversation_message_idempotent_with_standard(
+            .send_human_runtime_conversation_message_idempotent(
                 "owner",
                 "exec",
                 &reclaimed_body,
                 false,
-                None,
                 &[reclaimed_id],
                 &reclaimed_command,
                 &reclaimed_digest,

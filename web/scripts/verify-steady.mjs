@@ -151,7 +151,6 @@ await journey('answer', async (page, context) => {
 		from_actor: 'exec',
 		to_actor: null,
 		body: 'Should the first site lead with the before and after photos?',
-		outcome_standard: null,
 		attachments: [],
 		details: null,
 		intent: {
@@ -206,8 +205,7 @@ await journey('answer', async (page, context) => {
 					interrupted: false,
 					context_attached: false,
 					context_omitted: false,
-					focus: null,
-					requested_outcome_standard: null
+					focus: null
 				})
 			});
 		}

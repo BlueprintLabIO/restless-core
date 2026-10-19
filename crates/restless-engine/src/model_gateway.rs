@@ -454,6 +454,37 @@ pub async fn available_actor_candidates(
     filter_cooling_candidates(ordered, &cooldowns)
 }
 
+/// The company's everyday model ahead of `candidates`, which stay behind it as failover (S102).
+/// A native-harness route, an unset or cooling everyday model, or one already first keeps today's
+/// order.
+pub async fn with_everyday_model(
+    config: &CompanyConfig,
+    harness: crate::runtime::AgentHarness,
+    candidates: Vec<String>,
+    authority: &crate::authority::AuthorityStore,
+) -> Result<Vec<String>> {
+    let Some(everyday) = config
+        .everyday_model
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+    else {
+        return Ok(candidates);
+    };
+    if config.native_model(harness).is_some()
+        || candidates.first().map(String::as_str) == Some(everyday)
+    {
+        return Ok(candidates);
+    }
+    let cooldowns = authority.active_model_cooldowns(&config.name).await?;
+    if cooldowns.iter().any(|cooldown| cooldown.model == everyday) {
+        return Ok(candidates);
+    }
+    let mut ordered = vec![everyday.to_string()];
+    ordered.extend(candidates.into_iter().filter(|model| model != everyday));
+    Ok(ordered)
+}
+
 /// A durable addressed message remains owed while its actor's exact policy is
 /// unavailable. Schedulers use this read-only preflight to stay quiet until a
 /// recorded cooldown expires instead of retrying the same conversation on
@@ -3771,7 +3802,7 @@ impl Admission {
 
 fn configured_provider_ids(config: &CompanyConfig) -> Result<BTreeSet<String>> {
     let mut providers = config
-        .model_candidates()?
+        .routed_models()?
         .iter()
         .map(|model| split_model(model).map(|(provider, _)| provider.to_string()))
         .collect::<Result<std::collections::BTreeSet<_>>>()?;
@@ -4053,7 +4084,7 @@ fn pins_runtime_catalogue(provider: &str) -> bool {
 fn runtime_pinned_models(configs: &[&CompanyConfig]) -> Result<BTreeSet<String>> {
     let mut required = BTreeSet::new();
     for config in configs {
-        for model in config.model_candidates()? {
+        for model in config.routed_models()? {
             let (provider, _) = split_model(model)?;
             if pins_runtime_catalogue(provider) {
                 required.insert(model.to_string());
@@ -4509,7 +4540,6 @@ mission = "Choose native intelligence"
                 native_monthly_turn_limit: None,
                 native_monthly_token_limit: None,
                 auto_sleep_after_minutes: None,
-                outcome_standard: Default::default(),
                 model: "moonshot/kimi-k3".into(),
                 coordination_harness: crate::runtime::AgentHarness::RestlessManaged,
                 worker_harness: crate::runtime::AgentHarness::RestlessManaged,
@@ -4526,6 +4556,8 @@ mission = "Choose native intelligence"
                     ),
                 ]),
                 approved_parties: Vec::new(),
+                everyday_model: None,
+                decision_model: None,
             },
         )
         .unwrap();
@@ -4859,7 +4891,6 @@ mission = "Choose native intelligence"
             native_monthly_turn_limit: None,
             native_monthly_token_limit: None,
             auto_sleep_after_minutes: None,
-            outcome_standard: Default::default(),
             model: "litellm/gpt-5.6-sol".into(),
             coordination_harness: crate::runtime::AgentHarness::RestlessManaged,
             worker_harness: crate::runtime::AgentHarness::RestlessManaged,
@@ -4867,6 +4898,8 @@ mission = "Choose native intelligence"
             model_failover: vec!["zai/glm-5.3-flash".into()],
             credentials: BTreeMap::new(),
             approved_parties: Vec::new(),
+            everyday_model: None,
+            decision_model: None,
         };
         assert_eq!(
             runtime_pinned_models(&[&config]).unwrap(),
@@ -4895,7 +4928,6 @@ mission = "Choose native intelligence"
             native_monthly_turn_limit: None,
             native_monthly_token_limit: None,
             auto_sleep_after_minutes: None,
-            outcome_standard: Default::default(),
             model: model.into(),
             coordination_harness: crate::runtime::AgentHarness::RestlessManaged,
             worker_harness: crate::runtime::AgentHarness::RestlessManaged,
@@ -4903,6 +4935,8 @@ mission = "Choose native intelligence"
             model_failover: failover,
             credentials: BTreeMap::new(),
             approved_parties: Vec::new(),
+            everyday_model: None,
+            decision_model: None,
         };
         let configs = vec![
             // Primary resolves; one failover candidate does not.
@@ -5028,7 +5062,6 @@ mission = "Choose native intelligence"
             native_monthly_turn_limit: None,
             native_monthly_token_limit: None,
             auto_sleep_after_minutes: None,
-            outcome_standard: Default::default(),
             model: "anthropic/claude-sonnet-4-6".into(),
             coordination_harness: crate::runtime::AgentHarness::ClaudeAgent,
             worker_harness: crate::runtime::AgentHarness::ClaudeAgent,
@@ -5036,6 +5069,8 @@ mission = "Choose native intelligence"
             model_failover: Vec::new(),
             credentials: BTreeMap::new(),
             approved_parties: Vec::new(),
+            everyday_model: None,
+            decision_model: None,
         };
         let oauth = BTreeMap::from([("anthropic".into(), ProviderCredential::OmpOauth)]);
         assert!(admit(std::slice::from_ref(&config), &oauth).unwrap().unstartable.is_empty());
@@ -5908,7 +5943,6 @@ mission = "Choose native intelligence"
             native_monthly_turn_limit: None,
             native_monthly_token_limit: None,
             auto_sleep_after_minutes: None,
-            outcome_standard: Default::default(),
             model: "moonshot/kimi-k3".into(),
             coordination_harness: crate::runtime::AgentHarness::RestlessManaged,
             worker_harness: crate::runtime::AgentHarness::RestlessManaged,
@@ -5916,6 +5950,8 @@ mission = "Choose native intelligence"
             model_failover: vec!["anthropic/claude-sonnet-4-5".into()],
             credentials: BTreeMap::new(),
             approved_parties: Vec::new(),
+            everyday_model: None,
+            decision_model: None,
         };
         let ordered = ordered_candidates(&config, Some("moonshot/kimi-k3")).unwrap();
         assert_eq!(ordered, ["moonshot/kimi-k3", "anthropic/claude-sonnet-4-5"]);
@@ -6021,7 +6057,6 @@ mission = "Choose native intelligence"
             native_monthly_turn_limit: None,
             native_monthly_token_limit: None,
             auto_sleep_after_minutes: None,
-            outcome_standard: Default::default(),
             model: "openai-codex/gpt-5.6-sol".into(),
             coordination_harness: crate::runtime::AgentHarness::RestlessManaged,
             worker_harness: crate::runtime::AgentHarness::RestlessManaged,
@@ -6029,6 +6064,8 @@ mission = "Choose native intelligence"
             model_failover: vec!["anthropic/claude-sonnet-4-6".into()],
             credentials: BTreeMap::new(),
             approved_parties: Vec::new(),
+            everyday_model: None,
+            decision_model: None,
         };
         assert_eq!(
             actor_candidates(&config, Some("openai-codex/gpt-5.6-terra")).unwrap(),

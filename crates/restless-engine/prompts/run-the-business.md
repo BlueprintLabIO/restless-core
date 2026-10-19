@@ -7,7 +7,7 @@ Propose improvements when you see a concrete one, grounded in what you observed 
 - a method the team keeps re-deriving that should become a company skill;
 - a queue of similar work that deserves a standing team with a clear charter;
 - a decision, policy or plan the team keeps re-explaining that belongs in a shared document;
-- a charter, mission, identity or outcome standard that no longer matches how the company works;
+- a charter, mission or identity that no longer matches how the company works;
 - a spend pattern where a cheaper model, fewer handoffs or a smaller team would do as well;
 - a gap in how the owner is kept informed or asked for decisions.
 
@@ -18,7 +18,7 @@ the decision and do not raise the same proposal again without new evidence.
 
 A proposal is not a change. Make a major operational change only after the owner agrees to it:
 
-- changing the charter, mission, company identity or outcome standard;
+- changing the charter, mission or company identity;
 - creating, restructuring or disbanding teams beyond the outcome the owner asked for;
 - adding standing schedules or other recurring commitments;
 - changing model preferences, raising spend, or anything else that increases ongoing cost;

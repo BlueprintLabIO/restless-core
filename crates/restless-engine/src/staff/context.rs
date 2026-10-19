@@ -45,10 +45,6 @@ pub fn actor_posture(accountable_lead: bool) -> &'static str {
 /// role name. It is intentionally small: a team charter and its current
 /// roster let a lead decide whether a genuine seam exists without replaying a
 /// company directory or inventing a headcount target.
-/// What each quality bar asks of an outcome. The bar belongs to a Goal and
-/// its Work, never to the company or a team.
-const STANDARD_MEANING: &str = "This is an ambition contract, not permission, a team-size target, or a loop quota. Fast still preserves safety, truth, authority and native correctness. Thorough seeks production readiness. Exceptional seeks a clearly superior outcome through strong references, purposeful exploration and independent native evaluation where consequence warrants it. Frontier seeks a new ceiling while reporting uncertainty and diminishing returns honestly. Translate the bar into this outcome's fitness, evidence and stopping judgement.";
-
 pub fn team_capacity_context(team: &TeamRow, actors: &[ActorRow]) -> String {
     let roster = actors
         .iter()
@@ -82,6 +78,71 @@ pub fn team_capacity_context(team: &TeamRow, actors: &[ActorRow]) -> String {
             roster.join("\n")
         }
     )
+}
+
+/// The team's current Work and each one's latest Attempt, so a lead starts a wake knowing its
+/// state instead of querying `work graph` and `work attempts` one item at a time (S101: a lead's
+/// first bakery wake spent 42 calls on such reads).
+async fn team_work_context(
+    org: &restless_orgintel::OrgIntel,
+    team: &TeamRow,
+    actors: &[ActorRow],
+) -> restless_orgintel::Result<String> {
+    const SHOWN: usize = 12;
+    let members: Vec<&str> = actors
+        .iter()
+        .filter(|actor| actor.team_id == Some(team.id) || actor.id == team.lead_actor_id)
+        .map(|actor| actor.id.as_str())
+        .collect();
+    let work: Vec<_> = org
+        .list_work()
+        .await?
+        .into_iter()
+        .filter(|work| members.contains(&work.owner_id.as_str()))
+        .filter(|work| {
+            !matches!(
+                work.status,
+                restless_orgintel::WorkStatus::Completed | restless_orgintel::WorkStatus::Abandoned
+            ) || chrono::Utc::now() - work.updated_at < chrono::Duration::days(2)
+        })
+        .collect();
+    if work.is_empty() {
+        return Ok(String::new());
+    }
+    let mut block = String::from("\n# Your team's Work [current OrgIntel state]\n");
+    for item in work.iter().rev().take(SHOWN) {
+        let latest = org.list_work_attempts(Some(item.id)).await?.pop();
+        let attempt = latest
+            .map(|attempt| {
+                let summary: String = attempt.summary.chars().take(160).collect();
+                format!(
+                    " — attempt {} {}{}",
+                    attempt.attempt_no,
+                    attempt.state.as_str(),
+                    if summary.trim().is_empty() {
+                        String::new()
+                    } else {
+                        format!(": {}", summary.trim())
+                    }
+                )
+            })
+            .unwrap_or_default();
+        block.push_str(&format!(
+            "- {} \"{}\" · {} · {}{}\n",
+            item.id,
+            item.title,
+            item.owner_id,
+            format!("{:?}", item.status).to_lowercase(),
+            attempt
+        ));
+    }
+    if work.len() > SHOWN {
+        block.push_str(&format!(
+            "- … {} more; `restless work graph` lists them all\n",
+            work.len() - SHOWN
+        ));
+    }
+    Ok(block)
 }
 
 fn checkpoint_items(label: &str, values: &[String], output: &mut String) {
@@ -250,12 +311,18 @@ pub async fn shared_spine(
         .await
         .unwrap_or_default()
         .into_iter()
-        .filter(|item| item.dismissed_at >= week_ago && item.responsible_actor.as_deref() == Some(actor))
+        .filter(|item| {
+            item.dismissed_at >= week_ago && item.responsible_actor.as_deref() == Some(actor)
+        })
         .collect();
     if !set_aside.is_empty() {
         spine.push_str("\n# Set aside by the owner [current owner decision]\nThe owner marked these requests as not needed. Do not wait on them or ask again; carry on without them unless the owner brings one back.\n");
         for item in set_aside {
-            spine.push_str(&format!("- {} ({})\n", item.title, item.dismissed_at.format("%Y-%m-%d")));
+            spine.push_str(&format!(
+                "- {} ({})\n",
+                item.title,
+                item.dismissed_at.format("%Y-%m-%d")
+            ));
         }
     }
     if let ActorContextFocus::WorkAttempt { work_id, .. } = focus {
@@ -263,43 +330,12 @@ pub async fn shared_spine(
             spine.push_str(&format!("\n# Human-step preparation [current OrgIntel state]\nHandoff {handoff_id} is being repaired: {prepared_state}\nReuse this handoff ID. Prepare the exact live prompt, then `restless work refresh-handoff --handoff {handoff_id} --action <bounded owner action with the actual URL/code/session> --prepared <the same usable URL/code/session and current state> --resume-when ...` without --preparing to publish it. Do not replace this with an obsolete browser-request instruction. Existing approval remains recorded. Observe completion or expiry; do not ask the owner to confirm an observable result.\n"));
         }
     }
-    if let ActorContextFocus::WorkAttempt { work_id, .. } = focus {
-        let standard = org.effective_work_standard(work_id).await?;
-        spine.push_str(&format!(
-            "\n# Quality bar for this Work [owner policy]\n`{standard}`, set by its Goal unless the Work states its own. {STANDARD_MEANING}\n"
-        ));
-    }
     if accountable_lead {
         let teams = org.list_teams().await?;
         let actors = org.list_actors().await?;
         if let Some(team) = teams.iter().find(|team| team.lead_actor_id == actor) {
             spine.push_str(&team_capacity_context(team, &actors));
-            // The bars of the Goals this team's open Work serves.
-            let members: std::collections::HashSet<&str> = actors
-                .iter()
-                .filter(|candidate| candidate.team_id == Some(team.id))
-                .map(|candidate| candidate.id.as_str())
-                .collect();
-            let work = org.list_work().await?;
-            let bars = org
-                .list_goals()
-                .await?
-                .into_iter()
-                .filter(|goal| {
-                    goal.closed_at.is_none()
-                        && work.iter().any(|item| {
-                            item.goal_id == Some(goal.id)
-                                && members.contains(item.owner_id.as_str())
-                        })
-                })
-                .map(|goal| format!("- {}: `{}`", goal.title, goal.outcome_standard))
-                .collect::<Vec<_>>();
-            if !bars.is_empty() {
-                spine.push_str(&format!(
-                    "\n# Quality bars of the Goals your team serves [owner policy]\n{}\nWork inherits its Goal's bar unless it states its own. {STANDARD_MEANING}\n",
-                    bars.join("\n")
-                ));
-            }
+            spine.push_str(&team_work_context(org, team, &actors).await?);
         }
     }
     if actor == "exec" {

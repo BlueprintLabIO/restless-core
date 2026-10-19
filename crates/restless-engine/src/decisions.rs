@@ -2,13 +2,15 @@
 //! behind the hosted model relay (`POST {GPT_BASE_URL}/decisions`). Every decision is advisory and
 //! recorded with its probabilities. A decision kind starts in shadow: it is logged beside what the
 //! company actually did and changes nothing, so it earns its switch-on from the company's own record.
-//! Without a relay (a self-hosted appliance), decisions are simply absent and today's behaviour holds.
+//! A company that names a `decision_model` calls it directly on OpenRouter's decisions API with its
+//! OpenRouter inference credential (S102). Without either route decisions are simply absent and
+//! today's behaviour holds.
 
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use restless_orgintel::{NewDecision, OrgIntel};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 /// The relay's public decision id; the relay picks and falls back between upstream models.
 const DECISION_MODEL: &str = "decide";
@@ -25,7 +27,10 @@ pub struct DecisionClient {
     http: reqwest::Client,
     url: String,
     token: String,
+    model: String,
 }
+
+const OPENROUTER_DECISIONS: &str = "https://openrouter.ai/api/alpha/decisions";
 
 pub struct Decision {
     pub model: String,
@@ -49,12 +54,55 @@ impl DecisionClient {
         Self::new(&base, token)
     }
 
+    /// This company's decision route: its own `decision_model` on OpenRouter when it names one and
+    /// holds an OpenRouter inference credential, else the hosted relay when this plane has one.
+    pub async fn for_company(config: &crate::runtime::CompanyConfig) -> Option<Self> {
+        let Some(model) = config
+            .decision_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+        else {
+            return Self::from_env();
+        };
+        let reference = config
+            .credentials
+            .get("model.inference.openrouter")
+            .or_else(|| {
+                config
+                    .model
+                    .starts_with("openrouter/")
+                    .then(|| config.credentials.get("model.inference"))
+                    .flatten()
+            })?;
+        match crate::credential::resolve_reference(reference).await {
+            Ok(token) => Self::openrouter(token, model),
+            Err(error) => {
+                tracing::warn!(company = %config.name, "decision credential unavailable: {error:#}");
+                None
+            }
+        }
+    }
+
+    /// OpenRouter's decisions API with an OpenRouter key and a decision model.
+    pub fn openrouter(token: String, model: &str) -> Option<Self> {
+        Self::at(OPENROUTER_DECISIONS, token, model)
+    }
+
     /// A relay at `base` (the OpenAI-compatible base, ending `/v1`) with a plane bearer.
     pub fn new(base: &str, token: String) -> Option<Self> {
-        let url = reqwest::Url::parse(base.trim_end_matches('/')).ok()?;
-        if !matches!(url.scheme(), "http" | "https")
-            || !url.username().is_empty()
-            || url.password().is_some()
+        Self::at(
+            &format!("{}/decisions", base.trim_end_matches('/')),
+            token,
+            DECISION_MODEL,
+        )
+    }
+
+    fn at(url: &str, token: String, model: &str) -> Option<Self> {
+        let parsed = reqwest::Url::parse(url).ok()?;
+        if !matches!(parsed.scheme(), "http" | "https")
+            || !parsed.username().is_empty()
+            || parsed.password().is_some()
         {
             return None;
         }
@@ -64,8 +112,9 @@ impl DecisionClient {
             .ok()?;
         Some(Self {
             http,
-            url: format!("{}/decisions", url.as_str().trim_end_matches('/')),
+            url: parsed.as_str().to_string(),
             token,
+            model: model.to_string(),
         })
     }
 
@@ -75,7 +124,7 @@ impl DecisionClient {
             .http
             .post(&self.url)
             .bearer_auth(&self.token)
-            .json(&json!({ "model": DECISION_MODEL, "state": state, "questions": questions }))
+            .json(&json!({ "model": self.model, "state": state, "questions": questions }))
             .send()
             .await
             .context("decision relay unreachable")?;
@@ -96,7 +145,7 @@ impl DecisionClient {
             model: body
                 .get("model")
                 .and_then(Value::as_str)
-                .unwrap_or(DECISION_MODEL)
+                .unwrap_or(&self.model)
                 .chars()
                 .take(160)
                 .collect(),
@@ -112,7 +161,12 @@ const MAX_STATE_BYTES: usize = 32 * 1024;
 
 /// One typed decision for a company actor: queue triage and similar repeated, bounded choices.
 /// The actor acts on the answer; this records what was asked of whom and what came back.
-pub async fn ask_for_actor(org: &OrgIntel, actor: &str, request: Value) -> Result<Value> {
+pub async fn ask_for_actor(
+    org: &OrgIntel,
+    config: Option<&crate::runtime::CompanyConfig>,
+    actor: &str,
+    request: Value,
+) -> Result<Value> {
     let state = request
         .get("state")
         .cloned()
@@ -134,8 +188,11 @@ pub async fn ask_for_actor(org: &OrgIntel, actor: &str, request: Value) -> Resul
         serde_json::to_vec(&state)?.len() <= MAX_STATE_BYTES,
         "a decision state is at most 32 KiB"
     );
-    let client = DecisionClient::from_env()
-        .context("decisions are not available on this company computer")?;
+    let client = match config {
+        Some(config) => DecisionClient::for_company(config).await,
+        None => DecisionClient::from_env(),
+    }
+    .context("decisions are not available on this company computer")?;
     let decision = client.decide(state, questions).await?;
     let choice: String = decision
         .answers
@@ -209,19 +266,31 @@ fn exec_gate_questions() -> Value {
     })
 }
 
-/// Decide, in shadow, whether each unread successful-result notice would have needed an Exec wake.
-/// The wake still happens; its own quiet-or-update finish becomes the outcome (see
-/// [`settle_exec_results`]). Failures only log: a decision never stands between work and the Exec.
-pub async fn shadow_exec_results(org: &OrgIntel, mission: &str) {
+/// Decide whether each unread successful-result notice needs an Exec wake. In shadow the wake still
+/// happens and its own quiet-or-update finish becomes the outcome (see [`settle_exec_results`]).
+/// With `gate` and a company that names its own decision model, a confident double no is consumed
+/// here and the Exec is not woken for it (S102). Failures only log: a decision never stands between
+/// work and the Exec.
+pub async fn shadow_exec_results(
+    org: &OrgIntel,
+    config: &crate::runtime::CompanyConfig,
+    gate: bool,
+) {
     if !enabled() {
         return;
     }
-    if let Some(client) = DecisionClient::from_env() {
-        shadow_exec_results_with(&client, org, mission).await;
+    if let Some(client) = DecisionClient::for_company(config).await {
+        let active = gate && config.decision_model.is_some();
+        shadow_exec_results_with(&client, org, &config.mission, active).await;
     }
 }
 
-pub async fn shadow_exec_results_with(client: &DecisionClient, org: &OrgIntel, mission: &str) {
+pub async fn shadow_exec_results_with(
+    client: &DecisionClient,
+    org: &OrgIntel,
+    mission: &str,
+    active: bool,
+) {
     let notices = match org.inbox(Some("exec")).await {
         Ok(messages) => messages
             .into_iter()
@@ -263,17 +332,26 @@ pub async fn shadow_exec_results_with(client: &DecisionClient, org: &OrgIntel, m
                     );
                     continue;
                 };
-                let choice = if update < EXEC_GATE_SKIP_BELOW && next < EXEC_GATE_SKIP_BELOW {
-                    "skip_wake"
-                } else {
-                    "wake"
-                };
+                let routine = update < EXEC_GATE_SKIP_BELOW && next < EXEC_GATE_SKIP_BELOW;
+                // Active only for a company that named its own decision model (S102).
+                let skip = active && routine;
+                let choice = if routine { "skip_wake" } else { "wake" };
+                if skip {
+                    // The result stays in the Work graph and the cockpit; only the Exec wake goes.
+                    if let Err(error) = org.mark_read(notice.id).await {
+                        tracing::warn!(
+                            message = notice.id,
+                            "could not consume a gated result: {error:#}"
+                        );
+                        continue;
+                    }
+                }
                 let subject = notice.id.to_string();
                 if let Err(error) = org
                     .record_decision(NewDecision {
                         kind: EXEC_GATE,
                         subject: &subject,
-                        mode: "shadow",
+                        mode: if skip { "active" } else { "shadow" },
                         model: &decision.model,
                         answers: &decision.answers,
                         choice,
@@ -319,4 +397,65 @@ pub async fn settle_exec_results(
     {
         tracing::warn!("could not settle exec gate outcomes: {error:#}");
     }
+}
+
+pub const WORK_TIER: &str = "work_tier";
+/// A first Attempt goes to the everyday model only when the decision model is at least this sure a
+/// smaller model will do the Work well (S102). Anything less, or no decision, keeps the primary.
+const EVERYDAY_TIER_AT: f64 = 0.8;
+
+fn work_tier_questions() -> Value {
+    json!({
+        "routine": {"type": "noul", "instructions": "Can a small, fast language model with tools do this Work well enough that a careful reviewer accepts it first time?",
+            "criteria": {"true": "Bounded and conventional with clear instructions: a small edit, a lookup, a summary, a routine message, a status check or a mechanical file change.",
+                         "false": "It needs judgement, taste or design, multi-step engineering, research synthesis, ambiguous requirements, or a customer-facing result that must be excellent."}}
+    })
+}
+
+/// Whether this Work's first Attempt may start on the everyday model. Recorded per Work with its
+/// probability; a repair, a review or any doubt stays on the primary model.
+pub async fn work_suits_everyday_model(
+    org: &OrgIntel,
+    config: &crate::runtime::CompanyConfig,
+    work: &restless_orgintel::WorkRow,
+) -> bool {
+    if !enabled() {
+        return false;
+    }
+    let Some(client) = DecisionClient::for_company(config).await else {
+        return false;
+    };
+    let outcome: String = work.outcome.chars().take(4000).collect();
+    let state = json!({
+        "company_mission": config.mission,
+        "work_title": work.title,
+        "outcome": outcome,
+        "expected_artifact": work.expected_artifact,
+    });
+    let decision = match client.decide(state, work_tier_questions()).await {
+        Ok(decision) => decision,
+        Err(error) => {
+            tracing::warn!(work = %work.id, "work tier decision unavailable: {error:#}");
+            return false;
+        }
+    };
+    let everyday = decision
+        .noul("routine")
+        .is_some_and(|routine| routine >= EVERYDAY_TIER_AT);
+    let subject = work.id.to_string();
+    if let Err(error) = org
+        .record_decision(NewDecision {
+            kind: WORK_TIER,
+            subject: &subject,
+            mode: "active",
+            model: &decision.model,
+            answers: &decision.answers,
+            choice: if everyday { "everyday" } else { "primary" },
+            latency_ms: decision.latency_ms,
+        })
+        .await
+    {
+        tracing::warn!(work = %work.id, "could not record work tier decision: {error:#}");
+    }
+    everyday
 }

@@ -8,80 +8,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use uuid::Uuid;
 
-/// The owner-visible ambition promise for one commissioned outcome. It changes
-/// accountable judgement posture, never authority, safety floors, or a fixed
-/// amount of Runtime machinery.
-#[derive(
-    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
-)]
-#[sqlx(type_name = "outcome_standard", rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
-pub enum OutcomeStandard {
-    Fast,
-    Thorough,
-    #[default]
-    Exceptional,
-    Frontier,
-}
-
-impl OutcomeStandard {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Fast => "fast",
-            Self::Thorough => "thorough",
-            Self::Exceptional => "exceptional",
-            Self::Frontier => "frontier",
-        }
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "fast" => Some(Self::Fast),
-            "thorough" => Some(Self::Thorough),
-            "exceptional" => Some(Self::Exceptional),
-            "frontier" => Some(Self::Frontier),
-            _ => None,
-        }
-    }
-}
-
-impl std::fmt::Display for OutcomeStandard {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(self.as_str())
-    }
-}
-
-#[derive(
-    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
-)]
-#[sqlx(type_name = "outcome_standard_source", rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
-pub enum OutcomeStandardSource {
-    #[default]
-    CompanyDefault,
-    OwnerOverride,
-    OwnerLanguage,
-}
-
-impl OutcomeStandardSource {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::CompanyDefault => "company_default",
-            Self::OwnerOverride => "owner_override",
-            Self::OwnerLanguage => "owner_language",
-        }
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "company_default" => Some(Self::CompanyDefault),
-            "owner_override" => Some(Self::OwnerOverride),
-            "owner_language" => Some(Self::OwnerLanguage),
-            _ => None,
-        }
-    }
-}
-
 /// The smallest producing shape selected when Work is commissioned. This is
 /// a routing fact, not a workflow: one Work still has one accountable producer
 /// and one Attempt at a time.
@@ -422,9 +348,6 @@ pub struct TeamRow {
     pub name: String,
     /// Why this team exists and what it is accountable for.
     pub brief: String,
-    pub outcome_standard: OutcomeStandard,
-    pub outcome_standard_source: OutcomeStandardSource,
-    pub standard_source_message_id: Option<i64>,
     pub lead_actor_id: String,
     /// The person who owns this team: directs it, answers what its lead and Exec pass up, and
     /// accepts its outcomes. None means the owner.
@@ -443,9 +366,6 @@ pub struct GoalRow {
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub closed_at: Option<DateTime<Utc>>,
-    /// The quality bar this Goal's Work is held to unless a Work states its own.
-    #[sqlx(default)]
-    pub outcome_standard: OutcomeStandard,
     /// What "done" looks like, observably ("3 paying clients"). Empty until stated.
     #[sqlx(default)]
     pub done_when: String,
@@ -1082,8 +1002,6 @@ pub struct WorkGraphSnapshot {
     pub gates: Vec<WorkGateRow>,
     pub gate_runs: Vec<WorkGateRunRow>,
     pub handoffs: Vec<OwnerHandoffRow>,
-    /// Work that states its own quality bar; the rest inherit their Goal's.
-    pub standards: Vec<WorkStandardRow>,
 }
 
 /// The reactions a message may carry. A short fixed set keeps them meaningful
@@ -1096,12 +1014,6 @@ pub struct MessageReactionRow {
     pub message_id: i64,
     pub actor_id: String,
     pub emoji: String,
-}
-
-#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
-pub struct WorkStandardRow {
-    pub work_id: Uuid,
-    pub outcome_standard: OutcomeStandard,
 }
 
 pub struct NewOwnerHandoff<'a> {
@@ -1284,9 +1196,6 @@ pub struct MessageRow {
     pub from_actor: String,
     pub to_actor: Option<String>,
     pub body: String,
-    /// An explicit owner composer override. Absence means the Exec applies the
-    /// company default or makes an attributable natural-language judgement.
-    pub outcome_standard: Option<OutcomeStandard>,
     pub created_at: DateTime<Utc>,
     pub read_at: Option<DateTime<Utc>>,
 }
@@ -1446,7 +1355,6 @@ pub struct RoomMessageRow {
     pub from_actor: String,
     pub to_actor: Option<String>,
     pub body: String,
-    pub outcome_standard: Option<OutcomeStandard>,
     pub parent_message_id: Option<i64>,
     pub thread_root_message_id: Option<i64>,
     pub client_command_id: Option<String>,
@@ -2832,9 +2740,8 @@ mod plain_message_tests {
 
     #[test]
     fn people_read_the_reason_not_the_category() {
-        let refusal = OrgIntelError::InvalidWork(
-            "a person moves goals only between teams they own".into(),
-        );
+        let refusal =
+            OrgIntelError::InvalidWork("a person moves goals only between teams they own".into());
         assert_eq!(
             refusal.plain_message(),
             "A person moves goals only between teams they own"

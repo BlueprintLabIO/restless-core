@@ -110,10 +110,8 @@ pub async fn execute(
             key,
             mentions,
         } => json!(
-            org.send_room_message_with_mentions(
-                room, actor, &body, parent, &key, None, &mentions, None
-            )
-            .await?
+            org.send_room_message_with_mentions(room, actor, &body, parent, &key, &mentions, None)
+                .await?
         ),
     })
 }

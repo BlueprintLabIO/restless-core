@@ -81,7 +81,6 @@ export interface RoomMessage {
 	from_actor: string;
 	to_actor: string | null;
 	body: string;
-	outcome_standard: string | null;
 	parent_message_id: number | null;
 	thread_root_message_id: number | null;
 	client_command_id: string | null;

@@ -48,8 +48,6 @@
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import CopyButton from '$lib/ui/controls/CopyButton.svelte';
 	import Check from '@lucide/svelte/icons/check';
-	import { STANDARDS, setGoalStandard, standardLabel } from '$lib/model/standards';
-	import type { OutcomeStandard } from '$lib/model/company';
 	import { failureSentence } from '$lib/model/failure';
 	import {
 		coordinationFailure,
@@ -360,12 +358,6 @@
 							? 'Stopped'
 							: (goals.find((goal) => goal.id === selectedGoal)?.title ?? 'All work')
 	);
-	/* The quality bar lives on the Goal; a piece of Work shows it only when it
-	 * holds itself to a different one. */
-	const goalStandard = (goal: object | undefined): OutcomeStandard | undefined =>
-		goal && 'outcome_standard' in goal
-			? (goal as { outcome_standard: OutcomeStandard }).outcome_standard
-			: undefined;
 	const selectedGoalRow = $derived(goals.find((goal) => goal.id === selectedGoal));
 	/* Teams own goals: which team delivers each one, and who owns that team. */
 	const teamRows = $derived((ownerAccess ? cockpit?.teams : collaboration?.teams) ?? []);
@@ -382,30 +374,6 @@
 			: '';
 		return owner ? `${team.name} team, owned by ${owner}` : `${team.name} team`;
 	}
-	const overrides = $derived(
-		new Map(
-			((graph && 'standards' in graph ? graph.standards : undefined) ?? []).map((row) => [
-				row.work_id,
-				row.outcome_standard
-			])
-		)
-	);
-	let standardBusy = $state(false);
-	let standardFailure = $state('');
-	async function chooseGoalStandard(standard: OutcomeStandard) {
-		if (!selectedGoal || standardBusy) return;
-		standardBusy = true;
-		standardFailure = '';
-		try {
-			await setGoalStandard(companyId, selectedGoal, standard);
-			await cockpitProjection.refresh();
-		} catch (cause) {
-			standardFailure = failureSentence(cause, 'The quality bar did not change.');
-		} finally {
-			standardBusy = false;
-		}
-	}
-
 	function attemptOf(work: WorkItem) {
 		return (
 			graph?.attempts
@@ -460,7 +428,6 @@
 	function meta(work: WorkItem, withOwner = true): string {
 		const run = runStateLabel(attemptOf(work)?.state);
 		const count = outputs(work);
-		const own = overrides.get(work.id);
 		return [
 			withOwner ? ownerName(work.owner_id) : '',
 			work.status === 'blocked' && !waitingOnOwner.has(work.id)
@@ -468,7 +435,6 @@
 				: '',
 			priorityLabel(work.priority),
 			waitingOnOwner.has(work.id) ? '' : holder(work),
-			own ? `${standardLabel(own)} bar` : '',
 			/* A run's state only when it adds to the Work's own: it failed or was sent back. */
 			['failed', 'changes_requested'].includes(attemptOf(work)?.state ?? '') ? run : '',
 			count ? `${count} ${count === 1 ? 'output' : 'outputs'}` : ''
@@ -802,8 +768,7 @@
 				? `Done when ${finishLine(goal)}`
 				: 'No finish line yet: Exec will agree one with you',
 			`${progress.done} of ${progress.total} done`,
-			dueLabel(goal) ? `due ${dueLabel(goal)}` : '',
-			`${standardLabel(goalStandard(goal))} quality bar`
+			dueLabel(goal) ? `due ${dueLabel(goal)}` : ''
 		]
 			.filter(Boolean)
 			.join(' · ')}
@@ -977,33 +942,7 @@
 						>{/if}
 				</div>
 				{#if selectedGoalRow && ownerAccess}
-					<div
-						class="goal-standard-picker"
-						title="How far this Goal's Work should go before it is called done"
-					>
-						<ActionMenu label="Quality bar">
-							{#snippet trigger()}<span>{standardLabel(goalStandard(selectedGoalRow))}</span
-								>{/snippet}
-							{#each STANDARDS as option (option.value)}
-								<button
-									type="button"
-									title={option.title}
-									disabled={standardBusy}
-									onclick={() => chooseGoalStandard(option.value)}
-									><span>{option.label}</span
-									>{#if goalStandard(selectedGoalRow) === option.value}<Check
-											size={14}
-											aria-label="Current"
-										/>{/if}</button
-								>
-							{/each}
-						</ActionMenu>
-					</div>
-					{#if standardFailure}<span class="standard-failure" role="alert">{standardFailure}</span
-						>{/if}
-				{/if}
-				{#if selectedGoalRow && ownerAccess}
-					<div class="goal-standard-picker">
+					<div class="goal-picker">
 						<ActionMenu label="Goal actions">
 							{#snippet trigger()}<span>Goal actions</span>{/snippet}
 							{#if !selectedGoalRow.closed_at}
@@ -1052,7 +991,7 @@
 					</div>
 				{/if}
 				<div class="filters">
-					<div class="goal-standard-picker" title="Show the work one person owns">
+					<div class="goal-picker" title="Show the work one person owns">
 						<ActionMenu label="Owner">
 							{#snippet trigger()}<span>{ownerFilter ? ownerName(ownerFilter) : 'Anyone'}</span
 								>{/snippet}
@@ -1073,7 +1012,7 @@
 						</ActionMenu>
 					</div>
 					{#if !stoppedView}
-						<div class="goal-standard-picker" title="Show work in one state">
+						<div class="goal-picker" title="Show work in one state">
 							<ActionMenu label="Status">
 								{#snippet trigger()}<span
 										>{statusFilter
@@ -1097,7 +1036,7 @@
 							</ActionMenu>
 						</div>
 					{/if}
-					<div class="goal-standard-picker" title="Order the work">
+					<div class="goal-picker" title="Order the work">
 						<ActionMenu label="Sort">
 							{#snippet trigger()}<span
 									>{sort === 'priority' ? 'Priority first' : 'Recent first'}</span
@@ -1178,9 +1117,6 @@
 							{#if dueLabel(selectedGoalRow)}<span>Due {dueLabel(selectedGoalRow)}</span>{/if}
 							{#if goalTeam(selectedGoalRow)}<span>{goalTeam(selectedGoalRow)}</span>{/if}
 							<!-- The facts a goal row's hover title carries, readable on touch once it is chosen. -->
-							{#if !ownerAccess}<span
-									>{standardLabel(goalStandard(selectedGoalRow))} quality bar</span
-								>{/if}
 							{#if ownerAccess && goalCost(selectedGoalRow.id)}<span
 									title="Metered model spend on this goal's work"
 									>{goalCost(selectedGoalRow.id)}</span
@@ -1188,7 +1124,7 @@
 							{#if selectedGoalRow.closed_at}<span>Closed</span>{/if}
 						</p>
 
-						{#if goalFailure}<p class="standard-failure" role="alert">{goalFailure}</p>{/if}
+						{#if goalFailure}<p class="pick-failure" role="alert">{goalFailure}</p>{/if}
 					</section>
 				{/if}
 				{#if !graph && failure}
@@ -1281,7 +1217,7 @@
 {/if}
 
 <style>
-	.goal-standard-picker :global(summary) {
+	.goal-picker :global(summary) {
 		width: auto;
 		height: 26px;
 		padding: 0 8px;
@@ -1290,10 +1226,10 @@
 		color: var(--text-secondary);
 		font-size: var(--t-label);
 	}
-	.goal-standard-picker :global(.action-menu-panel button) {
+	.goal-picker :global(.action-menu-panel button) {
 		justify-content: space-between;
 	}
-	.standard-failure {
+	.pick-failure {
 		color: var(--state-danger);
 		font-size: var(--t-label);
 	}

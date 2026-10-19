@@ -5,8 +5,6 @@
 //
 // Shared owner conversation and live-turn response contract.
 
-export type OutcomeStandard = "fast" | "thorough" | "exceptional" | "frontier";
-
 export type OwnerAttachment = { uploadId: string, name: string, mediaType: string, sizeBytes: number, path: string, };
 
 export type OwnerIntentKind = "conversation" | "work_feedback" | "direction" | "authority";
@@ -44,7 +42,7 @@ export type ConversationActorView = { id: string, display: string, kind: string,
 
 export type ConversationFocusView = { after_message_id: number, started_at: string | null, };
 
-export type ConversationMessageView = { id: number, from_actor: string, to_actor: string | null, body: string, outcome_standard: OutcomeStandard | null, attachments: Array<OwnerAttachment>, details: string | null, intent: OwnerIntentReceipt | null, context_path: string | null, created_at: string, read_at: string | null,
+export type ConversationMessageView = { id: number, from_actor: string, to_actor: string | null, body: string, attachments: Array<OwnerAttachment>, details: string | null, intent: OwnerIntentReceipt | null, context_path: string | null, created_at: string, read_at: string | null,
 /**
  * The owner's accounts the turn that wrote this message used (S98-09), one receipt each:
  * `account_use` with `use_id` and `result`.
@@ -53,7 +51,7 @@ account_uses: Array<Record<string, unknown>>, };
 
 export type ConversationView = { actor: ConversationActorView, focus: ConversationFocusView | null, messages: Array<ConversationMessageView>, };
 
-export type ConversationSendResponse = { message_id: number, created: boolean, interrupted: boolean, context_attached: boolean, context_omitted: boolean, focus: ConversationFocusView | null, requested_outcome_standard: OutcomeStandard | null, };
+export type ConversationSendResponse = { message_id: number, created: boolean, interrupted: boolean, context_attached: boolean, context_omitted: boolean, focus: ConversationFocusView | null, };
 
 export type ConversationInterruptResponse = { message_id: number, cancelled: boolean, interrupted: boolean, };
 

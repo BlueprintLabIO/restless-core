@@ -9,7 +9,6 @@
 		name: string;
 		role: string;
 		kind: ActorKind;
-		standard: string;
 		state: string;
 		/** Who is accountable for this person's work, for a worker. */
 		accountable?: string;
@@ -52,7 +51,7 @@
 					<div>
 						<p class="pv-person">{person.name} <ActorTag kind={person.kind} long /></p>
 						<p class="pv-role">{person.role}</p>
-						<p class="pv-role">{person.standard} · {person.state}</p>
+						<p class="pv-role">{person.state}</p>
 					</div>
 				</header>
 				{#if person.accountable}

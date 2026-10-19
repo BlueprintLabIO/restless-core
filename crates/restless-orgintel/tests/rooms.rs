@@ -3,8 +3,8 @@
 //! available, like the rest of the OrgIntel behavioural suite.
 
 use restless_orgintel::{
-    NewOwnerHandoff, NewRoomMessageMention, NewWork, OrgIntel, OutcomeStandard,
-    OwnerHandoffCategory, OwnerHandoffState, RoomKind, WorkAttemptState, WorkspaceSpec,
+    NewOwnerHandoff, NewRoomMessageMention, NewWork, OrgIntel, OwnerHandoffCategory,
+    OwnerHandoffState, RoomKind, WorkAttemptState, WorkspaceSpec,
 };
 use sha2::{Digest as _, Sha256};
 use sqlx::postgres::{PgConnection, PgListener};
@@ -47,8 +47,7 @@ async fn active_staff_are_directly_addressable_without_a_team_lead() {
         &["owner", "independent-craft"], "staff-direct-group"
     ).await.unwrap();
     let mentioned = org.send_room_message_with_mentions(
-        room.id, "owner", "Please check the draft", None, "staff-direct-mention",
-        None, &[NewRoomMessageMention::actor("independent-craft")], None
+        room.id, "owner", "Please check the draft", None, "staff-direct-mention", &[NewRoomMessageMention::actor("independent-craft")], None
     ).await.unwrap();
     assert_eq!(mentioned.mentions.len(), 1);
     org.retire_actor("independent-craft", "exec", "The test agent is retired").await.unwrap();
@@ -102,33 +101,10 @@ async fn room_send_is_idempotent_threaded_paginated_and_transactional() {
     assert_eq!(retry.message.id, root.message.id);
     assert_eq!(retry.event_id, root.event_id);
 
-    let standard_message = org
-        .send_room_message_with_standard(
-            room.id,
-            "owner",
-            "Quality matters",
-            None,
-            "standard-command",
-            Some(OutcomeStandard::Exceptional),
-        )
+    let middle_root = org
+        .send_room_message(room.id, "owner", "A middle question", None, "command-middle")
         .await
         .unwrap();
-    let standard_conflict = org
-        .send_room_message_with_standard(
-            room.id,
-            "owner",
-            "Quality matters",
-            None,
-            "standard-command",
-            Some(OutcomeStandard::Fast),
-        )
-        .await
-        .unwrap_err();
-    assert!(standard_conflict.to_string().contains("conflicts"));
-    assert_eq!(
-        standard_message.message.outcome_standard,
-        Some(OutcomeStandard::Exceptional)
-    );
 
     let conflict = org
         .send_room_message(room.id, "owner", "A different payload", None, "command-1")
@@ -177,7 +153,7 @@ async fn room_send_is_idempotent_threaded_paginated_and_transactional() {
             .iter()
             .map(|message| message.id)
             .collect::<Vec<_>>(),
-        vec![standard_message.message.id, second_root.message.id]
+        vec![middle_root.message.id, second_root.message.id]
     );
     let second_page = org
         .room_messages_before("owner", room.id, first_page.next_before_message_id, 2)
@@ -482,7 +458,6 @@ async fn durable_room_and_mention_quotas_serialize_across_connections() {
             "Use the final pending slot A",
             None,
             "mention-quota-a",
-            None,
             &first_mentions,
             None,
         ),
@@ -492,7 +467,6 @@ async fn durable_room_and_mention_quotas_serialize_across_connections() {
             "Use the final pending slot B",
             None,
             "mention-quota-b",
-            None,
             &second_mentions,
             None,
         ),
@@ -511,7 +485,6 @@ async fn durable_room_and_mention_quotas_serialize_across_connections() {
             "The recipient quota must also hold.",
             None,
             "recipient-quota",
-            None,
             &[NewRoomMessageMention::actor("exec")],
             None,
         )
@@ -603,7 +576,6 @@ async fn structured_mentions_are_retry_safe_recipient_relative_and_explicitly_re
             "Can the reviewer answer directly?",
             None,
             "ordinary-staff-mention",
-            None,
             &[NewRoomMessageMention::actor("delivery-review")],
             None,
         )
@@ -621,7 +593,6 @@ async fn structured_mentions_are_retry_safe_recipient_relative_and_explicitly_re
             "Can automation answer?",
             None,
             "service-mention",
-            None,
             &[NewRoomMessageMention::actor("release-automation")],
             None,
         )
@@ -644,7 +615,6 @@ async fn structured_mentions_are_retry_safe_recipient_relative_and_explicitly_re
             "Should we release this build?",
             None,
             "mention-command",
-            None,
             &[builder_mention.clone(), exec_mention.clone()],
             None,
         )
@@ -682,7 +652,6 @@ async fn structured_mentions_are_retry_safe_recipient_relative_and_explicitly_re
             "Should we release this build?",
             None,
             "mention-command",
-            None,
             &[exec_mention.clone(), builder_mention.clone()],
             None,
         )
@@ -710,7 +679,6 @@ async fn structured_mentions_are_retry_safe_recipient_relative_and_explicitly_re
             "Should we release this build?",
             None,
             "mention-command",
-            None,
             &[drifted, builder_mention.clone()],
             None,
         )
@@ -760,7 +728,6 @@ async fn structured_mentions_are_retry_safe_recipient_relative_and_explicitly_re
             "My view",
             Some(sent.message.id),
             "wrong-resolver",
-            None,
             &[],
             Some(exec_mention_id),
         )
@@ -779,7 +746,6 @@ async fn structured_mentions_are_retry_safe_recipient_relative_and_explicitly_re
             "Wrong room",
             Some(other_root.message.id),
             "wrong-room-resolution",
-            None,
             &[],
             Some(exec_mention_id),
         )
@@ -897,7 +863,6 @@ async fn structured_mentions_are_retry_safe_recipient_relative_and_explicitly_re
             "One more build question",
             None,
             "removed-attention",
-            None,
             &[NewRoomMessageMention::actor("delivery-build")],
             None,
         )
@@ -1758,13 +1723,7 @@ async fn human_direct_focus_is_attributed_and_isolated_per_person() {
         .await
         .unwrap();
     let (alice_second, alice_focus) = org
-        .send_human_conversation_message_with_standard(
-            "human-alice",
-            "exec",
-            "Alice starts a new subject",
-            true,
-            Some(OutcomeStandard::Thorough),
-        )
+        .send_human_conversation_message("human-alice", "exec", "Alice starts a new subject", true)
         .await
         .unwrap();
     assert_eq!(alice_focus.after_message_id, alice_first);
@@ -1816,10 +1775,6 @@ async fn human_direct_focus_is_attributed_and_isolated_per_person() {
         .unwrap();
     assert_eq!(alice_second_row.from_actor, "human-alice");
     assert_eq!(alice_second_row.to_actor.as_deref(), Some("exec"));
-    assert_eq!(
-        alice_second_row.outcome_standard,
-        Some(OutcomeStandard::Thorough)
-    );
 
     let work_id = org
         .add_work(NewWork {
@@ -1949,7 +1904,6 @@ async fn direct_mentions_skip_legacy_mail_and_plain_room_retry_keeps_pre_upgrade
             "One focused question",
             None,
             "direct-exec-mention",
-            None,
             &[NewRoomMessageMention::actor("exec")],
             None,
         )
@@ -1977,7 +1931,6 @@ async fn direct_mentions_skip_legacy_mail_and_plain_room_retry_keeps_pre_upgrade
             "A question for the human",
             None,
             "direct-owner-mention",
-            None,
             &[NewRoomMessageMention::actor("owner")],
             None,
         )
@@ -2061,7 +2014,6 @@ async fn actor_cognitive_lease_is_cross_pool_renewable_reclaimable_and_excludes_
             &format!("Question {index}"),
             None,
             &format!("question-{index}"),
-            None,
             &[NewRoomMessageMention::actor("delivery-build")],
             None,
         )
@@ -2250,7 +2202,6 @@ async fn lifecycle_revocation_preserves_named_mentions_fences_output_and_reclaim
             "Can the old lead answer?",
             None,
             "lifecycle-mention",
-            None,
             &[NewRoomMessageMention::actor("delivery-build")],
             None,
         )
@@ -2495,7 +2446,6 @@ async fn actor_retirement_and_room_removal_share_one_lock_order_and_cancel_once(
             "Please answer before this audience changes.",
             None,
             "retire-room-race",
-            None,
             &[NewRoomMessageMention::actor("room-guest")],
             None,
         )
@@ -2563,7 +2513,6 @@ async fn retiring_a_group_room_owner_archives_the_room_and_terminally_cancels_me
             "Please make the final call.",
             None,
             "founder-mention",
-            None,
             &[NewRoomMessageMention::actor("exec")],
             None,
         )

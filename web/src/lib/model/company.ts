@@ -11,7 +11,6 @@ export interface CompanySourceObservation {
 	detail?: string;
 }
 
-export type OutcomeStandard = 'fast' | 'thorough' | 'exceptional' | 'frontier';
 export type AgentHarness = 'restless-managed' | 'codex' | 'claude-agent';
 
 export interface CompanyView {

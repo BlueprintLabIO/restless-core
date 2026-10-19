@@ -31,7 +31,7 @@ export function setTeamOwner(company: string, team: string, person: string | nul
 	});
 }
 
-/** Form a team around an accountable lead, at the company's own outcome standard. */
+/** Form a team around an accountable lead. */
 export function createTeam(company: string, body: { name: string; brief: string; lead: string }) {
 	return ownerRequest<{ team_id: string }>(`${api(company)}/teams`, { method: 'POST', json: body });
 }

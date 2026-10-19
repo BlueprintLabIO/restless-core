@@ -7,27 +7,19 @@
 
 export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]: JsonValue } | null;
 
-export type OutcomeStandard = "fast" | "thorough" | "exceptional" | "frontier";
-
-export type OutcomeStandardSource = "company_default" | "owner_override" | "owner_language";
-
-export type CockpitCompany = { id: string, name: string, mission: string, model: string, outcome_standard: OutcomeStandard, };
+export type CockpitCompany = { id: string, name: string, mission: string, model: string, };
 
 export type CockpitModelCooldown = { model: string, kind: string, reason: string, retry_at: string, };
 
 export type CockpitPerson = { actor_id: string, kind: string, role: string, display: string, model: string | null, team_id: string | null, spent_usd: number, session_running: boolean, session_observed_at: string | null, model_cooldown: CockpitModelCooldown | null, };
 
-export type CockpitTeam = { id: string, name: string, brief: string, outcome_standard: OutcomeStandard, outcome_standard_source: OutcomeStandardSource, standard_source_message_id: number | null, frontier_phase: string, lead_actor_id: string,
+export type CockpitTeam = { id: string, name: string, brief: string, frontier_phase: string, lead_actor_id: string,
 /**
  * The person who owns the team; null means the owner.
  */
 responsible_actor_id: string | null, created_by: string, created_at: string, member_count: number, in_motion_count: number, blocked_count: number, };
 
 export type CockpitGoal = { id: string, title: string, body: string, created_by: string, created_at: string, closed_at: string | null,
-/**
- * The quality bar this Goal's Work is held to unless a Work states its own.
- */
-outcome_standard: OutcomeStandard,
 /**
  * What "done" looks like, observably; empty until stated.
  */

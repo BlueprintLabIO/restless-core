@@ -82,7 +82,6 @@ try {
 		).status(),
 		422
 	);
-	assert.equal(await p.getByRole('combobox', { name: 'Company outcome standard' }).count(), 0);
 	await p.goto(base + '/authority');
 	await p.waitForURL(base + '/resources#authority');
 	await p.route('**/startup-doctor', (r) => r.fulfill({ status: 503, body: 'unavailable' }));

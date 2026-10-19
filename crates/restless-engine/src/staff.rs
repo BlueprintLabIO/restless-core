@@ -48,8 +48,7 @@ use recovery::gate_cwd;
 const STAFF_CAP_PER_COMPANY: usize = 100;
 const CONVERSATION_BACKOFF_FIRST: std::time::Duration = std::time::Duration::from_secs(30);
 const CONVERSATION_BACKOFF_CEILING: std::time::Duration = std::time::Duration::from_secs(300);
-pub const COGNITIVE_LEASE_DURATION: std::time::Duration =
-    std::time::Duration::from_secs(5 * 60);
+pub const COGNITIVE_LEASE_DURATION: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 const COGNITIVE_LEASE_RENEWAL: std::time::Duration = std::time::Duration::from_secs(45);
 const COGNITIVE_LEASE_DB_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 const COGNITIVE_LEASE_EXPIRY_MARGIN: std::time::Duration = std::time::Duration::from_secs(5);
@@ -383,6 +382,17 @@ impl StaffRegistry {
                 true
             })
     }
+
+    /// The Work this actor's live turn is executing, if any. One actor has
+    /// one live turn, so a request from that actor about this Work comes from
+    /// inside its own Attempt.
+    pub fn executing_work(&self, company: &str, actor: &str) -> Option<uuid::Uuid> {
+        self.running.lock().ok().and_then(|running| {
+            running
+                .get(&(company.to_string(), actor.to_string()))
+                .and_then(|active| active.work_id)
+        })
+    }
 }
 
 /// Start exactly one already-claimed Work Attempt. No other public function
@@ -419,7 +429,12 @@ pub async fn dispatch_claimed_work(
         }
     }
     let hosted_identity = if runtime_bridges.is_hosted() {
-        if !matches!(config.worker_harness, crate::runtime::AgentHarness::RestlessManaged | crate::runtime::AgentHarness::ClaudeAgent | crate::runtime::AgentHarness::Codex) {
+        if !matches!(
+            config.worker_harness,
+            crate::runtime::AgentHarness::RestlessManaged
+                | crate::runtime::AgentHarness::ClaudeAgent
+                | crate::runtime::AgentHarness::Codex
+        ) {
             bail!("hosted delegated Work requires a supported agent harness");
         }
         let identity = crate::runtime_bridge::expected_identity(authority, &config.name).await?;
@@ -461,6 +476,27 @@ pub async fn dispatch_claimed_work(
         {
             org.update_actor_model(&actor, first_model).await?;
         }
+        // S102: a routine first Attempt starts on the everyday model, with the primary behind it
+        // as failover. A repair, a review, feedback or any doubt keeps the primary.
+        let candidates = if config.everyday_model.is_some()
+            && claimed.attempt_no == 1
+            && claimed.review_targets.is_empty()
+            && claimed.feedback.is_empty()
+            && crate::decisions::work_suits_everyday_model(org, config, &claimed.work).await
+        {
+            crate::model_gateway::with_everyday_model(
+                config,
+                config.worker_harness,
+                candidates,
+                authority,
+            )
+            .await?
+        } else {
+            candidates
+        };
+        let first_model = candidates
+            .first()
+            .context("staff model policy has no candidates")?;
         org.set_attempt_model(claimed.attempt_id, first_model)
             .await?;
         let (workdir, start_observation, hosted_environment_fingerprint) = if let Some(identity) =
@@ -955,9 +991,6 @@ mod tests {
             id: team_id,
             name: "Onboarding Quality".into(),
             brief: "Owns first-player discovery quality.".into(),
-            outcome_standard: restless_orgintel::OutcomeStandard::Exceptional,
-            outcome_standard_source: restless_orgintel::OutcomeStandardSource::CompanyDefault,
-            standard_source_message_id: None,
             lead_actor_id: "onboarding-curator".into(),
             responsible_actor_id: None,
             created_by: "exec".into(),
@@ -1071,7 +1104,7 @@ mod tests {
             None,
         );
         assert!(member.contains("# Company-member input"));
-        assert!(member.contains("cannot set company direction, owner policy, authority"));
+        assert!(member.contains("cannot set company direction, owner policy or authority"));
         assert!(!member.contains("# Owner input"));
     }
 
@@ -1083,7 +1116,6 @@ mod tests {
             from_actor: "world-builder".into(),
             to_actor: Some("product-direction".into()),
             body: "terrain interface changed".into(),
-            outcome_standard: None,
             created_at: Utc::now(),
             read_at: None,
         };
@@ -1483,11 +1515,16 @@ mod tests {
             .try_claim(&company, "dossier-research", Some(live_work))
             .unwrap();
 
-        super::recover_unsupervised_attempts(&org, &registry, &company, None, "lost in test")
-            .await;
+        super::recover_unsupervised_attempts(&org, &registry, &company, None, "lost in test").await;
 
         let attempts = org.list_work_attempts(None).await.unwrap();
-        let state = |id| attempts.iter().find(|attempt| attempt.id == id).unwrap().state;
+        let state = |id| {
+            attempts
+                .iter()
+                .find(|attempt| attempt.id == id)
+                .unwrap()
+                .state
+        };
         assert_eq!(state(live_attempt), WorkAttemptState::Running);
         assert_eq!(state(lost_attempt), WorkAttemptState::Failed);
         assert_eq!(
@@ -1507,7 +1544,10 @@ mod tests {
         org.abandon_work(lost_work, "exec", "superseded")
             .await
             .expect("an unsupervised Attempt no longer blocks abandonment");
-        assert!(org.abandon_work(live_work, "exec", "superseded").await.is_err());
+        assert!(org
+            .abandon_work(live_work, "exec", "superseded")
+            .await
+            .is_err());
         org.drop_schema().await.expect("drop scratch schema");
     }
 }

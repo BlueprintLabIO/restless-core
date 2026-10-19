@@ -50,6 +50,14 @@ compaction:
 # A tool result stays in context for every later call. Keep at most ~3k tokens
 # of a large result inline (head and tail); the full output is saved as an
 # artifact the actor can read when it needs the middle.
+#
+# Long-lived services run under the company supervisor (`company-tools`
+# skill), so OMP's service mode stays off. With it on, a `name` or `timeout`
+# argument errors or backgrounds the command without output; in the S100 runs
+# models then wrote every output to /tmp and read it back, and 38-42% of all
+# calls were that workaround.
+launch:
+  enabled: false
 tools:
   artifactSpillThreshold: 12
   artifactHeadBytes: 4

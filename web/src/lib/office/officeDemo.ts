@@ -32,9 +32,6 @@ const people = [
 
 export const OFFICE_DEMO_TEAMS: CockpitTeam[] = teamSources.map((team) => ({
 	...team,
-	outcome_standard: 'exceptional',
-	outcome_standard_source: 'company_default',
-	standard_source_message_id: null,
 	frontier_phase: 'commissioned',
 	lead_actor_id: people.find((person) => person[3] === team.id)?.[0] ?? '',
 	responsible_actor_id: null,

@@ -340,7 +340,6 @@ impl PartyAction {
 struct OwnerMessageInput {
     client_command_id: String,
     body: String,
-    outcome_standard: Option<restless_orgintel::OutcomeStandard>,
     work_id: Option<Uuid>,
     attention_id: Option<String>,
     new_focus: bool,
@@ -398,7 +397,6 @@ struct ConversationMessageView {
     from_actor: String,
     to_actor: Option<String>,
     body: String,
-    outcome_standard: Option<restless_orgintel::OutcomeStandard>,
     attachments: Vec<OwnerAttachment>,
     details: Option<String>,
     intent: Option<OwnerIntentReceipt>,
@@ -419,7 +417,6 @@ struct ConversationSendResponse {
     context_attached: bool,
     context_omitted: bool,
     focus: Option<ConversationFocusView>,
-    requested_outcome_standard: Option<restless_orgintel::OutcomeStandard>,
 }
 
 #[derive(Debug, Serialize)]
@@ -744,7 +741,6 @@ struct CockpitCompany {
     name: String,
     mission: String,
     model: String,
-    outcome_standard: restless_orgintel::OutcomeStandard,
 }
 
 #[derive(Debug, Serialize, ts_rs::TS)]
@@ -774,9 +770,6 @@ struct CockpitTeam {
     id: Uuid,
     name: String,
     brief: String,
-    outcome_standard: restless_orgintel::OutcomeStandard,
-    outcome_standard_source: restless_orgintel::OutcomeStandardSource,
-    standard_source_message_id: Option<i64>,
     frontier_phase: String,
     lead_actor_id: String,
     /// The person who owns the team; null means the owner.
@@ -796,8 +789,6 @@ struct CockpitGoal {
     created_by: String,
     created_at: chrono::DateTime<Utc>,
     closed_at: Option<chrono::DateTime<Utc>>,
-    /// The quality bar this Goal's Work is held to unless a Work states its own.
-    outcome_standard: restless_orgintel::OutcomeStandard,
     /// What "done" looks like, observably; empty until stated.
     done_when: String,
     /// When the owner wants it by, if they said.
@@ -1536,14 +1527,6 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(teams_api::work_feedback),
         )
         .route("/companies/{company}/work-spend", get(teams_api::work_spend))
-        .route(
-            "/companies/{company}/goals/{goal}/standard",
-            post(skills_api::set_goal_standard),
-        )
-        .route(
-            "/companies/{company}/work/{work}/standard",
-            post(skills_api::set_work_standard),
-        )
         .route(
             "/companies/{company}/loops",
             get(skills_api::list_loops).post(skills_api::add_loop),
@@ -3636,8 +3619,8 @@ async fn consume_entry_assertion(
         let command = format!("fleet-opening:{command_id}");
         let payload = format!("fleet-opening:{}:{}:{message}", access.company_id, command_id);
         let digest = format!("{:x}", Sha256::digest(payload.as_bytes()));
-        match org.send_human_runtime_conversation_message_idempotent_with_standard(
-            "owner", "exec", message, true, None, &[], &command, &digest,
+        match org.send_human_runtime_conversation_message_idempotent(
+            "owner", "exec", message, true, &[], &command, &digest,
         ).await {
             Ok((message_id, _, created)) => {
                 if created {
@@ -8072,9 +8055,6 @@ async fn cockpit_view(
                 id: team.id,
                 name: team.name.clone(),
                 brief: team.brief.clone(),
-                outcome_standard: team.outcome_standard,
-                outcome_standard_source: team.outcome_standard_source,
-                standard_source_message_id: team.standard_source_message_id,
                 frontier_phase: frontier_phase.into(),
                 lead_actor_id: team.lead_actor_id.clone(),
                 responsible_actor_id: team.responsible_actor_id.clone(),
@@ -8234,7 +8214,6 @@ async fn cockpit_view(
                 .unwrap_or_else(|| company_display_name(&config.name)),
             mission: config.mission,
             model: config.model,
-            outcome_standard: config.outcome_standard,
         },
         source_health,
         people,
@@ -8248,7 +8227,6 @@ async fn cockpit_view(
                 created_by: goal.created_by,
                 created_at: goal.created_at,
                 closed_at: goal.closed_at,
-                outcome_standard: goal.outcome_standard,
                 done_when: goal.done_when,
                 due_on: goal.due_on,
                 team_id: goal.team_id,
@@ -8298,8 +8276,6 @@ fn render_cockpit_bindings() -> String {
     );
     for declaration in [
         serde_json::Value::decl(&config),
-        restless_orgintel::OutcomeStandard::decl(&config),
-        restless_orgintel::OutcomeStandardSource::decl(&config),
         CockpitCompany::decl(&config),
         CockpitModelCooldown::decl(&config),
         CockpitPerson::decl(&config),
@@ -8353,7 +8329,6 @@ fn render_conversation_bindings() -> String {
          \n",
     );
     for declaration in [
-        restless_orgintel::OutcomeStandard::decl(&config),
         OwnerAttachment::decl(&config),
         crate::transcript::OwnerIntentKind::decl(&config),
         crate::transcript::ReadbackLine::decl(&config),
@@ -9732,7 +9707,6 @@ fn conversation_message_view(message: restless_orgintel::MessageRow) -> Conversa
         from_actor: message.from_actor,
         to_actor: message.to_actor,
         body: decoded.body.to_string(),
-        outcome_standard: message.outcome_standard,
         attachments: decoded.attachments,
         details: decoded.details,
         intent: decoded.intent,
@@ -10056,13 +10030,6 @@ async fn send_actor_message(
             "New focus is available only for ordinary Exec conversation",
         );
     }
-    if input.outcome_standard.is_some() && (actor != "exec" || input.work_id.is_some()) {
-        return api_error(
-            StatusCode::BAD_REQUEST,
-            "outcome_standard",
-            "an outcome standard can be selected only for a new Exec request",
-        );
-    }
     let work_visible = match input.work_id {
         Some(work_id) if principal.membership_role() != "owner" => {
             teammate_sees_work(&state, &company, principal.actor_id(), work_id).await
@@ -10153,7 +10120,6 @@ async fn send_actor_message(
                     after_message_id: focus.after_message_id,
                     started_at: focus.started_at,
                 }),
-                requested_outcome_standard: input.outcome_standard,
             })
             .into_response();
         }
@@ -10410,12 +10376,11 @@ async fn send_actor_message(
             .await
             .map(|(message_id, created)| (message_id, None, created)),
         None => org
-            .send_human_runtime_conversation_message_idempotent_with_standard(
+            .send_human_runtime_conversation_message_idempotent(
                 &sender,
                 &actor,
                 &recorded_body,
                 input.new_focus,
-                input.outcome_standard,
                 &attachment_ids,
                 client_command_id,
                 &client_payload_sha256,
@@ -10565,7 +10530,6 @@ async fn send_actor_message(
                     after_message_id: focus.after_message_id,
                     started_at: focus.started_at,
                 }),
-                requested_outcome_standard: input.outcome_standard,
             })
             .into_response()
         }
@@ -10785,18 +10749,6 @@ async fn parse_owner_message(
                     input.attention_id = Some(value.to_string());
                 }
             }
-            Some("outcome_standard") => {
-                let value = field
-                    .text()
-                    .await
-                    .map_err(|error| format!("read outcome standard: {error}"))?;
-                input.outcome_standard = Some(
-                    restless_orgintel::OutcomeStandard::parse(&value).ok_or_else(|| {
-                        "outcome_standard must be fast, thorough, exceptional, or frontier"
-                            .to_string()
-                    })?,
-                );
-            }
             Some("skills") => {
                 let value = field
                     .text()
@@ -10909,7 +10861,6 @@ fn owner_message_command_digest(
         "attention_id": input.attention_id,
         "new_focus": input.new_focus,
         "interrupt": input.interrupt,
-        "outcome_standard": input.outcome_standard,
         "context_requested": input.context_requested,
         "context_path": context_path,
         "context_omitted": context_omitted,

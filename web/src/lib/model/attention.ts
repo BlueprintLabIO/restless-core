@@ -2,7 +2,6 @@ import { openLiveEvents } from './live-events.ts';
 import type { AttentionItem, DecisionContinuation } from './view';
 import { ownerAttention } from './attention-presentation';
 import type { WorkGraphSnapshot } from './generated/orgintel';
-import type { OutcomeStandard } from './company';
 import type {
 	AgentActivityState,
 	ConversationInterruptResponse,
@@ -42,7 +41,6 @@ export interface MessageSendResult {
 	interrupted: boolean;
 	contextAttached: boolean;
 	contextOmitted: boolean;
-	requestedOutcomeStandard?: OutcomeStandard | null;
 	focus?: {
 		afterMessageId: number;
 		startedAt: string | null;
@@ -476,7 +474,6 @@ export async function sendActorMessage(
 	contextPath?: string,
 	newFocus = false,
 	interrupt = false,
-	outcomeStandard?: OutcomeStandard,
 	attentionId?: string,
 	clientCommandId: string = crypto.randomUUID(),
 	skills: string[] = [],
@@ -490,7 +487,6 @@ export async function sendActorMessage(
 	if (contextPath) form.set('context_path', contextPath);
 	if (newFocus) form.set('new_focus', 'true');
 	if (interrupt) form.set('interrupt', 'true');
-	if (outcomeStandard) form.set('outcome_standard', outcomeStandard);
 	for (const skill of skills) form.append('skills', skill);
 	for (const file of files) form.append('attachments', file, file.name);
 	const url = `/api/companies/${encodeURIComponent(company)}/actors/${encodeURIComponent(actor)}/conversation`;
@@ -508,7 +504,6 @@ export async function sendActorMessage(
 		interrupted: result.interrupted ?? false,
 		contextAttached: result.context_attached ?? false,
 		contextOmitted: result.context_omitted ?? false,
-		requestedOutcomeStandard: result.requested_outcome_standard,
 		focus: result.focus
 			? {
 					afterMessageId: result.focus.after_message_id,

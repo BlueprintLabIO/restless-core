@@ -254,7 +254,6 @@ function safeRoomMessage(value: unknown, room: string): Record<string, unknown> 
 		from_actor: fromActor,
 		to_actor: nullableString(message.to_actor, 256),
 		body,
-		outcome_standard: nullableString(message.outcome_standard, 128),
 		parent_message_id: parentMessageId,
 		thread_root_message_id: threadRootMessageId,
 		client_command_id: null,

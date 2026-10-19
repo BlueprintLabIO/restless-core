@@ -404,6 +404,41 @@ enum Command {
         #[command(subcommand)]
         command: WorkCommand,
     },
+    /// Put one outcome in motion in one call: reuse or appoint its accountable lead, form that
+    /// lead's team when it has none, and add the lead's own Work.
+    Commission {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// The accountable lead's stable id (`<durable-domain>-<craft>`); reused when it exists.
+        #[arg(long)]
+        lead: String,
+        /// The lead's role; needed only when the lead is new.
+        #[arg(long)]
+        role: Option<String>,
+        /// The team's name; needed only when the lead does not yet lead a team.
+        #[arg(long)]
+        team: Option<String>,
+        /// What the team exists for; needed only when a team is formed.
+        #[arg(long)]
+        charter: Option<String>,
+        #[arg(long)]
+        title: String,
+        /// The observable outcome, including every fact the owner gave.
+        #[arg(long)]
+        outcome: String,
+        /// Why this lead and Work exist; recorded on a new lead.
+        #[arg(long)]
+        reason: Option<String>,
+        #[arg(long)]
+        goal: Option<String>,
+        #[arg(long)]
+        expected_artifact: Option<String>,
+        #[arg(long)]
+        priority: Option<i16>,
+        /// The owner reviews the exact finished outcome.
+        #[arg(long)]
+        owner_review: bool,
+    },
     /// Recent events from the operational stream (newest first).
     Events {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -1293,15 +1328,6 @@ enum TeamCommand {
         /// Why this team exists and what it is accountable for.
         #[arg(long)]
         brief: String,
-        /// Effective outcome ambition. Omit only to inherit company policy.
-        #[arg(long)]
-        standard: Option<String>,
-        /// company_default, owner_override, or owner_language.
-        #[arg(long)]
-        standard_source: Option<String>,
-        /// Owner message supporting an override or language interpretation.
-        #[arg(long)]
-        source_message: Option<i64>,
     },
     /// Rename a team or revise its outcome charter. Owner/Exec only.
     Update {
@@ -1729,18 +1755,6 @@ enum WorkCommand {
         #[arg(long = "as", env = "RESTLESS_ACTOR")]
         as_actor: Option<String>,
     },
-    /// Hold one piece of Work to its own quality bar, or `inherit` its Goal's.
-    Standard {
-        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
-        company: Option<String>,
-        #[arg(long)]
-        work: String,
-        /// fast, thorough, exceptional, frontier or inherit.
-        #[arg(long)]
-        standard: String,
-        #[arg(long = "as", env = "RESTLESS_ACTOR")]
-        as_actor: Option<String>,
-    },
     Edge {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
@@ -2019,14 +2033,6 @@ enum GoalCommand {
         work: String,
         #[arg(long)]
         goal: String,
-    },
-    /// Set the quality bar this Goal's Work is held to.
-    Standard {
-        #[arg(long)]
-        goal: String,
-        /// fast, thorough, exceptional or frontier.
-        #[arg(long)]
-        standard: String,
     },
 }
 
@@ -2601,6 +2607,37 @@ fn main() -> Result<()> {
             } else {
                 doctor(company)
             }
+        }
+        Command::Commission {
+            company,
+            lead,
+            role,
+            team,
+            charter,
+            title,
+            outcome,
+            reason,
+            goal,
+            expected_artifact,
+            priority,
+            owner_review,
+        } => {
+            let report = commission(Commission {
+                company,
+                lead,
+                role,
+                team,
+                charter,
+                title,
+                outcome,
+                reason,
+                goal,
+                expected_artifact,
+                priority,
+                owner_review,
+            })?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
         }
         Command::Attention { company, summary } => {
             let request = stamp(serde_json::json!({ "cmd": "attention", "company": company }));
@@ -3539,15 +3576,9 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 name,
                 lead,
                 brief,
-                standard,
-                standard_source,
-                source_message,
             } => serde_json::json!({
                 "cmd": "team-create", "company": company, "name": name, "to": lead,
                 "body": brief,
-                "outcome_standard": standard,
-                "outcome_standard_source": standard_source,
-                "source_message_id": source_message,
                 "actor": acting_actor(),
             }),
             TeamCommand::Update {
@@ -3644,10 +3675,6 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 "cmd": "work-goal", "company": company, "id": work, "goal": goal,
                 "actor": acting_actor(),
             }),
-            Some(GoalCommand::Standard { goal, standard }) => serde_json::json!({
-                "cmd": "goal-standard", "company": company, "goal": goal,
-                "outcome_standard": standard, "actor": acting_actor(),
-            }),
         },
         Command::Work { command } => match command {
             WorkCommand::List { company } => {
@@ -3733,15 +3760,6 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             } => serde_json::json!({
                 "cmd": "work-assign", "company": company, "id": work, "to": owner,
                 "reason": reason, "actor": as_actor.unwrap_or_else(acting_actor),
-            }),
-            WorkCommand::Standard {
-                company,
-                work,
-                standard,
-                as_actor,
-            } => serde_json::json!({
-                "cmd": "work-standard", "company": company, "id": work,
-                "outcome_standard": standard, "actor": as_actor.unwrap_or_else(acting_actor),
             }),
             WorkCommand::Edge {
                 company,
@@ -4253,6 +4271,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         Command::Appliance { .. }
         | Command::Open
         | Command::Doctor { .. }
+        | Command::Commission { .. }
         | Command::Watch { .. }
         | Command::Attach { .. }
         | Command::Chat { .. }
@@ -4644,6 +4663,82 @@ fn doctor(company: Option<String>) -> Result<()> {
     } else {
         bail!("local stack is degraded; run the reported action(s)")
     }
+}
+
+struct Commission {
+    company: Option<String>,
+    lead: String,
+    role: Option<String>,
+    team: Option<String>,
+    charter: Option<String>,
+    title: String,
+    outcome: String,
+    reason: Option<String>,
+    goal: Option<String>,
+    expected_artifact: Option<String>,
+    priority: Option<i16>,
+    owner_review: bool,
+}
+
+/// `restless commission`: the existing people, team and Work commands composed client-side, so
+/// commissioning costs a model one tool call instead of four to six (S101). Each step is the
+/// ordinary daemon command with its ordinary checks; a step that fails stops the rest.
+fn commission(input: Commission) -> Result<serde_json::Value> {
+    let company = input.company;
+    let actor = acting_actor();
+    let people = daemon_request(serde_json::json!({ "cmd": "people", "company": company }))?;
+    let existing = people
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["actor_id"] == input.lead.as_str()))
+        .cloned();
+    let (role, appointed) = match existing {
+        Some(row) => (row["role"].as_str().unwrap_or_default().to_string(), false),
+        None => {
+            let role = input
+                .role
+                .clone()
+                .context("the lead is new: pass --role")?;
+            daemon_request(serde_json::json!({
+                "cmd": "actor-create", "company": company, "as_actor": input.lead,
+                "role": role, "name": "auto",
+                "reason": input.reason.clone().unwrap_or_else(|| format!("lead for {}", input.title)),
+                "actor": actor,
+            }))?;
+            (role, true)
+        }
+    };
+    let teams = daemon_request(serde_json::json!({ "cmd": "teams", "company": company }))?;
+    let led = teams["teams"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["lead_actor_id"] == input.lead.as_str()))
+        .map(|row| row["id"].clone());
+    let (team_id, formed) = match led {
+        Some(id) => (id, false),
+        None => {
+            let name = input
+                .team
+                .context("the lead leads no team yet: pass --team and --charter")?;
+            let charter = input.charter.context("a new team needs --charter")?;
+            let created = daemon_request(serde_json::json!({
+                "cmd": "team-create", "company": company, "name": name, "to": input.lead,
+                "body": charter, "actor": actor,
+            }))?;
+            (created["team_id"].clone(), true)
+        }
+    };
+    let work = daemon_request(serde_json::json!({
+        "cmd": "work-add", "company": company, "actor": input.lead, "role": role,
+        "title": input.title, "body": input.outcome, "priority": input.priority,
+        "expected_artifact": input.expected_artifact, "owner_review": input.owner_review,
+        "goal": input.goal, "as_actor": actor,
+    }))?;
+    Ok(serde_json::json!({
+        "lead": input.lead,
+        "lead_appointed": appointed,
+        "team_id": team_id,
+        "team_formed": formed,
+        "work": work,
+    }))
 }
 
 fn daemon_request(request: serde_json::Value) -> Result<serde_json::Value> {

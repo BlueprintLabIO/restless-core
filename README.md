@@ -166,9 +166,6 @@ vault and a record of every external action.
 **A company that knows itself.** Approved facts, voice and visual language travel with the work.
 Change a fact and Restless flags what used the old one.
 
-**Quality is part of the brief.** Choose Fast, Thorough, Exceptional or Frontier for the company
-or for one outcome. It sets how deep agents go. Permissions and spending limits are separate.
-
 <details>
 <summary><b>Every capability, in detail</b></summary>
 
@@ -202,7 +199,6 @@ or for one outcome. It sets how deep agents go. Permissions and spending limits 
 
 | Capability | What you can do |
 | --- | --- |
-| **Outcome standards** | Choose Fast, Thorough, Exceptional or Frontier for the company or an individual outcome. |
 | **Review the actual result** | Try the application, read the document, open the page or play the media you are reviewing. |
 | **Know which version was checked** | Keep the reviewed version unchanged, with a record of the material it used and the checks run on it. |
 | **Revisions and related work** | Carry feedback into the next version and flag other work that relied on material you changed. |
@@ -351,7 +347,7 @@ you want to step in. Here, the studio's playable prototype is running.
 ### Set authority and limits
 
 Choose what the company may do on its own and which decisions need you. **Authority & limits**
-brings autonomy, outcome standards, model spend ceilings and standing grants into one place.
+brings autonomy, model spend ceilings and standing grants into one place.
 
 ![Authority boundaries, owner decisions and model spend ceiling](docs/screenshots/restless-authority.png)
 
@@ -422,8 +418,7 @@ does human judgement improve it?**
   collaborators when they improve quality, check independently or save time.
 - **Give agents the company's own facts, voice and taste,** and track which guidance each output
   used.
-- **Make quality an operating choice.** Set an outcome standard, review the exact result and
-  carry feedback into the next version.
+- **Review the exact result** and carry feedback into the next version.
 
 Paperclip also offers [human membership](https://docs.paperclip.ing/guides/org/members-and-access/),
 [ranked attention](https://docs.paperclip.ing/reference/api/attention/) and

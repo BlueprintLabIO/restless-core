@@ -150,7 +150,6 @@ async fn company_and_room_work_are_visible_without_cross_room_leakage() {
             "Is this build ready to launch?",
             None,
             "alex-launch-input",
-            None,
             &[input_request],
             None,
         )
@@ -175,7 +174,6 @@ async fn company_and_room_work_are_visible_without_cross_room_leakage() {
             "Yes. The playtest is clean and the build is ready.",
             Some(requested.message.id),
             "alex-launch-answer",
-            None,
             &[],
             Some(mention_id),
         )
@@ -209,7 +207,6 @@ async fn company_and_room_work_are_visible_without_cross_room_leakage() {
             "This Room must not learn Blair's private Work.",
             None,
             "cross-room-work-mention",
-            None,
             &[hidden_reference],
             None,
         )

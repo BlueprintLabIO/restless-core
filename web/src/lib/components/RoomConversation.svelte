@@ -122,7 +122,9 @@
 		recentGroupConversationsQuery(companyId, () => !!principalProjection.view?.actor_id)
 	);
 	const requestedRoomId = $derived(embedded ? '' : (page.url.searchParams.get('room') ?? ''));
-	const requestedPersonId = $derived(embedded ? person : (page.url.searchParams.get('person') ?? ''));
+	const requestedPersonId = $derived(
+		embedded ? person : (page.url.searchParams.get('person') ?? '')
+	);
 	let resolvedPersonRoom = $state<{ key: string; room: Room } | null>(null);
 	let resolvingPersonKey = $state('');
 	let attemptedPersonKey = $state('');
@@ -1248,7 +1250,6 @@
 			from_actor: currentActorId,
 			to_actor: null,
 			body: wireBody,
-			outcome_standard: null,
 			parent_message_id: parent,
 			thread_root_message_id: parent,
 			client_command_id: commandId,
@@ -1274,7 +1275,6 @@
 					contextPath,
 					false,
 					!!actorConversation?.working && directAgent && mayInterrupt && interruptNext,
-					undefined,
 					skills
 				);
 				if (result.interrupted && stillCurrent())

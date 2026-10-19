@@ -62,7 +62,6 @@ export const STUDIO_ROOM_MESSAGES: RoomMessage[] = [
 ];
 
 export const STUDIO_AUTHORITY = {
-	standard: 'Exceptional',
 	may: [
 		{ title: 'Internal company work', body: 'Plan, research, edit company files, build and coordinate inside the company computer.' },
 		{ title: 'Model use inside the spend ceiling', body: 'Configured models may be used while metered spend stays under the owner’s ceiling.' }
@@ -113,7 +112,6 @@ export const STUDIO_PERSON: PersonDetail = {
 	name: 'Ines',
 	role: 'Build and QA · Studio',
 	kind: 'agent',
-	standard: 'Exceptional',
 	state: 'in motion',
 	accountable: 'Marlow',
 	work: [

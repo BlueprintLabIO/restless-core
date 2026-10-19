@@ -21,10 +21,6 @@ export type OwnerHandoffCategory = "identity" | "captcha" | "mfa" | "legal_attes
 
 export type OwnerHandoffState = "pending" | "preparing" | "resolved" | "declined" | "withdrawn";
 
-export type OutcomeStandard = "fast" | "thorough" | "exceptional" | "frontier";
-
-export type OutcomeStandardSource = "company_default" | "owner_override" | "owner_language";
-
 export type ProducingTopology = "coherent_single_worker" | "locally_closing_parallel_unit";
 
 export type IdentityPillar = "truth" | "voice" | "visual" | "culture";
@@ -79,7 +75,7 @@ export type TeamRow = { id: string, name: string,
 /**
  * Why this team exists and what it is accountable for.
  */
-brief: string, outcome_standard: OutcomeStandard, outcome_standard_source: OutcomeStandardSource, standard_source_message_id: number | null, lead_actor_id: string,
+brief: string, lead_actor_id: string,
 /**
  * The person who owns this team: directs it, answers what its lead and Exec pass up, and
  * accepts its outcomes. None means the owner.
@@ -125,10 +121,6 @@ retired_by: string | null,
 retirement_reason: string, created_at: string, };
 
 export type GoalRow = { id: string, title: string, body: string, created_by: string, created_at: string, closed_at: string | null,
-/**
- * The quality bar this Goal's Work is held to unless a Work states its own.
- */
-outcome_standard: OutcomeStandard,
 /**
  * What "done" looks like, observably ("3 paying clients"). Empty until stated.
  */
@@ -198,13 +190,7 @@ escalated_from: string | null, escalated_at: string | null, owner_brief: OwnerBr
  */
 delivered_at: string | null, created_at: string, resolved_at: string | null, };
 
-export type WorkGraphSnapshot = { work: Array<WorkRow>, edges: Array<WorkEdgeRow>, attempts: Array<WorkAttemptRow>, attempt_inputs: Array<WorkAttemptInputRow>, attempt_feedback: Array<WorkAttemptFeedbackRow>, artifacts: Array<ArtifactRefRow>, gates: Array<WorkGateRow>, gate_runs: Array<WorkGateRunRow>, handoffs: Array<OwnerHandoffRow>,
-/**
- * Work that states its own quality bar; the rest inherit their Goal's.
- */
-standards: Array<WorkStandardRow>, };
-
-export type WorkStandardRow = { work_id: string, outcome_standard: OutcomeStandard, };
+export type WorkGraphSnapshot = { work: Array<WorkRow>, edges: Array<WorkEdgeRow>, attempts: Array<WorkAttemptRow>, attempt_inputs: Array<WorkAttemptInputRow>, attempt_feedback: Array<WorkAttemptFeedbackRow>, artifacts: Array<ArtifactRefRow>, gates: Array<WorkGateRow>, gate_runs: Array<WorkGateRunRow>, handoffs: Array<OwnerHandoffRow>, };
 
 export type MessageReactionRow = { message_id: number, actor_id: string, emoji: string, };
 
@@ -243,12 +229,7 @@ source: string, path: string,
  */
 digest: string, has_scripts: boolean, };
 
-export type MessageRow = { id: number, from_actor: string, to_actor: string | null, body: string,
-/**
- * An explicit owner composer override. Absence means the Exec applies the
- * company default or makes an attributable natural-language judgement.
- */
-outcome_standard: OutcomeStandard | null, created_at: string, read_at: string | null, };
+export type MessageRow = { id: number, from_actor: string, to_actor: string | null, body: string, created_at: string, read_at: string | null, };
 
 export type EventRow = { id: number, kind: string, actor_id: string | null, body: JsonValue, created_at: string, };
 

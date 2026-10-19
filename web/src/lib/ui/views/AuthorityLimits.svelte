@@ -6,20 +6,16 @@
 <script lang="ts">
 	import ShieldCheck from '@lucide/svelte/icons/shield-check';
 
-	/* Authority & limits: the outcome standard, what the company may do alone, what it must ask for,
+	/* Authority & limits: what the company may do alone, what it must ask for,
 	 * what it can never do, and model spend against the owner's ceiling. These are enforced by code in
 	 * the product; this view only shows them. `highlight` points at one rule, for a page to narrate. */
 	let {
-		standard,
-		standardNote = 'Default for newly commissioned outcomes',
 		may,
 		asks,
 		cannot,
 		spend,
 		highlight = null
 	}: {
-		standard: string;
-		standardNote?: string;
 		may: AuthorityRule[];
 		asks: AuthorityRule[];
 		cannot: AuthorityRule[];
@@ -43,11 +39,6 @@
 			<ShieldCheck size={16} strokeWidth={2.2} />
 			<strong>Authority &amp; limits</strong>
 		</header>
-		<div class="al-standard">
-			<span class="al-label">Outcome standard</span>
-			<strong>{standard}</strong>
-			<span class="al-note">{standardNote}</span>
-		</div>
 		<div class="al-columns">
 			{#each columns as column (column.key)}
 				<div class="al-column {column.key}">
@@ -67,7 +58,9 @@
 				<div class="al-figures">
 					<span><b>{money(spend.accounted, spend.currency)}</b> accounted</span>
 					<span><b>{money(spend.ceiling, spend.currency)}</b> ceiling</span>
-					<span><b>{money(Math.max(0, spend.ceiling - spend.accounted), spend.currency)}</b> remaining</span>
+					<span
+						><b>{money(Math.max(0, spend.ceiling - spend.accounted), spend.currency)}</b> remaining</span
+					>
 				</div>
 				<div class="al-bar" aria-hidden="true"><i style:width="{used * 100}%"></i></div>
 			</div>
@@ -104,7 +97,6 @@
 		letter-spacing: -0.02em;
 		color: var(--ink);
 	}
-	.al-standard,
 	.al-spend {
 		display: grid;
 		gap: 2px;
@@ -116,15 +108,6 @@
 	.al-label {
 		font-weight: 600;
 		color: var(--text-secondary);
-	}
-	.al-standard strong {
-		font-size: var(--t-title);
-		font-weight: 680;
-		letter-spacing: -0.02em;
-	}
-	.al-note {
-		font-size: var(--t-label);
-		color: var(--text-tertiary);
 	}
 	.al-columns {
 		display: grid;

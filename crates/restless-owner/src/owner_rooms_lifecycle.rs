@@ -639,7 +639,6 @@ mod tests {
                     "Original launch evidence",
                     None,
                     "send-launch-evidence",
-                    None,
                     &[],
                     None,
                 )

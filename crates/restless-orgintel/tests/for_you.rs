@@ -265,7 +265,6 @@ async fn an_item_disappears_once_its_source_is_no_longer_readable() {
         "Can you check the launch copy?",
         None,
         "launch-ask",
-        None,
         &[NewRoomMessageMention::actor("alex")],
         None,
     )
@@ -637,7 +636,6 @@ async fn replies_in_a_room_thread_reach_the_people_in_it() {
         "Alex, can you confirm?",
         Some(root),
         "confirm",
-        None,
         &[NewRoomMessageMention::actor("alex")],
         None,
     )

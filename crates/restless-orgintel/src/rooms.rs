@@ -48,7 +48,6 @@ fn room_message_digest(
     room_id: Uuid,
     author_actor: &str,
     parent_message_id: Option<i64>,
-    outcome_standard: Option<OutcomeStandard>,
     body: &str,
     mentions: &[NewRoomMessageMention],
     resolves_mention_id: Option<Uuid>,
@@ -64,9 +63,8 @@ fn room_message_digest(
         parent_message_id
             .map(|value| value.to_string())
             .unwrap_or_default(),
-        outcome_standard
-            .map(|standard| standard.as_str().to_string())
-            .unwrap_or_default(),
+        // An empty slot keeps pre-0110 retry digests byte-identical.
+        String::new(),
         body.to_string(),
     ] {
         digest.update((part.len() as u64).to_be_bytes());
@@ -544,10 +542,7 @@ async fn insert_room_mentions_in_tx(
         .bind(mention.why_this_actor.as_deref())
         .bind(mention.expected_response.as_deref())
         .bind(mention.recommendation.as_deref())
-        .bind(
-            serde_json::to_value(&mention.alternatives)
-                .expect("mention alternatives serialize"),
-        )
+        .bind(serde_json::to_value(&mention.alternatives).expect("mention alternatives serialize"))
         .bind(serde_json::to_value(&mention.evidence).expect("mention evidence serializes"))
         .bind(mention.uncertainty.as_deref())
         .bind(mention.affected_scope.as_deref())
@@ -700,7 +695,7 @@ async fn room_message_in_tx(
         "SELECT message.id,message.room_id,message.from_actor,message.to_actor, \
                 CASE WHEN message.deleted_at IS NULL \
                      THEN COALESCE(revision.body,message.body) ELSE '' END AS body, \
-                message.outcome_standard,message.parent_message_id,message.thread_root_message_id, \
+                message.parent_message_id,message.thread_root_message_id, \
                 message.client_command_id,message.created_at, \
                 COALESCE(revision.revision_number,0) AS revision_number, \
                 message.edited_at,message.deleted_at, \
@@ -1289,7 +1284,15 @@ async fn archive_locked_room_in_tx(
         .await?;
     }
 
-    append_room_event(tx, "room.archived.v1", room_id, archived_by, None, event_body).await?;
+    append_room_event(
+        tx,
+        "room.archived.v1",
+        room_id,
+        archived_by,
+        None,
+        event_body,
+    )
+    .await?;
     sqlx::query("UPDATE rooms SET archived_at=now() WHERE id=$1 AND archived_at IS NULL")
         .bind(room_id)
         .execute(&mut **tx)
@@ -2381,35 +2384,12 @@ impl OrgIntel {
         parent_message_id: Option<i64>,
         client_command_id: &str,
     ) -> Result<RoomMessageSendResult> {
-        self.send_room_message_with_standard(
-            room_id,
-            author_actor,
-            body,
-            parent_message_id,
-            client_command_id,
-            None,
-        )
-        .await
-    }
-
-    /// The same retry-safe send with the optional owner-composer outcome
-    /// standard preserved on the single authoritative Message row.
-    pub async fn send_room_message_with_standard(
-        &self,
-        room_id: Uuid,
-        author_actor: &str,
-        body: &str,
-        parent_message_id: Option<i64>,
-        client_command_id: &str,
-        outcome_standard: Option<OutcomeStandard>,
-    ) -> Result<RoomMessageSendResult> {
         self.send_room_message_with_mentions(
             room_id,
             author_actor,
             body,
             parent_message_id,
             client_command_id,
-            outcome_standard,
             &[],
             None,
         )
@@ -2422,7 +2402,7 @@ impl OrgIntel {
     /// transaction. Reusing the command id with any semantic drift conflicts.
     #[expect(
         clippy::too_many_arguments,
-        reason = "the Room command keeps attribution, thread, retry, optional standard and mention semantics explicit"
+        reason = "the Room command keeps attribution, thread, retry and mention semantics explicit"
     )]
     pub async fn send_room_message_with_mentions(
         &self,
@@ -2431,7 +2411,6 @@ impl OrgIntel {
         body: &str,
         parent_message_id: Option<i64>,
         client_command_id: &str,
-        outcome_standard: Option<OutcomeStandard>,
         mentions: &[NewRoomMessageMention],
         resolves_mention_id: Option<Uuid>,
     ) -> Result<RoomMessageSendResult> {
@@ -2441,7 +2420,6 @@ impl OrgIntel {
             body,
             parent_message_id,
             client_command_id,
-            outcome_standard,
             mentions,
             resolves_mention_id,
             None,
@@ -2474,7 +2452,6 @@ impl OrgIntel {
             body,
             parent_message_id,
             client_command_id,
-            None,
             mentions,
             resolves_mention_id,
             None,
@@ -2494,7 +2471,6 @@ impl OrgIntel {
         body: &str,
         parent_message_id: Option<i64>,
         client_command_id: &str,
-        outcome_standard: Option<OutcomeStandard>,
         mentions: &[NewRoomMessageMention],
         resolves_mention_id: Option<Uuid>,
         resolution_claim_token: Option<Uuid>,
@@ -2526,7 +2502,6 @@ impl OrgIntel {
             room_id,
             author_actor,
             parent_message_id,
-            outcome_standard,
             body,
             &mentions,
             resolves_mention_id,
@@ -2672,8 +2647,8 @@ impl OrgIntel {
         let inserted_id: Option<i64> = sqlx::query_scalar(
             "INSERT INTO messages \
              (room_id,from_actor,to_actor,body,parent_message_id,thread_root_message_id, \
-              client_command_id,client_payload_sha256,outcome_standard,current_plain_text) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$4) \
+              client_command_id,client_payload_sha256,current_plain_text) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$4) \
              ON CONFLICT (room_id,from_actor,client_command_id) \
                WHERE client_command_id IS NOT NULL DO NOTHING \
              RETURNING id",
@@ -2686,7 +2661,6 @@ impl OrgIntel {
         .bind(thread_root_message_id)
         .bind(client_command_id)
         .bind(&payload_sha256)
-        .bind(outcome_standard)
         .fetch_optional(&mut *tx)
         .await?;
 
@@ -3480,7 +3454,7 @@ impl OrgIntel {
             })?;
         let mut messages: Vec<RoomMessageRow> = sqlx::query_as(
             "SELECT message.id,message.room_id,message.from_actor,message.to_actor, \
-                    LEFT(COALESCE(revision.body,message.body),$5) AS body,message.outcome_standard, \
+                    LEFT(COALESCE(revision.body,message.body),$5) AS body, \
                     message.parent_message_id,message.thread_root_message_id, \
                     message.client_command_id,message.created_at, \
                     COALESCE(revision.revision_number,0) AS revision_number,message.edited_at, \
@@ -3592,7 +3566,7 @@ impl OrgIntel {
                     "SELECT message.id,message.room_id,message.from_actor,message.to_actor, \
                         CASE WHEN message.deleted_at IS NULL \
                              THEN COALESCE(revision.body,message.body) ELSE '' END AS body, \
-                        message.outcome_standard,message.parent_message_id, \
+                        message.parent_message_id, \
                         message.thread_root_message_id,message.client_command_id, \
                         message.created_at,COALESCE(revision.revision_number,0) AS revision_number, \
                         message.edited_at,message.deleted_at, \
@@ -3629,7 +3603,7 @@ impl OrgIntel {
                     "SELECT message.id,message.room_id,message.from_actor,message.to_actor, \
                         CASE WHEN message.deleted_at IS NULL \
                              THEN COALESCE(revision.body,message.body) ELSE '' END AS body, \
-                        message.outcome_standard,message.parent_message_id, \
+                        message.parent_message_id, \
                         message.thread_root_message_id,message.client_command_id, \
                         message.created_at,COALESCE(revision.revision_number,0) AS revision_number, \
                         message.edited_at,message.deleted_at, \
@@ -3755,7 +3729,7 @@ impl OrgIntel {
             "SELECT message.id,message.room_id,message.from_actor,message.to_actor, \
                     CASE WHEN message.deleted_at IS NULL \
                          THEN COALESCE(revision.body,message.body) ELSE '' END AS body, \
-                    message.outcome_standard,message.parent_message_id, \
+                    message.parent_message_id, \
                     message.thread_root_message_id,message.client_command_id, \
                     message.created_at,COALESCE(revision.revision_number,0) AS revision_number, \
                     message.edited_at,message.deleted_at, \
@@ -4251,7 +4225,6 @@ impl OrgIntel {
             body,
             Some(claim.context.message.id),
             &format!("runtime-mention-reply:{}", claim.context.mention.id),
-            None,
             &[],
             Some(claim.context.mention.id),
             Some(claim.lease.token),

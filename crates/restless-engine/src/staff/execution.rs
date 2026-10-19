@@ -78,7 +78,12 @@ pub struct StaffOutcome {
 
 pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
     let hosted_identity = if run.runtime_bridges.is_hosted() {
-        if !matches!(run.worker_harness, crate::runtime::AgentHarness::RestlessManaged | crate::runtime::AgentHarness::ClaudeAgent | crate::runtime::AgentHarness::Codex) {
+        if !matches!(
+            run.worker_harness,
+            crate::runtime::AgentHarness::RestlessManaged
+                | crate::runtime::AgentHarness::ClaudeAgent
+                | crate::runtime::AgentHarness::Codex
+        ) {
             bail!("hosted Staff Work requires a supported agent harness");
         }
         let durable =
@@ -110,6 +115,23 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
             .await
             .ok()
             .flatten();
+
+    if let Some(context_tokens) =
+        acp::take_cold_session(&run.company, &run.actor, &run.responsibility)
+    {
+        discard_staff_session(&run, hosted_identity.is_some()).await?;
+        run.org
+            .emit_event(
+                "model_session_retired",
+                Some(&run.actor),
+                serde_json::json!({
+                    "responsibility": run.responsibility,
+                    "context_tokens": context_tokens,
+                    "reason": "prompt cache expired",
+                }),
+            )
+            .await?;
+    }
 
     for (index, model) in run.candidates.iter().enumerate() {
         let auth = match crate::exec::agent_auth_for_model(
@@ -315,7 +337,10 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
                 org: run.org.clone(),
                 name: run.name.clone(),
                 task: match &connected_tools {
-                    Some(tools) => format!("{}\n\n# Connected tools [Authority grant]\n{tools}", run.task),
+                    Some(tools) => format!(
+                        "{}\n\n# Connected tools [Authority grant]\n{tools}",
+                        run.task
+                    ),
                     None => run.task.clone(),
                 },
                 turn_prompt: run.turn_prompt.clone(),
@@ -492,6 +517,8 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
                     }),
                 )
                 .await?;
+        } else if let Some(usage) = ended_context {
+            acp::note_session_settled(&run.company, &run.actor, &run.responsibility, usage.used);
         }
 
         if let Some(kind) = failure_kind.filter(|kind| health::is_provider_failover_kind(*kind)) {
@@ -568,7 +595,11 @@ fn model_invocation_command_id(
 async fn discard_staff_session(run: &StaffRun, hosted: bool) -> Result<()> {
     match (run.worker_harness, hosted) {
         (crate::runtime::AgentHarness::Codex, true) => {
-            crate::codex::discard_hosted_session_locator(&run.company, &run.actor, &run.responsibility)
+            crate::codex::discard_hosted_session_locator(
+                &run.company,
+                &run.actor,
+                &run.responsibility,
+            )
         }
         (crate::runtime::AgentHarness::Codex, false) => {
             crate::codex::discard_session_locator(
@@ -1604,12 +1635,14 @@ async fn run_staff(
     let posture = actor_posture(accountable_lead);
     let workspace = workspace_instruction(&workdir, turn_kind.is_conversation());
     let system_prompt = format!(
+        // Text every Staff turn shares comes first, so the provider's prompt cache can reuse it
+        // across actors and fresh sessions (S101); actor- and wake-specific text follows.
         "# Company operating rules [authoritative — applies to every actor]\n{}\n\n\
+         # Capability recovery [shared operating guidance]\n{sourcing}\n\n\
          You are {name}, the {role} of {company}, {assignment}. Your stable OrgIntel actor id is `{actor}`.\n\
          {posture}\n\
          {workspace}\n\
          {spine}\n\
-         # Capability recovery [shared operating guidance]\n{sourcing}\n\n\
          # Trusted assignment context [OrgIntel decision]\n{task}\n\n\
          Work until the task is done or you are stuck. {ending}",
         crate::context::COMPANY_OPERATING_RULES.trim(),
@@ -3224,7 +3257,9 @@ mod operator_text_tests {
         );
         assert!(operator_text("restless work list --company reno").is_some());
         assert!(operator_text("Publish it in Company › Charter.").is_none());
-        assert!(operator_text("Here it is:\n```\nrestless charter show\n```\nas you asked.").is_none());
+        assert!(
+            operator_text("Here it is:\n```\nrestless charter show\n```\nas you asked.").is_none()
+        );
         assert!(operator_text("A restless night for the team.").is_none());
     }
 }

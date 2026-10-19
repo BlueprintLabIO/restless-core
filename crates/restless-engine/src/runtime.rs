@@ -513,10 +513,6 @@ pub struct CompanyConfig {
     /// [`DEFAULT_SLEEP_AFTER_MINUTES`]; `Some(0)` keeps the computer always on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_sleep_after_minutes: Option<u16>,
-    /// Standing owner promise for newly commissioned outcomes. This selects
-    /// ambition, not authority, topology, model, or a spend allocation.
-    #[serde(default)]
-    pub outcome_standard: restless_orgintel::OutcomeStandard,
     /// Provider-qualified model the agent runs on, e.g. `zai/glm-5.2`.
     /// A new company starts empty until the owner explicitly selects an
     /// intelligence connection. Empty never means "infer from host state".
@@ -537,6 +533,16 @@ pub struct CompanyConfig {
     /// ambient credentials or broker history.
     #[serde(default)]
     pub model_failover: Vec<String>,
+    /// A cheaper model for conversation turns and for routine first Attempts the decision model
+    /// judges a small model can do well (S102). The primary `model` stays the failover and takes
+    /// every repair. Unset: every turn uses `model`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub everyday_model: Option<String>,
+    /// The decision model that gates Exec wakes and tiers Work (S102), called on OpenRouter's
+    /// decisions API with the `model.inference` credential, e.g. `typesafe/jev-1.14`. Unset: the
+    /// hosted relay decides when this plane has one; otherwise no decisions run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_model: Option<String>,
     /// Named binding → `credential_reference`, e.g.
     /// `resend.production = "infisical:/companies/aris/RESEND_API_KEY"`.
     /// Only a governed child process that names the binding receives it.
@@ -878,6 +884,23 @@ impl CompanyConfig {
             candidates.push(model);
         }
         Ok(candidates)
+    }
+
+    /// Every model a turn may run on: the candidates, then the everyday model (S102).
+    pub fn routed_models(&self) -> Result<Vec<&str>> {
+        let mut models = self.model_candidates()?;
+        if let Some(everyday) = self
+            .everyday_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+        {
+            provider_for_model(everyday)?;
+            if !models.contains(&everyday) {
+                models.push(everyday);
+            }
+        }
+        Ok(models)
     }
 
     pub fn validate_harness_models(&self) -> Result<()> {
@@ -4041,6 +4064,8 @@ pub fn clone_config(root: &Path, from: &str, to: &str) -> Result<CompanyConfig> 
         // Standing approvals are the owner's blessing of a *live* company's
         // counterparties. They do not travel to a throwaway.
         approved_parties: Vec::new(),
+        everyday_model: None,
+        decision_model: None,
         ..source
     };
     CompanyConfig::save(root, &config)?;
@@ -4726,34 +4751,20 @@ model = "moonshot/kimi-k3"
     }
 
     #[test]
-    fn legacy_company_inherits_exceptional_and_explicit_standard_round_trips() {
-        let legacy: CompanyConfig = toml::from_str(
-            r#"name = "standard_test"
-mission = "test"
-model = "moonshot/kimi-k3"
-"#,
-        )
-        .unwrap();
-        assert_eq!(
-            legacy.outcome_standard,
-            restless_orgintel::OutcomeStandard::Exceptional
-        );
-
-        let explicit: CompanyConfig = toml::from_str(
-            r#"name = "standard_test"
+    fn a_company_file_with_a_removed_setting_still_loads() {
+        // Company files written before S103 carry `outcome_standard`; they must load, and the
+        // next save drops the line.
+        let config: CompanyConfig = toml::from_str(
+            r#"name = "retired_setting_test"
 mission = "test"
 model = "moonshot/kimi-k3"
 outcome_standard = "frontier"
 "#,
         )
         .unwrap();
-        assert_eq!(
-            explicit.outcome_standard,
-            restless_orgintel::OutcomeStandard::Frontier
-        );
-        assert!(toml::to_string(&explicit)
+        assert!(!toml::to_string(&config)
             .unwrap()
-            .contains("outcome_standard = \"frontier\""));
+            .contains("outcome_standard"));
     }
 
     #[test]
@@ -5078,7 +5089,6 @@ worker_harness = "claude_agent"
             native_monthly_turn_limit: None,
             native_monthly_token_limit: None,
             auto_sleep_after_minutes: None,
-            outcome_standard: Default::default(),
             model: "moonshot/kimi-k3".into(),
             coordination_harness: AgentHarness::RestlessManaged,
             worker_harness: crate::runtime::AgentHarness::RestlessManaged,
@@ -5086,6 +5096,8 @@ worker_harness = "claude_agent"
             model_failover: Vec::new(),
             credentials: std::collections::BTreeMap::new(),
             approved_parties: Vec::new(),
+            everyday_model: None,
+            decision_model: None,
         };
         CompanyConfig::save(&root, &config).unwrap();
 

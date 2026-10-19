@@ -218,7 +218,6 @@ try {
 	}
 	await people.goto(`${origin}/${company}/company/resources`);
 	await people.getByRole('heading', { name: 'Model spend', exact: true }).waitFor();
-	assert.equal(await people.getByRole('combobox', { name: 'Company outcome standard' }).count(), 0);
 	assert.deepEqual(errors, []);
 	console.log(
 		'PASS desktop/mobile Work toolbar, shared cards, Doctor placement, company setting removal; no browser errors'

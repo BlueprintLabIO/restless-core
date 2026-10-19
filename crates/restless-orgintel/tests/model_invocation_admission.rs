@@ -412,7 +412,6 @@ async fn repeatedly_resolved_mentions_hit_the_durable_actor_bound() {
             &format!("Question {index}"),
             None,
             &format!("bounded-question-{index}"),
-            None,
             &[NewRoomMessageMention::actor("delivery-build")],
             None,
         )

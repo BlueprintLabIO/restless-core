@@ -440,7 +440,6 @@ async fn deleting_a_source_cancels_mentions_and_search_never_crosses_room_access
             "Please inspect the unusual semaphore failure",
             None,
             "room-search-mentioned",
-            None,
             &[NewRoomMessageMention::actor("exec")],
             None,
         )
@@ -644,7 +643,6 @@ async fn concurrent_room_commands_replay_and_claimed_replies_do_not_upgrade_lock
         "Please make the call",
         None,
         "room-claim-replay-mention",
-        None,
         &[NewRoomMessageMention::actor("exec")],
         None,
     )
@@ -702,7 +700,6 @@ async fn an_edit_asks_people_it_names_for_the_first_time_and_only_them() {
             "@exec can we ship?",
             None,
             "room-edit-mentions-send",
-            None,
             &[NewRoomMessageMention::actor("exec")],
             None,
         )

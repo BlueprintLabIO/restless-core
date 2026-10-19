@@ -600,7 +600,6 @@ export function conversationQuery(
 		contextPath?: string;
 		newFocus: boolean;
 		interrupt: boolean;
-		outcomeStandard?: import('./company').OutcomeStandard;
 		skills: string[];
 	} | null = null;
 
@@ -863,7 +862,6 @@ export function conversationQuery(
 			contextPath?: string,
 			newFocus = false,
 			interrupt = false,
-			outcomeStandard?: import('./company').OutcomeStandard,
 			skills: string[] = [],
 			/** A key kept from an unconfirmed send of this exact message (it survives a reload). */
 			retryCommandId?: string
@@ -874,7 +872,6 @@ export function conversationQuery(
 				uncertainCommand.contextPath === contextPath &&
 				uncertainCommand.newFocus === newFocus &&
 				uncertainCommand.interrupt === interrupt &&
-				uncertainCommand.outcomeStandard === outcomeStandard &&
 				uncertainCommand.files.length === files.length &&
 				uncertainCommand.files.every((file, index) => file === files[index]);
 			const clientCommandId =
@@ -886,7 +883,6 @@ export function conversationQuery(
 				contextPath,
 				newFocus,
 				interrupt,
-				outcomeStandard,
 				skills: [...skills]
 			};
 			const sentAt = new Date();
@@ -914,7 +910,6 @@ export function conversationQuery(
 					contextPath,
 					newFocus,
 					interrupt,
-					outcomeStandard,
 					attentionId,
 					clientCommandId,
 					skills,
@@ -957,7 +952,6 @@ export function conversationQuery(
 										from_actor: viewerActorId,
 										to_actor: actorId,
 										body,
-										outcome_standard: outcomeStandard ?? null,
 										attachments: [],
 										details: null,
 										intent: null,

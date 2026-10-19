@@ -133,7 +133,6 @@ async fn mention_notification_presentation_is_immutable_after_actor_and_room_ren
         "Please review the launch",
         None,
         "notification-mention",
-        None,
         &[NewRoomMessageMention::actor(&binding.actor_id)],
         None,
     )

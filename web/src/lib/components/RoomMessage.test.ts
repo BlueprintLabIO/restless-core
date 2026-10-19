@@ -9,7 +9,6 @@ const message: RoomMessage = {
 	from_actor: 'alice',
 	to_actor: null,
 	body: 'Please review this exact message.',
-	outcome_standard: null,
 	parent_message_id: 10,
 	thread_root_message_id: 10,
 	client_command_id: 'command-75',

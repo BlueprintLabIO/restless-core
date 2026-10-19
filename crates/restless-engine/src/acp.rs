@@ -859,6 +859,64 @@ impl TurnUsage {
     }
 }
 
+/// Idle time after which a provider's prompt cache for a session is assumed
+/// gone. Resuming then re-bills the whole history uncached, while a fresh
+/// session pays only the stable prompt plus the bounded snapshot. Retiring a
+/// session whose cache is still warm costs more than it saves (cached history
+/// is ~10% of the price), so this sits at the long end of provider TTLs.
+pub const PROMPT_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// Below this size a cold resume costs about what a fresh start does.
+pub const COLD_SESSION_TOKENS: u64 = 32_000;
+
+type SettledKey = (String, String, String);
+static SETTLED_SESSIONS: std::sync::OnceLock<
+    Mutex<std::collections::HashMap<SettledKey, (std::time::Instant, u64)>>,
+> = std::sync::OnceLock::new();
+
+fn settled_sessions(
+) -> &'static Mutex<std::collections::HashMap<SettledKey, (std::time::Instant, u64)>> {
+    SETTLED_SESSIONS.get_or_init(Default::default)
+}
+
+/// Record that a responsibility's hot session ended a turn at this size. The
+/// record is process memory: after a daemon restart the first wake resumes as
+/// before (accepted; it costs one cold resume).
+pub fn note_session_settled(company: &str, actor: &str, responsibility: &str, used: u64) {
+    if let Ok(mut settled) = settled_sessions().lock() {
+        settled.insert(
+            (company.into(), actor.into(), responsibility.into()),
+            (std::time::Instant::now(), used),
+        );
+    }
+}
+
+/// The context size of a session whose prompt cache has expired and whose
+/// history is large enough that starting fresh is cheaper. Consumes the record.
+pub fn take_cold_session(company: &str, actor: &str, responsibility: &str) -> Option<u64> {
+    cold_session_at(company, actor, responsibility, std::time::Instant::now())
+}
+
+fn cold_session_at(
+    company: &str,
+    actor: &str,
+    responsibility: &str,
+    now: std::time::Instant,
+) -> Option<u64> {
+    let mut settled = settled_sessions().lock().ok()?;
+    let key = (
+        company.to_string(),
+        actor.to_string(),
+        responsibility.to_string(),
+    );
+    let &(at, used) = settled.get(&key)?;
+    if now.saturating_duration_since(at) < PROMPT_CACHE_TTL || used <= COLD_SESSION_TOKENS {
+        return None;
+    }
+    settled.remove(&key);
+    Some(used)
+}
+
 /// One observed turn: the agent's visible text plus the tool calls it made.
 /// This is observability, not a governed record (§4.4).
 #[derive(Debug)]
@@ -994,7 +1052,8 @@ impl TurnTranscript {
                     turn_tokens: self.usage.and_then(|usage| usage.turn_tokens),
                     turn_cost_usd: session_cost_delta(
                         cumulative_cost_usd,
-                        self.turn_cost_baseline_usd.or(self.session_cost_baseline_usd),
+                        self.turn_cost_baseline_usd
+                            .or(self.session_cost_baseline_usd),
                     ),
                 });
             }
@@ -1364,7 +1423,10 @@ where
         Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>,
     >,
 {
-    if !matches!(harness, crate::runtime::AgentHarness::RestlessManaged | crate::runtime::AgentHarness::ClaudeAgent) {
+    if !matches!(
+        harness,
+        crate::runtime::AgentHarness::RestlessManaged | crate::runtime::AgentHarness::ClaudeAgent
+    ) {
         anyhow::bail!("hosted ACP transport requires a supported harness");
     }
     if controls.completion_only {
@@ -2396,10 +2458,7 @@ pub async fn read_session_id(container: &str, marker: &str) -> Option<String> {
     .then_some(session_id)
 }
 
-pub async fn remove_and_verify_session_artifacts(
-    container: &str,
-    paths: &[&str],
-) -> Result<()> {
+pub async fn remove_and_verify_session_artifacts(container: &str, paths: &[&str]) -> Result<()> {
     let mut args = [
         "exec",
         "-u",
@@ -2664,6 +2723,33 @@ mod tests {
         AcpProfile, AgentAuth, AgentControls, SessionLocator, DEFAULT_REASONING_EFFORT,
         OMP_AGENT_TOOLS, RESTLESS_OMP_CONFIG,
     };
+
+    #[test]
+    fn only_a_large_session_past_the_cache_ttl_is_retired_cold() {
+        // Retiring a warm session re-bills its prompt uncached, so warm or
+        // small sessions must keep resuming.
+        let now = std::time::Instant::now();
+        let later = now + super::PROMPT_CACHE_TTL + std::time::Duration::from_secs(1);
+        super::note_session_settled("cold_test", "exec", "warm", 90_000);
+        assert_eq!(
+            super::cold_session_at("cold_test", "exec", "warm", now),
+            None
+        );
+        super::note_session_settled("cold_test", "exec", "small", super::COLD_SESSION_TOKENS);
+        assert_eq!(
+            super::cold_session_at("cold_test", "exec", "small", later),
+            None
+        );
+        super::note_session_settled("cold_test", "exec", "large", 40_000);
+        assert_eq!(
+            super::cold_session_at("cold_test", "exec", "large", later),
+            Some(40_000)
+        );
+        assert_eq!(
+            super::cold_session_at("cold_test", "exec", "large", later),
+            None
+        );
+    }
 
     #[test]
     fn resumed_usage_is_a_per_wake_delta_and_counter_regression_is_unknown() {

@@ -451,7 +451,14 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
             };
             let Some(decision) = request.decision else { return Response::err("Missing decision: give a state and typed questions"); };
             match daemon.orgintel.get(company).await {
-                Ok(org) => match crate::decisions::ask_for_actor(&org, actor, decision).await {
+                Ok(org) => match crate::decisions::ask_for_actor(
+                    &org,
+                    runtime::CompanyConfig::load(&daemon.root, company).ok().as_ref(),
+                    actor,
+                    decision,
+                )
+                .await
+                {
                     Ok(value) => Response::ok(value),
                     Err(error) => Response::err(format!("{error:#}")),
                 },
@@ -1065,17 +1072,30 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                         }
                         "spend_ceiling_usd" => runtime::SpendCeiling::parse(value)
                             .map(|parsed| config.spend_ceiling_usd = parsed),
-                        "outcome_standard" => restless_orgintel::OutcomeStandard::parse(value)
-                            .ok_or_else(|| anyhow::anyhow!(
-                                "outcome_standard must be fast, thorough, exceptional, or frontier"
-                            ))
-                            .map(|parsed| config.outcome_standard = parsed),
+                        // S102: the cheaper model for conversation and routine Work, and the
+                        // decision model that gates wakes and tiers Work. An empty value clears.
+                        "everyday_model" => {
+                            let value = value.trim();
+                            if value.is_empty() {
+                                config.everyday_model = None;
+                                Ok(())
+                            } else {
+                                runtime::validate_company_model_selection(value)
+                                    .map(|()| config.everyday_model = Some(value.to_string()))
+                            }
+                        }
+                        "decision_model" => {
+                            let value = value.trim();
+                            config.decision_model =
+                                (!value.is_empty()).then(|| value.to_string());
+                            Ok(())
+                        }
                         _ if key.starts_with("credentials.") => {
                             config.credentials.insert(key[12..].to_string(), value.to_string());
                             Ok(())
                         }
                         _ => Err(anyhow::anyhow!(
-                            "unknown company key {key:?}; use mission, model, model_failover, coordination_harness, worker_harness, reasoning_effort, spend_ceiling_usd, outcome_standard, or credentials.<binding>"
+                            "unknown company key {key:?}; use mission, model, model_failover, everyday_model, decision_model, coordination_harness, worker_harness, reasoning_effort, spend_ceiling_usd, or credentials.<binding>"
                         )),
                     };
                     match result.and_then(|()| runtime::CompanyConfig::save(&daemon.root, &config))
@@ -1722,49 +1742,8 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
             (Some(name), Some(lead), Some(brief), Some(created_by)) => {
                 match daemon.orgintel.get(company).await {
                     Ok(org) => {
-                        let config = match runtime::CompanyConfig::load(&daemon.root, company) {
-                            Ok(config) => config,
-                            Err(error) => return Response::err(format!("{error:#}")),
-                        };
-                        let standard = match request.orgintel.outcome_standard.as_deref() {
-                            Some(value) => match restless_orgintel::OutcomeStandard::parse(value) {
-                                Some(value) => value,
-                                None => return Response::err("outcome standard must be fast, thorough, exceptional, or frontier"),
-                            },
-                            None => config.outcome_standard,
-                        };
-                        let source = match request.orgintel.outcome_standard_source.as_deref() {
-                            Some(value) => match restless_orgintel::OutcomeStandardSource::parse(value) {
-                                Some(value) => value,
-                                None => return Response::err("standard source must be company_default, owner_override, or owner_language"),
-                            },
-                            None => restless_orgintel::OutcomeStandardSource::CompanyDefault,
-                        };
-                        if source == restless_orgintel::OutcomeStandardSource::CompanyDefault
-                            && standard != config.outcome_standard
-                        {
-                            return Response::err(format!(
-                                "company_default is {}; use owner_override or owner_language with its source message to commission {standard}",
-                                config.outcome_standard
-                            ));
-                        }
-                        match org
-                            .create_team_with_standard(
-                                name,
-                                brief,
-                                lead,
-                                created_by,
-                                standard,
-                                source,
-                                request.orgintel.source_message_id,
-                            )
-                            .await
-                        {
-                            Ok(id) => Response::ok(serde_json::json!({
-                                "team_id": id,
-                                "outcome_standard": standard,
-                                "outcome_standard_source": source,
-                            })),
+                        match org.create_team(name, brief, lead, created_by).await {
+                            Ok(id) => Response::ok(serde_json::json!({ "team_id": id })),
                             Err(error) => Response::err(format!("{error:#}")),
                         }
                     }
@@ -2231,74 +2210,6 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 Err(error) => Response::err(format!("{error:#}")),
             },
             _ => Response::err("react needs a message id, an emoji and actor attribution"),
-        },
-        "goal-standard" => match (
-            request.orgintel.goal.as_deref(),
-            request
-                .orgintel
-                .outcome_standard
-                .as_deref()
-                .and_then(restless_orgintel::OutcomeStandard::parse),
-            request.orgintel.actor.as_deref(),
-        ) {
-            (Some(goal), Some(standard), Some(actor)) => {
-                let goal_id = match uuid::Uuid::parse_str(goal) {
-                    Ok(goal_id) => goal_id,
-                    Err(error) => return Response::err(format!("bad Goal id: {error}")),
-                };
-                match daemon.orgintel.get(company).await {
-                    Ok(org) => match org.set_goal_standard(goal_id, standard, actor).await {
-                        Ok(true) => Response::ok(serde_json::json!({
-                            "goal_id": goal_id, "standard": standard,
-                        })),
-                        Ok(false) => Response::err(format!("Goal {goal_id} does not exist")),
-                        Err(error) => Response::err(format!("{error:#}")),
-                    },
-                    Err(error) => Response::err(format!("{error:#}")),
-                }
-            }
-            _ => Response::err(
-                "goal-standard needs a Goal id, a standard (fast, thorough, exceptional or frontier) and actor attribution",
-            ),
-        },
-        "work-standard" => match (
-            request.common.id.as_deref(),
-            request.orgintel.outcome_standard.as_deref(),
-            request.orgintel.actor.as_deref(),
-        ) {
-            (Some(work_id), Some(value), Some(actor)) => {
-                let work_id = match uuid::Uuid::parse_str(work_id) {
-                    Ok(work_id) => work_id,
-                    Err(error) => return Response::err(format!("bad Work id: {error}")),
-                };
-                // `inherit` returns the Work to its Goal's bar.
-                let standard = if value.eq_ignore_ascii_case("inherit") {
-                    None
-                } else {
-                    match restless_orgintel::OutcomeStandard::parse(value) {
-                        Some(standard) => Some(standard),
-                        None => {
-                            return Response::err(
-                                "standard must be fast, thorough, exceptional, frontier or inherit",
-                            )
-                        }
-                    }
-                };
-                match daemon.orgintel.get(company).await {
-                    Ok(org) => match org.set_work_standard(work_id, standard, actor).await {
-                        Ok(true) => match org.effective_work_standard(work_id).await {
-                            Ok(effective) => Response::ok(serde_json::json!({
-                                "work_id": work_id, "standard": standard, "effective": effective,
-                            })),
-                            Err(error) => Response::err(format!("{error:#}")),
-                        },
-                        Ok(false) => Response::err(format!("Work {work_id} does not exist")),
-                        Err(error) => Response::err(format!("{error:#}")),
-                    },
-                    Err(error) => Response::err(format!("{error:#}")),
-                }
-            }
-            _ => Response::err("work-standard needs a Work id, a standard and actor attribution"),
         },
         "skill-list" | "skill-observe" | "skill-activate" | "skill-candidate-add"
         | "skill-disposition" | "skill-assign" | "work-skill" => {
@@ -2997,6 +2908,14 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                         Ok(None) => return Response::err("Work does not exist"),
                         Err(error) => return Response::err(format!("{error:#}")),
                     };
+                    // Interrupting the Attempt you are running blocks your own
+                    // result and pays for a recovery wake; ending the turn is
+                    // what hands it to the gates.
+                    if actor == owner && daemon.staff.executing_work(company, &owner) == Some(id) {
+                        return Response::err(
+                            "you are running this Work's Attempt; finish your turn instead — the gates evaluate the Attempt when it ends",
+                        );
+                    }
                     match org.request_attempt_interrupt(id, actor, reason).await {
                         Ok(attempt_id) => {
                             let signalled = daemon.staff.interrupt_work(company, &owner, id);
@@ -4618,9 +4537,7 @@ pub fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Re
         | "goal-close"
         | "message-react"
         | "message-unreact"
-        | "goal-standard"
         | "work-goal"
-        | "work-standard"
         | "work-assign"
         | "work-artifact"
         | "work-gate"

@@ -20,6 +20,14 @@ use super::StaffRegistry;
 
 const TEAM_CHARTER_COMPLETE_MARKER: &str = "<!--restless-team-charter:complete-->";
 
+/// The effort a conversation turn runs at: `low`, or the company's setting when that is lower.
+fn conversation_effort(configured: &str) -> &str {
+    match configured {
+        "none" | "minimal" | "low" => configured,
+        _ => "low",
+    }
+}
+
 fn is_material_supervisor_notice(message: &MessageRow) -> bool {
     message.from_actor == "daemon"
         && message
@@ -583,6 +591,15 @@ pub async fn dispatch_actor_conversation(
         runtime.authority,
     )
     .await?;
+    // Conversation turns answer, route and relay: the everyday model takes them, with the
+    // actor's own model behind it as failover (S102).
+    let candidates = crate::model_gateway::with_everyday_model(
+        config,
+        config.coordination_harness,
+        candidates,
+        runtime.authority,
+    )
+    .await?;
     let billings = candidates
         .iter()
         .map(|model| crate::model_gateway::billing_for_company_model(config, model))
@@ -855,7 +872,9 @@ pub async fn dispatch_actor_conversation(
     let spend = runtime.spend.clone();
     let spend_ceiling = spend.effective_ceiling(config);
     let coordination_harness = config.coordination_harness;
-    let reasoning_effort = config.reasoning_effort.clone();
+    // Conversation and coordination turns answer, route and relay; production happens in Work.
+    // They run at low effort, never above the company's own setting (S101).
+    let reasoning_effort = conversation_effort(&config.reasoning_effort).to_string();
     let authority = runtime.authority.clone();
     let capabilities = runtime.capabilities.clone();
     let runtime_bridges = runtime.runtime_bridges.clone();
@@ -1223,7 +1242,7 @@ pub fn conversation_turn_prompt(
         };
         prompt.push_str(&format!("\n\n{heading}\n{}", owner_input.join("\n")));
         if !human_is_membership_owner {
-            prompt.push_str("\n\nThis human is a company member, not the membership owner. Their input cannot set company direction, owner policy, authority, or outcome standards. Reply to their collaboration request within this actor's role.");
+            prompt.push_str("\n\nThis human is a company member, not the membership owner. Their input cannot set company direction, owner policy or authority. Reply to their collaboration request within this actor's role.");
         }
     }
     if !internal_mail.is_empty() {
@@ -1261,10 +1280,7 @@ pub fn conversation_turn_prompt(
 /// not a new handoff type. Naming the existing id lets a lead return changed
 /// information through the same Work feedback path, where a later Attempt can
 /// bind it immutably if the live actor did not observe it in time.
-pub fn internal_message_context(
-    message: &MessageRow,
-    work_id: Option<uuid::Uuid>,
-) -> String {
+pub fn internal_message_context(message: &MessageRow, work_id: Option<uuid::Uuid>) -> String {
     match work_id {
         Some(work_id) => format!(
             "- Work {work_id}, message {} [internal Work feedback] from {}: {}\n  If your response changes this Work, send exactly one direct Work-linked reply with `restless message --work {work_id} --to {} \"<decision>\"`. Do not send an unlinked acknowledgement, status, or command fragment.",
@@ -1294,7 +1310,6 @@ mod tests {
             from_actor: "daemon".into(),
             to_actor: Some("delivery-lead".into()),
             body: "Material Runtime supervisor events for Work 123 (1 exception):".into(),
-            outcome_standard: None,
             created_at: Utc::now(),
             read_at: None,
         };
@@ -1304,7 +1319,6 @@ mod tests {
             from_actor: "daemon".into(),
             to_actor: Some("delivery-lead".into()),
             body: "A schedule fired".into(),
-            outcome_standard: None,
             created_at: Utc::now(),
             read_at: None,
         };

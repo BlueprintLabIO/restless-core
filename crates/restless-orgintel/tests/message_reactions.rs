@@ -18,15 +18,19 @@ async fn reactions_are_a_bounded_signal_on_live_messages() {
         .await
         .unwrap();
     let (message, _) = org
-        .send_owner_conversation_message_with_standard("exec", "Ship it.", false, None)
+        .send_owner_conversation_message("exec", "Ship it.", false)
         .await
         .unwrap();
 
-    org.set_message_reaction(message, "owner", "👍", true).await.unwrap();
+    org.set_message_reaction(message, "owner", "👍", true)
+        .await
+        .unwrap();
     org.set_message_reaction(message, "owner", "👍", true)
         .await
         .expect("reacting twice is idempotent");
-    org.set_message_reaction(message, "exec", "👀", true).await.unwrap();
+    org.set_message_reaction(message, "exec", "👀", true)
+        .await
+        .unwrap();
     let reactions = org.message_reactions(&[message]).await.unwrap();
     assert_eq!(
         reactions
@@ -69,8 +73,14 @@ async fn reactions_are_a_bounded_signal_on_live_messages() {
     .await
     .unwrap();
     probe.close().await;
-    assert!(org.room_pinned_messages("owner", room, "📌").await.unwrap().is_empty());
-    org.set_message_reaction(message, "owner", "📌", true).await.unwrap();
+    assert!(org
+        .room_pinned_messages("owner", room, "📌")
+        .await
+        .unwrap()
+        .is_empty());
+    org.set_message_reaction(message, "owner", "📌", true)
+        .await
+        .unwrap();
     assert_eq!(
         org.room_pinned_messages("owner", room, "📌")
             .await

@@ -32,7 +32,7 @@ impl OrgIntel {
     ) -> Result<Vec<MessageRow>> {
         Ok(sqlx::query_as(
             "SELECT m.id,m.from_actor,m.to_actor,COALESCE(revision.body,m.body) AS body,\
-                    m.outcome_standard,m.created_at,m.read_at \
+                    m.created_at,m.read_at \
              FROM messages m \
              JOIN actors sender ON sender.id=m.from_actor AND sender.actor_class='agent' \
              JOIN actors recipient ON recipient.id=m.to_actor AND recipient.actor_class='agent' \
@@ -723,7 +723,7 @@ impl OrgIntel {
     /// subject and membership identifiers never become Message attribution.
     ///
     /// This convenience API intentionally has no caller-controlled retry key.
-    /// Network commands should use `send_room_message_with_standard` so
+    /// Network commands should use `send_room_message` so
     /// mobile/network retries are idempotent at the command boundary.
     pub async fn send_human_conversation_message(
         &self,
@@ -732,12 +732,12 @@ impl OrgIntel {
         body: &str,
         new_focus: bool,
     ) -> Result<(i64, ConversationFocusRow)> {
-        self.send_human_conversation_message_with_standard(
+        self.send_human_conversation_message_internal(
             from_actor,
             target_actor,
             body,
             new_focus,
-            None,
+            false,
         )
         .await
     }
@@ -750,15 +750,14 @@ impl OrgIntel {
     /// recoverable after a later lead replacement without creating new work.
     #[expect(
         clippy::too_many_arguments,
-        reason = "the network command keeps target, retry, focus and standard semantics explicit"
+        reason = "the network command keeps target, retry and focus semantics explicit"
     )]
-    pub async fn send_human_runtime_conversation_message_idempotent_with_standard(
+    pub async fn send_human_runtime_conversation_message_idempotent(
         &self,
         from_actor: &str,
         target_actor: &str,
         body: &str,
         new_focus: bool,
-        outcome_standard: Option<OutcomeStandard>,
         attachment_ids: &[Uuid],
         client_command_id: &str,
         client_payload_sha256: &str,
@@ -864,8 +863,8 @@ impl OrgIntel {
             ensure_direct_message_room_in_tx(&mut tx, from_actor, Some(target_actor)).await?;
         let inserted: Option<(i64, Uuid)> = sqlx::query_as(
             "INSERT INTO messages \
-             (room_id,from_actor,to_actor,body,client_command_id,client_payload_sha256,outcome_standard) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING id,room_id",
+             (room_id,from_actor,to_actor,body,client_command_id,client_payload_sha256) \
+             VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING id,room_id",
         )
         .bind(room_id)
         .bind(from_actor)
@@ -873,7 +872,6 @@ impl OrgIntel {
         .bind(body)
         .bind(client_command_id)
         .bind(client_payload_sha256)
-        .bind(outcome_standard)
         .fetch_optional(&mut *tx)
         .await?;
         let Some((message_id, room_id)) = inserted else {
@@ -1570,47 +1568,23 @@ impl OrgIntel {
         Ok(true)
     }
 
-    /// Human direct conversation with a composer-level outcome standard. A
-    /// focus boundary is scoped to this direct Room, so one human cannot erase
-    /// another person's context window for the same persistent agent.
-    pub async fn send_human_conversation_message_with_standard(
-        &self,
-        from_actor: &str,
-        target_actor: &str,
-        body: &str,
-        new_focus: bool,
-        outcome_standard: Option<OutcomeStandard>,
-    ) -> Result<(i64, ConversationFocusRow)> {
-        self.send_human_conversation_message_internal(
-            from_actor,
-            target_actor,
-            body,
-            new_focus,
-            outcome_standard,
-            false,
-        )
-        .await
-    }
-
     /// Network owner/agent conversation boundary. Unlike the arbitrary-human
     /// owner conversation surface, this admits only the singleton Exec or a current
     /// accountable lead and locks that role in the same transaction as the
     /// Message insert. Lead replacement/disband therefore linearizes with the
     /// send instead of stranding a post-lifecycle message.
-    pub async fn send_human_runtime_conversation_message_with_standard(
+    pub async fn send_human_runtime_conversation_message(
         &self,
         from_actor: &str,
         target_actor: &str,
         body: &str,
         new_focus: bool,
-        outcome_standard: Option<OutcomeStandard>,
     ) -> Result<(i64, ConversationFocusRow)> {
         self.send_human_conversation_message_internal(
             from_actor,
             target_actor,
             body,
             new_focus,
-            outcome_standard,
             true,
         )
         .await
@@ -1622,7 +1596,6 @@ impl OrgIntel {
         target_actor: &str,
         body: &str,
         new_focus: bool,
-        outcome_standard: Option<OutcomeStandard>,
         require_runtime_target: bool,
     ) -> Result<(i64, ConversationFocusRow)> {
         let from_actor = from_actor.trim();
@@ -1716,14 +1689,13 @@ impl OrgIntel {
         }
 
         let message_id: i64 = sqlx::query_scalar(
-            "INSERT INTO messages (room_id,from_actor,to_actor,body,outcome_standard) \
-             VALUES ($1,$2,$3,$4,$5) RETURNING id",
+            "INSERT INTO messages (room_id,from_actor,to_actor,body) \
+             VALUES ($1,$2,$3,$4) RETURNING id",
         )
         .bind(room.id)
         .bind(from_actor)
         .bind((target_actor != "owner").then_some(target_actor))
         .bind(body)
-        .bind(outcome_standard)
         .fetch_one(&mut *tx)
         .await?;
         let focus = sqlx::query_as(
@@ -1762,28 +1734,8 @@ impl OrgIntel {
         body: &str,
         new_focus: bool,
     ) -> Result<(i64, ConversationFocusRow)> {
-        self.send_owner_conversation_message_with_standard(actor, body, new_focus, None)
+        self.send_human_runtime_conversation_message("owner", actor, body, new_focus)
             .await
-    }
-
-    /// Send owner conversation with an explicit composer-level outcome
-    /// standard. Absence remains meaningful: the company default or the
-    /// accountable Exec's natural-language judgement applies at commission.
-    pub async fn send_owner_conversation_message_with_standard(
-        &self,
-        actor: &str,
-        body: &str,
-        new_focus: bool,
-        outcome_standard: Option<OutcomeStandard>,
-    ) -> Result<(i64, ConversationFocusRow)> {
-        self.send_human_runtime_conversation_message_with_standard(
-            "owner",
-            actor,
-            body,
-            new_focus,
-            outcome_standard,
-        )
-        .await
     }
 
     /// Send ordinary free-form conversation and link it to the Work it changes.
@@ -2201,7 +2153,7 @@ impl OrgIntel {
     ) -> Result<Vec<MessageRow>> {
         Ok(sqlx::query_as(
             "SELECT message.id,message.from_actor,message.to_actor,\
-                    COALESCE(revision.body,message.body) AS body,message.outcome_standard,\
+                    COALESCE(revision.body,message.body) AS body,\
                     message.created_at,message.read_at \
              FROM messages message \
              JOIN rooms room ON room.id=message.room_id \
@@ -2393,9 +2345,9 @@ impl OrgIntel {
             return Ok(Vec::new());
         };
         Ok(sqlx::query_as(
-            "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM (\
+            "SELECT id,from_actor,to_actor,body,created_at,read_at FROM (\
                SELECT m.id,m.from_actor,m.to_actor,COALESCE(revision.body,m.body) AS body,\
-                      m.outcome_standard,m.created_at,m.read_at \
+                      m.created_at,m.read_at \
                FROM messages m JOIN work_feedback f ON f.message_id=m.id \
                LEFT JOIN room_message_revisions revision ON revision.id=m.latest_revision_id \
                WHERE f.work_id=$1 AND m.room_id=$2 AND m.deleted_at IS NULL \
@@ -2424,7 +2376,7 @@ impl OrgIntel {
     pub async fn inbox(&self, actor: Option<&str>) -> Result<Vec<MessageRow>> {
         Ok(sqlx::query_as(
             "SELECT message.id,message.from_actor,message.to_actor,\
-                    COALESCE(revision.body,message.body) AS body,message.outcome_standard,\
+                    COALESCE(revision.body,message.body) AS body,\
                     message.created_at,message.read_at \
              FROM messages message \
              LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
@@ -2467,7 +2419,7 @@ impl OrgIntel {
             "WITH eligible AS (\
                SELECT message.id,message.from_actor,message.to_actor,\
                       COALESCE(revision.body,message.body) || COALESCE(files.manifest,'') AS body,\
-                      message.outcome_standard,message.created_at,message.read_at,\
+                      message.created_at,message.read_at,\
                       octet_length(COALESCE(revision.body,message.body) \
                                    || COALESCE(files.manifest,'')) AS body_bytes \
                FROM messages message \
@@ -2519,7 +2471,7 @@ impl OrgIntel {
                SELECT eligible.*,sum(body_bytes) OVER (ORDER BY id) AS cumulative_bytes \
                FROM eligible\
              ) \
-             SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at \
+             SELECT id,from_actor,to_actor,body,created_at,read_at \
              FROM candidates WHERE cumulative_bytes<=$3 ORDER BY id",
         )
         .bind(actor)
@@ -2693,9 +2645,9 @@ impl OrgIntel {
         limit: i64,
     ) -> Result<Vec<MessageRow>> {
         Ok(sqlx::query_as(
-            "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM (\
+            "SELECT id,from_actor,to_actor,body,created_at,read_at FROM (\
                SELECT prior.id,prior.from_actor,prior.to_actor,\
-                      COALESCE(revision.body,prior.body) AS body,prior.outcome_standard,\
+                      COALESCE(revision.body,prior.body) AS body,\
                       prior.created_at,prior.read_at \
                FROM messages trigger_message \
                JOIN rooms room ON room.id=trigger_message.room_id AND room.kind='direct' \
@@ -2735,7 +2687,7 @@ impl OrgIntel {
         .await?;
         let messages = sqlx::query_as::<_, MessageRow>(
             "SELECT message.id,message.from_actor,message.to_actor,\
-                    COALESCE(revision.body,message.body) AS body,message.outcome_standard,\
+                    COALESCE(revision.body,message.body) AS body,\
                     message.created_at,message.read_at \
              FROM messages message \
              LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
@@ -2851,7 +2803,7 @@ impl OrgIntel {
              JOIN actors agent ON agent.id=partner.actor_id AND agent.actor_class='agent' AND agent.retired_at IS NULL \
              JOIN LATERAL ( \
                SELECT message.id,message.from_actor,message.to_actor,COALESCE(revision.body,message.body) AS body, \
-                      message.outcome_standard,message.created_at,message.read_at \
+                      message.created_at,message.read_at \
                FROM messages message LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
                WHERE message.room_id=room.id AND message.deleted_at IS NULL ORDER BY message.id DESC LIMIT 1 \
              ) latest ON latest.from_actor=wanted.actor_id"
@@ -2879,7 +2831,7 @@ impl OrgIntel {
              JOIN actors peer ON peer.id=partner.actor_id AND peer.actor_class='human' AND peer.retired_at IS NULL \
              JOIN LATERAL ( \
                SELECT message.id,message.from_actor,message.to_actor,COALESCE(revision.body,message.body) AS body, \
-                      message.outcome_standard,message.created_at,message.read_at \
+                      message.created_at,message.read_at \
                FROM messages message LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
                WHERE message.room_id=room.id AND message.deleted_at IS NULL ORDER BY message.id DESC LIMIT 1 \
              ) latest ON latest.from_actor=wanted.actor_id AND latest.created_at >= $4"
@@ -2904,9 +2856,9 @@ impl OrgIntel {
         };
         let limit = limit.clamp(1, 200);
         Ok(sqlx::query_as(
-            "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM (\
+            "SELECT id,from_actor,to_actor,body,created_at,read_at FROM (\
                SELECT message.id,message.from_actor,message.to_actor,\
-                      COALESCE(revision.body,message.body) AS body,message.outcome_standard,\
+                      COALESCE(revision.body,message.body) AS body,\
                       message.created_at,message.read_at \
                FROM messages message \
                LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
@@ -2968,9 +2920,9 @@ impl OrgIntel {
         };
         let limit = limit.clamp(1, 200);
         Ok(sqlx::query_as(
-            "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM (\
+            "SELECT id,from_actor,to_actor,body,created_at,read_at FROM (\
                SELECT message.id,message.from_actor,message.to_actor,\
-                      COALESCE(revision.body,message.body) AS body,message.outcome_standard,\
+                      COALESCE(revision.body,message.body) AS body,\
                       message.created_at,message.read_at \
                FROM messages message \
                LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \

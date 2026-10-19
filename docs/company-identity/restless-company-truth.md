@@ -125,7 +125,7 @@ These are product facts supported by the current architecture and exercised dogf
 ### Quality and learning
 
 - `quality.lead.convergence` — The accountable lead owns native review, repair, bounded replacement and
-  convergence to the declared outcome standard.
+  convergence to the brief's stated finish line.
 - `quality.native` — Quality is judged in the artifact's native medium, not inferred from source code or
   model confidence.
 - `process.outcome.flexible_plan` — Business processes keep a stable outcome contract and control points

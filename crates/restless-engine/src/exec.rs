@@ -223,6 +223,27 @@ pub async fn wake(
     )
     .await?;
 
+    if let Some(context_tokens) = acp::take_cold_session(&config.name, "exec", &responsibility) {
+        discard_exec_session(
+            &container,
+            config.coordination_harness,
+            hosted_identity.is_some(),
+            &config.name,
+            &responsibility,
+        )
+        .await?;
+        org.emit_event(
+            "model_session_retired",
+            Some("exec"),
+            serde_json::json!({
+                "responsibility": &responsibility,
+                "context_tokens": context_tokens,
+                "reason": "prompt cache expired",
+            }),
+        )
+        .await?;
+    }
+
     let mut failovers = Vec::new();
     let mut prior_tool_calls = Vec::new();
     let mut continuity_note: Option<String> = None;
@@ -612,6 +633,8 @@ pub async fn wake(
                 }),
             )
             .await?;
+        } else if let Some(usage) = usage {
+            acp::note_session_settled(&config.name, "exec", &responsibility, usage.used);
         }
         if let Some(kind) = failover_kind {
             crate::model_gateway::record_cooldown(

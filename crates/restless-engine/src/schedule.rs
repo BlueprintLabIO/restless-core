@@ -515,8 +515,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     // An Attempt no live process supervises would otherwise stay running
     // forever. Close it as unknown for its lead, after promotion replay above
     // and before this scan claims new Work.
-    let container =
-        (!daemon.runtime_bridges.is_hosted()).then(|| runtime::container_name(company));
+    let container = (!daemon.runtime_bridges.is_hosted()).then(|| runtime::container_name(company));
     crate::staff::recover_unsupervised_attempts(
         &org,
         &daemon.staff,
@@ -536,20 +535,27 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
             "could not flush terminal supervisor facts: {error:#}"
         );
     }
-    // Shadow decisions on any result notice still unread; they change nothing.
-    crate::decisions::shadow_exec_results(&org, &config.mission).await;
+    // Decide any result notice still unread: in shadow, or, for a company that names its own
+    // decision model, consume a confidently routine one so it does not wake the Exec (S102).
+    crate::decisions::shadow_exec_results(&org, &config, true).await;
 
     // People own teams. What waits on a person gets one reminder from Exec after a day and
     // goes to the owner after two, so a quiet person never stalls their team.
     let (remind_after, escalate_after) = person_wait_limits();
     if let Err(error) = org.remind_waiting_people(remind_after).await {
-        tracing::warn!(company, "could not remind people of waiting judgement: {error:#}");
+        tracing::warn!(
+            company,
+            "could not remind people of waiting judgement: {error:#}"
+        );
     }
     match org.escalate_unanswered_to_owner(escalate_after).await {
         Ok(0) => {}
         Ok(moved) => tracing::info!(company, moved, "passed unanswered judgement to the owner"),
         Err(error) => {
-            tracing::warn!(company, "could not pass unanswered judgement to the owner: {error:#}")
+            tracing::warn!(
+                company,
+                "could not pass unanswered judgement to the owner: {error:#}"
+            )
         }
     }
 
@@ -870,25 +876,40 @@ fn actor_exclusions(mut running: Vec<String>, exec_waking: bool) -> Vec<String> 
 }
 
 /// Background turns must explicitly choose an owner update or silence. Empty
-/// or partial responses never acknowledge durable result-delivery inputs.
-fn exec_owner_update(reply: Option<&str>, owner_wrote: bool) -> Result<Option<&str>> {
+/// or partial responses never acknowledge durable result-delivery inputs. A
+/// reply that also carries the quiet marker is a reply: the marker is dropped
+/// rather than failing a wake whose work is already done (S101).
+fn exec_owner_update(
+    reply: Option<&str>,
+    owner_wrote: bool,
+) -> Result<Option<std::borrow::Cow<'_, str>>> {
     let reply = reply
         .map(str::trim)
         .filter(|reply| !reply.is_empty())
         .ok_or_else(|| {
             anyhow::anyhow!("Exec finished without an owner update or explicit quiet decision")
         })?;
-    if reply == crate::context::EXEC_NO_UPDATE {
+    let reply: std::borrow::Cow<'_, str> = if reply.contains(crate::context::EXEC_NO_UPDATE) {
+        reply
+            .replace(crate::context::EXEC_NO_UPDATE, "")
+            .trim()
+            .to_string()
+            .into()
+    } else {
+        reply.into()
+    };
+    if reply.is_empty() {
         anyhow::ensure!(
             !owner_wrote,
             "Exec cannot silently consume an owner message"
         );
         return Ok(None);
     }
-    anyhow::ensure!(
-        !reply.contains(crate::context::EXEC_NO_UPDATE),
-        "Exec mixed its quiet decision with an owner reply"
-    );
+    // OMP can stream an upstream error body as the final message text; it is a failed turn, not
+    // something to tell the owner (a free-tier smoke posted "429 Rate limit exceeded" as a reply).
+    if let Some(blocked) = crate::health::classify_provider_error_content(&reply) {
+        anyhow::bail!("Exec's final text was a provider error, not a reply: {blocked:?}");
+    }
     Ok(Some(reply))
 }
 
@@ -1106,8 +1127,10 @@ async fn run_exec_turn_with_lease(
     // wake rather than in front of it: a decision never delays or blocks the turn.
     {
         let org = org.clone();
-        let mission = config.mission.clone();
-        tokio::spawn(async move { crate::decisions::shadow_exec_results(&org, &mission).await });
+        let config = config.clone();
+        tokio::spawn(
+            async move { crate::decisions::shadow_exec_results(&org, &config, false).await },
+        );
     }
     // Every pending judgement remains in the assembled context, but only an
     // as-yet-undelivered judgement outranks a focused mention or belongs in
@@ -1175,7 +1198,7 @@ async fn run_exec_turn_with_lease(
                         &lease,
                         &owner_actor_id,
                         human_is_membership_owner,
-                        Some(reply),
+                        Some(&reply),
                         None,
                         &message_ids,
                         &owed_judgements,
@@ -1274,7 +1297,7 @@ async fn run_exec_turn_with_lease(
                 let reply = exec_owner_update(report.owner_reply.as_deref(), true)?
                     .expect("a required reply cannot be quiet");
                 lease_guard.confirm().await?;
-                mention.reply(org, reply).await
+                mention.reply(org, &reply).await
             }
             .await;
             match recorded {
@@ -1309,6 +1332,7 @@ async fn run_exec_turn_with_lease(
                     report.owner_reply.as_deref(),
                     !owner_message_ids.is_empty(),
                 )?;
+                let reply = reply.as_deref();
                 // A productive reply can survive a broken completion ask.
                 // Preserve it, but do not consume the wake while hiding the
                 // runtime failure in an event the owner never sees.
@@ -1504,7 +1528,9 @@ mod tests {
         use super::exec_owner_update;
         use crate::context::EXEC_NO_UPDATE;
         assert_eq!(
-            exec_owner_update(Some("Your report is ready"), false).unwrap(),
+            exec_owner_update(Some("Your report is ready"), false)
+                .unwrap()
+                .as_deref(),
             Some("Your report is ready")
         );
         assert_eq!(
@@ -1514,7 +1540,19 @@ mod tests {
         assert!(exec_owner_update(Some(EXEC_NO_UPDATE), true).is_err());
         assert!(exec_owner_update(None, false).is_err());
         assert!(exec_owner_update(Some("  "), false).is_err());
-        assert!(exec_owner_update(Some(&format!("No news {EXEC_NO_UPDATE}")), false).is_err());
+        // A reply that also carries the quiet marker keeps the reply.
+        assert_eq!(
+            exec_owner_update(Some(&format!("Site is live. {EXEC_NO_UPDATE}")), true)
+                .unwrap()
+                .as_deref(),
+            Some("Site is live.")
+        );
+        // A provider error streamed as text never reaches the owner.
+        assert!(exec_owner_update(
+            Some("429 Rate limit exceeded: free-models-per-min.  retry-after-ms=54287"),
+            true
+        )
+        .is_err());
     }
 
     #[test]
