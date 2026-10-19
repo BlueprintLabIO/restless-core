@@ -18,7 +18,10 @@ test('files, editors and specific company settings open as native Inbox context'
 		['/ui_test/library/sheets?sheet=s&inspect=history', 'sheet', 's'],
 		['/ui_test/company/resources#authority', 'limits', 'authority'],
 		['/ui_test/company/identity', 'identity', ''],
-		['/ui_test/company/charter', 'charter', '']
+		['/ui_test/company/charter', 'charter', ''],
+		['/ui_test/company/charter#legal', 'charter', 'legal'],
+		['/ui_test/company/provider', 'provider', ''],
+		['/ui_test/company/notifications', 'notifications', '']
 	]) {
 		const target = inboxPreviewTarget(company, href, origin);
 		assert.equal(target?.kind, kind);

@@ -128,6 +128,14 @@ export function cadenceText(cadence: Cadence): string {
 }
 
 /** The IANA zones the browser knows, with the given ones first. */
+/** A schedule's cadence as Company › Schedules lists it, and an Inbox card about it: "Every
+ * weekday at 09:00", with the schedule's own time zone named when it is not the viewer's. */
+export function scheduleCadenceText(schedule: ScheduleRow, timezone: string): string {
+	if (!schedule.interval_seconds && !schedule.local_time) return 'Recurring';
+	const text = cadenceText(cadenceOf(schedule, timezone));
+	return schedule.timezone && schedule.timezone !== timezone ? `${text} (${schedule.timezone})` : text;
+}
+
 export function timeZones(...first: string[]): string[] {
 	let all: string[] = [];
 	try {

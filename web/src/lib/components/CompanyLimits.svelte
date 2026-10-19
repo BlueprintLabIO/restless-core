@@ -10,6 +10,9 @@
 	import Field from '$lib/ui/forms/Field.svelte';
 	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
 	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
+	import EditorForm from '$lib/components/editors/EditorForm.svelte';
+	import SpendLimitEditor from '$lib/components/editors/SpendLimitEditor.svelte';
+	import SpendMeter from '$lib/components/editors/SpendMeter.svelte';
 	import {
 		companyPrincipalQuery,
 		companyQuery,
@@ -19,7 +22,6 @@
 	import {
 		saveNativeLimit as postNativeLimit,
 		saveRuntimePolicy as postRuntimePolicy,
-		saveSpendLimit as postSpendLimit,
 		saveOutsideActions,
 		savePaymentAllowance,
 		resumeExactSpend,
@@ -44,13 +46,7 @@
 		view ? view.limits : spendSource.view ? { status: 'available', ...spendSource.view } : null
 	);
 	const failure = $derived(canEdit ? source.failure : spendSource.failure);
-	let editingLimit = $state(false),
-		limitSaving = $state(false),
-		limit = $state(''),
-		baseLimit = $state(''),
-		period = $state<'total' | 'monthly'>('total'),
-		warning = $state(80),
-		limitError = $state('');
+	let editingLimit = $state(false);
 	let editingRuntime = $state(false),
 		runtimeSaving = $state(false),
 		autoSleepMinutes = $state(''),
@@ -118,63 +114,6 @@
 			runtimeError = failureSentence(error, 'Runtime limits could not be saved.');
 		} finally {
 			runtimeSaving = false;
-		}
-	}
-	/* The new limit shows the moment Save is pressed; the authority's answer replaces it, and a
-	 * refusal puts the old one back with the editor open on the reason. */
-	async function saveLimit() {
-		if (limitSaving || !view || view.limits.status !== 'available') return;
-		const ceiling = Number(limit);
-		if (!Number.isFinite(ceiling) || ceiling < 0) {
-			limitError = 'Enter a limit in US dollars, such as 50.';
-			return;
-		}
-		const warn = Math.round(Number(warning));
-		if (!Number.isFinite(warn) || warn < 1 || warn > 99) {
-			limitError = 'Choose a warning between 1% and 99% of the limit.';
-			return;
-		}
-		const spend = view.limits.spend;
-		/* Spend this period counts against the new limit: switching to a monthly budget counts only
-		 * this month. A limit at or below it stops model work the moment it is saved. */
-		const spent = period === spend.period ? spend.accounted_usd : null;
-		if (
-			spent !== null &&
-			ceiling <= spent &&
-			!(await confirmAction({
-				title: `Stop all model work now?`,
-				body: `${money(spent)} is already spent${period === 'monthly' ? ' this month' : ''}, so a limit of ${money(ceiling)} stops Exec and Staff from thinking until the limit is raised${period === 'monthly' ? ' or next month starts' : ''}.`,
-				action: 'Save and stop',
-				danger: true
-			}))
-		)
-			return;
-		limitSaving = true;
-		limitError = '';
-		const before = view;
-		source.accept({
-			...before,
-			limits: {
-				...before.limits,
-				spend: { ...spend, ceiling_usd: ceiling, warning_percent: warn }
-			}
-		});
-		editingLimit = false;
-		try {
-			const result = await postSpendLimit(companyId, {
-				ceiling: limit,
-				expected_ceiling: baseLimit,
-				period,
-				warning_percent: warn
-			});
-			source.accept(result);
-			toast('Spend limit saved');
-		} catch (e) {
-			source.accept(before);
-			limitError = failureSentence(e, 'The limit could not be saved.');
-			editingLimit = true;
-		} finally {
-			limitSaving = false;
 		}
 	}
 	/* Unpriced calls hold the total at a lower bound until the owner, having seen them, resumes
@@ -354,7 +293,6 @@
 			/>{/if}
 	{:else if section === 'spend'}
 		{@const spend = limits.spend}
-		{@const share = Math.min(100, (spend.accounted_usd / Math.max(spend.ceiling_usd, 0.01)) * 100)}
 		{@const monthly = spend.period === 'monthly'}
 		<Section
 			id="spend"
@@ -366,14 +304,7 @@
 			{#snippet actions()}
 				{#if canEdit && !editingLimit}<button
 						class="btn small"
-						onclick={() => {
-							limit = String(spend.ceiling_usd);
-							baseLimit = limit;
-							period = spend.period;
-							warning = spend.warning_percent;
-							limitError = '';
-							editingLimit = true;
-						}}>Edit limit</button
+						onclick={() => (editingLimit = true)}>Edit limit</button
 					>{/if}
 				{#if canEdit}<CopyCompanySetting
 						{companyId}
@@ -382,36 +313,7 @@
 						oncopied={() => source.refresh()}
 					/>{/if}
 			{/snippet}
-			<div class="meter-row">
-				<div class="meter-copy">
-					<strong
-						>{#if spend.status === 'metering_unknown'}<span
-								class="lower-bound"
-								title="Some model calls reported no price, so actual spend may be higher. Charged work continues until known spend reaches the limit."
-								>At least</span
-							>{' '}{/if}{money(spend.accounted_usd)}</strong
-					>
-					<span
-						>of {money(spend.ceiling_usd)}
-						{monthly ? 'this month' : 'model budget'}{spend.remaining_usd != null
-							? ` · ${money(spend.remaining_usd)} left`
-							: ''}</span
-					>
-					<span class="meter-share">{Math.round(share)}%</span>
-				</div>
-				<div
-					class="meter"
-					class:high={share >= spend.warning_percent}
-					role="meter"
-					aria-label="Model spend"
-					aria-valuemin={0}
-					aria-valuemax={spend.ceiling_usd}
-					aria-valuenow={Math.min(spend.accounted_usd, spend.ceiling_usd)}
-					aria-valuetext={`${money(spend.accounted_usd)} of ${money(spend.ceiling_usd)} used`}
-				>
-					<i style={`width: ${share}%`}></i>
-				</div>
-			</div>
+			<div class="meter-row"><SpendMeter {spend} /></div>
 			{#if spend.status === 'metering_unknown'}
 				{@const unpriced = spend.unpriced ?? []}
 				<Notice
@@ -456,61 +358,17 @@
 				</Fold>
 			{/if}
 			{#if editingLimit}
-				<form
-					class="form plain"
-					onsubmit={(event) => {
-						event.preventDefault();
-						void saveLimit();
-					}}
-				>
-					<header class="form-head"><strong>Model budget</strong></header>
-					<Field label="Kind">
-						<Segmented
-							label="Budget period"
-							options={[
-								{ value: 'total', label: 'Total' },
-								{ value: 'monthly', label: 'Each month' }
-							]}
-							bind:value={period}
-							disabled={limitSaving}
-						/>
-					</Field>
-					<Field label="Limit" hint="US dollars" for="spend-limit">
-						<input
-							id="spend-limit"
-							type="text"
-							inputmode="decimal"
-							pattern={'[0-9]+([.][0-9]{1,6})?'}
-							bind:value={limit}
-							disabled={limitSaving}
-							placeholder="25"
-						/>
-					</Field>
-					<Field label="Warn at" hint="An Inbox item before model work stops" for="spend-warning">
-						<div class="form-inline">
-							<input
-								id="spend-warning"
-								class="percent"
-								type="number"
-								min="1"
-								max="99"
-								step="1"
-								bind:value={warning}
-								disabled={limitSaving}
-							/>% of the limit
-						</div>
-					</Field>
-					{#if limitError}<p class="form-error" role="alert">{limitError}</p>{/if}
-					<FormFoot
-						submit="Save"
-						busy={limitSaving}
-						busyLabel="Saving…"
-						oncancel={() => {
+				<EditorForm title="Model budget" oncancel={() => (editingLimit = false)}>
+					<SpendLimitEditor
+						{companyId}
+						{spend}
+						onsaved={(company) => {
+							source.accept(company);
 							editingLimit = false;
-							limitError = '';
+							toast('Spend limit saved');
 						}}
 					/>
-				</form>
+				</EditorForm>
 			{/if}
 			{@const native = limits.native}
 			<Row
@@ -903,54 +761,12 @@
 {/if}
 
 <style>
-	.lower-bound {
-		text-decoration: underline dotted;
-		text-underline-offset: 3px;
-		cursor: help;
-	}
 	.share {
 		font-variant-numeric: tabular-nums;
 		color: var(--text-secondary);
 	}
 	.meter-row {
-		display: grid;
-		gap: 10px;
 		padding: 16px;
-	}
-	.meter-copy {
-		display: flex;
-		align-items: baseline;
-		gap: 6px;
-		font-size: var(--t-body);
-	}
-	.meter-copy strong {
-		color: var(--ink);
-		font-size: var(--t-head);
-		font-weight: 600;
-		font-variant-numeric: tabular-nums;
-	}
-	.meter-copy span {
-		color: var(--text-tertiary);
-	}
-	.meter-share {
-		margin-left: auto;
-		font-variant-numeric: tabular-nums;
-	}
-	.meter {
-		height: 6px;
-		overflow: hidden;
-		border-radius: 999px;
-		background: var(--surface-alt);
-	}
-	.meter i {
-		display: block;
-		height: 100%;
-		border-radius: inherit;
-		background: var(--intent-conversation);
-		transition: width var(--motion-disclosure) var(--ease-out);
-	}
-	.meter.high i {
-		background: var(--intent-authority);
 	}
 	.reached {
 		color: var(--intent-authority);

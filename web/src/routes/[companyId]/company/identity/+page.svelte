@@ -2,7 +2,7 @@
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { formatRelative, formatMoment } from '$lib/ui/time';
-	import { Page, Section, Row, Item, Notice, Segmented, Fold } from '$lib/ui/page';
+	import { Page, Section, Row, Item, Notice, Fold } from '$lib/ui/page';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
@@ -14,14 +14,14 @@
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import {
 		IDENTITY_PILLARS,
-		decideIdentityMigration,
 		releaseEvidence,
 		saveCompanyIdentity,
 		type IdentityDriftFindingRow,
-		type IdentityMigrationDisposition,
 		type IdentityReleaseRow
 	} from '$lib/model/identity';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
+	import EditorForm from '$lib/components/editors/EditorForm.svelte';
+	import DriftDecisionEditor from '$lib/components/editors/DriftDecisionEditor.svelte';
 
 	const companyId = $derived(page.params.companyId ?? '');
 	/* Only the owner approves the company identity (OrgIntel refuses anyone else), so only the
@@ -88,16 +88,9 @@
 		];
 		return reviews;
 	});
-	const DISPOSITIONS: { value: IdentityMigrationDisposition; label: string; title: string }[] = [
-		{ value: 'retain', label: 'Keep', title: 'Keep the artifact as it is.' },
-		{ value: 'revise', label: 'Revise', title: 'Have the artifact revised to the new identity.' },
-		{ value: 'retire', label: 'Retire', title: 'Stop using the artifact.' }
-	];
 
 	/* The Inbox opens one affected artifact's decision with ?drift=. */
 	let migrationFinding = $state<string | null>(page.url.searchParams.get('drift'));
-	let migrationDisposition = $state<IdentityMigrationDisposition>('revise');
-	let migrationRationale = $state('');
 	let saving = $state(false);
 	let notice = $state('');
 	let failure = $state('');
@@ -141,28 +134,7 @@
 		}
 	}
 
-	async function decideMigration(finding: IdentityDriftFindingRow) {
-		if (!migrationRationale.trim() || saving) return;
-		saving = true;
-		failure = '';
-		notice = '';
-		try {
-			await decideIdentityMigration(
-				companyId,
-				finding.id,
-				migrationDisposition,
-				migrationRationale
-			);
-			notice = 'Decision recorded. The artifact itself was not changed.';
-			migrationFinding = null;
-			migrationRationale = '';
-			await source.refresh();
-		} catch (cause) {
-			failure = failureSentence(cause, 'The decision was not recorded.');
-		} finally {
-			saving = false;
-		}
-	}
+
 
 	const when = (value?: Date | string) => formatRelative(value, '');
 	const words = (value: string) => value.replaceAll('_', ' ');
@@ -195,8 +167,6 @@
 						meta={sentence(finding.kind)}
 						onclick={() => {
 							migrationFinding = migrationFinding === finding.id ? null : finding.id;
-							migrationDisposition = 'revise';
-							migrationRationale = '';
 						}}
 						selected={migrationFinding === finding.id}
 					>
@@ -207,33 +177,19 @@
 								aria-hidden="true"
 							/>{/snippet}
 						{#if canManage && migrationFinding === finding.id}
-							<div class="decision">
-								<p class="consequence">{finding.consequence}</p>
-								<Segmented
-									label="What should happen to this artifact"
-									options={DISPOSITIONS}
-									value={migrationDisposition}
-									onchange={(value) => (migrationDisposition = value)}
+							<EditorForm oncancel={() => (migrationFinding = null)}>
+								<DriftDecisionEditor
+									{companyId}
+									finding={finding.id}
+									consequence={finding.consequence}
+									onsaved={async (receipt) => {
+										failure = '';
+										notice = receipt;
+										migrationFinding = null;
+										await source.refresh();
+									}}
 								/>
-								<textarea
-									bind:value={migrationRationale}
-									aria-label="Your reason"
-									placeholder="Why this is right for this artifact"></textarea>
-								<div class="decision-bar">
-									<button
-										class="btn primary small"
-										type="button"
-										disabled={saving || !migrationRationale.trim()}
-										onclick={() => decideMigration(finding)}
-										>{saving ? 'Recording…' : 'Record decision'}</button
-									>
-									<button
-										class="btn small ghost"
-										type="button"
-										onclick={() => (migrationFinding = null)}>Cancel</button
-									>
-								</div>
-							</div>
+							</EditorForm>
 						{/if}
 					</Item>
 				{/each}
@@ -338,25 +294,10 @@
 </Page>
 
 <style>
-	.decision {
-		display: grid;
-		gap: 12px;
-		padding-top: 4px;
-	}
-	.decision textarea {
-		width: 100%;
-		min-height: 72px;
-	}
-	.decision-bar {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-	.consequence {
-		margin: 0;
-		color: var(--text-secondary);
-		line-height: 1.55;
-	}
+
+
+
+
 	.statements {
 		display: grid;
 		gap: 10px;

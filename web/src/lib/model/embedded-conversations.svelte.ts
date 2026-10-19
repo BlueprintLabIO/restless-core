@@ -1,13 +1,13 @@
-/* Which people's conversations an Inbox card is showing right now (S101). The Exec rail beside
- * the cockpit steps aside while a card embeds the same conversation, so it is never on screen
- * twice; the owner's own choice to keep the rail open is left as it was. */
+/* Which people's conversations an Inbox card is about right now (S101). The conversation itself
+ * stays in the rail beside the cockpit, never inside the card: a card asking for one opens the
+ * rail on that person once, and the owner may close it again as always. */
 import { untrack } from 'svelte';
 import { SvelteMap } from 'svelte/reactivity';
 
 const shown = new SvelteMap<string, number>();
 
-/** Count a card's conversation with this person while it is on screen; returns the release. */
-export function showingConversation(actorId: string): () => void {
+/** Count a card about this person's conversation while it is on screen; returns the release. */
+export function askForConversation(actorId: string): () => void {
 	/* Called from an effect: the count is read and written untracked, so the effect does not
 	 * depend on the map it changes. */
 	untrack(() => shown.set(actorId, (shown.get(actorId) ?? 0) + 1));
@@ -19,6 +19,6 @@ export function showingConversation(actorId: string): () => void {
 		});
 }
 
-export function conversationShown(actorId: string): boolean {
+export function conversationAsked(actorId: string): boolean {
 	return shown.has(actorId);
 }

@@ -1,6 +1,7 @@
 <script lang="ts">
 	/* Company › Model: how much headroom the account behind this company's model has (S100), so a
-	 * limit never arrives as a surprise. Shows nothing for a model whose account reports no limits. */
+	 * limit never arrives as a surprise. Shows nothing for a model whose account reports no limits.
+	 * An Inbox card about the model shows the same meters, `compact`, in its status strip. */
 	import { onDestroy, onMount } from 'svelte';
 	import {
 		freshness,
@@ -11,7 +12,7 @@
 		type CompanyHeadroom
 	} from '$lib/model/account-usage';
 
-	let { companyId }: { companyId: string } = $props();
+	let { companyId, compact = false }: { companyId: string; compact?: boolean } = $props();
 
 	let headroom = $state<CompanyHeadroom | null>(null);
 	let now = $state(Date.now());
@@ -36,8 +37,8 @@
 </script>
 
 {#if headroom?.windows.length}
-	<section class="headroom" aria-label="Account headroom">
-		<h3>Account headroom</h3>
+	<section class="headroom" class:compact aria-label="Account headroom">
+		{#if !compact}<h3>Account headroom</h3>{/if}
 		<div class="windows">
 			{#each headroom.windows as window (window.name)}
 				{@const tone = meterTone(window.used_percent)}
@@ -75,6 +76,9 @@
 		display: grid;
 		gap: 8px;
 		margin: 0 0 20px;
+	}
+	.headroom.compact {
+		margin: 0;
 	}
 	h3 {
 		margin: 0;

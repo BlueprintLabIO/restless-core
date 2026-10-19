@@ -1,7 +1,8 @@
 <script lang="ts">
 	/* The one panel every Inbox card answers in (S101): an optional status strip (meters, where
 	 * things stand), then the choices and fields, then a quiet note and any error. It holds no
-	 * commit button; the card's footer does that for every kind. */
+	 * commit button; the card's footer does that for every kind. A panel holding a shared editor
+	 * (`form`) lays its rows out as the app's one form, so it reads as it does on its Settings page. */
 	import type { Snippet } from 'svelte';
 
 	let {
@@ -9,19 +10,22 @@
 		status,
 		children,
 		note = '',
-		error = ''
+		error = '',
+		form = false
 	}: {
 		label: string;
 		status?: Snippet;
 		children?: Snippet;
 		note?: string;
 		error?: string;
+		/** The body holds a shared editor's form rows (Field). */
+		form?: boolean;
 	} = $props();
 </script>
 
 <section class="inline-panel" aria-label={label}>
 	{#if status}<div class="status">{@render status()}</div>{/if}
-	{#if children}<div class="body">{@render children()}</div>{/if}
+	{#if children}<div class="body" class:form class:flush={form}>{@render children()}</div>{/if}
 	{#if note}<p class="note">{note}</p>{/if}
 	{#if error}<p class="error" role="alert">{error}</p>{/if}
 </section>
@@ -64,6 +68,12 @@
 		display: grid;
 		gap: 10px;
 		min-width: 0;
+	}
+	/* Form rows bring their own spacing and hairlines; the panel's padding frames them. */
+	.body.form {
+		gap: 0;
+		padding-block: 0;
+		font-size: inherit;
 	}
 	/* Fields look the same on every card: the label above, the input full width, two to a row
 	 * where they pair, one on a phone. */

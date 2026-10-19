@@ -2,9 +2,9 @@
 	import { Section, Row, Toggle, Notice } from '$lib/ui/page';
 	import { notificationSettings } from '$lib/model/notification-settings.svelte';
 	import { desktopNotify, BLOCKED_HINT } from '$lib/model/desktop-notify.svelte';
+	import EmailDeliveryEditor from './editors/EmailDeliveryEditor.svelte';
 	let { companyId }: { companyId: string } = $props();
 	const settings = notificationSettings(() => companyId);
-	const prefs = $derived(settings.preferences);
 </script>
 
 <Section
@@ -34,45 +34,7 @@
 				>Unavailable in this browser</span
 			>{:else if desktopNotify.blocked}<span class="quiet">Blocked in browser settings</span>{/if}
 	</Row>
-	<Row
-		label="Email"
-		info="Email you when something needs you and you have not seen it here. Your choice applies on every device."
-	>
-		{#if settings.emailDelivered === null}<span class="quiet" role="status"
-				>Checking email availability…</span
-			>
-		{:else if settings.emailDelivered}<Toggle
-				label="Email notifications"
-				checked={!!prefs?.email}
-				disabled={!prefs || settings.busy}
-				onchange={(email) => settings.save({ email })}
-			/>
-		{:else}<span class="quiet">Email delivery is available on the hosted app.</span>{/if}
-	</Row>
-	{#if settings.emailDelivered && prefs?.email}
-		<Row label="Delivery">
-			<select
-				aria-label="Email delivery"
-				value={prefs.digest ? 'digest' : 'immediate'}
-				disabled={settings.busy}
-				onchange={(event) =>
-					settings.save({ digest: event.currentTarget.value === 'digest' ? '08:00' : '' })}
-			>
-				<option value="immediate">As things happen</option><option value="digest"
-					>Daily digest</option
-				>
-			</select>
-			{#if prefs.digest}<input
-					aria-label="Daily digest time"
-					title="In your time zone"
-					type="time"
-					value={prefs.digest}
-					disabled={settings.busy}
-					onchange={(event) =>
-						event.currentTarget.value && settings.save({ digest: event.currentTarget.value })}
-				/>{/if}
-		</Row>
-	{/if}
+	<EmailDeliveryEditor {companyId} />
 </Section>
 
 <style>

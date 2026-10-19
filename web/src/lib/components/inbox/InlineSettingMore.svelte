@@ -1,8 +1,9 @@
 <script lang="ts">
 	/* The other setting changes an actor may propose (S101): the company's model, pausing or
 	 * resuming a schedule, and how the owner hears from the company. Each shows where it stands
-	 * now and what is proposed; the footer saves it through the same call Settings makes, then
-	 * tells whoever asked. */
+	 * now and what is proposed, in the rows its Settings page uses (the schedule as Company ›
+	 * Schedules lists it, email with Company › Notifications' own editor); the footer saves it
+	 * through the same call, then tells whoever asked. */
 	import { onMount } from 'svelte';
 	import type { SettingProposal } from '$lib/model/view';
 	import { decideSetting } from '$lib/model/setting-proposals';
@@ -10,10 +11,15 @@
 	import { modelLabel } from '$lib/model/intelligence-labels';
 	import type { ProviderStatus } from '$lib/model/provider';
 	import { monitorSchedules, updateSchedule, type MonitoredSchedule } from '$lib/model/skills';
-	import { readNotifyPreferences, saveNotifyPreferences, type NotifyPreferences } from '$lib/model/notify-preferences';
+	import { browserTimeZone } from '$lib/model/skills';
+	import { scheduleCadenceText } from '$lib/model/schedule-cadence';
+	import { readNotifyPreferences, type NotifyPreferences } from '$lib/model/notify-preferences';
 	import { failureSentence } from '$lib/model/failure';
 	import InlinePanel from './InlinePanel.svelte';
 	import InlineChoice from './InlineChoice.svelte';
+	import Field from '$lib/ui/forms/Field.svelte';
+	import { Item, Dot } from '$lib/ui/page';
+	import EmailDeliveryEditor from '../editors/EmailDeliveryEditor.svelte';
 	import { cardActions, type CardAction } from './card-actions.svelte';
 
 	let {
@@ -41,8 +47,7 @@
 	let schedule = $state<MonitoredSchedule | null>(null);
 	/* Notifications */
 	let prefs = $state<NotifyPreferences | null>(null);
-	let email = $state<'on' | 'off' | null>(null);
-	let digest = $state('');
+	const timeZone = browserTimeZone();
 
 	async function load() {
 		failed = false;
@@ -56,15 +61,17 @@
 				const matching = loadedChoices.options
 					.filter((option) => option.connection.provider === askedProvider)
 					.map((option) => ({ ...option, model: asked }));
-				options = [...matching, ...loadedChoices.options.filter((option) => option.connection.provider !== askedProvider)];
+				options = [
+					...matching,
+					...loadedChoices.options.filter((option) => option.connection.provider !== askedProvider)
+				];
 				choice = options[0]?.connection.id ?? null;
 			} else if (proposal.setting === 'schedule') {
 				const id = proposal.schedule_id;
-				schedule = (await monitorSchedules(companyId)).find((row) => row.schedule.id === id) ?? null;
+				schedule =
+					(await monitorSchedules(companyId)).find((row) => row.schedule.id === id) ?? null;
 			} else if (proposal.setting === 'notifications') {
 				prefs = await readNotifyPreferences(companyId);
-				email = proposal.email == null ? (prefs.email ? 'on' : 'off') : proposal.email ? 'on' : 'off';
-				digest = proposal.digest ?? prefs.digest ?? '';
 			}
 			loaded = true;
 		} catch {
@@ -102,7 +109,6 @@
 	};
 
 	const picked = $derived(options.find((option) => option.connection.id === choice) ?? null);
-	const digestValid = $derived(!digest || /^([01]\d|2[0-3]):[0-5]\d$/.test(digest));
 
 	cardActions(() => {
 		if (!owner) return {};
@@ -142,30 +148,10 @@
 				}
 			};
 		}
-		if (proposal.setting === 'notifications') {
-			return {
-				secondary: [decline],
-				primary: {
-					label: 'Save how you hear',
-					busyLabel: 'Saving…',
-					disabled: !email || !digestValid,
-					run: () =>
-						finish(
-							() => saveNotifyPreferences(companyId, { email: email === 'on', digest }),
-							email === 'off'
-								? 'Email from the company is off.'
-								: digest
-									? `You get one email a day at ${digest}.`
-									: 'You get email as things happen.'
-						)
-				}
-			};
-		}
+		/* Email's editor offers the save; Decline stays here. */
+		if (proposal.setting === 'notifications') return { secondary: [decline] };
 		return {};
 	});
-
-	const describe = (row: MonitoredSchedule) =>
-		row.schedule.reason.length > 80 ? `${row.schedule.reason.slice(0, 80)}…` : row.schedule.reason;
 </script>
 
 {#if !owner}
@@ -178,21 +164,27 @@
 	<InlinePanel
 		label="Company model"
 		{error}
-		note={options.length ? '' : `You hold no account for ${proposal.model.split('/')[0]} yet: add one from the model card or Settings › Accounts.`}
+		form={options.length > 0}
+		note={options.length
+			? ''
+			: `You hold no account for ${proposal.model.split('/')[0]} yet: add one from the model card or Settings › Accounts.`}
 	>
-		{#snippet status()}
-			<div class="compare">
-				<span><small>Now</small>{modelLabel(String(proposal.current?.model ?? '')) || 'Not set'}</span>
-				<span aria-hidden="true">→</span>
-				<span><small>{asker} proposes</small>{modelLabel(proposal.model)}</span>
-			</div>
-		{/snippet}
+		{#snippet status()}{@render compare(
+				modelLabel(String(proposal.current?.model ?? '')) || 'Not set',
+				modelLabel(proposal.model)
+			)}{/snippet}
 		{#if options.length}
-			<InlineChoice
-				label="Run the company on"
-				options={options.map((option) => ({ value: option.connection.id, title: option.connection.label, detail: modelLabel(option.model) }))}
-				bind:value={choice}
-			/>
+			<Field label="Run the company on">
+				<InlineChoice
+					label="Run the company on"
+					options={options.map((option) => ({
+						value: option.connection.id,
+						title: option.connection.label,
+						detail: modelLabel(option.model)
+					}))}
+					bind:value={choice}
+				/>
+			</Field>
 		{/if}
 	</InlinePanel>
 {:else if proposal.setting === 'schedule'}
@@ -201,47 +193,64 @@
 		{error}
 		note={schedule ? '' : 'That schedule no longer exists; decline to tell them.'}
 	>
-		{#snippet status()}
-			<div class="compare">
-				<span><small>Now</small>{schedule ? (schedule.schedule.paused_at ? 'Paused' : 'Running') : 'Gone'}</span>
-				<span aria-hidden="true">→</span>
-				<span><small>{asker} proposes</small>{proposal.paused ? 'Paused' : 'Running'}</span>
+		{#snippet status()}{@render compare(
+				schedule ? (schedule.schedule.paused_at ? 'Paused' : 'Running') : 'Gone',
+				proposal.paused ? 'Paused' : 'Running'
+			)}{/snippet}
+		{#if schedule}
+			{@const paused = !!schedule.schedule.paused_at}
+			<div class="schedule">
+				<Item
+					stacked
+					title={schedule.schedule.reason}
+					meta={[scheduleCadenceText(schedule.schedule, timeZone), paused ? 'Paused' : null]
+						.filter(Boolean)
+						.join(' · ')}
+					dim={paused}
+				>
+					{#snippet leading()}<Dot
+							tone={paused ? 'muted' : 'success'}
+							label={paused ? 'Paused' : 'Active'}
+						/>{/snippet}
+				</Item>
 			</div>
-		{/snippet}
-		{#if schedule}<p class="what">{proposal.label ? `“${proposal.label}”: ` : ''}{describe(schedule)}</p>{/if}
+		{/if}
 	</InlinePanel>
 {:else if proposal.setting === 'notifications'}
-	<InlinePanel label="How you hear from the company" {error} note={digestValid ? '' : 'Give the time as HH:MM, e.g. 08:30.'}>
-		{#snippet status()}
-			<div class="compare">
-				<span><small>Now</small>{prefs?.email ? (prefs.digest ? `One email a day at ${prefs.digest}` : 'Email as it happens') : 'No email'}</span>
-				<span aria-hidden="true">→</span>
-				<span
-					><small>{asker} proposes</small>{proposal.email === false
-						? 'No email'
-						: proposal.digest
-							? `One email a day at ${proposal.digest}`
-							: 'Email as it happens'}</span
-				>
-			</div>
-		{/snippet}
-		<InlineChoice
-			label="Email"
-			options={[
-				{ value: 'on', title: 'Email on' },
-				{ value: 'off', title: 'Email off' }
-			]}
-			bind:value={email}
-		/>
-		{#if email === 'on'}<label class="field"
-				><span>Daily digest time <small>empty for as it happens</small></span><input
-					bind:value={digest}
-					placeholder="08:30"
-					inputmode="numeric"
-				/></label
-			>{/if}
+	<InlinePanel label="How you hear from the company" {error}>
+		{#snippet status()}{@render compare(
+				prefs?.email
+					? prefs.digest
+						? `One email a day at ${prefs.digest}`
+						: 'Email as it happens'
+					: 'No email',
+				proposal.email === false
+					? 'No email'
+					: proposal.digest
+						? `One email a day at ${proposal.digest}`
+						: 'Email as it happens'
+			)}{/snippet}
+		<div class="rows">
+			<EmailDeliveryEditor
+				{companyId}
+				draft
+				proposed={{ email: proposal.email, digest: proposal.digest }}
+				onsaved={async (_saved, receipt) => {
+					await decideSetting(companyId, proposal.proposal, { applied: true });
+					ondone(`${receipt} ${asker} has been told.`);
+				}}
+			/>
+		</div>
 	</InlinePanel>
 {/if}
+
+{#snippet compare(now: string, proposed: string)}
+	<div class="compare">
+		<span><small>Now</small>{now}</span>
+		<span aria-hidden="true">→</span>
+		<span><small>{asker} proposes</small>{proposed}</span>
+	</div>
+{/snippet}
 
 <style>
 	.compare {
@@ -263,8 +272,9 @@
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
-	.what {
-		margin: 0;
-		color: var(--text-secondary);
+	/* The schedule and email rows sit edge to edge, as on their pages. */
+	.schedule,
+	.rows {
+		margin: -12px;
 	}
 </style>

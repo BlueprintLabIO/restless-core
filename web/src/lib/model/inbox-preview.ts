@@ -2,7 +2,11 @@
  * another company keeps its ordinary meaning. No arbitrary page is framed as application UI. */
 export type InboxPreviewTarget =
 	| { kind: 'file' | 'path' | 'upload' | 'document' | 'sheet'; value: string; href: string }
-	| { kind: 'limits' | 'identity' | 'charter'; value: string; href: string };
+	| {
+			kind: 'limits' | 'identity' | 'charter' | 'provider' | 'notifications';
+			value: string;
+			href: string;
+	  };
 
 export function inboxPreviewTarget(
 	company: string,
@@ -61,7 +65,13 @@ export function inboxPreviewTarget(
 			return null;
 		}
 	}
-	const settings = { resources: 'limits', identity: 'identity', charter: 'charter' } as const;
+	const settings = {
+		resources: 'limits',
+		identity: 'identity',
+		charter: 'charter',
+		provider: 'provider',
+		notifications: 'notifications'
+	} as const;
 	for (const [suffix, kind] of Object.entries(settings))
 		if (path === base + '/company/' + suffix) return target(kind, url.hash.slice(1));
 	return null;

@@ -9,6 +9,9 @@
 	import CompanyLimits from './CompanyLimits.svelte';
 	import BrandDocument from './BrandDocument.svelte';
 	import CharterPurpose from './CharterPurpose.svelte';
+	import LegalProfile from './LegalProfile.svelte';
+	import CompanyProvider from './CompanyProvider.svelte';
+	import NotificationPreferences from './NotificationPreferences.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import Pending from '$lib/ui/feedback/Pending.svelte';
 	let {
@@ -54,13 +57,16 @@
 			<a href={backHref}>← Back to Inbox item</a>
 			{#if target.kind === 'limits'}<h2>Limits</h2>
 			{:else if target.kind === 'identity'}<h2>Brand</h2>
-			{:else if target.kind === 'charter'}<h2>Charter</h2>{/if}
+			{:else if target.kind === 'charter'}<h2>Charter</h2>
+			{:else if target.kind === 'notifications'}<h2>Notifications</h2>{/if}
 		</header>
 		<div
 			class="preview-content"
 			class:settings={target.kind === 'limits' ||
 				target.kind === 'identity' ||
-				target.kind === 'charter'}
+				target.kind === 'charter' ||
+				target.kind === 'provider' ||
+				target.kind === 'notifications'}
 		>
 			{#if native}
 				{#await native}<Pending label="Opening editor…" />
@@ -96,13 +102,21 @@
 						{companyId}
 						view={company.view}
 						onsaved={company.accept}
-					/>
+					/>{#if owner}<LegalProfile
+							{companyId}
+							view={company.view}
+							onsaved={company.accept}
+						/>{/if}
 				{:else if company.failure}<FailureNotice
 						error={company.failure}
 						subject="the charter"
 						onretry={company.refresh}
 					/>
 				{:else}<Pending label="Opening charter…" />{/if}
+			{:else if target.kind === 'provider'}
+				<CompanyProvider {companyId} />
+			{:else if target.kind === 'notifications'}
+				<NotificationPreferences {companyId} />
 			{/if}
 		</div>
 	{/if}

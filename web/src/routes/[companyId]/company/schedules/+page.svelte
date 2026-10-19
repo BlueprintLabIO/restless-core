@@ -31,7 +31,7 @@
 		cadenceOf,
 		cadenceReady,
 		cadenceRequest,
-		cadenceText as describeCadence,
+		scheduleCadenceText,
 		newCadence,
 		sameCadence,
 		type Cadence
@@ -181,12 +181,7 @@
 		}
 		return 'No final result yet';
 	}
-	function cadenceText(item: MonitoredSchedule) {
-		const s = item.schedule;
-		if (!s.interval_seconds && !s.local_time) return 'Recurring';
-		const text = describeCadence(cadenceOf(s, timeZone));
-		return s.timezone && s.timezone !== timeZone ? `${text} (${s.timezone})` : text;
-	}
+	const cadenceText = (item: MonitoredSchedule) => scheduleCadenceText(item.schedule, timeZone);
 	/* An outcome as the owner reads it: one short sentence, with the full agent
 	 * or system text kept for Details. */
 	function headline(outcome: unknown, reason: string | null): { line: string; full: string } {

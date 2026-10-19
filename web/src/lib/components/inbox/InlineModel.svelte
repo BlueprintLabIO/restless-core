@@ -1,20 +1,29 @@
 <script lang="ts">
-	/* The company's model, fixed in its card (S101): the account's headroom on top; below, the
-	 * other accounts you hold, or a key to add. The footer switches to the one chosen, or adds it
-	 * as the fallback that takes over by itself; Top up opens the plan where credit ran out. */
+	/* The company's model, fixed in its card (S101): the account's headroom on top, the same meters
+	 * as Company › Intelligence; below, the other accounts you hold, or a key to add. The footer
+	 * switches to the one chosen, or adds it as the fallback that takes over by itself; Top up opens
+	 * the plan where credit ran out. An agent on a refused model of its own gets the Intelligence
+	 * page's model editor, starting from the company model. */
 	import { onMount } from 'svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { modelLabel } from '$lib/model/intelligence-labels';
-	import { freshness, meterTone, readCompanyHeadroom, resetsIn, timeOfDay, type CompanyHeadroom } from '$lib/model/account-usage';
-	import { addFallback, loadModelChoices, switchModel, type ModelOption } from '$lib/model/inline-model';
+	import {
+		addFallback,
+		loadModelChoices,
+		switchModel,
+		type ModelOption
+	} from '$lib/model/inline-model';
 	import { popupFeatures } from '$lib/model/inline-credentials';
 	import type { ProviderStatus } from '$lib/model/provider';
 	import { addApiKeyConnection } from '$lib/model/account-connections';
 	import { MODEL_PRESETS } from '$lib/model/model-presets';
-	import { assignModel, type IntelligenceView } from '$lib/model/intelligence.svelte';
+	import type { IntelligenceView } from '$lib/model/intelligence.svelte';
 	import { ownerRequest } from '$lib/model/setting.svelte';
 	import InlinePanel from './InlinePanel.svelte';
 	import InlineChoice from './InlineChoice.svelte';
+	import Field from '$lib/ui/forms/Field.svelte';
+	import ModelHeadroom from '../ModelHeadroom.svelte';
+	import ModelAssignmentEditor from '../editors/ModelAssignmentEditor.svelte';
 	import { cardActions, type CardAction } from './card-actions.svelte';
 
 	let {
@@ -34,12 +43,11 @@
 	} = $props();
 
 	const ADD = '__add-key';
+	const id = $props.id();
 	let provider = $state<ProviderStatus | null>(null);
 	let options = $state<ModelOption[]>([]);
-	let headroom = $state<CompanyHeadroom | null>(null);
 	let loadFailed = $state(false);
 	let error = $state('');
-	let now = $state(Date.now());
 	let choice = $state<string | null>(null);
 	let keyProvider = $state('anthropic');
 	let keySecret = $state('');
@@ -55,7 +63,8 @@
 						agent.effective_model === refusedModel &&
 						/* Only when the company model is on another account: a limit is account-wide, so
 						 * moving to the same account's default would be refused too (Snake Oil, 19 Oct). */
-						agent.assignment.connection !== (intelligence?.default ?? intelligence?.base_default)?.connection
+						agent.assignment.connection !==
+							(intelligence?.default ?? intelligence?.base_default)?.connection
 				)
 			: []
 	);
@@ -78,10 +87,7 @@
 	}
 
 	onMount(() => {
-		void readCompanyHeadroom(companyId).then((value) => (headroom = value)).catch(() => {});
 		if (owner) void load();
-		const timer = setInterval(() => (now = Date.now()), 30_000);
-		return () => clearInterval(timer);
 	});
 
 	async function attempt(work: () => Promise<string | null>, failure: string) {
@@ -98,28 +104,8 @@
 		if (!owner) return {};
 		if (loadFailed) return { primary: { label: 'Try again', busyLabel: 'Reading…', run: load } };
 		if (!provider) return {};
-		if (stranded.length && intelligence) {
-			const view = intelligence;
-			const company = provider;
-			const names = stranded.map((agent) => agent.name).join(' and ');
-			return {
-				primary: {
-					label: `Put ${names} on the company model`,
-					busyLabel: 'Saving…',
-					run: () =>
-						attempt(async () => {
-							for (const agent of stranded)
-								await assignModel(companyId, agent.id, {
-									connection: agent.assignment!.connection,
-									model: agent.assignment!.model,
-									reset: true,
-									revision: view.revision
-								});
-							return `${names} now ${stranded.length > 1 ? 'run' : 'runs'} on the company model, ${modelLabel(company.primary_model)}.`;
-						}, 'That did not save. Try again.')
-				}
-			};
-		}
+		/* The model editor offers what to do for an agent on its own model. */
+		if (stranded.length && intelligence) return {};
 		const secondary: CardAction[] = [];
 		if (topUpHref)
 			secondary.push({
@@ -136,7 +122,11 @@
 					disabled: !keySecret.trim(),
 					run: () =>
 						attempt(async () => {
-							await addApiKeyConnection({ label: name, provider: keyProvider, secret: keySecret.trim() });
+							await addApiKeyConnection({
+								label: name,
+								provider: keyProvider,
+								secret: keySecret.trim()
+							});
 							keySecret = '';
 							choice = null;
 							await load();
@@ -177,6 +167,7 @@
 <InlinePanel
 	label="Fix the company's model"
 	{error}
+	form={owner && !!provider}
 	note={!owner
 		? "The owner chooses the company's model."
 		: loadFailed
@@ -186,112 +177,67 @@
 				: ''}
 >
 	{#snippet status()}
-		{#if headroom?.windows.length}
-			<div class="windows">
-				{#each headroom.windows as window (window.name)}
-					{@const tone = meterTone(window.used_percent)}
-					<div class="window">
-						<div class="line">
-							<span>{window.label}</span><span class="figure {tone}">{Math.round(window.used_percent)}% used</span>
-						</div>
-						<div class="meter {tone}" role="meter" aria-label={`${window.label} limit used`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(window.used_percent)}>
-							<span style:width={`${Math.min(100, window.used_percent)}%`}></span>
-						</div>
-						<div class="facts">
-							{#if window.resets_at}<span>{resetsIn(window.resets_at, now)} ({timeOfDay(window.resets_at, now)})</span>{/if}
-							<span>{freshness(window.observed_at, now)}</span>
-						</div>
-					</div>
-				{/each}
-			</div>
-		{/if}
+		<ModelHeadroom {companyId} compact />
 		{#if owner && provider && !stranded.length}
 			<p class="current">
-				Runs on <strong>{modelLabel(provider.primary_model)}</strong>{#if provider.model_failover?.length}, then {provider.model_failover.map((model) => modelLabel(model)).join(', then ')}{/if}.
+				Runs on <strong>{modelLabel(provider.primary_model)}</strong
+				>{#if provider.model_failover?.length}, then {provider.model_failover
+						.map((model) => modelLabel(model))
+						.join(', then ')}{/if}.
+			</p>
+		{:else if owner && provider && intelligence}
+			<p class="current">
+				{stranded.map((agent) => agent.name).join(' and ')}
+				{stranded.length > 1 ? 'run' : 'runs'} on <strong>{modelLabel(refusedModel)}</strong>,
+				chosen for
+				{stranded.length > 1 ? 'them' : 'it'} alone. The rest of the company runs on
+				<strong>{modelLabel(provider.primary_model)}</strong>.
 			</p>
 		{/if}
 	{/snippet}
-	{#if owner && provider && stranded.length}
-		<p class="current">
-			{stranded.map((agent) => agent.name).join(' and ')}
-			{stranded.length > 1 ? 'run' : 'runs'} on <strong>{modelLabel(refusedModel)}</strong>, chosen for
-			{stranded.length > 1 ? 'them' : 'it'} alone. The rest of the company runs on
-			<strong>{modelLabel(provider.primary_model)}</strong>.
-		</p>
-	{:else if owner && provider}
-		<InlineChoice
-			label="Run the company on"
-			options={[
-				...options.map((option) => ({
-					value: option.connection.id,
-					title: option.connection.label,
-					detail: modelLabel(option.model),
-					mark: option.inUse ? 'Fallback' : undefined
-				})),
-				{ value: ADD, title: 'Another account', detail: 'Add an API key' }
-			]}
-			bind:value={choice}
+	{#if owner && provider && stranded.length && intelligence}
+		<ModelAssignmentEditor
+			{companyId}
+			view={intelligence}
+			agentId={stranded[0].id}
+			start={intelligence.default ?? intelligence.base_default ?? null}
+			onsaved={(receipt) => ondone(receipt)}
 		/>
+	{:else if owner && provider}
+		<Field label="Run the company on">
+			<InlineChoice
+				label="Run the company on"
+				options={[
+					...options.map((option) => ({
+						value: option.connection.id,
+						title: option.connection.label,
+						detail: modelLabel(option.model),
+						mark: option.inUse ? 'Fallback' : undefined
+					})),
+					{ value: ADD, title: 'Another account', detail: 'Add an API key' }
+				]}
+				bind:value={choice}
+			/>
+		</Field>
 		{#if choice === ADD}
-			<div class="key-row">
-				<select bind:value={keyProvider} aria-label="Provider">
-					{#each MODEL_PRESETS as preset (preset.id)}<option value={preset.id}>{preset.name}</option>{/each}
+			<Field label="Provider" for={`${id}-provider`}>
+				<select id={`${id}-provider`} bind:value={keyProvider}>
+					{#each MODEL_PRESETS as preset (preset.id)}<option value={preset.id}>{preset.name}</option
+						>{/each}
 				</select>
-				<input type="password" bind:value={keySecret} placeholder="API key" autocomplete="off" aria-label="API key" />
-			</div>
+			</Field>
+			<Field
+				label="API key"
+				hint="Kept in your account; usable by any company you give it to."
+				for={`${id}-key`}
+			>
+				<input id={`${id}-key`} type="password" bind:value={keySecret} autocomplete="off" />
+			</Field>
 		{/if}
 	{/if}
 </InlinePanel>
 
 <style>
-	.windows {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-		gap: 10px 18px;
-	}
-	.window {
-		display: grid;
-		gap: 4px;
-	}
-	.line {
-		display: flex;
-		justify-content: space-between;
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-	}
-	.figure {
-		font-variant-numeric: tabular-nums;
-	}
-	.figure.warn {
-		color: var(--state-warning, var(--ink));
-	}
-	.figure.full {
-		color: var(--state-danger);
-	}
-	.meter {
-		height: 6px;
-		border-radius: 99px;
-		background: var(--surface-alt);
-		overflow: hidden;
-	}
-	.meter span {
-		display: block;
-		height: 100%;
-		background: var(--state-success);
-	}
-	.meter.warn span {
-		background: var(--state-warning, var(--text-secondary));
-	}
-	.meter.full span {
-		background: var(--state-danger);
-	}
-	.facts {
-		display: flex;
-		justify-content: space-between;
-		gap: 8px;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
 	.current {
 		margin: 0;
 		color: var(--text-secondary);
@@ -300,19 +246,5 @@
 	.current strong {
 		color: var(--ink);
 		font-weight: 500;
-	}
-	.key-row {
-		display: flex;
-		gap: 6px;
-		min-width: 0;
-	}
-	.key-row input {
-		flex: 1;
-		min-width: 0;
-	}
-	@media (max-width: 520px) {
-		.key-row {
-			flex-wrap: wrap;
-		}
 	}
 </style>

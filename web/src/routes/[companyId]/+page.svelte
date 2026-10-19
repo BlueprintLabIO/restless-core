@@ -233,6 +233,8 @@
 		text: string;
 		href?: string;
 		result?: { href: string; label: string };
+		/** Where an answer given in a card landed (S101). */
+		home?: { href: string; label: string };
 	} | null>(null);
 	$effect(() => {
 		if (!sent) return;
@@ -733,6 +735,8 @@
 	>
 		{#if sent}<div class="attention-resolution-notice" role="status">
 				{sent.text}{#if sent.result}<a href={sent.result.href}>{sent.result.label}</a
+					>{/if}{#if sent.home}<a href={sent.home.href} title={`Where this lives: ${sent.home.label}`}
+						>{sent.home.label}</a
 					>{/if}{#if sent.href}<a href={sent.href}>Open conversation</a>{/if}<button
 					aria-label="Dismiss notification"
 					onclick={() => (sent = null)}>×</button

@@ -20,7 +20,7 @@
 	import { COMPANY_PAGES, companyPageHref } from '$lib/model/company-pages';
 	import { workStatusLabel } from '$lib/work/status';
 	import { companyBrowserLinks } from '$lib/actions/company-browser-links';
-	import { conversationShown } from '$lib/model/embedded-conversations.svelte';
+	import { conversationAsked } from '$lib/model/embedded-conversations.svelte';
 	import { linkPreference } from '$lib/model/link-preference.svelte';
 	import CompanyQueryPersistence from '$lib/components/CompanyQueryPersistence.svelte';
 	import { referenceOptions } from '$lib/model/composer-options.svelte';
@@ -706,6 +706,15 @@
 	$effect(() => {
 		// Where the rail floats over the page it would hide what the tour shows; it stays closed.
 		if (touring && !window.matchMedia('(max-width: 980px)').matches) execRailOpen = true;
+	});
+	/* An Inbox card about a conversation opens the rail on that person once (S101); the owner can
+	 * close it again. On a phone the rail would cover the card, so it waits to be opened. */
+	let railAsked = '';
+	$effect(() => {
+		const asked = conversationAsked(railActorId) ? railActorId : '';
+		if (asked && asked !== railAsked && !window.matchMedia('(max-width: 980px)').matches)
+			execRailOpen = true;
+		railAsked = asked;
 	});
 	$effect(() => railConversation.attach());
 	$effect(() => {
@@ -1856,11 +1865,11 @@
 		execWorking={railActorId === 'exec' &&
 			(railConversation.working || !!railConversation.ambientTurn)}
 		execUnavailable={!!providerIssue}
-		railOpen={execRailOpen && !conversationShown(railActorId)}
+		railOpen={execRailOpen}
 		immersive={immersiveComputer}
 		blocked={startupBlocking}
 		onexectoggle={() => inPlace(() => (execRailOpen = !execRailOpen))}
-		rail={railVisible && !welcoming && !conversationShown(railActorId) ? executiveRail : null}
+		rail={railVisible && !welcoming ? executiveRail : null}
 	>
 		{#if childAllowed}
 			{@render children()}

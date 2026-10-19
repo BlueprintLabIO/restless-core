@@ -305,8 +305,22 @@
 			included_providers: [], scope: 'account'
 		}],
 		[/^\/api\/companies$/, []],
+		/* Only what the spend card reads of the company view. */
+		[/\/company$/, {
+			limits: {
+				status: 'available', independently: [], asks_owner: [], cannot: [], approved_parties: [],
+				spend: { model: 'all', accounted_usd: 200, ceiling_usd: 200, remaining_usd: 0, status: 'exhausted', period: 'monthly', warning_percent: 80 },
+				native: { month_utc: '2026-10', turns: 0, tokens: 0, turns_without_tokens: 0, estimated_usd: null }
+			}
+		}],
 		[/\/intelligence$/, {
-			revision: 'r1', default: { connection: 'account:anthropic@y', model: 'claude-sonnet-5' }, has_connections: true, connections: [],
+			revision: 'r1', default: { connection: 'account:anthropic@y', model: 'claude-sonnet-5' }, has_connections: true,
+			connections: [
+				{ id: 'account:anthropic@y', provider: 'anthropic', label: 'Claude Max', account_provider: 'anthropic', account_kind: 'oauth', kind: 'direct', loaded: true,
+					models: [{ id: 'claude-sonnet-5', name: 'Claude Sonnet 5', default: true }, { id: 'claude-opus-5', name: 'Claude Opus 5' }] },
+				{ id: 'account:openai-codex@x', provider: 'openai-codex', label: 'ChatGPT Pro', account_provider: 'openai-codex', account_kind: 'oauth', kind: 'direct', loaded: true,
+					models: [{ id: 'gpt-6-luna', name: 'GPT-6 Luna' }, { id: 'gpt-6.1-sol', name: 'GPT-6.1 Sol', default: true }] }
+			],
 			agents: [
 				{ id: 'exec', name: 'The Exec', role: 'exec', assignment: { connection: 'account:openai-codex@x', model: 'gpt-6-luna' }, effective_model: 'openai-codex/gpt-6-luna', harness: 'restless-managed' },
 				{ id: 'print-design', name: 'Abu', role: 'design', assignment: null, effective_model: 'openai-codex/gpt-6.1-sol', harness: 'restless-managed' }

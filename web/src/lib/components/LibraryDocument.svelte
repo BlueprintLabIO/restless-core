@@ -1181,10 +1181,21 @@
 			animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
 		}
 	}
-	.for-work {
-		max-width: 220px;
+	/* The Work a document was made for, one line that ends in an ellipsis. A button is a flex box,
+	 * whose text overflows both ways and is cut at the start, so this one is a block of text; it
+	 * gives way first as the header narrows and leaves a phone-width header to the title. */
+	a.btn.for-work {
+		display: inline-block;
+		max-width: min(220px, 22cqi);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		line-height: 26px;
+		vertical-align: middle;
+	}
+	@container document-editor (max-width: 560px) {
+		a.btn.for-work {
+			display: none;
+		}
 	}
 </style>

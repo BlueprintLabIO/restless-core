@@ -1,16 +1,16 @@
 <script lang="ts">
-	/* Talking to anyone from their Inbox card (S101): the People tab's own conversation (the
-	 * thread, threads, files, the composer) embedded in the card, so a question from Exec, a lead
-	 * or a teammate is answered where it is asked. The answers the asker offers are one tap in the
-	 * footer; the facts they ask for are fields above the conversation, sent as one reply; anything
-	 * else is typed in the conversation. */
-	import RoomConversation from '$lib/components/RoomConversation.svelte';
+	/* Answering anyone from their Inbox card (S101). The conversation itself is the rail beside
+	 * the cockpit, opened on that person while the card is up, so it stays where it always is.
+	 * The card holds only the answer: what the asker offers is one tap in the footer, and the facts
+	 * they ask for are fields here, sent with the chosen answer as one reply. Anything else is
+	 * typed in the rail. */
 	import { sendActorMessage } from '$lib/model/attention';
 	import { failureSentence } from '$lib/model/failure';
 	import { quickAnswers, replyBody } from '$lib/model/inline-reply';
 	import InlinePanel from './InlinePanel.svelte';
 	import InlineChoice from './InlineChoice.svelte';
-	import { showingConversation } from '$lib/model/embedded-conversations.svelte';
+	import Field from '$lib/ui/forms/Field.svelte';
+	import { askForConversation } from '$lib/model/embedded-conversations.svelte';
 	import { cardActions, type CardAction } from './card-actions.svelte';
 
 	let {
@@ -21,7 +21,6 @@
 		workId,
 		answers,
 		fields = [],
-		compact = false,
 		ondone
 	}: {
 		companyId: string;
@@ -34,14 +33,12 @@
 		answers?: string[];
 		/** The facts the asker wants, a field each. */
 		fields?: { id: string; label: string }[];
-		/** Shorter, beside a computer the card also shows. */
-		compact?: boolean;
 		/** A reply from the card went: the card shows the receipt. */
 		ondone?: (receipt: string) => void;
 	} = $props();
 
-	/* The rail steps aside while this card shows the same conversation. */
-	$effect(() => showingConversation(actorId));
+	/* The rail opens on this person while the card is up. */
+	$effect(() => askForConversation(actorId));
 	const choices = $derived(answers?.length ? answers : question ? quickAnswers(question) : []);
 	let values = $state<Record<string, string>>({});
 	let error = $state('');
@@ -92,44 +89,25 @@
 </script>
 
 {#if fields.length && ondone}
-	<InlinePanel label={`What ${actorName} asks for`} {error}>
+	<InlinePanel label={`What ${actorName} asks for`} {error} form>
 		{#if choices.length}
-			<InlineChoice
-				label="Your answer"
-				options={choices.map((text) => ({ value: text, title: text }))}
-				bind:value={picked}
-			/>
+			<Field label="Your answer">
+				<InlineChoice
+					label="Your answer"
+					options={choices.map((text) => ({ value: text, title: text }))}
+					bind:value={picked}
+				/>
+			</Field>
 		{/if}
-		<div class="pair">
-			{#each fields as field (field.id)}
-				<label class="field">{field.label}<input bind:value={values[field.id]} autocomplete="off" /></label>
-			{/each}
-		</div>
+		{#each fields as field (field.id)}
+			<Field label={field.label}>
+				<input bind:value={values[field.id]} aria-label={field.label} autocomplete="off" />
+			</Field>
+		{/each}
 	</InlinePanel>
-{/if}
-<div class="inline-conversation" class:compact aria-label={`Conversation with ${actorName}`}>
-	<RoomConversation person={actorId} embedded />
-</div>
-{#if error && !fields.length}<p class="error" role="alert">{error}</p>{/if}
+{:else if error}<p class="error" role="alert">{error}</p>{/if}
 
 <style>
-	.inline-conversation {
-		display: flex;
-		height: min(560px, 62dvh);
-		min-height: 360px;
-		margin-top: 12px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
-		overflow: hidden;
-	}
-	.inline-conversation.compact {
-		height: min(380px, 45dvh);
-		min-height: 280px;
-	}
-	.inline-conversation > :global(*) {
-		flex: 1;
-		min-width: 0;
-	}
 	.error {
 		margin: 6px 0 0;
 		color: var(--state-danger);

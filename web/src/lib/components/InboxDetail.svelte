@@ -50,6 +50,8 @@
 	import InlineSpendLimit from './inbox/InlineSpendLimit.svelte';
 	import InlineDesktop from './inbox/InlineDesktop.svelte';
 	import { provideCardActions } from './inbox/card-actions.svelte';
+	import { habitLine, PROPOSAL_HOMES, settingHome, type SettingHome } from '$lib/model/setting-homes';
+	import { inlineHabit, noteInlineAnswer } from '$lib/model/inline-habits';
 	import InlineBrandDrift from './inbox/InlineBrandDrift.svelte';
 	import InlineMachine from './inbox/InlineMachine.svelte';
 	import InlineReconnect from './inbox/InlineReconnect.svelte';
@@ -104,7 +106,12 @@
 		workOwnerId?: string;
 		onopenDocument?: () => Promise<unknown>;
 		/** Where the answer went, for the page to confirm after the item leaves. */
-		onresolved?: (sent: { text: string; href?: string }) => void;
+		onresolved?: (sent: {
+			text: string;
+			href?: string;
+			/** Where the change just made lives, named in the receipt. */
+			home?: SettingHome;
+		}) => void;
 		/** Skipping what is not a request owed to this person is the owner's: it answers for the
 		 * whole company queue. */
 		canSetAside?: boolean;
@@ -469,13 +476,34 @@
 			'Your answer was not sent. Try again.',
 			recipientHref
 		);
+	/* Where what this card settles lives (S101): named under its panel, and in the receipt. */
+	const home = $derived.by((): SettingHome | null => {
+		if (spendSurface) return settingHome(companyId, 'limits');
+		if (item.settingProposal)
+			return settingHome(companyId, PROPOSAL_HOMES[item.settingProposal.setting] ?? 'limits');
+		if (modelSurface) return settingHome(companyId, 'intelligence');
+		if (driftSurface) return settingHome(companyId, 'brand', { id: item.source.reference });
+		if (machineSurface || startSurface) return settingHome(companyId, 'computer');
+		if (reconnectSurface || item.accountRequest || appRequest) return settingHome(companyId, 'accounts');
+		if (
+			(item.source.kind === 'conversation_owner_need' || item.source.kind === 'teammate_message') &&
+			item.responsibleActor
+		)
+			return settingHome(companyId, 'people', {
+				id: item.responsibleActor.id,
+				name: item.responsibleActor.display
+			});
+		return null;
+	});
+	const habit = $derived(home && !canPassToOwner ? inlineHabit(companyId, home.key) : 0);
 	/* Mark done resumes the Work, so it waits out a few seconds of Undo first. */
 	let markingDone = $state(false);
 	/* A task finished inside the card (S101): the item leaves once the server agrees, and the page
 	 * shows the receipt and moves on. */
 	async function completedInline(receipt: string) {
+		if (home) noteInlineAnswer(companyId, home.key);
 		await refreshAttention(client, companyId);
-		onresolved?.({ text: receipt, href: conversationHref });
+		onresolved?.({ text: receipt, href: conversationHref, home: home ?? undefined });
 	}
 
 	async function markDone() {
@@ -781,7 +809,6 @@
 								/>{/key}{/if}
 						{#if (item.source.kind === 'conversation_owner_need' || item.source.kind === 'teammate_message') && item.responsibleActor}<InlineConversation
 								{companyId}
-								compact={siteAsk}
 								actorId={item.responsibleActor.id}
 								actorName={asker}
 								question={item.requestedAction}
@@ -868,6 +895,13 @@
 								owner={!canPassToOwner}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
+						{#if home && !item.preparing}
+							{@const nudge = habit >= 3 ? habitLine(home, habit) : null}
+							<p class="home">
+								{#if nudge}{nudge.before}<a href={home.href}>{home.label}</a>{nudge.after}{:else}Also in
+									<a href={home.href}>{home.label}</a>{/if}
+							</p>
+						{/if}
 					</div>
 				</div>
 
@@ -1364,6 +1398,22 @@
 </article>
 
 <style>
+	/* Where the card's setting lives: one quiet line under its panel (S101). */
+	.home {
+		margin: 8px 0 0;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.home a {
+		color: var(--text-secondary);
+		text-decoration: underline;
+		text-decoration-color: var(--border);
+		text-underline-offset: 2px;
+	}
+	.home a:hover {
+		color: var(--ink);
+		text-decoration-color: currentColor;
+	}
 	.account-request {
 		display: grid;
 		gap: 2px;
