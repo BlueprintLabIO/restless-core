@@ -4,7 +4,7 @@
  * commit button, so every card reads and is answered the same way. A card can hold more than one
  * panel (a conversation and the computer it is about): their actions are merged, and the panel
  * placed last in the card offers the primary. */
-import { getContext, setContext } from 'svelte';
+import { getContext, setContext, untrack } from 'svelte';
 import { SvelteMap } from 'svelte/reactivity';
 
 export type CardAction = {
@@ -72,8 +72,11 @@ export function cardActions(read: () => Contribution): void {
 	const slot = getContext<CardActions | undefined>(KEY);
 	if (!slot) return;
 	const id = slot.register();
+	/* Only what the panel reads decides when this runs again: writing the slot's map reads it
+	 * too, and that read must not make the effect depend on its own write. */
 	$effect(() => {
-		slot.set(id, read());
-		return () => slot.clear(id);
+		const contribution = read();
+		untrack(() => slot.set(id, contribution));
+		return () => untrack(() => slot.clear(id));
 	});
 }

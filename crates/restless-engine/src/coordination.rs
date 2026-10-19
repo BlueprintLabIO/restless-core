@@ -1360,6 +1360,12 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
         },
         "setting-propose" => match request.common.body.as_deref() {
             Some(body) => match serde_json::from_str::<crate::setting_proposals::SettingProposalInput>(body) {
+                // A schedule proposal names one that exists, so the owner is never asked about nothing.
+                Ok(input) if matches!(&input.change, crate::setting_proposals::SettingChange::Schedule { schedule_id, .. }
+                    if !schedule_exists(daemon, company, schedule_id).await) =>
+                {
+                    Response::err("there is no live schedule with that id; name one from `restless schedule opportunities` or the company's Schedules")
+                }
                 Ok(input) => match crate::setting_proposals::propose(&daemon.authority, company, "exec", input).await {
                     Ok(id) => Response::ok(serde_json::json!({
                         "proposal": id,
@@ -5236,6 +5242,17 @@ pub async fn continue_after_payment_observation(
             .await?;
     }
     Ok(())
+}
+
+/// Whether a live (not cancelled) schedule with this id exists in the company.
+async fn schedule_exists(daemon: &Daemon, company: &str, schedule_id: &str) -> bool {
+    let Ok(id) = uuid::Uuid::parse_str(schedule_id.trim()) else {
+        return false;
+    };
+    let Ok(org) = daemon.orgintel.get(company).await else {
+        return false;
+    };
+    matches!(org.get_schedule(id).await, Ok(Some(row)) if row.cancelled_at.is_none())
 }
 
 #[cfg(test)]

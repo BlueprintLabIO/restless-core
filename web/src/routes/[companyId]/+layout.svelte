@@ -1860,7 +1860,7 @@
 		immersive={immersiveComputer}
 		blocked={startupBlocking}
 		onexectoggle={() => inPlace(() => (execRailOpen = !execRailOpen))}
-		rail={railVisible && !welcoming ? executiveRail : null}
+		rail={railVisible && !welcoming && !conversationShown(railActorId) ? executiveRail : null}
 	>
 		{#if childAllowed}
 			{@render children()}
