@@ -54,6 +54,11 @@
 	const shown = $derived(query || showOlder ? filtered : grouped.latest);
 	let busy = $state(false);
 	let failure = $state('');
+	/* The slider shows where it is dragged; the saved effort once let go. */
+	let draftEffort = $state<number | null>(null);
+	const effortIndex = $derived(
+		draftEffort ?? Math.max(0, EFFORTS.findIndex((row) => row.value === agent?.thinking_effort))
+	);
 
 	$effect(() => {
 		companyId;
@@ -137,26 +142,30 @@
 					></span
 				>{/snippet}
 			{#snippet children(close)}
-				<p class="now">
-					{modelLabel(agent.effective_model)}<i aria-hidden="true">·</i>{effortLabel(
-						agent.thinking_effort
-					)} effort
-				</p>
-				<fieldset class="effort-setting">
-					<legend>Effort for every agent</legend>
-					<div class="efforts">
-						{#each EFFORTS as effort (effort.value)}
-							<button
-								type="button"
-								class:on={agent.thinking_effort === effort.value}
-								aria-pressed={agent.thinking_effort === effort.value}
-								disabled={busy}
-								title={`${effort.hint}. Applies to every agent from their next session.`}
-								onclick={() => chooseEffort(effort.value)}>{effort.label}</button
-							>
-						{/each}
-					</div>
-				</fieldset>
+				<!-- Only what choosing needs: effort, the models, a way to the rest. -->
+				<label class="effort" title="Applies to every agent from their next session">
+					<span class="effort-head"
+						><span>Effort</span><strong>{EFFORTS[effortIndex]?.label}</strong></span
+					>
+					<input
+						type="range"
+						min="0"
+						max={EFFORTS.length - 1}
+						step="1"
+						list={`efforts-${actorId}`}
+						value={effortIndex}
+						disabled={busy}
+						aria-valuetext={EFFORTS[effortIndex]?.label}
+						oninput={(event) => (draftEffort = +event.currentTarget.value)}
+						onchange={(event) => {
+							const chosen = EFFORTS[+event.currentTarget.value];
+							if (chosen) void chooseEffort(chosen.value).finally(() => (draftEffort = null));
+						}}
+					/>
+					<datalist id={`efforts-${actorId}`}
+						>{#each EFFORTS as _, index (index)}<option value={index}></option>{/each}</datalist
+					>
+				</label>
 				{#if choices.length >= FILTER_FROM || assignment?.connection.includes('openrouter')}<input
 						class="filter"
 						type="search"
@@ -169,29 +178,28 @@
 						<button
 							type="button"
 							disabled={busy || !assignment}
+							aria-current={model.id === current ? 'true' : undefined}
 							onclick={() => choose(model.id, close)}
 							><span>{model.name}</span>{#if model.id === current}<Check
 									size={14}
 									aria-label="Current"
 								/>{/if}</button
 						>
-					{:else}<p class="now">No listed model matches.</p>{/each}
+					{:else}<p class="none">No listed model matches.</p>{/each}
+					{#if query.trim() && !choices.some((model) => model.id === query.trim())}<button
+							type="button"
+							disabled={busy || !assignment}
+							title="Use a model ID this provider offers that the list does not show"
+							onclick={() => choose(query.trim(), close)}>Use “{query.trim()}”</button
+						>{/if}
+					{#if !query && grouped.older.length && !showOlder}<button
+							type="button"
+							class="older"
+							onclick={() => (showOlder = true)}>Older models</button
+						>{/if}
 				</div>
-				{#if query.trim() && !choices.some((model) => model.id === query.trim())}<button
-						type="button"
-						disabled={busy || !assignment}
-						title="Use a model ID this provider offers that the list does not show"
-						onclick={() => choose(query.trim(), close)}>Use model ID “{query.trim()}”</button
-					>{/if}
-				{#if !query && grouped.older.length}<button
-						type="button"
-						class="older"
-						aria-expanded={showOlder}
-						onclick={() => (showOlder = !showOlder)}
-						>{showOlder ? 'Fewer models' : `Older models (${grouped.older.length})`}</button
-					>{/if}
 				{#if failure}<p class="failure" role="alert">{failure}</p>{/if}
-				<a href={`/${encodeURIComponent(companyId)}/company/provider`}>All intelligence settings</a>
+				<a class="more" href={`/${encodeURIComponent(companyId)}/company/provider`}>More settings</a>
 			{/snippet}
 		</Popover>
 	</div>
@@ -212,6 +220,9 @@
 		border-radius: 999px;
 		color: var(--text-tertiary);
 	}
+	.chip :global(summary:hover) {
+		color: var(--ink);
+	}
 	.face {
 		display: flex;
 		align-items: center;
@@ -225,99 +236,104 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.efforts {
-		display: grid;
-		grid-template-columns: repeat(5, minmax(0, 1fr));
-		gap: 3px;
-		margin: 0 8px 6px;
-	}
-	.efforts button {
-		display: flex;
-		align-items: center;
-		min-width: 0;
-		min-height: 34px;
+	/* A narrow menu: the longest model name sets it, not five effort boxes. */
+	.chip :global(.selection-popover-panel) {
+		width: 232px;
+		padding: 4px;
 		font: inherit;
-		color: var(--text-secondary);
-		background: transparent;
-		justify-content: center;
-		padding: 2px 4px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
+	}
+	.effort {
+		display: grid;
+		gap: 6px;
+		margin-bottom: 4px;
+		padding: 8px 8px 10px;
+		border-bottom: 1px solid var(--border);
+	}
+	.effort-head {
+		display: flex;
+		justify-content: space-between;
+		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
-	.efforts button.on {
-		border-color: var(--intent-conversation);
-		background: var(--surface-alt);
-		font-weight: 600;
+	.effort-head strong {
 		color: var(--ink);
+		font-weight: 500;
 	}
-	.chip :global(summary:hover) {
-		color: var(--ink);
+	.effort input {
+		width: 100%;
+		margin: 0;
+		accent-color: var(--primary, var(--intent-conversation));
+		cursor: pointer;
 	}
 	.filter {
-		margin: 4px 8px;
+		width: calc(100% - 8px);
+		margin: 2px 4px 4px;
 		padding: 4px 8px;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-control);
 		background: var(--surface-raised);
 		color: var(--ink);
 		font: inherit;
-	}
-	.effort-setting {
-		margin: 0;
-		padding: 4px 0 6px;
-		border: 0;
-		min-width: 0;
-	}
-	.effort-setting legend {
-		padding: 0 8px;
-		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
-	.chip :global(.selection-popover-panel) {
-		width: 300px;
-		font: inherit;
+	.models {
+		display: grid;
+		max-height: min(232px, 38dvh);
+		overflow-y: auto;
 	}
-	.models button,
-	.older,
-	.chip :global(.selection-popover-panel > a) {
-		font: inherit;
-		cursor: pointer;
+	.models button {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
 		width: 100%;
-		min-height: 34px;
-		padding: 7px 10px;
+		min-height: 30px;
+		padding: 5px 8px;
 		border: 0;
 		border-radius: 4px;
 		background: transparent;
 		color: var(--ink);
+		font: inherit;
 		text-align: left;
-		text-decoration: none;
+		cursor: pointer;
 	}
-	.models button:hover,
-	.older:hover,
-	.chip :global(.selection-popover-panel > a:hover) {
+	.models button:hover {
 		background: var(--surface-hover);
 	}
-	.models button:focus-visible,
-	.older:focus-visible,
-	.efforts button:focus-visible {
+	.models button:focus-visible {
 		outline: 2px solid var(--intent-feedback);
 		outline-offset: -2px;
 	}
 	.models button span {
 		min-width: 0;
-		overflow-wrap: anywhere;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.models button :global(svg) {
 		flex: none;
+		color: var(--primary, var(--intent-conversation));
 	}
-	.models {
-		display: grid;
-		max-height: min(240px, 38dvh);
-		overflow-y: auto;
-	}
-	.older {
+	.models .older {
 		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.none {
+		margin: 6px 8px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.more {
+		display: block;
+		margin-top: 4px;
+		padding: 7px 8px 5px;
+		border-top: 1px solid var(--border);
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		text-decoration: none;
+	}
+	.more:hover {
+		color: var(--ink);
 	}
 	/* One line, never "Choose / a / model": the context chip beside it gives way instead. */
 	.chip-link {
@@ -330,21 +346,6 @@
 	}
 	.chip-link:hover {
 		color: var(--ink);
-	}
-	.now {
-		margin: 4px 10px 6px;
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-	}
-	.now i {
-		margin: 0 4px;
-		color: var(--text-tertiary);
-		font-style: normal;
-	}
-	.chip :global(.selection-popover-panel button) {
-		display: flex;
-		justify-content: space-between;
-		gap: 12px;
 	}
 	.failure {
 		margin: 4px 8px;
