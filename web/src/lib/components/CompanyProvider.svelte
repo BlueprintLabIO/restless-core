@@ -17,6 +17,7 @@
 	import CustomHarnesses from './CustomHarnesses.svelte';
 	import AgentIntelligence from './AgentIntelligence.svelte';
 	import ModelFallbacks from './ModelFallbacks.svelte';
+	import ModelHeadroom from './ModelHeadroom.svelte';
 	import CopyCompanySetting from './CopyCompanySetting.svelte';
 	import { companiesQuery } from '$lib/model/queries.svelte';
 	import { page } from '$app/state';
@@ -513,6 +514,7 @@
 		/>{/if}
 	{#if notice}<Notice tone="success" title={notice} />{/if}
 
+	<ModelHeadroom {companyId} />
 	<AgentIntelligence {companyId} />
 	{#if status}<ModelFallbacks
 			{companyId}
