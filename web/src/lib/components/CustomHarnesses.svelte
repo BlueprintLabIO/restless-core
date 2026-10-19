@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
+	import Field from '$lib/ui/forms/Field.svelte';
+	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
@@ -268,51 +270,57 @@
 	{#if !view && !error}<Skeleton label="Loading harnesses" count={2} />{/if}
 	{#if adding && view}
 		<form
-			class="editor"
+			class="form"
 			onsubmit={(event) => {
 				event.preventDefault();
 				void add();
 			}}
 		>
-			<label
-				>Harness<select aria-label="Harness" bind:value={preset}
+			<header class="form-head"><strong>Add harness</strong></header>
+			<Field label="Harness" for="harness-preset">
+				<select id="harness-preset" bind:value={preset}
 					><option value="hermes">Hermes</option><option value="openclaw">OpenClaw</option><option
 						value="custom">Custom ACP harness</option
 					></select
-				></label
-			>
+				>
+				{#if preset !== 'custom' && view.presets.find((p) => p.id === preset)}<small
+						class="form-hint"
+						>Installs with <code>{view.presets.find((p) => p.id === preset)?.install}</code></small
+					>{/if}
+			</Field>
 			{#if preset === 'custom'}
-				<label>Name<input bind:value={name} required /></label><label
-					>Identifier<input
+				<Field label="Name" for="harness-name"
+					><input id="harness-name" bind:value={name} required /></Field
+				>
+				<Field label="Identifier" hint="Lowercase letters, digits and dashes" for="harness-id">
+					<input
+						id="harness-id"
 						bind:value={id}
 						pattern="[a-z][a-z0-9-]*"
 						required
 						placeholder="my-harness"
-					/></label
+					/>
+				</Field>
+				<Field label="Install command" for="harness-install">
+					<textarea id="harness-install" bind:value={install} required rows="3"></textarea>
+				</Field>
+				<Field
+					label="ACP command"
+					hint={'A JSON array. ${SYSTEM_PROMPT_FILE} marks the system-instruction file'}
+					for="harness-command"
 				>
-				<label>Install command<textarea bind:value={install} required rows="3"></textarea></label>
-				<label
-					title={'Use ${SYSTEM_PROMPT_FILE} where this harness accepts a system-instruction file. Choose the actual flag supported by your harness.'}
-					>ACP command (JSON array)<textarea bind:value={command} rows="2" required
-					></textarea></label
-				>
-				<label
-					>Native setup command (JSON array)<textarea bind:value={setupCommand} rows="2"
-					></textarea></label
-				>
-			{:else if view.presets.find((p) => p.id === preset)}
-				<details>
-					<summary>Installation command</summary>
-					<pre>{view.presets.find((p) => p.id === preset)?.install}</pre>
-				</details>
+					<textarea id="harness-command" bind:value={command} rows="2" required></textarea>
+				</Field>
+				<Field label="Native setup command" hint="Optional. A JSON array" for="harness-setup">
+					<textarea id="harness-setup" bind:value={setupCommand} rows="2"></textarea>
+				</Field>
 			{/if}
-			<div class="actions">
-				<button class="btn small" type="submit" disabled={!!busy}
-					>{busy === 'add' ? 'Starting…' : 'Install harness'}</button
-				><button class="btn small" type="button" disabled={!!busy} onclick={() => (adding = false)}
-					>Cancel</button
-				>
-			</div>
+			<FormFoot
+				submit="Install harness"
+				busy={!!busy}
+				busyLabel={busy === 'add' ? 'Starting…' : ''}
+				oncancel={() => (adding = false)}
+			/>
 		</form>
 	{/if}
 	{#each view?.harnesses ?? [] as row (row.id)}
@@ -367,74 +375,87 @@
 				>
 			</div>
 			{#if editing === row.id}<form
-					class="editor"
+					class="form"
 					onsubmit={(event) => {
 						event.preventDefault();
 						void saveEdit(row);
 					}}
 				>
-					<label>Name<input bind:value={editName} required /></label>
-					<label title="Changing it installs the harness again."
-						>Install command<textarea bind:value={editInstall} required rows="3"></textarea></label
+					<Field label="Name" for={`edit-name-${row.id}`}
+						><input id={`edit-name-${row.id}`} bind:value={editName} required /></Field
 					>
-					<label
-						title={'Use ${SYSTEM_PROMPT_FILE} where this harness accepts a system-instruction file.'}
-						>ACP command (JSON array)<textarea bind:value={editCommand} rows="2" required
-						></textarea></label
+					<Field
+						label="Install command"
+						hint="Changing it installs the harness again"
+						for={`edit-install-${row.id}`}
 					>
-					<label
-						>Native setup command (JSON array)<textarea bind:value={editSetup} rows="2"
-						></textarea></label
+						<textarea id={`edit-install-${row.id}`} bind:value={editInstall} required rows="3"
+						></textarea>
+					</Field>
+					<Field
+						label="ACP command"
+						hint={'A JSON array. ${SYSTEM_PROMPT_FILE} marks the system-instruction file'}
+						for={`edit-command-${row.id}`}
 					>
-					<div class="actions">
-						<button class="btn small" type="submit" disabled={!!busy}
-							>{busy === row.id ? 'Saving…' : 'Save'}</button
-						><button
-							class="btn small"
-							type="button"
-							disabled={!!busy}
-							onclick={() => (editing = '')}>Cancel</button
-						>
-					</div>
+						<textarea id={`edit-command-${row.id}`} bind:value={editCommand} rows="2" required
+						></textarea>
+					</Field>
+					<Field
+						label="Native setup command"
+						hint="Optional. A JSON array"
+						for={`edit-setup-${row.id}`}
+					>
+						<textarea id={`edit-setup-${row.id}`} bind:value={editSetup} rows="2"></textarea>
+					</Field>
+					<FormFoot
+						submit="Save"
+						busy={!!busy}
+						busyLabel={busy === row.id ? 'Saving…' : ''}
+						oncancel={() => (editing = '')}
+					/>
 				</form>{/if}
 			{#if keyFor === row.id}<form
-					class="editor"
+					class="form"
 					onsubmit={(event) => {
 						event.preventDefault();
 						void saveKey();
 					}}
 				>
-					<label
-						>Key environment name<input
+					<Field
+						label="Environment name"
+						hint="The variable the harness reads"
+						for={`key-name-${row.id}`}
+					>
+						<input
+							id={`key-name-${row.id}`}
 							bind:value={keyName}
 							list="harness-key-names"
 							required
-						/></label
-					>
+						/>
+					</Field>
 					<datalist id="harness-key-names"
 						><option value="OPENROUTER_API_KEY"></option><option value="OPENAI_API_KEY"
 						></option><option value="ANTHROPIC_API_KEY"></option><option value="GEMINI_API_KEY"
 						></option></datalist
 					>
-					<label
-						>API key<input
+					<Field label="API key" for={`key-secret-${row.id}`}>
+						<input
+							id={`key-secret-${row.id}`}
 							type="password"
 							bind:value={secret}
 							autocomplete="new-password"
 							required
-						/></label
-					>
-					<div class="actions">
-						<button class="btn small" type="submit" disabled={!!busy}>Save in Vault</button><button
-							class="btn small"
-							type="button"
-							disabled={!!busy}
-							onclick={() => {
-								keyFor = '';
-								secret = '';
-							}}>Cancel</button
-						>
-					</div>
+						/>
+					</Field>
+					<FormFoot
+						note="Saved in this company’s vault."
+						submit="Save key"
+						busy={!!busy}
+						oncancel={() => {
+							keyFor = '';
+							secret = '';
+						}}
+					/>
 				</form>{/if}
 		</article>
 	{/each}
@@ -498,23 +519,6 @@
 		overflow-wrap: anywhere;
 		margin: 8px 0;
 	}
-	.editor {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr);
-		gap: 12px;
-		padding: 14px;
-		margin: 10px 0;
-		background: var(--surface-alt);
-		border: 1px solid var(--control-edge);
-		border-radius: 4px;
-		min-width: 0;
-	}
-	label {
-		display: grid;
-		gap: 5px;
-		font-size: var(--t-label);
-		min-width: 0;
-	}
 	input,
 	select,
 	textarea {
@@ -525,14 +529,5 @@
 	textarea {
 		font-family: var(--font-mono);
 		resize: vertical;
-	}
-	pre {
-		white-space: pre-wrap;
-		overflow-wrap: anywhere;
-		font-size: var(--t-label);
-	}
-	summary {
-		cursor: pointer;
-		font-size: var(--t-label);
 	}
 </style>

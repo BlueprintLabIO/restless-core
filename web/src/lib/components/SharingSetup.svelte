@@ -1,4 +1,7 @@
 <script lang="ts">
+	import Field from '$lib/ui/forms/Field.svelte';
+	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
+	import { Segmented } from '$lib/ui/page';
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import CopyButton from '$lib/ui/controls/CopyButton.svelte';
 	import { failureSentence } from '$lib/model/failure';
@@ -213,76 +216,77 @@
 					>
 				</div>
 			{:else if here?.job?.state !== 'running'}
-				<form class="sharing-here" onsubmit={prepareHere}>
-					<div class="sharing-field-heading">
+				<form class="form sharing-here" onsubmit={prepareHere}>
+					<header class="form-head">
 						<strong>Set up on this computer</strong><InfoTip
 							text="Accounts need their own database and an email server for verification and invitations. These stay in private files on this computer."
 						/>
-					</div>
-					<label for="sharing-database">Accounts database</label>
-					<input
-						id="sharing-database"
-						type="password"
-						autocomplete="off"
-						placeholder="postgres://…"
-						required
-						bind:value={databaseUrl}
-						disabled={busy}
-					/>
-					<label for="sharing-smtp-host">Email server</label>
-					<div class="sharing-pair">
+					</header>
+					<Field label="Accounts database" for="sharing-database">
 						<input
-							id="sharing-smtp-host"
-							type="text"
-							placeholder="smtp.example.com"
-							required
-							bind:value={smtpHost}
-							disabled={busy}
-						/><input
-							type="number"
-							aria-label="Email server port"
-							placeholder="465"
-							min="1"
-							max="65535"
-							bind:value={smtpPort}
-							disabled={busy}
-						/>
-					</div>
-					<label class="sharing-check"
-						><input type="checkbox" bind:checked={smtpSecure} disabled={busy} />Use TLS</label
-					>
-					<label for="sharing-smtp-user">Email sign-in</label>
-					<div class="sharing-pair">
-						<input
-							id="sharing-smtp-user"
-							type="text"
-							autocomplete="off"
-							placeholder="User"
-							bind:value={smtpUser}
-							disabled={busy}
-						/><input
+							id="sharing-database"
 							type="password"
 							autocomplete="off"
-							aria-label="Email password"
-							placeholder="Password"
-							bind:value={smtpPassword}
+							placeholder="postgres://…"
+							required
+							bind:value={databaseUrl}
 							disabled={busy}
 						/>
-					</div>
-					<label for="sharing-smtp-from">Invitations come from</label>
-					<input
-						id="sharing-smtp-from"
-						type="email"
-						placeholder="team@example.com"
-						required
-						bind:value={smtpFrom}
-						disabled={busy}
-					/>
-					<div class="sharing-actions">
-						<button class="btn primary" type="submit" disabled={busy}
-							>{busy ? 'Preparing…' : 'Prepare on this computer'}</button
+					</Field>
+					<Field label="Email server" for="sharing-smtp-host">
+						<div class="form-inline">
+							<input
+								id="sharing-smtp-host"
+								type="text"
+								placeholder="smtp.example.com"
+								required
+								bind:value={smtpHost}
+								disabled={busy}
+							/><input
+								class="amount"
+								type="number"
+								aria-label="Email server port"
+								placeholder="465"
+								min="1"
+								max="65535"
+								bind:value={smtpPort}
+								disabled={busy}
+							/>
+						</div>
+						<label class="form-check"
+							><input type="checkbox" bind:checked={smtpSecure} disabled={busy} />Use TLS</label
 						>
-					</div>
+					</Field>
+					<Field label="Email sign-in" hint="Optional" for="sharing-smtp-user">
+						<div class="form-inline">
+							<input
+								id="sharing-smtp-user"
+								type="text"
+								autocomplete="off"
+								placeholder="User"
+								bind:value={smtpUser}
+								disabled={busy}
+							/><input
+								type="password"
+								autocomplete="off"
+								aria-label="Email password"
+								placeholder="Password"
+								bind:value={smtpPassword}
+								disabled={busy}
+							/>
+						</div>
+					</Field>
+					<Field label="Invitations come from" for="sharing-smtp-from">
+						<input
+							id="sharing-smtp-from"
+							type="email"
+							placeholder="team@example.com"
+							required
+							bind:value={smtpFrom}
+							disabled={busy}
+						/>
+					</Field>
+					<FormFoot submit="Prepare on this computer" {busy} busyLabel="Preparing…" />
 				</form>
 			{/if}
 			<div class="sharing-actions">
@@ -299,83 +303,80 @@
 			</div>
 		</div>
 	{:else}
-		<form onsubmit={prepare}>
-			<div class="sharing-choice" role="group" aria-label="Access method">
-				<button
-					type="button"
-					class:selected={access === 'private'}
-					aria-pressed={access === 'private'}
-					onclick={() => (access = 'private')}>Private network</button
-				>
-				<button
-					type="button"
-					class:selected={access === 'https'}
-					aria-pressed={access === 'https'}
-					onclick={() => (access = 'https')}>HTTPS address</button
-				>
-			</div>
-			{#if access === 'private'}
-				{#if detecting}<p class="sharing-note" role="status">
-						Reading this computer's Tailscale addresses…
-					</p>
-				{:else if detected}<p class="sharing-note">
-						Filled in from this computer's Tailscale name.
-					</p>
-				{:else if tailnetStep}<p class="sharing-error" role="alert">
-						{tailnetStep}
-						<button class="btn small" type="button" onclick={() => void detect()}
-							>Check again</button
+		<form class="form flush" onsubmit={prepare}>
+			<Field label="Reached over">
+				<Segmented
+					label="Access method"
+					options={[
+						{ value: 'private', label: 'Private network' },
+						{ value: 'https', label: 'HTTPS address' }
+					]}
+					bind:value={access}
+				/>
+				{#if access === 'private'}
+					{#if detecting}<small class="form-hint" role="status"
+							>Reading this computer's Tailscale addresses…</small
 						>
-					</p>{/if}
-			{/if}
-			<div class="sharing-field-heading">
-				<label for="sharing-company">Company address</label><InfoTip
-					text={access === 'private'
-						? 'An HTTPS address reachable by your team on its private network. Private access still uses individual accounts.'
-						: 'The HTTPS address people will use to open the company. The company continues to run on this host.'}
+					{:else if detected}<small class="form-hint"
+							>Filled in from this computer's Tailscale name.</small
+						>
+					{:else if tailnetStep}<small class="form-hint" role="alert"
+							>{tailnetStep}
+							<button class="text-button" type="button" onclick={() => void detect()}
+								>Check again</button
+							></small
+						>{/if}
+				{/if}
+			</Field>
+			<Field
+				label="Company address"
+				hint={access === 'private'
+					? 'Reachable by your team on its private network'
+					: 'Where people open the company'}
+				for="sharing-company"
+			>
+				<input
+					id="sharing-company"
+					type="url"
+					placeholder="https://work.example.com"
+					required
+					bind:value={companyAddress}
+					disabled={busy}
 				/>
-			</div>
-			<input
-				id="sharing-company"
-				type="url"
-				placeholder="https://work.example.com"
-				required
-				bind:value={companyAddress}
-				disabled={busy}
-			/>
-			<div class="sharing-field-heading">
-				<label for="sharing-accounts">Account address</label><InfoTip
-					text="A separate HTTPS address on the same site, such as accounts.example.com. People sign in and accept invitations there."
+			</Field>
+			<Field
+				label="Account address"
+				hint="Where people sign in and accept invitations"
+				for="sharing-accounts"
+			>
+				<input
+					id="sharing-accounts"
+					type="url"
+					placeholder="https://accounts.example.com"
+					required
+					bind:value={accountAddress}
+					disabled={busy}
 				/>
-			</div>
-			<input
-				id="sharing-accounts"
-				type="url"
-				placeholder="https://accounts.example.com"
-				required
-				bind:value={accountAddress}
-				disabled={busy}
+			</Field>
+			<Field label="Your email" for="sharing-email">
+				<input
+					id="sharing-email"
+					type="email"
+					autocomplete="email"
+					placeholder="you@example.com"
+					required
+					bind:value={ownerEmail}
+					disabled={busy}
+				/>
+			</Field>
+			{#if failure}<p class="form-error" role="alert">{failure}</p>{/if}
+			<FormFoot
+				note="Covers this host’s companies. You review them before downloading."
+				submit="Prepare setup"
+				{busy}
+				busyLabel="Preparing…"
+				oncancel={close}
 			/>
-			<label for="sharing-email">Your email</label>
-			<input
-				id="sharing-email"
-				type="email"
-				autocomplete="email"
-				placeholder="you@example.com"
-				required
-				bind:value={ownerEmail}
-				disabled={busy}
-			/>
-			<p class="sharing-note">
-				Setup covers this host's existing companies. You'll review them before downloading. Account
-				and email credentials stay on the host.
-			</p>
-			{#if failure}<p class="sharing-error" role="alert">{failure}</p>{/if}
-			<div class="sharing-actions">
-				<button class="btn primary" type="submit" disabled={busy}
-					>{busy ? 'Preparing…' : 'Prepare setup'}</button
-				><button class="btn" type="button" onclick={close}>Cancel</button>
-			</div>
 		</form>
 	{/if}
 </dialog>
@@ -433,9 +434,6 @@
 		gap: 6px;
 		margin-top: 6px;
 	}
-	.sharing-field-heading label {
-		margin-top: 0;
-	}
 	.sharing-head h2:focus-visible {
 		outline: none;
 	}
@@ -456,30 +454,6 @@
 		color: var(--ink);
 		font: inherit;
 		font-size: var(--t-body);
-	}
-	.sharing-choice {
-		display: flex;
-		gap: 4px;
-		padding: 3px;
-		border-radius: var(--radius-control);
-		background: var(--surface-alt);
-		margin-bottom: 6px;
-	}
-	.sharing-choice button {
-		flex: 1;
-		min-height: 34px;
-		border: 1px solid transparent;
-		border-radius: var(--radius-control);
-		background: transparent;
-		color: var(--text-secondary);
-		font: inherit;
-		font-size: var(--t-label);
-		cursor: pointer;
-	}
-	.sharing-choice button.selected {
-		border-color: var(--border);
-		background: var(--surface);
-		color: var(--ink);
 	}
 	.sharing-note {
 		color: var(--text-secondary);
@@ -527,9 +501,6 @@
 		gap: 8px;
 		margin-top: 12px;
 	}
-	.sharing-error {
-		color: var(--state-danger);
-	}
 	.sharing-here,
 	.sharing-step {
 		display: grid;
@@ -537,14 +508,6 @@
 		margin-top: 16px;
 		padding-top: 12px;
 		border-top: 1px solid var(--border);
-	}
-	.sharing-pair {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) minmax(0, 7rem);
-		gap: 8px;
-	}
-	.sharing-check input {
-		width: auto;
 	}
 	.sharing-log {
 		overflow: auto;
@@ -560,10 +523,9 @@
 		outline-offset: 3px;
 	}
 	@media (pointer: coarse) {
-		.sharing-close,
-		.sharing-choice button,
-		.sharing-actions :global(button),
-		input {
+	.sharing-close,
+	.sharing-actions :global(button),
+	input {
 			min-height: 44px;
 		}
 		.sharing-close {

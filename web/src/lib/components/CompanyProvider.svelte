@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { Page, Section, Item, Notice, Empty, Dot, Fold } from '$lib/ui/page';
+	import Field from '$lib/ui/forms/Field.svelte';
+	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
@@ -88,6 +90,10 @@
 	const connectionIssue = $derived(setupIssue && !needsAnotherModel(setupIssue) ? setupIssue : '');
 	const intelligence = $derived(intelligenceQuery(companyId));
 	let editorOpen = $state(false);
+	/* What each form still needs, said when its action is pressed too early. */
+	let editorProblem = $state('');
+	let grantProblem = $state('');
+	let importProblem = $state('');
 	const labels: Record<string, string> = {
 		anthropic: 'Anthropic',
 		openai: 'OpenAI',
@@ -611,15 +617,24 @@
 							>{/if}
 					{/snippet}
 					{#if grantSelection === item.id}
-						<div class="grant">
-							<label class="field-label"
-								><span>Model</span><select
-									aria-label={`Model for ${item.label}`}
+						<form
+							class="form plain"
+							onsubmit={(event) => {
+								event.preventDefault();
+								grantProblem = !validModel(item.provider, modelForGrant(item))
+									? 'Choose a model first.'
+									: item.status !== 'present'
+										? 'This connection is not signed in. Reconnect it in Settings first.'
+										: '';
+								if (!grantProblem) void grantConnection(item);
+							}}
+						>
+							<Field label="Model" for={`cp-model-${item.id}`}>
+								<select
+									id={`cp-model-${item.id}`}
 									value={grantCustomModels[item.id] ? '__custom' : modelForGrant(item)}
-									title={catalog.source(item.provider, item.kind ?? 'api_key') === 'connected'
-										? 'Models from this account’s connected runtime'
-										: 'Model suggestions; availability depends on this connection'}
 									onchange={(event) => {
+										grantProblem = '';
 										grantCustomModels[item.id] = event.currentTarget.value === '__custom';
 										grantModels[item.id] = grantCustomModels[item.id]
 											? ''
@@ -630,46 +645,45 @@
 											value={routeModel(item.provider, model.id)}>{model.name ?? model.id}</option
 										>{/each}
 									<option value="__custom">Custom model ID…</option>
-								</select></label
-							>
-							{#if grantCustomModels[item.id]}<label class="field-label"
-									><span>Full model ID</span><input
-										aria-label={`Full model ID for ${item.label}`}
+								</select>
+								{#snippet help()}{catalog.source(item.provider, item.kind ?? 'api_key') ===
+									'connected'
+										? 'Models from this account’s connected runtime.'
+										: 'Suggestions; what is available depends on this connection.'}{/snippet}
+							</Field>
+							{#if grantCustomModels[item.id]}
+								<Field label="Full model ID" for={`cp-custom-${item.id}`}>
+									<input
+										id={`cp-custom-${item.id}`}
 										placeholder={`${item.provider}/model-id`}
 										bind:value={grantModels[item.id]}
-									/></label
-								>{/if}
-							{#if status?.primary_provider !== 'unconfigured'}<label class="check"
-									><input type="checkbox" bind:checked={grantMakeDefault} />Company default</label
-								>{/if}
-							{#if replaceGrantId === item.id}<Notice
-									tone="warning"
-									title={`This replaces the company's current ${name} connection`}
-								/>{/if}
-							<div class="bar">
-								<button
-									class="btn primary small"
-									disabled={accountBusy ||
-										!status ||
-										!validModel(item.provider, modelForGrant(item)) ||
-										item.status !== 'present'}
-									onclick={() => grantConnection(item)}
-									>{accountBusy
-										? 'Saving…'
-										: replaceGrantId === item.id
-											? 'Replace'
-											: 'Use in this company'}</button
-								>
-								<button
-									class="btn small ghost"
-									disabled={accountBusy}
-									onclick={() => {
-										grantSelection = '';
-										replaceGrantId = '';
-									}}>Cancel</button
-								>
-							</div>
-						</div>
+									/>
+								</Field>
+							{/if}
+							{#if status?.primary_provider !== 'unconfigured'}
+								<Field label="Company default">
+									<label class="form-check"
+										><input type="checkbox" bind:checked={grantMakeDefault} />Use it for everyone
+										unless an agent has its own</label
+									>
+								</Field>
+							{/if}
+							{#if replaceGrantId === item.id}<p class="form-error" role="alert">
+									This replaces the company’s current {name} connection.
+								</p>{:else if grantProblem}<p class="form-error" role="alert">
+									{grantProblem}
+								</p>{/if}
+							<FormFoot
+								submit={replaceGrantId === item.id ? 'Replace' : 'Use in this company'}
+								busy={accountBusy}
+								busyLabel="Saving…"
+								oncancel={() => {
+									grantSelection = '';
+									replaceGrantId = '';
+									grantProblem = '';
+								}}
+							/>
+						</form>
 					{/if}
 				</Item>
 			{:else}
@@ -684,43 +698,53 @@
 
 			{#if accountScope === 'account' && otherCompanies.length}
 				<Fold label="Bring in a key from another company" bind:open={importOpen}>
-					<div class="import">
-						<p class="quiet">
-							This makes an account copy of the key. The other company keeps its own. One API key
-							per provider can be shared across companies.
+					<form
+						class="form plain"
+						onsubmit={(event) => {
+							event.preventDefault();
+							importProblem = !importSource
+								? 'Choose the company that has the key.'
+								: !importProvider
+									? 'That company has no key to bring in.'
+									: '';
+							if (!importProblem) void importReusableConnection();
+						}}
+					>
+						<p class="form-intro">
+							This makes an account copy of the key; the other company keeps its own.
 						</p>
-						<div class="bar">
+						<Field label="From" for="cp-import-source">
 							<select
+								id="cp-import-source"
 								bind:value={importSource}
-								aria-label="Source company"
-								onchange={() => void loadImportProviders()}
-								><option value="">Choose a company…</option
+								onchange={() => {
+									importProblem = '';
+									void loadImportProviders();
+								}}
+								><option value="">Choose a company</option
 								>{#each companies.filter((company) => company.id !== companyId) as company}<option
 										value={company.id}>{company.name}</option
 									>{/each}</select
 							>
-							{#if importProviders.length}<select
+						</Field>
+						{#if importProviders.length}
+							<Field label="Key" for="cp-import-provider">
+								<select
+									id="cp-import-provider"
 									bind:value={importProvider}
-									aria-label="API connection"
 									onchange={() => (importLabel = '')}
 									>{#each importProviders as item}<option value={item.provider}
 											>{labels[item.provider] ?? item.provider}</option
 										>{/each}</select
-								><input
-									class="field"
-									bind:value={importLabel}
-									aria-label="Name"
-									placeholder="Optional name"
-									maxlength="80"
-								/>{/if}
-							<button
-								class="btn primary small"
-								disabled={accountBusy || !importProvider}
-								onclick={() => void importReusableConnection()}
-								>{accountBusy ? 'Importing…' : 'Bring in'}</button
-							>
-						</div>
-					</div>
+								>
+							</Field>
+							<Field label="Name" hint="Optional" for="cp-import-label">
+								<input id="cp-import-label" bind:value={importLabel} maxlength="80" />
+							</Field>
+						{/if}
+						{#if importProblem}<p class="form-error" role="alert">{importProblem}</p>{/if}
+						<FormFoot submit="Bring in" busy={accountBusy} busyLabel="Importing…" />
+					</form>
 				</Fold>
 			{/if}
 		{/if}
@@ -787,59 +811,103 @@
 					{/if}
 					{#if editorOpen && status}
 						<form
-							class="editor"
+							class="form editor"
 							bind:this={editor}
 							aria-label="Key settings"
-							onsubmit={(e) => connect(e)}
+							onsubmit={(e) => {
+								e.preventDefault();
+								editorProblem =
+									!selected || selected === 'custom'
+										? 'Choose a provider.'
+										: !validModel(selected, advancedModel)
+											? 'Choose a model.'
+											: mode === 'infisical' && status?.infisical_status !== 'present'
+												? 'Key storage is unavailable, so a key cannot be saved yet.'
+												: mode === 'infisical' && !connection?.reference && !secret
+													? 'Paste the API key.'
+													: !reference.trim()
+														? 'Add the reference.'
+														: '';
+								if (!editorProblem) void connect(e);
+							}}
 						>
-							<label class="field-label"
-								><span>Provider</span><select
-									required
+							<header class="form-head">
+								<strong
+									>{connection?.reference
+										? `Edit ${labels[selected] ?? selected}`
+										: 'Add company-only key'}</strong
+								>
+							</header>
+							<Field label="Provider" for="cp-provider">
+								<select
+									id="cp-provider"
 									disabled={busy}
 									value={selected ? (labels[selected] ? selected : 'custom') : ''}
 									onchange={(e) => choose(e.currentTarget.value)}
 								>
-									<option value="" disabled>Choose a provider…</option>
+									<option value="" disabled>Choose a provider</option>
 									{#each Object.entries(labels).filter(([id]) => id !== 'openai-codex' || status?.connections.some((c) => c.provider === id && c.reference)) as [id, label]}<option
 											value={id}>{label}</option
 										>{/each}<option value="custom">Custom provider…</option>
-								</select></label
-							>
-							{#if selected && !labels[selected]}<label class="field-label"
-									><span>Provider ID</span><input
-										placeholder="Provider ID"
+								</select>
+							</Field>
+							{#if selected && !labels[selected]}
+								<Field label="Provider ID" for="cp-provider-id">
+									<input
+										id="cp-provider-id"
+										placeholder="my-provider"
 										value={selected === 'custom' ? '' : selected}
 										oninput={(e) => choose(e.currentTarget.value || 'custom')}
 										pattern="[a-zA-Z0-9_.\-]+"
-										required
 										disabled={busy}
-									/></label
-								>{/if}
-							{#if mode === 'infisical'}<label class="field-label"
-									><span>API key</span><input
+									/>
+								</Field>
+							{/if}
+							<Field
+								label="Credential source"
+								for="cp-mode"
+								hint={mode === 'oauth'
+									? 'Kept for compatibility; share sign-ins from Settings.'
+									: ''}
+							>
+								<select id="cp-mode" bind:value={mode} onchange={selectMode} disabled={busy}
+									><option value="infisical">API key stored securely</option><option value="env"
+										>Host environment variable</option
+									>{#if connection?.reference?.startsWith('omp-oauth:')}<option value="oauth"
+											>Existing company OAuth reference</option
+										>{/if}</select
+								>
+							</Field>
+							{#if mode === 'infisical'}
+								<Field
+									label="API key"
+									for="cp-secret"
+									hint={connection?.reference ? 'Leave blank to keep the saved one' : ''}
+								>
+									<input
+										id="cp-secret"
 										type="password"
 										bind:value={secret}
 										oninput={() => (edited = true)}
 										autocomplete="new-password"
-										placeholder={connection?.reference
-											? 'Paste a replacement, or leave blank to keep it'
-											: 'Paste your API key'}
+										placeholder={connection?.reference ? 'Paste a replacement' : 'Paste the key'}
 										disabled={busy || status.infisical_status !== 'present'}
-										required={!connection?.reference}
-									/></label
-								>{/if}
-							{#if connection?.credential_detail}<Notice
-									tone="warning"
-									title="This key needs attention"
-									details={connection.credential_detail}
-								/>{/if}
-							<label class="field-label"
-								><span>Model</span><select
+									/>
+								</Field>
+							{/if}
+							<Field label="Reference" for="cp-reference">
+								<input
+									id="cp-reference"
+									bind:value={reference}
+									oninput={() => (edited = true)}
+									disabled={busy}
+									spellcheck="false"
+								/>
+							</Field>
+							<Field label="Model" for="cp-model">
+								<select
+									id="cp-model"
 									value={advancedCustomModel ? '__custom' : advancedModel}
-									title={catalog.source(selected, mode === 'oauth' ? 'oauth' : 'api_key') ===
-									'connected'
-										? 'Models from this account’s connected runtime'
-										: 'Model suggestions; availability depends on this connection'}
 									onchange={(event) => {
 										advancedModelTouched = true;
 										advancedCustomModel = event.currentTarget.value === '__custom';
@@ -847,71 +915,49 @@
 									}}
 									disabled={busy}
 								>
-									<option value="">Choose a model…</option
+									<option value="">Choose a model</option
 									>{#each modelChoices(selected, mode === 'oauth' ? 'oauth' : 'api_key') as model}<option
 											value={routeModel(selected, model.id)}>{model.name ?? model.id}</option
 										>{/each}<option value="__custom">Custom model ID…</option>
-								</select></label
-							>
-							{#if advancedCustomModel}<label class="field-label"
-									><span>Full model ID</span><input
+								</select>
+								{#snippet help()}{catalog.source(
+										selected,
+										mode === 'oauth' ? 'oauth' : 'api_key'
+									) === 'connected'
+										? 'Models from this account’s connected runtime.'
+										: 'Suggestions; what is available depends on this connection.'}{/snippet}
+							</Field>
+							{#if advancedCustomModel}
+								<Field label="Full model ID" for="cp-custom-model">
+									<input
+										id="cp-custom-model"
 										placeholder={`${selected}/model-id`}
 										bind:value={advancedModel}
 										disabled={busy}
-									/></label
-								>{/if}
-							<label class="field-label"
-								><span>Credential source</span><select
-									bind:value={mode}
-									onchange={selectMode}
-									disabled={busy}
-									><option value="infisical">API key stored securely</option><option value="env"
-										>Host environment variable</option
-									>{#if connection?.reference?.startsWith('omp-oauth:')}<option value="oauth"
-											>Existing company OAuth reference</option
-										>{/if}</select
-								></label
+									/>
+								</Field>
+							{/if}
+							{#if connection?.credential_detail}<p class="form-error" role="alert">
+									This key needs attention: {connection.credential_detail}
+								</p>{/if}
+							{#if editorProblem}<p class="form-error" role="alert">{editorProblem}</p>{/if}
+							<FormFoot
+								submit={connection?.reference ? 'Save' : 'Connect'}
+								busy={busy || refreshing}
+								busyLabel="Saving…"
+								oncancel={() => {
+									editorOpen = false;
+									secret = '';
+									editorProblem = '';
+								}}
 							>
-							<label
-								class="field-label"
-								title={mode === 'oauth'
-									? 'Kept for compatibility. Give reusable sign-ins from Settings → Accounts.'
-									: undefined}
-								><span>Reference</span><input
-									bind:value={reference}
-									oninput={() => (edited = true)}
-									disabled={busy}
-									required
-									spellcheck="false"
-								/></label
-							>
-							<div class="bar">
-								<button
-									class="btn primary small"
-									disabled={busy ||
-										refreshing ||
-										!selected ||
-										selected === 'custom' ||
-										!validModel(selected, advancedModel) ||
-										(mode === 'infisical' && status.infisical_status !== 'present')}
-									>{busy ? 'Saving…' : connection?.reference ? 'Save' : 'Connect'}</button
-								>
-								<button
-									class="btn small ghost"
-									type="button"
-									disabled={busy}
-									onclick={() => {
-										editorOpen = false;
-										secret = '';
-									}}>Cancel</button
-								>
 								{#if connection?.reference}<button
 										type="button"
-										class="btn small danger"
+										class="text-button danger"
 										disabled={busy}
 										onclick={() => connect(undefined, true)}>Disconnect</button
 									>{/if}
-							</div>
+							</FormFoot>
 						</form>
 					{/if}
 				</div>
@@ -958,33 +1004,6 @@
 	.bad {
 		color: var(--state-danger);
 	}
-	.grant {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: flex-end;
-		gap: 12px;
-		padding-top: 4px;
-	}
-	.grant :global(.notice) {
-		flex-basis: 100%;
-	}
-	.field-label {
-		display: grid;
-		gap: 4px;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.field-label :is(select, input) {
-		min-width: 200px;
-	}
-	.check {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		min-height: 32px;
-		color: var(--text-secondary);
-		font-size: var(--t-body);
-	}
 	.bar {
 		display: flex;
 		flex-wrap: wrap;
@@ -1003,11 +1022,6 @@
 		color: var(--text-tertiary);
 		font-size: var(--t-body);
 		line-height: 1.55;
-	}
-	.import {
-		display: grid;
-		gap: 10px;
-		padding: 12px 16px;
 	}
 	.keys {
 		display: grid;
@@ -1037,13 +1051,5 @@
 	}
 	.badge.error {
 		color: var(--state-danger);
-	}
-	.editor {
-		display: grid;
-		gap: 12px;
-		padding: 14px;
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-lg);
-		background: var(--surface-pane);
 	}
 </style>

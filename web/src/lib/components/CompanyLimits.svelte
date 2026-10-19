@@ -6,7 +6,9 @@
 	import { page } from '$app/state';
 	import EmailMandates from '$lib/components/EmailMandates.svelte';
 	import PaymentRail from '$lib/components/PaymentRail.svelte';
-	import { Section, Row, Item, Notice, Fold, Toggle } from '$lib/ui/page';
+	import { Section, Row, Item, Notice, Fold, Toggle, Segmented } from '$lib/ui/page';
+	import Field from '$lib/ui/forms/Field.svelte';
+	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
 	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
 	import {
 		companyPrincipalQuery,
@@ -455,139 +457,142 @@
 			{/if}
 			{#if editingLimit}
 				<form
-					class="inline-form"
+					class="form plain"
 					onsubmit={(event) => {
 						event.preventDefault();
 						void saveLimit();
 					}}
 				>
-					<label for="spend-period" class="sr-only">Budget period</label>
-					<select id="spend-period" bind:value={period} disabled={limitSaving}>
-						<option value="total">Total limit</option>
-						<option value="monthly">Monthly limit</option>
-					</select>
-					<label for="spend-limit" class="sr-only">Limit in US dollars</label>
-					<input
-						id="spend-limit"
-						type="text"
-						inputmode="decimal"
-						pattern={'[0-9]+([.][0-9]{1,6})?'}
-						required
-						bind:value={limit}
-						disabled={limitSaving}
-						title="US dollars"
-					/>
-					<label for="spend-warning">Warn at</label>
-					<input
-						id="spend-warning"
-						class="percent"
-						type="number"
-						min="1"
-						max="99"
-						step="1"
-						required
-						bind:value={warning}
-						disabled={limitSaving}
-						title="An Inbox item tells you when spend reaches this share of the limit, before model work stops."
-					/><span>%</span>
-					<button class="btn primary small" disabled={limitSaving}
-						>{limitSaving ? 'Saving…' : 'Save'}</button
-					>
-					<button
-						class="btn small ghost"
-						type="button"
-						disabled={limitSaving}
-						onclick={() => {
+					<header class="form-head"><strong>Model budget</strong></header>
+					<Field label="Kind">
+						<Segmented
+							label="Budget period"
+							options={[
+								{ value: 'total', label: 'Total' },
+								{ value: 'monthly', label: 'Each month' }
+							]}
+							bind:value={period}
+							disabled={limitSaving}
+						/>
+					</Field>
+					<Field label="Limit" hint="US dollars" for="spend-limit">
+						<input
+							id="spend-limit"
+							type="text"
+							inputmode="decimal"
+							pattern={'[0-9]+([.][0-9]{1,6})?'}
+							bind:value={limit}
+							disabled={limitSaving}
+							placeholder="25"
+						/>
+					</Field>
+					<Field label="Warn at" hint="An Inbox item before model work stops" for="spend-warning">
+						<div class="form-inline">
+							<input
+								id="spend-warning"
+								class="percent"
+								type="number"
+								min="1"
+								max="99"
+								step="1"
+								bind:value={warning}
+								disabled={limitSaving}
+							/>% of the limit
+						</div>
+					</Field>
+					{#if limitError}<p class="form-error" role="alert">{limitError}</p>{/if}
+					<FormFoot
+						submit="Save"
+						busy={limitSaving}
+						busyLabel="Saving…"
+						oncancel={() => {
 							editingLimit = false;
 							limitError = '';
-						}}>Cancel</button
-					>
+						}}
+					/>
 				</form>
 			{/if}
-			{#if limitError}<Notice tone="danger" title="The limit was not saved">{limitError}</Notice
-				>{/if}
 			{@const native = limits.native}
-			<form
-				onsubmit={(event) => {
-					event.preventDefault();
-					void saveNativeLimit();
-				}}
+			<Row
+				label="Native harness use"
+				info={`Codex or Claude on their own sign-in, in ${native.month_utc} (UTC). Not charged against the model budget.${native.estimated_usd == null ? '' : ' The dollar figure is the harnesses’ own estimate.'}${native.turns_without_tokens ? ` ${native.turns_without_tokens} turns reported no token count.` : ''}`}
 			>
-				<Row
-					label="Native harness use"
-					info={`Codex or Claude on their own sign-in, in ${native.month_utc} (UTC). Not charged against the model budget.${native.estimated_usd == null ? '' : ' The dollar figure is the harnesses’ own estimate.'}${native.turns_without_tokens ? ` ${native.turns_without_tokens} turns reported no token count.` : ''}`}
+				{count(native.turns)} turns · {native.turns_without_tokens ? 'at least ' : ''}{count(
+					native.tokens
+				)} tokens{native.estimated_usd == null ? '' : ` · ≈ ${money(native.estimated_usd)}`}
+			</Row>
+			{#if editingNative}
+				<form
+					class="form plain"
+					onsubmit={(event) => {
+						event.preventDefault();
+						void saveNativeLimit();
+					}}
 				>
-					{count(native.turns)} turns · {native.turns_without_tokens ? 'at least ' : ''}{count(
-						native.tokens
-					)} tokens{native.estimated_usd == null ? '' : ` · ≈ ${money(native.estimated_usd)}`}
-				</Row>
+					<header class="form-head"><strong>Native monthly limit</strong></header>
+					<p class="form-intro">
+						Once either is reached, no new native turn starts until next month. A turn already
+						running finishes.
+					</p>
+					<Field label="Turns a month" hint="Optional" for="native-turns">
+						<input
+							id="native-turns"
+							type="number"
+							min="1"
+							step="1"
+							placeholder="No limit"
+							bind:value={nativeTurns}
+							disabled={nativeSaving}
+						/>
+					</Field>
+					<Field label="Tokens a month" hint="Optional" for="native-tokens">
+						<input
+							id="native-tokens"
+							type="number"
+							min="1"
+							step="1"
+							placeholder="No limit"
+							bind:value={nativeTokens}
+							disabled={nativeSaving}
+						/>
+					</Field>
+					{#if nativeError}<p class="form-error" role="alert">{nativeError}</p>{/if}
+					<FormFoot
+						submit="Save"
+						busy={nativeSaving}
+						busyLabel="Saving…"
+						oncancel={() => {
+							editingNative = false;
+							nativeError = '';
+						}}
+					/>
+				</form>
+			{:else}
 				<Row
 					label="Native monthly limit"
 					info="Once either limit is reached, no new native turn starts until next month or a higher limit. A turn already running finishes."
 				>
-					{#if editingNative}
-						<input
-							class="hours"
-							type="number"
-							min="1"
-							step="1"
-							aria-label="Native turns per month"
-							placeholder="No turn limit"
-							bind:value={nativeTurns}
-							disabled={nativeSaving}
-						/>
-						<input
-							class="tokens"
-							type="number"
-							min="1"
-							step="1"
-							aria-label="Native tokens per month"
-							placeholder="No token limit"
-							bind:value={nativeTokens}
-							disabled={nativeSaving}
-						/>
-					{:else}
-						<span class:reached={native.status === 'exhausted'}
-							>{nativeLimitText(
-								native.monthly_turn_limit,
-								native.monthly_token_limit
-							)}{native.status === 'exhausted' ? ' · reached' : ''}</span
-						>
-						{#if canEdit}<button
-								class="btn small ghost"
-								type="button"
-								onclick={() => {
-									baseNativeTurns = native.monthly_turn_limit;
-									baseNativeTokens = native.monthly_token_limit;
-									nativeTurns = baseNativeTurns == null ? '' : String(baseNativeTurns);
-									nativeTokens = baseNativeTokens == null ? '' : String(baseNativeTokens);
-									nativeError = '';
-									nativeNotice = '';
-									editingNative = true;
-								}}>Edit</button
-							>{/if}
-					{/if}
-				</Row>
-				{#if editingNative}
-					<div class="form-bar">
-						<button class="btn primary small" disabled={nativeSaving}
-							>{nativeSaving ? 'Saving…' : 'Save'}</button
-						>
-						<button
+					<span class:reached={native.status === 'exhausted'}
+						>{nativeLimitText(
+							native.monthly_turn_limit,
+							native.monthly_token_limit
+						)}{native.status === 'exhausted' ? ' · reached' : ''}</span
+					>
+					{#if canEdit}<button
 							class="btn small ghost"
 							type="button"
-							disabled={nativeSaving}
 							onclick={() => {
-								editingNative = false;
+								baseNativeTurns = native.monthly_turn_limit;
+								baseNativeTokens = native.monthly_token_limit;
+								nativeTurns = baseNativeTurns == null ? '' : String(baseNativeTurns);
+								nativeTokens = baseNativeTokens == null ? '' : String(baseNativeTokens);
 								nativeError = '';
-							}}>Cancel</button
-						>
-					</div>
-				{/if}
-			</form>
-			{#if nativeError}<Notice tone="danger" title="Native limits were not saved"
-					>{nativeError}</Notice
-				>{/if}
+								nativeNotice = '';
+								editingNative = true;
+							}}>Edit</button
+						>{/if}
+				</Row>
+			{/if}
 			{#if nativeNotice}<Notice tone="success" title={nativeNotice} />{/if}
 		</Section>
 	{:else if section === 'authority' && view}
@@ -653,40 +658,42 @@
 			</Row>
 			{#if addingContact}
 				<form
-					class="inline-form"
+					class="form plain"
 					onsubmit={(event) => {
 						event.preventDefault();
+						if (!newContact.trim()) {
+							grantError = 'Add the address to approve.';
+							return;
+						}
 						void approveContact();
 					}}
 				>
-					<label for="approve-contact" class="sr-only">Email address or contact</label>
-					<input
-						id="approve-contact"
-						type="text"
-						required
-						placeholder="name@example.com"
-						bind:value={newContact}
-						disabled={granting}
-						title="The address the company may contact without asking you first"
-					/>
-					<button class="btn primary small" disabled={granting || !newContact.trim()}
-						>{granting ? 'Approving…' : 'Approve…'}</button
+					<Field
+						label="Contact"
+						hint="The company may contact it without asking you first"
+						for="approve-contact"
 					>
-					<button
-						class="btn small ghost"
-						type="button"
-						disabled={granting}
-						onclick={() => {
+						<input
+							id="approve-contact"
+							type="text"
+							placeholder="name@example.com"
+							bind:value={newContact}
+							disabled={granting}
+						/>
+					</Field>
+					{#if grantError}<p class="form-error" role="alert">{grantError}</p>{/if}
+					<FormFoot
+						submit="Approve"
+						busy={granting}
+						busyLabel="Approving…"
+						oncancel={() => {
 							addingContact = false;
 							newContact = '';
 							grantError = '';
-						}}>Cancel</button
-					>
+						}}
+					/>
 				</form>
 			{/if}
-			{#if grantError}<Notice tone="danger" title="The contact was not approved"
-					>{grantError}</Notice
-				>{/if}
 			{#each view.limits.approved_parties as party (party)}<Item title={party}>
 					{#snippet actions()}<button
 							class="btn small"
@@ -708,57 +715,58 @@
 			{#each view.limits.money_envelopes as envelope (envelope.currency)}
 				{#if allowanceCurrency === envelope.currency}
 					<form
-						class="inline-form"
+						class="form plain"
 						onsubmit={(event) => {
 							event.preventDefault();
 							void saveAllowance();
 						}}
 					>
-						<strong>{envelope.currency}</strong>
-						<label for="allowance-each">Each payment up to</label>
-						<input
-							id="allowance-each"
-							type="text"
-							inputmode="decimal"
-							required
-							bind:value={allowanceEach}
-							disabled={allowanceSaving}
-						/>
-						<label for="allowance-total">In total</label>
-						<input
-							id="allowance-total"
-							type="text"
-							inputmode="decimal"
-							required
-							bind:value={allowanceTotal}
-							disabled={allowanceSaving}
-						/>
-						<label
-							for="allowance-payees"
-							title="Beneficiaries set up with the provider; one per line">Payees</label
-						>
-						<textarea
-							id="allowance-payees"
-							rows="2"
-							required
-							bind:value={allowancePayees}
-							disabled={allowanceSaving}></textarea>
-						<label class="check"
-							><input
-								type="checkbox"
-								bind:checked={allowanceFrozen}
+						<header class="form-head"><strong>{envelope.currency} allowance</strong></header>
+						<Field label="Each payment up to" for="allowance-each">
+							<input
+								id="allowance-each"
+								type="text"
+								inputmode="decimal"
+								bind:value={allowanceEach}
 								disabled={allowanceSaving}
-							/>Frozen</label
+							/>
+						</Field>
+						<Field label="In total" hint="Changing either starts a new total" for="allowance-total">
+							<input
+								id="allowance-total"
+								type="text"
+								inputmode="decimal"
+								bind:value={allowanceTotal}
+								disabled={allowanceSaving}
+							/>
+						</Field>
+						<Field
+							label="Payees"
+							hint="Beneficiaries set up with the provider, one per line"
+							for="allowance-payees"
 						>
-						<button class="btn primary small" disabled={allowanceSaving}
-							>{allowanceSaving ? 'Saving…' : 'Save'}</button
-						>
-						<button
-							class="btn small ghost"
-							type="button"
-							disabled={allowanceSaving}
-							onclick={() => (allowanceCurrency = '')}>Cancel</button
-						>
+							<textarea
+								id="allowance-payees"
+								rows="2"
+								bind:value={allowancePayees}
+								disabled={allowanceSaving}></textarea>
+						</Field>
+						<Field label="Frozen">
+							<label class="form-check"
+								><input
+									type="checkbox"
+									bind:checked={allowanceFrozen}
+									disabled={allowanceSaving}
+								/>Stop new payments in {envelope.currency}</label
+							>
+						</Field>
+						{#if allowanceError}<p class="form-error" role="alert">{allowanceError}</p>{/if}
+						<FormFoot
+							submit="Save"
+							busy={allowanceSaving}
+							busyLabel="Saving…"
+							oncancel={() => (allowanceCurrency = '')}
+						/>
 					</form>
 				{:else}
 					<Item
@@ -773,9 +781,6 @@
 					</Item>
 				{/if}
 			{/each}
-			{#if allowanceError}<Notice tone="danger" title="The allowance was not saved"
-					>{allowanceError}</Notice
-				>{/if}
 			<PaymentRail {companyId} {view} onview={(next) => source.accept(next)} />
 		</Section>
 		<EmailMandates {companyId} />
@@ -813,19 +818,17 @@
 					oncopied={() => source.refresh()}
 				/>
 			{/snippet}
-			<form
-				onsubmit={(event) => {
-					event.preventDefault();
-					void saveRuntimePolicy();
-				}}
-			>
-				<Row label="Sleeps when quiet for">
-					{#if editingRuntime}
-						<select
-							bind:value={autoSleepMinutes}
-							aria-label="Sleep when quiet for"
-							disabled={runtimeSaving}
-						>
+			{#if editingRuntime}
+				<form
+					class="form plain"
+					onsubmit={(event) => {
+						event.preventDefault();
+						void saveRuntimePolicy();
+					}}
+				>
+					<header class="form-head"><strong>Computer limits</strong></header>
+					<Field label="Sleeps when quiet for" for="runtime-sleep">
+						<select id="runtime-sleep" bind:value={autoSleepMinutes} disabled={runtimeSaving}>
 							<option value="">Default (30 minutes)</option>
 							<option value="15">15 minutes</option>
 							<option value="30">30 minutes</option>
@@ -836,57 +839,55 @@
 								<option value={autoSleepMinutes}>{autoSleepMinutes} minutes</option>
 							{/if}
 						</select>
-					{:else}{runtime.sleep_after_minutes == null
-							? 'Never'
-							: `${runtime.sleep_after_minutes} minutes`}{/if}
-				</Row>
-				<Row label="Monthly hours limit">
-					{#if editingRuntime}
+					</Field>
+					<Field
+						label="Monthly hours limit"
+						hint="Optional. Once reached, it won’t start again that month"
+						for="runtime-hours"
+					>
 						<input
-							class="hours"
+							id="runtime-hours"
 							type="number"
 							min="1"
 							max="744"
 							step="1"
-							aria-label="Monthly hours limit"
 							placeholder="No limit"
 							bind:value={monthlyRuntimeHours}
 							disabled={runtimeSaving}
 						/>
-					{:else}{runtime.monthly_runtime_cap_hours == null
-							? 'None'
-							: `${runtime.monthly_runtime_cap_hours} hours`}{/if}
+					</Field>
+					{#if runtimeError}<p class="form-error" role="alert">{runtimeError}</p>{/if}
+					<FormFoot
+						submit="Save"
+						busy={runtimeSaving}
+						busyLabel="Saving…"
+						oncancel={() => {
+							editingRuntime = false;
+							runtimeError = '';
+						}}
+					/>
+				</form>
+			{:else}
+				<Row label="Sleeps when quiet for">
+					{runtime.sleep_after_minutes == null ? 'Never' : `${runtime.sleep_after_minutes} minutes`}
 				</Row>
-				<Row label="This month" info="Running time this calendar month, in UTC.">
-					{#if runtime.usage}
-						{runtime.usage.complete ? '' : 'At least '}{(runtime.usage.used_seconds / 3600).toFixed(
-							1
-						)} hours · {runtime.usage.status === 'stopped' && runtime.asleep
-							? 'Asleep'
-							: ({ running: 'Awake', stopped: 'Stopped', absent: 'Not created yet' }[
-									runtime.usage.status
-								] ?? runtime.usage.status)}
-					{:else}<span class="none">Unavailable right now</span>{/if}
+				<Row label="Monthly hours limit">
+					{runtime.monthly_runtime_cap_hours == null
+						? 'None'
+						: `${runtime.monthly_runtime_cap_hours} hours`}
 				</Row>
-				{#if editingRuntime}
-					<div class="form-bar">
-						<button class="btn primary small" disabled={runtimeSaving}
-							>{runtimeSaving ? 'Saving…' : 'Save'}</button
-						>
-						<button
-							class="btn small ghost"
-							type="button"
-							disabled={runtimeSaving}
-							onclick={() => {
-								editingRuntime = false;
-								runtimeError = '';
-							}}>Cancel</button
-						>
-					</div>
-				{/if}
-			</form>
-			{#if runtimeError}<Notice tone="danger" title="Limits were not saved">{runtimeError}</Notice
-				>{/if}
+			{/if}
+			<Row label="This month" info="Running time this calendar month, in UTC.">
+				{#if runtime.usage}
+					{runtime.usage.complete ? '' : 'At least '}{(runtime.usage.used_seconds / 3600).toFixed(
+						1
+					)} hours · {runtime.usage.status === 'stopped' && runtime.asleep
+						? 'Asleep'
+						: ({ running: 'Awake', stopped: 'Stopped', absent: 'Not created yet' }[
+								runtime.usage.status
+							] ?? runtime.usage.status)}
+				{:else}<span class="none">Unavailable right now</span>{/if}
+			</Row>
 			{#if runtimeNotice}<Notice tone="success" title={runtimeNotice} />{/if}
 		</Section>
 	{/if}
@@ -951,41 +952,8 @@
 	.meter.high i {
 		background: var(--intent-authority);
 	}
-	.inline-form {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: var(--space-2);
-		padding: 12px 16px;
-		font-size: var(--t-body);
-	}
-	.inline-form input {
-		width: 120px;
-	}
-	.inline-form .check {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-	}
-	.inline-form .check input {
-		width: auto;
-	}
-	.inline-form input.percent {
-		width: 72px;
-	}
-	.hours {
-		width: 120px;
-	}
-	.tokens {
-		width: 150px;
-	}
 	.reached {
 		color: var(--intent-authority);
-	}
-	.form-bar {
-		display: flex;
-		gap: var(--space-2);
-		padding: 12px 16px;
 	}
 	.none {
 		color: var(--text-tertiary);

@@ -11,7 +11,8 @@
  *       <button class="btn small primary">Add account</button></footer>
  *   </form>
  *
- * `form plain` drops the card for a form that already sits inside one (a row's detail). */
+ * `form plain` drops the card for a form inside one (a section, a row's detail): its rows sit
+ * between hairlines. `form flush` is for a dialog, which is the card: no box, rows edge to edge. */
 
 :is(.bridge-root, .bridge-tokens) .form {
 	container-type: inline-size;
@@ -25,10 +26,24 @@
 	font-size: var(--t-body);
 }
 
-:is(.bridge-root, .bridge-tokens) .form.plain {
+:is(.bridge-root, .bridge-tokens) .form:is(.plain, .flush) {
 	border: 0;
 	border-radius: 0;
 	background: transparent;
+}
+
+:is(.bridge-root, .bridge-tokens) .form.plain {
+	border-block: 1px solid var(--border);
+}
+
+:is(.bridge-root, .bridge-tokens) .form.plain:last-child {
+	border-bottom: 0;
+}
+
+:is(.bridge-root, .bridge-tokens)
+	.form.flush
+	:is(.form-row, .form-intro, .form-error, .form-foot, .form-section) {
+	padding-inline: 0;
 }
 
 :is(.bridge-root, .bridge-tokens) .form-head {
@@ -154,6 +169,16 @@
 	width: auto;
 }
 
+/* Short values: an amount, a percentage, a currency code. */
+:is(.bridge-root, .bridge-tokens) .form :is(input.amount, input.percent, input.money) {
+	width: 112px;
+}
+
+:is(.bridge-root, .bridge-tokens) .form input.currency {
+	width: 72px;
+	text-transform: uppercase;
+}
+
 :is(.bridge-root, .bridge-tokens) .form :is(input, select, textarea)::placeholder {
 	color: var(--text-tertiary);
 }
@@ -219,7 +244,7 @@
 	background: color-mix(in srgb, var(--surface-alt) 55%, transparent);
 }
 
-:is(.bridge-root, .bridge-tokens) .form.plain .form-foot {
+:is(.bridge-root, .bridge-tokens) .form:is(.plain, .flush) .form-foot {
 	background: transparent;
 }
 
@@ -235,6 +260,16 @@
 	:is(.bridge-root, .bridge-tokens) .form-row {
 		grid-template-columns: minmax(0, 1fr);
 		gap: 6px;
+		padding-block: 8px;
+	}
+	:is(.bridge-root, .bridge-tokens) .form-row + .form-row {
+		border-top: 0;
+	}
+	:is(.bridge-root, .bridge-tokens) .form-row:first-of-type {
+		padding-top: 14px;
+	}
+	:is(.bridge-root, .bridge-tokens) .form-row:last-of-type {
+		padding-bottom: 14px;
 	}
 	:is(.bridge-root, .bridge-tokens) .form-label {
 		padding-top: 0;

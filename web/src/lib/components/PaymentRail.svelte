@@ -3,7 +3,9 @@
 	 * paths the payment adapter reads), check it live, and set up an allowance with the account
 	 * it pays from and its payees. A payee is a beneficiary that already exists with the
 	 * provider; Exec asks for a new one in the Inbox. */
-	import { Row, Item, Notice } from '$lib/ui/page';
+	import { Row, Item, Notice, Segmented } from '$lib/ui/page';
+	import Field from '$lib/ui/forms/Field.svelte';
+	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { formatMoment } from '$lib/ui/time';
@@ -172,82 +174,107 @@
 </Row>
 {#if connecting}
 	<form
-		class="rail-form"
+		class="form plain"
 		onsubmit={(event) => {
 			event.preventDefault();
-			void connect();
+			const missing = !accountRef.trim()
+				? 'Add the account reference.'
+				: !clientId.trim()
+					? 'Add the client ID.'
+					: !/^\d{4}-\d{2}-\d{2}$/.test(apiVersion.trim())
+						? 'Add the API version as YYYY-MM-DD.'
+						: !approvalUrl.trim()
+							? 'Add the approval page.'
+							: !provider?.keys_bound && (!readKey || !submitKey)
+								? 'Paste both keys.'
+								: '';
+			error = missing;
+			if (!missing) void connect();
 		}}
 	>
-		<label
-			>Account
-			<select bind:value={environment} disabled={saving}>
-				<option value="live">Live</option>
-				<option value="sandbox">Sandbox</option>
-			</select>
-		</label>
-		<label title="The account's reference in Airwallex"
-			>Account reference <input required bind:value={accountRef} disabled={saving} /></label
-		>
-		<label title="The API client ID shown with the keys in Airwallex"
-			>Client ID <input required bind:value={clientId} disabled={saving} /></label
-		>
-		<label title="The API version your Airwallex account shows, as YYYY-MM-DD"
-			>API version <input
-				required
-				placeholder="YYYY-MM-DD"
-				bind:value={apiVersion}
+		<header class="form-head"><strong>Airwallex</strong></header>
+		<p class="form-intro">
+			Airwallex holds the money and asks you to confirm each payment there. Both keys go to this
+			company’s vault.
+		</p>
+		<Field label="Account">
+			<Segmented
+				label="Account"
+				options={[
+					{ value: 'live', label: 'Live' },
+					{ value: 'sandbox', label: 'Sandbox' }
+				]}
+				bind:value={environment}
 				disabled={saving}
-			/></label
-		>
-		<label title="Where you confirm payments in Airwallex; an https airwallex.com address"
-			>Approval page <input
-				required
+			/>
+		</Field>
+		<Field label="Account reference" hint="As Airwallex shows it" for="rail-account">
+			<input id="rail-account" bind:value={accountRef} disabled={saving} />
+		</Field>
+		<Field label="Client ID" hint="Shown with the keys in Airwallex" for="rail-client">
+			<input id="rail-client" bind:value={clientId} disabled={saving} />
+		</Field>
+		<Field label="API version" hint="The one your account shows" for="rail-version">
+			<input id="rail-version" placeholder="YYYY-MM-DD" bind:value={apiVersion} disabled={saving} />
+		</Field>
+		<Field label="Approval page" hint="Where you confirm payments" for="rail-approval">
+			<input
+				id="rail-approval"
 				type="url"
 				placeholder="https://www.airwallex.com/…"
 				bind:value={approvalUrl}
 				disabled={saving}
-			/></label
+			/>
+		</Field>
+		<Field
+			label="Read-only key"
+			hint={provider?.keys_bound
+				? 'Stored. Leave empty to keep it'
+				: 'Balances and transfers, read only'}
+			for="rail-read"
 		>
-		<label title="Balances and transfers, read only">
-			Read-only key <input
+			<input
+				id="rail-read"
 				type="password"
 				autocomplete="off"
-				placeholder={provider?.keys_bound ? 'Stored; leave empty to keep' : ''}
-				required={!provider?.keys_bound}
 				bind:value={readKey}
 				disabled={saving}
-			/></label
+			/>
+		</Field>
+		<Field
+			label="Payments key"
+			hint={provider?.keys_bound
+				? 'Stored. Leave empty to keep it'
+				: 'Transfers only: no beneficiary or admin rights'}
+			for="rail-submit"
 		>
-		<label title="Transfers read and write only: no beneficiary or admin rights">
-			Payments key <input
+			<input
+				id="rail-submit"
 				type="password"
 				autocomplete="off"
-				placeholder={provider?.keys_bound ? 'Stored; leave empty to keep' : ''}
-				required={!provider?.keys_bound}
 				bind:value={submitKey}
 				disabled={saving}
-			/></label
-		>
-		<label
-			class="check"
-			title="Airwallex asks you to approve each transfer, so nothing leaves without you"
-			><input type="checkbox" bind:checked={approvalObserved} disabled={saving} />Payments need my
-			approval in Airwallex</label
-		>
-		<div class="buttons">
-			<button class="btn primary small" disabled={saving}
-				>{saving ? 'Connecting…' : 'Connect and check'}</button
+			/>
+		</Field>
+		<Field label="Approval">
+			<label class="form-check"
+				><input type="checkbox" bind:checked={approvalObserved} disabled={saving} />Payments need my
+				approval in Airwallex</label
 			>
-			<button
-				class="btn small ghost"
-				type="button"
-				disabled={saving}
-				onclick={() => (connecting = false)}>Cancel</button
-			>
-		</div>
+		</Field>
+		{#if error}<p class="form-error" role="alert">{error}</p>{/if}
+		<FormFoot
+			submit="Connect and check"
+			busy={saving}
+			busyLabel="Connecting…"
+			oncancel={() => {
+				connecting = false;
+				error = '';
+			}}
+		/>
 	</form>
 {/if}
-{#if error}<Notice tone="danger" title="Nothing changed">{error}</Notice>{/if}
+{#if error && !connecting}<Notice tone="danger" title="Nothing changed">{error}</Notice>{/if}
 {#if checked?.probe}<Notice
 		tone="success"
 		title="The provider answered"
@@ -269,85 +296,51 @@
 				>{/snippet}
 		</Item>{:else}
 		<form
-			class="rail-form"
+			class="form plain"
 			onsubmit={(event) => {
 				event.preventDefault();
 				void addAllowance();
 			}}
 		>
-			<label
-				>Currency <input
-					required
+			<header class="form-head"><strong>New payment allowance</strong></header>
+			<Field label="Currency" for="rail-currency">
+				<input
+					id="rail-currency"
+					class="currency"
 					maxlength="3"
 					placeholder="AUD"
 					bind:value={currency}
 					disabled={addSaving}
-				/></label
-			>
-			<label title="The provider account payments leave from"
-				>Pays from <input required bind:value={source} disabled={addSaving} /></label
-			>
-			<label
-				title="Beneficiaries already set up with the provider, by their reference; one per line"
-				>Payees <textarea rows="2" required bind:value={payees} disabled={addSaving}
-				></textarea></label
-			>
-			<label
-				>Each payment up to <input
-					inputmode="decimal"
-					required
-					bind:value={each}
-					disabled={addSaving}
-				/></label
-			>
-			<label
-				>In total <input
-					inputmode="decimal"
-					required
-					bind:value={total}
-					disabled={addSaving}
-				/></label
-			>
-			<div class="buttons">
-				<button class="btn primary small" disabled={addSaving}
-					>{addSaving ? 'Creating…' : 'Create'}</button
-				>
-				<button
-					class="btn small ghost"
-					type="button"
-					disabled={addSaving}
-					onclick={() => (adding = false)}>Cancel</button
-				>
-			</div>
+				/>
+			</Field>
+			<Field label="Pays from" hint="The provider account payments leave from" for="rail-source">
+				<input id="rail-source" bind:value={source} disabled={addSaving} />
+			</Field>
+			<Field label="Payees" hint="Set up with the provider, one per line" for="rail-payees">
+				<textarea id="rail-payees" rows="2" bind:value={payees} disabled={addSaving}></textarea>
+			</Field>
+			<Field label="Each payment up to" for="rail-each">
+				<input id="rail-each" inputmode="decimal" bind:value={each} disabled={addSaving} />
+			</Field>
+			<Field label="In total" for="rail-total">
+				<input id="rail-total" inputmode="decimal" bind:value={total} disabled={addSaving} />
+			</Field>
+			{#if addError}<p class="form-error" role="alert">{addError}</p>{/if}
+			<FormFoot
+				submit="Create"
+				busy={addSaving}
+				busyLabel="Creating…"
+				oncancel={() => {
+					adding = false;
+					addError = '';
+				}}
+			/>
 		</form>
 	{/if}
-	{#if addError}<Notice tone="danger" title="The allowance was not created">{addError}</Notice>{/if}
 {/if}
 
 <style>
 	.none {
 		color: var(--text-tertiary);
-	}
-	.rail-form {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-		gap: var(--space-2) var(--space-3);
-		padding: 12px 16px;
-		font-size: var(--t-body);
-	}
-	.rail-form label {
-		display: grid;
-		gap: 4px;
-		color: var(--text-secondary);
-	}
-	.rail-form .check {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-	}
-	.rail-form .buttons {
-		display: flex;
-		gap: var(--space-2);
-		align-items: end;
 	}
 </style>

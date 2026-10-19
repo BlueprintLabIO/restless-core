@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
-	import { Page, Section, Notice, Empty } from '$lib/ui/page';
+	import { Page, Section, Notice, Empty, Segmented } from '$lib/ui/page';
+	import Field from '$lib/ui/forms/Field.svelte';
+	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
 	import Dialog from '$lib/ui/controls/Dialog.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
@@ -249,63 +251,74 @@
 		busy={saving}
 		onclose={() => (draft = null)}
 	>
-		<form onsubmit={save} class="record-form">
-			<div class="form-pair">
-				<label
-					>Type<select aria-label="Type" bind:value={draft.kind}
-						><option value="expense">Expense</option><option value="income">Income</option></select
-					></label
-				><label
-					>Status<select aria-label="Status" bind:value={draft.status}
-						><option value="settled">Paid / received</option><option value="pending"
-							>Outstanding</option
-						>{#if draft.version}<option value="void">Voided</option>{/if}</select
-					></label
+		<form onsubmit={save} class="form flush record-form">
+			<Field label="Type">
+				<Segmented
+					label="Type"
+					options={[
+						{ value: 'expense', label: 'Expense' },
+						{ value: 'income', label: 'Income' }
+					]}
+					bind:value={draft.kind}
+				/>
+			</Field>
+			<Field label="Status" for="record-status">
+				<select id="record-status" bind:value={draft.status}
+					><option value="settled">{draft.kind === 'income' ? 'Received' : 'Paid'}</option><option
+						value="pending">Outstanding</option
+					>{#if draft.version}<option value="void">Voided</option>{/if}</select
 				>
-			</div>
-			<label>Description<input required maxlength="500" bind:value={draft.description} /></label>
-			<div class="form-pair">
-				<label
-					>Amount<input
+			</Field>
+			<Field label="Description" for="record-description">
+				<input id="record-description" required maxlength="500" bind:value={draft.description} />
+			</Field>
+			<Field label="Amount" for="record-amount">
+				<div class="form-inline">
+					<input
+						id="record-amount"
+						class="amount"
 						inputmode="decimal"
 						required
 						bind:value={amount}
 						placeholder="0.00"
-					/></label
-				><label
-					>Currency<input
+					/><input
+						class="currency"
 						required
 						maxlength="3"
 						bind:value={draft.currency}
 						autocomplete="off"
-					/></label
-				>
-			</div>
-			<div class="form-pair">
-				<label>Date<input type="date" required bind:value={draft.occurred_on} /></label><label
-					>Category<input
-						maxlength="100"
-						bind:value={draft.category}
-						placeholder="e.g. Sales, hosting"
-					/></label
-				>
-			</div>
-			<label>Customer or supplier<input maxlength="300" bind:value={draft.counterparty} /></label>
-			<label
-				>Receipt or source note<textarea
-					rows="3"
-					maxlength="4000"
-					bind:value={draft.evidence}
-					placeholder="Invoice number, Library path, receipt URL or source note"></textarea></label
+						aria-label="Currency"
+					/>
+				</div>
+			</Field>
+			<Field label="Date" for="record-date">
+				<input id="record-date" type="date" required bind:value={draft.occurred_on} />
+			</Field>
+			<Field label="Category" hint="Optional" for="record-category">
+				<input
+					id="record-category"
+					maxlength="100"
+					bind:value={draft.category}
+					placeholder="Sales, hosting"
+				/>
+			</Field>
+			<Field label="Customer or supplier" hint="Optional" for="record-party">
+				<input id="record-party" maxlength="300" bind:value={draft.counterparty} />
+			</Field>
+			<Field
+				label="Receipt or note"
+				hint="Invoice number, Library path or receipt link"
+				for="record-note"
 			>
-			{#if failure}<Notice tone="danger" title={failure} />{/if}
-			<footer>
-				<button type="button" class="btn small" disabled={saving} onclick={() => (draft = null)}
-					>Cancel</button
-				><button class="btn small primary" disabled={saving}
-					>{saving ? 'Saving…' : 'Save record'}</button
-				>
-			</footer>
+				<textarea id="record-note" rows="3" maxlength="4000" bind:value={draft.evidence}></textarea>
+			</Field>
+			{#if failure}<p class="form-error" role="alert">{failure}</p>{/if}
+			<FormFoot
+				submit="Save record"
+				busy={saving}
+				busyLabel="Saving…"
+				oncancel={() => (draft = null)}
+			/>
 		</form>
 	</Dialog>
 {/if}
@@ -457,29 +470,12 @@
 		display: grid;
 		gap: 16px;
 	}
-	.record-form label {
-		display: grid;
-		gap: 6px;
-		min-width: 0;
-		font-size: var(--t-label);
-	}
 	.record-form input,
 	.record-form select,
 	.record-form textarea {
 		width: 100%;
 		min-width: 0;
 		box-sizing: border-box;
-	}
-	.form-pair {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 12px;
-	}
-	footer {
-		display: flex;
-		gap: 8px;
-		justify-content: flex-end;
-		margin-top: 4px;
 	}
 	@container page (max-width:540px) {
 		dl {
