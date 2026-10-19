@@ -287,13 +287,13 @@
 	/* A step done on the company computer happens on the live desktop inside the card (S101):
 	 * a prepared computer connects by itself, a provider page opens there when asked. */
 	const stepUrl = $derived(
-		humanStep ? (action('open-external-human-step')?.href ?? instructionLink?.href ?? null) : null
+		action('open-external-human-step')?.href ?? (humanStep ? (instructionLink?.href ?? null) : null)
 	);
 	const desktopSurface = $derived(
 		canSetAside &&
 			!appRequest &&
 			!item.preparing &&
-			((!!item.runtimeAttach && item.category !== 'review') || (!!humanStep && !!stepUrl))
+			((!!item.runtimeAttach && item.category !== 'review') || !!stepUrl)
 	);
 	/* A live outcome to review renders in the card's content beside the decision. */
 	const outcomeInline = $derived(item.category === 'review' && !!item.reviewTarget);

@@ -2423,6 +2423,10 @@ async fn project_queue(
                     | restless_orgintel::OwnerHandoffCategory::Captcha
                     | restless_orgintel::OwnerHandoffCategory::Mfa
                     | restless_orgintel::OwnerHandoffCategory::LegalAttestation
+                    // Paying on a provider's own page (a registrar, a government form) with the
+                    // owner's own card: done on the company computer in the card, then confirmed
+                    // here. A payment Restless holds is confirmed with its provider instead.
+                    | restless_orgintel::OwnerHandoffCategory::PaymentConfirmation
             )
         {
             actions.push(AttentionAction {
@@ -3130,9 +3134,15 @@ async fn project_queue(
                     .model_candidates()
                     .map(|models| models.into_iter().map(str::to_string).collect())
                     .unwrap_or_default();
+                // A limit or credit refusal with a fallback that still answers is handled: work
+                // carries on there, so adding a fallback in the card answers it too (S101). A
+                // refused key or a withdrawn model still needs the owner.
+                let cooling: Vec<String> = cooldowns.iter().map(|cooldown| cooldown.model.clone()).collect();
+                let answered = candidates.iter().any(|model| !cooling.contains(model));
                 let current: Vec<_> = cooldowns
                     .into_iter()
                     .filter(|cooldown| candidates.is_empty() || candidates.contains(&cooldown.model))
+                    .filter(|cooldown| !(answered && cooldown.kind == "quota"))
                     .collect();
                 items.extend(model_cooldown_items(config, &current))
             }

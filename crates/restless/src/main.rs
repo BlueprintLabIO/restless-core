@@ -1822,8 +1822,16 @@ enum WorkCommand {
         #[arg(long)]
         attempt: Option<String>,
         #[arg(long)]
-        /// identity, captcha, mfa, legal-attestation, payment-confirmation, or owner-judgement
+        /// identity, captcha, mfa, legal-attestation, payment-confirmation, or owner-judgement.
+        /// A step the owner does on someone else's site (buying a domain at a registrar,
+        /// registering for an ABN, paying with their own card) is payment-confirmation or
+        /// legal-attestation, never owner-judgement.
         category: String,
+        /// What the owner does, in one sentence. Put the exact page address in it
+        /// (https://…): the Inbox opens that page on the company computer inside the card,
+        /// where the owner does the step and marks it done. A value only they know (an ABN,
+        /// a reference number) is an owner-judgement handoff: they type it in the card and
+        /// it returns to the Work as their exact answer.
         #[arg(long)]
         action: String,
         #[arg(long)]
