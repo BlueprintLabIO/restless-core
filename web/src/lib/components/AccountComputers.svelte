@@ -19,7 +19,6 @@
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
-	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 
 	let { companies }: { companies: { id: string; name: string }[] } = $props();
 
@@ -145,11 +144,9 @@
 </script>
 
 {#if available}<section class="computers" aria-label="Computers">
+		<!-- The page names the section and explains it (account-sections.ts); this row holds only
+		     its action, so "Computers" is not said twice (19 October). -->
 		<header class="head">
-			<h3>Computers</h3>
-			<InfoTip
-				text="Where your companies' computers run. Add one of your own to run a company at home or in your office: Restless can run only its own sealed containers there, never read your files or touch anything else. Your own computers are free."
-			/>
 			<button
 				type="button"
 				class="btn small"

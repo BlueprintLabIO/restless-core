@@ -28,7 +28,7 @@ export const ACCOUNT_SECTIONS: Record<AccountSectionId, AccountSectionInfo> = {
 	computers: section(
 		'computers',
 		'Computers',
-		"Where your companies' computers run: this plane, and any computer of your own you add. Restless runs only its own sealed containers on a computer you add."
+		"Where your companies' computers run: this plane, and any computer of your own you add. Restless runs only its own sealed containers on a computer you add, never reads your files, and charges nothing for it."
 	),
 	appearance: section(
 		'appearance',
