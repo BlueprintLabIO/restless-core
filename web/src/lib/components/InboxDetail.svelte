@@ -43,6 +43,8 @@
 	} from '$lib/model/attention-presentation';
 	import { getInboxMarks } from '$lib/model/for-you';
 	import SnoozeChoices from './SnoozeChoices.svelte';
+	import InlineAppRequest from './inbox/InlineAppRequest.svelte';
+	import InlineAccountRequest from './inbox/InlineAccountRequest.svelte';
 	import {
 		discussInbox,
 		appRequestHandoffs,
@@ -399,6 +401,13 @@
 		);
 	/* Mark done resumes the Work, so it waits out a few seconds of Undo first. */
 	let markingDone = $state(false);
+	/* A task finished inside the card (S101): the item leaves once the server agrees, and the page
+	 * shows the receipt and moves on. */
+	async function completedInline(receipt: string) {
+		await refreshAttention(client, companyId);
+		onresolved?.({ text: receipt, href: conversationHref });
+	}
+
 	async function markDone() {
 		if (acting || markingDone) return;
 		markingDone = true;
@@ -630,6 +639,12 @@
 						{:else}
 							<div class="ask"><Markdown text={item.requestedAction} /></div>
 						{/if}
+						{#if appRequest && humanStep && !item.preparing}<InlineAppRequest
+								{companyId}
+								request={appRequest}
+								owner={!canPassToOwner}
+								ondone={(receipt) => void completedInline(receipt)}
+							/>{/if}
 						{#if item.accountUse}<AccountUseNote
 								use={item.accountUse}
 								owner={!canPassToOwner}
@@ -651,6 +666,11 @@
 								{#if item.accountRequest.reason}<q>{item.accountRequest.reason}</q>{/if}
 							</p>
 						{/if}
+						{#if item.accountRequest && !item.preparing}<InlineAccountRequest
+								ask={item.accountRequest}
+								owner={!canPassToOwner}
+								ondone={(receipt) => void completedInline(receipt)}
+							/>{/if}
 						{#each drafts as draft, index (index)}
 							<pre
 								class="draft"
@@ -994,13 +1014,6 @@
 							/>
 						{/key}
 					{/if}
-					{#if requestLimits?.href}<a
-							class="btn small"
-							class:primary={!requestApprove}
-							href={requestLimits.href}
-							title={`${requestLimits.consequence} ${requestLimits.nextState}`}
-							>{requestLimits.label}</a
-						>{/if}
 					{#if requestDeny}<button
 							class="btn small"
 							disabled={acting}
@@ -1067,12 +1080,7 @@
 							>{acting ? 'Opening…' : 'Open the document'}</button
 						>{/if}
 				{:else if appRequest && humanStep}
-					<a
-						class="btn primary small"
-						href={appRequest.href(companyId)}
-						title="Opens the app with this request attached. Allowing it resumes the work on its own."
-						>{appRequest.addLabel}</a
-					>
+					<!-- Answered in the card above; the footer keeps skip and the menu. -->
 				{:else if humanStep}
 					{#if instructionLink}<a
 							class="btn primary small"

@@ -96,6 +96,8 @@ export type AccountRequest = {
 	kind: AccountKind;
 	abilities: Abilities;
 	reason: string;
+	/** The site an agent named, to fill in the sign-in page (S101). */
+	site?: string | null;
 	requested_by_display: string;
 };
 export type AccountUseReceipt = AccountUseRef & { use_id: number | string; result: UseResult };

@@ -1046,13 +1046,19 @@ async fn account_items(
         item.requested_action = "Approve, approve with limits, or deny.".into();
         item.if_no_action = "The company goes without it.".into();
         let mut href = format!("/account/connections?company={company}&request={}", request.id);
+        // The site an agent named ("facebook.com: …"), so the card can fill in the sign-in page.
+        let site = request
+            .reason
+            .split_once(": ")
+            .map(|(site, _)| site)
+            .filter(|site| !site.contains(char::is_whitespace) && site.len() <= 120 && site.contains('.'));
         if let Some(account) = &request.account_id {
             href.push_str(&format!("&account={account}"));
         } else if let Some(kind) = &request.kind {
             // An account the owner does not hold yet: Settings opens Add account for it, with the
-            // site an agent named ("facebook.com: …"), and saving the grant answers the request.
+            // site an agent named, and saving the grant answers the request.
             href.push_str(&format!("&kind={kind}"));
-            if let Some((site, _)) = request.reason.split_once(": ").filter(|(site, _)| !site.contains(char::is_whitespace) && site.len() <= 120) {
+            if let Some(site) = site {
                 href.push_str(&format!("&site={}", url::form_urlencoded::byte_serialize(site.as_bytes()).collect::<String>()));
             }
         }
@@ -1063,6 +1069,7 @@ async fn account_items(
             "kind": request.kind,
             "abilities": request.abilities,
             "reason": request.reason,
+            "site": site,
             "requested_by_display": who,
         }));
         item.actions = Vec::new();
