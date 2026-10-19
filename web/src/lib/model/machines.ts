@@ -2,6 +2,7 @@
  * the owner adds their own computers with a one-time code and one line. Only the owner manages
  * them; a company's members see that company's machines. */
 import { ownerRequest, ownerSend } from './setting.svelte';
+export { likelyWindows, machineStatus, machineSummary } from './machine-view';
 
 export interface MachineFacts {
 	hostname: string;
@@ -88,28 +89,4 @@ export function companyMachines(id: string): Promise<CompanyMachines> {
 
 export function moveCompany(id: string, machine: string) {
 	return ownerSend(`${company(id)}/move`, { method: 'POST', json: { machine_id: machine } });
-}
-
-/** "Windows 11 · 8 CPUs · 32 GB", from what the machine reports. */
-export function machineSummary(facts: { os: string; cpus: number; memory_bytes: number }): string {
-	const parts: string[] = [];
-	if (facts.os) parts.push(facts.os);
-	if (facts.cpus) parts.push(`${facts.cpus} CPU${facts.cpus === 1 ? '' : 's'}`);
-	if (facts.memory_bytes) parts.push(`${Math.round(facts.memory_bytes / 1024 ** 3)} GB`);
-	return parts.join(' · ');
-}
-
-/** What a row says about whether the machine can run anything now. */
-export function machineStatus(machine: { kind: string; online: boolean; paused: boolean }): {
-	label: string;
-	tone: 'ok' | 'muted' | 'warn';
-} {
-	if (machine.kind === 'plane') return { label: 'Always on', tone: 'ok' };
-	if (machine.paused) return { label: 'Paused', tone: 'muted' };
-	return machine.online ? { label: 'Connected', tone: 'ok' } : { label: 'Offline', tone: 'warn' };
-}
-
-/** Which install line fits this browser's computer. */
-export function likelyWindows(userAgent: string): boolean {
-	return /Windows/i.test(userAgent);
 }
