@@ -49,6 +49,9 @@
 	import InlineModel from './inbox/InlineModel.svelte';
 	import InlineSpendLimit from './inbox/InlineSpendLimit.svelte';
 	import InlineDesktop from './inbox/InlineDesktop.svelte';
+	import InlineBrandDrift from './inbox/InlineBrandDrift.svelte';
+	import InlineMachine from './inbox/InlineMachine.svelte';
+	import InlineReconnect from './inbox/InlineReconnect.svelte';
 	import {
 		discussInbox,
 		appRequestHandoffs,
@@ -207,10 +210,24 @@
 	/* Cards whose task the card itself does (S101): their links out are not shown. */
 	const MODEL_KINDS = ['model_cooldown', 'account_headroom', 'exec_startup_blocked', 'agent_model_unavailable'];
 	const SPEND_KINDS = ['spend_warning', 'spend_stopped'];
-	const modelSurface = $derived(MODEL_KINDS.includes(item.source.kind));
+	const modelSurface = $derived(
+		MODEL_KINDS.includes(item.source.kind) || !!action('open-intelligence-provider')
+	);
 	const spendSurface = $derived(SPEND_KINDS.includes(item.source.kind));
+	const driftSurface = $derived(item.source.kind === 'identity_drift');
+	const machineSurface = $derived(item.source.kind === 'machine_offline');
+	const reconnectSurface = $derived(item.source.kind === 'connection_sign_in');
+	/* An outside action that failed or went unanswered: the answer goes to whoever ran it. */
+	const outcomeSurface = $derived(
+		item.source.kind === 'effect_outcome' || item.source.kind === 'payment_outcome'
+	);
+	const outcomeAnswers = $derived(
+		item.uncertainty
+			? ['It happened, carry on', 'It did not happen, retry it', 'Drop it']
+			: ['Fix it and retry', 'Drop it']
+	);
 	const navigation = $derived(
-		modelSurface || spendSurface
+		modelSurface || spendSurface || driftSurface || machineSurface || reconnectSurface
 			? []
 			: item.actions.filter(
 					(candidate) =>
@@ -700,6 +717,36 @@
 								owner={!canPassToOwner}
 								topUpHref={action('top-up-ai-credit')?.href}
 								ondone={(receipt) => void completedInline(receipt)}
+							/>{/if}
+						{#if driftSurface}<InlineBrandDrift
+								{companyId}
+								finding={item.source.reference}
+								owner={!canPassToOwner}
+								ondone={(receipt) => void completedInline(receipt)}
+							/>{/if}
+						{#if reconnectSurface}<InlineReconnect
+								{companyId}
+								name={item.source.reference}
+								owner={!canPassToOwner}
+								ondone={(receipt) => void completedInline(receipt)}
+							/>{/if}
+						{#if machineSurface}<InlineMachine
+								{companyId}
+								machineId={item.source.reference}
+								owner={!canPassToOwner}
+								ondone={(receipt) => void completedInline(receipt)}
+							/>{/if}
+						{#if outcomeSurface && canSetAside}<InlineReply
+								{companyId}
+								actorId={item.responsibleActor?.id ?? 'exec'}
+								actorName={item.responsibleActor?.display ?? 'Exec'}
+								question={item.title}
+								answers={outcomeAnswers}
+								workId={item.workId}
+								ondone={(receipt) =>
+									void setAsideInboxItem(client, companyId, item.id).then(() =>
+										completedInline(receipt)
+									)}
 							/>{/if}
 						{#if desktopSurface}{#key item.id}<InlineDesktop
 									{companyId}

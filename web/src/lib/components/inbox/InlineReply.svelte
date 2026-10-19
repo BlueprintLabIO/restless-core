@@ -17,6 +17,7 @@
 		actorName,
 		question,
 		workId,
+		answers,
 		ondone
 	}: {
 		companyId: string;
@@ -25,6 +26,8 @@
 		/** What the agent asked, as its card states it. */
 		question: string;
 		workId?: string | null;
+		/** One-tap answers the card knows better than its question's wording. */
+		answers?: string[];
 		ondone: (receipt: string) => void;
 	} = $props();
 
@@ -33,7 +36,7 @@
 	let sending = $state(false);
 	let error = $state('');
 	let field = $state<HTMLTextAreaElement | null>(null);
-	const choices = $derived(quickAnswers(question));
+	const choices = $derived(answers ?? quickAnswers(question));
 
 	onMount(() => {
 		void getActorConversation(companyId, actorId, workId ?? undefined)
