@@ -256,8 +256,10 @@
 			client.resizeSession = interactive || canResize;
 			client.scaleViewport = true;
 			client.background = '#101217';
-			client.qualityLevel = 9;
-			client.compressionLevel = 2;
+			// Measured 19 October (docs/audits/desktop-trial-2026-10-19.md): JPEG quality 9 fell to
+			// 6 fps on a 20 Mbit, 90 ms link and 2.6 fps at 8 Mbit; quality 6 kept 18 and 7.
+			client.qualityLevel = 6;
+			client.compressionLevel = 6;
 			client.addEventListener('connect', () => {
 				if (current !== generation) return;
 				retryCount = 0;
