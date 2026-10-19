@@ -49,7 +49,14 @@
 	let intelligence = $state<IntelligenceView | null>(null);
 	const stranded = $derived(
 		refusedModel && intelligence
-			? intelligence.agents.filter((agent) => agent.assignment && agent.effective_model === refusedModel)
+			? intelligence.agents.filter(
+					(agent) =>
+						agent.assignment &&
+						agent.effective_model === refusedModel &&
+						/* Only when the company model is on another account: a limit is account-wide, so
+						 * moving to the same account's default would be refused too (Snake Oil, 19 Oct). */
+						agent.assignment.connection !== (intelligence?.default ?? intelligence?.base_default)?.connection
+				)
 			: []
 	);
 

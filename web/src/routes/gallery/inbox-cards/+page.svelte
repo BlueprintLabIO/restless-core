@@ -306,7 +306,7 @@
 		}],
 		[/^\/api\/companies$/, []],
 		[/\/intelligence$/, {
-			revision: 'r1', default: { connection: 'account:openai-codex@x', model: 'gpt-6.1-sol' }, has_connections: true, connections: [],
+			revision: 'r1', default: { connection: 'account:anthropic@y', model: 'claude-sonnet-5' }, has_connections: true, connections: [],
 			agents: [
 				{ id: 'exec', name: 'The Exec', role: 'exec', assignment: { connection: 'account:openai-codex@x', model: 'gpt-6-luna' }, effective_model: 'openai-codex/gpt-6-luna', harness: 'restless-managed' },
 				{ id: 'print-design', name: 'Abu', role: 'design', assignment: null, effective_model: 'openai-codex/gpt-6.1-sol', harness: 'restless-managed' }
