@@ -135,6 +135,72 @@ pub fn claude_header_windows(header: impl Fn(&str) -> Option<String>, now: DateT
         .collect()
 }
 
+/// One account sign-in's limits as the model broker last read them from its provider.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrokerReport {
+    pub provider: String,
+    /// The provider's account id or email, when the report names one.
+    pub account_key: Option<String>,
+    pub windows: Vec<Window>,
+}
+
+/// The windows in the broker's `GET /v1/usage` body. The broker asks each provider itself (ChatGPT's
+/// usage endpoint, Claude's), so this works when no response header ever reaches the relay: OMP's
+/// gateway reads the providers' rate-limit headers itself and does not pass them on, which left
+/// Settings › Usage "Unknown" for accounts in daily use (20 October). Only an account's main
+/// windows are taken, under the names the header path uses: Codex `primary`/`secondary`, Claude
+/// `5h`/`7d`.
+pub fn broker_reports(body: &serde_json::Value) -> Vec<BrokerReport> {
+    let Some(reports) = body.get("reports").and_then(serde_json::Value::as_array) else {
+        return Vec::new();
+    };
+    reports
+        .iter()
+        .filter_map(|report| {
+            let provider = report.get("provider")?.as_str()?.to_string();
+            let metadata = report.get("metadata");
+            let account_key = ["accountId", "email"].iter().find_map(|field| {
+                metadata?.get(*field)?.as_str().filter(|value| !value.is_empty()).map(str::to_string)
+            });
+            let windows = report
+                .get("limits")?
+                .as_array()?
+                .iter()
+                .filter_map(|limit| {
+                    let id = limit.get("id")?.as_str()?;
+                    let name = id.strip_prefix(&format!("{provider}:"))?;
+                    if !matches!(name, "primary" | "secondary" | "5h" | "7d") {
+                        return None;
+                    }
+                    let amount = limit.get("amount")?;
+                    let number = |field: &str| amount.get(field).and_then(serde_json::Value::as_f64);
+                    let used = number("usedFraction")
+                        .map(|fraction| fraction * 100.0)
+                        .or_else(|| {
+                            (amount.get("unit").and_then(serde_json::Value::as_str) == Some("percent"))
+                                .then(|| number("used"))
+                                .flatten()
+                        })
+                        .or_else(|| match (number("used"), number("limit")) {
+                            (Some(used), Some(limit)) if limit > 0.0 => Some(used / limit * 100.0),
+                            _ => None,
+                        })
+                        .filter(|used| used.is_finite())?;
+                    let window = limit.get("window");
+                    let window_minutes = window
+                        .and_then(|window| window.get("durationMs")?.as_f64())
+                        .map(|ms| (ms / 60_000.0).round() as i64);
+                    let resets_at = window
+                        .and_then(|window| window.get("resetsAt")?.as_f64())
+                        .and_then(|ms| Utc.timestamp_millis_opt(ms as i64).single());
+                    Some(Window { name: name.to_string(), used_percent: used.clamp(0.0, 100.0), window_minutes, resets_at })
+                })
+                .collect::<Vec<_>>();
+            (!windows.is_empty()).then_some(BrokerReport { provider, account_key, windows })
+        })
+        .collect()
+}
+
 /// The account a company's model uses, as `provider@connection`, from its credential reference
 /// (`omp-oauth:openai-codex@<connection id>`).
 pub fn account_of(reference: &str) -> Option<String> {
@@ -276,7 +342,10 @@ pub fn burn_by_company(samples: &[(DateTime<Utc>, f64, String)]) -> Vec<(String,
         }
         previous = Some(*used);
     }
-    let mut ranked: Vec<(String, f64)> = totals.into_iter().filter(|(_, points)| *points > 0.0).collect();
+    let mut ranked: Vec<(String, f64)> = totals
+        .into_iter()
+        .filter(|(company, points)| *points > 0.0 && !company.is_empty())
+        .collect();
     ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
     ranked
 }
@@ -347,6 +416,58 @@ mod tests {
 
     fn now() -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 10, 19, 1, 0, 0).unwrap()
+    }
+
+    #[test]
+    fn the_brokers_usage_report_gives_each_sign_ins_main_windows() {
+        let body = serde_json::json!({
+            "generatedAt": 1_760_900_000_000_i64,
+            "reports": [
+                {
+                    "provider": "openai-codex",
+                    "fetchedAt": 1_760_900_000_000_i64,
+                    "metadata": { "accountId": "acct_1", "email": "a@b.test" },
+                    "limits": [
+                        { "id": "openai-codex:primary", "label": "5 Hour", "scope": { "provider": "openai-codex" },
+                          "window": { "id": "5h", "durationMs": 18_000_000, "resetsAt": 1_760_910_000_000_i64 },
+                          "amount": { "usedFraction": 0.42, "unit": "percent" } },
+                        { "id": "openai-codex:secondary", "label": "7 Day", "scope": { "provider": "openai-codex" },
+                          "window": { "id": "7d", "durationMs": 604_800_000 },
+                          "amount": { "used": 17, "unit": "percent" } },
+                        { "id": "openai-codex:gpt-6:primary", "label": "5 Hour (GPT-6)", "scope": { "provider": "openai-codex" },
+                          "amount": { "usedFraction": 0.9, "unit": "percent" } }
+                    ]
+                },
+                { "provider": "anthropic", "fetchedAt": 0, "limits": [
+                    { "id": "anthropic:5h", "label": "Claude 5 Hour", "scope": { "provider": "anthropic" },
+                      "amount": { "used": 30, "limit": 120, "unit": "tokens" } },
+                    { "id": "anthropic:extra", "label": "Extra", "scope": { "provider": "anthropic" },
+                      "amount": { "usedFraction": 0.1, "unit": "usd" } }
+                ] }
+            ]
+        });
+        let reports = broker_reports(&body);
+        assert_eq!(reports.len(), 2);
+        assert_eq!(reports[0].account_key.as_deref(), Some("acct_1"));
+        let names: Vec<_> = reports[0].windows.iter().map(|window| window.name.as_str()).collect();
+        assert_eq!(names, ["primary", "secondary"], "a model's own window is not the account's");
+        assert!((reports[0].windows[0].used_percent - 42.0).abs() < 1e-9);
+        assert_eq!(reports[0].windows[0].window_minutes, Some(300));
+        assert!(reports[0].windows[0].resets_at.is_some());
+        assert!((reports[0].windows[1].used_percent - 17.0).abs() < 1e-9);
+        assert_eq!(reports[1].windows.len(), 1);
+        assert!((reports[1].windows[0].used_percent - 25.0).abs() < 1e-9);
+        assert!(broker_reports(&serde_json::json!({})).is_empty());
+    }
+
+    #[test]
+    fn an_account_wide_reading_is_nobodys_burn() {
+        let samples = vec![
+            (now(), 10.0, String::new()),
+            (now(), 15.0, "reno".to_string()),
+            (now(), 18.0, String::new()),
+        ];
+        assert_eq!(burn_by_company(&samples), vec![("reno".to_string(), 5.0)]);
     }
 
     #[test]

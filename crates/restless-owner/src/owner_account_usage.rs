@@ -12,11 +12,55 @@ pub(super) async fn accounts(
     if !principal.is_account_owner() {
         return api_error(StatusCode::FORBIDDEN, "usage", "Only the account owner sees account usage.");
     }
+    refresh_from_broker(&state).await;
     match account_usage::accounts(state.daemon.authority.pool(), Utc::now()).await {
         Ok(accounts) => Json(serde_json::json!({ "accounts": accounts, "now": Utc::now() })).into_response(),
         Err(error) => {
             tracing::warn!(error = %format!("{error:#}"), "account usage unavailable");
             api_error(StatusCode::SERVICE_UNAVAILABLE, "usage", "Account usage could not be read. Try again.")
+        }
+    }
+}
+
+/// How often the broker is asked; it asks the providers in turn.
+const BROKER_REFRESH: std::time::Duration = std::time::Duration::from_secs(60);
+static LAST_BROKER_READ: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+/// Record each account sign-in's limits as the broker reports them, under the same account names
+/// a company's calls would record them. A failure only leaves the last reading in place.
+async fn refresh_from_broker(state: &OwnerState) {
+    {
+        let Ok(mut last) = LAST_BROKER_READ.lock() else { return };
+        if last.is_some_and(|at| at.elapsed() < BROKER_REFRESH) {
+            return;
+        }
+        *last = Some(std::time::Instant::now());
+    }
+    let reports = match restless_engine::model_gateway::broker_usage().await {
+        Ok(reports) => reports,
+        Err(error) => {
+            tracing::warn!(error = %format!("{error:#}"), "account usage: broker unreadable");
+            return;
+        }
+    };
+    let Ok(registry) = load_owner_connections(&state.daemon.root) else { return };
+    let now = Utc::now();
+    for connection in registry.connections.iter().filter(|connection| connection.kind == "oauth") {
+        let Some(account) = account_usage::account_of(&owner_connection_reference(connection)) else {
+            continue;
+        };
+        let mine = reports.iter().filter(|report| report.provider == connection.provider);
+        let report = mine
+            .clone()
+            .find(|report| {
+                connection.account_key.is_some() && report.account_key.as_deref() == connection.account_key.as_deref()
+            })
+            .or_else(|| mine.clone().next());
+        let Some(report) = report else { continue };
+        if let Err(error) =
+            account_usage::record(state.daemon.authority.pool(), &account, "", &report.windows, "broker", now).await
+        {
+            tracing::warn!(%account, error = %format!("{error:#}"), "account usage not recorded");
         }
     }
 }
@@ -40,6 +84,9 @@ pub(super) async fn company(
         let reference = config.credentials.get(&format!("model.inference.{provider}"))?;
         account_usage::account_of(reference)
     });
+    if account.is_some() {
+        refresh_from_broker(&state).await;
+    }
     let windows = match &account {
         Some(account) => match account_usage::accounts(state.daemon.authority.pool(), Utc::now()).await {
             Ok(accounts) => accounts.into_iter().find(|view| &view.account == account).map(|view| view.windows),

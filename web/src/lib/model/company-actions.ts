@@ -116,6 +116,27 @@ export async function readArchivedLibrary<T>(
 	return ownerRequest<T>(`${api(company)}/library/archived`, { signal });
 }
 
+/** Owner-only: when each Library file last changed on the computer, by its path. An empty map
+ * when the computer is asleep or the read fails. */
+export async function readLibraryModified(
+	company: string,
+	signal?: AbortSignal
+): Promise<Record<string, string>> {
+	const body = await ownerRequest<{ modified?: Record<string, string> }>(
+		`${api(company)}/library/modified`,
+		{ signal }
+	).catch(() => null);
+	return body?.modified ?? {};
+}
+
+/** The later of a row's own time and when its file last changed. */
+export function latestTime(recorded: string, changed: string | undefined): string {
+	if (!changed) return recorded;
+	const a = Date.parse(recorded);
+	const b = Date.parse(changed);
+	return Number.isNaN(a) || (!Number.isNaN(b) && b > a) ? changed : recorded;
+}
+
 /** A file a message refers to, resolved to a viewable URL or its text. */
 export function readMessageReference<T>(company: string, message: string, path: string) {
 	return ownerRequest<T>(
