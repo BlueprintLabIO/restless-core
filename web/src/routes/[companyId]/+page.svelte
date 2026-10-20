@@ -357,6 +357,9 @@
 	$effect(() => {
 		if (!requestedPreview) hiddenPreview = null;
 	});
+	/* The empty queue's marks belong to the empty pane: over an open item or preview they covered
+	 * its header and left a bar along its foot (20 October). */
+	const paneEmpty = $derived(!selectedItem && !previewTarget);
 	async function openPreview(href: string | URL, options?: Parameters<typeof goto>[1]) {
 		const target = inboxPreviewTarget(companyId, href, page.url.origin);
 		if (!target) return goto(href, options);
@@ -791,11 +794,11 @@
 			{/if}
 			<button
 				class="attention-clear-control"
-				class:visible={showClear}
+				class:visible={showClear && paneEmpty}
 				type="button"
-				aria-hidden={!showClear}
-				tabindex={showClear ? 0 : -1}
-				title={showClear ? 'No decision is waiting on you. Check again now.' : undefined}
+				aria-hidden={!(showClear && paneEmpty)}
+				tabindex={showClear && paneEmpty ? 0 : -1}
+				title={showClear && paneEmpty ? 'No decision is waiting on you. Check again now.' : undefined}
 				onclick={() => void refresh()}
 			>
 				<span class="attention-clear-glyph" aria-hidden="true">
@@ -803,7 +806,7 @@
 				</span>
 				<span>No decisions</span>
 			</button>
-			{#if queueClear}<div class="attention-set-aside">
+			{#if queueClear && paneEmpty}<div class="attention-set-aside">
 					{#if owner}<SetAsideList {companyId} />{/if}
 					{#if forYou}<button
 							type="button"

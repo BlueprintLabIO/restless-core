@@ -3269,8 +3269,8 @@ model = \"anthropic/claude-sonnet-5-5\"
             entered_session_cookie_value(&store, headers, name, identity, token)
         };
 
-        // The account entered first and a company after it: a request from an account page that
-        // names that company (Settings giving it a connection) is still the account's.
+        // A browser that still holds a company session beside the account session (from before
+        // one-session entry): the account session decides, from any page.
         let owner_scope = || identity(crate::entry::CompanyScope::Owner);
         let account = store.establish(owner_scope(), ttl);
         let signed_in = enter(&HeaderMap::new(), &owner_scope(), &account);
@@ -3282,7 +3282,10 @@ model = \"anthropic/claude-sonnet-5-5\"
                 .map(|(_, lease)| lease.identity.scope.clone())
         };
         assert_eq!(deciding("/account/settings/accounts"), Some(crate::entry::CompanyScope::Owner));
-        assert_eq!(deciding("/reno/company/intelligence"), Some(scoped("reno").scope));
+        assert_eq!(deciding("/reno/company/intelligence"), Some(crate::entry::CompanyScope::Owner));
+        // Entering as the account stands alone: the company sessions it covers are not carried.
+        let again = store.establish(owner_scope(), ttl);
+        assert_eq!(enter(&cookie(&entered), &owner_scope(), &again), again);
 
         let aris = store.establish(scoped("aris"), ttl);
         let first = enter(&HeaderMap::new(), &scoped("aris"), &aris);
@@ -4636,3 +4639,17 @@ mission = "Configure Exec separately"
         assert!(!anthropic_sign_in_beside_key("anthropic", false, false));
         assert!(!anthropic_sign_in_beside_key("openai", true, false));
     }
+
+    #[test]
+    fn only_the_recorded_account_owner_is_known_as_the_account_owner() {
+        let root = std::env::temp_dir().join(format!("restless-account-owner-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        assert!(!is_recorded_account_owner(&root, "https://issuer.test", "user_1"));
+        record_account_owner(&root, "https://issuer.test", "user_1").unwrap();
+        assert!(is_recorded_account_owner(&root, "https://issuer.test", "user_1"));
+        assert!(!is_recorded_account_owner(&root, "https://issuer.test", "user_2"));
+        assert!(!is_recorded_account_owner(&root, "https://other.test", "user_1"));
+        assert!(record_account_owner(&root, "", "user_1").is_err());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+

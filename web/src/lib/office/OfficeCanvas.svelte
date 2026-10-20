@@ -175,7 +175,7 @@
 			y: canvas.height / 2 - (view.row + 0.5) * TILE_SIZE * zoomPx - centered.offsetY
 		};
 		/* A camera driven by scrolling has to keep pace with the page, so a real move paints on
-		 * the next frame instead of waiting for the 30 fps ambient cadence. Sub-pixel easing that
+		 * the next frame instead of waiting for the 24 fps ambient cadence. Sub-pixel easing that
 		 * cannot change a single painted pixel does not count as a move. */
 		if (zoomPx !== lastCameraZoom || Math.abs(next.x - cameraPan.x) >= 0.5 || Math.abs(next.y - cameraPan.y) >= 0.5) {
 			paintRequested = true;
@@ -364,9 +364,11 @@
 						if (documentVisible && onScreen && !reducedMotion) updateOffice(delta);
 					},
 					render: (context) => {
-						/* Pixel art reads the same at 30 frames a second, and a
-						 * 60Hz repaint of a full-pane canvas is the office's main
-						 * cost; the canvas keeps its last frame in between. */
+						/* The floor paints at a steady 24 frames a second on a fixed clock, so every
+						 * frame is the same distance apart; the canvas keeps its last frame in between.
+						 * It used to drop to 12 whenever a text box had focus (the rail composer usually
+						 * does) and to time each frame from the last one, which read as choppy
+						 * (20 October). */
 						const now = performance.now();
 						/* The page moved the camera: paint now so the scene keeps pace with the scroll. */
 						if (paintRequested) {
@@ -377,13 +379,9 @@
 						}
 						/* Paused, hidden or scrolled away: the canvas keeps its last frame. */
 						if (!documentVisible || !onScreen) return;
-						/* While someone is typing, keystrokes come first: the
-						 * floor slows to 12 frames a second. */
-						const typing = document.activeElement?.matches(
-							'input, textarea, [contenteditable="true"]'
-						);
-						const interval = typing ? TYPING_PAINT_INTERVAL_MS : MIN_PAINT_INTERVAL_MS;
-						if (now - lastPaintAt < interval) return;
+						// Half a 60Hz frame of slack, so a frame due a moment from now is not put off by one.
+						if (now + 8 < nextPaintAt) return;
+						nextPaintAt = now - nextPaintAt > PAINT_INTERVAL_MS ? now + PAINT_INTERVAL_MS : nextPaintAt + PAINT_INTERVAL_MS;
 						lastPaintAt = now;
 						render(context, now);
 					}
@@ -911,9 +909,10 @@
 			selectedActorId = null;
 	}
 
-	const MIN_PAINT_INTERVAL_MS = 1000 / 30 - 2;
-	const TYPING_PAINT_INTERVAL_MS = 1000 / 12 - 2;
+	const PAINT_INTERVAL_MS = 1000 / 24;
 	let lastPaintAt = 0;
+	/* When the next frame of the fixed 24 fps clock is due. */
+	let nextPaintAt = 0;
 	/* Set by setCamera when the page moves the camera; the next frame paints at once. */
 	let paintRequested = false;
 	let lastCameraZoom = 0;

@@ -17,6 +17,9 @@ const HIDE_GRACE_MS = 140;
 const FADE_MS = 120;
 const GAP = 8;
 const MARGIN = 8;
+/* A frame's title names it for assistive technology; it is not a hint. Hovering a document or
+ * page preview showed its whole title in a tip that repeated the header (20 October). */
+const TIPPED = '[title]:not(iframe, embed, object)';
 
 export function tooltips(root: HTMLElement) {
 	if (typeof window === 'undefined') return;
@@ -120,7 +123,7 @@ export function tooltips(root: HTMLElement) {
 
 	function enter(event: PointerEvent) {
 		if (event.pointerType !== 'mouse') return;
-		const next = (event.target as Element | null)?.closest?.<HTMLElement>('[title]');
+		const next = (event.target as Element | null)?.closest?.<HTMLElement>(TIPPED);
 		if (!next || !root.contains(next)) return;
 		if (next === target) {
 			clearTimeout(graceTimer);
@@ -137,7 +140,7 @@ export function tooltips(root: HTMLElement) {
 	}
 
 	function focusIn(event: FocusEvent) {
-		const next = (event.target as Element | null)?.closest?.<HTMLElement>('[title]');
+		const next = (event.target as Element | null)?.closest?.<HTMLElement>(TIPPED);
 		// Only keyboard focus: a click focuses a button too, and the pointer path handles that.
 		if (!next || !root.contains(next) || !next.matches(':focus-visible')) return;
 		if (next === target) return;

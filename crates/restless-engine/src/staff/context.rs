@@ -620,7 +620,12 @@ pub fn bound_attempt_context(
              Judge the customer-facing outcome before policing constraints. Review in this order: \
              (1) is the offer immediately clear, valuable and credible to its intended reader; \
              (2) does the voice feel natural, specific and confident; (3) is the requested action easy; \
-             (4) are claims supported and internal boundaries respected. Quality comes first, but it \
+             (4) are claims supported and internal boundaries respected; \
+             (5) is there a clearly better way to reach the same outcome, or is any part obsolete: \
+             superseded by a newer version, a changed decision, the charter or work elsewhere in the \
+             company. A review does not only look for mistakes. Name a clearly better approach or an \
+             obsolete part as a concrete requested change with its reason; do not ask for change \
+             merely to differ. Quality comes first, but it \
              never licenses invented facts. Distinguish an empirical claim from a deliberate commercial \
              offer: a company-chosen prototype, trial, price or service promise is a decision to honour, \
              not a historical fact that must be hedged for lack of prior evidence. If the stated offer \

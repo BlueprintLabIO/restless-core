@@ -363,6 +363,57 @@ pub(super) async fn archive_work_file(
 }
 
 /// GET /companies/{company}/library/archived: the Work files the owner archived.
+/// How recently each Library file changed on the computer, by its path. An agent that edits a site
+/// in place records no new output, so the Library's "Updated" kept the day the file was first
+/// made (20 October). Owner only; read at most every 30 seconds per company.
+pub(super) async fn library_modified(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    static CACHE: std::sync::LazyLock<
+        std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, serde_json::Value)>>,
+    > = std::sync::LazyLock::new(Default::default);
+    if principal.membership_role() != "owner" || !principal.permits_company(&company) {
+        return Json(serde_json::json!({ "modified": {} })).into_response();
+    }
+    if let Some((at, body)) = CACHE.lock().ok().and_then(|cache| cache.get(&company).cloned()) {
+        if at.elapsed() < std::time::Duration::from_secs(30) {
+            return Json(body).into_response();
+        }
+    }
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
+    };
+    let artifacts = match org.list_artifact_refs(None).await {
+        Ok(artifacts) => artifacts,
+        Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
+    };
+    let mut paths: Vec<String> = artifacts
+        .into_iter()
+        .filter(|artifact| artifact.superseded_at.is_none() && artifact.uri.starts_with("/company/"))
+        .map(|artifact| artifact.uri)
+        .collect();
+    paths.sort();
+    paths.dedup();
+    let times = restless_engine::runtime_files::modified_times(&company, &paths)
+        .await
+        .unwrap_or_default();
+    let modified: serde_json::Map<String, serde_json::Value> = times
+        .into_iter()
+        .filter_map(|(path, seconds)| {
+            let at = chrono::DateTime::from_timestamp(seconds, 0)?;
+            Some((path, serde_json::Value::String(at.to_rfc3339())))
+        })
+        .collect();
+    let body = serde_json::json!({ "modified": modified });
+    if let Ok(mut cache) = CACHE.lock() {
+        cache.insert(company, (std::time::Instant::now(), body.clone()));
+    }
+    Json(body).into_response()
+}
+
 pub(super) async fn archived_work_files(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,

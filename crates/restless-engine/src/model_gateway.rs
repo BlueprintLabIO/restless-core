@@ -3484,6 +3484,30 @@ async fn account_broker_snapshot() -> Result<BrokerSnapshot> {
     }).await
 }
 
+/// The account sign-ins' limits, as the broker reads them from each provider (S100). The broker
+/// fetches upstream on request, so this may take a few seconds.
+pub async fn broker_usage() -> Result<Vec<crate::account_usage::BrokerReport>> {
+    let Some(access) = BROKER_ACCESS
+        .read()
+        .map_err(|_| anyhow::anyhow!("host model broker state is unavailable"))?
+        .clone()
+    else {
+        return Ok(Vec::new());
+    };
+    let http = reqwest::Client::builder().timeout(Duration::from_secs(20)).build()?;
+    let response = http
+        .get(format!("{}/v1/usage", access.url))
+        .bearer_auth(&access.token)
+        .send()
+        .await
+        .context("read host model broker usage")?;
+    if !response.status().is_success() {
+        bail!("host model broker usage failed with HTTP {}", response.status());
+    }
+    let body = response.json::<serde_json::Value>().await.context("parse host model broker usage")?;
+    Ok(crate::account_usage::broker_reports(&body))
+}
+
 /// A grant can arrive during the normal broker reload after an account is saved.
 /// Retry only startup/transport gaps; an authenticated absence or a refused/invalid
 /// snapshot is an immediate observation, never a reason to retry a mutation.

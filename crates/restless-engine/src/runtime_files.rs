@@ -115,6 +115,40 @@ pub async fn list(company: &str, folder: &str) -> Result<ComputerFolder> {
     })
 }
 
+/// When each of these files under `/company` last changed, in seconds since the epoch. One
+/// `stat` for all of them; a file that is gone, or a computer that is asleep (the exec fails), is
+/// simply absent: this never wakes the computer. At most 400 paths are asked.
+pub async fn modified_times(
+    company: &str,
+    paths: &[String],
+) -> Result<std::collections::HashMap<String, i64>> {
+    validate_company_name(company)?;
+    let paths: Vec<&str> = paths
+        .iter()
+        .map(String::as_str)
+        .filter(|path| path.starts_with("/company/") && !path.contains(['\n', '\t']))
+        .take(400)
+        .collect();
+    if paths.is_empty() {
+        return Ok(Default::default());
+    }
+    let container = container_name(company);
+    let script = "for p; do stat -c '%Y\t%n' -- \"$p\" 2>/dev/null; done; exit 0";
+    let mut args: Vec<&str> = vec!["exec", "-u", "company", &container, "sh", "-c", script, "sh"];
+    args.extend(paths.iter().copied());
+    let output = runtime::docker_observe(&args).await?;
+    if !output.status.success() {
+        return Ok(Default::default());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| {
+            let (seconds, path) = line.split_once('\t')?;
+            Some((path.to_string(), seconds.trim().parse().ok()?))
+        })
+        .collect())
+}
+
 /// The canonical path of one regular file inside the owner places, for a download.
 pub async fn resolve_file(company: &str, file: &str) -> Result<String> {
     validate_company_name(company)?;

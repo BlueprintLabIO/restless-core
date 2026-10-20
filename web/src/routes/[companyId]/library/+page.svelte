@@ -8,6 +8,8 @@
 	 * editor; a dropped file is added as it is. */
 	import {
 		readArchivedLibrary,
+		readLibraryModified,
+		latestTime,
 		readFileBytes,
 		setLibraryArchived
 	} from '$lib/model/company-actions';
@@ -788,12 +790,29 @@
 		status: '',
 		review: false
 	});
+	/* When each file last changed on the computer: an agent that edits a site in place records no
+	 * new output, so "Updated" otherwise kept the day it was first made (20 October). */
+	let fileModified = $state<Record<string, string>>({});
+	$effect(() => {
+		const company = companyId;
+		const controller = new AbortController();
+		const read = () =>
+			void readLibraryModified(company, controller.signal).then((times) => {
+				if (!controller.signal.aborted) fileModified = times;
+			});
+		read();
+		const timer = setInterval(read, 60_000);
+		return () => {
+			controller.abort();
+			clearInterval(timer);
+		};
+	});
 	const fileEntry = (file: LibraryFile, archived = false): Entry => ({
 		id: file.id,
 		kind: file.kind,
 		title: file.label,
 		href: fileHref(file.id),
-		updatedAt: file.createdAt,
+		updatedAt: latestTime(file.createdAt, fileModified[file.uri]),
 		owner: name(file.createdBy),
 		status: '',
 		review: !archived && !!file.workId && workWaitingOnOwner.has(file.workId),

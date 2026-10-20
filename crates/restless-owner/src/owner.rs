@@ -1928,6 +1928,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(library_api::archived_work_files),
         )
         .route(
+            "/companies/{company}/library/modified",
+            get(library_api::library_modified),
+        )
+        .route(
             "/companies/{company}/library/rename",
             post(library_api::rename_library_file),
         )
@@ -3060,8 +3064,53 @@ fn session_tokens(headers: &HeaderMap, name: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+const ACCOUNT_OWNER_FILE: &str = "account-owner.json";
+
+/// Remember which signed-in person is this plane's account owner. Only a verified account entry
+/// (the account issuer's own assertion for this plane's owner) writes it.
+fn record_account_owner(root: &std::path::Path, issuer: &str, subject: &str) -> Result<()> {
+    anyhow::ensure!(!issuer.is_empty() && !subject.is_empty(), "account owner identity is empty");
+    let path = root.join(ACCOUNT_OWNER_FILE);
+    let body = serde_json::to_vec(&serde_json::json!({ "issuer": issuer, "subject": subject }))?;
+    if std::fs::read(&path).is_ok_and(|current| current == body) {
+        return Ok(());
+    }
+    let staged = root.join(format!("{ACCOUNT_OWNER_FILE}.tmp"));
+    std::fs::write(&staged, &body)?;
+    std::fs::rename(&staged, &path)?;
+    Ok(())
+}
+
+/// Whether `issuer`/`subject` is the person a verified account entry named as account owner.
+fn is_recorded_account_owner(root: &std::path::Path, issuer: &str, subject: &str) -> bool {
+    std::fs::read(root.join(ACCOUNT_OWNER_FILE))
+        .ok()
+        .and_then(|body| serde_json::from_slice::<serde_json::Value>(&body).ok())
+        .is_some_and(|owner| {
+            owner["issuer"].as_str() == Some(issuer) && owner["subject"].as_str() == Some(subject)
+        })
+}
+
+/// The account session for the account owner, as their account entry would make it.
+fn account_owner_identity(entered: &VerifiedIdentity) -> VerifiedIdentity {
+    VerifiedIdentity {
+        user: entered.user.clone(),
+        issuer: entered.issuer.clone(),
+        owner: entered.owner.clone(),
+        scope: CompanyScope::Owner,
+        role: "owner".to_owned(),
+        actor: Some("owner".to_owned()),
+        company_id: None,
+        cell_id: None,
+        membership_id: None,
+        membership_version: None,
+        display_name: entered.display_name.clone(),
+    }
+}
+
 /// The cookie value once `identity` has entered as `token`: this person's other live sessions on
-/// the plane stay beside it, one per company. Another person's sessions are not carried over.
+/// the plane stay beside it, one per company. An account session covers every company, so it
+/// stands alone. Another person's sessions are not carried over.
 fn entered_session_cookie_value(
     sessions: &SessionStore,
     headers: &HeaderMap,
@@ -3072,11 +3121,12 @@ fn entered_session_cookie_value(
     let mut kept = session_tokens(headers, name)
         .into_iter()
         .filter(|kept| {
-            sessions.resolve_lease(kept).is_some_and(|lease| {
-                lease.identity.user == identity.user
-                    && lease.identity.issuer == identity.issuer
-                    && lease.identity.scope != identity.scope
-            })
+            identity.scope != CompanyScope::Owner
+                && sessions.resolve_lease(kept).is_some_and(|lease| {
+                    lease.identity.user == identity.user
+                        && lease.identity.issuer == identity.issuer
+                        && lease.identity.scope != identity.scope
+                })
         })
         .take(SESSIONS_PER_BROWSER - 1)
         .collect::<Vec<_>>();
@@ -3121,16 +3171,14 @@ fn request_session<'a>(
     path: &str,
     page: Option<&str>,
 ) -> Option<&'a (String, SessionLease)> {
-    // A request made from an account page acts as the account even when it names a company:
-    // Settings › Accounts giving Reno a connection was decided by Reno's newer cockpit session,
-    // which may not change account connections, and refused (20 October).
-    if page.is_some_and(is_account_page) {
-        if let Some(account) = sessions
-            .iter()
-            .find(|(_, lease)| lease.identity.scope == crate::entry::CompanyScope::Owner)
-        {
-            return Some(account);
-        }
+    // The account session covers every company, so it decides any request when the browser holds
+    // one: a newer company session from before one-session entry refused account actions made
+    // from a company page and from Settings (20 October).
+    if let Some(account) = sessions
+        .iter()
+        .find(|(_, lease)| lease.identity.scope == crate::entry::CompanyScope::Owner)
+    {
+        return Some(account);
     }
     request_company(path)
         .or_else(|| page.and_then(request_company))
@@ -3140,15 +3188,6 @@ fn request_session<'a>(
                 .find(|(_, lease)| session_covers(&lease.identity, company))
         })
         .or_else(|| sessions.first())
-}
-
-/// A page of the owner's account rather than of one company: the portfolio, Settings (Fleet's
-/// `/account/**`, drawn on the same origin) and the plane's own connections page.
-fn is_account_page(page: &str) -> bool {
-    matches!(
-        page.trim_start_matches('/').split('/').next(),
-        Some("" | "account" | "connections")
-    )
 }
 
 /// A page of a company on this plane that the request's session does not cover.
@@ -3638,7 +3677,23 @@ async fn consume_entry_assertion(
             "revoked sessions superseded by an active membership handoff"
         );
     }
-    let token = reconciled.token;
+    // One person, one session (20 October): the account owner entering any of their companies
+    // holds the account session, which already covers every company, rather than a second
+    // company-scoped session that then refused account actions ("Only the account owner manages
+    // accounts") and other companies ("this session is not scoped to that company"). Members keep
+    // one session per company, since their role differs between companies.
+    let (identity, token) = if identity.role == "owner"
+        && identity.actor.as_deref() == Some("owner")
+        && identity.issuer.as_deref().is_some_and(|issuer| {
+            is_recorded_account_owner(&state.daemon.root, issuer, &identity.user)
+        }) {
+        state.sessions.revoke(&reconciled.token);
+        let owner = account_owner_identity(&identity);
+        let token = state.sessions.establish(owner.clone(), network.session_ttl());
+        (owner, token)
+    } else {
+        (identity, reconciled.token)
+    };
     let opened_with_message = if let (Some(message), Some(command_id)) =
         (request.opening_message.as_deref(), request.opening_command_id)
     {
@@ -3780,6 +3835,9 @@ async fn consume_account_entry_assertion(
         display_name: access.display_name.clone(),
     };
     tracing::info!(owner = %access.owner_id, plane_id = %access.plane_id, "admitted a verified account-owner entry assertion");
+    if let Err(error) = record_account_owner(&state.daemon.root, identity.issuer.as_deref().unwrap_or_default(), &identity.user) {
+        tracing::warn!(%error, "could not record the account owner; their company entries stay company-scoped");
+    }
     let ttl = network.session_ttl();
     let token = state.sessions.establish(identity.clone(), ttl);
     let cookie_name = session_cookie_name(&network);
@@ -6699,7 +6757,16 @@ async fn dismiss_attention(
             return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}"))
         }
     };
-    let view = match attention::project(&config, &state.daemon.authority, Some(&org)).await {
+    // The same projection the owner's Inbox shows, spend warnings included: without them a spend
+    // card on screen could never be skipped ("this item is no longer in the Inbox", 20 October).
+    let view = match attention::project_with_spend(
+        &config,
+        &state.daemon.authority,
+        Some(&org),
+        &state.daemon.spend,
+    )
+    .await
+    {
         Ok(view) => view,
         Err(error) => {
             return api_error(StatusCode::SERVICE_UNAVAILABLE, "projection", format!("{error:#}"))
@@ -6742,7 +6809,7 @@ async fn raised_attention(
     org: &restless_orgintel::OrgIntel,
 ) -> Option<(std::collections::HashSet<String>, std::collections::HashSet<String>)> {
     let config = runtime::CompanyConfig::load(&state.daemon.root, company).ok()?;
-    let view = attention::project(&config, &state.daemon.authority, Some(org))
+    let view = attention::project_with_spend(&config, &state.daemon.authority, Some(org), &state.daemon.spend)
         .await
         .ok()?;
     if view.source_health.orgintel != "available" {
