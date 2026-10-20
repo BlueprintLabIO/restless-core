@@ -791,11 +791,23 @@ async fn drain_before_exit(daemon: &Daemon) {
     {
         return;
     }
+    let again = shutdown_signal();
+    tokio::pin!(again);
+    let window = task_drain_window();
+    if !wait_for_running_work(
+        &daemon.lifecycle,
+        || running_work(daemon),
+        window,
+        std::time::Duration::from_secs(1),
+        again.as_mut(),
+    )
+    .await
+    {
+        return;
+    }
     daemon.lifecycle.begin_drain();
     tracing::info!("stop requested; draining in-flight work before exit");
     let started = std::time::Instant::now();
-    let again = shutdown_signal();
-    tokio::pin!(again);
     loop {
         let status = coordination::appliance_drain_status(daemon);
         // Recovery admits no work, so unlike a replacement it does not hold
@@ -824,6 +836,70 @@ async fn drain_before_exit(daemon: &Daemon) {
     }
 }
 
+/// How long a stop first waits for running Work to finish, from
+/// `RESTLESS_STOP_TASK_DRAIN_SECONDS` (default 0: an appliance upgrade already
+/// refuses to replace a busy daemon). A hosted plane sets it so a release does
+/// not cut off Work mid-run: its Compose `stop_grace_period` must cover this
+/// window plus [`STOP_DRAIN_WINDOW`].
+fn task_drain_window() -> std::time::Duration {
+    std::env::var("RESTLESS_STOP_TASK_DRAIN_SECONDS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map(|seconds| std::time::Duration::from_secs(seconds.min(3_600)))
+        .unwrap_or_default()
+}
+
+/// Staff and Work running now, not counting the Exec: owner chat goes on while
+/// the stop waits, and an interrupted Exec turn is replayed by the next daemon.
+fn running_work(daemon: &Daemon) -> Vec<String> {
+    daemon
+        .staff
+        .running_staff()
+        .into_iter()
+        .filter(|actor| !actor.ends_with("/exec"))
+        .collect()
+}
+
+/// Before the admission drain, stop starting Work and Staff turns and wait up
+/// to `window` for the running ones to finish. Owner chat, reads and effects
+/// stay open meanwhile. False when a second signal asks to exit now.
+async fn wait_for_running_work(
+    lifecycle: &restless_contracts::appliance::LifecycleGate,
+    running_work: impl Fn() -> Vec<String>,
+    window: std::time::Duration,
+    poll: std::time::Duration,
+    mut again: std::pin::Pin<&mut impl std::future::Future<Output = ()>>,
+) -> bool {
+    if window.is_zero() || running_work().is_empty() {
+        return true;
+    }
+    lifecycle.pause_tasks();
+    tracing::info!(
+        running = ?running_work(),
+        window_seconds = window.as_secs(),
+        "stop requested; new Work paused while running Work finishes"
+    );
+    let started = std::time::Instant::now();
+    loop {
+        let running = running_work();
+        if running.is_empty() {
+            tracing::info!(
+                waited_seconds = started.elapsed().as_secs(),
+                "running Work finished before the stop"
+            );
+            return true;
+        }
+        if started.elapsed() >= window {
+            tracing::warn!(?running, "stopping with Work still running after the task window");
+            return true;
+        }
+        tokio::select! {
+            () = tokio::time::sleep(poll) => {}
+            () = again.as_mut() => return false,
+        }
+    }
+}
+
 async fn shutdown_signal() {
     let interrupt = tokio::signal::ctrl_c();
     #[cfg(unix)]
@@ -839,5 +915,65 @@ async fn shutdown_signal() {
     #[cfg(not(unix))]
     {
         let _ = interrupt.await;
+    }
+}
+
+#[cfg(test)]
+mod stop_tests {
+    use super::wait_for_running_work;
+    use restless_contracts::appliance::LifecycleGate;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    const POLL: Duration = Duration::from_millis(10);
+
+    #[tokio::test]
+    async fn a_stop_waits_for_running_work_with_new_work_paused() {
+        let gate = LifecycleGate::default();
+        let polls = AtomicUsize::new(0);
+        let running = || {
+            if polls.fetch_add(1, Ordering::SeqCst) < 5 {
+                vec!["reno/designer".into()]
+            } else {
+                vec![]
+            }
+        };
+        let never = std::future::pending::<()>();
+        tokio::pin!(never);
+        let window = Duration::from_secs(60);
+        assert!(wait_for_running_work(&gate, running, window, POLL, never.as_mut()).await);
+        assert!(gate.tasks_paused());
+        // Owner chat and effects are still admitted while Work finishes.
+        assert!(gate.try_enter().is_some());
+        assert!(polls.load(Ordering::SeqCst) > 5);
+    }
+
+    #[tokio::test]
+    async fn an_idle_plane_or_no_window_stops_at_once_without_pausing() {
+        let gate = LifecycleGate::default();
+        let never = std::future::pending::<()>();
+        tokio::pin!(never);
+        let window = Duration::from_secs(60);
+        assert!(wait_for_running_work(&gate, Vec::new, window, POLL, never.as_mut()).await);
+        let busy = || vec!["reno/designer".to_string()];
+        assert!(wait_for_running_work(&gate, busy, Duration::ZERO, POLL, never.as_mut()).await);
+        assert!(!gate.tasks_paused());
+    }
+
+    #[tokio::test]
+    async fn the_window_bounds_the_wait_and_a_second_signal_ends_it() {
+        let gate = LifecycleGate::default();
+        let busy = || vec!["reno/designer".to_string()];
+        let never = std::future::pending::<()>();
+        tokio::pin!(never);
+        let started = std::time::Instant::now();
+        let short = Duration::from_millis(50);
+        assert!(wait_for_running_work(&gate, busy, short, POLL, never.as_mut()).await);
+        assert!(started.elapsed() < Duration::from_secs(5));
+
+        let now = std::future::ready(());
+        tokio::pin!(now);
+        let window = Duration::from_secs(60);
+        assert!(!wait_for_running_work(&gate, busy, window, POLL, now.as_mut()).await);
     }
 }

@@ -30,6 +30,9 @@ pub const SYSTEMD_WAKE_TIMER: &str = "restless-wake-due.timer";
 pub struct LifecycleGate {
     draining: Arc<AtomicBool>,
     recovering: Arc<AtomicBool>,
+    /// A stop is waiting for running Work to finish: no new Work or Staff turn
+    /// starts, while owner chat and effects stay open. Never persisted.
+    tasks_paused: Arc<AtomicBool>,
     active: Arc<AtomicUsize>,
 }
 
@@ -38,8 +41,19 @@ impl LifecycleGate {
         Self {
             draining: Arc::new(AtomicBool::new(draining)),
             recovering: Arc::new(AtomicBool::new(false)),
+            tasks_paused: Arc::new(AtomicBool::new(false)),
             active: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    /// Stop starting new Work and Staff turns, so a replacement can wait for the
+    /// running ones to finish instead of cutting them off. Admission stays open.
+    pub fn pause_tasks(&self) {
+        self.tasks_paused.store(true, Ordering::SeqCst);
+    }
+
+    pub fn tasks_paused(&self) -> bool {
+        self.tasks_paused.load(Ordering::SeqCst)
     }
 
     pub fn try_enter(&self) -> Option<LifecycleLease> {
@@ -791,6 +805,15 @@ mod tests {
         drop(first);
         assert_eq!(gate.active(), 0);
         gate.resume();
+        assert!(gate.try_enter().is_some());
+    }
+
+    #[test]
+    fn paused_tasks_keep_admission_open() {
+        let gate = LifecycleGate::default();
+        gate.pause_tasks();
+        assert!(gate.tasks_paused());
+        assert!(!gate.is_draining());
         assert!(gate.try_enter().is_some());
     }
 

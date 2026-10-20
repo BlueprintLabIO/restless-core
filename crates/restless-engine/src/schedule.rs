@@ -607,6 +607,13 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
 
     recover_owed_exec_work(daemon, in_flight, &org, company).await;
 
+    // A stop is waiting for running Work to finish before the plane is
+    // replaced. Exec still answers the owner; Staff turns and new Work start
+    // on the next daemon, from the same durable rows.
+    if daemon.lifecycle.tasks_paused() {
+        return;
+    }
+
     // Team judgement and owner-to-lead conversation take precedence over
     // launching more member Work. Otherwise a full staff cap can starve the
     // coordinator that must repair what is already blocked.
