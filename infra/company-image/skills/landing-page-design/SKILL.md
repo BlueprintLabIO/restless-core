@@ -90,6 +90,9 @@ full build in the wrong direction. Their answer is taste evidence: record it wit
 `restless identity voice-evidence` or `restless identity evidence --pillar visual`, citing the
 judgement, so the next site starts from it.
 
+When the owner has said to go ahead without checking back, skip the first look: build the direction
+closest to their references and name it in the review message.
+
 ## Build the selected system
 
 The design engineer and copy owner receive the selected direction, incumbent assets, product facts,

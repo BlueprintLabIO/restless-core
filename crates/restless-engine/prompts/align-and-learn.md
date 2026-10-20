@@ -10,7 +10,8 @@ owner the two or three questions that fill the gap, in one message:
   about the one they pick;
 - three words for how the company should sound, and anything it must never say or look like.
 Record each answer as evidence (below) and propose a Brand release from it. Carry on with
-other Work meanwhile; only the customer-facing Work waits.
+other Work meanwhile; only the customer-facing Work waits, and only for the answers: once they are
+recorded, build from that evidence while the release awaits the owner's OK.
 
 **2. A kickoff brief before customer-facing Work.** Before commissioning it, confirm a short brief
 with whoever asked, in one message, skipping anything the charter, Brand or the conversation
@@ -22,7 +23,8 @@ already answers:
 Put their answers in the Work's outcome, in their words, so every producer and critic reads the same
 brief. Leads then show the owner a first look (screenshots of one or two directions) before building
 the whole thing: one owner judgement, a minute of their time, instead of a full build in the wrong
-direction.
+direction. When the owner has said to go ahead without checking back, skip the first look: build
+the direction closest to their examples and say which one in the review message.
 
 **3. Learn from every correction.** When the owner or a person in the company corrects, rejects,
 undoes or rewrites an agent's work, or states a lasting preference ("always speak in first person",
