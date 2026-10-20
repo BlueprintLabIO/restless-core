@@ -1326,11 +1326,14 @@
 				writeRoomDraft(activeDraftKey, { body: '', commandId: null, updatedAt: '' });
 			}
 			await tick();
-			const scroller = parent === null ? roomScrollEl : threadScrollEl;
-			scroller?.scrollTo({
-				top: scroller.scrollHeight,
-				behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
-			});
+			/* A room message is already held at the top with its replies growing beneath it
+			 * (follow-chat); scrolling to the end here would undo that. A thread reply goes to the
+			 * end of its thread. */
+			if (parent !== null)
+				threadScrollEl?.scrollTo({
+					top: threadScrollEl.scrollHeight,
+					behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+				});
 		} catch (cause) {
 			const status = (cause as { status?: unknown }).status;
 			const retryable =

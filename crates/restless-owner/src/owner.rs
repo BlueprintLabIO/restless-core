@@ -3121,6 +3121,17 @@ fn request_session<'a>(
     path: &str,
     page: Option<&str>,
 ) -> Option<&'a (String, SessionLease)> {
+    // A request made from an account page acts as the account even when it names a company:
+    // Settings › Accounts giving Reno a connection was decided by Reno's newer cockpit session,
+    // which may not change account connections, and refused (20 October).
+    if page.is_some_and(is_account_page) {
+        if let Some(account) = sessions
+            .iter()
+            .find(|(_, lease)| lease.identity.scope == crate::entry::CompanyScope::Owner)
+        {
+            return Some(account);
+        }
+    }
     request_company(path)
         .or_else(|| page.and_then(request_company))
         .and_then(|company| {
@@ -3129,6 +3140,15 @@ fn request_session<'a>(
                 .find(|(_, lease)| session_covers(&lease.identity, company))
         })
         .or_else(|| sessions.first())
+}
+
+/// A page of the owner's account rather than of one company: the portfolio, Settings (Fleet's
+/// `/account/**`, drawn on the same origin) and the plane's own connections page.
+fn is_account_page(page: &str) -> bool {
+    matches!(
+        page.trim_start_matches('/').split('/').next(),
+        Some("" | "account" | "connections")
+    )
 }
 
 /// A page of a company on this plane that the request's session does not cover.
@@ -4985,6 +5005,12 @@ fn included_model_providers(root: &std::path::Path) -> std::collections::BTreeSe
         .collect()
 }
 
+/// Whether two companies' credentials for `provider` are the account sign-in and an API key, which
+/// the gateway can hold together for Anthropic only.
+fn anthropic_sign_in_beside_key(provider: &str, proposed_is_sign_in: bool, other_is_sign_in: bool) -> bool {
+    provider == "anthropic" && proposed_is_sign_in != other_is_sign_in
+}
+
 async fn provider_credential_conflicts_with_other_companies(
     root: &std::path::Path,
     company: &str,
@@ -5011,8 +5037,14 @@ async fn provider_credential_conflicts_with_other_companies(
         if reference == proposed_reference {
             continue;
         }
-        if proposed_secret.is_none() || crate::credential::omp_oauth_provider(reference)?.is_some()
-        {
+        let other_is_sign_in = crate::credential::omp_oauth_provider(reference)?.is_some();
+        // The gateway holds Anthropic's account sign-in beside one API key and bills each company
+        // by its own binding (model_gateway::ProviderCredential::merged). Refusing that here
+        // kept a company off Claude because another ran on an Anthropic key (20 October).
+        if anthropic_sign_in_beside_key(provider, proposed_secret.is_none(), other_is_sign_in) {
+            continue;
+        }
+        if proposed_secret.is_none() || other_is_sign_in {
             return Ok(true);
         }
         let secret = credential::resolve_reference(reference)

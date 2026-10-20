@@ -178,6 +178,8 @@ export interface MessageAttachment {
 	name: string;
 	mediaType: string;
 	sizeBytes: number;
+	/** A file still on its way up, shown from this browser's own copy until the server has it. */
+	localUrl?: string;
 }
 
 export interface MessageIntentReceipt {

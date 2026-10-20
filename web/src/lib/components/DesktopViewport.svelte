@@ -124,6 +124,21 @@
 	let filePicker = $state<HTMLInputElement>();
 	let dragging = $state(false);
 	let utilityTimer: ReturnType<typeof setTimeout> | undefined;
+	/* The last picture of the desktop, held over the screen while a dropped connection comes
+	 * back, so the computer never goes blank under the owner (20 October). */
+	let heldFrame = $state('');
+	let heldBox = $state({ top: 0, height: 0 });
+
+	function holdLastFrame(display: HTMLDivElement) {
+		const canvas = display.querySelector('canvas');
+		if (!canvas || !canvas.width || !canvas.height) return;
+		try {
+			heldFrame = canvas.toDataURL('image/jpeg', 0.7);
+			heldBox = { top: display.offsetTop, height: display.offsetHeight };
+		} catch {
+			// A tainted or lost canvas has nothing to hold; the status line still says what is happening.
+		}
+	}
 
 	function report(next: Status, detail = '') {
 		status = next;
@@ -263,6 +278,7 @@
 			client.addEventListener('connect', () => {
 				if (current !== generation) return;
 				retryCount = 0;
+				heldFrame = '';
 				report('connected');
 				onload?.();
 			});
@@ -275,6 +291,7 @@
 			client.addEventListener('disconnect', (() => {
 				if (current !== generation || !active) return;
 				clearClipboardSession();
+				holdLastFrame(display);
 				untrack(() => {
 					client.disconnect();
 					if (rfb === client) rfb = null;
@@ -525,7 +542,14 @@
 						metaKey: input.event.metaKey
 					};
 					destination.dispatchEvent(new MouseEvent('mousedown', { ...options, buttons: 1 }));
-					destination.dispatchEvent(new MouseEvent('mouseup', { ...options, buttons: 0 }));
+					// The release goes where a real one would: to whatever is under the pointer now.
+					// noVNC's press raises a full-page capture layer and only a release reaching
+					// that layer lowers it; sent to the canvas, it stopped there and the invisible
+					// layer stayed over the whole page, so later clicks never focused the desktop
+					// and no key reached the computer (20 October).
+					const release =
+						document.elementFromPoint(input.event.clientX, input.event.clientY) ?? destination;
+					release.dispatchEvent(new MouseEvent('mouseup', { ...options, buttons: 0 }));
 				} else {
 					destination.dispatchEvent(input.event);
 				}
@@ -818,6 +842,13 @@
 >
 	{#if src}
 		<div bind:this={screen} class="desktop-screen" aria-label={title}></div>
+		{#if heldFrame && status !== 'connected'}<img
+				class="desktop-held"
+				src={heldFrame}
+				alt=""
+				style:top="{heldBox.top}px"
+				style:height="{heldBox.height}px"
+			/>{/if}
 		<div class="desktop-tools" aria-label="Desktop controls">
 			<span class="sr-only" aria-live="polite">{focusAnnouncement}</span>
 			<span
@@ -1089,6 +1120,15 @@
 	}
 	.desktop-screen :global(canvas) {
 		display: block;
+	}
+	.desktop-held {
+		position: absolute;
+		left: 0;
+		width: 100%;
+		object-fit: contain;
+		background: #101217;
+		opacity: 0.85;
+		pointer-events: none;
 	}
 	.desktop-tools {
 		position: relative;

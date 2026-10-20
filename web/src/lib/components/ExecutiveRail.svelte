@@ -175,7 +175,9 @@
 			id: string;
 			onback: () => void;
 		} | null;
-		workContext?: { onback: () => void } | null;
+		/** The rail holds one card's own conversation while that card is open: `title` names it,
+		 * and `onback` returns to the whole conversation. */
+		workContext?: { onback: () => void; title?: string } | null;
 		/** The optional Work topic; the default conversation needs no subtitle. */
 		topicLabel?: string;
 		topics?: {
@@ -1374,7 +1376,12 @@
 								/>{:else}<span class="exr-initials" aria-hidden="true"
 									>{initials(participantName)}</span
 								>{/if}
-							{#if !wide}<strong class="exr-name">{participantName}</strong>{/if}
+							{#if !wide}<span class="topic-text"
+									><strong class="exr-name">{participantName}</strong
+									>{#if workContext?.title}<span class="topic-label" title={workContext.title}
+											>About: {workContext.title}</span
+										>{/if}</span
+								>{/if}
 						</div>
 					{/if}
 					<div class="exr-tools">
@@ -1600,7 +1607,21 @@
 						{:else if focusActive}
 							<!-- The focus boundary below is the empty transcript state. -->
 						{:else if review || workContext}
-							<div class="exr-empty"><p class="exr-empty-p">No messages yet.</p></div>
+							<!-- The rail shows this card's own conversation, which is new: say so, so the
+							     whole conversation never looks cleared (20 October). -->
+							<div class="exr-empty">
+								<p class="exr-empty-h">Nothing said about this yet</p>
+								<p class="exr-empty-p">
+									Messages here stay with this card. Your whole conversation with {participantName}
+									is kept.
+								</p>
+								<button
+									type="button"
+									class="exr-retry"
+									onclick={(review ?? workContext)!.onback}
+									>Show the whole conversation</button
+								>
+							</div>
 						{:else if needsProvider || !exchanges.exchanges.length}
 							<div class="exr-empty">
 								{#if needsProvider}<span class="exr-empty-mark" aria-hidden="true"

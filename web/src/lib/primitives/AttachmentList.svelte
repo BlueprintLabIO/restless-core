@@ -36,9 +36,11 @@
 	const MAX_TEXT_PREVIEW_BYTES = 1024 * 1024;
 
 	function hrefOf(attachment: MessageAttachment): string {
+		if (attachment.localUrl) return attachment.localUrl;
 		return hrefFor ? hrefFor(attachment) : '';
 	}
 	function inlineHref(attachment: MessageAttachment): string {
+		if (attachment.localUrl) return attachment.localUrl;
 		const href = hrefOf(attachment);
 		return href ? `${href}${href.includes('?') ? '&' : '?'}inline=1` : '';
 	}

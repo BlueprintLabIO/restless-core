@@ -687,13 +687,6 @@
 								aria-expanded={steering === 'resume'}
 								onclick={() => openSteer('resume')}>Resume…</button
 							>{/if}
-						{#if (work.status === 'proposed' || work.status === 'active') && !pending.length}<button
-								class="btn small ghost"
-								type="button"
-								title="Hold this Work; Resume continues it"
-								aria-expanded={steering === 'pause'}
-								onclick={() => openSteer('pause')}>Pause…</button
-							>{/if}
 						{#if work.status === 'completed' && !pending.length}<button
 								class="btn small"
 								type="button"
@@ -708,20 +701,23 @@
 								aria-expanded={steering === 'restore'}
 								onclick={() => openSteer('restore')}>Restore…</button
 							>{/if}
-						<button
-							class="btn small ghost"
-							type="button"
-							title="Rename this Work or change its brief"
-							aria-expanded={editing}
-							onclick={openEdit}>Edit…</button
-						>
-						{#if work.status !== 'completed' && work.status !== 'abandoned'}<button
-								class="btn small ghost"
-								type="button"
-								title="Retire this Work; nobody works on it again unless it is restored"
-								aria-expanded={steering === 'abandon'}
-								onclick={() => openSteer('abandon')}>Stop for good…</button
-							>{/if}
+						<!-- The occasional changes sit in one menu, as an issue's do, so a narrow sheet keeps
+						     its title and status on one clear line (20 October). -->
+						<ActionMenu label="More actions for this Work">
+							{#if (work.status === 'proposed' || work.status === 'active') && !pending.length}<button
+									type="button"
+									title="Hold this Work; Resume continues it"
+									onclick={() => openSteer('pause')}>Pause…</button
+								>{/if}
+							<button type="button" title="Rename this Work or change its brief" onclick={openEdit}
+								>Edit…</button
+							>
+							{#if work.status !== 'completed' && work.status !== 'abandoned'}<button
+									type="button"
+									title="Retire this Work; nobody works on it again unless it is restored"
+									onclick={() => openSteer('abandon')}>Stop for good…</button
+								>{/if}
+						</ActionMenu>
 					</div>
 				{/if}
 				{#if ownerAccess && !page.url.pathname.endsWith('/people')}
@@ -952,6 +948,7 @@
 			>
 				<section class="work-detail-main">
 					<section class="work-description" aria-label={readerSummaryLabel}>
+						<h2 class="work-section-label">{readerSummary ? 'Result' : 'Brief'}</h2>
 						<div
 							class="outcome-body"
 							class:clamped={!readerSummary && outcomeIsLong && !outcomeExpanded}
@@ -1462,5 +1459,11 @@
 		margin: 0;
 		color: var(--state-danger);
 		font-size: var(--t-label);
+	}
+	.work-section-label {
+		margin: 0 0 6px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		font-weight: 600;
 	}
 </style>
