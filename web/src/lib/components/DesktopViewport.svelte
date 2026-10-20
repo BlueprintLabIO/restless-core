@@ -268,7 +268,10 @@
 			// The observer connection is stable. Control changes only flip this
 			// client-side gate after the server grants the tab's live lease.
 			client.viewOnly = !(interactive || canResize);
-			client.resizeSession = interactive || canResize;
+			/* Only a surface that owns the display resizes it. Taking control in a small card resized
+			 * the computer to the card, so sites drew their phone layout and read as zoomed in
+			 * (20 October); there the computer keeps its size and is scaled to fit. */
+			client.resizeSession = canResize;
 			client.scaleViewport = true;
 			client.background = '#101217';
 			// Measured 19 October (docs/audits/desktop-trial-2026-10-19.md): JPEG quality 9 fell to
@@ -388,7 +391,7 @@
 		const mayResize = canResize;
 		if (client) {
 			client.viewOnly = !(mayInteract || mayResize);
-			client.resizeSession = mayInteract || mayResize;
+			client.resizeSession = mayResize;
 		}
 	});
 
@@ -676,15 +679,32 @@
 		}
 	}
 
+	/* Fullscreen where the browser allows it; where it does not (an embedded browser such as the
+	 * Claude app's pane refuses the Fullscreen API), the viewer fills the window instead, so the
+	 * button always does something (20 October). Escape leaves either. */
+	let expanded = $state(false);
 	async function toggleFullscreen() {
 		if (!target) return;
+		if (expanded) {
+			expanded = false;
+			return;
+		}
 		try {
 			if (document.fullscreenElement === target) await document.exitFullscreen();
-			else await target.requestFullscreen();
+			else if (document.fullscreenEnabled) await target.requestFullscreen();
+			else expanded = true;
 		} catch {
-			utilityMessage = 'Fullscreen was blocked by the browser.';
+			expanded = true;
 		}
 	}
+	$effect(() => {
+		if (!expanded) return;
+		const leave = (event: KeyboardEvent) => {
+			if (event.key === 'Escape' && !event.defaultPrevented) expanded = false;
+		};
+		window.addEventListener('keydown', leave);
+		return () => window.removeEventListener('keydown', leave);
+	});
 
 	async function openClipboardPanel() {
 		clipboardOpener =
@@ -822,6 +842,7 @@
 <div
 	class="desktop-viewport"
 	class:dragging
+	class:expanded
 	bind:this={target}
 	aria-label={title}
 	role="region"
@@ -910,7 +931,7 @@
 					aria-label="Toggle fullscreen"
 					onclick={toggleFullscreen}
 				>
-					{#if fullscreen}<Minimize2 size={14} />{:else}<Maximize2 size={14} />{/if}
+					{#if fullscreen || expanded}<Minimize2 size={14} />{:else}<Maximize2 size={14} />{/if}
 				</button>
 			</div>
 		</div>
@@ -1110,6 +1131,15 @@
 		width: 100vw;
 		height: 100vh;
 	}
+	/* The window-filling stand-in for fullscreen. */
+	.desktop-viewport.expanded {
+		position: fixed;
+		inset: 0;
+		z-index: 2147483000;
+		width: 100vw;
+		height: 100vh;
+		background: #101217;
+	}
 	.desktop-screen {
 		width: 100%;
 		min-width: 0;
@@ -1143,7 +1173,8 @@
 		border-top: 1px solid var(--border-strong);
 		background: var(--surface-pane);
 	}
-	.desktop-viewport:fullscreen > .desktop-tools {
+	.desktop-viewport:fullscreen > .desktop-tools,
+	.desktop-viewport.expanded > .desktop-tools {
 		padding-right: max(12px, env(safe-area-inset-right));
 	}
 	.desktop-live {
@@ -1187,7 +1218,8 @@
 		box-shadow: var(--shadow-lift);
 		font: var(--t-body) var(--font-ui);
 	}
-	.desktop-viewport:fullscreen > .clipboard-panel {
+	.desktop-viewport:fullscreen > .clipboard-panel,
+	.desktop-viewport.expanded > .clipboard-panel {
 		right: 12px;
 	}
 	.clipboard-panel-heading {
