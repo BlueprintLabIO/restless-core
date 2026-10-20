@@ -85,3 +85,42 @@ concurrent session on the same key hit it too.
 - Fixed from the run: the shared rules now forbid waiting inside a turn; Exec never posts a
   streamed provider error or the gateway's own refusal as an owner reply (both happened).
 - Next: rerun both arms, n≥2 each, with the no-waiting rule, before claiming a saving.
+
+## Result (2026-10-20, n=2 per arm: cheaper per run, not yet per delivered site)
+
+Two `_test` companies per arm, run in parallel, same four bakery owner messages, each followed by an
+Exec reply and 5 quiet minutes (150-minute cap per message). Both arms used primary
+`openrouter/poolside/laguna-s-2.1`, effort `high`. Baseline is `af454281` (before 466bcdb4), with its
+own daemon and company image. Treatment is `a64df149` with everyday `laguna-xs-2.1` and decisions
+from `typesafe/jev-1.14`. Numbers come from `scripts/token-report`, which reads the owner spend
+report.
+
+| Run | Calls | Input | Cached | $ | Calls by actor | Site |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| baseline 1 | 839 | 44.6M | 88% | 1.21 | Exec 328, worker 315, lead 196 | built and revised; "five seeds" not stated |
+| baseline 2 | 666 | 35.7M | 89% | 0.86 | Exec 249, worker 231, lead 186 | built and revised; "five seeds" not stated |
+| treatment 1 | 458 | 18.1M | 90% | 0.42 | lead 211, Exec 173, critic 74 | every brief fact; name written "Crumb and Co" |
+| treatment 2 | 656 | 28.9M | 90% | 0.82 | lead 398, Exec 258 | **none delivered** |
+
+- **Per run, the treatment is cheaper:** on average 557 against 752 calls (-26%), 23.5M against
+  40.1M input (-41%), and $0.62 against $1.04 (-40%). Input per call fell from about 53k to about
+  42k. No site used corporate language or stock imagery.
+- **Per delivered site, it is not cheaper yet:** treatment 2 never built the site. Its lead raised
+  three successive owner handoffs of category `identity`: accept the Brand release, then pick one of
+  three "first look" directions. That happened after the owner had said "go ahead, no need to check
+  with me again", and it left three Works abandoned. Exec spent its remaining turns trying to clear
+  those handoffs and never answered the weekday question. Counting that, it is $1.24 per delivered
+  site against the baseline's $1.04.
+- **The no-waiting rule held.** No Exec in either arm used `sleep`. Baseline Exec turns still ran
+  for up to 57 minutes with up to 28 `work graph` reads, and two hit an expired turn capability.
+  Treatment Exec turns ran for at most 28 minutes with at most 11 reads, and none expired. The
+  remaining reads parse the graph or verify results rather than wait, so no deterministic guard was
+  added.
+- **The baseline's own waste** was the supervisor/worker loop. In baseline 1, the lead rejected the
+  worker's revision Attempt over a leaked preview service; that one message consumed the whole
+  150-minute cap.
+- **Biggest remaining driver:** owner-taste checkpoints that ignore an explicit go-ahead.
+  `align-and-learn` said customer-facing Work waits until a Brand release is proposed and never
+  treats a proposal as approved. It and the `landing-page-design` skill also required a "first look"
+  judgement with no exception. Fix: the Work waits only for the owner's answers, and an owner's
+  go-ahead skips the first look. Verification run pending.
