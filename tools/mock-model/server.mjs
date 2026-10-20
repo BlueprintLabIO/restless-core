@@ -19,7 +19,7 @@
 // Every request is appended to --log as one JSON line, for checks to read.
 import { createServer } from 'node:http';
 import { readFileSync, appendFileSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 
 const args = Object.fromEntries(
 	process.argv.slice(2).reduce((pairs, value, index, all) => {
@@ -192,7 +192,12 @@ const server = createServer(async (request, response) => {
 	let raw = '';
 	for await (const chunk of request) raw += chunk;
 	const body = raw ? JSON.parse(raw) : {};
-	if (log) appendFileSync(log, JSON.stringify({ at: new Date().toISOString(), method: request.method, path: url.pathname, body }) + '\n');
+	/* Which credential sent it, as a short hash, so a check can tell two companies' keys apart. */
+	const credential = request.headers['x-api-key'] ?? request.headers.authorization ?? '';
+	const key = credential
+		? createHash('sha256').update(String(credential)).digest('hex').slice(0, 8)
+		: null;
+	if (log) appendFileSync(log, JSON.stringify({ at: new Date().toISOString(), method: request.method, path: url.pathname, key, body }) + '\n');
 
 	if (request.method === 'GET' && url.pathname.endsWith('/models')) {
 		return json(response, 200, {
