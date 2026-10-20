@@ -5051,41 +5051,6 @@ fn included_model_providers(root: &std::path::Path) -> std::collections::BTreeSe
         .collect()
 }
 
-/// The gateway's reason for holding `company` back once it binds `provider` to `reference`, if
-/// it would.
-fn grant_refused_by_gateway(
-    root: &std::path::Path,
-    company: &str,
-    provider: &str,
-    reference: &str,
-) -> Result<Option<String>> {
-    let mut companies = Vec::new();
-    for name in crate::configured_companies(root)? {
-        let Ok(config) = runtime::CompanyConfig::load(root, &name) else { continue };
-        let primary = config.model.split('/').next().map(str::to_string);
-        let mut bindings: Vec<(String, String)> = config
-            .credentials
-            .iter()
-            .filter_map(|(capability, bound)| {
-                let bound_provider = match capability.strip_prefix("model.inference.") {
-                    Some(provider) => provider.to_string(),
-                    None if capability == "model.inference" => primary.clone()?,
-                    None => return None,
-                };
-                Some((bound_provider, bound.clone()))
-            })
-            .collect();
-        if name == company {
-            bindings.retain(|(bound_provider, _)| bound_provider != provider);
-            bindings.push((provider.to_string(), reference.to_string()));
-        }
-        bindings.sort();
-        bindings.dedup_by(|a, b| a.0 == b.0);
-        companies.push((name, bindings));
-    }
-    Ok(restless_engine::model_gateway::refused_by_plan(companies).remove(company))
-}
-
 async fn grant_owner_connection(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,
@@ -5185,14 +5150,8 @@ async fn grant_owner_connection(
             }
         }
     };
-    // Different companies may hold different keys for one provider: the gateway gives each its
-    // own key set (model_gateway::partition_credentials). Only a company that needs an account
-    // sign-in beside a key another company holds differently is refused, with the gateway's reason.
-    match grant_refused_by_gateway(&state.daemon.root, &company, &connection.provider, &reference) {
-        Ok(Some(reason)) => return api_error(StatusCode::CONFLICT, "account_provider_conflict", reason),
-        Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "Could not verify provider access across the account."),
-        Ok(None) => {}
-    }
+    // Any company may hold its own key for any provider: the gateway serves a key that differs
+    // from another company's from a key set of its own (model_gateway::partition_credentials).
     // What this grant replaces, and who still thinks with it: a second connection for the same
     // provider takes the company's one binding, and agents assigned to the first then fail with
     // "no longer granted" (14 October report). Name both in the record.

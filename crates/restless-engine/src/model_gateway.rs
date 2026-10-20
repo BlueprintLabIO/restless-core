@@ -826,7 +826,6 @@ pub async fn start(
     let fingerprint = gateway_fingerprint(configs, &account_oauth);
     let plan = provider_credentials(configs).await?;
     let key_shards = plan.shards.clone();
-    let refused = plan.refused.clone();
     let mut admitted_providers = plan.providers();
     let mut provider_credentials = plan.main;
     for provider in account_oauth {
@@ -865,8 +864,7 @@ pub async fn start(
         // unstartable until its first company existed, which inverts Cloud's
         // provisioning order: Fleet creates the plane, then the cell.
         remember_loaded(provider_credentials.keys().cloned().collect(), None);
-        let mut admission = admit(configs, &provider_credentials)?;
-        admission.unstartable.extend(refused.clone());
+        let admission = admit(configs, &provider_credentials)?;
         for (company, reason) in &admission.unstartable {
             tracing::warn!(company, reason, "company cannot start: {reason}");
         }
@@ -1039,16 +1037,10 @@ pub async fn start(
             || key_shards.iter().any(|shard| shard.credentials.contains_key(provider))
     });
     let mut admission = admit(configs, &admitted_providers)?;
-    admission.unstartable.extend(refused.clone());
     for (company, reason) in &admission.unstartable {
         tracing::warn!(company, reason, "company cannot start: {reason}");
     }
-    let main_configs: Vec<CompanyConfig> = configs
-        .iter()
-        .filter(|config| !key_shards.iter().any(|shard| shard.companies.contains(&config.name)))
-        .cloned()
-        .collect();
-    let startable = admission.startable(&main_configs);
+    let startable = admission.startable(configs);
     set_unstartable(admission.unstartable.clone());
 
     let gateway_token = token(
@@ -1111,28 +1103,28 @@ pub async fn start(
     // Each key set: its own broker and gateway, holding only its companies' keys.
     let mut served = served;
     let mut shard_children = Vec::new();
-    let mut shard_routes = BTreeMap::<String, ShardRoute>::new();
-    let mut loaded_providers = required_providers.clone();
+    let mut shard_routes = BTreeMap::<(String, String), ShardRoute>::new();
+    let loaded_providers = required_providers.clone();
     for (index, shard) in key_shards.iter().enumerate() {
+        let companies = shard.companies();
         let shard_configs: Vec<CompanyConfig> = configs
             .iter()
-            .filter(|config| shard.companies.contains(&config.name))
+            .filter(|config| companies.contains(config.name.as_str()))
             .cloned()
             .collect();
         match start_key_shard(index, shard, &shard_configs, root, &omp).await {
             Ok(started) => {
                 served.extend(started.served);
-                loaded_providers.extend(shard.credentials.keys().cloned());
                 shard_children.extend(started.children);
-                for company in &shard.companies {
-                    shard_routes.insert(company.clone(), started.route.clone());
+                for member in &shard.members {
+                    shard_routes.insert(member.clone(), started.route.clone());
                 }
             }
             Err(error) => {
                 tracing::warn!(shard = index, error = %format!("{error:#}"), "a company key set did not start");
-                for company in &shard.companies {
+                for company in companies {
                     admission.unstartable.insert(
-                        company.clone(),
+                        company.to_string(),
                         "This company's own API key could not be loaded. Check it in Company → Intelligence, then try again."
                             .to_string(),
                     );
@@ -1314,12 +1306,19 @@ async fn start_key_shard(
         .context("start a company key set's model gateway")?;
     record_model_child(root, &gateway, omp, &gateway_args)?;
     let configs = configs.iter().collect::<Vec<_>>();
+    // Only the models of this set's providers: its companies' other providers are served elsewhere.
+    let pinned = runtime_pinned_models(&configs)?
+        .into_iter()
+        .filter(|model| {
+            split_model(model).is_ok_and(|(provider, _)| shard.credentials.contains_key(provider))
+        })
+        .collect();
     let served = wait_for_gateway(
         &mut gateway,
         &gateway_token,
         &gateway_url,
         &shard.credentials.keys().cloned().collect(),
-        &runtime_pinned_models(&configs)?,
+        &pinned,
     )
     .await?;
     let route = ShardRoute {
@@ -1580,8 +1579,8 @@ struct RelayState {
     upstream_url: String,
     responses_routes: BTreeMap<String, DirectResponsesRoute>,
     anthropic_routes: BTreeMap<String, DirectAnthropicRoute>,
-    /// The company key set serving each company that has one, by company.
-    shards: std::sync::Arc<BTreeMap<String, ShardRoute>>,
+    /// The key set serving a company's own key for a provider, by (company, provider).
+    shards: std::sync::Arc<BTreeMap<(String, String), ShardRoute>>,
     broker_access: BrokerAccess,
     http: reqwest::Client,
 }
@@ -1596,23 +1595,27 @@ struct ShardRoute {
 }
 
 impl RelayState {
-    /// The OMP gateway that holds this company's credentials, and its bearer.
-    fn upstream_for(&self, company: &str) -> (&str, &str) {
-        match self.shards.get(company) {
+    fn shard(&self, company: &str, provider: &str) -> Option<&ShardRoute> {
+        self.shards.get(&(company.to_string(), provider.to_string()))
+    }
+
+    /// The OMP gateway that holds this company's credential for this provider, and its bearer.
+    fn upstream_for(&self, company: &str, provider: &str) -> (&str, &str) {
+        match self.shard(company, provider) {
             Some(shard) => (&shard.upstream_url, &shard.upstream_token),
             None => (&self.upstream_url, &self.upstream_token),
         }
     }
 
     fn responses_route(&self, company: &str, provider: &str) -> Option<&DirectResponsesRoute> {
-        match self.shards.get(company) {
+        match self.shard(company, provider) {
             Some(shard) => shard.responses_routes.get(provider),
             None => self.responses_routes.get(provider),
         }
     }
 
     fn anthropic_route(&self, company: &str, provider: &str) -> Option<&DirectAnthropicRoute> {
-        match self.shards.get(company) {
+        match self.shard(company, provider) {
             Some(shard) => shard.anthropic_routes.get(provider),
             None => self.anthropic_routes.get(provider),
         }
@@ -1993,8 +1996,8 @@ async fn relay_pi_stream(
 
     let mut upstream_request = state
         .http
-        .post(format!("{}/v1/pi/stream", state.upstream_for(&grant.company).0))
-        .bearer_auth(state.upstream_for(&grant.company).1)
+        .post(format!("{}/v1/pi/stream", state.upstream_for(&grant.company, provider).0))
+        .bearer_auth(state.upstream_for(&grant.company, provider).1)
         .header(CONTENT_TYPE, "application/json")
         .body(if restore_runtime_model_ids(&mut request, &grant.model) {
             Bytes::from(serde_json::to_vec(&request).expect("re-encode model request"))
@@ -4134,117 +4137,81 @@ async fn provider_credentials(configs: &[CompanyConfig]) -> Result<CredentialPla
     Ok(partition_credentials(entries))
 }
 
-/// Companies whose API key for a provider differs from another company's, served by a broker and
-/// gateway of their own: OMP holds one credential per provider and picks among several by itself,
-/// so two companies' keys for one provider cannot share a broker. Each key set holds API keys only;
-/// the account's sign-ins stay with the main broker.
+/// A company's key for a provider that differs from the one the main broker holds, served by a
+/// broker and gateway of their own: OMP holds one credential per provider and picks among several
+/// by itself, so two companies' keys for one provider cannot share a broker. A key set holds API
+/// keys only; the account's sign-ins always stay with the main broker. It is chosen per company and
+/// provider, so a company may use the account sign-in for one provider and its own key for another.
 #[derive(Debug, Default, Clone, PartialEq)]
 struct KeyShard {
-    companies: BTreeSet<String>,
     credentials: BTreeMap<String, ProviderCredential>,
+    /// The (company, provider) pairs this set serves.
+    members: BTreeSet<(String, String)>,
+}
+
+impl KeyShard {
+    fn companies(&self) -> BTreeSet<&str> {
+        self.members.iter().map(|(company, _)| company.as_str()).collect()
+    }
 }
 
 #[derive(Debug, Default)]
 struct CredentialPlan {
     main: BTreeMap<String, ProviderCredential>,
     shards: Vec<KeyShard>,
-    /// Companies that need an account sign-in beside an API key another company already holds
-    /// differently: they cannot be split from the sign-in, so they wait with this reason.
-    refused: BTreeMap<String, String>,
 }
 
 impl CredentialPlan {
-    /// Every provider some broker holds.
+    /// Every provider some broker holds. The main broker holds every provider anyone uses.
     fn providers(&self) -> BTreeSet<String> {
-        self.main
-            .keys()
-            .chain(self.shards.iter().flat_map(|shard| shard.credentials.keys()))
-            .cloned()
-            .collect()
+        self.main.keys().cloned().collect()
     }
 }
 
-fn merged_into(
-    held: &BTreeMap<String, ProviderCredential>,
-    credentials: &BTreeMap<String, ProviderCredential>,
-) -> Option<BTreeMap<String, ProviderCredential>> {
-    let mut merged = held.clone();
-    for (provider, credential) in credentials {
-        let next = match merged.get(provider) {
-            Some(existing) => existing.merged(credential, provider)?,
-            None => credential.clone(),
-        };
-        merged.insert(provider.clone(), next);
-    }
-    Some(merged)
-}
-
-/// The companies the gateway would hold back, judged from credential references alone (no secret
-/// is read): each company's `(provider, reference)` bindings. Two references are two keys, so this
-/// errs toward a key set of its own, never toward a refusal the gateway would not make. The owner
-/// API asks it before a grant, so a grant the gateway cannot serve is refused with its reason.
-pub fn refused_by_plan(
-    companies: Vec<(String, Vec<(String, String)>)>,
-) -> BTreeMap<String, String> {
-    let entries = companies
+/// Decide which broker holds each company's credential for each provider (20 October: "why can't
+/// we just allow any number of providers for a company?"). Account sign-ins go to the main broker
+/// first; each key then joins the main broker when it agrees with what it holds for that provider,
+/// else the first key set that has no key for that provider or the same one, else a new set. Every
+/// company and provider is served; nothing is refused.
+fn partition_credentials(entries: Vec<(String, BTreeMap<String, ProviderCredential>)>) -> CredentialPlan {
+    let mut items: Vec<(String, String, ProviderCredential)> = entries
         .into_iter()
-        .map(|(company, bindings)| {
-            let credentials = bindings
+        .flat_map(|(company, credentials)| {
+            credentials
                 .into_iter()
-                .map(|(provider, reference)| {
-                    let credential = match crate::credential::omp_oauth_provider(&reference) {
-                        Ok(Some(_)) => ProviderCredential::OmpOauth,
-                        _ => ProviderCredential::ApiKey(reference),
-                    };
-                    (provider, credential)
-                })
-                .collect();
-            (company, credentials)
+                .map(move |(provider, credential)| (company.clone(), provider, credential))
         })
         .collect();
-    partition_credentials(entries).refused
-}
-
-/// Decide which broker holds each company's credentials (20 October: "why can't we just allow any
-/// number of providers for a company?"). Companies with an account sign-in go to the main broker
-/// first, since sign-ins live only there; every other company joins the main broker when its keys
-/// agree with it, else the first key set they agree with, else a new one.
-fn partition_credentials(
-    mut entries: Vec<(String, BTreeMap<String, ProviderCredential>)>,
-) -> CredentialPlan {
-    let signs_in = |credentials: &BTreeMap<String, ProviderCredential>| {
-        credentials.values().any(|credential| !matches!(credential, ProviderCredential::ApiKey(_)))
-    };
-    entries.sort_by_key(|(_, credentials)| !signs_in(credentials));
+    items.sort_by_key(|(_, _, credential)| matches!(credential, ProviderCredential::ApiKey(_)));
     let mut plan = CredentialPlan::default();
-    for (company, credentials) in entries {
-        if credentials.is_empty() {
+    for (company, provider, credential) in items {
+        let held = plan.main.get(&provider);
+        let joined = match held {
+            None => Some(credential.clone()),
+            Some(existing) => existing.merged(&credential, &provider),
+        };
+        if let Some(joined) = joined {
+            plan.main.insert(provider, joined);
             continue;
         }
-        if let Some(merged) = merged_into(&plan.main, &credentials) {
-            plan.main = merged;
-            continue;
-        }
-        if signs_in(&credentials) {
-            plan.refused.insert(
-                company,
-                "This company uses an account sign-in beside an API key that another company \
-                 holds differently for the same provider. Give it the same key, or a key for a \
-                 provider no other signed-in company uses, in Company → Intelligence."
-                    .to_string(),
-            );
-            continue;
-        }
-        if let Some(shard) = plan.shards.iter_mut().find(|shard| merged_into(&shard.credentials, &credentials).is_some()) {
-            shard.credentials = merged_into(&shard.credentials, &credentials).expect("checked above");
-            shard.companies.insert(company);
-        } else {
-            plan.shards.push(KeyShard { companies: BTreeSet::from([company]), credentials });
-        }
-    }
-    // The main broker always serves someone when anyone has a credential.
-    if plan.main.is_empty() && !plan.shards.is_empty() {
-        plan.main = plan.shards.remove(0).credentials;
+        let fits = |shard: &KeyShard| match shard.credentials.get(&provider) {
+            None => true,
+            Some(existing) => existing.merged(&credential, &provider).is_some(),
+        };
+        let index = match plan.shards.iter().position(fits) {
+            Some(index) => index,
+            None => {
+                plan.shards.push(KeyShard::default());
+                plan.shards.len() - 1
+            }
+        };
+        let shard = &mut plan.shards[index];
+        let joined = match shard.credentials.get(&provider) {
+            None => credential,
+            Some(existing) => existing.merged(&credential, &provider).expect("checked above"),
+        };
+        shard.credentials.insert(provider.clone(), joined);
+        shard.members.insert((company, provider));
     }
     plan
 }
@@ -4528,42 +4495,46 @@ mod tests {
     }
 
     #[test]
-    fn companies_with_different_keys_for_one_provider_each_get_a_key_set() {
+    fn a_companys_own_key_for_a_provider_gets_a_key_set_for_that_provider_alone() {
         let key = |value: &str| ProviderCredential::ApiKey(value.to_string());
         let plan = partition_credentials(vec![
             ("reno".into(), keys(&[("openai", key("k1")), ("moonshot", key("m1"))])),
             ("potion".into(), keys(&[("openai", key("k2"))])),
-            ("sydney".into(), keys(&[("openai", key("k2")), ("moonshot", key("m2"))])),
+            ("sydney".into(), keys(&[("openai", key("k3")), ("moonshot", key("m1"))])),
             ("frank".into(), keys(&[("openai", key("k1"))])),
         ]);
         assert_eq!(plan.main, keys(&[("openai", key("k1")), ("moonshot", key("m1"))]));
-        // Potion and Sydney agree with each other (k2) but not with Reno: one key set holds both.
-        assert_eq!(plan.shards.len(), 1);
-        assert_eq!(plan.shards[0].companies, BTreeSet::from(["potion".to_string(), "sydney".to_string()]));
-        assert_eq!(plan.shards[0].credentials, keys(&[("openai", key("k2")), ("moonshot", key("m2"))]));
-        assert!(plan.refused.is_empty());
-        assert!(plan.providers().contains("moonshot"));
+        // Potion's k2 and Sydney's k3 differ from each other and from k1: two sets for openai.
+        // Sydney's moonshot key agrees with the main one, so only its openai traffic moves.
+        assert_eq!(plan.shards.len(), 2);
+        let member = |company: &str, provider: &str| (company.to_string(), provider.to_string());
+        assert_eq!(plan.shards[0].members, BTreeSet::from([member("potion", "openai")]));
+        assert_eq!(plan.shards[1].members, BTreeSet::from([member("sydney", "openai")]));
+        assert_eq!(plan.shards[1].credentials, keys(&[("openai", key("k3"))]));
     }
 
     #[test]
-    fn sign_ins_stay_with_the_main_broker_and_a_signed_in_clash_waits() {
+    fn sign_ins_stay_main_and_a_signed_in_company_may_still_bring_its_own_key() {
         let key = |value: &str| ProviderCredential::ApiKey(value.to_string());
         let plan = partition_credentials(vec![
             ("keyed".into(), keys(&[("openai", key("k1"))])),
             ("signed".into(), keys(&[("openai-codex", ProviderCredential::OmpOauth), ("openai", key("k2"))])),
-            ("clash".into(), keys(&[("openai-codex", ProviderCredential::OmpOauth), ("openai", key("k3"))])),
+            ("other".into(), keys(&[("openai-codex", ProviderCredential::OmpOauth), ("openai", key("k3"))])),
             ("claude".into(), keys(&[("anthropic", ProviderCredential::OmpOauth)])),
             ("anthropic-key".into(), keys(&[("anthropic", key("a1"))])),
+            ("anthropic-other".into(), keys(&[("anthropic", key("a2"))])),
         ]);
-        // The signed-in company is placed first, so its key is the main one and the plain key moves.
-        assert_eq!(plan.main.get("openai"), Some(&key("k2")));
+        assert_eq!(plan.main.get("openai-codex"), Some(&ProviderCredential::OmpOauth));
         assert_eq!(plan.main.get("anthropic"), Some(&ProviderCredential::OauthWithApiKey("a1".into())));
-        assert!(plan.shards.iter().any(|shard| shard.companies.contains("keyed")));
-        assert!(plan.refused.contains_key("clash"));
-        // With only key sets, the first becomes the main broker's.
-        let only = partition_credentials(vec![("solo".into(), keys(&[("openai", key("k1"))]))]);
-        assert_eq!(only.main, keys(&[("openai", key("k1"))]));
-        assert!(only.shards.is_empty());
+        // The sign-ins are main; the second and third openai keys and the second Anthropic key move.
+        let moved: BTreeSet<_> = plan.shards.iter().flat_map(|shard| shard.members.iter().cloned()).collect();
+        assert_eq!(moved.len(), 3);
+        assert!(moved.contains(&("anthropic-other".to_string(), "anthropic".to_string())));
+        assert!(!moved.iter().any(|(_, provider)| provider == "openai-codex"));
+        assert!(plan.shards.iter().all(|shard| shard
+            .credentials
+            .values()
+            .all(|credential| matches!(credential, ProviderCredential::ApiKey(_)))));
     }
 
     fn dual_company(name: &str, reference: &str) -> CompanyConfig {
