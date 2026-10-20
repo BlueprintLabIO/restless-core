@@ -5033,18 +5033,6 @@ struct GrantOwnerConnectionInput {
     make_default: bool,
 }
 
-fn constant_time_secret_match(left: &str, right: &str) -> bool {
-    use hmac::{Hmac, Mac as _};
-    let mut expected = Hmac::<Sha256>::new_from_slice(b"restless provider credential comparison")
-        .expect("HMAC accepts keys of any size");
-    expected.update(left.as_bytes());
-    let expected = expected.finalize().into_bytes();
-    let mut candidate = Hmac::<Sha256>::new_from_slice(b"restless provider credential comparison")
-        .expect("HMAC accepts keys of any size");
-    candidate.update(right.as_bytes());
-    candidate.verify_slice(&expected).is_ok()
-}
-
 const INCLUDED_MODEL_PROVIDER: &str =
     "The included AI uses this provider, so it cannot take your own key. Choose another provider.";
 
@@ -5063,56 +5051,39 @@ fn included_model_providers(root: &std::path::Path) -> std::collections::BTreeSe
         .collect()
 }
 
-/// Whether two companies' credentials for `provider` are the account sign-in and an API key, which
-/// the gateway can hold together for Anthropic only.
-fn anthropic_sign_in_beside_key(provider: &str, proposed_is_sign_in: bool, other_is_sign_in: bool) -> bool {
-    provider == "anthropic" && proposed_is_sign_in != other_is_sign_in
-}
-
-async fn provider_credential_conflicts_with_other_companies(
+/// The gateway's reason for holding `company` back once it binds `provider` to `reference`, if
+/// it would.
+fn grant_refused_by_gateway(
     root: &std::path::Path,
     company: &str,
     provider: &str,
-    proposed_reference: &str,
-    proposed_secret: Option<&str>,
-) -> Result<bool> {
-    let binding = format!("model.inference.{provider}");
-    for other_name in crate::configured_companies(root)? {
-        if other_name == company {
-            continue;
+    reference: &str,
+) -> Result<Option<String>> {
+    let mut companies = Vec::new();
+    for name in crate::configured_companies(root)? {
+        let Ok(config) = runtime::CompanyConfig::load(root, &name) else { continue };
+        let primary = config.model.split('/').next().map(str::to_string);
+        let mut bindings: Vec<(String, String)> = config
+            .credentials
+            .iter()
+            .filter_map(|(capability, bound)| {
+                let bound_provider = match capability.strip_prefix("model.inference.") {
+                    Some(provider) => provider.to_string(),
+                    None if capability == "model.inference" => primary.clone()?,
+                    None => return None,
+                };
+                Some((bound_provider, bound.clone()))
+            })
+            .collect();
+        if name == company {
+            bindings.retain(|(bound_provider, _)| bound_provider != provider);
+            bindings.push((provider.to_string(), reference.to_string()));
         }
-        let Ok(other) = runtime::CompanyConfig::load(root, &other_name) else {
-            continue;
-        };
-        let reference = other.credentials.get(&binding).or_else(|| {
-            (other.model.split('/').next() == Some(provider))
-                .then(|| other.credentials.get("model.inference"))
-                .flatten()
-        });
-        let Some(reference) = reference else {
-            continue;
-        };
-        if reference == proposed_reference {
-            continue;
-        }
-        let other_is_sign_in = crate::credential::omp_oauth_provider(reference)?.is_some();
-        // The gateway holds Anthropic's account sign-in beside one API key and bills each company
-        // by its own binding (model_gateway::ProviderCredential::merged). Refusing that here
-        // kept a company off Claude because another ran on an Anthropic key (20 October).
-        if anthropic_sign_in_beside_key(provider, proposed_secret.is_none(), other_is_sign_in) {
-            continue;
-        }
-        if proposed_secret.is_none() || other_is_sign_in {
-            return Ok(true);
-        }
-        let secret = credential::resolve_reference(reference)
-            .await
-            .context("could not verify another company's provider credential")?;
-        if !constant_time_secret_match(proposed_secret.expect("checked above"), &secret) {
-            return Ok(true);
-        }
+        bindings.sort();
+        bindings.dedup_by(|a, b| a.0 == b.0);
+        companies.push((name, bindings));
     }
-    Ok(false)
+    Ok(restless_engine::model_gateway::refused_by_plan(companies).remove(company))
 }
 
 async fn grant_owner_connection(
@@ -5193,7 +5164,8 @@ async fn grant_owner_connection(
     if has_different_existing && !input.replace_existing {
         return api_error(StatusCode::CONFLICT, "provider_conflict", "This company already has a credential for that provider. Confirm replacing this company's provider key to continue.");
     }
-    let proposed_secret = if connection.kind == "oauth" {
+    // The sign-in or the stored key must be usable before a company is given it.
+    let _usable_secret = if connection.kind == "oauth" {
         match model_gateway::oauth_account(&connection.provider).await {
             Ok(Some(account)) if account.matches_account(connection.account_key.as_deref()) => {}
             Ok(Some(_)) => return api_error(StatusCode::CONFLICT, "account_identity", "This sign-in no longer matches the saved account identity. Reconnect the original account before granting access."),
@@ -5213,18 +5185,13 @@ async fn grant_owner_connection(
             }
         }
     };
-    match provider_credential_conflicts_with_other_companies(
-        &state.daemon.root,
-        &company,
-        &connection.provider,
-        &reference,
-        proposed_secret.as_deref(),
-    )
-    .await
-    {
-        Ok(true) => return api_error(StatusCode::CONFLICT, "account_provider_conflict", "Another company already has a different account or credential mode for this provider. Resolve that account-level conflict first."),
+    // Different companies may hold different keys for one provider: the gateway gives each its
+    // own key set (model_gateway::partition_credentials). Only a company that needs an account
+    // sign-in beside a key another company holds differently is refused, with the gateway's reason.
+    match grant_refused_by_gateway(&state.daemon.root, &company, &connection.provider, &reference) {
+        Ok(Some(reason)) => return api_error(StatusCode::CONFLICT, "account_provider_conflict", reason),
         Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "Could not verify provider access across the account."),
-        Ok(false) => {}
+        Ok(None) => {}
     }
     // What this grant replaces, and who still thinks with it: a second connection for the same
     // provider takes the company's one binding, and agents assigned to the first then fail with

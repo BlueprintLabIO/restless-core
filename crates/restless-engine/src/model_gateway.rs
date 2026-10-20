@@ -224,12 +224,12 @@ pub fn gateway_fingerprint(configs: &[CompanyConfig], account_oauth: &[String]) 
                         .flatten()
                 });
             if let Some(reference) = reference {
-                // Company grant IDs do not change the account credential the broker loads.
-                let reference = match crate::credential::omp_oauth_provider(reference) {
-                    Ok(Some(oauth)) => format!("omp-oauth:{oauth}"),
-                    _ => reference.clone(),
+                // Company grant IDs do not change the account credential the broker loads. Which
+                // company holds which API key decides the key sets, so a key is named with its company.
+                match crate::credential::omp_oauth_provider(reference) {
+                    Ok(Some(oauth)) => loaded.insert(format!("{provider}=omp-oauth:{oauth}")),
+                    _ => loaded.insert(format!("{}:{provider}={reference}", config.name)),
                 };
-                loaded.insert(format!("{provider}={reference}"));
             }
         }
     }
@@ -633,6 +633,8 @@ pub struct Processes {
     broker: Child,
     gateway: Option<Child>,
     relay: Option<tokio::task::JoinHandle<()>>,
+    /// The company key sets' brokers and gateways.
+    shards: Vec<Child>,
     marker: PathBuf,
     fingerprint: String,
 }
@@ -654,6 +656,11 @@ impl Processes {
         if self.relay.as_ref().is_some_and(|relay| relay.is_finished()) {
             bail!("model relay exited");
         }
+        for child in &mut self.shards {
+            if let Some(status) = child.try_wait().context("inspect a company key set")? {
+                bail!("a company key set's model process exited ({status})");
+            }
+        }
         Ok(())
     }
 }
@@ -662,6 +669,7 @@ impl Drop for Processes {
     fn drop(&mut self) {
         if let Some(relay) = self.relay.as_ref() { relay.abort(); }
         if let Some(gateway) = self.gateway.as_mut() { let _ = gateway.start_kill(); }
+        for child in &mut self.shards { let _ = child.start_kill(); }
         let _ = self.broker.start_kill();
         let _ = std::fs::remove_file(&self.marker);
     }
@@ -816,7 +824,11 @@ pub async fn start(
     let endpoints = GatewayEndpoints::from_env()?;
     let account_oauth = crate::model_connections::account_oauth_providers(root)?;
     let fingerprint = gateway_fingerprint(configs, &account_oauth);
-    let mut provider_credentials = provider_credentials(configs).await?;
+    let plan = provider_credentials(configs).await?;
+    let key_shards = plan.shards.clone();
+    let refused = plan.refused.clone();
+    let mut admitted_providers = plan.providers();
+    let mut provider_credentials = plan.main;
     for provider in account_oauth {
         match provider_credentials.get(&provider) {
             Some(existing @ ProviderCredential::ApiKey(_)) => {
@@ -828,7 +840,10 @@ pub async fn start(
                 provider_credentials.insert(provider, merged);
             }
             Some(ProviderCredential::OmpOauth | ProviderCredential::OauthWithApiKey(_)) => {},
-            None => { provider_credentials.insert(provider, ProviderCredential::OmpOauth); },
+            None => {
+                admitted_providers.insert(provider.clone());
+                provider_credentials.insert(provider, ProviderCredential::OmpOauth);
+            },
         }
     }
     if let Ok(mut dual) = DUAL_PROVIDERS.write() {
@@ -850,7 +865,8 @@ pub async fn start(
         // unstartable until its first company existed, which inverts Cloud's
         // provisioning order: Fleet creates the plane, then the cell.
         remember_loaded(provider_credentials.keys().cloned().collect(), None);
-        let admission = admit(configs, &provider_credentials)?;
+        let mut admission = admit(configs, &provider_credentials)?;
+        admission.unstartable.extend(refused.clone());
         for (company, reason) in &admission.unstartable {
             tracing::warn!(company, reason, "company cannot start: {reason}");
         }
@@ -915,6 +931,7 @@ pub async fn start(
             broker,
             gateway: None,
             relay: None,
+            shards: Vec::new(),
             marker: model_children_path(root),
             fingerprint,
         });
@@ -1010,15 +1027,28 @@ pub async fn start(
             broker,
             gateway: None,
             relay: None,
+            shards: Vec::new(),
             marker: model_children_path(root),
             fingerprint,
         });
     }
-    let mut admission = admit(configs, &provider_credentials)?;
+    // Admission counts the extra key sets' providers too; a key set that fails to start below
+    // holds back its own companies only.
+    admitted_providers.retain(|provider| {
+        provider_credentials.contains_key(provider)
+            || key_shards.iter().any(|shard| shard.credentials.contains_key(provider))
+    });
+    let mut admission = admit(configs, &admitted_providers)?;
+    admission.unstartable.extend(refused.clone());
     for (company, reason) in &admission.unstartable {
         tracing::warn!(company, reason, "company cannot start: {reason}");
     }
-    let startable = admission.startable(configs);
+    let main_configs: Vec<CompanyConfig> = configs
+        .iter()
+        .filter(|config| !key_shards.iter().any(|shard| shard.companies.contains(&config.name)))
+        .cloned()
+        .collect();
+    let startable = admission.startable(&main_configs);
     set_unstartable(admission.unstartable.clone());
 
     let gateway_token = token(
@@ -1078,11 +1108,43 @@ pub async fn start(
         &required_models,
     )
     .await?;
+    // Each key set: its own broker and gateway, holding only its companies' keys.
+    let mut served = served;
+    let mut shard_children = Vec::new();
+    let mut shard_routes = BTreeMap::<String, ShardRoute>::new();
+    let mut loaded_providers = required_providers.clone();
+    for (index, shard) in key_shards.iter().enumerate() {
+        let shard_configs: Vec<CompanyConfig> = configs
+            .iter()
+            .filter(|config| shard.companies.contains(&config.name))
+            .cloned()
+            .collect();
+        match start_key_shard(index, shard, &shard_configs, root, &omp).await {
+            Ok(started) => {
+                served.extend(started.served);
+                loaded_providers.extend(shard.credentials.keys().cloned());
+                shard_children.extend(started.children);
+                for company in &shard.companies {
+                    shard_routes.insert(company.clone(), started.route.clone());
+                }
+            }
+            Err(error) => {
+                tracing::warn!(shard = index, error = %format!("{error:#}"), "a company key set did not start");
+                for company in &shard.companies {
+                    admission.unstartable.insert(
+                        company.clone(),
+                        "This company's own API key could not be loaded. Check it in Company → Intelligence, then try again."
+                            .to_string(),
+                    );
+                }
+            }
+        }
+    }
     // A pinned model the gateway turned out not to serve is one company's
     // fact: hold back only the companies whose Exec needs it.
     admission.hold_unserved(configs, &served);
     set_unstartable(admission.unstartable);
-    remember_loaded(required_providers, Some(served));
+    remember_loaded(loaded_providers, Some(served));
     let responses_routes = direct_responses_routes(
         &provider_credentials,
         &endpoints.gateway_host_url,
@@ -1093,10 +1155,16 @@ pub async fn start(
         &endpoints.gateway_host_url,
         &gateway_token,
     )?;
-    let providers = provider_credentials
-        .into_iter()
-        .map(|(provider, credential)| (provider, credential.billing()))
+    let mut providers: BTreeMap<String, ModelBilling> = key_shards
+        .iter()
+        .flat_map(|shard| shard.credentials.iter())
+        .map(|(provider, credential)| (provider.clone(), credential.billing()))
         .collect();
+    providers.extend(
+        provider_credentials
+            .into_iter()
+            .map(|(provider, credential)| (provider, credential.billing())),
+    );
 
     let relay_state = RelayState {
         root: root.to_path_buf(),
@@ -1106,6 +1174,7 @@ pub async fn start(
         upstream_url: endpoints.gateway_host_url,
         responses_routes,
         anthropic_routes,
+        shards: std::sync::Arc::new(shard_routes),
         broker_access: BrokerAccess {
             url: endpoints.broker_url.clone(),
             token: broker_token.clone(),
@@ -1136,9 +1205,130 @@ pub async fn start(
         broker,
         gateway: Some(gateway),
         relay: Some(relay),
+        shards: shard_children,
         marker: model_children_path(root),
         fingerprint,
     })
+}
+
+struct StartedShard {
+    children: Vec<Child>,
+    route: ShardRoute,
+    served: BTreeSet<String>,
+}
+
+/// Start one key set's broker and gateway on their own ports and profiles, holding only its API
+/// keys, and wait until the gateway serves its providers.
+async fn start_key_shard(
+    index: usize,
+    shard: &KeyShard,
+    configs: &[CompanyConfig],
+    root: &std::path::Path,
+    omp: &std::path::Path,
+) -> Result<StartedShard> {
+    let offset = crate::port_offset()?;
+    let suffix = if offset == 0 { String::new() } else { format!("-{offset}") };
+    let slot = u16::try_from(index).context("too many company key sets")?;
+    anyhow::ensure!(slot < 16, "at most 16 company key sets run at once");
+    let broker_port = crate::port_with_offset(7800 + 2 * slot)?;
+    let gateway_port = crate::port_with_offset(7801 + 2 * slot)?;
+    let broker_profile = format!("{BROKER_PROFILE}-key{index}{suffix}");
+    let gateway_profile = format!("{GATEWAY_PROFILE}-key{index}{suffix}");
+    let broker_url = format!("http://127.0.0.1:{broker_port}");
+    let broker_bind = format!("127.0.0.1:{broker_port}");
+    let gateway_url = format!("http://127.0.0.1:{gateway_port}");
+    let gateway_bind = format!("127.0.0.1:{gateway_port}");
+
+    let broker_token = token(root, omp, &broker_profile, "auth-broker", false).await?;
+    let broker_args = ["auth-broker", "serve", "--bind", broker_bind.as_str()];
+    let mut broker_command = Command::new(omp);
+    anthropic_reroute(&mut broker_command);
+    let mut broker = broker_command
+        .current_dir(root)
+        .env("OMP_PROFILE", &broker_profile)
+        .env("LLAMA_CPP_BASE_URL", DISABLED_LOCAL_DISCOVERY_URL)
+        .args(broker_args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .kill_on_drop(true)
+        .spawn()
+        .context("start a company key set's model broker")?;
+    record_model_child(root, &broker, omp, &broker_args)?;
+    wait_for_broker(&mut broker, &broker_token, &broker_url).await?;
+
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .context("build key set credential client")?;
+    prune_unconfigured_credentials(
+        &http,
+        &broker_token,
+        &broker_url,
+        shard.credentials.keys().map(String::as_str).collect(),
+    )
+    .await?;
+    for (provider, credential) in &shard.credentials {
+        let ProviderCredential::ApiKey(key) = credential else {
+            bail!("a company key set holds API keys only");
+        };
+        let response = http
+            .post(format!("{broker_url}/v1/credential"))
+            .bearer_auth(&broker_token)
+            .json(&serde_json::json!({
+                "provider": provider,
+                "credential": { "type": "api_key", "key": key }
+            }))
+            .send()
+            .await
+            .with_context(|| format!("sync {provider} credential to a key set broker"))?;
+        if !response.status().is_success() {
+            bail!("a key set broker refused the {provider} credential with HTTP {}", response.status());
+        }
+    }
+    let unadmitted = reconcile_credentials(&http, &broker_token, &broker_url, &shard.credentials).await?;
+    anyhow::ensure!(unadmitted.is_empty(), "a key set broker did not admit {unadmitted:?}");
+
+    let gateway_token = token(root, omp, &gateway_profile, "auth-gateway", false).await?;
+    let mut gateway_command = Command::new(omp);
+    anthropic_reroute(&mut gateway_command);
+    gateway_command
+        .current_dir(root)
+        .env("OMP_PROFILE", &gateway_profile)
+        .env("OMP_AUTH_BROKER_URL", &broker_url)
+        .env("OMP_AUTH_BROKER_TOKEN", &broker_token)
+        .env("LLAMA_CPP_BASE_URL", DISABLED_LOCAL_DISCOVERY_URL);
+    if shard.credentials.contains_key("litellm") {
+        let base_url = std::env::var("GPT_BASE_URL")
+            .context("litellm model route needs GPT_BASE_URL for OMP discovery")?;
+        gateway_command.env("LITELLM_BASE_URL", base_url);
+    }
+    let gateway_args = ["auth-gateway", "serve", "--bind", gateway_bind.as_str()];
+    let mut gateway = gateway_command
+        .args(gateway_args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .kill_on_drop(true)
+        .spawn()
+        .context("start a company key set's model gateway")?;
+    record_model_child(root, &gateway, omp, &gateway_args)?;
+    let configs = configs.iter().collect::<Vec<_>>();
+    let served = wait_for_gateway(
+        &mut gateway,
+        &gateway_token,
+        &gateway_url,
+        &shard.credentials.keys().cloned().collect(),
+        &runtime_pinned_models(&configs)?,
+    )
+    .await?;
+    let route = ShardRoute {
+        upstream_url: gateway_url.clone(),
+        upstream_token: gateway_token.clone(),
+        responses_routes: direct_responses_routes(&shard.credentials, &gateway_url, &gateway_token)?,
+        anthropic_routes: direct_anthropic_routes(&shard.credentials, &gateway_url, &gateway_token)?,
+    };
+    Ok(StartedShard { children: vec![broker, gateway], route, served })
 }
 
 #[derive(Deserialize)]
@@ -1390,8 +1580,43 @@ struct RelayState {
     upstream_url: String,
     responses_routes: BTreeMap<String, DirectResponsesRoute>,
     anthropic_routes: BTreeMap<String, DirectAnthropicRoute>,
+    /// The company key set serving each company that has one, by company.
+    shards: std::sync::Arc<BTreeMap<String, ShardRoute>>,
     broker_access: BrokerAccess,
     http: reqwest::Client,
+}
+
+/// Where one company key set's traffic goes.
+#[derive(Clone)]
+struct ShardRoute {
+    upstream_url: String,
+    upstream_token: String,
+    responses_routes: BTreeMap<String, DirectResponsesRoute>,
+    anthropic_routes: BTreeMap<String, DirectAnthropicRoute>,
+}
+
+impl RelayState {
+    /// The OMP gateway that holds this company's credentials, and its bearer.
+    fn upstream_for(&self, company: &str) -> (&str, &str) {
+        match self.shards.get(company) {
+            Some(shard) => (&shard.upstream_url, &shard.upstream_token),
+            None => (&self.upstream_url, &self.upstream_token),
+        }
+    }
+
+    fn responses_route(&self, company: &str, provider: &str) -> Option<&DirectResponsesRoute> {
+        match self.shards.get(company) {
+            Some(shard) => shard.responses_routes.get(provider),
+            None => self.responses_routes.get(provider),
+        }
+    }
+
+    fn anthropic_route(&self, company: &str, provider: &str) -> Option<&DirectAnthropicRoute> {
+        match self.shards.get(company) {
+            Some(shard) => shard.anthropic_routes.get(provider),
+            None => self.anthropic_routes.get(provider),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -1768,8 +1993,8 @@ async fn relay_pi_stream(
 
     let mut upstream_request = state
         .http
-        .post(format!("{}/v1/pi/stream", state.upstream_url))
-        .bearer_auth(&state.upstream_token)
+        .post(format!("{}/v1/pi/stream", state.upstream_for(&grant.company).0))
+        .bearer_auth(state.upstream_for(&grant.company).1)
         .header(CONTENT_TYPE, "application/json")
         .body(if restore_runtime_model_ids(&mut request, &grant.model) {
             Bytes::from(serde_json::to_vec(&request).expect("re-encode model request"))
@@ -2042,7 +2267,7 @@ async fn relay_responses(
             );
         }
     }
-    let Some(route) = state.responses_routes.get(provider) else {
+    let Some(route) = state.responses_route(&grant.company, provider) else {
         return relay_error(
             StatusCode::BAD_REQUEST,
             "provider has no admitted first-party Responses contract",
@@ -2198,7 +2423,7 @@ async fn relay_anthropic_messages(
             return relay_error(StatusCode::PAYMENT_REQUIRED, &budget.owner_message(&config.name));
         }
     }
-    let Some(route) = state.anthropic_routes.get(provider) else {
+    let Some(route) = state.anthropic_route(&grant.company, provider) else {
         return relay_error(
             StatusCode::BAD_REQUEST,
             "provider has no admitted Anthropic Messages contract",
@@ -2349,7 +2574,7 @@ async fn relay_anthropic_count_tokens(
         );
     }
     request["model"] = serde_json::Value::String(model_id.to_string());
-    let Some(route) = state.anthropic_routes.get(provider) else {
+    let Some(route) = state.anthropic_route(&grant.company, provider) else {
         return relay_error(
             StatusCode::BAD_REQUEST,
             "provider has no admitted Anthropic Messages contract",
@@ -3845,10 +4070,10 @@ fn configured_provider_ids(config: &CompanyConfig) -> Result<BTreeSet<String>> {
     Ok(providers)
 }
 
-async fn provider_credentials(
-    configs: &[CompanyConfig],
-) -> Result<BTreeMap<String, ProviderCredential>> {
-    let mut credentials = BTreeMap::<String, ProviderCredential>::new();
+/// Every company's credentials, partitioned into what the main broker holds and the extra key
+/// sets (see `partition_credentials`).
+async fn provider_credentials(configs: &[CompanyConfig]) -> Result<CredentialPlan> {
+    let mut entries = Vec::<(String, BTreeMap<String, ProviderCredential>)>::new();
     // Resolve only explicit host references on the first pass. Throwaway
     // configs deliberately carry none; they may use an installation route
     // authorised by another company, but iteration order must never decide it.
@@ -3862,6 +4087,7 @@ async fn provider_credentials(
         // Every explicitly connected provider is available to actor-selected models,
         // not only the company's default and failover routes.
         let providers = configured_provider_ids(config)?;
+        let mut credentials = BTreeMap::<String, ProviderCredential>::new();
         for provider in &providers {
             let provider = provider.as_str();
             let provider_capability = format!("model.inference.{provider}");
@@ -3901,19 +4127,126 @@ async fn provider_credentials(
                     }
                 },
             };
-            if let Some(existing) = credentials.get(provider) {
-                let Some(merged) = existing.merged(&credential, provider) else {
-                    bail!(
-                        "V0 model gateway refuses different {provider} credentials across companies; separate provider custody before multi-account use"
-                    );
-                };
-                credentials.insert(provider.to_string(), merged);
-            } else {
-                credentials.insert(provider.to_string(), credential);
-            }
+            credentials.insert(provider.to_string(), credential);
+        }
+        entries.push((config.name.clone(), credentials));
+    }
+    Ok(partition_credentials(entries))
+}
+
+/// Companies whose API key for a provider differs from another company's, served by a broker and
+/// gateway of their own: OMP holds one credential per provider and picks among several by itself,
+/// so two companies' keys for one provider cannot share a broker. Each key set holds API keys only;
+/// the account's sign-ins stay with the main broker.
+#[derive(Debug, Default, Clone, PartialEq)]
+struct KeyShard {
+    companies: BTreeSet<String>,
+    credentials: BTreeMap<String, ProviderCredential>,
+}
+
+#[derive(Debug, Default)]
+struct CredentialPlan {
+    main: BTreeMap<String, ProviderCredential>,
+    shards: Vec<KeyShard>,
+    /// Companies that need an account sign-in beside an API key another company already holds
+    /// differently: they cannot be split from the sign-in, so they wait with this reason.
+    refused: BTreeMap<String, String>,
+}
+
+impl CredentialPlan {
+    /// Every provider some broker holds.
+    fn providers(&self) -> BTreeSet<String> {
+        self.main
+            .keys()
+            .chain(self.shards.iter().flat_map(|shard| shard.credentials.keys()))
+            .cloned()
+            .collect()
+    }
+}
+
+fn merged_into(
+    held: &BTreeMap<String, ProviderCredential>,
+    credentials: &BTreeMap<String, ProviderCredential>,
+) -> Option<BTreeMap<String, ProviderCredential>> {
+    let mut merged = held.clone();
+    for (provider, credential) in credentials {
+        let next = match merged.get(provider) {
+            Some(existing) => existing.merged(credential, provider)?,
+            None => credential.clone(),
+        };
+        merged.insert(provider.clone(), next);
+    }
+    Some(merged)
+}
+
+/// The companies the gateway would hold back, judged from credential references alone (no secret
+/// is read): each company's `(provider, reference)` bindings. Two references are two keys, so this
+/// errs toward a key set of its own, never toward a refusal the gateway would not make. The owner
+/// API asks it before a grant, so a grant the gateway cannot serve is refused with its reason.
+pub fn refused_by_plan(
+    companies: Vec<(String, Vec<(String, String)>)>,
+) -> BTreeMap<String, String> {
+    let entries = companies
+        .into_iter()
+        .map(|(company, bindings)| {
+            let credentials = bindings
+                .into_iter()
+                .map(|(provider, reference)| {
+                    let credential = match crate::credential::omp_oauth_provider(&reference) {
+                        Ok(Some(_)) => ProviderCredential::OmpOauth,
+                        _ => ProviderCredential::ApiKey(reference),
+                    };
+                    (provider, credential)
+                })
+                .collect();
+            (company, credentials)
+        })
+        .collect();
+    partition_credentials(entries).refused
+}
+
+/// Decide which broker holds each company's credentials (20 October: "why can't we just allow any
+/// number of providers for a company?"). Companies with an account sign-in go to the main broker
+/// first, since sign-ins live only there; every other company joins the main broker when its keys
+/// agree with it, else the first key set they agree with, else a new one.
+fn partition_credentials(
+    mut entries: Vec<(String, BTreeMap<String, ProviderCredential>)>,
+) -> CredentialPlan {
+    let signs_in = |credentials: &BTreeMap<String, ProviderCredential>| {
+        credentials.values().any(|credential| !matches!(credential, ProviderCredential::ApiKey(_)))
+    };
+    entries.sort_by_key(|(_, credentials)| !signs_in(credentials));
+    let mut plan = CredentialPlan::default();
+    for (company, credentials) in entries {
+        if credentials.is_empty() {
+            continue;
+        }
+        if let Some(merged) = merged_into(&plan.main, &credentials) {
+            plan.main = merged;
+            continue;
+        }
+        if signs_in(&credentials) {
+            plan.refused.insert(
+                company,
+                "This company uses an account sign-in beside an API key that another company \
+                 holds differently for the same provider. Give it the same key, or a key for a \
+                 provider no other signed-in company uses, in Company → Intelligence."
+                    .to_string(),
+            );
+            continue;
+        }
+        if let Some(shard) = plan.shards.iter_mut().find(|shard| merged_into(&shard.credentials, &credentials).is_some()) {
+            shard.credentials = merged_into(&shard.credentials, &credentials).expect("checked above");
+            shard.companies.insert(company);
+        } else {
+            plan.shards.push(KeyShard { companies: BTreeSet::from([company]), credentials });
         }
     }
-    Ok(credentials)
+    // The main broker always serves someone when anyone has a credential.
+    if plan.main.is_empty() && !plan.shards.is_empty() {
+        plan.main = plan.shards.remove(0).credentials;
+    }
+    plan
 }
 
 /// Decide which companies this plane can start, given the providers it managed
@@ -4190,6 +4523,49 @@ async fn wait_for_gateway(
 mod tests {
     use super::*;
 
+    fn keys(pairs: &[(&str, ProviderCredential)]) -> BTreeMap<String, ProviderCredential> {
+        pairs.iter().map(|(provider, credential)| (provider.to_string(), credential.clone())).collect()
+    }
+
+    #[test]
+    fn companies_with_different_keys_for_one_provider_each_get_a_key_set() {
+        let key = |value: &str| ProviderCredential::ApiKey(value.to_string());
+        let plan = partition_credentials(vec![
+            ("reno".into(), keys(&[("openai", key("k1")), ("moonshot", key("m1"))])),
+            ("potion".into(), keys(&[("openai", key("k2"))])),
+            ("sydney".into(), keys(&[("openai", key("k2")), ("moonshot", key("m2"))])),
+            ("frank".into(), keys(&[("openai", key("k1"))])),
+        ]);
+        assert_eq!(plan.main, keys(&[("openai", key("k1")), ("moonshot", key("m1"))]));
+        // Potion and Sydney agree with each other (k2) but not with Reno: one key set holds both.
+        assert_eq!(plan.shards.len(), 1);
+        assert_eq!(plan.shards[0].companies, BTreeSet::from(["potion".to_string(), "sydney".to_string()]));
+        assert_eq!(plan.shards[0].credentials, keys(&[("openai", key("k2")), ("moonshot", key("m2"))]));
+        assert!(plan.refused.is_empty());
+        assert!(plan.providers().contains("moonshot"));
+    }
+
+    #[test]
+    fn sign_ins_stay_with_the_main_broker_and_a_signed_in_clash_waits() {
+        let key = |value: &str| ProviderCredential::ApiKey(value.to_string());
+        let plan = partition_credentials(vec![
+            ("keyed".into(), keys(&[("openai", key("k1"))])),
+            ("signed".into(), keys(&[("openai-codex", ProviderCredential::OmpOauth), ("openai", key("k2"))])),
+            ("clash".into(), keys(&[("openai-codex", ProviderCredential::OmpOauth), ("openai", key("k3"))])),
+            ("claude".into(), keys(&[("anthropic", ProviderCredential::OmpOauth)])),
+            ("anthropic-key".into(), keys(&[("anthropic", key("a1"))])),
+        ]);
+        // The signed-in company is placed first, so its key is the main one and the plain key moves.
+        assert_eq!(plan.main.get("openai"), Some(&key("k2")));
+        assert_eq!(plan.main.get("anthropic"), Some(&ProviderCredential::OauthWithApiKey("a1".into())));
+        assert!(plan.shards.iter().any(|shard| shard.companies.contains("keyed")));
+        assert!(plan.refused.contains_key("clash"));
+        // With only key sets, the first becomes the main broker's.
+        let only = partition_credentials(vec![("solo".into(), keys(&[("openai", key("k1"))]))]);
+        assert_eq!(only.main, keys(&[("openai", key("k1"))]));
+        assert!(only.shards.is_empty());
+    }
+
     fn dual_company(name: &str, reference: &str) -> CompanyConfig {
         toml::from_str(&format!(
             "name = \"{name}\"\nmission = \"\"\nmodel = \"anthropic/claude-sonnet-5-5\"\n\n[credentials]\n\"model.inference.anthropic\" = \"{reference}\"\n"
@@ -4421,7 +4797,7 @@ mod tests {
     async fn exited_model_broker_withdraws_supervisor_readiness() {
         let child = Command::new("sleep").arg("30").kill_on_drop(true).spawn().unwrap();
         let mut processes = Processes {
-            broker: child, gateway: None, relay: None,
+            broker: child, gateway: None, relay: None, shards: Vec::new(),
             marker: std::env::temp_dir().join(format!("restless-probe-{}", uuid::Uuid::new_v4())),
             fingerprint: String::new(),
         };
@@ -4605,6 +4981,7 @@ mission = "Choose native intelligence"
             upstream_url: OMP_GATEWAY_HOST_URL.into(),
             responses_routes: BTreeMap::new(),
             anthropic_routes: BTreeMap::new(),
+            shards: Default::default(),
             broker_access: BrokerAccess { url: "http://127.0.0.1:1".into(), token: "host-only-broker-bearer".into() },
             http: reqwest::Client::new(),
         };

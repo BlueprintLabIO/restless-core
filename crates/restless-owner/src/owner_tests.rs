@@ -4633,14 +4633,6 @@ mission = "Configure Exec separately"
     }
 
     #[test]
-    fn claude_sign_in_and_an_anthropic_key_share_the_account_but_two_keys_do_not() {
-        assert!(anthropic_sign_in_beside_key("anthropic", true, false));
-        assert!(anthropic_sign_in_beside_key("anthropic", false, true));
-        assert!(!anthropic_sign_in_beside_key("anthropic", false, false));
-        assert!(!anthropic_sign_in_beside_key("openai", true, false));
-    }
-
-    #[test]
     fn only_the_recorded_account_owner_is_known_as_the_account_owner() {
         let root = std::env::temp_dir().join(format!("restless-account-owner-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
