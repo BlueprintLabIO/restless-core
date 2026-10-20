@@ -21,7 +21,10 @@ const OWNER_MESSAGE = '[data-message-sender="owner"]';
  * Dispatch `chat-scroll-end` on the node to return to the end and follow again.
  * Dispatch `chat-scroll-anchor` after the reader sends: their newest message rises to the top of
  * the transcript and the reply grows into the room beneath it, as in Claude and ChatGPT. Once the
- * reply fills that room the transcript follows its end again; scrolling up stops either. */
+ * reply fills that room the message stays where it is and the reply carries on below, to be read
+ * from its start; the transcript follows its end again when the reader scrolls back down to it.
+ * Following the end at that point used to push the sent message and the reply's opening out of
+ * a short rail (20 October). Scrolling up stops either. */
 export function followChat(node: HTMLElement, parameter: FollowChatParameter) {
 	let options = optionsFor(parameter);
 	let { key: resetKey, enabled } = options;
@@ -39,11 +42,12 @@ export function followChat(node: HTMLElement, parameter: FollowChatParameter) {
 		room = Math.max(0, Math.round(next));
 		node.style.setProperty('--chat-anchor-room', `${room}px`);
 	}
-	/** Hold the newest owner message at the top; false once there is nothing left to hold. */
-	function holdAnchor(): boolean {
+	/** Hold the newest owner message at the top. `filled` once the reply below it is taller than
+	 * the room left, with the message still at the top; `missing` when there is none to hold. */
+	function holdAnchor(): 'held' | 'filled' | 'missing' {
 		const sent = node.querySelectorAll<HTMLElement>(anchorSelector);
 		const message = sent[sent.length - 1];
-		if (!message) return false;
+		if (!message) return 'missing';
 		const top =
 			message.getBoundingClientRect().top -
 			node.getBoundingClientRect().top +
@@ -52,9 +56,8 @@ export function followChat(node: HTMLElement, parameter: FollowChatParameter) {
 		const content = node.scrollHeight - room;
 		const below = content - top;
 		setRoom(node.clientHeight - below);
-		if (room === 0) return false;
 		node.scrollTop = top;
-		return true;
+		return room === 0 ? 'filled' : 'held';
 	}
 	function setFollowing(next: boolean) {
 		if (next === following) return;
@@ -66,8 +69,12 @@ export function followChat(node: HTMLElement, parameter: FollowChatParameter) {
 		frame = requestAnimationFrame(() => {
 			frame = 0;
 			if (anchoring) {
-				// The reply has filled the room under the sent message: follow the end from here.
-				if (!holdAnchor()) {
+				const held = holdAnchor();
+				if (held === 'filled') {
+					// The reply has filled the room under the sent message: leave both where they are.
+					anchoring = false;
+					setFollowing(false);
+				} else if (held === 'missing') {
 					anchoring = false;
 					if (following) node.scrollTop = node.scrollHeight;
 				}

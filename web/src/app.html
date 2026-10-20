@@ -88,7 +88,11 @@
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-status-bar-style" content="default" />
 		<link rel="manifest" href="/manifest.webmanifest" />
+		<!-- One mark everywhere (20 October): the SVG where a browser takes it, a 32px PNG where it
+		     does not, and a full-bleed copy for home screens. -->
 		<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+		<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+		<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 		%sveltekit.head%
 		<style>
 			/* This remains visible through the first company read, so hydration never reveals a
@@ -121,6 +125,21 @@
 			html[data-theme='dark'] .boot-field {
 				color: #aab4c8;
 			}
+			/* The field's dots in plain CSS, on screen from the very first paint: the canvas only
+			 * draws once its script has run, and the frames before that showed an empty page
+			 * (20 October). The canvas covers this once it has drawn. */
+			.boot::before {
+				content: '';
+				position: absolute;
+				inset: 0;
+				background-image: radial-gradient(circle, currentColor 1px, transparent 1.25px);
+				background-size: 9px 9px;
+				opacity: 0.22;
+				mask-image: radial-gradient(ellipse at 50% 50%, black 20%, transparent 85%);
+			}
+			.boot.drawn::before {
+				display: none;
+			}
 			@keyframes boot-breathe {
 				0%,
 				100% {
@@ -130,7 +149,10 @@
 					opacity: 0.63;
 				}
 			}
-			body:has(.app-mount > *):not(:has(.first-paint-pending)) > .boot {
+			/* SvelteKit's own start script sits in .app-mount from the first byte: counting it as the
+			 * app having drawn hid this screen before anything was there, so every cold load showed
+			 * an empty page first (20 October). */
+			body:has(.app-mount > :not(script)):not(:has(.first-paint-pending)) > .boot {
 				display: none;
 			}
 			@media (prefers-reduced-motion: reduce) {
@@ -185,6 +207,7 @@
 								}
 							}
 						drawn = true;
+						boot.classList.add('drawn');
 					}
 					requestAnimationFrame(draw);
 				}

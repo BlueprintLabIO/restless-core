@@ -626,6 +626,18 @@ impl RfbObserverFilter {
                 // EnableContinuousUpdates asks for pixels; it does not alter
                 // the remote desktop.
                 150 => 10,
+                // QEMU client messages. noVNC sends every key as the QEMU Extended Key Event
+                // (subtype 0: down flag, keysym, scancode) once the server offers it; refusing
+                // it ended the connection on the owner's first keystroke (20 October).
+                255 => {
+                    let Some(&subtype) = rest.first() else {
+                        break;
+                    };
+                    if subtype != 0 {
+                        bail!("unsupported QEMU desktop protocol message {subtype}");
+                    }
+                    12
+                }
                 _ => bail!("unsupported view-only desktop protocol message {kind}"),
             };
             if self.pending.len() < length {
@@ -633,7 +645,7 @@ impl RfbObserverFilter {
             }
             let message: Vec<u8> = self.pending.drain(..length).collect();
             if matches!(kind, 0 | 2 | 3 | 150 | 248)
-                || (allow_input && matches!(kind, 4 | 5 | 6))
+                || (allow_input && matches!(kind, 4 | 5 | 6 | 255))
                 || (allow_resize && kind == 251)
             {
                 forwarded.push(tungstenite::Message::Binary(message.into()));
@@ -889,6 +901,26 @@ mod tests {
             tungstenite::Message::Binary(bytes) => assert_eq!(bytes.as_ref(), framebuffer_request),
             _ => panic!("framebuffer request should remain binary"),
         }
+    }
+
+    #[test]
+    fn extended_key_events_type_for_the_controller_and_never_end_the_connection() {
+        let mut filter = RfbObserverFilter::default();
+        filter.filter(b"RFB 003.008\n", false, false).unwrap();
+        filter.filter(&[1], false, false).unwrap();
+        filter.filter(&[1], false, false).unwrap();
+        // QEMU Extended Key Event: 255, subtype 0, down, keysym 'h', scancode 0x23.
+        let key = [255, 0, 0, 1, 0, 0, 0, 0x68, 0, 0, 0, 0x23];
+        assert!(filter.filter(&key, false, false).unwrap().is_empty(), "an observer types nothing");
+        // Split across frames, as a WebSocket may deliver it.
+        assert!(filter.filter(&key[..5], true, false).unwrap().is_empty());
+        let forwarded = filter.filter(&key[5..], true, false).unwrap();
+        assert_eq!(forwarded.len(), 1);
+        match &forwarded[0] {
+            tungstenite::Message::Binary(bytes) => assert_eq!(bytes.as_ref(), key),
+            _ => panic!("key event should remain binary"),
+        }
+        assert!(filter.filter(&[255, 1, 0, 0], true, false).is_err());
     }
 }
 

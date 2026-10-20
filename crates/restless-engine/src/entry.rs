@@ -1448,29 +1448,47 @@ struct PrincipalSessionKey {
 struct SessionRecord {
     identity: VerifiedIdentity,
     expires_at: SystemTime,
+    /// The same expiry, shared with every lease taken from this session, so a renewal reaches
+    /// a long-lived connection opened before it.
+    live_expiry: Arc<Mutex<SystemTime>>,
     cancellation: CancellationToken,
 }
 
 #[derive(Clone)]
 pub struct SessionLease {
     pub identity: VerifiedIdentity,
+    /// When the session ended as of this lease being taken; `ended` follows later renewals.
     pub expires_at: SystemTime,
+    live_expiry: Arc<Mutex<SystemTime>>,
     pub cancellation: CancellationToken,
 }
 
 impl SessionLease {
-    pub fn is_ended(&self) -> bool {
-        self.cancellation.is_cancelled() || self.expires_at <= SystemTime::now()
+    fn current_expiry(&self) -> SystemTime {
+        *self.live_expiry.lock().expect("session expiry poisoned")
     }
 
+    pub fn is_ended(&self) -> bool {
+        self.cancellation.is_cancelled() || self.current_expiry() <= SystemTime::now()
+    }
+
+    /// Resolves when the session is revoked or lapses. A session renewed while a connection is
+    /// open (the owner kept using the app) keeps that connection: a computer stream opened with
+    /// ten minutes left on its session used to drop at that mark although the session lived on
+    /// (20 October).
     pub async fn ended(&self) {
-        let remaining = self
-            .expires_at
-            .duration_since(SystemTime::now())
-            .unwrap_or(Duration::ZERO);
-        tokio::select! {
-            _ = self.cancellation.cancelled() => {},
-            _ = tokio::time::sleep(remaining) => {},
+        loop {
+            let remaining = self
+                .current_expiry()
+                .duration_since(SystemTime::now())
+                .unwrap_or(Duration::ZERO);
+            if remaining.is_zero() {
+                return;
+            }
+            tokio::select! {
+                _ = self.cancellation.cancelled() => return,
+                _ = tokio::time::sleep(remaining) => {},
+            }
         }
     }
 }
@@ -1521,6 +1539,7 @@ impl SessionStore {
             SessionRecord {
                 identity,
                 expires_at: now + ttl,
+                live_expiry: Arc::new(Mutex::new(now + ttl)),
                 cancellation: CancellationToken::new(),
             },
         );
@@ -1541,6 +1560,7 @@ impl SessionStore {
         sessions.get(token).map(|session| SessionLease {
             identity: session.identity.clone(),
             expires_at: session.expires_at,
+            live_expiry: session.live_expiry.clone(),
             cancellation: session.cancellation.clone(),
         })
     }
@@ -1561,6 +1581,7 @@ impl SessionStore {
             return false;
         }
         session.expires_at = now + ttl;
+        *session.live_expiry.lock().expect("session expiry poisoned") = now + ttl;
         true
     }
 
@@ -1776,8 +1797,11 @@ mod tests {
         let fresh = store.establish(identity.clone(), ttl);
         assert!(!store.renew_if_half_spent(&fresh, ttl), "a fresh session is left alone");
         let ageing = store.establish(identity, Duration::from_secs(600));
-        let before = store.resolve_lease(&ageing).unwrap().expires_at;
+        let held = store.resolve_lease(&ageing).unwrap();
+        let before = held.expires_at;
         assert!(store.renew_if_half_spent(&ageing, ttl));
+        // A connection opened before the renewal (a computer stream) follows it.
+        assert!(held.current_expiry() > before + Duration::from_secs(3000));
         assert!(store.resolve_lease(&ageing).unwrap().expires_at > before + Duration::from_secs(3000));
         store.revoke(&ageing);
         assert!(!store.renew_if_half_spent(&ageing, ttl), "a revoked session stays revoked");

@@ -143,9 +143,24 @@ pub fn split_attachment_block(body: &str) -> (&str, Vec<OwnerAttachment>) {
     }
 }
 
+/// A reply whose model wrote its intent as prose, `[Intent: acknowledge and revise]`, instead of
+/// the marker: the line is bookkeeping, never something the owner should read (20 October).
+fn without_prose_intent(body: &str) -> &str {
+    let trimmed = body.trim_end();
+    let (before, last) = trimmed.rsplit_once('\n').unwrap_or(("", trimmed));
+    let line = last.trim();
+    let is_intent = line.starts_with('[')
+        && line.ends_with(']')
+        && line[1..]
+            .trim_start()
+            .get(..7)
+            .is_some_and(|word| word.eq_ignore_ascii_case("intent:"));
+    if is_intent { before.trim_end() } else { body }
+}
+
 pub fn split_intent_receipt(body: &str) -> (&str, Option<OwnerIntentReceipt>) {
     let Some((visible, encoded)) = body.rsplit_once(INTENT_MARKER) else {
-        return (body, None);
+        return (without_prose_intent(body), None);
     };
     let Some(encoded) = encoded.strip_suffix("-->") else {
         return (body, None);
@@ -301,6 +316,17 @@ pub fn conversation_owner_need(message: restless_orgintel::MessageRow) -> Option
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_intent_written_as_prose_is_not_shown() {
+        let (visible, receipt) = super::split_intent_receipt(
+            "Absolutely, I'll make it shorter.\n\n[Intent: acknowledge and revise]",
+        );
+        assert_eq!(visible, "Absolutely, I'll make it shorter.");
+        assert!(receipt.is_none());
+        let plain = "See [the brief] for details.";
+        assert_eq!(super::split_intent_receipt(plain).0, plain);
+    }
+
     use super::*;
 
     #[test]

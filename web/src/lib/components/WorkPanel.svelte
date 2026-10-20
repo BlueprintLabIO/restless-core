@@ -135,41 +135,55 @@
 			</ul>
 		{:else}<p class="work-empty">No delegated work is in progress.</p>{/if}
 	{:else}
-		<h3>Now</h3>
+		<!-- One piece of Work, read like an issue's properties: every value has its label, so nothing
+		     on the card is a bare number or an unexplained pill (20 October). -->
+		<h3>{panel.nowDelivered ? 'Last delivered' : team ? 'The team is working on' : 'Working on'}</h3>
 		{#if now}
 			<article class="work-now" class:highlighted={highlight === now.id}>
 				<a class="work-now-title" href={hrefFor(now.id)}>{now.title}</a>
-				<p class="work-now-meta">
-					<span class="work-pill status-{now.status}"
-						>{panel.nowDelivered ? 'Last delivered' : workStatusLabel(now.status)}</span
-					>{#if team}<span>{ownerName(now.owner_id)}</span
-						>{/if}{#if nowReview}{#if nowReview.verdict === 'accepted'}<span class="review-badge"
-								>Reviewed · accepted</span
-							>{:else if nowReview.verdict === 'changes'}<span class="review-changes"
-								>{ownerName(nowReview.reviewer.owner_id)} asked for changes</span
-							>{:else}<span>review by {ownerName(nowReview.reviewer.owner_id)} next</span>{/if}{/if}
-				</p>
+				<dl class="work-props">
+					<dt>Status</dt>
+					<dd>
+						<span class="work-pill status-{now.status}"
+							>{ownerNeeds.has(now.id)
+								? 'Needs you'
+								: panel.nowDelivered
+									? 'Delivered'
+									: workStatusLabel(now.status)}</span
+						>
+					</dd>
+					{#if team}<dt>Owner</dt>
+						<dd>{ownerName(now.owner_id)}</dd>{/if}
+					{#if nowReview}<dt>Review</dt>
+						<dd>
+							{#if nowReview.verdict === 'accepted'}<span class="review-badge">Accepted</span
+								>{:else if nowReview.verdict === 'changes'}<span class="review-changes"
+									>Changes asked by {ownerName(nowReview.reviewer.owner_id)}</span
+								>{:else}Next, by {ownerName(nowReview.reviewer.owner_id)}{/if}
+						</dd>{/if}
+					{#if checks}<dt>Checks</dt>
+						<dd>{checks.passed} of {checks.total} passed</dd>{/if}
+					{#if spent !== null}<dt>Spent</dt>
+						<dd title="Model and tool spend on this Work so far">{money(spent)} so far</dd>{/if}
+				</dl>
 				{#if outputs.length}
+					<p class="work-subhead">Made so far</p>
 					<div class="work-outputs">
 						{#each outputs as artifact (artifact.id)}
 							<OutputThumb {companyId} {artifact} />
 						{/each}
 					</div>
 				{/if}
-				<p class="work-now-facts">
-					{#if checks}<span>Checks {checks.passed}/{checks.total}</span
-						>{/if}{#if spent !== null}<span>{money(spent)}</span>{/if}<button
-						type="button"
-						onclick={() => ondetails(now.id)}>Details</button
-					>
-				</p>
+				<button class="work-open" type="button" onclick={() => ondetails(now.id)}
+					>Open the full brief →</button
+				>
 			</article>
 		{:else}
 			<p class="work-empty">Nothing yet. Work {name} takes on shows here.</p>
 		{/if}
 
 		{#if panel.next.length}
-			<h3>Next</h3>
+			<h3>Up next <span class="count">{panel.next.length}</span></h3>
 			<ul>
 				{#each panel.next as item (item.id)}
 					<li>
@@ -183,7 +197,7 @@
 	{/if}
 
 	{#if panel.done.length}
-		<h3>Done this week</h3>
+		<h3>Done this week <span class="count">{panel.done.length}</span></h3>
 		<ul>
 			{#each panel.done as item (item.id)}
 				<li class="done">
@@ -206,7 +220,7 @@
 			'/work' +
 			(scope === 'company' ? '' : '?q=' + encodeURIComponent(name))}
 	>
-		{scope === 'company' ? 'All company work' : 'All of ' + name + "'s work"}
+		{scope === 'company' ? 'All company work' : 'All of ' + name + "'s work"} →
 	</a>
 </section>
 
@@ -235,19 +249,73 @@
 		font-weight: 600;
 	}
 	h3 {
-		margin: 8px 0 0;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin: 12px 0 0;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 		font-weight: 600;
+	}
+	h3 .count {
+		color: var(--text-tertiary);
+		font-weight: 500;
+	}
+	/* Label column and value column, one fact per fixed-height row. */
+	.work-props {
+		display: grid;
+		grid-template-columns: 72px minmax(0, 1fr);
+		align-items: center;
+		gap: 0 12px;
+		margin: 0;
+		font-size: var(--t-label);
+	}
+	.work-props dt {
+		min-height: 26px;
+		display: flex;
+		align-items: center;
+		color: var(--text-tertiary);
+	}
+	.work-props dd {
+		min-width: 0;
+		min-height: 26px;
+		display: flex;
+		align-items: center;
+		margin: 0;
+		overflow: hidden;
+		color: var(--text-secondary);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.work-subhead {
+		margin: 4px 0 0;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.work-open {
+		justify-self: start;
+		padding: 0;
+		border: 0;
+		background: none;
+		color: var(--intent-conversation);
+		font: inherit;
+		font-size: var(--t-label);
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.work-open:hover {
+		text-decoration: underline;
 	}
 	h3:first-child {
 		margin-top: 0;
 	}
 	.work-now {
 		display: grid;
-		gap: 8px;
-		padding: 0 0 12px;
-		border-bottom: 1px solid var(--border);
+		gap: 10px;
+		padding: 12px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg, 10px);
+		background: var(--surface-pane);
 	}
 	/* The Work just opened: a soft wash that reaches past the text, not a square ring hugging it. */
 	.work-now.highlighted {
@@ -258,27 +326,12 @@
 	.work-now-title {
 		color: var(--ink);
 		font-weight: 600;
+		line-height: 1.35;
 		text-decoration: none;
+		text-wrap: balance;
 	}
 	.work-now-title:hover {
 		text-decoration: underline;
-	}
-	.work-now-meta,
-	.work-now-facts {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 4px 10px;
-		margin: 0;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.work-now-meta > span:not(.work-pill) {
-		min-width: 0;
-		max-width: 100%;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 	}
 	.work-pill {
 		padding: 1px 8px;
@@ -311,16 +364,6 @@
 		display: grid;
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 		gap: 8px;
-	}
-	.work-now-facts button {
-		margin-left: auto;
-		padding: 0;
-		border: 0;
-		background: none;
-		color: var(--intent-conversation);
-		font: inherit;
-		font-weight: 600;
-		cursor: pointer;
 	}
 	ul {
 		display: grid;

@@ -1818,7 +1818,9 @@
 						onback: closeFocusedContext
 					}
 				: null}
-			workContext={focusedAttention && !wide ? { onback: closeFocusedContext } : null}
+			workContext={focusedAttention && !wide
+				? { onback: closeFocusedContext, title: focusedAttention.title }
+				: null}
 		/>{/if}
 {/snippet}
 

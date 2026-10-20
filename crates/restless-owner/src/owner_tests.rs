@@ -3269,6 +3269,21 @@ model = \"anthropic/claude-sonnet-5-5\"
             entered_session_cookie_value(&store, headers, name, identity, token)
         };
 
+        // The account entered first and a company after it: a request from an account page that
+        // names that company (Settings giving it a connection) is still the account's.
+        let owner_scope = || identity(crate::entry::CompanyScope::Owner);
+        let account = store.establish(owner_scope(), ttl);
+        let signed_in = enter(&HeaderMap::new(), &owner_scope(), &account);
+        let reno = store.establish(scoped("reno"), ttl);
+        let entered = enter(&cookie(&signed_in), &scoped("reno"), &reno);
+        let deciding = |page: &str| {
+            let sessions = leases(&entered);
+            request_session(&sessions, "/api/companies/reno/connections/c1", Some(page))
+                .map(|(_, lease)| lease.identity.scope.clone())
+        };
+        assert_eq!(deciding("/account/settings/accounts"), Some(crate::entry::CompanyScope::Owner));
+        assert_eq!(deciding("/reno/company/intelligence"), Some(scoped("reno").scope));
+
         let aris = store.establish(scoped("aris"), ttl);
         let first = enter(&HeaderMap::new(), &scoped("aris"), &aris);
         let other = store.establish(scoped("other"), ttl);
@@ -4612,4 +4627,12 @@ mission = "Configure Exec separately"
         assert!(refusal.contains("Sign in with Claude"));
         assert!(subscription_token_refusal("anthropic", "sk-ant-api03-abc").is_none());
         assert!(subscription_token_refusal("openai", "sk-ant-oat01-abc").is_none());
+    }
+
+    #[test]
+    fn claude_sign_in_and_an_anthropic_key_share_the_account_but_two_keys_do_not() {
+        assert!(anthropic_sign_in_beside_key("anthropic", true, false));
+        assert!(anthropic_sign_in_beside_key("anthropic", false, true));
+        assert!(!anthropic_sign_in_beside_key("anthropic", false, false));
+        assert!(!anthropic_sign_in_beside_key("openai", true, false));
     }

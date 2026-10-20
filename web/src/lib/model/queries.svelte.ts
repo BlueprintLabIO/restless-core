@@ -896,9 +896,21 @@ export function conversationQuery(
 				replyToMessageId: null,
 				assetId: null,
 				runId: null,
-				attachments: [],
+				/* The files show at once, from this browser's copy, at their final size: a message
+				 * with an image no longer sends text-only and then jumps when the image arrives. */
+				attachments: files.map((file, index) => ({
+					uploadId: `${optimisticId}:${index}`,
+					name: file.name,
+					mediaType: file.type || 'application/octet-stream',
+					sizeBytes: file.size,
+					localUrl: URL.createObjectURL(file)
+				})),
 				contextPath: contextPath ?? null
 			};
+			const localUrls = pending.attachments.flatMap((file) => (file.localUrl ? [file.localUrl] : []));
+			/* Long enough for the server's copy to replace them. */
+			const releaseLocal = () =>
+				window.setTimeout(() => localUrls.forEach((url) => URL.revokeObjectURL(url)), 120_000);
 			let result: MessageSendResult;
 			try {
 				result = await sendActorMessage(
@@ -918,6 +930,7 @@ export function conversationQuery(
 				uncertainCommand = null;
 			} catch (error) {
 				if (pending?.id === optimisticId) pending = null;
+				releaseLocal();
 				// A server response is definitive (including semantic conflict). A
 				// transport error is not: retain this exact intent's key so the
 				// owner's next retry asks for the committed receipt instead of
@@ -935,6 +948,7 @@ export function conversationQuery(
 			} finally {
 				uploadProgress = null;
 			}
+			releaseLocal();
 			sentKeys.set(String(result.messageId), optimisticId);
 			/* The saved message goes straight into the conversation. A read already in flight
 			 * started before it existed, so that read is cancelled (steady.ts) rather than

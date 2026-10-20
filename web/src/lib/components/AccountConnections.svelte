@@ -128,6 +128,8 @@
 	/* Only the first load shows a skeleton; a background read keeps the page as it is. */
 	const loading = $derived(source.loading);
 	let actionError = $state('');
+	/* A failed removal, said on the company's own row. */
+	let revokeError = $state<{ key: string; text: string } | null>(null);
 	const error = $derived(
 		actionError ||
 			(source.failure && !source.view
@@ -318,6 +320,42 @@
 		closeSignInTab();
 		if (job) await cancelSignIn(job).catch(() => {});
 	}
+	/* Claude's last page carries the code in its address, on a localhost page that only exists on
+	 * the plane, so the address has to come back by hand. Make that one gesture: a paste anywhere
+	 * on this page while the sign-in waits, or one click that reads the clipboard (20 October). */
+	const looksLikeCallback = (text: string) => {
+		try {
+			const url = new URL(text.trim());
+			return /^(localhost|127\.0\.0\.1)$/.test(url.hostname) && !!url.searchParams.get('code');
+		} catch {
+			return false;
+		}
+	};
+	$effect(() => {
+		if (oauthProvider !== 'claude' || oauthState !== 'waiting') return;
+		const onpaste = (event: ClipboardEvent) => {
+			const text = event.clipboardData?.getData('text') ?? '';
+			if (!looksLikeCallback(text) || (event.target as HTMLElement)?.id === callbackId) return;
+			event.preventDefault();
+			oauthCallback = text.trim();
+			void completeClaudeSignIn();
+		};
+		window.addEventListener('paste', onpaste);
+		return () => window.removeEventListener('paste', onpaste);
+	});
+	async function pasteCallbackFromClipboard() {
+		try {
+			const text = await navigator.clipboard.readText();
+			if (!looksLikeCallback(text)) {
+				oauthMessage = 'The clipboard doesn’t hold the sign-in page’s address yet. Copy it from the Claude tab’s address bar.';
+				return;
+			}
+			oauthCallback = text.trim();
+			await completeClaudeSignIn();
+		} catch {
+			oauthMessage = 'This browser didn’t let the page read the clipboard. Paste the address here instead.';
+		}
+	}
 	/* Claude's last page carries the code in its address. Pasting a whole one finishes at once. */
 	function pastedCallback() {
 		try {
@@ -460,7 +498,8 @@
 			selectedCompany = '';
 			replaceRequired = false;
 		} catch (cause) {
-			actionError = failureSentence(cause, 'Could not grant this company access.');
+			// Said in the form that was submitted, not at the top of the page where nobody looks.
+			grantError = failureSentence(cause, 'Could not grant this company access.');
 		} finally {
 			busyCompany = false;
 		}
@@ -468,7 +507,7 @@
 	async function revoke(item: AccountConnection, company: CompanyUse) {
 		if (busyCompany) return;
 		busyCompany = true;
-		actionError = '';
+		revokeError = null;
 		try {
 			let revision = companyRevisions[company.id];
 			if (!revision) revision = await companyProviderRevision(company.id);
@@ -478,7 +517,10 @@
 			await refresh();
 			announceIntelligenceChange(company.id);
 		} catch (cause) {
-			actionError = failureSentence(cause, 'Could not remove this company’s access.');
+			revokeError = {
+				key: `${item.id}:${company.id}`,
+				text: failureSentence(cause, 'Could not remove this company’s access.')
+			};
 		} finally {
 			busyCompany = false;
 		}
@@ -592,6 +634,10 @@
 				class:none={!granted}
 			>
 				<strong>{company.name}</strong>
+				{#if revokeError?.key === `${item.id}:${company.id}`}<span
+						class="access-state danger"
+						role="alert">{revokeError.text}</span
+					>{/if}
 				{#if granted && granted.in_use && confirmRevocation === `${item.id}:${company.id}`}
 					<!-- The question takes the row's own line, so confirming never pushes the list down. -->
 					<span class="access-state danger" role="alert">AI work here stops until another is chosen</span>
@@ -715,9 +761,9 @@
 			{:else if provider === 'claude' && oauthUrl && oauthState === 'waiting'}<p
 					class="sign-in-step"
 				>
-					{#if plane?.hosted}Approve in the {tabName} tab. It ends on a page that won’t load: copy that
-						page’s address and paste it here.{:else}Approve in the {tabName} tab. If it ends on a page
-						that won’t load, paste that page’s address here.{/if}
+					{#if plane?.hosted}Approve in the {tabName} tab. It ends on a page that won’t load: copy
+						its address, come back and paste anywhere on this page.{:else}Approve in the {tabName} tab.
+						If it ends on a page that won’t load, copy its address and paste anywhere on this page.{/if}
 					<a href={oauthUrl} target="_blank" rel="noreferrer">Open it again ↗</a>
 				</p>
 				<div class="callback-field">
@@ -732,12 +778,16 @@
 						spellcheck="false"
 						disabled={callbackBusy}
 					/>
-					<button
-						class="btn primary small"
-						disabled={!oauthCallback.trim() || callbackBusy}
-						onclick={() => void completeClaudeSignIn()}
-						>{callbackBusy ? 'Finishing…' : 'Finish'}</button
-					>
+					{#if oauthCallback.trim()}<button
+							class="btn primary small"
+							disabled={callbackBusy}
+							onclick={() => void completeClaudeSignIn()}
+							>{callbackBusy ? 'Finishing…' : 'Finish'}</button
+						>{:else}<button
+							class="btn primary small"
+							disabled={callbackBusy}
+							onclick={() => void pasteCallbackFromClipboard()}>Paste address</button
+						>{/if}
 				</div>
 			{/if}
 			{#if oauthMessage}<p class="sign-in-step" role="status">{oauthMessage}</p>

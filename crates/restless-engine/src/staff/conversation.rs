@@ -862,6 +862,14 @@ pub async fn dispatch_actor_conversation(
             opportunity_context.join("\n")
         ));
     }
+    // A Staff member cannot change Work from a conversation, so what the owner asks of them goes
+    // on to the lead who can (below, once the reply is recorded). Edna told the owner she would
+    // shorten an email, and nothing reached anyone able to resume it (20 October).
+    let forward_to_lead = (!is_accountable_lead && human_is_membership_owner && !owner_input.is_empty())
+        .then(|| context_team.map(|team| team.lead_actor_id.clone()))
+        .flatten()
+        .filter(|lead| lead != actor)
+        .map(|lead| (lead, owner_input.clone(), reply_work_id));
     let company = config.name.clone();
     let actor = actor.to_string();
     let name = actor_row.display.clone();
@@ -1038,6 +1046,14 @@ pub async fn dispatch_actor_conversation(
                 match recorded {
                     Ok(recorded_message_id) => {
                         live_turn.complete(recorded_message_id, outcome.output_tokens);
+                        if let Some((lead, asked, work)) = forward_to_lead.as_ref() {
+                            if owner_asked_for_a_change(&outcome.summary) {
+                                let body = owner_request_for_lead(asked, *work);
+                                if let Err(error) = org.send_message(&actor, Some(lead), &body).await {
+                                    tracing::warn!(company = %company, actor = %actor, lead = %lead, "could not pass the owner's request to the lead: {error:#}");
+                                }
+                            }
+                        }
                     }
                     Err(error) => {
                         usable = false;
@@ -1272,8 +1288,51 @@ pub fn conversation_turn_prompt(
         prompt.push_str(
             "\n\nAddress the owner input using the stable team context and conversation contract.",
         );
+        if !is_accountable_lead {
+            prompt.push_str(" You cannot change, resume or revise Work in this conversation. When the owner asks for a change to Work, the Runtime passes their request to your accountable lead, who can act on it: say that it has gone to your lead, and never say you will make the change yourself.");
+        }
     }
     prompt
+}
+
+/// Whether a Staff reply to the owner took their message as a change to make: its intent says
+/// feedback or direction, or it carries none at all (a model that wrote its intent as prose).
+fn owner_asked_for_a_change(reply: &str) -> bool {
+    match crate::transcript::split_intent_receipt(reply).1 {
+        Some(receipt) => matches!(
+            receipt.kind,
+            crate::transcript::OwnerIntentKind::WorkFeedback
+                | crate::transcript::OwnerIntentKind::Direction
+        ),
+        None => true,
+    }
+}
+
+#[test]
+fn a_staff_reply_that_takes_on_a_change_passes_it_to_the_lead() {
+    let marked = |kind: &str| {
+        format!("Reply\n\n<!--restless-intent:{{\"kind\":\"{kind}\",\"summary\":\"Noted.\"}}-->")
+    };
+    assert!(owner_asked_for_a_change(&marked("work_feedback")));
+    assert!(owner_asked_for_a_change(&marked("direction")));
+    assert!(!owner_asked_for_a_change(&marked("conversation")));
+    // Edna's reply, its intent written as prose.
+    assert!(owner_asked_for_a_change(
+        "I'll make it much shorter.\n\n[Intent: acknowledge and revise]"
+    ));
+    let body = owner_request_for_lead(&["- owner message 7: make it warmer".into()], None);
+    assert!(body.contains("make it warmer") && body.contains("yours to act on"));
+}
+
+/// What a Staff member tells their lead after the owner asked them for a change.
+fn owner_request_for_lead(asked: &[String], work: Option<uuid::Uuid>) -> String {
+    let work = work
+        .map(|work| format!(" about Work {work}"))
+        .unwrap_or_default();
+    format!(
+        "The owner asked me for a change{work}. I can't resume or revise Work from a conversation, so it is yours to act on: resume, revise or commission what they asked, then tell them.\n\n{}",
+        asked.join("\n")
+    )
 }
 
 /// A Work-linked coordination wake needs the ordinary message's exact scope,
