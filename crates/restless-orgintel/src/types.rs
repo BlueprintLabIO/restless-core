@@ -175,11 +175,20 @@ pub struct OwnerBrief {
 }
 
 /// An explicit owner decision on a prepared outcome. Ordinary Work-linked
-/// conversation never implies either variant.
+/// conversation never implies either variant; an owner message implies one only
+/// when Exec cites it against the exact handoff.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OwnerReviewDecision {
     Accepted,
     ChangesRequested,
+}
+
+/// What the owner's cited conversation message said about one handoff.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OwnerChatAnswer {
+    Yes,
+    No,
+    Changes,
 }
 
 /// A ReviewTarget is an ordinary artifact reference chosen by the accountable

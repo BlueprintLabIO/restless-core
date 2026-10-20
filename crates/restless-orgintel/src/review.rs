@@ -435,7 +435,7 @@ impl OrgIntel {
         state: OwnerHandoffState,
         resolution: &str,
     ) -> Result<()> {
-        self.resolve_handoff(id, "owner", state, resolution, false, false)
+        self.resolve_handoff(id, "owner", state, resolution, false, false, false)
             .await
             .map(|_| ())
     }
@@ -451,6 +451,7 @@ impl OrgIntel {
             resolution,
             false,
             true,
+            false,
         )
         .await
         .map(|_| ())
@@ -464,7 +465,7 @@ impl OrgIntel {
         actor_id: &str,
         resolution: &str,
     ) -> Result<()> {
-        self.resolve_handoff(id, actor_id, OwnerHandoffState::Resolved, resolution, false, true)
+        self.resolve_handoff(id, actor_id, OwnerHandoffState::Resolved, resolution, false, true, false)
             .await
             .map(|_| ())
     }
@@ -487,6 +488,7 @@ impl OrgIntel {
             resolution,
             true,
             false,
+            false,
         )
         .await
     }
@@ -502,9 +504,123 @@ impl OrgIntel {
         state: OwnerHandoffState,
         resolution: &str,
     ) -> Result<()> {
-        self.resolve_handoff(id, resolved_by, state, resolution, false, false)
+        self.resolve_handoff(id, resolved_by, state, resolution, false, false, false)
             .await
             .map(|_| ())
+    }
+
+    /// The owner answered a handoff owed to them in their conversation with Exec instead of on
+    /// its card ("go ahead", "looks good, two changes"). Exec records that answer citing the
+    /// owner's message, which must be the owner's to Exec; the owner's words are kept verbatim
+    /// with Exec's note. An outcome review is accepted or sent back for changes; any other owner
+    /// step or judgement is resolved or declined. A payment stays provider-observed. Without this
+    /// (sprint-101 token A/B), Exec could not close any of them and two of four runs stalled.
+    pub async fn answer_handoff_from_owner_message(
+        &self,
+        id: Uuid,
+        message_id: i64,
+        answer: OwnerChatAnswer,
+        note: &str,
+    ) -> Result<()> {
+        let owner_words: Option<String> = sqlx::query_scalar(
+            "SELECT body FROM messages WHERE id=$1 AND from_actor='owner' AND to_actor='exec'",
+        )
+        .bind(message_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(owner_words) = owner_words else {
+            return Err(OrgIntelError::InvalidWork(
+                "the cited message is not the owner's message to Exec".into(),
+            ));
+        };
+        let row = sqlx::query(
+            "SELECT h.category,h.assigned_to,h.owner_brief, \
+                    (w.owner_review_required AND EXISTS(SELECT 1 FROM work_attempts a \
+                       WHERE a.id=h.attempt_id AND a.state='produced')) AS produced_review \
+             FROM owner_handoffs h JOIN work w ON w.id=h.work_id \
+             WHERE h.id=$1 AND h.state IN ('pending','preparing')",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| OrgIntelError::InvalidWork("no pending owner handoff with that id".into()))?;
+        let category: OwnerHandoffCategory = row.get("category");
+        if category == OwnerHandoffCategory::PaymentConfirmation {
+            return Err(OrgIntelError::InvalidWork(
+                "a payment is confirmed by the provider, not by a message".into(),
+            ));
+        }
+        if let Some(assigned) = row.get::<Option<String>, _>("assigned_to") {
+            // The owner's answer settles it wherever it sits below them, but never decides for
+            // another person.
+            let agent: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM actors WHERE id=$1 AND actor_class<>'human')",
+            )
+            .bind(&assigned)
+            .fetch_one(&self.pool)
+            .await?;
+            if !agent {
+                return Err(OrgIntelError::InvalidWork(format!(
+                    "this handoff is owed to {assigned}, not the owner"
+                )));
+            }
+            sqlx::query(
+                "UPDATE owner_handoffs SET assigned_to=NULL \
+                 WHERE id=$1 AND assigned_to=$2 AND state IN ('pending','preparing')",
+            )
+            .bind(id)
+            .bind(&assigned)
+            .execute(&self.pool)
+            .await?;
+        }
+        let quoted = format!(
+            "The owner, in conversation (message {message_id}): {}",
+            owner_words.trim()
+        );
+        let answer_text = match note.trim() {
+            "" => quoted,
+            note => format!("{note}\n\n{quoted}"),
+        };
+        // An outcome review is the judgement on a produced result, whether or not its card brief
+        // was written yet; resolving it like a question would re-run the Work instead.
+        let review = category == OwnerHandoffCategory::OwnerJudgement
+            && (row
+                .get::<Option<serde_json::Value>, _>("owner_brief")
+                .and_then(|value| serde_json::from_value::<OwnerBrief>(value).ok())
+                .is_some_and(|brief| brief.kind == OwnerBriefKind::OutcomeReview)
+                || row.get::<bool, _>("produced_review"));
+        match (review, answer) {
+            (true, OwnerChatAnswer::Yes) => {
+                self.decide_review(id, "owner", OwnerReviewDecision::Accepted, &answer_text, true)
+                    .await
+            }
+            (true, OwnerChatAnswer::Changes) => {
+                self.decide_review(
+                    id,
+                    "owner",
+                    OwnerReviewDecision::ChangesRequested,
+                    &answer_text,
+                    true,
+                )
+                .await
+            }
+            (true, OwnerChatAnswer::No) => Err(OrgIntelError::InvalidWork(
+                "an outcome review is accepted or sent back for changes, not declined".into(),
+            )),
+            (false, OwnerChatAnswer::Changes) => Err(OrgIntelError::InvalidWork(
+                "only an outcome review takes changes; resolve or decline this one".into(),
+            )),
+            (false, answer) => {
+                let state = if answer == OwnerChatAnswer::Yes {
+                    OwnerHandoffState::Resolved
+                } else {
+                    OwnerHandoffState::Declined
+                };
+                self.resolve_handoff(id, "owner", state, &answer_text, false, false, true)
+                    .await
+                    .map(|_| ())
+            }
+        }
     }
 
     async fn resolve_handoff(
@@ -515,6 +631,8 @@ impl OrgIntel {
         resolution: &str,
         external_observation: bool,
         owner_human_step_completion: bool,
+        // The owner's own words from conversation stand in for the card's authored brief.
+        owner_words: bool,
     ) -> Result<bool> {
         if matches!(
             state,
@@ -601,7 +719,8 @@ impl OrgIntel {
                 "external owner-step observations must be attributed to daemon".into(),
             ));
         }
-        if resolved_by == "owner" && category == OwnerHandoffCategory::OwnerJudgement {
+        if resolved_by == "owner" && category == OwnerHandoffCategory::OwnerJudgement && !owner_words
+        {
             let brief = row
                 .get::<Option<serde_json::Value>, _>("owner_brief")
                 .and_then(|value| serde_json::from_value::<OwnerBrief>(value).ok())
@@ -712,6 +831,19 @@ impl OrgIntel {
         decision: OwnerReviewDecision,
         feedback: &str,
     ) -> Result<()> {
+        self.decide_review(id, reviewer, decision, feedback, false).await
+    }
+
+    /// `owner_words`: the owner decided in conversation, so their own words stand in for the
+    /// card's authored brief.
+    async fn decide_review(
+        &self,
+        id: Uuid,
+        reviewer: &str,
+        decision: OwnerReviewDecision,
+        feedback: &str,
+        owner_words: bool,
+    ) -> Result<()> {
         let feedback = feedback.trim();
         if decision == OwnerReviewDecision::ChangesRequested && feedback.is_empty() {
             return Err(OrgIntelError::InvalidWork(
@@ -763,33 +895,35 @@ impl OrgIntel {
                     .into(),
             ));
         }
-        let brief: Option<serde_json::Value> = row.get("owner_brief");
-        let brief = brief
-            .and_then(|value| serde_json::from_value::<OwnerBrief>(value).ok())
-            .ok_or_else(|| {
-                OrgIntelError::InvalidWork(
-                    "outcome review needs a current authored owner brief".into(),
-                )
-            })?;
-        let current = owner_handoff_source_fingerprint(
-            work_id,
-            row.get("attempt_id"),
-            category,
-            row.get::<String, _>("requested_action").as_str(),
-            row.get::<String, _>("prepared_state").as_str(),
-            row.get::<String, _>("resume_condition").as_str(),
-            accountability.revision,
-        );
-        let recorded: Option<String> = row.get("brief_source_fingerprint");
-        if recorded.as_deref() != Some(current.as_str()) {
-            return Err(OrgIntelError::InvalidWork(
-                "outcome review brief is stale against the current handoff source".into(),
-            ));
-        }
-        if brief.kind != OwnerBriefKind::OutcomeReview {
-            return Err(OrgIntelError::InvalidWork(
-                "only an outcome_review brief has accept/request-changes semantics".into(),
-            ));
+        if !owner_words {
+            let brief: Option<serde_json::Value> = row.get("owner_brief");
+            let brief = brief
+                .and_then(|value| serde_json::from_value::<OwnerBrief>(value).ok())
+                .ok_or_else(|| {
+                    OrgIntelError::InvalidWork(
+                        "outcome review needs a current authored owner brief".into(),
+                    )
+                })?;
+            let current = owner_handoff_source_fingerprint(
+                work_id,
+                row.get("attempt_id"),
+                category,
+                row.get::<String, _>("requested_action").as_str(),
+                row.get::<String, _>("prepared_state").as_str(),
+                row.get::<String, _>("resume_condition").as_str(),
+                accountability.revision,
+            );
+            let recorded: Option<String> = row.get("brief_source_fingerprint");
+            if recorded.as_deref() != Some(current.as_str()) {
+                return Err(OrgIntelError::InvalidWork(
+                    "outcome review brief is stale against the current handoff source".into(),
+                ));
+            }
+            if brief.kind != OwnerBriefKind::OutcomeReview {
+                return Err(OrgIntelError::InvalidWork(
+                    "only an outcome_review brief has accept/request-changes semantics".into(),
+                ));
+            }
         }
         let has_running_attempt: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM work_attempts WHERE work_id=$1 AND state='running')",

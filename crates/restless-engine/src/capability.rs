@@ -21,10 +21,13 @@ use uuid::Uuid;
 const TOKEN_VERSION: &str = "r1";
 const KEY_FILE: &str = "runtime-capability.key";
 const RUNTIME_BRIDGE_TTL: Duration = Duration::hours(24);
-const SESSION_TTL: Duration = Duration::minutes(45);
+/// A conversation turn. 45 minutes expired under Exec turns of 71 minutes and 100+ tool calls
+/// (sprint-101 token A/B): the work was done, then the completion prompt was refused and the
+/// owner's reply was lost.
+const SESSION_TTL: Duration = Duration::hours(3);
 /// A Work Attempt is one supervised process that can run for hours, and its grants are set once
 /// in its environment: a 45-minute grant expired under long Work (Frankensurf, 18 October:
-/// "invalid model capability: capability expired") and blocked it. Conversations keep 45 minutes.
+/// "invalid model capability: capability expired") and blocked it.
 const WORK_SESSION_TTL: Duration = Duration::hours(12);
 
 fn session_ttl(work_id: Option<Uuid>) -> Duration {

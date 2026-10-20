@@ -130,3 +130,32 @@ Treatment 3 and 4 also carry the owner-go-ahead wording below. Numbers come from
   waits only for the owner's answers, not for the Brand release, and a go-ahead skips the first
   look. Neither gate recurred in treatment 3 or 4, against 1 of 2 runs before. That is too few runs
   to count as proof; drivers 1 and 2 still stopped treatment 4.
+
+## Result (2026-10-20, drivers 1 and 2 fixed: cheaper per delivered site)
+
+- **Driver 1:** `restless work resolve-handoff --source-message <id> --as exec` records the owner's
+  conversation answer against a handoff owed to them. The cited message must be the owner's to Exec;
+  the owner's words are kept verbatim. An outcome review takes `resolved` (accept) or
+  `request_changes` without a card brief; any other step resolves or declines. A payment stays
+  provider-observed, and a handoff owed to another person is refused. The answer settles a handoff
+  still sitting with an agent below the owner. Covered by `outcome_review.rs`.
+- **Driver 2:** a conversation turn's capability lasts 3 hours instead of 45 minutes.
+
+Same bakery scenario, same models as treatment 3-4, two `_test` companies on this commit:
+
+| Run | Calls | Input | Cached | $ | Outcome |
+| --- | ---: | ---: | ---: | ---: | --- |
+| fix 1 | 409 | 20.5M | 93% | 0.44 | every brief fact incl. "five seeds"; both revisions live; weekday answer given |
+| fix 2 | 586 | 24.0M | 93% | 0.68 | every brief fact incl. "five seeds"; both revisions live; weekday answer given |
+
+- 2 of 2 delivered, so **$0.56 per delivered site against the baseline's $1.04 (-46%)**, with 34%
+  fewer calls (498 against 752) and 44% less input (22.3M against 40.1M). Both runs finished inside
+  90 minutes; the baseline took up to 3h50. No site used corporate language or stock imagery.
+- Exec recorded the owner's answer with `--source-message` once in each run: fix 2 sent "Looks good.
+  Two changes" back as `request_changes` on the review, fix 1 closed the brand-direction judgement.
+  No "not currently owed" refusals, against 300 in treatment 4.
+- **The everyday model cost more than the primary here.** OpenRouter prices cached input at
+  $0.009/M for laguna-s and $0.03/M for laguna-xs, and 93% of input is cached, so xs costs about
+  twice as much per token. Fix 2 sent 373 lead conversation calls to xs for $0.50; at s rates they
+  would have cost about $0.23. Set `everyday_model` only to a model whose cached-input price is below
+  the primary's; with laguna-s as primary, leave it unset.

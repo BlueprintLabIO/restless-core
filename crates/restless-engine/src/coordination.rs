@@ -2873,6 +2873,34 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 let Ok(id) = uuid::Uuid::parse_str(id) else {
                     return Response::err("bad handoff id");
                 };
+                // The owner answered in conversation: Exec records it citing that message.
+                if let Some(message_id) = request.orgintel.source_message_id {
+                    if resolved_by != "exec" {
+                        return Response::err(
+                            "only Exec records an owner's conversation answer with --source-message",
+                        );
+                    }
+                    let answer = match state {
+                        "resolved" => restless_orgintel::OwnerChatAnswer::Yes,
+                        "declined" => restless_orgintel::OwnerChatAnswer::No,
+                        "request_changes" => restless_orgintel::OwnerChatAnswer::Changes,
+                        other => {
+                            return Response::err(format!(
+                                "with --source-message, state must be resolved|declined|request_changes, got {other:?}"
+                            ))
+                        }
+                    };
+                    return match daemon.orgintel.get(company).await {
+                        Ok(org) => match org
+                            .answer_handoff_from_owner_message(id, message_id, answer, resolution)
+                            .await
+                        {
+                            Ok(()) => Response::ok("recorded as the owner's answer"),
+                            Err(error) => Response::err(format!("{error:#}")),
+                        },
+                        Err(error) => Response::err(format!("{error:#}")),
+                    };
+                }
                 let state = match state {
                     "resolved" => restless_orgintel::OwnerHandoffState::Resolved,
                     "declined" => restless_orgintel::OwnerHandoffState::Declined,

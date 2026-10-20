@@ -936,7 +936,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "uncertainty",
             "deadline",
         ],
-        "work-handoff-resolve" => &["id", "state", "resolution", "as_actor"],
+        "work-handoff-resolve" => &["id", "state", "resolution", "as_actor", "source_message_id"],
         "work-interrupt" | "work-resume" | "work-abandon" => &["id", "as_actor", "reason"],
         "work-review" => &["id", "state", "resolution"],
         "inbox" => &["actor", "as_actor"],

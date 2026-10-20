@@ -535,7 +535,8 @@ pub struct CompanyConfig {
     pub model_failover: Vec<String>,
     /// A cheaper model for conversation turns and for routine first Attempts the decision model
     /// judges a small model can do well (S102). The primary `model` stays the failover and takes
-    /// every repair. Unset: every turn uses `model`.
+    /// every repair. Unset: every turn uses `model`. Cheaper means cached input: about 93% of input
+    /// is cached, and laguna-xs ($0.03/M cached) cost twice laguna-s ($0.009/M) in the S101 run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub everyday_model: Option<String>,
     /// The decision model that gates Exec wakes and tiers Work (S102), called on OpenRouter's

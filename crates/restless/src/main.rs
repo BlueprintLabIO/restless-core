@@ -1919,11 +1919,17 @@ enum WorkCommand {
         company: Option<String>,
         #[arg(long)]
         handoff: String,
-        /// resolved, declined, or withdrawn.
+        /// resolved, declined, or withdrawn; with --source-message, resolved, declined or
+        /// request_changes.
         #[arg(long)]
         state: String,
         #[arg(long)]
         resolution: String,
+        /// The owner's message to Exec that answers a handoff owed to the owner. Exec records
+        /// that answer as the owner's: an outcome review is accepted (resolved) or sent back
+        /// (request_changes).
+        #[arg(long)]
+        source_message: Option<i64>,
         #[arg(long = "as", env = "RESTLESS_ACTOR")]
         as_actor: Option<String>,
     },
@@ -3888,10 +3894,11 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 handoff,
                 state,
                 resolution,
+                source_message,
                 as_actor,
             } => serde_json::json!({
                 "cmd": "work-handoff-resolve", "company": company, "id": handoff, "state": state,
-                "resolution": resolution,
+                "resolution": resolution, "source_message_id": source_message,
                 "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
                     .unwrap_or_else(|| "owner".to_string()),
             }),
