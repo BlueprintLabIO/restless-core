@@ -159,3 +159,9 @@ Same bakery scenario, same models as treatment 3-4, two `_test` companies on thi
   twice as much per token. Fix 2 sent 373 lead conversation calls to xs for $0.50; at s rates they
   would have cost about $0.23. Set `everyday_model` only to a model whose cached-input price is below
   the primary's; with laguna-s as primary, leave it unset.
+- **DeepSeek V4.1 Flash is not cheaper either** (one run each, 20 October). Its catalogue price is
+  the lowest tool-capable one, but OpenRouter spreads it over ~35 providers with cached-input rates
+  from $0.0016/M to $0.033/M. Primary deepseek-v4.1-flash alone delivered the scenario for $0.71
+  (459 calls, $0.038/M input); laguna-s with deepseek as everyday model had spent $0.50 (426 calls)
+  when stopped. laguna-s alone measured $0.021/M. The cheapest measured configuration is laguna-s
+  with no everyday model and Jev for decisions: $0.56 per delivered site against $1.04 (-46%).
