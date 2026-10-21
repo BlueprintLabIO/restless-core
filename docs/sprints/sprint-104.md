@@ -30,8 +30,8 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 - [ ] A3 Resume agent sessions after a restart (session record written as it goes).
 - [ ] A4 Stop works while reconnecting (queued, sent through the plane).
 - [ ] A5 Credentials apply without a restart; agents point at a provider, not a key.
-- [ ] A6 Exec reports platform faults instead of "nothing we control".
-- [ ] A7 Rewrite the connection error screens.
+- [x] A6 Exec reports platform faults instead of "nothing we control".
+- [x] A7 Rewrite the connection error screens.
 
 ### B. Attention
 - [ ] B1 Exec can raise an Inbox item for anything that needs the owner, including finished deliverables.
@@ -41,14 +41,14 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 - [x] C1 Every send scrolls the owner's message to the top (option answers missed it).
 - [x] C2 New focus scrolls clear and keeps "Company memory retained" and the capability hint.
 - [ ] C3 DMs reach a busy agent mid-task; show "mid-task" until picked up.
-- [ ] C4 "Thinking" sits inline as the last transcript item.
-- [ ] C5 People replies don't snap narrow when they finish.
+- [x] C4 "Thinking" sits inline as the last transcript item.
+- [x] C5 People replies don't snap narrow when they finish.
 - [x] C6 Upload progress is drawn on the file's thumbnail.
 
 ### D. Models and credit
 - [x] D1 One model picker everywhere (`lib/primitives/ModelPicker.svelte`); one entry per release.
 - [ ] D2 Gemini, Grok, OpenRouter, and Meta (Muse) through the Meta Model API.
-- [ ] D3 Usage limits name the account they read.
+- [x] D3 Usage limits name the account they read.
 - [ ] D4 Comp flag: unlimited credit for blueprintlabio (Cloud).
 - [ ] D5 Budget guards: hard per-company caps, loop detection.
 
@@ -64,26 +64,29 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 - [ ] F4 Chrome's screen feed replaces VNC.
 - [ ] F5 One sandbox type for the company computer and saved logins.
 - [ ] F6 Browsers sleep on their own.
-- [ ] F7 Check whether an agent can read a filled password field.
+- [x] F7 Checked: it can. `REFUSED_METHODS` blocks cookie and storage reads, but `Runtime.evaluate` is relayed, so page script can read a typed password, `document.cookie` and `localStorage`. Fix tracked as S1.
 - [ ] F8 Website login form failure (needs the error or time from the owner).
 - [ ] F9 Recover "The desktop isn't answering".
 
 ### G. Cost and capacity
 - [ ] G1 Memory telemetry in the plane heartbeat (Cloud).
 - [x] G2 Plane moved to cpx22, keeping its IP addresses (cpx21 and cpx31 are retired in Singapore).
-- [ ] G3 CPU priority for chat over builds.
+- [x] G3 CPU priority for chat over builds.
 - [ ] G4 Burst compute interface and local provider.
 
 ### H. Polish
 - [x] H1 Work filters match the buttons beside them.
-- [ ] H2 App store refresh: stop hitting GitHub's per-IP limit.
+- [x] H2 App store refresh: stop hitting GitHub's per-IP limit.
 - [ ] H3 Favicon check after #395 ships.
+
+### S. Security
+- [ ] S1 Agents drive login browsers through high-level actions (click, type, read the accessibility tree, screenshot) instead of raw DevTools, so no page script runs on their behalf in a signed-in profile. Part of F5.
 
 ### T. Coupling and tech debt (found along the way)
 - [x] T1 Company CPU bound was a hard-coded 4 and refused every start on a 2-core host; it now fits the host, and a stopped container is refit before start.
 - [x] T2 Automatic computer setup dropped its error; "Exec can't start" had no cause anywhere. The error is logged and reported (`setup_error`).
-- [ ] T3 A plane restart drops every browser session (in-memory session store).
-- [ ] T4 The plane exits when Postgres isn't up yet at boot instead of waiting for it.
+- [x] T3 A plane restart drops every browser session (in-memory session store).
+- [x] T4 The plane exits when Postgres isn't up yet at boot instead of waiting for it.
 - [ ] T5 Cloud has no plane-move tooling; the 19 and 21 October moves were done by hand.
 - [ ] T6 Cloud's server price list includes types retired in Singapore (cpx21, cpx31).
 - [ ] T7 The Inbox intercepted every Library link, wherever it was followed (fixed with E1); audit other page-level navigation interceptors.

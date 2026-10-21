@@ -1278,6 +1278,8 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         Some(_) => Some(crate::web_push::WebPush::open(&daemon.root).context("open Web Push key")?),
         None => None,
     };
+    // Sessions outlive a plane restart; see SessionStore::persistent.
+    let sessions = Arc::new(SessionStore::persistent(daemon.root.join("owner-sessions.json")));
     let state = OwnerState {
         daemon,
         charter_writes: Arc::new(tokio::sync::Mutex::new(())),
@@ -1286,7 +1288,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         reviews: Arc::new(Mutex::new(HashMap::new())),
         review_public_url,
         entry,
-        sessions: Arc::new(SessionStore::default()),
+        sessions,
         document_collaboration_tokens,
         document_collaboration_issuer,
         native_documents_proxy,

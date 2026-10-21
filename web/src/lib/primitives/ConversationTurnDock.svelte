@@ -11,7 +11,6 @@
 	import type { ActiveAgentTurn } from '$lib/model/queries.svelte';
 	import type { AgentActivityItem } from '$lib/model/attention';
 	import Markdown from './Markdown.svelte';
-	import { followChat } from '$lib/actions/follow-chat';
 
 	type TimelineItem =
 		| { kind: 'text'; id: string; text: string }
@@ -320,7 +319,7 @@
 
 		<div id={`turn-${turn.triggerMessageId}`} class="turn-disclosure" aria-hidden={!expanded}>
 			<div class="turn-clip">
-				<div class="turn-body" use:followChat={String(turn.triggerMessageId)}>
+				<div class="turn-body">
 					{#if expanded && timeline.length}
 						<article class="streamed-reply" data-live={working}>
 							<header><strong>{participantName}</strong><span>live notes</span></header>
@@ -564,9 +563,9 @@
 		overflow: hidden;
 	}
 
+	/* Opened, the live notes read as part of the conversation and scroll with it, not inside a
+	 * small box of their own (21 October). */
 	.turn-body {
-		max-height: min(44vh, 420px);
-		overflow-y: auto;
 		border-top: 1px solid color-mix(in srgb, var(--intent-conversation) 13%, var(--border));
 	}
 
@@ -692,6 +691,12 @@
 		font-size: var(--t-body);
 		line-height: 1.5;
 		overflow-wrap: anywhere;
+	}
+
+	/* The same reading measure as the finished message (ConversationMessage), so a reply does not
+	 * stream wide and then snap narrow when it lands (21 October). */
+	.streamed-copy :global(.md > :is(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6)) {
+		max-width: 80ch;
 	}
 
 	.streamed-copy :global(.md > :first-child) {

@@ -1901,14 +1901,24 @@
 				aria-labelledby="startup-error-title"
 				aria-describedby="startup-error-copy"
 			>
-				<div class="startup-error-mark" aria-hidden="true">
-					<TriangleAlert size={18} strokeWidth={1.8} />
-				</div>
-				<h1 id="startup-error-title">We couldn’t open this company</h1>
+				<!-- One message, one reason, one action (21 October). A retryable failure is a dropped
+				     connection, usually an update, so it says what is happening rather than that
+				     something failed; only a failure a retry cannot fix says the company won't open. -->
+				{#if startupView && !startupView.retryable}
+					<div class="startup-error-mark" aria-hidden="true">
+						<TriangleAlert size={18} strokeWidth={1.8} />
+					</div>
+					<h1 id="startup-error-title">We couldn’t open this company</h1>
+				{:else}
+					<div class="startup-error-mark reconnecting" aria-hidden="true">
+						<span></span><span></span><span></span>
+					</div>
+					<h1 id="startup-error-title">Reconnecting to {companyName || 'your company'}…</h1>
+				{/if}
 				<p id="startup-error-copy">
-					{startupView
+					{startupView && !startupView.retryable
 						? startupView.detail
-						: 'This is taking longer than expected. Your page is still here; try reconnecting.'}
+						: 'The connection dropped, usually because Restless is updating. Your page and drafts stay as they are.'}
 				</p>
 				{#if startupView && !startupView.retryable}
 					<!-- A retry cannot succeed: offer the way out instead. Full loads, so on a hosted
@@ -1936,9 +1946,8 @@
 						disabled={retryingStartup}
 						onclick={retryStartup}
 					>
-						{retryingStartup ? 'Reconnecting…' : 'Try again'}
+						{retryingStartup ? 'Reconnecting…' : 'Try now'}
 					</button>
-					<span class="startup-error-note">Your open page and drafts are being kept in place.</span>
 				{/if}
 			</div>
 		</div>
@@ -1999,9 +2008,48 @@
 	.startup-error h1 {
 		font-size: var(--t-title);
 		font-weight: 600;
+		text-wrap: balance;
+	}
+	.startup-error-mark.reconnecting {
+		display: flex;
+		gap: 5px;
+		border-color: var(--border);
+		background: var(--intent-conversation-soft);
+	}
+	.startup-error-mark.reconnecting span {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--intent-conversation);
+		animation: reconnect-pulse 1.2s ease-in-out infinite;
+	}
+	.startup-error-mark.reconnecting span:nth-child(2) {
+		animation-delay: 0.15s;
+	}
+	.startup-error-mark.reconnecting span:nth-child(3) {
+		animation-delay: 0.3s;
+	}
+	@keyframes reconnect-pulse {
+		0%,
+		80%,
+		100% {
+			opacity: 0.25;
+			transform: translateY(0);
+		}
+		40% {
+			opacity: 1;
+			transform: translateY(-2px);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.startup-error-mark.reconnecting span {
+			animation: none;
+			opacity: 0.7;
+		}
 	}
 	.startup-error p {
-		max-width: 34ch;
+		text-wrap: pretty;
+		max-width: 36ch;
 		color: var(--text-tertiary);
 		line-height: 1.55;
 	}
@@ -2030,10 +2078,6 @@
 		flex-wrap: wrap;
 		justify-content: center;
 		gap: var(--space-2);
-	}
-	.startup-error-note {
-		color: var(--text-tertiary);
-		font-size: var(--t-body);
 	}
 
 	.company-access-state p {

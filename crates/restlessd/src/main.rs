@@ -243,10 +243,26 @@ async fn run() -> Result<()> {
     // T5: coordination state. The database must answer at boot — probe,
     // never guess that it will be there when a company wakes.
     let orgintel_config = OrgIntelConfig::load_or_seed(&machine_profile)?;
-    ensure_profile_database(&machine_profile, &orgintel_config).await?;
-    OrgIntel::probe(&orgintel_config.database_url)
-        .await
-        .context("orgintel database is not reachable at boot")?;
+    // A plane's database container can still be starting when this process does (a server boot
+    // on 21 October exited here). Wait for it, up to a bound, rather than exiting on the first
+    // refusal.
+    let database_deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    loop {
+        let attempt = async {
+            ensure_profile_database(&machine_profile, &orgintel_config).await?;
+            OrgIntel::probe(&orgintel_config.database_url).await?;
+            anyhow::Ok(())
+        }
+        .await;
+        match attempt {
+            Ok(_) => break,
+            Err(error) if std::time::Instant::now() < database_deadline => {
+                tracing::warn!(error = %format!("{error:#}"), "orgintel database not ready yet; waiting");
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            }
+            Err(error) => return Err(error).context("orgintel database is not reachable at boot"),
+        }
+    }
 
     let authority = authority::AuthorityStore::connect(&orgintel_config.database_url).await?;
 

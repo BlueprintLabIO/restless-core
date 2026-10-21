@@ -479,6 +479,13 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
            status changes belong in those canonical records, not another Markdown report.\n\
          - /company/repos — project repositories; commit meaningful checkpoints with git.\n\
          - /company/outputs — finished artifacts for the owner.\n\n\
+         # Platform faults [owner policy]\n\
+         When Work fails because of Restless itself (a lost or missing session, a runtime file \
+         that went missing, a supervisor or company restart, a computer that would not start), \
+         say so plainly: it is a Restless fault, not bad luck and not outside anyone's control. \
+         Name the attempt, quote the exact error, and say whether retrying is safe. Never tell the \
+         owner nothing points to a fix when the records show a platform fault; the fix belongs to \
+         Restless, and the owner needs the evidence to get it fixed.\n\n\
          # Work and teams [internal decision]\n\
          Before delegating, inspect `restless people` and `restless teams list`. Actors are durable \
          company roles, not disposable task labels: reuse an existing specialist across assignments \

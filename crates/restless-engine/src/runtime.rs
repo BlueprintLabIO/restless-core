@@ -2014,6 +2014,9 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             if let Some(cpus) = cpus.as_deref() {
                 args.extend(["--cpus", cpus]);
             }
+            // Under contention a company's work (builds, simulations) yields to the plane, which
+            // serves every page and chat: half the default weight. Idle CPU is still all theirs.
+            args.extend(["--cpu-shares", "512"]);
             if let Some(memory) = memory.as_deref() {
                 // --memory-swap equal to --memory denies the container swap, so
                 // a runaway is OOM-killed inside its own cgroup instead of
