@@ -2066,9 +2066,9 @@
 				class="room-draft-state"
 				role="status"
 			>
-				{actorName(directPartner)} is working on “{actorConversation.busyWork.title}” and will reply when
-				it finishes.{#if mayInterrupt}
-					Turn on Interrupt to have them answer now; the Work is kept.{/if}
+				{actorName(directPartner)} is working on “{actorConversation.busyWork.title}”. Your message
+				reaches them mid-task, within about a minute, and they reply without stopping the Work.{#if mayInterrupt}
+					Turn on Interrupt to stop their current turn for a full conversation; the Work is kept.{/if}
 			</p>{/if}
 		{#if sendError}<p class="room-send-error" role="alert">{sendError}</p>{/if}
 		{#if sendNotice}<p class="room-send-notice" role="status">{sendNotice}</p>{/if}
