@@ -57,6 +57,31 @@ pub fn account_assignment_is_granted(
         == Some(&reference))
 }
 
+/// The company's current connection for `provider`, by label, when it is one
+/// of the owner's live connections. An agent whose own assigned connection was
+/// removed or replaced falls back to it rather than failing every turn
+/// (Sprint 104 A5): the gateway serves the provider through this credential.
+pub fn provider_fallback(
+    root: &std::path::Path,
+    config: &runtime::CompanyConfig,
+    provider: &str,
+) -> Result<Option<String>> {
+    let Some(current) = config
+        .credentials
+        .get(&format!("model.inference.{provider}"))
+    else {
+        return Ok(None);
+    };
+    let registry = load_owner_connections(root)?;
+    Ok(registry
+        .connections
+        .iter()
+        .find(|connection| {
+            connection.provider == provider && &owner_connection_reference(connection) == current
+        })
+        .map(|connection| connection.label.clone()))
+}
+
 /// Why an agent's assigned connection no longer reaches the company, in the owner's words, with
 /// where to fix it. Replacing a provider's connection used to fail every agent still assigned to
 /// the old one with only "no longer granted", and nobody could tell who or what had done it.
@@ -437,6 +462,57 @@ mod key_check_tests {
             check_api_key_at(&google, "x-goog-api-key", "k").await,
             KeyCheck::Rejected("API key not valid. Please pass a valid API key.".into())
         );
+    }
+}
+
+#[cfg(test)]
+mod provider_fallback_tests {
+    use super::*;
+
+    #[test]
+    fn an_agent_on_a_replaced_connection_falls_back_to_the_companys_current_one() {
+        let root = std::env::temp_dir().join(format!("restless-fallback-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let connection = |label: &str| OwnerModelConnection {
+            id: Uuid::new_v4().simple().to_string(),
+            label: label.into(),
+            provider: "anthropic".into(),
+            kind: "api_key".into(),
+            account_key: None,
+        };
+        let (old, new) = (connection("Old key"), connection("New key"));
+        save_owner_connections(
+            &root,
+            &OwnerModelConnections {
+                connections: vec![new.clone()],
+            },
+        )
+        .unwrap();
+        let config = |reference: Option<String>| -> runtime::CompanyConfig {
+            serde_json::from_value(serde_json::json!({
+                "name": "fallback_test", "mission": "Fallback fixture",
+                "credentials": reference
+                    .map(|reference| serde_json::json!({"model.inference.anthropic": reference}))
+                    .unwrap_or_else(|| serde_json::json!({}))
+            }))
+            .unwrap()
+        };
+        let current = config(Some(owner_connection_reference(&new)));
+        assert!(!account_assignment_is_granted(&root, &current, "anthropic", &old.id).unwrap());
+        assert_eq!(
+            provider_fallback(&root, &current, "anthropic").unwrap(),
+            Some("New key".into())
+        );
+        assert_eq!(
+            provider_fallback(&root, &config(None), "anthropic").unwrap(),
+            None
+        );
+        assert_eq!(
+            provider_fallback(&root, &config(Some("env:ELSEWHERE".into())), "anthropic").unwrap(),
+            None,
+            "a credential that is not one of the owner's connections is no fallback"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
 

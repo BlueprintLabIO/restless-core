@@ -789,12 +789,23 @@ pub async fn agent_auth_for_model(
                 provider,
                 id,
             )? {
-                anyhow::bail!(crate::model_connections::why_not_granted(
-                    &root,
-                    &company_config,
-                    provider,
-                    id
-                ));
+                // The assigned connection was removed or replaced: keep the agent thinking on the
+                // company's current connection for this provider (Sprint 104 A5).
+                match crate::model_connections::provider_fallback(&root, &company_config, provider)?
+                {
+                    Some(label) => tracing::info!(
+                        company,
+                        actor,
+                        provider,
+                        "agent's assigned connection is gone; using the company's {label}"
+                    ),
+                    None => anyhow::bail!(crate::model_connections::why_not_granted(
+                        &root,
+                        &company_config,
+                        provider,
+                        id
+                    )),
+                }
             }
             if !model.starts_with(&format!("{provider}/")) {
                 anyhow::bail!(
