@@ -53,6 +53,15 @@ export const MODEL_PRESETS = [
 		]
 	},
 	{
+		// Meta's first-party Model API (Responses), which OMP's "meta" provider serves.
+		id: 'meta',
+		name: 'Meta Muse',
+		models: [
+			{ id: 'muse-spark-1.2', name: 'Muse Spark 1.2' },
+			{ id: 'muse-spark-1.1', name: 'Muse Spark 1.1' }
+		]
+	},
+	{
 		id: 'xai',
 		name: 'xAI',
 		models: [

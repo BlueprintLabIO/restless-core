@@ -242,6 +242,8 @@ fn key_check_request(provider: &str) -> Option<(&'static str, &'static str)> {
         "groq" => ("https://api.groq.com/openai/v1/models", "bearer"),
         "mistral" => ("https://api.mistral.ai/v1/models", "bearer"),
         "xai" => ("https://api.x.ai/v1/models", "bearer"),
+        // Meta's Model API (Muse), as OMP's "meta" provider validates it.
+        "meta" => ("https://api.meta.ai/v1/models", "bearer"),
         "deepseek" => ("https://api.deepseek.com/models", "bearer"),
         _ => return None,
     })
