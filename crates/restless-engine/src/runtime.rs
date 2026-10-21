@@ -2065,6 +2065,22 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
                 args.extend(["--pids-limit", pids]);
             }
             let company_env = format!("RESTLESS_COMPANY={company}");
+            // The owner's timezone and language for the company browser, when the plane is told
+            // them (S104 F3). Unset keeps the browser as it was.
+            let browser_env: Vec<String> = ["RESTLESS_BROWSER_TIMEZONE", "RESTLESS_BROWSER_LANG"]
+                .iter()
+                .filter_map(|name| {
+                    let value = std::env::var(name).ok()?;
+                    let value = value.trim();
+                    (!value.is_empty()
+                        && value.len() <= 64
+                        && value.chars().all(|c| c.is_ascii_alphanumeric() || "/_+-".contains(c)))
+                    .then(|| format!("{name}={value}"))
+                })
+                .collect();
+            for setting in &browser_env {
+                args.extend(["--env", setting.as_str()]);
+            }
             // The image default names the appliance's established port, but an
             // isolated account plane may use RESTLESS_PORT_OFFSET.  ACP turns
             // already override this value; the persistent Runtime must receive

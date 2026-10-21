@@ -60,7 +60,7 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 ### F. Browser sandbox
 - [x] F1 Expand fills the main area and keeps the Exec rail.
 - [ ] F2 The computer moves into its own container; downloads sync to the Library.
-- [ ] F3 Chrome stable, Sydney timezone and locale, persistent profile.
+- [~] F3 Chrome stable, Sydney timezone and locale, persistent profile. Shipped: a plane with RESTLESS_BROWSER_TIMEZONE or RESTLESS_BROWSER_LANG gives the company browser that timezone and language. Still open: Cloud setting them per owner, and Chrome stable on amd64 (there is no arm64 build).
 - [ ] F4 Chrome's screen feed replaces VNC.
 - [ ] F5 One sandbox type for the company computer and saved logins.
 - [ ] F6 Browsers sleep on their own.
