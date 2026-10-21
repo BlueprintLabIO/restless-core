@@ -29,7 +29,7 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 - [x] A2 Checked: release roll-forward already waits for a quiet company (`company_busy`, up to `MAX_DEFERRAL_HOURS`) before rebuilding its computer. The remaining restart on every release is the plane service itself (A1).
 - [~] A3 Checked: a Work attempt's agent session is already resumable. Its ACP locator is written to the company volume (`work:<id>`), and the next attempt calls `session/load`, so a restart costs the in-flight turn, not the context. Fixed: an attempt whose computer restarted under it (so `/tmp` and its ownership marker were gone) no longer fails with "marker is missing; broad process cleanup was refused" (Aang's attempt 2). Still open: continuing the interrupted attempt itself, rather than closing it as unknown for the lead to review.
 - [x] A4 Stop keeps trying for up to a minute while the company is unreachable (network errors, 5xx, 408, 429) instead of failing the moment the connection drops.
-- [~] A5 Checked: the gateway already reloads within ~5s when credentials or sign-ins change (restlessd's fingerprint loop), so the "Ready once the company restarts" hint is stale. Still open: an agent assigned to a removed key's connection should fall back to the provider's remaining connection (needs a reproduction).
+- [~] A5 Checked: the gateway already reloads within ~5s when credentials or sign-ins change (restlessd's fingerprint loop), so the "Ready once the company restarts" hint is stale. Still open: an agent assigned to a removed key's connection should fall back to the provider's remaining connection (needs a reproduction). Likely mechanism: when a Claude sign-in fails to reconcile into the broker and no API key backs it, `provider_credentials` ends up empty, `NO_DIRECT_PROVIDER` is set and every built-in-harness turn fails with "No model connection is active yet". Confirming why a sign-in didn't load needs the plane log from that moment.
 - [x] A6 Exec reports platform faults instead of "nothing we control".
 - [x] A7 Rewrite the connection error screens.
 
@@ -91,6 +91,15 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 - [x] T6 Not a bug: Cloud's own fallback list for Singapore (cpx32, ccx13) only names types still sold, and the provider checks live stock. It was Hetzner's price list that still showed cpx21 and cpx31.
 - [x] T7 The Inbox intercepted every Library link (fixed with E1). Audited the other `beforeNavigate` handlers: all are unsaved-change guards.
 - [x] T8 The company memory bound is kept to three quarters of the host's memory (a 4 GB host gives 3 GB companies).
+
+**Incident, 22 Oct 01:00–03:00 (Sydney time): the 4 GB plane thrashed into an outage.**
+- **Causes:**
+  - Each release's roll-forward woke every sleeping company to rebuild it. Fixed by #407.
+  - Every plane boot started every company. Fixed by #409.
+  - Four awake companies with Chrome need more than 4 GB (Sydney Resale's Chrome reached 2.2 GB).
+- **Effects:** CPU at 200%, `/health` unreachable, Fleet showing every card as "Updating" or "Can't open yet", and SSH timing out.
+- **Relief overnight:** stopping idle companies and writing their sleep markers, and two reboots.
+- **Owner decision:** resize to 8 GB RAM-only (cpx32; keep the 80 GB disk so it can shrink again), or stay on 4 GB with browser sleep (#406).
 
 **Memory after the first overnight release (22 Oct, from the new heartbeat):**
 - All four companies awake used everything: about 20 MB free and 1.2 GB of swap. Sydney Resale was at 1.8 GB and Reno at 0.8 GB.
