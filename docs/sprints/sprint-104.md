@@ -55,7 +55,7 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 ### E. Library
 - [x] E1 "Open in Library" opens the Library; the viewer fills its pane (no 150px frame).
 - [x] E2 Library › Folders lists every file under /company/outputs (owner only, newest first, read from the computer every minute, last listing kept while it sleeps). A file already in the Library opens as that entry; the rest open by path.
-- [ ] E3 Responsive Library.
+- [x] E3 Responsive Library. Checked live with headless Chromium at 375, 768 and 1024 px against real company data, with no page-level horizontal overflow. Fixed: cockpit.css's later `display: flex` kept the wordmark at tablet and phone widths, so at 768 px the tabs ran under search and the company name was cut to "Sydne…". On a phone the eight Library views wrapped onto three rows before the first file; they're now one row that scrolls sideways. Documents and sheets fit a phone.
 
 ### F. Browser sandbox
 - [x] F1 Expand fills the main area and keeps the Exec rail.

@@ -360,7 +360,9 @@
  * the company switcher leads (its menu links home), and search keeps its icon
  * with the shortcut in its tip. */
 @media (min-width: 761px) and (max-width: 1100px) {
-	.bridge-topbar .tb-brand-home,
+	/* `.bridge-root` matches cockpit.css's own display rule, which loads later and
+	 * otherwise kept the wordmark and pushed the tabs under search (S104 E3). */
+	.bridge-root .bridge-topbar .tb-brand-home,
 	.bridge-topbar .tb-company-slash,
 	.bridge-root .tb-search-label,
 	.bridge-root .tb-search kbd {
@@ -394,7 +396,7 @@
 		padding-inline: 10px;
 	}
 
-	.bridge-topbar .tb-brand-home,
+	.bridge-root .bridge-topbar .tb-brand-home,
 	.bridge-topbar .tb-company-slash,
 	.bridge-topbar .tb-tabs,
 	.bridge-root .tb-search-label,
