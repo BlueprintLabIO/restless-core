@@ -541,6 +541,20 @@ pub async fn fill(account_id: &str, domains: &[String], target: Option<&str>, te
             bail!("the focused field is not a password field; nothing was typed.");
         }
         cdp.call("Input.insertText", serde_json::json!({ "text": text }), Some(&session)).await?;
+        // A typed password or code is submitted at once, in the same call, so it does not sit in a
+        // filled field where page script run for the agent could read it (S104 S1, a stopgap until
+        // agents drive login browsers through high-level actions only).
+        if field != "username" {
+            for kind in ["keyDown", "keyUp"] {
+                cdp.call(
+                    "Input.dispatchKeyEvent",
+                    serde_json::json!({ "type": kind, "key": "Enter", "code": "Enter", "windowsVirtualKeyCode": 13, "text": "\r" }),
+                    Some(&session),
+                )
+                .await?;
+            }
+            return Ok(format!("Typed the account's {field} into the focused field on {host} and pressed Enter to submit it."));
+        }
         Ok(format!("Typed the account's {field} into the focused field on {host}."))
     }
     .await;
