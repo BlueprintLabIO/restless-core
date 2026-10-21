@@ -222,14 +222,25 @@ fn company_cpus() -> Option<String> {
 /// The memory bound for a company container, kept under this host's memory: a 4 GB bound on a
 /// 4 GB server is no bound at all, so one company could take the whole plane down (21 October).
 fn company_memory() -> Option<String> {
-    let host = std::fs::read_to_string("/proc/meminfo").ok().and_then(|meminfo| {
+    fit_memory(resource_bound("RESTLESS_COMPANY_MEMORY", DEFAULT_MEMORY), host_memory_bytes())
+}
+
+/// A burst job's memory bound: what it asked for, or the company default, kept under the host.
+pub fn fit_job_memory(requested: Option<&str>) -> Option<String> {
+    fit_memory(
+        Some(requested.map(str::trim).filter(|value| !value.is_empty()).unwrap_or(DEFAULT_MEMORY).to_string()),
+        host_memory_bytes(),
+    )
+}
+
+fn host_memory_bytes() -> Option<u64> {
+    std::fs::read_to_string("/proc/meminfo").ok().and_then(|meminfo| {
         meminfo
             .lines()
             .find_map(|line| line.strip_prefix("MemTotal:"))
             .and_then(|rest| rest.trim().trim_end_matches("kB").trim().parse::<u64>().ok())
             .map(|kib| kib * 1024)
-    });
-    fit_memory(resource_bound("RESTLESS_COMPANY_MEMORY", DEFAULT_MEMORY), host)
+    })
 }
 
 fn fit_memory(bound: Option<String>, host_bytes: Option<u64>) -> Option<String> {

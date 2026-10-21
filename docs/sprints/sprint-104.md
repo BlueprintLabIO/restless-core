@@ -72,7 +72,7 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 - [x] G1 Memory telemetry in the plane heartbeat (Cloud #118).
 - [x] G2 Plane moved to cpx22, keeping its IP addresses (cpx21 and cpx31 are retired in Singapore).
 - [x] G3 CPU priority for chat over builds.
-- [ ] G4 Burst compute interface and local provider.
+- [x] G4 Burst compute: `restless job run` / `restless job status` with a local provider (own container, CPU, memory, pids and time bounds, log in /company/run/jobs). A Cloud provider can sit behind the same calls.
 
 ### H. Polish
 - [x] H1 Work filters match the buttons beside them.

@@ -7,6 +7,7 @@ pub mod account_broker;
 pub mod account_browser;
 pub mod account_git;
 pub mod account_usage;
+pub mod burst_jobs;
 pub mod accounts;
 pub mod acp;
 pub mod activity;
