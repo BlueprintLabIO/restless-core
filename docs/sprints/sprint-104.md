@@ -25,7 +25,7 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 ## Tracks
 
 ### A. Deploys and durability
-- [ ] A1 Serve the UI apart from the runtime; a UI-only release restarts no company. Root cause confirmed: Core images aren't reproducible, so a UI-only release (d31c8e5b, 6e7e00fd) still gives company-runtime and account-plane new digests, and every plane restarts. Options: reuse an unchanged component's previous image by input digest, or serve the UI as its own container or CDN artifact.
+- [~] A1 Serve the UI apart from the runtime; a UI-only release restarts no company. Root cause confirmed: Core images aren't reproducible, so a UI-only release (d31c8e5b, 6e7e00fd) still gives company-runtime and account-plane new digests, and every plane restarts. Options: reuse an unchanged component's previous image by input digest, or serve the UI as its own container or CDN artifact. Shipped meanwhile: `/health` reports `busy` (#403), and the Cloud agent holds a new bundle until the plane is quiet, for up to two hours (restless-cloud#120), so a release no longer restarts the plane service under running Work.
 - [x] A2 Checked: release roll-forward already waits for a quiet company (`company_busy`, up to `MAX_DEFERRAL_HOURS`) before rebuilding its computer. The remaining restart on every release is the plane service itself (A1).
 - [~] A3 Checked: a Work attempt's agent session is already resumable. Its ACP locator is written to the company volume (`work:<id>`), and the next attempt calls `session/load`, so a restart costs the in-flight turn, not the context. Fixed: an attempt whose computer restarted under it (so `/tmp` and its ownership marker were gone) no longer fails with "marker is missing; broad process cleanup was refused" (Aang's attempt 2). Still open: continuing the interrupted attempt itself, rather than closing it as unknown for the lead to review.
 - [x] A4 Stop keeps trying for up to a minute while the company is unreachable (network errors, 5xx, 408, 429) instead of failing the moment the connection drops.
@@ -80,7 +80,7 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 - [ ] H3 Favicon check after #395 ships.
 
 ### S. Security
-- [ ] S1 Agents drive login browsers through high-level actions (click, type, read the accessibility tree, screenshot) instead of raw DevTools, so no page script runs on their behalf in a signed-in profile. Part of F5.
+- [~] S1 Agents drive login browsers through high-level actions (click, type, read the accessibility tree, screenshot) instead of raw DevTools, so no page script runs on their behalf in a signed-in profile. Part of F5. Stopgap shipped: a typed password or one-time code is submitted with Enter in the same call, so it no longer sits in a filled field between the agent's calls.
 
 ### T. Coupling and tech debt (found along the way)
 - [x] T1 Company CPU bound was a hard-coded 4 and refused every start on a 2-core host; it now fits the host, and a stopped container is refit before start.
