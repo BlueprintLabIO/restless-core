@@ -328,16 +328,26 @@ pub fn tool_name(account: &Account) -> String {
 
 pub fn is_account_tool(name: &str) -> bool {
     name.starts_with(TOOL_PREFIX)
-        && [TOOL_SUFFIX, GIT_SUFFIX, BROWSER_SUFFIX, FILL_SUFFIX]
-            .iter()
-            .any(|suffix| name.ends_with(suffix))
+        && [
+            TOOL_SUFFIX,
+            GIT_SUFFIX,
+            BROWSER_SUFFIX,
+            FILL_SUFFIX,
+            ACT_SUFFIX,
+        ]
+        .iter()
+        .any(|suffix| name.ends_with(suffix))
 }
 
 const BROWSER_SUFFIX: &str = "__browser";
 const FILL_SUFFIX: &str = "__fill";
+const ACT_SUFFIX: &str = "__act";
 
 pub fn is_browser_tool(name: &str) -> bool {
-    name.starts_with(TOOL_PREFIX) && (name.ends_with(BROWSER_SUFFIX) || name.ends_with(FILL_SUFFIX))
+    name.starts_with(TOOL_PREFIX)
+        && [BROWSER_SUFFIX, FILL_SUFFIX, ACT_SUFFIX]
+            .iter()
+            .any(|suffix| name.ends_with(suffix))
 }
 
 /// The browser tools a website-login or browser-profile account adds (S98-04).
@@ -351,7 +361,7 @@ pub fn browser_tool_definitions(usable: &Usable) -> Vec<(String, String, serde_j
     let mut tools = vec![(
         base.replace(TOOL_SUFFIX, BROWSER_SUFFIX),
         format!(
-            "[{} · the owner's signed-in browser for {domains}, granted to this company] Borrow it: answers a DevTools endpoint to drive with Playwright \
+            "[{} · the owner's signed-in browser for {domains}, granted to this company] For ordinary steps (open, read, click, type) use the act tool, which runs no script in the signed-in page. Borrow it here only when you need more: answers a DevTools endpoint to drive with Playwright \
              (`chromium.connectOverCDP(endpoint)`) or any CDP client, already signed in. One session at a time holds it for up to 30 minutes; \
              `release: true` hands it back. Cookies and site storage cannot be read through it. Needs `purpose`.",
             account.label
@@ -365,6 +375,32 @@ pub fn browser_tool_definitions(usable: &Usable) -> Vec<(String, String, serde_j
             }
         }),
     )];
+    // High-level steps the browser itself serves: no script runs in the signed-in page (S104 S1).
+    tools.push((
+        base.replace(TOOL_SUFFIX, ACT_SUFFIX),
+        format!(
+            "[{} · act in the owner's signed-in browser for {domains}] Prefer this to the DevTools endpoint. One step per call: \
+             `open` a page on the account's domains (`url`), `read` the page as numbered lines `[ref] role \"name\"`, `click` a `ref`, \
+             `type` `text` into a `ref` (`submit: true` presses Enter), `scroll` (`down: false` for up), or `screenshot`. \
+             Read again after each click to get fresh refs. The first call borrows the browser for up to 30 minutes and needs `purpose`; \
+             the browser tool's `release: true` hands it back. Sign-in fields still use the fill tool.",
+            account.label
+        ),
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["open", "read", "click", "type", "scroll", "screenshot"]},
+                "url": {"type": "string", "description": "For open: a page on the account's own domains."},
+                "ref": {"type": "integer", "description": "For click and type: the number in brackets from the last read."},
+                "text": {"type": "string", "description": "For type: what to type."},
+                "submit": {"type": "boolean", "description": "For type: press Enter afterwards."},
+                "down": {"type": "boolean", "description": "For scroll: false scrolls up. Defaults to down."},
+                "purpose": {"type": "string", "description": "On the first call: one sentence, why you need the account's browser."},
+                "target_id": {"type": "string", "description": "Optional DevTools target id of the page; defaults to the attached page."}
+            },
+            "required": ["action"]
+        }),
+    ));
     if account.kind == "website_login" {
         tools.push((
             base.replace(TOOL_SUFFIX, FILL_SUFFIX),

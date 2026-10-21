@@ -1118,6 +1118,7 @@ impl ToolScope {
         };
         let domains = identity::account_domains(usable.settings());
         let filling = name.ends_with("__fill");
+        let acting = name.ends_with("__act");
         let now = chrono::Utc::now();
         let (spent, today) = broker::grant_usage(pool, &usable.grant, now)
             .await
@@ -1135,6 +1136,8 @@ impl ToolScope {
         );
         let action = if filling {
             format!("sign in ({})", text("field").unwrap_or("field"))
+        } else if acting {
+            format!("browser action ({})", text("action").unwrap_or("action"))
         } else {
             "browser session".to_string()
         };
@@ -1242,6 +1245,72 @@ impl ToolScope {
                 Err(error) => {
                     record("failed").await;
                     text_error(format!("Nothing was typed: {error:#}"))
+                }
+            };
+        }
+        if acting {
+            let step = match text("action").unwrap_or_default() {
+                "open" => text("url").map(|url| identity::BrowserAction::Open(url.to_string())),
+                "read" => Some(identity::BrowserAction::Read),
+                "screenshot" => Some(identity::BrowserAction::Screenshot),
+                "scroll" => Some(identity::BrowserAction::Scroll {
+                    down: arguments.get("down").and_then(serde_json::Value::as_bool) != Some(false),
+                }),
+                "click" => arguments
+                    .get("ref")
+                    .and_then(serde_json::Value::as_i64)
+                    .map(identity::BrowserAction::Click),
+                "type" => arguments
+                    .get("ref")
+                    .and_then(serde_json::Value::as_i64)
+                    .zip(arguments.get("text").and_then(serde_json::Value::as_str))
+                    .map(|(node, typed)| identity::BrowserAction::Type {
+                        node,
+                        text: typed.to_string(),
+                        submit: arguments.get("submit").and_then(serde_json::Value::as_bool)
+                            == Some(true),
+                    }),
+                _ => None,
+            };
+            let Some(step) = step else {
+                return text_error(
+                    "Name one `action`: open (with `url`), read, click (with `ref`), type (with `ref` and `text`), scroll or screenshot.",
+                );
+            };
+            if !identity::holds_lease(&account_id, &company, &actor).await {
+                if text("purpose").is_none() {
+                    return text_error(format!("Acting in {}'s browser acts as the account: add `purpose`, one sentence saying why.", usable.account.label));
+                }
+                if usable.account.health != "signed_in" {
+                    return text_error(format!(
+                        "{} is not signed in yet. The owner signs it in from Settings › Accounts; ask them, then try again.",
+                        usable.account.label
+                    ));
+                }
+                if let Err(busy) = identity::take_lease(&account_id, &company, &actor).await {
+                    return text_error(busy);
+                }
+                if let Err(error) = identity::ensure_running(&account_id).await {
+                    identity::release_lease(&account_id, &company, &actor).await;
+                    return text_error(format!("The account's browser did not start: {error:#}"));
+                }
+            }
+            return match identity::act(&account_id, &domains, text("target_id"), step).await {
+                Ok(identity::ActOutput::Text(done)) => {
+                    record("ok").await;
+                    CallToolResult::success(vec![ContentBlock::text(done)]).into()
+                }
+                Ok(identity::ActOutput::Image { jpeg_base64, note }) => {
+                    record("ok").await;
+                    CallToolResult::success(vec![
+                        ContentBlock::image(jpeg_base64, "image/jpeg"),
+                        ContentBlock::text(note),
+                    ])
+                    .into()
+                }
+                Err(error) => {
+                    record("failed").await;
+                    text_error(format!("Nothing was done: {error:#}"))
                 }
             };
         }
