@@ -76,10 +76,7 @@ impl MentionClaim {
         }
     }
 }
-pub async fn claim(
-    org: &OrgIntel,
-    lease: &ActorCognitiveLease,
-) -> Result<Option<MentionClaim>> {
+pub async fn claim(org: &OrgIntel, lease: &ActorCognitiveLease) -> Result<Option<MentionClaim>> {
     if let Some(value) = org.claim_next_pending_message_mention(lease).await? {
         return Ok(Some(MentionClaim::Room(value)));
     }

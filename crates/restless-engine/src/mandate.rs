@@ -459,11 +459,7 @@ pub async fn list_permits(
         .collect()
 }
 
-pub async fn usage(
-    pool: &PgPool,
-    company: &str,
-    mandate_id: Uuid,
-) -> Result<EmailMandateUsage> {
+pub async fn usage(pool: &PgPool, company: &str, mandate_id: Uuid) -> Result<EmailMandateUsage> {
     let row = sqlx::query(
         "SELECT body FROM restless_authority.records WHERE company=$1 \
          AND kind='email_mandate_granted' AND body->>'id'=$2 ORDER BY id DESC LIMIT 1",
@@ -913,7 +909,10 @@ mod replace_tests {
             .propose_email_mandate(&company, "owner", proposal(10), None, Some(current.id))
             .await
             .unwrap();
-        assert_eq!(list(authority.pool(), &company).await.unwrap()[0].id, current.id);
+        assert_eq!(
+            list(authority.pool(), &company).await.unwrap()[0].id,
+            current.id
+        );
         let replaced = authority
             .decide_email_mandate_proposal(&company, "owner", change, true, None)
             .await
@@ -1007,7 +1006,10 @@ mod replace_tests {
             }
         };
         send(1).await.unwrap();
-        assert!(send(2).await.is_err(), "a second email before they write back is outreach");
+        assert!(
+            send(2).await.is_err(),
+            "a second email before they write back is outreach"
+        );
         inbound(1).await;
         send(3).await.unwrap();
         assert!(send(4).await.is_err(), "one answer per message they sent");

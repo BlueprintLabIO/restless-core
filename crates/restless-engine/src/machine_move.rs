@@ -28,7 +28,8 @@ pub struct MoveProgress {
     pub started_at: DateTime<Utc>,
 }
 
-static MOVES: LazyLock<Mutex<HashMap<String, MoveProgress>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static MOVES: LazyLock<Mutex<HashMap<String, MoveProgress>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// The move in progress or last finished for a company, as long as this plane process has run.
 pub fn progress(company: &str) -> Option<MoveProgress> {
@@ -52,13 +53,19 @@ fn socket_of(machine: &str) -> PathBuf {
 
 fn docker_at(machine: &str) -> Command {
     let mut command = Command::new("docker");
-    command.arg("-H").arg(format!("unix://{}", socket_of(machine).display()));
+    command
+        .arg("-H")
+        .arg(format!("unix://{}", socket_of(machine).display()));
     command.env_remove("DOCKER_HOST");
     command
 }
 
 async fn ok(mut command: Command, what: &str) -> Result<String> {
-    let output = command.stdin(Stdio::null()).output().await.with_context(|| format!("run docker to {what}"))?;
+    let output = command
+        .stdin(Stdio::null())
+        .output()
+        .await
+        .with_context(|| format!("run docker to {what}"))?;
     if !output.status.success() {
         bail!("{what}: {}", String::from_utf8_lossy(&output.stderr).trim());
     }
@@ -67,7 +74,13 @@ async fn ok(mut command: Command, what: &str) -> Result<String> {
 
 async fn volume_labels(machine: &str, volume: &str) -> Result<Option<Vec<String>>> {
     let mut inspect = docker_at(machine);
-    inspect.args(["volume", "inspect", "-f", "{{range $k, $v := .Labels}}{{$k}}={{$v}}\n{{end}}", volume]);
+    inspect.args([
+        "volume",
+        "inspect",
+        "-f",
+        "{{range $k, $v := .Labels}}{{$k}}={{$v}}\n{{end}}",
+        volume,
+    ]);
     let output = inspect.stdin(Stdio::null()).output().await?;
     if !output.status.success() {
         return Ok(None);
@@ -75,7 +88,9 @@ async fn volume_labels(machine: &str, volume: &str) -> Result<Option<Vec<String>
     Ok(Some(
         String::from_utf8_lossy(&output.stdout)
             .lines()
-            .filter(|line| !line.is_empty() && !line.starts_with(restless_machine::protocol::MACHINE_LABEL))
+            .filter(|line| {
+                !line.is_empty() && !line.starts_with(restless_machine::protocol::MACHINE_LABEL)
+            })
             .map(str::to_string)
             .collect(),
     ))
@@ -99,8 +114,23 @@ pub(crate) async fn copy_volume(company: &str, volume: &str, from: &str, to: &st
     let mount = format!("{volume}:/v");
     let mut source = docker_at(from);
     source
-        .args(["run", "--rm", "--name", &format!("restless-move-out-{}", &suffix[..12])])
-        .args(["--network", "none", "--user", "0", "-v", &mount, "--entrypoint", "tar", &image])
+        .args([
+            "run",
+            "--rm",
+            "--name",
+            &format!("restless-move-out-{}", &suffix[..12]),
+        ])
+        .args([
+            "--network",
+            "none",
+            "--user",
+            "0",
+            "-v",
+            &mount,
+            "--entrypoint",
+            "tar",
+            &image,
+        ])
         .args(["-C", "/v", "-cf", "-", "."])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -108,8 +138,24 @@ pub(crate) async fn copy_volume(company: &str, volume: &str, from: &str, to: &st
         .kill_on_drop(true);
     let mut target = docker_at(to);
     target
-        .args(["run", "--rm", "-i", "--name", &format!("restless-move-in-{}", &suffix[..12])])
-        .args(["--network", "none", "--user", "0", "-v", &mount, "--entrypoint", "sh", &image])
+        .args([
+            "run",
+            "--rm",
+            "-i",
+            "--name",
+            &format!("restless-move-in-{}", &suffix[..12]),
+        ])
+        .args([
+            "--network",
+            "none",
+            "--user",
+            "0",
+            "-v",
+            &mount,
+            "--entrypoint",
+            "sh",
+            &image,
+        ])
         .args(["-c", "find /v -mindepth 1 -delete && tar -C /v -xpf -"])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
@@ -125,10 +171,16 @@ pub(crate) async fn copy_volume(company: &str, volume: &str, from: &str, to: &st
     let written = writer.wait_with_output().await?;
     copied.with_context(|| format!("copy {volume} for {company}"))?;
     if !read.status.success() {
-        bail!("read {volume}: {}", String::from_utf8_lossy(&read.stderr).trim());
+        bail!(
+            "read {volume}: {}",
+            String::from_utf8_lossy(&read.stderr).trim()
+        );
     }
     if !written.status.success() {
-        bail!("write {volume}: {}", String::from_utf8_lossy(&written.stderr).trim());
+        bail!(
+            "write {volume}: {}",
+            String::from_utf8_lossy(&written.stderr).trim()
+        );
     }
     Ok(true)
 }
@@ -149,9 +201,21 @@ async fn set_aside(company: &str, machine: &str) -> Result<()> {
 async fn run_move(pool: &PgPool, config: &CompanyConfig, from: &str, to: &str) -> Result<()> {
     let company = config.name.as_str();
     record(company, "Pausing work");
-    runtime::down(company).await.context("stop the company computer")?;
-    for volume in [runtime::volume_name(company), runtime::attachments_volume_name(company)] {
-        record(company, if volume == runtime::volume_name(company) { "Copying the workspace" } else { "Copying kept files" });
+    runtime::down(company)
+        .await
+        .context("stop the company computer")?;
+    for volume in [
+        runtime::volume_name(company),
+        runtime::attachments_volume_name(company),
+    ] {
+        record(
+            company,
+            if volume == runtime::volume_name(company) {
+                "Copying the workspace"
+            } else {
+                "Copying kept files"
+            },
+        );
         copy_volume(company, &volume, from, to).await?;
     }
     record(company, "Switching");
@@ -159,7 +223,9 @@ async fn run_move(pool: &PgPool, config: &CompanyConfig, from: &str, to: &str) -
     machines::assign(pool, company, to, ROLE_MAIN).await?;
     crate::machine_router::refresh(pool).await?;
     record(company, "Starting on the new computer");
-    runtime::up(config, true).await.context("start the company on the new computer")?;
+    runtime::up(config, true)
+        .await
+        .context("start the company on the new computer")?;
     if runtime::status(company).await? != ContainerStatus::Running {
         bail!("the company computer did not start on the new computer");
     }
@@ -170,10 +236,12 @@ async fn run_move(pool: &PgPool, config: &CompanyConfig, from: &str, to: &str) -
 async fn restore(pool: &PgPool, config: &CompanyConfig, from: &str) -> Result<()> {
     let company = config.name.as_str();
     if from == PLANE_MACHINE {
-        sqlx::query("DELETE FROM restless_authority.company_machines WHERE company = $1 AND role = 'main'")
-            .bind(company)
-            .execute(pool)
-            .await?;
+        sqlx::query(
+            "DELETE FROM restless_authority.company_machines WHERE company = $1 AND role = 'main'",
+        )
+        .bind(company)
+        .execute(pool)
+        .await?;
     } else {
         machines::assign(pool, company, from, ROLE_MAIN).await?;
     }
@@ -181,7 +249,14 @@ async fn restore(pool: &PgPool, config: &CompanyConfig, from: &str) -> Result<()
     // Bring back a computer set aside on the source.
     let name = runtime::container_name(company);
     let mut list = docker_at(from);
-    list.args(["ps", "-a", "--filter", &format!("name=^{name}-moved-"), "--format", "{{.Names}}"]);
+    list.args([
+        "ps",
+        "-a",
+        "--filter",
+        &format!("name=^{name}-moved-"),
+        "--format",
+        "{{.Names}}",
+    ]);
     if let Ok(names) = ok(list, "find the set-aside computer").await {
         if let Some(latest) = names.lines().max() {
             let mut rename = docker_at(from);
@@ -204,7 +279,10 @@ pub async fn start(pool: PgPool, config: CompanyConfig, to: String) -> Result<()
             bail!("Both computers must be online to move a company between them.");
         }
     }
-    if machines::get(&pool, &to).await?.is_none_or(|machine| machine.paused) {
+    if machines::get(&pool, &to)
+        .await?
+        .is_none_or(|machine| machine.paused)
+    {
         bail!("That computer is paused or no longer exists.");
     }
     {
@@ -214,7 +292,13 @@ pub async fn start(pool: PgPool, config: CompanyConfig, to: String) -> Result<()
         }
         moves.insert(
             company.clone(),
-            MoveProgress { to: to.clone(), step: "Starting".into(), done: false, error: None, started_at: Utc::now() },
+            MoveProgress {
+                to: to.clone(),
+                step: "Starting".into(),
+                done: false,
+                error: None,
+                started_at: Utc::now(),
+            },
         );
     }
     tokio::spawn(async move {
@@ -231,7 +315,11 @@ pub async fn start(pool: PgPool, config: CompanyConfig, to: String) -> Result<()
         };
         if let Some(progress) = MOVES.lock().unwrap().get_mut(&config.name) {
             progress.done = true;
-            progress.step = if error.is_none() { "Moved".into() } else { "Moved back".into() };
+            progress.step = if error.is_none() {
+                "Moved".into()
+            } else {
+                "Moved back".into()
+            };
             progress.error = error;
         }
     });

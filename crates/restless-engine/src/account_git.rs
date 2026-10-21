@@ -23,24 +23,46 @@ const MAX_PACK_BYTES: usize = 512 * 1024 * 1024;
 const ZERO: &str = "0000000000000000000000000000000000000000";
 
 /// Where the company computer's git remote points for one repository.
-pub fn remote_url(tool_gateway_base: &str, company: &str, account: &str, repo: &str, capability: &str) -> String {
-    let (scheme, rest) = tool_gateway_base.split_once("://").unwrap_or(("http", tool_gateway_base));
+pub fn remote_url(
+    tool_gateway_base: &str,
+    company: &str,
+    account: &str,
+    repo: &str,
+    capability: &str,
+) -> String {
+    let (scheme, rest) = tool_gateway_base
+        .split_once("://")
+        .unwrap_or(("http", tool_gateway_base));
     let rest = rest.trim_end_matches('/');
-    let rest = rest.strip_suffix(&format!("/tools/{company}")).unwrap_or(rest);
+    let rest = rest
+        .strip_suffix(&format!("/tools/{company}"))
+        .unwrap_or(rest);
     format!("{scheme}://restless:{capability}@{rest}/git/{company}/{account}/{repo}.git")
 }
 
 fn plain(status: StatusCode, message: impl Into<String>) -> Response {
-    (status, [(header::CONTENT_TYPE, "text/plain; charset=utf-8")], message.into()).into_response()
+    (
+        status,
+        [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        message.into(),
+    )
+        .into_response()
 }
 
 /// A refusal git prints as `fatal: remote error: …` instead of a bare HTTP status.
 fn git_refusal(service: &str, message: &str) -> Response {
     let line = |text: &str| format!("{:04x}{text}", text.len() + 4);
-    let body = format!("{}0000{}", line(&format!("# service={service}\n")), line(&format!("ERR {message}")));
+    let body = format!(
+        "{}0000{}",
+        line(&format!("# service={service}\n")),
+        line(&format!("ERR {message}"))
+    );
     (
         StatusCode::OK,
-        [(header::CONTENT_TYPE, format!("application/x-{service}-advertisement"))],
+        [(
+            header::CONTENT_TYPE,
+            format!("application/x-{service}-advertisement"),
+        )],
         body,
     )
         .into_response()
@@ -52,9 +74,13 @@ fn token_from(headers: &HeaderMap) -> Option<String> {
         return Some(bearer.trim().to_string());
     }
     let basic = value.strip_prefix("Basic ")?;
-    let decoded = base64::engine::general_purpose::STANDARD.decode(basic.trim()).ok()?;
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(basic.trim())
+        .ok()?;
     let decoded = String::from_utf8(decoded).ok()?;
-    decoded.split_once(':').map(|(_, password)| password.to_string())
+    decoded
+        .split_once(':')
+        .map(|(_, password)| password.to_string())
 }
 
 fn safe_part(value: &str) -> bool {
@@ -62,7 +88,9 @@ fn safe_part(value: &str) -> bool {
         && value.len() <= 100
         && value != "."
         && value != ".."
-        && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
 }
 
 /// The ref updates at the head of a receive-pack request: `(old, new, ref)` per line.
@@ -70,7 +98,10 @@ pub fn ref_updates(body: &[u8]) -> Vec<(String, String, String)> {
     let mut updates = Vec::new();
     let mut at = 0;
     while at + 4 <= body.len() {
-        let Some(length) = std::str::from_utf8(&body[at..at + 4]).ok().and_then(|hex| usize::from_str_radix(hex, 16).ok()) else {
+        let Some(length) = std::str::from_utf8(&body[at..at + 4])
+            .ok()
+            .and_then(|hex| usize::from_str_radix(hex, 16).ok())
+        else {
             break;
         };
         if length == 0 || length < 4 || at + length > body.len() {
@@ -114,13 +145,24 @@ pub async fn serve(
     body: Body,
 ) -> Response {
     let Some(token) = token_from(&headers) else {
-        return (StatusCode::UNAUTHORIZED, [(header::WWW_AUTHENTICATE, "Basic realm=\"restless\"")], "").into_response();
+        return (
+            StatusCode::UNAUTHORIZED,
+            [(header::WWW_AUTHENTICATE, "Basic realm=\"restless\"")],
+            "",
+        )
+            .into_response();
     };
     let Ok(grant) = daemon.capabilities.verify_tool_session(&token) else {
-        return plain(StatusCode::UNAUTHORIZED, "This remote's session has ended. Ask for the git remote again.");
+        return plain(
+            StatusCode::UNAUTHORIZED,
+            "This remote's session has ended. Ask for the git remote again.",
+        );
     };
     if grant.company != company {
-        return plain(StatusCode::FORBIDDEN, "That remote belongs to another company.");
+        return plain(
+            StatusCode::FORBIDDEN,
+            "That remote belongs to another company.",
+        );
     }
     let parts = rest.splitn(4, '/').collect::<Vec<_>>();
     let [account_id, owner, repo, tail] = parts[..] else {
@@ -133,7 +175,11 @@ pub async fn serve(
     let service = match (&method, tail) {
         (&Method::GET, "info/refs") => query
             .as_deref()
-            .and_then(|query| query.split('&').find_map(|pair| pair.strip_prefix("service=")))
+            .and_then(|query| {
+                query
+                    .split('&')
+                    .find_map(|pair| pair.strip_prefix("service="))
+            })
             .unwrap_or_default()
             .to_string(),
         (&Method::POST, "git-upload-pack") => "git-upload-pack".to_string(),
@@ -145,7 +191,9 @@ pub async fn serve(
     }
     let pool = daemon.authority.pool();
     let usable = match broker::usable(pool, &company, &grant.actor).await {
-        Ok(accounts) => accounts.into_iter().find(|usable| usable.account.id == account_id && usable.account.kind == "github"),
+        Ok(accounts) => accounts
+            .into_iter()
+            .find(|usable| usable.account.id == account_id && usable.account.kind == "github"),
         Err(_) => None,
     };
     let Some(usable) = usable else {
@@ -154,21 +202,46 @@ pub async fn serve(
     let target = format!("{owner}/{repo}").to_ascii_lowercase();
     let body = match axum::body::to_bytes(body, MAX_PACK_BYTES).await {
         Ok(body) => body,
-        Err(_) => return plain(StatusCode::PAYLOAD_TOO_LARGE, "That pack is larger than the proxy carries (512 MB)."),
+        Err(_) => {
+            return plain(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "That pack is larger than the proxy carries (512 MB).",
+            )
+        }
     };
     // A fetch reads; advertising refs for a push is still only a read; the push itself decides.
     let pushing = tail == "git-receive-pack";
     let tier = if pushing {
-        let default_branch = default_branch(&usable, owner, repo).await.unwrap_or_else(|| "main".into());
+        let default_branch = default_branch(&usable, owner, repo)
+            .await
+            .unwrap_or_else(|| "main".into());
         push_tier(&ref_updates(&body), &default_branch)
     } else {
         "read"
     };
     let scoped = broker::in_scope("github", &usable.grant.limits.scope, Some(&target), tier);
     let now = chrono::Utc::now();
-    let (spent, today) = broker::grant_usage(pool, &usable.grant, now).await.unwrap_or((0, 0));
-    let decision = broker::decide(&usable.account, &usable.grant, &grant.actor, tier, scoped, None, spent, today, now);
-    let action = if pushing { "git push" } else if service == "git-receive-pack" { "git push (refs)" } else { "git fetch" };
+    let (spent, today) = broker::grant_usage(pool, &usable.grant, now)
+        .await
+        .unwrap_or((0, 0));
+    let decision = broker::decide(
+        &usable.account,
+        &usable.grant,
+        &grant.actor,
+        tier,
+        scoped,
+        None,
+        spent,
+        today,
+        now,
+    );
+    let action = if pushing {
+        "git push"
+    } else if service == "git-receive-pack" {
+        "git push (refs)"
+    } else {
+        "git fetch"
+    };
     let record = |result: &'static str| {
         let usable = usable.clone();
         let target = target.clone();
@@ -178,8 +251,19 @@ pub async fn serve(
             if tier == "read" && result == "ok" {
                 return; // fetches are frequent and change nothing; pushes and refusals are the record.
             }
-            if let Err(error) =
-                broker::record_use(pool, &usable, &company, &actor, None, action, tier, Some(&target), result, None).await
+            if let Err(error) = broker::record_use(
+                pool,
+                &usable,
+                &company,
+                &actor,
+                None,
+                action,
+                tier,
+                Some(&target),
+                result,
+                None,
+            )
+            .await
             {
                 tracing::warn!(%company, "a git use was not recorded: {error:#}");
             }
@@ -217,7 +301,11 @@ pub async fn serve(
     let mut upstream = client
         .request(method.clone(), url)
         .basic_auth("x-access-token", Some(&secret));
-    for name in [header::CONTENT_TYPE, header::ACCEPT, header::CONTENT_ENCODING] {
+    for name in [
+        header::CONTENT_TYPE,
+        header::ACCEPT,
+        header::CONTENT_ENCODING,
+    ] {
         if let Some(value) = headers.get(&name) {
             upstream = upstream.header(name, value);
         }
@@ -251,13 +339,20 @@ pub async fn serve(
     if pushing {
         // GitHub reports per-ref failures inside a 200; `ng ` lines mean a ref was refused.
         let refused = String::from_utf8_lossy(&bytes).contains("ng refs/");
-        record(if status.is_success() && !refused { "ok" } else { "failed" }).await;
+        record(if status.is_success() && !refused {
+            "ok"
+        } else {
+            "failed"
+        })
+        .await;
     }
     let mut response = Response::builder().status(status);
     if let Some(content_type) = content_type {
         response = response.header(header::CONTENT_TYPE, content_type);
     }
-    response.body(Body::from(bytes)).unwrap_or_else(|_| plain(StatusCode::BAD_GATEWAY, "The proxy could not answer."))
+    response
+        .body(Body::from(bytes))
+        .unwrap_or_else(|_| plain(StatusCode::BAD_GATEWAY, "The proxy could not answer."))
 }
 
 async fn default_branch(usable: &broker::Usable, owner: &str, repo: &str) -> Option<String> {
@@ -273,7 +368,11 @@ async fn default_branch(usable: &broker::Usable, owner: &str, repo: &str) -> Opt
         key: None,
     };
     let answer = broker::send(usable, &call, &secret).await.ok()?;
-    answer.body.get("default_branch")?.as_str().map(str::to_string)
+    answer
+        .body
+        .get("default_branch")?
+        .as_str()
+        .map(str::to_string)
 }
 
 #[cfg(test)]
@@ -288,7 +387,13 @@ mod tests {
     fn pushes_draft_on_branches_and_act_on_the_default_tags_and_deletions() {
         let old = "1".repeat(40);
         let new = "2".repeat(40);
-        let body = format!("{}{}0000PACK…", pkt(&format!("{old} {new} refs/heads/fix-install\0report-status side-band-64k\n")), pkt(&format!("{ZERO} {new} refs/heads/other\n")));
+        let body = format!(
+            "{}{}0000PACK…",
+            pkt(&format!(
+                "{old} {new} refs/heads/fix-install\0report-status side-band-64k\n"
+            )),
+            pkt(&format!("{ZERO} {new} refs/heads/other\n"))
+        );
         let updates = ref_updates(body.as_bytes());
         assert_eq!(updates.len(), 2);
         assert_eq!(updates[0].2, "refs/heads/fix-install");
@@ -303,10 +408,28 @@ mod tests {
 
     #[test]
     fn the_remote_carries_the_session_not_the_token() {
-        let url = remote_url("http://host.docker.internal:7790/tools/acme", "acme", "abc123", "yail259/frankensurf", "CAP");
-        assert_eq!(url, "http://restless:CAP@host.docker.internal:7790/git/acme/abc123/yail259/frankensurf.git");
-        let hosted = remote_url("https://plane.example/internal/v1/tool-gateway/tools/acme", "acme", "abc", "a/b", "CAP");
-        assert_eq!(hosted, "https://restless:CAP@plane.example/internal/v1/tool-gateway/git/acme/abc/a/b.git");
+        let url = remote_url(
+            "http://host.docker.internal:7790/tools/acme",
+            "acme",
+            "abc123",
+            "yail259/frankensurf",
+            "CAP",
+        );
+        assert_eq!(
+            url,
+            "http://restless:CAP@host.docker.internal:7790/git/acme/abc123/yail259/frankensurf.git"
+        );
+        let hosted = remote_url(
+            "https://plane.example/internal/v1/tool-gateway/tools/acme",
+            "acme",
+            "abc",
+            "a/b",
+            "CAP",
+        );
+        assert_eq!(
+            hosted,
+            "https://restless:CAP@plane.example/internal/v1/tool-gateway/git/acme/abc/a/b.git"
+        );
     }
 
     #[test]
@@ -321,7 +444,10 @@ mod tests {
     fn the_capability_comes_from_basic_or_bearer() {
         let mut headers = HeaderMap::new();
         let basic = base64::engine::general_purpose::STANDARD.encode("restless:CAP");
-        headers.insert(header::AUTHORIZATION, format!("Basic {basic}").parse().unwrap());
+        headers.insert(
+            header::AUTHORIZATION,
+            format!("Basic {basic}").parse().unwrap(),
+        );
         assert_eq!(token_from(&headers).as_deref(), Some("CAP"));
         headers.insert(header::AUTHORIZATION, "Bearer CAP2".parse().unwrap());
         assert_eq!(token_from(&headers).as_deref(), Some("CAP2"));

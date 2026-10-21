@@ -81,19 +81,34 @@ fn window_minutes_label(minutes: Option<i64>) -> Option<&'static str> {
 }
 
 /// The windows in a Codex response's headers.
-pub fn codex_header_windows(header: impl Fn(&str) -> Option<String>, now: DateTime<Utc>) -> Vec<Window> {
+pub fn codex_header_windows(
+    header: impl Fn(&str) -> Option<String>,
+    now: DateTime<Utc>,
+) -> Vec<Window> {
     ["primary", "secondary"]
         .into_iter()
         .filter_map(|name| {
-            let used: f64 = header(&format!("x-codex-{name}-used-percent"))?.trim().parse().ok()?;
+            let used: f64 = header(&format!("x-codex-{name}-used-percent"))?
+                .trim()
+                .parse()
+                .ok()?;
             if !used.is_finite() {
                 return None;
             }
-            let minutes = header(&format!("x-codex-{name}-window-minutes")).and_then(|value| value.trim().parse().ok());
+            let minutes = header(&format!("x-codex-{name}-window-minutes"))
+                .and_then(|value| value.trim().parse().ok());
             let resets_at = header(&format!("x-codex-{name}-reset-at"))
                 .and_then(|value| reset_time(&value, now))
-                .or_else(|| header(&format!("x-codex-{name}-reset-after-seconds")).and_then(|value| reset_time(&value, now)));
-            Some(Window { name: name.into(), used_percent: used.clamp(0.0, 100.0), window_minutes: minutes, resets_at })
+                .or_else(|| {
+                    header(&format!("x-codex-{name}-reset-after-seconds"))
+                        .and_then(|value| reset_time(&value, now))
+                });
+            Some(Window {
+                name: name.into(),
+                used_percent: used.clamp(0.0, 100.0),
+                window_minutes: minutes,
+                resets_at,
+            })
         })
         .collect()
 }
@@ -103,34 +118,63 @@ pub fn codex_event_windows(event: &serde_json::Value, now: DateTime<Utc>) -> Vec
     if event.get("type").and_then(serde_json::Value::as_str) != Some("codex.rate_limits") {
         return Vec::new();
     }
-    let Some(limits) = event.get("rate_limits") else { return Vec::new() };
+    let Some(limits) = event.get("rate_limits") else {
+        return Vec::new();
+    };
     ["primary", "secondary"]
         .into_iter()
         .filter_map(|name| {
             let window = limits.get(name)?;
-            let used = window.get("used_percent")?.as_f64().filter(|used| used.is_finite())?;
-            let minutes = window.get("window_minutes").and_then(serde_json::Value::as_i64);
+            let used = window
+                .get("used_percent")?
+                .as_f64()
+                .filter(|used| used.is_finite())?;
+            let minutes = window
+                .get("window_minutes")
+                .and_then(serde_json::Value::as_i64);
             let resets_at = window
                 .get("reset_at")
                 .or_else(|| window.get("resets_at"))
                 .and_then(|value| reset_time(&value.to_string(), now));
-            Some(Window { name: name.into(), used_percent: used.clamp(0.0, 100.0), window_minutes: minutes, resets_at })
+            Some(Window {
+                name: name.into(),
+                used_percent: used.clamp(0.0, 100.0),
+                window_minutes: minutes,
+                resets_at,
+            })
         })
         .collect()
 }
 
 /// The windows in a Claude subscription response's headers (utilization is a fraction).
-pub fn claude_header_windows(header: impl Fn(&str) -> Option<String>, now: DateTime<Utc>) -> Vec<Window> {
+pub fn claude_header_windows(
+    header: impl Fn(&str) -> Option<String>,
+    now: DateTime<Utc>,
+) -> Vec<Window> {
     [("5h", 300), ("7d", 10_080)]
         .into_iter()
         .filter_map(|(name, minutes)| {
-            let utilization: f64 = header(&format!("anthropic-ratelimit-unified-{name}-utilization"))?.trim().parse().ok()?;
+            let utilization: f64 =
+                header(&format!("anthropic-ratelimit-unified-{name}-utilization"))?
+                    .trim()
+                    .parse()
+                    .ok()?;
             if !utilization.is_finite() {
                 return None;
             }
-            let percent = if utilization <= 1.0 { utilization * 100.0 } else { utilization };
-            let resets_at = header(&format!("anthropic-ratelimit-unified-{name}-reset")).and_then(|value| reset_time(&value, now));
-            Some(Window { name: name.into(), used_percent: percent.clamp(0.0, 100.0), window_minutes: Some(minutes), resets_at })
+            let percent = if utilization <= 1.0 {
+                utilization * 100.0
+            } else {
+                utilization
+            };
+            let resets_at = header(&format!("anthropic-ratelimit-unified-{name}-reset"))
+                .and_then(|value| reset_time(&value, now));
+            Some(Window {
+                name: name.into(),
+                used_percent: percent.clamp(0.0, 100.0),
+                window_minutes: Some(minutes),
+                resets_at,
+            })
         })
         .collect()
 }
@@ -160,7 +204,11 @@ pub fn broker_reports(body: &serde_json::Value) -> Vec<BrokerReport> {
             let provider = report.get("provider")?.as_str()?.to_string();
             let metadata = report.get("metadata");
             let account_key = ["accountId", "email"].iter().find_map(|field| {
-                metadata?.get(*field)?.as_str().filter(|value| !value.is_empty()).map(str::to_string)
+                metadata?
+                    .get(*field)?
+                    .as_str()
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
             });
             let windows = report
                 .get("limits")?
@@ -173,13 +221,15 @@ pub fn broker_reports(body: &serde_json::Value) -> Vec<BrokerReport> {
                         return None;
                     }
                     let amount = limit.get("amount")?;
-                    let number = |field: &str| amount.get(field).and_then(serde_json::Value::as_f64);
+                    let number =
+                        |field: &str| amount.get(field).and_then(serde_json::Value::as_f64);
                     let used = number("usedFraction")
                         .map(|fraction| fraction * 100.0)
                         .or_else(|| {
-                            (amount.get("unit").and_then(serde_json::Value::as_str) == Some("percent"))
-                                .then(|| number("used"))
-                                .flatten()
+                            (amount.get("unit").and_then(serde_json::Value::as_str)
+                                == Some("percent"))
+                            .then(|| number("used"))
+                            .flatten()
                         })
                         .or_else(|| match (number("used"), number("limit")) {
                             (Some(used), Some(limit)) if limit > 0.0 => Some(used / limit * 100.0),
@@ -193,10 +243,19 @@ pub fn broker_reports(body: &serde_json::Value) -> Vec<BrokerReport> {
                     let resets_at = window
                         .and_then(|window| window.get("resetsAt")?.as_f64())
                         .and_then(|ms| Utc.timestamp_millis_opt(ms as i64).single());
-                    Some(Window { name: name.to_string(), used_percent: used.clamp(0.0, 100.0), window_minutes, resets_at })
+                    Some(Window {
+                        name: name.to_string(),
+                        used_percent: used.clamp(0.0, 100.0),
+                        window_minutes,
+                        resets_at,
+                    })
                 })
                 .collect::<Vec<_>>();
-            (!windows.is_empty()).then_some(BrokerReport { provider, account_key, windows })
+            (!windows.is_empty()).then_some(BrokerReport {
+                provider,
+                account_key,
+                windows,
+            })
         })
         .collect()
 }
@@ -204,7 +263,9 @@ pub fn broker_reports(body: &serde_json::Value) -> Vec<BrokerReport> {
 /// The account a company's model uses, as `provider@connection`, from its credential reference
 /// (`omp-oauth:openai-codex@<connection id>`).
 pub fn account_of(reference: &str) -> Option<String> {
-    let rest = reference.split_once(':').map_or(reference, |(_, rest)| rest);
+    let rest = reference
+        .split_once(':')
+        .map_or(reference, |(_, rest)| rest);
     let (provider, connection) = rest.split_once('@')?;
     (!provider.is_empty() && !connection.is_empty()).then(|| format!("{provider}@{connection}"))
 }
@@ -311,8 +372,15 @@ fn label_for(name: &str, minutes: Option<i64>) -> String {
 }
 
 /// When `used` reaches 100 at the pace of `samples` (time, percent), oldest first.
-pub fn forecast(samples: &[(DateTime<Utc>, f64)], now: DateTime<Utc>, resets_at: Option<DateTime<Utc>>) -> Option<DateTime<Utc>> {
-    let recent: Vec<&(DateTime<Utc>, f64)> = samples.iter().filter(|(at, _)| *at >= now - Duration::hours(1)).collect();
+pub fn forecast(
+    samples: &[(DateTime<Utc>, f64)],
+    now: DateTime<Utc>,
+    resets_at: Option<DateTime<Utc>>,
+) -> Option<DateTime<Utc>> {
+    let recent: Vec<&(DateTime<Utc>, f64)> = samples
+        .iter()
+        .filter(|(at, _)| *at >= now - Duration::hours(1))
+        .collect();
     let (first, last) = (recent.first()?, recent.last()?);
     let minutes = (last.0 - first.0).num_seconds() as f64 / 60.0;
     let gained = last.1 - first.1;
@@ -382,7 +450,8 @@ pub async fn accounts(pool: &PgPool, now: DateTime<Utc>) -> Result<Vec<AccountVi
         .into_iter()
         .map(|sample| (sample.get::<DateTime<Utc>, _>("observed_at"), sample.get::<f64, _>("used_percent"), sample.get::<String, _>("company")))
         .collect::<Vec<_>>();
-        let pace: Vec<(DateTime<Utc>, f64)> = samples.iter().map(|(at, used, _)| (*at, *used)).collect();
+        let pace: Vec<(DateTime<Utc>, f64)> =
+            samples.iter().map(|(at, used, _)| (*at, *used)).collect();
         let window = WindowView {
             label: label_for(&name, minutes),
             runs_out_at: forecast(&pace, now, resets_at),
@@ -395,19 +464,30 @@ pub async fn accounts(pool: &PgPool, now: DateTime<Utc>) -> Result<Vec<AccountVi
         };
         match views.last_mut() {
             Some(view) if view.account == account => view.windows.push(window),
-            _ => views.push(AccountView { account, windows: vec![window] }),
+            _ => views.push(AccountView {
+                account,
+                windows: vec![window],
+            }),
         }
     }
     Ok(views)
 }
 
 /// The fullest window of one account, for a warning.
-pub async fn fullest(pool: &PgPool, account: &str, now: DateTime<Utc>) -> Result<Option<WindowView>> {
+pub async fn fullest(
+    pool: &PgPool,
+    account: &str,
+    now: DateTime<Utc>,
+) -> Result<Option<WindowView>> {
     Ok(accounts(pool, now)
         .await?
         .into_iter()
         .find(|view| view.account == account)
-        .and_then(|view| view.windows.into_iter().max_by(|a, b| a.used_percent.total_cmp(&b.used_percent))))
+        .and_then(|view| {
+            view.windows
+                .into_iter()
+                .max_by(|a, b| a.used_percent.total_cmp(&b.used_percent))
+        }))
 }
 
 #[cfg(test)]
@@ -449,8 +529,16 @@ mod tests {
         let reports = broker_reports(&body);
         assert_eq!(reports.len(), 2);
         assert_eq!(reports[0].account_key.as_deref(), Some("acct_1"));
-        let names: Vec<_> = reports[0].windows.iter().map(|window| window.name.as_str()).collect();
-        assert_eq!(names, ["primary", "secondary"], "a model's own window is not the account's");
+        let names: Vec<_> = reports[0]
+            .windows
+            .iter()
+            .map(|window| window.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            ["primary", "secondary"],
+            "a model's own window is not the account's"
+        );
         assert!((reports[0].windows[0].used_percent - 42.0).abs() < 1e-9);
         assert_eq!(reports[0].windows[0].window_minutes, Some(300));
         assert!(reports[0].windows[0].resets_at.is_some());
@@ -479,14 +567,25 @@ mod tests {
             ("x-codex-secondary-used-percent", "31"),
             ("x-codex-secondary-window-minutes", "10080"),
         ];
-        let header = |name: &str| headers.iter().find(|(key, _)| *key == name).map(|(_, value)| value.to_string());
+        let header = |name: &str| {
+            headers
+                .iter()
+                .find(|(key, _)| *key == name)
+                .map(|(_, value)| value.to_string())
+        };
         let windows = codex_header_windows(header, now());
         assert_eq!(windows.len(), 2);
         assert_eq!(windows[0].used_percent, 84.5);
-        assert_eq!(windows[0].resets_at, Utc.timestamp_opt(1_792_371_600, 0).single());
+        assert_eq!(
+            windows[0].resets_at,
+            Utc.timestamp_opt(1_792_371_600, 0).single()
+        );
         assert_eq!(label_for("primary", windows[0].window_minutes), "5-hour");
         assert_eq!(label_for("secondary", windows[1].window_minutes), "Weekly");
-        assert!(codex_header_windows(|_| None, now()).is_empty(), "no headers, nothing known");
+        assert!(
+            codex_header_windows(|_| None, now()).is_empty(),
+            "no headers, nothing known"
+        );
     }
 
     #[test]
@@ -498,7 +597,10 @@ mod tests {
         let windows = codex_event_windows(&event, now());
         assert_eq!(windows.len(), 1);
         assert_eq!(windows[0].used_percent, 100.0);
-        assert!(codex_event_windows(&serde_json::json!({ "type": "response.completed" }), now()).is_empty());
+        assert!(
+            codex_event_windows(&serde_json::json!({ "type": "response.completed" }), now())
+                .is_empty()
+        );
     }
 
     #[test]
@@ -515,7 +617,10 @@ mod tests {
 
     #[test]
     fn the_account_is_the_connection_behind_the_model() {
-        assert_eq!(account_of("omp-oauth:openai-codex@0123abcd").as_deref(), Some("openai-codex@0123abcd"));
+        assert_eq!(
+            account_of("omp-oauth:openai-codex@0123abcd").as_deref(),
+            Some("openai-codex@0123abcd")
+        );
         assert_eq!(account_of("hosted-model-relay:v1"), None);
     }
 
@@ -525,9 +630,21 @@ mod tests {
         let climbing = [(at(40), 60.0), (at(20), 70.0), (at(0), 80.0)];
         let runs_out = forecast(&climbing, now(), Some(now() + Duration::hours(3))).unwrap();
         assert_eq!((runs_out - now()).num_minutes(), 40);
-        assert_eq!(forecast(&climbing, now(), Some(now() + Duration::minutes(10))), None, "resets first");
-        assert_eq!(forecast(&[(at(2), 70.0), (at(0), 80.0)], now(), None), None, "too little to go on");
-        assert_eq!(forecast(&[(at(30), 80.0), (at(0), 80.0)], now(), None), None, "not climbing");
+        assert_eq!(
+            forecast(&climbing, now(), Some(now() + Duration::minutes(10))),
+            None,
+            "resets first"
+        );
+        assert_eq!(
+            forecast(&[(at(2), 70.0), (at(0), 80.0)], now(), None),
+            None,
+            "too little to go on"
+        );
+        assert_eq!(
+            forecast(&[(at(30), 80.0), (at(0), 80.0)], now(), None),
+            None,
+            "not climbing"
+        );
     }
 
     #[test]
@@ -539,16 +656,29 @@ mod tests {
             (at, 35.0, "reno".to_string()),
             (at, 60.0, "frankensurf".to_string()),
         ];
-        assert_eq!(burn_by_company(&samples), vec![("frankensurf".to_string(), 45.0), ("reno".to_string(), 5.0)]);
+        assert_eq!(
+            burn_by_company(&samples),
+            vec![("frankensurf".to_string(), 45.0), ("reno".to_string(), 5.0)]
+        );
         // A reset starts the count again.
-        let reset = vec![(at, 90.0, "reno".to_string()), (at, 5.0, "reno".to_string()), (at, 9.0, "frankensurf".to_string())];
-        assert_eq!(burn_by_company(&reset), vec![("frankensurf".to_string(), 4.0)]);
+        let reset = vec![
+            (at, 90.0, "reno".to_string()),
+            (at, 5.0, "reno".to_string()),
+            (at, 9.0, "frankensurf".to_string()),
+        ];
+        assert_eq!(
+            burn_by_company(&reset),
+            vec![("frankensurf".to_string(), 4.0)]
+        );
     }
 
     #[test]
     fn resets_read_as_epochs_or_seconds_from_now() {
         assert_eq!(reset_time("3600", now()), Some(now() + Duration::hours(1)));
-        assert_eq!(reset_time("1792371600000", now()), Utc.timestamp_millis_opt(1_792_371_600_000).single());
+        assert_eq!(
+            reset_time("1792371600000", now()),
+            Utc.timestamp_millis_opt(1_792_371_600_000).single()
+        );
         assert_eq!(reset_time("soon", now()), None);
     }
 }

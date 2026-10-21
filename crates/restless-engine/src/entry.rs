@@ -532,10 +532,7 @@ impl NetworkEntry {
         }
     }
 
-    pub async fn verify_account(
-        &self,
-        token: &str,
-    ) -> Result<VerifiedAccountAccess, Refusal> {
+    pub async fn verify_account(&self, token: &str) -> Result<VerifiedAccountAccess, Refusal> {
         self.refresh_keys(false)
             .await
             .map_err(|_| Refusal::SigningKeysUnavailable)?;
@@ -569,25 +566,48 @@ impl NetworkEntry {
             .map_err(|_| Refusal::BadSignature)?;
         let claims = parsed.claims;
         if claims.assertion_version != ASSERTION_CONTRACT_VERSION {
-            return Err(Refusal::UnsupportedVersion { got: claims.assertion_version, supported: ASSERTION_CONTRACT_VERSION });
+            return Err(Refusal::UnsupportedVersion {
+                got: claims.assertion_version,
+                supported: ASSERTION_CONTRACT_VERSION,
+            });
         }
-        if claims.iss.trim_end_matches('/') != self.issuer { return Err(Refusal::UnknownIssuer); }
-        if claims.aud != ACCOUNT_HANDOFF_AUDIENCE { return Err(Refusal::WrongAudience); }
-        if claims.owner_id != self.owner_id { return Err(Refusal::WrongOwner); }
-        if claims.plane_id != self.plane_id { return Err(Refusal::WrongPlane); }
-        if claims.kid != parsed.header.kid || claims.sub.trim().is_empty() || claims.sub.len() > 512 || claims.jti.is_nil() {
+        if claims.iss.trim_end_matches('/') != self.issuer {
+            return Err(Refusal::UnknownIssuer);
+        }
+        if claims.aud != ACCOUNT_HANDOFF_AUDIENCE {
+            return Err(Refusal::WrongAudience);
+        }
+        if claims.owner_id != self.owner_id {
+            return Err(Refusal::WrongOwner);
+        }
+        if claims.plane_id != self.plane_id {
+            return Err(Refusal::WrongPlane);
+        }
+        if claims.kid != parsed.header.kid
+            || claims.sub.trim().is_empty()
+            || claims.sub.len() > 512
+            || claims.jti.is_nil()
+        {
             return Err(Refusal::InvalidAccount);
         }
-        if claims.iat > now.timestamp() + MAX_CLOCK_SKEW_SECONDS { return Err(Refusal::NotYetValid); }
-        if claims.exp <= now.timestamp() { return Err(Refusal::Expired); }
-        if claims.exp <= claims.iat || claims.exp.saturating_sub(claims.iat) > MAX_ASSERTION_LIFETIME_SECONDS {
+        if claims.iat > now.timestamp() + MAX_CLOCK_SKEW_SECONDS {
+            return Err(Refusal::NotYetValid);
+        }
+        if claims.exp <= now.timestamp() {
+            return Err(Refusal::Expired);
+        }
+        if claims.exp <= claims.iat
+            || claims.exp.saturating_sub(claims.iat) > MAX_ASSERTION_LIFETIME_SECONDS
+        {
             return Err(Refusal::TooLongLived);
         }
         Ok(VerifiedAccountAccess {
             display_name: claims
                 .display_name
                 .map(|name| name.trim().to_owned())
-                .filter(|name| !name.is_empty() && name.len() <= 256 && !name.chars().any(char::is_control)),
+                .filter(|name| {
+                    !name.is_empty() && name.len() <= 256 && !name.chars().any(char::is_control)
+                }),
             issuer: claims.iss.trim_end_matches('/').to_owned(),
             subject: claims.sub,
             assertion_id: claims.jti,
@@ -847,7 +867,11 @@ fn parse_account_assertion(token: &str) -> Result<ParsedAccountAssertion, Refusa
     let header_b64 = parts.next().ok_or(Refusal::Malformed("no header"))?;
     let payload_b64 = parts.next().ok_or(Refusal::Malformed("no payload"))?;
     let signature_b64 = parts.next().ok_or(Refusal::Malformed("no signature"))?;
-    if parts.next().is_some() || header_b64.is_empty() || payload_b64.is_empty() || signature_b64.is_empty() {
+    if parts.next().is_some()
+        || header_b64.is_empty()
+        || payload_b64.is_empty()
+        || signature_b64.is_empty()
+    {
         return Err(Refusal::Malformed("invalid token segments"));
     }
     let header: AssertionHeader = decode_segment(header_b64, "header")?;
@@ -855,11 +879,18 @@ fn parse_account_assertion(token: &str) -> Result<ParsedAccountAssertion, Refusa
         return Err(Refusal::Malformed("unexpected account token header"));
     }
     let claims: AccountAssertionClaims = decode_segment(payload_b64, "payload")?;
-    if claims.kid != header.kid { return Err(Refusal::Malformed("header and payload key ids differ")); }
+    if claims.kid != header.kid {
+        return Err(Refusal::Malformed("header and payload key ids differ"));
+    }
     let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(signature_b64)
         .map_err(|_| Refusal::Malformed("signature is not base64url"))?;
-    Ok(ParsedAccountAssertion { header, claims, signing_input: format!("{header_b64}.{payload_b64}"), signature })
+    Ok(ParsedAccountAssertion {
+        header,
+        claims,
+        signing_input: format!("{header_b64}.{payload_b64}"),
+        signature,
+    })
 }
 
 struct ParsedMembershipControl {
@@ -1241,10 +1272,14 @@ impl EntryMode {
                 // The one public address an edge router serves this plane under, if any.
                 let public_host = match std::env::var("RESTLESS_PUBLIC_ORIGIN") {
                     Ok(value) if !value.trim().is_empty() => Some(
-                        canonical_service_url("RESTLESS_PUBLIC_ORIGIN", value.trim(), allow_insecure)?
-                            .host_str()
-                            .ok_or_else(|| anyhow::anyhow!("RESTLESS_PUBLIC_ORIGIN must name a host"))?
-                            .to_ascii_lowercase(),
+                        canonical_service_url(
+                            "RESTLESS_PUBLIC_ORIGIN",
+                            value.trim(),
+                            allow_insecure,
+                        )?
+                        .host_str()
+                        .ok_or_else(|| anyhow::anyhow!("RESTLESS_PUBLIC_ORIGIN must name a host"))?
+                        .to_ascii_lowercase(),
                     ),
                     _ => None,
                 };
@@ -1451,7 +1486,10 @@ struct StoredSession {
 }
 
 fn session_key(token: &str) -> String {
-    Sha256::digest(token.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
+    Sha256::digest(token.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn millis(at: SystemTime) -> u64 {
@@ -1549,7 +1587,9 @@ impl SessionStore {
     /// Write the sessions out after a change. Best effort: a failed write leaves the sessions
     /// working in memory, as they always did.
     fn save(&self, sessions: &HashMap<String, SessionRecord>) {
-        let Some(path) = self.persist.as_ref() else { return };
+        let Some(path) = self.persist.as_ref() else {
+            return;
+        };
         let rows: Vec<StoredSession> = sessions
             .iter()
             .filter(|(_, session)| !session.cancellation.is_cancelled())
@@ -1559,7 +1599,9 @@ impl SessionStore {
                 expires_at_ms: millis(session.expires_at),
             })
             .collect();
-        let Ok(body) = serde_json::to_vec(&rows) else { return };
+        let Ok(body) = serde_json::to_vec(&rows) else {
+            return;
+        };
         let temporary = path.with_extension("tmp");
         let written = (|| -> std::io::Result<()> {
             use std::io::Write as _;
@@ -1644,12 +1686,14 @@ impl SessionStore {
                 true
             }
         });
-        sessions.get(&session_key(token)).map(|session| SessionLease {
-            identity: session.identity.clone(),
-            expires_at: session.expires_at,
-            live_expiry: session.live_expiry.clone(),
-            cancellation: session.cancellation.clone(),
-        })
+        sessions
+            .get(&session_key(token))
+            .map(|session| SessionLease {
+                identity: session.identity.clone(),
+                expires_at: session.expires_at,
+                live_expiry: session.live_expiry.clone(),
+                cancellation: session.cancellation.clone(),
+            })
     }
 
     /// Renew a session in use: once less than half its lifetime remains, it lasts `ttl` from now.
@@ -1663,7 +1707,10 @@ impl SessionStore {
         if session.expires_at <= now || session.cancellation.is_cancelled() {
             return false;
         }
-        let remaining = session.expires_at.duration_since(now).unwrap_or(Duration::ZERO);
+        let remaining = session
+            .expires_at
+            .duration_since(now)
+            .unwrap_or(Duration::ZERO);
         if remaining >= ttl / 2 {
             return false;
         }
@@ -1687,9 +1734,13 @@ impl SessionStore {
         let before = sessions.len();
         sessions.retain(|_, session| {
             let covered = session.identity.user == subject
-                && session.identity.issuer.as_deref().is_some_and(|session_issuer| {
-                    session_issuer.trim_end_matches('/') == issuer.trim_end_matches('/')
-                });
+                && session
+                    .identity
+                    .issuer
+                    .as_deref()
+                    .is_some_and(|session_issuer| {
+                        session_issuer.trim_end_matches('/') == issuer.trim_end_matches('/')
+                    });
             if covered {
                 session.cancellation.cancel();
             }
@@ -1899,12 +1950,20 @@ mod tests {
         drop(store);
 
         let raw = std::fs::read_to_string(&path).unwrap();
-        assert!(!raw.contains(&kept), "the file holds a hash, never the token");
+        assert!(
+            !raw.contains(&kept),
+            "the file holds a hash, never the token"
+        );
 
         let restarted = SessionStore::persistent(path);
-        let lease = restarted.resolve_lease(&kept).expect("a live session survives the restart");
+        let lease = restarted
+            .resolve_lease(&kept)
+            .expect("a live session survives the restart");
         assert_eq!(lease.identity.user, "user_1");
-        assert!(restarted.resolve_lease(&ended).is_none(), "a revoked session stays revoked");
+        assert!(
+            restarted.resolve_lease(&ended).is_none(),
+            "a revoked session stays revoked"
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -1926,16 +1985,24 @@ mod tests {
         };
         let ttl = Duration::from_secs(3600);
         let fresh = store.establish(identity.clone(), ttl);
-        assert!(!store.renew_if_half_spent(&fresh, ttl), "a fresh session is left alone");
+        assert!(
+            !store.renew_if_half_spent(&fresh, ttl),
+            "a fresh session is left alone"
+        );
         let ageing = store.establish(identity, Duration::from_secs(600));
         let held = store.resolve_lease(&ageing).unwrap();
         let before = held.expires_at;
         assert!(store.renew_if_half_spent(&ageing, ttl));
         // A connection opened before the renewal (a computer stream) follows it.
         assert!(held.current_expiry() > before + Duration::from_secs(3000));
-        assert!(store.resolve_lease(&ageing).unwrap().expires_at > before + Duration::from_secs(3000));
+        assert!(
+            store.resolve_lease(&ageing).unwrap().expires_at > before + Duration::from_secs(3000)
+        );
         store.revoke(&ageing);
-        assert!(!store.renew_if_half_spent(&ageing, ttl), "a revoked session stays revoked");
+        assert!(
+            !store.renew_if_half_spent(&ageing, ttl),
+            "a revoked session stays revoked"
+        );
         assert!(!store.renew_if_half_spent("unknown", ttl));
     }
     use std::sync::Arc;
@@ -2120,8 +2187,16 @@ mod tests {
             .await
             .expect("a role change verifies");
         assert_eq!(
-            (verified.membership_status, verified.membership_role.as_str(), verified.membership_version),
-            (restless_orgintel::ExternalMembershipStatus::Active, "admin", 9)
+            (
+                verified.membership_status,
+                verified.membership_role.as_str(),
+                verified.membership_version
+            ),
+            (
+                restless_orgintel::ExternalMembershipStatus::Active,
+                "admin",
+                9
+            )
         );
 
         assert_eq!(
@@ -2641,13 +2716,22 @@ mod tests {
         other_plane.plane_hostname = "other.restless.test".into();
         assert_eq!(
             entry
-                .verify_session_control_at(&mint_control(&other_plane), at(1_000), SignaturePolicy::Enforce)
+                .verify_session_control_at(
+                    &mint_control(&other_plane),
+                    at(1_000),
+                    SignaturePolicy::Enforce
+                )
                 .await
                 .unwrap_err(),
             Refusal::WrongHost
         );
         let other_key = SigningKey::from_bytes(&[9; 32]);
-        let forged = mint_with_type(&control, SESSION_CONTROL_TOKEN_TYPE, &control.kid, &other_key);
+        let forged = mint_with_type(
+            &control,
+            SESSION_CONTROL_TOKEN_TYPE,
+            &control.kid,
+            &other_key,
+        );
         assert_eq!(
             entry
                 .verify_session_control_at(&forged, at(1_000), SignaturePolicy::Enforce)
@@ -2670,10 +2754,22 @@ mod tests {
             membership_version: None,
             display_name: None,
         };
-        let mine = store.establish(person("user-1", "https://cloud.restless.test"), Duration::from_secs(60));
-        let mine_too = store.establish(person("user-1", "https://cloud.restless.test/"), Duration::from_secs(60));
-        let someone_else = store.establish(person("user-2", "https://cloud.restless.test"), Duration::from_secs(60));
-        let other_issuer = store.establish(person("user-1", "https://another.restless.test"), Duration::from_secs(60));
+        let mine = store.establish(
+            person("user-1", "https://cloud.restless.test"),
+            Duration::from_secs(60),
+        );
+        let mine_too = store.establish(
+            person("user-1", "https://cloud.restless.test/"),
+            Duration::from_secs(60),
+        );
+        let someone_else = store.establish(
+            person("user-2", "https://cloud.restless.test"),
+            Duration::from_secs(60),
+        );
+        let other_issuer = store.establish(
+            person("user-1", "https://another.restless.test"),
+            Duration::from_secs(60),
+        );
         assert_eq!(store.revoke_subject(&verified.issuer, &verified.subject), 2);
         assert!(store.resolve_lease(&mine).is_none());
         assert!(store.resolve_lease(&mine_too).is_none());

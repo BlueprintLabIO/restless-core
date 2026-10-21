@@ -60,7 +60,10 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/tools/{company}", any(handle))
         .layer(DefaultBodyLimit::max(MAX_REQUEST_BYTES))
         .route("/git/{company}/{*rest}", any(handle_git))
-        .route("/browser/{company}/{account}/{pass}/{*rest}", any(handle_browser))
+        .route(
+            "/browser/{company}/{account}/{pass}/{*rest}",
+            any(handle_browser),
+        )
         .with_state(daemon)
 }
 
@@ -71,21 +74,29 @@ pub fn hosted_router(daemon: Arc<Daemon>) -> Router {
         .route("/tools/{company}", any(handle_hosted))
         .layer(DefaultBodyLimit::max(MAX_REQUEST_BYTES))
         .route("/git/{company}/{*rest}", any(handle_git_hosted))
-        .route("/browser/{company}/{account}/{pass}/{*rest}", any(handle_browser_hosted))
+        .route(
+            "/browser/{company}/{account}/{pass}/{*rest}",
+            any(handle_browser_hosted),
+        )
         .with_state(daemon)
 }
 
 pub fn is_hosted_tool_gateway_path(path: &str) -> bool {
-    path.strip_prefix(HOSTED_TOOL_GATEWAY_PREFIX).is_some_and(|suffix| {
-        suffix.starts_with("/tools/") || suffix.starts_with("/git/") || suffix.starts_with("/browser/")
-    })
+    path.strip_prefix(HOSTED_TOOL_GATEWAY_PREFIX)
+        .is_some_and(|suffix| {
+            suffix.starts_with("/tools/")
+                || suffix.starts_with("/git/")
+                || suffix.starts_with("/browser/")
+        })
 }
 
 /// Where an agent reaches a borrowed account browser: the gateway's base, then the account and
 /// this session's pass (S98-04).
 fn browser_endpoint(company: &str, account: &str, pass: &str) -> String {
     let tools = runtime_url(company);
-    let base = tools.strip_suffix(&format!("/tools/{company}")).unwrap_or(&tools);
+    let base = tools
+        .strip_suffix(&format!("/tools/{company}"))
+        .unwrap_or(&tools);
     format!("{base}/browser/{company}/{account}/{pass}")
 }
 
@@ -93,7 +104,10 @@ async fn handle_browser(
     State(daemon): State<Arc<Daemon>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     AxumPath((company, account, pass, rest)): AxumPath<(String, String, String, String)>,
-    upgrade: std::result::Result<axum::extract::WebSocketUpgrade, axum::extract::ws::rejection::WebSocketUpgradeRejection>,
+    upgrade: std::result::Result<
+        axum::extract::WebSocketUpgrade,
+        axum::extract::ws::rejection::WebSocketUpgradeRejection,
+    >,
 ) -> Response {
     if !local_runtime_peer(peer.ip()) {
         return StatusCode::FORBIDDEN.into_response();
@@ -105,7 +119,10 @@ async fn handle_browser_hosted(
     State(daemon): State<Arc<Daemon>>,
     AxumPath((company, account, pass, rest)): AxumPath<(String, String, String, String)>,
     headers: HeaderMap,
-    upgrade: std::result::Result<axum::extract::WebSocketUpgrade, axum::extract::ws::rejection::WebSocketUpgradeRejection>,
+    upgrade: std::result::Result<
+        axum::extract::WebSocketUpgrade,
+        axum::extract::ws::rejection::WebSocketUpgradeRejection,
+    >,
 ) -> Response {
     if hosted_entry_host().is_none() {
         return StatusCode::NOT_FOUND.into_response();
@@ -128,16 +145,29 @@ async fn serve_browser(
 ) -> Response {
     use crate::account_browser as identity;
     let Ok(grant) = daemon.capabilities.verify_tool_session(&pass) else {
-        return (StatusCode::UNAUTHORIZED, "This browser session has ended. Borrow the browser again.").into_response();
+        return (
+            StatusCode::UNAUTHORIZED,
+            "This browser session has ended. Borrow the browser again.",
+        )
+            .into_response();
     };
     if grant.company != company || !identity::holds_lease(&account, &company, &grant.actor).await {
-        return (StatusCode::FORBIDDEN, "Borrow the account's browser first; another session may hold it.").into_response();
+        return (
+            StatusCode::FORBIDDEN,
+            "Borrow the account's browser first; another session may hold it.",
+        )
+            .into_response();
     }
     let endpoint = browser_endpoint(&company, &account, &pass);
-    let socket_base = endpoint.replacen("https://", "wss://", 1).replacen("http://", "ws://", 1);
+    let socket_base = endpoint
+        .replacen("https://", "wss://", 1)
+        .replacen("http://", "ws://", 1);
     let rewrite = |mut target: serde_json::Value| {
         for field in ["webSocketDebuggerUrl"] {
-            if let Some(url) = target[field].as_str().and_then(|url| url::Url::parse(url).ok()) {
+            if let Some(url) = target[field]
+                .as_str()
+                .and_then(|url| url::Url::parse(url).ok())
+            {
                 target[field] = serde_json::json!(format!("{socket_base}{}", url.path()));
             }
         }
@@ -149,21 +179,41 @@ async fn serve_browser(
     match (rest.as_str(), upgrade) {
         ("json/version" | "json/version/", None) => match identity::version(&account).await {
             Ok(version) => axum::Json(rewrite(version)).into_response(),
-            Err(_) => (StatusCode::BAD_GATEWAY, "The account's browser is not answering.").into_response(),
+            Err(_) => (
+                StatusCode::BAD_GATEWAY,
+                "The account's browser is not answering.",
+            )
+                .into_response(),
         },
-        ("json" | "json/" | "json/list" | "json/list/", None) => match identity::pages(&account).await {
-            Ok(pages) => axum::Json(pages.into_iter().map(rewrite).collect::<Vec<_>>()).into_response(),
-            Err(_) => (StatusCode::BAD_GATEWAY, "The account's browser is not answering.").into_response(),
-        },
+        ("json" | "json/" | "json/list" | "json/list/", None) => {
+            match identity::pages(&account).await {
+                Ok(pages) => {
+                    axum::Json(pages.into_iter().map(rewrite).collect::<Vec<_>>()).into_response()
+                }
+                Err(_) => (
+                    StatusCode::BAD_GATEWAY,
+                    "The account's browser is not answering.",
+                )
+                    .into_response(),
+            }
+        }
         (path, Some(upgrade)) if path.starts_with("devtools/") && !path.contains("..") => {
             let path = format!("/{path}");
             let upstream = match identity::connect(&account, &path).await {
                 Ok(upstream) => upstream,
-                Err(_) => return (StatusCode::BAD_GATEWAY, "The account's browser is not answering.").into_response(),
+                Err(_) => {
+                    return (
+                        StatusCode::BAD_GATEWAY,
+                        "The account's browser is not answering.",
+                    )
+                        .into_response()
+                }
             };
             upgrade
                 .max_message_size(256 * 1024 * 1024)
-                .on_upgrade(move |socket| relay_devtools(socket, upstream, account, company, grant.actor))
+                .on_upgrade(move |socket| {
+                    relay_devtools(socket, upstream, account, company, grant.actor)
+                })
                 .into_response()
         }
         _ => StatusCode::NOT_FOUND.into_response(),
@@ -247,7 +297,16 @@ async fn handle_git(
         return StatusCode::FORBIDDEN.into_response();
     }
     let (parts, body) = request.into_parts();
-    crate::account_git::serve(daemon, company, rest, parts.method, parts.uri.query().map(str::to_string), parts.headers, body).await
+    crate::account_git::serve(
+        daemon,
+        company,
+        rest,
+        parts.method,
+        parts.uri.query().map(str::to_string),
+        parts.headers,
+        body,
+    )
+    .await
 }
 
 async fn handle_git_hosted(
@@ -262,7 +321,16 @@ async fn handle_git_hosted(
     if parts.headers.contains_key("cookie") || parts.headers.contains_key("origin") {
         return StatusCode::BAD_REQUEST.into_response();
     }
-    crate::account_git::serve(daemon, company, rest, parts.method, parts.uri.query().map(str::to_string), parts.headers, body).await
+    crate::account_git::serve(
+        daemon,
+        company,
+        rest,
+        parts.method,
+        parts.uri.query().map(str::to_string),
+        parts.headers,
+        body,
+    )
+    .await
 }
 
 /// The plane's entry host when its Runtimes are hosted elsewhere.
@@ -301,8 +369,12 @@ pub async fn session_servers(
     work_id: Option<Uuid>,
     attempt_id: Option<Uuid>,
 ) -> anyhow::Result<Vec<McpServer>> {
-    if connections::usable_tools(pool, company, actor).await?.is_empty()
-        && crate::account_broker::usable(pool, company, actor).await?.is_empty()
+    if connections::usable_tools(pool, company, actor)
+        .await?
+        .is_empty()
+        && crate::account_broker::usable(pool, company, actor)
+            .await?
+            .is_empty()
     {
         return Ok(Vec::new());
     }
@@ -313,10 +385,16 @@ pub async fn session_servers(
     let grant = capabilities.issue_tool_session(company, actor, work_id, attempt_id)?;
     // The nonce changes the ACP/Codex launch contract when a new grant is
     // issued; the URL carries no secret.
-    let url = format!("{}?launch={}", runtime_url(company), Uuid::new_v4().simple());
+    let url = format!(
+        "{}?launch={}",
+        runtime_url(company),
+        Uuid::new_v4().simple()
+    );
     Ok(vec![McpServer::Http(
-        McpServerHttp::new("restless-tools", url)
-            .headers(vec![HttpHeader::new("Authorization", format!("Bearer {grant}"))]),
+        McpServerHttp::new("restless-tools", url).headers(vec![HttpHeader::new(
+            "Authorization",
+            format!("Bearer {grant}"),
+        )]),
     )])
 }
 
@@ -480,7 +558,9 @@ fn fit_for_context(mut result: CallToolResult) -> CallToolResult {
             left -= keep;
         }
     }
-    result.content.retain(|block| block.as_text().is_none_or(|text| !text.text.is_empty()));
+    result
+        .content
+        .retain(|block| block.as_text().is_none_or(|text| !text.text.is_empty()));
     result.content.push(ContentBlock::text(format!(
         "[Cut to {CONTEXT_RESULT_CHARS} of {total} characters to fit your context. Ask for less: a narrower query, a page range or a summary.]"
     )));
@@ -558,7 +638,12 @@ impl ToolCaller<'_> {
         // A read has no side effects, so a broken pooled session is replaced and the read tried
         // once more, instead of failing until the pool notices on its own.
         let result = match attempt(arguments.clone()).await {
-            Err(error) if matches!(error.downcast_ref::<ReadFailure>(), Some(ReadFailure::Broken)) => {
+            Err(error)
+                if matches!(
+                    error.downcast_ref::<ReadFailure>(),
+                    Some(ReadFailure::Broken)
+                ) =>
+            {
                 connections::forget_upstream(self.company(), &tool.connection.name).await;
                 attempt(arguments).await
             }
@@ -987,7 +1072,9 @@ impl ServerHandler for ToolScope {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> std::result::Result<CallToolResponse, ErrorData> {
-        if request.name.ends_with("__git_remote") && crate::account_broker::is_account_tool(&request.name) {
+        if request.name.ends_with("__git_remote")
+            && crate::account_broker::is_account_tool(&request.name)
+        {
             return Ok(self.git_remote(&request.name, request.arguments).await);
         }
         if crate::account_broker::is_browser_tool(&request.name) {
@@ -1008,21 +1095,49 @@ impl ToolScope {
         let company = self.grant.company.clone();
         let actor = self.grant.actor.clone();
         let pool = self.daemon.authority.pool();
-        let accounts = broker::usable(pool, &company, &actor).await.unwrap_or_default();
+        let accounts = broker::usable(pool, &company, &actor)
+            .await
+            .unwrap_or_default();
         let Some(usable) = accounts.into_iter().find(|usable| {
-            broker::browser_tool_definitions(usable).iter().any(|(tool, _, _)| tool == name)
+            broker::browser_tool_definitions(usable)
+                .iter()
+                .any(|(tool, _, _)| tool == name)
         }) else {
-            return text_error("That account is not granted to you, or the owner removed the grant.");
+            return text_error(
+                "That account is not granted to you, or the owner removed the grant.",
+            );
         };
         let account_id = usable.account.id.clone();
         let arguments = arguments.unwrap_or_default();
-        let text = |field: &str| arguments.get(field).and_then(serde_json::Value::as_str).map(str::trim).filter(|value| !value.is_empty());
+        let text = |field: &str| {
+            arguments
+                .get(field)
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        };
         let domains = identity::account_domains(usable.settings());
         let filling = name.ends_with("__fill");
         let now = chrono::Utc::now();
-        let (spent, today) = broker::grant_usage(pool, &usable.grant, now).await.unwrap_or((0, 0));
-        let decision = broker::decide(&usable.account, &usable.grant, &actor, "act", true, None, spent, today, now);
-        let action = if filling { format!("sign in ({})", text("field").unwrap_or("field")) } else { "browser session".to_string() };
+        let (spent, today) = broker::grant_usage(pool, &usable.grant, now)
+            .await
+            .unwrap_or((0, 0));
+        let decision = broker::decide(
+            &usable.account,
+            &usable.grant,
+            &actor,
+            "act",
+            true,
+            None,
+            spent,
+            today,
+            now,
+        );
+        let action = if filling {
+            format!("sign in ({})", text("field").unwrap_or("field"))
+        } else {
+            "browser session".to_string()
+        };
         let record = |result: &'static str| {
             let usable = usable.clone();
             let action = action.clone();
@@ -1030,7 +1145,19 @@ impl ToolScope {
             let actor = actor.clone();
             let target = domains.first().cloned();
             async move {
-                let _ = broker::record_use(pool, &usable, &company, &actor, None, &action, "act", target.as_deref(), result, None).await;
+                let _ = broker::record_use(
+                    pool,
+                    &usable,
+                    &company,
+                    &actor,
+                    None,
+                    &action,
+                    "act",
+                    target.as_deref(),
+                    result,
+                    None,
+                )
+                .await;
             }
         };
         match &decision {
@@ -1046,10 +1173,16 @@ impl ToolScope {
         }
         if filling {
             if !identity::holds_lease(&account_id, &company, &actor).await {
-                return text_error(format!("Borrow the browser first with {}.", name.replace("__fill", "__browser")));
+                return text_error(format!(
+                    "Borrow the browser first with {}.",
+                    name.replace("__fill", "__browser")
+                ));
             }
             let field = text("field").unwrap_or_default();
-            let ask_owner = arguments.get("ask_owner").and_then(serde_json::Value::as_bool) == Some(true);
+            let ask_owner = arguments
+                .get("ask_owner")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true);
             if field == "code" && (ask_owner || usable.secret_reference("totp_secret").is_none()) {
                 // Only a person has this code (a text message, an app prompt): the owner types it in
                 // their Inbox and Restless types it into this page. It is never stored.
@@ -1073,9 +1206,16 @@ impl ToolScope {
                 .into();
             }
             let value = match field {
-                "username" => usable.settings()["username"].as_str().map(str::to_string).ok_or_else(|| anyhow::anyhow!("the account has no username")),
+                "username" => usable.settings()["username"]
+                    .as_str()
+                    .map(str::to_string)
+                    .ok_or_else(|| anyhow::anyhow!("the account has no username")),
                 "password" | "code" => {
-                    let reference = usable.secret_reference(if field == "password" { "password" } else { "totp_secret" });
+                    let reference = usable.secret_reference(if field == "password" {
+                        "password"
+                    } else {
+                        "totp_secret"
+                    });
                     match reference {
                         None if field == "code" => Err(anyhow::anyhow!("the owner has not given this account a one-time-code secret; ask them for the code")),
                         None => Err(anyhow::anyhow!("the account has no password stored")),
@@ -1092,7 +1232,9 @@ impl ToolScope {
                 Ok(value) => value,
                 Err(error) => return text_error(format!("Nothing was typed: {error:#}.")),
             };
-            return match identity::fill(&account_id, &domains, text("target_id"), &value, field).await {
+            return match identity::fill(&account_id, &domains, text("target_id"), &value, field)
+                .await
+            {
                 Ok(done) => {
                     record("ok").await;
                     CallToolResult::success(vec![ContentBlock::text(done)]).into()
@@ -1103,9 +1245,17 @@ impl ToolScope {
                 }
             };
         }
-        if arguments.get("release").and_then(serde_json::Value::as_bool) == Some(true) {
+        if arguments
+            .get("release")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+        {
             identity::release_lease(&account_id, &company, &actor).await;
-            return CallToolResult::success(vec![ContentBlock::text(format!("Handed {}'s browser back.", usable.account.label))]).into();
+            return CallToolResult::success(vec![ContentBlock::text(format!(
+                "Handed {}'s browser back.",
+                usable.account.label
+            ))])
+            .into();
         }
         if text("purpose").is_none() {
             return text_error(format!("Borrowing {}'s browser acts as the account: add `purpose`, one sentence saying why.", usable.account.label));
@@ -1124,15 +1274,25 @@ impl ToolScope {
             return text_error(format!("The account's browser did not start: {error:#}"));
         }
         if let Some(url) = text("url") {
-            let host = url::Url::parse(url).ok().and_then(|url| url.host_str().map(str::to_string)).unwrap_or_default();
+            let host = url::Url::parse(url)
+                .ok()
+                .and_then(|url| url.host_str().map(str::to_string))
+                .unwrap_or_default();
             if !identity::on_account_domain(&host, &domains) {
-                return text_error(format!("{url} is not on the account's own domains ({}).", domains.join(", ")));
+                return text_error(format!(
+                    "{url} is not on the account's own domains ({}).",
+                    domains.join(", ")
+                ));
             }
             if let Err(error) = identity::open_page(&account_id, url).await {
                 return text_error(format!("The page did not open: {error:#}"));
             }
         }
-        let Ok(pass) = self.daemon.capabilities.issue_tool_session(&company, &actor, None, None) else {
+        let Ok(pass) = self
+            .daemon
+            .capabilities
+            .issue_tool_session(&company, &actor, None, None)
+        else {
             return text_error("A pass for the browser could not be issued; try again.");
         };
         record("ok").await;
@@ -1154,38 +1314,66 @@ impl ToolScope {
     async fn git_remote(&self, name: &str, arguments: Option<JsonObject>) -> CallToolResponse {
         let company = &self.grant.company;
         let pool = self.daemon.authority.pool();
-        let accounts = crate::account_broker::usable(pool, company, &self.grant.actor).await.unwrap_or_default();
-        let Some(usable) = accounts
-            .into_iter()
-            .find(|usable| crate::account_broker::git_tool_name(&usable.account).as_deref() == Some(name))
-        else {
-            return text_error("That GitHub account is not granted to you, or the owner removed the grant.");
+        let accounts = crate::account_broker::usable(pool, company, &self.grant.actor)
+            .await
+            .unwrap_or_default();
+        let Some(usable) = accounts.into_iter().find(|usable| {
+            crate::account_broker::git_tool_name(&usable.account).as_deref() == Some(name)
+        }) else {
+            return text_error(
+                "That GitHub account is not granted to you, or the owner removed the grant.",
+            );
         };
         let repo = arguments
             .as_ref()
             .and_then(|arguments| arguments.get("repo"))
             .and_then(serde_json::Value::as_str)
-            .map(|repo| repo.trim().trim_end_matches(".git").trim_start_matches("https://github.com/").to_string())
+            .map(|repo| {
+                repo.trim()
+                    .trim_end_matches(".git")
+                    .trim_start_matches("https://github.com/")
+                    .to_string()
+            })
             .unwrap_or_default();
         let valid = repo.split('/').count() == 2
             && repo.split('/').all(|part| {
-                !part.is_empty() && part != "." && part != ".." && part.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+                !part.is_empty()
+                    && part != "."
+                    && part != ".."
+                    && part.bytes().all(|byte| {
+                        byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_')
+                    })
             });
         if !valid {
             return text_error("`repo` is owner/repo, such as yail259/frankensurf.");
         }
         let target = repo.to_ascii_lowercase();
-        if !crate::account_broker::in_scope("github", &usable.grant.limits.scope, Some(&target), "read") {
+        if !crate::account_broker::in_scope(
+            "github",
+            &usable.grant.limits.scope,
+            Some(&target),
+            "read",
+        ) {
             return text_error(format!(
                 "{repo} is outside what this company may touch with {} ({}). Ask the owner to widen the grant.",
                 usable.account.label,
                 usable.grant.limits.scope.join(", ")
             ));
         }
-        let Ok(pass) = self.daemon.capabilities.issue_tool_session(company, &self.grant.actor, None, None) else {
+        let Ok(pass) =
+            self.daemon
+                .capabilities
+                .issue_tool_session(company, &self.grant.actor, None, None)
+        else {
             return text_error("A pass for git could not be issued; try again.");
         };
-        let url = crate::account_git::remote_url(&runtime_url(company), company, &usable.account.id, &repo, &pass);
+        let url = crate::account_git::remote_url(
+            &runtime_url(company),
+            company,
+            &usable.account.id,
+            &repo,
+            &pass,
+        );
         CallToolResult::success(vec![ContentBlock::text(format!(
             "Remote for {repo} as {} (works for about 45 minutes; ask again after):\n{url}\n\n\
              Use it directly, for example `git remote set-url origin '<url>'` or `git push '<url>' HEAD:my-branch`. \
@@ -1210,14 +1398,17 @@ impl ToolCaller<'_> {
                 Vec::new()
             });
         for usable in &accounts {
-            let brokered = crate::account_broker::BROKERED_KINDS.contains(&usable.account.kind.as_str());
+            let brokered =
+                crate::account_broker::BROKERED_KINDS.contains(&usable.account.kind.as_str());
             let definitions = brokered
                 .then(|| crate::account_broker::tool_definition(usable))
                 .into_iter()
                 .chain(crate::account_broker::git_tool_definition(usable))
                 .chain(crate::account_broker::browser_tool_definitions(usable));
             for (name, description, schema) in definitions {
-                let serde_json::Value::Object(schema) = schema else { continue };
+                let serde_json::Value::Object(schema) = schema else {
+                    continue;
+                };
                 let mut tool = Tool::new(name, description, Arc::new(schema));
                 tool.annotations = Some(ToolAnnotations::new().read_only(false).destructive(false));
                 listed.push(tool);
@@ -1239,10 +1430,17 @@ impl ToolCaller<'_> {
         let pool = self.authority.pool();
         let accounts = match broker::usable(pool, self.company(), &self.grant.actor).await {
             Ok(accounts) => accounts,
-            Err(_) => return text_error("Granted accounts are unavailable right now; nothing was sent."),
+            Err(_) => {
+                return text_error("Granted accounts are unavailable right now; nothing was sent.")
+            }
         };
-        let Some(usable) = accounts.into_iter().find(|usable| usable.tool_name() == name) else {
-            return text_error("That account is not granted to you, or the owner removed the grant.");
+        let Some(usable) = accounts
+            .into_iter()
+            .find(|usable| usable.tool_name() == name)
+        else {
+            return text_error(
+                "That account is not granted to you, or the owner removed the grant.",
+            );
         };
         let arguments = arguments.unwrap_or_default();
         let call = match broker::parse_call(&arguments) {
@@ -1250,11 +1448,18 @@ impl ToolCaller<'_> {
             Err(error) => return text_error(format!("{error:#}")),
         };
         let kind = usable.account.kind.clone();
-        let tier = broker::call_tier(&kind, call.method.as_str(), &call.path, call.declared_tier.as_deref());
+        let tier = broker::call_tier(
+            &kind,
+            call.method.as_str(),
+            &call.path,
+            call.declared_tier.as_deref(),
+        );
         let target = broker::call_target(&kind, &call.path);
         let scoped = broker::in_scope(&kind, &usable.grant.limits.scope, target.as_deref(), tier);
         let now = chrono::Utc::now();
-        let (spent, today) = broker::grant_usage(pool, &usable.grant, now).await.unwrap_or((0, 0));
+        let (spent, today) = broker::grant_usage(pool, &usable.grant, now)
+            .await
+            .unwrap_or((0, 0));
         let decision = broker::decide(
             &usable.account,
             &usable.grant,
@@ -1266,15 +1471,27 @@ impl ToolCaller<'_> {
             today,
             now,
         );
-        let action = format!("{} {}", call.method, call.path.split('?').next().unwrap_or_default());
+        let action = format!(
+            "{} {}",
+            call.method,
+            call.path.split('?').next().unwrap_or_default()
+        );
         let record = |result: &'static str| {
             let usable = usable.clone();
             let action = action.clone();
             let target = target.clone();
             async move {
                 if let Err(error) = broker::record_use(
-                    pool, &usable, self.company(), &self.grant.actor, None, &action, tier,
-                    target.as_deref(), result, call.cost_micros,
+                    pool,
+                    &usable,
+                    self.company(),
+                    &self.grant.actor,
+                    None,
+                    &action,
+                    tier,
+                    target.as_deref(),
+                    result,
+                    call.cost_micros,
                 )
                 .await
                 {
@@ -1286,9 +1503,8 @@ impl ToolCaller<'_> {
             record("refused").await;
             return text_error(format!("Nothing was sent. {reason}"));
         }
-        let answer_text = |answer: &broker::Answer| {
-            serde_json::to_string_pretty(answer).unwrap_or_default()
-        };
+        let answer_text =
+            |answer: &broker::Answer| serde_json::to_string_pretty(answer).unwrap_or_default();
         let secret = match broker::secret(&usable).await {
             Ok(secret) => secret,
             Err(error) => {
@@ -1309,7 +1525,10 @@ impl ToolCaller<'_> {
             };
         }
         if call.purpose.is_empty() {
-            return text_error(format!("This call can {tier} with {}: add `purpose`, one sentence saying why.", usable.account.label));
+            return text_error(format!(
+                "This call can {tier} with {}: add `purpose`, one sentence saying why.",
+                usable.account.label
+            ));
         }
         let Some(_lease) = self.lifecycle.try_enter() else {
             return text_error("Nothing was sent: new work is paused for a restart or update; retry once it is back.");
@@ -1321,8 +1540,14 @@ impl ToolCaller<'_> {
         command.remove("purpose");
         let command = serde_json::Value::Object(command);
         let key = call.key.clone().unwrap_or_else(|| {
-            let scope = self.grant.attempt_id.map(|id| id.to_string()).unwrap_or_else(|| self.grant.session.clone());
-            let digest = canonical_digest(&serde_json::json!({"scope": scope, "account": usable.account.id, "call": command}));
+            let scope = self
+                .grant
+                .attempt_id
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| self.grant.session.clone());
+            let digest = canonical_digest(
+                &serde_json::json!({"scope": scope, "account": usable.account.id, "call": command}),
+            );
             format!("acct-{}", &digest[..32])
         });
         let effect = crate::effect::ToolCall {
@@ -1348,7 +1573,10 @@ impl ToolCaller<'_> {
                 let is_error = answer.status >= 400;
                 let value = serde_json::to_value(&answer)?;
                 *live.lock().expect("account answer lock") = Some(answer);
-                Ok(crate::effect::ToolResult { is_error, result: value })
+                Ok(crate::effect::ToolResult {
+                    is_error,
+                    result: value,
+                })
             },
         )
         .await;
@@ -1358,16 +1586,27 @@ impl ToolCaller<'_> {
                 if !receipt.replayed {
                     record(if receipt.success { "ok" } else { "failed" }).await;
                 }
-                let text = answer
-                    .as_ref()
-                    .map(answer_text)
-                    .unwrap_or_else(|| receipt.outcome.get("result").map(|value| value.to_string()).unwrap_or_default());
-                let told = if decision == Decision::RunAndTell { " The owner sees this use." } else { "" };
+                let text = answer.as_ref().map(answer_text).unwrap_or_else(|| {
+                    receipt
+                        .outcome
+                        .get("result")
+                        .map(|value| value.to_string())
+                        .unwrap_or_default()
+                });
+                let told = if decision == Decision::RunAndTell {
+                    " The owner sees this use."
+                } else {
+                    ""
+                };
                 let note = format!(
                     "restless receipt {} (key {}{}).{told}",
                     receipt.id,
                     receipt.idempotency_key,
-                    if receipt.replayed { ", replayed: this call already ran" } else { "" }
+                    if receipt.replayed {
+                        ", replayed: this call already ran"
+                    } else {
+                        ""
+                    }
                 );
                 let mut result = if receipt.success {
                     CallToolResult::success(vec![ContentBlock::text(text)])
@@ -1379,9 +1618,12 @@ impl ToolCaller<'_> {
             }
             Err(error) => {
                 let message = format!("{error:#}");
-                if matches!(decision, Decision::Ask(_)) && message.contains("waiting in Attention") {
+                if matches!(decision, Decision::Ask(_)) && message.contains("waiting in Attention")
+                {
                     record("waiting").await;
-                    let Decision::Ask(why) = &decision else { unreachable!() };
+                    let Decision::Ask(why) = &decision else {
+                        unreachable!()
+                    };
                     return text_error(format!("{why} The prepared call is waiting for the owner; once approved, make the same call again with key {key}."));
                 }
                 if message.contains("did not answer") || message.contains("timed out") {
@@ -1452,7 +1694,11 @@ mod tests {
         let mut result = CallToolResult::success(vec![ContentBlock::text(page)]);
         result.structured_content = Some(serde_json::json!({ "copy": "large" }));
         let fitted = fit_for_context(result);
-        let texts: Vec<_> = fitted.content.iter().filter_map(|block| block.as_text()).collect();
+        let texts: Vec<_> = fitted
+            .content
+            .iter()
+            .filter_map(|block| block.as_text())
+            .collect();
         assert_eq!(texts[0].text.chars().count(), CONTEXT_RESULT_CHARS);
         assert!(texts.last().unwrap().text.contains("Ask for less"));
         assert!(fitted.structured_content.is_none());
@@ -1689,10 +1935,12 @@ mod tests {
         assert!(server.url.starts_with(&runtime_url(&company)));
         let bearer = server.headers[0].value.strip_prefix("Bearer ").unwrap();
         assert_eq!(issuer.verify_tool_session(bearer).unwrap().actor, "exec");
-        assert!(session_servers(&pool, &issuer, &company, "staff-a", None, None)
-            .await
-            .unwrap()
-            .is_empty());
+        assert!(
+            session_servers(&pool, &issuer, &company, "staff-a", None, None)
+                .await
+                .unwrap()
+                .is_empty()
+        );
         assert!(other
             .call("mail__search", args(serde_json::json!({"query": "x"})))
             .await
@@ -1822,7 +2070,11 @@ mod tests {
             "to": "Ann <ann@example.com>"
         });
         let replay = caller.call("mail__send", args(reordered)).await.unwrap();
-        assert!(text_of(&replay).contains("replayed"), "{}", text_of(&replay));
+        assert!(
+            text_of(&replay).contains("replayed"),
+            "{}",
+            text_of(&replay)
+        );
         assert_eq!(fake.sends.load(Ordering::SeqCst), 1);
 
         // A key cannot be reused for different arguments.
@@ -1854,8 +2106,15 @@ mod tests {
             .unwrap();
         let mut follow_up = send.clone();
         follow_up["body"] = serde_json::json!("one more thing");
-        let waiting = caller.call("mail__send", args(follow_up.clone())).await.unwrap();
-        assert!(text_of(&waiting).contains("owner approval"), "{}", text_of(&waiting));
+        let waiting = caller
+            .call("mail__send", args(follow_up.clone()))
+            .await
+            .unwrap();
+        assert!(
+            text_of(&waiting).contains("owner approval"),
+            "{}",
+            text_of(&waiting)
+        );
         authority
             .emit(&company, "approval_declined", Some("owner"), ann.clone())
             .await
@@ -1899,16 +2158,29 @@ mod tests {
         crate::outside_actions::pause(&authority, &company, "owner")
             .await
             .unwrap();
-        assert!(connections::require(&pool, &company, "mail").await.unwrap().frozen);
+        assert!(
+            connections::require(&pool, &company, "mail")
+                .await
+                .unwrap()
+                .frozen
+        );
         assert!(crate::outside_actions::ensure_running(&authority, &company)
             .await
             .is_err());
-        let refused = caller.call("mail__send", args(fresh.clone())).await.unwrap();
+        let refused = caller
+            .call("mail__send", args(fresh.clone()))
+            .await
+            .unwrap();
         assert!(is_error(&refused), "{}", text_of(&refused));
         crate::outside_actions::resume(&authority, &company, "owner")
             .await
             .unwrap();
-        assert!(!connections::require(&pool, &company, "mail").await.unwrap().frozen);
+        assert!(
+            !connections::require(&pool, &company, "mail")
+                .await
+                .unwrap()
+                .frozen
+        );
         crate::outside_actions::ensure_running(&authority, &company)
             .await
             .unwrap();
@@ -1922,7 +2194,12 @@ mod tests {
         crate::outside_actions::resume(&authority, &company, "owner")
             .await
             .unwrap();
-        assert!(connections::require(&pool, &company, "mail").await.unwrap().frozen);
+        assert!(
+            connections::require(&pool, &company, "mail")
+                .await
+                .unwrap()
+                .frozen
+        );
         connections::set_frozen(&pool, &authority, &company, "mail", false, "owner")
             .await
             .unwrap();
@@ -2008,16 +2285,24 @@ mod tests {
         assert_eq!(fake.deletes.load(Ordering::SeqCst), 1);
 
         // "Don't ask again": the tool acts from now on; every other tool keeps its class.
-        let before = connections::grants(&pool, &company, Some("mail")).await.unwrap();
+        let before = connections::grants(&pool, &company, Some("mail"))
+            .await
+            .unwrap();
         assert_eq!(
             connections::promote_tool(&pool, &authority, &company, "mail", "delete", "owner")
                 .await
                 .unwrap(),
             1
         );
-        let after = connections::grants(&pool, &company, Some("mail")).await.unwrap();
+        let after = connections::grants(&pool, &company, Some("mail"))
+            .await
+            .unwrap();
         for granted in &after[0].tools {
-            let previous = before[0].tools.iter().find(|tool| tool.tool == granted.tool).unwrap();
+            let previous = before[0]
+                .tools
+                .iter()
+                .find(|tool| tool.tool == granted.tool)
+                .unwrap();
             if granted.tool == "delete" {
                 assert_eq!(granted.class, connections::ToolClass::Acts);
             } else {
@@ -2026,13 +2311,19 @@ mod tests {
             }
         }
         let third_delete = serde_json::json!({"id": "m3", "_restless": {"purpose": "Remove a third", "key": "delete-m3"}});
-        let ran = caller.call("mail__delete", args(third_delete)).await.unwrap();
+        let ran = caller
+            .call("mail__delete", args(third_delete))
+            .await
+            .unwrap();
         assert!(!is_error(&ran), "{}", text_of(&ran));
         assert_eq!(fake.deletes.load(Ordering::SeqCst), 2);
         // A call held before the promotion runs unasked when retried. Its
         // Inbox item closes, and an answer to it is refused rather than
         // telling the company not to run what already ran.
-        let ran = caller.call("mail__delete", args(fourth_delete)).await.unwrap();
+        let ran = caller
+            .call("mail__delete", args(fourth_delete))
+            .await
+            .unwrap();
         assert!(!is_error(&ran), "{}", text_of(&ran));
         assert_eq!(fake.deletes.load(Ordering::SeqCst), 3);
         let view = crate::attention::project(&config, &authority, None)
@@ -2053,7 +2344,10 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert!(format!("{refused:#}").contains("already ran"), "{refused:#}");
+        assert!(
+            format!("{refused:#}").contains("already ran"),
+            "{refused:#}"
+        );
         assert!(authority
             .find_body(&company, "tool_call_declined", "call_key", "delete-m4")
             .await
@@ -2094,7 +2388,10 @@ mod tests {
             .unwrap(),
             Some(true)
         );
-        let ran = caller.call("mail__delete", args(other_delete)).await.unwrap();
+        let ran = caller
+            .call("mail__delete", args(other_delete))
+            .await
+            .unwrap();
         assert!(!is_error(&ran), "{}", text_of(&ran));
         assert_eq!(fake.deletes.load(Ordering::SeqCst), 4);
         // Promoting again changes nothing.
@@ -2342,7 +2639,10 @@ mod tests {
                 "owner",
             )
         };
-        assert!(re_add().await.is_err(), "a live app of the same name refuses");
+        assert!(
+            re_add().await.is_err(),
+            "a live app of the same name refuses"
+        );
         connections::disconnect(&pool, &authority, &root, &company, "mail", "owner")
             .await
             .unwrap();

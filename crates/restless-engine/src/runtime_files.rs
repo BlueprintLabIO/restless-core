@@ -134,7 +134,9 @@ pub async fn modified_times(
     }
     let container = container_name(company);
     let script = "for p; do stat -c '%Y\t%n' -- \"$p\" 2>/dev/null; done; exit 0";
-    let mut args: Vec<&str> = vec!["exec", "-u", "company", &container, "sh", "-c", script, "sh"];
+    let mut args: Vec<&str> = vec![
+        "exec", "-u", "company", &container, "sh", "-c", script, "sh",
+    ];
     args.extend(paths.iter().copied());
     let output = runtime::docker_observe(&args).await?;
     if !output.status.success() {
@@ -166,7 +168,8 @@ pub async fn output_files(company: &str) -> Result<Vec<OutputFile>> {
     validate_company_name(company)?;
     let container = container_name(company);
     let script = "find /company/outputs -type d \\( -name node_modules -o -name '.*' \\) -prune -o -type f ! -name '.*' -printf '%T@\\t%s\\t%p\\n' 2>/dev/null | sort -rn | head -2000; exit 0";
-    let output = runtime::docker_observe(&["exec", "-u", "company", &container, "sh", "-c", script]).await?;
+    let output =
+        runtime::docker_observe(&["exec", "-u", "company", &container, "sh", "-c", script]).await?;
     if !output.status.success() {
         return Ok(Vec::new());
     }
@@ -181,7 +184,11 @@ fn parse_output_files(listing: &str) -> Vec<OutputFile> {
             let modified = parts.next()?.split('.').next()?.parse().ok()?;
             let bytes = parts.next()?.parse().ok()?;
             let path = parts.next()?;
-            path.starts_with("/company/outputs/").then(|| OutputFile { path: path.to_string(), bytes, modified })
+            path.starts_with("/company/outputs/").then(|| OutputFile {
+                path: path.to_string(),
+                bytes,
+                modified,
+            })
         })
         .collect()
 }

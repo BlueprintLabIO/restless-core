@@ -22,7 +22,8 @@ use base64::Engine as _;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use restless_machine::link::{Link, LinkStream};
 use restless_machine::protocol::{
-    AllowedImage, Control, MachineFacts, PairResponse, STREAM_CONNECT, STREAM_DOCKER, STREAM_IMAGE, STREAM_PLANE,
+    AllowedImage, Control, MachineFacts, PairResponse, STREAM_CONNECT, STREAM_DOCKER, STREAM_IMAGE,
+    STREAM_PLANE,
 };
 use serde::Serialize;
 use sha2::{Digest as _, Sha256};
@@ -73,7 +74,10 @@ fn hash(secret: &str) -> String {
 
 /// A pairing code as the owner types it: case and separators do not matter.
 fn normalize_code(code: &str) -> String {
-    code.chars().filter(char::is_ascii_alphanumeric).map(|c| c.to_ascii_uppercase()).collect()
+    code.chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|c| c.to_ascii_uppercase())
+        .collect()
 }
 
 fn random_bytes(count: usize) -> Vec<u8> {
@@ -160,7 +164,12 @@ pub async fn pairing_is_open(pool: &PgPool, code: &str) -> Result<bool> {
 }
 
 /// Exchange a pairing code for a new machine and its credential. The code works once.
-pub async fn pair(pool: &PgPool, code: &str, facts: MachineFacts, address: Option<&str>) -> Result<PairResponse> {
+pub async fn pair(
+    pool: &PgPool,
+    code: &str,
+    facts: MachineFacts,
+    address: Option<&str>,
+) -> Result<PairResponse> {
     let mut transaction = pool.begin().await?;
     let row = sqlx::query(
         "UPDATE restless_authority.machine_pairings SET consumed_at = now() \
@@ -173,8 +182,13 @@ pub async fn pair(pool: &PgPool, code: &str, facts: MachineFacts, address: Optio
         bail!("That code has expired or was already used. Make a new one in Settings › Computers.");
     };
     let named: Option<String> = row.try_get("label")?;
-    let fallback = if facts.hostname.trim().is_empty() { "My computer".to_string() } else { facts.hostname.trim().to_string() };
-    let label = clean_label(named.as_deref().unwrap_or(&fallback)).unwrap_or_else(|_| "My computer".into());
+    let fallback = if facts.hostname.trim().is_empty() {
+        "My computer".to_string()
+    } else {
+        facts.hostname.trim().to_string()
+    };
+    let label =
+        clean_label(named.as_deref().unwrap_or(&fallback)).unwrap_or_else(|_| "My computer".into());
     let id = format!("machine_{}", Uuid::new_v4().simple());
     let credential = URL_SAFE_NO_PAD.encode(random_bytes(32));
     sqlx::query(
@@ -189,13 +203,19 @@ pub async fn pair(pool: &PgPool, code: &str, facts: MachineFacts, address: Optio
     .bind(hash(&credential))
     .execute(&mut *transaction)
     .await?;
-    sqlx::query("UPDATE restless_authority.machine_pairings SET machine_id = $2 WHERE code_hash = $1")
-        .bind(hash(&normalize_code(code)))
-        .bind(&id)
-        .execute(&mut *transaction)
-        .await?;
+    sqlx::query(
+        "UPDATE restless_authority.machine_pairings SET machine_id = $2 WHERE code_hash = $1",
+    )
+    .bind(hash(&normalize_code(code)))
+    .bind(&id)
+    .execute(&mut *transaction)
+    .await?;
     transaction.commit().await?;
-    Ok(PairResponse { machine_id: id, label, credential })
+    Ok(PairResponse {
+        machine_id: id,
+        label,
+        credential,
+    })
 }
 
 /// The machine a credential belongs to, and its epoch, unless it was removed or paused.
@@ -213,7 +233,12 @@ pub async fn authenticate(pool: &PgPool, credential: &str) -> Result<Option<(Str
     Ok(row.map(|row| (row.get("id"), row.get("credential_epoch"))))
 }
 
-pub async fn heartbeat(pool: &PgPool, id: &str, facts: &MachineFacts, address: Option<&str>) -> Result<()> {
+pub async fn heartbeat(
+    pool: &PgPool,
+    id: &str,
+    facts: &MachineFacts,
+    address: Option<&str>,
+) -> Result<()> {
     sqlx::query(
         "UPDATE restless_authority.machines SET facts = $2, observed_address = COALESCE($3, observed_address), \
            last_seen_at = now() WHERE id = $1 AND removed_at IS NULL",
@@ -242,7 +267,10 @@ pub async fn list(pool: &PgPool) -> Result<Vec<Machine>> {
         by_machine
             .entry(row.get("machine_id"))
             .or_default()
-            .push(Assignment { company: row.get("company"), role: row.get("role") });
+            .push(Assignment {
+                company: row.get("company"),
+                role: row.get("role"),
+            });
     }
     Ok(rows
         .into_iter()
@@ -266,17 +294,22 @@ pub async fn list(pool: &PgPool) -> Result<Vec<Machine>> {
 }
 
 pub async fn get(pool: &PgPool, id: &str) -> Result<Option<Machine>> {
-    Ok(list(pool).await?.into_iter().find(|machine| machine.id == id))
+    Ok(list(pool)
+        .await?
+        .into_iter()
+        .find(|machine| machine.id == id))
 }
 
 pub async fn rename(pool: &PgPool, id: &str, label: &str) -> Result<()> {
     let label = clean_label(label)?;
-    let changed = sqlx::query("UPDATE restless_authority.machines SET label = $2 WHERE id = $1 AND removed_at IS NULL")
-        .bind(id)
-        .bind(label)
-        .execute(pool)
-        .await?
-        .rows_affected();
+    let changed = sqlx::query(
+        "UPDATE restless_authority.machines SET label = $2 WHERE id = $1 AND removed_at IS NULL",
+    )
+    .bind(id)
+    .bind(label)
+    .execute(pool)
+    .await?
+    .rows_affected();
     if changed == 0 {
         bail!("That computer no longer exists.");
     }
@@ -359,10 +392,22 @@ pub async fn company_assignments(pool: &PgPool, company: &str) -> Result<Vec<Com
     .await?;
     let mut assignments: Vec<CompanyMachine> = rows
         .into_iter()
-        .map(|row| CompanyMachine { machine_id: row.get("machine_id"), role: row.get("role") })
+        .map(|row| CompanyMachine {
+            machine_id: row.get("machine_id"),
+            role: row.get("role"),
+        })
         .collect();
-    if !assignments.iter().any(|assignment| assignment.role == ROLE_MAIN) {
-        assignments.insert(0, CompanyMachine { machine_id: PLANE_MACHINE.into(), role: ROLE_MAIN.into() });
+    if !assignments
+        .iter()
+        .any(|assignment| assignment.role == ROLE_MAIN)
+    {
+        assignments.insert(
+            0,
+            CompanyMachine {
+                machine_id: PLANE_MACHINE.into(),
+                role: ROLE_MAIN.into(),
+            },
+        );
     }
     Ok(assignments)
 }
@@ -384,20 +429,24 @@ pub async fn assign(pool: &PgPool, company: &str, machine: &str, role: &str) -> 
     if !matches!(role, ROLE_MAIN | ROLE_HELPER) {
         bail!("A computer is a company's main computer or a helper.");
     }
-    let exists = sqlx::query("SELECT 1 FROM restless_authority.machines WHERE id = $1 AND removed_at IS NULL")
-        .bind(machine)
-        .fetch_optional(pool)
-        .await?
-        .is_some();
+    let exists = sqlx::query(
+        "SELECT 1 FROM restless_authority.machines WHERE id = $1 AND removed_at IS NULL",
+    )
+    .bind(machine)
+    .fetch_optional(pool)
+    .await?
+    .is_some();
     if !exists {
         bail!("That computer no longer exists.");
     }
     let mut transaction = pool.begin().await?;
     if role == ROLE_MAIN {
-        sqlx::query("DELETE FROM restless_authority.company_machines WHERE company = $1 AND role = 'main'")
-            .bind(company)
-            .execute(&mut *transaction)
-            .await?;
+        sqlx::query(
+            "DELETE FROM restless_authority.company_machines WHERE company = $1 AND role = 'main'",
+        )
+        .bind(company)
+        .execute(&mut *transaction)
+        .await?;
     }
     sqlx::query(
         "INSERT INTO restless_authority.company_machines (company, machine_id, role) VALUES ($1, $2, $3) \
@@ -448,14 +497,24 @@ struct Linked {
     cut: std::sync::Arc<tokio::sync::Notify>,
 }
 
-static LINKS: LazyLock<Mutex<HashMap<String, Linked>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static LINKS: LazyLock<Mutex<HashMap<String, Linked>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub fn is_online(id: &str) -> bool {
-    LINKS.lock().unwrap().get(id).is_some_and(|linked| !linked.link.is_closed())
+    LINKS
+        .lock()
+        .unwrap()
+        .get(id)
+        .is_some_and(|linked| !linked.link.is_closed())
 }
 
 fn linked(id: &str) -> Option<Link> {
-    LINKS.lock().unwrap().get(id).map(|linked| linked.link.clone()).filter(|link| !link.is_closed())
+    LINKS
+        .lock()
+        .unwrap()
+        .get(id)
+        .map(|linked| linked.link.clone())
+        .filter(|link| !link.is_closed())
 }
 
 /// Close a machine's link, telling it first when it was removed.
@@ -463,7 +522,9 @@ fn disconnect(id: &str, removed: bool) {
     let linked = LINKS.lock().unwrap().remove(id);
     if let Some(linked) = linked {
         if removed {
-            let _ = linked.control.send(serde_json::to_string(&Control::Removed).unwrap());
+            let _ = linked
+                .control
+                .send(serde_json::to_string(&Control::Removed).unwrap());
         }
         linked.link.close();
         // Give the Removed message a moment to leave, then close the websocket regardless.
@@ -517,13 +578,18 @@ fn settings(machine_id: &str, allowed_images: Vec<AllowedImage>) -> String {
 pub fn docker_socket(id: &str) -> PathBuf {
     // Unix socket paths are limited to about 100 bytes; a short digest of the id keeps it inside.
     let short: String = hash(id).chars().take(16).collect();
-    crate::runtime::state_root().join("machines").join(format!("{short}.sock"))
+    crate::runtime::state_root()
+        .join("machines")
+        .join(format!("{short}.sock"))
 }
 
 /// A TCP connection to `port` of the Restless container `container` on machine `id`.
 pub async fn connect(id: &str, container: &str, port: u16) -> std::io::Result<LinkStream> {
-    let link = linked(id).ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotConnected, "that computer is offline"))?;
-    link.open(STREAM_CONNECT, &format!("{container}:{port}")).await
+    let link = linked(id).ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::NotConnected, "that computer is offline")
+    })?;
+    link.open(STREAM_CONNECT, &format!("{container}:{port}"))
+        .await
 }
 
 /// Answer the streams a machine opens: images it needs, and its company containers' calls to the
@@ -631,7 +697,13 @@ pub async fn serve_link(
     let _ = control.send(settings(&machine_id, allowed.clone()));
     let previous = LINKS.lock().unwrap().insert(
         machine_id.clone(),
-        Linked { link: link.clone(), control: control.clone(), epoch, since: Instant::now(), cut: std::sync::Arc::clone(&cut) },
+        Linked {
+            link: link.clone(),
+            control: control.clone(),
+            epoch,
+            since: Instant::now(),
+            cut: std::sync::Arc::clone(&cut),
+        },
     );
     if let Some(previous) = previous {
         previous.link.close();
@@ -665,7 +737,9 @@ pub async fn serve_link(
             }
             WireMessage::Text(text) => {
                 if let Ok(Control::Heartbeat { facts }) = serde_json::from_str::<Control>(&text) {
-                    if let Err(error) = heartbeat(&pool, &machine_id, &facts, address.as_deref()).await {
+                    if let Err(error) =
+                        heartbeat(&pool, &machine_id, &facts, address.as_deref()).await
+                    {
                         tracing::warn!(machine = %machine_id, %error, "machine heartbeat not saved");
                     }
                     // A removed or paused machine's credential no longer authenticates.
@@ -689,7 +763,10 @@ pub async fn serve_link(
     link.close();
     {
         let mut links = LINKS.lock().unwrap();
-        if links.get(&machine_id).is_some_and(|linked| linked.epoch == epoch && linked.link.is_closed()) {
+        if links
+            .get(&machine_id)
+            .is_some_and(|linked| linked.epoch == epoch && linked.link.is_closed())
+        {
             links.remove(&machine_id);
         }
     }
@@ -700,7 +777,11 @@ pub async fn serve_link(
 
 /// How long a linked machine has been connected, for the owner.
 pub fn linked_for(id: &str) -> Option<std::time::Duration> {
-    LINKS.lock().unwrap().get(id).map(|linked| linked.since.elapsed())
+    LINKS
+        .lock()
+        .unwrap()
+        .get(id)
+        .map(|linked| linked.since.elapsed())
 }
 
 #[cfg(test)]
@@ -711,7 +792,9 @@ mod tests {
     fn codes_read_easily_and_normalize() {
         let code = new_code();
         assert_eq!(code.len(), 9);
-        assert!(code.chars().all(|c| c == '-' || CODE_ALPHABET.contains(&(c as u8))));
+        assert!(code
+            .chars()
+            .all(|c| c == '-' || CODE_ALPHABET.contains(&(c as u8))));
         assert_eq!(normalize_code(" k7qf-3mxp "), "K7QF3MXP");
         assert_ne!(new_code(), new_code());
     }
@@ -723,12 +806,25 @@ mod tests {
             return;
         };
         let pool = PgPool::connect(&url).await.unwrap();
-        sqlx::query("CREATE SCHEMA IF NOT EXISTS restless_authority").execute(&pool).await.unwrap();
+        sqlx::query("CREATE SCHEMA IF NOT EXISTS restless_authority")
+            .execute(&pool)
+            .await
+            .unwrap();
         ensure_schema(&pool).await.unwrap();
         let company = format!("machines_{}_test", uuid::Uuid::new_v4().simple());
         let assignments = company_assignments(&pool, &company).await.unwrap();
-        assert_eq!(assignments.len(), 1, "a company never assigned runs on the plane");
-        assert_eq!((assignments[0].machine_id.as_str(), assignments[0].role.as_str()), (PLANE_MACHINE, ROLE_MAIN));
+        assert_eq!(
+            assignments.len(),
+            1,
+            "a company never assigned runs on the plane"
+        );
+        assert_eq!(
+            (
+                assignments[0].machine_id.as_str(),
+                assignments[0].role.as_str()
+            ),
+            (PLANE_MACHINE, ROLE_MAIN)
+        );
     }
 
     #[test]

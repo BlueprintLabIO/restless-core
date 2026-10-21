@@ -62,7 +62,11 @@ pub async fn ensure_schema(pool: &sqlx::PgPool) -> Result<()> {
         ("authority_direction_decision_once", DECISION, "request_id"),
         ("authority_direction_outcome_once", OUTCOME, "request_id"),
         ("authority_direction_undone_once", UNDONE, "applied_id"),
-        ("authority_direction_grant_revoked_once", GRANT_REVOKED, "grant_id"),
+        (
+            "authority_direction_grant_revoked_once",
+            GRANT_REVOKED,
+            "grant_id",
+        ),
     ] {
         sqlx::query(&format!(
             "CREATE UNIQUE INDEX IF NOT EXISTS {name} ON restless_authority.records \
@@ -88,13 +92,21 @@ impl Names {
             .await?
             .into_iter()
             .map(|actor| {
-                let name = if actor.display.trim().is_empty() { actor.id.clone() } else { actor.display.clone() };
+                let name = if actor.display.trim().is_empty() {
+                    actor.id.clone()
+                } else {
+                    actor.display.clone()
+                };
                 (actor.id, name)
             })
             .collect();
         let mut teams = HashMap::new();
         for team in org.list_teams().await? {
-            let entry = (team.id, team.name.clone(), team.responsible_actor_id.clone());
+            let entry = (
+                team.id,
+                team.name.clone(),
+                team.responsible_actor_id.clone(),
+            );
             teams.insert(team.id.to_string(), entry.clone());
             teams.insert(team.name.to_lowercase(), entry);
         }
@@ -104,7 +116,11 @@ impl Names {
     pub fn person(&self, actor_id: &str) -> DirectionPerson {
         DirectionPerson {
             actor_id: actor_id.to_string(),
-            name: self.actors.get(actor_id).cloned().unwrap_or_else(|| actor_id.to_string()),
+            name: self
+                .actors
+                .get(actor_id)
+                .cloned()
+                .unwrap_or_else(|| actor_id.to_string()),
         }
     }
 
@@ -117,13 +133,19 @@ impl Names {
     }
 
     fn team_view(&self, reference: &str) -> Option<DirectionTeam> {
-        self.team(reference).map(|(id, name, _)| DirectionTeam { id: id.to_string(), name })
+        self.team(reference).map(|(id, name, _)| DirectionTeam {
+            id: id.to_string(),
+            name,
+        })
     }
 }
 
 /// Whoever owns the company's direction: the Authority owner when one is recorded, else `owner`.
 pub async fn company_owner(authority: &AuthorityStore, company: &str) -> Result<String> {
-    Ok(authority.current_authority_owner(company).await?.unwrap_or_else(|| "owner".into()))
+    Ok(authority
+        .current_authority_owner(company)
+        .await?
+        .unwrap_or_else(|| "owner".into()))
 }
 
 /// Whoever owns direction for a team: its person when it has one, otherwise the owner.
@@ -142,7 +164,10 @@ pub async fn routed_to(
 fn grantable(class: DirectionClass) -> bool {
     matches!(
         class,
-        DirectionClass::Content | DirectionClass::Work | DirectionClass::Staffing | DirectionClass::Schedule
+        DirectionClass::Content
+            | DirectionClass::Work
+            | DirectionClass::Staffing
+            | DirectionClass::Schedule
     )
 }
 
@@ -210,15 +235,25 @@ pub async fn record_applied(
     input: AppliedInput<'_>,
 ) -> Result<Uuid> {
     let summary = one_line("summary", input.summary)?;
-    let (path, grant, routed) =
-        classify(authority, company, names, input.requester, Some(input.class), input.team).await?;
+    let (path, grant, routed) = classify(
+        authority,
+        company,
+        names,
+        input.requester,
+        Some(input.class),
+        input.team,
+    )
+    .await?;
     if path == DirectionPath::AskFirst && input.request.is_none() {
         bail!(
             "This change needs approval first: file it with `restless request file`, then apply it once it is approved."
         );
     }
     let id = Uuid::new_v4();
-    let team = input.team.and_then(|team| names.team(team)).map(|(id, _, _)| id.to_string());
+    let team = input
+        .team
+        .and_then(|team| names.team(team))
+        .map(|(id, _, _)| id.to_string());
     authority
         .emit(
             company,
@@ -274,7 +309,10 @@ pub async fn file_request(
             names.person(input.requester).name
         );
     }
-    let team = input.team.and_then(|team| names.team(team)).map(|(id, _, _)| id.to_string());
+    let team = input
+        .team
+        .and_then(|team| names.team(team))
+        .map(|(id, _, _)| id.to_string());
     let id = Uuid::new_v4();
     authority
         .emit(
@@ -294,7 +332,9 @@ pub async fn file_request(
             }),
         )
         .await?;
-    request(authority, company, names, id, None).await?.ok_or_else(|| anyhow!("request vanished"))
+    request(authority, company, names, id, None)
+        .await?
+        .ok_or_else(|| anyhow!("request vanished"))
 }
 
 /// Who is deciding or undoing: a person's own id, and whether they act with the owner's say (the
@@ -314,7 +354,11 @@ impl<'a> From<&'a str> for Acting<'a> {
 impl Acting<'_> {
     /// The viewer the store shows this person: everything, when they act with the owner's say.
     fn viewer(&self) -> &str {
-        if self.owner { "owner" } else { self.id }
+        if self.owner {
+            "owner"
+        } else {
+            self.id
+        }
     }
 }
 
@@ -331,7 +375,9 @@ pub async fn decide(
 ) -> std::result::Result<DirectionRequest, DirectionError> {
     let acting = decider.into();
     let decider = acting.id;
-    let Some(current) = request(authority, company, names, request_id, Some(acting.viewer())).await? else {
+    let Some(current) =
+        request(authority, company, names, request_id, Some(acting.viewer())).await?
+    else {
         return Err(DirectionError::Missing("That request is not there.".into()));
     };
     let owner = company_owner(authority, company).await?;
@@ -366,7 +412,9 @@ pub async fn decide(
     let mut team_owner = None;
     if approve && input.make_team_owner == Some(true) {
         let Some(person) = current.offers.make_team_owner.clone() else {
-            return Err(DirectionError::Invalid("This team already has a person.".into()));
+            return Err(DirectionError::Invalid(
+                "This team already has a person.".into(),
+            ));
         };
         team_owner = Some(person);
     }
@@ -432,9 +480,11 @@ pub async fn decide(
         .await
         .map_err(|error| anyhow!("{error}"))?;
     }
-    Ok(request(authority, company, names, request_id, Some(acting.viewer()))
-        .await?
-        .ok_or_else(|| anyhow!("request vanished"))?)
+    Ok(
+        request(authority, company, names, request_id, Some(acting.viewer()))
+            .await?
+            .ok_or_else(|| anyhow!("request vanished"))?,
+    )
 }
 
 fn already(decision: &DirectionDecision) -> DirectionError {
@@ -503,9 +553,13 @@ pub async fn revoke_grant(
     grant_id: Uuid,
     by: &str,
 ) -> std::result::Result<(), DirectionError> {
-    let exists = authority.find_record(company, GRANT, "id", &grant_id.to_string()).await?;
+    let exists = authority
+        .find_record(company, GRANT, "id", &grant_id.to_string())
+        .await?;
     if exists.is_none() {
-        return Err(DirectionError::Missing("That permission is not there.".into()));
+        return Err(DirectionError::Missing(
+            "That permission is not there.".into(),
+        ));
     }
     sqlx::query(
         "INSERT INTO restless_authority.records (company, kind, actor_id, body) \
@@ -522,7 +576,9 @@ pub async fn revoke_grant(
 }
 
 fn uuid_field(body: &Value, field: &str) -> Option<Uuid> {
-    body.get(field).and_then(Value::as_str).and_then(|value| Uuid::parse_str(value).ok())
+    body.get(field)
+        .and_then(Value::as_str)
+        .and_then(|value| Uuid::parse_str(value).ok())
 }
 
 fn string_field(body: &Value, field: &str) -> Option<String> {
@@ -552,14 +608,24 @@ pub async fn active_grants(
     let revoked = by_field(authority, company, GRANT_REVOKED, "grant_id").await?;
     let mut grants = Vec::new();
     for record in authority.records_of_kind(company, GRANT).await? {
-        let Some(id) = uuid_field(&record.body, "id") else { continue };
+        let Some(id) = uuid_field(&record.body, "id") else {
+            continue;
+        };
         if revoked.contains_key(&id.to_string()) {
             continue;
         }
-        let Ok(grantee) = serde_json::from_value::<Grantee>(record.body["grantee"].clone()) else { continue };
-        let Ok(class) = serde_json::from_value::<DirectionClass>(record.body["class"].clone()) else { continue };
-        let Ok(scope) = serde_json::from_value::<GrantScope>(record.body["scope"].clone()) else { continue };
-        let granted_by = names.person(&string_field(&record.body, "granted_by").unwrap_or_default());
+        let Ok(grantee) = serde_json::from_value::<Grantee>(record.body["grantee"].clone()) else {
+            continue;
+        };
+        let Ok(class) = serde_json::from_value::<DirectionClass>(record.body["class"].clone())
+        else {
+            continue;
+        };
+        let Ok(scope) = serde_json::from_value::<GrantScope>(record.body["scope"].clone()) else {
+            continue;
+        };
+        let granted_by =
+            names.person(&string_field(&record.body, "granted_by").unwrap_or_default());
         let label = grant_label(&grantee, class, &scope);
         grants.push(DirectionGrant {
             id,
@@ -605,13 +671,20 @@ pub async fn request(
     id: Uuid,
     viewer: Option<&str>,
 ) -> Result<Option<DirectionRequest>> {
-    let Some(record) = authority.find_record(company, REQUEST, "id", &id.to_string()).await? else {
+    let Some(record) = authority
+        .find_record(company, REQUEST, "id", &id.to_string())
+        .await?
+    else {
         return Ok(None);
     };
-    let decision = authority.find_record(company, DECISION, "request_id", &id.to_string()).await?;
+    let decision = authority
+        .find_record(company, DECISION, "request_id", &id.to_string())
+        .await?;
     let outcome = latest_outcome(authority, company, id).await?;
     let owner = company_owner(authority, company).await?;
-    Ok(Some(request_view(names, &owner, record, decision, outcome, viewer)))
+    Ok(Some(request_view(
+        names, &owner, record, decision, outcome, viewer,
+    )))
 }
 
 /// The outcome that stands: the newest retry, else the first outcome.
@@ -621,10 +694,15 @@ async fn latest_outcome(
     id: Uuid,
 ) -> Result<Option<AuthorityRecord>> {
     let key = id.to_string();
-    if let Some(retried) = authority.find_record(company, RETRIED, "request_id", &key).await? {
+    if let Some(retried) = authority
+        .find_record(company, RETRIED, "request_id", &key)
+        .await?
+    {
         return Ok(Some(retried));
     }
-    authority.find_record(company, OUTCOME, "request_id", &key).await
+    authority
+        .find_record(company, OUTCOME, "request_id", &key)
+        .await
 }
 
 fn failed(outcome: Option<&AuthorityRecord>) -> bool {
@@ -642,7 +720,9 @@ fn request_view(
     let body = &record.body;
     let requester = names.person(&string_field(body, "requester").unwrap_or_default());
     let routed_to = names.person(&string_field(body, "routed_to").unwrap_or_default());
-    let class = serde_json::from_value::<Option<DirectionClass>>(body["class"].clone()).ok().flatten();
+    let class = serde_json::from_value::<Option<DirectionClass>>(body["class"].clone())
+        .ok()
+        .flatten();
     let team_ref = string_field(body, "team");
     let team = team_ref.as_deref().and_then(|team| names.team_view(team));
     let decision = decision.map(|record| {
@@ -664,17 +744,23 @@ fn request_view(
         }
         (Some(_), None) => (RequestState::Approved, None, None),
         (Some(_), Some(outcome)) => {
-            let target = serde_json::from_value::<Option<DirectionTarget>>(outcome.body["target"].clone())
-                .ok()
-                .flatten();
+            let target =
+                serde_json::from_value::<Option<DirectionTarget>>(outcome.body["target"].clone())
+                    .ok()
+                    .flatten();
             if outcome.body["result"] == "failed" {
-                (RequestState::Failed, string_field(&outcome.body, "failure"), target)
+                (
+                    RequestState::Failed,
+                    string_field(&outcome.body, "failure"),
+                    target,
+                )
             } else {
                 (RequestState::Done, None, target)
             }
         }
     };
-    let may_decide = viewer.is_some_and(|viewer| viewer == routed_to.actor_id || viewer == owner || viewer == "owner");
+    let may_decide = viewer
+        .is_some_and(|viewer| viewer == routed_to.actor_id || viewer == owner || viewer == "owner");
     let offers = if decision.is_none() && may_decide {
         let always_allow = class.filter(|class| grantable(*class)).map(|class| {
             let grantee = Grantee::Person(requester.clone());
@@ -687,7 +773,11 @@ fn request_view(
                 GrantScope::Company => "the company".into(),
             };
             GrantOffer {
-                label: format!("Always allow {} to change {} for {place}", requester.name, class_words(class)),
+                label: format!(
+                    "Always allow {} to change {} for {place}",
+                    requester.name,
+                    class_words(class)
+                ),
                 grantee,
                 class,
                 scope,
@@ -702,7 +792,10 @@ fn request_view(
             make_team_owner: unowned_team.then(|| requester.clone()),
         }
     } else {
-        RequestOffers { always_allow: None, make_team_owner: None }
+        RequestOffers {
+            always_allow: None,
+            make_team_owner: None,
+        }
     };
     DirectionRequest {
         id: uuid_field(body, "id").unwrap_or_default(),
@@ -738,7 +831,12 @@ pub async fn requests(
     let mut outcomes = by_field(authority, company, OUTCOME, "request_id").await?;
     outcomes.extend(by_field(authority, company, RETRIED, "request_id").await?);
     let mut out = Vec::new();
-    for record in authority.records_of_kind(company, REQUEST).await?.into_iter().rev() {
+    for record in authority
+        .records_of_kind(company, REQUEST)
+        .await?
+        .into_iter()
+        .rev()
+    {
         let id = string_field(&record.body, "id").unwrap_or_default();
         let requester = string_field(&record.body, "requester").unwrap_or_default();
         let routed = string_field(&record.body, "routed_to").unwrap_or_default();
@@ -784,7 +882,12 @@ pub async fn applied(
     let viewer_is_owner = viewer == owner || viewer == "owner";
     let undone = by_field(authority, company, UNDONE, "applied_id").await?;
     let mut out = Vec::new();
-    for record in authority.records_of_kind(company, APPLIED).await?.into_iter().rev() {
+    for record in authority
+        .records_of_kind(company, APPLIED)
+        .await?
+        .into_iter()
+        .rev()
+    {
         if since.is_some_and(|since| record.created_at < since) {
             continue;
         }
@@ -802,7 +905,11 @@ pub async fn applied(
     Ok(out)
 }
 
-fn applied_view(names: &Names, record: AuthorityRecord, undone: Option<&AuthorityRecord>) -> DirectionApplied {
+fn applied_view(
+    names: &Names,
+    record: AuthorityRecord,
+    undone: Option<&AuthorityRecord>,
+) -> DirectionApplied {
     let body = &record.body;
     let undo = match undone {
         Some(undone) if undone.body["result"] == "changed_since" => UndoState::ChangedSince,
@@ -812,7 +919,11 @@ fn applied_view(names: &Names, record: AuthorityRecord, undone: Option<&Authorit
         },
         None => {
             let until = record.created_at + Duration::days(UNDO_WINDOW_DAYS);
-            if Utc::now() > until { UndoState::Expired } else { UndoState::Available { until } }
+            if Utc::now() > until {
+                UndoState::Expired
+            } else {
+                UndoState::Available { until }
+            }
         }
     };
     DirectionApplied {
@@ -842,7 +953,10 @@ pub async fn undo(
 ) -> std::result::Result<DirectionApplied, DirectionError> {
     let acting = by.into();
     let by = acting.id;
-    let Some(record) = authority.find_record(company, APPLIED, "id", &applied_id.to_string()).await? else {
+    let Some(record) = authority
+        .find_record(company, APPLIED, "id", &applied_id.to_string())
+        .await?
+    else {
         return Err(DirectionError::Missing("That change is not there.".into()));
     };
     let owner = company_owner(authority, company).await?;
@@ -853,8 +967,14 @@ pub async fn undo(
             names.person(&routed).name
         )));
     }
-    if authority.find_record(company, UNDONE, "applied_id", &applied_id.to_string()).await?.is_some() {
-        let undone = authority.find_record(company, UNDONE, "applied_id", &applied_id.to_string()).await?;
+    if authority
+        .find_record(company, UNDONE, "applied_id", &applied_id.to_string())
+        .await?
+        .is_some()
+    {
+        let undone = authority
+            .find_record(company, UNDONE, "applied_id", &applied_id.to_string())
+            .await?;
         return Ok(applied_view(names, record, undone.as_ref()));
     }
     if Utc::now() > record.created_at + Duration::days(UNDO_WINDOW_DAYS) {
@@ -885,7 +1005,9 @@ pub async fn undo(
             tracing::warn!(%error, "could not tell the requester about an undo");
         }
     }
-    let undone = authority.find_record(company, UNDONE, "applied_id", &applied_id.to_string()).await?;
+    let undone = authority
+        .find_record(company, UNDONE, "applied_id", &applied_id.to_string())
+        .await?;
     Ok(applied_view(names, record, undone.as_ref()))
 }
 
@@ -901,24 +1023,50 @@ async fn restore(
     match handle {
         UndoHandle::Content { before, after } => {
             if let (Some(team), Some(brief)) = (before.get("team_id"), before.get("brief")) {
-                let team_id = team.as_str().and_then(|team| Uuid::parse_str(team).ok())
-                    .ok_or_else(|| DirectionError::Invalid("The undo handle names no team.".into()))?;
-                let current = org.list_teams().await.map_err(store)?.into_iter().find(|row| row.id == team_id)
+                let team_id = team
+                    .as_str()
+                    .and_then(|team| Uuid::parse_str(team).ok())
+                    .ok_or_else(|| {
+                        DirectionError::Invalid("The undo handle names no team.".into())
+                    })?;
+                let current = org
+                    .list_teams()
+                    .await
+                    .map_err(store)?
+                    .into_iter()
+                    .find(|row| row.id == team_id)
                     .ok_or_else(|| DirectionError::Missing("That team is gone.".into()))?;
                 if after.get("brief").and_then(Value::as_str) != Some(current.brief.as_str()) {
                     return Ok("changed_since");
                 }
-                org.update_team(team_id, None, brief.as_str(), by, reason).await.map_err(store)?;
+                org.update_team(team_id, None, brief.as_str(), by, reason)
+                    .await
+                    .map_err(store)?;
                 return Ok("undone");
             }
-            if let (Some(document), Some(version)) = (before.get("document_id"), before.get("version_id")) {
-                let document_id = document.as_str().and_then(|value| Uuid::parse_str(value).ok());
-                let version_id = version.as_str().and_then(|value| Uuid::parse_str(value).ok());
-                let expected = after.get("version_id").and_then(Value::as_str).and_then(|value| Uuid::parse_str(value).ok());
-                let (Some(document_id), Some(version_id), Some(expected)) = (document_id, version_id, expected) else {
-                    return Err(DirectionError::Invalid("The undo handle names no document version.".into()));
+            if let (Some(document), Some(version)) =
+                (before.get("document_id"), before.get("version_id"))
+            {
+                let document_id = document
+                    .as_str()
+                    .and_then(|value| Uuid::parse_str(value).ok());
+                let version_id = version
+                    .as_str()
+                    .and_then(|value| Uuid::parse_str(value).ok());
+                let expected = after
+                    .get("version_id")
+                    .and_then(Value::as_str)
+                    .and_then(|value| Uuid::parse_str(value).ok());
+                let (Some(document_id), Some(version_id), Some(expected)) =
+                    (document_id, version_id, expected)
+                else {
+                    return Err(DirectionError::Invalid(
+                        "The undo handle names no document version.".into(),
+                    ));
                 };
-                let view = org.get_document_for_actor(document_id, by).await
+                let view = org
+                    .get_document_for_actor(document_id, by)
+                    .await
                     .map_err(|error| DirectionError::Store(anyhow!("{error}")))?;
                 if view.document.current_named_version_id != expected {
                     return Ok("changed_since");
@@ -939,8 +1087,15 @@ async fn restore(
                 "This change cannot be undone here. Open it to revert it by hand.".into(),
             ))
         }
-        UndoHandle::Staffing { actor_id, before, after } => {
-            let current = org.active_actor(actor_id).await.map_err(store)?
+        UndoHandle::Staffing {
+            actor_id,
+            before,
+            after,
+        } => {
+            let current = org
+                .active_actor(actor_id)
+                .await
+                .map_err(store)?
                 .ok_or_else(|| DirectionError::Missing("That agent is gone.".into()))?;
             if after.get("model").and_then(Value::as_str) != current.model.as_deref() {
                 return Ok("changed_since");
@@ -950,37 +1105,66 @@ async fn restore(
                     "This change cannot be undone here. Open it to revert it by hand.".into(),
                 ));
             };
-            org.update_actor_model(actor_id, model).await.map_err(store)?;
+            org.update_actor_model(actor_id, model)
+                .await
+                .map_err(store)?;
             Ok("undone")
         }
-        UndoHandle::Schedule { schedule_id, before, .. } => {
+        UndoHandle::Schedule {
+            schedule_id,
+            before,
+            ..
+        } => {
             // A schedule the change created goes; any other change is reverted by hand.
             if before.is_null() {
                 let schedule = org.get_schedule(*schedule_id).await.map_err(store)?;
-                if schedule.as_ref().is_some_and(|row| row.cancelled_at.is_some()) || schedule.is_none() {
+                if schedule
+                    .as_ref()
+                    .is_some_and(|row| row.cancelled_at.is_some())
+                    || schedule.is_none()
+                {
                     return Ok("changed_since");
                 }
-                org.cancel_schedule(*schedule_id, by, reason).await.map_err(store)?;
+                org.cancel_schedule(*schedule_id, by, reason)
+                    .await
+                    .map_err(store)?;
                 return Ok("undone");
             }
             Err(DirectionError::Invalid(
                 "This change cannot be undone here. Open the schedule to revert it by hand.".into(),
             ))
         }
-        UndoHandle::Work { work_id, before, after } => {
-            let current = org.get_work(*work_id).await.map_err(store)?
+        UndoHandle::Work {
+            work_id,
+            before,
+            after,
+        } => {
+            let current = org
+                .get_work(*work_id)
+                .await
+                .map_err(store)?
                 .ok_or_else(|| DirectionError::Missing("That Work is gone.".into()))?;
             // Who owns it: hand it back, unless someone moved it again since.
             if let Some(owner) = before.get("owner_id").and_then(Value::as_str) {
-                if after.get("owner_id").and_then(Value::as_str) != Some(current.owner_id.as_str()) {
+                if after.get("owner_id").and_then(Value::as_str) != Some(current.owner_id.as_str())
+                {
                     return Ok("changed_since");
                 }
-                org.reassign_work(*work_id, owner, by, reason).await.map_err(store)?;
+                org.reassign_work(*work_id, owner, by, reason)
+                    .await
+                    .map_err(store)?;
                 return Ok("undone");
             }
             // Which goal it serves: put it back under the old one.
-            if let Some(goal) = before.get("goal_id").and_then(Value::as_str).and_then(|goal| Uuid::parse_str(goal).ok()) {
-                let expected = after.get("goal_id").and_then(Value::as_str).and_then(|goal| Uuid::parse_str(goal).ok());
+            if let Some(goal) = before
+                .get("goal_id")
+                .and_then(Value::as_str)
+                .and_then(|goal| Uuid::parse_str(goal).ok())
+            {
+                let expected = after
+                    .get("goal_id")
+                    .and_then(Value::as_str)
+                    .and_then(|goal| Uuid::parse_str(goal).ok());
                 if expected != current.goal_id {
                     return Ok("changed_since");
                 }
@@ -1005,22 +1189,48 @@ pub async fn execute(
 ) -> std::result::Result<Value, DirectionError> {
     let names = Names::read(org).await?;
     Ok(match operation {
-        DirectionOperation::Path { requester, class, team } => {
-            let (path, grant, routed) =
-                classify(authority, company, &names, &requester, class, team.as_deref()).await?;
+        DirectionOperation::Path {
+            requester,
+            class,
+            team,
+        } => {
+            let (path, grant, routed) = classify(
+                authority,
+                company,
+                &names,
+                &requester,
+                class,
+                team.as_deref(),
+            )
+            .await?;
             json!({ "path": path, "grant_id": grant, "routed_to": names.person(&routed) })
         }
-        DirectionOperation::Applied { requester, class, team, summary, target, undo, source_message, request } => {
-            let id = record_applied(authority, company, &names, by, AppliedInput {
-                requester: &requester,
-                source_message: source_message.as_deref(),
-                class,
-                team: team.as_deref(),
-                summary: &summary,
-                target: target.clone(),
-                undo,
-                request,
-            })
+        DirectionOperation::Applied {
+            requester,
+            class,
+            team,
+            summary,
+            target,
+            undo,
+            source_message,
+            request,
+        } => {
+            let id = record_applied(
+                authority,
+                company,
+                &names,
+                by,
+                AppliedInput {
+                    requester: &requester,
+                    source_message: source_message.as_deref(),
+                    class,
+                    team: team.as_deref(),
+                    summary: &summary,
+                    target: target.clone(),
+                    undo,
+                    request,
+                },
+            )
             .await
             .map_err(|error| DirectionError::Invalid(format!("{error:#}")))?;
             if let Some(request) = request {
@@ -1034,19 +1244,36 @@ pub async fn execute(
                 .unwrap_or_default();
             json!({ "id": id, "told": routed, "say": format!("Done. {routed} can undo it.") })
         }
-        DirectionOperation::RequestFile { requester, class, team, summary, change, reason, source_message } => {
-            let filed = file_request(authority, company, &names, by, RequestInput {
-                requester: &requester,
-                class,
-                team: team.as_deref(),
-                summary: &summary,
-                change: &change,
-                reason: &reason,
-                source_message: source_message.as_deref(),
-            })
+        DirectionOperation::RequestFile {
+            requester,
+            class,
+            team,
+            summary,
+            change,
+            reason,
+            source_message,
+        } => {
+            let filed = file_request(
+                authority,
+                company,
+                &names,
+                by,
+                RequestInput {
+                    requester: &requester,
+                    class,
+                    team: team.as_deref(),
+                    summary: &summary,
+                    change: &change,
+                    reason: &reason,
+                    source_message: source_message.as_deref(),
+                },
+            )
             .await
             .map_err(|error| DirectionError::Invalid(format!("{error:#}")))?;
-            let say = format!("Asked {}: {} · Pending", filed.routed_to.name, filed.summary);
+            let say = format!(
+                "Asked {}: {} · Pending",
+                filed.routed_to.name, filed.summary
+            );
             json!({ "request": filed, "say": say })
         }
         DirectionOperation::RequestShow { id } => {
@@ -1055,8 +1282,21 @@ pub async fn execute(
                 .ok_or_else(|| DirectionError::Missing("That request is not there.".into()))?;
             serde_json::to_value(found).map_err(|error| DirectionError::Store(error.into()))?
         }
-        DirectionOperation::RequestDone { id, target, failure } => {
-            let done = record_outcome(authority, company, &names, id, by, target, failure.as_deref()).await?;
+        DirectionOperation::RequestDone {
+            id,
+            target,
+            failure,
+        } => {
+            let done = record_outcome(
+                authority,
+                company,
+                &names,
+                id,
+                by,
+                target,
+                failure.as_deref(),
+            )
+            .await?;
             serde_json::to_value(done).map_err(|error| DirectionError::Store(error.into()))?
         }
         DirectionOperation::Grants => {
@@ -1070,13 +1310,41 @@ pub async fn execute(
             let proposal = charter_proposal(authority, company, &names, &revision).await?;
             json!({ "markdown": config.mission, "revision": revision, "proposal": proposal })
         }
-        DirectionOperation::CharterApply { requester, markdown, source_message } => {
-            charter_apply(authority, root, company, &names, by, &requester, markdown, source_message.as_deref())
-                .await?
+        DirectionOperation::CharterApply {
+            requester,
+            markdown,
+            source_message,
+        } => {
+            charter_apply(
+                authority,
+                root,
+                company,
+                &names,
+                by,
+                &requester,
+                markdown,
+                source_message.as_deref(),
+            )
+            .await?
         }
-        DirectionOperation::CharterPropose { requester, markdown, reason, source_message } => {
-            charter_propose(authority, root, company, &names, by, &requester, markdown, &reason, source_message.as_deref())
-                .await?
+        DirectionOperation::CharterPropose {
+            requester,
+            markdown,
+            reason,
+            source_message,
+        } => {
+            charter_propose(
+                authority,
+                root,
+                company,
+                &names,
+                by,
+                &requester,
+                markdown,
+                &reason,
+                source_message.as_deref(),
+            )
+            .await?
         }
     })
 }
@@ -1092,12 +1360,24 @@ pub async fn charter_proposal(
     names: &Names,
     current_revision: &str,
 ) -> std::result::Result<Option<CharterProposal>, DirectionError> {
-    let Some(record) = authority.recent_records_of_kind(company, CHARTER_PROPOSAL, 1).await?.into_iter().next() else {
+    let Some(record) = authority
+        .recent_records_of_kind(company, CHARTER_PROPOSAL, 1)
+        .await?
+        .into_iter()
+        .next()
+    else {
         return Ok(None);
     };
-    let Some(id) = uuid_field(&record.body, "id") else { return Ok(None) };
+    let Some(id) = uuid_field(&record.body, "id") else {
+        return Ok(None);
+    };
     if authority
-        .find_record(company, CHARTER_PROPOSAL_RESOLVED, "proposal_id", &id.to_string())
+        .find_record(
+            company,
+            CHARTER_PROPOSAL_RESOLVED,
+            "proposal_id",
+            &id.to_string(),
+        )
         .await?
         .is_some()
     {
@@ -1131,7 +1411,12 @@ pub async fn resolve_charter_proposal(
     resolution: &str,
 ) -> Result<()> {
     if authority
-        .find_record(company, CHARTER_PROPOSAL_RESOLVED, "proposal_id", &proposal_id.to_string())
+        .find_record(
+            company,
+            CHARTER_PROPOSAL_RESOLVED,
+            "proposal_id",
+            &proposal_id.to_string(),
+        )
         .await?
         .is_some()
     {
@@ -1169,7 +1454,8 @@ async fn charter_apply(
             names.person(&owner).name
         )));
     }
-    crate::authority::validate_mandate(&markdown).map_err(|error| DirectionError::Invalid(format!("{error:#}")))?;
+    crate::authority::validate_mandate(&markdown)
+        .map_err(|error| DirectionError::Invalid(format!("{error:#}")))?;
     let config = crate::runtime::CompanyConfig::load(root, company)
         .map_err(|error| DirectionError::Missing(format!("{error:#}")))?;
     let expected = crate::authority::mandate_revision(&markdown);
@@ -1210,7 +1496,8 @@ async fn charter_propose(
     reason: &str,
     source_message: Option<&str>,
 ) -> std::result::Result<Value, DirectionError> {
-    crate::authority::validate_mandate(&markdown).map_err(|error| DirectionError::Invalid(format!("{error:#}")))?;
+    crate::authority::validate_mandate(&markdown)
+        .map_err(|error| DirectionError::Invalid(format!("{error:#}")))?;
     let config = crate::runtime::CompanyConfig::load(root, company)
         .map_err(|error| DirectionError::Missing(format!("{error:#}")))?;
     let current = crate::authority::mandate_revision(&config.mission);
@@ -1275,7 +1562,10 @@ pub async fn digest(
         ));
     }
     if !waiting.is_empty() {
-        parts.push(format!("{} waiting", plural(waiting.len(), "request", "requests")));
+        parts.push(format!(
+            "{} waiting",
+            plural(waiting.len(), "request", "requests")
+        ));
     }
     Ok(DirectionDigest {
         day: day.to_string(),
@@ -1334,11 +1624,21 @@ mod tests {
             org.ensure_actor(id, kind, role, display).await.unwrap();
         }
         let studio = org
-            .create_team("Site Renovation Studio", "Renovate client sites", "studio-direction", "exec")
+            .create_team(
+                "Site Renovation Studio",
+                "Renovate client sites",
+                "studio-direction",
+                "exec",
+            )
             .await
             .unwrap();
         let authority = AuthorityStore::connect(&url).await.unwrap();
-        Some(Fixture { authority, org, company, studio })
+        Some(Fixture {
+            authority,
+            org,
+            company,
+            studio,
+        })
     }
 
     impl Fixture {
@@ -1358,15 +1658,30 @@ mod tests {
         let Some(f) = fixture("a").await else { return };
         let names = f.names().await;
         let team = f.studio.to_string();
-        let (path, grant, routed) =
-            classify(&f.authority, &f.company, &names, "human-bianca", Some(DirectionClass::Content), Some(&team))
-                .await
-                .unwrap();
-        assert_eq!((path, grant, routed.as_str()), (DirectionPath::ActThenTell, None, "owner"));
+        let (path, grant, routed) = classify(
+            &f.authority,
+            &f.company,
+            &names,
+            "human-bianca",
+            Some(DirectionClass::Content),
+            Some(&team),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            (path, grant, routed.as_str()),
+            (DirectionPath::ActThenTell, None, "owner")
+        );
 
         // Exec applies it, then records it with its undo handle.
         f.org
-            .update_team(f.studio, None, Some("Customer-facing copy speaks in first person as the business."), "exec", "Bianca asked")
+            .update_team(
+                f.studio,
+                None,
+                Some("Customer-facing copy speaks in first person as the business."),
+                "exec",
+                "Bianca asked",
+            )
             .await
             .unwrap();
         let id = record_applied(&f.authority, &f.company, &names, "exec", AppliedInput {
@@ -1385,23 +1700,44 @@ mod tests {
         .await
         .unwrap();
 
-        let seen = applied(&f.authority, &f.company, &names, "owner", None).await.unwrap();
+        let seen = applied(&f.authority, &f.company, &names, "owner", None)
+            .await
+            .unwrap();
         assert_eq!(seen.len(), 1);
         assert_eq!(seen[0].requester.name, "Bianca");
         assert!(matches!(seen[0].undo, UndoState::Available { .. }));
         // The member sees her own change, but may not undo it.
-        assert_eq!(applied(&f.authority, &f.company, &names, "human-bianca", None).await.unwrap().len(), 1);
+        assert_eq!(
+            applied(&f.authority, &f.company, &names, "human-bianca", None)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
         assert!(matches!(
             undo(&f.authority, &f.org, &f.company, &names, id, "human-bianca").await,
             Err(DirectionError::NotYours(_))
         ));
-        let undone = undo(&f.authority, &f.org, &f.company, &names, id, "owner").await.unwrap();
+        let undone = undo(&f.authority, &f.org, &f.company, &names, id, "owner")
+            .await
+            .unwrap();
         assert!(matches!(undone.undo, UndoState::Undone { .. }));
-        let brief = f.org.list_teams().await.unwrap().into_iter().find(|row| row.id == f.studio).unwrap().brief;
+        let brief = f
+            .org
+            .list_teams()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|row| row.id == f.studio)
+            .unwrap()
+            .brief;
         assert_eq!(brief, "Renovate client sites");
         // Undoing again changes nothing.
         assert!(matches!(
-            undo(&f.authority, &f.org, &f.company, &names, id, "owner").await.unwrap().undo,
+            undo(&f.authority, &f.org, &f.company, &names, id, "owner")
+                .await
+                .unwrap()
+                .undo,
             UndoState::Undone { .. }
         ));
         f.done().await;
@@ -1413,15 +1749,21 @@ mod tests {
         let Some(f) = fixture("w").await else { return };
         let names = f.names().await;
         let team = f.studio.to_string();
-        let filed = file_request(&f.authority, &f.company, &names, "exec", RequestInput {
-            requester: "human-bodhi",
-            class: Some(DirectionClass::Staffing),
-            team: Some(&team),
-            summary: "Give the designer a stronger model",
-            change: "Set designer-ui's model to the strongest model",
-            reason: "Drafts come back text-heavy",
-            source_message: None,
-        })
+        let filed = file_request(
+            &f.authority,
+            &f.company,
+            &names,
+            "exec",
+            RequestInput {
+                requester: "human-bodhi",
+                class: Some(DirectionClass::Staffing),
+                team: Some(&team),
+                summary: "Give the designer a stronger model",
+                change: "Set designer-ui's model to the strongest model",
+                reason: "Drafts come back text-heavy",
+                source_message: None,
+            },
+        )
         .await
         .unwrap();
         let input = |decision| DirectionDecisionInput {
@@ -1431,19 +1773,48 @@ mod tests {
             make_team_owner: None,
         };
         assert!(matches!(
-            decide(&f.authority, &f.org, &f.company, &names, filed.id, "human-bodhi", &input(DirectionDecisionKind::Approve)).await,
+            decide(
+                &f.authority,
+                &f.org,
+                &f.company,
+                &names,
+                filed.id,
+                "human-bodhi",
+                &input(DirectionDecisionKind::Approve)
+            )
+            .await,
             Err(DirectionError::NotYours(_))
         ));
         assert!(matches!(
-            decide(&f.authority, &f.org, &f.company, &names, filed.id, "human-bianca", &input(DirectionDecisionKind::Decline)).await,
+            decide(
+                &f.authority,
+                &f.org,
+                &f.company,
+                &names,
+                filed.id,
+                "human-bianca",
+                &input(DirectionDecisionKind::Decline)
+            )
+            .await,
             Err(DirectionError::NotYours(_))
         ));
-        let withdrawn = decide(&f.authority, &f.org, &f.company, &names, filed.id, "human-bodhi", &input(DirectionDecisionKind::Decline))
-            .await
-            .unwrap();
+        let withdrawn = decide(
+            &f.authority,
+            &f.org,
+            &f.company,
+            &names,
+            filed.id,
+            "human-bodhi",
+            &input(DirectionDecisionKind::Decline),
+        )
+        .await
+        .unwrap();
         assert_eq!(withdrawn.state, RequestState::Declined);
         assert_eq!(withdrawn.decision.unwrap().by.actor_id, "human-bodhi");
-        assert!(requests(&f.authority, &f.company, &names, "owner", false).await.unwrap().is_empty());
+        assert!(requests(&f.authority, &f.company, &names, "owner", false)
+            .await
+            .unwrap()
+            .is_empty());
         f.done().await;
     }
 
@@ -1454,15 +1825,21 @@ mod tests {
         let Some(f) = fixture("f").await else { return };
         let names = f.names().await;
         let team = f.studio.to_string();
-        let filed = file_request(&f.authority, &f.company, &names, "exec", RequestInput {
-            requester: "human-bodhi",
-            class: Some(DirectionClass::Staffing),
-            team: Some(&team),
-            summary: "Give the designer a stronger model",
-            change: "Set designer-ui's model to the strongest model",
-            reason: "",
-            source_message: None,
-        })
+        let filed = file_request(
+            &f.authority,
+            &f.company,
+            &names,
+            "exec",
+            RequestInput {
+                requester: "human-bodhi",
+                class: Some(DirectionClass::Staffing),
+                team: Some(&team),
+                summary: "Give the designer a stronger model",
+                change: "Set designer-ui's model to the strongest model",
+                reason: "",
+                source_message: None,
+            },
+        )
         .await
         .unwrap();
         let approve = DirectionDecisionInput {
@@ -1471,23 +1848,68 @@ mod tests {
             always_allow: None,
             make_team_owner: None,
         };
-        decide(&f.authority, &f.org, &f.company, &names, filed.id, "owner", &approve).await.unwrap();
-        assert!(requests(&f.authority, &f.company, &names, "owner", false).await.unwrap().is_empty());
-        let failed = record_outcome(&f.authority, &f.company, &names, filed.id, "exec", None, Some("model unavailable"))
+        decide(
+            &f.authority,
+            &f.org,
+            &f.company,
+            &names,
+            filed.id,
+            "owner",
+            &approve,
+        )
+        .await
+        .unwrap();
+        assert!(requests(&f.authority, &f.company, &names, "owner", false)
             .await
-            .unwrap();
+            .unwrap()
+            .is_empty());
+        let failed = record_outcome(
+            &f.authority,
+            &f.company,
+            &names,
+            filed.id,
+            "exec",
+            None,
+            Some("model unavailable"),
+        )
+        .await
+        .unwrap();
         assert_eq!(failed.state, RequestState::Failed);
-        let back = requests(&f.authority, &f.company, &names, "owner", false).await.unwrap();
+        let back = requests(&f.authority, &f.company, &names, "owner", false)
+            .await
+            .unwrap();
         assert_eq!((back.len(), back[0].state), (1, RequestState::Failed));
-        let target = DirectionTarget::Agent { actor_id: "studio-design".into(), name: "Dani".into() };
-        let done = record_outcome(&f.authority, &f.company, &names, filed.id, "exec", Some(target.clone()), None)
-            .await
-            .unwrap();
+        let target = DirectionTarget::Agent {
+            actor_id: "studio-design".into(),
+            name: "Dani".into(),
+        };
+        let done = record_outcome(
+            &f.authority,
+            &f.company,
+            &names,
+            filed.id,
+            "exec",
+            Some(target.clone()),
+            None,
+        )
+        .await
+        .unwrap();
         assert_eq!(done.state, RequestState::Done);
-        assert!(requests(&f.authority, &f.company, &names, "owner", false).await.unwrap().is_empty());
-        let again = record_outcome(&f.authority, &f.company, &names, filed.id, "exec", Some(target), Some("again"))
+        assert!(requests(&f.authority, &f.company, &names, "owner", false)
             .await
-            .unwrap();
+            .unwrap()
+            .is_empty());
+        let again = record_outcome(
+            &f.authority,
+            &f.company,
+            &names,
+            filed.id,
+            "exec",
+            Some(target),
+            Some("again"),
+        )
+        .await
+        .unwrap();
         assert_eq!(again.state, RequestState::Done);
         f.done().await;
     }
@@ -1498,26 +1920,59 @@ mod tests {
         let Some(f) = fixture("b").await else { return };
         let names = f.names().await;
         let team = f.studio.to_string();
-        f.org.update_team(f.studio, None, Some("First person."), "exec", "asked").await.unwrap();
-        let id = record_applied(&f.authority, &f.company, &names, "exec", AppliedInput {
-            requester: "human-bianca",
-            source_message: None,
-            class: DirectionClass::Content,
-            team: Some(&team),
-            summary: "First person",
-            target: DirectionTarget::TeamBrief { team: DirectionTeam { id: team.clone(), name: "Site Renovation Studio".into() } },
-            undo: UndoHandle::Content {
-                before: json!({ "team_id": team, "brief": "Renovate client sites" }),
-                after: json!({ "brief": "First person." }),
+        f.org
+            .update_team(f.studio, None, Some("First person."), "exec", "asked")
+            .await
+            .unwrap();
+        let id = record_applied(
+            &f.authority,
+            &f.company,
+            &names,
+            "exec",
+            AppliedInput {
+                requester: "human-bianca",
+                source_message: None,
+                class: DirectionClass::Content,
+                team: Some(&team),
+                summary: "First person",
+                target: DirectionTarget::TeamBrief {
+                    team: DirectionTeam {
+                        id: team.clone(),
+                        name: "Site Renovation Studio".into(),
+                    },
+                },
+                undo: UndoHandle::Content {
+                    before: json!({ "team_id": team, "brief": "Renovate client sites" }),
+                    after: json!({ "brief": "First person." }),
+                },
+                request: None,
             },
-            request: None,
-        })
+        )
         .await
         .unwrap();
-        f.org.update_team(f.studio, None, Some("First person, short sentences."), "owner", "edited").await.unwrap();
-        let result = undo(&f.authority, &f.org, &f.company, &names, id, "owner").await.unwrap();
+        f.org
+            .update_team(
+                f.studio,
+                None,
+                Some("First person, short sentences."),
+                "owner",
+                "edited",
+            )
+            .await
+            .unwrap();
+        let result = undo(&f.authority, &f.org, &f.company, &names, id, "owner")
+            .await
+            .unwrap();
         assert_eq!(result.undo, UndoState::ChangedSince);
-        let brief = f.org.list_teams().await.unwrap().into_iter().find(|row| row.id == f.studio).unwrap().brief;
+        let brief = f
+            .org
+            .list_teams()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|row| row.id == f.studio)
+            .unwrap()
+            .brief;
         assert_eq!(brief, "First person, short sentences.");
         f.done().await;
     }
@@ -1530,35 +1985,65 @@ mod tests {
         let Some(f) = fixture("c").await else { return };
         let names = f.names().await;
         let team = f.studio.to_string();
-        let (path, _, _) =
-            classify(&f.authority, &f.company, &names, "human-bodhi", Some(DirectionClass::Staffing), Some(&team))
-                .await
-                .unwrap();
+        let (path, _, _) = classify(
+            &f.authority,
+            &f.company,
+            &names,
+            "human-bodhi",
+            Some(DirectionClass::Staffing),
+            Some(&team),
+        )
+        .await
+        .unwrap();
         assert_eq!(path, DirectionPath::AskFirst);
-        let filed = file_request(&f.authority, &f.company, &names, "exec", RequestInput {
-            requester: "human-bodhi",
-            class: Some(DirectionClass::Staffing),
-            team: Some(&team),
-            summary: "Give the designer a stronger model",
-            change: "Set designer-ui's model to the strongest model",
-            reason: "Drafts come back text-heavy",
-            source_message: Some("4190"),
-        })
+        let filed = file_request(
+            &f.authority,
+            &f.company,
+            &names,
+            "exec",
+            RequestInput {
+                requester: "human-bodhi",
+                class: Some(DirectionClass::Staffing),
+                team: Some(&team),
+                summary: "Give the designer a stronger model",
+                change: "Set designer-ui's model to the strongest model",
+                reason: "Drafts come back text-heavy",
+                source_message: Some("4190"),
+            },
+        )
         .await
         .unwrap();
         assert_eq!(filed.state, RequestState::Open);
         assert_eq!(filed.routed_to.actor_id, "owner");
 
         // The owner sees it open, with the grant offer; Bodhi sees it under his own, without offers.
-        let open = requests(&f.authority, &f.company, &names, "owner", false).await.unwrap();
+        let open = requests(&f.authority, &f.company, &names, "owner", false)
+            .await
+            .unwrap();
         assert_eq!(open.len(), 1);
-        assert!(open[0].offers.always_allow.as_ref().is_some_and(|offer| offer.label
-            == "Always allow Bodhi to change staffing for Site Renovation Studio"));
-        let mine = requests(&f.authority, &f.company, &names, "human-bodhi", true).await.unwrap();
+        assert!(open[0]
+            .offers
+            .always_allow
+            .as_ref()
+            .is_some_and(|offer| offer.label
+                == "Always allow Bodhi to change staffing for Site Renovation Studio"));
+        let mine = requests(&f.authority, &f.company, &names, "human-bodhi", true)
+            .await
+            .unwrap();
         assert_eq!(mine.len(), 1);
         assert!(mine[0].offers.always_allow.is_none());
-        assert!(requests(&f.authority, &f.company, &names, "human-bianca", true).await.unwrap().is_empty());
-        assert!(requests(&f.authority, &f.company, &names, "human-bianca", false).await.unwrap().is_empty());
+        assert!(
+            requests(&f.authority, &f.company, &names, "human-bianca", true)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            requests(&f.authority, &f.company, &names, "human-bianca", false)
+                .await
+                .unwrap()
+                .is_empty()
+        );
         let approve = DirectionDecisionInput {
             decision: DirectionDecisionKind::Approve,
             reason: None,
@@ -1566,14 +2051,39 @@ mod tests {
             make_team_owner: None,
         };
         assert!(matches!(
-            decide(&f.authority, &f.org, &f.company, &names, filed.id, "human-bianca", &approve).await,
+            decide(
+                &f.authority,
+                &f.org,
+                &f.company,
+                &names,
+                filed.id,
+                "human-bianca",
+                &approve
+            )
+            .await,
             Err(DirectionError::NotYours(_))
         ));
 
         // Two approvals at once: exactly one wins.
         let (first, second) = tokio::join!(
-            decide(&f.authority, &f.org, &f.company, &names, filed.id, "owner", &approve),
-            decide(&f.authority, &f.org, &f.company, &names, filed.id, "owner", &approve),
+            decide(
+                &f.authority,
+                &f.org,
+                &f.company,
+                &names,
+                filed.id,
+                "owner",
+                &approve
+            ),
+            decide(
+                &f.authority,
+                &f.org,
+                &f.company,
+                &names,
+                filed.id,
+                "owner",
+                &approve
+            ),
         );
         let (won, lost) = match (first, second) {
             (Ok(won), Err(lost)) | (Err(lost), Ok(won)) => (won, lost),
@@ -1583,28 +2093,61 @@ mod tests {
         assert_eq!(lost.to_string(), "Yail already approved this.");
 
         // Exec carries it out.
-        let done = record_outcome(&f.authority, &f.company, &names, filed.id, "exec",
-            Some(DirectionTarget::Agent { actor_id: "studio-design".into(), name: "Dani".into() }), None)
-            .await
-            .unwrap();
+        let done = record_outcome(
+            &f.authority,
+            &f.company,
+            &names,
+            filed.id,
+            "exec",
+            Some(DirectionTarget::Agent {
+                actor_id: "studio-design".into(),
+                name: "Dani".into(),
+            }),
+            None,
+        )
+        .await
+        .unwrap();
         assert_eq!(done.state, RequestState::Done);
 
         // The grant lets Bodhi's next staffing change apply, then tell.
-        let (path, grant, _) =
-            classify(&f.authority, &f.company, &names, "human-bodhi", Some(DirectionClass::Staffing), Some(&team))
-                .await
-                .unwrap();
+        let (path, grant, _) = classify(
+            &f.authority,
+            &f.company,
+            &names,
+            "human-bodhi",
+            Some(DirectionClass::Staffing),
+            Some(&team),
+        )
+        .await
+        .unwrap();
         assert_eq!(path, DirectionPath::ActThenTell);
-        let grants = active_grants(&f.authority, &f.company, &names).await.unwrap();
+        let grants = active_grants(&f.authority, &f.company, &names)
+            .await
+            .unwrap();
         assert_eq!(grants.len(), 1);
-        assert_eq!(grants[0].label, "Bodhi can change staffing for Site Renovation Studio");
+        assert_eq!(
+            grants[0].label,
+            "Bodhi can change staffing for Site Renovation Studio"
+        );
         assert_eq!(grant, Some(grants[0].id));
-        revoke_grant(&f.authority, &f.company, grants[0].id, "owner").await.unwrap();
-        let (path, _, _) =
-            classify(&f.authority, &f.company, &names, "human-bodhi", Some(DirectionClass::Staffing), Some(&team))
-                .await
-                .unwrap();
-        assert_eq!(path, DirectionPath::AskFirst, "after Revoke, the next one asks again");
+        revoke_grant(&f.authority, &f.company, grants[0].id, "owner")
+            .await
+            .unwrap();
+        let (path, _, _) = classify(
+            &f.authority,
+            &f.company,
+            &names,
+            "human-bodhi",
+            Some(DirectionClass::Staffing),
+            Some(&team),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            path,
+            DirectionPath::AskFirst,
+            "after Revoke, the next one asks again"
+        );
         f.done().await;
     }
 
@@ -1615,66 +2158,127 @@ mod tests {
         let Some(f) = fixture("d").await else { return };
         let names = f.names().await;
         let team = f.studio.to_string();
-        let filed = file_request(&f.authority, &f.company, &names, "exec", RequestInput {
-            requester: "human-bodhi",
-            class: Some(DirectionClass::Schedule),
-            team: Some(&team),
-            summary: "Check the client sites every Monday",
-            change: "Add a weekly Monday schedule for the studio",
-            reason: "Clients email on Mondays",
-            source_message: None,
-        })
+        let filed = file_request(
+            &f.authority,
+            &f.company,
+            &names,
+            "exec",
+            RequestInput {
+                requester: "human-bodhi",
+                class: Some(DirectionClass::Schedule),
+                team: Some(&team),
+                summary: "Check the client sites every Monday",
+                change: "Add a weekly Monday schedule for the studio",
+                reason: "Clients email on Mondays",
+                source_message: None,
+            },
+        )
         .await
         .unwrap();
-        let other = file_request(&f.authority, &f.company, &names, "exec", RequestInput {
-            requester: "human-bianca",
-            class: None,
-            team: None,
-            summary: "Send the newsletter",
-            change: "Email the list",
-            reason: "Launch day",
-            source_message: None,
-        })
+        let other = file_request(
+            &f.authority,
+            &f.company,
+            &names,
+            "exec",
+            RequestInput {
+                requester: "human-bianca",
+                class: None,
+                team: None,
+                summary: "Send the newsletter",
+                change: "Email the list",
+                reason: "Launch day",
+                source_message: None,
+            },
+        )
         .await
         .unwrap();
         assert!(other.offers.always_allow.is_none() || true);
-        let open = requests(&f.authority, &f.company, &names, "owner", false).await.unwrap();
+        let open = requests(&f.authority, &f.company, &names, "owner", false)
+            .await
+            .unwrap();
         let offered = open.iter().find(|request| request.id == filed.id).unwrap();
-        assert_eq!(offered.offers.make_team_owner.as_ref().map(|person| person.name.as_str()), Some("Bodhi"));
+        assert_eq!(
+            offered
+                .offers
+                .make_team_owner
+                .as_ref()
+                .map(|person| person.name.as_str()),
+            Some("Bodhi")
+        );
         let newsletter = open.iter().find(|request| request.id == other.id).unwrap();
-        assert!(newsletter.offers.always_allow.is_none(), "a change in no class is never grantable");
+        assert!(
+            newsletter.offers.always_allow.is_none(),
+            "a change in no class is never grantable"
+        );
 
-        decide(&f.authority, &f.org, &f.company, &names, filed.id, "owner", &DirectionDecisionInput {
-            decision: DirectionDecisionKind::Approve,
-            reason: None,
-            always_allow: None,
-            make_team_owner: Some(true),
-        })
+        decide(
+            &f.authority,
+            &f.org,
+            &f.company,
+            &names,
+            filed.id,
+            "owner",
+            &DirectionDecisionInput {
+                decision: DirectionDecisionKind::Approve,
+                reason: None,
+                always_allow: None,
+                make_team_owner: Some(true),
+            },
+        )
         .await
         .unwrap();
         let names = f.names().await;
-        let (path, _, _) =
-            classify(&f.authority, &f.company, &names, "human-bodhi", Some(DirectionClass::Staffing), Some(&team))
-                .await
-                .unwrap();
+        let (path, _, _) = classify(
+            &f.authority,
+            &f.company,
+            &names,
+            "human-bodhi",
+            Some(DirectionClass::Staffing),
+            Some(&team),
+        )
+        .await
+        .unwrap();
         assert_eq!(path, DirectionPath::Direct, "the team's person directs it");
 
         // One change applied for someone else today, one request waiting.
-        f.org.update_team(f.studio, None, Some("Short sentences."), "exec", "asked").await.unwrap();
-        record_applied(&f.authority, &f.company, &names, "exec", AppliedInput {
-            requester: "human-bianca",
-            source_message: None,
-            class: DirectionClass::Content,
-            team: None,
-            summary: "Short sentences",
-            target: DirectionTarget::Charter,
-            undo: UndoHandle::Content { before: json!({}), after: json!({}) },
-            request: None,
-        })
+        f.org
+            .update_team(f.studio, None, Some("Short sentences."), "exec", "asked")
+            .await
+            .unwrap();
+        record_applied(
+            &f.authority,
+            &f.company,
+            &names,
+            "exec",
+            AppliedInput {
+                requester: "human-bianca",
+                source_message: None,
+                class: DirectionClass::Content,
+                team: None,
+                summary: "Short sentences",
+                target: DirectionTarget::Charter,
+                undo: UndoHandle::Content {
+                    before: json!({}),
+                    after: json!({}),
+                },
+                request: None,
+            },
+        )
         .await
         .unwrap();
-        let today = digest(&f.authority, &f.company, &names, "owner", Utc::now().date_naive()).await.unwrap();
-        assert_eq!(today.summary, "Exec applied 1 change for others · 1 request waiting");
+        let today = digest(
+            &f.authority,
+            &f.company,
+            &names,
+            "owner",
+            Utc::now().date_naive(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            today.summary,
+            "Exec applied 1 change for others · 1 request waiting"
+        );
         f.done().await;
     }
 }

@@ -266,9 +266,8 @@ pub async fn request_effect(
         let resend_reference = config.credentials.get("resend.production");
         let exposes_resend = secret_bindings.values().any(|binding| {
             binding == "resend.production"
-                || resend_reference.is_some_and(|reference| {
-                    config.credentials.get(binding) == Some(reference)
-                })
+                || resend_reference
+                    .is_some_and(|reference| config.credentials.get(binding) == Some(reference))
         });
         if exposes_resend
             && authority
@@ -301,8 +300,15 @@ pub async fn request_effect(
         Sha256::digest(command_document.to_string().as_bytes())
     );
 
-    let (stored_receipt, replay) =
-        prior_execution(authority, &config.name, effect_class, &command_digest, key, actor).await?;
+    let (stored_receipt, replay) = prior_execution(
+        authority,
+        &config.name,
+        effect_class,
+        &command_digest,
+        key,
+        actor,
+    )
+    .await?;
     if let Some(receipt) = replay {
         return Ok(receipt);
     }
@@ -1001,8 +1007,15 @@ where
     let call_work = call.work_id;
     let (command_document, command_digest) = tool_command(&call, purpose);
 
-    let (stored_receipt, replay) =
-        prior_execution(authority, &config.name, &effect_class, &command_digest, key, actor).await?;
+    let (stored_receipt, replay) = prior_execution(
+        authority,
+        &config.name,
+        &effect_class,
+        &command_digest,
+        key,
+        actor,
+    )
+    .await?;
     if let Some(receipt) = replay {
         return Ok(receipt);
     }
@@ -1012,7 +1025,10 @@ where
     if call.reserved {
         match tool_call_decision(authority, &config.name, key, &command_digest).await? {
             Some(true) => {}
-            Some(false) => bail!("the owner declined this {} call; do not retry it", call.tool),
+            Some(false) => bail!(
+                "the owner declined this {} call; do not retry it",
+                call.tool
+            ),
             None => {
                 let reason = format!(
                     "{} on {} asks the owner first; the prepared call is waiting in Attention",
@@ -1088,7 +1104,10 @@ where
             if let Some(org) = org {
                 let _ = org.ensure_actor("exec", "exec", "exec", "The Exec").await;
             }
-            let reasons = waiting.into_iter().map(|(_, reason)| reason).collect::<Vec<_>>();
+            let reasons = waiting
+                .into_iter()
+                .map(|(_, reason)| reason)
+                .collect::<Vec<_>>();
             bail!("{}", reasons.join("; "));
         }
     }
@@ -1198,11 +1217,19 @@ pub async fn tool_call_decision(
     let approved = authority
         .find_body(company, "tool_call_approved", "call_key", key)
         .await?
-        .filter(|body| body.get("command_digest").and_then(serde_json::Value::as_str) == Some(command_digest));
+        .filter(|body| {
+            body.get("command_digest")
+                .and_then(serde_json::Value::as_str)
+                == Some(command_digest)
+        });
     let declined = authority
         .find_body(company, "tool_call_declined", "call_key", key)
         .await?
-        .filter(|body| body.get("command_digest").and_then(serde_json::Value::as_str) == Some(command_digest));
+        .filter(|body| {
+            body.get("command_digest")
+                .and_then(serde_json::Value::as_str)
+                == Some(command_digest)
+        });
     Ok(match (approved, declined) {
         (_, Some(_)) => Some(false),
         (Some(_), None) => Some(true),
@@ -1224,7 +1251,9 @@ pub async fn held_call_waiting(
         .get("command_digest")
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default();
-    Ok(tool_call_decision(authority, company, key, digest).await?.is_none()
+    Ok(tool_call_decision(authority, company, key, digest)
+        .await?
+        .is_none()
         && !ran_since(authority, company, key, request.id).await?)
 }
 
@@ -1255,8 +1284,15 @@ pub async fn allow_held_calls(
     principal: &str,
 ) -> Result<usize> {
     let mut latest = std::collections::BTreeMap::new();
-    for request in authority.records_of_kind(company, "approval_required").await? {
-        if let Some(key) = request.body.get("call_key").and_then(serde_json::Value::as_str) {
+    for request in authority
+        .records_of_kind(company, "approval_required")
+        .await?
+    {
+        if let Some(key) = request
+            .body
+            .get("call_key")
+            .and_then(serde_json::Value::as_str)
+        {
             latest.insert(key.to_owned(), request);
         }
     }
@@ -1316,7 +1352,10 @@ pub async fn decide_tool_call(
         .get("command_digest")
         .and_then(serde_json::Value::as_str)
         .context("prepared tool call has no command digest")?;
-    if tool_call_decision(authority, company, key, digest).await?.is_some() {
+    if tool_call_decision(authority, company, key, digest)
+        .await?
+        .is_some()
+    {
         bail!("this prepared call was already answered");
     }
     // An answer to a call that already ran would tell the company to run,
@@ -1324,7 +1363,11 @@ pub async fn decide_tool_call(
     if ran_since(authority, company, key, request.id).await? {
         bail!("this call already ran, so there is nothing left to allow or decline");
     }
-    let tool = request.body.get("tool").and_then(serde_json::Value::as_str).unwrap_or("tool");
+    let tool = request
+        .body
+        .get("tool")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("tool");
     let mut body = serde_json::json!({
         "call_key": key,
         "command_digest": digest,
@@ -1336,7 +1379,11 @@ pub async fn decide_tool_call(
     authority
         .emit(
             company,
-            if approve { "tool_call_approved" } else { "tool_call_declined" },
+            if approve {
+                "tool_call_approved"
+            } else {
+                "tool_call_declined"
+            },
             Some(principal),
             body,
         )
@@ -1383,7 +1430,10 @@ pub async fn settle_tool_effect(
         .and_then(serde_json::Value::as_str)
         .context("tool intent has no connection")?;
     let started_at: DateTime<Utc> = serde_json::from_value(
-        intent.get("started_at").cloned().context("tool intent has no start time")?,
+        intent
+            .get("started_at")
+            .cloned()
+            .context("tool intent has no start time")?,
     )?;
     let evidence = crate::connections::read_receipt(authority.pool(), company, read_receipt)
         .await?
@@ -1397,7 +1447,9 @@ pub async fn settle_tool_effect(
     if evidence.observed_at <= started_at {
         bail!("the evidence read must happen after the call it settles");
     }
-    let external_ref = external_ref.map(str::trim).filter(|value| !value.is_empty());
+    let external_ref = external_ref
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     if external_ref.is_some_and(|value| value.chars().count() > 500) {
         bail!("external reference is too long");
     }
@@ -1420,8 +1472,16 @@ pub async fn settle_tool_effect(
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default()
             .to_string(),
-        tool: intent.get("tool").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
-        purpose: intent.get("purpose").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
+        tool: intent
+            .get("tool")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        purpose: intent
+            .get("purpose")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
         cwd: String::new(),
         argv: Vec::new(),
         artifacts: Vec::new(),
@@ -1447,7 +1507,12 @@ pub async fn settle_tool_effect(
         parties,
     };
     authority
-        .emit(company, "effect", Some(actor), serde_json::to_value(&receipt)?)
+        .emit(
+            company,
+            "effect",
+            Some(actor),
+            serde_json::to_value(&receipt)?,
+        )
         .await?;
     Ok(receipt)
 }
@@ -1613,11 +1678,9 @@ mod tests {
         let error = reconcile_unknown("outbound-first-contact:maya")
             .expect_err("generic evidence must fail closed");
         assert!(error.to_string().contains("remains unresolved"));
-        assert!(
-            error
-                .to_string()
-                .contains("cannot authenticate provider state")
-        );
+        assert!(error
+            .to_string()
+            .contains("cannot authenticate provider state"));
         assert!(error.to_string().contains("outbound-first-contact:maya"));
     }
 

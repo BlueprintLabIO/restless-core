@@ -269,7 +269,10 @@ pub fn gateway_serves(model: &str) -> Option<bool> {
     let served = SERVED_MODELS.read().ok()?;
     let served = served.as_ref()?;
     let prefix = format!("{provider}/");
-    if !served.iter().any(|candidate| candidate.starts_with(&prefix)) {
+    if !served
+        .iter()
+        .any(|candidate| candidate.starts_with(&prefix))
+    {
         return None;
     }
     Some(served.contains(model))
@@ -641,7 +644,9 @@ pub struct Processes {
 
 impl Processes {
     /// The inputs captured before these processes started, not a later file observation.
-    pub fn fingerprint(&self) -> &str { &self.fingerprint }
+    pub fn fingerprint(&self) -> &str {
+        &self.fingerprint
+    }
 
     /// A child that exited must withdraw readiness and be restarted by its supervisor.
     pub fn check_running(&mut self) -> Result<()> {
@@ -667,9 +672,15 @@ impl Processes {
 
 impl Drop for Processes {
     fn drop(&mut self) {
-        if let Some(relay) = self.relay.as_ref() { relay.abort(); }
-        if let Some(gateway) = self.gateway.as_mut() { let _ = gateway.start_kill(); }
-        for child in &mut self.shards { let _ = child.start_kill(); }
+        if let Some(relay) = self.relay.as_ref() {
+            relay.abort();
+        }
+        if let Some(gateway) = self.gateway.as_mut() {
+            let _ = gateway.start_kill();
+        }
+        for child in &mut self.shards {
+            let _ = child.start_kill();
+        }
         let _ = self.broker.start_kill();
         let _ = std::fs::remove_file(&self.marker);
     }
@@ -705,7 +716,8 @@ fn resolved_program(program: &str) -> Result<PathBuf> {
 
 pub fn oauth_login_command() -> Result<(PathBuf, String)> {
     let profile = GatewayEndpoints::from_env()?.broker_profile;
-    let program = resolved_program(&std::env::var("RESTLESS_OMP_BIN").unwrap_or_else(|_| "omp".to_owned()))?;
+    let program =
+        resolved_program(&std::env::var("RESTLESS_OMP_BIN").unwrap_or_else(|_| "omp".to_owned()))?;
     Ok((program, profile))
 }
 
@@ -838,11 +850,11 @@ pub async fn start(
                 };
                 provider_credentials.insert(provider, merged);
             }
-            Some(ProviderCredential::OmpOauth | ProviderCredential::OauthWithApiKey(_)) => {},
+            Some(ProviderCredential::OmpOauth | ProviderCredential::OauthWithApiKey(_)) => {}
             None => {
                 admitted_providers.insert(provider.clone());
                 provider_credentials.insert(provider, ProviderCredential::OmpOauth);
-            },
+            }
         }
     }
     if let Ok(mut dual) = DUAL_PROVIDERS.write() {
@@ -921,8 +933,13 @@ pub async fn start(
     record_model_child(root, &broker, &omp, &broker_args)?;
     wait_for_broker(&mut broker, &broker_token, &endpoints.broker_url).await?;
     // Account sign-in and grants need the broker, not the gateway's slower model catalogue.
-    *BROKER_ACCESS.write().map_err(|_| anyhow::anyhow!("model broker state lock is poisoned"))? =
-        Some(BrokerAccess { url: endpoints.broker_url.clone(), token: broker_token.clone() });
+    *BROKER_ACCESS
+        .write()
+        .map_err(|_| anyhow::anyhow!("model broker state lock is poisoned"))? =
+        Some(BrokerAccess {
+            url: endpoints.broker_url.clone(),
+            token: broker_token.clone(),
+        });
 
     if broker_only {
         return Ok(Processes {
@@ -980,10 +997,13 @@ pub async fn start(
     // alone, and companies bound to the sign-in are refused at grant time (`auth_for`).
     let mut lost_sign_in = BTreeSet::new();
     for provider in unadmitted.clone() {
-        let Some(ProviderCredential::OauthWithApiKey(key)) = provider_credentials.get(&provider).cloned() else {
+        let Some(ProviderCredential::OauthWithApiKey(key)) =
+            provider_credentials.get(&provider).cloned()
+        else {
             continue;
         };
-        let fallback = BTreeMap::from([(provider.clone(), ProviderCredential::ApiKey(key.clone()))]);
+        let fallback =
+            BTreeMap::from([(provider.clone(), ProviderCredential::ApiKey(key.clone()))]);
         let loaded = http
             .post(format!("{}/v1/credential", endpoints.broker_url))
             .bearer_auth(&broker_token)
@@ -999,7 +1019,10 @@ pub async fn start(
                 .await?
                 .is_empty()
         {
-            tracing::warn!(provider, "account sign-in unavailable; the API key serves its companies alone");
+            tracing::warn!(
+                provider,
+                "account sign-in unavailable; the API key serves its companies alone"
+            );
             provider_credentials.insert(provider.clone(), ProviderCredential::ApiKey(key));
             unadmitted.remove(&provider);
             lost_sign_in.insert(provider);
@@ -1017,7 +1040,10 @@ pub async fn start(
         uninstall();
         NO_DIRECT_PROVIDER.store(true, Ordering::Release);
         if let Ok(mut access) = BROKER_ACCESS.write() {
-            *access = Some(BrokerAccess { url: endpoints.broker_url, token: broker_token });
+            *access = Some(BrokerAccess {
+                url: endpoints.broker_url,
+                token: broker_token,
+            });
         } else {
             bail!("model broker state lock is poisoned");
         }
@@ -1034,7 +1060,9 @@ pub async fn start(
     // holds back its own companies only.
     admitted_providers.retain(|provider| {
         provider_credentials.contains_key(provider)
-            || key_shards.iter().any(|shard| shard.credentials.contains_key(provider))
+            || key_shards
+                .iter()
+                .any(|shard| shard.credentials.contains_key(provider))
     });
     let mut admission = admit(configs, &admitted_providers)?;
     for (company, reason) in &admission.unstartable {
@@ -1176,8 +1204,12 @@ pub async fn start(
             .build()
             .context("build Runtime model relay client")?,
     };
-    let relay = start_runtime_relay(relay_state.clone(), &endpoints.relay_bind, tool_gateway_daemon)
-        .await?;
+    let relay = start_runtime_relay(
+        relay_state.clone(),
+        &endpoints.relay_bind,
+        tool_gateway_daemon,
+    )
+    .await?;
     match (CLIENT.write(), HOSTED_RELAY_STATE.write()) {
         (Ok(mut client), Ok(mut hosted)) => {
             *client = Some(ClientConfig {
@@ -1219,7 +1251,11 @@ async fn start_key_shard(
     omp: &std::path::Path,
 ) -> Result<StartedShard> {
     let offset = crate::port_offset()?;
-    let suffix = if offset == 0 { String::new() } else { format!("-{offset}") };
+    let suffix = if offset == 0 {
+        String::new()
+    } else {
+        format!("-{offset}")
+    };
     let slot = u16::try_from(index).context("too many company key sets")?;
     anyhow::ensure!(slot < 16, "at most 16 company key sets run at once");
     let broker_port = crate::port_with_offset(7800 + 2 * slot)?;
@@ -1275,11 +1311,18 @@ async fn start_key_shard(
             .await
             .with_context(|| format!("sync {provider} credential to a key set broker"))?;
         if !response.status().is_success() {
-            bail!("a key set broker refused the {provider} credential with HTTP {}", response.status());
+            bail!(
+                "a key set broker refused the {provider} credential with HTTP {}",
+                response.status()
+            );
         }
     }
-    let unadmitted = reconcile_credentials(&http, &broker_token, &broker_url, &shard.credentials).await?;
-    anyhow::ensure!(unadmitted.is_empty(), "a key set broker did not admit {unadmitted:?}");
+    let unadmitted =
+        reconcile_credentials(&http, &broker_token, &broker_url, &shard.credentials).await?;
+    anyhow::ensure!(
+        unadmitted.is_empty(),
+        "a key set broker did not admit {unadmitted:?}"
+    );
 
     let gateway_token = token(root, omp, &gateway_profile, "auth-gateway", false).await?;
     let mut gateway_command = Command::new(omp);
@@ -1324,10 +1367,22 @@ async fn start_key_shard(
     let route = ShardRoute {
         upstream_url: gateway_url.clone(),
         upstream_token: gateway_token.clone(),
-        responses_routes: direct_responses_routes(&shard.credentials, &gateway_url, &gateway_token)?,
-        anthropic_routes: direct_anthropic_routes(&shard.credentials, &gateway_url, &gateway_token)?,
+        responses_routes: direct_responses_routes(
+            &shard.credentials,
+            &gateway_url,
+            &gateway_token,
+        )?,
+        anthropic_routes: direct_anthropic_routes(
+            &shard.credentials,
+            &gateway_url,
+            &gateway_token,
+        )?,
     };
-    Ok(StartedShard { children: vec![broker, gateway], route, served })
+    Ok(StartedShard {
+        children: vec![broker, gateway],
+        route,
+        served,
+    })
 }
 
 #[derive(Deserialize)]
@@ -1596,7 +1651,8 @@ struct ShardRoute {
 
 impl RelayState {
     fn shard(&self, company: &str, provider: &str) -> Option<&ShardRoute> {
-        self.shards.get(&(company.to_string(), provider.to_string()))
+        self.shards
+            .get(&(company.to_string(), provider.to_string()))
     }
 
     /// The OMP gateway that holds this company's credential for this provider, and its bearer.
@@ -1645,14 +1701,20 @@ struct ResolvedAnthropicRoute {
 impl DirectAnthropicRoute {
     fn for_billing(&self, billing: &str) -> Option<ResolvedAnthropicRoute> {
         match billing {
-            "metered_api" => self.api.as_ref().map(|(base_url, key)| ResolvedAnthropicRoute {
-                base_url: base_url.clone(),
-                credential: AnthropicRouteCredential::ApiKey(key.clone()),
-            }),
-            "subscription" => self.oauth.as_ref().map(|(base_url, token)| ResolvedAnthropicRoute {
-                base_url: base_url.clone(),
-                credential: AnthropicRouteCredential::AccountOauth(token.clone()),
-            }),
+            "metered_api" => self
+                .api
+                .as_ref()
+                .map(|(base_url, key)| ResolvedAnthropicRoute {
+                    base_url: base_url.clone(),
+                    credential: AnthropicRouteCredential::ApiKey(key.clone()),
+                }),
+            "subscription" => self
+                .oauth
+                .as_ref()
+                .map(|(base_url, token)| ResolvedAnthropicRoute {
+                    base_url: base_url.clone(),
+                    credential: AnthropicRouteCredential::AccountOauth(token.clone()),
+                }),
             _ => None,
         }
     }
@@ -1745,7 +1807,10 @@ fn direct_responses_routes(
     gateway_token: &str,
 ) -> Result<BTreeMap<String, DirectResponsesRoute>> {
     let mut routes = BTreeMap::new();
-    if matches!(credentials.get("openai-codex"), Some(ProviderCredential::OmpOauth)) {
+    if matches!(
+        credentials.get("openai-codex"),
+        Some(ProviderCredential::OmpOauth)
+    ) {
         routes.insert(
             "openai-codex".to_string(),
             DirectResponsesRoute {
@@ -1787,7 +1852,10 @@ fn direct_responses_routes(
 /// 401. OMP reads `ANTHROPIC_BASE_URL` as an origin, without the `/v1`.
 fn anthropic_reroute(command: &mut Command) {
     if let Ok(base) = std::env::var("RESTLESS_ANTHROPIC_BASE_URL") {
-        let origin = base.trim_end_matches('/').trim_end_matches("/v1").to_string();
+        let origin = base
+            .trim_end_matches('/')
+            .trim_end_matches("/v1")
+            .to_string();
         command.env("ANTHROPIC_BASE_URL", origin);
     }
 }
@@ -1805,7 +1873,10 @@ fn direct_anthropic_routes(
         None => (false, None),
     };
     let oauth = oauth.then(|| {
-        (format!("{}/v1", gateway_url.trim_end_matches('/')), gateway_token.to_owned())
+        (
+            format!("{}/v1", gateway_url.trim_end_matches('/')),
+            gateway_token.to_owned(),
+        )
     });
     if let Some(api_key) = api_key {
         let mut url = reqwest::Url::parse(
@@ -1827,12 +1898,18 @@ fn direct_anthropic_routes(
         routes.insert(
             "anthropic".to_string(),
             DirectAnthropicRoute {
-                api: Some((url.as_str().trim_end_matches('/').to_string(), api_key.clone())),
+                api: Some((
+                    url.as_str().trim_end_matches('/').to_string(),
+                    api_key.clone(),
+                )),
                 oauth,
             },
         );
     } else if oauth.is_some() {
-        routes.insert("anthropic".to_string(), DirectAnthropicRoute { api: None, oauth });
+        routes.insert(
+            "anthropic".to_string(),
+            DirectAnthropicRoute { api: None, oauth },
+        );
     }
     Ok(routes)
 }
@@ -1857,8 +1934,7 @@ async fn start_runtime_relay(
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .with_state(state);
     let app = match tool_gateway_daemon {
-        Some(daemon) => model_app
-            .merge(crate::tool_gateway::router(daemon)),
+        Some(daemon) => model_app.merge(crate::tool_gateway::router(daemon)),
         None => model_app,
     };
     Ok(tokio::spawn(async move {
@@ -1996,7 +2072,10 @@ async fn relay_pi_stream(
 
     let mut upstream_request = state
         .http
-        .post(format!("{}/v1/pi/stream", state.upstream_for(&grant.company, provider).0))
+        .post(format!(
+            "{}/v1/pi/stream",
+            state.upstream_for(&grant.company, provider).0
+        ))
         .bearer_auth(state.upstream_for(&grant.company, provider).1)
         .header(CONTENT_TYPE, "application/json")
         .body(if restore_runtime_model_ids(&mut request, &grant.model) {
@@ -2024,7 +2103,10 @@ async fn relay_pi_stream(
         );
         // A refusal at the limit carries the same headers: record that the account is full.
         let _ = observe_account_usage(&config, &grant.model, &grant.company, upstream.headers());
-        return relay_error(status, &refusal_message(status, upstream, &grant.model).await);
+        return relay_error(
+            status,
+            &refusal_message(status, upstream, &grant.model).await,
+        );
     }
 
     let status = upstream.status();
@@ -2083,15 +2165,24 @@ fn observe_account_usage(
     headers: &HeaderMap,
 ) -> Option<String> {
     let (provider, _) = split_model(model).ok()?;
-    let reference = config.credentials.get(&format!("model.inference.{provider}"))?;
+    let reference = config
+        .credentials
+        .get(&format!("model.inference.{provider}"))?;
     let account = crate::account_usage::account_of(reference)?;
-    let header = |name: &str| headers.get(name).and_then(|value| value.to_str().ok()).map(str::to_string);
+    let header = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string)
+    };
     let now = chrono::Utc::now();
     let mut windows = crate::account_usage::codex_header_windows(header, now);
     windows.extend(crate::account_usage::claude_header_windows(header, now));
     if !windows.is_empty() {
         let (account, company) = (account.clone(), company.to_string());
-        tokio::spawn(async move { crate::account_usage::observe(&account, &company, &windows, "headers").await });
+        tokio::spawn(async move {
+            crate::account_usage::observe(&account, &company, &windows, "headers").await
+        });
     }
     Some(account)
 }
@@ -2113,16 +2204,23 @@ where
             // Only whole lines are read; a partial last line waits for the next chunk.
             while let Some(end) = carry.iter().position(|byte| *byte == b'\n') {
                 let line: Vec<u8> = carry.drain(..=end).collect();
-                let Some(data) = line.strip_prefix(b"data:") else { continue };
-                if !data.windows(17).any(|window| window == b"codex.rate_limits") {
+                let Some(data) = line.strip_prefix(b"data:") else {
+                    continue;
+                };
+                if !data
+                    .windows(17)
+                    .any(|window| window == b"codex.rate_limits")
+                {
                     continue;
                 }
                 if let Ok(event) = serde_json::from_slice::<serde_json::Value>(data) {
-                    let windows = crate::account_usage::codex_event_windows(&event, chrono::Utc::now());
+                    let windows =
+                        crate::account_usage::codex_event_windows(&event, chrono::Utc::now());
                     if !windows.is_empty() {
                         let (account, company) = (account.clone(), company.clone());
                         tokio::spawn(async move {
-                            crate::account_usage::observe(&account, &company, &windows, "stream").await
+                            crate::account_usage::observe(&account, &company, &windows, "stream")
+                                .await
                         });
                     }
                 }
@@ -2182,9 +2280,7 @@ async fn relay_responses(
     // distinguishable from tools actually advertised to the model, without
     // recording prompts, schemas, arguments, capabilities, or response bodies.
     if grant.work_id.is_some() {
-        let tools = request
-            .get("tools")
-            .and_then(serde_json::Value::as_array);
+        let tools = request.get("tools").and_then(serde_json::Value::as_array);
         let names = tools
             .into_iter()
             .flatten()
@@ -2240,7 +2336,10 @@ async fn relay_responses(
     // later turn. OpenAI accepts those Responses shapes, while the pinned OMP
     // gateway's parser requires arrays. Preserve each item and its other
     // fields, changing only the empty content representation.
-    if let Some(input) = request.get_mut("input").and_then(serde_json::Value::as_array_mut) {
+    if let Some(input) = request
+        .get_mut("input")
+        .and_then(serde_json::Value::as_array_mut)
+    {
         for item in input {
             if item.get("content").is_some_and(serde_json::Value::is_null) {
                 item["content"] = serde_json::Value::Array(Vec::new());
@@ -2307,7 +2406,10 @@ async fn relay_responses(
         );
         // A refusal at the limit carries the same headers: record that the account is full.
         let _ = observe_account_usage(&config, &grant.model, &grant.company, upstream.headers());
-        return relay_error(status, &refusal_message(status, upstream, &grant.model).await);
+        return relay_error(
+            status,
+            &refusal_message(status, upstream, &grant.model).await,
+        );
     }
 
     let status = upstream.status();
@@ -2404,7 +2506,8 @@ async fn relay_anthropic_messages(
         );
     }
     request["model"] = serde_json::Value::String(model_id.to_string());
-    if grant.billing == "metered_api" && anthropic_tariff_micro_usd(model_id, 0, 0, 0, 0).is_none() {
+    if grant.billing == "metered_api" && anthropic_tariff_micro_usd(model_id, 0, 0, 0, 0).is_none()
+    {
         return relay_error(
             StatusCode::BAD_REQUEST,
             "exact Anthropic tariff is not pinned for this model",
@@ -2423,7 +2526,10 @@ async fn relay_anthropic_messages(
     if grant.billing == "metered_api" {
         let budget = state.spend.budget_state(&config);
         if !budget.is_available() {
-            return relay_error(StatusCode::PAYMENT_REQUIRED, &budget.owner_message(&config.name));
+            return relay_error(
+                StatusCode::PAYMENT_REQUIRED,
+                &budget.owner_message(&config.name),
+            );
         }
     }
     let Some(route) = state.anthropic_route(&grant.company, provider) else {
@@ -2442,14 +2548,24 @@ async fn relay_anthropic_messages(
         Ok(encoded) => encoded,
         Err(_) => return relay_error(StatusCode::BAD_REQUEST, "could not encode model request"),
     };
-    let mut upstream_request = state.http
+    let mut upstream_request = state
+        .http
         .post(format!("{}/messages", route.base_url))
         .header(CONTENT_TYPE, "application/json")
         .body(encoded);
     upstream_request = match &route.credential {
-        AnthropicRouteCredential::ApiKey(key) if grant.billing == "metered_api" => upstream_request.header("x-api-key", key),
-        AnthropicRouteCredential::AccountOauth(token) if grant.billing == "subscription" => upstream_request.bearer_auth(token),
-        _ => return relay_error(StatusCode::FORBIDDEN, "model billing does not match the admitted Anthropic connection"),
+        AnthropicRouteCredential::ApiKey(key) if grant.billing == "metered_api" => {
+            upstream_request.header("x-api-key", key)
+        }
+        AnthropicRouteCredential::AccountOauth(token) if grant.billing == "subscription" => {
+            upstream_request.bearer_auth(token)
+        }
+        _ => {
+            return relay_error(
+                StatusCode::FORBIDDEN,
+                "model billing does not match the admitted Anthropic connection",
+            )
+        }
     };
     for name in ["anthropic-version", "anthropic-beta", "accept"] {
         if let Some(value) = headers.get(name) {
@@ -2498,7 +2614,11 @@ async fn relay_anthropic_messages(
             work_id: grant.work_id,
             attempt_id: grant.attempt_id,
             model: grant.model,
-            billing: if grant.billing == "subscription" { ModelBilling::Subscription } else { ModelBilling::MeteredApi },
+            billing: if grant.billing == "subscription" {
+                ModelBilling::Subscription
+            } else {
+                ModelBilling::MeteredApi
+            },
         },
     );
     let (stream, _drain) = detach_metered_stream(stream);
@@ -2570,7 +2690,8 @@ async fn relay_anthropic_count_tokens(
             "model capability does not permit this exact model",
         );
     }
-    if grant.billing == "metered_api" && anthropic_tariff_micro_usd(model_id, 0, 0, 0, 0).is_none() {
+    if grant.billing == "metered_api" && anthropic_tariff_micro_usd(model_id, 0, 0, 0, 0).is_none()
+    {
         return relay_error(
             StatusCode::BAD_REQUEST,
             "exact Anthropic tariff is not pinned for this model",
@@ -2593,42 +2714,67 @@ async fn relay_anthropic_count_tokens(
         Ok(encoded) => encoded,
         Err(_) => return relay_error(StatusCode::BAD_REQUEST, "could not encode token count"),
     };
-    let mut upstream_request = state.http
+    let mut upstream_request = state
+        .http
         .post(match &route.credential {
-            AnthropicRouteCredential::ApiKey(_) => format!("{}/messages/count_tokens", route.base_url),
+            AnthropicRouteCredential::ApiKey(_) => {
+                format!("{}/messages/count_tokens", route.base_url)
+            }
             // OMP's translated Messages gateway does not expose token counting.
             // This host-only request uses the broker's current access token.
-            AnthropicRouteCredential::AccountOauth(_) => "https://api.anthropic.com/v1/messages/count_tokens".to_owned(),
+            AnthropicRouteCredential::AccountOauth(_) => {
+                "https://api.anthropic.com/v1/messages/count_tokens".to_owned()
+            }
         })
         .header(CONTENT_TYPE, "application/json")
         .body(encoded);
     upstream_request = match &route.credential {
-        AnthropicRouteCredential::ApiKey(key) if grant.billing == "metered_api" => upstream_request.header("x-api-key", key),
+        AnthropicRouteCredential::ApiKey(key) if grant.billing == "metered_api" => {
+            upstream_request.header("x-api-key", key)
+        }
         AnthropicRouteCredential::AccountOauth(_) if grant.billing == "subscription" => {
-            let expected_account = grant.credential_reference.as_deref()
-                .and_then(|reference| crate::model_connections::account_oauth_key(&state.root, provider, reference).ok().flatten());
+            let expected_account = grant.credential_reference.as_deref().and_then(|reference| {
+                crate::model_connections::account_oauth_key(&state.root, provider, reference)
+                    .ok()
+                    .flatten()
+            });
             let token = match expected_account {
                 Some(expected) => current_anthropic_oauth_token(&state, &expected).await,
                 None => Err(anyhow::anyhow!("account identity is unavailable")),
             };
             let token = match token {
                 Ok(token) => token,
-                Err(_) => return relay_error(StatusCode::BAD_GATEWAY, "account Claude sign-in is unavailable"),
+                Err(_) => {
+                    return relay_error(
+                        StatusCode::BAD_GATEWAY,
+                        "account Claude sign-in is unavailable",
+                    )
+                }
             };
-            let beta = headers.get("anthropic-beta").and_then(|value| value.to_str().ok())
+            let beta = headers
+                .get("anthropic-beta")
+                .and_then(|value| value.to_str().ok())
                 .filter(|value| !value.is_empty())
                 .map(|value| format!("claude-code-20250219,oauth-2025-04-20,{value}"))
                 .unwrap_or_else(|| "claude-code-20250219,oauth-2025-04-20".to_owned());
-            let user_agent = headers.get("user-agent").and_then(|value| value.to_str().ok())
+            let user_agent = headers
+                .get("user-agent")
+                .and_then(|value| value.to_str().ok())
                 .filter(|value| value.starts_with("claude-cli/") && value.len() <= 160)
                 .unwrap_or("claude-cli/2.1.293");
-            upstream_request.bearer_auth(token)
+            upstream_request
+                .bearer_auth(token)
                 .header("anthropic-beta", beta)
                 .header("anthropic-version", "2023-06-01")
                 .header("user-agent", user_agent)
                 .header("x-app", "cli")
         }
-        _ => return relay_error(StatusCode::FORBIDDEN, "model billing does not match the admitted Anthropic connection"),
+        _ => {
+            return relay_error(
+                StatusCode::FORBIDDEN,
+                "model billing does not match the admitted Anthropic connection",
+            )
+        }
     };
     for name in ["anthropic-version", "accept"] {
         if let Some(value) = headers.get(name) {
@@ -2679,28 +2825,73 @@ async fn relay_anthropic_count_tokens(
 /// The count-tokens endpoint is not implemented by OMP's protocol gateway.
 /// Read only the active Anthropic access token from the host broker, refreshing
 /// it there when near expiry. It is never returned to the company or browser.
-async fn current_anthropic_oauth_token(state: &RelayState, expected_account: &str) -> Result<String> {
+async fn current_anthropic_oauth_token(
+    state: &RelayState,
+    expected_account: &str,
+) -> Result<String> {
     let access = &state.broker_access;
     let mut snapshot = broker_snapshot(&state.http, &access.token, &access.url).await?;
-    let row = snapshot.credentials.iter().filter(|row| row.provider == "anthropic" && row.is_oauth()).collect::<Vec<_>>();
-    if row.len() != 1 { bail!("account has no unique Anthropic OAuth credential") }
-    let actual_account = row[0].credential.get("accountId").or_else(|| row[0].credential.get("email"))
-        .and_then(serde_json::Value::as_str).context("Anthropic OAuth identity is unavailable")?;
-    if actual_account != expected_account { bail!("Anthropic OAuth account changed") }
-    let expires = row[0].credential.get("expires").and_then(serde_json::Value::as_u64).context("Anthropic OAuth expiry is unavailable")?;
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_millis() as u64;
+    let row = snapshot
+        .credentials
+        .iter()
+        .filter(|row| row.provider == "anthropic" && row.is_oauth())
+        .collect::<Vec<_>>();
+    if row.len() != 1 {
+        bail!("account has no unique Anthropic OAuth credential")
+    }
+    let actual_account = row[0]
+        .credential
+        .get("accountId")
+        .or_else(|| row[0].credential.get("email"))
+        .and_then(serde_json::Value::as_str)
+        .context("Anthropic OAuth identity is unavailable")?;
+    if actual_account != expected_account {
+        bail!("Anthropic OAuth account changed")
+    }
+    let expires = row[0]
+        .credential
+        .get("expires")
+        .and_then(serde_json::Value::as_u64)
+        .context("Anthropic OAuth expiry is unavailable")?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_millis() as u64;
     if expires <= now.saturating_add(60_000) {
-        let response = state.http.post(format!("{}/v1/credential/{}/refresh", access.url, row[0].id))
-            .bearer_auth(&access.token).send().await?;
-        if !response.status().is_success() { bail!("host broker could not refresh Anthropic OAuth") }
+        let response = state
+            .http
+            .post(format!(
+                "{}/v1/credential/{}/refresh",
+                access.url, row[0].id
+            ))
+            .bearer_auth(&access.token)
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            bail!("host broker could not refresh Anthropic OAuth")
+        }
         snapshot = broker_snapshot(&state.http, &access.token, &access.url).await?;
     }
-    let row = snapshot.credentials.iter().filter(|row| row.provider == "anthropic" && row.is_oauth()).collect::<Vec<_>>();
-    if row.len() != 1 { bail!("account has no unique Anthropic OAuth credential") }
-    let current_account = row[0].credential.get("accountId").or_else(|| row[0].credential.get("email"))
-        .and_then(serde_json::Value::as_str).context("Anthropic OAuth identity is unavailable")?;
-    if current_account != expected_account { bail!("Anthropic OAuth account changed") }
-    row[0].credential.get("access").and_then(serde_json::Value::as_str)
+    let row = snapshot
+        .credentials
+        .iter()
+        .filter(|row| row.provider == "anthropic" && row.is_oauth())
+        .collect::<Vec<_>>();
+    if row.len() != 1 {
+        bail!("account has no unique Anthropic OAuth credential")
+    }
+    let current_account = row[0]
+        .credential
+        .get("accountId")
+        .or_else(|| row[0].credential.get("email"))
+        .and_then(serde_json::Value::as_str)
+        .context("Anthropic OAuth identity is unavailable")?;
+    if current_account != expected_account {
+        bail!("Anthropic OAuth account changed")
+    }
+    row[0]
+        .credential
+        .get("access")
+        .and_then(serde_json::Value::as_str)
         .filter(|token| !token.is_empty())
         .map(str::to_owned)
         .context("Anthropic OAuth access is unavailable")
@@ -2841,12 +3032,17 @@ async fn live_company_model_grant(
         if (reference.starts_with("omp-oauth:") && reference.contains('@'))
             || reference.starts_with("infisical:/owner/model-connections/")
         {
-            if !crate::model_connections::account_connection_matches(root, &grant.provider, reference)? {
+            if !crate::model_connections::account_connection_matches(
+                root,
+                &grant.provider,
+                reference,
+            )? {
                 bail!("account model connection is no longer registered");
             }
             if reference.starts_with("omp-oauth:") {
-                let expected = crate::model_connections::account_oauth_key(root, &grant.provider, reference)?
-                    .context("account OAuth connection has no verified identity")?;
+                let expected =
+                    crate::model_connections::account_oauth_key(root, &grant.provider, reference)?
+                        .context("account OAuth connection has no verified identity")?;
                 let actual = oauth_account_key(&grant.provider)
                     .await
                     .map_err(|_| BrokerIdentityUnavailable)?
@@ -2862,7 +3058,10 @@ async fn live_company_model_grant(
 
 fn relay_model_grant_error(error: anyhow::Error) -> Response<Body> {
     if error.downcast_ref::<BrokerIdentityUnavailable>().is_some() {
-        tracing::warn!(class = "host_model_broker_unavailable", "model grant probe unavailable");
+        tracing::warn!(
+            class = "host_model_broker_unavailable",
+            "model grant probe unavailable"
+        );
         relay_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "company model account broker is temporarily unavailable",
@@ -2876,11 +3075,7 @@ fn relay_model_grant_error(error: anyhow::Error) -> Response<Body> {
 /// OAuth account identity agrees with the durable owner registry. A matching
 /// identity does not assert that an upstream inference call will succeed; the
 /// cooldown deletion separately requires this relay's exact 403 marker.
-pub async fn verify_owner_model_account(
-    root: &Path,
-    company: &str,
-    model: &str,
-) -> Result<()> {
+pub async fn verify_owner_model_account(root: &Path, company: &str, model: &str) -> Result<()> {
     let config = CompanyConfig::load(root, company)?;
     if config.model != model {
         bail!("model cooldown repair requires the company's exact primary model");
@@ -2918,7 +3113,9 @@ async fn refusal_message(status: StatusCode, upstream: reqwest::Response, model:
     if status == StatusCode::NOT_FOUND {
         // The gateway's catalogue does not list this model (an OMP release that predates it):
         // say so, so the turn stops as a model choice, not a malformed reply.
-        return format!("404 model {model} not found at the host model gateway; choose another model");
+        return format!(
+            "404 model {model} not found at the host model gateway; choose another model"
+        );
     }
     if status != StatusCode::PAYMENT_REQUIRED {
         return PLAIN.into();
@@ -2937,7 +3134,12 @@ async fn refusal_message(status: StatusCode, upstream: reqwest::Response, model:
                 .map(str::to_owned)
         })
         .filter(|text| !text.trim().is_empty())
-        .map(|text| text.chars().filter(|c| !c.is_control()).take(400).collect::<String>());
+        .map(|text| {
+            text.chars()
+                .filter(|c| !c.is_control())
+                .take(400)
+                .collect::<String>()
+        });
     message.map_or_else(|| format!("402 {PLAIN}"), |text| format!("402 {text}"))
 }
 
@@ -3139,7 +3341,10 @@ impl MeteredStream {
         let frame = std::mem::take(&mut self.frame_buffer);
         if self.protocol == MeteringProtocol::AnthropicMessage {
             match serde_json::from_slice::<serde_json::Value>(&frame) {
-                Ok(message) if message.get("type").and_then(serde_json::Value::as_str) == Some("message") => {
+                Ok(message)
+                    if message.get("type").and_then(serde_json::Value::as_str)
+                        == Some("message") =>
+                {
                     match message.get("usage") {
                         Some(usage) => {
                             self.observe_anthropic_usage(usage);
@@ -3197,7 +3402,9 @@ impl MeteredStream {
                 if self.request.work_id.is_some()
                     && event.get("type").and_then(serde_json::Value::as_str)
                         == Some("response.output_item.done")
-                    && event.pointer("/item/type").and_then(serde_json::Value::as_str)
+                    && event
+                        .pointer("/item/type")
+                        .and_then(serde_json::Value::as_str)
                         == Some("function_call")
                 {
                     tracing::info!(
@@ -3273,20 +3480,21 @@ impl MeteredStream {
         let usage = &self.anthropic_usage;
         let Some(micro_usd) = (match self.request.billing {
             ModelBilling::Subscription => Some(0),
-            ModelBilling::MeteredApi => split_model(&self.request.model)
-                .ok()
-                .and_then(|(_, model)| {
-                    anthropic_tariff_micro_usd(
-                        model,
-                        usage.input_tokens,
-                        usage.output_tokens,
-                        usage.cache_creation_input_tokens,
-                        usage.cache_read_input_tokens,
-                    )
-                }),
+            ModelBilling::MeteredApi => {
+                split_model(&self.request.model)
+                    .ok()
+                    .and_then(|(_, model)| {
+                        anthropic_tariff_micro_usd(
+                            model,
+                            usage.input_tokens,
+                            usage.output_tokens,
+                            usage.cache_creation_input_tokens,
+                            usage.cache_read_input_tokens,
+                        )
+                    })
+            }
             ModelBilling::NativeApi => None,
-        })
-        else {
+        }) else {
             self.failed = true;
             return;
         };
@@ -3336,16 +3544,18 @@ impl MeteredStream {
                 .unwrap_or_default()
         };
         let cached = part("cacheRead");
-        self.meter.record_exact(self.request.spend_record(
-            part("input")
-                .saturating_add(cached)
-                .saturating_add(part("cacheWrite")),
-            part("output"),
-            tokens,
-            usage.map(|_| cached),
-            micro_usd,
-            restless_model_gateway::SpendSettlement::Accounted,
-        ));
+        self.meter.record_exact(
+            self.request.spend_record(
+                part("input")
+                    .saturating_add(cached)
+                    .saturating_add(part("cacheWrite")),
+                part("output"),
+                tokens,
+                usage.map(|_| cached),
+                micro_usd,
+                restless_model_gateway::SpendSettlement::Accounted,
+            ),
+        );
         self.settled = true;
     }
 
@@ -3637,8 +3847,12 @@ fn anthropic_tariff_micro_usd(
             "claude-haiku-5-5" if long_prompt => (50, 250, 63, 5),
             "claude-haiku-5-5" => (10, 50, 13, 1),
             "claude-sonnet-5" => (200, 1_000, 250, 20),
-            "claude-opus-5" | "claude-opus-4-8" | "claude-opus-4-7" | "claude-opus-4-6"
-            | "claude-opus-4-5" | "claude-opus-4-5-20251101" => (500, 2_500, 625, 50),
+            "claude-opus-5"
+            | "claude-opus-4-8"
+            | "claude-opus-4-7"
+            | "claude-opus-4-6"
+            | "claude-opus-4-5"
+            | "claude-opus-4-5-20251101" => (500, 2_500, 625, 50),
             "claude-sonnet-4-6" | "claude-sonnet-4-5" | "claude-sonnet-4-5-20250929" => {
                 (300, 1_500, 375, 30)
             }
@@ -3663,7 +3877,13 @@ pub fn anthropic_model_has_pinned_tariff(provider_model: &str) -> bool {
 /// or a key is granted reached a gateway that was still loading and failed the reply. A plane
 /// with no direct provider at all fails at once.
 pub async fn ready_client(within: Duration) -> Result<ClientConfig> {
-    wait_until_ready(within, Duration::from_millis(500), client, has_no_direct_provider).await
+    wait_until_ready(
+        within,
+        Duration::from_millis(500),
+        client,
+        has_no_direct_provider,
+    )
+    .await
 }
 
 async fn wait_until_ready<T>(
@@ -3704,12 +3924,16 @@ impl OAuthAccount {
 }
 
 async fn account_broker_snapshot() -> Result<BrokerSnapshot> {
-    let http = reqwest::Client::builder().timeout(Duration::from_secs(2)).build()?;
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()?;
     broker_snapshot_when_ready(&http, Duration::from_secs(10), || {
-        BROKER_ACCESS.read()
+        BROKER_ACCESS
+            .read()
             .map(|access| access.clone())
             .map_err(|_| anyhow::anyhow!("host model broker state is unavailable"))
-    }).await
+    })
+    .await
 }
 
 /// The account sign-ins' limits, as the broker reads them from each provider (S100). The broker
@@ -3722,7 +3946,9 @@ pub async fn broker_usage() -> Result<Vec<crate::account_usage::BrokerReport>> {
     else {
         return Ok(Vec::new());
     };
-    let http = reqwest::Client::builder().timeout(Duration::from_secs(20)).build()?;
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .build()?;
     let response = http
         .get(format!("{}/v1/usage", access.url))
         .bearer_auth(&access.token)
@@ -3730,9 +3956,15 @@ pub async fn broker_usage() -> Result<Vec<crate::account_usage::BrokerReport>> {
         .await
         .context("read host model broker usage")?;
     if !response.status().is_success() {
-        bail!("host model broker usage failed with HTTP {}", response.status());
+        bail!(
+            "host model broker usage failed with HTTP {}",
+            response.status()
+        );
     }
-    let body = response.json::<serde_json::Value>().await.context("parse host model broker usage")?;
+    let body = response
+        .json::<serde_json::Value>()
+        .await
+        .context("parse host model broker usage")?;
     Ok(crate::account_usage::broker_reports(&body))
 }
 
@@ -3749,27 +3981,45 @@ async fn broker_snapshot_when_ready(
             if let Some(access) = access()? {
                 match broker_snapshot(http, &access.token, &access.url).await {
                     Ok(snapshot) => return Ok(snapshot),
-                    Err(error) if error.downcast_ref::<reqwest::Error>()
-                        .is_some_and(|cause| cause.is_connect() || cause.is_timeout()) => {}
+                    Err(error)
+                        if error
+                            .downcast_ref::<reqwest::Error>()
+                            .is_some_and(|cause| cause.is_connect() || cause.is_timeout()) => {}
                     Err(error) => return Err(error),
                 }
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-    }).await.context("The model connection is still starting. Try again in a moment.")?
+    })
+    .await
+    .context("The model connection is still starting. Try again in a moment.")?
 }
 
-fn oauth_account_from_snapshot(snapshot: BrokerSnapshot, provider: &str) -> Result<Option<OAuthAccount>> {
-    let mut rows = snapshot.credentials.into_iter().filter(|row| row.provider == provider);
-    let Some(row) = rows.next() else { return Ok(None) };
+fn oauth_account_from_snapshot(
+    snapshot: BrokerSnapshot,
+    provider: &str,
+) -> Result<Option<OAuthAccount>> {
+    let mut rows = snapshot
+        .credentials
+        .into_iter()
+        .filter(|row| row.provider == provider);
+    let Some(row) = rows.next() else {
+        return Ok(None);
+    };
     if rows.next().is_some() || !row.is_oauth() {
         bail!("host model broker has conflicting credential modes for {provider}");
     }
-    let identity = |fields: &[&str]| fields.iter().find_map(|field| {
-        row.credential.get(*field).and_then(serde_json::Value::as_str)
-            .filter(|value| !value.is_empty() && value.len() <= 200 && !value.chars().any(char::is_control))
-            .map(str::to_owned)
-    });
+    let identity = |fields: &[&str]| {
+        fields.iter().find_map(|field| {
+            row.credential
+                .get(*field)
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| {
+                    !value.is_empty() && value.len() <= 200 && !value.chars().any(char::is_control)
+                })
+                .map(str::to_owned)
+        })
+    };
     Ok(Some(OAuthAccount {
         identity: identity(&["email", "accountId"]),
         key: identity(&["accountId", "email"]),
@@ -3787,7 +4037,9 @@ pub async fn oauth_is_loaded(provider: &str) -> Result<bool> {
 
 /// A stable comparison key; email is used only without a valid account ID.
 pub async fn oauth_account_key(provider: &str) -> Result<Option<String>> {
-    Ok(oauth_account(provider).await?.and_then(|account| account.key))
+    Ok(oauth_account(provider)
+        .await?
+        .and_then(|account| account.key))
 }
 
 /// Import a legacy company Codex sign-in into the account broker. The caller
@@ -3805,7 +4057,9 @@ pub async fn import_codex_oauth(
         .map_err(|_| anyhow::anyhow!("host model broker state is unavailable"))?
         .clone()
         .context("host model broker is not running")?;
-    let http = reqwest::Client::builder().timeout(Duration::from_secs(10)).build()?;
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()?;
     if broker_snapshot(&http, &access.token, &access.url)
         .await?
         .credentials
@@ -3830,7 +4084,10 @@ pub async fn import_codex_oauth(
         .send()
         .await?;
     if !response.status().is_success() {
-        bail!("the account broker refused the Codex credential (HTTP {})", response.status());
+        bail!(
+            "the account broker refused the Codex credential (HTTP {})",
+            response.status()
+        );
     }
     Ok(())
 }
@@ -3862,7 +4119,8 @@ pub fn models_config(
     if !recognised_runtime_relay || token_env != MODEL_CAPABILITY_ENV {
         bail!("refusing an unrecognised model gateway route");
     }
-    if provider == "anthropic" && billing == ModelBilling::MeteredApi && is_dual_provider(provider) {
+    if provider == "anthropic" && billing == ModelBilling::MeteredApi && is_dual_provider(provider)
+    {
         // The broker's Anthropic credential is the account sign-in, so this per-token company
         // goes to the relay's Messages route, which sends its own API key to Anthropic.
         let id = serde_json::to_string(&runtime_model_id(model_id))?;
@@ -3948,7 +4206,9 @@ impl ProviderCredential {
                 Some(Self::OauthWithApiKey(held.clone()))
             }
             (Self::OauthWithApiKey(held), Self::OmpOauth)
-            | (Self::OmpOauth, Self::OauthWithApiKey(held)) => Some(Self::OauthWithApiKey(held.clone())),
+            | (Self::OmpOauth, Self::OauthWithApiKey(held)) => {
+                Some(Self::OauthWithApiKey(held.clone()))
+            }
             _ => None,
         }
     }
@@ -3964,11 +4224,15 @@ static SIGN_IN_UNAVAILABLE: std::sync::LazyLock<RwLock<BTreeSet<String>>> =
     std::sync::LazyLock::new(|| RwLock::new(BTreeSet::new()));
 
 fn sign_in_unavailable(provider: &str) -> bool {
-    SIGN_IN_UNAVAILABLE.read().is_ok_and(|providers| providers.contains(provider))
+    SIGN_IN_UNAVAILABLE
+        .read()
+        .is_ok_and(|providers| providers.contains(provider))
 }
 
 fn is_dual_provider(provider: &str) -> bool {
-    DUAL_PROVIDERS.read().is_ok_and(|dual| dual.contains(provider))
+    DUAL_PROVIDERS
+        .read()
+        .is_ok_and(|dual| dual.contains(provider))
 }
 
 /// How this company pays for this model: by its own binding where the provider holds both.
@@ -4151,7 +4415,10 @@ struct KeyShard {
 
 impl KeyShard {
     fn companies(&self) -> BTreeSet<&str> {
-        self.members.iter().map(|(company, _)| company.as_str()).collect()
+        self.members
+            .iter()
+            .map(|(company, _)| company.as_str())
+            .collect()
     }
 }
 
@@ -4173,7 +4440,9 @@ impl CredentialPlan {
 /// first; each key then joins the main broker when it agrees with what it holds for that provider,
 /// else the first key set that has no key for that provider or the same one, else a new set. Every
 /// company and provider is served; nothing is refused.
-fn partition_credentials(entries: Vec<(String, BTreeMap<String, ProviderCredential>)>) -> CredentialPlan {
+fn partition_credentials(
+    entries: Vec<(String, BTreeMap<String, ProviderCredential>)>,
+) -> CredentialPlan {
     let mut items: Vec<(String, String, ProviderCredential)> = entries
         .into_iter()
         .flat_map(|(company, credentials)| {
@@ -4208,7 +4477,9 @@ fn partition_credentials(entries: Vec<(String, BTreeMap<String, ProviderCredenti
         let shard = &mut plan.shards[index];
         let joined = match shard.credentials.get(&provider) {
             None => credential,
-            Some(existing) => existing.merged(&credential, &provider).expect("checked above"),
+            Some(existing) => existing
+                .merged(&credential, &provider)
+                .expect("checked above"),
         };
         shard.credentials.insert(provider.clone(), joined);
         shard.members.insert((company, provider));
@@ -4258,8 +4529,7 @@ fn admit<P: ProviderSet>(configs: &[CompanyConfig], credentials: &P) -> Result<A
         let Some(model) = effective.configured_model() else {
             unstartable.insert(
                 config.name.clone(),
-                "Connect a model in Company → Intelligence."
-                    .to_string(),
+                "Connect a model in Company → Intelligence.".to_string(),
             );
             continue;
         };
@@ -4287,8 +4557,7 @@ fn admit<P: ProviderSet>(configs: &[CompanyConfig], credentials: &P) -> Result<A
         {
             unstartable.insert(
                 config.name.clone(),
-                "Claude Agent needs an admitted Anthropic account sign-in or API key"
-                    .to_string(),
+                "Claude Agent needs an admitted Anthropic account sign-in or API key".to_string(),
             );
             continue;
         }
@@ -4491,25 +4760,43 @@ mod tests {
     use super::*;
 
     fn keys(pairs: &[(&str, ProviderCredential)]) -> BTreeMap<String, ProviderCredential> {
-        pairs.iter().map(|(provider, credential)| (provider.to_string(), credential.clone())).collect()
+        pairs
+            .iter()
+            .map(|(provider, credential)| (provider.to_string(), credential.clone()))
+            .collect()
     }
 
     #[test]
     fn a_companys_own_key_for_a_provider_gets_a_key_set_for_that_provider_alone() {
         let key = |value: &str| ProviderCredential::ApiKey(value.to_string());
         let plan = partition_credentials(vec![
-            ("reno".into(), keys(&[("openai", key("k1")), ("moonshot", key("m1"))])),
+            (
+                "reno".into(),
+                keys(&[("openai", key("k1")), ("moonshot", key("m1"))]),
+            ),
             ("potion".into(), keys(&[("openai", key("k2"))])),
-            ("sydney".into(), keys(&[("openai", key("k3")), ("moonshot", key("m1"))])),
+            (
+                "sydney".into(),
+                keys(&[("openai", key("k3")), ("moonshot", key("m1"))]),
+            ),
             ("frank".into(), keys(&[("openai", key("k1"))])),
         ]);
-        assert_eq!(plan.main, keys(&[("openai", key("k1")), ("moonshot", key("m1"))]));
+        assert_eq!(
+            plan.main,
+            keys(&[("openai", key("k1")), ("moonshot", key("m1"))])
+        );
         // Potion's k2 and Sydney's k3 differ from each other and from k1: two sets for openai.
         // Sydney's moonshot key agrees with the main one, so only its openai traffic moves.
         assert_eq!(plan.shards.len(), 2);
         let member = |company: &str, provider: &str| (company.to_string(), provider.to_string());
-        assert_eq!(plan.shards[0].members, BTreeSet::from([member("potion", "openai")]));
-        assert_eq!(plan.shards[1].members, BTreeSet::from([member("sydney", "openai")]));
+        assert_eq!(
+            plan.shards[0].members,
+            BTreeSet::from([member("potion", "openai")])
+        );
+        assert_eq!(
+            plan.shards[1].members,
+            BTreeSet::from([member("sydney", "openai")])
+        );
         assert_eq!(plan.shards[1].credentials, keys(&[("openai", key("k3"))]));
     }
 
@@ -4518,16 +4805,41 @@ mod tests {
         let key = |value: &str| ProviderCredential::ApiKey(value.to_string());
         let plan = partition_credentials(vec![
             ("keyed".into(), keys(&[("openai", key("k1"))])),
-            ("signed".into(), keys(&[("openai-codex", ProviderCredential::OmpOauth), ("openai", key("k2"))])),
-            ("other".into(), keys(&[("openai-codex", ProviderCredential::OmpOauth), ("openai", key("k3"))])),
-            ("claude".into(), keys(&[("anthropic", ProviderCredential::OmpOauth)])),
+            (
+                "signed".into(),
+                keys(&[
+                    ("openai-codex", ProviderCredential::OmpOauth),
+                    ("openai", key("k2")),
+                ]),
+            ),
+            (
+                "other".into(),
+                keys(&[
+                    ("openai-codex", ProviderCredential::OmpOauth),
+                    ("openai", key("k3")),
+                ]),
+            ),
+            (
+                "claude".into(),
+                keys(&[("anthropic", ProviderCredential::OmpOauth)]),
+            ),
             ("anthropic-key".into(), keys(&[("anthropic", key("a1"))])),
             ("anthropic-other".into(), keys(&[("anthropic", key("a2"))])),
         ]);
-        assert_eq!(plan.main.get("openai-codex"), Some(&ProviderCredential::OmpOauth));
-        assert_eq!(plan.main.get("anthropic"), Some(&ProviderCredential::OauthWithApiKey("a1".into())));
+        assert_eq!(
+            plan.main.get("openai-codex"),
+            Some(&ProviderCredential::OmpOauth)
+        );
+        assert_eq!(
+            plan.main.get("anthropic"),
+            Some(&ProviderCredential::OauthWithApiKey("a1".into()))
+        );
         // The sign-ins are main; the second and third openai keys and the second Anthropic key move.
-        let moved: BTreeSet<_> = plan.shards.iter().flat_map(|shard| shard.members.iter().cloned()).collect();
+        let moved: BTreeSet<_> = plan
+            .shards
+            .iter()
+            .flat_map(|shard| shard.members.iter().cloned())
+            .collect();
         assert_eq!(moved.len(), 3);
         assert!(moved.contains(&("anthropic-other".to_string(), "anthropic".to_string())));
         assert!(!moved.iter().any(|(_, provider)| provider == "openai-codex"));
@@ -4548,22 +4860,46 @@ mod tests {
     fn an_anthropic_sign_in_and_api_key_are_held_together_and_nothing_else_is() {
         let key = ProviderCredential::ApiKey("sk-ant-key".into());
         let both = ProviderCredential::OauthWithApiKey("sk-ant-key".into());
-        assert_eq!(key.merged(&ProviderCredential::OmpOauth, "anthropic"), Some(both.clone()));
-        assert_eq!(ProviderCredential::OmpOauth.merged(&key, "anthropic"), Some(both.clone()));
+        assert_eq!(
+            key.merged(&ProviderCredential::OmpOauth, "anthropic"),
+            Some(both.clone())
+        );
+        assert_eq!(
+            ProviderCredential::OmpOauth.merged(&key, "anthropic"),
+            Some(both.clone())
+        );
         assert_eq!(both.merged(&key, "anthropic"), Some(both.clone()));
-        assert_eq!(both.merged(&ProviderCredential::OmpOauth, "anthropic"), Some(both.clone()));
+        assert_eq!(
+            both.merged(&ProviderCredential::OmpOauth, "anthropic"),
+            Some(both.clone())
+        );
         // Two different keys, or any other provider, stay refused as before.
-        assert_eq!(both.merged(&ProviderCredential::ApiKey("other".into()), "anthropic"), None);
-        assert_eq!(key.merged(&ProviderCredential::ApiKey("other".into()), "anthropic"), None);
-        assert_eq!(key.merged(&ProviderCredential::OmpOauth, "openai-codex"), None);
+        assert_eq!(
+            both.merged(&ProviderCredential::ApiKey("other".into()), "anthropic"),
+            None
+        );
+        assert_eq!(
+            key.merged(&ProviderCredential::ApiKey("other".into()), "anthropic"),
+            None
+        );
+        assert_eq!(
+            key.merged(&ProviderCredential::OmpOauth, "openai-codex"),
+            None
+        );
     }
 
     #[test]
     fn each_company_is_billed_by_its_own_anthropic_binding() {
         let signed_in = dual_company("signed_in_test", "omp-oauth:anthropic");
         let keyed = dual_company("keyed_test", "env:ANTHROPIC_API_KEY");
-        assert_eq!(company_billing(&signed_in, "anthropic"), ModelBilling::Subscription);
-        assert_eq!(company_billing(&keyed, "anthropic"), ModelBilling::MeteredApi);
+        assert_eq!(
+            company_billing(&signed_in, "anthropic"),
+            ModelBilling::Subscription
+        );
+        assert_eq!(
+            company_billing(&keyed, "anthropic"),
+            ModelBilling::MeteredApi
+        );
     }
 
     #[test]
@@ -4572,20 +4908,28 @@ mod tests {
             "anthropic".to_string(),
             ProviderCredential::OauthWithApiKey("sk-ant-key".into()),
         )]);
-        let routes = direct_anthropic_routes(&credentials, "http://127.0.0.1:9", "gateway-token").unwrap();
+        let routes =
+            direct_anthropic_routes(&credentials, "http://127.0.0.1:9", "gateway-token").unwrap();
         let route = &routes["anthropic"];
         match route.for_billing("metered_api").unwrap().credential {
             AnthropicRouteCredential::ApiKey(key) => assert_eq!(key, "sk-ant-key"),
-            AnthropicRouteCredential::AccountOauth(_) => panic!("a per-token company reached the sign-in"),
+            AnthropicRouteCredential::AccountOauth(_) => {
+                panic!("a per-token company reached the sign-in")
+            }
         }
         match route.for_billing("subscription").unwrap().credential {
             AnthropicRouteCredential::AccountOauth(token) => assert_eq!(token, "gateway-token"),
-            AnthropicRouteCredential::ApiKey(_) => panic!("a subscription company reached the API key"),
+            AnthropicRouteCredential::ApiKey(_) => {
+                panic!("a subscription company reached the API key")
+            }
         }
         assert!(route.for_billing("native_api_unmetered").is_none());
         // A key alone still has no sign-in route, and a sign-in alone no key route.
         let key_only = direct_anthropic_routes(
-            &BTreeMap::from([("anthropic".to_string(), ProviderCredential::ApiKey("k".into()))]),
+            &BTreeMap::from([(
+                "anthropic".to_string(),
+                ProviderCredential::ApiKey("k".into()),
+            )]),
             "http://127.0.0.1:9",
             "t",
         )
@@ -4644,7 +4988,9 @@ mod tests {
     }
 
     impl Drop for OAuthProbeServer {
-        fn drop(&mut self) { self.task.abort(); }
+        fn drop(&mut self) {
+            self.task.abort();
+        }
     }
 
     impl OAuthProbeServer {
@@ -4653,21 +4999,32 @@ mod tests {
             let url = format!("http://{}", listener.local_addr().unwrap());
             let reads = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
             let observed = reads.clone();
-            let app = Router::new().route("/v1/snapshot", get(move |headers: HeaderMap| {
-                let payload = payload.clone();
-                let observed = observed.clone();
-                async move {
-                    observed.fetch_add(1, Ordering::SeqCst);
-                    assert_eq!(headers.get(AUTHORIZATION).unwrap(), "Bearer probe-only-token");
-                    (status, axum::Json(payload))
-                }
-            }));
-            let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
+            let app = Router::new().route(
+                "/v1/snapshot",
+                get(move |headers: HeaderMap| {
+                    let payload = payload.clone();
+                    let observed = observed.clone();
+                    async move {
+                        observed.fetch_add(1, Ordering::SeqCst);
+                        assert_eq!(
+                            headers.get(AUTHORIZATION).unwrap(),
+                            "Bearer probe-only-token"
+                        );
+                        (status, axum::Json(payload))
+                    }
+                }),
+            );
+            let task = tokio::spawn(async move {
+                axum::serve(listener, app).await.unwrap();
+            });
             Self { url, reads, task }
         }
 
         fn access(&self) -> BrokerAccess {
-            BrokerAccess { url: self.url.clone(), token: "probe-only-token".into() }
+            BrokerAccess {
+                url: self.url.clone(),
+                token: "probe-only-token".into(),
+            }
         }
     }
 
@@ -4689,9 +5046,15 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(40)).await;
             *next.write().unwrap() = Some(access);
         });
-        let snapshot = broker_snapshot_when_ready(&reqwest::Client::new(), Duration::from_secs(2),
-            || Ok(current.read().unwrap().clone())).await.unwrap();
-        let account = oauth_account_from_snapshot(snapshot, "openai-codex").unwrap().unwrap();
+        let snapshot =
+            broker_snapshot_when_ready(&reqwest::Client::new(), Duration::from_secs(2), || {
+                Ok(current.read().unwrap().clone())
+            })
+            .await
+            .unwrap();
+        let account = oauth_account_from_snapshot(snapshot, "openai-codex")
+            .unwrap()
+            .unwrap();
         assert!(account.matches_account(Some("original-account")));
         assert_eq!(account.identity.as_deref(), Some("fixture@restless.test"));
         assert_eq!(server.reads.load(Ordering::SeqCst), 1);
@@ -4705,7 +5068,8 @@ mod tests {
         let server = OAuthProbeServer::start(StatusCode::OK, oauth_probe_payload()).await;
         drop(closed);
         let current = std::sync::Arc::new(RwLock::new(Some(BrokerAccess {
-            url: old_url, token: "probe-only-token".into()
+            url: old_url,
+            token: "probe-only-token".into(),
         })));
         let next = current.clone();
         let access = server.access();
@@ -4713,9 +5077,15 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(40)).await;
             *next.write().unwrap() = Some(access);
         });
-        let snapshot = broker_snapshot_when_ready(&reqwest::Client::new(), Duration::from_secs(2),
-            || Ok(current.read().unwrap().clone())).await.unwrap();
-        assert!(oauth_account_from_snapshot(snapshot, "openai-codex").unwrap().unwrap()
+        let snapshot =
+            broker_snapshot_when_ready(&reqwest::Client::new(), Duration::from_secs(2), || {
+                Ok(current.read().unwrap().clone())
+            })
+            .await
+            .unwrap();
+        assert!(oauth_account_from_snapshot(snapshot, "openai-codex")
+            .unwrap()
+            .unwrap()
             .matches_account(Some("original-account")));
         assert_eq!(server.reads.load(Ordering::SeqCst), 1);
         publish.await.unwrap();
@@ -4723,30 +5093,54 @@ mod tests {
 
     #[tokio::test]
     async fn oauth_probe_does_not_retry_authenticated_absence_or_refusal() {
-        let empty = OAuthProbeServer::start(StatusCode::OK, serde_json::json!({"credentials": []})).await;
-        let snapshot = broker_snapshot_when_ready(&reqwest::Client::new(), Duration::from_secs(2),
-            || Ok(Some(empty.access()))).await.unwrap();
-        assert!(oauth_account_from_snapshot(snapshot, "openai-codex").unwrap().is_none());
+        let empty =
+            OAuthProbeServer::start(StatusCode::OK, serde_json::json!({"credentials": []})).await;
+        let snapshot =
+            broker_snapshot_when_ready(&reqwest::Client::new(), Duration::from_secs(2), || {
+                Ok(Some(empty.access()))
+            })
+            .await
+            .unwrap();
+        assert!(oauth_account_from_snapshot(snapshot, "openai-codex")
+            .unwrap()
+            .is_none());
         assert_eq!(empty.reads.load(Ordering::SeqCst), 1);
-        let refused = OAuthProbeServer::start(StatusCode::UNAUTHORIZED,
-            serde_json::json!({"reflected_secret": "must-stay-private"})).await;
-        let error = broker_snapshot_when_ready(&reqwest::Client::new(), Duration::from_secs(2),
-            || Ok(Some(refused.access()))).await.err().unwrap();
+        let refused = OAuthProbeServer::start(
+            StatusCode::UNAUTHORIZED,
+            serde_json::json!({"reflected_secret": "must-stay-private"}),
+        )
+        .await;
+        let error =
+            broker_snapshot_when_ready(&reqwest::Client::new(), Duration::from_secs(2), || {
+                Ok(Some(refused.access()))
+            })
+            .await
+            .err()
+            .unwrap();
         assert_eq!(refused.reads.load(Ordering::SeqCst), 1);
         assert!(!format!("{error:#}").contains("must-stay-private"));
     }
 
     #[tokio::test]
     async fn oauth_probe_has_a_deadline_when_no_broker_starts() {
-        let error = broker_snapshot_when_ready(&reqwest::Client::new(), Duration::from_millis(30),
-            || Ok(None)).await.err().unwrap();
+        let error =
+            broker_snapshot_when_ready(&reqwest::Client::new(), Duration::from_millis(30), || {
+                Ok(None)
+            })
+            .await
+            .err()
+            .unwrap();
         assert!(error.to_string().contains("still starting"));
     }
 
     #[test]
     fn oauth_account_requires_one_mode_and_the_exact_saved_identity() {
-        let account = oauth_account_from_snapshot(serde_json::from_value(oauth_probe_payload()).unwrap(),
-            "openai-codex").unwrap().unwrap();
+        let account = oauth_account_from_snapshot(
+            serde_json::from_value(oauth_probe_payload()).unwrap(),
+            "openai-codex",
+        )
+        .unwrap()
+        .unwrap();
         assert!(account.matches_account(Some("original-account")));
         assert!(!account.matches_account(Some("different-account")));
         assert!(!account.matches_account(None));
@@ -4754,28 +5148,44 @@ mod tests {
         mixed["credentials"].as_array_mut().unwrap().push(serde_json::json!({
             "id": 2, "provider": "openai-codex", "credential": {"type": "api_key", "key": "another-mode"}
         }));
-        assert!(oauth_account_from_snapshot(serde_json::from_value(mixed).unwrap(),
-            "openai-codex").is_err());
+        assert!(oauth_account_from_snapshot(
+            serde_json::from_value(mixed).unwrap(),
+            "openai-codex"
+        )
+        .is_err());
         let mut fallback = oauth_probe_payload();
         fallback["credentials"][0]["credential"]["accountId"] = serde_json::Value::Null;
-        let account = oauth_account_from_snapshot(serde_json::from_value(fallback).unwrap(),
-            "openai-codex").unwrap().unwrap();
+        let account =
+            oauth_account_from_snapshot(serde_json::from_value(fallback).unwrap(), "openai-codex")
+                .unwrap()
+                .unwrap();
         assert!(account.matches_account(Some("fixture@restless.test")));
     }
 
     #[cfg(unix)]
     #[tokio::test]
     async fn exited_model_broker_withdraws_supervisor_readiness() {
-        let child = Command::new("sleep").arg("30").kill_on_drop(true).spawn().unwrap();
+        let child = Command::new("sleep")
+            .arg("30")
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
         let mut processes = Processes {
-            broker: child, gateway: None, relay: None, shards: Vec::new(),
+            broker: child,
+            gateway: None,
+            relay: None,
+            shards: Vec::new(),
             marker: std::env::temp_dir().join(format!("restless-probe-{}", uuid::Uuid::new_v4())),
             fingerprint: String::new(),
         };
         processes.check_running().unwrap();
         processes.broker.start_kill().unwrap();
         processes.broker.wait().await.unwrap();
-        assert!(processes.check_running().unwrap_err().to_string().contains("broker exited"));
+        assert!(processes
+            .check_running()
+            .unwrap_err()
+            .to_string()
+            .contains("broker exited"));
     }
 
     #[test]
@@ -4882,10 +5292,12 @@ mission = "Choose native intelligence"
                 .as_deref(),
             Some("native-codex-oauth/gpt-5")
         );
-        assert!(admit(&[config], &BTreeMap::<String, ProviderCredential>::new())
-            .unwrap()
-            .unstartable
-            .is_empty());
+        assert!(
+            admit(&[config], &BTreeMap::<String, ProviderCredential>::new())
+                .unwrap()
+                .unstartable
+                .is_empty()
+        );
     }
 
     fn test_root() -> std::path::PathBuf {
@@ -4953,7 +5365,10 @@ mission = "Choose native intelligence"
             responses_routes: BTreeMap::new(),
             anthropic_routes: BTreeMap::new(),
             shards: Default::default(),
-            broker_access: BrokerAccess { url: "http://127.0.0.1:1".into(), token: "host-only-broker-bearer".into() },
+            broker_access: BrokerAccess {
+                url: "http://127.0.0.1:1".into(),
+                token: "host-only-broker-bearer".into(),
+            },
             http: reqwest::Client::new(),
         };
         (capabilities, spend, state)
@@ -4974,9 +5389,15 @@ mission = "Choose native intelligence"
         }))
         .unwrap();
         let before = gateway_fingerprint(std::slice::from_ref(&config), &[]);
-        assert_eq!(before, gateway_fingerprint(std::slice::from_ref(&config), &[]));
+        assert_eq!(
+            before,
+            gateway_fingerprint(std::slice::from_ref(&config), &[])
+        );
         note_credential_replaced();
-        assert_ne!(before, gateway_fingerprint(std::slice::from_ref(&config), &[]));
+        assert_ne!(
+            before,
+            gateway_fingerprint(std::slice::from_ref(&config), &[])
+        );
     }
 
     #[test]
@@ -4986,14 +5407,23 @@ mission = "Choose native intelligence"
             "name": "account_grant_test", "mission": "Share an existing connection",
             "model": "anthropic/claude-sonnet-5-5",
             "credentials": {"model.inference.anthropic": "env:ANTHROPIC_TEST"}
-        })).unwrap();
+        }))
+        .unwrap();
         let accounts = vec!["openai-codex".to_owned()];
         let before = gateway_fingerprint(std::slice::from_ref(&config), &accounts);
-        config.credentials.insert("model.inference.openai-codex".into(),
-            "omp-oauth:openai-codex@0123456789abcdef0123456789abcdef".into());
-        assert_eq!(before, gateway_fingerprint(std::slice::from_ref(&config), &accounts));
+        config.credentials.insert(
+            "model.inference.openai-codex".into(),
+            "omp-oauth:openai-codex@0123456789abcdef0123456789abcdef".into(),
+        );
+        assert_eq!(
+            before,
+            gateway_fingerprint(std::slice::from_ref(&config), &accounts)
+        );
         config.model = "openai-codex/gpt-6-sol".into();
-        assert_eq!(before, gateway_fingerprint(std::slice::from_ref(&config), &accounts));
+        assert_eq!(
+            before,
+            gateway_fingerprint(std::slice::from_ref(&config), &accounts)
+        );
     }
 
     #[test]
@@ -5001,9 +5431,12 @@ mission = "Choose native intelligence"
         let _guard = FINGERPRINT_TEST_LOCK.lock().unwrap();
         let config: CompanyConfig = serde_json::from_value(serde_json::json!({
             "name": "new_account_test", "mission": "Connect a new provider"
-        })).unwrap();
-        assert_ne!(gateway_fingerprint(std::slice::from_ref(&config), &[]),
-            gateway_fingerprint(std::slice::from_ref(&config), &["openai-codex".to_owned()]));
+        }))
+        .unwrap();
+        assert_ne!(
+            gateway_fingerprint(std::slice::from_ref(&config), &[]),
+            gateway_fingerprint(std::slice::from_ref(&config), &["openai-codex".to_owned()])
+        );
     }
 
     #[test]
@@ -5066,8 +5499,13 @@ mission = "Choose native intelligence"
 
     #[test]
     fn runtime_model_config_contains_only_the_narrow_gateway_route() {
-        let config =
-            models_config("moonshot/kimi-k3", RELAY_RUNTIME_URL, MODEL_CAPABILITY_ENV, ModelBilling::Subscription).unwrap();
+        let config = models_config(
+            "moonshot/kimi-k3",
+            RELAY_RUNTIME_URL,
+            MODEL_CAPABILITY_ENV,
+            ModelBilling::Subscription,
+        )
+        .unwrap();
         assert!(config.contains("\n  moonshot:\n    baseUrl:"));
         assert!(config.contains("transport: pi-native"));
         assert!(config.contains("api: openai-completions"));
@@ -5092,25 +5530,29 @@ mission = "Choose native intelligence"
         assert!(models_config(
             "moonshot\nheaders/kimi-k3",
             RELAY_RUNTIME_URL,
-            MODEL_CAPABILITY_ENV, ModelBilling::Subscription
+            MODEL_CAPABILITY_ENV,
+            ModelBilling::Subscription
         )
         .is_err());
         assert!(models_config(
             "moonshot/kimi-k3",
             "https://example.invalid",
-            MODEL_CAPABILITY_ENV, ModelBilling::Subscription
+            MODEL_CAPABILITY_ENV,
+            ModelBilling::Subscription
         )
         .is_err());
         assert!(models_config(
             "moonshot/kimi-k3",
             "http://host.docker.internal:17790/v1",
-            MODEL_CAPABILITY_ENV, ModelBilling::Subscription
+            MODEL_CAPABILITY_ENV,
+            ModelBilling::Subscription
         )
         .is_err());
         assert!(models_config(
             "moonshot/kimi-k3",
             "http://host.docker.internal:17790",
-            MODEL_CAPABILITY_ENV, ModelBilling::Subscription
+            MODEL_CAPABILITY_ENV,
+            ModelBilling::Subscription
         )
         .is_ok());
     }
@@ -5120,7 +5562,8 @@ mission = "Choose native intelligence"
         let config = models_config(
             "litellm/gpt-5.6-sol",
             RELAY_RUNTIME_URL,
-            MODEL_CAPABILITY_ENV, ModelBilling::Subscription
+            MODEL_CAPABILITY_ENV,
+            ModelBilling::Subscription,
         )
         .unwrap();
         assert!(config.contains("\n  litellm:\n    baseUrl:"));
@@ -5132,8 +5575,13 @@ mission = "Choose native intelligence"
 
     #[test]
     fn runtime_pins_an_admitted_model_missing_from_the_bundled_catalogue() {
-        let config =
-            models_config("zai/glm-5.3-flash", RELAY_RUNTIME_URL, MODEL_CAPABILITY_ENV, ModelBilling::Subscription).unwrap();
+        let config = models_config(
+            "zai/glm-5.3-flash",
+            RELAY_RUNTIME_URL,
+            MODEL_CAPABILITY_ENV,
+            ModelBilling::Subscription,
+        )
+        .unwrap();
         assert!(config.contains("    discovery:\n      type: proxy\n"));
         assert!(config.contains("    modelOverrides:\n      glm-5.3-flash:\n"));
         assert!(config.contains("        input: [text, image]\n"));
@@ -5148,7 +5596,8 @@ mission = "Choose native intelligence"
         let config = models_config(
             "zhipu-coding-plan/glm-5.3-flash",
             RELAY_RUNTIME_URL,
-            MODEL_CAPABILITY_ENV, ModelBilling::Subscription
+            MODEL_CAPABILITY_ENV,
+            ModelBilling::Subscription,
         )
         .unwrap();
         assert!(config.contains("\n  zhipu-coding-plan:\n    baseUrl:"));
@@ -5366,7 +5815,10 @@ mission = "Choose native intelligence"
             company("other_provider_test", "zai/glm-5.3"),
         ];
         let credentials = BTreeMap::from([
-            ("litellm".to_string(), ProviderCredential::ApiKey("k".into())),
+            (
+                "litellm".to_string(),
+                ProviderCredential::ApiKey("k".into()),
+            ),
             ("zai".to_string(), ProviderCredential::ApiKey("k".into())),
         ]);
         let served = BTreeSet::from(["litellm/gpt-5.6-terra".to_string()]);
@@ -5445,7 +5897,10 @@ mission = "Choose native intelligence"
             decision_model: None,
         };
         let oauth = BTreeMap::from([("anthropic".into(), ProviderCredential::OmpOauth)]);
-        assert!(admit(std::slice::from_ref(&config), &oauth).unwrap().unstartable.is_empty());
+        assert!(admit(std::slice::from_ref(&config), &oauth)
+            .unwrap()
+            .unstartable
+            .is_empty());
 
         let api_key = BTreeMap::from([(
             "anthropic".into(),
@@ -5562,7 +6017,12 @@ mission = "Choose native intelligence"
     fn interrupted_subscription_is_observed_once_without_inventing_tokens_or_charge() {
         let root = test_root();
         let (_issuer, ledger, _state) = test_relay_state(&root);
-        let mut request = metered_request("acme_test", "exec", "interrupted", "openai-codex/gpt-6.1-sol");
+        let mut request = metered_request(
+            "acme_test",
+            "exec",
+            "interrupted",
+            "openai-codex/gpt-6.1-sol",
+        );
         request.billing = ModelBilling::Subscription;
         let inner = futures_util::stream::empty::<std::result::Result<Bytes, reqwest::Error>>();
         let mut stream = MeteredStream::new_responses(inner, ledger.meter(), request);
@@ -6020,27 +6480,42 @@ mission = "Choose native intelligence"
             }
             Ok("ready")
         };
-        let ready =
-            wait_until_ready(Duration::from_secs(5), Duration::from_millis(1), starting, || false)
-                .await
-                .unwrap();
-        assert_eq!(ready, "ready", "a gateway that comes up within the wait is used");
+        let ready = wait_until_ready(
+            Duration::from_secs(5),
+            Duration::from_millis(1),
+            starting,
+            || false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            ready, "ready",
+            "a gateway that comes up within the wait is used"
+        );
 
         let absent = || -> Result<&str> { anyhow::bail!("no direct provider") };
         let started = std::time::Instant::now();
-        assert!(
-            wait_until_ready(Duration::from_secs(5), Duration::from_millis(1), absent, || true)
-                .await
-                .is_err()
-        );
+        assert!(wait_until_ready(
+            Duration::from_secs(5),
+            Duration::from_millis(1),
+            absent,
+            || true
+        )
+        .await
+        .is_err());
         assert!(
             started.elapsed() < Duration::from_secs(1),
             "a plane with no provider fails at once"
         );
         assert!(
-            wait_until_ready(Duration::from_millis(20), Duration::from_millis(1), absent, || false)
-                .await
-                .is_err(),
+            wait_until_ready(
+                Duration::from_millis(20),
+                Duration::from_millis(1),
+                absent,
+                || false
+            )
+            .await
+            .is_err(),
             "the wait is bounded"
         );
     }
@@ -6059,7 +6534,12 @@ mission = "Choose native intelligence"
             let mut stream = MeteredStream::new_anthropic_message(
                 inner,
                 ledger.meter(),
-                metered_request("acme_test", "claude-worker", "probe-session", "anthropic/claude-sonnet-4-6"),
+                metered_request(
+                    "acme_test",
+                    "claude-worker",
+                    "probe-session",
+                    "anthropic/claude-sonnet-4-6",
+                ),
             );
             let body = reply.to_string();
             let (head, tail) = body.split_at(body.len() / 2);
@@ -6344,11 +6824,19 @@ mission = "Choose native intelligence"
     async fn a_hosted_credit_refusal_reaches_the_owner_with_where_to_top_up() {
         let refusal = |status: u16, body: &str| {
             reqwest::Response::from(
-                axum::http::Response::builder().status(status).body(body.to_owned()).unwrap(),
+                axum::http::Response::builder()
+                    .status(status)
+                    .body(body.to_owned())
+                    .unwrap(),
             )
         };
         let relay = r#"{"error":{"code":"ai_credit_exhausted","message":"AI credit is used up. Top up to continue: https://app.restless.run/account/settings/billing"}}"#;
-        let message = refusal_message(StatusCode::PAYMENT_REQUIRED, refusal(402, relay), "test/model").await;
+        let message = refusal_message(
+            StatusCode::PAYMENT_REQUIRED,
+            refusal(402, relay),
+            "test/model",
+        )
+        .await;
         assert_eq!(
             message,
             "402 AI credit is used up. Top up to continue: https://app.restless.run/account/settings/billing"
@@ -6363,7 +6851,12 @@ mission = "Choose native intelligence"
             "host model gateway refused the model request"
         );
         assert_eq!(
-            refusal_message(StatusCode::PAYMENT_REQUIRED, refusal(402, "not json"), "test/model").await,
+            refusal_message(
+                StatusCode::PAYMENT_REQUIRED,
+                refusal(402, "not json"),
+                "test/model"
+            )
+            .await,
             "402 host model gateway refused the model request"
         );
     }

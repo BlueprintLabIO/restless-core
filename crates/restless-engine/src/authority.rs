@@ -476,7 +476,8 @@ impl AuthorityStore {
     ) -> Result<Uuid> {
         let proposal = mandate::canonicalize_new_mandate(proposal)?;
         let id = Uuid::new_v4();
-        let mut body = serde_json::json!({"id":id,"proposal":proposal,"judgement_note":judgement_note});
+        let mut body =
+            serde_json::json!({"id":id,"proposal":proposal,"judgement_note":judgement_note});
         // A change to the current mandate names it; approving the change replaces it.
         if let Some(replaces) = replaces {
             body["replaces"] = serde_json::json!(replaces);
@@ -505,19 +506,32 @@ impl AuthorityStore {
         Ok(sqlx::Row::try_get(&row, "id")?)
     }
 
-    pub async fn pending_email_mandate_proposals(&self, company: &str) -> Result<Vec<AuthorityRecord>> {
+    pub async fn pending_email_mandate_proposals(
+        &self,
+        company: &str,
+    ) -> Result<Vec<AuthorityRecord>> {
         Ok(sqlx::query_as("SELECT p.id,p.actor_id,p.body,p.created_at FROM restless_authority.records p WHERE p.company=$1 AND p.kind='email_mandate_proposal' AND NOT EXISTS (SELECT 1 FROM restless_authority.records d WHERE d.company=p.company AND d.kind='email_mandate_proposal_decision' AND d.body->>'proposal_id'=p.body->>'id') ORDER BY p.id")
             .bind(company).fetch_all(&self.pool).await?)
     }
 
-    pub async fn decide_email_mandate_proposal(&self, company: &str, owner: &str, proposal_id: Uuid, approve: bool, owner_note: Option<&str>) -> Result<Option<EmailMandate>> {
+    pub async fn decide_email_mandate_proposal(
+        &self,
+        company: &str,
+        owner: &str,
+        proposal_id: Uuid,
+        approve: bool,
+        owner_note: Option<&str>,
+    ) -> Result<Option<EmailMandate>> {
         let mut tx = self.pool.begin().await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
             .bind(format!("email-mandate:{company}:{proposal_id}"))
-            .execute(&mut *tx).await?;
+            .execute(&mut *tx)
+            .await?;
         let proposal_row = sqlx::query("SELECT body FROM restless_authority.records WHERE company=$1 AND kind='email_mandate_proposal' AND body->>'id'=$2 ORDER BY id DESC LIMIT 1 FOR UPDATE")
             .bind(company).bind(proposal_id.to_string()).fetch_optional(&mut *tx).await?;
-        let Some(row) = proposal_row else { anyhow::bail!("email mandate proposal not found") };
+        let Some(row) = proposal_row else {
+            anyhow::bail!("email mandate proposal not found")
+        };
         let body: serde_json::Value = sqlx::Row::try_get(&row, "body")?;
         if let Some(decision) = sqlx::query("SELECT body FROM restless_authority.records WHERE company=$1 AND kind='email_mandate_proposal_decision' AND body->>'proposal_id'=$2 ORDER BY id LIMIT 1")
             .bind(company).bind(proposal_id.to_string()).fetch_optional(&mut *tx).await? {
@@ -544,11 +558,23 @@ impl AuthorityStore {
             mandate::lock_company(&mut tx, company).await?;
             // An approved change retires the mandate it changes in the same transaction, so
             // there is never a moment with both or neither.
-            if let Some(replaces) = body["replaces"].as_str().and_then(|id| Uuid::parse_str(id).ok()) {
-                mandate::revoke_in_transaction(&mut tx, company, owner, replaces, "Replaced by an approved change.").await?;
+            if let Some(replaces) = body["replaces"]
+                .as_str()
+                .and_then(|id| Uuid::parse_str(id).ok())
+            {
+                mandate::revoke_in_transaction(
+                    &mut tx,
+                    company,
+                    owner,
+                    replaces,
+                    "Replaced by an approved change.",
+                )
+                .await?;
             }
             Some(mandate::grant_in_transaction(&mut tx, company, owner, proposal).await?)
-        } else { None };
+        } else {
+            None
+        };
         let decision_body = serde_json::json!({"proposal_id":proposal_id,"decision":if approve {"approve"} else {"decline"},"mandate_id":mandate.as_ref().map(|m|m.id),"owner_note":owner_note});
         sqlx::query("INSERT INTO restless_authority.records (company,kind,actor_id,body) VALUES ($1,'email_mandate_proposal_decision',$2,$3)")
             .bind(company).bind(owner).bind(decision_body).execute(&mut *tx).await?;
@@ -677,7 +703,11 @@ impl AuthorityStore {
     /// Forget a provider's credential cooldowns once the company has a different credential for
     /// it: a 401 from a rejected key held every model of that provider back for a day, and
     /// granting a new key did not lift it, so the company stayed blocked (Sprint 86).
-    pub async fn clear_provider_credential_cooldowns(&self, company: &str, provider: &str) -> Result<u64> {
+    pub async fn clear_provider_credential_cooldowns(
+        &self,
+        company: &str,
+        provider: &str,
+    ) -> Result<u64> {
         Ok(sqlx::query(
             "DELETE FROM restless_authority.model_cooldowns \
              WHERE company=$1 AND kind='credential' AND model LIKE $2",
@@ -1159,23 +1189,31 @@ impl AuthorityStore {
         limit: i64,
         naming: Option<&str>,
     ) -> Result<Vec<(String, AuthorityRecord)>> {
-        let kinds = kinds.iter().map(|kind| kind.to_string()).collect::<Vec<_>>();
-        let rows: Vec<(String, i64, Option<String>, serde_json::Value, DateTime<Utc>)> =
-            sqlx::query_as(
-                "SELECT kind, id, actor_id, body, created_at FROM restless_authority.records \
+        let kinds = kinds
+            .iter()
+            .map(|kind| kind.to_string())
+            .collect::<Vec<_>>();
+        let rows: Vec<(
+            String,
+            i64,
+            Option<String>,
+            serde_json::Value,
+            DateTime<Utc>,
+        )> = sqlx::query_as(
+            "SELECT kind, id, actor_id, body, created_at FROM restless_authority.records \
                  WHERE company = $1 AND kind = ANY($2) AND ($3::BIGINT IS NULL OR id < $3) \
                  AND ($5::TEXT IS NULL OR strpos(lower(concat_ws(' ', body->>'party', \
                       body->>'recipient', body->>'purpose')), lower($5)) > 0) \
                  ORDER BY id DESC LIMIT $4",
-            )
-            .bind(company)
-            .bind(&kinds)
-            .bind(before)
-            .bind(limit)
-            .bind(naming)
-            .fetch_all(&self.pool)
-            .await
-            .with_context(|| format!("read a page of Authority records for {company}"))?;
+        )
+        .bind(company)
+        .bind(&kinds)
+        .bind(before)
+        .bind(limit)
+        .bind(naming)
+        .fetch_all(&self.pool)
+        .await
+        .with_context(|| format!("read a page of Authority records for {company}"))?;
         Ok(rows
             .into_iter()
             .map(|(kind, id, actor_id, body, created_at)| {
@@ -1801,7 +1839,13 @@ async fn latest_pending_handover<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    type Row = (i64, String, Option<String>, serde_json::Value, DateTime<Utc>);
+    type Row = (
+        i64,
+        String,
+        Option<String>,
+        serde_json::Value,
+        DateTime<Utc>,
+    );
     let latest: Option<Row> = sqlx::query_as(
         "SELECT id,kind,actor_id,body,created_at FROM restless_authority.records \
          WHERE company=$1 AND kind IN ('authority_ownership_transfer', \
@@ -1812,16 +1856,18 @@ where
     .fetch_optional(executor)
     .await
     .context("read pending ownership handover")?;
-    Ok(latest.and_then(|(record_id, kind, to, body, requested_at)| {
-        (kind == "authority_ownership_handover_requested").then_some(())?;
-        Some(PendingAuthorityHandover {
-            record_id,
-            company: company.to_string(),
-            from_actor_id: body.get("from_actor_id")?.as_str()?.to_string(),
-            to_actor_id: to?,
-            requested_at,
-        })
-    }))
+    Ok(
+        latest.and_then(|(record_id, kind, to, body, requested_at)| {
+            (kind == "authority_ownership_handover_requested").then_some(())?;
+            Some(PendingAuthorityHandover {
+                record_id,
+                company: company.to_string(),
+                from_actor_id: body.get("from_actor_id")?.as_str()?.to_string(),
+                to_actor_id: to?,
+                requested_at,
+            })
+        }),
+    )
 }
 
 #[cfg(test)]
@@ -1953,7 +1999,9 @@ mod credential_cooldown_tests {
             eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping credential cooldown scenario");
             return;
         };
-        let store = AuthorityStore::connect(&url).await.expect("connect Authority store");
+        let store = AuthorityStore::connect(&url)
+            .await
+            .expect("connect Authority store");
         let company = format!("cooldown{}", Uuid::new_v4().simple());
         let later = chrono::Utc::now() + chrono::Duration::hours(24);
         for (model, kind) in [
@@ -1962,9 +2010,18 @@ mod credential_cooldown_tests {
             ("anthropic/claude-haiku-4-5", "rate_limit"),
             ("openai/gpt-6", "credential"),
         ] {
-            store.set_model_cooldown(&company, model, kind, "rejected", later).await.expect("set cooldown");
+            store
+                .set_model_cooldown(&company, model, kind, "rejected", later)
+                .await
+                .expect("set cooldown");
         }
-        assert_eq!(store.clear_provider_credential_cooldowns(&company, "anthropic").await.unwrap(), 2);
+        assert_eq!(
+            store
+                .clear_provider_credential_cooldowns(&company, "anthropic")
+                .await
+                .unwrap(),
+            2
+        );
         let mut left: Vec<String> = store
             .active_model_cooldowns(&company)
             .await

@@ -1,13 +1,13 @@
 //! Native Sheets use the upstream engine in a credential-free bounded child.
 //! Rust remains the only writer of company metadata and accepted revisions.
 use anyhow::{Context, Result};
+use chrono::Utc;
 use restless_orgintel::{OrgIntel, SheetState, SHEET_ENGINE_VERSION};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use chrono::Utc;
 use uuid::Uuid;
 
 struct Worker {
@@ -383,11 +383,7 @@ pub fn is_read_action(action: &Value) -> bool {
         Some("get_range" | "filter" | "export_csv" | "snapshot")
     )
 }
-pub async fn execute(
-    org: &OrgIntel,
-    actor: &str,
-    operation: SheetOperation,
-) -> Result<Value> {
+pub async fn execute(org: &OrgIntel, actor: &str, operation: SheetOperation) -> Result<Value> {
     match operation {
         SheetOperation::List => Ok(json!(org.list_sheets(actor).await?)),
         SheetOperation::Archived => Ok(json!(org.list_archived_sheets(actor).await?)),
@@ -469,9 +465,9 @@ pub async fn execute(
                 .await?;
             Ok(json!({"shared":true}))
         }
-        SheetOperation::Access { sheet, access } => {
-            Ok(json!(org.set_sheet_general_access(sheet, actor, &access).await?))
-        }
+        SheetOperation::Access { sheet, access } => Ok(json!(
+            org.set_sheet_general_access(sheet, actor, &access).await?
+        )),
         SheetOperation::Versions { sheet } => Ok(json!(org.sheet_checkpoints(sheet, actor).await?)),
         SheetOperation::Version { sheet, version } => {
             Ok(org.sheet_checkpoint(sheet, actor, version).await?)

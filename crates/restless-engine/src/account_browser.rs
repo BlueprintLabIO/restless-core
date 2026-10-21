@@ -47,7 +47,10 @@ pub const REFUSED_METHODS: &[&str] = &[
 
 /// The pseudo-company name an identity's container and private bridges are keyed by.
 pub fn identity_key(account_id: &str) -> String {
-    format!("identity-{}", account_id.chars().take(16).collect::<String>())
+    format!(
+        "identity-{}",
+        account_id.chars().take(16).collect::<String>()
+    )
 }
 
 fn container(account_id: &str) -> String {
@@ -56,7 +59,9 @@ fn container(account_id: &str) -> String {
 
 fn volume(account_id: &str) -> String {
     match std::env::var("RESTLESS_RESOURCE_NAMESPACE") {
-        Ok(namespace) if !namespace.is_empty() => format!("restless-{namespace}-{}", identity_key(account_id)),
+        Ok(namespace) if !namespace.is_empty() => {
+            format!("restless-{namespace}-{}", identity_key(account_id))
+        }
         _ => format!("restless-{}", identity_key(account_id)),
     }
 }
@@ -71,7 +76,10 @@ fn network() -> String {
 async fn docker(args: &[&str]) -> Result<std::process::Output> {
     tokio::time::timeout(
         Duration::from_secs(120),
-        tokio::process::Command::new("docker").args(args).stdin(Stdio::null()).output(),
+        tokio::process::Command::new("docker")
+            .args(args)
+            .stdin(Stdio::null())
+            .output(),
     )
     .await
     .context("docker did not answer")?
@@ -117,8 +125,19 @@ pub async fn ensure_running(account_id: &str) -> Result<()> {
         }
     } else {
         let network = network();
-        if !docker(&["network", "inspect", &network]).await?.status.success() {
-            docker_ok(&["network", "create", "--label", "io.restless.identities=1", &network]).await?;
+        if !docker(&["network", "inspect", &network])
+            .await?
+            .status
+            .success()
+        {
+            docker_ok(&[
+                "network",
+                "create",
+                "--label",
+                "io.restless.identities=1",
+                &network,
+            ])
+            .await?;
         }
         let volume = volume(account_id);
         let label = format!("io.restless.identity={account_id}");
@@ -126,13 +145,54 @@ pub async fn ensure_running(account_id: &str) -> Result<()> {
         let image = crate::runtime::company_image();
         let mount = format!("{volume}:/identity");
         // The volume is created root-owned; the browser runs as the image's unprivileged user.
-        docker_ok(&["run", "--rm", "--user", "0", "--entrypoint", "chown", "-v", &mount, &image, "2000:2000", "/identity"]).await?;
         docker_ok(&[
-            "run", "-d", "--name", &name, "--hostname", "identity", "--network", &network,
-            "--restart", "unless-stopped", "--log-driver", "local", "--log-opt", "max-size=5m",
-            "--memory", "1536m", "--memory-swap", "1536m", "--pids-limit", "512",
-            "--user", "2000:2000", "-e", "HOME=/identity", "--label", &label,
-            "-v", &mount, "--entrypoint", "/bin/sh", &image, "-c", START,
+            "run",
+            "--rm",
+            "--user",
+            "0",
+            "--entrypoint",
+            "chown",
+            "-v",
+            &mount,
+            &image,
+            "2000:2000",
+            "/identity",
+        ])
+        .await?;
+        docker_ok(&[
+            "run",
+            "-d",
+            "--name",
+            &name,
+            "--hostname",
+            "identity",
+            "--network",
+            &network,
+            "--restart",
+            "unless-stopped",
+            "--log-driver",
+            "local",
+            "--log-opt",
+            "max-size=5m",
+            "--memory",
+            "1536m",
+            "--memory-swap",
+            "1536m",
+            "--pids-limit",
+            "512",
+            "--user",
+            "2000:2000",
+            "-e",
+            "HOME=/identity",
+            "--label",
+            &label,
+            "-v",
+            &mount,
+            "--entrypoint",
+            "/bin/sh",
+            &image,
+            "-c",
+            START,
         ])
         .await?;
     }
@@ -155,7 +215,13 @@ pub async fn remove(account_id: &str) {
 /// Chrome's `/json/version`, read inside the container.
 pub async fn version(account_id: &str) -> Result<serde_json::Value> {
     let out = docker_ok(&[
-        "exec", &container(account_id), "curl", "--fail", "--silent", "--max-time", "3",
+        "exec",
+        &container(account_id),
+        "curl",
+        "--fail",
+        "--silent",
+        "--max-time",
+        "3",
         "http://127.0.0.1:9222/json/version",
     ])
     .await?;
@@ -165,18 +231,30 @@ pub async fn version(account_id: &str) -> Result<serde_json::Value> {
 /// Chrome's page list, read inside the container.
 pub async fn pages(account_id: &str) -> Result<Vec<serde_json::Value>> {
     let out = docker_ok(&[
-        "exec", &container(account_id), "curl", "--fail", "--silent", "--max-time", "3",
+        "exec",
+        &container(account_id),
+        "curl",
+        "--fail",
+        "--silent",
+        "--max-time",
+        "3",
         "http://127.0.0.1:9222/json/list",
     ])
     .await?;
-    let list: Vec<serde_json::Value> = serde_json::from_str(&out).context("decode DevTools pages")?;
-    Ok(list.into_iter().filter(|target| target["type"] == "page").collect())
+    let list: Vec<serde_json::Value> =
+        serde_json::from_str(&out).context("decode DevTools pages")?;
+    Ok(list
+        .into_iter()
+        .filter(|target| target["type"] == "page")
+        .collect())
 }
 
 /// The browser-level DevTools socket path, such as `/devtools/browser/<id>`.
 pub async fn browser_socket_path(account_id: &str) -> Result<String> {
     let version = version(account_id).await?;
-    let url = version["webSocketDebuggerUrl"].as_str().context("no DevTools socket")?;
+    let url = version["webSocketDebuggerUrl"]
+        .as_str()
+        .context("no DevTools socket")?;
     let parsed = url::Url::parse(url)?;
     Ok(parsed.path().to_string())
 }
@@ -205,27 +283,46 @@ pub struct Cdp {
 impl Cdp {
     pub async fn open(account_id: &str) -> Result<Self> {
         let path = browser_socket_path(account_id).await?;
-        Ok(Self { socket: connect(account_id, &path).await?, next: 1 })
+        Ok(Self {
+            socket: connect(account_id, &path).await?,
+            next: 1,
+        })
     }
 
-    pub async fn call(&mut self, method: &str, params: serde_json::Value, session: Option<&str>) -> Result<serde_json::Value> {
+    pub async fn call(
+        &mut self,
+        method: &str,
+        params: serde_json::Value,
+        session: Option<&str>,
+    ) -> Result<serde_json::Value> {
         let id = self.next;
         self.next += 1;
         let mut message = serde_json::json!({ "id": id, "method": method, "params": params });
         if let Some(session) = session {
             message["sessionId"] = serde_json::json!(session);
         }
-        self.socket.send(Message::Text(message.to_string().into())).await?;
+        self.socket
+            .send(Message::Text(message.to_string().into()))
+            .await?;
         let deadline = Instant::now() + Duration::from_secs(15);
         while Instant::now() < deadline {
-            let Some(frame) = tokio::time::timeout(Duration::from_secs(15), self.socket.next()).await.ok().flatten() else {
+            let Some(frame) = tokio::time::timeout(Duration::from_secs(15), self.socket.next())
+                .await
+                .ok()
+                .flatten()
+            else {
                 break;
             };
-            let Message::Text(text) = frame? else { continue };
+            let Message::Text(text) = frame? else {
+                continue;
+            };
             let value: serde_json::Value = serde_json::from_str(&text)?;
             if value["id"].as_u64() == Some(id) {
                 if let Some(error) = value.get("error") {
-                    bail!("{method} failed: {}", error["message"].as_str().unwrap_or("unknown"));
+                    bail!(
+                        "{method} failed: {}",
+                        error["message"].as_str().unwrap_or("unknown")
+                    );
                 }
                 return Ok(value["result"].clone());
             }
@@ -238,10 +335,19 @@ impl Cdp {
 pub fn account_domains(settings: &serde_json::Value) -> Vec<String> {
     let mut domains = settings["domains"]
         .as_array()
-        .map(|list| list.iter().filter_map(|value| value.as_str()).map(str::to_ascii_lowercase).collect::<Vec<_>>())
+        .map(|list| {
+            list.iter()
+                .filter_map(|value| value.as_str())
+                .map(str::to_ascii_lowercase)
+                .collect::<Vec<_>>()
+        })
         .unwrap_or_default();
     for field in ["sign_in_url", "url"] {
-        if let Some(host) = settings[field].as_str().and_then(|url| url::Url::parse(url).ok()).and_then(|url| url.host_str().map(str::to_ascii_lowercase)) {
+        if let Some(host) = settings[field]
+            .as_str()
+            .and_then(|url| url::Url::parse(url).ok())
+            .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
+        {
             domains.push(host.trim_start_matches("www.").to_string());
         }
     }
@@ -253,12 +359,17 @@ pub fn account_domains(settings: &serde_json::Value) -> Vec<String> {
 /// A host is the account's when it is one of its domains or under one.
 pub fn on_account_domain(host: &str, domains: &[String]) -> bool {
     let host = host.trim_end_matches('.').to_ascii_lowercase();
-    domains.iter().any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
+    domains
+        .iter()
+        .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
 }
 
 /// Where the owner starts signing in.
 pub fn sign_in_page(settings: &serde_json::Value) -> Option<String> {
-    settings["sign_in_url"].as_str().or_else(|| settings["url"].as_str()).map(str::to_string)
+    settings["sign_in_url"]
+        .as_str()
+        .or_else(|| settings["url"].as_str())
+        .map(str::to_string)
 }
 
 /// Open a page in the account's browser and bring it forward.
@@ -268,9 +379,21 @@ pub async fn open_page(account_id: &str, url: &str) -> Result<()> {
         bail!("only web pages open in an account's browser");
     }
     let mut cdp = Cdp::open(account_id).await?;
-    let created = cdp.call("Target.createTarget", serde_json::json!({ "url": parsed.as_str() }), None).await?;
+    let created = cdp
+        .call(
+            "Target.createTarget",
+            serde_json::json!({ "url": parsed.as_str() }),
+            None,
+        )
+        .await?;
     if let Some(target) = created["targetId"].as_str() {
-        let _ = cdp.call("Target.activateTarget", serde_json::json!({ "targetId": target }), None).await;
+        let _ = cdp
+            .call(
+                "Target.activateTarget",
+                serde_json::json!({ "targetId": target }),
+                None,
+            )
+            .await;
     }
     Ok(())
 }
@@ -278,10 +401,16 @@ pub async fn open_page(account_id: &str, url: &str) -> Result<()> {
 /// Whether the browser holds anything for the account's domains: the owner has signed in.
 pub async fn signed_in(account_id: &str, domains: &[String]) -> Result<bool> {
     let mut cdp = Cdp::open(account_id).await?;
-    let cookies = cdp.call("Storage.getCookies", serde_json::json!({}), None).await?;
-    let has_cookie = cookies["cookies"]
-        .as_array()
-        .is_some_and(|cookies| cookies.iter().any(|cookie| cookie["domain"].as_str().is_some_and(|domain| on_account_domain(domain.trim_start_matches('.'), domains))));
+    let cookies = cdp
+        .call("Storage.getCookies", serde_json::json!({}), None)
+        .await?;
+    let has_cookie = cookies["cookies"].as_array().is_some_and(|cookies| {
+        cookies.iter().any(|cookie| {
+            cookie["domain"]
+                .as_str()
+                .is_some_and(|domain| on_account_domain(domain.trim_start_matches('.'), domains))
+        })
+    });
     if !has_cookie {
         return Ok(false);
     }
@@ -292,15 +421,31 @@ pub async fn signed_in(account_id: &str, domains: &[String]) -> Result<bool> {
 
 /// Whether an open page on the account's domains shows a password field.
 async fn asks_for_password(cdp: &mut Cdp, domains: &[String]) -> Result<bool> {
-    let targets = cdp.call("Target.getTargets", serde_json::json!({}), None).await?;
-    let pages = targets["targetInfos"].as_array().cloned().unwrap_or_default();
+    let targets = cdp
+        .call("Target.getTargets", serde_json::json!({}), None)
+        .await?;
+    let pages = targets["targetInfos"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     for page in pages.iter().filter(|info| info["type"] == "page") {
-        let host = page["url"].as_str().and_then(|url| reqwest::Url::parse(url).ok()).and_then(|url| url.host_str().map(str::to_string));
+        let host = page["url"]
+            .as_str()
+            .and_then(|url| reqwest::Url::parse(url).ok())
+            .and_then(|url| url.host_str().map(str::to_string));
         if !host.is_some_and(|host| on_account_domain(&host, domains)) {
             continue;
         }
-        let attached = cdp.call("Target.attachToTarget", serde_json::json!({ "targetId": page["targetId"], "flatten": true }), None).await?;
-        let Some(session) = attached["sessionId"].as_str().map(str::to_string) else { continue };
+        let attached = cdp
+            .call(
+                "Target.attachToTarget",
+                serde_json::json!({ "targetId": page["targetId"], "flatten": true }),
+                None,
+            )
+            .await?;
+        let Some(session) = attached["sessionId"].as_str().map(str::to_string) else {
+            continue;
+        };
         let shown = cdp
             .call(
                 "Runtime.evaluate",
@@ -311,7 +456,13 @@ async fn asks_for_password(cdp: &mut Cdp, domains: &[String]) -> Result<bool> {
                 Some(&session),
             )
             .await;
-        let _ = cdp.call("Target.detachFromTarget", serde_json::json!({ "sessionId": session }), None).await;
+        let _ = cdp
+            .call(
+                "Target.detachFromTarget",
+                serde_json::json!({ "sessionId": session }),
+                None,
+            )
+            .await;
         if shown?["result"]["value"] == true {
             return Ok(true);
         }
@@ -320,7 +471,8 @@ async fn asks_for_password(cdp: &mut Cdp, domains: &[String]) -> Result<bool> {
 }
 
 /// The owner's sign-in sessions in progress: session → account.
-static SIGN_INS: LazyLock<Mutex<HashMap<String, (String, Instant)>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static SIGN_INS: LazyLock<Mutex<HashMap<String, (String, Instant)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub async fn begin_sign_in(account_id: &str, page: &str) -> Result<String> {
     ensure_running(account_id).await?;
@@ -352,36 +504,54 @@ pub struct Holder {
     pub until: Instant,
 }
 
-static LEASES: LazyLock<Mutex<HashMap<String, Holder>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static LEASES: LazyLock<Mutex<HashMap<String, Holder>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Take the account's browser for this company and actor, or say who has it.
-pub async fn take_lease(account_id: &str, company: &str, actor: &str) -> std::result::Result<(), String> {
+pub async fn take_lease(
+    account_id: &str,
+    company: &str,
+    actor: &str,
+) -> std::result::Result<(), String> {
     let mut leases = LEASES.lock().await;
     if let Some(holder) = leases.get(account_id) {
         if holder.until > Instant::now() && (holder.company != company || holder.actor != actor) {
-            let wait = holder.until.saturating_duration_since(Instant::now()).as_secs() / 60 + 1;
+            let wait = holder
+                .until
+                .saturating_duration_since(Instant::now())
+                .as_secs()
+                / 60
+                + 1;
             return Err(format!(
                 "Another session is using this account's browser (up to {wait} more minutes). Try again shortly."
             ));
         }
     }
-    leases.insert(account_id.to_string(), Holder { company: company.into(), actor: actor.into(), until: Instant::now() + LEASE });
+    leases.insert(
+        account_id.to_string(),
+        Holder {
+            company: company.into(),
+            actor: actor.into(),
+            until: Instant::now() + LEASE,
+        },
+    );
     Ok(())
 }
 
 pub async fn release_lease(account_id: &str, company: &str, actor: &str) {
     let mut leases = LEASES.lock().await;
-    if leases.get(account_id).is_some_and(|holder| holder.company == company && holder.actor == actor) {
+    if leases
+        .get(account_id)
+        .is_some_and(|holder| holder.company == company && holder.actor == actor)
+    {
         leases.remove(account_id);
     }
 }
 
 pub async fn holds_lease(account_id: &str, company: &str, actor: &str) -> bool {
-    LEASES
-        .lock()
-        .await
-        .get(account_id)
-        .is_some_and(|holder| holder.company == company && holder.actor == actor && holder.until > Instant::now())
+    LEASES.lock().await.get(account_id).is_some_and(|holder| {
+        holder.company == company && holder.actor == actor && holder.until > Instant::now()
+    })
 }
 
 /// A DevTools message an agent sent, refused when it reads what keeps the account signed in.
@@ -426,7 +596,10 @@ pub async fn ask_for_code(request: CodeRequest) -> String {
     let mut codes = CODES.lock().await;
     let now = chrono::Utc::now();
     codes.retain(|open| now - open.created_at < CODE_WAIT);
-    if let Some(open) = codes.iter_mut().find(|open| open.account_id == request.account_id && open.company == request.company) {
+    if let Some(open) = codes
+        .iter_mut()
+        .find(|open| open.account_id == request.account_id && open.company == request.company)
+    {
         open.target = request.target.or(open.target.take());
         return open.id.clone();
     }
@@ -440,13 +613,19 @@ pub async fn open_code_requests(company: &str) -> Vec<CodeRequest> {
     let mut codes = CODES.lock().await;
     let now = chrono::Utc::now();
     codes.retain(|open| now - open.created_at < CODE_WAIT);
-    codes.iter().filter(|open| open.company == company).cloned().collect()
+    codes
+        .iter()
+        .filter(|open| open.company == company)
+        .cloned()
+        .collect()
 }
 
 /// Take one open request to answer it; put it back with `return_code_request` if typing failed.
 pub async fn take_code_request(company: &str, id: &str) -> Option<CodeRequest> {
     let mut codes = CODES.lock().await;
-    let index = codes.iter().position(|open| open.company == company && open.id == id)?;
+    let index = codes
+        .iter()
+        .position(|open| open.company == company && open.id == id)?;
     let request = codes.remove(index);
     (chrono::Utc::now() - request.created_at < CODE_WAIT).then_some(request)
 }
@@ -457,8 +636,15 @@ pub async fn return_code_request(request: CodeRequest) {
 
 /// A code as people type it: digits and letters, maybe spaced or dashed.
 pub fn clean_code(code: &str) -> Option<String> {
-    let cleaned = code.chars().filter(|c| !c.is_whitespace() && *c != '-').collect::<String>();
-    (4..=12).contains(&cleaned.len()).then_some(()).filter(|_| cleaned.chars().all(|c| c.is_ascii_alphanumeric())).map(|_| cleaned)
+    let cleaned = code
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '-')
+        .collect::<String>();
+    (4..=12)
+        .contains(&cleaned.len())
+        .then_some(())
+        .filter(|_| cleaned.chars().all(|c| c.is_ascii_alphanumeric()))
+        .map(|_| cleaned)
 }
 
 /// RFC 6238 one-time code (SHA-1, 30 seconds, 6 digits) from a base32 secret.
@@ -469,7 +655,13 @@ pub fn totp(secret: &str, unix_seconds: u64) -> Result<String> {
     mac.update(&counter);
     let digest = mac.finalize().into_bytes();
     let offset = (digest[19] & 0x0f) as usize;
-    let code = (u32::from_be_bytes([digest[offset], digest[offset + 1], digest[offset + 2], digest[offset + 3]]) & 0x7fff_ffff) % 1_000_000;
+    let code = (u32::from_be_bytes([
+        digest[offset],
+        digest[offset + 1],
+        digest[offset + 2],
+        digest[offset + 3],
+    ]) & 0x7fff_ffff)
+        % 1_000_000;
     Ok(format!("{code:06}"))
 }
 
@@ -477,7 +669,10 @@ fn base32(text: &str) -> Option<Vec<u8>> {
     let mut bits = 0u64;
     let mut count = 0u32;
     let mut out = Vec::new();
-    for c in text.chars().filter(|c| !c.is_whitespace() && *c != '=' && *c != '-') {
+    for c in text
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '=' && *c != '-')
+    {
         let value = match c.to_ascii_uppercase() {
             letter @ 'A'..='Z' => letter as u64 - 'A' as u64,
             digit @ '2'..='7' => digit as u64 - '2' as u64 + 26,
@@ -496,10 +691,21 @@ fn base32(text: &str) -> Option<Vec<u8>> {
 
 /// Type the account's username, password or one-time code into the focused field of a page on the
 /// account's own domains. Answers what was filled; the value itself never leaves the host.
-pub async fn fill(account_id: &str, domains: &[String], target: Option<&str>, text: &str, field: &str) -> Result<String> {
+pub async fn fill(
+    account_id: &str,
+    domains: &[String],
+    target: Option<&str>,
+    text: &str,
+    field: &str,
+) -> Result<String> {
     let mut cdp = Cdp::open(account_id).await?;
-    let targets = cdp.call("Target.getTargets", serde_json::json!({}), None).await?;
-    let pages = targets["targetInfos"].as_array().cloned().unwrap_or_default();
+    let targets = cdp
+        .call("Target.getTargets", serde_json::json!({}), None)
+        .await?;
+    let pages = targets["targetInfos"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     let page = pages
         .iter()
         .filter(|info| info["type"] == "page")
@@ -510,8 +716,17 @@ pub async fn fill(account_id: &str, domains: &[String], target: Option<&str>, te
         .or_else(|| pages.iter().find(|info| info["type"] == "page"))
         .context("no page is open in the account's browser")?;
     let target_id = page["targetId"].as_str().unwrap_or_default().to_string();
-    let attached = cdp.call("Target.attachToTarget", serde_json::json!({ "targetId": target_id, "flatten": true }), None).await?;
-    let session = attached["sessionId"].as_str().context("could not attach to the page")?.to_string();
+    let attached = cdp
+        .call(
+            "Target.attachToTarget",
+            serde_json::json!({ "targetId": target_id, "flatten": true }),
+            None,
+        )
+        .await?;
+    let session = attached["sessionId"]
+        .as_str()
+        .context("could not attach to the page")?
+        .to_string();
     // Ask the page itself where it is and what has focus, so a frame or a redirect cannot fool it.
     let probe = cdp
         .call(
@@ -523,7 +738,8 @@ pub async fn fill(account_id: &str, domains: &[String], target: Option<&str>, te
             Some(&session),
         )
         .await?;
-    let probe: serde_json::Value = serde_json::from_str(probe["result"]["value"].as_str().unwrap_or("{}")).unwrap_or_default();
+    let probe: serde_json::Value =
+        serde_json::from_str(probe["result"]["value"].as_str().unwrap_or("{}")).unwrap_or_default();
     let host = probe["host"].as_str().unwrap_or_default();
     let result = async {
         if !on_account_domain(host, domains) {
@@ -558,7 +774,13 @@ pub async fn fill(account_id: &str, domains: &[String], target: Option<&str>, te
         Ok(format!("Typed the account's {field} into the focused field on {host}."))
     }
     .await;
-    let _ = cdp.call("Target.detachFromTarget", serde_json::json!({ "sessionId": session }), None).await;
+    let _ = cdp
+        .call(
+            "Target.detachFromTarget",
+            serde_json::json!({ "sessionId": session }),
+            None,
+        )
+        .await;
     result
 }
 
@@ -590,15 +812,29 @@ mod tests {
 
     #[test]
     fn agents_cannot_read_what_keeps_an_account_signed_in() {
-        let refused = refusal(r#"{"id":7,"method":"Network.getAllCookies","sessionId":"s1"}"#).unwrap();
+        let refused =
+            refusal(r#"{"id":7,"method":"Network.getAllCookies","sessionId":"s1"}"#).unwrap();
         let refused: serde_json::Value = serde_json::from_str(&refused).unwrap();
         assert_eq!(refused["id"], 7);
         assert_eq!(refused["sessionId"], "s1");
-        assert!(refused["error"]["message"].as_str().unwrap().contains("not available"));
-        for method in ["Storage.getCookies", "DOMStorage.getDOMStorageItems", "IndexedDB.requestData"] {
-            assert!(refusal(&format!(r#"{{"id":1,"method":"{method}"}}"#)).is_some(), "{method}");
+        assert!(refused["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("not available"));
+        for method in [
+            "Storage.getCookies",
+            "DOMStorage.getDOMStorageItems",
+            "IndexedDB.requestData",
+        ] {
+            assert!(
+                refusal(&format!(r#"{{"id":1,"method":"{method}"}}"#)).is_some(),
+                "{method}"
+            );
         }
-        assert!(refusal(r#"{"id":2,"method":"Page.navigate","params":{"url":"https://ebay.com"}}"#).is_none());
+        assert!(refusal(
+            r#"{"id":2,"method":"Page.navigate","params":{"url":"https://ebay.com"}}"#
+        )
+        .is_none());
         assert!(refusal("not json").is_none());
     }
 
@@ -673,17 +909,32 @@ mod tests {
             created_at: chrono::Utc::now(),
         };
         let first = ask_for_code(request("a")).await;
-        assert_eq!(ask_for_code(request("b")).await, first, "one open request per account");
+        assert_eq!(
+            ask_for_code(request("b")).await,
+            first,
+            "one open request per account"
+        );
         assert_eq!(open_code_requests(&company).await.len(), 1);
         let taken = take_code_request(&company, &first).await.unwrap();
-        assert!(take_code_request(&company, &first).await.is_none(), "taken once");
+        assert!(
+            take_code_request(&company, &first).await.is_none(),
+            "taken once"
+        );
         return_code_request(taken).await;
-        assert_eq!(open_code_requests(&company).await.len(), 1, "a failed attempt can be retried");
+        assert_eq!(
+            open_code_requests(&company).await.len(),
+            1,
+            "a failed attempt can be retried"
+        );
         let mut stale = request("old");
         stale.account_id = "other".into();
         stale.created_at = chrono::Utc::now() - CODE_WAIT - chrono::TimeDelta::seconds(1);
         ask_for_code(stale).await;
-        assert_eq!(open_code_requests(&company).await.len(), 1, "a lapsed request is gone");
+        assert_eq!(
+            open_code_requests(&company).await.len(),
+            1,
+            "a lapsed request is gone"
+        );
         assert_eq!(clean_code(" 123-456 ").as_deref(), Some("123456"));
         assert!(clean_code("12").is_none() && clean_code("12<34>").is_none());
     }
@@ -692,10 +943,16 @@ mod tests {
     async fn one_company_holds_an_identity_at_a_time() {
         let account = format!("lease-{}", uuid::Uuid::new_v4().simple());
         assert!(take_lease(&account, "reno", "exec").await.is_ok());
-        assert!(take_lease(&account, "reno", "exec").await.is_ok(), "the holder may renew");
+        assert!(
+            take_lease(&account, "reno", "exec").await.is_ok(),
+            "the holder may renew"
+        );
         assert!(take_lease(&account, "snake_oil", "exec").await.is_err());
         release_lease(&account, "snake_oil", "exec").await;
-        assert!(holds_lease(&account, "reno", "exec").await, "only the holder releases");
+        assert!(
+            holds_lease(&account, "reno", "exec").await,
+            "only the holder releases"
+        );
         release_lease(&account, "reno", "exec").await;
         assert!(take_lease(&account, "snake_oil", "exec").await.is_ok());
     }

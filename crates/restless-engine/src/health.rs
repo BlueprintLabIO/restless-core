@@ -365,7 +365,10 @@ pub fn classify_provider_error(text: &str) -> Option<Blocked> {
     if has("usage limit") || has("usage_limit") {
         let resets = usage_limit_reset_seconds(&lower);
         let when = resets.map_or(String::new(), |seconds| {
-            format!(" It resets in {}; resets_in_seconds={seconds}.", plain_duration(seconds))
+            format!(
+                " It resets in {}; resets_in_seconds={seconds}.",
+                plain_duration(seconds)
+            )
         });
         return Some(Blocked::new(
             BlockKind::Quota,
@@ -533,11 +536,16 @@ pub fn usage_limit_reset_seconds(lower: &str) -> Option<i64> {
         return (seconds > 0).then_some(seconds);
     }
     let rest = &lower[lower.find("try again in ")? + "try again in ".len()..];
-    let words: Vec<&str> = rest.split(|c: char| c.is_whitespace() || c == ',' || c == '.').filter(|w| !w.is_empty()).collect();
+    let words: Vec<&str> = rest
+        .split(|c: char| c.is_whitespace() || c == ',' || c == '.')
+        .filter(|w| !w.is_empty())
+        .collect();
     let mut seconds = 0i64;
     let mut found = false;
     for pair in words.windows(2) {
-        let Ok(count) = pair[0].parse::<i64>() else { continue };
+        let Ok(count) = pair[0].parse::<i64>() else {
+            continue;
+        };
         let unit = match pair[1].trim_end_matches('s') {
             "day" => 86_400,
             "hour" | "hr" | "h" => 3_600,
@@ -553,17 +561,33 @@ pub fn usage_limit_reset_seconds(lower: &str) -> Option<i64> {
 
 /// "3 hours 12 minutes", for an owner.
 pub fn plain_duration(seconds: i64) -> String {
-    let (days, hours, minutes) = (seconds / 86_400, seconds % 86_400 / 3_600, (seconds % 3_600 + 59) / 60);
+    let (days, hours, minutes) = (
+        seconds / 86_400,
+        seconds % 86_400 / 3_600,
+        (seconds % 3_600 + 59) / 60,
+    );
     let part = |count: i64, unit: &str| match count {
         0 => None,
         1 => Some(format!("1 {unit}")),
         _ => Some(format!("{count} {unit}s")),
     };
-    let parts: Vec<String> = [part(days, "day"), part(hours, "hour"), if days == 0 { part(minutes.min(59), "minute") } else { None }]
-        .into_iter()
-        .flatten()
-        .collect();
-    if parts.is_empty() { "under a minute".into() } else { parts.join(" ") }
+    let parts: Vec<String> = [
+        part(days, "day"),
+        part(hours, "hour"),
+        if days == 0 {
+            part(minutes.min(59), "minute")
+        } else {
+            None
+        },
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    if parts.is_empty() {
+        "under a minute".into()
+    } else {
+        parts.join(" ")
+    }
 }
 
 /// Money burned with nothing completed before the company is worth a look.
@@ -720,20 +744,38 @@ mod tests {
     fn a_subscription_usage_limit_is_a_quota_with_its_reset() {
         // Observed 19 October: Frankensurf's Exec on a ChatGPT sign-in stopped with this as its
         // whole reply, and it read as a malformed completion with no Inbox card.
-        let codex = "Codex error event: The usage limit has been reached (code=usage_limit_reached)";
+        let codex =
+            "Codex error event: The usage limit has been reached (code=usage_limit_reached)";
         let blocked = classify_provider_error_content(codex).expect("classified");
         assert_eq!(blocked.kind, BlockKind::Quota);
         assert!(blocked.message().contains("usage limit was reached"));
         assert!(!blocked.message().contains("resets in"));
 
-        let timed = "You've hit your usage limit. Upgrade to Pro or try again in 2 hours 41 minutes.";
+        let timed =
+            "You've hit your usage limit. Upgrade to Pro or try again in 2 hours 41 minutes.";
         let blocked = classify_provider_error_content(timed).expect("classified");
-        assert!(blocked.message().contains("It resets in 2 hours 41 minutes; resets_in_seconds=9660."), "{}", blocked.message());
-        assert_eq!(usage_limit_reset_seconds(r#"{"error":{"type":"usage_limit_reached","resets_in_seconds": 3600}}"#), Some(3600));
-        assert_eq!(usage_limit_reset_seconds("try again in 3 days 2 hours"), Some(3 * 86_400 + 7_200));
+        assert!(
+            blocked
+                .message()
+                .contains("It resets in 2 hours 41 minutes; resets_in_seconds=9660."),
+            "{}",
+            blocked.message()
+        );
+        assert_eq!(
+            usage_limit_reset_seconds(
+                r#"{"error":{"type":"usage_limit_reached","resets_in_seconds": 3600}}"#
+            ),
+            Some(3600)
+        );
+        assert_eq!(
+            usage_limit_reset_seconds("try again in 3 days 2 hours"),
+            Some(3 * 86_400 + 7_200)
+        );
         assert_eq!(plain_duration(90), "2 minutes");
         // Ordinary words about limits in company prose are not provider errors.
-        assert!(classify_provider_error_content("We should set a usage limit on the API.").is_none());
+        assert!(
+            classify_provider_error_content("We should set a usage limit on the API.").is_none()
+        );
     }
 
     #[test]
@@ -745,7 +787,12 @@ mod tests {
         assert_eq!(blocked.kind, BlockKind::Model);
         assert!(blocked.detail.contains("anthropic/claude-sonnet-5-5"));
         assert!(classify_provider_error("model build 20250401 finished").is_none());
-        assert_eq!(classify_provider_error("HTTP 401 Unauthorized").unwrap().kind, BlockKind::Credential);
+        assert_eq!(
+            classify_provider_error("HTTP 401 Unauthorized")
+                .unwrap()
+                .kind,
+            BlockKind::Credential
+        );
     }
 
     /// A transcript reporting `used` tokens and `cost` dollars.

@@ -2571,7 +2571,15 @@ async fn open_local_worker(
     let computer = crate::runtime::container_name(company);
     if crate::runtime::status(company).await? == crate::runtime::ContainerStatus::Running {
         let made = tokio::process::Command::new("docker")
-            .args(["exec", "--user", "company", &computer, "mkdir", "-p", "/company/tools"])
+            .args([
+                "exec",
+                "--user",
+                "company",
+                &computer,
+                "mkdir",
+                "-p",
+                "/company/tools",
+            ])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
@@ -2588,7 +2596,10 @@ async fn open_local_worker(
         // Inside the company computer's network its browser listens on loopback only.
         let computer = crate::runtime::container_name(company);
         if crate::runtime::status(company).await? != crate::runtime::ContainerStatus::Running {
-            bail!("{} uses the company computer's browser; start the company computer first", connection.name);
+            bail!(
+                "{} uses the company computer's browser; start the company computer first",
+                connection.name
+            );
         }
         crate::runtime::wake_company_browser(company).await;
         docker.arg("--network").arg(format!("container:{computer}"));

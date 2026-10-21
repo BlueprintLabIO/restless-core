@@ -152,8 +152,14 @@ pub async fn execute_with_body(
 ) -> Result<Value> {
     match operation {
         DocumentOperation::Read { document } => {
-            crate::documents_service::agent_document_body(root, org, actor, document, &json!({"action":"read"}))
-                .await
+            crate::documents_service::agent_document_body(
+                root,
+                org,
+                actor,
+                document,
+                &json!({"action":"read"}),
+            )
+            .await
         }
         DocumentOperation::Edit {
             document,
@@ -230,11 +236,7 @@ pub async fn execute_with_body(
     }
 }
 
-pub async fn execute(
-    org: &OrgIntel,
-    actor: &str,
-    operation: DocumentOperation,
-) -> Result<Value> {
+pub async fn execute(org: &OrgIntel, actor: &str, operation: DocumentOperation) -> Result<Value> {
     Ok(match operation {
         DocumentOperation::Checkpoint {
             document,

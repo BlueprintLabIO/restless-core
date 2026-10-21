@@ -216,8 +216,17 @@ pub(crate) const TOOL_CALL_DECISION_KINDS: [&str; 2] = ["tool_call_approved", "t
 pub(crate) const EMAIL_MANDATE_DECISION_KIND: &str = "email_mandate_proposal_decision";
 
 enum DecisionSubject {
-    Party { party: String, note: Option<String>, changes: bool },
-    ToolCall { key: String, tool: String, note: Option<String>, changes: bool },
+    Party {
+        party: String,
+        note: Option<String>,
+        changes: bool,
+    },
+    ToolCall {
+        key: String,
+        tool: String,
+        note: Option<String>,
+        changes: bool,
+    },
     EmailMandate {
         proposal_id: String,
         mandate_id: Option<String>,
@@ -275,7 +284,11 @@ pub async fn announce_decisions(
             pending.push((
                 record.id,
                 kind,
-                DecisionSubject::Party { party: normalize_party(party), note, changes },
+                DecisionSubject::Party {
+                    party: normalize_party(party),
+                    note,
+                    changes,
+                },
             ));
         }
     }
@@ -287,20 +300,36 @@ pub async fn announce_decisions(
             let Some(key) = record.body.get("call_key").and_then(|value| value.as_str()) else {
                 continue;
             };
-            let tool = record.body.get("tool").and_then(|value| value.as_str()).unwrap_or("tool");
+            let tool = record
+                .body
+                .get("tool")
+                .and_then(|value| value.as_str())
+                .unwrap_or("tool");
             let (note, changes) = recorded_note(&record.body);
             pending.push((
                 record.id,
                 kind,
-                DecisionSubject::ToolCall { key: key.to_owned(), tool: tool.to_owned(), note, changes },
+                DecisionSubject::ToolCall {
+                    key: key.to_owned(),
+                    tool: tool.to_owned(),
+                    note,
+                    changes,
+                },
             ));
         }
     }
-    let Ok(records) = authority.records_of_kind(company, EMAIL_MANDATE_DECISION_KIND).await else {
+    let Ok(records) = authority
+        .records_of_kind(company, EMAIL_MANDATE_DECISION_KIND)
+        .await
+    else {
         return 0;
     };
     for record in records {
-        let Some(proposal_id) = record.body.get("proposal_id").and_then(|value| value.as_str()) else {
+        let Some(proposal_id) = record
+            .body
+            .get("proposal_id")
+            .and_then(|value| value.as_str())
+        else {
             continue;
         };
         let Some(decision) = record.body.get("decision").and_then(|value| value.as_str()) else {
@@ -314,7 +343,11 @@ pub async fn announce_decisions(
             EMAIL_MANDATE_DECISION_KIND,
             DecisionSubject::EmailMandate {
                 proposal_id: proposal_id.to_owned(),
-                mandate_id: record.body.get("mandate_id").and_then(|value| value.as_str()).map(str::to_owned),
+                mandate_id: record
+                    .body
+                    .get("mandate_id")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_owned),
                 decision: decision.to_owned(),
             },
         ));
@@ -339,7 +372,11 @@ pub async fn announce_decisions(
             }
         }
         let (body, event_subject) = match subject {
-            DecisionSubject::Party { party, note, changes } => {
+            DecisionSubject::Party {
+                party,
+                note,
+                changes,
+            } => {
                 let body = match kind {
                     "approval_granted" => format!("The owner approved real external effects to {party}. You may proceed with the work that was waiting on it."),
                     "approval_declined" if changes => format!("The owner asked for changes before first contact with {party}: “{}” Do not send the draft as prepared. Prepare a revised draft that addresses this; the new attempt asks the owner again.", note.as_deref().unwrap_or_default()),
@@ -348,7 +385,12 @@ pub async fn announce_decisions(
                 };
                 (body, serde_json::json!({ "party": party }))
             }
-            DecisionSubject::ToolCall { key, tool, note, changes } => {
+            DecisionSubject::ToolCall {
+                key,
+                tool,
+                note,
+                changes,
+            } => {
                 let body = if kind == "tool_call_approved" {
                     format!("The owner allowed the prepared {tool} call with key {key}. Retry exactly that call with the same arguments, purpose and key; it runs once.{}", owner_note_sentence(note.as_deref()))
                 } else if changes {
@@ -358,13 +400,20 @@ pub async fn announce_decisions(
                 };
                 (body, serde_json::json!({ "call_key": key, "tool": tool }))
             }
-            DecisionSubject::EmailMandate { proposal_id, mandate_id, decision } => {
+            DecisionSubject::EmailMandate {
+                proposal_id,
+                mandate_id,
+                decision,
+            } => {
                 let body = if decision == "approve" {
                     format!("The owner approved email mandate {} from proposal {proposal_id}. Revisit work and scheduled responsibilities waiting on this authority. Judge each candidate against the exact active mandate and current provider state; only a matching one-use permit can authorize a send. Continue useful independent work and do not replay uncertain effects.", mandate_id.as_deref().unwrap_or("unknown"))
                 } else {
                     format!("The owner declined email mandate proposal {proposal_id}. Revisit work waiting on it, find an authorized route if possible, or identify the precise owner decision still needed. Do not send under the declined proposal.")
                 };
-                (body, serde_json::json!({ "proposal_id": proposal_id, "mandate_id": mandate_id, "mandate_decision": decision }))
+                (
+                    body,
+                    serde_json::json!({ "proposal_id": proposal_id, "mandate_id": mandate_id, "mandate_decision": decision }),
+                )
             }
         };
         // Record the announcement first. A duplicate message to the Exec is a
@@ -376,15 +425,13 @@ pub async fn announce_decisions(
             "authority_record_id": record_id.to_string(),
             "decision": kind,
         });
-        if let (Some(event), Some(subject)) = (event_body.as_object_mut(), event_subject.as_object()) {
+        if let (Some(event), Some(subject)) =
+            (event_body.as_object_mut(), event_subject.as_object())
+        {
             event.extend(subject.clone());
         }
         if let Err(error) = org
-            .emit_event(
-                ANNOUNCED_EVENT,
-                Some("owner"),
-                event_body,
-            )
+            .emit_event(ANNOUNCED_EVENT, Some("owner"), event_body)
             .await
         {
             tracing::warn!(
@@ -504,11 +551,17 @@ pub async fn declined_draft(
     };
     let latest_grant =
         latest_party_event(authority, company, "approval_granted", &party_lower).await?;
-    let requests = authority.records_of_kind(company, "approval_required").await?;
-    Ok(
-        decline_answers(&requests, &party_lower, draft_digest, latest_grant, decline.id)
-            .then(|| declined_reason(party, &decline.body)),
+    let requests = authority
+        .records_of_kind(company, "approval_required")
+        .await?;
+    Ok(decline_answers(
+        &requests,
+        &party_lower,
+        draft_digest,
+        latest_grant,
+        decline.id,
     )
+    .then(|| declined_reason(party, &decline.body)))
 }
 
 /// Whether the owner's latest decline for `party` answered a request for
@@ -526,7 +579,10 @@ fn decline_answers(
             request.id < declined
                 && latest_grant.is_none_or(|granted| request.id > granted)
                 && names_party(&request.body, party)
-                && request.body.get("draft_digest").and_then(|value| value.as_str())
+                && request
+                    .body
+                    .get("draft_digest")
+                    .and_then(|value| value.as_str())
                     == Some(draft_digest)
         })
 }
@@ -638,7 +694,10 @@ mod tests {
         };
         let party = "lead@acme.com";
         // Asked about draft "a" (id 1), declined at 2.
-        let asked = [request(1, "Lead@Acme.com", "a"), request(1, "other@acme.com", "b")];
+        let asked = [
+            request(1, "Lead@Acme.com", "a"),
+            request(1, "other@acme.com", "b"),
+        ];
         assert!(decline_answers(&asked, party, "a", None, 2));
         assert!(!decline_answers(&asked, party, "changed", None, 2));
         assert!(!decline_answers(&asked, party, "b", None, 2));
@@ -650,7 +709,13 @@ mod tests {
         assert!(!decline_answers(&regranted, party, "a", Some(2), 5));
         assert!(decline_answers(&regranted, party, "c", Some(2), 5));
         // A request raised after the decline is a new, unanswered question.
-        assert!(!decline_answers(&[request(3, party, "a")], party, "a", None, 2));
+        assert!(!decline_answers(
+            &[request(3, party, "a")],
+            party,
+            "a",
+            None,
+            2
+        ));
     }
 
     fn config(approved: &[&str]) -> CompanyConfig {

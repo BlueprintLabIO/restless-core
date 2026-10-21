@@ -234,7 +234,10 @@ impl CellReadinessService {
             plane_id,
             core_release: release::CORE_VERSION.to_string(),
             release_manifest_digest,
-            bootstrap_deployment: crate::company_bootstrap::CompanyAdmissionDeployment::from_environment(owner_id, plane_id, hostname)?,
+            bootstrap_deployment:
+                crate::company_bootstrap::CompanyAdmissionDeployment::from_environment(
+                    owner_id, plane_id, hostname,
+                )?,
             daemon: Arc::clone(daemon),
         })))
     }

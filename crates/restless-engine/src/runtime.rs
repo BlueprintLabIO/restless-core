@@ -222,25 +222,42 @@ fn company_cpus() -> Option<String> {
 /// The memory bound for a company container, kept under this host's memory: a 4 GB bound on a
 /// 4 GB server is no bound at all, so one company could take the whole plane down (21 October).
 fn company_memory() -> Option<String> {
-    fit_memory(resource_bound("RESTLESS_COMPANY_MEMORY", DEFAULT_MEMORY), host_memory_bytes())
+    fit_memory(
+        resource_bound("RESTLESS_COMPANY_MEMORY", DEFAULT_MEMORY),
+        host_memory_bytes(),
+    )
 }
 
 /// A burst job's memory bound: what it asked for, or the company default, kept under the host.
 pub fn fit_job_memory(requested: Option<&str>) -> Option<String> {
     fit_memory(
-        Some(requested.map(str::trim).filter(|value| !value.is_empty()).unwrap_or(DEFAULT_MEMORY).to_string()),
+        Some(
+            requested
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(DEFAULT_MEMORY)
+                .to_string(),
+        ),
         host_memory_bytes(),
     )
 }
 
 fn host_memory_bytes() -> Option<u64> {
-    std::fs::read_to_string("/proc/meminfo").ok().and_then(|meminfo| {
-        meminfo
-            .lines()
-            .find_map(|line| line.strip_prefix("MemTotal:"))
-            .and_then(|rest| rest.trim().trim_end_matches("kB").trim().parse::<u64>().ok())
-            .map(|kib| kib * 1024)
-    })
+    std::fs::read_to_string("/proc/meminfo")
+        .ok()
+        .and_then(|meminfo| {
+            meminfo
+                .lines()
+                .find_map(|line| line.strip_prefix("MemTotal:"))
+                .and_then(|rest| {
+                    rest.trim()
+                        .trim_end_matches("kB")
+                        .trim()
+                        .parse::<u64>()
+                        .ok()
+                })
+                .map(|kib| kib * 1024)
+        })
 }
 
 fn fit_memory(bound: Option<String>, host_bytes: Option<u64>) -> Option<String> {
@@ -250,13 +267,21 @@ fn fit_memory(bound: Option<String>, host_bytes: Option<u64>) -> Option<String> 
     };
     // Leave a quarter of the host for the plane itself and the other companies.
     let ceiling = host / 4 * 3;
-    Some(if wanted > ceiling { format!("{}m", ceiling / (1024 * 1024)) } else { bound })
+    Some(if wanted > ceiling {
+        format!("{}m", ceiling / (1024 * 1024))
+    } else {
+        bound
+    })
 }
 
 /// Docker's memory notation (`4g`, `512m`, `1073741824`) in bytes.
 fn memory_bytes(value: &str) -> Option<u64> {
     let value = value.trim().to_ascii_lowercase();
-    let (number, unit) = value.split_at(value.find(|c: char| !c.is_ascii_digit()).unwrap_or(value.len()));
+    let (number, unit) = value.split_at(
+        value
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(value.len()),
+    );
     let number: u64 = number.parse().ok()?;
     let scale = match unit.trim_end_matches('b') {
         "" => 1,
@@ -274,7 +299,11 @@ fn fit_cpus(bound: Option<String>, host_cpus: usize) -> Option<String> {
         return Some(bound);
     };
     let host = host_cpus.max(1) as f64;
-    Some(if wanted > host { format!("{host:.1}") } else { bound })
+    Some(if wanted > host {
+        format!("{host:.1}")
+    } else {
+        bound
+    })
 }
 
 /// A stopped container keeps the CPU bound it was created with. Refit it
@@ -289,7 +318,9 @@ async fn refit_container_cpus(name: &str) {
         .parse::<f64>()
         .unwrap_or(0.0)
         / 1e9;
-    let Ok(wanted) = cpus.parse::<f64>() else { return };
+    let Ok(wanted) = cpus.parse::<f64>() else {
+        return;
+    };
     if current > wanted + f64::EPSILON {
         if let Err(error) = run_ok(&["update", "--cpus", &cpus, name]).await {
             tracing::warn!(container = name, %error, "could not fit the container's CPU bound to this host");
@@ -812,15 +843,16 @@ impl CompanyConfig {
         if self.agent_intelligence.contains_key(actor) {
             Some(&self.model)
         } else if let Some(route) = self.agent_intelligence.get("default") {
-            let same_provider = route_provider(&route.connection).zip(previous).and_then(
-                |(provider, model)| {
-                    model
-                        .trim()
-                        .split_once('/')
-                        .filter(|(prefix, id)| *prefix == provider && !id.trim().is_empty())
-                        .map(|_| model.trim())
-                },
-            );
+            let same_provider =
+                route_provider(&route.connection)
+                    .zip(previous)
+                    .and_then(|(provider, model)| {
+                        model
+                            .trim()
+                            .split_once('/')
+                            .filter(|(prefix, id)| *prefix == provider && !id.trim().is_empty())
+                            .map(|_| model.trim())
+                    });
             Some(same_provider.unwrap_or(&self.model))
         } else {
             // Older Staff runs could persist a native harness marker as an
@@ -941,8 +973,7 @@ impl CompanyConfig {
         {
             bail!("monthly_runtime_cap_hours must be between 1 and 744 hours");
         }
-        if self.native_monthly_turn_limit == Some(0) || self.native_monthly_token_limit == Some(0)
-        {
+        if self.native_monthly_turn_limit == Some(0) || self.native_monthly_token_limit == Some(0) {
             bail!("native usage limits must be at least 1, or absent for no limit");
         }
         if self
@@ -1016,15 +1047,12 @@ impl CompanyConfig {
                 AgentHarness::Codex => "litellm or openai-codex",
                 AgentHarness::ClaudeAgent => "anthropic",
             };
-            if let Some(model) = models
-                .iter()
-                .find(|model| match harness {
-                    AgentHarness::Codex => {
-                        !model.starts_with("litellm/") && !model.starts_with("openai-codex/")
-                    }
-                    _ => !model.starts_with(&format!("{required_provider}/")),
-                })
-            {
+            if let Some(model) = models.iter().find(|model| match harness {
+                AgentHarness::Codex => {
+                    !model.starts_with("litellm/") && !model.starts_with("openai-codex/")
+                }
+                _ => !model.starts_with(&format!("{required_provider}/")),
+            }) {
                 bail!(
                     "{} harness requires every configured model to use provider {required_provider}; got {model}",
                     harness.as_str()
@@ -1131,7 +1159,11 @@ pub fn store_company_logo(root: &Path, company: &str, bytes: &[u8]) -> Result<St
         bail!("a company logo must be a PNG, JPEG or WebP image");
     };
     let digest = format!("{:x}", Sha256::digest(bytes));
-    let name = format!("{}{}.{extension}", company_logo_prefix(company), &digest[..16]);
+    let name = format!(
+        "{}{}.{extension}",
+        company_logo_prefix(company),
+        &digest[..16]
+    );
     let dir = root.join("companies");
     let temporary = dir.join(format!(".{company}.logo.tmp"));
     std::fs::write(&temporary, bytes).with_context(|| format!("write {}", temporary.display()))?;
@@ -1256,7 +1288,9 @@ mod company_logo_tests {
         let root = std::env::temp_dir().join(format!("logo-{}", Uuid::new_v4().simple()));
         std::fs::create_dir_all(root.join("companies")).unwrap();
         assert!(store_company_logo(&root, "aris", b"<svg/>").is_err());
-        assert!(store_company_logo(&root, "aris", &vec![0xFF; COMPANY_LOGO_MAX_BYTES + 1]).is_err());
+        assert!(
+            store_company_logo(&root, "aris", &vec![0xFF; COMPANY_LOGO_MAX_BYTES + 1]).is_err()
+        );
         std::fs::remove_dir_all(&root).unwrap();
     }
 
@@ -1268,8 +1302,14 @@ mod company_logo_tests {
         let mut config: CompanyConfig = toml::from_str("name = \"aris\"").unwrap();
         config.logo = Some("aris.logo-0123456789abcdef.png".into());
         let logo = company_logo(root, &config).unwrap();
-        assert_eq!(logo.path, root.join("companies/aris.logo-0123456789abcdef.png"));
-        assert_eq!((logo.version.as_str(), logo.media_type), ("0123456789abcdef", "image/png"));
+        assert_eq!(
+            logo.path,
+            root.join("companies/aris.logo-0123456789abcdef.png")
+        );
+        assert_eq!(
+            (logo.version.as_str(), logo.media_type),
+            ("0123456789abcdef", "image/png")
+        );
         for refused in [
             "../../etc/passwd",
             "aris.logo-0123456789abcdef.png/../../secret.toml",
@@ -1497,8 +1537,22 @@ async fn preserve_attachments(company: &str, image: &str) -> Result<()> {
     let mount = format!("{volume}:{OWNER_ATTACHMENT_ROOT}");
     let mut sink = tokio::process::Command::new("docker")
         .args([
-            "run", "--rm", "-i", "--user", "0", "--network", "none", "-v", &mount,
-            "--entrypoint", "tar", image, "-x", "-p", "-C", "/var/lib",
+            "run",
+            "--rm",
+            "-i",
+            "--user",
+            "0",
+            "--network",
+            "none",
+            "-v",
+            &mount,
+            "--entrypoint",
+            "tar",
+            image,
+            "-x",
+            "-p",
+            "-C",
+            "/var/lib",
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
@@ -1537,7 +1591,11 @@ pub fn mcp_data_volume_name(company: &str, connection: &str) -> String {
 /// Create a tool's data volume, labelled so backups and company removal find it.
 pub async fn ensure_mcp_data_volume(company: &str, connection: &str) -> Result<()> {
     let volume = mcp_data_volume_name(company, connection);
-    if docker_observe(&["volume", "inspect", &volume]).await?.status.success() {
+    if docker_observe(&["volume", "inspect", &volume])
+        .await?
+        .status
+        .success()
+    {
         return Ok(());
     }
     let profile = std::env::var("RESTLESS_PROFILE").unwrap_or_else(|_| "stable".into());
@@ -1650,8 +1708,12 @@ impl ResourceDoctor {
                 continue;
             };
             match key {
-                "disk_total_kb" => doctor.disk_total_bytes = value.parse::<u64>().ok().map(|kb| kb * 1024),
-                "disk_free_kb" => doctor.disk_free_bytes = value.parse::<u64>().ok().map(|kb| kb * 1024),
+                "disk_total_kb" => {
+                    doctor.disk_total_bytes = value.parse::<u64>().ok().map(|kb| kb * 1024)
+                }
+                "disk_free_kb" => {
+                    doctor.disk_free_bytes = value.parse::<u64>().ok().map(|kb| kb * 1024)
+                }
                 "memory_current" => doctor.memory_used_bytes = value.parse().ok(),
                 "memory_max" => doctor.memory_limit_bytes = value.parse().ok(),
                 "oom_kill" => doctor.oom_kills = value.parse().ok(),
@@ -1890,7 +1952,10 @@ pub async fn configured_company_statuses(
 pub async fn cockpit_company_statuses(
     configs: &[CompanyConfig],
 ) -> Result<std::collections::BTreeMap<String, ContainerStatus>> {
-    let mut companies = configs.iter().map(|config| config.name.clone()).collect::<Vec<_>>();
+    let mut companies = configs
+        .iter()
+        .map(|config| config.name.clone())
+        .collect::<Vec<_>>();
     companies.sort();
     let slot = COMPANY_STATUSES_CACHE
         .lock()
@@ -2110,7 +2175,9 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
                     let value = value.trim();
                     (!value.is_empty()
                         && value.len() <= 64
-                        && value.chars().all(|c| c.is_ascii_alphanumeric() || "/_+-".contains(c)))
+                        && value
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || "/_+-".contains(c)))
                     .then(|| format!("{name}={value}"))
                 })
                 .collect();
@@ -2125,7 +2192,16 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             let coordinator_env = format!("RESTLESS_COORDINATOR={}", crate::runtime_coordinator()?);
             let volume_mount = format!("{volume}:/company");
             let attachments = attachments_volume_name(company);
-            run_ok(&["volume", "create", "--label", &profile_label, "--label", &namespace_label, &attachments]).await?;
+            run_ok(&[
+                "volume",
+                "create",
+                "--label",
+                &profile_label,
+                "--label",
+                &namespace_label,
+                &attachments,
+            ])
+            .await?;
             let attachments_mount = format!("{attachments}:{OWNER_ATTACHMENT_ROOT}");
             if let Some(network) = internal_network.as_deref() {
                 args.extend(["--network", network]);
@@ -3572,7 +3648,15 @@ pub async fn wake_company_browser(company: &str) {
         i=0; while [ $i -lt 60 ]; do curl -fsS -m 1 http://127.0.0.1:9222/json/version >/dev/null 2>&1 && break; i=$((i+1)); sleep 0.5; done; \
         rm -f /company/run/browser-asleep";
     let _ = docker_bounded(
-        &["exec", "-u", "company", &container_name(company), "sh", "-c", WAKE],
+        &[
+            "exec",
+            "-u",
+            "company",
+            &container_name(company),
+            "sh",
+            "-c",
+            WAKE,
+        ],
         Duration::from_secs(45),
     )
     .await;
@@ -3639,10 +3723,14 @@ pub async fn read_browser_agent_session(company: &str) -> Result<Option<BrowserA
         "exec", &container_name(company), "sh", "-c",
         "test -f /company/run/browser-agent-session.json && cat /company/run/browser-agent-session.json",
     ]).await?;
-    if !output.status.success() || output.stdout.is_empty() { return Ok(None); }
+    if !output.status.success() || output.stdout.is_empty() {
+        return Ok(None);
+    }
     let session: BrowserAgentSession = serde_json::from_slice(&output.stdout)
         .context("parse authenticated browser registration")?;
-    if session.expires_at <= Utc::now() { return Ok(None); }
+    if session.expires_at <= Utc::now() {
+        return Ok(None);
+    }
     Ok(Some(session))
 }
 
@@ -3653,7 +3741,9 @@ pub async fn try_register_browser_agent_session(
     grant: &crate::capability::CoordinationGrant,
 ) -> Result<Option<String>> {
     validate_company_name(company)?;
-    if grant.company != company { bail!("browser registration company does not match the signed ActorSession"); }
+    if grant.company != company {
+        bail!("browser registration company does not match the signed ActorSession");
+    }
     if grant.work_id.is_some() != grant.attempt_id.is_some() {
         bail!("browser attachment needs both Work and Attempt coordinates, or neither");
     }
@@ -3664,8 +3754,11 @@ pub async fn try_register_browser_agent_session(
         bail!("the owner currently controls the company browser");
     }
     if let Some(current) = read_browser_agent_session(company).await? {
-        if current.session == grant.session && current.actor == grant.actor
-            && current.work_id == grant.work_id && current.attempt_id == grant.attempt_id {
+        if current.session == grant.session
+            && current.actor == grant.actor
+            && current.work_id == grant.work_id
+            && current.attempt_id == grant.attempt_id
+        {
             return Ok(Some(current.websocket_url));
         }
         return Ok(None);
@@ -3675,13 +3768,24 @@ pub async fn try_register_browser_agent_session(
     // the broker; the issuer key never enters the company container.
     wake_company_browser(company).await;
     let output = docker_observe(&[
-        "exec", &container_name(company), "curl", "--fail", "--silent", "--show-error",
-        "--max-time", "5", "http://127.0.0.1:9222/json/version",
-    ]).await?;
-    if !output.status.success() { bail!("could not inspect the company browser endpoint"); }
-    let discovery: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .context("decode the company browser endpoint")?;
-    let path = discovery["webSocketDebuggerUrl"].as_str()
+        "exec",
+        &container_name(company),
+        "curl",
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--max-time",
+        "5",
+        "http://127.0.0.1:9222/json/version",
+    ])
+    .await?;
+    if !output.status.success() {
+        bail!("could not inspect the company browser endpoint");
+    }
+    let discovery: serde_json::Value =
+        serde_json::from_slice(&output.stdout).context("decode the company browser endpoint")?;
+    let path = discovery["webSocketDebuggerUrl"]
+        .as_str()
         .and_then(|value| url::Url::parse(value).ok())
         .map(|value| value.path().to_string())
         .filter(|value| value.starts_with("/devtools/browser/"))
@@ -3689,9 +3793,14 @@ pub async fn try_register_browser_agent_session(
     let ticket = Uuid::new_v4().simple().to_string();
     let websocket_url = format!("ws://127.0.0.1:9223/session/{ticket}{path}");
     let registration = BrowserAgentSession {
-        ticket, company: company.to_string(), actor: grant.actor.clone(),
-        session: grant.session.clone(), work_id: grant.work_id, attempt_id: grant.attempt_id,
-        websocket_url: websocket_url.clone(), expires_at: Utc::now() + chrono::Duration::minutes(45),
+        ticket,
+        company: company.to_string(),
+        actor: grant.actor.clone(),
+        session: grant.session.clone(),
+        work_id: grant.work_id,
+        attempt_id: grant.attempt_id,
+        websocket_url: websocket_url.clone(),
+        expires_at: Utc::now() + chrono::Duration::minutes(45),
     };
     write_browser_agent_session(company, &registration).await?;
     Ok(Some(websocket_url))
@@ -3701,10 +3810,15 @@ pub async fn release_browser_agent_session(
     company: &str,
     grant: &crate::capability::CoordinationGrant,
 ) -> Result<()> {
-    let Some(current) = read_browser_agent_session(company).await? else { return Ok(()); };
-    if current.company != grant.company || current.actor != grant.actor
-        || current.session != grant.session || current.work_id != grant.work_id
-        || current.attempt_id != grant.attempt_id {
+    let Some(current) = read_browser_agent_session(company).await? else {
+        return Ok(());
+    };
+    if current.company != grant.company
+        || current.actor != grant.actor
+        || current.session != grant.session
+        || current.work_id != grant.work_id
+        || current.attempt_id != grant.attempt_id
+    {
         bail!("browser registration does not belong to this signed ActorSession");
     }
     clear_browser_agent_session(company, &current.ticket).await
@@ -3713,12 +3827,26 @@ pub async fn release_browser_agent_session(
 pub async fn clear_browser_agent_session(company: &str, ticket: &str) -> Result<()> {
     validate_company_name(company)?;
     let _control_guard = browser_control_guard(company).await;
-    let Some(current) = read_browser_agent_session(company).await? else { return Ok(()); };
-    if current.ticket != ticket { bail!("browser registration changed before it could be cleared"); }
-    let output = tokio::process::Command::new("docker").args([
-        "exec", &container_name(company), "rm", "-f", "/company/run/browser-agent-session.json",
-    ]).output().await.context("release company browser registration")?;
-    if !output.status.success() { bail!("could not release company browser registration"); }
+    let Some(current) = read_browser_agent_session(company).await? else {
+        return Ok(());
+    };
+    if current.ticket != ticket {
+        bail!("browser registration changed before it could be cleared");
+    }
+    let output = tokio::process::Command::new("docker")
+        .args([
+            "exec",
+            &container_name(company),
+            "rm",
+            "-f",
+            "/company/run/browser-agent-session.json",
+        ])
+        .output()
+        .await
+        .context("release company browser registration")?;
+    if !output.status.success() {
+        bail!("could not release company browser registration");
+    }
     Ok(())
 }
 
@@ -3732,7 +3860,9 @@ async fn write_browser_agent_session(company: &str, session: &BrowserAgentSessio
     stdin.write_all(&serde_json::to_vec(session)?).await?;
     drop(stdin);
     let output = child.wait_with_output().await?;
-    if !output.status.success() { bail!("could not write authenticated company browser registration"); }
+    if !output.status.success() {
+        bail!("could not write authenticated company browser registration");
+    }
     Ok(())
 }
 
@@ -4019,8 +4149,7 @@ pub fn is_sleeping(company: &str) -> bool {
 fn mark_sleeping(company: &str) -> Result<()> {
     let marker = sleep_marker(company);
     if let Some(parent) = marker.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("create {}", parent.display()))?;
+        std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
     std::fs::write(&marker, chrono::Utc::now().to_rfc3339())
         .with_context(|| format!("write {}", marker.display()))
@@ -4553,10 +4682,9 @@ mod tests {
         bound_docker_call, company_statuses, container_name, docker_observe,
         is_immutable_image_digest, is_runtime_review_download, owner_attachment_alias,
         read_owner_attachment, remove_owner_attachment, resolve_company_image,
-        resolve_resource_bound,
-        running_company_names, sort_source_files, store_owner_attachment, AgentIntelligence,
-        ContainerStatus, NativeHarnessConfig, COMPANY_IMAGE, DEFAULT_CPUS, DEFAULT_MEMORY,
-        DEFAULT_PIDS_LIMIT,
+        resolve_resource_bound, running_company_names, sort_source_files, store_owner_attachment,
+        AgentIntelligence, ContainerStatus, NativeHarnessConfig, COMPANY_IMAGE, DEFAULT_CPUS,
+        DEFAULT_MEMORY, DEFAULT_PIDS_LIMIT,
     };
 
     #[test]
@@ -4792,10 +4920,22 @@ mission = "Choose intelligence"
             owner_attachment_alias("Invoice March (final).PDF").as_deref(),
             Some("Invoice-March-final.pdf")
         );
-        assert_eq!(owner_attachment_alias("q3.report.xlsx").as_deref(), Some("q3-report.xlsx"));
-        assert_eq!(owner_attachment_alias("合同.docx").as_deref(), Some("file.docx"));
-        assert_eq!(owner_attachment_alias("content").as_deref(), Some("file-content"));
-        assert_eq!(owner_attachment_alias("content.tmp").as_deref(), Some("file-content.tmp"));
+        assert_eq!(
+            owner_attachment_alias("q3.report.xlsx").as_deref(),
+            Some("q3-report.xlsx")
+        );
+        assert_eq!(
+            owner_attachment_alias("合同.docx").as_deref(),
+            Some("file.docx")
+        );
+        assert_eq!(
+            owner_attachment_alias("content").as_deref(),
+            Some("file-content")
+        );
+        assert_eq!(
+            owner_attachment_alias("content.tmp").as_deref(),
+            Some("file-content.tmp")
+        );
         assert_eq!(owner_attachment_alias("..."), None);
         assert_eq!(owner_attachment_alias(""), None);
         for hostile in [
@@ -4865,9 +5005,18 @@ mission = "Choose intelligence"
     #[test]
     fn the_memory_bound_leaves_room_for_the_rest_of_the_host() {
         let gib = 1024 * 1024 * 1024;
-        assert_eq!(super::fit_memory(Some("4g".into()), Some(4 * gib)).as_deref(), Some("3072m"));
-        assert_eq!(super::fit_memory(Some("4g".into()), Some(16 * gib)).as_deref(), Some("4g"));
-        assert_eq!(super::fit_memory(Some("4g".into()), None).as_deref(), Some("4g"));
+        assert_eq!(
+            super::fit_memory(Some("4g".into()), Some(4 * gib)).as_deref(),
+            Some("3072m")
+        );
+        assert_eq!(
+            super::fit_memory(Some("4g".into()), Some(16 * gib)).as_deref(),
+            Some("4g")
+        );
+        assert_eq!(
+            super::fit_memory(Some("4g".into()), None).as_deref(),
+            Some("4g")
+        );
         assert_eq!(super::fit_memory(None, Some(4 * gib)), None);
         assert_eq!(super::memory_bytes("512m"), Some(512 * 1024 * 1024));
         assert_eq!(super::memory_bytes("2GB"), Some(2 * gib));
@@ -4876,10 +5025,22 @@ mission = "Choose intelligence"
 
     #[test]
     fn the_cpu_bound_never_exceeds_the_host() {
-        assert_eq!(super::fit_cpus(Some("4.0".into()), 2).as_deref(), Some("2.0"));
-        assert_eq!(super::fit_cpus(Some("4.0".into()), 8).as_deref(), Some("4.0"));
-        assert_eq!(super::fit_cpus(Some("1.5".into()), 2).as_deref(), Some("1.5"));
-        assert_eq!(super::fit_cpus(Some("4.0".into()), 0).as_deref(), Some("1.0"));
+        assert_eq!(
+            super::fit_cpus(Some("4.0".into()), 2).as_deref(),
+            Some("2.0")
+        );
+        assert_eq!(
+            super::fit_cpus(Some("4.0".into()), 8).as_deref(),
+            Some("4.0")
+        );
+        assert_eq!(
+            super::fit_cpus(Some("1.5".into()), 2).as_deref(),
+            Some("1.5")
+        );
+        assert_eq!(
+            super::fit_cpus(Some("4.0".into()), 0).as_deref(),
+            Some("1.0")
+        );
         assert_eq!(super::fit_cpus(None, 2), None);
     }
 
@@ -5075,7 +5236,10 @@ model = "claude-sonnet-4-6"
             bob.agent_preference("bob", Some("anthropic/claude-haiku-5-5")),
             Some("anthropic/claude-haiku-5-5")
         );
-        assert_eq!(bob.agent_preference("bob", None), Some("anthropic/claude-sonnet-4-6"));
+        assert_eq!(
+            bob.agent_preference("bob", None),
+            Some("anthropic/claude-sonnet-4-6")
+        );
         // The owner's choice for one agent stays exact.
         assert_eq!(
             alice.agent_preference("alice", Some("anthropic/claude-opus-5-5")),
@@ -5448,7 +5612,14 @@ worker_harness = "claude_agent"
         assert_eq!(range("bytes=900-5000", 1000), Some((900, 999)));
         assert_eq!(range("bytes=-5000", 1000), Some((0, 999)));
         // Anything else is answered with the whole file, never a slice past its end.
-        for refused in ["bytes=1000-", "bytes=5-2", "bytes=0-1,4-5", "items=0-1", "bytes=-0", "bytes=x-"] {
+        for refused in [
+            "bytes=1000-",
+            "bytes=5-2",
+            "bytes=0-1,4-5",
+            "items=0-1",
+            "bytes=-0",
+            "bytes=x-",
+        ] {
             assert_eq!(range(refused, 1000), None, "{refused}");
         }
         assert_eq!(range("bytes=0-", 0), None);
@@ -5498,7 +5669,11 @@ worker_harness = "claude_agent"
         std::fs::create_dir_all(home.join("outputs/run")).unwrap();
         std::fs::write(home.join("outputs/run/plan.md"), "# Plan").unwrap();
         std::fs::write(base.join("secret.txt"), "outside").unwrap();
-        symlink(home.join("outputs/run/plan.md"), home.join("outputs/alias.md")).unwrap();
+        symlink(
+            home.join("outputs/run/plan.md"),
+            home.join("outputs/alias.md"),
+        )
+        .unwrap();
         symlink(base.join("secret.txt"), home.join("outputs/escape.md")).unwrap();
         symlink(&base, home.join("outputs/up")).unwrap();
         let script = format!(
@@ -5520,7 +5695,10 @@ worker_harness = "claude_agent"
             assert!(!refused.status.success(), "{escape} was read");
             assert!(refused.stdout.is_empty(), "{escape} leaked bytes");
         }
-        assert!(!read("outputs/run").status.success(), "a directory is not a file");
+        assert!(
+            !read("outputs/run").status.success(),
+            "a directory is not a file"
+        );
         let _ = std::fs::remove_dir_all(&base);
     }
 }

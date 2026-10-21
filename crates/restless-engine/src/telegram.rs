@@ -570,7 +570,11 @@ pub async fn deliver(pool: &PgPool, bot: &Bot, link: &Link, items: Vec<Outgoing>
             continue;
         }
         match bot
-            .send(chat_id, &item.text, item.binding.as_ref().map(|binding| (id, binding)))
+            .send(
+                chat_id,
+                &item.text,
+                item.binding.as_ref().map(|binding| (id, binding)),
+            )
             .await
         {
             Ok(message_id) => {
@@ -753,7 +757,14 @@ async fn decide_inner(
         Binding::Payee { proposal } => {
             crate::finance::decide_payee(authority, &company, &principal, *proposal, approve, None)
                 .await
-                .map(|()| if approve { "approved the payee" } else { "declined the payee" }.to_string())
+                .map(|()| {
+                    if approve {
+                        "approved the payee"
+                    } else {
+                        "declined the payee"
+                    }
+                    .to_string()
+                })
         }
         Binding::Review { handoff } if approve => match org.as_ref() {
             Some(org) => org
@@ -766,7 +777,9 @@ async fn decide_inner(
                 .await
                 .map(|()| "accepted the outcome".to_string())
                 .map_err(anyhow::Error::from),
-            None => Err(anyhow::anyhow!("the company's records are unavailable right now")),
+            None => Err(anyhow::anyhow!(
+                "the company's records are unavailable right now"
+            )),
         },
         Binding::Review { .. } => Err(anyhow::anyhow!(
             "ask for changes in the cockpit, where you can write what should change"

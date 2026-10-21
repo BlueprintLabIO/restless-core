@@ -389,11 +389,9 @@ pub async fn ensure_database(
     let dir = path.parent().expect("cell url path has a parent");
     std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
     let temporary = path.with_extension("url.tmp");
-    std::fs::write(&temporary, &url)
-        .with_context(|| format!("write {}", temporary.display()))?;
+    std::fs::write(&temporary, &url).with_context(|| format!("write {}", temporary.display()))?;
     restrict_to_owner(&temporary)?;
-    std::fs::rename(&temporary, &path)
-        .with_context(|| format!("install {}", path.display()))?;
+    std::fs::rename(&temporary, &path).with_context(|| format!("install {}", path.display()))?;
     admin.close().await.ok();
     Ok(url)
 }
@@ -478,7 +476,9 @@ async fn ensure_native_documents_store_inner(
     )?;
     let previous_password = rotate.then(|| existing_password.clone()).flatten();
     let password = if rotate {
-        let old_password = existing_password.as_ref().context("native Documents rotation requires an existing credential")?;
+        let old_password = existing_password
+            .as_ref()
+            .context("native Documents rotation requires an existing credential")?;
         match pending_password.as_ref() {
             Some(pending) => pending.clone(),
             None if restart_marker.exists() => old_password.clone(),
@@ -680,9 +680,8 @@ async fn ensure_native_documents_store_inner(
             }
             Err(sqlx::Error::Database(error)) if error.code().as_deref() == Some("28P01") => {}
             Err(error) => {
-                return Err(error).context(
-                    "could not prove the prior native Documents password is rejected",
-                );
+                return Err(error)
+                    .context("could not prove the prior native Documents password is rejected");
             }
         }
         std::fs::rename(&pending_path, &credential_path)

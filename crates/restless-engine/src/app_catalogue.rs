@@ -313,7 +313,10 @@ async fn fetch_registry(client: &reqwest::Client) -> Result<(Vec<CatalogueItem>,
     let deadline = std::time::Instant::now() + Duration::from_secs(70);
     for _ in 0..MAX_REGISTRY_PAGES {
         if std::time::Instant::now() >= deadline && !items.is_empty() {
-            tracing::info!(listings = items.len(), "MCP Registry refresh stopped at its deadline; the listings read are shown");
+            tracing::info!(
+                listings = items.len(),
+                "MCP Registry refresh stopped at its deadline; the listings read are shown"
+            );
             break;
         }
         let mut request = client
@@ -579,7 +582,11 @@ pub fn search<'a>(items: &'a [CatalogueItem], words: &str, limit: usize) -> Vec<
         })
         .collect();
     scored.sort_by(|a, b| b.0.cmp(&a.0));
-    scored.into_iter().map(|(_, item)| item).take(limit).collect()
+    scored
+        .into_iter()
+        .map(|(_, item)| item)
+        .take(limit)
+        .collect()
 }
 
 #[cfg(test)]
@@ -588,10 +595,29 @@ mod tests {
 
     #[test]
     fn a_search_finds_any_of_its_words_best_match_first() {
-        let item = |name: &str, summary: &str| CatalogueItem { name: name.into(), summary: summary.into(), ..Default::default() };
-        let items = [item("Slack", "Messages"), item("eBay", "Listings and sold prices"), item("Marketplace Scout", "Facebook Marketplace and eBay listings")];
-        let names = |words: &str| search(&items, words, 10).into_iter().map(|item| item.name.as_str()).collect::<Vec<_>>();
-        assert_eq!(names("facebook marketplace ebay gumtree"), ["Marketplace Scout", "eBay"]);
+        let item = |name: &str, summary: &str| CatalogueItem {
+            name: name.into(),
+            summary: summary.into(),
+            ..Default::default()
+        };
+        let items = [
+            item("Slack", "Messages"),
+            item("eBay", "Listings and sold prices"),
+            item(
+                "Marketplace Scout",
+                "Facebook Marketplace and eBay listings",
+            ),
+        ];
+        let names = |words: &str| {
+            search(&items, words, 10)
+                .into_iter()
+                .map(|item| item.name.as_str())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            names("facebook marketplace ebay gumtree"),
+            ["Marketplace Scout", "eBay"]
+        );
         assert_eq!(names("EBAY"), ["eBay", "Marketplace Scout"]);
         assert!(names("").is_empty());
         assert!(names("stripe").is_empty());

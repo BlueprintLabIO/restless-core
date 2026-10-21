@@ -59,19 +59,27 @@ static ROUTER: OnceLock<Arc<Router>> = OnceLock::new();
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 
 fn full(bytes: impl Into<Bytes>) -> Body {
-    Full::new(bytes.into()).map_err(|never: Infallible| match never {}).boxed()
+    Full::new(bytes.into())
+        .map_err(|never: Infallible| match never {})
+        .boxed()
 }
 
 fn message(status: StatusCode, text: &str) -> Response<Body> {
     let mut response = Response::new(full(json!({ "message": text }).to_string()));
     *response.status_mut() = status;
-    response.headers_mut().insert(http::header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    response.headers_mut().insert(
+        http::header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
     response
 }
 
 /// The plane's own Docker socket, which the router forwards home to.
 pub fn local_socket() -> PathBuf {
-    ROUTER.get().map(|router| router.local.clone()).unwrap_or_else(|| PathBuf::from(LOCAL_DOCKER))
+    ROUTER
+        .get()
+        .map(|router| router.local.clone())
+        .unwrap_or_else(|| PathBuf::from(LOCAL_DOCKER))
 }
 
 /// A request without its API version, for a machine: the plane's Docker client negotiates its
@@ -82,7 +90,9 @@ fn unversioned(uri: &http::Uri) -> http::Uri {
     let stripped = path
         .strip_prefix("/v")
         .and_then(|rest| rest.find('/').map(|slash| (&rest[..slash], &rest[slash..])))
-        .filter(|(version, _)| !version.is_empty() && version.chars().all(|c| c.is_ascii_digit() || c == '.'))
+        .filter(|(version, _)| {
+            !version.is_empty() && version.chars().all(|c| c.is_ascii_digit() || c == '.')
+        })
         .map(|(_, rest)| rest)
         .unwrap_or(path);
     let rebuilt = match uri.query() {
@@ -108,7 +118,11 @@ fn company_objects(company: &str) -> Vec<String> {
 
 impl Router {
     fn new(local: PathBuf) -> Self {
-        Self { local, placement: RwLock::new(Placement::default()), execs: Mutex::new(HashMap::new()) }
+        Self {
+            local,
+            placement: RwLock::new(Placement::default()),
+            execs: Mutex::new(HashMap::new()),
+        }
     }
 
     fn socket_for(&self, target: &Target) -> Result<PathBuf, Response<Body>> {
@@ -133,17 +147,24 @@ impl Router {
 
     fn learn(&self, name: &str, machine: &str) {
         if !name.is_empty() {
-            self.placement
-                .write()
-                .unwrap()
-                .objects
-                .insert(name.trim_start_matches('/').to_string(), machine.to_string());
+            self.placement.write().unwrap().objects.insert(
+                name.trim_start_matches('/').to_string(),
+                machine.to_string(),
+            );
         }
     }
 
     async fn status_at(&self, socket: &Path, path: &str) -> Option<StatusCode> {
-        let request = Request::builder().method(Method::GET).uri(path).header(http::header::HOST, "docker").body(full(Bytes::new())).ok()?;
-        http_forward::forward(socket, request).await.ok().map(|response| response.status())
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri(path)
+            .header(http::header::HOST, "docker")
+            .body(full(Bytes::new()))
+            .ok()?;
+        http_forward::forward(socket, request)
+            .await
+            .ok()
+            .map(|response| response.status())
     }
 
     /// Where an existing object lives: known, else the plane if it has it, else the first online
@@ -160,12 +181,23 @@ impl Router {
         if self.status_at(&self.local, &path).await != Some(StatusCode::NOT_FOUND) {
             return Target::Plane;
         }
-        let machines: Vec<String> = self.placement.read().unwrap().companies.values().cloned().collect();
+        let machines: Vec<String> = self
+            .placement
+            .read()
+            .unwrap()
+            .companies
+            .values()
+            .cloned()
+            .collect();
         for machine in machines {
             if !crate::machines::is_online(&machine) {
                 continue;
             }
-            if self.status_at(&crate::machines::docker_socket(&machine), &path).await == Some(StatusCode::OK) {
+            if self
+                .status_at(&crate::machines::docker_socket(&machine), &path)
+                .await
+                == Some(StatusCode::OK)
+            {
                 self.learn(name, &machine);
                 return Target::Machine(machine);
             }
@@ -179,16 +211,30 @@ impl Router {
         let mut names: Vec<String> = Vec::new();
         names.extend(name.map(str::to_string));
         names.extend(body.get("Name").and_then(Value::as_str).map(str::to_string));
-        if let Some(company) = body.pointer(&format!("/Labels/{COMPANY_LABEL}")).and_then(Value::as_str) {
+        if let Some(company) = body
+            .pointer(&format!("/Labels/{COMPANY_LABEL}"))
+            .and_then(Value::as_str)
+        {
             if let Some(machine) = placement.companies.get(company) {
                 return Target::Machine(machine.clone());
             }
         }
         if let Some(binds) = body.pointer("/HostConfig/Binds").and_then(Value::as_array) {
-            names.extend(binds.iter().filter_map(Value::as_str).filter_map(|bind| bind.split(':').next()).map(str::to_string));
+            names.extend(
+                binds
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .filter_map(|bind| bind.split(':').next())
+                    .map(str::to_string),
+            );
         }
         if let Some(mounts) = body.pointer("/HostConfig/Mounts").and_then(Value::as_array) {
-            names.extend(mounts.iter().filter_map(|mount| mount.get("Source")?.as_str()).map(str::to_string));
+            names.extend(
+                mounts
+                    .iter()
+                    .filter_map(|mount| mount.get("Source")?.as_str())
+                    .map(str::to_string),
+            );
         }
         if let Some(shared) = body
             .pointer("/HostConfig/NetworkMode")
@@ -211,10 +257,17 @@ impl Router {
         let route = docker_filter::classify(&method, &path, &query);
         let target = match &route {
             Route::ListContainers | Route::ListVolumes | Route::ListNetworks => Target::Everywhere,
-            Route::Container { id } | Route::CreateExec { container: id } | Route::Commit { container: id } => {
-                self.locate("container", id).await
-            }
-            Route::Exec { id } => self.execs.lock().unwrap().get(id).cloned().map(Target::Machine).unwrap_or(Target::Plane),
+            Route::Container { id }
+            | Route::CreateExec { container: id }
+            | Route::Commit { container: id } => self.locate("container", id).await,
+            Route::Exec { id } => self
+                .execs
+                .lock()
+                .unwrap()
+                .get(id)
+                .cloned()
+                .map(Target::Machine)
+                .unwrap_or(Target::Plane),
             Route::Volume { name } => self.locate("volume", name).await,
             Route::Network { name } => self.locate("network", name).await,
             Route::CreateContainer { .. } | Route::CreateVolume | Route::CreateNetwork => {
@@ -248,8 +301,15 @@ impl Router {
 
     async fn remember_exec(&self, response: Response<Body>, machine: &str) -> Response<Body> {
         let (parts, body) = response.into_parts();
-        let bytes = body.collect().await.map(|collected| collected.to_bytes()).unwrap_or_default();
-        if let Some(id) = serde_json::from_slice::<Value>(&bytes).ok().and_then(|value| value.get("Id")?.as_str().map(str::to_string)) {
+        let bytes = body
+            .collect()
+            .await
+            .map(|collected| collected.to_bytes())
+            .unwrap_or_default();
+        if let Some(id) = serde_json::from_slice::<Value>(&bytes)
+            .ok()
+            .and_then(|value| value.get("Id")?.as_str().map(str::to_string))
+        {
             let mut execs = self.execs.lock().unwrap();
             if execs.len() > 10_000 {
                 execs.clear();
@@ -261,7 +321,10 @@ impl Router {
 
     async fn create(&self, request: Request<Incoming>, route: Route) -> Response<Body> {
         let (mut parts, body) = request.into_parts();
-        let bytes = match http_body_util::Limited::new(body, MAX_CREATE_BODY).collect().await {
+        let bytes = match http_body_util::Limited::new(body, MAX_CREATE_BODY)
+            .collect()
+            .await
+        {
             Ok(collected) => collected.to_bytes(),
             Err(_) => return message(StatusCode::PAYLOAD_TOO_LARGE, "request body too large"),
         };
@@ -275,21 +338,31 @@ impl Router {
             Ok(socket) => socket,
             Err(refusal) => return refusal,
         };
-        parts.headers.insert(http::header::CONTENT_LENGTH, HeaderValue::from(bytes.len()));
+        parts
+            .headers
+            .insert(http::header::CONTENT_LENGTH, HeaderValue::from(bytes.len()));
         if matches!(target, Target::Machine(_)) {
             parts.uri = unversioned(&parts.uri);
         }
-        let response = match http_forward::forward(&socket, Request::from_parts(parts, full(bytes))).await {
-            Ok(response) => response,
-            Err(error) => return message(StatusCode::BAD_GATEWAY, &format!("{error:#}")),
-        };
+        let response =
+            match http_forward::forward(&socket, Request::from_parts(parts, full(bytes))).await {
+                Ok(response) => response,
+                Err(error) => return message(StatusCode::BAD_GATEWAY, &format!("{error:#}")),
+            };
         let (parts, body) = response.into_parts();
-        let answer = body.collect().await.map(|collected| collected.to_bytes()).unwrap_or_default();
+        let answer = body
+            .collect()
+            .await
+            .map(|collected| collected.to_bytes())
+            .unwrap_or_default();
         if let (Target::Machine(machine), true) = (&target, parts.status.is_success()) {
             if let Some(name) = name.or_else(|| value.get("Name").and_then(Value::as_str)) {
                 self.learn(name, machine);
             }
-            if let Some(id) = serde_json::from_slice::<Value>(&answer).ok().and_then(|value| value.get("Id")?.as_str().map(str::to_string)) {
+            if let Some(id) = serde_json::from_slice::<Value>(&answer)
+                .ok()
+                .and_then(|value| value.get("Id")?.as_str().map(str::to_string))
+            {
                 self.learn(&id, machine);
             }
         }
@@ -306,18 +379,36 @@ impl Router {
             machines.dedup();
             machines
         };
-        sockets.extend(machines.iter().filter(|id| crate::machines::is_online(id)).map(|id| crate::machines::docker_socket(id)));
+        sockets.extend(
+            machines
+                .iter()
+                .filter(|id| crate::machines::is_online(id))
+                .map(|id| crate::machines::docker_socket(id)),
+        );
         let mut merged: Option<Value> = None;
         let mut first_parts = None;
         for (index, socket) in sockets.into_iter().enumerate() {
             let mut copy = Request::new(full(Bytes::new()));
             *copy.method_mut() = parts.method.clone();
-            *copy.uri_mut() = if index == 0 { parts.uri.clone() } else { unversioned(&parts.uri) };
+            *copy.uri_mut() = if index == 0 {
+                parts.uri.clone()
+            } else {
+                unversioned(&parts.uri)
+            };
             *copy.headers_mut() = parts.headers.clone();
-            let Ok(response) = http_forward::forward(&socket, copy).await else { continue };
+            let Ok(response) = http_forward::forward(&socket, copy).await else {
+                continue;
+            };
             let (response_parts, body) = response.into_parts();
-            let Ok(collected) = http_body_util::Limited::new(body, MAX_LIST_BODY).collect().await else { continue };
-            let Ok(value) = serde_json::from_slice::<Value>(&collected.to_bytes()) else { continue };
+            let Ok(collected) = http_body_util::Limited::new(body, MAX_LIST_BODY)
+                .collect()
+                .await
+            else {
+                continue;
+            };
+            let Ok(value) = serde_json::from_slice::<Value>(&collected.to_bytes()) else {
+                continue;
+            };
             merged = Some(match merged {
                 None => value,
                 Some(Value::Array(mut all)) => {
@@ -325,7 +416,11 @@ impl Router {
                     Value::Array(all)
                 }
                 Some(Value::Object(mut all)) => {
-                    let more = value.get("Volumes").and_then(Value::as_array).cloned().unwrap_or_default();
+                    let more = value
+                        .get("Volumes")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
                     if let Some(Value::Array(volumes)) = all.get_mut("Volumes") {
                         volumes.extend(more);
                     }
@@ -338,7 +433,9 @@ impl Router {
         match (first_parts, merged) {
             (Some(mut response_parts), Some(value)) => {
                 response_parts.headers.remove(http::header::CONTENT_LENGTH);
-                response_parts.headers.remove(http::header::TRANSFER_ENCODING);
+                response_parts
+                    .headers
+                    .remove(http::header::TRANSFER_ENCODING);
                 Response::from_parts(response_parts, full(value.to_string()))
             }
             _ => message(StatusCode::BAD_GATEWAY, "Docker is not answering"),
@@ -348,14 +445,19 @@ impl Router {
 
 /// Re-read which companies run on paired machines.
 pub async fn refresh(pool: &PgPool) -> Result<()> {
-    let Some(router) = ROUTER.get() else { return Ok(()) };
+    let Some(router) = ROUTER.get() else {
+        return Ok(());
+    };
     let rows = sqlx::query(
         "SELECT company, machine_id FROM restless_authority.company_machines \
          WHERE role = 'main' AND machine_id <> 'plane'",
     )
     .fetch_all(pool)
     .await?;
-    let companies: HashMap<String, String> = rows.into_iter().map(|row| (row.get("company"), row.get("machine_id"))).collect();
+    let companies: HashMap<String, String> = rows
+        .into_iter()
+        .map(|row| (row.get("company"), row.get("machine_id")))
+        .collect();
     let mut placement = router.placement.write().unwrap();
     // Forget what was placed for companies that moved; keep what was learned for the rest.
     let stale: Vec<String> = placement
@@ -469,15 +571,30 @@ mod tests {
     fn a_company_create_goes_to_its_machine() {
         let router = router_with("acme", "m1");
         let name = crate::runtime::container_name("acme");
-        assert_eq!(router.create_target(Some(&name), &json!({})), Target::Machine("m1".into()));
+        assert_eq!(
+            router.create_target(Some(&name), &json!({})),
+            Target::Machine("m1".into())
+        );
         // An unnamed helper container mounting the company's kept files.
         let body = json!({ "HostConfig": { "Binds": [format!("{}:/var/lib/x", crate::runtime::attachments_volume_name("acme"))] } });
-        assert_eq!(router.create_target(None, &body), Target::Machine("m1".into()));
+        assert_eq!(
+            router.create_target(None, &body),
+            Target::Machine("m1".into())
+        );
         // A tool sidecar labelled with the company.
-        assert_eq!(router.create_target(Some("restless-tool-x"), &json!({ "Labels": { COMPANY_LABEL: "acme" } })), Target::Machine("m1".into()));
+        assert_eq!(
+            router.create_target(
+                Some("restless-tool-x"),
+                &json!({ "Labels": { COMPANY_LABEL: "acme" } })
+            ),
+            Target::Machine("m1".into())
+        );
         // A browser sharing the company computer's network.
         assert_eq!(
-            router.create_target(Some("restless-browser"), &json!({ "HostConfig": { "NetworkMode": format!("container:{name}") } })),
+            router.create_target(
+                Some("restless-browser"),
+                &json!({ "HostConfig": { "NetworkMode": format!("container:{name}") } })
+            ),
             Target::Machine("m1".into())
         );
     }
@@ -496,7 +613,13 @@ mod tests {
     fn other_companies_and_the_plane_stay_home() {
         let router = router_with("acme", "m1");
         let other = crate::runtime::container_name("globex");
-        assert_eq!(router.create_target(Some(&other), &json!({})), Target::Plane);
-        assert_eq!(router.create_target(None, &json!({ "Image": "x" })), Target::Plane);
+        assert_eq!(
+            router.create_target(Some(&other), &json!({})),
+            Target::Plane
+        );
+        assert_eq!(
+            router.create_target(None, &json!({ "Image": "x" })),
+            Target::Plane
+        );
     }
 }

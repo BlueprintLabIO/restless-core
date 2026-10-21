@@ -91,7 +91,9 @@ pub async fn start(
     if until <= now || until > now + Duration::days(LONGEST_AWAY_DAYS) {
         bail!("choose a return date in the next three months");
     }
-    let deputy = deputy.map(|deputy| deputy.trim().to_string()).filter(|deputy| !deputy.is_empty());
+    let deputy = deputy
+        .map(|deputy| deputy.trim().to_string())
+        .filter(|deputy| !deputy.is_empty());
     if let Some(deputy) = deputy.as_deref() {
         let admin = org.human_members().await?.into_iter().any(|member| {
             member.actor_id == deputy
@@ -124,7 +126,12 @@ pub async fn start(
         since: Some(now),
     };
     authority
-        .emit(company, AWAY_STARTED_KIND, Some(owner), serde_json::to_value(&away)?)
+        .emit(
+            company,
+            AWAY_STARTED_KIND,
+            Some(owner),
+            serde_json::to_value(&away)?,
+        )
         .await?;
     Ok(away)
 }
@@ -223,23 +230,53 @@ mod tests {
             since: Some(Utc::now()),
         };
         authority
-            .emit(&company, AWAY_STARTED_KIND, Some("owner"), serde_json::to_value(away(Utc::now() + Duration::days(3))).unwrap())
+            .emit(
+                &company,
+                AWAY_STARTED_KIND,
+                Some("owner"),
+                serde_json::to_value(away(Utc::now() + Duration::days(3))).unwrap(),
+            )
             .await
             .unwrap();
-        assert!(may("deputy", "admin", false).await, "the named deputy allows once or declines");
-        assert!(!may("deputy", "admin", true).await, "never standing permission or revoke");
-        assert!(!may("other", "admin", false).await, "an admin who is not the deputy");
-        assert!(!may("deputy", "member", false).await, "a deputy who is no longer an admin");
+        assert!(
+            may("deputy", "admin", false).await,
+            "the named deputy allows once or declines"
+        );
+        assert!(
+            !may("deputy", "admin", true).await,
+            "never standing permission or revoke"
+        );
+        assert!(
+            !may("other", "admin", false).await,
+            "an admin who is not the deputy"
+        );
+        assert!(
+            !may("deputy", "member", false).await,
+            "a deputy who is no longer an admin"
+        );
         authority
-            .emit(&company, AWAY_ENDED_KIND, Some("owner"), serde_json::json!({}))
+            .emit(
+                &company,
+                AWAY_ENDED_KIND,
+                Some("owner"),
+                serde_json::json!({}),
+            )
             .await
             .unwrap();
         assert!(!may("deputy", "admin", false).await, "the owner is back");
         authority
-            .emit(&company, AWAY_STARTED_KIND, Some("owner"), serde_json::to_value(away(Utc::now() - Duration::minutes(1))).unwrap())
+            .emit(
+                &company,
+                AWAY_STARTED_KIND,
+                Some("owner"),
+                serde_json::to_value(away(Utc::now() - Duration::minutes(1))).unwrap(),
+            )
             .await
             .unwrap();
-        assert!(!may("deputy", "admin", false).await, "the return date passed");
+        assert!(
+            !may("deputy", "admin", false).await,
+            "the return date passed"
+        );
         authority.delete_test_company(&company).await.unwrap();
     }
 }

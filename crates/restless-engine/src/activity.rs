@@ -827,7 +827,10 @@ mod tests {
             message_id: None,
             text: "The 401 page now explains what went wrong.".into(),
         });
-        let state = streams.subscribe("company_test", "writer", None, Some(other)).borrow().clone();
+        let state = streams
+            .subscribe("company_test", "writer", None, Some(other))
+            .borrow()
+            .clone();
         assert_eq!(state.reply, "The 401 page now explains what went wrong.");
     }
 
@@ -852,7 +855,10 @@ mod tests {
 
         let absent = streams.subscribe("company_test", "other", Some(99), None);
         assert_eq!(absent.borrow().phase, AgentActivityPhase::Unavailable);
-        assert!(absent.borrow().error.is_none(), "missing telemetry is not a failed reply");
+        assert!(
+            absent.borrow().error.is_none(),
+            "missing telemetry is not a failed reply"
+        );
 
         // Ambient activity is idle until a turn nobody's message started begins,
         // and that turn reaches the connection opened before it.

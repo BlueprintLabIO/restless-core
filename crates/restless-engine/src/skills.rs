@@ -4,8 +4,8 @@
 //! context, never through one harness's private skill mechanism.
 
 use anyhow::{bail, Context as _, Result};
-use restless_orgintel::{ObservedSkill, OrgIntel, SelectedSkill};
 use restless_contracts::skill_package;
+use restless_orgintel::{ObservedSkill, OrgIntel, SelectedSkill};
 
 use crate::wire::{Request, Response};
 use crate::Daemon;
@@ -275,7 +275,9 @@ pub async fn write_skill_file(company: &str, dir: &str, file: &str, bytes: &[u8]
     }
     let safe = !file.is_empty()
         && !file.starts_with('/')
-        && file.split('/').all(|part| !part.is_empty() && part != "." && part != "..")
+        && file
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != "..")
         && file
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '-' | '_'));

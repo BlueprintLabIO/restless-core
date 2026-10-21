@@ -802,6 +802,33 @@ fn staff_halt(end: &acp::TurnEnd) -> Option<StaffHalt> {
     }
 }
 
+/// Turns a Work Attempt may ask to continue before it is stopped as a loop.
+const STAFF_CONTINUE_LIMIT: u32 = 25;
+
+/// What one productive turn did: its final message and the tools it called.
+fn turn_fingerprint(last_message_text: &str, tool_calls: &[String]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    last_message_text.trim().hash(&mut hasher);
+    tool_calls.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Why a Work Attempt that keeps asking to continue should stop, if it should.
+fn staff_loop_reason(repeats: u32, continues: u32) -> Option<String> {
+    if repeats >= 2 {
+        return Some(
+            "Stopped as a loop: the agent produced the same result three turns running.              Its work so far is kept."
+                .into(),
+        );
+    }
+    (continues >= STAFF_CONTINUE_LIMIT).then(|| {
+        format!(
+            "Stopped as a loop: the agent asked to continue {STAFF_CONTINUE_LIMIT} times without              finishing or naming a blocker. Its work so far is kept."
+        )
+    })
+}
+
 fn resumable_staff_summary(reason: &str) -> String {
     // This stable non-provider prefix keeps a deliberate interruption or
     // watchdog recovery out of provider failover/cooldown classification.
@@ -1417,6 +1444,11 @@ impl StaffDrive {
         // One rewrite at most when a reply hands a person a shell command (Sprint 86).
         let mut asked_for_cockpit_terms = false;
         let mut spent: Vec<acp::TurnUsage> = Vec::new();
+        // Loop detection (Sprint 104 D5): the same result turn after turn, or
+        // an unbounded run of "continue", stops before it burns the budget.
+        let mut last_fingerprint: Option<u64> = None;
+        let mut repeats = 0u32;
+        let mut continues = 0u32;
         loop {
             session.set_live_observer_enabled(true);
             // A person's direct message steers a running Work turn: the turn
@@ -1457,6 +1489,10 @@ impl StaffDrive {
             if let Some(usage) = end.usage() {
                 spent.push(usage);
             }
+            let turn_fingerprint = turn_fingerprint(
+                &end.transcript().last_message_text,
+                &end.transcript().tool_calls,
+            );
             let steered = turn.is_cancelled() && !self.cancellation.is_cancelled();
             if steered {
                 tracing::info!(actor = %self.event_actor, "owner message steered a running Work turn");
@@ -1537,7 +1573,8 @@ impl StaffDrive {
             }
             if steered {
                 // The message was already taken (or withdrawn); resume the Work.
-                next = "Continue the task. If it is done or you are stuck, stop writing.".to_string();
+                next =
+                    "Continue the task. If it is done or you are stuck, stop writing.".to_string();
                 continue;
             }
 
@@ -1589,6 +1626,16 @@ impl StaffDrive {
             let said = end.into_transcript().text;
             match exec::parse_termination(&said) {
                 Some(decision) if matches!(decision.termination, Termination::Continue) => {
+                    continues += 1;
+                    if last_fingerprint == Some(turn_fingerprint) {
+                        repeats += 1;
+                    } else {
+                        repeats = 0;
+                    }
+                    last_fingerprint = Some(turn_fingerprint);
+                    if let Some(reason) = staff_loop_reason(repeats, continues) {
+                        return Ok((Termination::Blocked, reason, spent, None));
+                    }
                     next = "Continue the task. If it is done or you are stuck, stop writing."
                         .to_string();
                 }
@@ -1804,6 +1851,41 @@ async fn run_staff(
                 .await
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod loop_detection_tests {
+    use super::*;
+
+    #[test]
+    fn repeated_or_endless_continues_stop_as_a_loop() {
+        assert!(staff_loop_reason(0, 1).is_none());
+        assert!(staff_loop_reason(1, 5).is_none(), "one repeat is allowed");
+        assert!(staff_loop_reason(2, 3).unwrap().contains("same result"));
+        assert!(staff_loop_reason(0, STAFF_CONTINUE_LIMIT - 1).is_none());
+        assert!(staff_loop_reason(0, STAFF_CONTINUE_LIMIT)
+            .unwrap()
+            .contains("asked to continue"));
+    }
+
+    #[test]
+    fn fingerprint_tells_turns_apart_by_message_and_tools() {
+        let turn = |text: &str, tools: &[&str]| {
+            let tools = tools
+                .iter()
+                .map(|tool| tool.to_string())
+                .collect::<Vec<_>>();
+            turn_fingerprint(text, &tools)
+        };
+        assert_eq!(
+            turn("Checking the page", &["browser"]),
+            turn("Checking the page ", &["browser"])
+        );
+        assert_ne!(
+            turn("Checking the page", &["browser"]),
+            turn("Checking the page", &["browser", "shell"])
+        );
     }
 }
 

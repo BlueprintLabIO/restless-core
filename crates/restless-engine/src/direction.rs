@@ -355,7 +355,9 @@ pub enum DirectionOperation {
         reason: String,
         source_message: Option<String>,
     },
-    RequestShow { id: Uuid },
+    RequestShow {
+        id: Uuid,
+    },
     /// An approved request carried out, or why it could not be.
     RequestDone {
         id: Uuid,

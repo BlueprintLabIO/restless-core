@@ -203,7 +203,9 @@ pub async fn wake(
     if let Ok(Some(tools)) =
         crate::connections::context_summary(authority.pool(), &config.name, "exec").await
     {
-        package.system_prompt.push_str("\n\n# Connected tools [Authority grant]\n");
+        package
+            .system_prompt
+            .push_str("\n\n# Connected tools [Authority grant]\n");
         package.system_prompt.push_str(&tools);
     }
     let candidates = crate::model_gateway::available_candidates(
@@ -263,8 +265,10 @@ pub async fn wake(
         // The owner is waiting on this reply: Exec answers, delegates and decides here, so it
         // thinks at most at medium. Production Work keeps the configured effort.
         let turn_effort = if !conversation_inbox.is_empty()
-            && matches!(config.reasoning_effort.as_str(), "high" | "xhigh" | "max" | "ultra")
-        {
+            && matches!(
+                config.reasoning_effort.as_str(),
+                "high" | "xhigh" | "max" | "ultra"
+            ) {
             "medium"
         } else {
             config.reasoning_effort.as_str()
@@ -496,13 +500,24 @@ pub async fn wake(
                             let turn_context = turn_context.clone();
                             let session_responsibility = responsibility.clone();
                             let complete_reply_hook = complete_reply_hook.clone();
-                            move |session| Box::pin(async move {
-                                run_ready_exec_session(
-                                    session, &session_org, &turn_context, &company, &model,
-                                    &session_responsibility, remaining, metered,
-                                    focused_mention, complete_reply_hook, &cancellation,
-                                ).await
-                            })
+                            move |session| {
+                                Box::pin(async move {
+                                    run_ready_exec_session(
+                                        session,
+                                        &session_org,
+                                        &turn_context,
+                                        &company,
+                                        &model,
+                                        &session_responsibility,
+                                        remaining,
+                                        metered,
+                                        focused_mention,
+                                        complete_reply_hook,
+                                        &cancellation,
+                                    )
+                                    .await
+                                })
+                            }
                         },
                     )
                     .await
@@ -524,13 +539,24 @@ pub async fn wake(
                             let turn_context = turn_context.clone();
                             let session_responsibility = responsibility.clone();
                             let complete_reply_hook = complete_reply_hook.clone();
-                            move |session| Box::pin(async move {
-                                run_ready_exec_session(
-                                    session, &session_org, &turn_context, &company, &model,
-                                    &session_responsibility, remaining, metered,
-                                    focused_mention, complete_reply_hook, &cancellation,
-                                ).await
-                            })
+                            move |session| {
+                                Box::pin(async move {
+                                    run_ready_exec_session(
+                                        session,
+                                        &session_org,
+                                        &turn_context,
+                                        &company,
+                                        &model,
+                                        &session_responsibility,
+                                        remaining,
+                                        metered,
+                                        focused_mention,
+                                        complete_reply_hook,
+                                        &cancellation,
+                                    )
+                                    .await
+                                })
+                            }
                         },
                     )
                     .await
@@ -747,7 +773,9 @@ pub async fn agent_auth_for_model(
     let session_id = uuid::Uuid::new_v4().simple().to_string();
     let root = restless_contracts::appliance::MachineProfile::from_env()?.state_root;
     let company_config = CompanyConfig::load(&root, company)?;
-    if let Some(route) = company_config.agent_intelligence.get(actor)
+    if let Some(route) = company_config
+        .agent_intelligence
+        .get(actor)
         .or_else(|| company_config.agent_intelligence.get("default"))
     {
         if let Some((provider, id, _)) = runtime::account_intelligence_route(&route.connection) {
@@ -755,8 +783,18 @@ pub async fn agent_auth_for_model(
             // own earlier choice, or the company default's): the doctrine offers exactly that.
             // Requiring the default's exact model failed every such agent with "no longer
             // granted", even after a new key was granted (Sprint 86).
-            if !crate::model_connections::account_assignment_is_granted(&root, &company_config, provider, id)? {
-                anyhow::bail!(crate::model_connections::why_not_granted(&root, &company_config, provider, id));
+            if !crate::model_connections::account_assignment_is_granted(
+                &root,
+                &company_config,
+                provider,
+                id,
+            )? {
+                anyhow::bail!(crate::model_connections::why_not_granted(
+                    &root,
+                    &company_config,
+                    provider,
+                    id
+                ));
             }
             if !model.starts_with(&format!("{provider}/")) {
                 anyhow::bail!(
@@ -774,15 +812,15 @@ pub async fn agent_auth_for_model(
         crate::model_gateway::ready_client(std::time::Duration::from_secs(90))
             .await?
             .auth_for(
-            model,
-            capabilities,
-            company,
-            actor,
-            &session_id,
-            responsibility,
-            work_id,
-            attempt_id,
-        )?
+                model,
+                capabilities,
+                company,
+                actor,
+                &session_id,
+                responsibility,
+                work_id,
+                attempt_id,
+            )?
     };
     Ok(acp::AgentAuth {
         model: model.to_string(),
@@ -1130,7 +1168,9 @@ async fn run_turn(
                 {
                     transcript.last_message_text = rewritten.text.trim().to_string();
                 }
-                _ => tracing::warn!(%found, "a reply handed the owner a command and could not be rewritten"),
+                _ => {
+                    tracing::warn!(%found, "a reply handed the owner a command and could not be rewritten")
+                }
             }
         }
     }
@@ -1596,14 +1636,22 @@ async fn gather_snapshot(
                 .map(|row| {
                     // The stored `content` file always exists; a readable-name link exists only for
                     // uploads made after Library uploads were linked like message attachments.
-                    let path =
-                        format!("/var/lib/restless-owner-attachments/{}/content", row.attachment_id);
+                    let path = format!(
+                        "/var/lib/restless-owner-attachments/{}/content",
+                        row.attachment_id
+                    );
                     let size = match row.size_bytes {
-                        bytes if bytes >= 1024 * 1024 => format!("{:.1} MB", bytes as f64 / 1_048_576.0),
+                        bytes if bytes >= 1024 * 1024 => {
+                            format!("{:.1} MB", bytes as f64 / 1_048_576.0)
+                        }
                         bytes if bytes >= 1024 => format!("{} KB", bytes / 1024),
                         bytes => format!("{bytes} B"),
                     };
-                    format!("{} ({size}, added {}): {path}", row.canonical_name, ago(row.created_at))
+                    format!(
+                        "{} ({size}, added {}): {path}",
+                        row.canonical_name,
+                        ago(row.created_at)
+                    )
                 })
                 .collect()
         })
@@ -1707,24 +1755,32 @@ async fn staffing_routes(org: &OrgIntel, config: &CompanyConfig) -> String {
         if !users.is_empty() {
             notes.push(format!("used by {}", users.join(", ")));
         }
-        let billing = match crate::model_gateway::billing_for_company_model(config, &model) {
-            Ok(ModelBilling::Subscription) => {
-                "subscription: no per-turn charge, shares the account's rate limits".to_string()
-            }
-            Ok(ModelBilling::NativeApi) => {
-                "the provider bills its own API key outside this spend ceiling".to_string()
-            }
-            Ok(ModelBilling::MeteredApi) => {
-                match crate::model_catalog::list_price(&model).await {
+        let billing =
+            match crate::model_gateway::billing_for_company_model(config, &model) {
+                Ok(ModelBilling::Subscription) => {
+                    "subscription: no per-turn charge, shares the account's rate limits".to_string()
+                }
+                Ok(ModelBilling::NativeApi) => {
+                    "the provider bills its own API key outside this spend ceiling".to_string()
+                }
+                Ok(ModelBilling::MeteredApi) => {
+                    match crate::model_catalog::list_price(&model).await {
                     Some((input, output)) => format!(
                         "metered against the ceiling: ${input:.2} in / ${output:.2} out per million tokens"
                     ),
                     None => "metered against the ceiling; list price not published".to_string(),
                 }
+                }
+                Err(_) => "not connected right now; do not assign it".to_string(),
+            };
+        lines.push(format!(
+            "- {model} — {} — {billing}",
+            if notes.is_empty() {
+                "available".to_string()
+            } else {
+                notes.join("; ")
             }
-            Err(_) => "not connected right now; do not assign it".to_string(),
-        };
-        lines.push(format!("- {model} — {} — {billing}", if notes.is_empty() { "available".to_string() } else { notes.join("; ") }));
+        ));
     }
     lines.join("\n")
 }
@@ -1920,7 +1976,8 @@ mod tests {
             _enforce_spend_budget: bool,
             _remaining_budget_usd: f64,
             cancellation: &'a CancellationToken,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = acp::TurnEnd> + Send + 'a>> {
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = acp::TurnEnd> + Send + 'a>>
+        {
             Box::pin(async move {
                 let transcript = acp::TurnTranscript::default();
                 if cancellation.is_cancelled() {
@@ -1937,8 +1994,9 @@ mod tests {
         fn prompt_once<'a>(
             &'a self,
             _text: &'a str,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<acp::TurnTranscript>> + Send + 'a>>
-        {
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<acp::TurnTranscript>> + Send + 'a>,
+        > {
             Box::pin(std::future::pending())
         }
 

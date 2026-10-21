@@ -865,11 +865,12 @@ pub async fn dispatch_actor_conversation(
     // A Staff member cannot change Work from a conversation, so what the owner asks of them goes
     // on to the lead who can (below, once the reply is recorded). Edna told the owner she would
     // shorten an email, and nothing reached anyone able to resume it (20 October).
-    let forward_to_lead = (!is_accountable_lead && human_is_membership_owner && !owner_input.is_empty())
-        .then(|| context_team.map(|team| team.lead_actor_id.clone()))
-        .flatten()
-        .filter(|lead| lead != actor)
-        .map(|lead| (lead, owner_input.clone(), reply_work_id));
+    let forward_to_lead =
+        (!is_accountable_lead && human_is_membership_owner && !owner_input.is_empty())
+            .then(|| context_team.map(|team| team.lead_actor_id.clone()))
+            .flatten()
+            .filter(|lead| lead != actor)
+            .map(|lead| (lead, owner_input.clone(), reply_work_id));
     let company = config.name.clone();
     let actor = actor.to_string();
     let name = actor_row.display.clone();
@@ -1049,7 +1050,9 @@ pub async fn dispatch_actor_conversation(
                         if let Some((lead, asked, work)) = forward_to_lead.as_ref() {
                             if owner_asked_for_a_change(&outcome.summary) {
                                 let body = owner_request_for_lead(asked, *work);
-                                if let Err(error) = org.send_message(&actor, Some(lead), &body).await {
+                                if let Err(error) =
+                                    org.send_message(&actor, Some(lead), &body).await
+                                {
                                     tracing::warn!(company = %company, actor = %actor, lead = %lead, "could not pass the owner's request to the lead: {error:#}");
                                 }
                             }
