@@ -892,10 +892,16 @@
 			return {
 				id: known?.id ?? `path:${file.path}`,
 				kind: known?.kind ?? libraryKind({ kind: '', uri: file.path, label: '' }) ?? 'other',
-				title: file.path.replace(/^\/company\/outputs\//, ''),
+				title: file.path
+					.replace(/^\/company\/outputs\//, '')
+					.replace(/^\/company\/downloads\//, 'Downloads/'),
 				href: known ? fileHref(known.id) : `${root}/library?path=${encodeURIComponent(file.path)}`,
 				updatedAt: file.modified ?? '',
-				owner: known ? name(known.createdBy) : 'Agents',
+				owner: known
+					? name(known.createdBy)
+					: file.path.startsWith('/company/downloads/')
+						? 'Browser'
+						: 'Agents',
 				status: '',
 				review: false,
 				meta: outputSize(file.bytes)

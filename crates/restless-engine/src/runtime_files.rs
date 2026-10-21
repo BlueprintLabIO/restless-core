@@ -167,7 +167,8 @@ pub struct OutputFile {
 pub async fn output_files(company: &str) -> Result<Vec<OutputFile>> {
     validate_company_name(company)?;
     let container = container_name(company);
-    let script = "find /company/outputs -type d \\( -name node_modules -o -name '.*' \\) -prune -o -type f ! -name '.*' -printf '%T@\\t%s\\t%p\\n' 2>/dev/null | sort -rn | head -2000; exit 0";
+    // Agents' outputs and what the company browser downloaded (S104 F2) are the Library's folders.
+    let script = "find /company/outputs /company/downloads -type d \\( -name node_modules -o -name '.*' \\) -prune -o -type f ! -name '.*' -printf '%T@\\t%s\\t%p\\n' 2>/dev/null | sort -rn | head -2000; exit 0";
     let output =
         runtime::docker_observe(&["exec", "-u", "company", &container, "sh", "-c", script]).await?;
     if !output.status.success() {
@@ -184,11 +185,13 @@ fn parse_output_files(listing: &str) -> Vec<OutputFile> {
             let modified = parts.next()?.split('.').next()?.parse().ok()?;
             let bytes = parts.next()?.parse().ok()?;
             let path = parts.next()?;
-            path.starts_with("/company/outputs/").then(|| OutputFile {
-                path: path.to_string(),
-                bytes,
-                modified,
-            })
+            (path.starts_with("/company/outputs/") || path.starts_with("/company/downloads/")).then(
+                || OutputFile {
+                    path: path.to_string(),
+                    bytes,
+                    modified,
+                },
+            )
         })
         .collect()
 }
@@ -265,13 +268,15 @@ pub async fn drop_in_downloads(company: &str, name: &str, bytes: &[u8]) -> Resul
 #[cfg(test)]
 mod tests {
     #[test]
-    fn output_listing_keeps_only_files_under_outputs() {
+    fn output_listing_keeps_only_files_under_outputs_and_downloads() {
         let files = super::parse_output_files(
             "1729500000.123\t2048\t/company/outputs/site/index.html\n\
              garbage line\n\
-             1729400000.5\t10\t/etc/passwd\n",
+             1729400000.5\t10\t/etc/passwd\n\
+             1729300000.0\t99\t/company/downloads/invoice.pdf\n",
         );
-        assert_eq!(files.len(), 1);
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[1].path, "/company/downloads/invoice.pdf");
         assert_eq!(files[0].path, "/company/outputs/site/index.html");
         assert_eq!(files[0].bytes, 2048);
         assert_eq!(files[0].modified, 1_729_500_000);

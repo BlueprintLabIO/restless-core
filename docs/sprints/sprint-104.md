@@ -59,7 +59,7 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 
 ### F. Browser sandbox
 - [x] F1 Expand fills the main area and keeps the Exec rail.
-- [ ] F2 The computer moves into its own container; downloads sync to the Library.
+- [~] F2 The computer moves into its own container; downloads sync to the Library. Shipped: what the company browser downloads (`/company/downloads`) is listed in Library › Folders as "Downloads/…" by "Browser", and opens there. Still open: the computer as its own container, which is the F5 sandbox work.
 - [~] F3 Chrome stable, Sydney timezone and locale, persistent profile. Shipped: the company browser takes the owner's timezone and language. The owner's own browser reports them to the plane (`PUT /api/browser-locale`, owner only, kept in `browser-locale.json`), and a company computer picks them up when it next starts. A plane's RESTLESS_BROWSER_TIMEZONE or RESTLESS_BROWSER_LANG still wins. This needs no Cloud contract change and works self-hosted too. Still open: Chrome stable on amd64 (there is no arm64 build).
 - [ ] F4 Chrome's screen feed replaces VNC. Needs an owner decision first: the Computer page shows a whole desktop (other apps too), and Chrome's feed shows only the browser. JPEG quality stays at 6, as measured on 19 October (quality 9 fell to 6 fps on a 20 Mbit link).
 - [ ] F5 One sandbox type for the company computer and saved logins.
