@@ -1429,13 +1429,34 @@ where
     }
 }
 
-/// Browser sessions are intentionally in memory. A process restart revokes
-/// them; the durable assertion consumption prevents the original credential
-/// from being exchanged again afterward.
+/// Browser sessions, keyed by a SHA-256 of their token so the token itself is never stored.
+///
+/// A store made with [`SessionStore::persistent`] also keeps them in a file, so a plane restart
+/// (every runtime release, every server move) no longer signs every browser out (21 October).
+/// The file holds token hashes, identities and expiries only: it cannot be replayed as a cookie,
+/// and every revocation rewrites it, so an ended session stays ended. The durable assertion
+/// consumption still prevents the original credential from being exchanged again.
 #[derive(Default)]
 pub struct SessionStore {
     sessions: Mutex<HashMap<String, SessionRecord>>,
     reconciliation_guards: Mutex<HashMap<PrincipalSessionKey, Weak<AsyncMutex<()>>>>,
+    persist: Option<std::path::PathBuf>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct StoredSession {
+    key: String,
+    identity: VerifiedIdentity,
+    expires_at_ms: u64,
+}
+
+fn session_key(token: &str) -> String {
+    Sha256::digest(token.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn millis(at: SystemTime) -> u64 {
+    at.duration_since(SystemTime::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_millis() as u64)
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -1494,6 +1515,71 @@ impl SessionLease {
 }
 
 impl SessionStore {
+    /// A store that survives restarts in `path`. A missing or unreadable file starts empty.
+    pub fn persistent(path: std::path::PathBuf) -> Self {
+        let now = SystemTime::now();
+        let mut sessions = HashMap::new();
+        if let Ok(raw) = std::fs::read(&path) {
+            if let Ok(stored) = serde_json::from_slice::<Vec<StoredSession>>(&raw) {
+                for row in stored {
+                    let expires_at =
+                        SystemTime::UNIX_EPOCH + Duration::from_millis(row.expires_at_ms);
+                    if expires_at <= now {
+                        continue;
+                    }
+                    sessions.insert(
+                        row.key,
+                        SessionRecord {
+                            identity: row.identity,
+                            expires_at,
+                            live_expiry: Arc::new(Mutex::new(expires_at)),
+                            cancellation: CancellationToken::new(),
+                        },
+                    );
+                }
+            }
+        }
+        Self {
+            sessions: Mutex::new(sessions),
+            reconciliation_guards: Mutex::default(),
+            persist: Some(path),
+        }
+    }
+
+    /// Write the sessions out after a change. Best effort: a failed write leaves the sessions
+    /// working in memory, as they always did.
+    fn save(&self, sessions: &HashMap<String, SessionRecord>) {
+        let Some(path) = self.persist.as_ref() else { return };
+        let rows: Vec<StoredSession> = sessions
+            .iter()
+            .filter(|(_, session)| !session.cancellation.is_cancelled())
+            .map(|(key, session)| StoredSession {
+                key: key.clone(),
+                identity: session.identity.clone(),
+                expires_at_ms: millis(session.expires_at),
+            })
+            .collect();
+        let Ok(body) = serde_json::to_vec(&rows) else { return };
+        let temporary = path.with_extension("tmp");
+        let written = (|| -> std::io::Result<()> {
+            use std::io::Write as _;
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create(true).truncate(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt as _;
+                options.mode(0o600);
+            }
+            let mut file = options.open(&temporary)?;
+            file.write_all(&body)?;
+            file.sync_all()?;
+            std::fs::rename(&temporary, path)
+        })();
+        if let Err(error) = written {
+            tracing::warn!(%error, "could not save browser sessions");
+        }
+    }
+
     /// Serialize the durable membership transition and in-memory session
     /// reconciliation for one hosted principal. The database remains the
     /// authority; this guard prevents two completed requests from applying
@@ -1535,7 +1621,7 @@ impl SessionStore {
             }
         });
         sessions.insert(
-            token.clone(),
+            session_key(&token),
             SessionRecord {
                 identity,
                 expires_at: now + ttl,
@@ -1543,6 +1629,7 @@ impl SessionStore {
                 cancellation: CancellationToken::new(),
             },
         );
+        self.save(&sessions);
         token
     }
 
@@ -1557,7 +1644,7 @@ impl SessionStore {
                 true
             }
         });
-        sessions.get(token).map(|session| SessionLease {
+        sessions.get(&session_key(token)).map(|session| SessionLease {
             identity: session.identity.clone(),
             expires_at: session.expires_at,
             live_expiry: session.live_expiry.clone(),
@@ -1570,7 +1657,7 @@ impl SessionStore {
     pub fn renew_if_half_spent(&self, token: &str, ttl: Duration) -> bool {
         let mut sessions = self.sessions.lock().expect("session store poisoned");
         let now = SystemTime::now();
-        let Some(session) = sessions.get_mut(token) else {
+        let Some(session) = sessions.get_mut(&session_key(token)) else {
             return false;
         };
         if session.expires_at <= now || session.cancellation.is_cancelled() {
@@ -1582,17 +1669,15 @@ impl SessionStore {
         }
         session.expires_at = now + ttl;
         *session.live_expiry.lock().expect("session expiry poisoned") = now + ttl;
+        self.save(&sessions);
         true
     }
 
     pub fn revoke(&self, token: &str) {
-        if let Some(session) = self
-            .sessions
-            .lock()
-            .expect("session store poisoned")
-            .remove(token)
-        {
+        let mut sessions = self.sessions.lock().expect("session store poisoned");
+        if let Some(session) = sessions.remove(&session_key(token)) {
             session.cancellation.cancel();
+            self.save(&sessions);
         }
     }
 
@@ -1610,7 +1695,11 @@ impl SessionStore {
             }
             !covered
         });
-        before - sessions.len()
+        let removed = before - sessions.len();
+        if removed > 0 {
+            self.save(&sessions);
+        }
+        removed
     }
 
     /// Drop only sessions covered by one committed terminal membership
@@ -1648,7 +1737,11 @@ impl SessionStore {
             }
             !covered
         });
-        before - sessions.len()
+        let removed = before - sessions.len();
+        if removed > 0 {
+            self.save(&sessions);
+        }
+        removed
     }
 
     /// Cancel browser leases for this hosted principal whose durable security
@@ -1687,7 +1780,11 @@ impl SessionStore {
             }
             !superseded
         });
-        before - sessions.len()
+        let removed = before - sessions.len();
+        if removed > 0 {
+            self.save(&sessions);
+        }
+        removed
     }
 }
 
@@ -1776,6 +1873,40 @@ pub fn mint_from_env() -> anyhow::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_persistent_store_keeps_sessions_across_a_restart_but_never_the_token() {
+        let dir = std::env::temp_dir().join(format!("sessions-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("owner-sessions.json");
+        let identity = VerifiedIdentity {
+            user: "user_1".into(),
+            issuer: Some("https://issuer.test".into()),
+            owner: "owner".into(),
+            scope: CompanyScope::Owner,
+            role: "owner".into(),
+            actor: Some("owner".into()),
+            company_id: None,
+            cell_id: None,
+            membership_id: None,
+            membership_version: None,
+            display_name: None,
+        };
+        let store = SessionStore::persistent(path.clone());
+        let kept = store.establish(identity.clone(), Duration::from_secs(3600));
+        let ended = store.establish(identity, Duration::from_secs(3600));
+        store.revoke(&ended);
+        drop(store);
+
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains(&kept), "the file holds a hash, never the token");
+
+        let restarted = SessionStore::persistent(path);
+        let lease = restarted.resolve_lease(&kept).expect("a live session survives the restart");
+        assert_eq!(lease.identity.user, "user_1");
+        assert!(restarted.resolve_lease(&ended).is_none(), "a revoked session stays revoked");
+        std::fs::remove_dir_all(dir).ok();
+    }
 
     #[test]
     fn a_session_in_use_is_renewed_only_once_half_spent() {

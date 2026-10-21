@@ -38,7 +38,11 @@
 
 {#if headroom?.windows.length}
 	<section class="headroom" class:compact aria-label="Account headroom">
-		{#if !compact}<h3>Account headroom</h3>{/if}
+		{#if !compact}<h3>
+				Account headroom{#if headroom.account_label}<span class="whose">
+						· {headroom.account_label}</span
+					>{/if}
+			</h3>{/if}
 		<div class="windows">
 			{#each headroom.windows as window (window.name)}
 				{@const tone = meterTone(window.used_percent)}
@@ -72,6 +76,10 @@
 {/if}
 
 <style>
+	.whose {
+		color: var(--text-tertiary);
+		font-weight: 400;
+	}
 	.headroom {
 		display: grid;
 		gap: 8px;

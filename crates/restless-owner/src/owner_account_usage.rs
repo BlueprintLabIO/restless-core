@@ -50,12 +50,14 @@ async fn refresh_from_broker(state: &OwnerState) {
             continue;
         };
         let mine = reports.iter().filter(|report| report.provider == connection.provider);
+        // Fall back to the provider's report only when it is the only one: with two Claude
+        // sign-ins, taking the first gave one account the other's numbers (21 October).
         let report = mine
             .clone()
             .find(|report| {
                 connection.account_key.is_some() && report.account_key.as_deref() == connection.account_key.as_deref()
             })
-            .or_else(|| mine.clone().next());
+            .or_else(|| (mine.clone().count() == 1).then(|| mine.clone().next()).flatten());
         let Some(report) = report else { continue };
         if let Err(error) =
             account_usage::record(state.daemon.authority.pool(), &account, "", &report.windows, "broker", now).await
@@ -94,9 +96,17 @@ pub(super) async fn company(
         },
         None => None,
     };
+    // The sign-in's own name, so the meters say whose limits they are.
+    let account_label = account.as_ref().and_then(|account| {
+        load_owner_connections(&state.daemon.root).ok()?.connections.into_iter().find_map(|connection| {
+            (account_usage::account_of(&owner_connection_reference(&connection)).as_ref() == Some(account))
+                .then_some(connection.label)
+        })
+    });
     Json(serde_json::json!({
         "model": model,
         "account": account,
+        "account_label": account_label,
         "windows": windows.unwrap_or_default(),
         "now": Utc::now(),
     }))

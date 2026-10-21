@@ -26,6 +26,8 @@ export async function readAccountUsage(): Promise<AccountUsage[]> {
 export interface CompanyHeadroom {
 	model: string | null;
 	account: string | null;
+	/** The sign-in's own name, so the meters say whose limits they are. */
+	account_label?: string | null;
 	windows: UsageWindow[];
 }
 

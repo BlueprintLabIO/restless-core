@@ -205,7 +205,7 @@ async fn refresh(mut previous: Catalogue) -> Catalogue {
     };
     // A request timeout alone does not bound a multi-page feed. Each whole source has a deadline.
     let (registry, skills) = tokio::join!(
-        tokio::time::timeout(Duration::from_secs(75), fetch_registry(&client)),
+        tokio::time::timeout(Duration::from_secs(100), fetch_registry(&client)),
         tokio::time::timeout(Duration::from_secs(60), fetch_skills(&client))
     );
     let mut items = Vec::new();
@@ -307,7 +307,15 @@ fn merge_partial_source(
 async fn fetch_registry(client: &reqwest::Client) -> Result<(Vec<CatalogueItem>, Option<String>)> {
     let mut items = BTreeMap::new();
     let mut cursor: Option<String> = None;
+    // Paging stops at its own deadline and keeps what it read. The whole-source timeout used to
+    // fire first from Singapore and throw every page away, so Apps always said discovery could
+    // not be refreshed (21 October).
+    let deadline = std::time::Instant::now() + Duration::from_secs(70);
     for _ in 0..MAX_REGISTRY_PAGES {
+        if std::time::Instant::now() >= deadline && !items.is_empty() {
+            tracing::info!(listings = items.len(), "MCP Registry refresh stopped at its deadline; the listings read are shown");
+            break;
+        }
         let mut request = client
             .get(REGISTRY_URL)
             .query(&[("limit", "100"), ("version", "latest")]);
