@@ -1798,6 +1798,14 @@ async fn stranded_agent_items(
         {
             continue;
         }
+        // The agent keeps thinking on the company's current connection (A5).
+        if crate::model_connections::provider_fallback(&root, config, provider)
+            .ok()
+            .flatten()
+            .is_some()
+        {
+            continue;
+        }
         let who = if actor == "default" {
             "Agents on the company model".to_string()
         } else {
