@@ -61,9 +61,9 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 - [x] F1 Expand fills the main area and keeps the Exec rail.
 - [ ] F2 The computer moves into its own container; downloads sync to the Library.
 - [~] F3 Chrome stable, Sydney timezone and locale, persistent profile. Shipped: a plane with RESTLESS_BROWSER_TIMEZONE or RESTLESS_BROWSER_LANG gives the company browser that timezone and language. Still open: Cloud setting them per owner, and Chrome stable on amd64 (there is no arm64 build).
-- [ ] F4 Chrome's screen feed replaces VNC.
+- [ ] F4 Chrome's screen feed replaces VNC. Needs an owner decision first: the Computer page shows a whole desktop (other apps too), and Chrome's feed shows only the browser. JPEG quality stays at 6, as measured on 19 October (quality 9 fell to 6 fps on a 20 Mbit link).
 - [ ] F5 One sandbox type for the company computer and saved logins.
-- [ ] F6 Browsers sleep on their own.
+- [x] F6 The company browser sleeps after 15 idle minutes and wakes for any agent request, desktop viewer, Core DevTools use or browser app (tabs reopened). Verified in a container: 873 MiB to 482 MiB with three tabs, wake in about 4 s. Chrome renderers are also capped at 4.
 - [x] F7 Checked: it can. `REFUSED_METHODS` blocks cookie and storage reads, but `Runtime.evaluate` is relayed, so page script can read a typed password, `document.cookie` and `localStorage`. Fix tracked as S1.
 - [ ] F8 Website login form failure (needs the error or time from the owner).
 - [x] F9 When a running computer's desktop doesn't answer, the page's primary action is "Restart the desktop" (files and profile kept), with Health as a secondary link.
@@ -77,7 +77,7 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 ### H. Polish
 - [x] H1 Work filters match the buttons beside them.
 - [x] H2 App store refresh: stop hitting GitHub's per-IP limit.
-- [ ] H3 Favicon check after #395 ships.
+- [x] H3 The light-tile favicon is served (/favicon.svg, /favicon-32.png). /favicon.ico still 404s at app.restless.run; restless-cloud#117 (another session) covers it.
 
 ### S. Security
 - [~] S1 Agents drive login browsers through high-level actions (click, type, read the accessibility tree, screenshot) instead of raw DevTools, so no page script runs on their behalf in a signed-in profile. Part of F5. Stopgap shipped: a typed password or one-time code is submitted with Enter in the same call, so it no longer sits in a filled field between the agent's calls.
@@ -91,6 +91,11 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 - [x] T6 Not a bug: Cloud's own fallback list for Singapore (cpx32, ccx13) only names types still sold, and the provider checks live stock. It was Hetzner's price list that still showed cpx21 and cpx31.
 - [x] T7 The Inbox intercepted every Library link (fixed with E1). Audited the other `beforeNavigate` handlers: all are unsaved-change guards.
 - [x] T8 The company memory bound is kept to three quarters of the host's memory (a 4 GB host gives 3 GB companies).
+
+**Memory after the first overnight release (22 Oct, from the new heartbeat):**
+- All four companies awake used everything: about 20 MB free and 1.2 GB of swap. Sydney Resale was at 1.8 GB and Reno at 0.8 GB.
+- The plane then answered in 2.5–7 s. Fleet's readiness probe timed out, marked it degraded, and every card showed "Updating".
+- A 4 GB plane holds two or three awake companies, not four. Browsers sleeping on their own (F6) is the real fix; the alternative is going back to 8 GB.
 
 Measured 21 Oct on cpx22: plane service 680 MB, Postgres 490 MB, one login browser 240 MB, Reno
 840 MB (Chrome ~750 MB), Potion Scheme 450 MB. Two companies awake used 3.26 of 3.8 GB; a 4 GB

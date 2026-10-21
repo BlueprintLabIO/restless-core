@@ -18,6 +18,100 @@ const tabsPath = '/company/browser-profile/restless-tabs.json';
 const sessionPath = '/company/run/browser-agent-session.json';
 const desktopEnv = { ...process.env, DISPLAY: ':1' };
 
+// The browser sleeps on its own (S104 F6). Chrome is most of an awake company's memory, and on a
+// 4 GB plane four awake companies thrashed it (22 October). After this long with no agent socket,
+// no request, no owner control and nobody watching the desktop, Chrome stops; any agent request or
+// desktop viewer starts it again, and start-company-chromium reopens its tabs. A health probe
+// (x-restless-probe) is answered without waking it.
+const idleMs = Number(process.env.RESTLESS_BROWSER_IDLE_MS ?? 15 * 60 * 1000);
+const asleepPath = '/company/run/browser-asleep';
+const supervisor = ['-c', '/etc/supervisor/conf.d/company.conf'];
+let lastUse = Date.now();
+let waking = null;
+// Supervisor starts Chrome with the container, so a marker left from before is stale.
+try { fs.rmSync(asleepPath, { force: true }); } catch { /* nothing to clear */ }
+
+function supervisorctl(...args) {
+  return execFileSync('/usr/bin/supervisorctl', [...supervisor, ...args], { encoding: 'utf8', timeout: 40000 });
+}
+
+function chromeAsleep() {
+  return fs.existsSync(asleepPath);
+}
+
+// An established connection to a local port: the desktop's web transport (websockify, 6080) means
+// someone is watching the computer; Chrome's own DevTools port (9222) means Core or an app is
+// driving it directly.
+function connected(port) {
+  const hex = `:${port.toString(16).toUpperCase().padStart(4, '0')}`;
+  for (const table of ['/proc/net/tcp', '/proc/net/tcp6']) {
+    let rows = '';
+    try { rows = fs.readFileSync(table, 'utf8'); } catch { continue; }
+    for (const row of rows.split('\n').slice(1)) {
+      const fields = row.trim().split(/\s+/);
+      if (fields.length > 3 && fields[1].endsWith(hex) && fields[3] === '01') return true;
+    }
+  }
+  return false;
+}
+const desktopWatched = () => connected(6080);
+
+// One request on its own connection, closed after: a pooled keep-alive socket of the broker's own
+// would count as Chrome being in use and keep it awake for ever.
+function chromeGet(path, timeout = 1500) {
+  return new Promise((resolve) => {
+    const request = http.get(
+      { host: '127.0.0.1', port: chromePort, path, agent: false, headers: { connection: 'close' }, timeout },
+      (response) => {
+        const chunks = [];
+        response.on('data', (chunk) => chunks.push(chunk));
+        response.on('end', () => resolve({ ok: response.statusCode === 200, body: Buffer.concat(chunks).toString('utf8') }));
+      }
+    );
+    request.on('timeout', () => request.destroy());
+    request.on('error', () => resolve({ ok: false, body: '' }));
+  });
+}
+
+async function chromeAnswers() {
+  return (await chromeGet('/json/version')).ok;
+}
+
+function wakeChrome() {
+  lastUse = Date.now();
+  if (!chromeAsleep()) return Promise.resolve();
+  waking ??= (async () => {
+    try {
+      supervisorctl('start', 'chromium');
+    } catch { /* already starting, or supervisor answers late: the probe below decides */ }
+    for (let i = 0; i < 60 && !(await chromeAnswers()); i += 1) await new Promise((resolve) => setTimeout(resolve, 500));
+    try { fs.rmSync(asleepPath, { force: true }); } catch { /* the next wake retries */ }
+    console.log(JSON.stringify({ event: 'browser_woke' }));
+  })().finally(() => { waking = null; });
+  return waking;
+}
+
+setInterval(() => {
+  if (idleMs <= 0) return;
+  if (desktopWatched()) {
+    void wakeChrome();
+    return;
+  }
+  if (active.size > 0 || ownerControls() || chromeAsleep() || waking || connected(chromePort)) {
+    if (active.size > 0 || ownerControls() || connected(chromePort)) lastUse = Date.now();
+    return;
+  }
+  if (Date.now() - lastUse < idleMs) return;
+  try {
+    fs.writeFileSync(asleepPath, `${new Date().toISOString()}\n`, { mode: 0o600 });
+    supervisorctl('stop', 'chromium');
+    console.log(JSON.stringify({ event: 'browser_slept', idle_ms: Date.now() - lastUse }));
+  } catch (error) {
+    try { fs.rmSync(asleepPath, { force: true }); } catch { /* left for the next look */ }
+    console.log(JSON.stringify({ event: 'browser_sleep_failed', message: String(error?.message ?? error) }));
+  }
+}, 5000);
+
 function ownerControls() {
   try {
     const lease = JSON.parse(fs.readFileSync(leasePath, 'utf8'));
@@ -144,12 +238,17 @@ function desktopRequest(request, response) {
   return false;
 }
 
-const server = http.createServer((request, response) => {
+const server = http.createServer(async (request, response) => {
   if (desktopRequest(request, response)) return;
   if (ownerControls()) {
     refuse(response);
     return;
   }
+  if (request.headers['x-restless-probe'] && chromeAsleep()) {
+    sendJson(response, 200, { Browser: 'asleep', asleep: true });
+    return;
+  }
+  if (!request.headers['x-restless-probe']) await wakeChrome();
   const upstream = http.request(
     {
       host: '127.0.0.1',
@@ -185,7 +284,7 @@ const server = http.createServer((request, response) => {
   request.pipe(upstream);
 });
 
-server.on('upgrade', (request, socket, head) => {
+server.on('upgrade', async (request, socket, head) => {
   const pathname = new URL(request.url, 'http://127.0.0.1').pathname;
   const match = pathname.match(/^\/session\/([a-f0-9]{32})(\/devtools\/browser\/[a-zA-Z0-9_-]+)$/);
   if (!match || !activeAgentSession(match[1])) {
@@ -196,6 +295,7 @@ server.on('upgrade', (request, socket, head) => {
     socket.end('HTTP/1.1 423 Locked\r\nConnection: close\r\n\r\n');
     return;
   }
+  await wakeChrome();
 
   websocketServer.handleUpgrade(request, socket, head, (agent) => {
     const upstream = new WebSocket(`ws://127.0.0.1:${chromePort}${match[2]}`, {
@@ -216,6 +316,7 @@ server.on('upgrade', (request, socket, head) => {
     };
     agent.on('message', (data, binary) => {
       if (pair.closed) return;
+      lastUse = Date.now();
       if (ownerControls()) { rejectOwnerCommand(pair, data, binary); return; }
       if (!activeAgentSession(pair.ticket)) { close(); return; }
       if (upstream.readyState === WebSocket.CONNECTING) {
@@ -345,11 +446,11 @@ setInterval(() => {
 }, 100);
 
 async function checkpointTabs() {
-  if (ownerControls()) return;
+  if (ownerControls() || chromeAsleep()) return;
   try {
-    const response = await fetch(`http://127.0.0.1:${chromePort}/json/list`);
-    if (!response.ok) return;
-    const targets = await response.json();
+    const listed = await chromeGet('/json/list', 3000);
+    if (!listed.ok) return;
+    const targets = JSON.parse(listed.body);
     const urls = [...new Set(
       targets
         .filter((target) => target.type === 'page')
