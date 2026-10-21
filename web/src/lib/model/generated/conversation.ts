@@ -17,6 +17,11 @@ export type OwnerIntentReceipt = { kind: OwnerIntentKind, summary: string, outco
  */
 ownerNeedHandoff?: string | null,
 /**
+ * A finished result the owner should look at, named in a few words ("The redesigned card
+ * site"). It reaches the owner's Inbox, not only the chat (21 October).
+ */
+ownerReview?: string | null,
+/**
  * Up to three short answers the agent expects to `owner_need`. The
  * cockpit offers them as drafts; the owner still sends their own words.
  */
@@ -49,7 +54,14 @@ export type ConversationMessageView = { id: number, from_actor: string, to_actor
  */
 account_uses: Array<Record<string, unknown>>, };
 
-export type ConversationView = { actor: ConversationActorView, focus: ConversationFocusView | null, messages: Array<ConversationMessageView>, };
+export type ConversationBusyWorkView = { id: string, title: string, };
+
+export type ConversationView = { actor: ConversationActorView, focus: ConversationFocusView | null, messages: Array<ConversationMessageView>,
+/**
+ * The Work this agent is executing right now. A message to it waits for that Attempt, which
+ * can run for an hour; the cockpit says so and offers to interrupt (21 October).
+ */
+busy_work: ConversationBusyWorkView | null, };
 
 export type ConversationSendResponse = { message_id: number, created: boolean, interrupted: boolean, context_attached: boolean, context_omitted: boolean, focus: ConversationFocusView | null, };
 

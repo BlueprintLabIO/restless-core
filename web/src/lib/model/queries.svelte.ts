@@ -768,6 +768,10 @@ export function conversationQuery(
 		get focusStartedAt() {
 			return (query.data as ActorConversation | undefined)?.focus?.started_at ?? null;
 		},
+		/** The Work this agent is executing now; a message waits for it unless it interrupts. */
+		get busyWork(): { id: string; title: string } | null {
+			return (query.data as ActorConversation | undefined)?.busy_work ?? null;
+		},
 		get activeTurn(): ActiveAgentTurn | null {
 			if (!queryEnabled(followLiveActivity)) return null;
 			const current = live;

@@ -375,6 +375,15 @@ struct ConversationView {
     actor: ConversationActorView,
     focus: Option<ConversationFocusView>,
     messages: Vec<ConversationMessageView>,
+    /// The Work this agent is executing right now. A message to it waits for that Attempt, which
+    /// can run for an hour; the cockpit says so and offers to interrupt (21 October).
+    busy_work: Option<ConversationBusyWorkView>,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct ConversationBusyWorkView {
+    id: String,
+    title: String,
 }
 
 #[derive(Debug, Serialize, ts_rs::TS)]
@@ -8387,6 +8396,7 @@ fn render_conversation_bindings() -> String {
         ConversationActorView::decl(&config),
         ConversationFocusView::decl(&config),
         ConversationMessageView::decl(&config),
+        ConversationBusyWorkView::decl(&config),
         ConversationView::decl(&config),
         ConversationSendResponse::decl(&config),
         ConversationInterruptResponse::decl(&config),
@@ -9735,7 +9745,15 @@ async fn actor_conversation(
     };
     let mut messages = messages.into_iter().map(conversation_message_view).collect::<Vec<_>>();
     attach_account_uses(state.daemon.authority.pool(), &company, &actor, &actor_row.display, &mut messages).await;
+    let busy_work = match state.daemon.staff.executing_work(&company, &actor) {
+        Some(work_id) => org.get_work(work_id).await.ok().flatten().map(|work| ConversationBusyWorkView {
+            id: work_id.to_string(),
+            title: work.title,
+        }),
+        None => None,
+    };
     Json(ConversationView {
+        busy_work,
         actor: ConversationActorView {
             id: actor_row.id,
             display: actor_row.display,

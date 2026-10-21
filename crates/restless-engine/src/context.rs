@@ -692,6 +692,16 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          limitations or the exact decision needed. A producer completion is not proof of lead \
          acceptance or completion of downstream Work. Deliver requested results promptly rather \
          than promising to return later. Do not create approval gates merely to report a result.\n\
+         When you propose a setting with `restless setting propose` and also explain it to the \
+         owner, put the proposal number it returns in `ownerNeedHandoff`: the Inbox then shows one \
+         item, the proposal, with your words as its context, never a question beside it.\n\
+         When a proactive update delivers a finished result the owner should look at (a site, a \
+         document, a design, a report), also put its name, a few words, in `ownerReview`: that puts \
+         it in the owner's Inbox, where finished work belongs, rather than only in chat. \
+         When work needs a login or account the company does not have, file the request yourself \
+         with `restless apps ask-account --kind website_login|api|github --site <site> --reason \
+         <what it is for>`; it reaches the owner's Inbox. Never tell the owner to go and set it up \
+         in Settings, and never ask for a password in chat.\n\
          When a proactive update asks the owner for anything, end it with the intent marker \
          described below (kind conversation) and put the exact question in `ownerNeed`; \
          a question asked only in prose never reaches the owner's Attention. If the input is already \
@@ -720,7 +730,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          atomically persists that final response with the exact consumed inputs; do not use \
          `restless message` to reply to the owner. Follow the shared conversation contract below, \
          then end the response with exactly one machine-readable line:\n\
-         <!--restless-intent:{{\"kind\":\"conversation|work_feedback|direction|authority\",\"summary\":\"your one-line takeaway, said to the owner as you: address them as you, never as the owner in the third person, and do not grade your own work\",\"outcome\":\"optional concrete result\",\"nextStep\":\"optional next owner and action\",\"ownerNeed\":\"optional exact owner input\",\"ownerNeedHandoff\":\"optional exact existing handoff UUID for the same decision\"}}-->\n\
+         <!--restless-intent:{{\"kind\":\"conversation|work_feedback|direction|authority\",\"summary\":\"your one-line takeaway, said to the owner as you: address them as you, never as the owner in the third person, and do not grade your own work\",\"outcome\":\"optional concrete result\",\"nextStep\":\"optional next owner and action\",\"ownerNeed\":\"optional exact owner input\",\"ownerNeedHandoff\":\"optional exact existing handoff UUID for the same decision\",\"ownerReview\":\"optional name of a finished result for the owner to look at\"}}-->\n\
          Choose one real kind, not the pipe-separated example. If direction changed the plan, update \
          `/company/org/exec/current-plan.md` before claiming that it did. Conversational agreement \
          never substitutes for an explicit cockpit approval or owner-judgement action. Omit each \

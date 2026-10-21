@@ -58,6 +58,10 @@ pub struct OwnerIntentReceipt {
     /// When this is commentary on an existing prepared decision, that handoff owns the only action.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner_need_handoff: Option<String>,
+    /// A finished result the owner should look at, named in a few words ("The redesigned card
+    /// site"). It reaches the owner's Inbox, not only the chat (21 October).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_review: Option<String>,
     /// Up to three short answers the agent expects to `owner_need`. The
     /// cockpit offers them as drafts; the owner still sends their own words.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -295,6 +299,22 @@ pub struct OwnerNeed {
     pub fields: Vec<String>,
 }
 
+/// A finished result a message asks the owner to look at, with its visible text, when the message
+/// asks for nothing else.
+pub fn conversation_owner_review(message: &restless_orgintel::MessageRow) -> Option<(String, String)> {
+    let decoded = decode_body(&message.body);
+    let intent = decoded.intent?;
+    if intent.owner_need.as_deref().is_some_and(|need| !need.trim().is_empty()) {
+        return None;
+    }
+    let review = intent.owner_review?;
+    let review = review.trim();
+    if review.is_empty() || review.chars().count() > 120 {
+        return None;
+    }
+    Some((decoded.body.to_string(), review.to_owned()))
+}
+
 /// The exact owner input a message asks for, with its visible text. Attention
 /// reads this decoded receipt, never the prose.
 pub fn conversation_owner_need(message: restless_orgintel::MessageRow) -> Option<OwnerNeed> {
@@ -316,6 +336,13 @@ pub fn conversation_owner_need(message: restless_orgintel::MessageRow) -> Option
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_finished_result_for_the_owner_is_read_from_the_intent() {
+        let body = "Done.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Built\",\"ownerReview\":\" The card site \"}-->";
+        let (_, receipt) = super::split_intent_receipt(body);
+        assert_eq!(receipt.unwrap().owner_review.as_deref(), Some(" The card site "));
+    }
+
     #[test]
     fn an_intent_written_as_prose_is_not_shown() {
         let (visible, receipt) = super::split_intent_receipt(
