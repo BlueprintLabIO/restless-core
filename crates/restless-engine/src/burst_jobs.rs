@@ -53,7 +53,10 @@ pub async fn run(company: &str, actor: &str, request: &JobRequest) -> Result<ser
     if !(workdir == "/company" || workdir.starts_with("/company/")) || workdir.contains("..") {
         bail!("the job's workdir must be under /company");
     }
-    let timeout = request.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS).clamp(1, MAX_TIMEOUT_SECS);
+    let timeout = request
+        .timeout_secs
+        .unwrap_or(DEFAULT_TIMEOUT_SECS)
+        .clamp(1, MAX_TIMEOUT_SECS);
     let host_cpus = std::thread::available_parallelism().map_or(1, usize::from) as f64;
     let cpus = request.cpus.unwrap_or(host_cpus).clamp(0.1, host_cpus);
     let memory = crate::runtime::fit_job_memory(request.memory.as_deref());
@@ -72,9 +75,32 @@ pub async fn run(company: &str, actor: &str, request: &JobRequest) -> Result<ser
     let actor_label = format!("restless.job.actor={actor}");
     let image = crate::runtime::company_image();
     let mut args: Vec<&str> = vec![
-        "run", "-d", "--name", &name, "--label", "restless.job=1", "--label", &company_label, "--label",
-        &actor_label, "--cpus", &cpus, "--cpu-shares", "256", "--pids-limit", "2048", "--log-driver",
-        "local", "-u", "company", "-v", &volume, "-e", &command_env, "--entrypoint", "sh",
+        "run",
+        "-d",
+        "--name",
+        &name,
+        "--label",
+        "restless.job=1",
+        "--label",
+        &company_label,
+        "--label",
+        &actor_label,
+        "--cpus",
+        &cpus,
+        "--cpu-shares",
+        "256",
+        "--pids-limit",
+        "2048",
+        "--log-driver",
+        "local",
+        "-u",
+        "company",
+        "-v",
+        &volume,
+        "-e",
+        &command_env,
+        "--entrypoint",
+        "sh",
     ];
     if let Some(memory) = memory.as_deref() {
         args.extend(["--memory", memory, "--memory-swap", memory]);
@@ -82,7 +108,10 @@ pub async fn run(company: &str, actor: &str, request: &JobRequest) -> Result<ser
     args.extend([image.as_str(), "-c", script.as_str()]);
     let output = crate::runtime::docker_bounded(&args, std::time::Duration::from_secs(60)).await?;
     if !output.status.success() {
-        bail!("the job could not start: {}", String::from_utf8_lossy(&output.stderr).trim());
+        bail!(
+            "the job could not start: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
     }
     Ok(serde_json::json!({
         "job": id,
@@ -103,7 +132,12 @@ pub async fn status(company: &str, id: &str) -> Result<serde_json::Value> {
     }
     let name = job_container(company, id);
     let output = crate::runtime::docker_bounded(
-        &["inspect", "-f", "{{.State.Status}} {{.State.ExitCode}} {{.State.StartedAt}} {{.State.FinishedAt}}", &name],
+        &[
+            "inspect",
+            "-f",
+            "{{.State.Status}} {{.State.ExitCode}} {{.State.StartedAt}} {{.State.FinishedAt}}",
+            &name,
+        ],
         std::time::Duration::from_secs(10),
     )
     .await?;
@@ -115,13 +149,19 @@ pub async fn status(company: &str, id: &str) -> Result<serde_json::Value> {
     let text = String::from_utf8_lossy(&output.stdout);
     let mut fields = text.split_whitespace();
     let state = fields.next().unwrap_or_default().to_string();
-    let exit_code: i64 = fields.next().and_then(|code| code.parse().ok()).unwrap_or(-1);
+    let exit_code: i64 = fields
+        .next()
+        .and_then(|code| code.parse().ok())
+        .unwrap_or(-1);
     let started = fields.next().unwrap_or_default().to_string();
     let finished = fields.next().unwrap_or_default().to_string();
     if state == "running" || state == "created" {
-        return Ok(serde_json::json!({ "job": id, "status": "running", "started_at": started, "log": log }));
+        return Ok(
+            serde_json::json!({ "job": id, "status": "running", "started_at": started, "log": log }),
+        );
     }
-    let _ = crate::runtime::docker_bounded(&["rm", &name], std::time::Duration::from_secs(20)).await;
+    let _ =
+        crate::runtime::docker_bounded(&["rm", &name], std::time::Duration::from_secs(20)).await;
     Ok(serde_json::json!({
         "job": id,
         "status": if exit_code == 0 { "succeeded" } else if exit_code == 124 { "timed_out" } else { "failed" },
@@ -148,9 +188,13 @@ mod tests {
 
     #[test]
     fn a_job_request_names_only_known_fields() {
-        let ok = super::request(Some(&serde_json::json!({"command": "make", "cpus": 2.0}))).unwrap();
+        let ok =
+            super::request(Some(&serde_json::json!({"command": "make", "cpus": 2.0}))).unwrap();
         assert_eq!(ok.command, "make");
-        assert!(super::request(Some(&serde_json::json!({"command": "x", "privileged": true}))).is_err());
+        assert!(super::request(Some(
+            &serde_json::json!({"command": "x", "privileged": true})
+        ))
+        .is_err());
         assert!(super::request(None).is_err());
     }
 }

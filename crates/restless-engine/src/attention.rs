@@ -293,7 +293,10 @@ pub fn without_local_addresses(text: &str) -> String {
             .split(['/', '?', '#'])
             .next()
             .unwrap_or_default();
-        let host = host.rsplit_once(':').filter(|(name, port)| !name.is_empty() && port.chars().all(|c| c.is_ascii_digit())).map_or(host, |(name, _)| name);
+        let host = host
+            .rsplit_once(':')
+            .filter(|(name, port)| !name.is_empty() && port.chars().all(|c| c.is_ascii_digit()))
+            .map_or(host, |(name, _)| name);
         if matches!(host, "localhost" | "127.0.0.1" | "[::1]" | "0.0.0.0") {
             out.push_str("the live preview");
         } else {
@@ -322,7 +325,9 @@ async fn teammate_messages(
         .list_actors()
         .await?
         .into_iter()
-        .filter(|actor| actor.actor_class == "human" && actor.retired_at.is_none() && actor.id != human)
+        .filter(|actor| {
+            actor.actor_class == "human" && actor.retired_at.is_none() && actor.id != human
+        })
         .map(|actor| actor.id)
         .collect::<Vec<_>>();
     if peers.is_empty() {
@@ -330,11 +335,17 @@ async fn teammate_messages(
     }
     let since = Utc::now() - chrono::Duration::days(14);
     let mut items = Vec::new();
-    for message in org.latest_human_peer_messages(&human, &peers, since).await? {
+    for message in org
+        .latest_human_peer_messages(&human, &peers, since)
+        .await?
+    {
         let Some(actor) = actors.get(&message.from_actor).cloned() else {
             continue;
         };
-        let text = crate::transcript::decode_body(&message.body).body.trim().to_string();
+        let text = crate::transcript::decode_body(&message.body)
+            .body
+            .trim()
+            .to_string();
         if text.is_empty() {
             continue;
         }
@@ -355,7 +366,11 @@ async fn teammate_messages(
             what_happened: text.clone(),
             why_it_matters: format!("{} is waiting on your reply.", actor.display),
             recommendation: "Reply in the conversation here.".into(),
-            requested_action: if preview.len() < text.len() { format!("{preview}…") } else { preview },
+            requested_action: if preview.len() < text.len() {
+                format!("{preview}…")
+            } else {
+                preview
+            },
             if_no_action: "The message waits for your reply.".into(),
             uncertainty: None,
             deadline: None,
@@ -369,7 +384,12 @@ async fn teammate_messages(
             review_target: None,
             native_document: None,
             direction_request: None,
-            charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
+            charter_proposal: None,
+            account_use: None,
+            account_request: None,
+            request_fields: None,
+            setting_proposal: None,
+            owner_replies: Vec::new(),
             actions: vec![AttentionAction {
                 id: "continue-conversation".into(),
                 label: "Reply".into(),
@@ -434,8 +454,14 @@ async fn conversation_requests(
                     category: "conversation".into(),
                     title: format!("Ready for you: {review}"),
                     what_happened: body,
-                    why_it_matters: format!("{} finished this and is waiting for you to look.", actor.display),
-                    recommendation: format!("Open {review} and tell {} what you think.", actor.display),
+                    why_it_matters: format!(
+                        "{} finished this and is waiting for you to look.",
+                        actor.display
+                    ),
+                    recommendation: format!(
+                        "Open {review} and tell {} what you think.",
+                        actor.display
+                    ),
                     requested_action: format!("Look at {review}"),
                     if_no_action: "It stays here until you reply or dismiss it.".into(),
                     uncertainty: None,
@@ -450,7 +476,12 @@ async fn conversation_requests(
                     review_target: None,
                     native_document: None,
                     direction_request: None,
-                    charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
+                    charter_proposal: None,
+                    account_use: None,
+                    account_request: None,
+                    request_fields: None,
+                    setting_proposal: None,
+                    owner_replies: Vec::new(),
                     actions: vec![AttentionAction {
                         id: "continue-conversation".into(),
                         label: "Open".into(),
@@ -466,8 +497,13 @@ async fn conversation_requests(
             });
             continue;
         }
-        let Some(crate::transcript::OwnerNeed { body, need, handoff, replies, fields }) =
-            crate::transcript::conversation_owner_need(message)
+        let Some(crate::transcript::OwnerNeed {
+            body,
+            need,
+            handoff,
+            replies,
+            fields,
+        }) = crate::transcript::conversation_owner_need(message)
         else {
             continue;
         };
@@ -517,7 +553,12 @@ async fn conversation_requests(
                 review_target: None,
                 native_document: None,
                 direction_request: None,
-                charter_proposal: None, account_use: None, account_request: None, request_fields, setting_proposal: None, owner_replies: replies,
+                charter_proposal: None,
+                account_use: None,
+                account_request: None,
+                request_fields,
+                setting_proposal: None,
+                owner_replies: replies,
                 actions: vec![AttentionAction {
                     id: "continue-conversation".into(),
                     label: "Reply".into(),
@@ -548,7 +589,11 @@ fn merge_conversation_requests(
     for request in requests {
         // A question naming a setting proposal waits for the setting items (see
         // merge_setting_questions); they are composed later in the queue.
-        if request.handoff_ref.as_deref().is_some_and(|reference| reference.parse::<i64>().is_ok()) {
+        if request
+            .handoff_ref
+            .as_deref()
+            .is_some_and(|reference| reference.parse::<i64>().is_ok())
+        {
             about_settings.push(request);
             continue;
         }
@@ -597,15 +642,26 @@ fn merge_conversation_requests(
 fn merge_setting_questions(items: &mut Vec<AttentionItem>, requests: Vec<ConversationRequest>) {
     for request in requests {
         let reference = request.handoff_ref.clone().unwrap_or_default();
-        let Some(setting) = items.iter_mut().find(|item| item.id == format!("authority:setting:{reference}")) else {
+        let Some(setting) = items
+            .iter_mut()
+            .find(|item| item.id == format!("authority:setting:{reference}"))
+        else {
             items.push(request.item);
             continue;
         };
-        if !setting.review_sources.iter().any(|source| source.provider == "conversation") {
+        if !setting
+            .review_sources
+            .iter()
+            .any(|source| source.provider == "conversation")
+        {
             setting.review_sources.push(ReviewSourceRef {
                 label: format!(
                     "{}'s context",
-                    request.item.responsible_actor.as_ref().map_or("Agent", |actor| actor.display.as_str())
+                    request
+                        .item
+                        .responsible_actor
+                        .as_ref()
+                        .map_or("Agent", |actor| actor.display.as_str())
                 ),
                 provider: "conversation".into(),
                 reference: request.item.source.reference,
@@ -655,13 +711,16 @@ fn spend_warning_item(
     let crossed_at = spend_crossed_at(config, spend, &period, threshold);
     let reference = format!(
         "{}:{}:{}",
-        period
-            .period_start
-            .map_or_else(|| "total".to_string(), |start| start.format("%Y-%m").to_string()),
+        period.period_start.map_or_else(
+            || "total".to_string(),
+            |start| start.format("%Y-%m").to_string()
+        ),
         period.ceiling_micro_usd,
         period.warning_percent
     );
-    let remaining = period.ceiling_micro_usd.saturating_sub(period.accounted_micro_usd);
+    let remaining = period
+        .ceiling_micro_usd
+        .saturating_sub(period.accounted_micro_usd);
     let usd = usd_micro;
     Some(AttentionItem {
         id: format!("authority:spend_warning:{reference}"),
@@ -738,7 +797,11 @@ fn spend_crossed_at(
     spend
         .records(&config.name)
         .into_iter()
-        .filter(|record| period.period_start.is_none_or(|start| record.occurred_at >= start))
+        .filter(|record| {
+            period
+                .period_start
+                .is_none_or(|start| record.occurred_at >= start)
+        })
         .find(|record| {
             running += u128::from(record.cost_micro_usd);
             running >= threshold
@@ -749,7 +812,11 @@ fn spend_crossed_at(
 /// The spend limit has stopped model work: from the ledger, or from the latest Exec turn the
 /// host refused with a `[budget]` reason (a native usage cap included). One blocker, linking
 /// to Limits; it clears when the limit is raised or the next Exec turn runs.
-fn spend_stopped_item(config: &CompanyConfig, what_happened: String, created_at: DateTime<Utc>) -> AttentionItem {
+fn spend_stopped_item(
+    config: &CompanyConfig,
+    what_happened: String,
+    created_at: DateTime<Utc>,
+) -> AttentionItem {
     AttentionItem {
         id: "authority:spend_stopped".into(),
         work_id: None,
@@ -796,8 +863,13 @@ fn spend_stopped_item(config: &CompanyConfig, what_happened: String, created_at:
 
 /// The account behind the company's model is past [`crate::account_usage::WARN_PERCENT`] of a
 /// window (S100): say how full, when it resets, when it runs out at this pace, and offer a fallback.
-async fn account_headroom_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> anyhow::Result<Option<AttentionItem>> {
-    let Some(model) = config.configured_model() else { return Ok(None) };
+async fn account_headroom_item(
+    config: &CompanyConfig,
+    pool: &sqlx::PgPool,
+) -> anyhow::Result<Option<AttentionItem>> {
+    let Some(model) = config.configured_model() else {
+        return Ok(None);
+    };
     // With a fallback set, running out is already handled: the warning has done its job.
     if !config.model_failover.is_empty() {
         return Ok(None);
@@ -811,7 +883,9 @@ async fn account_headroom_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> a
         return Ok(None);
     };
     let now = Utc::now();
-    let Some(window) = crate::account_usage::fullest(pool, &account, now).await? else { return Ok(None) };
+    let Some(window) = crate::account_usage::fullest(pool, &account, now).await? else {
+        return Ok(None);
+    };
     if window.used_percent < crate::account_usage::WARN_PERCENT || window.used_percent >= 100.0 {
         return Ok(None);
     }
@@ -826,10 +900,20 @@ async fn account_headroom_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> a
         .unwrap_or_default();
     let pace = window
         .runs_out_at
-        .map(|at| format!(" At the pace of the last hour it runs out around {}.", at.format("%H:%M UTC")))
+        .map(|at| {
+            format!(
+                " At the pace of the last hour it runs out around {}.",
+                at.format("%H:%M UTC")
+            )
+        })
         .unwrap_or_default();
     let users = if window.by_company.len() > 1 {
-        let named: Vec<String> = window.by_company.iter().take(3).map(|(company, points)| format!("{company} {points:.0}%")).collect();
+        let named: Vec<String> = window
+            .by_company
+            .iter()
+            .take(3)
+            .map(|(company, points)| format!("{company} {points:.0}%"))
+            .collect();
         format!(" Used so far: {}.", named.join(", "))
     } else {
         String::new()
@@ -883,7 +967,10 @@ async fn account_headroom_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> a
 
 /// The company's computer runs on one of the owner's machines, and that machine is offline or
 /// paused (S99, US-349): nothing runs until it is back.
-async fn machine_offline_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> anyhow::Result<Option<AttentionItem>> {
+async fn machine_offline_item(
+    config: &CompanyConfig,
+    pool: &sqlx::PgPool,
+) -> anyhow::Result<Option<AttentionItem>> {
     let main = crate::machines::main_machine(pool, &config.name).await?;
     if main == crate::machines::PLANE_MACHINE {
         return Ok(None);
@@ -899,9 +986,15 @@ async fn machine_offline_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> an
         .map(|seen| format!(" since {}", seen.format("%H:%M UTC on %-d %b")))
         .unwrap_or_default();
     let what_happened = if machine.paused {
-        format!("{} is paused, so {} is paused too.", machine.label, config.name)
+        format!(
+            "{} is paused, so {} is paused too.",
+            machine.label, config.name
+        )
     } else {
-        format!("{} has been offline{since}, so {} is paused.", machine.label, config.name)
+        format!(
+            "{} has been offline{since}, so {} is paused.",
+            machine.label, config.name
+        )
     };
     Ok(Some(AttentionItem {
         id: format!("authority:machine_offline:{}", machine.id),
@@ -962,8 +1055,13 @@ fn cooldowns_in_use(
     candidates: &[String],
     agent_models: &[String],
 ) -> Vec<crate::authority::ModelCooldown> {
-    let cooling: Vec<&str> = cooldowns.iter().map(|cooldown| cooldown.model.as_str()).collect();
-    let answered = candidates.iter().any(|model| !cooling.contains(&model.as_str()));
+    let cooling: Vec<&str> = cooldowns
+        .iter()
+        .map(|cooldown| cooldown.model.as_str())
+        .collect();
+    let answered = candidates
+        .iter()
+        .any(|model| !cooling.contains(&model.as_str()));
     cooldowns
         .into_iter()
         .filter(|cooldown| {
@@ -972,7 +1070,9 @@ fn cooldowns_in_use(
                 || agent_models.contains(&cooldown.model)
         })
         .filter(|cooldown| {
-            !(answered && cooldown.kind == "quota" && candidates.contains(&cooldown.model)
+            !(answered
+                && cooldown.kind == "quota"
+                && candidates.contains(&cooldown.model)
                 && !agent_models.contains(&cooldown.model))
         })
         .collect()
@@ -982,7 +1082,10 @@ fn cooldowns_in_use(
 /// refused sign-in or key, or a model no longer offered. Raised from the cooldown itself, so it
 /// shows even when no Exec turn has run since (18 October: Frankensurf's credit ran out at
 /// 10:03 and the Inbox stayed empty while every wake was refused).
-fn model_cooldown_items(config: &CompanyConfig, cooldowns: &[crate::authority::ModelCooldown]) -> Vec<AttentionItem> {
+fn model_cooldown_items(
+    config: &CompanyConfig,
+    cooldowns: &[crate::authority::ModelCooldown],
+) -> Vec<AttentionItem> {
     cooldowns
         .iter()
         .filter(|cooldown| matches!(cooldown.kind.as_str(), "quota" | "credential" | "model"))
@@ -1083,9 +1186,15 @@ fn model_cooldown_items(config: &CompanyConfig, cooldowns: &[crate::authority::M
 }
 
 /// The ledger's view of a stopped company, worded for the owner.
-fn ledger_spend_stopped_item(config: &CompanyConfig, spend: &crate::spend::SpendLedger) -> Option<AttentionItem> {
+fn ledger_spend_stopped_item(
+    config: &CompanyConfig,
+    spend: &crate::spend::SpendLedger,
+) -> Option<AttentionItem> {
     let period = spend.period_spend(config);
-    if !matches!(period.budget, crate::spend::ModelBudgetState::Exhausted { .. }) {
+    if !matches!(
+        period.budget,
+        crate::spend::ModelBudgetState::Exhausted { .. }
+    ) {
         return None;
     }
     let monthly = period.period_start.is_some();
@@ -1121,51 +1230,78 @@ async fn account_items(
     use crate::account_broker as broker;
     let pool = authority.pool();
     let company = config.name.as_str();
-    let name = |actor: &str| actors.get(actor).map(|actor| actor.display.clone()).unwrap_or_else(|| actor.to_string());
-    let action = |id: &str, label: &str, consequence: &str, next_state: &str, href: Option<String>| AttentionAction {
-        id: id.into(),
-        label: label.into(),
-        role: "decision",
-        consequence: consequence.into(),
-        next_state: next_state.into(),
-        href,
+    let name = |actor: &str| {
+        actors
+            .get(actor)
+            .map(|actor| actor.display.clone())
+            .unwrap_or_else(|| actor.to_string())
     };
-    let blank = |id: String, kind: &str, reference: String, title: String, created_at: DateTime<Utc>| AttentionItem {
-        id,
-        work_id: None,
-        source: AttentionSource { plane: "authority", kind: kind.into(), reference, party: None, call_key: None },
-        category: "approval".into(),
-        title,
-        what_happened: String::new(),
-        why_it_matters: String::new(),
-        recommendation: String::new(),
-        requested_action: String::new(),
-        if_no_action: String::new(),
-        uncertainty: None,
-        deadline: None,
-        brief_status: "source-authored",
-        brief_author: None,
-        briefed_at: Some(created_at),
-        evidence: Vec::new(),
-        review_sources: Vec::new(),
-        responsible_actor: None,
-        runtime_attach: None,
-        review_target: None,
-        native_document: None,
-        direction_request: None,
-        charter_proposal: None,
-        account_use: None,
-        account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
-        actions: Vec::new(),
-        can_continue: true,
-        preparing: false,
-        created_at,
-    };
+    let action =
+        |id: &str, label: &str, consequence: &str, next_state: &str, href: Option<String>| {
+            AttentionAction {
+                id: id.into(),
+                label: label.into(),
+                role: "decision",
+                consequence: consequence.into(),
+                next_state: next_state.into(),
+                href,
+            }
+        };
+    let blank =
+        |id: String, kind: &str, reference: String, title: String, created_at: DateTime<Utc>| {
+            AttentionItem {
+                id,
+                work_id: None,
+                source: AttentionSource {
+                    plane: "authority",
+                    kind: kind.into(),
+                    reference,
+                    party: None,
+                    call_key: None,
+                },
+                category: "approval".into(),
+                title,
+                what_happened: String::new(),
+                why_it_matters: String::new(),
+                recommendation: String::new(),
+                requested_action: String::new(),
+                if_no_action: String::new(),
+                uncertainty: None,
+                deadline: None,
+                brief_status: "source-authored",
+                brief_author: None,
+                briefed_at: Some(created_at),
+                evidence: Vec::new(),
+                review_sources: Vec::new(),
+                responsible_actor: None,
+                runtime_attach: None,
+                review_target: None,
+                native_document: None,
+                direction_request: None,
+                charter_proposal: None,
+                account_use: None,
+                account_request: None,
+                request_fields: None,
+                setting_proposal: None,
+                owner_replies: Vec::new(),
+                actions: Vec::new(),
+                can_continue: true,
+                preparing: false,
+                created_at,
+            }
+        };
     let mut items = Vec::new();
     for (notice, used, account) in broker::open_company_notices(pool, company).await? {
         let who = name(&used.actor);
         let what = match notice.kind.as_str() {
-            "first_use" => format!("{} used {} for the first time", config.display_name.clone().unwrap_or_else(|| company.to_string()), account.label),
+            "first_use" => format!(
+                "{} used {} for the first time",
+                config
+                    .display_name
+                    .clone()
+                    .unwrap_or_else(|| company.to_string()),
+                account.label
+            ),
             "first_spend" => format!("First spend with {}", account.label),
             "new_destination" => format!("{} acted somewhere new with {}", who, account.label),
             _ => format!("{} is being used much more than usual", account.label),
@@ -1182,10 +1318,19 @@ async fn account_items(
         item.category = "review".into();
         item.what_happened = format!(
             "{who} {} with {}: {}{}.",
-            match used.tier.as_str() { "read" => "read", "draft" => "drafted", "spend" => "spent", "admin" => "changed settings", _ => "acted" },
+            match used.tier.as_str() {
+                "read" => "read",
+                "draft" => "drafted",
+                "spend" => "spent",
+                "admin" => "changed settings",
+                _ => "acted",
+            },
             account.label,
             used.action,
-            used.target.as_deref().map(|target| format!(" on {target}")).unwrap_or_default()
+            used.target
+                .as_deref()
+                .map(|target| format!(" on {target}"))
+                .unwrap_or_default()
         );
         item.why_it_matters = "Your accounts act for every company you grant them to; you hear about the first use, a first spend, somewhere new and an unusual burst.".into();
         item.recommendation = "Fine if you expected it; Freeze stops this company using the account until you unfreeze it.".into();
@@ -1193,8 +1338,20 @@ async fn account_items(
         item.if_no_action = "Nothing changes; the use stays in the account's log.".into();
         item.account_use = Some(block);
         item.actions = vec![
-            action("fine", "Fine", "Closes the notice.", "The company keeps using the account as granted.", None),
-            action("freeze", "Freeze", "Pauses this company's grant of the account.", "Nothing more is sent with it from this company until you unfreeze it.", None),
+            action(
+                "fine",
+                "Fine",
+                "Closes the notice.",
+                "The company keeps using the account as granted.",
+                None,
+            ),
+            action(
+                "freeze",
+                "Freeze",
+                "Pauses this company's grant of the account.",
+                "Nothing more is sent with it from this company until you unfreeze it.",
+                None,
+            ),
         ];
         items.push(item);
     }
@@ -1213,8 +1370,12 @@ async fn account_items(
             code.account_label,
             code.domains.join(", ")
         );
-        item.why_it_matters = "Restless types the code straight into the waiting page; it is not kept anywhere.".into();
-        item.recommendation = "Type the code if you expected this sign-in. If you did not, leave it; it lapses.".into();
+        item.why_it_matters =
+            "Restless types the code straight into the waiting page; it is not kept anywhere."
+                .into();
+        item.recommendation =
+            "Type the code if you expected this sign-in. If you did not, leave it; it lapses."
+                .into();
         item.requested_action = format!("Enter the code {} just sent you.", code.account_label);
         item.if_no_action = "The sign-in waits, and the request lapses after 10 minutes.".into();
         item.deadline = Some((code.created_at + crate::account_browser::CODE_WAIT).to_rfc3339());
@@ -1255,18 +1416,29 @@ async fn account_items(
             ),
             request.created_at,
         );
-        item.what_happened = if request.reason.is_empty() { format!("{who} asked for an account.") } else { request.reason.clone() };
+        item.what_happened = if request.reason.is_empty() {
+            format!("{who} asked for an account.")
+        } else {
+            request.reason.clone()
+        };
         item.why_it_matters = "Companies use your accounts only as you grant them; nothing is shared until you say so.".into();
-        item.recommendation = "Approve as asked, or approve with limits to choose the abilities, scope and caps.".into();
+        item.recommendation =
+            "Approve as asked, or approve with limits to choose the abilities, scope and caps."
+                .into();
         item.requested_action = "Approve, approve with limits, or deny.".into();
         item.if_no_action = "The company goes without it.".into();
-        let mut href = format!("/account/settings/accounts?company={company}&request={}", request.id);
+        let mut href = format!(
+            "/account/settings/accounts?company={company}&request={}",
+            request.id
+        );
         // The site an agent named ("facebook.com: …"), so the card can fill in the sign-in page.
         let site = request
             .reason
             .split_once(": ")
             .map(|(site, _)| site)
-            .filter(|site| !site.contains(char::is_whitespace) && site.len() <= 120 && site.contains('.'));
+            .filter(|site| {
+                !site.contains(char::is_whitespace) && site.len() <= 120 && site.contains('.')
+            });
         if let Some(account) = &request.account_id {
             href.push_str(&format!("&account={account}"));
         } else if let Some(kind) = &request.kind {
@@ -1274,7 +1446,10 @@ async fn account_items(
             // site an agent named, and saving the grant answers the request.
             href.push_str(&format!("&kind={kind}"));
             if let Some(site) = site {
-                href.push_str(&format!("&site={}", url::form_urlencoded::byte_serialize(site.as_bytes()).collect::<String>()));
+                href.push_str(&format!(
+                    "&site={}",
+                    url::form_urlencoded::byte_serialize(site.as_bytes()).collect::<String>()
+                ));
             }
         }
         item.account_request = Some(serde_json::json!({
@@ -1289,14 +1464,38 @@ async fn account_items(
         }));
         item.actions = Vec::new();
         if request.account_id.is_some() {
-            item.actions.push(action("approve", "Approve", "Grants the account with the abilities asked for.", "The company can use it now.", None));
+            item.actions.push(action(
+                "approve",
+                "Approve",
+                "Grants the account with the abilities asked for.",
+                "The company can use it now.",
+                None,
+            ));
         }
         if request.account_id.is_some() {
-            item.actions.push(action("approve-with-limits", "Approve with limits", "Opens the grant in Settings, filled in as asked.", "Saving the grant answers the request.", Some(href)));
+            item.actions.push(action(
+                "approve-with-limits",
+                "Approve with limits",
+                "Opens the grant in Settings, filled in as asked.",
+                "Saving the grant answers the request.",
+                Some(href),
+            ));
         } else {
-            item.actions.push(action("approve-with-limits", "Add it", "Opens Add account in Settings for this company.", "Adding it and saving the company's access answers the request.", Some(href)));
+            item.actions.push(action(
+                "approve-with-limits",
+                "Add it",
+                "Opens Add account in Settings for this company.",
+                "Adding it and saving the company's access answers the request.",
+                Some(href),
+            ));
         }
-        item.actions.push(action("deny", "Deny", "Nothing is granted; the company is told.", "The company goes without it.", None));
+        item.actions.push(action(
+            "deny",
+            "Deny",
+            "Nothing is granted; the company is told.",
+            "The company goes without it.",
+            None,
+        ));
         items.push(item);
     }
     Ok(items)
@@ -1312,34 +1511,56 @@ async fn effect_outcome_items(
     let activity = format!("/{company}/company/activity?show=external");
     let mut items = Vec::new();
     let mut seen = HashSet::new();
-    for approved in authority.records_of_kind(company, "tool_call_approved").await? {
+    for approved in authority
+        .records_of_kind(company, "tool_call_approved")
+        .await?
+    {
         if approved.created_at < since {
             continue;
         }
-        let Some(key) = approved.body.get("call_key").and_then(serde_json::Value::as_str) else {
+        let Some(key) = approved
+            .body
+            .get("call_key")
+            .and_then(serde_json::Value::as_str)
+        else {
             continue;
         };
         if !seen.insert(key.to_string()) {
             continue;
         }
-        let receipt = authority.find_record(company, "effect", "idempotency_key", key).await?;
+        let receipt = authority
+            .find_record(company, "effect", "idempotency_key", key)
+            .await?;
         let intent = authority
             .find_record(company, "effect_intent", "idempotency_key", key)
             .await?;
         let execution = |record: &crate::authority::AuthorityRecord| {
-            record.body.get("execution_no").and_then(serde_json::Value::as_u64).unwrap_or(0)
+            record
+                .body
+                .get("execution_no")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0)
         };
         let unknown_intent = intent.as_ref().filter(|intent| {
-            receipt.as_ref().is_none_or(|receipt| execution(intent) > execution(receipt))
-                && intent.created_at < Utc::now() - chrono::Duration::minutes(EFFECT_UNKNOWN_AFTER_MINUTES)
+            receipt
+                .as_ref()
+                .is_none_or(|receipt| execution(intent) > execution(receipt))
+                && intent.created_at
+                    < Utc::now() - chrono::Duration::minutes(EFFECT_UNKNOWN_AFTER_MINUTES)
         });
         let (unknown, record) = match (unknown_intent, receipt.as_ref()) {
             (Some(intent), _) => (true, intent),
             (None, Some(receipt)) => {
                 let failed = receipt.body.get("success") == Some(&serde_json::Value::Bool(false))
-                    || receipt.body.get("outcome").map(crate::reconcile::outcome_of)
+                    || receipt
+                        .body
+                        .get("outcome")
+                        .map(crate::reconcile::outcome_of)
                         == Some(crate::reconcile::Outcome::Failed);
-                let unknown = receipt.body.get("outcome").map(crate::reconcile::outcome_of)
+                let unknown = receipt
+                    .body
+                    .get("outcome")
+                    .map(crate::reconcile::outcome_of)
                     == Some(crate::reconcile::Outcome::Unknown);
                 if !failed && !unknown {
                     continue;
@@ -1374,7 +1595,12 @@ async fn effect_outcome_items(
         let entry = if unknown_intent.is_some() {
             format!("intent:{}", record.id)
         } else {
-            record.body.get("id").and_then(serde_json::Value::as_str).unwrap_or_default().to_string()
+            record
+                .body
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string()
         };
         items.push(effect_outcome_item(
             EffectOutcome {
@@ -1403,7 +1629,10 @@ async fn effect_outcome_items(
     for payment in crate::finance::payments(authority, company).await? {
         use crate::finance::PaymentState;
         if payment.updated_at < since
-            || !matches!(payment.state, PaymentState::Failed | PaymentState::Unknown | PaymentState::Blocked)
+            || !matches!(
+                payment.state,
+                PaymentState::Failed | PaymentState::Unknown | PaymentState::Blocked
+            )
         {
             continue;
         }
@@ -1414,32 +1643,33 @@ async fn effect_outcome_items(
             payment.request.currency,
             payment.request.provider_beneficiary_ref
         );
-        items.push(effect_outcome_item(
-            EffectOutcome {
-                id: format!("authority:payment_outcome:{}", payment.request.idempotency_key),
-                reference: payment.request.idempotency_key.clone(),
-                kind: "payment_outcome",
-                title: if unknown {
-                    format!("Did it happen? Payment of {amount}")
-                } else {
-                    format!("Payment of {amount} did not go through")
-                },
-                what_happened: format!(
-                    "{}. The payment provider reports it {}.",
-                    payment.request.purpose.trim_end_matches('.'),
-                    payment.state.as_str()
-                ),
-                unknown,
-                detail: payment.raw_provider_status.clone(),
-                work_id: Some(payment.request.work_id),
-                actor: actors.get(&payment.request.requesting_actor).cloned(),
-                activity: format!(
-                    "{activity}&open={}",
-                    encode_component(&format!("payment:{}", payment.request.idempotency_key))
-                ),
-                at: payment.updated_at,
+        items.push(effect_outcome_item(EffectOutcome {
+            id: format!(
+                "authority:payment_outcome:{}",
+                payment.request.idempotency_key
+            ),
+            reference: payment.request.idempotency_key.clone(),
+            kind: "payment_outcome",
+            title: if unknown {
+                format!("Did it happen? Payment of {amount}")
+            } else {
+                format!("Payment of {amount} did not go through")
             },
-        ));
+            what_happened: format!(
+                "{}. The payment provider reports it {}.",
+                payment.request.purpose.trim_end_matches('.'),
+                payment.state.as_str()
+            ),
+            unknown,
+            detail: payment.raw_provider_status.clone(),
+            work_id: Some(payment.request.work_id),
+            actor: actors.get(&payment.request.requesting_actor).cloned(),
+            activity: format!(
+                "{activity}&open={}",
+                encode_component(&format!("payment:{}", payment.request.idempotency_key))
+            ),
+            at: payment.updated_at,
+        }));
     }
     Ok(items)
 }
@@ -1484,7 +1714,8 @@ fn effect_outcome_item(outcome: EffectOutcome) -> AttentionItem {
         why_it_matters: if outcome.unknown {
             "An outside action with an unknown result is not retried blindly: running it again could send or pay twice.".into()
         } else {
-            "What you allowed did not happen, and the work that depended on it may be waiting.".into()
+            "What you allowed did not happen, and the work that depended on it may be waiting."
+                .into()
         },
         recommendation: if outcome.unknown {
             "Check with the other side whether it happened, then tell Exec so it retries or moves on.".into()
@@ -1496,8 +1727,11 @@ fn effect_outcome_item(outcome: EffectOutcome) -> AttentionItem {
         } else {
             "Retry through Exec, or drop it.".into()
         },
-        if_no_action: "Nothing is retried on its own; the work that needed it stays where it is.".into(),
-        uncertainty: outcome.unknown.then(|| "No result was recorded, so it may or may not have happened.".into()),
+        if_no_action: "Nothing is retried on its own; the work that needed it stays where it is."
+            .into(),
+        uncertainty: outcome
+            .unknown
+            .then(|| "No result was recorded, so it may or may not have happened.".into()),
         deadline: None,
         brief_status: "source-observed",
         brief_author: None,
@@ -1518,7 +1752,12 @@ fn effect_outcome_item(outcome: EffectOutcome) -> AttentionItem {
         review_target: None,
         native_document: None,
         direction_request: None,
-        charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
+        charter_proposal: None,
+        account_use: None,
+        account_request: None,
+        request_fields: None,
+        setting_proposal: None,
+        owner_replies: Vec::new(),
         actions,
         can_continue: true,
         preparing: false,
@@ -1530,7 +1769,10 @@ fn effect_outcome_item(outcome: EffectOutcome) -> AttentionItem {
 /// connection was removed, or another connection for the same provider was granted in its place.
 /// Each says which, and opens Company › Intelligence. Read from the company's own settings, so the
 /// item is there before any turn fails, and leaves once the agent has a model that works.
-async fn stranded_agent_items(config: &runtime::CompanyConfig, org: Option<&OrgIntel>) -> Vec<AttentionItem> {
+async fn stranded_agent_items(
+    config: &runtime::CompanyConfig,
+    org: Option<&OrgIntel>,
+) -> Vec<AttentionItem> {
     let Ok(profile) = restless_contracts::appliance::MachineProfile::from_env() else {
         return Vec::new();
     };
@@ -1547,10 +1789,13 @@ async fn stranded_agent_items(config: &runtime::CompanyConfig, org: Option<&OrgI
     };
     let mut items = Vec::new();
     for (actor, assignment) in &config.agent_intelligence {
-        let Some((provider, id, _)) = runtime::account_intelligence_route(&assignment.connection) else {
+        let Some((provider, id, _)) = runtime::account_intelligence_route(&assignment.connection)
+        else {
             continue;
         };
-        if crate::model_connections::account_assignment_is_granted(&root, config, provider, id).unwrap_or(true) {
+        if crate::model_connections::account_assignment_is_granted(&root, config, provider, id)
+            .unwrap_or(true)
+        {
             continue;
         }
         let who = if actor == "default" {
@@ -1577,8 +1822,12 @@ async fn stranded_agent_items(config: &runtime::CompanyConfig, org: Option<&OrgI
                 format!("{who} can't think: their model connection is gone")
             },
             what_happened: why.clone(),
-            why_it_matters: format!("{who} cannot start any turn until this is fixed; their Work waits."),
-            recommendation: "Give them a model on a connection the company has, in Company › Intelligence.".into(),
+            why_it_matters: format!(
+                "{who} cannot start any turn until this is fixed; their Work waits."
+            ),
+            recommendation:
+                "Give them a model on a connection the company has, in Company › Intelligence."
+                    .into(),
             requested_action: why,
             if_no_action: "Their Work stays parked and nothing they own moves.".into(),
             uncertainty: None,
@@ -1593,7 +1842,12 @@ async fn stranded_agent_items(config: &runtime::CompanyConfig, org: Option<&OrgI
             review_target: None,
             native_document: None,
             direction_request: None,
-            charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
+            charter_proposal: None,
+            account_use: None,
+            account_request: None,
+            request_fields: None,
+            setting_proposal: None,
+            owner_replies: Vec::new(),
             actions: vec![AttentionAction {
                 id: "open-intelligence-provider".into(),
                 label: "Open Intelligence".into(),
@@ -1620,7 +1874,8 @@ async fn direction_items(
     viewer: &str,
 ) -> Result<Vec<AttentionItem>> {
     let names = crate::direction_authority::Names::read(org).await?;
-    let requests = crate::direction_authority::requests(authority, company, &names, viewer, false).await?;
+    let requests =
+        crate::direction_authority::requests(authority, company, &names, viewer, false).await?;
     Ok(requests
         .into_iter()
         .map(|request| {
@@ -1713,7 +1968,11 @@ async fn publication_items(
         "publication_stopped",
     ] {
         for record in authority.records_of_kind(&config.name, kind).await? {
-            if let Some(id) = record.body.get("publication_id").and_then(serde_json::Value::as_str) {
+            if let Some(id) = record
+                .body
+                .get("publication_id")
+                .and_then(serde_json::Value::as_str)
+            {
                 settled.insert(id.to_string());
             }
         }
@@ -1721,7 +1980,11 @@ async fn publication_items(
     let now = Utc::now();
     let mut items = Vec::new();
     for record in requests {
-        let Some(id) = record.body.get("publication_id").and_then(serde_json::Value::as_str) else {
+        let Some(id) = record
+            .body
+            .get("publication_id")
+            .and_then(serde_json::Value::as_str)
+        else {
             continue;
         };
         let request = record.body.get("request").cloned().unwrap_or_default();
@@ -1838,9 +2101,10 @@ async fn charter_item(
 ) -> Result<Option<AttentionItem>> {
     let names = crate::direction_authority::Names::read(org).await?;
     let revision = crate::authority::mandate_revision(&config.mission);
-    let proposal = crate::direction_authority::charter_proposal(authority, &config.name, &names, &revision)
-        .await
-        .map_err(|error| anyhow::anyhow!("{error}"))?;
+    let proposal =
+        crate::direction_authority::charter_proposal(authority, &config.name, &names, &revision)
+            .await
+            .map_err(|error| anyhow::anyhow!("{error}"))?;
     Ok(proposal.map(|proposal| {
         let empty = config.mission.trim().is_empty();
         AttentionItem {
@@ -1854,14 +2118,19 @@ async fn charter_item(
                 call_key: None,
             },
             category: "decision".into(),
-            title: if empty { "Publish the company charter".into() } else { "Publish the charter change".into() },
+            title: if empty {
+                "Publish the company charter".into()
+            } else {
+                "Publish the charter change".into()
+            },
             what_happened: "Exec drafted the charter in Company › Charter.".into(),
             why_it_matters: if proposal.reason.trim().is_empty() {
                 "Every agent works under the charter; nothing changes until you publish it.".into()
             } else {
                 proposal.reason.clone()
             },
-            recommendation: "Read the draft, edit it if you like, then publish or discard it.".into(),
+            recommendation: "Read the draft, edit it if you like, then publish or discard it."
+                .into(),
             requested_action: "Publish or discard.".into(),
             if_no_action: "The charter stays as it is.".into(),
             uncertainty: None,
@@ -1880,7 +2149,12 @@ async fn charter_item(
             preparing: false,
             created_at: proposal.proposed_at,
             direction_request: None,
-            charter_proposal: Some(proposal), account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
+            charter_proposal: Some(proposal),
+            account_use: None,
+            account_request: None,
+            request_fields: None,
+            setting_proposal: None,
+            owner_replies: Vec::new(),
         }
     }))
 }
@@ -1923,7 +2197,9 @@ async fn project_queue(
     let declines = authority
         .records_of_kind(&config.name, "approval_declined")
         .await?;
-    let mandate_proposals = authority.pending_email_mandate_proposals(&config.name).await?;
+    let mandate_proposals = authority
+        .pending_email_mandate_proposals(&config.name)
+        .await?;
 
     let mut resolved_after: HashMap<String, i64> = HashMap::new();
     for event in grants.iter().chain(declines.iter()) {
@@ -1941,7 +2217,10 @@ async fn project_queue(
     // tell the owner once, and the newest carries the draft.
     let mut latest: BTreeMap<
         (String, String),
-        (&crate::authority::AuthorityRecord, &crate::authority::AuthorityRecord),
+        (
+            &crate::authority::AuthorityRecord,
+            &crate::authority::AuthorityRecord,
+        ),
     > = BTreeMap::new();
     for event in &approvals {
         // Pre-Sprint-5 approval rows did not preserve an executable prepared
@@ -1981,10 +2260,17 @@ async fn project_queue(
     // changed call under the key asks a new one.
     let mut held: BTreeMap<
         String,
-        (&crate::authority::AuthorityRecord, &crate::authority::AuthorityRecord),
+        (
+            &crate::authority::AuthorityRecord,
+            &crate::authority::AuthorityRecord,
+        ),
     > = BTreeMap::new();
     for event in &approvals {
-        let Some(key) = event.body.get("call_key").and_then(serde_json::Value::as_str) else {
+        let Some(key) = event
+            .body
+            .get("call_key")
+            .and_then(serde_json::Value::as_str)
+        else {
             continue;
         };
         let continues = match held.get(key) {
@@ -2011,23 +2297,20 @@ async fn project_queue(
 
     let (actors, accountable_actors, conversation_actors) = actor_directory(org).await;
     let generation = runtime::generation(&config.name).await.ok().flatten();
-    let attach_for = |
-        actor: Option<&str>,
-        work_id: Option<uuid::Uuid>,
-        attempt_id: Option<uuid::Uuid>,
-    | {
-        generation.as_ref().map(|generation| RuntimeAttachRef {
-            company: config.name.clone(),
-            generation: generation.clone(),
-            work_id,
-            attempt_id,
-            requesting_actor: actor.map(str::to_string),
-            requesting_actor_display: actor
-                .and_then(|actor| actors.get(actor))
-                .map(|actor| actor.display.clone()),
-            kind: "persistent-browser",
-        })
-    };
+    let attach_for =
+        |actor: Option<&str>, work_id: Option<uuid::Uuid>, attempt_id: Option<uuid::Uuid>| {
+            generation.as_ref().map(|generation| RuntimeAttachRef {
+                company: config.name.clone(),
+                generation: generation.clone(),
+                work_id,
+                attempt_id,
+                requesting_actor: actor.map(str::to_string),
+                requesting_actor_display: actor
+                    .and_then(|actor| actors.get(actor))
+                    .map(|actor| actor.display.clone()),
+                kind: "persistent-browser",
+            })
+        };
 
     let mut items = Vec::new();
     for ((capability, party), (asked, event)) in latest {
@@ -2102,14 +2385,26 @@ async fn project_queue(
 
     for (key, (asked, event)) in calls {
         let prepared_by = event.actor_id.as_deref().unwrap_or("a company actor");
-        let tool = event.body.get("tool").and_then(serde_json::Value::as_str).unwrap_or("a tool");
+        let tool = event
+            .body
+            .get("tool")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("a tool");
         let connection = event
             .body
             .get("connection")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("a connection");
-        let purpose = event.body.get("purpose").and_then(serde_json::Value::as_str).unwrap_or("");
-        let command = event.body.get("prepared_command").cloned().unwrap_or_default();
+        let purpose = event
+            .body
+            .get("purpose")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let command = event
+            .body
+            .get("prepared_command")
+            .cloned()
+            .unwrap_or_default();
         // The draft the owner judges: the call's own arguments, readable, not the whole envelope.
         let draft = readable_draft(&command);
         let doing = tool_words(tool);
@@ -2199,7 +2494,9 @@ async fn project_queue(
         .await
         .unwrap_or_default()
         .into_iter()
-        .filter(|connection| connection.status == "awaiting_sign_in" && !connection.tools.is_empty())
+        .filter(|connection| {
+            connection.status == "awaiting_sign_in" && !connection.tools.is_empty()
+        })
     {
         let name = connection.name.clone();
         items.push(AttentionItem {
@@ -2911,7 +3208,14 @@ async fn project_queue(
                 runtime_attach: None,
                 review_target: None,
                 created_at: request.created_at,
-                native_document: Some(request), direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
+                native_document: Some(request),
+                direction_request: None,
+                charter_proposal: None,
+                account_use: None,
+                account_request: None,
+                request_fields: None,
+                setting_proposal: None,
+                owner_replies: Vec::new(),
                 actions,
                 preparing: false,
                 can_continue: false,
@@ -2924,7 +3228,11 @@ async fn project_queue(
         match org.undecided_identity_drift().await {
             Ok(findings) => {
                 for (finding, work_id, label) in findings {
-                    let artifact = if label.trim().is_empty() { finding.dependency.clone() } else { label };
+                    let artifact = if label.trim().is_empty() {
+                        finding.dependency.clone()
+                    } else {
+                        label
+                    };
                     items.push(AttentionItem {
                         id: format!("orgintel:identity_drift:{}", finding.id),
                         work_id,
@@ -2942,7 +3250,8 @@ async fn project_queue(
                             finding.dependency.trim_end_matches('.')
                         ),
                         why_it_matters: finding.consequence.clone(),
-                        recommendation: "Decide whether to revise it, keep it as it is, or retire it.".into(),
+                        recommendation:
+                            "Decide whether to revise it, keep it as it is, or retire it.".into(),
                         requested_action: "Choose what happens to this artifact.".into(),
                         if_no_action: "It stays as it was made, under the earlier brand.".into(),
                         uncertainty: None,
@@ -2957,7 +3266,12 @@ async fn project_queue(
                         review_target: None,
                         native_document: None,
                         direction_request: None,
-                        charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
+                        charter_proposal: None,
+                        account_use: None,
+                        account_request: None,
+                        request_fields: None,
+                        setting_proposal: None,
+                        owner_replies: Vec::new(),
                         actions: vec![AttentionAction {
                             id: "decide-identity-drift".into(),
                             label: "Decide on Brand".into(),
@@ -2982,10 +3296,16 @@ async fn project_queue(
             .filter_map(|id| actors.get(id).cloned())
             .collect();
         match conversation_requests(org, &config.name, contacts).await {
-            Ok(requests) => setting_questions = merge_conversation_requests(
-                &mut items, requests,
-                work_graph.as_ref().map(|graph| graph.handoffs.as_slice()).unwrap_or_default(),
-            ),
+            Ok(requests) => {
+                setting_questions = merge_conversation_requests(
+                    &mut items,
+                    requests,
+                    work_graph
+                        .as_ref()
+                        .map(|graph| graph.handoffs.as_slice())
+                        .unwrap_or_default(),
+                )
+            }
             Err(error) => {
                 tracing::warn!(%error, "conversation attention unavailable");
                 orgintel_health = "unavailable".into();
@@ -3036,7 +3356,9 @@ async fn project_queue(
                     items.push(spend_stopped_item(config, what_happened, event.created_at));
                 }
                 if let Some(true) = exec_startup_failure(reason) {
-                    if let Some(provider_issue) = crate::company::observed_company_model_issue(config).await {
+                    if let Some(provider_issue) =
+                        crate::company::observed_company_model_issue(config).await
+                    {
                         let action = AttentionAction {
                             id: "open-intelligence-provider".into(),
                             label: "Fix intelligence connection".into(),
@@ -3096,9 +3418,17 @@ async fn project_queue(
     }
 
     for record in mandate_proposals {
-        let Some(id) = record.body["id"].as_str() else { continue };
-        let Ok(proposal_id) = uuid::Uuid::parse_str(id) else { continue };
-        let Ok(proposal) = serde_json::from_value::<crate::authority::NewEmailMandate>(record.body["proposal"].clone()) else { continue };
+        let Some(id) = record.body["id"].as_str() else {
+            continue;
+        };
+        let Ok(proposal_id) = uuid::Uuid::parse_str(id) else {
+            continue;
+        };
+        let Ok(proposal) = serde_json::from_value::<crate::authority::NewEmailMandate>(
+            record.body["proposal"].clone(),
+        ) else {
+            continue;
+        };
         let note = record.body["judgement_note"].as_str().unwrap_or("");
         let limits = format!("Purpose: {}\nAudience: {}\nSender: {}{}\nDaily cap: {}\nTotal cap: {}\nTimezone: {}\nExpires: {}", proposal.purpose, proposal.audience_guidance, proposal.sender, proposal.sender_name.as_deref().map(|name| format!(" ({name})")).unwrap_or_default(), proposal.max_per_day, proposal.max_total, proposal.timezone, proposal.expires_at.to_rfc3339());
         let proposer = record.actor_id.as_deref().unwrap_or("a company actor");
@@ -3129,7 +3459,9 @@ async fn project_queue(
     if assignee.is_none() {
         match publication_items(config, authority).await {
             Ok(publications) => items.extend(publications),
-            Err(error) => tracing::warn!(company = config.name, "publications unavailable: {error:#}"),
+            Err(error) => {
+                tracing::warn!(company = config.name, "publications unavailable: {error:#}")
+            }
         }
     }
     // Owner-only: an agent whose model connection no longer reaches the company (Sprint 86).
@@ -3139,13 +3471,19 @@ async fn project_queue(
     if let Some(org) = org {
         match direction_items(authority, &config.name, org, assignee.unwrap_or("owner")).await {
             Ok(direction) => items.extend(direction),
-            Err(error) => tracing::warn!(company = config.name, "direction requests unavailable: {error:#}"),
+            Err(error) => tracing::warn!(
+                company = config.name,
+                "direction requests unavailable: {error:#}"
+            ),
         }
         // Only the owner publishes the charter, so only the owner's Inbox holds its draft.
         if assignee.is_none() {
             match charter_item(config, authority, org).await {
                 Ok(item) => items.extend(item),
-                Err(error) => tracing::warn!(company = config.name, "charter draft unavailable: {error:#}"),
+                Err(error) => tracing::warn!(
+                    company = config.name,
+                    "charter draft unavailable: {error:#}"
+                ),
             }
         }
     }
@@ -3340,11 +3678,13 @@ async fn project_queue(
             for (record, proposal) in proposals {
                 let asker = record.actor_id.as_deref().unwrap_or("exec");
                 let current = match &proposal.change {
-                    crate::setting_proposals::SettingChange::SpendLimit { .. } => serde_json::json!({
-                        "ceiling_usd": config.spend_ceiling_usd,
-                        "period": config.spend_period,
-                        "warning_percent": config.spend_warning_percent,
-                    }),
+                    crate::setting_proposals::SettingChange::SpendLimit { .. } => {
+                        serde_json::json!({
+                            "ceiling_usd": config.spend_ceiling_usd,
+                            "period": config.spend_period,
+                            "warning_percent": config.spend_warning_percent,
+                        })
+                    }
                     crate::setting_proposals::SettingChange::ReasoningEffort { .. } => {
                         serde_json::json!({ "effort": config.reasoning_effort })
                     }
@@ -3353,7 +3693,9 @@ async fn project_queue(
                     }
                     crate::setting_proposals::SettingChange::LegalProfile { .. }
                     | crate::setting_proposals::SettingChange::Schedule { .. }
-                    | crate::setting_proposals::SettingChange::Notifications { .. } => serde_json::Value::Null,
+                    | crate::setting_proposals::SettingChange::Notifications { .. } => {
+                        serde_json::Value::Null
+                    }
                 };
                 // Already true: answered by someone changing it in Settings, so nothing to ask.
                 let settled = match &proposal.change {
@@ -3448,7 +3790,10 @@ async fn project_queue(
         Ok(offline) => items.extend(offline),
         Err(error) => tracing::warn!(%error, "machine placement unavailable"),
     }
-    if !items.iter().any(|item| item.source.kind == "exec_startup_blocked") {
+    if !items
+        .iter()
+        .any(|item| item.source.kind == "exec_startup_blocked")
+    {
         match authority.active_model_cooldowns(&config.name).await {
             // Only the models the company still runs on: switching away answers the card (S101).
             Ok(cooldowns) => {
@@ -3462,7 +3807,12 @@ async fn project_queue(
                     .agent_intelligence
                     .keys()
                     .filter(|actor| actor.as_str() != "default")
-                    .filter_map(|actor| config.for_agent(actor).configured_model().map(str::to_string))
+                    .filter_map(|actor| {
+                        config
+                            .for_agent(actor)
+                            .configured_model()
+                            .map(str::to_string)
+                    })
                     .collect();
                 let current = cooldowns_in_use(cooldowns, &candidates, &agent_models);
                 items.extend(model_cooldown_items(config, &current))
@@ -3471,7 +3821,10 @@ async fn project_queue(
         }
     }
     // Warn before the account runs out, not after (S100); the cooldown card covers "ran out".
-    if !items.iter().any(|item| item.source.kind == "model_cooldown") {
+    if !items
+        .iter()
+        .any(|item| item.source.kind == "model_cooldown")
+    {
         match account_headroom_item(config, authority.pool()).await {
             Ok(warning) => items.extend(warning),
             Err(error) => tracing::warn!(%error, "account headroom unavailable"),
@@ -3609,10 +3962,7 @@ async fn actor_directory(org: Option<&OrgIntel>) -> ActorDirectory {
         .collect::<HashMap<_, _>>();
     let conversation_actors = rows
         .iter()
-        .filter(|actor| {
-            actor.actor_class == "agent"
-                && actor.retired_at.is_none()
-        })
+        .filter(|actor| actor.actor_class == "agent" && actor.retired_at.is_none())
         .map(|actor| actor.id.clone())
         .collect::<HashSet<_>>();
     let refs = rows
@@ -3795,7 +4145,13 @@ async fn authority_decisions(
             actors
                 .get(actor)
                 .map(|known| known.display.clone())
-                .unwrap_or_else(|| if actor == "owner" { "The owner".into() } else { actor.to_string() })
+                .unwrap_or_else(|| {
+                    if actor == "owner" {
+                        "The owner".into()
+                    } else {
+                        actor.to_string()
+                    }
+                })
         })
     };
     let mut rows = Vec::new();
@@ -3878,11 +4234,16 @@ async fn authority_decisions(
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
             };
-            let tool = record.body.get("tool").and_then(Value::as_str).unwrap_or("tool");
+            let tool = record
+                .body
+                .get("tool")
+                .and_then(Value::as_str)
+                .unwrap_or("tool");
             let title = field("purpose").map(str::to_owned).unwrap_or_else(|| {
-                field("connection").map_or_else(|| tool.to_owned(), |connection| {
-                    format!("{tool} on {connection}")
-                })
+                field("connection").map_or_else(
+                    || tool.to_owned(),
+                    |connection| format!("{tool} on {connection}"),
+                )
             });
             let (note, changes) = approval::recorded_note(&record.body);
             let allowed = kind == "tool_call_approved";
@@ -4041,7 +4402,8 @@ fn readable_draft(command: &serde_json::Value) -> String {
 /// verbatim beneath its label. Anything nested stays exact, as indented JSON.
 fn readable_fields(value: &serde_json::Value) -> String {
     use serde_json::Value;
-    let pretty = |value: &Value| serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string());
+    let pretty =
+        |value: &Value| serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string());
     let Some(fields) = value.as_object() else {
         return match value {
             Value::String(text) => text.clone(),
@@ -4403,17 +4765,36 @@ mod tests {
         let company = vec!["openai-codex/gpt-6.1-sol".to_string()];
         let exec = vec!["openai-codex/gpt-6-luna".to_string()];
         // 19 October, Snake Oil: Exec runs on Luna, the company default is Sol; Luna was refused.
-        let shown = cooldowns_in_use(vec![cooldown("openai-codex/gpt-6-luna", "quota")], &company, &exec);
+        let shown = cooldowns_in_use(
+            vec![cooldown("openai-codex/gpt-6-luna", "quota")],
+            &company,
+            &exec,
+        );
         assert_eq!(shown.len(), 1, "the agent's refused model raises a card");
         // A model nobody runs on any more is no card.
-        let shown = cooldowns_in_use(vec![cooldown("anthropic/claude-opus-4", "quota")], &company, &exec);
+        let shown = cooldowns_in_use(
+            vec![cooldown("anthropic/claude-opus-4", "quota")],
+            &company,
+            &exec,
+        );
         assert!(shown.is_empty());
         // The company's default refused while its fallback answers: work carries on, no card.
-        let with_fallback = vec!["openai-codex/gpt-6.1-sol".to_string(), "anthropic/claude-sonnet-5".to_string()];
-        let shown = cooldowns_in_use(vec![cooldown("openai-codex/gpt-6.1-sol", "quota")], &with_fallback, &[]);
+        let with_fallback = vec![
+            "openai-codex/gpt-6.1-sol".to_string(),
+            "anthropic/claude-sonnet-5".to_string(),
+        ];
+        let shown = cooldowns_in_use(
+            vec![cooldown("openai-codex/gpt-6.1-sol", "quota")],
+            &with_fallback,
+            &[],
+        );
         assert!(shown.is_empty());
         // A refused key still needs the owner even with a fallback.
-        let shown = cooldowns_in_use(vec![cooldown("openai-codex/gpt-6.1-sol", "credential")], &with_fallback, &[]);
+        let shown = cooldowns_in_use(
+            vec![cooldown("openai-codex/gpt-6.1-sol", "credential")],
+            &with_fallback,
+            &[],
+        );
         assert_eq!(shown.len(), 1);
     }
 
@@ -4421,7 +4802,8 @@ mod tests {
 
     #[test]
     fn a_refused_company_model_reaches_the_inbox_with_a_way_out() {
-        let config: CompanyConfig = toml::from_str("name = \"acme_test\"\nmission = \"test\"\n").unwrap();
+        let config: CompanyConfig =
+            toml::from_str("name = \"acme_test\"\nmission = \"test\"\n").unwrap();
         let cooldown = |kind: &str, reason: &str| crate::authority::ModelCooldown {
             model: "litellm/deepseek-v4.1-flash".into(),
             kind: kind.into(),
@@ -4432,20 +4814,39 @@ mod tests {
             cooldown("quota", "[quota] provider refused on quota or credit — owner action required: 402 AI credit is used up. Top up to continue: https://app.restless.run/account/settings#billing"),
             cooldown("transport", "[transport] connection reset"),
         ]);
-        assert_eq!(items.len(), 1, "a passing network fault is not the owner's to fix");
+        assert_eq!(
+            items.len(),
+            1,
+            "a passing network fault is not the owner's to fix"
+        );
         let item = &items[0];
         assert_eq!(item.title, "AI credit is used up");
         assert_eq!(item.what_happened, "402 AI credit is used up. Top up to continue: https://app.restless.run/account/settings#billing");
         // The relay of the time said #billing; the button goes to the section's own address.
-        assert_eq!(item.actions[0].href.as_deref(), Some("https://app.restless.run/account/settings/billing"));
+        assert_eq!(
+            item.actions[0].href.as_deref(),
+            Some("https://app.restless.run/account/settings/billing")
+        );
         let current = model_cooldown_items(&config, &[cooldown(
             "quota",
             "[quota] 402 AI credit is used up. Top up to continue: https://app.restless.run/account/settings/billing",
         )]);
-        assert_eq!(current[0].actions[0].href.as_deref(), Some("https://app.restless.run/account/settings/billing"));
-        assert_eq!(item.actions[1].href.as_deref(), Some("/acme_test/company/provider"));
+        assert_eq!(
+            current[0].actions[0].href.as_deref(),
+            Some("https://app.restless.run/account/settings/billing")
+        );
+        assert_eq!(
+            item.actions[1].href.as_deref(),
+            Some("/acme_test/company/provider")
+        );
         // A link a provider wrote is never offered.
-        let other = model_cooldown_items(&config, &[cooldown("quota", "[quota] 402 insufficient credits, see https://evil.example/pay")]);
+        let other = model_cooldown_items(
+            &config,
+            &[cooldown(
+                "quota",
+                "[quota] 402 insufficient credits, see https://evil.example/pay",
+            )],
+        );
         assert_eq!(other[0].actions.len(), 1);
         assert_eq!(other[0].actions[0].id, "open-intelligence-provider");
     }
@@ -4453,7 +4854,9 @@ mod tests {
     #[test]
     fn an_owner_never_reads_an_address_only_the_company_computer_can_open() {
         assert_eq!(
-            without_local_addresses("Inspect the prepared outcome at http://127.0.0.1:8642/. Then decide."),
+            without_local_addresses(
+                "Inspect the prepared outcome at http://127.0.0.1:8642/. Then decide."
+            ),
             "Inspect the prepared outcome at the live preview. Then decide."
         );
         assert_eq!(
@@ -4496,8 +4899,13 @@ mod tests {
         let request = "Which repository?\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Need repository\",\"ownerNeed\":\"The Cloud repository URL\"}-->";
         let id = org.send_message(&contact.id, None, request).await.unwrap();
         let read = || async {
-            conversation_requests(&org, &company, vec![contact.clone()]).await
-                .map(|rows| rows.into_iter().map(|request| request.item).collect::<Vec<_>>())
+            conversation_requests(&org, &company, vec![contact.clone()])
+                .await
+                .map(|rows| {
+                    rows.into_iter()
+                        .map(|request| request.item)
+                        .collect::<Vec<_>>()
+                })
         };
         let pending = read().await.unwrap();
         assert_eq!(pending.len(), 1);
@@ -4508,9 +4916,15 @@ mod tests {
             .as_ref()
             .unwrap()
             .ends_with(&format!("person=hosting-engineering&focus={id}")));
-        org.ensure_actor("human-peer", "human", "member", "Peer").await.unwrap();
+        org.ensure_actor("human-peer", "human", "member", "Peer")
+            .await
+            .unwrap();
         org.send_message(&contact.id, Some("human-peer"), "Peer-only question\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Peer input\",\"ownerNeed\":\"Private peer input\"}-->").await.unwrap();
-        assert_eq!(read().await.unwrap()[0].source.reference, id.to_string(), "another human's direct Room never enters the owner's queue");
+        assert_eq!(
+            read().await.unwrap()[0].source.reference,
+            id.to_string(),
+            "another human's direct Room never enters the owner's queue"
+        );
         org.mark_read(id).await.unwrap();
         assert_eq!(read().await.unwrap().len(), 1, "reading is not answering");
         org.send_owner_conversation_message("exec", "Unrelated question", false)
@@ -4551,7 +4965,10 @@ mod tests {
         org.send_owner_conversation_message(&contact.id, "Looks great", false)
             .await
             .unwrap();
-        assert!(read().await.unwrap().is_empty(), "the owner's reply clears the review");
+        assert!(
+            read().await.unwrap().is_empty(),
+            "the owner's reply clears the review"
+        );
         org.drop_schema().await.unwrap();
     }
 
@@ -5053,7 +5470,10 @@ mod tests {
             "To: ana@example.com\nWhy: Send the requested quote\nAttachments: /company/work/quote.pdf\n\n"
         ));
         for word in argv {
-            let shown = if word.chars().all(|c| c.is_ascii_alphanumeric() || "-_./:=@,+%".contains(c)) {
+            let shown = if word
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-_./:=@,+%".contains(c))
+            {
                 word.to_string()
             } else {
                 format!("'{}'", word.replace('\'', "'\\''"))
@@ -5133,7 +5553,11 @@ fn tool_words(tool: &str) -> String {
         }
     }
     let words = words.split_whitespace().collect::<Vec<_>>().join(" ");
-    if words.is_empty() { "use a tool".into() } else { format!("use {words}") }
+    if words.is_empty() {
+        "use a tool".into()
+    } else {
+        format!("use {words}")
+    }
 }
 
 #[cfg(test)]
@@ -5203,9 +5627,13 @@ mod person_queue_tests {
             })
             .await
             .unwrap();
-        org.escalate_handoff(kits, "site-direction", "the image is the team's person's call")
-            .await
-            .unwrap();
+        org.escalate_handoff(
+            kits,
+            "site-direction",
+            "the image is the team's person's call",
+        )
+        .await
+        .unwrap();
         org.prepare_owner_brief(
             kits,
             "exec",
@@ -5222,7 +5650,9 @@ mod person_queue_tests {
         )
         .await
         .unwrap();
-        org.escalate_handoff(kits, "exec", "prepared for Kit").await.unwrap();
+        org.escalate_handoff(kits, "exec", "prepared for Kit")
+            .await
+            .unwrap();
 
         // A human step for the owner: never assigned below them.
         let owners_work = work_for(&org, "site-design", "Pass the sign-in check").await;
@@ -5239,7 +5669,9 @@ mod person_queue_tests {
             .await
             .unwrap();
 
-        let authority = crate::authority::AuthorityStore::connect(&url).await.unwrap();
+        let authority = crate::authority::AuthorityStore::connect(&url)
+            .await
+            .unwrap();
         let config: CompanyConfig =
             toml::from_str(&format!("name = {company:?}\nmission = \"test\"\n")).unwrap();
         let reference = |view: &AttentionView| {
@@ -5253,8 +5685,14 @@ mod person_queue_tests {
             .await
             .unwrap();
         assert_eq!(reference(&kit), vec![kits.to_string()]);
-        assert!(kit.work_graph.is_none(), "a person's Work comes from their own view");
-        assert!(kit.items.iter().all(|item| item.source.kind == "owner_handoff"));
+        assert!(
+            kit.work_graph.is_none(),
+            "a person's Work comes from their own view"
+        );
+        assert!(kit
+            .items
+            .iter()
+            .all(|item| item.source.kind == "owner_handoff"));
 
         let owner = project(&config, &authority, Some(&org)).await.unwrap();
         assert!(reference(&owner).contains(&owners.to_string()));
@@ -5270,33 +5708,99 @@ mod person_queue_tests {
 
         // The prepared source owns one action. An explicit chat reminder is context, and resolving
         // that source must not leave a second question behind. Identical prose alone is not identity.
-        let reminder = |source: Option<uuid::Uuid>| format!(
-            "The sign-in check is ready.\n\n<!--restless-intent:{}-->",
-            serde_json::json!({"kind":"conversation", "summary":"Sign-in ready", "ownerNeed":"Pass the check", "ownerNeedHandoff":source.map(|id| id.to_string())})
-        );
-        org.send_message("exec", None, &reminder(Some(owners))).await.unwrap();
+        let reminder = |source: Option<uuid::Uuid>| {
+            format!(
+                "The sign-in check is ready.\n\n<!--restless-intent:{}-->",
+                serde_json::json!({"kind":"conversation", "summary":"Sign-in ready", "ownerNeed":"Pass the check", "ownerNeedHandoff":source.map(|id| id.to_string())})
+            )
+        };
+        org.send_message("exec", None, &reminder(Some(owners)))
+            .await
+            .unwrap();
         let pending = project(&config, &authority, Some(&org)).await.unwrap();
-        assert_eq!(pending.items.iter().filter(|item| item.source.reference == owners.to_string()).count(), 1);
-        assert!(pending.items.iter().all(|item| item.source.kind != "conversation_owner_need"));
-        let single = pending.items.iter().find(|item| item.source.reference == owners.to_string()).unwrap();
-        assert_eq!(single.review_sources.iter().filter(|source| source.provider == "conversation").count(), 1);
-        assert!(single.review_sources.iter().any(|source| source.content == "The sign-in check is ready."));
+        assert_eq!(
+            pending
+                .items
+                .iter()
+                .filter(|item| item.source.reference == owners.to_string())
+                .count(),
+            1
+        );
+        assert!(pending
+            .items
+            .iter()
+            .all(|item| item.source.kind != "conversation_owner_need"));
+        let single = pending
+            .items
+            .iter()
+            .find(|item| item.source.reference == owners.to_string())
+            .unwrap();
+        assert_eq!(
+            single
+                .review_sources
+                .iter()
+                .filter(|source| source.provider == "conversation")
+                .count(),
+            1
+        );
+        assert!(single
+            .review_sources
+            .iter()
+            .any(|source| source.content == "The sign-in check is ready."));
         let mut latest = Vec::new();
         for actor in ["exec", "site-direction", "site-design"] {
-            latest.push(org.send_message(actor, None, &reminder(Some(owners))).await.unwrap().to_string());
+            latest.push(
+                org.send_message(actor, None, &reminder(Some(owners)))
+                    .await
+                    .unwrap()
+                    .to_string(),
+            );
         }
         let combined = project(&config, &authority, Some(&org)).await.unwrap();
-        let combined = combined.items.iter().find(|item| item.source.reference == owners.to_string()).unwrap();
-        let detail_ids = combined.review_sources.iter().filter(|source| source.provider == "conversation").map(|source| source.reference.clone()).collect::<Vec<_>>();
-        latest.reverse();latest.truncate(2);
-        assert_eq!(detail_ids, latest, "one item keeps at most two stable, newest supporting details");
-        org.resolve_owner_handoff(owners, restless_orgintel::OwnerHandoffState::Resolved, "completed").await.unwrap();
+        let combined = combined
+            .items
+            .iter()
+            .find(|item| item.source.reference == owners.to_string())
+            .unwrap();
+        let detail_ids = combined
+            .review_sources
+            .iter()
+            .filter(|source| source.provider == "conversation")
+            .map(|source| source.reference.clone())
+            .collect::<Vec<_>>();
+        latest.reverse();
+        latest.truncate(2);
+        assert_eq!(
+            detail_ids, latest,
+            "one item keeps at most two stable, newest supporting details"
+        );
+        org.resolve_owner_handoff(
+            owners,
+            restless_orgintel::OwnerHandoffState::Resolved,
+            "completed",
+        )
+        .await
+        .unwrap();
         let resolved = project(&config, &authority, Some(&org)).await.unwrap();
-        assert!(resolved.items.iter().all(|item| item.source.reference != owners.to_string() && item.source.kind != "conversation_owner_need"));
+        assert!(resolved
+            .items
+            .iter()
+            .all(|item| item.source.reference != owners.to_string()
+                && item.source.kind != "conversation_owner_need"));
         for source in [None, Some(uuid::Uuid::new_v4())] {
-            org.send_message("exec", None, &reminder(source)).await.unwrap();
+            org.send_message("exec", None, &reminder(source))
+                .await
+                .unwrap();
             let independent = project(&config, &authority, Some(&org)).await.unwrap();
-            assert_eq!(independent.items.iter().filter(|item| item.source.kind == "conversation_owner_need").count(), 1, "unknown provenance or an independent question stays visible");
+            assert_eq!(
+                independent
+                    .items
+                    .iter()
+                    .filter(|item| item.source.kind == "conversation_owner_need")
+                    .count(),
+                1,
+                "unknown provenance or an independent question stays visible"
+            );
         }
         org.drop_schema().await.unwrap();
     }

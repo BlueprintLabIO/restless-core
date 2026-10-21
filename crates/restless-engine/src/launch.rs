@@ -227,9 +227,10 @@ impl LaunchBroker {
         company: &str,
         resource_id: &str,
     ) -> Result<OpenOutcome> {
-        let _lifecycle_lease = daemon.lifecycle.try_enter().context(
-            "new work is paused for a restart or update; retry Open once it is back",
-        )?;
+        let _lifecycle_lease = daemon
+            .lifecycle
+            .try_enter()
+            .context("new work is paused for a restart or update; retry Open once it is back")?;
         self.prune_expired();
         if resource_id == "company-computer" {
             if runtime::status(company).await? != runtime::ContainerStatus::Running {
@@ -445,12 +446,7 @@ impl LaunchBroker {
         (same_kind && session.expires_at > Utc::now()).then_some(session)
     }
 
-    pub async fn proxy_web(
-        &self,
-        handle: &str,
-        asset: &str,
-        headers: &HeaderMap,
-    ) -> Response {
+    pub async fn proxy_web(&self, handle: &str, asset: &str, headers: &HeaderMap) -> Response {
         self.prune_expired();
         let Some(session) = self
             .sessions

@@ -113,7 +113,8 @@ impl OrgIntelConfig {
         let user = std::env::var("USER").unwrap_or_else(|_| "postgres".to_string());
         let database = match profile.kind {
             restless_contracts::appliance::ProfileKind::Stable => "restless".to_string(),
-            restless_contracts::appliance::ProfileKind::Dev | restless_contracts::appliance::ProfileKind::Test => {
+            restless_contracts::appliance::ProfileKind::Dev
+            | restless_contracts::appliance::ProfileKind::Test => {
                 format!(
                     "restless_plane_{}",
                     profile.resource_namespace.replace('-', "_")

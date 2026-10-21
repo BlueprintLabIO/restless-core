@@ -3,7 +3,7 @@
 //! the same owner API the Settings page saves with, so permissions, validation and the audit
 //! trail are that page's own. Deciding records the answer; nothing changes before it.
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
 pub const SETTING_PROPOSED_KIND: &str = "setting_proposed";
@@ -65,16 +65,27 @@ impl SettingChange {
     /// One line for the card's title: what changes, to what.
     pub fn summary(&self) -> String {
         match self {
-            Self::SpendLimit { ceiling_usd } => format!("Set the spend limit to US${ceiling_usd:.0}"),
-            Self::ReasoningEffort { effort } => format!("Set the company's thinking effort to {effort}"),
+            Self::SpendLimit { ceiling_usd } => {
+                format!("Set the spend limit to US${ceiling_usd:.0}")
+            }
+            Self::ReasoningEffort { effort } => {
+                format!("Set the company's thinking effort to {effort}")
+            }
             Self::Model { model } => format!("Run the company on {model}"),
             Self::Schedule { paused, label, .. } => format!(
                 "{} the schedule {}",
                 if *paused { "Pause" } else { "Resume" },
-                label.as_deref().map(|label| format!("“{label}”")).unwrap_or_else(|| "it names".into())
+                label
+                    .as_deref()
+                    .map(|label| format!("“{label}”"))
+                    .unwrap_or_else(|| "it names".into())
             ),
-            Self::Notifications { email: Some(false), .. } => "Turn off email from the company".into(),
-            Self::Notifications { digest: Some(time), .. } => format!("Send one email a day at {time}"),
+            Self::Notifications {
+                email: Some(false), ..
+            } => "Turn off email from the company".into(),
+            Self::Notifications {
+                digest: Some(time), ..
+            } => format!("Send one email a day at {time}"),
             Self::Notifications { .. } => "Email you as things happen".into(),
             Self::LegalProfile { .. } => "Fill in the company's legal details".into(),
         }
@@ -98,7 +109,9 @@ impl SettingChange {
                     bail!("propose a model as provider/model, e.g. anthropic/claude-sonnet-5");
                 }
             }
-            Self::Schedule { schedule_id, label, .. } => {
+            Self::Schedule {
+                schedule_id, label, ..
+            } => {
                 if schedule_id.trim().is_empty() || schedule_id.len() > 200 {
                     bail!("name the schedule by its id");
                 }
@@ -184,7 +197,12 @@ pub async fn propose(
         bail!("a change to this setting is already waiting for the owner's answer");
     }
     store
-        .emit(company, SETTING_PROPOSED_KIND, Some(actor), serde_json::to_value(&input)?)
+        .emit(
+            company,
+            SETTING_PROPOSED_KIND,
+            Some(actor),
+            serde_json::to_value(&input)?,
+        )
         .await
 }
 
@@ -197,7 +215,12 @@ pub async fn pending(
         .records_of_kind(company, SETTING_DECIDED_KIND)
         .await?
         .into_iter()
-        .filter_map(|record| record.body.get("proposal").and_then(serde_json::Value::as_i64))
+        .filter_map(|record| {
+            record
+                .body
+                .get("proposal")
+                .and_then(serde_json::Value::as_i64)
+        })
         .collect::<std::collections::HashSet<_>>();
     Ok(store
         .records_of_kind(company, SETTING_PROPOSED_KIND)
@@ -252,7 +275,10 @@ mod tests {
             r#"{"setting":"spend_limit","ceiling_usd":200,"reason":"The launch doubles ad spend."}"#,
         )
         .unwrap();
-        assert_eq!(input.change, SettingChange::SpendLimit { ceiling_usd: 200.0 });
+        assert_eq!(
+            input.change,
+            SettingChange::SpendLimit { ceiling_usd: 200.0 }
+        );
         assert_eq!(input.change.summary(), "Set the spend limit to US$200");
         let legal: SettingProposalInput = serde_json::from_str(
             r#"{"setting":"legal_profile","registration_kind":"abn","reason":"The registrar needs it."}"#,
@@ -263,17 +289,42 @@ mod tests {
 
     #[test]
     fn an_unknown_setting_or_value_is_refused() {
-        assert!(
-            serde_json::from_str::<SettingProposalInput>(r#"{"setting":"owner_password","value":"x","reason":"r"}"#)
-                .is_err()
-        );
-        assert!(SettingChange::ReasoningEffort { effort: "extreme".into() }.validate().is_err());
-        assert!(SettingChange::SpendLimit { ceiling_usd: -5.0 }.validate().is_err());
-        assert!(SettingChange::Model { model: "sonnet".into() }.validate().is_err());
-        assert!(SettingChange::Notifications { email: None, digest: Some("8:30".into()) }.validate().is_err());
-        assert!(SettingChange::Notifications { email: None, digest: Some("08:30".into()) }.validate().is_ok());
+        assert!(serde_json::from_str::<SettingProposalInput>(
+            r#"{"setting":"owner_password","value":"x","reason":"r"}"#
+        )
+        .is_err());
+        assert!(SettingChange::ReasoningEffort {
+            effort: "extreme".into()
+        }
+        .validate()
+        .is_err());
+        assert!(SettingChange::SpendLimit { ceiling_usd: -5.0 }
+            .validate()
+            .is_err());
+        assert!(SettingChange::Model {
+            model: "sonnet".into()
+        }
+        .validate()
+        .is_err());
+        assert!(SettingChange::Notifications {
+            email: None,
+            digest: Some("8:30".into())
+        }
+        .validate()
+        .is_err());
+        assert!(SettingChange::Notifications {
+            email: None,
+            digest: Some("08:30".into())
+        }
+        .validate()
+        .is_ok());
         assert_eq!(
-            SettingChange::Schedule { schedule_id: "s1".into(), paused: true, label: Some("Monday report".into()) }.summary(),
+            SettingChange::Schedule {
+                schedule_id: "s1".into(),
+                paused: true,
+                label: Some("Monday report".into())
+            }
+            .summary(),
             "Pause the schedule “Monday report”"
         );
     }

@@ -17,8 +17,7 @@ use sha2::Digest as _;
 /// Canonical standing company-agent rules shipped with this daemon build.
 /// A loose state-root copy used to drift silently from the repository and
 /// could even be absent, leaving live actors without their operating rules.
-pub const COMPANY_OPERATING_RULES: &str =
-    include_str!("../../../docs/COMPANY_OPERATING_RULES.md");
+pub const COMPANY_OPERATING_RULES: &str = include_str!("../../../docs/COMPANY_OPERATING_RULES.md");
 
 pub const EXEC_NO_UPDATE: &str = "<!--restless-no-update-->";
 
@@ -275,7 +274,11 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
     if goals.is_empty() {
         goals.push_str("- none yet — propose the first one or two from what the owner wants\n");
     }
-    let outside = snapshot.open_work.iter().filter(|item| item.goal_id.is_none()).count();
+    let outside = snapshot
+        .open_work
+        .iter()
+        .filter(|item| item.goal_id.is_none())
+        .count();
     if outside > 0 {
         goals.push_str(&format!(
             "- Other work (outside any Goal): {outside} open item(s). Keep this small: attach each to the Goal it serves, or propose a Goal when a theme repeats.\n"
@@ -1068,7 +1071,10 @@ mod tests {
             "# Conversing with the owner",
         ] {
             let at = first.find(doctrine).expect(doctrine);
-            assert!(at < shared, "{doctrine} comes after the first wake-specific text");
+            assert!(
+                at < shared,
+                "{doctrine} comes after the first wake-specific text"
+            );
         }
     }
 
@@ -1120,20 +1126,30 @@ mod tests {
         ];
         let package = assemble(&changed);
         assert!(package.system_prompt.contains("# Changed by people"));
-        assert!(package.system_prompt.contains("- 2h ago · The owner: Spend limit set to $200"));
-        assert!(package.system_prompt.contains("Company renamed from S73 Test to Reno"));
+        assert!(package
+            .system_prompt
+            .contains("- 2h ago · The owner: Spend limit set to $200"));
+        assert!(package
+            .system_prompt
+            .contains("Company renamed from S73 Test to Reno"));
     }
 
     #[test]
     fn exec_sees_the_files_the_owner_added_to_the_library() {
-        assert!(!assemble(&snapshot()).system_prompt.contains("# Files the owner added"));
+        assert!(!assemble(&snapshot())
+            .system_prompt
+            .contains("# Files the owner added"));
         let mut uploaded = snapshot();
         uploaded.library_uploads = vec![
             "pitch.md (4 KB, added 2m ago): /var/lib/restless-owner-attachments/00000000-0000-0000-0000-000000000001/pitch.md".into(),
         ];
         let package = assemble(&uploaded);
-        assert!(package.system_prompt.contains("# Files the owner added to the Library"));
-        assert!(package.system_prompt.contains("- pitch.md (4 KB, added 2m ago): /var/lib/restless-owner-attachments/"));
+        assert!(package
+            .system_prompt
+            .contains("# Files the owner added to the Library"));
+        assert!(package
+            .system_prompt
+            .contains("- pitch.md (4 KB, added 2m ago): /var/lib/restless-owner-attachments/"));
     }
 
     #[test]

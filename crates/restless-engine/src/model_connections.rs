@@ -19,11 +19,21 @@ pub fn valid_provider_id(provider: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte))
 }
 
-pub fn account_oauth_key(root: &std::path::Path, provider: &str, reference: &str) -> Result<Option<String>> {
+pub fn account_oauth_key(
+    root: &std::path::Path,
+    provider: &str,
+    reference: &str,
+) -> Result<Option<String>> {
     let registry = load_owner_connections(root)?;
-    Ok(registry.connections.iter().find(|connection| {
-        connection.kind == "oauth" && connection.provider == provider && owner_connection_reference(connection) == reference
-    }).and_then(|connection| connection.account_key.clone()))
+    Ok(registry
+        .connections
+        .iter()
+        .find(|connection| {
+            connection.kind == "oauth"
+                && connection.provider == provider
+                && owner_connection_reference(connection) == reference
+        })
+        .and_then(|connection| connection.account_key.clone()))
 }
 
 pub fn account_assignment_is_granted(
@@ -33,11 +43,18 @@ pub fn account_assignment_is_granted(
     id: &str,
 ) -> Result<bool> {
     let registry = load_owner_connections(root)?;
-    let Some(connection) = registry.connections.iter().find(|connection| {
-        connection.provider == provider && connection.id == id
-    }) else { return Ok(false); };
+    let Some(connection) = registry
+        .connections
+        .iter()
+        .find(|connection| connection.provider == provider && connection.id == id)
+    else {
+        return Ok(false);
+    };
     let reference = owner_connection_reference(connection);
-    Ok(config.credentials.get(&format!("model.inference.{provider}")) == Some(&reference))
+    Ok(config
+        .credentials
+        .get(&format!("model.inference.{provider}"))
+        == Some(&reference))
 }
 
 /// Why an agent's assigned connection no longer reaches the company, in the owner's words, with
@@ -52,12 +69,18 @@ pub fn why_not_granted(
     let Ok(registry) = load_owner_connections(root) else {
         return "This agent's model connection could not be checked. Try again in a moment.".into();
     };
-    let Some(assigned) = registry.connections.iter().find(|connection| connection.provider == provider && connection.id == id) else {
+    let Some(assigned) = registry
+        .connections
+        .iter()
+        .find(|connection| connection.provider == provider && connection.id == id)
+    else {
         return format!(
             "This agent's {provider} connection was removed from the account. Give the agent another model in Company › Intelligence."
         );
     };
-    let current = config.credentials.get(&format!("model.inference.{provider}"));
+    let current = config
+        .credentials
+        .get(&format!("model.inference.{provider}"));
     match current.and_then(|reference| {
         registry.connections.iter().find(|connection| &owner_connection_reference(connection) == reference)
     }) {
@@ -73,7 +96,11 @@ pub fn why_not_granted(
     }
 }
 
-pub fn account_connection_matches(root: &std::path::Path, provider: &str, reference: &str) -> Result<bool> {
+pub fn account_connection_matches(
+    root: &std::path::Path,
+    provider: &str,
+    reference: &str,
+) -> Result<bool> {
     let registry = load_owner_connections(root)?;
     Ok(registry.connections.iter().any(|connection| {
         connection.provider == provider && owner_connection_reference(connection) == reference
@@ -92,7 +119,10 @@ pub fn model_connection_reference(id: &str) -> String {
     format!("infisical:/owner/model-connections/{id}/API_KEY")
 }
 
-pub fn save_owner_connections(root: &std::path::Path, registry: &OwnerModelConnections) -> Result<()> {
+pub fn save_owner_connections(
+    root: &std::path::Path,
+    registry: &OwnerModelConnections,
+) -> Result<()> {
     let path = owner_connections_path(root);
     let bytes = serde_json::to_vec_pretty(registry)?;
     let temporary = root.join(format!(".owner-model-connections-{}.tmp", Uuid::new_v4()));
@@ -142,7 +172,12 @@ pub fn load_owner_connections(root: &std::path::Path) -> Result<OwnerModelConnec
                 !matches!(connection.kind.as_str(), "api_key" | "oauth")
                     || !valid_provider_id(&connection.provider)
                     || connection.id.is_empty()
-                    || connection.account_key.as_ref().is_some_and(|key| connection.kind != "oauth" || key.is_empty() || key.len() > 200 || key.chars().any(char::is_control))
+                    || connection.account_key.as_ref().is_some_and(|key| {
+                        connection.kind != "oauth"
+                            || key.is_empty()
+                            || key.len() > 200
+                            || key.chars().any(char::is_control)
+                    })
             }) {
                 bail!(
                     "owner connection registry contains an unsupported connection kind or identity"
@@ -168,7 +203,9 @@ pub async fn oauth_connection_restored(
     authority: &crate::authority::AuthorityStore,
 ) -> Result<()> {
     let registry = load_owner_connections(root)?;
-    let connection = registry.connections.iter()
+    let connection = registry
+        .connections
+        .iter()
         .find(|connection| connection.provider == provider && connection.kind == "oauth")
         .context("restored OAuth connection was not registered")?;
     let reference = owner_connection_reference(connection);
@@ -181,8 +218,17 @@ pub async fn oauth_connection_restored(
                 continue;
             }
         };
-        if config.credentials.get(&format!("model.inference.{provider}")) != Some(&reference) { continue; }
-        if let Err(error) = authority.clear_provider_credential_cooldowns(&company, provider).await {
+        if config
+            .credentials
+            .get(&format!("model.inference.{provider}"))
+            != Some(&reference)
+        {
+            continue;
+        }
+        if let Err(error) = authority
+            .clear_provider_credential_cooldowns(&company, provider)
+            .await
+        {
             tracing::warn!(company, %error, "could not clear restored credential rejection");
         }
     }
@@ -191,8 +237,11 @@ pub async fn oauth_connection_restored(
 
 pub fn account_oauth_providers(root: &std::path::Path) -> Result<Vec<String>> {
     Ok(load_owner_connections(root)?
-        .connections.into_iter().filter(|connection| connection.kind == "oauth")
-        .map(|connection| connection.provider).collect())
+        .connections
+        .into_iter()
+        .filter(|connection| connection.kind == "oauth")
+        .map(|connection| connection.provider)
+        .collect())
 }
 
 pub fn owner_connections_path(root: &std::path::Path) -> PathBuf {
@@ -238,7 +287,10 @@ fn key_check_request(provider: &str) -> Option<(&'static str, &'static str)> {
         "anthropic" => ("https://api.anthropic.com/v1/models?limit=1", "x-api-key"),
         "openai" => ("https://api.openai.com/v1/models", "bearer"),
         "openrouter" => ("https://openrouter.ai/api/v1/key", "bearer"),
-        "google" => ("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1", "x-goog-api-key"),
+        "google" => (
+            "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1",
+            "x-goog-api-key",
+        ),
         "groq" => ("https://api.groq.com/openai/v1/models", "bearer"),
         "mistral" => ("https://api.mistral.ai/v1/models", "bearer"),
         "xai" => ("https://api.x.ai/v1/models", "bearer"),
@@ -266,12 +318,18 @@ pub async fn check_api_key(provider: &str, key: &str) -> KeyCheck {
 }
 
 pub async fn check_api_key_at(url: &str, style: &str, key: &str) -> KeyCheck {
-    let Ok(client) = reqwest::Client::builder().timeout(std::time::Duration::from_secs(10)).build() else {
+    let Ok(client) = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+    else {
         return KeyCheck::Unverified;
     };
     let request = match style {
         "bearer" => client.get(url).bearer_auth(key),
-        header => client.get(url).header(header, key).header("anthropic-version", "2023-06-01"),
+        header => client
+            .get(url)
+            .header(header, key)
+            .header("anthropic-version", "2023-06-01"),
     };
     let Ok(response) = request.send().await else {
         return KeyCheck::Unverified;
@@ -298,7 +356,9 @@ pub async fn check_api_key_at(url: &str, style: &str, key: &str) -> KeyCheck {
         || status == reqwest::StatusCode::FORBIDDEN
         || (status == reqwest::StatusCode::BAD_REQUEST
             && lower.contains("api key")
-            && ["not valid", "invalid", "incorrect"].iter().any(|word| lower.contains(word)));
+            && ["not valid", "invalid", "incorrect"]
+                .iter()
+                .any(|word| lower.contains(word)));
     if !refused {
         return KeyCheck::Unverified;
     }
@@ -306,7 +366,11 @@ pub async fn check_api_key_at(url: &str, style: &str, key: &str) -> KeyCheck {
         "the key was not recognised".to_owned()
     } else {
         // The provider's words, bounded and on one line; never the key.
-        let message = if key.len() >= 8 { message.replace(key, "…") } else { message };
+        let message = if key.len() >= 8 {
+            message.replace(key, "…")
+        } else {
+            message
+        };
         message.split_whitespace().collect::<Vec<_>>().join(" ")
     };
     KeyCheck::Rejected(reason.chars().take(160).collect())
@@ -350,14 +414,23 @@ mod key_check_tests {
     #[tokio::test]
     async fn a_refused_key_is_rejected_with_the_providers_reason_and_a_good_one_accepted() {
         let url = fake_provider().await;
-        assert_eq!(check_api_key_at(&url, "x-api-key", "good-key").await, KeyCheck::Accepted);
+        assert_eq!(
+            check_api_key_at(&url, "x-api-key", "good-key").await,
+            KeyCheck::Accepted
+        );
         assert_eq!(
             check_api_key_at(&url, "x-api-key", "sk-ant-wrong").await,
             KeyCheck::Rejected("invalid x-api-key".into())
         );
         // Nothing answers: unverified, so a network blip never blocks saving a key.
-        assert_eq!(check_api_key_at("http://127.0.0.1:9/v1/models", "x-api-key", "k").await, KeyCheck::Unverified);
-        assert_eq!(check_api_key("some-new-provider", "k").await, KeyCheck::Unverified);
+        assert_eq!(
+            check_api_key_at("http://127.0.0.1:9/v1/models", "x-api-key", "k").await,
+            KeyCheck::Unverified
+        );
+        assert_eq!(
+            check_api_key("some-new-provider", "k").await,
+            KeyCheck::Unverified
+        );
         // Google refuses with 400 naming the key.
         let google = url.replace("/v1/models", "/v1beta/models");
         assert_eq!(
@@ -379,32 +452,50 @@ mod oauth_restoration_tests {
         };
         struct Root(PathBuf);
         impl Drop for Root {
-            fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
         }
-        let root = Root(std::env::temp_dir().join(format!("restless-oauth-restore-{}", Uuid::new_v4())));
+        let root =
+            Root(std::env::temp_dir().join(format!("restless-oauth-restore-{}", Uuid::new_v4())));
         std::fs::create_dir_all(root.0.join("companies")).unwrap();
         let connection = OwnerModelConnection {
-            id: Uuid::new_v4().simple().to_string(), label: "Restored test account".into(),
-            provider: "openai-codex".into(), kind: "oauth".into(),
+            id: Uuid::new_v4().simple().to_string(),
+            label: "Restored test account".into(),
+            provider: "openai-codex".into(),
+            kind: "oauth".into(),
             account_key: Some("original-account".into()),
         };
-        save_owner_connections(&root.0, &OwnerModelConnections { connections: vec![connection.clone()] }).unwrap();
+        save_owner_connections(
+            &root.0,
+            &OwnerModelConnections {
+                connections: vec![connection.clone()],
+            },
+        )
+        .unwrap();
         let granted = format!("oauth_granted_{}_test", Uuid::new_v4().simple());
         let other = format!("oauth_other_{}_test", Uuid::new_v4().simple());
         let unrelated = format!("oauth_unrelated_{}_test", Uuid::new_v4().simple());
-        for (company, reference) in [(&granted, owner_connection_reference(&connection)), (&other, "env:OTHER_ACCOUNT_KEY".into())] {
+        for (company, reference) in [
+            (&granted, owner_connection_reference(&connection)),
+            (&other, "env:OTHER_ACCOUNT_KEY".into()),
+        ] {
             let config: runtime::CompanyConfig = serde_json::from_value(serde_json::json!({
                 "name": company, "mission": "Owned OAuth recovery fixture",
                 "credentials": {"model.inference.openai-codex": reference}
-            })).unwrap();
+            }))
+            .unwrap();
             runtime::CompanyConfig::save(&root.0, &config).unwrap();
         }
         let unrelated_config: runtime::CompanyConfig = serde_json::from_value(serde_json::json!({
             "name": unrelated, "mission": "Unrelated credential field",
             "credentials": {"external.service": owner_connection_reference(&connection)}
-        })).unwrap();
+        }))
+        .unwrap();
         runtime::CompanyConfig::save(&root.0, &unrelated_config).unwrap();
-        let authority = crate::authority::AuthorityStore::connect(&database).await.unwrap();
+        let authority = crate::authority::AuthorityStore::connect(&database)
+            .await
+            .unwrap();
         let later = chrono::Utc::now() + chrono::Duration::hours(24);
         for (company, model, kind) in [
             (&granted, "openai-codex/gpt-6-sol", "credential"),
@@ -413,14 +504,41 @@ mod oauth_restoration_tests {
             (&other, "openai-codex/gpt-6-sol", "credential"),
             (&unrelated, "openai-codex/gpt-6-sol", "credential"),
         ] {
-            authority.set_model_cooldown(company, model, kind, "fixture rejection", later).await.unwrap();
+            authority
+                .set_model_cooldown(company, model, kind, "fixture rejection", later)
+                .await
+                .unwrap();
         }
-        oauth_connection_restored(&root.0, "openai-codex", &authority).await.unwrap();
-        let mut left = authority.active_model_cooldowns(&granted).await.unwrap()
-            .into_iter().map(|row| row.model).collect::<Vec<_>>();
+        oauth_connection_restored(&root.0, "openai-codex", &authority)
+            .await
+            .unwrap();
+        let mut left = authority
+            .active_model_cooldowns(&granted)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.model)
+            .collect::<Vec<_>>();
         left.sort();
-        assert_eq!(left, ["anthropic/claude-sonnet-5-5", "openai-codex/gpt-5.6-sol"]);
-        assert_eq!(authority.active_model_cooldowns(&other).await.unwrap().len(), 1);
-        assert_eq!(authority.active_model_cooldowns(&unrelated).await.unwrap().len(), 1);
+        assert_eq!(
+            left,
+            ["anthropic/claude-sonnet-5-5", "openai-codex/gpt-5.6-sol"]
+        );
+        assert_eq!(
+            authority
+                .active_model_cooldowns(&other)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            authority
+                .active_model_cooldowns(&unrelated)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
     }
 }

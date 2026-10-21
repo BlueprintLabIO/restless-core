@@ -5,8 +5,8 @@
 //! This module owns the machine-to-machine bootstrap and exact live bridge
 //! identity; it deliberately exposes no generic remote-shell operation.
 
-use std::fs;
 use std::collections::BTreeMap;
+use std::fs;
 use std::io::Read as _;
 use std::path::Path;
 use std::sync::Arc;
@@ -342,11 +342,7 @@ impl RuntimeBridgeRegistry {
         Ok(receiver)
     }
 
-    pub fn send_operation(
-        &self,
-        expected: &RuntimeIdentity,
-        message: BridgeMessage,
-    ) -> Result<()> {
+    pub fn send_operation(&self, expected: &RuntimeIdentity, message: BridgeMessage) -> Result<()> {
         let operation_id =
             operation_id(&message).context("Runtime bridge request has no operation identity")?;
         let mut state = self.state.lock().expect("Runtime bridge registry");
@@ -650,10 +646,7 @@ pub async fn preflight_observation(
     }
 }
 
-pub async fn preflight(
-    registry: &RuntimeBridgeRegistry,
-    identity: &RuntimeIdentity,
-) -> Result<()> {
+pub async fn preflight(registry: &RuntimeBridgeRegistry, identity: &RuntimeIdentity) -> Result<()> {
     preflight_observation(registry, identity).await.map(drop)
 }
 
@@ -1128,13 +1121,31 @@ pub async fn open_agent_transport(
     harness: crate::runtime::AgentHarness,
     system_prompt: &str,
 ) -> Result<tokio::io::DuplexStream> {
-    if !matches!(harness, crate::runtime::AgentHarness::RestlessManaged | crate::runtime::AgentHarness::ClaudeAgent) {
+    if !matches!(
+        harness,
+        crate::runtime::AgentHarness::RestlessManaged | crate::runtime::AgentHarness::ClaudeAgent
+    ) {
         anyhow::bail!("hosted Runtime ACP transport requires the Restless or Claude agent harness");
     }
-    open_agent_transport_with_environment(registry, identity, auth, workdir, actor, responsibility, harness, system_prompt, BTreeMap::new()).await.map(|(stream, _)| stream)
+    open_agent_transport_with_environment(
+        registry,
+        identity,
+        auth,
+        workdir,
+        actor,
+        responsibility,
+        harness,
+        system_prompt,
+        BTreeMap::new(),
+    )
+    .await
+    .map(|(stream, _)| stream)
 }
 
-#[expect(clippy::too_many_arguments, reason = "the Codex launch carries an exact scoped MCP environment")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the Codex launch carries an exact scoped MCP environment"
+)]
 pub async fn open_codex_transport(
     registry: &RuntimeBridgeRegistry,
     identity: &RuntimeIdentity,
@@ -1144,12 +1155,28 @@ pub async fn open_codex_transport(
     responsibility: &str,
     system_prompt: &str,
     mcp_environment: BTreeMap<String, String>,
-) -> Result<(tokio::io::DuplexStream, oneshot::Receiver<std::result::Result<(), String>>)> {
-    open_agent_transport_with_environment(registry, identity, auth, workdir, actor, responsibility,
-        crate::runtime::AgentHarness::Codex, system_prompt, mcp_environment).await
+) -> Result<(
+    tokio::io::DuplexStream,
+    oneshot::Receiver<std::result::Result<(), String>>,
+)> {
+    open_agent_transport_with_environment(
+        registry,
+        identity,
+        auth,
+        workdir,
+        actor,
+        responsibility,
+        crate::runtime::AgentHarness::Codex,
+        system_prompt,
+        mcp_environment,
+    )
+    .await
 }
 
-#[expect(clippy::too_many_arguments, reason = "the hosted launch membrane keeps every exact agent capability explicit")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the hosted launch membrane keeps every exact agent capability explicit"
+)]
 async fn open_agent_transport_with_environment(
     registry: &RuntimeBridgeRegistry,
     identity: &RuntimeIdentity,
@@ -1160,7 +1187,10 @@ async fn open_agent_transport_with_environment(
     harness: crate::runtime::AgentHarness,
     system_prompt: &str,
     mcp_environment: BTreeMap<String, String>,
-) -> Result<(tokio::io::DuplexStream, oneshot::Receiver<std::result::Result<(), String>>)> {
+) -> Result<(
+    tokio::io::DuplexStream,
+    oneshot::Receiver<std::result::Result<(), String>>,
+)> {
     preflight(registry, identity).await?;
     let operation_id = Uuid::new_v4();
     let deadline_ms = chrono::Utc::now().timestamp_millis()
@@ -1185,7 +1215,13 @@ async fn open_agent_transport_with_environment(
             deadline_ms,
         },
     )?;
-    Ok(pump_operation(registry, identity, operation_id, responses, cleanup_deadline_for(harness)))
+    Ok(pump_operation(
+        registry,
+        identity,
+        operation_id,
+        responses,
+        cleanup_deadline_for(harness),
+    ))
 }
 
 fn cleanup_deadline_for(harness: crate::runtime::AgentHarness) -> Duration {
@@ -1205,7 +1241,10 @@ fn pump_operation(
     operation_id: Uuid,
     mut responses: mpsc::Receiver<BridgeMessage>,
     cleanup_deadline: Duration,
-) -> (tokio::io::DuplexStream, oneshot::Receiver<std::result::Result<(), String>>) {
+) -> (
+    tokio::io::DuplexStream,
+    oneshot::Receiver<std::result::Result<(), String>>,
+) {
     let (core, bridge) = tokio::io::duplex(256 * 1024);
     let (completion_tx, completion_rx) = oneshot::channel();
     let (mut bridge_read, mut bridge_write) = tokio::io::split(bridge);
@@ -1214,7 +1253,8 @@ fn pump_operation(
     tokio::spawn(async move {
         let mut buffer = vec![0_u8; 48 * 1024];
         let mut local_closed = false;
-        let mut completion = Err("hosted Runtime agent stream closed without an Exit receipt".to_string());
+        let mut completion =
+            Err("hosted Runtime agent stream closed without an Exit receipt".to_string());
         let mut cancellation_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
         loop {
             tokio::select! {
@@ -1296,8 +1336,13 @@ pub async fn open_tool_transport(
             deadline_ms,
         },
     )?;
-    let (stream, completion) =
-        pump_operation(registry, identity, operation_id, responses, Duration::from_secs(10));
+    let (stream, completion) = pump_operation(
+        registry,
+        identity,
+        operation_id,
+        responses,
+        Duration::from_secs(10),
+    );
     // What the tool printed before failing comes back in its Exit.
     let company = identity.company.clone();
     let connection = connection.to_string();
@@ -1308,7 +1353,6 @@ pub async fn open_tool_transport(
     });
     Ok(stream)
 }
-
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -1447,7 +1491,12 @@ impl RuntimeBridgeDeployment {
             plane_hostname: plane_hostname.to_string(),
             runtime_image: required_environment(COMPANY_IMAGE_ENV)?,
             source_revision: release::source_revision().to_string(),
-            bootstrap_deployment: crate::company_bootstrap::CompanyAdmissionDeployment::from_environment(owner_id, plane_id, plane_hostname)?,
+            bootstrap_deployment:
+                crate::company_bootstrap::CompanyAdmissionDeployment::from_environment(
+                    owner_id,
+                    plane_id,
+                    plane_hostname,
+                )?,
             secret: RuntimeBootstrapSecret::read(Path::new(&path))?,
         };
         if deployment.owner_id.is_nil()
@@ -1504,14 +1553,30 @@ impl RuntimeBridgeBootstrapService {
         // Hold the same company/cell custody locks through generation
         // reservation and capability issuance. A newer bootstrap cannot fence
         // this deployment between its admission check and credential handoff.
-        let mut admission_fence = self.daemon.authority.pool().begin().await.map_err(unavailable)?;
+        let mut admission_fence = self
+            .daemon
+            .authority
+            .pool()
+            .begin()
+            .await
+            .map_err(unavailable)?;
         crate::company_bootstrap::lock_company_admission(
-            &mut admission_fence, request.company_id, request.cell_id,
-        ).await.map_err(unavailable)?;
+            &mut admission_fence,
+            request.company_id,
+            request.cell_id,
+        )
+        .await
+        .map_err(unavailable)?;
         let company = crate::company_bootstrap::company_handle(request.company_id);
         let admission = crate::company_bootstrap::current_company_admission(
-            &mut *admission_fence, Some(request.company_id), Some(request.cell_id), &company,
-        ).await.map_err(unavailable)?.ok_or(BootstrapFailure::IdentityMismatch)?;
+            &mut *admission_fence,
+            Some(request.company_id),
+            Some(request.cell_id),
+            &company,
+        )
+        .await
+        .map_err(unavailable)?
+        .ok_or(BootstrapFailure::IdentityMismatch)?;
         if admission.company_id != request.company_id
             || admission.cell_id != request.cell_id
             || admission.company_handle != company
@@ -1547,8 +1612,7 @@ impl RuntimeBridgeBootstrapService {
             source_revision: request.source_revision,
         };
         let credential =
-            reserve_runtime_generation(&mut admission_fence, &scope, request.operation_id)
-                .await?;
+            reserve_runtime_generation(&mut admission_fence, &scope, request.operation_id).await?;
         let capability = self
             .daemon
             .capabilities
@@ -2322,10 +2386,14 @@ mod tests {
     #[tokio::test]
     async fn admission_and_runtime_generation_share_one_bounded_pool_transaction() {
         let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
-            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping admission/generation concurrency");
+            eprintln!(
+                "RESTLESS_TEST_DATABASE_URL unset; skipping admission/generation concurrency"
+            );
             return;
         };
-        let authority = crate::authority::AuthorityStore::connect(&database_url).await.unwrap();
+        let authority = crate::authority::AuthorityStore::connect(&database_url)
+            .await
+            .unwrap();
         let company_id = Uuid::new_v4();
         let cell_id = Uuid::new_v4();
         let operation = Uuid::new_v4();
@@ -2337,7 +2405,10 @@ mod tests {
             cell_id,
             runtime_id: format!("restless-cell-{cell_id}"),
             runtime_generation: 1,
-            runtime_image: format!("ghcr.io/blueprintlabio/restless-company-runtime@sha256:{}", "b".repeat(64)),
+            runtime_image: format!(
+                "ghcr.io/blueprintlabio/restless-company-runtime@sha256:{}",
+                "b".repeat(64)
+            ),
             volume_name: format!("restless-cell-{cell_id}-data"),
             source_revision: "c".repeat(40),
         };
@@ -2350,21 +2421,32 @@ mod tests {
             tasks.push(tokio::spawn(async move {
                 let mut transaction = authority.pool().begin().await.unwrap();
                 crate::company_bootstrap::lock_company_admission(
-                    &mut transaction, scope.company_id, scope.cell_id,
-                ).await.unwrap();
+                    &mut transaction,
+                    scope.company_id,
+                    scope.cell_id,
+                )
+                .await
+                .unwrap();
                 let credential = reserve_runtime_generation(&mut transaction, &scope, operation)
-                    .await.unwrap();
+                    .await
+                    .unwrap();
                 transaction.commit().await.unwrap();
                 credential
             }));
         }
         let leases = tokio::time::timeout(Duration::from_secs(10), async {
             let mut leases = Vec::new();
-            for task in tasks { leases.push(task.await.unwrap()); }
+            for task in tasks {
+                leases.push(task.await.unwrap());
+            }
             leases
-        }).await.expect("bounded admission pool must make progress");
-        assert!(leases.iter().all(|lease| lease.credential_id == leases[0].credential_id
-            && lease.credential_epoch == 1));
+        })
+        .await
+        .expect("bounded admission pool must make progress");
+        assert!(leases
+            .iter()
+            .all(|lease| lease.credential_id == leases[0].credential_id
+                && lease.credential_epoch == 1));
         let count: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM restless_authority.runtime_bridge_generations WHERE cell_id=$1 AND runtime_generation=1"
         ).bind(cell_id).fetch_one(authority.pool()).await.unwrap();
@@ -2374,17 +2456,22 @@ mod tests {
         let mut replacement = scope.clone();
         replacement.runtime_generation = 2;
         let mut transaction = authority.pool().begin().await.unwrap();
-        crate::company_bootstrap::lock_company_admission(
-            &mut transaction, company_id, cell_id,
-        ).await.unwrap();
-        reserve_runtime_generation(&mut transaction, &replacement, Uuid::new_v4()).await.unwrap();
+        crate::company_bootstrap::lock_company_admission(&mut transaction, company_id, cell_id)
+            .await
+            .unwrap();
+        reserve_runtime_generation(&mut transaction, &replacement, Uuid::new_v4())
+            .await
+            .unwrap();
         transaction.rollback().await.unwrap();
         let generation: i64 = sqlx::query_scalar(
             "SELECT runtime_generation FROM restless_authority.runtime_bridge_generations WHERE cell_id=$1"
         ).bind(cell_id).fetch_one(authority.pool()).await.unwrap();
         assert_eq!(generation, 1);
         sqlx::query("DELETE FROM restless_authority.runtime_bridge_generations WHERE cell_id=$1")
-            .bind(cell_id).execute(authority.pool()).await.unwrap();
+            .bind(cell_id)
+            .execute(authority.pool())
+            .await
+            .unwrap();
     }
 
     fn identity(generation: i64) -> RuntimeIdentity {

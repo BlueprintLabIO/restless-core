@@ -11,9 +11,7 @@ use chrono::{DateTime, Utc};
 use restless_orgintel::{ArtifactRefRow, ScheduleRow};
 use serde::Serialize;
 
-use crate::{
-    airwallex, approval, credential, finance, legal, reconcile, runtime, Daemon,
-};
+use crate::{airwallex, approval, credential, finance, legal, reconcile, runtime, Daemon};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -661,7 +659,10 @@ pub async fn project(
         Some(issue) => Some(issue),
         None => credential_cooldown_issue(
             config,
-            authority.as_ref().map(|value| value.cooldowns.as_slice()).unwrap_or(&[]),
+            authority
+                .as_ref()
+                .map(|value| value.cooldowns.as_slice())
+                .unwrap_or(&[]),
         ),
     };
     company_doctor.checks.insert(
@@ -863,8 +864,12 @@ async fn read_authority(daemon: &Daemon, company: &str) -> Result<AuthorityProje
         daemon
             .authority
             .records_of_kind(company, "effect_reconciled"),
-        daemon.authority.records_of_kind(company, "email_send_reserved"),
-        daemon.authority.records_of_kind(company, "email_send_status"),
+        daemon
+            .authority
+            .records_of_kind(company, "email_send_reserved"),
+        daemon
+            .authority
+            .records_of_kind(company, "email_send_status"),
         legal::get_profile(&daemon.authority, company),
         airwallex::connection(&daemon.authority, company),
         finance::envelopes(&daemon.authority, company),
@@ -922,13 +927,10 @@ async fn resources(
     let observed_at = Utc::now();
     let mut items = Vec::new();
     let model_cooldown = authority.and_then(|value| {
-        value
-            .cooldowns
-            .iter()
-            .find(|cooldown| {
-                cooldown.model == config.model
-                    || Some(cooldown.model.as_str()) == config.for_agent("exec").configured_model()
-            })
+        value.cooldowns.iter().find(|cooldown| {
+            cooldown.model == config.model
+                || Some(cooldown.model.as_str()) == config.for_agent("exec").configured_model()
+        })
     });
     items.push(ResourceRow {
         id: "model:primary".into(),
@@ -1374,38 +1376,69 @@ fn actions(authority: Option<&AuthorityProjection>) -> ExternalActions {
     ));
     let mut latest_email_status = std::collections::BTreeMap::new();
     for status in &authority.email_statuses {
-        if let Some(id) = status.body.get("permit_id").and_then(serde_json::Value::as_str) {
+        if let Some(id) = status
+            .body
+            .get("permit_id")
+            .and_then(serde_json::Value::as_str)
+        {
             latest_email_status.insert(id.to_owned(), status);
         }
     }
-    items.extend(authority.email_reservations.iter().rev().take(50).filter_map(|reservation| {
-        let permit_id = reservation.body.get("permit_id")?.as_str()?;
-        let status = latest_email_status.get(permit_id);
-        let outcome = status
-            .and_then(|record| record.body.get("outcome"))
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("unknown");
-        let (state, evidence, detail) = match outcome {
-            "confirmed_sent" => ("succeeded", "provider_confirmed", "Resend accepted the email; delivery is unconfirmed."),
-            "confirmed_not_sent" => ("failed", "provider_confirmed", "Resend did not accept the email."),
-            _ => ("unknown", "authority_recorded", "The email send outcome needs reconciliation; do not retry."),
-        };
-        Some(ExternalActionRow {
-            id: format!("email:{permit_id}"),
-            title: "Outbound email".into(),
-            effect_class: "customer-contact.email".into(),
-            source: "authority_provider",
-            state: state.into(),
-            evidence,
-            actor: Some("exec".into()),
-            party: reservation.body.get("recipient").and_then(serde_json::Value::as_str).map(str::to_owned),
-            receipt_ref: status.and_then(|record| record.body.get("provider_ref"))
-                .and_then(serde_json::Value::as_str).map(str::to_owned),
-            detail: Some(detail.into()),
-            work_id: None,
-            observed_at: status.map(|record| record.created_at).unwrap_or(reservation.created_at),
-        })
-    }));
+    items.extend(
+        authority
+            .email_reservations
+            .iter()
+            .rev()
+            .take(50)
+            .filter_map(|reservation| {
+                let permit_id = reservation.body.get("permit_id")?.as_str()?;
+                let status = latest_email_status.get(permit_id);
+                let outcome = status
+                    .and_then(|record| record.body.get("outcome"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("unknown");
+                let (state, evidence, detail) = match outcome {
+                    "confirmed_sent" => (
+                        "succeeded",
+                        "provider_confirmed",
+                        "Resend accepted the email; delivery is unconfirmed.",
+                    ),
+                    "confirmed_not_sent" => (
+                        "failed",
+                        "provider_confirmed",
+                        "Resend did not accept the email.",
+                    ),
+                    _ => (
+                        "unknown",
+                        "authority_recorded",
+                        "The email send outcome needs reconciliation; do not retry.",
+                    ),
+                };
+                Some(ExternalActionRow {
+                    id: format!("email:{permit_id}"),
+                    title: "Outbound email".into(),
+                    effect_class: "customer-contact.email".into(),
+                    source: "authority_provider",
+                    state: state.into(),
+                    evidence,
+                    actor: Some("exec".into()),
+                    party: reservation
+                        .body
+                        .get("recipient")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned),
+                    receipt_ref: status
+                        .and_then(|record| record.body.get("provider_ref"))
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned),
+                    detail: Some(detail.into()),
+                    work_id: None,
+                    observed_at: status
+                        .map(|record| record.created_at)
+                        .unwrap_or(reservation.created_at),
+                })
+            }),
+    );
     items.extend(
         authority
             .payments
@@ -1604,7 +1637,10 @@ pub async fn governance_activity(
         match kind.as_str() {
             "effect" => items.push(action_from_receipt(row, &reconciled_receipts)),
             "email_send_reserved" => {
-                let Some(permit_id) = row.body.get("permit_id").and_then(serde_json::Value::as_str)
+                let Some(permit_id) = row
+                    .body
+                    .get("permit_id")
+                    .and_then(serde_json::Value::as_str)
                 else {
                     continue;
                 };
@@ -1618,9 +1654,21 @@ pub async fn governance_activity(
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or("unknown");
                 let (state, evidence, detail) = match outcome {
-                    "confirmed_sent" => ("succeeded", "provider_confirmed", "Resend accepted the email; delivery is unconfirmed."),
-                    "confirmed_not_sent" => ("failed", "provider_confirmed", "Resend did not accept the email."),
-                    _ => ("unknown", "authority_recorded", "The email send outcome needs reconciliation; do not retry."),
+                    "confirmed_sent" => (
+                        "succeeded",
+                        "provider_confirmed",
+                        "Resend accepted the email; delivery is unconfirmed.",
+                    ),
+                    "confirmed_not_sent" => (
+                        "failed",
+                        "provider_confirmed",
+                        "Resend did not accept the email.",
+                    ),
+                    _ => (
+                        "unknown",
+                        "authority_recorded",
+                        "The email send outcome needs reconciliation; do not retry.",
+                    ),
                 };
                 items.push(ExternalActionRow {
                     id: format!("email:{permit_id}"),
@@ -1689,12 +1737,17 @@ fn model_words(model: &str) -> String {
             index += 2;
             continue;
         }
-        words.push(if matches!(part.to_ascii_lowercase().as_str(), "gpt" | "glm" | "oss") {
-            part.to_ascii_uppercase()
-        } else {
-            let mut chars = part.chars();
-            chars.next().map(|first| first.to_uppercase().chain(chars).collect()).unwrap_or_default()
-        });
+        words.push(
+            if matches!(part.to_ascii_lowercase().as_str(), "gpt" | "glm" | "oss") {
+                part.to_ascii_uppercase()
+            } else {
+                let mut chars = part.chars();
+                chars
+                    .next()
+                    .map(|first| first.to_uppercase().chain(chars).collect())
+                    .unwrap_or_default()
+            },
+        );
         index += 1;
     }
     words.join(" ")
@@ -1767,7 +1820,10 @@ fn setting_change_title(kind: &str, body: &serde_json::Value) -> Option<String> 
         crate::outside_actions::PAUSED => "Outside actions paused".into(),
         crate::outside_actions::RESUMED => "Outside actions resumed".into(),
         "money_envelope_changed" => {
-            format!("{} payment allowance changed", text("currency").unwrap_or(""))
+            format!(
+                "{} payment allowance changed",
+                text("currency").unwrap_or("")
+            )
         }
         "financial_effects_frozen" => format!("{} payments frozen", text("currency").unwrap_or("")),
         "financial_effects_unfrozen" => {
@@ -1786,7 +1842,9 @@ fn setting_change_title(kind: &str, body: &serde_json::Value) -> Option<String> 
         ),
         "company_model_changed" => format!(
             "Company model changed to {}",
-            text("to").map(model_words).unwrap_or_else(|| "another model".into())
+            text("to")
+                .map(model_words)
+                .unwrap_or_else(|| "another model".into())
         ),
         "agent_model_changed" => match text("model") {
             Some(model) => format!(
@@ -1812,12 +1870,20 @@ fn setting_change_title(kind: &str, body: &serde_json::Value) -> Option<String> 
                 }
             }
             if let Some(replaced) = body.get("replaced").filter(|value| !value.is_null()) {
-                let old = replaced.get("label").and_then(serde_json::Value::as_str).unwrap_or("the earlier connection");
+                let old = replaced
+                    .get("label")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("the earlier connection");
                 title.push_str(&format!(", replacing {old}"));
                 let agents: Vec<&str> = replaced
                     .get("agents")
                     .and_then(serde_json::Value::as_array)
-                    .map(|agents| agents.iter().filter_map(serde_json::Value::as_str).collect())
+                    .map(|agents| {
+                        agents
+                            .iter()
+                            .filter_map(serde_json::Value::as_str)
+                            .collect()
+                    })
                     .unwrap_or_default();
                 if !agents.is_empty() {
                     title.push_str(&format!(
@@ -1840,7 +1906,8 @@ fn setting_change_title(kind: &str, body: &serde_json::Value) -> Option<String> 
             "{} removed from the company",
             text("label").unwrap_or("A model connection")
         ),
-        "brand_voice_changed" => match text("account").filter(|account| !account.trim().is_empty()) {
+        "brand_voice_changed" => match text("account").filter(|account| !account.trim().is_empty())
+        {
             Some(account) => format!("Brand changed: {account}"),
             None => "Brand changed".into(),
         },
@@ -1858,7 +1925,10 @@ fn action_from_receipt(
         .get("id")
         .and_then(serde_json::Value::as_str)
         .map(str::to_string);
-    let reconciled = row.body.get("outcome").is_some_and(reconcile::is_reconciled)
+    let reconciled = row
+        .body
+        .get("outcome")
+        .is_some_and(reconcile::is_reconciled)
         || receipt_ref
             .as_ref()
             .is_some_and(|id| reconciled_receipts.contains(id));
@@ -2055,7 +2125,11 @@ fn company_doctor(
                     id: "resources",
                     label: "Disk, memory and processor",
                     source: "runtime",
-                    status: if pressure.is_some() { "degraded" } else { "healthy" },
+                    status: if pressure.is_some() {
+                        "degraded"
+                    } else {
+                        "healthy"
+                    },
                     summary: pressure.unwrap_or_else(|| "Enough room to work.".into()),
                     detail: None,
                 });
@@ -2277,22 +2351,38 @@ pub async fn roll_forward_runtimes(daemon: &Daemon, configs: &[runtime::CompanyC
     let mut fetched = false;
     for (look, delay) in DELAYS.into_iter().enumerate() {
         tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
-        note_roll_forward_stage("fetching_image", Some(format!("look {} of {}", look + 1, DELAYS.len())));
+        note_roll_forward_stage(
+            "fetching_image",
+            Some(format!("look {} of {}", look + 1, DELAYS.len())),
+        );
         if let Err(error) = runtime::fetch_company_image().await {
-            note_roll_forward_stage("fetch_failed", Some(format!("look {} of {}: {error:#}", look + 1, DELAYS.len())));
-            tracing::warn!("release roll-forward could not fetch this release's company image: {error:#}");
+            note_roll_forward_stage(
+                "fetch_failed",
+                Some(format!("look {} of {}: {error:#}", look + 1, DELAYS.len())),
+            );
+            tracing::warn!(
+                "release roll-forward could not fetch this release's company image: {error:#}"
+            );
             fetched = false;
             continue;
         }
         fetched = true;
         note_roll_forward_stage(
             "looking",
-            Some(format!("look {} of {}, {} companies", look + 1, DELAYS.len(), configs.len())),
+            Some(format!(
+                "look {} of {}, {} companies",
+                look + 1,
+                DELAYS.len(),
+                configs.len()
+            )),
         );
         roll_forward_once(daemon, configs).await;
     }
     while fetched && roll_forward_deferred() {
-        note_roll_forward_stage("waiting_for_quiet", Some("a company is in use; looking again in 10 minutes".into()));
+        note_roll_forward_stage(
+            "waiting_for_quiet",
+            Some("a company is in use; looking again in 10 minutes".into()),
+        );
         tokio::time::sleep(std::time::Duration::from_secs(600)).await;
         roll_forward_once(daemon, configs).await;
     }
@@ -2303,27 +2393,51 @@ pub async fn roll_forward_runtimes(daemon: &Daemon, configs: &[runtime::CompanyC
 }
 
 /// When each company's rebuild was first held back because it was in use.
-static DEFERRED_SINCE: std::sync::LazyLock<std::sync::Mutex<std::collections::BTreeMap<String, chrono::DateTime<Utc>>>> =
-    std::sync::LazyLock::new(Default::default);
+static DEFERRED_SINCE: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::BTreeMap<String, chrono::DateTime<Utc>>>,
+> = std::sync::LazyLock::new(Default::default);
 const MAX_DEFERRAL_HOURS: i64 = 6;
 
 fn roll_forward_deferred() -> bool {
-    DEFERRED_SINCE.lock().map(|deferred| !deferred.is_empty()).unwrap_or(false)
+    DEFERRED_SINCE
+        .lock()
+        .map(|deferred| !deferred.is_empty())
+        .unwrap_or(false)
 }
 
 /// Why a company's computer should not be replaced right now, if it should not: Exec is mid-turn,
 /// an agent's Work is running, or the owner wrote in the last ten minutes.
 async fn company_busy(daemon: &Daemon, company: &str) -> Option<String> {
-    if daemon.in_flight.lock().map(|claims| claims.is_active(company)).unwrap_or(false) {
+    if daemon
+        .in_flight
+        .lock()
+        .map(|claims| claims.is_active(company))
+        .unwrap_or(false)
+    {
         return Some("Exec is working".into());
     }
     let org = daemon.orgintel.get(company).await.ok()?;
-    if org.list_running_work_attempts().await.map(|attempts| !attempts.is_empty()).unwrap_or(false) {
+    if org
+        .list_running_work_attempts()
+        .await
+        .map(|attempts| !attempts.is_empty())
+        .unwrap_or(false)
+    {
         return Some("Work is running".into());
     }
-    let owner = org.current_membership_owner_actor_id().await.ok().flatten().unwrap_or_else(|| "owner".into());
-    let recent = org.human_conversation(&owner, "exec", 1).await.ok().and_then(|mut messages| messages.pop());
-    if recent.is_some_and(|message| message.created_at > Utc::now() - chrono::Duration::minutes(10)) {
+    let owner = org
+        .current_membership_owner_actor_id()
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "owner".into());
+    let recent = org
+        .human_conversation(&owner, "exec", 1)
+        .await
+        .ok()
+        .and_then(|mut messages| messages.pop());
+    if recent.is_some_and(|message| message.created_at > Utc::now() - chrono::Duration::minutes(10))
+    {
         return Some("the owner is in a conversation".into());
     }
     None
@@ -2343,11 +2457,13 @@ pub async fn plane_busy(daemon: &Daemon) -> Option<String> {
 
 /// Each company's latest roll-forward look on this plane, for the plane's /health: what it saw and
 /// did. Process memory only; a restarted plane starts empty and looks again.
-static ROLL_FORWARD: std::sync::LazyLock<std::sync::Mutex<std::collections::BTreeMap<String, serde_json::Value>>> =
-    std::sync::LazyLock::new(Default::default);
+static ROLL_FORWARD: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::BTreeMap<String, serde_json::Value>>,
+> = std::sync::LazyLock::new(Default::default);
 
 /// Where the plane's roll-forward is: started, fetching the image, failed to fetch, looking, done.
-static ROLL_FORWARD_STAGE: std::sync::Mutex<Option<serde_json::Value>> = std::sync::Mutex::new(None);
+static ROLL_FORWARD_STAGE: std::sync::Mutex<Option<serde_json::Value>> =
+    std::sync::Mutex::new(None);
 
 pub fn note_roll_forward_stage(stage: &str, detail: Option<String>) {
     if let Ok(mut current) = ROLL_FORWARD_STAGE.lock() {
@@ -2626,7 +2742,11 @@ mod tests {
             "Anthropic API key connected as the company model (Claude Sonnet 5.5), replacing Claude sign-in; Emeka still used it and must be given a model again"
         );
         assert_eq!(
-            setting_change_title("company_renamed", &serde_json::json!({"from": "S73 Test", "to": "Reno"})).unwrap(),
+            setting_change_title(
+                "company_renamed",
+                &serde_json::json!({"from": "S73 Test", "to": "Reno"})
+            )
+            .unwrap(),
             "Company renamed from S73 Test to Reno"
         );
     }
@@ -2680,19 +2800,49 @@ mod tests {
     #[test]
     fn only_a_running_or_stopped_computer_on_another_release_image_is_rolled_forward() {
         let with = |container, current: Option<&str>, target: Option<&str>| {
-            let mut value = doctor(container, runtime::ReconciliationStatus::Required, None, None, None);
+            let mut value = doctor(
+                container,
+                runtime::ReconciliationStatus::Required,
+                None,
+                None,
+                None,
+            );
             value.container_image_id = current.map(Into::into);
             value.target_image_id = target.map(Into::into);
             value
         };
         use runtime::ContainerStatus::{Absent, Running, Stopped};
-        assert!(runtime_image_drifted(&with(Running, Some("sha256:old"), Some("sha256:new"))));
-        assert!(runtime_image_drifted(&with(Stopped, Some("sha256:old"), Some("sha256:new"))));
+        assert!(runtime_image_drifted(&with(
+            Running,
+            Some("sha256:old"),
+            Some("sha256:new")
+        )));
+        assert!(runtime_image_drifted(&with(
+            Stopped,
+            Some("sha256:old"),
+            Some("sha256:new")
+        )));
         // Same image, an absent computer, or an image Docker cannot name: the owner decides.
-        assert!(!runtime_image_drifted(&with(Running, Some("sha256:new"), Some("sha256:new"))));
-        assert!(!runtime_image_drifted(&with(Absent, None, Some("sha256:new"))));
-        assert!(!runtime_image_drifted(&with(Running, None, Some("sha256:new"))));
-        assert!(!runtime_image_drifted(&with(Running, Some("sha256:old"), None)));
+        assert!(!runtime_image_drifted(&with(
+            Running,
+            Some("sha256:new"),
+            Some("sha256:new")
+        )));
+        assert!(!runtime_image_drifted(&with(
+            Absent,
+            None,
+            Some("sha256:new")
+        )));
+        assert!(!runtime_image_drifted(&with(
+            Running,
+            None,
+            Some("sha256:new")
+        )));
+        assert!(!runtime_image_drifted(&with(
+            Running,
+            Some("sha256:old"),
+            None
+        )));
     }
 
     fn doctor(
@@ -2795,9 +2945,13 @@ mod tests {
         assert_eq!(roomy.cpu_pressure_percent, Some(3.1));
         assert_eq!(roomy.pressure(), None);
         let full = runtime::ResourceDoctor::parse("disk_total_kb 104857600\ndisk_free_kb 524288\n");
-        assert!(full.pressure().is_some_and(|sentence| sentence.starts_with("Company files have")));
+        assert!(full
+            .pressure()
+            .is_some_and(|sentence| sentence.starts_with("Company files have")));
         let killed = runtime::ResourceDoctor::parse("oom_kill 2\n");
-        assert!(killed.pressure().is_some_and(|sentence| sentence.contains("ran out of memory")));
+        assert!(killed
+            .pressure()
+            .is_some_and(|sentence| sentence.contains("ran out of memory")));
     }
 
     #[test]
@@ -2843,13 +2997,24 @@ model = "litellm/deepseek-v4.1-flash"
             reason: "[credential] provider rejected the credential: 401 invalid x-api-key".into(),
             retry_at: chrono::Utc::now() + chrono::Duration::hours(24),
         };
-        let issue = credential_cooldown_issue(&config, &[cooldown("anthropic/claude-sonnet-5-5", "credential")])
-            .expect("a rejected key on Exec's model is reported");
+        let issue = credential_cooldown_issue(
+            &config,
+            &[cooldown("anthropic/claude-sonnet-5-5", "credential")],
+        )
+        .expect("a rejected key on Exec's model is reported");
         assert!(issue.starts_with("Anthropic rejected the key for anthropic/claude-sonnet-5-5."));
         assert!(issue.contains("Account → Connections"));
         // A rate limit is a retry, and a cooldown on a model Exec does not use is not its problem.
-        assert!(credential_cooldown_issue(&config, &[cooldown("anthropic/claude-sonnet-5-5", "quota")]).is_none());
-        assert!(credential_cooldown_issue(&config, &[cooldown("litellm/deepseek-v4.1-flash", "credential")]).is_none());
+        assert!(credential_cooldown_issue(
+            &config,
+            &[cooldown("anthropic/claude-sonnet-5-5", "quota")]
+        )
+        .is_none());
+        assert!(credential_cooldown_issue(
+            &config,
+            &[cooldown("litellm/deepseek-v4.1-flash", "credential")]
+        )
+        .is_none());
         assert!(credential_cooldown_issue(&config, &[]).is_none());
     }
 
@@ -2973,7 +3138,11 @@ model = "moonshot/kimi-k3"
         assert_eq!(documents.status, "unavailable");
         assert_eq!(rooms.status, "available");
         // An installed command is not proof that agents can use it.
-        assert!(rooms.detail.as_deref().unwrap().contains("installation only"));
+        assert!(rooms
+            .detail
+            .as_deref()
+            .unwrap()
+            .contains("installation only"));
         assert_ne!(report.status, "healthy");
     }
 
@@ -3089,9 +3258,7 @@ pub fn credential_cooldown_issue(
     ))
 }
 
-pub async fn observed_company_model_issue(
-    config: &runtime::CompanyConfig,
-) -> Option<String> {
+pub async fn observed_company_model_issue(config: &runtime::CompanyConfig) -> Option<String> {
     let exec = config.for_agent("exec");
     if exec.native_model(exec.coordination_harness).is_some() {
         let harness = match exec.coordination_harness {
@@ -3114,10 +3281,7 @@ pub async fn observed_company_model_issue(
             _ => None,
         }
     } else if exec.configured_model().is_none() {
-        Some(
-            "Connect a model in Company → Intelligence."
-                .to_string(),
-        )
+        Some("Connect a model in Company → Intelligence.".to_string())
     } else {
         crate::model_gateway::unstartable_reason(&config.name)
     }

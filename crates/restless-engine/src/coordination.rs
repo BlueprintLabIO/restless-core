@@ -130,12 +130,18 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
         }
         return Response::ok_serialized(appliance_drain_status(daemon));
     }
-    if matches!(request.cmd.as_str(), "browser-session-register" | "browser-session-release") {
+    if matches!(
+        request.cmd.as_str(),
+        "browser-session-register" | "browser-session-release"
+    ) {
         let Some(company) = request.company.as_deref() else {
             return Response::err("browser session request needs a company");
         };
         let Some(grant) = request.verified_coordination.as_ref() else {
-            return Response::err_kind("forbidden", "browser sessions require a signed ActorSession");
+            return Response::err_kind(
+                "forbidden",
+                "browser sessions require a signed ActorSession",
+            );
         };
         if grant.work_id.is_some() != grant.attempt_id.is_some() {
             return Response::err("browser sessions need both Work and Attempt scope, or neither");
@@ -172,10 +178,15 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 daemon.capabilities.verify_coordination(token),
                 Ok(ref current) if current == grant
             ) {
-                return Response::err_kind("authority", "browser attachment session expired while waiting");
+                return Response::err_kind(
+                    "authority",
+                    "browser attachment session expired while waiting",
+                );
             }
             if let (Some(work_id), Some(attempt_id)) = (grant.work_id, grant.attempt_id) {
-                let attempts = match org.as_ref().expect("Work-scoped sessions require OrgIntel")
+                let attempts = match org
+                    .as_ref()
+                    .expect("Work-scoped sessions require OrgIntel")
                     .list_work_attempts(Some(work_id))
                     .await
                 {
@@ -194,21 +205,29 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 }
             }
             if let Ok(Some(previous)) = runtime::read_browser_agent_session(company).await {
-                let previous_is_running = match (previous.work_id, previous.attempt_id, org.as_ref()) {
-                    (Some(work_id), Some(attempt_id), Some(org)) => org
-                        .list_work_attempts(Some(work_id))
-                        .await
-                        .map(|attempts| attempts.iter().any(|attempt| {
-                            attempt.id == attempt_id
-                                && attempt.actor_id == previous.actor
-                                && attempt.state == restless_orgintel::WorkAttemptState::Running
-                        }))
-                        .unwrap_or(true),
-                    _ => true,
-                };
+                let previous_is_running =
+                    match (previous.work_id, previous.attempt_id, org.as_ref()) {
+                        (Some(work_id), Some(attempt_id), Some(org)) => org
+                            .list_work_attempts(Some(work_id))
+                            .await
+                            .map(|attempts| {
+                                attempts.iter().any(|attempt| {
+                                    attempt.id == attempt_id
+                                        && attempt.actor_id == previous.actor
+                                        && attempt.state
+                                            == restless_orgintel::WorkAttemptState::Running
+                                })
+                            })
+                            .unwrap_or(true),
+                        _ => true,
+                    };
                 if !previous_is_running {
-                    if let Err(error) = runtime::clear_browser_agent_session(company, &previous.ticket).await {
-                        return Response::err(format!("clear stale browser registration: {error:#}"));
+                    if let Err(error) =
+                        runtime::clear_browser_agent_session(company, &previous.ticket).await
+                    {
+                        return Response::err(format!(
+                            "clear stale browser registration: {error:#}"
+                        ));
                     }
                 }
             }
@@ -4842,12 +4861,21 @@ pub fn artifact_label_from_uri(uri: &str) -> String {
     }
     let mut segments = path.rsplit('/').filter(|segment| !segment.is_empty());
     let name = segments.next().unwrap_or(path);
-    let name = if name.eq_ignore_ascii_case("index.html") || name.eq_ignore_ascii_case("index.htm") {
+    let name = if name.eq_ignore_ascii_case("index.html") || name.eq_ignore_ascii_case("index.htm")
+    {
         // `…/q4-review/deck/index.html` is the Q4 review, not "deck".
         let mut folder = segments.next().unwrap_or(name);
         while matches!(
             folder.to_ascii_lowercase().as_str(),
-            "deck" | "slides" | "presentation" | "site" | "dist" | "build" | "public" | "out" | "www"
+            "deck"
+                | "slides"
+                | "presentation"
+                | "site"
+                | "dist"
+                | "build"
+                | "public"
+                | "out"
+                | "www"
         ) {
             match segments.next() {
                 Some(parent) if !matches!(parent, "outputs" | "company") => folder = parent,
@@ -4920,15 +4948,21 @@ pub async fn send_mandated_email(
         }
     };
     let (status, provider_ref, provider_detail) = match &outcome {
-        email::EmailSendOutcome::Accepted { provider_id } => {
-            (mandate::ProviderOutcome::ConfirmedSent, Some(provider_id.as_str()), None)
-        }
-        email::EmailSendOutcome::Rejected { status } => {
-            (mandate::ProviderOutcome::ConfirmedNotSent, None, Some(format!("Resend HTTP {status}")))
-        }
-        email::EmailSendOutcome::Unknown { reason } => {
-            (mandate::ProviderOutcome::Unknown, None, Some(reason.clone()))
-        }
+        email::EmailSendOutcome::Accepted { provider_id } => (
+            mandate::ProviderOutcome::ConfirmedSent,
+            Some(provider_id.as_str()),
+            None,
+        ),
+        email::EmailSendOutcome::Rejected { status } => (
+            mandate::ProviderOutcome::ConfirmedNotSent,
+            None,
+            Some(format!("Resend HTTP {status}")),
+        ),
+        email::EmailSendOutcome::Unknown { reason } => (
+            mandate::ProviderOutcome::Unknown,
+            None,
+            Some(reason.clone()),
+        ),
     };
     if let Err(error) = daemon
         .authority
@@ -5278,7 +5312,11 @@ mod tests {
         }
         // Guard the guard: a source move once left this matching its own
         // search string, which checked nothing.
-        assert!(verbs.len() > 40, "found only {} dispatch verbs; is the match still in this file?", verbs.len());
+        assert!(
+            verbs.len() > 40,
+            "found only {} dispatch verbs; is the match still in this file?",
+            verbs.len()
+        );
         verbs.insert("company-list".to_string());
         for verb in verbs {
             assert!(
@@ -5346,7 +5384,8 @@ mod tests {
     #[test]
     fn nonstable_profiles_default_to_distinct_authority_databases() {
         let stable =
-            restless_contracts::appliance::MachineProfile::stable(Path::new("/Users/founder")).unwrap();
+            restless_contracts::appliance::MachineProfile::stable(Path::new("/Users/founder"))
+                .unwrap();
         let dev = restless_contracts::appliance::MachineProfile {
             kind: restless_contracts::appliance::ProfileKind::Dev,
             state_root: PathBuf::from("/tmp/restless-dev-profile"),
@@ -5650,7 +5689,13 @@ mod tests {
 
         // Direction pins the authenticated Actor too; the dispatcher then admits only Exec.
         let token = issuer
-            .issue_actor_session("acme_test", "delivery-lead", "direction_session", None, None)
+            .issue_actor_session(
+                "acme_test",
+                "delivery-lead",
+                "direction_session",
+                None,
+                None,
+            )
             .unwrap();
         let value = serde_json::json!({"cmd":"direction-operation","company":"acme_test","session_capability":token,"direction_operation":{"operation":"grants"}});
         let mut direction = decoded_request(value.clone());
@@ -5658,7 +5703,12 @@ mod tests {
         assert_eq!(direction.orgintel.actor.as_deref(), Some("delivery-lead"));
         let mut forged = value;
         forged["actor"] = serde_json::json!("exec");
-        assert!(authenticate_request(&mut decoded_request(forged), &issuer, ConnectionOrigin::RuntimeTcp).is_err());
+        assert!(authenticate_request(
+            &mut decoded_request(forged),
+            &issuer,
+            ConnectionOrigin::RuntimeTcp
+        )
+        .is_err());
 
         let mut owner_claim = decoded_request(serde_json::json!({
             "cmd": "approve",
@@ -5800,7 +5850,9 @@ mod tests {
 }
 
 /// A Goal due date from the CLI: absent leaves it, empty clears it, otherwise YYYY-MM-DD.
-fn parse_goal_due(raw: Option<&str>) -> std::result::Result<Option<Option<chrono::NaiveDate>>, String> {
+fn parse_goal_due(
+    raw: Option<&str>,
+) -> std::result::Result<Option<Option<chrono::NaiveDate>>, String> {
     match raw.map(str::trim) {
         None => Ok(None),
         Some("") => Ok(Some(None)),

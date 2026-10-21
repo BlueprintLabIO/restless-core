@@ -32,7 +32,14 @@ const BURST_FLOOR: i64 = 30;
 const BURST_FACTOR: f64 = 5.0;
 pub const TIERS: &[&str] = &["read", "draft", "act", "spend", "admin"];
 /// Request headers an agent may set; anything that could carry or replace a credential is dropped.
-const ALLOWED_HEADERS: &[&str] = &["accept", "content-type", "x-github-api-version", "if-match", "if-none-match", "idempotency-key"];
+const ALLOWED_HEADERS: &[&str] = &[
+    "accept",
+    "content-type",
+    "x-github-api-version",
+    "if-match",
+    "if-none-match",
+    "idempotency-key",
+];
 
 pub async fn ensure_schema(pool: &PgPool) -> Result<()> {
     for statement in [
@@ -50,7 +57,10 @@ pub async fn ensure_schema(pool: &PgPool) -> Result<()> {
            state TEXT NOT NULL DEFAULT 'open', grant_id TEXT, \
            created_at TIMESTAMPTZ NOT NULL DEFAULT now(), decided_at TIMESTAMPTZ)",
     ] {
-        sqlx::query(statement).execute(pool).await.context("create account broker tables")?;
+        sqlx::query(statement)
+            .execute(pool)
+            .await
+            .context("create account broker tables")?;
     }
     Ok(())
 }
@@ -66,12 +76,24 @@ pub fn implied_tier(kind: &str, method: &str, path: &str) -> &'static str {
         return "read";
     }
     if kind == "github" {
-        let path = path.split('?').next().unwrap_or_default().trim_end_matches('/');
+        let path = path
+            .split('?')
+            .next()
+            .unwrap_or_default()
+            .trim_end_matches('/');
         let parts = path.trim_start_matches('/').split('/').collect::<Vec<_>>();
         let repo_level = parts.first() == Some(&"repos") && parts.len() == 3;
-        let admin_area = ["collaborators", "hooks", "keys", "secrets", "invitations", "transfer", "branches"]
-            .iter()
-            .any(|area| parts.iter().skip(3).any(|part| part == area))
+        let admin_area = [
+            "collaborators",
+            "hooks",
+            "keys",
+            "secrets",
+            "invitations",
+            "transfer",
+            "branches",
+        ]
+        .iter()
+        .any(|area| parts.iter().skip(3).any(|part| part == area))
             && !(method == "POST" && path.ends_with("/branches")); // creating a branch is ordinary work
         if (repo_level && matches!(method.as_str(), "PATCH" | "DELETE")) || admin_area {
             return "admin";
@@ -81,7 +103,8 @@ pub fn implied_tier(kind: &str, method: &str, path: &str) -> &'static str {
         }
         // Proposals: a pull request, an issue, a comment or review, a branch, a draft release.
         let last = parts.last().copied().unwrap_or_default();
-        if method == "POST" && matches!(last, "pulls" | "issues" | "comments" | "reviews" | "gists") {
+        if method == "POST" && matches!(last, "pulls" | "issues" | "comments" | "reviews" | "gists")
+        {
             return "draft";
         }
     }
@@ -117,13 +140,19 @@ pub fn in_scope(kind: &str, scope: &[String], target: Option<&str>, tier: &str) 
         // Account-wide reads (who am I, my repos) stay open; anything else must name its target.
         return tier == "read";
     };
-    scope.iter().map(|entry| entry.trim().to_ascii_lowercase()).any(|entry| {
-        if kind == "github" {
-            entry == target || entry.strip_suffix("/*").is_some_and(|owner| target.split('/').next() == Some(owner))
-        } else {
-            target.to_ascii_lowercase().starts_with(&entry)
-        }
-    })
+    scope
+        .iter()
+        .map(|entry| entry.trim().to_ascii_lowercase())
+        .any(|entry| {
+            if kind == "github" {
+                entry == target
+                    || entry
+                        .strip_suffix("/*")
+                        .is_some_and(|owner| target.split('/').next() == Some(owner))
+            } else {
+                target.to_ascii_lowercase().starts_with(&entry)
+            }
+        })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -150,13 +179,22 @@ pub fn decide(
     now: DateTime<Utc>,
 ) -> Decision {
     if account.frozen {
-        return Decision::Refuse(format!("{} is frozen by the owner; nothing is sent until they unfreeze it.", account.label));
+        return Decision::Refuse(format!(
+            "{} is frozen by the owner; nothing is sent until they unfreeze it.",
+            account.label
+        ));
     }
     if grant.frozen {
-        return Decision::Refuse(format!("This company's use of {} is frozen by the owner.", account.label));
+        return Decision::Refuse(format!(
+            "This company's use of {} is frozen by the owner.",
+            account.label
+        ));
     }
     if grant.limits.expires_at.is_some_and(|expiry| expiry <= now) {
-        return Decision::Refuse(format!("This company's grant of {} has expired. Ask the owner to renew it.", account.label));
+        return Decision::Refuse(format!(
+            "This company's grant of {} has expired. Ask the owner to renew it.",
+            account.label
+        ));
     }
     if let Who::Actors { actors } = &grant.who {
         if !actors.iter().any(|named| named == actor) {
@@ -197,16 +235,23 @@ pub fn decide(
     if tier != "read" {
         if let Some(cap) = grant.limits.actions_per_day {
             if actions_today >= cap {
-                return Decision::Ask(format!("{} has used its {cap} actions today with {}; this one asks the owner.", grant.company, account.label));
+                return Decision::Ask(format!(
+                    "{} has used its {cap} actions today with {}; this one asks the owner.",
+                    grant.company, account.label
+                ));
             }
         }
     }
     if tier == "spend" {
         let Some(cost) = cost_micros else {
-            return Decision::Ask("A spend that does not say what it costs asks the owner first.".into());
+            return Decision::Ask(
+                "A spend that does not say what it costs asks the owner first.".into(),
+            );
         };
         return match &grant.spend_cap {
-            Some(cap) if spent_in_period.saturating_add(cost) <= cap.amount_micros => Decision::RunAndTell,
+            Some(cap) if spent_in_period.saturating_add(cost) <= cap.amount_micros => {
+                Decision::RunAndTell
+            }
             Some(cap) => Decision::Ask(format!(
                 "This spend would pass the {} cap of {:.2} per {}; it asks the owner.",
                 account.label,
@@ -214,13 +259,19 @@ pub fn decide(
                 cap.period
             )),
             None if mode == "allow" => Decision::RunAndTell,
-            None => Decision::Ask(format!("Spending with {} asks the owner first.", account.label)),
+            None => Decision::Ask(format!(
+                "Spending with {} asks the owner first.",
+                account.label
+            )),
         };
     }
     match mode.as_str() {
         "allow" => Decision::Run,
         "tell" => Decision::RunAndTell,
-        _ => Decision::Ask(format!("To {tier} with {} this company asks the owner first.", account.label)),
+        _ => Decision::Ask(format!(
+            "To {tier} with {} this company asks the owner first.",
+            account.label
+        )),
     }
 }
 
@@ -277,7 +328,9 @@ pub fn tool_name(account: &Account) -> String {
 
 pub fn is_account_tool(name: &str) -> bool {
     name.starts_with(TOOL_PREFIX)
-        && [TOOL_SUFFIX, GIT_SUFFIX, BROWSER_SUFFIX, FILL_SUFFIX].iter().any(|suffix| name.ends_with(suffix))
+        && [TOOL_SUFFIX, GIT_SUFFIX, BROWSER_SUFFIX, FILL_SUFFIX]
+            .iter()
+            .any(|suffix| name.ends_with(suffix))
 }
 
 const BROWSER_SUFFIX: &str = "__browser";
@@ -396,7 +449,9 @@ pub async fn usable(pool: &PgPool, company: &str, actor: &str) -> Result<Vec<Usa
         .bind(&account.id)
         .fetch_optional(pool)
         .await?;
-        let Some(credential) = credential else { continue };
+        let Some(credential) = credential else {
+            continue;
+        };
         let secrets = match credential.try_get::<serde_json::Value, _>("secrets")? {
             serde_json::Value::Object(secrets) => secrets,
             _ => serde_json::Map::new(),
@@ -418,7 +473,12 @@ pub fn tool_definition(usable: &Usable) -> (String, String, serde_json::Value) {
     let abilities = &usable.grant.abilities;
     let base = match account.kind.as_str() {
         "github" => GITHUB_API.to_string(),
-        _ => usable.settings.get("base_url").and_then(|value| value.as_str()).unwrap_or_default().to_string(),
+        _ => usable
+            .settings
+            .get("base_url")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string(),
     };
     let scope = if usable.grant.limits.scope.is_empty() {
         String::new()
@@ -477,11 +537,24 @@ pub struct Call {
 }
 
 pub fn parse_call(arguments: &serde_json::Map<String, serde_json::Value>) -> Result<Call> {
-    let text = |name: &str| arguments.get(name).and_then(|value| value.as_str()).map(str::trim).filter(|value| !value.is_empty());
-    let method = text("method").context("`method` is required: GET, POST, PUT, PATCH, DELETE or HEAD")?;
-    let method = reqwest::Method::from_bytes(method.to_ascii_uppercase().as_bytes()).context("unknown method")?;
+    let text = |name: &str| {
+        arguments
+            .get(name)
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    };
+    let method =
+        text("method").context("`method` is required: GET, POST, PUT, PATCH, DELETE or HEAD")?;
+    let method = reqwest::Method::from_bytes(method.to_ascii_uppercase().as_bytes())
+        .context("unknown method")?;
     let path = text("path").context("`path` is required, starting with /")?;
-    if !path.starts_with('/') || path.starts_with("//") || path.contains("..") || path.contains('\\') || path.contains('@') {
+    if !path.starts_with('/')
+        || path.starts_with("//")
+        || path.contains("..")
+        || path.contains('\\')
+        || path.contains('@')
+    {
         bail!("`path` is a path under the account's address, starting with / (not a full URL)");
     }
     let mut headers = Vec::new();
@@ -489,7 +562,9 @@ pub fn parse_call(arguments: &serde_json::Map<String, serde_json::Value>) -> Res
         for (name, value) in given {
             let name = name.to_ascii_lowercase();
             if !ALLOWED_HEADERS.contains(&name.as_str()) {
-                bail!("the header {name} is not accepted; the broker attaches the credential itself");
+                bail!(
+                    "the header {name} is not accepted; the broker attaches the credential itself"
+                );
             }
             headers.push((name, value.as_str().unwrap_or_default().to_string()));
         }
@@ -502,7 +577,10 @@ pub fn parse_call(arguments: &serde_json::Map<String, serde_json::Value>) -> Res
     Ok(Call {
         method,
         path: path.to_string(),
-        body: arguments.get("body").cloned().filter(|body| !body.is_null()),
+        body: arguments
+            .get("body")
+            .cloned()
+            .filter(|body| !body.is_null()),
         headers,
         purpose: text("purpose").unwrap_or_default().to_string(),
         declared_tier: text("tier").map(str::to_string),
@@ -557,9 +635,23 @@ pub async fn send(usable: &Usable, call: &Call, secret: &str) -> Result<Answer> 
     let (base, auth, auth_name) = match usable.account.kind.as_str() {
         "github" => (GITHUB_API.to_string(), "bearer".to_string(), None),
         _ => (
-            usable.settings.get("base_url").and_then(|value| value.as_str()).unwrap_or_default().to_string(),
-            usable.settings.get("auth").and_then(|value| value.as_str()).unwrap_or("bearer").to_string(),
-            usable.settings.get("auth_name").and_then(|value| value.as_str()).map(str::to_string),
+            usable
+                .settings
+                .get("base_url")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            usable
+                .settings
+                .get("auth")
+                .and_then(|value| value.as_str())
+                .unwrap_or("bearer")
+                .to_string(),
+            usable
+                .settings
+                .get("auth_name")
+                .and_then(|value| value.as_str())
+                .map(str::to_string),
         ),
     };
     let base = url::Url::parse(&base).context("the account's address is not a URL")?;
@@ -572,7 +664,8 @@ pub async fn send(usable: &Usable, call: &Call, secret: &str) -> Result<Answer> 
         bail!("the call left the account's own address");
     }
     if auth == "query" {
-        url.query_pairs_mut().append_pair(auth_name.as_deref().unwrap_or("key"), &secret);
+        url.query_pairs_mut()
+            .append_pair(auth_name.as_deref().unwrap_or("key"), &secret);
     }
     let client = reqwest::Client::builder()
         .timeout(CALL_TIMEOUT)
@@ -590,7 +683,9 @@ pub async fn send(usable: &Usable, call: &Call, secret: &str) -> Result<Answer> 
         _ => request,
     };
     if usable.account.kind == "github" {
-        request = request.header("accept", "application/vnd.github+json").header("x-github-api-version", "2022-11-28");
+        request = request
+            .header("accept", "application/vnd.github+json")
+            .header("x-github-api-version", "2022-11-28");
     }
     for (name, value) in &call.headers {
         request = request.header(name, value);
@@ -600,12 +695,28 @@ pub async fn send(usable: &Usable, call: &Call, secret: &str) -> Result<Answer> 
         Some(body) => request.json(body),
         None => request,
     };
-    let response = request.send().await.context("the account's service did not answer")?;
+    let response = request
+        .send()
+        .await
+        .context("the account's service did not answer")?;
     let status = response.status().as_u16();
     let mut headers = serde_json::Map::new();
-    for name in ["content-type", "link", "location", "x-ratelimit-remaining", "retry-after"] {
-        if let Some(value) = response.headers().get(name).and_then(|value| value.to_str().ok()) {
-            headers.insert(name.into(), serde_json::Value::String(redact(value, &secret)));
+    for name in [
+        "content-type",
+        "link",
+        "location",
+        "x-ratelimit-remaining",
+        "retry-after",
+    ] {
+        if let Some(value) = response
+            .headers()
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+        {
+            headers.insert(
+                name.into(),
+                serde_json::Value::String(redact(value, &secret)),
+            );
         }
     }
     let text = redact(&response.text().await.unwrap_or_default(), &secret);
@@ -620,7 +731,11 @@ pub async fn send(usable: &Usable, call: &Call, secret: &str) -> Result<Answer> 
             serde_json::Value::String(cut)
         }
     };
-    Ok(Answer { status, headers, body })
+    Ok(Answer {
+        status,
+        headers,
+        body,
+    })
 }
 
 /// The credential, and its encoded forms, never leave in an answer.
@@ -668,7 +783,17 @@ pub async fn record_use(
     .fetch_one(pool)
     .await?;
     if result == "ok" {
-        if let Some(kind) = notice_kind(pool, &usable.account.id, &usable.grant.id, company, tier, target, id).await? {
+        if let Some(kind) = notice_kind(
+            pool,
+            &usable.account.id,
+            &usable.grant.id,
+            company,
+            tier,
+            target,
+            id,
+        )
+        .await?
+        {
             sqlx::query(
                 "INSERT INTO restless_authority.owner_account_notices (id, account_id, grant_id, company, use_id, kind) \
                  VALUES ($1, $2, $3, $4, $5, $6)",
@@ -722,7 +847,15 @@ async fn notice_kind(
     .bind(grant)
     .fetch_one(pool)
     .await?;
-    Ok(notice_for(before, tier, spends, target.is_some() && same_target == 0, last_hour, week, open_burst))
+    Ok(notice_for(
+        before,
+        tier,
+        spends,
+        target.is_some() && same_target == 0,
+        last_hour,
+        week,
+        open_burst,
+    ))
 }
 
 /// Which notice, if any, one use raises. First use outranks everything; a burst is rare by design.
@@ -745,7 +878,10 @@ pub fn notice_for(
         return Some("new_destination");
     }
     let usual_hour = week_before as f64 / (7.0 * 24.0 - 1.0);
-    if !burst_noticed_today && last_hour >= BURST_FLOOR && last_hour as f64 >= BURST_FACTOR * usual_hour.max(1.0) {
+    if !burst_noticed_today
+        && last_hour >= BURST_FLOOR
+        && last_hour as f64 >= BURST_FACTOR * usual_hour.max(1.0)
+    {
         return Some("burst");
     }
     None
@@ -759,7 +895,13 @@ pub struct Notice {
 }
 
 /// The owner's answer to a notice: `fine` closes it; `freeze` also freezes that company's grant.
-pub async fn decide_notice(pool: &PgPool, account: &str, notice: &str, decision: &str, by: &str) -> Result<Option<i64>> {
+pub async fn decide_notice(
+    pool: &PgPool,
+    account: &str,
+    notice: &str,
+    decision: &str,
+    by: &str,
+) -> Result<Option<i64>> {
     if !matches!(decision, "fine" | "freeze") {
         bail!("Answer a notice with fine or freeze.");
     }
@@ -777,17 +919,22 @@ pub async fn decide_notice(pool: &PgPool, account: &str, notice: &str, decision:
     let Some(row) = row else { return Ok(None) };
     if decision == "freeze" {
         if let Some(grant) = row.try_get::<Option<String>, _>("grant_id")? {
-            sqlx::query("UPDATE restless_authority.owner_account_grants SET frozen = TRUE WHERE id = $1")
-                .bind(grant)
-                .execute(pool)
-                .await?;
+            sqlx::query(
+                "UPDATE restless_authority.owner_account_grants SET frozen = TRUE WHERE id = $1",
+            )
+            .bind(grant)
+            .execute(pool)
+            .await?;
         }
     }
     Ok(Some(row.try_get("use_id")?))
 }
 
 /// Notices by use, for the use log.
-pub async fn notices_for_uses(pool: &PgPool, uses: &[i64]) -> Result<std::collections::HashMap<i64, Notice>> {
+pub async fn notices_for_uses(
+    pool: &PgPool,
+    uses: &[i64],
+) -> Result<std::collections::HashMap<i64, Notice>> {
     let rows = sqlx::query(
         "SELECT id, use_id, kind, state FROM restless_authority.owner_account_notices WHERE use_id = ANY($1)",
     )
@@ -796,7 +943,14 @@ pub async fn notices_for_uses(pool: &PgPool, uses: &[i64]) -> Result<std::collec
     .await?;
     rows.iter()
         .map(|row| -> Result<(i64, Notice)> {
-            Ok((row.try_get("use_id")?, Notice { id: row.try_get("id")?, kind: row.try_get("kind")?, state: row.try_get("state")? }))
+            Ok((
+                row.try_get("use_id")?,
+                Notice {
+                    id: row.try_get("id")?,
+                    kind: row.try_get("kind")?,
+                    state: row.try_get("state")?,
+                },
+            ))
         })
         .collect()
 }
@@ -809,11 +963,18 @@ pub async fn open_notices(pool: &PgPool) -> Result<std::collections::HashMap<Str
     )
     .fetch_all(pool)
     .await?;
-    rows.iter().map(|row| Ok((row.try_get("account_id")?, row.try_get("open")?))).collect()
+    rows.iter()
+        .map(|row| Ok((row.try_get("account_id")?, row.try_get("open")?)))
+        .collect()
 }
 
 /// The short form of a use wherever one shows up: a notice, an approval, a receipt.
-pub fn use_block(account: &Account, company: &str, grant: Option<&str>, row: &crate::accounts::Use) -> serde_json::Value {
+pub fn use_block(
+    account: &Account,
+    company: &str,
+    grant: Option<&str>,
+    row: &crate::accounts::Use,
+) -> serde_json::Value {
     serde_json::json!({
         "account": { "id": account.id, "label": account.label, "kind": account.kind, "provider": account.provider },
         "grant_id": grant,
@@ -873,16 +1034,24 @@ pub async fn create_request(
         bail!("Keep the reason to a short paragraph.");
     }
     let abilities = abilities.unwrap_or_default();
-    for mode in [&abilities.read, &abilities.draft, &abilities.act, &abilities.spend, &abilities.admin] {
+    for mode in [
+        &abilities.read,
+        &abilities.draft,
+        &abilities.act,
+        &abilities.spend,
+        &abilities.admin,
+    ] {
         if !matches!(mode.as_str(), "allow" | "tell" | "ask" | "off") {
             bail!("Each ability is allow, tell, ask or off.");
         }
     }
     if let Some(account) = account_id {
-        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM restless_authority.owner_accounts WHERE id = $1)")
-            .bind(account)
-            .fetch_one(pool)
-            .await?;
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM restless_authority.owner_accounts WHERE id = $1)",
+        )
+        .bind(account)
+        .fetch_one(pool)
+        .await?;
         if !exists {
             bail!("That account no longer exists.");
         }
@@ -923,10 +1092,11 @@ pub async fn settle_request(
     grant_id: Option<&str>,
     by: &str,
 ) -> Result<Option<AccountRequest>> {
-    let Some(row) = sqlx::query("SELECT * FROM restless_authority.owner_account_requests WHERE id = $1")
-        .bind(id)
-        .fetch_optional(pool)
-        .await?
+    let Some(row) =
+        sqlx::query("SELECT * FROM restless_authority.owner_account_requests WHERE id = $1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?
     else {
         return Ok(None);
     };
@@ -942,19 +1112,29 @@ pub async fn settle_request(
                 .await?
                 .into_iter()
                 .find(|(grant, _)| grant.account_id == account);
-            let input = crate::accounts::GrantInput { abilities: Some(request.abilities.clone()), ..Default::default() };
+            let input = crate::accounts::GrantInput {
+                abilities: Some(request.abilities.clone()),
+                ..Default::default()
+            };
             Some(match existing {
                 Some((grant, _)) => {
                     crate::accounts::update_grant(pool, account, &grant.id, input).await?;
                     grant.id
                 }
                 None => {
-                    let input = crate::accounts::GrantInput { company: Some(request.company.clone()), ..input };
-                    crate::accounts::create_grant(pool, account, input, by).await?.id
+                    let input = crate::accounts::GrantInput {
+                        company: Some(request.company.clone()),
+                        ..input
+                    };
+                    crate::accounts::create_grant(pool, account, input, by)
+                        .await?
+                        .id
                 }
             })
         }
-        ("approved", None, None) => bail!("Choose which account to grant: approve it with limits from Settings."),
+        ("approved", None, None) => {
+            bail!("Choose which account to grant: approve it with limits from Settings.")
+        }
         _ => bail!("Answer a request with approved or denied."),
     };
     let row = sqlx::query(
@@ -970,7 +1150,10 @@ pub async fn settle_request(
 }
 
 /// Open notices about one company's uses, each with its use and account, for its Inbox.
-pub async fn open_company_notices(pool: &PgPool, company: &str) -> Result<Vec<(Notice, crate::accounts::Use, Account)>> {
+pub async fn open_company_notices(
+    pool: &PgPool,
+    company: &str,
+) -> Result<Vec<(Notice, crate::accounts::Use, Account)>> {
     let rows = sqlx::query(
         "SELECT n.id AS notice_id, n.kind AS notice_kind, n.state AS notice_state, u.* \
          FROM restless_authority.owner_account_notices n \
@@ -987,9 +1170,15 @@ pub async fn open_company_notices(pool: &PgPool, company: &str) -> Result<Vec<(N
     let mut out = Vec::new();
     for row in rows {
         let account_id: String = row.try_get("account_id")?;
-        let Some(account) = accounts.iter().find(|account| account.id == account_id) else { continue };
+        let Some(account) = accounts.iter().find(|account| account.id == account_id) else {
+            continue;
+        };
         out.push((
-            Notice { id: row.try_get("notice_id")?, kind: row.try_get("notice_kind")?, state: row.try_get("notice_state")? },
+            Notice {
+                id: row.try_get("notice_id")?,
+                kind: row.try_get("notice_kind")?,
+                state: row.try_get("notice_state")?,
+            },
             crate::accounts::use_from_row(&row)?,
             account.clone(),
         ));
@@ -1008,7 +1197,10 @@ mod tests {
             kind: kind.into(),
             label: "Owner's GitHub".into(),
             provider: None,
-            identity: Identity { display: None, key: None },
+            identity: Identity {
+                display: None,
+                key: None,
+            },
             personal: false,
             health: "signed_in".into(),
             frozen: false,
@@ -1036,31 +1228,74 @@ mod tests {
     }
 
     fn run(grant: &Grant, tier: &str) -> Decision {
-        decide(&account("github"), grant, "exec", tier, true, None, 0, 0, Utc::now())
+        decide(
+            &account("github"),
+            grant,
+            "exec",
+            tier,
+            true,
+            None,
+            0,
+            0,
+            Utc::now(),
+        )
     }
 
     #[test]
     fn github_calls_take_the_tier_their_effect_has() {
         assert_eq!(implied_tier("github", "GET", "/repos/a/b/pulls"), "read");
         assert_eq!(implied_tier("github", "POST", "/repos/a/b/pulls"), "draft");
-        assert_eq!(implied_tier("github", "POST", "/repos/a/b/issues/3/comments"), "draft");
-        assert_eq!(implied_tier("github", "PUT", "/repos/a/b/pulls/3/merge"), "act");
+        assert_eq!(
+            implied_tier("github", "POST", "/repos/a/b/issues/3/comments"),
+            "draft"
+        );
+        assert_eq!(
+            implied_tier("github", "PUT", "/repos/a/b/pulls/3/merge"),
+            "act"
+        );
         assert_eq!(implied_tier("github", "POST", "/repos/a/b/releases"), "act");
         assert_eq!(implied_tier("github", "DELETE", "/repos/a/b"), "admin");
-        assert_eq!(implied_tier("github", "PUT", "/repos/a/b/collaborators/x"), "admin");
+        assert_eq!(
+            implied_tier("github", "PUT", "/repos/a/b/collaborators/x"),
+            "admin"
+        );
         assert_eq!(implied_tier("api", "POST", "/v1/charges"), "act");
         // Declaring can raise the tier, never lower it.
-        assert_eq!(call_tier("api", "POST", "/v1/charges", Some("spend")), "spend");
-        assert_eq!(call_tier("github", "PUT", "/repos/a/b/pulls/3/merge", Some("draft")), "act");
+        assert_eq!(
+            call_tier("api", "POST", "/v1/charges", Some("spend")),
+            "spend"
+        );
+        assert_eq!(
+            call_tier("github", "PUT", "/repos/a/b/pulls/3/merge", Some("draft")),
+            "act"
+        );
     }
 
     #[test]
     fn scope_names_repos_and_owners() {
-        let scope = vec!["yail259/frankensurf".to_string(), "blueprintlabio/*".to_string()];
+        let scope = vec![
+            "yail259/frankensurf".to_string(),
+            "blueprintlabio/*".to_string(),
+        ];
         let target = |path| call_target("github", path);
-        assert!(in_scope("github", &scope, target("/repos/Yail259/Frankensurf/pulls").as_deref(), "draft"));
-        assert!(in_scope("github", &scope, target("/repos/blueprintlabio/restless-core").as_deref(), "read"));
-        assert!(!in_scope("github", &scope, target("/repos/yail259/other/pulls").as_deref(), "draft"));
+        assert!(in_scope(
+            "github",
+            &scope,
+            target("/repos/Yail259/Frankensurf/pulls").as_deref(),
+            "draft"
+        ));
+        assert!(in_scope(
+            "github",
+            &scope,
+            target("/repos/blueprintlabio/restless-core").as_deref(),
+            "read"
+        ));
+        assert!(!in_scope(
+            "github",
+            &scope,
+            target("/repos/yail259/other/pulls").as_deref(),
+            "draft"
+        ));
         assert!(in_scope("github", &scope, None, "read"));
         assert!(!in_scope("github", &scope, None, "act"));
     }
@@ -1078,12 +1313,37 @@ mod tests {
     #[test]
     fn spend_runs_under_its_cap_and_asks_above_it() {
         let mut grant = grant();
-        grant.spend_cap = Some(SpendCap { amount_micros: 50_000_000, period: "month".into() });
-        let spend = |spent, cost| decide(&account("api"), &grant, "exec", "spend", true, Some(cost), spent, 0, Utc::now());
+        grant.spend_cap = Some(SpendCap {
+            amount_micros: 50_000_000,
+            period: "month".into(),
+        });
+        let spend = |spent, cost| {
+            decide(
+                &account("api"),
+                &grant,
+                "exec",
+                "spend",
+                true,
+                Some(cost),
+                spent,
+                0,
+                Utc::now(),
+            )
+        };
         assert_eq!(spend(40_000_000, 10_000_000), Decision::RunAndTell);
         assert!(matches!(spend(40_000_000, 10_000_001), Decision::Ask(_)));
         assert!(matches!(
-            decide(&account("api"), &grant, "exec", "spend", true, None, 0, 0, Utc::now()),
+            decide(
+                &account("api"),
+                &grant,
+                "exec",
+                "spend",
+                true,
+                None,
+                0,
+                0,
+                Utc::now()
+            ),
             Decision::Ask(_)
         ));
     }
@@ -1098,27 +1358,114 @@ mod tests {
         expired.limits.expires_at = Some(now - chrono::Duration::minutes(1));
         assert!(matches!(run(&expired, "read"), Decision::Refuse(_)));
         let mut named = grant();
-        named.who = Who::Actors { actors: vec!["baloo".into()] };
+        named.who = Who::Actors {
+            actors: vec!["baloo".into()],
+        };
         assert!(matches!(run(&named, "read"), Decision::Refuse(_)));
-        assert!(matches!(decide(&account("github"), &grant(), "exec", "act", false, None, 0, 0, now), Decision::Refuse(_)));
+        assert!(matches!(
+            decide(
+                &account("github"),
+                &grant(),
+                "exec",
+                "act",
+                false,
+                None,
+                0,
+                0,
+                now
+            ),
+            Decision::Refuse(_)
+        ));
         let mut capped = grant();
         capped.limits.actions_per_day = Some(3);
-        assert!(matches!(decide(&account("github"), &capped, "exec", "act", true, None, 0, 3, now), Decision::Ask(_)));
-        assert_eq!(decide(&account("github"), &capped, "exec", "read", true, None, 0, 3, now), Decision::Run);
+        assert!(matches!(
+            decide(
+                &account("github"),
+                &capped,
+                "exec",
+                "act",
+                true,
+                None,
+                0,
+                3,
+                now
+            ),
+            Decision::Ask(_)
+        ));
+        assert_eq!(
+            decide(
+                &account("github"),
+                &capped,
+                "exec",
+                "read",
+                true,
+                None,
+                0,
+                3,
+                now
+            ),
+            Decision::Run
+        );
         let mut whole = account("github");
         whole.frozen = true;
-        assert!(matches!(decide(&whole, &grant(), "exec", "read", true, None, 0, 0, now), Decision::Refuse(_)));
+        assert!(matches!(
+            decide(&whole, &grant(), "exec", "read", true, None, 0, 0, now),
+            Decision::Refuse(_)
+        ));
     }
 
     #[test]
     fn quiet_hours_hold_everything_but_reads() {
         let mut quiet = grant();
-        quiet.limits.quiet_hours = Some(QuietHours { start: "22:00".into(), end: "07:00".into(), tz: "UTC".into() });
+        quiet.limits.quiet_hours = Some(QuietHours {
+            start: "22:00".into(),
+            end: "07:00".into(),
+            tz: "UTC".into(),
+        });
         let night = "2026-10-18T23:30:00Z".parse::<DateTime<Utc>>().unwrap();
         let day = "2026-10-18T12:00:00Z".parse::<DateTime<Utc>>().unwrap();
-        assert!(matches!(decide(&account("github"), &quiet, "exec", "act", true, None, 0, 0, night), Decision::Refuse(_)));
-        assert_eq!(decide(&account("github"), &quiet, "exec", "read", true, None, 0, 0, night), Decision::Run);
-        assert_eq!(decide(&account("github"), &quiet, "exec", "act", true, None, 0, 0, day), Decision::RunAndTell);
+        assert!(matches!(
+            decide(
+                &account("github"),
+                &quiet,
+                "exec",
+                "act",
+                true,
+                None,
+                0,
+                0,
+                night
+            ),
+            Decision::Refuse(_)
+        ));
+        assert_eq!(
+            decide(
+                &account("github"),
+                &quiet,
+                "exec",
+                "read",
+                true,
+                None,
+                0,
+                0,
+                night
+            ),
+            Decision::Run
+        );
+        assert_eq!(
+            decide(
+                &account("github"),
+                &quiet,
+                "exec",
+                "act",
+                true,
+                None,
+                0,
+                0,
+                day
+            ),
+            Decision::RunAndTell
+        );
     }
 
     #[test]
@@ -1137,7 +1484,12 @@ mod tests {
             parse_call(arguments.as_object().unwrap())
         };
         assert!(call("/repos/a/b").is_ok());
-        for bad in ["https://evil.example/x", "//evil.example/x", "/a/../../x", "/x@evil"] {
+        for bad in [
+            "https://evil.example/x",
+            "//evil.example/x",
+            "/a/../../x",
+            "/x@evil",
+        ] {
             assert!(call(bad).is_err(), "{bad}");
         }
         let header = serde_json::json!({"method": "GET", "path": "/x", "headers": {"Authorization": "Bearer mine"}});
@@ -1146,11 +1498,26 @@ mod tests {
 
     #[test]
     fn one_notice_per_use_in_order_of_weight() {
-        assert_eq!(notice_for(0, "read", 0, false, 1, 0, false), Some("first_use"));
-        assert_eq!(notice_for(5, "spend", 0, false, 1, 0, false), Some("first_spend"));
-        assert_eq!(notice_for(5, "act", 1, true, 1, 0, false), Some("new_destination"));
-        assert_eq!(notice_for(5, "read", 0, false, 31, 7 * 24, false), Some("burst"));
-        assert_eq!(notice_for(5, "read", 0, false, 31, 7 * 24 * 20, false), None);
+        assert_eq!(
+            notice_for(0, "read", 0, false, 1, 0, false),
+            Some("first_use")
+        );
+        assert_eq!(
+            notice_for(5, "spend", 0, false, 1, 0, false),
+            Some("first_spend")
+        );
+        assert_eq!(
+            notice_for(5, "act", 1, true, 1, 0, false),
+            Some("new_destination")
+        );
+        assert_eq!(
+            notice_for(5, "read", 0, false, 31, 7 * 24, false),
+            Some("burst")
+        );
+        assert_eq!(
+            notice_for(5, "read", 0, false, 31, 7 * 24 * 20, false),
+            None
+        );
         assert_eq!(notice_for(5, "read", 0, false, 31, 0, true), None);
         assert_eq!(notice_for(5, "act", 0, false, 2, 100, false), None);
     }
@@ -1161,7 +1528,10 @@ mod tests {
             return;
         };
         let pool = PgPool::connect(&url).await.unwrap();
-        sqlx::query("CREATE SCHEMA IF NOT EXISTS restless_authority").execute(&pool).await.unwrap();
+        sqlx::query("CREATE SCHEMA IF NOT EXISTS restless_authority")
+            .execute(&pool)
+            .await
+            .unwrap();
         crate::accounts::ensure_schema(&pool).await.unwrap();
         ensure_schema(&pool).await.unwrap();
         let id = uuid::Uuid::new_v4().simple().to_string();
@@ -1174,7 +1544,10 @@ mod tests {
         let granted = crate::accounts::create_grant(
             &pool,
             &id,
-            crate::accounts::GrantInput { company: Some(company.clone()), ..Default::default() },
+            crate::accounts::GrantInput {
+                company: Some(company.clone()),
+                ..Default::default()
+            },
             "owner",
         )
         .await
@@ -1186,38 +1559,126 @@ mod tests {
             settings: serde_json::json!({}),
             secrets: serde_json::Map::new(),
         };
-        let first = record_use(&pool, &usable, &company, "exec", None, "GET /user", "read", None, "ok", None).await.unwrap();
-        record_use(&pool, &usable, &company, "exec", None, "GET /user", "read", None, "ok", None).await.unwrap();
+        let first = record_use(
+            &pool,
+            &usable,
+            &company,
+            "exec",
+            None,
+            "GET /user",
+            "read",
+            None,
+            "ok",
+            None,
+        )
+        .await
+        .unwrap();
+        record_use(
+            &pool,
+            &usable,
+            &company,
+            "exec",
+            None,
+            "GET /user",
+            "read",
+            None,
+            "ok",
+            None,
+        )
+        .await
+        .unwrap();
         let open = open_company_notices(&pool, &company).await.unwrap();
         assert_eq!(open.len(), 1, "only the first use is news");
-        assert_eq!((open[0].0.kind.as_str(), open[0].1.id), ("first_use", first));
-        assert_eq!(crate::accounts::get(&pool, &id).await.unwrap().unwrap().open_notices, 1);
-        let logged = crate::accounts::uses(&pool, crate::accounts::UseFilter { company: Some(&company), ..Default::default() }, 10)
+        assert_eq!(
+            (open[0].0.kind.as_str(), open[0].1.id),
+            ("first_use", first)
+        );
+        assert_eq!(
+            crate::accounts::get(&pool, &id)
+                .await
+                .unwrap()
+                .unwrap()
+                .open_notices,
+            1
+        );
+        let logged = crate::accounts::uses(
+            &pool,
+            crate::accounts::UseFilter {
+                company: Some(&company),
+                ..Default::default()
+            },
+            10,
+        )
+        .await
+        .unwrap();
+        assert_eq!(logged.len(), 2);
+        assert_eq!(
+            logged
+                .iter()
+                .find(|row| row.id == first)
+                .unwrap()
+                .notice
+                .as_ref()
+                .unwrap()
+                .kind,
+            "first_use"
+        );
+        decide_notice(&pool, &id, &open[0].0.id, "freeze", "owner")
             .await
             .unwrap();
-        assert_eq!(logged.len(), 2);
-        assert_eq!(logged.iter().find(|row| row.id == first).unwrap().notice.as_ref().unwrap().kind, "first_use");
-        decide_notice(&pool, &id, &open[0].0.id, "freeze", "owner").await.unwrap();
-        assert!(open_company_notices(&pool, &company).await.unwrap().is_empty());
-        let frozen = crate::accounts::company_grants(&pool, &company).await.unwrap();
+        assert!(open_company_notices(&pool, &company)
+            .await
+            .unwrap()
+            .is_empty());
+        let frozen = crate::accounts::company_grants(&pool, &company)
+            .await
+            .unwrap();
         assert!(frozen[0].0.frozen, "freeze pauses this company's grant");
         assert!(matches!(
-            decide(&frozen[0].1, &frozen[0].0, "exec", "read", true, None, 0, 0, Utc::now()),
+            decide(
+                &frozen[0].1,
+                &frozen[0].0,
+                "exec",
+                "read",
+                true,
+                None,
+                0,
+                0,
+                Utc::now()
+            ),
             Decision::Refuse(_)
         ));
 
         let other = format!("broker_{}_test", uuid::Uuid::new_v4().simple());
-        let asked = Abilities { act: "allow".into(), ..Abilities::default() };
-        let request = create_request(&pool, &other, Some(&id), None, Some(asked.clone()), "To open release PRs.", "baloo")
+        let asked = Abilities {
+            act: "allow".into(),
+            ..Abilities::default()
+        };
+        let request = create_request(
+            &pool,
+            &other,
+            Some(&id),
+            None,
+            Some(asked.clone()),
+            "To open release PRs.",
+            "baloo",
+        )
+        .await
+        .unwrap();
+        assert_eq!(open_requests(&pool, &other).await.unwrap().len(), 1);
+        let settled = settle_request(&pool, &request.id, "approved", None, "owner")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(settled.state, "approved");
+        let granted = crate::accounts::company_grants(&pool, &other)
             .await
             .unwrap();
-        assert_eq!(open_requests(&pool, &other).await.unwrap().len(), 1);
-        let settled = settle_request(&pool, &request.id, "approved", None, "owner").await.unwrap().unwrap();
-        assert_eq!(settled.state, "approved");
-        let granted = crate::accounts::company_grants(&pool, &other).await.unwrap();
         assert_eq!(granted[0].0.abilities, asked);
         assert!(open_requests(&pool, &other).await.unwrap().is_empty());
-        assert!(settle_request(&pool, &request.id, "denied", None, "owner").await.is_err());
+        assert!(settle_request(&pool, &request.id, "denied", None, "owner")
+            .await
+            .is_err());
         crate::accounts::delete(&pool, &id).await.unwrap();
     }
 

@@ -91,7 +91,9 @@ async fn run(args: &[&str]) -> Result<()> {
 
 async fn stop_gracefully(name: &str) -> Result<()> {
     run(&["stop", "--time", "20", name]).await?;
-    let stopped = inspect(name).await?.context("Documents container disappeared while stopping")?;
+    let stopped = inspect(name)
+        .await?
+        .context("Documents container disappeared while stopping")?;
     anyhow::ensure!(
         stopped["State"]["Running"].as_bool() == Some(false)
             && stopped["State"]["ExitCode"].as_i64() == Some(0),
@@ -102,10 +104,7 @@ async fn stop_gracefully(name: &str) -> Result<()> {
 
 /// Called by the offline, singleton-locked credential rotation command. No
 /// old password may remain in a running Docs pool when PostgreSQL changes it.
-pub async fn stop_for_credential_rotation(
-    root: &Path,
-    cell_id: Uuid,
-) -> Result<()> {
+pub async fn stop_for_credential_rotation(root: &Path, cell_id: Uuid) -> Result<()> {
     let _guard = LIFECYCLE.lock().await;
     let root = root.canonicalize()?;
     let name = container_name(cell_id);

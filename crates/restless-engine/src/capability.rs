@@ -31,7 +31,11 @@ const SESSION_TTL: Duration = Duration::hours(3);
 const WORK_SESSION_TTL: Duration = Duration::hours(12);
 
 fn session_ttl(work_id: Option<Uuid>) -> Duration {
-    if work_id.is_some() { WORK_SESSION_TTL } else { SESSION_TTL }
+    if work_id.is_some() {
+        WORK_SESSION_TTL
+    } else {
+        SESSION_TTL
+    }
 }
 
 type HmacSha256 = Hmac<Sha256>;
@@ -277,10 +281,7 @@ impl CapabilityIssuer {
         })
     }
 
-    pub fn verify_hosted_runtime_bridge(
-        &self,
-        token: &str,
-    ) -> Result<HostedRuntimeBridgeGrant> {
+    pub fn verify_hosted_runtime_bridge(&self, token: &str) -> Result<HostedRuntimeBridgeGrant> {
         let claims = self.verify(token)?;
         if claims.kind != CapabilityKind::HostedRuntimeBridge {
             bail!("a non-hosted capability cannot register a Runtime bridge");
@@ -492,7 +493,9 @@ impl CapabilityIssuer {
                 .actor
                 .context("actor session capability is missing its actor")?,
             CapabilityKind::ModelSession => bail!("a model capability cannot call coordination"),
-            CapabilityKind::ToolSession => bail!("a tool-session capability cannot call coordination"),
+            CapabilityKind::ToolSession => {
+                bail!("a tool-session capability cannot call coordination")
+            }
         };
         Ok(CoordinationGrant {
             company: claims.company,
@@ -824,14 +827,35 @@ mod tests {
         let (work, attempt) = (Some(Uuid::new_v4()), Some(Uuid::new_v4()));
         let lasts = |token: String| issuer.verify(&token).unwrap().expires_at - Utc::now();
         let for_work = [
-            issuer.issue_actor_session("acme_test", "researcher", "s", work, attempt).unwrap(),
-            issuer.issue_tool_session("acme_test", "researcher", work, attempt).unwrap(),
-            issuer.issue_model_session("acme_test", "researcher", "s", "moonshot", "moonshot/kimi-k3", "metered_api", "work:x", work, attempt).unwrap(),
+            issuer
+                .issue_actor_session("acme_test", "researcher", "s", work, attempt)
+                .unwrap(),
+            issuer
+                .issue_tool_session("acme_test", "researcher", work, attempt)
+                .unwrap(),
+            issuer
+                .issue_model_session(
+                    "acme_test",
+                    "researcher",
+                    "s",
+                    "moonshot",
+                    "moonshot/kimi-k3",
+                    "metered_api",
+                    "work:x",
+                    work,
+                    attempt,
+                )
+                .unwrap(),
         ];
         for token in for_work {
-            assert!(lasts(token) > Duration::hours(11), "a Work grant expires under a long attempt");
+            assert!(
+                lasts(token) > Duration::hours(11),
+                "a Work grant expires under a long attempt"
+            );
         }
-        let conversation = issuer.issue_actor_session("acme_test", "exec", "s", None, None).unwrap();
+        let conversation = issuer
+            .issue_actor_session("acme_test", "exec", "s", None, None)
+            .unwrap();
         assert!(lasts(conversation) <= SESSION_TTL);
         fs::remove_dir_all(root).unwrap();
     }

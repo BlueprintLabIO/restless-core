@@ -28,7 +28,9 @@ use restless_contracts::published_service_contract::{
     ProviderCleanupReceipt, PublishRequest, PublishedServiceCandidate, ResourceLimits,
     ServiceManifest, ServiceObservations, ServiceProfile, CONTRACT_VERSION,
 };
-use restless_contracts::published_service_fixture::{load_marker, LocalFixtureConfig, LocalFixtureMarker};
+use restless_contracts::published_service_fixture::{
+    load_marker, LocalFixtureConfig, LocalFixtureMarker,
+};
 
 mod http_provider;
 use http_provider::{HttpPublicationProvider, ProviderObservation, HTTP_PROVIDER};
@@ -198,19 +200,29 @@ impl PublicationManager {
         }
 
         let owner_id = std::env::var("RESTLESS_ENTRY_OWNER_ID")
-            .context("hosted candidate build requires owner identity")?.parse::<Uuid>()?;
+            .context("hosted candidate build requires owner identity")?
+            .parse::<Uuid>()?;
         let plane_id = std::env::var("RESTLESS_ENTRY_PLANE_ID")
-            .context("hosted candidate build requires plane identity")?.parse::<Uuid>()?;
+            .context("hosted candidate build requires plane identity")?
+            .parse::<Uuid>()?;
         let hostname = std::env::var("RESTLESS_ENTRY_HOST")
-            .context("hosted candidate build requires plane hostname")?.to_ascii_lowercase();
+            .context("hosted candidate build requires plane hostname")?
+            .to_ascii_lowercase();
         let deployment = crate::company_bootstrap::CompanyAdmissionDeployment::from_environment(
             owner_id, plane_id, &hostname,
         )?;
         let bootstrap = crate::company_bootstrap::current_company_admission(
-            self.authority.pool(), None, None, company,
-        ).await?.context("company has no admitted Cloud Runtime cell for candidate building")?;
+            self.authority.pool(),
+            None,
+            None,
+            company,
+        )
+        .await?
+        .context("company has no admitted Cloud Runtime cell for candidate building")?;
         if bootstrap.status != "ready" || !bootstrap.matches_deployment(&deployment) {
-            bail!("company has no ready current-deployment Cloud Runtime cell for candidate building");
+            bail!(
+                "company has no ready current-deployment Cloud Runtime cell for candidate building"
+            );
         }
         let context_path = match context_subpath {
             Some(path) => format!("reviews/git/{source_commit}/{path}"),
@@ -896,11 +908,7 @@ impl PublicationManager {
         })
     }
 
-    pub async fn revoke_invitation(
-        &self,
-        company: &str,
-        invitation_id: &str,
-    ) -> Result<Value> {
+    pub async fn revoke_invitation(&self, company: &str, invitation_id: &str) -> Result<Value> {
         let invitation = self
             .authority
             .find_body(
@@ -1234,11 +1242,7 @@ impl PublicationManager {
     /// Reconcile every authorized publication once during daemon boot. Both a
     /// local process and a remote Cloud operation may outlive the daemon; the
     /// stable publication identity makes this a read-before-replay path.
-    pub async fn reconcile_company(
-        &self,
-        org: &OrgIntel,
-        company: &str,
-    ) -> Result<Vec<Value>> {
+    pub async fn reconcile_company(&self, org: &OrgIntel, company: &str) -> Result<Vec<Value>> {
         let mut outcomes = Vec::new();
         for record in self
             .authority

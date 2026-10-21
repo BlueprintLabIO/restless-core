@@ -1515,7 +1515,10 @@ mod tests {
                 daemon: None,
             }
         };
-        service_for(&original).execute(original.clone()).await.unwrap();
+        service_for(&original)
+            .execute(original.clone())
+            .await
+            .unwrap();
         // An older Core rendered the signup baseline with outcome_standard in it.
         sqlx::query(
             "UPDATE restless_authority.company_bootstrap_operations \
@@ -1530,10 +1533,9 @@ mod tests {
         next.operation_id = Uuid::new_v4();
         next.plane_desired_revision += 1;
         next.core_release = "0.1.1".into();
-        service_for(&next)
-            .execute(next.clone())
-            .await
-            .expect("an admitted company is re-admitted by a release that renders its baseline anew");
+        service_for(&next).execute(next.clone()).await.expect(
+            "an admitted company is re-admitted by a release that renders its baseline anew",
+        );
 
         // Before its first ready receipt a company is still held to its baseline.
         let mut fresh = request();

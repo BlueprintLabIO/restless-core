@@ -128,10 +128,7 @@ pub enum FinanceCredential {
 
 /// Resolve one finance secret only from its canonical company/provider path.
 /// This function is not reachable from the generic effect runner.
-pub async fn resolve_finance(
-    config: &CompanyConfig,
-    kind: FinanceCredential,
-) -> Result<String> {
+pub async fn resolve_finance(config: &CompanyConfig, kind: FinanceCredential) -> Result<String> {
     let (binding, suffix) = match kind {
         FinanceCredential::Read => ("finance.airwallex.read", "/read/api-key"),
         FinanceCredential::Submit => ("finance.airwallex.submit", "/submit/api-key"),
@@ -762,7 +759,10 @@ async fn infisical_upsert(
     Ok(())
 }
 
-async fn infisical_delete(settings: &InfisicalSettings, locator: &InfisicalLocator<'_>) -> Result<()> {
+async fn infisical_delete(
+    settings: &InfisicalSettings,
+    locator: &InfisicalLocator<'_>,
+) -> Result<()> {
     let client = infisical_client()?;
     let access_token = infisical_login(&client, settings).await?;
     let endpoint = infisical_endpoint(&settings.base_url, &["api", "v4", "secrets", locator.name])?;
@@ -1342,13 +1342,18 @@ mod hosted_relay_reference_tests {
         assert!(parse_reference(HOSTED_MODEL_RELAY_REFERENCE).is_ok());
         assert!(parse_reference("hosted-model-relay:v2").is_err());
         assert!(parse_reference("hosted-model-relay:").is_err());
-        assert_eq!(omp_oauth_provider(HOSTED_MODEL_RELAY_REFERENCE).unwrap(), None);
+        assert_eq!(
+            omp_oauth_provider(HOSTED_MODEL_RELAY_REFERENCE).unwrap(),
+            None
+        );
     }
 
     #[tokio::test]
     async fn a_company_can_never_write_the_cloud_capability_through_core() {
-        assert!(store_reference(HOSTED_MODEL_RELAY_REFERENCE, "x".repeat(40).as_str())
-            .await
-            .is_err());
+        assert!(
+            store_reference(HOSTED_MODEL_RELAY_REFERENCE, "x".repeat(40).as_str())
+                .await
+                .is_err()
+        );
     }
 }

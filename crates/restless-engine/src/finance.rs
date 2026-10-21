@@ -320,7 +320,10 @@ pub async fn set_payees(
     if payees.is_empty() {
         bail!("a payment allowance needs at least one payee; freeze it to stop payments instead");
     }
-    if payees.iter().any(|payee| payee.len() > 200 || payee.chars().any(char::is_control)) {
+    if payees
+        .iter()
+        .any(|payee| payee.len() > 200 || payee.chars().any(char::is_control))
+    {
         bail!("a payee is one provider beneficiary reference of at most 200 characters");
     }
     let row = sqlx::query(
@@ -378,23 +381,47 @@ pub async fn propose_payee(
         bail!("name the payee by its provider beneficiary reference (at most 200 characters)");
     }
     if input.reason.is_empty() || input.reason.len() > 2_000 {
-        bail!("say who the payee is and why the company needs to pay them (at most 2,000 characters)");
+        bail!(
+            "say who the payee is and why the company needs to pay them (at most 2,000 characters)"
+        );
     }
     let envelope = envelopes(store, company)
         .await?
         .into_iter()
         .find(|envelope| envelope.limits.currency == input.currency)
-        .with_context(|| format!("there is no {} payment allowance; ask the owner to set one up first", input.currency))?;
-    if envelope.limits.beneficiary_refs.contains(&input.beneficiary_ref) {
-        bail!("{} is already a payee of the {} allowance", input.beneficiary_ref, input.currency);
+        .with_context(|| {
+            format!(
+                "there is no {} payment allowance; ask the owner to set one up first",
+                input.currency
+            )
+        })?;
+    if envelope
+        .limits
+        .beneficiary_refs
+        .contains(&input.beneficiary_ref)
+    {
+        bail!(
+            "{} is already a payee of the {} allowance",
+            input.beneficiary_ref,
+            input.currency
+        );
     }
-    if pending_payee_proposals(store, company).await?.iter().any(|(_, pending)| {
-        pending.currency == input.currency && pending.beneficiary_ref == input.beneficiary_ref
-    }) {
+    if pending_payee_proposals(store, company)
+        .await?
+        .iter()
+        .any(|(_, pending)| {
+            pending.currency == input.currency && pending.beneficiary_ref == input.beneficiary_ref
+        })
+    {
         bail!("this payee is already waiting for the owner's answer");
     }
     store
-        .emit(company, PAYEE_PROPOSED_KIND, Some(actor), serde_json::to_value(&input)?)
+        .emit(
+            company,
+            PAYEE_PROPOSED_KIND,
+            Some(actor),
+            serde_json::to_value(&input)?,
+        )
         .await
 }
 
@@ -407,7 +434,12 @@ pub async fn pending_payee_proposals(
         .records_of_kind(company, PAYEE_DECIDED_KIND)
         .await?
         .into_iter()
-        .filter_map(|record| record.body.get("proposal").and_then(serde_json::Value::as_i64))
+        .filter_map(|record| {
+            record
+                .body
+                .get("proposal")
+                .and_then(serde_json::Value::as_i64)
+        })
         .collect::<std::collections::HashSet<_>>();
     Ok(store
         .records_of_kind(company, PAYEE_PROPOSED_KIND)
@@ -900,7 +932,9 @@ mod tests {
             return;
         };
         let company = format!("payee_{}_test", Uuid::new_v4().simple());
-        let store = crate::authority::AuthorityStore::connect(&database_url).await.unwrap();
+        let store = crate::authority::AuthorityStore::connect(&database_url)
+            .await
+            .unwrap();
         set_envelope(
             &store,
             &company,
@@ -923,15 +957,37 @@ mod tests {
             reason: "The printer for the open day.".into(),
             work_id: None,
         };
-        let declined = propose_payee(&store, &company, "exec", proposal("beneficiary-2")).await.unwrap();
-        decide_payee(&store, &company, "owner", declined, false, None).await.unwrap();
-        assert_eq!(envelopes(&store, &company).await.unwrap()[0].limits.beneficiary_refs, ["beneficiary-1"]);
-        let asked = propose_payee(&store, &company, "exec", proposal("beneficiary-2")).await.unwrap();
-        assert!(propose_payee(&store, &company, "exec", proposal("beneficiary-2")).await.is_err());
-        decide_payee(&store, &company, "owner", asked, true, None).await.unwrap();
-        assert!(decide_payee(&store, &company, "owner", asked, true, None).await.is_err());
+        let declined = propose_payee(&store, &company, "exec", proposal("beneficiary-2"))
+            .await
+            .unwrap();
+        decide_payee(&store, &company, "owner", declined, false, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            envelopes(&store, &company).await.unwrap()[0]
+                .limits
+                .beneficiary_refs,
+            ["beneficiary-1"]
+        );
+        let asked = propose_payee(&store, &company, "exec", proposal("beneficiary-2"))
+            .await
+            .unwrap();
+        assert!(
+            propose_payee(&store, &company, "exec", proposal("beneficiary-2"))
+                .await
+                .is_err()
+        );
+        decide_payee(&store, &company, "owner", asked, true, None)
+            .await
+            .unwrap();
+        assert!(decide_payee(&store, &company, "owner", asked, true, None)
+            .await
+            .is_err());
         let after = &envelopes(&store, &company).await.unwrap()[0];
-        assert_eq!(after.limits.beneficiary_refs, ["beneficiary-1", "beneficiary-2"]);
+        assert_eq!(
+            after.limits.beneficiary_refs,
+            ["beneficiary-1", "beneficiary-2"]
+        );
         assert_eq!(after.period_started_at, before.period_started_at);
         assert_eq!(after.limits.aggregate_limit_minor, 5_000);
         store.delete_test_company(&company).await.unwrap();

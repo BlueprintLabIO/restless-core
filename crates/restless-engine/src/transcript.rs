@@ -159,7 +159,11 @@ fn without_prose_intent(body: &str) -> &str {
             .trim_start()
             .get(..7)
             .is_some_and(|word| word.eq_ignore_ascii_case("intent:"));
-    if is_intent { before.trim_end() } else { body }
+    if is_intent {
+        before.trim_end()
+    } else {
+        body
+    }
 }
 
 pub fn split_intent_receipt(body: &str) -> (&str, Option<OwnerIntentReceipt>) {
@@ -284,7 +288,13 @@ pub fn decode_body(raw: &str) -> DecodedBody<'_> {
     let (body, details) = split_message_details(body);
     let (body, attachments) = split_attachment_block(body);
     let (body, context_path) = split_context_marker(body);
-    DecodedBody { body, intent, details, attachments, context_path }
+    DecodedBody {
+        body,
+        intent,
+        details,
+        attachments,
+        context_path,
+    }
 }
 
 /// What a message asks the owner for, from its decoded receipt.
@@ -301,10 +311,16 @@ pub struct OwnerNeed {
 
 /// A finished result a message asks the owner to look at, with its visible text, when the message
 /// asks for nothing else.
-pub fn conversation_owner_review(message: &restless_orgintel::MessageRow) -> Option<(String, String)> {
+pub fn conversation_owner_review(
+    message: &restless_orgintel::MessageRow,
+) -> Option<(String, String)> {
     let decoded = decode_body(&message.body);
     let intent = decoded.intent?;
-    if intent.owner_need.as_deref().is_some_and(|need| !need.trim().is_empty()) {
+    if intent
+        .owner_need
+        .as_deref()
+        .is_some_and(|need| !need.trim().is_empty())
+    {
         return None;
     }
     let review = intent.owner_review?;
@@ -340,7 +356,10 @@ mod tests {
     fn a_finished_result_for_the_owner_is_read_from_the_intent() {
         let body = "Done.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Built\",\"ownerReview\":\" The card site \"}-->";
         let (_, receipt) = super::split_intent_receipt(body);
-        assert_eq!(receipt.unwrap().owner_review.as_deref(), Some(" The card site "));
+        assert_eq!(
+            receipt.unwrap().owner_review.as_deref(),
+            Some(" The card site ")
+        );
     }
 
     #[test]
@@ -370,7 +389,11 @@ mod tests {
             "\"proposedName\":\"Frankensurf\",\"readback\":[{\"label\":\"What it is\",\"text\":\"A web layer.\"}]}-->"
         );
         assert_eq!(
-            split_intent_receipt(with_readback).1.unwrap().proposed_name.as_deref(),
+            split_intent_receipt(with_readback)
+                .1
+                .unwrap()
+                .proposed_name
+                .as_deref(),
             Some("Frankensurf")
         );
     }
@@ -415,7 +438,10 @@ mod tests {
             "\"ownerReplies\":[\"Yes, list it\",\" \",\"Not yet\",\"Hold\",\"Ask me tomorrow\"]}-->"
         );
         let receipt = split_intent_receipt(suggested).1.expect("replies parse");
-        assert_eq!(receipt.owner_replies, vec!["Yes, list it", "Not yet", "Hold"]);
+        assert_eq!(
+            receipt.owner_replies,
+            vec!["Yes, list it", "Not yet", "Hold"]
+        );
         let fielded = concat!(
             "Need numbers.",
             "\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Asks for numbers.\",",
