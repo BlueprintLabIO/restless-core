@@ -275,6 +275,14 @@ pub async fn startup_doctor(
             }
         },
         async {
+            // An asleep company stays asleep through a plane restart: demand wakes it. Starting
+            // every company at boot woke all four at once on a 4 GB plane, which thrashed until
+            // the plane stopped answering, reboot after reboot (22 October).
+            if runtime::is_sleeping(&config.name)
+                && !matches!(runtime::status(&config.name).await, Ok(runtime::ContainerStatus::Running))
+            {
+                return Ok(());
+            }
             async {
                 runtime::up(&config, false).await?;
                 let bridge = capabilities.issue_runtime_bridge(&config.name)?;
