@@ -784,9 +784,250 @@ pub async fn fill(
     result
 }
 
+/// One high-level step in an account's browser (S104 S1). Every step is served by the browser
+/// itself (Accessibility, DOM, Input, Page), so no script runs in the signed-in page for the agent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BrowserAction {
+    Open(String),
+    Read,
+    Click(i64),
+    Type {
+        node: i64,
+        text: String,
+        submit: bool,
+    },
+    Scroll {
+        down: bool,
+    },
+    Screenshot,
+}
+
+/// What a step answers: text to read, or a picture of the page.
+pub enum ActOutput {
+    Text(String),
+    Image { jpeg_base64: String, note: String },
+}
+
+/// The most of the accessibility tree one read returns.
+const READ_LIMIT: usize = 24_000;
+
+/// The page's accessibility tree as numbered lines: `[ref] role "name"`. A ref is the node the
+/// browser knows (its backend DOM id), which click and type take.
+pub fn render_ax_tree(nodes: &[serde_json::Value]) -> String {
+    const QUIET: &[&str] = &[
+        "none",
+        "generic",
+        "InlineTextBox",
+        "LineBreak",
+        "RootWebArea",
+        "presentation",
+    ];
+    let mut out = String::new();
+    for node in nodes {
+        if node["ignored"] == true {
+            continue;
+        }
+        let role = node["role"]["value"].as_str().unwrap_or_default();
+        let name = node["name"]["value"].as_str().unwrap_or_default().trim();
+        if role.is_empty() || QUIET.contains(&role) || (role == "StaticText" && name.is_empty()) {
+            continue;
+        }
+        let Some(reference) = node["backendDOMNodeId"].as_i64() else {
+            continue;
+        };
+        let name: String = name.chars().take(160).collect();
+        let line = if name.is_empty() {
+            format!("[{reference}] {role}\n")
+        } else {
+            format!("[{reference}] {role} {name:?}\n")
+        };
+        if out.len() + line.len() > READ_LIMIT {
+            out.push_str("… (the page is longer; scroll and read again)\n");
+            break;
+        }
+        out.push_str(&line);
+    }
+    out
+}
+
+async fn attach_page(cdp: &mut Cdp, target: Option<&str>) -> Result<(String, String, String)> {
+    let targets = cdp
+        .call("Target.getTargets", serde_json::json!({}), None)
+        .await?;
+    let pages = targets["targetInfos"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let page = pages
+        .iter()
+        .filter(|info| info["type"] == "page")
+        .find(|info| match target {
+            Some(target) => info["targetId"] == target,
+            None => info["attached"] == true,
+        })
+        .or_else(|| pages.iter().find(|info| info["type"] == "page"))
+        .context("no page is open in the account's browser")?;
+    let target_id = page["targetId"].as_str().unwrap_or_default().to_string();
+    let attached = cdp
+        .call(
+            "Target.attachToTarget",
+            serde_json::json!({ "targetId": target_id, "flatten": true }),
+            None,
+        )
+        .await?;
+    let session = attached["sessionId"]
+        .as_str()
+        .context("could not attach to the page")?
+        .to_string();
+    Ok((
+        target_id,
+        session,
+        page["url"].as_str().unwrap_or_default().to_string(),
+    ))
+}
+
+/// Take one high-level step in the account's browser. Opening a page, clicking and typing act as
+/// the account, so they stay on its own domains; reading and pictures are allowed anywhere.
+pub async fn act(
+    account_id: &str,
+    domains: &[String],
+    target: Option<&str>,
+    action: BrowserAction,
+) -> Result<ActOutput> {
+    let mut cdp = Cdp::open(account_id).await?;
+    let (_, session, url) = attach_page(&mut cdp, target).await?;
+    let host = url::Url::parse(&url)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_string))
+        .unwrap_or_default();
+    let on_domain = || -> Result<()> {
+        if !on_account_domain(&host, domains) {
+            bail!(
+                "the page is on {host}, not the account's own domains ({}); nothing was done",
+                domains.join(", ")
+            );
+        }
+        Ok(())
+    };
+    let session = session.as_str();
+    let result = async {
+        match action {
+            BrowserAction::Open(address) => {
+                let parsed = url::Url::parse(&address).context("parse the page address")?;
+                let opened_host = parsed.host_str().unwrap_or_default();
+                if !matches!(parsed.scheme(), "http" | "https")
+                    || !on_account_domain(opened_host, domains)
+                {
+                    bail!("{address} is not on the account's own domains ({})", domains.join(", "));
+                }
+                cdp.call("Page.navigate", serde_json::json!({ "url": parsed.as_str() }), Some(session))
+                    .await?;
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                Ok(ActOutput::Text(format!("Opened {parsed}. Read the page next.")))
+            }
+            BrowserAction::Read => {
+                let tree = cdp.call("Accessibility.getFullAXTree", serde_json::json!({}), Some(session)).await?;
+                let nodes = tree["nodes"].as_array().cloned().unwrap_or_default();
+                Ok(ActOutput::Text(format!("Page: {url}\n{}", render_ax_tree(&nodes))))
+            }
+            BrowserAction::Click(node) => {
+                on_domain()?;
+                let _ = cdp
+                    .call("DOM.scrollIntoViewIfNeeded", serde_json::json!({ "backendNodeId": node }), Some(session))
+                    .await;
+                let model = cdp.call("DOM.getBoxModel", serde_json::json!({ "backendNodeId": node }), Some(session)).await?;
+                let quad: Vec<f64> = model["model"]["content"]
+                    .as_array()
+                    .map(|points| points.iter().filter_map(serde_json::Value::as_f64).collect())
+                    .unwrap_or_default();
+                if quad.len() < 8 {
+                    bail!("[{node}] has no place on the page to click; read the page again");
+                }
+                let x = (quad[0] + quad[2] + quad[4] + quad[6]) / 4.0;
+                let y = (quad[1] + quad[3] + quad[5] + quad[7]) / 4.0;
+                for kind in ["mouseMoved", "mousePressed", "mouseReleased"] {
+                    cdp.call(
+                        "Input.dispatchMouseEvent",
+                        serde_json::json!({ "type": kind, "x": x, "y": y, "button": "left", "clickCount": 1 }),
+                        Some(session),
+                    )
+                    .await?;
+                }
+                tokio::time::sleep(Duration::from_millis(800)).await;
+                Ok(ActOutput::Text(format!("Clicked [{node}] on {host}. Read the page to see what changed.")))
+            }
+            BrowserAction::Type { node, text, submit } => {
+                on_domain()?;
+                cdp.call("DOM.focus", serde_json::json!({ "backendNodeId": node }), Some(session)).await?;
+                cdp.call("Input.insertText", serde_json::json!({ "text": text }), Some(session)).await?;
+                if submit {
+                    for kind in ["keyDown", "keyUp"] {
+                        cdp.call(
+                            "Input.dispatchKeyEvent",
+                            serde_json::json!({ "type": kind, "key": "Enter", "code": "Enter", "windowsVirtualKeyCode": 13, "text": "\r" }),
+                            Some(session),
+                        )
+                        .await?;
+                    }
+                }
+                Ok(ActOutput::Text(format!(
+                    "Typed into [{node}] on {host}{}.",
+                    if submit { " and pressed Enter" } else { "" }
+                )))
+            }
+            BrowserAction::Scroll { down } => {
+                let metrics = cdp.call("Page.getLayoutMetrics", serde_json::json!({}), Some(session)).await?;
+                let width = metrics["cssVisualViewport"]["clientWidth"].as_f64().unwrap_or(800.0);
+                let height = metrics["cssVisualViewport"]["clientHeight"].as_f64().unwrap_or(600.0);
+                cdp.call(
+                    "Input.dispatchMouseEvent",
+                    serde_json::json!({ "type": "mouseWheel", "x": width / 2.0, "y": height / 2.0,
+                        "deltaX": 0, "deltaY": if down { height * 0.8 } else { -height * 0.8 } }),
+                    Some(session),
+                )
+                .await?;
+                tokio::time::sleep(Duration::from_millis(600)).await;
+                Ok(ActOutput::Text(format!("Scrolled {}.", if down { "down" } else { "up" })))
+            }
+            BrowserAction::Screenshot => {
+                let shot = cdp
+                    .call("Page.captureScreenshot", serde_json::json!({ "format": "jpeg", "quality": 60 }), Some(session))
+                    .await?;
+                let data = shot["data"].as_str().context("the browser gave no picture")?.to_string();
+                Ok(ActOutput::Image { jpeg_base64: data, note: format!("The page at {url}.") })
+            }
+        }
+    }
+    .await;
+    let _ = cdp
+        .call(
+            "Target.detachFromTarget",
+            serde_json::json!({ "sessionId": session }),
+            None,
+        )
+        .await;
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_accessibility_tree_reads_as_numbered_lines() {
+        let nodes = serde_json::json!([
+            {"role": {"value": "RootWebArea"}, "name": {"value": "Inbox"}, "backendDOMNodeId": 1},
+            {"role": {"value": "button"}, "name": {"value": "Send"}, "backendDOMNodeId": 42},
+            {"role": {"value": "generic"}, "backendDOMNodeId": 43},
+            {"role": {"value": "textbox"}, "name": {"value": ""}, "backendDOMNodeId": 44},
+            {"role": {"value": "link"}, "name": {"value": "Hidden"}, "backendDOMNodeId": 45, "ignored": true},
+            {"role": {"value": "StaticText"}, "name": {"value": "  "}, "backendDOMNodeId": 46}
+        ]);
+        assert_eq!(
+            render_ax_tree(nodes.as_array().unwrap()),
+            "[42] button \"Send\"\n[44] textbox\n"
+        );
+    }
 
     #[test]
     fn one_time_codes_match_rfc_6238() {
