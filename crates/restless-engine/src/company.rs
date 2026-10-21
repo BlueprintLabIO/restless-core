@@ -2320,7 +2320,9 @@ fn action_copy(action: RecoveryAction) -> DoctorAction {
 /// exact image-ID difference counts: a missing computer, an unknown image or a local source-build
 /// drift is not a release roll and stays with the owner's recovery.
 pub fn runtime_image_drifted(doctor: &runtime::RuntimeDoctor) -> bool {
+    // An image rebuilt from the same inputs is the same computer (S104 A1).
     doctor.container != runtime::ContainerStatus::Absent
+        && !doctor.same_build_inputs
         && matches!(
             (&doctor.container_image_id, &doctor.target_image_id),
             (Some(container), Some(target)) if container != target
@@ -2725,6 +2727,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_computer_rebuilt_from_the_same_inputs_is_not_drifted() {
+        let mut doctor = doctor(
+            runtime::ContainerStatus::Running,
+            runtime::ReconciliationStatus::Current,
+            None,
+            None,
+            None,
+        );
+        doctor.container_image_id = Some("sha256:old".into());
+        doctor.target_image_id = Some("sha256:new".into());
+        assert!(runtime_image_drifted(&doctor));
+        doctor.same_build_inputs = true;
+        assert!(
+            !runtime_image_drifted(&doctor),
+            "a UI-only release restarts no company (S104 A1)"
+        );
+    }
+
+    #[test]
     fn a_replaced_connection_names_what_it_replaced_and_who_still_used_it() {
         let title = setting_change_title(
             "model_connection_granted",
@@ -2871,6 +2892,7 @@ mod tests {
             target_image_id: None,
             source_digest: None,
             image_source_digest: None,
+            same_build_inputs: false,
             reconciliation,
             action: None,
             release: None,

@@ -29,6 +29,9 @@ use uuid::Uuid;
 pub const COMPANY_IMAGE: &str = "restless-company-image:latest";
 const COMPANY_IMAGE_ENV: &str = "RESTLESS_COMPANY_IMAGE";
 const SOURCE_DIGEST_LABEL: &str = "io.restless.source-digest";
+/// What a released company image was built from (Core's Dagger publish). Two images with the same
+/// value are the same computer, even when a release rebuilt it with a new id (S104 A1).
+const BUILD_INPUT_LABEL: &str = "io.restless.build-input-sha256";
 const COMPANY_SUPERVISOR_CONFIG: &str = "/etc/supervisor/conf.d/company.conf";
 
 // Startup Doctor and an explicit `up` can arrive together. Serialize the
@@ -1257,6 +1260,30 @@ pub async fn sync_brand_projection(config: &CompanyConfig) -> Result<&'static st
 }
 
 #[cfg(test)]
+mod build_input_tests {
+    use super::same_build_input_label;
+
+    #[test]
+    fn only_two_real_equal_labels_keep_a_computer() {
+        let digest = "a".repeat(64);
+        assert!(same_build_input_label(
+            Some(&digest),
+            Some(&format!("{digest}\n"))
+        ));
+        assert!(!same_build_input_label(
+            Some(&digest),
+            Some(&"b".repeat(64))
+        ));
+        assert!(!same_build_input_label(
+            Some("<no value>"),
+            Some("<no value>")
+        ));
+        assert!(!same_build_input_label(None, Some(&digest)));
+        assert!(!same_build_input_label(Some(""), Some("")));
+    }
+}
+
+#[cfg(test)]
 mod browser_locale_tests {
     use super::valid_browser_locale;
 
@@ -1688,6 +1715,10 @@ pub struct RuntimeDoctor {
     pub target_image_id: Option<String>,
     pub source_digest: Option<String>,
     pub image_source_digest: Option<String>,
+    /// The container's image differs from the target's by id only: both name the same build
+    /// inputs, so the computer is current.
+    #[serde(default)]
+    pub same_build_inputs: bool,
     pub reconciliation: ReconciliationStatus,
     pub action: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2509,6 +2540,29 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
     let (container_image_id, volume_mounted) = container_details?;
     let target_image_id = target_image_id?;
     let image_source_digest = image_source_digest?.filter(|value| value != "<no value>");
+    // A release that changed nothing the computer is built from (a UI-only release) still gives
+    // the company image a new id. Keep the running computer when both images name the same
+    // build inputs, so the release restarts no company (S104 A1).
+    let same_build_inputs = match (&container_image_id, &target_image_id) {
+        (Some(container_id), Some(target_id)) if container_id != target_id => {
+            let label = format!("{{{{index .Config.Labels \"{BUILD_INPUT_LABEL}\"}}}}");
+            let held_args = [
+                "image",
+                "inspect",
+                "-f",
+                label.as_str(),
+                container_id.as_str(),
+            ];
+            let wanted_args = ["image", "inspect", "-f", label.as_str(), target_id.as_str()];
+            let (held, wanted) =
+                tokio::join!(inspect_value(&held_args), inspect_value(&wanted_args));
+            same_build_input_label(
+                held.ok().flatten().as_deref(),
+                wanted.ok().flatten().as_deref(),
+            )
+        }
+        _ => false,
+    };
     // Source comparison is a local-development diagnostic only. A released
     // plane may contain no Core checkout and identifies the Runtime by the
     // configured OCI digest instead.
@@ -2523,10 +2577,11 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
     let runtime_missing_or_stale = container == ContainerStatus::Absent
         || !volume_exists
         || !volume_mounted
-        || matches!(
-            (&container_image_id, &target_image_id),
-            (Some(container_id), Some(target_id)) if container_id != target_id
-        )
+        || (!same_build_inputs
+            && matches!(
+                (&container_image_id, &target_image_id),
+                (Some(container_id), Some(target_id)) if container_id != target_id
+            ))
         || matches!(
             (&source_digest, &image_source_digest),
             (Some(source), Some(image)) if source != image
@@ -2584,6 +2639,7 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
         target_image_id,
         source_digest,
         image_source_digest,
+        same_build_inputs,
         reconciliation,
         action: (reconciliation != ReconciliationStatus::Current
             || coordination_requires_reconcile)
@@ -4704,6 +4760,16 @@ pub fn save_browser_locale(locale: &BrowserLocale) -> Result<bool> {
     std::fs::write(&staged, serde_json::to_vec(locale)?)?;
     std::fs::rename(&staged, &path)?;
     Ok(true)
+}
+
+/// Whether two images' build-input labels name the same inputs. A missing label (a local
+/// development build) never matches.
+fn same_build_input_label(held: Option<&str>, wanted: Option<&str>) -> bool {
+    let real = |value: &str| {
+        let value = value.trim();
+        value.len() >= 32 && value != "<no value>"
+    };
+    matches!((held, wanted), (Some(held), Some(wanted)) if real(held) && held.trim() == wanted.trim())
 }
 
 pub fn state_root() -> PathBuf {
