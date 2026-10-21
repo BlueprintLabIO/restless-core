@@ -608,3 +608,11 @@
 		display: none;
 	}
 }
+
+.computer-health-link {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	color: var(--text-tertiary);
+	font-size: var(--t-label);
+}
