@@ -149,6 +149,43 @@ pub async fn modified_times(
         .collect())
 }
 
+/// One file under /company/outputs, as the Library lists it.
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+pub struct OutputFile {
+    /// Its full path, /company/outputs/...
+    pub path: String,
+    pub bytes: u64,
+    /// Seconds since the epoch.
+    pub modified: i64,
+}
+
+/// Every file agents wrote under /company/outputs (up to 2,000, newest first), so the Library
+/// shows work an agent made but never linked as an output (21 October: Calcifer's card site).
+/// Hidden files and dependency folders are left out.
+pub async fn output_files(company: &str) -> Result<Vec<OutputFile>> {
+    validate_company_name(company)?;
+    let container = container_name(company);
+    let script = "find /company/outputs -type d \\( -name node_modules -o -name '.*' \\) -prune -o -type f ! -name '.*' -printf '%T@\\t%s\\t%p\\n' 2>/dev/null | sort -rn | head -2000; exit 0";
+    let output = runtime::docker_observe(&["exec", "-u", "company", &container, "sh", "-c", script]).await?;
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+    Ok(parse_output_files(&String::from_utf8_lossy(&output.stdout)))
+}
+
+fn parse_output_files(listing: &str) -> Vec<OutputFile> {
+    listing
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.splitn(3, '\t');
+            let modified = parts.next()?.split('.').next()?.parse().ok()?;
+            let bytes = parts.next()?.parse().ok()?;
+            let path = parts.next()?;
+            path.starts_with("/company/outputs/").then(|| OutputFile { path: path.to_string(), bytes, modified })
+        })
+        .collect()
+}
+
 /// The canonical path of one regular file inside the owner places, for a download.
 pub async fn resolve_file(company: &str, file: &str) -> Result<String> {
     validate_company_name(company)?;
@@ -216,4 +253,20 @@ pub async fn drop_in_downloads(company: &str, name: &str, bytes: &[u8]) -> Resul
         );
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn output_listing_keeps_only_files_under_outputs() {
+        let files = super::parse_output_files(
+            "1729500000.123\t2048\t/company/outputs/site/index.html\n\
+             garbage line\n\
+             1729400000.5\t10\t/etc/passwd\n",
+        );
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "/company/outputs/site/index.html");
+        assert_eq!(files[0].bytes, 2048);
+        assert_eq!(files[0].modified, 1_729_500_000);
+    }
 }

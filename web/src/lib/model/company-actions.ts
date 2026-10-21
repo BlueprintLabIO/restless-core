@@ -118,6 +118,24 @@ export async function readArchivedLibrary<T>(
 
 /** Owner-only: when each Library file last changed on the computer, by its path. An empty map
  * when the computer is asleep or the read fails. */
+/** One file agents wrote under /company/outputs, linked as an output or not. */
+export interface OutputFile {
+	path: string;
+	bytes: number;
+	modified: string | null;
+}
+
+/** Every file under /company/outputs, for the Library's Folders view. Owner only. */
+export async function readLibraryOutputs(
+	company: string,
+	signal?: AbortSignal
+): Promise<OutputFile[]> {
+	const body = await ownerRequest<{ files?: OutputFile[] }>(`${api(company)}/library/outputs`, {
+		signal
+	}).catch(() => null);
+	return body?.files ?? [];
+}
+
 export async function readLibraryModified(
 	company: string,
 	signal?: AbortSignal

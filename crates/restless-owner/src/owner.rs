@@ -1939,6 +1939,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(library_api::archived_work_files),
         )
         .route(
+            "/companies/{company}/library/outputs",
+            get(library_api::library_outputs),
+        )
+        .route(
             "/companies/{company}/library/modified",
             get(library_api::library_modified),
         )

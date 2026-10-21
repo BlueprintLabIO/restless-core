@@ -29,7 +29,7 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 - [ ] A2 Install runtime updates when a company is idle; never interrupt Work, chat or computer use.
 - [ ] A3 Resume agent sessions after a restart (session record written as it goes).
 - [ ] A4 Stop works while reconnecting (queued, sent through the plane).
-- [ ] A5 Credentials apply without a restart; agents point at a provider, not a key.
+- [~] A5 Checked: the gateway already reloads within ~5s when credentials or sign-ins change (restlessd's fingerprint loop), so the "Ready once the company restarts" hint is stale. Still open: an agent assigned to a removed key's connection should fall back to the provider's remaining connection (needs a reproduction).
 - [x] A6 Exec reports platform faults instead of "nothing we control".
 - [x] A7 Rewrite the connection error screens.
 
@@ -49,12 +49,12 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 - [x] D1 One model picker everywhere (`lib/primitives/ModelPicker.svelte`); one entry per release.
 - [ ] D2 Gemini, Grok, OpenRouter, and Meta (Muse) through the Meta Model API.
 - [x] D3 Usage limits name the account they read.
-- [ ] D4 Comp flag: unlimited credit for blueprintlabio (Cloud).
+- [x] D4 Operator grant for unlimited AI credit (Cloud #118, migration 0063); the row for blueprintlabio is inserted after deploy.
 - [ ] D5 Budget guards: hard per-company caps, loop detection.
 
 ### E. Library
 - [x] E1 "Open in Library" opens the Library; the viewer fills its pane (no 150px frame).
-- [ ] E2 Auto-index the outputs folder, with a Folders view.
+- [x] E2 Library › Folders lists every file under /company/outputs (owner only, newest first, read from the computer every minute, last listing kept while it sleeps). A file already in the Library opens as that entry; the rest open by path.
 - [ ] E3 Responsive Library.
 
 ### F. Browser sandbox
@@ -69,7 +69,7 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 - [ ] F9 Recover "The desktop isn't answering".
 
 ### G. Cost and capacity
-- [ ] G1 Memory telemetry in the plane heartbeat (Cloud).
+- [x] G1 Memory telemetry in the plane heartbeat (Cloud #118).
 - [x] G2 Plane moved to cpx22, keeping its IP addresses (cpx21 and cpx31 are retired in Singapore).
 - [x] G3 CPU priority for chat over builds.
 - [ ] G4 Burst compute interface and local provider.
@@ -89,7 +89,7 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 - [x] T4 The plane exits when Postgres isn't up yet at boot instead of waiting for it.
 - [ ] T5 Cloud has no plane-move tooling; the 19 and 21 October moves were done by hand.
 - [ ] T6 Cloud's server price list includes types retired in Singapore (cpx21, cpx31).
-- [ ] T7 The Inbox intercepted every Library link, wherever it was followed (fixed with E1); audit other page-level navigation interceptors.
+- [x] T7 The Inbox intercepted every Library link (fixed with E1). Audited the other `beforeNavigate` handlers: all are unsaved-change guards.
 - [ ] T8 A container memory cap of 4 GB is larger than a 4 GB host; caps should fit the host too.
 
 Measured 21 Oct on cpx22: plane service 680 MB, Postgres 490 MB, one login browser 240 MB, Reno
