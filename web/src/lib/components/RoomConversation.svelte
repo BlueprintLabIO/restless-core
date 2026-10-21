@@ -1976,6 +1976,7 @@
 		<Composer
 			bind:value={composer}
 			bind:files={composerFiles}
+			{uploadProgress}
 			bind:selectedSkills={composerSkills}
 			options={[
 				...(threadRootId === null ? options.value : []),
@@ -2060,9 +2061,7 @@
 		{/if}
 		{#if sendError}<p class="room-send-error" role="alert">{sendError}</p>{/if}
 		{#if sendNotice}<p class="room-send-notice" role="status">{sendNotice}</p>{/if}
-		{#if uploadProgress !== null}<p class="room-draft-state" role="status">
-				Uploading… {Math.round(uploadProgress * 100)}%
-			</p>{:else if composerFiles.length}<p
+		{#if uploadProgress === null && composerFiles.length}<p
 				class="room-draft-state"
 				title={`Up to ${MAX_UPLOAD_FILES} files, ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB each`}
 			>

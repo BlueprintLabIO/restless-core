@@ -4,6 +4,7 @@
 	 * whether it becomes the company default. Where the company already has a connection for that
 	 * provider, saving first says it would be replaced and then offers Replace. */
 	import Field from '$lib/ui/forms/Field.svelte';
+	import ModelPicker from '$lib/primitives/ModelPicker.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
 	import { modelLabel } from '$lib/model/intelligence-labels';
@@ -128,22 +129,22 @@
 </script>
 
 <Field label="Model" for={`${id}-model`}>
-	<select
+	<ModelPicker
 		id={`${id}-model`}
-		value={custom ? '__custom' : model}
-		onchange={(event) => {
+		framed
+		models={[
+			...(model && !custom && !choices.some((item) => route(item.id) === model)
+				? [{ id: model, name: modelLabel(model) }]
+				: []),
+			...choices.map((item) => ({ id: route(item.id), name: item.name ?? item.id }))
+		]}
+		current={custom ? '' : model}
+		onchoose={(next) => {
 			error = '';
-			custom = event.currentTarget.value === '__custom';
-			chosen = custom ? '' : event.currentTarget.value;
+			custom = false;
+			chosen = next;
 		}}
-	>
-		{#if model && !custom && !choices.some((item) => route(item.id) === model)}<option value={model}
-				>{modelLabel(model)}</option
-			>{/if}
-		{#each choices as item (item.id)}<option value={route(item.id)}>{item.name ?? item.id}</option
-			>{/each}
-		<option value="__custom">Custom model ID…</option>
-	</select>
+	/>
 	{#snippet help()}{catalog.source(connection.provider, connection.kind ?? 'api_key') ===
 		'connected'
 			? 'Models from this account’s connected runtime.'

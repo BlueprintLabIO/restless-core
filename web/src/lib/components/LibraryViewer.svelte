@@ -414,10 +414,14 @@
 </div>
 
 <style>
+	/* The viewer fills whatever holds it. Without a height of its own, in the Inbox pane the frame
+	 * fell back to the browser default of 150px and left a white bar below (21 October). */
 	.viewer {
 		display: grid;
 		grid-template-rows: auto minmax(0, 1fr);
+		flex: 1 1 auto;
 		width: 100%;
+		height: 100%;
 		min-height: 0;
 	}
 	.viewer-head {

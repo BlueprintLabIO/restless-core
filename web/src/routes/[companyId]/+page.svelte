@@ -367,8 +367,13 @@
 		if (!selectedUpdateId && selectedItem) current.searchParams.set('item', selectedItem.id);
 		return goto(inboxPreviewHref(current, target.href), { noScroll: true, ...options });
 	}
+	/* Only a link followed inside the Inbox's own pane opens in that pane. "Open in the Library"
+	 * from Exec's rail or a file dialog means the Library, and used to stay in the Inbox, framed
+	 * into its preview (21 October). */
+	let paneClickAt = 0;
 	beforeNavigate((navigation) => {
 		if (!navigation.to || navigation.from?.url.pathname !== baseHref) return;
+		if (navigation.type === 'link' && performance.now() - paneClickAt > 1000) return;
 		if (!inboxPreviewTarget(companyId, navigation.to.url, page.url.origin)) return;
 		navigation.cancel();
 		void openPreview(navigation.to.url);
@@ -777,6 +782,7 @@
 
 		<section
 			use:revealItemEditor
+			onclickcapture={() => (paneClickAt = performance.now())}
 			class="cockpit-pane attention-focus"
 			class:office-focus={!selectedItem && !previewTarget && loaded}
 		>

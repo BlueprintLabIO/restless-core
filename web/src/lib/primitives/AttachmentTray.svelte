@@ -6,10 +6,13 @@
 
 	let {
 		files = $bindable<File[]>([]),
-		disabled = false
+		disabled = false,
+		progress = null
 	}: {
 		files?: File[];
 		disabled?: boolean;
+		/** While sending, how much of the upload has gone (0 to 1): drawn over each tile. */
+		progress?: number | null;
 	} = $props();
 
 	const PREVIEW_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
@@ -49,6 +52,15 @@
 					<span class="kind">{extOf(file.name)}</span>
 					<span class="name">{file.name}</span>
 				{/if}
+				{#if progress !== null}<span
+						class="uploading"
+						role="progressbar"
+						aria-label="Uploading {file.name}"
+						aria-valuemin={0}
+						aria-valuemax={100}
+						aria-valuenow={Math.round(progress * 100)}
+						style={`--progress:${Math.round(progress * 360)}deg`}
+					></span>{/if}
 				<button
 					type="button"
 					class="remove"
@@ -106,6 +118,26 @@
 		font-size: var(--t-label);
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	/* Upload progress sits on the file itself: the tile dims and a ring fills (21 October). */
+	.uploading {
+		position: absolute;
+		inset: 0;
+		display: grid;
+		place-items: center;
+		background: color-mix(in srgb, var(--surface) 55%, transparent);
+	}
+	.uploading::after {
+		content: '';
+		width: 22px;
+		height: 22px;
+		border-radius: 50%;
+		background: conic-gradient(var(--accent) var(--progress), color-mix(in srgb, var(--ink) 18%, transparent) 0);
+		mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
+		transition: background 120ms linear;
+	}
+	.tile:has(.uploading) .remove {
+		display: none;
 	}
 	.remove {
 		position: absolute;

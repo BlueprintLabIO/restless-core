@@ -47,6 +47,7 @@
 		interruptible = false,
 		onstop = null,
 		interrupt = $bindable(false),
+		uploadProgress = null,
 		controls
 	}: {
 		value?: string;
@@ -68,6 +69,8 @@
 		focusKey?: number;
 		/** Optional compact, per-surface control rendered in the bottom action row. */
 		controls?: Snippet;
+		/** While a send uploads its files, how far it has got (0 to 1), drawn on the files. */
+		uploadProgress?: number | null;
 		/** Commands and skills offered by typing `/` (at the start) or `$` (anywhere). */
 		options?: ComposerOption[];
 		/** Skills explicitly selected for the next message, shown as removable chips. */
@@ -541,7 +544,7 @@
 				{/each}
 			</div>
 		{/if}
-		{#if allowAttachments}<AttachmentTray bind:files {disabled} />{/if}
+		{#if allowAttachments}<AttachmentTray bind:files {disabled} progress={uploadProgress} />{/if}
 		<textarea
 			bind:this={inputEl}
 			class="hc-input"

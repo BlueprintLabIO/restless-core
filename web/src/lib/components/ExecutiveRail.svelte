@@ -834,7 +834,7 @@
 		askNotice = '';
 		const outgoing = `> ${participantName}: ${excerptOf(openQuestion)}\n\n${answer}`;
 		try {
-			const outcome = await onask(
+			const delivery = onask(
 				outgoing,
 				[],
 				includeContext,
@@ -842,6 +842,11 @@
 				working && interruptNext,
 				[]
 			);
+			// An answer is a send like any other: it rises to the top and the reply grows beneath
+			// it. Tapped and filled-in answers skipped this and left the reader at the question.
+			await tick();
+			scrollEl?.dispatchEvent(new Event('chat-scroll-anchor'));
+			const outcome = await delivery;
 			if (outcome.error) {
 				askError = outcome.error;
 			} else {
@@ -1079,6 +1084,14 @@
 		askNotice = '';
 		scrollReset += 1;
 		composerFocusKey += 1;
+		// The new focus line rises to the top, clearing the old conversation from view.
+		void tick().then(() =>
+			scrollEl?.dispatchEvent(
+				new CustomEvent('chat-scroll-anchor', {
+					detail: { selector: '.conversation-focus-boundary' }
+				})
+			)
+		);
 	}
 
 	/* Text selected on the main surface travels with the next message as a quote, so "explain
@@ -1656,14 +1669,15 @@
 					{/each}
 					{#if focusActive && !hasMessagesAfterFocus}
 						<div class="conversation-focus-boundary" role={newFocusPending ? 'status' : undefined}>
-							<span>New focus</span><i aria-hidden="true"></i>{#if newFocusPending}<button
+							<span>New focus</span><i aria-hidden="true"></i><span>Company memory retained</span
+							>{#if newFocusPending}<button
 									type="button"
 									class="focus-cancel"
 									title="Keep talking in the current conversation"
 									onclick={cancelNewFocus}>Cancel</button
-								>{:else}<span>Company memory retained</span>{/if}
+								>{/if}
 						</div>
-						{#if !composer.trim() && !working}
+						{#if !working}
 							<p class="conversation-capability-hint">{capabilityHint}</p>
 						{/if}
 					{/if}
@@ -1747,6 +1761,7 @@
 					<Composer
 						bind:value={composer}
 						bind:files={composerFiles}
+						uploadProgress={sending ? uploadProgress : null}
 						bind:selectedSkills={composerSkills}
 						options={[...options.value, ...references]}
 						interruptible={working && !setupPending}
@@ -1804,11 +1819,6 @@
 							{/if}
 						{/snippet}
 					</Composer>
-					{#if uploadProgress !== null && sending}
-						<p class="exr-notice" role="status">
-							Uploading… {Math.round(uploadProgress * 100)}%
-						</p>
-					{/if}
 					{#if askError}
 						<p class="exr-error" role="alert">{askError}</p>
 					{/if}
@@ -2345,6 +2355,9 @@
 		font: 500 var(--t-label) var(--font-ui);
 		font-variant-numeric: tabular-nums;
 		animation: focus-arrive var(--motion-disclosure) var(--ease-spring) both;
+	}
+	.conversation-focus-boundary:has(.focus-cancel) {
+		grid-template-columns: auto minmax(16px, 1fr) auto auto;
 	}
 	.conversation-focus-boundary.earlier {
 		margin-block: 12px 6px;

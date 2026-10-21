@@ -680,9 +680,11 @@
 	}
 
 	/* Fullscreen where the browser allows it; where it does not (an embedded browser such as the
-	 * Claude app's pane refuses the Fullscreen API), the viewer fills the window instead, so the
-	 * button always does something (20 October). Escape leaves either. */
+	 * Claude app's pane refuses the Fullscreen API), the viewer fills the main area instead, so the
+	 * button always does something (20 October). It stops short of the Exec rail, so the owner can
+	 * watch the computer and talk to Exec at once (21 October). Escape leaves either. */
 	let expanded = $state(false);
+	let expandedBox = $state('');
 	async function toggleFullscreen() {
 		if (!target) return;
 		if (expanded) {
@@ -702,8 +704,24 @@
 		const leave = (event: KeyboardEvent) => {
 			if (event.key === 'Escape' && !event.defaultPrevented) expanded = false;
 		};
+		const main = document.getElementById('main-content');
+		const measure = () => {
+			const box = main?.getBoundingClientRect();
+			expandedBox = box
+				? `top:${box.top}px;left:${box.left}px;width:${box.width}px;height:${box.height}px`
+				: '';
+		};
+		measure();
+		const observer = main ? new ResizeObserver(measure) : null;
+		if (main) observer?.observe(main);
+		window.addEventListener('resize', measure);
 		window.addEventListener('keydown', leave);
-		return () => window.removeEventListener('keydown', leave);
+		return () => {
+			observer?.disconnect();
+			window.removeEventListener('resize', measure);
+			window.removeEventListener('keydown', leave);
+			expandedBox = '';
+		};
 	});
 
 	async function openClipboardPanel() {
@@ -843,6 +861,7 @@
 	class="desktop-viewport"
 	class:dragging
 	class:expanded
+	style={expanded ? expandedBox : undefined}
 	bind:this={target}
 	aria-label={title}
 	role="region"
@@ -1131,11 +1150,12 @@
 		width: 100vw;
 		height: 100vh;
 	}
-	/* The window-filling stand-in for fullscreen. */
+	/* The stand-in for fullscreen: it fills the main area (measured), or the window when there is
+	 * no main area, and leaves the Exec rail beside it. */
 	.desktop-viewport.expanded {
 		position: fixed;
 		inset: 0;
-		z-index: 2147483000;
+		z-index: 60;
 		width: 100vw;
 		height: 100vh;
 		background: #101217;
