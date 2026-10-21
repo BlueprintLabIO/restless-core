@@ -414,12 +414,58 @@ pub async fn signed_in(account_id: &str, domains: &[String]) -> Result<bool> {
     if !has_cookie {
         return Ok(false);
     }
+    // A site we know names its session cookie: Facebook sets `datr` and `fr` before anyone
+    // signs in, so only `c_user` and `xs` mean signed in (Sydney Resale's login read signed in
+    // while every Facebook page asked for a password, 21–22 Oct).
+    let names: Vec<(&str, &str)> = cookies["cookies"]
+        .as_array()
+        .map(|cookies| {
+            cookies
+                .iter()
+                .filter_map(|cookie| {
+                    Some((
+                        cookie["domain"].as_str()?.trim_start_matches('.'),
+                        cookie["name"].as_str()?,
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if let Some(signed) = known_session(&names, domains) {
+        return Ok(signed);
+    }
     // Sites set consent and tracking cookies before anyone signs in, so a cookie alone is not a
     // sign-in: a page of the account's own that still asks for a password says it did not take.
     Ok(!asks_for_password(&mut cdp, domains).await.unwrap_or(false))
 }
 
 /// Whether an open page on the account's domains shows a password field.
+/// Session cookies of sites whose sign-in we know, by registrable domain: every one listed must be
+/// present for the account to be signed in. `None` when none of the account's domains is known.
+const KNOWN_SESSIONS: &[(&str, &[&str])] = &[
+    ("facebook.com", &["c_user", "xs"]),
+    ("instagram.com", &["sessionid"]),
+    ("google.com", &["SID"]),
+    ("linkedin.com", &["li_at"]),
+    ("x.com", &["auth_token"]),
+    ("twitter.com", &["auth_token"]),
+    ("github.com", &["user_session"]),
+    ("reddit.com", &["reddit_session"]),
+];
+
+pub fn known_session(cookies: &[(&str, &str)], domains: &[String]) -> Option<bool> {
+    let (site, required) = KNOWN_SESSIONS.iter().find(|(site, _)| {
+        domains
+            .iter()
+            .any(|domain| on_account_domain(domain, &[site.to_string()]))
+    })?;
+    Some(required.iter().all(|name| {
+        cookies.iter().any(|(domain, cookie)| {
+            cookie == name && on_account_domain(domain, &[site.to_string()])
+        })
+    }))
+}
+
 async fn asks_for_password(cdp: &mut Cdp, domains: &[String]) -> Result<bool> {
     let targets = cdp
         .call("Target.getTargets", serde_json::json!({}), None)
@@ -1012,6 +1058,24 @@ pub async fn act(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn facebook_consent_cookies_are_not_a_sign_in() {
+        let domains = vec!["facebook.com".to_string()];
+        let before = [("facebook.com", "datr"), ("facebook.com", "fr")];
+        assert_eq!(known_session(&before, &domains), Some(false));
+        let after = [
+            ("facebook.com", "datr"),
+            ("facebook.com", "c_user"),
+            ("www.facebook.com", "xs"),
+        ];
+        assert_eq!(known_session(&after, &domains), Some(true));
+        assert_eq!(
+            known_session(&after, &["gumtree.com.au".to_string()]),
+            None,
+            "an unknown site keeps the page check"
+        );
+    }
 
     #[test]
     fn the_accessibility_tree_reads_as_numbered_lines() {
