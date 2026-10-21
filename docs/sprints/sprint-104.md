@@ -27,7 +27,7 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 ### A. Deploys and durability
 - [ ] A1 Serve the UI apart from the runtime; a UI-only release restarts no company.
 - [ ] A2 Install runtime updates when a company is idle; never interrupt Work, chat or computer use.
-- [ ] A3 Resume agent sessions after a restart (session record written as it goes).
+- [~] A3 Checked: a Work attempt's agent session is already resumable. Its ACP locator is written to the company volume (`work:<id>`), and the next attempt calls `session/load`, so a restart costs the in-flight turn, not the context. Fixed: an attempt whose computer restarted under it (so `/tmp` and its ownership marker were gone) no longer fails with "marker is missing; broad process cleanup was refused" (Aang's attempt 2). Still open: continuing the interrupted attempt itself, rather than closing it as unknown for the lead to review.
 - [x] A4 Stop keeps trying for up to a minute while the company is unreachable (network errors, 5xx, 408, 429) instead of failing the moment the connection drops.
 - [~] A5 Checked: the gateway already reloads within ~5s when credentials or sign-ins change (restlessd's fingerprint loop), so the "Ready once the company restarts" hint is stale. Still open: an agent assigned to a removed key's connection should fall back to the provider's remaining connection (needs a reproduction).
 - [x] A6 Exec reports platform faults instead of "nothing we control".
