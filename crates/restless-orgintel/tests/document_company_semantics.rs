@@ -1614,7 +1614,8 @@ async fn exec_shares_a_staff_document_but_a_member_cannot() {
         .await
         .expect("the company owner shares any document they can read");
     assert!(matches!(
-        org.set_document_participant(share("alex", 3, "blair")).await,
+        org.set_document_participant(share("alex", 3, "blair"))
+            .await,
         Err(DocumentError::Unavailable)
     ));
 }

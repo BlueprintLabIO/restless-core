@@ -35,25 +35,60 @@ async fn active_staff_are_directly_addressable_without_a_team_lead() {
         eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping direct staff scenario");
         return;
     };
-    org.ensure_actor("independent-craft", "staff", "designer", "Independent Craft")
-        .await.unwrap();
-    let (message_id, _) = org.send_owner_conversation_message(
-        "independent-craft", "Please explain this draft.", false
-    ).await.unwrap();
-    let conversation = org.owner_conversation("independent-craft", 20).await.unwrap();
+    org.ensure_actor(
+        "independent-craft",
+        "staff",
+        "designer",
+        "Independent Craft",
+    )
+    .await
+    .unwrap();
+    let (message_id, _) = org
+        .send_owner_conversation_message("independent-craft", "Please explain this draft.", false)
+        .await
+        .unwrap();
+    let conversation = org
+        .owner_conversation("independent-craft", 20)
+        .await
+        .unwrap();
     assert!(conversation.iter().any(|message| message.id == message_id));
-    let room = org.create_room(
-        "owner", RoomKind::Group, "Draft review",
-        &["owner", "independent-craft"], "staff-direct-group"
-    ).await.unwrap();
-    let mentioned = org.send_room_message_with_mentions(
-        room.id, "owner", "Please check the draft", None, "staff-direct-mention", &[NewRoomMessageMention::actor("independent-craft")], None
-    ).await.unwrap();
+    let room = org
+        .create_room(
+            "owner",
+            RoomKind::Group,
+            "Draft review",
+            &["owner", "independent-craft"],
+            "staff-direct-group",
+        )
+        .await
+        .unwrap();
+    let mentioned = org
+        .send_room_message_with_mentions(
+            room.id,
+            "owner",
+            "Please check the draft",
+            None,
+            "staff-direct-mention",
+            &[NewRoomMessageMention::actor("independent-craft")],
+            None,
+        )
+        .await
+        .unwrap();
     assert_eq!(mentioned.mentions.len(), 1);
-    org.retire_actor("independent-craft", "exec", "The test agent is retired").await.unwrap();
-    assert!(org.send_owner_conversation_message("independent-craft", "After retirement", false).await.is_err());
-    org.ensure_actor("automation", "system", "automation", "Automation").await.unwrap();
-    assert!(org.send_owner_conversation_message("automation", "Not an agent", false).await.is_err());
+    org.retire_actor("independent-craft", "exec", "The test agent is retired")
+        .await
+        .unwrap();
+    assert!(org
+        .send_owner_conversation_message("independent-craft", "After retirement", false)
+        .await
+        .is_err());
+    org.ensure_actor("automation", "system", "automation", "Automation")
+        .await
+        .unwrap();
+    assert!(org
+        .send_owner_conversation_message("automation", "Not an agent", false)
+        .await
+        .is_err());
 }
 
 async fn handoff_input(
@@ -102,7 +137,13 @@ async fn room_send_is_idempotent_threaded_paginated_and_transactional() {
     assert_eq!(retry.event_id, root.event_id);
 
     let middle_root = org
-        .send_room_message(room.id, "owner", "A middle question", None, "command-middle")
+        .send_room_message(
+            room.id,
+            "owner",
+            "A middle question",
+            None,
+            "command-middle",
+        )
         .await
         .unwrap();
 
@@ -3889,12 +3930,18 @@ async fn a_group_owner_renames_or_archives_and_a_member_can_only_leave() {
             .find(|row| row.room_id == room.id)
             .map(|row| row.last_read_message_id)
     };
-    let before = org.recent_group_conversations_for_actor("exec").await.unwrap();
+    let before = org
+        .recent_group_conversations_for_actor("exec")
+        .await
+        .unwrap();
     assert_eq!(cursor(before), Some(None));
     org.mark_room_read_through(room.id, "exec", said.message.id)
         .await
         .unwrap();
-    let after = org.recent_group_conversations_for_actor("exec").await.unwrap();
+    let after = org
+        .recent_group_conversations_for_actor("exec")
+        .await
+        .unwrap();
     assert_eq!(cursor(after), Some(Some(said.message.id)));
     // Muting is the viewer's own: it shows in their list only, and needs them in the Room.
     org.set_room_muted("exec", room.id, true).await.unwrap();
@@ -3904,11 +3951,19 @@ async fn a_group_owner_renames_or_archives_and_a_member_can_only_leave() {
             .map(|row| row.muted)
     };
     assert_eq!(
-        muted(org.recent_group_conversations_for_actor("exec").await.unwrap()),
+        muted(
+            org.recent_group_conversations_for_actor("exec")
+                .await
+                .unwrap()
+        ),
         Some(true)
     );
     assert_eq!(
-        muted(org.recent_group_conversations_for_actor("owner").await.unwrap()),
+        muted(
+            org.recent_group_conversations_for_actor("owner")
+                .await
+                .unwrap()
+        ),
         Some(false)
     );
     assert!(org
@@ -3918,7 +3973,9 @@ async fn a_group_owner_renames_or_archives_and_a_member_can_only_leave() {
 
     // A member cannot change the Room for everyone...
     let denied = [
-        org.rename_room("exec", room.id, "Mine now").await.map(|_| ()),
+        org.rename_room("exec", room.id, "Mine now")
+            .await
+            .map(|_| ()),
         org.archive_room("exec", room.id).await.map(|_| ()),
         org.remove_room_participant("exec", room.id, "delivery-build")
             .await
@@ -3934,7 +3991,10 @@ async fn a_group_owner_renames_or_archives_and_a_member_can_only_leave() {
     org.remove_room_participant("delivery-build", room.id, "delivery-build")
         .await
         .unwrap();
-    assert!(org.room_participants("delivery-build", room.id).await.is_err());
+    assert!(org
+        .room_participants("delivery-build", room.id)
+        .await
+        .is_err());
 
     // The owner renames and archives; it cannot leave its own Room.
     assert!(org
@@ -3944,11 +4004,17 @@ async fn a_group_owner_renames_or_archives_and_a_member_can_only_leave() {
         .to_string()
         .contains("archive"));
     assert!(org.rename_room("owner", room.id, "  ").await.is_err());
-    let renamed = org.rename_room("owner", room.id, " Launch week ").await.unwrap();
+    let renamed = org
+        .rename_room("owner", room.id, " Launch week ")
+        .await
+        .unwrap();
     assert_eq!(renamed.title, "Launch week");
     let archived = org.archive_room("owner", room.id).await.unwrap();
     assert!(archived.archived_at.is_some());
-    let listed = org.recent_group_conversations_for_actor("exec").await.unwrap();
+    let listed = org
+        .recent_group_conversations_for_actor("exec")
+        .await
+        .unwrap();
     assert_eq!(cursor(listed), None);
     assert!(org
         .send_room_message(room.id, "exec", "Too late", None, "lifecycle-late")
@@ -3956,12 +4022,23 @@ async fn a_group_owner_renames_or_archives_and_a_member_can_only_leave() {
         .is_err());
     // Those still in it read it without restoring it; someone who left does not.
     assert_eq!(
-        org.archived_rooms_for("exec").await.unwrap().iter().map(|row| row.id).collect::<Vec<_>>(),
+        org.archived_rooms_for("exec")
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| row.id)
+            .collect::<Vec<_>>(),
         vec![room.id]
     );
-    org.room_messages_before("exec", room.id, None, 10).await.unwrap();
+    org.room_messages_before("exec", room.id, None, 10)
+        .await
+        .unwrap();
     org.room_participants("exec", room.id).await.unwrap();
-    assert!(org.archived_rooms_for("delivery-build").await.unwrap().is_empty());
+    assert!(org
+        .archived_rooms_for("delivery-build")
+        .await
+        .unwrap()
+        .is_empty());
     assert!(org
         .room_messages_before("delivery-build", room.id, None, 10)
         .await
@@ -3969,8 +4046,15 @@ async fn a_group_owner_renames_or_archives_and_a_member_can_only_leave() {
 
     // Archived is not gone: its owner, and only its owner, sees it and brings it back.
     let shelf = org.archived_rooms_owned_by("owner").await.unwrap();
-    assert_eq!(shelf.iter().map(|row| row.id).collect::<Vec<_>>(), vec![room.id]);
-    assert!(org.archived_rooms_owned_by("exec").await.unwrap().is_empty());
+    assert_eq!(
+        shelf.iter().map(|row| row.id).collect::<Vec<_>>(),
+        vec![room.id]
+    );
+    assert!(org
+        .archived_rooms_owned_by("exec")
+        .await
+        .unwrap()
+        .is_empty());
     assert!(org
         .restore_room("exec", room.id)
         .await
@@ -3980,14 +4064,26 @@ async fn a_group_owner_renames_or_archives_and_a_member_can_only_leave() {
     let restored = org.restore_room("owner", room.id).await.unwrap();
     assert!(restored.archived_at.is_none());
     assert_eq!(restored.title, "Launch week");
-    assert!(org.archived_rooms_owned_by("owner").await.unwrap().is_empty());
+    assert!(org
+        .archived_rooms_owned_by("owner")
+        .await
+        .unwrap()
+        .is_empty());
     // Restoring again is a no-op, and the Room is open to those still in it.
-    assert!(org.restore_room("owner", room.id).await.unwrap().archived_at.is_none());
+    assert!(org
+        .restore_room("owner", room.id)
+        .await
+        .unwrap()
+        .archived_at
+        .is_none());
     org.send_room_message(room.id, "exec", "Back again", None, "lifecycle-back")
         .await
         .unwrap();
     // Someone who left before the archive stays out.
-    assert!(org.room_participants("delivery-build", room.id).await.is_err());
+    assert!(org
+        .room_participants("delivery-build", room.id)
+        .await
+        .is_err());
 }
 
 #[tokio::test]

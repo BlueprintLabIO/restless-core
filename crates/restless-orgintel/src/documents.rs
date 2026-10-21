@@ -1364,7 +1364,14 @@ fn validate_marks(value: Option<&Value>) -> DocumentResult<()> {
             .ok_or_else(|| DocumentError::Invalid("every text mark needs a string type".into()))?;
         if !matches!(
             mark_type,
-            "bold" | "italic" | "underline" | "strike" | "code" | "link" | "highlight" | "textColor"
+            "bold"
+                | "italic"
+                | "underline"
+                | "strike"
+                | "code"
+                | "link"
+                | "highlight"
+                | "textColor"
         ) {
             return Err(DocumentError::Invalid(format!(
                 "mark {mark_type:?} is unsupported"
@@ -2869,7 +2876,11 @@ fn render_node(value: &Value) -> DocumentResult<String> {
         "table" => Ok(format!("<table{block}><tbody>{inner}</tbody></table>")),
         "tableRow" => Ok(format!("<tr{block}>{inner}</tr>")),
         "tableHeader" | "tableCell" => {
-            let tag = if node_type == "tableHeader" { "th" } else { "td" };
+            let tag = if node_type == "tableHeader" {
+                "th"
+            } else {
+                "td"
+            };
             let width = object
                 .get("attrs")
                 .and_then(|attrs| attrs.get("width"))
@@ -3122,12 +3133,15 @@ fn render_markdown_block(value: &Value, depth: usize) -> DocumentResult<String> 
         // the address is relative to the company's API root.
         "image" => {
             let attrs = &object["attrs"];
-            let src = attrs["src"].as_str().map(str::to_string).unwrap_or_else(|| {
-                format!(
-                    "attachments/{}",
-                    attrs["attachment_id"].as_str().unwrap_or_default()
-                )
-            });
+            let src = attrs["src"]
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    format!(
+                        "attachments/{}",
+                        attrs["attachment_id"].as_str().unwrap_or_default()
+                    )
+                });
             let caption = attrs["caption"]
                 .as_str()
                 .map(|caption| {
@@ -3144,12 +3158,15 @@ fn render_markdown_block(value: &Value, depth: usize) -> DocumentResult<String> 
         "table" => render_markdown_table(children),
         "file" => {
             let attrs = &object["attrs"];
-            let src = attrs["src"].as_str().map(str::to_string).unwrap_or_else(|| {
-                format!(
-                    "attachments/{}",
-                    attrs["attachment_id"].as_str().unwrap_or_default()
-                )
-            });
+            let src = attrs["src"]
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    format!(
+                        "attachments/{}",
+                        attrs["attachment_id"].as_str().unwrap_or_default()
+                    )
+                });
             Ok(format!(
                 "[{}]({src})",
                 escape_markdown_text(attrs["name"].as_str().unwrap_or_default())
@@ -3690,13 +3707,12 @@ async fn placed_in_original(
 ) -> DocumentResult<bool> {
     let mut current = document_id;
     for _ in 0..8 {
-        let original: Option<Uuid> = sqlx::query_scalar(
-            "SELECT duplicated_from FROM native_documents WHERE id=$1",
-        )
-        .bind(current)
-        .fetch_optional(&mut **tx)
-        .await?
-        .flatten();
+        let original: Option<Uuid> =
+            sqlx::query_scalar("SELECT duplicated_from FROM native_documents WHERE id=$1")
+                .bind(current)
+                .fetch_optional(&mut **tx)
+                .await?
+                .flatten();
         let Some(original) = original else {
             return Ok(false);
         };
@@ -3759,14 +3775,19 @@ async fn access_in_transaction(
     // participant revocation and named-version creation take this row FOR
     // UPDATE, so neither can split an authorized projection into an old access
     // decision followed by post-revocation content at READ COMMITTED.
-    let document: Option<(String, DocumentVisibility, DocumentAccess, Option<Uuid>, bool)> =
-        sqlx::query_as(
-            "SELECT owner_actor_id,visibility,company_access,linked_room_id,inherit_room_visibility \
+    let document: Option<(
+        String,
+        DocumentVisibility,
+        DocumentAccess,
+        Option<Uuid>,
+        bool,
+    )> = sqlx::query_as(
+        "SELECT owner_actor_id,visibility,company_access,linked_room_id,inherit_room_visibility \
              FROM native_documents WHERE id=$1 FOR SHARE",
-        )
-        .bind(document_id)
-        .fetch_optional(&mut **tx)
-        .await?;
+    )
+    .bind(document_id)
+    .fetch_optional(&mut **tx)
+    .await?;
     let Some((owner_actor_id, visibility, company_access, linked_room_id, inherit_room_visibility)) =
         document
     else {
@@ -5505,7 +5526,8 @@ impl OrgIntel {
             && row.get::<DocumentVisibility, _>("visibility") == input.visibility
             && row.get::<Option<Uuid>, _>("linked_room_id") == input.linked_room_id
             && row.get::<bool, _>("inherit_room_visibility") == input.inherit_room_visibility;
-        let caller_access = access_in_transaction(&mut tx, input.document_id, input.actor_id).await?;
+        let caller_access =
+            access_in_transaction(&mut tx, input.document_id, input.actor_id).await?;
         let owner_retitle = title_only
             && row.get::<String, _>("owner_actor_id") != input.actor_id
             && caller_access.is_some()
@@ -6478,7 +6500,11 @@ impl OrgIntel {
         // Whoever can open a document sees who else can; only its managers change that.
         let may_manage =
             may_manage_participants(&mut tx, document_id, &owner_actor_id, actor_id).await?;
-        if !may_manage && access_in_transaction(&mut tx, document_id, actor_id).await?.is_none() {
+        if !may_manage
+            && access_in_transaction(&mut tx, document_id, actor_id)
+                .await?
+                .is_none()
+        {
             return Err(DocumentError::Unavailable);
         }
         let mut participants = sqlx::query_as::<_, DocumentParticipantRow>(
@@ -9107,14 +9133,20 @@ mod tests {
         let paragraph = json!({"type":"paragraph","content":[{"type":"text","text":"Body."}]});
         let doc = |blocks: Vec<Value>| json!({"type":"doc","content":blocks});
         // The same words, give or take case, spacing and a closing full stop, go.
-        let repeated = doc(vec![heading("Three  offers, three notes."), paragraph.clone()]);
+        let repeated = doc(vec![
+            heading("Three  offers, three notes."),
+            paragraph.clone(),
+        ]);
         assert_eq!(
             without_repeated_title(&repeated, "Three offers, three notes"),
             doc(vec![paragraph.clone()])
         );
         // A different first heading stays, and so does a body that is only the heading.
         let different = doc(vec![heading("Why now"), paragraph.clone()]);
-        assert_eq!(without_repeated_title(&different, "Three offers"), different);
+        assert_eq!(
+            without_repeated_title(&different, "Three offers"),
+            different
+        );
         let only = doc(vec![heading("Three offers")]);
         assert_eq!(without_repeated_title(&only, "Three offers"), only);
     }
@@ -9176,15 +9208,26 @@ mod tests {
             json!({"block_id":"p","align":"center"}),
         ))
         .unwrap();
-        assert!(validated.rendered_html.contains("<p data-block-id=\"p\" data-align=\"center\">"));
+        assert!(validated
+            .rendered_html
+            .contains("<p data-block-id=\"p\" data-align=\"center\">"));
         assert!(validated.rendered_html.contains(
             "<u><mark data-color=\"yellow\"><span data-text-color=\"red\">Due Friday</span></mark></u>"
         ));
         assert!(validated.markdown.contains("Due Friday"));
         for (marks, attrs) in [
-            (json!([{"type":"highlight","attrs":{"color":"#ff0"}}]), json!({"block_id":"p"})),
-            (json!([{"type":"textColor","attrs":{"color":"\"><script>"}}]), json!({"block_id":"p"})),
-            (json!([{"type":"underline","attrs":{"style":"double"}}]), json!({"block_id":"p"})),
+            (
+                json!([{"type":"highlight","attrs":{"color":"#ff0"}}]),
+                json!({"block_id":"p"}),
+            ),
+            (
+                json!([{"type":"textColor","attrs":{"color":"\"><script>"}}]),
+                json!({"block_id":"p"}),
+            ),
+            (
+                json!([{"type":"underline","attrs":{"style":"double"}}]),
+                json!({"block_id":"p"}),
+            ),
             (json!([]), json!({"block_id":"p","align":"left"})),
         ] {
             assert!(validate_document_json(&body(marks, attrs)).is_err());
@@ -9201,7 +9244,11 @@ mod tests {
         assert!(validated
             .rendered_html
             .contains("<figcaption>Revenue &quot;&lt;up&gt;&quot; 12%</figcaption>"));
-        let line = validated.markdown.lines().find(|line| line.starts_with("![")).unwrap();
+        let line = validated
+            .markdown
+            .lines()
+            .find(|line| line.starts_with("!["))
+            .unwrap();
         let image = markdown_image(line).unwrap().unwrap();
         assert_eq!(image["attrs"]["caption"], "Revenue \"<up>\" 12%");
         assert_eq!(image["attrs"]["attachment_id"], id);
@@ -9221,7 +9268,11 @@ mod tests {
         assert!(validated.rendered_html.contains(&format!(
             "<div data-block-id=\"lease\" data-native-file=\"true\" data-attachment-id=\"{id}\">Signed &lt;lease&gt;.pdf</div>"
         )));
-        let line = validated.markdown.lines().find(|line| line.starts_with('[')).unwrap();
+        let line = validated
+            .markdown
+            .lines()
+            .find(|line| line.starts_with('['))
+            .unwrap();
         let file = markdown_file(line).unwrap().unwrap();
         assert_eq!(file["attrs"]["name"], "Signed <lease>.pdf");
         for attrs in [
@@ -9242,9 +9293,9 @@ mod tests {
             {"type":"paragraph","attrs":{"block_id":"two"},"content":[{"type":"text","text":"Page two"}]}
         ]});
         let validated = validate_document_json(&document).unwrap();
-        assert!(validated
-            .rendered_html
-            .contains("<div data-page-break=\"true\" class=\"page-break\" data-block-id=\"break\"></div>"));
+        assert!(validated.rendered_html.contains(
+            "<div data-page-break=\"true\" class=\"page-break\" data-block-id=\"break\"></div>"
+        ));
         let back = markdown_body_to_document(&validated.markdown).unwrap();
         let kinds: Vec<&str> = back["content"]
             .as_array()

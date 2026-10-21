@@ -300,19 +300,23 @@ async fn loop_is_an_idempotent_coalescing_interval_and_goal_closes_once() {
     assert!(org.list_goals().await.unwrap()[0].closed_at.is_some());
 }
 
-
 #[tokio::test]
 async fn agent_availability_and_actual_applications_are_distinct() {
     let Some(org) = company().await else {
         return;
     };
-    org.ensure_actor("owner", "owner", "owner", "Owner").await.unwrap();
+    org.ensure_actor("owner", "owner", "owner", "Owner")
+        .await
+        .unwrap();
     org.observe_skills(&[skill("company-method", "company", "one")])
         .await
         .unwrap();
     for actor in ["web-writer", "web-designer"] {
         let matrix = org.skill_agent_availability().await.unwrap();
-        assert_eq!(matrix.get(actor).unwrap(), &vec!["company-method".to_string()]);
+        assert_eq!(
+            matrix.get(actor).unwrap(),
+            &vec!["company-method".to_string()]
+        );
         assert_eq!(
             matrix.get(actor).cloned().unwrap_or_default(),
             org.actor_skills(actor)

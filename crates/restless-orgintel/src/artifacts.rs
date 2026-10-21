@@ -75,15 +75,22 @@ impl OrgIntel {
     ) -> Result<bool> {
         let restored_by = restored_by.trim();
         let mut tx = self.pool.begin().await?;
-        let row: Option<(Option<Uuid>, String, String, Option<String>, ArtifactRefState)> =
-            sqlx::query_as(
-                "SELECT work_id,kind,uri,retired_by,state FROM artifact_refs WHERE id=$1 FOR UPDATE",
-            )
-            .bind(artifact_id)
-            .fetch_optional(&mut *tx)
-            .await?;
+        let row: Option<(
+            Option<Uuid>,
+            String,
+            String,
+            Option<String>,
+            ArtifactRefState,
+        )> = sqlx::query_as(
+            "SELECT work_id,kind,uri,retired_by,state FROM artifact_refs WHERE id=$1 FOR UPDATE",
+        )
+        .bind(artifact_id)
+        .fetch_optional(&mut *tx)
+        .await?;
         let Some((work_id, kind, uri, retired_by, state)) = row else {
-            return Err(OrgIntelError::InvalidWork("the file is not one Work recorded".into()));
+            return Err(OrgIntelError::InvalidWork(
+                "the file is not one Work recorded".into(),
+            ));
         };
         if state == ArtifactRefState::Available {
             tx.commit().await?;

@@ -16,7 +16,9 @@ async fn company() -> Option<OrgIntel> {
     org.ensure_actor("owner", "owner", "owner", "The Owner")
         .await
         .unwrap();
-    org.ensure_actor("exec", "exec", "exec", "Exec").await.unwrap();
+    org.ensure_actor("exec", "exec", "exec", "Exec")
+        .await
+        .unwrap();
     for (id, name) in [("alex", "Alex"), ("bianca", "Bianca")] {
         org.ensure_actor(id, "human", "member", name).await.unwrap();
     }
@@ -52,7 +54,12 @@ async fn a_duplicate_is_yours_with_the_body_and_access_of_the_original() {
     };
     // A private document shared with Alex to read.
     let pricing = document(&org, DocumentVisibility::Participants).await;
-    let version = org.get_document_for_actor(pricing, "owner").await.unwrap().document.version;
+    let version = org
+        .get_document_for_actor(pricing, "owner")
+        .await
+        .unwrap()
+        .document
+        .version;
     org.set_document_participant(SetDocumentParticipant {
         command_id: Uuid::new_v4(),
         document_id: pricing,
@@ -63,30 +70,55 @@ async fn a_duplicate_is_yours_with_the_body_and_access_of_the_original() {
     })
     .await
     .unwrap();
-    assert!(matches!(
-        org.duplicate_document(pricing, "bianca", Uuid::new_v4()).await,
-        Err(DocumentError::Unavailable)
-    ), "someone who cannot open it cannot copy it");
+    assert!(
+        matches!(
+            org.duplicate_document(pricing, "bianca", Uuid::new_v4())
+                .await,
+            Err(DocumentError::Unavailable)
+        ),
+        "someone who cannot open it cannot copy it"
+    );
 
     let command = Uuid::new_v4();
-    let copy = org.duplicate_document(pricing, "alex", command).await.unwrap();
+    let copy = org
+        .duplicate_document(pricing, "alex", command)
+        .await
+        .unwrap();
     assert_eq!(
-        org.duplicate_document(pricing, "alex", command).await.unwrap().document_id,
+        org.duplicate_document(pricing, "alex", command)
+            .await
+            .unwrap()
+            .document_id,
         copy.document_id,
         "a retried Duplicate answers the same copy"
     );
-    let view = org.get_document_for_actor(copy.document_id, "alex").await.unwrap();
+    let view = org
+        .get_document_for_actor(copy.document_id, "alex")
+        .await
+        .unwrap();
     assert_eq!(view.document.title, "Copy of Pricing");
     assert_eq!(view.document.owner_actor_id, "alex");
     assert_eq!(view.access, DocumentAccess::Edit);
-    assert_eq!(view.last_editor_actor_id.as_deref(), Some("alex"), "the copy names who made it");
+    assert_eq!(
+        view.last_editor_actor_id.as_deref(),
+        Some("alex"),
+        "the copy names who made it"
+    );
     assert_eq!(view.document.general_access, GeneralAccess::Private);
     assert!(view.current_version.markdown.contains("Three tiers"));
-    assert!(org.get_document_for_actor(copy.document_id, "bianca").await.is_err());
+    assert!(org
+        .get_document_for_actor(copy.document_id, "bianca")
+        .await
+        .is_err());
 
     // A document the company can comment on stays so when copied.
     let open = document(&org, DocumentVisibility::Company).await;
-    let version = org.get_document_for_actor(open, "owner").await.unwrap().document.version;
+    let version = org
+        .get_document_for_actor(open, "owner")
+        .await
+        .unwrap()
+        .document
+        .version;
     org.set_document_general_access(SetDocumentGeneralAccess {
         command_id: Uuid::new_v4(),
         document_id: open,
@@ -96,8 +128,14 @@ async fn a_duplicate_is_yours_with_the_body_and_access_of_the_original() {
     })
     .await
     .unwrap();
-    let copy = org.duplicate_document(open, "bianca", Uuid::new_v4()).await.unwrap();
-    let view = org.get_document_for_actor(copy.document_id, "alex").await.unwrap();
+    let copy = org
+        .duplicate_document(open, "bianca", Uuid::new_v4())
+        .await
+        .unwrap();
+    let view = org
+        .get_document_for_actor(copy.document_id, "alex")
+        .await
+        .unwrap();
     assert_eq!(view.document.general_access, GeneralAccess::Comment);
     assert_eq!(view.document.owner_actor_id, "bianca");
 }

@@ -446,14 +446,16 @@ fn valid_key(key: &str) -> bool {
     let Some((kind, id)) = key.split_once(':') else {
         return false;
     };
-    let canonical = |id: &str| Uuid::parse_str(id).is_ok_and(|parsed| parsed.hyphenated().to_string() == id);
+    let canonical =
+        |id: &str| Uuid::parse_str(id).is_ok_and(|parsed| parsed.hyphenated().to_string() == id);
     match kind {
         "room-mention" | "doc-mention" | "thread" | "changes" | "share" | "sheet-share"
         | "review" | "sheet-changes" | "access" | "sheet-access" | "sheet-mention"
         | "sheet-thread" => canonical(id),
         // One day's applied changes (S80), by the company-local day.
-        "direction-day" => id.len() == 10
-            && chrono::NaiveDate::parse_from_str(id, "%Y-%m-%d").is_ok(),
+        "direction-day" => {
+            id.len() == 10 && chrono::NaiveDate::parse_from_str(id, "%Y-%m-%d").is_ok()
+        }
         "room-thread" => id.split_once(':').is_some_and(|(room, root)| {
             canonical(room)
                 && !root.is_empty()
@@ -472,7 +474,9 @@ fn checked_keys(keys: &[String]) -> DocumentResult<()> {
         )));
     }
     if let Some(key) = keys.iter().find(|key| !valid_key(key)) {
-        return Err(DocumentError::Invalid(format!("unknown For you item {key:?}")));
+        return Err(DocumentError::Invalid(format!(
+            "unknown For you item {key:?}"
+        )));
     }
     Ok(())
 }
@@ -525,7 +529,14 @@ impl OrgIntel {
         Ok((
             rows.into_iter()
                 .map(|(key, read_at, marked_unread, archived_at)| {
-                    (key, ForYouMark { read_at, marked_unread, archived_at })
+                    (
+                        key,
+                        ForYouMark {
+                            read_at,
+                            marked_unread,
+                            archived_at,
+                        },
+                    )
                 })
                 .collect(),
             through,
@@ -598,7 +609,9 @@ impl OrgIntel {
                     key: row.try_get("key")?,
                     kind: row.try_get("kind")?,
                     title: row.try_get("title")?,
-                    excerpt: row.try_get::<Option<String>, _>("excerpt")?.unwrap_or_default(),
+                    excerpt: row
+                        .try_get::<Option<String>, _>("excerpt")?
+                        .unwrap_or_default(),
                     target,
                     actor_ids: row.try_get("actors")?,
                     actor_names: row.try_get("actor_names")?,
@@ -716,13 +729,7 @@ impl OrgIntel {
         // second look further back to fill.
         for _ in 0..4 {
             let rows = self
-                .for_you_rows(
-                    viewer,
-                    cursor.as_ref(),
-                    limit + 1,
-                    show,
-                    Source::default(),
-                )
+                .for_you_rows(viewer, cursor.as_ref(), limit + 1, show, Source::default())
                 .await?;
             exhausted = rows.len() as i64 <= limit;
             cursor = rows.last().map(|row| ForYouCursor {

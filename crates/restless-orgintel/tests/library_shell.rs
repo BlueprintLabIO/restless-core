@@ -19,7 +19,9 @@ async fn company(prefix: &str) -> Option<OrgIntel> {
     org.ensure_actor("owner", "owner", "owner", "The Owner")
         .await
         .unwrap();
-    org.ensure_actor("exec", "exec", "exec", "Exec").await.unwrap();
+    org.ensure_actor("exec", "exec", "exec", "Exec")
+        .await
+        .unwrap();
     for (id, display) in [("alex", "Alex"), ("bianca", "Bianca")] {
         org.ensure_actor(id, "human", "member", display)
             .await
@@ -135,7 +137,13 @@ async fn comment_search_answers_only_from_documents_the_person_can_read() {
     .await
     .unwrap();
     comment(&org, open, "owner", "Can we raise the margin here?").await;
-    comment(&org, board, "bianca", "The margin story needs the board's view").await;
+    comment(
+        &org,
+        board,
+        "bianca",
+        "The margin story needs the board's view",
+    )
+    .await;
 
     let found = |hits: Vec<restless_orgintel::DocumentCommentSearchHit>| {
         let mut titles: Vec<String> = hits.into_iter().map(|hit| hit.document_title).collect();
@@ -195,7 +203,9 @@ async fn comment_search_answers_only_from_documents_the_person_can_read() {
         .unwrap()
         .iter()
         .all(|hit| hit.document_id == open));
-    org.set_document_archived(open, "owner", true).await.unwrap();
+    org.set_document_archived(open, "owner", true)
+        .await
+        .unwrap();
     assert!(org
         .search_document_comments_for_actor("alex", "margin", 8)
         .await
@@ -221,7 +231,11 @@ async fn the_library_says_who_changed_a_document_last() {
             .and_then(|summary| summary.last_editor_actor_id)
     };
     assert_eq!(
-        editor(org.list_documents_for_actor("alex", false, None, 20).await.unwrap()),
+        editor(
+            org.list_documents_for_actor("alex", false, None, 20)
+                .await
+                .unwrap()
+        ),
         Some("owner".into())
     );
     let current = org
@@ -241,7 +255,11 @@ async fn the_library_says_who_changed_a_document_last() {
     .await
     .unwrap();
     assert_eq!(
-        editor(org.list_documents_for_actor("bianca", false, None, 20).await.unwrap()),
+        editor(
+            org.list_documents_for_actor("bianca", false, None, 20)
+                .await
+                .unwrap()
+        ),
         Some("alex".into())
     );
 }
@@ -254,9 +272,15 @@ async fn the_library_says_who_changed_a_sheet_last() {
     };
     let sheet = Uuid::new_v4();
     let mut head = Uuid::new_v4().to_string();
-    org.create_sheet(sheet, "bianca", "Deals", "company", &json!({ "revisionId": head }))
-        .await
-        .unwrap();
+    org.create_sheet(
+        sheet,
+        "bianca",
+        "Deals",
+        "company",
+        &json!({ "revisionId": head }),
+    )
+    .await
+    .unwrap();
     let editor = |rows: Vec<restless_orgintel::SheetRow>| {
         rows.into_iter()
             .find(|row| row.id == sheet)
@@ -317,7 +341,10 @@ async fn collections_are_company_state_a_member_moves_only_what_they_may_edit() 
     .await
     .unwrap();
     // The list says how many documents it holds on its first page, past the page size.
-    let first = org.list_documents_for_actor("owner", false, None, 1).await.unwrap();
+    let first = org
+        .list_documents_for_actor("owner", false, None, 1)
+        .await
+        .unwrap();
     assert_eq!((first.items.len(), first.total), (1, Some(2)));
     let next = first.next_cursor.clone().expect("a second page");
     let second = org
@@ -329,37 +356,63 @@ async fn collections_are_company_state_a_member_moves_only_what_they_may_edit() 
     let upload = "upload:0b9c3f0e-8a7e-4f39-9a51-6d1f0c4b2a11".to_string();
 
     // The owner files anything; everyone sees the same collections.
-    org.set_library_collection("owner", true, &[board.clone(), upload.clone()], Some(" Clients "))
-        .await
-        .unwrap();
+    org.set_library_collection(
+        "owner",
+        true,
+        &[board.clone(), upload.clone()],
+        Some(" Clients "),
+    )
+    .await
+    .unwrap();
     let seen = org.library_items(false).await.unwrap();
     assert_eq!(seen.len(), 2);
-    assert!(seen.iter().all(|item| item.collection.as_deref() == Some("Clients")));
+    assert!(seen
+        .iter()
+        .all(|item| item.collection.as_deref() == Some("Clients")));
 
     // A member moves a document they may edit, never one they cannot, nor a kept file.
     org.set_library_collection("alex", false, &[plan.clone()], Some("Clients"))
         .await
         .unwrap();
-    for keys in [vec![board.clone()], vec![upload.clone()], vec![plan.clone(), board.clone()]] {
+    for keys in [
+        vec![board.clone()],
+        vec![upload.clone()],
+        vec![plan.clone(), board.clone()],
+    ] {
         assert!(org
             .set_library_collection("alex", false, &keys, None)
             .await
             .is_err());
     }
-    assert_eq!(org.library_items(false).await.unwrap().len(), 3, "a refused move changes nothing");
+    assert_eq!(
+        org.library_items(false).await.unwrap().len(),
+        3,
+        "a refused move changes nothing"
+    );
 
     // A kept file's name is the owner's alone to read; clearing everything drops the row.
     org.set_library_label("owner", &upload, Some("Signed lease.pdf"))
         .await
         .unwrap();
     let label = |items: Vec<restless_orgintel::LibraryItemRow>| {
-        items.into_iter().find(|item| item.item_key == upload).and_then(|item| item.label)
+        items
+            .into_iter()
+            .find(|item| item.item_key == upload)
+            .and_then(|item| item.label)
     };
-    assert_eq!(label(org.library_items(true).await.unwrap()).as_deref(), Some("Signed lease.pdf"));
+    assert_eq!(
+        label(org.library_items(true).await.unwrap()).as_deref(),
+        Some("Signed lease.pdf")
+    );
     assert_eq!(label(org.library_items(false).await.unwrap()), None);
     org.set_library_label("owner", &upload, None).await.unwrap();
     org.set_library_collection("owner", true, &[upload.clone()], None)
         .await
         .unwrap();
-    assert!(org.library_items(true).await.unwrap().iter().all(|item| item.item_key != upload));
+    assert!(org
+        .library_items(true)
+        .await
+        .unwrap()
+        .iter()
+        .all(|item| item.item_key != upload));
 }

@@ -892,6 +892,16 @@ pub async fn sweep_orphans(
         let container = running_companies
             .contains(name)
             .then(|| runtime::container_name(name));
+        let interrupted = org
+            .list_running_work_attempts()
+            .await
+            .map(|attempts| {
+                attempts
+                    .into_iter()
+                    .map(|attempt| attempt.work_id)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         recover_unsupervised_attempts(
             &org,
             registry,
@@ -900,6 +910,19 @@ pub async fn sweep_orphans(
             "supervisor restarted; cognitive process was lost before trustworthy semantic completion",
         )
         .await;
+        // The restart, not the agent, ended these Attempts: continue each
+        // Work once from its saved session (Sprint 104 A3).
+        for work_id in interrupted {
+            match org.resume_after_platform_restart(work_id).await {
+                Ok(true) => {
+                    tracing::info!(company = name, work = %work_id, "resumed Work interrupted by a restart")
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    tracing::warn!(company = name, work = %work_id, "could not resume Work after restart: {error:#}")
+                }
+            }
+        }
     }
 }
 

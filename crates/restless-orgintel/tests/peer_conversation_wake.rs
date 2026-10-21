@@ -199,13 +199,18 @@ async fn ordinary_peer_mail_discovers_only_active_recipients_until_delivery() {
         "peer delivery must not advance the Work feedback cursor"
     );
 
-    assert!(!org.attempt_has_human_input(attempt.attempt_id).await.unwrap());
+    assert!(!org
+        .attempt_has_human_input(attempt.attempt_id)
+        .await
+        .unwrap());
     let owner_question = org
         .send_message("owner", Some("alpha-build"), "How far along are you?")
         .await
         .unwrap();
     assert!(
-        org.attempt_has_human_input(attempt.attempt_id).await.unwrap(),
+        org.attempt_has_human_input(attempt.attempt_id)
+            .await
+            .unwrap(),
         "the owner's direct message steers the running Attempt"
     );
     let delivered = org
@@ -221,7 +226,9 @@ async fn ordinary_peer_mail_discovers_only_active_recipients_until_delivery() {
         "the owner's direct message is delivered into the running Attempt"
     );
     assert!(
-        !org.attempt_has_human_input(attempt.attempt_id).await.unwrap(),
+        !org.attempt_has_human_input(attempt.attempt_id)
+            .await
+            .unwrap(),
         "a delivered owner message stops steering"
     );
 

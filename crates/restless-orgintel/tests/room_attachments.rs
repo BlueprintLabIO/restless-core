@@ -204,7 +204,11 @@ async fn a_room_message_carries_its_senders_files_to_participants_only() {
         .attachments
         .iter()
         .all(|row| row.message_id.is_some()));
-    assert!(org.claim_owner_attachment_gc(8, 1, 300).await.unwrap().is_empty());
+    assert!(org
+        .claim_owner_attachment_gc(8, 1, 300)
+        .await
+        .unwrap()
+        .is_empty());
 }
 
 #[tokio::test]

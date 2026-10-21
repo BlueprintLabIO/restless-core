@@ -63,7 +63,9 @@ impl OrgIntel {
         .bind(source_id)
         .execute(&self.pool)
         .await?;
-        let copy = self.get_document_for_actor(created.document_id, actor_id).await?;
+        let copy = self
+            .get_document_for_actor(created.document_id, actor_id)
+            .await?;
         let wanted = source.document.general_access;
         if copy.document.general_access != wanted && wanted != GeneralAccess::Private {
             match self

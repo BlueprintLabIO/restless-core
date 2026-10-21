@@ -181,7 +181,11 @@ async fn may_manage(tx: &mut Transaction<'_, Postgres>, id: Uuid, actor: &str) -
 }
 /// Who may decide who else sees or edits a sheet, as for documents: whoever made it, the
 /// company's owner, and the Exec acting for that owner, except on a person's private sheet.
-pub(crate) async fn may_share(tx: &mut Transaction<'_, Postgres>, id: Uuid, actor: &str) -> Result<bool> {
+pub(crate) async fn may_share(
+    tx: &mut Transaction<'_, Postgres>,
+    id: Uuid,
+    actor: &str,
+) -> Result<bool> {
     let row: Option<(String, String, Option<String>)> = sqlx::query_as(
         "SELECT s.owner_actor_id,s.visibility,a.actor_class FROM native_sheets s \
          LEFT JOIN actors a ON a.id=s.owner_actor_id WHERE s.id=$1",

@@ -16,7 +16,9 @@ async fn company(prefix: &str) -> Option<OrgIntel> {
     org.ensure_actor("owner", "owner", "owner", "The Owner")
         .await
         .unwrap();
-    org.ensure_actor("exec", "exec", "exec", "Exec").await.unwrap();
+    org.ensure_actor("exec", "exec", "exec", "Exec")
+        .await
+        .unwrap();
     org.ensure_actor("alex", "human", "member", "Alex")
         .await
         .unwrap();
@@ -78,40 +80,79 @@ async fn a_share_waits_for_an_invitee_and_is_given_when_they_enter() {
         "someone who may not share it does not see who it waits for"
     );
     assert!(matches!(
-        org.share_with_invitee(target, "alex", "eve@example.com", "edit").await,
+        org.share_with_invitee(target, "alex", "eve@example.com", "edit")
+            .await,
         Err(DocumentError::Unavailable)
     ));
     assert!(matches!(
-        org.share_with_invitee(target, "owner", "not an address", "edit").await,
+        org.share_with_invitee(target, "owner", "not an address", "edit")
+            .await,
         Err(DocumentError::Invalid(_))
     ));
 
     // A sheet waits the same way, at the levels a sheet has.
     let deals = Uuid::new_v4();
-    org.create_sheet(deals, "owner", "Deals", "participants", &json!({"revisionId": "r0"}))
-        .await
-        .unwrap();
+    org.create_sheet(
+        deals,
+        "owner",
+        "Deals",
+        "participants",
+        &json!({"revisionId": "r0"}),
+    )
+    .await
+    .unwrap();
     assert!(matches!(
-        org.share_with_invitee(ShareTarget::Sheet(deals), "owner", "dana@example.com", "manage")
-            .await,
+        org.share_with_invitee(
+            ShareTarget::Sheet(deals),
+            "owner",
+            "dana@example.com",
+            "manage"
+        )
+        .await,
         Err(DocumentError::Invalid(_))
     ));
-    org.share_with_invitee(ShareTarget::Sheet(deals), "owner", "dana@example.com", "read")
-        .await
-        .unwrap();
+    org.share_with_invitee(
+        ShareTarget::Sheet(deals),
+        "owner",
+        "dana@example.com",
+        "read",
+    )
+    .await
+    .unwrap();
 
     // Dana joins and enters with her verified address.
     org.ensure_actor("dana", "human", "member", "Dana")
         .await
         .unwrap();
-    assert_eq!(org.apply_pending_shares("DANA@example.com", "dana").await.unwrap(), 2);
-    assert_eq!(access_of(&org, pricing, "dana").await, Some(DocumentAccess::Edit));
+    assert_eq!(
+        org.apply_pending_shares("DANA@example.com", "dana")
+            .await
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        access_of(&org, pricing, "dana").await,
+        Some(DocumentAccess::Edit)
+    );
     let sheet = org.sheet_sharing(deals, "owner").await.unwrap();
-    let dana = sheet.people.iter().find(|row| row.actor_id == "dana").unwrap();
+    let dana = sheet
+        .people
+        .iter()
+        .find(|row| row.actor_id == "dana")
+        .unwrap();
     assert_eq!(dana.access, "read");
-    assert!(org.pending_shares(target, "owner").await.unwrap().is_empty());
+    assert!(org
+        .pending_shares(target, "owner")
+        .await
+        .unwrap()
+        .is_empty());
     // Entering again gives nothing twice.
-    assert_eq!(org.apply_pending_shares("dana@example.com", "dana").await.unwrap(), 0);
+    assert_eq!(
+        org.apply_pending_shares("dana@example.com", "dana")
+            .await
+            .unwrap(),
+        0
+    );
 }
 
 #[tokio::test]
@@ -132,14 +173,20 @@ async fn a_cancelled_or_ungivable_share_is_not_given() {
     org.ensure_actor("fran", "human", "member", "Fran")
         .await
         .unwrap();
-    assert_eq!(org.apply_pending_shares("fran@example.com", "fran").await.unwrap(), 0);
+    assert_eq!(
+        org.apply_pending_shares("fran@example.com", "fran")
+            .await
+            .unwrap(),
+        0
+    );
     assert_eq!(access_of(&org, pricing, "fran").await, None);
     // Only someone who may share it may stop it.
     org.share_with_invitee(target, "owner", "gus@example.com", "read")
         .await
         .unwrap();
     assert!(matches!(
-        org.cancel_pending_share(target, "alex", "gus@example.com").await,
+        org.cancel_pending_share(target, "alex", "gus@example.com")
+            .await,
         Err(DocumentError::Unavailable)
     ));
 }

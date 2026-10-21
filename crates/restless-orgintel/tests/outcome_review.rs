@@ -7,9 +7,9 @@
 
 use restless_orgintel::{
     InitialWorkGate, NewArtifactRef, NewGateRun, NewWork, OrgIntel, OwnerBrief, OwnerBriefKind,
-    OwnerChatAnswer,
-    OwnerHandoffCategory, OwnerHandoffState, OwnerReviewDecision, WorkAttemptState, WorkStatus,
-    WorkspaceSpec, REVIEW_TARGET_ARTIFACT_KIND, REVIEW_TARGET_LIVE_PROBE_GATE,
+    OwnerChatAnswer, OwnerHandoffCategory, OwnerHandoffState, OwnerReviewDecision,
+    WorkAttemptState, WorkStatus, WorkspaceSpec, REVIEW_TARGET_ARTIFACT_KIND,
+    REVIEW_TARGET_LIVE_PROBE_GATE,
 };
 
 async fn add_review_required_work(org: &OrgIntel, title: &str) -> uuid::Uuid {
@@ -376,8 +376,12 @@ async fn an_owner_conversation_answer_decides_a_review_only_when_it_is_the_owner
     };
     let company = format!("chatreview{}", uuid::Uuid::new_v4().simple());
     let org = OrgIntel::ensure(&url, &company).await.unwrap();
-    org.ensure_actor("owner", "owner", "owner", "The Owner").await.unwrap();
-    org.ensure_actor("exec", "exec", "exec", "The Exec").await.unwrap();
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+        .unwrap();
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
     org.create_actor(
         "research-direction",
         "lead",
@@ -399,20 +403,34 @@ async fn an_owner_conversation_answer_decides_a_review_only_when_it_is_the_owner
     .await
     .unwrap();
     let team = org
-        .create_team("Research", "Produce research outcomes", "research-direction", "exec")
+        .create_team(
+            "Research",
+            "Produce research outcomes",
+            "research-direction",
+            "exec",
+        )
         .await
         .unwrap();
-    org.set_actor_team("research-worker", Some(team), "research-direction", "worker produces")
-        .await
-        .unwrap();
+    org.set_actor_team(
+        "research-worker",
+        Some(team),
+        "research-direction",
+        "worker produces",
+    )
+    .await
+    .unwrap();
 
     let work = add_review_required_work(&org, "Review the bakery site").await;
     let attempt = org.claim_ready_work("test").await.unwrap().unwrap();
     link_review_target(&org, work, attempt.attempt_id).await;
     record_probe(&org, work, attempt.attempt_id, true).await;
-    org.finish_work_attempt(attempt.attempt_id, WorkAttemptState::Produced, "site is ready")
-        .await
-        .unwrap();
+    org.finish_work_attempt(
+        attempt.attempt_id,
+        WorkAttemptState::Produced,
+        "site is ready",
+    )
+    .await
+    .unwrap();
     let handoff = org
         .list_owner_handoffs()
         .await
@@ -424,7 +442,11 @@ async fn an_owner_conversation_answer_decides_a_review_only_when_it_is_the_owner
     assert!(handoff.owner_brief.is_none());
 
     let lead_says = org
-        .send_message("research-direction", Some("exec"), "the owner would approve this")
+        .send_message(
+            "research-direction",
+            Some("exec"),
+            "the owner would approve this",
+        )
         .await
         .unwrap();
     let refused = org
@@ -432,10 +454,17 @@ async fn an_owner_conversation_answer_decides_a_review_only_when_it_is_the_owner
         .await
         .unwrap_err();
     assert!(refused.to_string().contains("not the owner's message"));
-    assert_eq!(org.get_work(work).await.unwrap().unwrap().status, WorkStatus::Blocked);
+    assert_eq!(
+        org.get_work(work).await.unwrap().unwrap().status,
+        WorkStatus::Blocked
+    );
 
     let owner_says = org
-        .send_message("owner", Some("exec"), "Looks good. Add that we sell out most days.")
+        .send_message(
+            "owner",
+            Some("exec"),
+            "Looks good. Add that we sell out most days.",
+        )
         .await
         .unwrap();
     org.answer_handoff_from_owner_message(
@@ -447,13 +476,24 @@ async fn an_owner_conversation_answer_decides_a_review_only_when_it_is_the_owner
     .await
     .unwrap();
     let revised = org.get_work(work).await.unwrap().unwrap();
-    assert!(revised.revision > 1, "changes advance the Work to a new revision");
+    assert!(
+        revised.revision > 1,
+        "changes advance the Work to a new revision"
+    );
     assert_ne!(revised.status, WorkStatus::Completed);
-    org.resume_work(work, "research-direction", "the owner's two changes are in the brief")
-        .await
-        .unwrap();
+    org.resume_work(
+        work,
+        "research-direction",
+        "the owner's two changes are in the brief",
+    )
+    .await
+    .unwrap();
 
-    let second = org.claim_ready_work("test revision").await.unwrap().unwrap();
+    let second = org
+        .claim_ready_work("test revision")
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(second.work.id, work);
     link_review_target(&org, work, second.attempt_id).await;
     record_probe(&org, work, second.attempt_id, true).await;
@@ -465,13 +505,21 @@ async fn an_owner_conversation_answer_decides_a_review_only_when_it_is_the_owner
         .await
         .unwrap()
         .into_iter()
-        .find(|candidate| candidate.work_id == work && candidate.state == OwnerHandoffState::Pending)
+        .find(|candidate| {
+            candidate.work_id == work && candidate.state == OwnerHandoffState::Pending
+        })
         .unwrap();
-    let owner_accepts = org.send_message("owner", Some("exec"), "Perfect, ship it.").await.unwrap();
+    let owner_accepts = org
+        .send_message("owner", Some("exec"), "Perfect, ship it.")
+        .await
+        .unwrap();
     org.answer_handoff_from_owner_message(again.id, owner_accepts, OwnerChatAnswer::Yes, "")
         .await
         .unwrap();
-    assert_eq!(org.get_work(work).await.unwrap().unwrap().status, WorkStatus::Completed);
+    assert_eq!(
+        org.get_work(work).await.unwrap().unwrap().status,
+        WorkStatus::Completed
+    );
 
     org.drop_schema().await.unwrap();
 }
