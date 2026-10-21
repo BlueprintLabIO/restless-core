@@ -1403,22 +1403,16 @@ impl ToolScope {
                 return text_error(format!("The page did not open: {error:#}"));
             }
         }
-        let Ok(pass) = self
-            .daemon
-            .capabilities
-            .issue_tool_session(&company, &actor, None, None)
-        else {
-            return text_error("A pass for the browser could not be issued; try again.");
-        };
         record("ok").await;
-        let endpoint = browser_endpoint(&company, &account_id, &pass);
+        // No DevTools endpoint any more (S104 S1 stage 2): a signed-in page runs no script for an
+        // agent, so the browser is driven only through the act tool's high-level steps.
         CallToolResult::success(vec![ContentBlock::text(format!(
             "{}'s browser is yours for up to 30 minutes, signed in as the owner's account.\n\
-             DevTools endpoint: {endpoint}\n\n\
-             Playwright: `const browser = await chromium.connectOverCDP('<endpoint>'); const page = browser.contexts()[0].pages()[0];`\n\
-             To sign in again, click into a field and call {} with field username, password or code. \
-             Hand it back with `release: true` when done. Keep the endpoint out of messages and files.",
+             Drive it with {}: `open` a page, `read` it as numbered lines, `click` or `type` into a `ref`, \
+             `scroll`, or take a `screenshot`. To sign in again, click into a field and call {} with field \
+             username, password or code. Hand it back with `release: true` when done.",
             usable.account.label,
+            name.replace("__browser", "__act"),
             name.replace("__browser", "__fill")
         ))])
         .into()

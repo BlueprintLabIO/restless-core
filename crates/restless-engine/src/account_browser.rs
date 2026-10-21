@@ -697,17 +697,87 @@ pub async fn holds_lease(account_id: &str, company: &str, actor: &str) -> bool {
     })
 }
 
-/// A DevTools message an agent sent, refused when it reads what keeps the account signed in.
+/// What a signed-in account's browser answers over DevTools (S104 S1 stage 2): looking, pointing
+/// and typing, served by the browser itself. Nothing that runs script in the page (Runtime,
+/// Debugger, injected scripts), rewrites it (DOM edits that could add a script), or reads what
+/// keeps it signed in (Network, Storage, Fetch). Agents use the act tool; this guards any socket.
+pub fn devtools_allowed(method: &str) -> bool {
+    if REFUSED_METHODS.contains(&method) {
+        return false;
+    }
+    let Some((domain, command)) = method.split_once('.') else {
+        return false;
+    };
+    match domain {
+        "Accessibility" | "Input" => true,
+        "Page" => matches!(
+            command,
+            "enable"
+                | "disable"
+                | "navigate"
+                | "reload"
+                | "stopLoading"
+                | "captureScreenshot"
+                | "getLayoutMetrics"
+                | "getFrameTree"
+                | "getNavigationHistory"
+                | "navigateToHistoryEntry"
+                | "bringToFront"
+                | "setLifecycleEventsEnabled"
+                | "startScreencast"
+                | "stopScreencast"
+                | "screencastFrameAck"
+                | "handleJavaScriptDialog"
+                | "close"
+        ),
+        "DOM" => matches!(
+            command,
+            "enable"
+                | "disable"
+                | "getDocument"
+                | "querySelector"
+                | "querySelectorAll"
+                | "describeNode"
+                | "getBoxModel"
+                | "getContentQuads"
+                | "getNodeForLocation"
+                | "scrollIntoViewIfNeeded"
+                | "focus"
+                | "requestChildNodes"
+                | "pushNodesByBackendIdsToFrontend"
+        ),
+        "Target" => matches!(
+            command,
+            "getTargets"
+                | "getTargetInfo"
+                | "attachToTarget"
+                | "detachFromTarget"
+                | "createTarget"
+                | "closeTarget"
+                | "activateTarget"
+                | "setDiscoverTargets"
+                | "setAutoAttach"
+        ),
+        "Browser" => matches!(command, "getVersion" | "getWindowForTarget"),
+        "Emulation" => matches!(
+            command,
+            "setDeviceMetricsOverride" | "clearDeviceMetricsOverride"
+        ),
+        _ => false,
+    }
+}
+
+/// A DevTools message an agent sent, refused unless it is a high-level browser step.
 /// Returns the error reply to send back instead of forwarding it.
 pub fn refusal(message: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(message).ok()?;
     let method = value["method"].as_str()?;
-    if !REFUSED_METHODS.contains(&method) {
+    if devtools_allowed(method) {
         return None;
     }
     let mut reply = serde_json::json!({
         "id": value["id"],
-        "error": { "code": -32000, "message": format!("Restless: {method} is not available in an account's browser; its sign-in stays with the owner.") }
+        "error": { "code": -32000, "message": format!("Restless: {method} is not available in an account's browser: no script runs in a signed-in page. Use the account's act tool (open, read, click, type, scroll, screenshot).") }
     });
     if let Some(session) = value.get("sessionId") {
         reply["sessionId"] = session.clone();
@@ -1260,6 +1330,33 @@ mod tests {
         )
         .is_none());
         assert!(refusal("not json").is_none());
+        // Stage 2: no page script, no DOM rewrite, no network or storage reads.
+        for method in [
+            "Runtime.evaluate",
+            "Runtime.callFunctionOn",
+            "Page.addScriptToEvaluateOnNewDocument",
+            "Page.createIsolatedWorld",
+            "DOM.setOuterHTML",
+            "DOM.setAttributeValue",
+            "Network.enable",
+            "Fetch.enable",
+            "Debugger.enable",
+            "Browser.close",
+            "nonsense",
+        ] {
+            assert!(!devtools_allowed(method), "{method}");
+        }
+        for method in [
+            "Accessibility.getFullAXTree",
+            "Input.dispatchMouseEvent",
+            "Input.insertText",
+            "DOM.getBoxModel",
+            "DOM.focus",
+            "Page.captureScreenshot",
+            "Target.attachToTarget",
+        ] {
+            assert!(devtools_allowed(method), "{method}");
+        }
     }
 
     /// A real identity browser from the local company image (opt in: RESTLESS_IDENTITY_E2E=1 and
