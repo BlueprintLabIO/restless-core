@@ -3219,9 +3219,11 @@ fn is_uncovered_company_page(
 }
 
 /// Which release this plane is actually running (S27-T4).
-async fn release_health() -> Response<Body> {
+async fn release_health(State(state): State<OwnerState>) -> Response<Body> {
     Json(serde_json::json!({
         "status": "ok",
+        // Whether a plane update should wait: the Cloud agent holds a new bundle while this is set.
+        "busy": crate::company::plane_busy(&state.daemon).await,
         "release": crate::release::ReleaseIdentity::current(),
         // What this plane runs company computers on, and what its roll-forward last saw and did.
         "company_image": crate::runtime::company_image(),
