@@ -18,8 +18,14 @@ where
     Router::<S>::new()
         .route("/companies/{company}/for-you", get(list_for_you))
         .route("/companies/{company}/for-you/read", post(mark_for_you_read))
-        .route("/companies/{company}/for-you/unread", post(mark_for_you_unread))
-        .route("/companies/{company}/for-you/archive", post(archive_for_you))
+        .route(
+            "/companies/{company}/for-you/unread",
+            post(mark_for_you_unread),
+        )
+        .route(
+            "/companies/{company}/for-you/archive",
+            post(archive_for_you),
+        )
         .route(
             "/companies/{company}/documents/{document}/follow",
             axum::routing::put(follow_document).delete(unfollow_document),
@@ -254,10 +260,16 @@ async fn direction_days(
     viewer: &str,
     unread_only: bool,
 ) -> Vec<ForYouItemView> {
-    use restless_engine::direction::{DirectionApplied, DIRECTION_APPLIED_FOR_YOU_KIND, DIRECTION_DAY_KEY_PREFIX};
+    use restless_engine::direction::{
+        DirectionApplied, DIRECTION_APPLIED_FOR_YOU_KIND, DIRECTION_DAY_KEY_PREFIX,
+    };
     use restless_engine::direction_authority as direction;
-    let Some(authority) = state.authority() else { return Vec::new() };
-    let Ok(names) = direction::Names::read(org).await else { return Vec::new() };
+    let Some(authority) = state.authority() else {
+        return Vec::new();
+    };
+    let Ok(names) = direction::Names::read(org).await else {
+        return Vec::new();
+    };
     let since = Utc::now() - chrono::Duration::days(direction::UNDO_WINDOW_DAYS);
     let entries = match direction::applied(authority, company, &names, viewer, Some(since)).await {
         Ok(entries) => entries,
@@ -267,26 +279,48 @@ async fn direction_days(
         }
     };
     // The owner is `owner` here, while the store may route to their Authority id.
-    let owner = direction::company_owner(authority, company).await.unwrap_or_else(|_| "owner".into());
-    let mine = |actor: &str| actor == viewer || (viewer == "owner" && (actor == owner || actor == "owner"));
-    let mut days: std::collections::BTreeMap<chrono::NaiveDate, Vec<DirectionApplied>> = Default::default();
+    let owner = direction::company_owner(authority, company)
+        .await
+        .unwrap_or_else(|_| "owner".into());
+    let mine = |actor: &str| {
+        actor == viewer || (viewer == "owner" && (actor == owner || actor == "owner"))
+    };
+    let mut days: std::collections::BTreeMap<chrono::NaiveDate, Vec<DirectionApplied>> =
+        Default::default();
     for entry in entries {
         if mine(&entry.routed_to.actor_id) && !mine(&entry.requester.actor_id) {
-            days.entry(entry.applied_at.date_naive()).or_default().push(entry);
+            days.entry(entry.applied_at.date_naive())
+                .or_default()
+                .push(entry);
         }
     }
-    let keys: Vec<String> = days.keys().map(|day| format!("{DIRECTION_DAY_KEY_PREFIX}{day}")).collect();
+    let keys: Vec<String> = days
+        .keys()
+        .map(|day| format!("{DIRECTION_DAY_KEY_PREFIX}{day}"))
+        .collect();
     let (marks, through) = org.for_you_marks(viewer, &keys).await.unwrap_or_default();
     let mut rows = Vec::new();
     for (day, entries) in days.into_iter().rev() {
         let key = format!("{DIRECTION_DAY_KEY_PREFIX}{day}");
-        let at = entries.iter().map(|entry| entry.applied_at).max().unwrap_or_else(Utc::now);
+        let at = entries
+            .iter()
+            .map(|entry| entry.applied_at)
+            .max()
+            .unwrap_or_else(Utc::now);
         let mark = marks.get(&key);
-        if mark.and_then(|mark| mark.archived_at).is_some_and(|archived| at <= archived) {
+        if mark
+            .and_then(|mark| mark.archived_at)
+            .is_some_and(|archived| at <= archived)
+        {
             continue;
         }
-        let read = mark.map(|mark| mark.read_at).into_iter().chain(through).max();
-        let unread = mark.is_some_and(|mark| mark.marked_unread) || read.is_none_or(|read| at > read);
+        let read = mark
+            .map(|mark| mark.read_at)
+            .into_iter()
+            .chain(through)
+            .max();
+        let unread =
+            mark.is_some_and(|mark| mark.marked_unread) || read.is_none_or(|read| at > read);
         if unread_only && !unread {
             continue;
         }
@@ -305,9 +339,15 @@ async fn direction_days(
                 if count == 1 { "change" } else { "changes" },
                 actor_names(&who)
             ),
-            excerpt: entries.first().map(|entry| entry.summary.clone()).unwrap_or_default(),
+            excerpt: entries
+                .first()
+                .map(|entry| entry.summary.clone())
+                .unwrap_or_default(),
             href: format!("/{company}?inspect=direction&day={day}"),
-            actor_id: entries.first().map(|entry| entry.requester.actor_id.clone()).unwrap_or_default(),
+            actor_id: entries
+                .first()
+                .map(|entry| entry.requester.actor_id.clone())
+                .unwrap_or_default(),
             actor_name: actor_names(&who),
             at,
             unread,
@@ -341,7 +381,11 @@ async fn list_for_you(
         Err(response) => return no_store(response),
     };
     // The governance store knows the owner as `owner`, whatever their Actor.
-    let viewer = if principal.membership_role() == "owner" { "owner" } else { principal.actor_id() };
+    let viewer = if principal.membership_role() == "owner" {
+        "owner"
+    } else {
+        principal.actor_id()
+    };
     let days = if before.is_none() && !query.archived {
         direction_days(&state, &org, &company, viewer, query.unread).await
     } else {
@@ -364,8 +408,11 @@ async fn list_for_you(
     {
         Ok(page) => {
             let unread_days = days.iter().filter(|day| day.unread).count() as i64;
-            let mut items: Vec<ForYouItemView> =
-                page.items.into_iter().map(|item| item_view(&company, item)).collect();
+            let mut items: Vec<ForYouItemView> = page
+                .items
+                .into_iter()
+                .map(|item| item_view(&company, item))
+                .collect();
             items.extend(days);
             items.sort_by(|a, b| b.at.cmp(&a.at));
             no_store(
@@ -473,11 +520,16 @@ async fn sheet_follow(
         Err(response) => return no_store(response),
     };
     let result = match following {
-        Some(following) => org.set_sheet_follow(sheet, principal.actor_id(), following).await,
+        Some(following) => {
+            org.set_sheet_follow(sheet, principal.actor_id(), following)
+                .await
+        }
         None => org.sheet_following(sheet, principal.actor_id()).await,
     };
     match result {
-        Ok(following) => no_store(Json(serde_json::json!({ "following": following })).into_response()),
+        Ok(following) => {
+            no_store(Json(serde_json::json!({ "following": following })).into_response())
+        }
         Err(error) => sheet_follow_error(error),
     }
 }
@@ -712,7 +764,12 @@ async fn subscribe_push(
         ));
     }
     match org
-        .subscribe_push(principal.actor_id(), &input.endpoint, &keys.p256dh, &keys.auth)
+        .subscribe_push(
+            principal.actor_id(),
+            &input.endpoint,
+            &keys.p256dh,
+            &keys.auth,
+        )
         .await
     {
         Ok(()) => no_store(Json(serde_json::json!({ "subscribed": true })).into_response()),
@@ -762,7 +819,9 @@ async fn set_follow(
         .set_document_follow(document, principal.actor_id(), following)
         .await
     {
-        Ok(state) => no_store(Json(serde_json::json!({ "following": state.following })).into_response()),
+        Ok(state) => {
+            no_store(Json(serde_json::json!({ "following": state.following })).into_response())
+        }
         Err(error) => for_you_error(error),
     }
 }
@@ -825,11 +884,15 @@ mod tests {
 
     #[test]
     fn names_read_as_a_sentence() {
-        let names = |list: &[&str]| actor_names(&list.iter().map(|n| n.to_string()).collect::<Vec<_>>());
+        let names =
+            |list: &[&str]| actor_names(&list.iter().map(|n| n.to_string()).collect::<Vec<_>>());
         assert_eq!(names(&["Bianca"]), "Bianca");
         assert_eq!(names(&["Bianca", "Exec"]), "Bianca and Exec");
         assert_eq!(names(&["Alex", "Bianca", "Exec"]), "Alex, Bianca and Exec");
-        assert_eq!(names(&["Alex", "Bianca", "Carol", "Exec"]), "Alex, Bianca and 2 others");
+        assert_eq!(
+            names(&["Alex", "Bianca", "Carol", "Exec"]),
+            "Alex, Bianca and 2 others"
+        );
     }
 
     /// A Room mention opens its exact message; a reply in a thread the person is in opens the
@@ -879,10 +942,17 @@ mod tests {
             }
             None => Body::empty(),
         };
-        let response = app.clone().oneshot(builder.body(body).unwrap()).await.unwrap();
+        let response = app
+            .clone()
+            .oneshot(builder.body(body).unwrap())
+            .await
+            .unwrap();
         let status = response.status();
         let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        (status, serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null))
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
+        )
     }
 
     /// Each person reads only their own For you, inside their own company, and may follow only
@@ -895,8 +965,12 @@ mod tests {
         };
         let suffix = Uuid::new_v4().simple().to_string();
         let company = format!("foryou_api_{suffix}");
-        let org = restless_orgintel::OrgIntel::ensure(&url, &company).await.unwrap();
-        org.ensure_actor("owner", "owner", "owner", "The Owner").await.unwrap();
+        let org = restless_orgintel::OrgIntel::ensure(&url, &company)
+            .await
+            .unwrap();
+        org.ensure_actor("owner", "owner", "owner", "The Owner")
+            .await
+            .unwrap();
         for (id, name) in [("alex", "Alex"), ("bianca", "Bianca")] {
             org.ensure_actor(id, "human", "member", name).await.unwrap();
         }
@@ -950,7 +1024,9 @@ mod tests {
                 user: format!("user-{actor}"),
                 issuer: None,
                 owner: "fixture-owner".into(),
-                scope: CompanyScope::Company { company: company.clone() },
+                scope: CompanyScope::Company {
+                    company: company.clone(),
+                },
                 role: role.into(),
                 actor: Some(actor.into()),
                 company_id: None,
@@ -970,7 +1046,10 @@ mod tests {
 
         let (status, body) = request(&alex, Method::GET, path.clone(), None).await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["unread_count"], 2, "the mention, and being given the document");
+        assert_eq!(
+            body["unread_count"], 2,
+            "the mention, and being given the document"
+        );
         let shared = body["items"]
             .as_array()
             .unwrap()
@@ -995,7 +1074,11 @@ mod tests {
             )
         );
         let (_, body) = request(&bianca, Method::GET, path.clone(), None).await;
-        assert_eq!(body["items"].as_array().unwrap().len(), 0, "nothing of Alex's reaches Bianca");
+        assert_eq!(
+            body["items"].as_array().unwrap().len(),
+            0,
+            "nothing of Alex's reaches Bianca"
+        );
 
         // Bianca cannot follow a document she cannot read, nor learn it exists.
         let follow = format!("/companies/{company}/documents/{private}/follow");
@@ -1008,10 +1091,18 @@ mod tests {
         // Read state belongs to the person who read it.
         let read = format!("{path}/read");
         let key = item["key"].as_str().unwrap().to_string();
-        let (status, _) =
-            request(&bianca, Method::POST, read.clone(), Some(serde_json::json!({"keys": [key]}))).await;
+        let (status, _) = request(
+            &bianca,
+            Method::POST,
+            read.clone(),
+            Some(serde_json::json!({"keys": [key]})),
+        )
+        .await;
         assert_eq!(status, StatusCode::NO_CONTENT);
-        assert_eq!(request(&alex, Method::GET, path.clone(), None).await.1["unread_count"], 2);
+        assert_eq!(
+            request(&alex, Method::GET, path.clone(), None).await.1["unread_count"],
+            2
+        );
         let (status, _) = request(
             &bianca,
             Method::POST,
@@ -1041,8 +1132,14 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NO_CONTENT);
-        assert_eq!(request(&alex, Method::GET, marks.clone(), None).await.1["marks"][0]["item_id"], "handoff:1");
-        assert_eq!(request(&bianca, Method::GET, marks, None).await.1["marks"], serde_json::json!([]));
+        assert_eq!(
+            request(&alex, Method::GET, marks.clone(), None).await.1["marks"][0]["item_id"],
+            "handoff:1"
+        );
+        assert_eq!(
+            request(&bianca, Method::GET, marks, None).await.1["marks"],
+            serde_json::json!([])
+        );
 
         // A sheet nobody can open cannot be followed, and says nothing about whether it exists.
         let (status, _) = request(
@@ -1053,10 +1150,18 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
-        let (status, _) =
-            request(&alex, Method::POST, read.clone(), Some(serde_json::json!({"all": true}))).await;
+        let (status, _) = request(
+            &alex,
+            Method::POST,
+            read.clone(),
+            Some(serde_json::json!({"all": true})),
+        )
+        .await;
         assert_eq!(status, StatusCode::NO_CONTENT);
-        assert_eq!(request(&alex, Method::GET, path.clone(), None).await.1["unread_count"], 0);
+        assert_eq!(
+            request(&alex, Method::GET, path.clone(), None).await.1["unread_count"],
+            0
+        );
         // Marked unread again, it waits for Alex past "mark all read".
         let (status, _) = request(
             &alex,
@@ -1066,14 +1171,27 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NO_CONTENT);
-        assert_eq!(request(&alex, Method::GET, path.clone(), None).await.1["unread_count"], 1);
-        let (status, _) =
-            request(&alex, Method::POST, read, Some(serde_json::json!({"keys": ["x:y"]}))).await;
+        assert_eq!(
+            request(&alex, Method::GET, path.clone(), None).await.1["unread_count"],
+            1
+        );
+        let (status, _) = request(
+            &alex,
+            Method::POST,
+            read,
+            Some(serde_json::json!({"keys": ["x:y"]})),
+        )
+        .await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
 
         // Another company's path is refused before anything is read.
-        let (status, _) =
-            request(&alex, Method::GET, "/companies/elsewhere/for-you".into(), None).await;
+        let (status, _) = request(
+            &alex,
+            Method::GET,
+            "/companies/elsewhere/for-you".into(),
+            None,
+        )
+        .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
     }
 }

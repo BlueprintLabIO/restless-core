@@ -318,7 +318,13 @@ pub(super) async fn oauth_callback(
             .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
             .take(64)
             .collect::<String>();
-        return callback_page(StatusCode::BAD_REQUEST, &format!("The provider did not complete the sign-in ({error}). Start it again from Apps."), sign_in.as_ref());
+        return callback_page(
+            StatusCode::BAD_REQUEST,
+            &format!(
+                "The provider did not complete the sign-in ({error}). Start it again from Apps."
+            ),
+            sign_in.as_ref(),
+        );
     }
     let (Some(code), Some(oauth_state)) = (query.code.as_deref(), query.state.as_deref()) else {
         return callback_page(
@@ -368,7 +374,9 @@ pub(super) async fn oauth_callback(
             Redirect::to(&format!(
                 "{}{}",
                 app_path(&company, &name),
-                request.map(|id| format!("?request={id}")).unwrap_or_default()
+                request
+                    .map(|id| format!("?request={id}"))
+                    .unwrap_or_default()
             ))
             .into_response()
         }
@@ -529,7 +537,9 @@ pub(super) async fn app_requests(
                 let dismissed = dismissed.unwrap_or_default();
                 Ok(requests
                     .into_iter()
-                    .filter(|request| !dismissed.contains_key(&format!("orgintel:handoff:{}", request.handoff_id)))
+                    .filter(|request| {
+                        !dismissed.contains_key(&format!("orgintel:handoff:{}", request.handoff_id))
+                    })
                     .collect::<Vec<_>>())
             }
             (Err(error), _) => Err(anyhow::Error::from(error)),
@@ -538,7 +548,11 @@ pub(super) async fn app_requests(
     };
     match requests {
         Ok(requests) => Json(serde_json::json!({ "requests": requests })).into_response(),
-        Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "apps", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "apps",
+            format!("{error:#}"),
+        ),
     }
 }
 

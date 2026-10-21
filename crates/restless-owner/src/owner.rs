@@ -7,82 +7,82 @@
 //! approval actions, and browser attach/lease transport. It is not a generic
 //! REST facade over the company computer.
 
-#[path = "owner_event_transport.rs"]
-mod event_transport;
+#[path = "owner_account_usage.rs"]
+mod account_usage_api;
 #[path = "owner_accounting.rs"]
 mod accounting_api;
 #[path = "owner_accounts.rs"]
 mod accounts_api;
-#[path = "owner_account_usage.rs"]
-mod account_usage_api;
-#[path = "owner_machines.rs"]
-mod machines_api;
-#[path = "owner_appliance.rs"]
-mod appliance_api;
 #[path = "owner_agent_exchanges.rs"]
 mod agent_exchanges_api;
+#[path = "owner_appliance.rs"]
+mod appliance_api;
 #[path = "owner_capacity_activity.rs"]
 pub mod capacity_activity;
 #[path = "owner_company_settings.rs"]
 mod company_settings_api;
-#[path = "owner_desktop.rs"]
-mod desktop_api;
-#[path = "owner_review.rs"]
-mod review_api;
-#[path = "owner_teams.rs"]
-mod teams_api;
-#[path = "owner_library.rs"]
-mod library_api;
 #[path = "owner_custom_harnesses.rs"]
 mod custom_harnesses;
-#[path = "owner_documents.rs"]
-mod documents_api;
-#[path = "owner_pending_shares.rs"]
-mod pending_shares_api;
-#[path = "owner_typing.rs"]
-mod typing_api;
+#[path = "owner_desktop.rs"]
+mod desktop_api;
 #[path = "owner_direction.rs"]
 mod direction_api;
+#[path = "owner_documents.rs"]
+mod documents_api;
+#[path = "owner_event_transport.rs"]
+mod event_transport;
 #[path = "owner_for_you.rs"]
 mod for_you_api;
+#[path = "owner_library.rs"]
+mod library_api;
+#[path = "owner_machines.rs"]
+mod machines_api;
+#[path = "owner_mcp.rs"]
+mod mcp_api;
 #[path = "owner_member_collaboration.rs"]
 mod member_collaboration_api;
-#[path = "owner_model_catalog.rs"]
-mod model_catalog_api;
 #[path = "owner_members.rs"]
 mod members_api;
+#[path = "owner_model_catalog.rs"]
+mod model_catalog_api;
+#[path = "owner_native_import.rs"]
+mod native_import_api;
 #[path = "owner_notifications.rs"]
 mod notification_delivery_api;
 #[path = "owner_oauth_login.rs"]
 mod oauth_login_api;
-#[path = "owner_native_import.rs"]
-mod native_import_api;
 #[path = "owner_vault.rs"]
 mod owner_vault;
+#[path = "owner_pending_shares.rs"]
+mod pending_shares_api;
 #[path = "owner_plane_readiness.rs"]
 mod plane_readiness;
 #[path = "owner_presence.rs"]
 mod presence_api;
 #[path = "owner_publications.rs"]
 mod publications_api;
+#[path = "owner_review.rs"]
+mod review_api;
 #[path = "owner_rooms_lifecycle.rs"]
 mod rooms_lifecycle_api;
 #[path = "owner_sharing.rs"]
 mod sharing_api;
-#[path = "owner_shell.rs"]
-mod shell_api;
 #[path = "owner_sheets.rs"]
 pub mod sheets_api;
+#[path = "owner_shell.rs"]
+mod shell_api;
 #[path = "owner_skills.rs"]
 mod skills_api;
-#[path = "owner_work_graph.rs"]
-mod work_graph_api;
+#[path = "owner_teams.rs"]
+mod teams_api;
 #[path = "owner_telegram.rs"]
 mod telegram_api;
 #[path = "owner_tool_connections.rs"]
 mod tool_connections_api;
-#[path = "owner_mcp.rs"]
-mod mcp_api;
+#[path = "owner_typing.rs"]
+mod typing_api;
+#[path = "owner_work_graph.rs"]
+mod work_graph_api;
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::convert::Infallible;
@@ -118,23 +118,35 @@ use tower_http::compression::CompressionLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
 
+use crate::authority as mandate;
 use crate::entry::{
     company_in_path, CompanyScope, EntryMode, RequestPrincipal, SessionLease, SessionStore,
     VerifiedAccessContext, VerifiedIdentity,
+};
+use crate::model_connections::{
+    load_owner_connections, model_connection_reference, owner_connection_reference,
+    save_owner_connections, valid_provider_id, OwnerModelConnection,
+};
+use crate::owner_config::{materialize_review_url, OwnerConfig};
+use crate::transcript::{
+    split_attachment_block, OwnerAttachment, OwnerIntentReceipt, ATTACHMENT_BLOCK,
+    ATTACHMENT_MARKER, ATTENTION_CONTEXT_BLOCK, ATTENTION_CONTEXT_MARKER, CONTEXT_BLOCK,
+    CONTEXT_MARKER,
 };
 use crate::{
     airwallex, approval, attention, authority, company as company_projection, credential, finance,
     legal, model_gateway, reconcile, runtime, Daemon,
 };
-use crate::authority as mandate;
-use crate::model_connections::{load_owner_connections, model_connection_reference, owner_connection_reference, save_owner_connections, valid_provider_id, OwnerModelConnection};
-use crate::owner_config::{materialize_review_url, OwnerConfig};
-use crate::transcript::{split_attachment_block, OwnerAttachment, OwnerIntentReceipt, ATTACHMENT_BLOCK, ATTACHMENT_MARKER, ATTENTION_CONTEXT_BLOCK, ATTENTION_CONTEXT_MARKER, CONTEXT_BLOCK, CONTEXT_MARKER};
-use desktop_api::{ATTACH_COOKIE, ATTACH_TTL, AttachSession, AttachTicket, CONTROL_TTL_SECONDS, DESKTOP_DISPLAY_LEASES, DesktopWebsocketAccess, RfbObserverFilter, TICKET_TTL, TicketResponse, attach_cookie_name, claim_desktop_display_lease, desktop_asset, desktop_websocket, desktop_windows, focus_desktop_window, issue_ticket, open_controlled_desktop, open_desktop, open_observed_desktop, valid_attach_for};
+use desktop_api::{
+    attach_cookie_name, claim_desktop_display_lease, desktop_asset, desktop_websocket,
+    desktop_windows, focus_desktop_window, issue_ticket, open_controlled_desktop, open_desktop,
+    open_observed_desktop, valid_attach_for, AttachSession, AttachTicket, DesktopWebsocketAccess,
+    RfbObserverFilter, TicketResponse, ATTACH_COOKIE, ATTACH_TTL, CONTROL_TTL_SECONDS,
+    DESKTOP_DISPLAY_LEASES, TICKET_TTL,
+};
 use review_api::{
-    REVIEW_PATH_ROUTE, REVIEW_TTL, ReviewSession, ReviewSource, is_review_path,
-    issue_library_ticket, issue_review_ticket, review_location, review_outcome, review_path_proxy,
-    review_proxy,
+    is_review_path, issue_library_ticket, issue_review_ticket, review_location, review_outcome,
+    review_path_proxy, review_proxy, ReviewSession, ReviewSource, REVIEW_PATH_ROUTE, REVIEW_TTL,
 };
 
 const SESSION_COOKIE: &str = "restless_session";
@@ -178,7 +190,6 @@ const ATTACHMENT_GC_BATCH: usize = 8;
 const ATTACHMENT_STAGE_STALE_AFTER: ChronoDuration = ChronoDuration::hours(1);
 const ATTACHMENT_GC_CLAIM_FOR: ChronoDuration = ChronoDuration::minutes(5);
 pub const OWNER_ATTACHMENT_RECONCILE_INTERVAL: Duration = Duration::from_secs(5 * 60);
-
 
 #[derive(Clone)]
 struct OwnerState {
@@ -240,10 +251,7 @@ impl FromRef<OwnerState> for RoomApiState {
             document_collaboration_tokens: state.document_collaboration_tokens.clone(),
             document_collaboration_issuer: state.document_collaboration_issuer.clone(),
             native_documents_proxy: state.native_documents_proxy.clone(),
-            push_key: state
-                .web_push
-                .as_ref()
-                .map(|push| push.public_key().into()),
+            push_key: state.web_push.as_ref().map(|push| push.public_key().into()),
         }
     }
 }
@@ -296,16 +304,12 @@ impl RoomApiState {
                     [23; 32],
                 ),
             document_collaboration_issuer: "http://127.0.0.1:7788".into(),
-            native_documents_proxy: crate::documents_service::NativeDocumentsProxy::disabled_for_test(),
+            native_documents_proxy:
+                crate::documents_service::NativeDocumentsProxy::disabled_for_test(),
             push_key: None,
         }
     }
 }
-
-
-
-
-
 
 #[derive(Debug, Deserialize)]
 struct PartyAction {
@@ -361,10 +365,6 @@ struct PreparedOwnerAttachment {
     attachment: OwnerAttachment,
     bytes: Vec<u8>,
 }
-
-
-
-
 
 /// The durable owner/actor transcript returned to both the browser and the
 /// terminal client. This is intentionally a small response contract instead
@@ -637,7 +637,6 @@ struct CharterRevisionResponse {
     revision: authority::MandateRevisionOutcome,
 }
 
-
 #[derive(Debug, Deserialize)]
 struct OwnerHandoffDecisionInput {
     resolution: String,
@@ -647,14 +646,11 @@ struct OwnerHandoffDecisionInput {
     declined: bool,
 }
 
-
 #[derive(Debug, Deserialize)]
 struct BrowserOpenRequest {
     url: String,
     client_id: String,
 }
-
-
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -676,8 +672,6 @@ struct MessageReactionsQuery {
     ids: String,
 }
 
-
-
 #[derive(Debug, Deserialize)]
 struct ControlRequest {
     client_id: String,
@@ -688,11 +682,6 @@ struct ControlRequest {
     #[serde(default)]
     idle: bool,
 }
-
-
-
-
-
 
 #[derive(Debug, Serialize)]
 struct ErrorResponse {
@@ -1092,8 +1081,6 @@ fn cockpit_payment_intent(payment: finance::PaymentIntent) -> CockpitPaymentInte
     }
 }
 
-
-
 /// Core-owned collaboration stays behind the same verified company entry
 /// boundary as the existing owner API. A smaller body ceiling applies here
 /// because Room commands are JSON metadata and bounded message text: a file
@@ -1191,7 +1178,6 @@ where
         .layer(DefaultBodyLimit::max(128 * 1024))
 }
 
-
 /// [`serve`] as a [`restless_engine::DaemonTask`], compiled here rather than again in restlessd.
 pub fn serve_task(
     daemon: Arc<Daemon>,
@@ -1252,43 +1238,45 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .map(|(_, _, host)| format!("https://{host}"))
         .unwrap_or_else(|| format!("http://{address}"))
         .into();
-    let mut native_documents_proxy = crate::documents_service::NativeDocumentsProxy::from_environment()
-        .context("configure native Documents owner-plane proxy")?;
+    let mut native_documents_proxy =
+        crate::documents_service::NativeDocumentsProxy::from_environment()
+            .context("configure native Documents owner-plane proxy")?;
     if runtime_mode == crate::runtime_mode::RuntimeMode::Local {
         native_documents_proxy.use_local_services(daemon.root.clone());
     }
-    let (capacity_activity, plane_readiness) =
-        if runtime_mode == crate::runtime_mode::RuntimeMode::Hosted {
-            (
-                capacity_activity::CapacityActivityService::from_environment(&daemon, &entry)
-                    .context("configure Fleet capacity-activity endpoint")?,
-                plane_readiness::PlaneReadinessService::from_environment(&daemon, &entry)
-                    .context("configure Fleet plane-readiness endpoint")?,
-            )
-        } else if entry.network().is_some()
-            && std::env::var_os(plane_readiness::TOKEN_ENV).is_some()
-        {
-            // A Cloud-managed appliance (one owner VM) runs its companies locally but
-            // still proves plane readiness to Fleet before Fleet issues entry.
-            // Self-hosted sharing sets no readiness token and keeps the route closed.
-            (
-                capacity_activity::CapacityActivityService::Disabled,
-                plane_readiness::PlaneReadinessService::from_environment(&daemon, &entry)
-                    .context("configure Fleet plane-readiness endpoint")?,
-            )
-        } else {
-            (
-                capacity_activity::CapacityActivityService::Disabled,
-                plane_readiness::PlaneReadinessService::Disabled,
-            )
-        };
+    let (capacity_activity, plane_readiness) = if runtime_mode
+        == crate::runtime_mode::RuntimeMode::Hosted
+    {
+        (
+            capacity_activity::CapacityActivityService::from_environment(&daemon, &entry)
+                .context("configure Fleet capacity-activity endpoint")?,
+            plane_readiness::PlaneReadinessService::from_environment(&daemon, &entry)
+                .context("configure Fleet plane-readiness endpoint")?,
+        )
+    } else if entry.network().is_some() && std::env::var_os(plane_readiness::TOKEN_ENV).is_some() {
+        // A Cloud-managed appliance (one owner VM) runs its companies locally but
+        // still proves plane readiness to Fleet before Fleet issues entry.
+        // Self-hosted sharing sets no readiness token and keeps the route closed.
+        (
+            capacity_activity::CapacityActivityService::Disabled,
+            plane_readiness::PlaneReadinessService::from_environment(&daemon, &entry)
+                .context("configure Fleet plane-readiness endpoint")?,
+        )
+    } else {
+        (
+            capacity_activity::CapacityActivityService::Disabled,
+            plane_readiness::PlaneReadinessService::Disabled,
+        )
+    };
     // Web Push reaches people with the cockpit closed; only a hosted plane knows who they are.
     let web_push = match entry.network_coordinates() {
         Some(_) => Some(crate::web_push::WebPush::open(&daemon.root).context("open Web Push key")?),
         None => None,
     };
     // Sessions outlive a plane restart; see SessionStore::persistent.
-    let sessions = Arc::new(SessionStore::persistent(daemon.root.join("owner-sessions.json")));
+    let sessions = Arc::new(SessionStore::persistent(
+        daemon.root.join("owner-sessions.json"),
+    ));
     let state = OwnerState {
         daemon,
         charter_writes: Arc::new(tokio::sync::Mutex::new(())),
@@ -1348,13 +1336,20 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
 
     let api = Router::new()
         .route("/appliance", get(appliance_status))
+        .route("/browser-locale", axum::routing::put(put_browser_locale))
         .route("/appliance/operations", get(appliance_api::operations))
         .route("/appliance/operations/{op}", post(appliance_api::run))
-        .route("/appliance/backups/latest", get(appliance_api::download_backup))
+        .route(
+            "/appliance/backups/latest",
+            get(appliance_api::download_backup),
+        )
         .route("/appliance/resume", post(appliance_api::resume))
         .route("/model-catalog", get(model_catalog_api::get_catalog))
         .route("/app-catalogue", get(skills_api::app_catalogue))
-        .route("/app-catalogue/skill", get(skills_api::catalogue_instructions))
+        .route(
+            "/app-catalogue/skill",
+            get(skills_api::catalogue_instructions),
+        )
         .route(
             "/companies/{company}/app-catalogue/install",
             post(skills_api::install_from_catalogue),
@@ -1366,8 +1361,14 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         )
         .route("/session/scope", get(session_scope))
         .route("/accounts/usage", get(account_usage_api::accounts))
-        .route("/companies/{company}/model/headroom", get(account_usage_api::company))
-        .route("/accounts", get(accounts_api::list).post(accounts_api::create))
+        .route(
+            "/companies/{company}/model/headroom",
+            get(account_usage_api::company),
+        )
+        .route(
+            "/accounts",
+            get(accounts_api::list).post(accounts_api::create),
+        )
         .route(
             "/accounts/{id}",
             axum::routing::patch(accounts_api::update).delete(accounts_api::remove),
@@ -1378,36 +1379,96 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             axum::routing::patch(accounts_api::update_grant).delete(accounts_api::remove_grant),
         )
         .route("/accounts/{id}/uses", get(accounts_api::uses))
-        .route("/accounts/{id}/notices/{notice}", post(accounts_api::decide_notice))
+        .route(
+            "/accounts/{id}/notices/{notice}",
+            post(accounts_api::decide_notice),
+        )
         .route("/accounts/{id}/sign-in", post(accounts_api::sign_in))
-        .route("/accounts/{id}/sign-in/{session}/done", post(accounts_api::sign_in_done))
-        .route("/accounts/{id}/sign-in/{session}", axum::routing::delete(accounts_api::sign_in_cancel))
-        .route("/accounts/{id}/desktop/websockify", get(accounts_api::desktop_socket))
-        .route("/accounts/{id}/desktop/{*asset}", get(accounts_api::desktop_asset))
-        .route("/accounts/requests/{request}", post(accounts_api::settle_request))
+        .route(
+            "/accounts/{id}/sign-in/{session}/done",
+            post(accounts_api::sign_in_done),
+        )
+        .route(
+            "/accounts/{id}/sign-in/{session}",
+            axum::routing::delete(accounts_api::sign_in_cancel),
+        )
+        .route(
+            "/accounts/{id}/desktop/websockify",
+            get(accounts_api::desktop_socket),
+        )
+        .route(
+            "/accounts/{id}/desktop/{*asset}",
+            get(accounts_api::desktop_asset),
+        )
+        .route(
+            "/accounts/requests/{request}",
+            post(accounts_api::settle_request),
+        )
         .route("/machines", get(machines_api::list))
         .route("/machines/pairings", post(machines_api::create_pairing))
-        .route("/machines/{id}", axum::routing::patch(machines_api::change).delete(machines_api::remove))
-        .route("/companies/{company}/machines", get(machines_api::company).post(machines_api::assign_helper))
-        .route("/companies/{company}/machines/{machine}", axum::routing::delete(machines_api::unassign))
-        .route("/companies/{company}/machines/move", post(machines_api::move_main))
+        .route(
+            "/machines/{id}",
+            axum::routing::patch(machines_api::change).delete(machines_api::remove),
+        )
+        .route(
+            "/companies/{company}/machines",
+            get(machines_api::company).post(machines_api::assign_helper),
+        )
+        .route(
+            "/companies/{company}/machines/{machine}",
+            axum::routing::delete(machines_api::unassign),
+        )
+        .route(
+            "/companies/{company}/machines/move",
+            post(machines_api::move_main),
+        )
         .route("/companies/{company}/accounts", get(accounts_api::company))
-        .route("/companies/{company}/accounts/uses", get(accounts_api::company_uses))
-        .route("/companies/{company}/accounts/requests", post(accounts_api::request))
-        .route("/companies/{company}/accounts/codes/{code}", post(accounts_api::answer_code))
+        .route(
+            "/companies/{company}/accounts/uses",
+            get(accounts_api::company_uses),
+        )
+        .route(
+            "/companies/{company}/accounts/requests",
+            post(accounts_api::request),
+        )
+        .route(
+            "/companies/{company}/accounts/codes/{code}",
+            post(accounts_api::answer_code),
+        )
         .route("/connections/import", post(import_owner_connection))
-        .route("/connections/{connection}", axum::routing::delete(remove_owner_connection))
+        .route(
+            "/connections/{connection}",
+            axum::routing::delete(remove_owner_connection),
+        )
         .route(
             "/mcp-access",
             get(mcp_api::list_access).post(mcp_api::issue_access),
         )
         .route("/mcp-access/{id}/revoke", post(mcp_api::revoke_access))
-        .route("/connections/models/{provider}", get(oauth_login_api::account_models))
-        .route("/connections/import/company-codex", post(native_import_api::import_company_codex))
-        .route("/connections/oauth/codex", post(oauth_login_api::start_codex_login))
-        .route("/connections/oauth/claude", post(oauth_login_api::start_claude_login))
-        .route("/connections/oauth/jobs/{job}", get(oauth_login_api::oauth_login_status).delete(oauth_login_api::cancel_oauth_login))
-        .route("/connections/oauth/jobs/{job}/callback", post(oauth_login_api::complete_claude_login))
+        .route(
+            "/connections/models/{provider}",
+            get(oauth_login_api::account_models),
+        )
+        .route(
+            "/connections/import/company-codex",
+            post(native_import_api::import_company_codex),
+        )
+        .route(
+            "/connections/oauth/codex",
+            post(oauth_login_api::start_codex_login),
+        )
+        .route(
+            "/connections/oauth/claude",
+            post(oauth_login_api::start_claude_login),
+        )
+        .route(
+            "/connections/oauth/jobs/{job}",
+            get(oauth_login_api::oauth_login_status).delete(oauth_login_api::cancel_oauth_login),
+        )
+        .route(
+            "/connections/oauth/jobs/{job}/callback",
+            post(oauth_login_api::complete_claude_login),
+        )
         .route(
             "/companies/{company}/connections/{connection}",
             post(grant_owner_connection).delete(revoke_owner_connection),
@@ -1538,7 +1599,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/companies/{company}/work/{work}/feedback",
             get(teams_api::work_feedback),
         )
-        .route("/companies/{company}/work-spend", get(teams_api::work_spend))
+        .route(
+            "/companies/{company}/work-spend",
+            get(teams_api::work_spend),
+        )
         .route(
             "/companies/{company}/loops",
             get(skills_api::list_loops).post(skills_api::add_loop),
@@ -1608,26 +1672,50 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         )
         .route("/companies/{company}/attention", get(attention_view))
         .route("/companies/{company}/work-graph", get(work_graph_api::view))
-        .route("/companies/{company}/direction/requests", get(direction_api::requests))
+        .route(
+            "/companies/{company}/direction/requests",
+            get(direction_api::requests),
+        )
         .route(
             "/companies/{company}/direction/requests/{request}/decision",
             post(direction_api::decide),
         )
-        .route("/companies/{company}/direction/applied", get(direction_api::applied))
+        .route(
+            "/companies/{company}/direction/applied",
+            get(direction_api::applied),
+        )
         .route(
             "/companies/{company}/direction/applied/{applied}/undo",
             post(direction_api::undo),
         )
-        .route("/companies/{company}/direction/grants", get(direction_api::grants))
+        .route(
+            "/companies/{company}/direction/grants",
+            get(direction_api::grants),
+        )
         .route(
             "/companies/{company}/direction/grants/{grant}/revoke",
             post(direction_api::revoke),
         )
-        .route("/companies/{company}/direction/digest", get(direction_api::digest))
-        .route("/companies/{company}/attention/dismiss", post(dismiss_attention))
-        .route("/companies/{company}/attention/dismissed", get(dismissed_attention))
-        .route("/companies/{company}/attention/restore", post(restore_attention))
-        .route("/companies/{company}/attention/history", get(attention_history))
+        .route(
+            "/companies/{company}/direction/digest",
+            get(direction_api::digest),
+        )
+        .route(
+            "/companies/{company}/attention/dismiss",
+            post(dismiss_attention),
+        )
+        .route(
+            "/companies/{company}/attention/dismissed",
+            get(dismissed_attention),
+        )
+        .route(
+            "/companies/{company}/attention/restore",
+            post(restore_attention),
+        )
+        .route(
+            "/companies/{company}/attention/history",
+            get(attention_history),
+        )
         .route("/companies/{company}/changes", get(company_changes))
         .route(
             "/companies/{company}/sharing/setup",
@@ -1645,14 +1733,29 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/companies/{company}/sharing/activate",
             post(sharing_api::activate),
         )
-        .route("/companies/{company}/email-mandates/proposals", post(propose_email_mandate))
-        .route("/companies/{company}/email-mandates/proposals/{proposal}/decision", post(decide_email_mandate))
+        .route(
+            "/companies/{company}/email-mandates/proposals",
+            post(propose_email_mandate),
+        )
+        .route(
+            "/companies/{company}/email-mandates/proposals/{proposal}/decision",
+            post(decide_email_mandate),
+        )
         .route("/companies/{company}/cockpit", get(cockpit_view))
         .route("/companies/{company}/company", get(company_view))
         .route("/companies/{company}/company/spend", get(company_spend))
-        .route("/companies/{company}/company/spend/report", get(company_spend_report))
-        .route("/companies/{company}/company/accounting", get(accounting_api::list))
-        .route("/companies/{company}/company/accounting/{id}", axum::routing::put(accounting_api::save))
+        .route(
+            "/companies/{company}/company/spend/report",
+            get(company_spend_report),
+        )
+        .route(
+            "/companies/{company}/company/accounting",
+            get(accounting_api::list),
+        )
+        .route(
+            "/companies/{company}/company/accounting/{id}",
+            axum::routing::put(accounting_api::save),
+        )
         .route(
             "/companies/{company}/members",
             get(members_api::members_view),
@@ -1814,14 +1917,8 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/companies/{company}/actors/{actor}/conversation/{message_id}/retry",
             post(retry_actor_conversation),
         )
-        .route(
-            "/companies/{company}/actors/archived",
-            get(archived_agents),
-        )
-        .route(
-            "/companies/{company}/setup/opening",
-            post(setup_opening),
-        )
+        .route("/companies/{company}/actors/archived", get(archived_agents))
+        .route("/companies/{company}/setup/opening", post(setup_opening))
         .route(
             "/companies/{company}/actors/{actor}/archive",
             post(archive_agent),
@@ -1912,10 +2009,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/companies/{company}/approvals/grant", post(grant))
         .route("/companies/{company}/approvals/decline", post(decline))
         .route("/companies/{company}/approvals/revoke", post(revoke))
-        .route(
-            "/companies/{company}/mandates/email",
-            get(email_mandates),
-        )
+        .route("/companies/{company}/mandates/email", get(email_mandates))
         .route(
             "/companies/{company}/mandates/email/{mandate}/revoke",
             post(revoke_email_mandate),
@@ -2087,11 +2181,26 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
                 async move { mcp_api::serve(state, api, request).await }
             }),
         )
-        .route(restless_machine::protocol::PAIR_PATH, post(machines_api::pair))
-        .route(restless_machine::protocol::LINK_PATH, get(machines_api::link))
-        .route(restless_machine::protocol::CONNECT_SH_PATH, get(machines_api::connect_sh))
-        .route(restless_machine::protocol::CONNECT_PS1_PATH, get(machines_api::connect_ps1))
-        .route(machines_api::HELPER_IMAGE_PATH, get(machines_api::helper_image))
+        .route(
+            restless_machine::protocol::PAIR_PATH,
+            post(machines_api::pair),
+        )
+        .route(
+            restless_machine::protocol::LINK_PATH,
+            get(machines_api::link),
+        )
+        .route(
+            restless_machine::protocol::CONNECT_SH_PATH,
+            get(machines_api::connect_sh),
+        )
+        .route(
+            restless_machine::protocol::CONNECT_PS1_PATH,
+            get(machines_api::connect_ps1),
+        )
+        .route(
+            machines_api::HELPER_IMAGE_PATH,
+            get(machines_api::helper_image),
+        )
         .route("/entry", post(consume_entry_assertion))
         .route("/entry/account", post(consume_account_entry_assertion))
         .route("/entry/logout", post(end_entry_session))
@@ -2147,9 +2256,10 @@ async fn cockpit_cache_policy(request: Request, next: Next) -> Response<Body> {
         && (response.status().is_success() || response.status() == StatusCode::NOT_MODIFIED);
     let immutable = fingerprinted_path
         && response.status().is_success()
-        && !response.headers().get(CONTENT_TYPE).is_some_and(|value| {
-            value.as_bytes().starts_with(b"text/html")
-        });
+        && !response
+            .headers()
+            .get(CONTENT_TYPE)
+            .is_some_and(|value| value.as_bytes().starts_with(b"text/html"));
     response.headers_mut().insert(
         CACHE_CONTROL,
         HeaderValue::from_static(if immutable {
@@ -2229,8 +2339,10 @@ async fn enforce_owner_boundary(
         // cannot issue a browser assertion until this observation is ready.
         return next.run(request).await;
     }
-    if matches!(request.uri().path(), MEMBERSHIP_CONTROL_PATH | SESSION_CONTROL_PATH)
-        && state.entry.network().is_none()
+    if matches!(
+        request.uri().path(),
+        MEMBERSHIP_CONTROL_PATH | SESSION_CONTROL_PATH
+    ) && state.entry.network().is_none()
     {
         // The handler returns a stable 404. Do not reinterpret this internal
         // signed-control route as a local browser mutation first.
@@ -2250,7 +2362,10 @@ async fn enforce_owner_boundary(
         }
         EntryMode::Network(network) => {
             let path = request.uri().path().to_string();
-            let hosts = PlaneHosts { own: network.host(), public: network.public_host() };
+            let hosts = PlaneHosts {
+                own: network.host(),
+                public: network.public_host(),
+            };
             let sessions = session_tokens(request.headers(), &session_cookie_name(&network))
                 .into_iter()
                 .filter_map(|token| {
@@ -2259,8 +2374,9 @@ async fn enforce_owner_boundary(
                 })
                 .collect::<Vec<_>>();
             let page = referring_page(request.headers(), hosts);
-            let (session_token, session_lease) =
-                request_session(&sessions, &path, page.as_deref()).cloned().unzip();
+            let (session_token, session_lease) = request_session(&sessions, &path, page.as_deref())
+                .cloned()
+                .unzip();
             let identity = session_lease.as_ref().map(|lease| &lease.identity);
             if let Some(refusal) = network_boundary_violation(
                 request.method(),
@@ -2287,9 +2403,16 @@ async fn enforce_owner_boundary(
                     .path_and_query()
                     .map(|value| value.as_str())
                     .filter(|value| *value != "/")
-                    .map(|value| format!("?return={}", url::form_urlencoded::byte_serialize(value.as_bytes()).collect::<String>()))
+                    .map(|value| {
+                        format!(
+                            "?return={}",
+                            url::form_urlencoded::byte_serialize(value.as_bytes())
+                                .collect::<String>()
+                        )
+                    })
                     .unwrap_or_default();
-                return Redirect::to(&format!("{}{wanted}", network.account_portfolio_url())).into_response();
+                return Redirect::to(&format!("{}{wanted}", network.account_portfolio_url()))
+                    .into_response();
             }
             if path.starts_with("/api/") || path.starts_with("/desktop/") {
                 if let Some(identity) = identity {
@@ -2332,7 +2455,10 @@ async fn enforce_owner_boundary(
             let renewed_cookie = sessions
                 .iter()
                 .fold(false, |renewed, (token, _)| {
-                    state.sessions.renew_if_half_spent(token, network.session_ttl()) || renewed
+                    state
+                        .sessions
+                        .renew_if_half_spent(token, network.session_ttl())
+                        || renewed
                 })
                 .then(|| {
                     let name = session_cookie_name(&network);
@@ -2347,7 +2473,9 @@ async fn enforce_owner_boundary(
             let public_read = matches!(*request.method(), Method::GET | Method::HEAD)
                 && !is_owner_data_surface(&path);
             let mut response = next.run(request).await;
-            if let Some(cookie) = renewed_cookie.and_then(|cookie| HeaderValue::from_str(&cookie).ok()) {
+            if let Some(cookie) =
+                renewed_cookie.and_then(|cookie| HeaderValue::from_str(&cookie).ok())
+            {
                 if !response.headers().contains_key(SET_COOKIE) {
                     response.headers_mut().append(SET_COOKIE, cookie);
                 }
@@ -2370,7 +2498,10 @@ async fn network_session_is_current(
     identity: &VerifiedIdentity,
 ) -> Result<bool> {
     if identity.scope == CompanyScope::Owner {
-        return Ok(state.entry.network().is_some_and(|network| network.matches_account_owner(&identity.owner))
+        return Ok(state
+            .entry
+            .network()
+            .is_some_and(|network| network.matches_account_owner(&identity.owner))
             && identity.role == "owner"
             && identity.actor.as_deref() == Some("owner")
             && !identity.user.is_empty());
@@ -2415,7 +2546,9 @@ async fn network_session_is_current(
 fn is_company_accounts_read(path: &str) -> bool {
     path.strip_prefix("/api/companies/")
         .and_then(|rest| rest.split_once('/'))
-        .is_some_and(|(company, tail)| !company.is_empty() && matches!(tail, "accounts" | "accounts/uses"))
+        .is_some_and(|(company, tail)| {
+            !company.is_empty() && matches!(tail, "accounts" | "accounts/uses")
+        })
 }
 
 /// An admin asks the owner for an account or for more on one (S98-08); the handler checks the role.
@@ -2734,7 +2867,11 @@ fn admin_manages_company_setup(path: &str) -> bool {
             | ["company", "identity", "proposals", _, "promote" | "reject"]
             | ["company", "identity", "drift", _, "decide"]
             | ["schedules", _]
-            | ["schedules", _, "test" | "run" | "history" | "recover" | "policy"]
+            | [
+                "schedules",
+                _,
+                "test" | "run" | "history" | "recover" | "policy"
+            ]
             | ["loops"]
             | ["loops", _, "cancel"]
     )
@@ -2841,7 +2978,9 @@ fn is_message_reaction_route(path: &str) -> bool {
     let mut segments = rest.split('/');
     segments.next().is_some_and(|company| !company.is_empty())
         && segments.next() == Some("messages")
-        && segments.next().is_some_and(|message| message.parse::<i64>().is_ok())
+        && segments
+            .next()
+            .is_some_and(|message| message.parse::<i64>().is_ok())
         && segments.next() == Some("reactions")
         && segments.next().is_none()
 }
@@ -2879,7 +3018,12 @@ fn owner_message_membership_violation(
 
 /// Whether a teammate's collaboration view shows this Work: company-wide Work, or Work shared
 /// into a room they are in. Unreadable state counts as not shown.
-async fn teammate_sees_work(state: &OwnerState, company: &str, actor_id: &str, work_id: Uuid) -> bool {
+async fn teammate_sees_work(
+    state: &OwnerState,
+    company: &str,
+    actor_id: &str,
+    work_id: Uuid,
+) -> bool {
     let Ok(org) = state.daemon.orgintel.get(company).await else {
         return false;
     };
@@ -3084,7 +3228,10 @@ const ACCOUNT_OWNER_FILE: &str = "account-owner.json";
 /// Remember which signed-in person is this plane's account owner. Only a verified account entry
 /// (the account issuer's own assertion for this plane's owner) writes it.
 fn record_account_owner(root: &std::path::Path, issuer: &str, subject: &str) -> Result<()> {
-    anyhow::ensure!(!issuer.is_empty() && !subject.is_empty(), "account owner identity is empty");
+    anyhow::ensure!(
+        !issuer.is_empty() && !subject.is_empty(),
+        "account owner identity is empty"
+    );
     let path = root.join(ACCOUNT_OWNER_FILE);
     let body = serde_json::to_vec(&serde_json::json!({ "issuer": issuer, "subject": subject }))?;
     if std::fs::read(&path).is_ok_and(|current| current == body) {
@@ -3173,7 +3320,9 @@ fn referring_page(headers: &HeaderMap, hosts: PlaneHosts<'_>) -> Option<String> 
     let page = url::Url::parse(headers.get(axum::http::header::REFERER)?.to_str().ok()?).ok()?;
     let host = page.host_str()?;
     (host.eq_ignore_ascii_case(hosts.own)
-        || hosts.public.is_some_and(|public| host.eq_ignore_ascii_case(public)))
+        || hosts
+            .public
+            .is_some_and(|public| host.eq_ignore_ascii_case(public)))
     .then(|| page.path().to_owned())
 }
 
@@ -3321,7 +3470,9 @@ async fn apply_session_control(
             return api_error(StatusCode::UNAUTHORIZED, refusal.code(), refusal.message());
         }
     };
-    let ended = state.sessions.revoke_subject(&control.issuer, &control.subject);
+    let ended = state
+        .sessions
+        .revoke_subject(&control.issuer, &control.subject);
     tracing::info!(ended, "session control ended a person's plane sessions");
     Json(serde_json::json!({ "ended": ended })).into_response()
 }
@@ -3706,26 +3857,48 @@ async fn consume_entry_assertion(
         }) {
         state.sessions.revoke(&reconciled.token);
         let owner = account_owner_identity(&identity);
-        let token = state.sessions.establish(owner.clone(), network.session_ttl());
+        let token = state
+            .sessions
+            .establish(owner.clone(), network.session_ttl());
         (owner, token)
     } else {
         (identity, reconciled.token)
     };
-    let opened_with_message = if let (Some(message), Some(command_id)) =
-        (request.opening_message.as_deref(), request.opening_command_id)
-    {
+    let opened_with_message = if let (Some(message), Some(command_id)) = (
+        request.opening_message.as_deref(),
+        request.opening_command_id,
+    ) {
         if identity.role != "owner" || identity.actor.as_deref() != Some("owner") {
-            return api_error(StatusCode::FORBIDDEN, "opening_message", "Only the founding owner can deliver the first message to Exec.");
+            return api_error(
+                StatusCode::FORBIDDEN,
+                "opening_message",
+                "Only the founding owner can deliver the first message to Exec.",
+            );
         }
         let command = format!("fleet-opening:{command_id}");
-        let payload = format!("fleet-opening:{}:{}:{message}", access.company_id, command_id);
+        let payload = format!(
+            "fleet-opening:{}:{}:{message}",
+            access.company_id, command_id
+        );
         let digest = format!("{:x}", Sha256::digest(payload.as_bytes()));
-        match org.send_human_runtime_conversation_message_idempotent(
-            "owner", "exec", message, true, &[], &command, &digest,
-        ).await {
+        match org
+            .send_human_runtime_conversation_message_idempotent(
+                "owner",
+                "exec",
+                message,
+                true,
+                &[],
+                &command,
+                &digest,
+            )
+            .await
+        {
             Ok((message_id, _, created)) => {
                 if created {
-                    state.daemon.activities.expect_message(&company, "exec", message_id, None);
+                    state
+                        .daemon
+                        .activities
+                        .expect_message(&company, "exec", message_id, None);
                     if let Ok(mut claims) = state.daemon.in_flight.lock() {
                         claims.queue_owner_message(&company);
                     }
@@ -3738,7 +3911,9 @@ async fn consume_entry_assertion(
                 return api_error(StatusCode::SERVICE_UNAVAILABLE, "opening_message", "Your company is ready, but your first message could not be delivered. Reopen it from your account to retry.");
             }
         }
-    } else { false };
+    } else {
+        false
+    };
 
     let cookie_name = session_cookie_name(&network);
     let cookie = format!(
@@ -3779,40 +3954,79 @@ async fn consume_account_entry_assertion(
     body: Bytes,
 ) -> Response<Body> {
     let Some(network) = state.entry.network().cloned() else {
-        return api_error(StatusCode::NOT_FOUND, "local_entry", "Account entry is available only in Cloud mode.");
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "local_entry",
+            "Account entry is available only in Cloud mode.",
+        );
     };
     let (request, form_post) = match parse_entry_request(&headers, &body) {
         Ok(request) => request,
         Err(message) => return api_error(StatusCode::BAD_REQUEST, "entry_request", message),
     };
     if request.opening_message.is_some() || request.opening_command_id.is_some() {
-        return api_error(StatusCode::BAD_REQUEST, "entry_request", "Account entry cannot deliver a company message.");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "entry_request",
+            "Account entry cannot deliver a company message.",
+        );
     }
     let access = match network.verify_account(&request.assertion).await {
         Ok(access) => access,
-        Err(refusal) => return api_error(StatusCode::UNAUTHORIZED, refusal.code(), refusal.message()),
+        Err(refusal) => {
+            return api_error(StatusCode::UNAUTHORIZED, refusal.code(), refusal.message())
+        }
     };
     if let Some(company) = request.target_company.as_deref() {
-        if company.is_empty() || company.len() > 128 || !company.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')) {
-            return api_error(StatusCode::BAD_REQUEST, "entry_request", "Invalid company destination.");
+        if company.is_empty()
+            || company.len() > 128
+            || !company
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+        {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "entry_request",
+                "Invalid company destination.",
+            );
         }
         match crate::configured_companies(&state.daemon.root) {
-            Ok(companies) if companies.iter().any(|configured| configured == company) => {},
-            Ok(_) => return api_error(StatusCode::NOT_FOUND, "company", "Company settings are not available on this account plane."),
-            Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "company", "Company settings could not be opened."),
+            Ok(companies) if companies.iter().any(|configured| configured == company) => {}
+            Ok(_) => {
+                return api_error(
+                    StatusCode::NOT_FOUND,
+                    "company",
+                    "Company settings are not available on this account plane.",
+                )
+            }
+            Err(_) => {
+                return api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "company",
+                    "Company settings could not be opened.",
+                )
+            }
         }
     }
     // A browser assertion is single-use even across a Core restart. The
     // marker lives in the account plane, not in any company cell.
     let replay_dir = state.daemon.root.join("account-entry-replay");
     if std::fs::create_dir_all(&replay_dir).is_err() {
-        return api_error(StatusCode::SERVICE_UNAVAILABLE, "entry_unavailable", "Account entry could not be recorded.");
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "entry_unavailable",
+            "Account entry could not be recorded.",
+        );
     }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
         if std::fs::set_permissions(&replay_dir, std::fs::Permissions::from_mode(0o700)).is_err() {
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "entry_unavailable", "Account entry could not be recorded.");
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "entry_unavailable",
+                "Account entry could not be recorded.",
+            );
         }
     }
     let marker = replay_dir.join(access.assertion_id.to_string());
@@ -3827,16 +4041,37 @@ async fn consume_account_entry_assertion(
     match recorded {
         Ok(file) => {
             if file.sync_all().is_err() {
-                return api_error(StatusCode::SERVICE_UNAVAILABLE, "entry_unavailable", "Account entry could not be recorded.");
+                return api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "entry_unavailable",
+                    "Account entry could not be recorded.",
+                );
             }
-        },
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            return api_error(StatusCode::UNAUTHORIZED, "assertion_replayed", "Account entry assertion has already been used.");
         }
-        Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "entry_unavailable", "Account entry could not be recorded."),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            return api_error(
+                StatusCode::UNAUTHORIZED,
+                "assertion_replayed",
+                "Account entry assertion has already been used.",
+            );
+        }
+        Err(_) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "entry_unavailable",
+                "Account entry could not be recorded.",
+            )
+        }
     }
-    if std::fs::File::open(&replay_dir).and_then(|dir| dir.sync_all()).is_err() {
-        return api_error(StatusCode::SERVICE_UNAVAILABLE, "entry_unavailable", "Account entry could not be recorded.");
+    if std::fs::File::open(&replay_dir)
+        .and_then(|dir| dir.sync_all())
+        .is_err()
+    {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "entry_unavailable",
+            "Account entry could not be recorded.",
+        );
     }
     let identity = VerifiedIdentity {
         user: access.subject,
@@ -3852,25 +4087,40 @@ async fn consume_account_entry_assertion(
         display_name: access.display_name.clone(),
     };
     tracing::info!(owner = %access.owner_id, plane_id = %access.plane_id, "admitted a verified account-owner entry assertion");
-    if let Err(error) = record_account_owner(&state.daemon.root, identity.issuer.as_deref().unwrap_or_default(), &identity.user) {
+    if let Err(error) = record_account_owner(
+        &state.daemon.root,
+        identity.issuer.as_deref().unwrap_or_default(),
+        &identity.user,
+    ) {
         tracing::warn!(%error, "could not record the account owner; their company entries stay company-scoped");
     }
     let ttl = network.session_ttl();
     let token = state.sessions.establish(identity.clone(), ttl);
     let cookie_name = session_cookie_name(&network);
-    let value = entered_session_cookie_value(&state.sessions, &headers, &cookie_name, &identity, &token);
-    let cookie = format!("{cookie_name}={value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}", ttl.as_secs());
+    let value =
+        entered_session_cookie_value(&state.sessions, &headers, &cookie_name, &identity, &token);
+    let cookie = format!(
+        "{cookie_name}={value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}",
+        ttl.as_secs()
+    );
     // On Cloud's one address the account service opens this session in the background before it
     // mounts this plane's account sections (Cloud ADR 0008), so a form entry only ever opens a
     // company's settings.
     let mut response = if form_post {
-        Redirect::to(&request.target_company.as_ref()
-            .map(|company| format!("/{company}/company"))
-            .unwrap_or_else(|| "/account/settings/accounts".to_owned())).into_response()
+        Redirect::to(
+            &request
+                .target_company
+                .as_ref()
+                .map(|company| format!("/{company}/company"))
+                .unwrap_or_else(|| "/account/settings/accounts".to_owned()),
+        )
+        .into_response()
     } else {
         Json(serde_json::json!({"entered": true, "account": true})).into_response()
     };
-    if let Ok(value) = HeaderValue::from_str(&cookie) { response.headers_mut().insert(SET_COOKIE, value); }
+    if let Ok(value) = HeaderValue::from_str(&cookie) {
+        response.headers_mut().insert(SET_COOKIE, value);
+    }
     response
 }
 
@@ -3930,19 +4180,35 @@ fn parse_entry_request(
         .unwrap_or_default()
         .trim();
     if content_type == "application/x-www-form-urlencoded" {
-        let values = url::form_urlencoded::parse(body).into_owned().collect::<Vec<_>>();
+        let values = url::form_urlencoded::parse(body)
+            .into_owned()
+            .collect::<Vec<_>>();
         let one = |name: &str| -> std::result::Result<Option<String>, &'static str> {
-            let matches = values.iter().filter(|(key, _)| key == name).map(|(_, value)| value.clone()).collect::<Vec<_>>();
+            let matches = values
+                .iter()
+                .filter(|(key, _)| key == name)
+                .map(|(_, value)| value.clone())
+                .collect::<Vec<_>>();
             match matches.as_slice() {
                 [] => Ok(None),
                 [value] => Ok(Some(value.clone())),
                 _ => Err("entry form has a repeated field"),
             }
         };
-        if values.iter().any(|(key, _)| !matches!(key.as_str(), "assertion" | "target_company" | "opening_message" | "opening_command_id" | "return_to")) {
+        if values.iter().any(|(key, _)| {
+            !matches!(
+                key.as_str(),
+                "assertion"
+                    | "target_company"
+                    | "opening_message"
+                    | "opening_command_id"
+                    | "return_to"
+            )
+        }) {
             return Err("entry form has an unsupported field");
         }
-        let assertion = one("assertion")?.filter(|value| !value.is_empty())
+        let assertion = one("assertion")?
+            .filter(|value| !value.is_empty())
             .ok_or("form entry requires exactly one non-empty assertion")?;
         let target_company = one("target_company")?;
         let opening_message = one("opening_message")?;
@@ -3950,12 +4216,23 @@ fn parse_entry_request(
             .map(|value| Uuid::parse_str(&value).map_err(|_| "opening command ID is invalid"))
             .transpose()?;
         if opening_message.is_some() != opening_command_id.is_some()
-            || opening_message.as_ref().is_some_and(|message| message.trim().is_empty() || message.len() > 4000)
+            || opening_message
+                .as_ref()
+                .is_some_and(|message| message.trim().is_empty() || message.len() > 4000)
         {
             return Err("opening message and command ID must be one bounded pair");
         }
         let return_to = one("return_to")?;
-        return Ok((EntryRequest { assertion, target_company, opening_message, opening_command_id, return_to }, true));
+        return Ok((
+            EntryRequest {
+                assertion,
+                target_company,
+                opening_message,
+                opening_command_id,
+                return_to,
+            },
+            true,
+        ));
     }
     if content_type.is_empty() || content_type == "application/json" {
         let request: EntryRequest =
@@ -3964,7 +4241,10 @@ fn parse_entry_request(
             return Err("entry assertion must not be empty");
         }
         if request.opening_message.is_some() != request.opening_command_id.is_some()
-            || request.opening_message.as_ref().is_some_and(|message| message.trim().is_empty() || message.len() > 4000)
+            || request
+                .opening_message
+                .as_ref()
+                .is_some_and(|message| message.trim().is_empty() || message.len() > 4000)
         {
             return Err("opening message and command ID must be one bounded pair");
         }
@@ -4166,8 +4446,14 @@ async fn create_company(
     (
         StatusCode::CREATED,
         Json(
-            company_catalog_entry(config, &[], "active", Some(runtime::ContainerStatus::Absent), None)
-                .await,
+            company_catalog_entry(
+                config,
+                &[],
+                "active",
+                Some(runtime::ContainerStatus::Absent),
+                None,
+            )
+            .await,
         ),
     )
         .into_response()
@@ -4301,10 +4587,18 @@ async fn update_model_failover(
     }
     config.model_failover = models;
     if let Err(error) = config.for_agent("default").model_candidates() {
-        return api_error(StatusCode::BAD_REQUEST, "model_failover", format!("{error:#}"));
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "model_failover",
+            format!("{error:#}"),
+        );
     }
     if let Err(error) = runtime::CompanyConfig::save(&state.daemon.root, &config) {
-        return api_error(StatusCode::BAD_REQUEST, "model_failover", format!("{error:#}"));
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "model_failover",
+            format!("{error:#}"),
+        );
     }
     Json(provider_view(&config).await).into_response()
 }
@@ -4350,7 +4644,11 @@ async fn update_company_provider(
         );
     }
     if included_model_providers(&state.daemon.root).contains(provider) {
-        return api_error(StatusCode::CONFLICT, "included_model", INCLUDED_MODEL_PROVIDER);
+        return api_error(
+            StatusCode::CONFLICT,
+            "included_model",
+            INCLUDED_MODEL_PROVIDER,
+        );
     }
     if input.disconnect {
         config
@@ -4401,10 +4699,17 @@ async fn update_company_provider(
         _ => {}
     }
     if reference.starts_with("omp-oauth:")
-        && config.credentials.get(&format!("model.inference.{provider}")).map(String::as_str)
+        && config
+            .credentials
+            .get(&format!("model.inference.{provider}"))
+            .map(String::as_str)
             != Some(reference)
         && !(config.model.split('/').next() == Some(provider)
-            && config.credentials.get("model.inference").map(String::as_str) == Some(reference))
+            && config
+                .credentials
+                .get("model.inference")
+                .map(String::as_str)
+                == Some(reference))
     {
         return api_error(
             StatusCode::CONFLICT,
@@ -4465,19 +4770,6 @@ async fn update_company_provider(
     }
     Json(provider_view(&config).await).into_response()
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 fn safe_connection_summary(
     connection: &OwnerModelConnection,
@@ -4547,21 +4839,22 @@ fn company_connection_models(
     models
 }
 
-fn company_connection_is_assigned(config: &runtime::CompanyConfig, connection: &OwnerModelConnection) -> bool {
+fn company_connection_is_assigned(
+    config: &runtime::CompanyConfig,
+    connection: &OwnerModelConnection,
+) -> bool {
     let exact = format!("{}@{}", connection.provider, connection.id);
     (!config.agent_intelligence.contains_key("default")
         && (config.model.split('/').next() == Some(connection.provider.as_str())
-            || config.model_failover.iter().any(|model| {
-                model.split('/').next() == Some(connection.provider.as_str())
-            })))
-        || config
-            .agent_intelligence
-            .values()
-            .any(|route| {
-                route.connection == format!("direct:{}", connection.provider)
-                    || runtime::account_intelligence_route(&route.connection)
-                        .is_some_and(|(provider, id, _)| format!("{provider}@{id}") == exact)
-            })
+            || config
+                .model_failover
+                .iter()
+                .any(|model| model.split('/').next() == Some(connection.provider.as_str()))))
+        || config.agent_intelligence.values().any(|route| {
+            route.connection == format!("direct:{}", connection.provider)
+                || runtime::account_intelligence_route(&route.connection)
+                    .is_some_and(|(provider, id, _)| format!("{provider}@{id}") == exact)
+        })
 }
 
 /// Which session this browser holds on the plane: an account owner's, one company's, or none.
@@ -4579,7 +4872,10 @@ async fn session_scope(Extension(principal): Extension<RequestPrincipal>) -> Res
     Json(serde_json::json!({ "scope": scope })).into_response()
 }
 
-async fn list_owner_connections(State(state): State<OwnerState>, Extension(principal): Extension<RequestPrincipal>) -> Response<Body> {
+async fn list_owner_connections(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+) -> Response<Body> {
     if !principal.is_account_owner() && principal.scoped_company().is_none() {
         return api_error(
             StatusCode::FORBIDDEN,
@@ -4659,7 +4955,8 @@ async fn list_owner_connections(State(state): State<OwnerState>, Extension(princ
         "included_providers": included_model_providers(&state.daemon.root),
         "scope": if account_owner { "account" } else { "company" },
         "manage_url": "/account/settings/accounts",
-    })).into_response()
+    }))
+    .into_response()
 }
 
 #[derive(Deserialize)]
@@ -4710,7 +5007,11 @@ async fn create_owner_connection(
         );
     }
     if included_model_providers(&state.daemon.root).contains(provider) {
-        return api_error(StatusCode::CONFLICT, "included_model", INCLUDED_MODEL_PROVIDER);
+        return api_error(
+            StatusCode::CONFLICT,
+            "included_model",
+            INCLUDED_MODEL_PROVIDER,
+        );
     }
     let _write = state.charter_writes.lock().await;
     let mut registry = match load_owner_connections(&state.daemon.root) {
@@ -4759,8 +5060,7 @@ async fn create_owner_connection(
         }
         let key_check = crate::model_connections::check_api_key(provider, secret.trim()).await;
         unverified = matches!(key_check, crate::model_connections::KeyCheck::Unverified);
-        if let crate::model_connections::KeyCheck::Rejected(reason) = key_check
-        {
+        if let crate::model_connections::KeyCheck::Rejected(reason) = key_check {
             let hint = if provider == "anthropic" {
                 " Paste an API key from console.anthropic.com; a Claude Pro or Max plan connects with Sign in with Claude instead."
             } else {
@@ -4833,7 +5133,11 @@ async fn remove_owner_connection(
         }
     };
     let Some(connection) = registry.connections.iter().find(|c| c.id == id).cloned() else {
-        return api_error(StatusCode::NOT_FOUND, "connections", "That connection no longer exists.");
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "connections",
+            "That connection no longer exists.",
+        );
     };
     let reference = owner_connection_reference(&connection);
     let companies = crate::configured_companies(&state.daemon.root).unwrap_or_default();
@@ -4906,19 +5210,43 @@ async fn remove_owner_connection(
 async fn provider_rejections(state: &OwnerState) -> HashMap<String, String> {
     let mut out = HashMap::new();
     for company in crate::configured_companies(&state.daemon.root).unwrap_or_default() {
-        let Ok(config) = runtime::CompanyConfig::load(&state.daemon.root, &company) else { continue };
-        let Ok(cooldowns) = state.daemon.authority.active_model_cooldowns(&company).await else { continue };
+        let Ok(config) = runtime::CompanyConfig::load(&state.daemon.root, &company) else {
+            continue;
+        };
+        let Ok(cooldowns) = state
+            .daemon
+            .authority
+            .active_model_cooldowns(&company)
+            .await
+        else {
+            continue;
+        };
         for (actor, route) in &config.agent_intelligence {
-            let Some((_, id, _)) = runtime::account_intelligence_route(&route.connection) else { continue };
-            let Some(model) = config.for_agent(actor).configured_model().map(str::to_owned) else { continue };
+            let Some((_, id, _)) = runtime::account_intelligence_route(&route.connection) else {
+                continue;
+            };
+            let Some(model) = config
+                .for_agent(actor)
+                .configured_model()
+                .map(str::to_owned)
+            else {
+                continue;
+            };
             if let Some(cooldown) = cooldowns
                 .iter()
                 .find(|cooldown| cooldown.model == model && cooldown.kind == "credential")
             {
-                let name = config.display_name.clone().unwrap_or_else(|| company.clone());
+                let name = config
+                    .display_name
+                    .clone()
+                    .unwrap_or_else(|| company.clone());
                 out.entry(id.to_owned()).or_insert_with(|| {
                     format!("The provider refused this key when {name} used it. Replace the key.")
-                        + if cooldown.reason.contains("invalid x-api-key") { " (invalid x-api-key)" } else { "" }
+                        + if cooldown.reason.contains("invalid x-api-key") {
+                            " (invalid x-api-key)"
+                        } else {
+                            ""
+                        }
                 });
             }
         }
@@ -4956,7 +5284,11 @@ async fn import_owner_connection(
         );
     }
     if included_model_providers(&state.daemon.root).contains(provider) {
-        return api_error(StatusCode::CONFLICT, "included_model", INCLUDED_MODEL_PROVIDER);
+        return api_error(
+            StatusCode::CONFLICT,
+            "included_model",
+            INCLUDED_MODEL_PROVIDER,
+        );
     }
     let source = match runtime::CompanyConfig::load(&state.daemon.root, input.source_company.trim())
     {
@@ -5116,7 +5448,11 @@ async fn grant_owner_connection(
         );
     }
     if included_model_providers(&state.daemon.root).contains(&connection.provider) {
-        return api_error(StatusCode::CONFLICT, "included_model", INCLUDED_MODEL_PROVIDER);
+        return api_error(
+            StatusCode::CONFLICT,
+            "included_model",
+            INCLUDED_MODEL_PROVIDER,
+        );
     }
     let has_configured_default =
         config.configured_model().is_some() || config.agent_intelligence.contains_key("default");
@@ -5188,7 +5524,8 @@ async fn grant_owner_connection(
                 .iter()
                 .filter(|(actor, assignment)| {
                     assignment.connection == route
-                        && !(actor.as_str() == "default" && (input.make_default || !has_configured_default))
+                        && !(actor.as_str() == "default"
+                            && (input.make_default || !has_configured_default))
                 })
                 .map(|(actor, _)| actor.clone())
                 .collect();
@@ -5203,7 +5540,11 @@ async fn grant_owner_connection(
             "default".into(),
             runtime::AgentIntelligence {
                 connection: format!("account:{}@{}", connection.provider, connection.id),
-                model: input.model.strip_prefix(&format!("{}/", connection.provider)).unwrap_or(&input.model).into(),
+                model: input
+                    .model
+                    .strip_prefix(&format!("{}/", connection.provider))
+                    .unwrap_or(&input.model)
+                    .into(),
             },
         );
         config.model = input.model.clone();
@@ -5229,13 +5570,20 @@ async fn grant_owner_connection(
         Some(mut replaced) => {
             if let Ok(org) = state.daemon.orgintel.get(&config.name).await {
                 let actors = org.list_actors().await.unwrap_or_default();
-                if let Some(agents) = replaced.get_mut("agents").and_then(serde_json::Value::as_array_mut) {
+                if let Some(agents) = replaced
+                    .get_mut("agents")
+                    .and_then(serde_json::Value::as_array_mut)
+                {
                     for agent in agents.iter_mut() {
                         let id = agent.as_str().unwrap_or_default().to_string();
                         let name = if id == "default" {
                             "agents on the company model".to_string()
                         } else {
-                            actors.iter().find(|actor| actor.id == id).map(|actor| actor.display.clone()).unwrap_or(id)
+                            actors
+                                .iter()
+                                .find(|actor| actor.id == id)
+                                .map(|actor| actor.display.clone())
+                                .unwrap_or(id)
                         };
                         *agent = serde_json::Value::String(name);
                     }
@@ -5413,7 +5761,9 @@ fn model_assignment_copyable(
                 reference == &expected_oauth || reference == &expected_key
             });
     }
-    route.connection.strip_prefix("direct:")
+    route
+        .connection
+        .strip_prefix("direct:")
         .is_some_and(|provider| model_provider_copyable(source, target, provider))
 }
 
@@ -5422,8 +5772,20 @@ async fn matching_model_actors(
     source: &str,
     target: &str,
 ) -> Result<std::collections::BTreeSet<String>> {
-    let source_actors = state.daemon.orgintel.get(source).await?.list_actors().await?;
-    let target_actors = state.daemon.orgintel.get(target).await?.list_actors().await?;
+    let source_actors = state
+        .daemon
+        .orgintel
+        .get(source)
+        .await?
+        .list_actors()
+        .await?;
+    let target_actors = state
+        .daemon
+        .orgintel
+        .get(target)
+        .await?
+        .list_actors()
+        .await?;
     let target_agents = target_actors
         .into_iter()
         .filter(|actor| actor.actor_class == "agent")
@@ -5433,8 +5795,7 @@ async fn matching_model_actors(
         .into_iter()
         .filter(|actor| actor.actor_class == "agent")
         .filter(|actor| {
-            target_agents.get(&actor.id)
-                == Some(&(actor.role.clone(), actor.display.clone()))
+            target_agents.get(&actor.id) == Some(&(actor.role.clone(), actor.display.clone()))
         })
         .map(|actor| actor.id)
         .collect())
@@ -5500,7 +5861,10 @@ fn selected_setup_sections(sections: &[CompanySetupSection]) -> Result<Vec<Compa
         selected.push(*section);
     }
     if selected.len() != 1
-        || matches!(selected[0], CompanySetupSection::Identity | CompanySetupSection::Limits)
+        || matches!(
+            selected[0],
+            CompanySetupSection::Identity | CompanySetupSection::Limits
+        )
     {
         bail!("Choose one specific company setting to copy")
     }
@@ -5516,9 +5880,17 @@ fn setup_copy_preview(
 ) -> serde_json::Value {
     let source_default = company_default_model(source);
     let target_default = company_default_model(target);
-    let default_copyable = source.agent_intelligence.get("default")
+    let default_copyable = source
+        .agent_intelligence
+        .get("default")
         .map(|route| model_assignment_copyable(source, target, route, allow_native))
-        .unwrap_or_else(|| model_provider_copyable(source, target, source_default.split('/').next().unwrap_or_default()));
+        .unwrap_or_else(|| {
+            model_provider_copyable(
+                source,
+                target,
+                source_default.split('/').next().unwrap_or_default(),
+            )
+        });
     let items = sections.iter().map(|section| {
         let changes = match section {
             CompanySetupSection::Identity => vec![
@@ -5551,7 +5923,11 @@ async fn preview_company_setup_copy(
     Json(input): Json<CopyCompanySetupInput>,
 ) -> Response<Body> {
     if state.entry.network().is_some() && !principal.is_account_owner() {
-        return api_error(StatusCode::FORBIDDEN, "setup_copy", "Open account settings to copy between companies.");
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "setup_copy",
+            "Open account settings to copy between companies.",
+        );
     }
     let sections = match selected_setup_sections(&input.sections) {
         Ok(sections) => sections,
@@ -5587,12 +5963,25 @@ async fn preview_company_setup_copy(
     let matching_actors = if matches!(sections[0], CompanySetupSection::Models) {
         match matching_model_actors(&state, &source.name, &target.name).await {
             Ok(actors) => actors,
-            Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "setup_copy", "Could not check matching agents in both companies."),
+            Err(_) => {
+                return api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "setup_copy",
+                    "Could not check matching agents in both companies.",
+                )
+            }
         }
     } else {
         std::collections::BTreeSet::new()
     };
-    Json(setup_copy_preview(&source, &target, &sections, state.entry.network().is_none(), &matching_actors)).into_response()
+    Json(setup_copy_preview(
+        &source,
+        &target,
+        &sections,
+        state.entry.network().is_none(),
+        &matching_actors,
+    ))
+    .into_response()
 }
 
 async fn copy_company_setup(
@@ -5602,7 +5991,11 @@ async fn copy_company_setup(
     Json(input): Json<CopyCompanySetupInput>,
 ) -> Response<Body> {
     if state.entry.network().is_some() && !principal.is_account_owner() {
-        return api_error(StatusCode::FORBIDDEN, "setup_copy", "Open account settings to copy between companies.");
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "setup_copy",
+            "Open account settings to copy between companies.",
+        );
     }
     let sections = match selected_setup_sections(&input.sections) {
         Ok(sections) => sections,
@@ -5640,7 +6033,13 @@ async fn copy_company_setup(
     let matching_actors = if matches!(sections[0], CompanySetupSection::Models) {
         match matching_model_actors(&state, &source.name, &target.name).await {
             Ok(actors) => actors,
-            Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "setup_copy", "Could not check matching agents in both companies."),
+            Err(_) => {
+                return api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "setup_copy",
+                    "Could not check matching agents in both companies.",
+                )
+            }
         }
     } else {
         std::collections::BTreeSet::new()
@@ -5688,30 +6087,54 @@ async fn copy_company_setup(
     if sections.iter().any(|section| section.id() == "models") {
         let source_default = company_default_model(&source);
         let default_provider = source_default.split('/').next().unwrap_or_default();
-        let default_copyable = source.agent_intelligence.get("default")
-            .map(|route| model_assignment_copyable(&source, &target, route, state.entry.network().is_none()))
+        let default_copyable = source
+            .agent_intelligence
+            .get("default")
+            .map(|route| {
+                model_assignment_copyable(&source, &target, route, state.entry.network().is_none())
+            })
             .unwrap_or_else(|| model_provider_copyable(&source, &target, default_provider));
         if !source_default.is_empty() && default_copyable {
             target.model = source_default.to_string();
             target.reasoning_effort = source.reasoning_effort.clone();
-            let assignment = source.agent_intelligence.get("default").cloned().unwrap_or_else(||
-                runtime::AgentIntelligence {
+            let assignment = source
+                .agent_intelligence
+                .get("default")
+                .cloned()
+                .unwrap_or_else(|| runtime::AgentIntelligence {
                     connection: format!("direct:{default_provider}"),
-                    model: source_default.split_once('/').map(|(_, model)| model).unwrap_or_default().to_string(),
-                }
-            );
-            target.agent_intelligence.insert("default".into(), assignment);
+                    model: source_default
+                        .split_once('/')
+                        .map(|(_, model)| model)
+                        .unwrap_or_default()
+                        .to_string(),
+                });
+            target
+                .agent_intelligence
+                .insert("default".into(), assignment);
         }
         let source_failover_providers = source
             .model_failover
             .iter()
-            .filter(|model| model_provider_copyable(&source, &target, model.split('/').next().unwrap_or_default()))
+            .filter(|model| {
+                model_provider_copyable(
+                    &source,
+                    &target,
+                    model.split('/').next().unwrap_or_default(),
+                )
+            })
             .map(|model| model.split('/').next().unwrap_or_default().to_string())
             .collect::<std::collections::BTreeSet<_>>();
         let mut fallbacks = source
             .model_failover
             .iter()
-            .filter(|model| model_provider_copyable(&source, &target, model.split('/').next().unwrap_or_default()))
+            .filter(|model| {
+                model_provider_copyable(
+                    &source,
+                    &target,
+                    model.split('/').next().unwrap_or_default(),
+                )
+            })
             .cloned()
             .collect::<Vec<_>>();
         for model in &target.model_failover {
@@ -5725,7 +6148,12 @@ async fn copy_company_setup(
         for (actor, route) in &source.agent_intelligence {
             if actor != "default"
                 && matching_actors.contains(actor)
-                && model_assignment_copyable(&source, &target, route, state.entry.network().is_none())
+                && model_assignment_copyable(
+                    &source,
+                    &target,
+                    route,
+                    state.entry.network().is_none(),
+                )
             {
                 target
                     .agent_intelligence
@@ -5752,8 +6180,8 @@ async fn copy_company_setup(
         target.monthly_runtime_cap_hours = source.monthly_runtime_cap_hours;
         target.auto_sleep_after_minutes = source.auto_sleep_after_minutes;
     }
-    let changed = company_setup_view(&original_target)["revision"]
-        != company_setup_view(&target)["revision"];
+    let changed =
+        company_setup_view(&original_target)["revision"] != company_setup_view(&target)["revision"];
     if changed {
         let section = sections[0];
         let audit = serde_json::json!({
@@ -5774,7 +6202,11 @@ async fn copy_company_setup(
             .await
             .is_err()
         {
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority", "Could not record the requested setting copy.");
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "authority",
+                "Could not record the requested setting copy.",
+            );
         }
         let saved = if matches!(section, CompanySetupSection::Purpose) {
             authority::revise_mandate_from(
@@ -5994,14 +6426,26 @@ async fn archived_agents(
     AxumPath(company): AxumPath<String>,
 ) -> Response<Body> {
     if principal.membership_role() != "owner" {
-        return api_error(StatusCode::FORBIDDEN, "staffing", "Only the owner sees archived agents.");
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "staffing",
+            "Only the owner sees archived agents.",
+        );
     }
     match state.daemon.orgintel.get(&company).await {
         Ok(org) => match org.archived_agents().await {
             Ok(agents) => Json(serde_json::json!({ "agents": agents })).into_response(),
-            Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
+            Err(error) => api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            ),
         },
-        Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "orgintel",
+            format!("{error:#}"),
+        ),
     }
 }
 
@@ -6045,30 +6489,66 @@ async fn setup_opening(
     AxumPath(company): AxumPath<String>,
 ) -> Response<Body> {
     if principal.membership_role() != "owner" || !principal.permits_company(&company) {
-        return api_error(StatusCode::FORBIDDEN, "setup", "Only the owner sets up a company.");
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "setup",
+            "Only the owner sets up a company.",
+        );
     }
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
-        Err(_) => return api_error(StatusCode::NOT_FOUND, "setup", "That company does not exist."),
+        Err(_) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "setup",
+                "That company does not exist.",
+            )
+        }
     };
     if !config.mission.trim().is_empty() {
-        return api_error(StatusCode::CONFLICT, "setup", "This company is already set up.");
+        return api_error(
+            StatusCode::CONFLICT,
+            "setup",
+            "This company is already set up.",
+        );
     }
     let org = match state.daemon.orgintel.get(&company).await {
         Ok(org) => org,
-        Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
     };
-    let said = match org.human_conversation_before(principal.actor_id(), "exec", None, 100).await {
+    let said = match org
+        .human_conversation_before(principal.actor_id(), "exec", None, 100)
+        .await
+    {
         Ok(messages) => messages.iter().any(|message| message.from_actor == "exec"),
-        Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
     };
     if said {
         return Json(serde_json::json!({ "written": false })).into_response();
     }
-    let name = config.display_name.clone().unwrap_or_else(|| company_display_name(&config.name));
+    let name = config
+        .display_name
+        .clone()
+        .unwrap_or_else(|| company_display_name(&config.name));
     for line in setup_opening_lines(&name) {
         if let Err(error) = org.send_message("exec", None, &line).await {
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}"));
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            );
         }
     }
     Json(serde_json::json!({ "written": true })).into_response()
@@ -6083,11 +6563,21 @@ async fn staffing_change(
     archive: bool,
 ) -> Response<Body> {
     if principal.membership_role() != "owner" {
-        return api_error(StatusCode::FORBIDDEN, "staffing", "Only the owner archives or re-hires agents.");
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "staffing",
+            "Only the owner archives or re-hires agents.",
+        );
     }
     let org = match state.daemon.orgintel.get(&company).await {
         Ok(org) => org,
-        Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
     };
     let name = org
         .list_actors_including_retired()
@@ -6096,7 +6586,11 @@ async fn staffing_change(
         .and_then(|actors| actors.into_iter().find(|row| row.id == actor))
         .map(|row| row.display);
     let Some(name) = name else {
-        return api_error(StatusCode::NOT_FOUND, "staffing", "That agent does not exist.");
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "staffing",
+            "That agent does not exist.",
+        );
     };
     let reason = match input.reason.trim() {
         "" if archive => "Archived by the owner".to_string(),
@@ -6105,7 +6599,9 @@ async fn staffing_change(
     };
     // The owner's governance identity is `owner`, whatever their account Actor.
     let result = if archive {
-        org.retire_actor(&actor, "owner", &reason).await.map(|()| None)
+        org.retire_actor(&actor, "owner", &reason)
+            .await
+            .map(|()| None)
     } else {
         org.restore_actor(&actor, "owner", &reason).await
     };
@@ -6115,16 +6611,26 @@ async fn staffing_change(
                 &state,
                 &company,
                 principal.actor_id(),
-                if archive { "agent_archived" } else { "agent_rehired" },
+                if archive {
+                    "agent_archived"
+                } else {
+                    "agent_rehired"
+                },
                 serde_json::json!({"actor": name, "reason": reason}),
             )
             .await;
             Json(serde_json::json!({"archived": archive, "team_id": team})).into_response()
         }
-        Err(restless_orgintel::OrgIntelError::InvalidWork(message)) => {
-            api_error(StatusCode::CONFLICT, "staffing", staffing_refusal(&message, &name, archive))
-        }
-        Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "staffing", format!("{error:#}")),
+        Err(restless_orgintel::OrgIntelError::InvalidWork(message)) => api_error(
+            StatusCode::CONFLICT,
+            "staffing",
+            staffing_refusal(&message, &name, archive),
+        ),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "staffing",
+            format!("{error:#}"),
+        ),
     }
 }
 
@@ -6154,12 +6660,23 @@ mod staffing_refusal_tests {
     #[test]
     fn archive_refusals_name_the_agent_and_the_action() {
         assert_eq!(
-            staffing_refusal("reassign or close the actor's open Work before retiring it", "Arlo", true),
+            staffing_refusal(
+                "reassign or close the actor's open Work before retiring it",
+                "Arlo",
+                true
+            ),
             "Reassign or close Arlo's open Work before archiving them."
         );
-        assert!(staffing_refusal("appoint another lead or disband the team before retiring its lead", "Elif", true)
-            .starts_with("Elif leads a team."));
-        assert_eq!(staffing_refusal("copy-editor is not retired", "Blair", false), "Blair is already on the team.");
+        assert!(staffing_refusal(
+            "appoint another lead or disband the team before retiring its lead",
+            "Elif",
+            true
+        )
+        .starts_with("Elif leads a team."));
+        assert_eq!(
+            staffing_refusal("copy-editor is not retired", "Blair", false),
+            "Blair is already on the team."
+        );
     }
 }
 
@@ -6185,7 +6702,12 @@ async fn record_setting_change(
     kind: &str,
     body: serde_json::Value,
 ) {
-    if let Err(error) = state.daemon.authority.emit(company, kind, Some(by), body).await {
+    if let Err(error) = state
+        .daemon
+        .authority
+        .emit(company, kind, Some(by), body)
+        .await
+    {
         tracing::warn!(%error, kind, "a settings change was saved but not recorded");
     }
 }
@@ -6495,15 +7017,11 @@ fn company_model_issue(config: &runtime::CompanyConfig) -> Option<String> {
     if exec.native_model(exec.coordination_harness).is_some() {
         None
     } else if exec.configured_model().is_none() {
-        Some(
-            "Connect a model in Company → Intelligence."
-                .to_string(),
-        )
+        Some("Connect a model in Company → Intelligence.".to_string())
     } else {
         crate::model_gateway::unstartable_reason(&config.name)
     }
 }
-
 
 async fn archive_company(
     State(state): State<OwnerState>,
@@ -6613,7 +7131,9 @@ struct AttentionQuery {
     #[serde(default = "include_graph_default")]
     include_work_graph: bool,
 }
-fn include_graph_default() -> bool { true }
+fn include_graph_default() -> bool {
+    true
+}
 
 async fn attention_view(
     State(state): State<OwnerState>,
@@ -6645,8 +7165,12 @@ async fn attention_view(
         .await;
         // The away owner's deputy also sees the approvals waiting on the owner.
         if principal.membership_role() == "admin"
-            && restless_engine::away::is_deputy(&state.daemon.authority, &company, principal.actor_id())
-                .await
+            && restless_engine::away::is_deputy(
+                &state.daemon.authority,
+                &company,
+                principal.actor_id(),
+            )
+            .await
         {
             match (
                 mine,
@@ -6666,9 +7190,11 @@ async fn attention_view(
     };
     match projected {
         Ok(mut view) => {
-            if !query.include_work_graph { view.work_graph = None; }
+            if !query.include_work_graph {
+                view.work_graph = None;
+            }
             Json(view).into_response()
-        },
+        }
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "projection",
@@ -6698,7 +7224,11 @@ async fn dismiss_attention(
     let org = match state.daemon.orgintel.get(&company).await {
         Ok(org) => org,
         Err(error) => {
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}"))
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
         }
     };
     // The same projection the owner's Inbox shows, spend warnings included: without them a spend
@@ -6713,32 +7243,74 @@ async fn dismiss_attention(
     {
         Ok(view) => view,
         Err(error) => {
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "projection", format!("{error:#}"))
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "projection",
+                format!("{error:#}"),
+            )
         }
     };
     // An app request Exec raised shows in its chat before (or without) an Inbox row.
     let (title, responsible) = match view.items.into_iter().find(|item| item.id == input.item_id) {
         Some(item) => {
-            let ask = item.requested_action.split_whitespace().collect::<Vec<_>>().join(" ");
-            let title = if ask.is_empty() || ask.chars().count() > 200 { item.title } else { ask };
+            let ask = item
+                .requested_action
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            let title = if ask.is_empty() || ask.chars().count() > 200 {
+                item.title
+            } else {
+                ask
+            };
             (title, item.responsible_actor.map(|actor| actor.id))
         }
         None => match input.item_id.strip_prefix("orgintel:handoff:") {
             Some(handoff) => match org.app_requests().await {
-                Ok(requests) => match requests.into_iter().find(|request| request.handoff_id.to_string() == handoff) {
+                Ok(requests) => match requests
+                    .into_iter()
+                    .find(|request| request.handoff_id.to_string() == handoff)
+                {
                     Some(request) => (request.requested_action, Some(request.requested_by)),
-                    None => return api_error(StatusCode::NOT_FOUND, "attention", "this item is no longer waiting"),
+                    None => {
+                        return api_error(
+                            StatusCode::NOT_FOUND,
+                            "attention",
+                            "this item is no longer waiting",
+                        )
+                    }
                 },
-                Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
+                Err(error) => {
+                    return api_error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "orgintel",
+                        format!("{error:#}"),
+                    )
+                }
             },
-            None => return api_error(StatusCode::NOT_FOUND, "attention", "this item is no longer in the Inbox"),
+            None => {
+                return api_error(
+                    StatusCode::NOT_FOUND,
+                    "attention",
+                    "this item is no longer in the Inbox",
+                )
+            }
         },
     };
     if let Err(error) = org
-        .dismiss_attention(&input.item_id, principal.actor_id(), &title, responsible.as_deref())
+        .dismiss_attention(
+            &input.item_id,
+            principal.actor_id(),
+            &title,
+            responsible.as_deref(),
+        )
         .await
     {
-        return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}"));
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "orgintel",
+            format!("{error:#}"),
+        );
     }
     Json(serde_json::json!({ "dismissed": input.item_id })).into_response()
 }
@@ -6751,11 +7323,19 @@ async fn raised_attention(
     state: &OwnerState,
     company: &str,
     org: &restless_orgintel::OrgIntel,
-) -> Option<(std::collections::HashSet<String>, std::collections::HashSet<String>)> {
+) -> Option<(
+    std::collections::HashSet<String>,
+    std::collections::HashSet<String>,
+)> {
     let config = runtime::CompanyConfig::load(&state.daemon.root, company).ok()?;
-    let view = attention::project_with_spend(&config, &state.daemon.authority, Some(org), &state.daemon.spend)
-        .await
-        .ok()?;
+    let view = attention::project_with_spend(
+        &config,
+        &state.daemon.authority,
+        Some(org),
+        &state.daemon.spend,
+    )
+    .await
+    .ok()?;
     if view.source_health.orgintel != "available" {
         return None;
     }
@@ -6766,7 +7346,12 @@ async fn raised_attention(
         .into_iter()
         .map(|request| format!("orgintel:handoff:{}", request.handoff_id))
         .collect::<std::collections::HashSet<_>>();
-    let shown = view.items.into_iter().map(|item| item.id).chain(apps.iter().cloned()).collect();
+    let shown = view
+        .items
+        .into_iter()
+        .map(|item| item.id)
+        .chain(apps.iter().cloned())
+        .collect();
     let set_aside = view.set_aside.into_iter().chain(apps).collect();
     Some((shown, set_aside))
 }
@@ -6781,20 +7366,32 @@ async fn dismissed_attention(
     let org = match state.daemon.orgintel.get(&company).await {
         Ok(org) => org,
         Err(error) => {
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}"))
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
         }
     };
     let items = match org.recent_attention_dismissals(50).await {
         Ok(items) => items,
         Err(error) => {
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}"))
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
         }
     };
     let items = match raised_attention(&state, &company, &org).await {
         Some((_, set_aside)) => {
-            let (live, gone): (Vec<_>, Vec<_>) =
-                items.into_iter().partition(|item| set_aside.contains(&item.item_id));
-            let gone = gone.into_iter().map(|item| item.item_id).collect::<Vec<_>>();
+            let (live, gone): (Vec<_>, Vec<_>) = items
+                .into_iter()
+                .partition(|item| set_aside.contains(&item.item_id));
+            let gone = gone
+                .into_iter()
+                .map(|item| item.item_id)
+                .collect::<Vec<_>>();
             if let Err(error) = org.forget_attention_dismissals(&gone).await {
                 tracing::warn!(%company, "could not forget set-aside items that resolved: {error:#}");
             }
@@ -6816,13 +7413,21 @@ async fn restore_attention(
     let org = match state.daemon.orgintel.get(&company).await {
         Ok(org) => org,
         Err(error) => {
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}"))
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
         }
     };
     let restored = match org.restore_attention(&input.item_id).await {
         Ok(restored) => restored,
         Err(error) => {
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}"))
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
         }
     };
     let waiting = raised_attention(&state, &company, &org)
@@ -6893,12 +7498,37 @@ async fn propose_email_mandate(
     AxumPath(company): AxumPath<String>,
     Json(input): Json<EmailMandateProposalInput>,
 ) -> impl IntoResponse {
-    if input.judgement_note.as_deref().is_some_and(|note| note.len() > 2_000) {
-        return api_error(StatusCode::BAD_REQUEST, "email_mandate", "judgement note is too long");
+    if input
+        .judgement_note
+        .as_deref()
+        .is_some_and(|note| note.len() > 2_000)
+    {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "email_mandate",
+            "judgement note is too long",
+        );
     }
-    match state.daemon.authority.propose_email_mandate(&company, principal.actor_id(), input.proposal, input.judgement_note.as_deref(), input.replaces).await {
-        Ok(proposal_id) => Json(serde_json::json!({"proposal_id":proposal_id,"status":"pending"})).into_response(),
-        Err(error) => api_error(StatusCode::BAD_REQUEST, "email_mandate", format!("invalid mandate proposal: {error:#}")),
+    match state
+        .daemon
+        .authority
+        .propose_email_mandate(
+            &company,
+            principal.actor_id(),
+            input.proposal,
+            input.judgement_note.as_deref(),
+            input.replaces,
+        )
+        .await
+    {
+        Ok(proposal_id) => {
+            Json(serde_json::json!({"proposal_id":proposal_id,"status":"pending"})).into_response()
+        }
+        Err(error) => api_error(
+            StatusCode::BAD_REQUEST,
+            "email_mandate",
+            format!("invalid mandate proposal: {error:#}"),
+        ),
     }
 }
 
@@ -6908,25 +7538,64 @@ async fn decide_email_mandate(
     AxumPath((company, proposal)): AxumPath<(String, Uuid)>,
     Json(input): Json<EmailMandateDecisionInput>,
 ) -> impl IntoResponse {
-    let approve = match input.decision.as_str() { "approve" => true, "decline" => false, _ => return api_error(StatusCode::BAD_REQUEST, "email_mandate", "decision must be approve or decline") };
+    let approve = match input.decision.as_str() {
+        "approve" => true,
+        "decline" => false,
+        _ => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "email_mandate",
+                "decision must be approve or decline",
+            )
+        }
+    };
     let org = state.daemon.orgintel.get(&company).await.ok();
     let owner = match effective_authority_owner(&state, &company, org.as_ref()).await {
         Ok(owner) => owner.actor_id,
-        Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority_owner", format!("could not resolve Authority owner: {error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "authority_owner",
+                format!("could not resolve Authority owner: {error:#}"),
+            )
+        }
     };
     if principal.actor_id() != owner {
-        return authority_owner_refusal(&state, &company, &principal, "only the current Authority owner may decide this mandate").await;
+        return authority_owner_refusal(
+            &state,
+            &company,
+            &principal,
+            "only the current Authority owner may decide this mandate",
+        )
+        .await;
     }
-    match state.daemon.authority.decide_email_mandate_proposal(&company, principal.actor_id(), proposal, approve, input.owner_note.as_deref()).await {
+    match state
+        .daemon
+        .authority
+        .decide_email_mandate_proposal(
+            &company,
+            principal.actor_id(),
+            proposal,
+            approve,
+            input.owner_note.as_deref(),
+        )
+        .await
+    {
         Ok(Some(mandate)) => {
-            crate::approval::announce_decisions(&company, &state.daemon.authority, org.as_ref()).await;
+            crate::approval::announce_decisions(&company, &state.daemon.authority, org.as_ref())
+                .await;
             Json(serde_json::json!({"status":"approved","mandate":mandate})).into_response()
-        },
+        }
         Ok(None) => {
-            crate::approval::announce_decisions(&company, &state.daemon.authority, org.as_ref()).await;
+            crate::approval::announce_decisions(&company, &state.daemon.authority, org.as_ref())
+                .await;
             Json(serde_json::json!({"status":"declined"})).into_response()
-        },
-        Err(error) => api_error(StatusCode::CONFLICT, "email_mandate", format!("mandate decision failed: {error:#}")),
+        }
+        Err(error) => api_error(
+            StatusCode::CONFLICT,
+            "email_mandate",
+            format!("mandate decision failed: {error:#}"),
+        ),
     }
 }
 
@@ -6965,11 +7634,19 @@ async fn company_spend_report(
         return api_error(StatusCode::NOT_FOUND, "company", "company does not exist");
     }
     if query.days.is_some_and(|days| days > 3660) {
-        return api_error(StatusCode::BAD_REQUEST, "spend", "Choose up to ten years, or all time.");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "spend",
+            "Choose up to ten years, or all time.",
+        );
     }
     match crate::spend_report::report(&state.daemon, &company, query).await {
         Ok(report) => Json(report).into_response(),
-        Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "spend", format!("Spend could not be read: {error:#}")),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "spend",
+            format!("Spend could not be read: {error:#}"),
+        ),
     }
 }
 
@@ -7053,6 +7730,29 @@ struct ApplianceStatus {
     plane_origin: Option<String>,
 }
 
+/// The owner's browser reports its timezone and language so the company
+/// browsers match them (S104 F3). Only the account owner sets this.
+async fn put_browser_locale(
+    Extension(principal): Extension<RequestPrincipal>,
+    Json(locale): Json<runtime::BrowserLocale>,
+) -> impl IntoResponse {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "browser_locale",
+            "only the account owner sets the company browser's timezone and language",
+        );
+    }
+    match runtime::save_browser_locale(&locale) {
+        Ok(changed) => Json(serde_json::json!({ "changed": changed })).into_response(),
+        Err(error) => api_error(
+            StatusCode::BAD_REQUEST,
+            "browser_locale",
+            format!("{error:#}"),
+        ),
+    }
+}
+
 async fn appliance_status(
     State(state): State<OwnerState>,
     session_lease: Option<Extension<SessionLease>>,
@@ -7107,11 +7807,7 @@ async fn appliance_status(
             if definition && loaded {
                 ("ready", "launchd", None)
             } else {
-                (
-                    "degraded",
-                    "unavailable",
-                    Some(WAKE_STOPPED),
-                )
+                ("degraded", "unavailable", Some(WAKE_STOPPED))
             }
         }
         restless_contracts::appliance::ProfileKind::Stable if cfg!(target_os = "linux") => {
@@ -7151,11 +7847,7 @@ async fn appliance_status(
                     Some("Run `restless appliance install` to restore schedule wake delivery."),
                 )
             } else {
-                (
-                    "degraded",
-                    "unavailable",
-                    Some(WAKE_STOPPED),
-                )
+                ("degraded", "unavailable", Some(WAKE_STOPPED))
             }
         }
         restless_contracts::appliance::ProfileKind::Stable => (
@@ -7167,7 +7859,11 @@ async fn appliance_status(
         restless_contracts::appliance::ProfileKind::Test => ("test", "in_process", None),
     };
     let recovery_actions = recovery.as_ref().map(|recovery| {
-        if recovery.get("rollback_refused").and_then(serde_json::Value::as_bool) == Some(true) {
+        if recovery
+            .get("rollback_refused")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+        {
             vec!["retry-upgrade"]
         } else {
             vec!["retry-upgrade", "rollback"]
@@ -7207,19 +7903,18 @@ async fn appliance_status(
         (state_name, repair)
     };
     // The repairs the cockpit can carry out itself; an install stays a host step.
-    let repair_actions: Vec<&'static str> = if hosted
-        || profile.kind != restless_contracts::appliance::ProfileKind::Stable
-    {
-        Vec::new()
-    } else if let Some(recovery) = recovery_actions {
-        recovery
-    } else if repair == Some(WAKE_STOPPED) {
-        vec!["start"]
-    } else if draining && operation {
-        vec!["resume"]
-    } else {
-        Vec::new()
-    };
+    let repair_actions: Vec<&'static str> =
+        if hosted || profile.kind != restless_contracts::appliance::ProfileKind::Stable {
+            Vec::new()
+        } else if let Some(recovery) = recovery_actions {
+            recovery
+        } else if repair == Some(WAKE_STOPPED) {
+            vec!["start"]
+        } else if draining && operation {
+            vec!["resume"]
+        } else {
+            Vec::new()
+        };
     Json(ApplianceStatus {
         repair_actions,
         profile: profile.kind.as_str().to_string(),
@@ -7543,14 +8238,19 @@ async fn company_charter_history(
         None
     } else {
         match state.daemon.orgintel.get(&company).await {
-        Ok(org) => match restless_engine::direction_authority::Names::read(&org).await {
-            Ok(names) => restless_engine::direction_authority::charter_proposal(&state.daemon.authority, &company, &names, &current)
+            Ok(org) => match restless_engine::direction_authority::Names::read(&org).await {
+                Ok(names) => restless_engine::direction_authority::charter_proposal(
+                    &state.daemon.authority,
+                    &company,
+                    &names,
+                    &current,
+                )
                 .await
                 .ok()
                 .flatten(),
+                Err(_) => None,
+            },
             Err(_) => None,
-        },
-        Err(_) => None,
         }
     };
     Json(serde_json::json!({ "current_revision": current, "revisions": revisions, "proposal": proposal }))
@@ -7573,7 +8273,11 @@ async fn discard_charter_proposal(
     .await
     {
         Ok(()) => Json(serde_json::json!({ "discarded": proposal })).into_response(),
-        Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "charter", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "charter",
+            format!("{error:#}"),
+        ),
     }
 }
 
@@ -7620,7 +8324,11 @@ async fn revise_company_charter(
         Some("setup") => Some("setup"),
         Some("restore") => Some("restore"),
         Some(_) => {
-            return api_error(StatusCode::BAD_REQUEST, "charter", "Unknown charter source.")
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "charter",
+                "Unknown charter source.",
+            )
         }
     };
     let revision = match authority::revise_mandate_from(
@@ -8815,7 +9523,10 @@ async fn rename_room(
         Ok(org) => org,
         Err(response) => return response,
     };
-    match org.rename_room(principal.actor_id(), room, &input.title).await {
+    match org
+        .rename_room(principal.actor_id(), room, &input.title)
+        .await
+    {
         Ok(room) => Json(room).into_response(),
         Err(error) => room_error(error),
     }
@@ -9750,13 +10461,29 @@ async fn actor_conversation(
     } else {
         None
     };
-    let mut messages = messages.into_iter().map(conversation_message_view).collect::<Vec<_>>();
-    attach_account_uses(state.daemon.authority.pool(), &company, &actor, &actor_row.display, &mut messages).await;
+    let mut messages = messages
+        .into_iter()
+        .map(conversation_message_view)
+        .collect::<Vec<_>>();
+    attach_account_uses(
+        state.daemon.authority.pool(),
+        &company,
+        &actor,
+        &actor_row.display,
+        &mut messages,
+    )
+    .await;
     let busy_work = match state.daemon.staff.executing_work(&company, &actor) {
-        Some(work_id) => org.get_work(work_id).await.ok().flatten().map(|work| ConversationBusyWorkView {
-            id: work_id.to_string(),
-            title: work.title,
-        }),
+        Some(work_id) => {
+            org.get_work(work_id)
+                .await
+                .ok()
+                .flatten()
+                .map(|work| ConversationBusyWorkView {
+                    id: work_id.to_string(),
+                    title: work.title,
+                })
+        }
         None => None,
     };
     Json(ConversationView {
@@ -9802,7 +10529,12 @@ async fn attach_account_uses(
     actor_display: &str,
     messages: &mut [ConversationMessageView],
 ) {
-    let Some(last) = messages.iter().filter(|message| message.from_actor == actor).map(|message| message.created_at).max() else {
+    let Some(last) = messages
+        .iter()
+        .filter(|message| message.from_actor == actor)
+        .map(|message| message.created_at)
+        .max()
+    else {
         return;
     };
     let filter = restless_engine::accounts::UseFilter {
@@ -9811,21 +10543,35 @@ async fn attach_account_uses(
         before: Some(last + chrono::Duration::seconds(1)),
         ..Default::default()
     };
-    let Ok(uses) = restless_engine::accounts::uses(pool, filter, 200).await else { return };
+    let Ok(uses) = restless_engine::accounts::uses(pool, filter, 200).await else {
+        return;
+    };
     if uses.is_empty() {
         return;
     }
-    let Ok(accounts) = restless_engine::accounts::list(pool).await else { return };
+    let Ok(accounts) = restless_engine::accounts::list(pool).await else {
+        return;
+    };
     let mut order = (0..messages.len()).collect::<Vec<_>>();
     order.sort_by_key(|&index| (messages[index].created_at, messages[index].id));
     for used in uses {
-        let Some(account) = accounts.iter().find(|account| account.id == used.account_id) else { continue };
+        let Some(account) = accounts
+            .iter()
+            .find(|account| account.id == used.account_id)
+        else {
+            continue;
+        };
         let mut previous: Option<chrono::DateTime<Utc>> = None;
         for &index in &order {
             let message = &messages[index];
             let after_previous = previous.is_none_or(|at| used.at > at);
             if message.from_actor == actor && after_previous && used.at <= message.created_at {
-                let mut block = restless_engine::account_broker::use_block(account, company, used.grant_id.as_deref(), &used);
+                let mut block = restless_engine::account_broker::use_block(
+                    account,
+                    company,
+                    used.grant_id.as_deref(),
+                    &used,
+                );
                 block["actor_display"] = serde_json::json!(actor_display);
                 block["use_id"] = serde_json::json!(used.id);
                 block["result"] = serde_json::json!(used.result);
@@ -9836,10 +10582,11 @@ async fn attach_account_uses(
         }
     }
     for message in messages.iter_mut() {
-        message.account_uses.sort_by_key(|block| block["use_id"].as_i64());
+        message
+            .account_uses
+            .sort_by_key(|block| block["use_id"].as_i64());
     }
 }
-
 
 /// Reconnectable live projection for one agent turn. This endpoint never
 /// invents durable transcript, Work, or Attempt rows: it carries only the
@@ -9980,7 +10727,6 @@ fn agent_activity_stream(
     )
 }
 
-
 async fn resolve_handoff_decision(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,
@@ -10012,7 +10758,12 @@ async fn resolve_handoff_decision(
     match org
         // The owner answers what is owed to the owner; a teammate answers only what is assigned
         // to them, which OrgIntel checks against the handoff.
-        .resolve_handoff_as(handoff, handoff_resolver(&principal), outcome, input.resolution.trim())
+        .resolve_handoff_as(
+            handoff,
+            handoff_resolver(&principal),
+            outcome,
+            input.resolution.trim(),
+        )
         .await
     {
         Ok(()) => Json(serde_json::json!({
@@ -10062,8 +10813,7 @@ async fn complete_human_step(
         )
         .await
     };
-    match done
-    {
+    match done {
         Ok(()) => Json(serde_json::json!({
             "handoff_id": handoff,
             "recorded": true,
@@ -10768,7 +11518,10 @@ async fn retry_actor_conversation(
             claims.queue_owner_message(&company);
         }
     } else {
-        state.daemon.staff.clear_conversation_backoff(&company, &actor);
+        state
+            .daemon
+            .staff
+            .clear_conversation_backoff(&company, &actor);
     }
     state.daemon.schedule_wake.notify_one();
     Json(ConversationRetryResponse {
@@ -11014,7 +11767,10 @@ fn message_with_attachments(
             // An image is something to look at: say so, so the agent opens it rather than
             // reasoning from its name (Sprint 86, "the exec chat might not be able to see images").
             if attachment.media_type.starts_with("image/") {
-                format!("- {} (image; open it with your file reader to see it): {path}", attachment.name)
+                format!(
+                    "- {} (image; open it with your file reader to see it): {path}",
+                    attachment.name
+                )
             } else {
                 format!("- {}: {path}", attachment.name)
             }
@@ -11137,8 +11893,6 @@ fn message_with_attention_context(body: &str, item: &attention::AttentionItem) -
         lines.join("\n")
     )
 }
-
-
 
 fn canonical_attachment_path(attachment_id: Uuid) -> String {
     format!("/var/lib/restless-owner-attachments/{attachment_id}/content")
@@ -11267,7 +12021,11 @@ async fn attachment_runtime_ready(
     {
         // A local wake returns once the computer runs. A hosted cell may be
         // coming up on Fleet's side, so give it a short, bounded moment.
-        let attempts = if state.daemon.runtime_bridges.is_hosted() { 15 } else { 1 };
+        let attempts = if state.daemon.runtime_bridges.is_hosted() {
+            15
+        } else {
+            1
+        };
         for attempt in 0..attempts {
             if matches!(
                 runtime::status(company).await,
@@ -11303,9 +12061,6 @@ async fn attachment_runtime_ready(
         ),
     })
 }
-
-
-
 
 #[derive(Debug, Default, Deserialize)]
 struct AttachmentReadQuery {
@@ -11359,8 +12114,12 @@ async fn download_attachment(
     // (Only test routers hold a fixed store with no computer behind it.)
     #[allow(irrefutable_let_patterns)]
     if let RoomOrgIntelSource::Daemon(daemon) = &state.source {
-        if !restless_engine::runtime_sleep::wake_for(daemon, &company, "someone opened an attachment")
-            .await
+        if !restless_engine::runtime_sleep::wake_for(
+            daemon,
+            &company,
+            "someone opened an attachment",
+        )
+        .await
         {
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -11566,13 +12325,21 @@ fn verified_attachment_response(
     let name = safe_attachment_name(&record.canonical_name);
     let disposition = format!(
         "{}; filename=\"{}\"",
-        if shown.is_some() { "inline" } else { "attachment" },
+        if shown.is_some() {
+            "inline"
+        } else {
+            "attachment"
+        },
         name.replace(['\\', '"'], "_")
     );
     response.headers_mut().insert(
         CONTENT_DISPOSITION,
         HeaderValue::from_str(&disposition).unwrap_or_else(|_| {
-            HeaderValue::from_static(if shown.is_some() { "inline" } else { "attachment" })
+            HeaderValue::from_static(if shown.is_some() {
+                "inline"
+            } else {
+                "attachment"
+            })
         }),
     );
     Ok(response)
@@ -11644,7 +12411,12 @@ async fn authority_owner_refusal(
     principal: &RequestPrincipal,
     otherwise: &'static str,
 ) -> Response<Body> {
-    match state.daemon.authority.pending_authority_handover(company).await {
+    match state
+        .daemon
+        .authority
+        .pending_authority_handover(company)
+        .await
+    {
         Ok(Some(pending)) if pending.to_actor_id == principal.actor_id() => api_error(
             StatusCode::CONFLICT,
             "ownership_handover_pending",
@@ -11669,21 +12441,63 @@ async fn email_mandates(
     }
     let mandates = match state.daemon.authority.list_email_mandates(&company).await {
         Ok(mandates) => mandates,
-        Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "mandate", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "mandate",
+                format!("{error:#}"),
+            )
+        }
     };
-    let reservations = match state.daemon.authority.records_of_kind(&company, "email_send_reserved").await {
+    let reservations = match state
+        .daemon
+        .authority
+        .records_of_kind(&company, "email_send_reserved")
+        .await
+    {
         Ok(records) => records,
-        Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "mandate", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "mandate",
+                format!("{error:#}"),
+            )
+        }
     };
-    let statuses = match state.daemon.authority.records_of_kind(&company, "email_send_status").await {
+    let statuses = match state
+        .daemon
+        .authority
+        .records_of_kind(&company, "email_send_status")
+        .await
+    {
         Ok(records) => records,
-        Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "mandate", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "mandate",
+                format!("{error:#}"),
+            )
+        }
     };
-    let reserved_ids: std::collections::HashSet<String> = reservations.iter()
-        .filter_map(|record| record.body.get("permit_id").and_then(serde_json::Value::as_str).map(str::to_owned))
+    let reserved_ids: std::collections::HashSet<String> = reservations
+        .iter()
+        .filter_map(|record| {
+            record
+                .body
+                .get("permit_id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
         .collect();
-    let latest_statuses: std::collections::HashMap<String, &serde_json::Value> = statuses.iter()
-        .filter_map(|record| record.body.get("permit_id").and_then(serde_json::Value::as_str).map(|id| (id.to_owned(), &record.body)))
+    let latest_statuses: std::collections::HashMap<String, &serde_json::Value> = statuses
+        .iter()
+        .filter_map(|record| {
+            record
+                .body
+                .get("permit_id")
+                .and_then(serde_json::Value::as_str)
+                .map(|id| (id.to_owned(), &record.body))
+        })
         .collect();
     let mut entries = Vec::with_capacity(mandates.len());
     for mandate in mandates {
@@ -11694,28 +12508,55 @@ async fn email_mandates(
             .await
         {
             Ok(usage) => usage,
-            Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "mandate", format!("{error:#}")),
+            Err(error) => {
+                return api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "mandate",
+                    format!("{error:#}"),
+                )
+            }
         };
-        let recent_decisions = match state.daemon.authority.list_email_permits(&company, mandate.id).await {
-            Ok(permits) => permits.into_iter().take(20).map(|permit| {
-                let permit_id = permit.id.to_string();
-                let status = latest_statuses.get(&permit_id);
-                let outcome = status
-                    .and_then(|body| body.get("outcome").and_then(serde_json::Value::as_str))
-                    .unwrap_or_else(|| if reserved_ids.contains(&permit_id) { "outcome_unknown" } else { "permit_issued" });
-                serde_json::json!({
-                    "permit_id": permit.id,
-                    "recipient": permit.recipient,
-                    "effect_key": permit.effect_key,
-                    "issued_at": permit.issued_at,
-                    "rationale": permit.rationale,
-                    "evidence_refs": permit.evidence_refs,
-                    "outcome": outcome,
-                    "provider_ref": status.and_then(|body| body.get("provider_ref")),
-                    "provider_detail": status.and_then(|body| body.get("provider_detail")),
+        let recent_decisions = match state
+            .daemon
+            .authority
+            .list_email_permits(&company, mandate.id)
+            .await
+        {
+            Ok(permits) => permits
+                .into_iter()
+                .take(20)
+                .map(|permit| {
+                    let permit_id = permit.id.to_string();
+                    let status = latest_statuses.get(&permit_id);
+                    let outcome = status
+                        .and_then(|body| body.get("outcome").and_then(serde_json::Value::as_str))
+                        .unwrap_or_else(|| {
+                            if reserved_ids.contains(&permit_id) {
+                                "outcome_unknown"
+                            } else {
+                                "permit_issued"
+                            }
+                        });
+                    serde_json::json!({
+                        "permit_id": permit.id,
+                        "recipient": permit.recipient,
+                        "effect_key": permit.effect_key,
+                        "issued_at": permit.issued_at,
+                        "rationale": permit.rationale,
+                        "evidence_refs": permit.evidence_refs,
+                        "outcome": outcome,
+                        "provider_ref": status.and_then(|body| body.get("provider_ref")),
+                        "provider_detail": status.and_then(|body| body.get("provider_detail")),
+                    })
                 })
-            }).collect::<Vec<_>>(),
-            Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "mandate", format!("{error:#}")),
+                .collect::<Vec<_>>(),
+            Err(error) => {
+                return api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "mandate",
+                    format!("{error:#}"),
+                )
+            }
         };
         entries.push(serde_json::json!({
             "id": mandate.id,
@@ -11753,7 +12594,9 @@ async fn revoke_email_mandate(
         .revoke_email_mandate(&company, principal.actor_id(), mandate_id, &input.reason)
         .await
     {
-        Ok(()) => Json(serde_json::json!({"revoked": true, "mandate_id": mandate_id})).into_response(),
+        Ok(()) => {
+            Json(serde_json::json!({"revoked": true, "mandate_id": mandate_id})).into_response()
+        }
         Err(error) => api_error(StatusCode::BAD_REQUEST, "mandate", format!("{error:#}")),
     }
 }
@@ -11813,7 +12656,8 @@ async fn grant(
                 .map(str::to_string)
         };
         let (Some(connection), Some(tool)) = (named("connection"), named("tool")) else {
-            return Json(serde_json::json!({ "message": message, "always": false })).into_response();
+            return Json(serde_json::json!({ "message": message, "always": false }))
+                .into_response();
         };
         return match crate::connections::promote_tool(
             state.daemon.authority.pool(),
@@ -11939,7 +12783,6 @@ async fn revoke(
     }
 }
 
-
 /// Open a company file that an agent pointed the owner to in a message. This
 /// is not general file serving: the path must appear in that exact message,
 /// sit beneath /company, and pass the same bounded reads a prepared review
@@ -12019,17 +12862,16 @@ async fn message_reference(
     };
     let ticket = Uuid::new_v4().simple().to_string();
     let entry_path = format!("/{}", review_api::percent_encode_segment(&entry));
-    let (review_url, expected_host) =
-        match review_location(&state, &ticket, &entry_path) {
-            Ok(value) => value,
-            Err(error) => {
-                return api_error(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "review",
-                    format!("review origin is invalid: {error:#}"),
-                )
-            }
-        };
+    let (review_url, expected_host) = match review_location(&state, &ticket, &entry_path) {
+        Ok(value) => value,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "review",
+                format!("review origin is invalid: {error:#}"),
+            )
+        }
+    };
     state.reviews.lock().expect("review registry").insert(
         ticket,
         ReviewSession {
@@ -12143,7 +12985,10 @@ async fn list_message_reactions(
         }
     };
     // Only reactions on messages this person can read.
-    let ids = match org.room_messages_visible_to(principal.actor_id(), &ids).await {
+    let ids = match org
+        .room_messages_visible_to(principal.actor_id(), &ids)
+        .await
+    {
         Ok(ids) => ids,
         Err(error) => {
             return api_error(
@@ -12162,11 +13007,6 @@ async fn list_message_reactions(
         ),
     }
 }
-
-
-
-
-
 
 async fn live_browser_agent_session(
     state: &OwnerState,
@@ -12295,18 +13135,6 @@ async fn open_browser_link(
     })
     .into_response()
 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 async fn proxy_websocket(
     browser: WebSocket,
@@ -12456,8 +13284,6 @@ async fn browser_status(
     }
 }
 
-
-
 async fn take_control(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
@@ -12522,7 +13348,6 @@ async fn take_control(
         ),
     }
 }
-
 
 async fn record_activity(
     AxumPath(company): AxumPath<String>,
@@ -12708,8 +13533,6 @@ async fn return_control(
     Json(next).into_response()
 }
 
-
-
 fn refresh_attach(
     state: &OwnerState,
     company: &str,
@@ -12818,7 +13641,6 @@ async fn api_not_found() -> Response<Body> {
 #[cfg(test)]
 #[path = "owner_tests.rs"]
 mod tests;
-
 
 async fn intelligence_view(
     State(state): State<OwnerState>,
@@ -13270,12 +14092,18 @@ mod cache_policy_tests {
             .oneshot(Request::get(path).body(Body::empty()).unwrap())
             .await
             .unwrap();
-        response.headers()["cache-control"].to_str().unwrap().to_owned()
+        response.headers()["cache-control"]
+            .to_str()
+            .unwrap()
+            .to_owned()
     }
 
     #[tokio::test]
     async fn the_account_sections_module_is_revalidated_and_the_rest_keeps_its_policy() {
-        assert_eq!(cache_control("/plane-ui/account-sections.js").await, "private, no-cache");
+        assert_eq!(
+            cache_control("/plane-ui/account-sections.js").await,
+            "private, no-cache"
+        );
         assert_eq!(cache_control("/").await, "no-store");
         assert_eq!(
             cache_control("/_app/immutable/entry/app.js").await,

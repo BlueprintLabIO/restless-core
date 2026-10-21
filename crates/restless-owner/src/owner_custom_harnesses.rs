@@ -196,7 +196,9 @@ pub(super) async fn remove(
         if custom_harness::revision(&registry) != input.revision {
             bail!("Settings changed. Refresh and try again.");
         }
-        let harness = registry.get(&id).context("This harness is already removed")?;
+        let harness = registry
+            .get(&id)
+            .context("This harness is already removed")?;
         let route = format!("harness:custom:{id}");
         let users: Vec<&str> = config
             .agent_intelligence
@@ -211,7 +213,11 @@ pub(super) async fn remove(
                 users.join(", ")
             );
         }
-        if custom_harness::status(&company, &id).await.ok().is_some_and(|status| status["state"] == "installing") {
+        if custom_harness::status(&company, &id)
+            .await
+            .ok()
+            .is_some_and(|status| status["state"] == "installing")
+        {
             bail!("Wait for this installation to finish before removing it.");
         }
         registry.remove(&id);

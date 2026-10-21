@@ -20,13 +20,21 @@ fn refuse(error: anyhow::Error) -> Response<Body> {
         api_error(StatusCode::BAD_REQUEST, "accounts", message)
     } else {
         tracing::warn!(error = %message, "account change failed");
-        api_error(StatusCode::SERVICE_UNAVAILABLE, "accounts", "Accounts could not be saved. Try again.")
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "accounts",
+            "Accounts could not be saved. Try again.",
+        )
     }
 }
 
 fn owner_only(principal: &RequestPrincipal) -> Option<Response<Body>> {
     (!principal.is_account_owner()).then(|| {
-        api_error(StatusCode::FORBIDDEN, "accounts", "Only the account owner manages accounts.")
+        api_error(
+            StatusCode::FORBIDDEN,
+            "accounts",
+            "Only the account owner manages accounts.",
+        )
     })
 }
 
@@ -80,9 +88,20 @@ pub(super) async fn update(
     if let Some(refusal) = owner_only(&principal) {
         return refusal;
     }
-    match accounts::update(state.daemon.authority.pool(), &id, input.label.as_deref(), input.frozen).await {
+    match accounts::update(
+        state.daemon.authority.pool(),
+        &id,
+        input.label.as_deref(),
+        input.frozen,
+    )
+    .await
+    {
         Ok(Some(account)) => Json(account).into_response(),
-        Ok(None) => api_error(StatusCode::NOT_FOUND, "accounts", "That account no longer exists."),
+        Ok(None) => api_error(
+            StatusCode::NOT_FOUND,
+            "accounts",
+            "That account no longer exists.",
+        ),
         Err(error) => refuse(error),
     }
 }
@@ -101,7 +120,11 @@ pub(super) async fn remove(
             restless_engine::account_browser::remove(&id).await;
             StatusCode::NO_CONTENT.into_response()
         }
-        Ok(false) => api_error(StatusCode::NOT_FOUND, "accounts", "That account no longer exists."),
+        Ok(false) => api_error(
+            StatusCode::NOT_FOUND,
+            "accounts",
+            "That account no longer exists.",
+        ),
         Err(error) => refuse(error),
     }
 }
@@ -117,10 +140,21 @@ pub(super) async fn grant(
     }
     if let Some(company) = input.company.as_deref() {
         if runtime::CompanyConfig::load(&state.daemon.root, company).is_err() {
-            return api_error(StatusCode::BAD_REQUEST, "accounts", "Choose one of your companies.");
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "accounts",
+                "Choose one of your companies.",
+            );
         }
     }
-    match accounts::create_grant(state.daemon.authority.pool(), &id, input, principal.actor_id()).await {
+    match accounts::create_grant(
+        state.daemon.authority.pool(),
+        &id,
+        input,
+        principal.actor_id(),
+    )
+    .await
+    {
         Ok(grant) => {
             resolve_account_requests(&state, &grant.company).await;
             (StatusCode::CREATED, Json(grant)).into_response()
@@ -133,7 +167,11 @@ pub(super) async fn grant(
 /// provider (`github`), as the app catalogue keys them.
 fn account_app_names(account: &accounts::Account) -> Vec<String> {
     let mut names = vec![account.kind.clone()];
-    if let Some(provider) = account.provider.as_deref().filter(|provider| !provider.is_empty()) {
+    if let Some(provider) = account
+        .provider
+        .as_deref()
+        .filter(|provider| !provider.is_empty())
+    {
         names.push(provider.to_string());
     }
     names.retain(|name| !matches!(name.as_str(), "api" | "website_login" | "browser_profile"));
@@ -154,12 +192,17 @@ pub(crate) async fn resolve_account_requests(state: &OwnerState, company: &str) 
         return 0;
     };
     let mut resolved = 0;
-    for (grant, account) in granted.iter().filter(|(grant, account)| !grant.frozen && !account.frozen) {
+    for (grant, account) in granted
+        .iter()
+        .filter(|(grant, account)| !grant.frozen && !account.frozen)
+    {
         let names = account_app_names(account);
         if names.is_empty() {
             continue;
         }
-        let Ok(requests) = org.app_requests_for(&names).await else { continue };
+        let Ok(requests) = org.app_requests_for(&names).await else {
+            continue;
+        };
         for id in requests {
             let outcome = org
                 .resolve_observed_handoff(
@@ -175,7 +218,9 @@ pub(crate) async fn resolve_account_requests(state: &OwnerState, company: &str) 
             match outcome {
                 Ok(true) => resolved += 1,
                 Ok(false) => {}
-                Err(error) => tracing::warn!(company, handoff = %id, grant = %grant.id, error = %error, "app request was not resolved by an account"),
+                Err(error) => {
+                    tracing::warn!(company, handoff = %id, grant = %grant.id, error = %error, "app request was not resolved by an account")
+                }
             }
         }
     }
@@ -192,7 +237,10 @@ mod account_request_tests {
             kind: kind.into(),
             label: "GitHub".into(),
             provider: provider.map(str::to_string),
-            identity: accounts::Identity { display: Some("yail259".into()), key: None },
+            identity: accounts::Identity {
+                display: Some("yail259".into()),
+                key: None,
+            },
             personal: true,
             health: "ok".into(),
             frozen: false,
@@ -207,7 +255,10 @@ mod account_request_tests {
     #[test]
     fn a_github_account_answers_a_request_for_github() {
         assert_eq!(account_app_names(&account("github", None)), ["github"]);
-        assert_eq!(account_app_names(&account("api", Some("firecrawl"))), ["firecrawl"]);
+        assert_eq!(
+            account_app_names(&account("api", Some("firecrawl"))),
+            ["firecrawl"]
+        );
         // A website login names no app.
         assert!(account_app_names(&account("website_login", None)).is_empty());
     }
@@ -223,11 +274,19 @@ pub(super) async fn update_grant(
         return refusal;
     }
     if input.company.is_some() {
-        return api_error(StatusCode::BAD_REQUEST, "accounts", "A grant stays with its company; grant the account to the other company instead.");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "accounts",
+            "A grant stays with its company; grant the account to the other company instead.",
+        );
     }
     match accounts::update_grant(state.daemon.authority.pool(), &id, &grant, input).await {
         Ok(Some(grant)) => Json(grant).into_response(),
-        Ok(None) => api_error(StatusCode::NOT_FOUND, "accounts", "That grant no longer exists."),
+        Ok(None) => api_error(
+            StatusCode::NOT_FOUND,
+            "accounts",
+            "That grant no longer exists.",
+        ),
         Err(error) => refuse(error),
     }
 }
@@ -242,26 +301,47 @@ pub(super) async fn remove_grant(
     }
     match accounts::delete_grant(state.daemon.authority.pool(), &id, &grant).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
-        Ok(false) => api_error(StatusCode::NOT_FOUND, "accounts", "That grant no longer exists."),
+        Ok(false) => api_error(
+            StatusCode::NOT_FOUND,
+            "accounts",
+            "That grant no longer exists.",
+        ),
         Err(error) => refuse(error),
     }
 }
 
 /// The account's browser identity, for the owner's sign-in (S98-11). Answers the account's
 /// settings when it is a browser account.
-async fn browser_account(state: &OwnerState, id: &str) -> std::result::Result<(accounts::Account, serde_json::Value), Response<Body>> {
+async fn browser_account(
+    state: &OwnerState,
+    id: &str,
+) -> std::result::Result<(accounts::Account, serde_json::Value), Response<Body>> {
     let pool = state.daemon.authority.pool();
     let account = match accounts::get(pool, id).await {
         Ok(Some(account)) => account,
-        Ok(None) => return Err(api_error(StatusCode::NOT_FOUND, "accounts", "That account no longer exists.")),
+        Ok(None) => {
+            return Err(api_error(
+                StatusCode::NOT_FOUND,
+                "accounts",
+                "That account no longer exists.",
+            ))
+        }
         Err(error) => return Err(refuse(error)),
     };
     if !restless_engine::account_browser::BROWSER_KINDS.contains(&account.kind.as_str()) {
-        return Err(api_error(StatusCode::BAD_REQUEST, "accounts", "Only website logins and browser profiles sign in through a browser."));
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "accounts",
+            "Only website logins and browser profiles sign in through a browser.",
+        ));
     }
     match accounts::credential_settings(pool, id).await {
         Ok(Some(settings)) => Ok((account, settings)),
-        Ok(None) => Err(api_error(StatusCode::NOT_FOUND, "accounts", "That account has no sign-in details.")),
+        Ok(None) => Err(api_error(
+            StatusCode::NOT_FOUND,
+            "accounts",
+            "That account has no sign-in details.",
+        )),
         Err(error) => Err(refuse(error)),
     }
 }
@@ -281,7 +361,11 @@ pub(super) async fn sign_in(
         Err(refusal) => return refusal,
     };
     let Some(page) = restless_engine::account_browser::sign_in_page(&settings) else {
-        return api_error(StatusCode::BAD_REQUEST, "accounts", "The account has no sign-in page.");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "accounts",
+            "The account has no sign-in page.",
+        );
     };
     match restless_engine::account_browser::begin_sign_in(&id, &page).await {
         Ok(session) => Json(serde_json::json!({
@@ -313,7 +397,11 @@ pub(super) async fn sign_in_done(
         Err(refusal) => return refusal,
     };
     if !restless_engine::account_browser::end_sign_in(&id, &session).await {
-        return api_error(StatusCode::NOT_FOUND, "accounts", "That sign-in has ended; start it again.");
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "accounts",
+            "That sign-in has ended; start it again.",
+        );
     }
     let domains = restless_engine::account_browser::account_domains(&settings);
     let health = match restless_engine::account_browser::signed_in(&id, &domains).await {
@@ -327,7 +415,11 @@ pub(super) async fn sign_in_done(
     }
     match accounts::get(pool, &id).await {
         Ok(Some(account)) => Json(account).into_response(),
-        Ok(None) => api_error(StatusCode::NOT_FOUND, "accounts", "That account no longer exists."),
+        Ok(None) => api_error(
+            StatusCode::NOT_FOUND,
+            "accounts",
+            "That account no longer exists.",
+        ),
         Err(error) => refuse(error),
     }
 }
@@ -362,17 +454,36 @@ pub(super) async fn answer_code(
         return refusal;
     }
     let Some(code) = identity::clean_code(&input.code) else {
-        return api_error(StatusCode::BAD_REQUEST, "accounts", "Type the code as the site sent it: 4 to 12 letters or digits.");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "accounts",
+            "Type the code as the site sent it: 4 to 12 letters or digits.",
+        );
     };
     let Some(request) = identity::take_code_request(&company, &id).await else {
-        return api_error(StatusCode::NOT_FOUND, "accounts", "That sign-in no longer waits for a code.");
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "accounts",
+            "That sign-in no longer waits for a code.",
+        );
     };
-    let typed = identity::fill(&request.account_id, &request.domains, request.target.as_deref(), &code, "code").await;
+    let typed = identity::fill(
+        &request.account_id,
+        &request.domains,
+        request.target.as_deref(),
+        &code,
+        "code",
+    )
+    .await;
     let pool = state.daemon.authority.pool();
     let usable = restless_engine::account_broker::usable(pool, &company, &request.actor)
         .await
         .ok()
-        .and_then(|accounts| accounts.into_iter().find(|usable| usable.account.id == request.account_id));
+        .and_then(|accounts| {
+            accounts
+                .into_iter()
+                .find(|usable| usable.account.id == request.account_id)
+        });
     if let Some(usable) = &usable {
         let _ = restless_engine::account_broker::record_use(
             pool,
@@ -418,10 +529,16 @@ pub(super) async fn desktop_asset(
                 CONTENT_TYPE,
                 HeaderValue::from_static(super::desktop_api::desktop_content_type(&asset)),
             );
-            response.headers_mut().insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            response
+                .headers_mut()
+                .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
             response
         }
-        Err(_) => api_error(StatusCode::BAD_GATEWAY, "desktop", "The account's browser is not running; start its sign-in again."),
+        Err(_) => api_error(
+            StatusCode::BAD_GATEWAY,
+            "desktop",
+            "The account's browser is not running; start its sign-in again.",
+        ),
     }
 }
 
@@ -493,10 +610,16 @@ pub(super) struct UseQuery {
     limit: Option<i64>,
 }
 
-async fn use_page(state: &OwnerState, filter: accounts::UseFilter<'_>, limit: i64) -> Response<Body> {
+async fn use_page(
+    state: &OwnerState,
+    filter: accounts::UseFilter<'_>,
+    limit: i64,
+) -> Response<Body> {
     match accounts::uses(state.daemon.authority.pool(), filter, limit).await {
         Ok(uses) => {
-            let next_before = (uses.len() as i64 == limit.clamp(1, 200)).then(|| uses.last().map(|last| last.at)).flatten();
+            let next_before = (uses.len() as i64 == limit.clamp(1, 200))
+                .then(|| uses.last().map(|last| last.at))
+                .flatten();
             Json(serde_json::json!({ "uses": uses, "next_before": next_before })).into_response()
         }
         Err(error) => refuse(error),
@@ -531,7 +654,11 @@ pub(super) async fn company_uses(
     Query(query): Query<UseQuery>,
 ) -> Response<Body> {
     if !principal.permits_company(&company) {
-        return api_error(StatusCode::FORBIDDEN, "accounts", "You are not in that company.");
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "accounts",
+            "You are not in that company.",
+        );
     }
     let filter = accounts::UseFilter {
         company: Some(&company),
@@ -561,18 +688,37 @@ pub(super) async fn decide_notice(
         return refusal;
     }
     let pool = state.daemon.authority.pool();
-    match restless_engine::account_broker::decide_notice(pool, &id, &notice, &input.decision, principal.actor_id()).await {
+    match restless_engine::account_broker::decide_notice(
+        pool,
+        &id,
+        &notice,
+        &input.decision,
+        principal.actor_id(),
+    )
+    .await
+    {
         Ok(Some(use_id)) => {
-            let found = accounts::uses(pool, accounts::UseFilter { account: Some(&id), ..Default::default() }, 200)
-                .await
-                .ok()
-                .and_then(|uses| uses.into_iter().find(|row| row.id == use_id));
+            let found = accounts::uses(
+                pool,
+                accounts::UseFilter {
+                    account: Some(&id),
+                    ..Default::default()
+                },
+                200,
+            )
+            .await
+            .ok()
+            .and_then(|uses| uses.into_iter().find(|row| row.id == use_id));
             match found {
                 Some(row) => Json(row).into_response(),
                 None => StatusCode::NO_CONTENT.into_response(),
             }
         }
-        Ok(None) => api_error(StatusCode::NOT_FOUND, "accounts", "That notice no longer exists."),
+        Ok(None) => api_error(
+            StatusCode::NOT_FOUND,
+            "accounts",
+            "That notice no longer exists.",
+        ),
         Err(error) => refuse(error),
     }
 }
@@ -597,8 +743,14 @@ pub(super) async fn request(
     AxumPath(company): AxumPath<String>,
     Json(input): Json<NewRequest>,
 ) -> Response<Body> {
-    if !principal.permits_company(&company) || !matches!(principal.membership_role(), "owner" | "admin") {
-        return api_error(StatusCode::FORBIDDEN, "accounts", "Only the company's admins ask the owner for accounts.");
+    if !principal.permits_company(&company)
+        || !matches!(principal.membership_role(), "owner" | "admin")
+    {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "accounts",
+            "Only the company's admins ask the owner for accounts.",
+        );
     }
     match restless_engine::account_broker::create_request(
         state.daemon.authority.pool(),
@@ -643,7 +795,11 @@ pub(super) async fn settle_request(
     .await
     {
         Ok(Some(request)) => Json(request).into_response(),
-        Ok(None) => api_error(StatusCode::NOT_FOUND, "accounts", "That request no longer exists."),
+        Ok(None) => api_error(
+            StatusCode::NOT_FOUND,
+            "accounts",
+            "That request no longer exists.",
+        ),
         Err(error) => refuse(error),
     }
 }
@@ -655,7 +811,11 @@ pub(super) async fn company(
     AxumPath(company): AxumPath<String>,
 ) -> Response<Body> {
     if !principal.permits_company(&company) {
-        return api_error(StatusCode::FORBIDDEN, "accounts", "You are not in that company.");
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "accounts",
+            "You are not in that company.",
+        );
     }
     match accounts::company_grants(state.daemon.authority.pool(), &company).await {
         Ok(grants) => Json(serde_json::json!({

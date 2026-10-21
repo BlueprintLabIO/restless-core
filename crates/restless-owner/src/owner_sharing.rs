@@ -108,9 +108,16 @@ pub(super) async fn prepare_setup(
 /// and its output folder. Inside `machine/`, which backups never copy.
 const SHARING: &str = "machine/sharing";
 
-fn local_owner(state: &OwnerState, principal: &RequestPrincipal) -> std::result::Result<(), Response<Body>> {
+fn local_owner(
+    state: &OwnerState,
+    principal: &RequestPrincipal,
+) -> std::result::Result<(), Response<Body>> {
     if state.entry.network().is_some() || !principal.is_account_owner() {
-        return Err(api_error(StatusCode::FORBIDDEN, "sharing_setup", "Sharing is set up by the local account owner."));
+        return Err(api_error(
+            StatusCode::FORBIDDEN,
+            "sharing_setup",
+            "Sharing is set up by the local account owner.",
+        ));
     }
     super::appliance_api::local_appliance(state)
 }
@@ -145,7 +152,11 @@ pub(super) async fn tailscale_addresses(
                     "account_address": report["account_address"],
                 }))
                 .into_response(),
-                Err(_) => api_error(StatusCode::CONFLICT, "tailscale", "Tailscale's addresses could not be read."),
+                Err(_) => api_error(
+                    StatusCode::CONFLICT,
+                    "tailscale",
+                    "Tailscale's addresses could not be read.",
+                ),
             }
         }
         Ok(Ok(output)) => {
@@ -159,7 +170,11 @@ pub(super) async fn tailscale_addresses(
                 .unwrap_or_else(|| "Tailscale is not available on this computer.".into());
             api_error(StatusCode::CONFLICT, "tailscale", step)
         }
-        _ => api_error(StatusCode::CONFLICT, "tailscale", "Tailscale did not answer. Is it installed on this computer?"),
+        _ => api_error(
+            StatusCode::CONFLICT,
+            "tailscale",
+            "Tailscale did not answer. Is it installed on this computer?",
+        ),
     }
 }
 
@@ -215,17 +230,33 @@ pub(super) async fn prepare_here(
     }
     let root = state.daemon.root.clone();
     if super::appliance_api::job_running(&root) {
-        return api_error(StatusCode::CONFLICT, "sharing", "Another appliance operation is still running. Wait for it to finish.");
+        return api_error(
+            StatusCode::CONFLICT,
+            "sharing",
+            "Another appliance operation is still running. Wait for it to finish.",
+        );
     }
     if input.plan["company"].as_str() != Some(company.as_str()) || input.plan["version"] != 1 {
-        return api_error(StatusCode::BAD_REQUEST, "sharing", "Prepare the sharing setup again from Members.");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "sharing",
+            "Prepare the sharing setup again from Members.",
+        );
     }
     let database_url = input.database_url.trim();
     if !(database_url.starts_with("postgres://") || database_url.starts_with("postgresql://")) {
-        return api_error(StatusCode::BAD_REQUEST, "sharing", "Enter the accounts database as a postgres:// address.");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "sharing",
+            "Enter the accounts database as a postgres:// address.",
+        );
     }
     if input.smtp.host.trim().is_empty() || !input.smtp.from.contains('@') {
-        return api_error(StatusCode::BAD_REQUEST, "sharing", "Enter the email server and the address invitations come from.");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "sharing",
+            "Enter the email server and the address invitations come from.",
+        );
     }
     let mut smtp = serde_json::json!({
         "host": input.smtp.host.trim(),
@@ -236,23 +267,32 @@ pub(super) async fn prepare_here(
         smtp["port"] = port.into();
     }
     if !input.smtp.user.trim().is_empty() {
-        smtp["auth"] = serde_json::json!({ "user": input.smtp.user.trim(), "pass": input.smtp.password });
+        smtp["auth"] =
+            serde_json::json!({ "user": input.smtp.user.trim(), "pass": input.smtp.password });
     }
     let cli = match super::appliance_api::cli_beside_plane() {
         Ok(cli) => cli,
         Err(error) => return api_error(StatusCode::CONFLICT, "sharing", format!("{error:#}")),
     };
-    let folder = root.join(SHARING).join(Utc::now().format("%Y%m%d-%H%M%S").to_string());
+    let folder = root
+        .join(SHARING)
+        .join(Utc::now().format("%Y%m%d-%H%M%S").to_string());
     let prepared = (|| -> Result<Vec<String>> {
         use std::os::unix::fs::DirBuilderExt as _;
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&folder)?;
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&folder)?;
         let plan = folder.join("plan.json");
         let database = folder.join("accounts.url");
         let mail = folder.join("smtp.json");
         private_file(&plan, &serde_json::to_vec_pretty(&input.plan)?)?;
         private_file(&database, database_url.as_bytes())?;
         private_file(&mail, &serde_json::to_vec(&smtp)?)?;
-        std::fs::write(root.join(SHARING).join("current"), folder.display().to_string())?;
+        std::fs::write(
+            root.join(SHARING).join("current"),
+            folder.display().to_string(),
+        )?;
         Ok(vec![
             "appliance".into(),
             "prepare-sharing".into(),
@@ -268,11 +308,21 @@ pub(super) async fn prepare_here(
     })();
     let args = match prepared {
         Ok(args) => args,
-        Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "sharing", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "sharing",
+                format!("{error:#}"),
+            )
+        }
     };
     match super::appliance_api::spawn_job(&root, "prepare-sharing", &cli, &args) {
         Ok(()) => sharing_view(&root),
-        Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "sharing", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "sharing",
+            format!("{error:#}"),
+        ),
     }
 }
 
@@ -301,8 +351,12 @@ fn sharing_view(root: &std::path::Path) -> Response<Body> {
             })
         })
     });
-    let job = super::appliance_api::read_job(root)
-        .filter(|job| matches!(job["op"].as_str(), Some("prepare-sharing" | "enable-sharing")));
+    let job = super::appliance_api::read_job(root).filter(|job| {
+        matches!(
+            job["op"].as_str(),
+            Some("prepare-sharing" | "enable-sharing")
+        )
+    });
     Json(serde_json::json!({ "job": job, "prepared": prepared })).into_response()
 }
 
@@ -330,17 +384,29 @@ pub(super) async fn activate(
     }
     let root = state.daemon.root.clone();
     if super::appliance_api::job_running(&root) {
-        return api_error(StatusCode::CONFLICT, "sharing", "Another appliance operation is still running. Wait for it to finish.");
+        return api_error(
+            StatusCode::CONFLICT,
+            "sharing",
+            "Another appliance operation is still running. Wait for it to finish.",
+        );
     }
     let Some(folder) = std::fs::read_to_string(root.join(SHARING).join("current"))
         .ok()
         .map(|text| PathBuf::from(text.trim()))
     else {
-        return api_error(StatusCode::CONFLICT, "sharing", "Prepare sharing on this computer first.");
+        return api_error(
+            StatusCode::CONFLICT,
+            "sharing",
+            "Prepare sharing on this computer first.",
+        );
     };
     let environment = folder.join("accounts/core-entry.env");
     if !environment.is_file() {
-        return api_error(StatusCode::CONFLICT, "sharing", "Sharing is not prepared yet.");
+        return api_error(
+            StatusCode::CONFLICT,
+            "sharing",
+            "Sharing is not prepared yet.",
+        );
     }
     let tailnet = std::fs::read(folder.join("plan.json"))
         .ok()
@@ -364,7 +430,11 @@ pub(super) async fn activate(
     }
     match super::appliance_api::spawn_job(&root, "enable-sharing", &cli, &args) {
         Ok(()) => sharing_view(&root),
-        Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "sharing", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "sharing",
+            format!("{error:#}"),
+        ),
     }
 }
 

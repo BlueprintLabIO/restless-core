@@ -5,27 +5,46 @@
 //! person a request is routed to may decide it, and the owner sees and decides everything. The
 //! governance store is the writer; these handlers only check who is asking and shape the answer.
 use super::*;
-use restless_engine::direction::{DirectionAppliedPage, DirectionDecisionInput, DirectionGrantList, DirectionRequestPage};
+use restless_engine::direction::{
+    DirectionAppliedPage, DirectionDecisionInput, DirectionGrantList, DirectionRequestPage,
+};
 use restless_engine::direction_authority::{self as direction, DirectionError, Names};
 
 /// The id the governance store knows the viewer by: the owner is `owner` whatever their actor.
 fn viewer(principal: &RequestPrincipal) -> &str {
-    if principal.membership_role() == "owner" { "owner" } else { principal.actor_id() }
+    if principal.membership_role() == "owner" {
+        "owner"
+    } else {
+        principal.actor_id()
+    }
 }
 
 /// Who decides or undoes: an admin runs the day to day, so acts with the owner's say under their
 /// own name. Standing permissions stay the owner's alone.
 fn acting(principal: &RequestPrincipal) -> direction::Acting<'_> {
     match principal.membership_role() {
-        "owner" => direction::Acting { id: "owner", owner: true },
-        "admin" => direction::Acting { id: principal.actor_id(), owner: true },
-        _ => direction::Acting { id: principal.actor_id(), owner: false },
+        "owner" => direction::Acting {
+            id: "owner",
+            owner: true,
+        },
+        "admin" => direction::Acting {
+            id: principal.actor_id(),
+            owner: true,
+        },
+        _ => direction::Acting {
+            id: principal.actor_id(),
+            owner: false,
+        },
     }
 }
 
 /// What a person reads: an admin sees what the owner sees, except their own requests.
 fn reader<'a>(principal: &'a RequestPrincipal, mine: bool) -> &'a str {
-    if principal.membership_role() == "admin" && !mine { "owner" } else { viewer(principal) }
+    if principal.membership_role() == "admin" && !mine {
+        "owner"
+    } else {
+        viewer(principal)
+    }
 }
 
 async fn setup(
@@ -34,15 +53,27 @@ async fn setup(
     company: &str,
 ) -> std::result::Result<(restless_orgintel::OrgIntel, Names), Response<Body>> {
     if !principal.permits_company(company) {
-        return Err(api_error(StatusCode::NOT_FOUND, "company", "company is unavailable"));
+        return Err(api_error(
+            StatusCode::NOT_FOUND,
+            "company",
+            "company is unavailable",
+        ));
     }
     let org = state.daemon.orgintel.get(company).await.map_err(|error| {
         tracing::error!(%error, "direction: OrgIntel unavailable");
-        api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", "company coordination is temporarily unavailable")
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "orgintel",
+            "company coordination is temporarily unavailable",
+        )
     })?;
     let names = Names::read(&org).await.map_err(|error| {
         tracing::error!(%error, "direction: names unavailable");
-        api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", "company coordination is temporarily unavailable")
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "orgintel",
+            "company coordination is temporarily unavailable",
+        )
     })?;
     Ok((org, names))
 }
@@ -76,7 +107,9 @@ fn unavailable(error: anyhow::Error) -> Response<Body> {
 }
 
 fn no_store(mut response: Response<Body>) -> Response<Body> {
-    response.headers_mut().insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response
 }
 
@@ -98,7 +131,15 @@ pub(super) async fn requests(
         Err(response) => return response,
     };
     let mine = query.state.as_deref() == Some("mine");
-    match direction::requests(&state.daemon.authority, &company, &names, reader(&principal, mine), mine).await {
+    match direction::requests(
+        &state.daemon.authority,
+        &company,
+        &names,
+        reader(&principal, mine),
+        mine,
+    )
+    .await
+    {
         Ok(items) => no_store(Json(DirectionRequestPage { items }).into_response()),
         Err(error) => unavailable(error),
     }
@@ -115,7 +156,17 @@ pub(super) async fn decide(
         Ok(ready) => ready,
         Err(response) => return response,
     };
-    match direction::decide(&state.daemon.authority, &org, &company, &names, request, acting(&principal), &input).await {
+    match direction::decide(
+        &state.daemon.authority,
+        &org,
+        &company,
+        &names,
+        request,
+        acting(&principal),
+        &input,
+    )
+    .await
+    {
         Ok(decided) => {
             // An approved request is Exec's to carry out at once: wake it with the request.
             if decided.state == restless_engine::direction::RequestState::Approved {
@@ -130,16 +181,32 @@ pub(super) async fn decide(
 }
 
 /// The person who asked hears a decline where they asked: in their room with Exec, with the reason.
-async fn tell_declined(org: &restless_orgintel::OrgIntel, request: &restless_engine::direction::DirectionRequest) {
-    let Some(decision) = &request.decision else { return };
+async fn tell_declined(
+    org: &restless_orgintel::OrgIntel,
+    request: &restless_engine::direction::DirectionRequest,
+) {
+    let Some(decision) = &request.decision else {
+        return;
+    };
     if decision.by.actor_id == request.requester.actor_id {
         return;
     }
-    let mut line = format!("{} declined: {}.", decision.by.name, request.summary.trim_end_matches('.'));
-    if let Some(reason) = decision.reason.as_deref().filter(|reason| !reason.trim().is_empty()) {
+    let mut line = format!(
+        "{} declined: {}.",
+        decision.by.name,
+        request.summary.trim_end_matches('.')
+    );
+    if let Some(reason) = decision
+        .reason
+        .as_deref()
+        .filter(|reason| !reason.trim().is_empty())
+    {
         line.push_str(&format!(" “{}”", reason.trim()));
     }
-    if let Err(error) = org.send_message("exec", Some(&request.requester.actor_id), &line).await {
+    if let Err(error) = org
+        .send_message("exec", Some(&request.requester.actor_id), &line)
+        .await
+    {
         tracing::warn!(%error, "could not tell the requester about a decline");
     }
 }
@@ -184,7 +251,15 @@ pub(super) async fn applied(
         Ok(ready) => ready,
         Err(response) => return response,
     };
-    match direction::applied(&state.daemon.authority, &company, &names, reader(&principal, false), query.since).await {
+    match direction::applied(
+        &state.daemon.authority,
+        &company,
+        &names,
+        reader(&principal, false),
+        query.since,
+    )
+    .await
+    {
         Ok(items) => no_store(Json(DirectionAppliedPage { items }).into_response()),
         Err(error) => unavailable(error),
     }
@@ -200,7 +275,16 @@ pub(super) async fn undo(
         Ok(ready) => ready,
         Err(response) => return response,
     };
-    match direction::undo(&state.daemon.authority, &org, &company, &names, applied, acting(&principal)).await {
+    match direction::undo(
+        &state.daemon.authority,
+        &org,
+        &company,
+        &names,
+        applied,
+        acting(&principal),
+    )
+    .await
+    {
         Ok(entry) => no_store(Json(entry).into_response()),
         Err(error) => refused(error),
     }
@@ -213,7 +297,9 @@ pub(super) async fn grants(
     AxumPath(company): AxumPath<String>,
 ) -> Response<Body> {
     if principal.membership_role() != "owner" {
-        return refused(DirectionError::NotYours("Standing permissions are the owner's.".into()));
+        return refused(DirectionError::NotYours(
+            "Standing permissions are the owner's.".into(),
+        ));
     }
     let (_, names) = match setup(&state, &principal, &company).await {
         Ok(ready) => ready,
@@ -232,12 +318,16 @@ pub(super) async fn revoke(
     AxumPath((company, grant)): AxumPath<(String, Uuid)>,
 ) -> Response<Body> {
     if principal.membership_role() != "owner" {
-        return refused(DirectionError::NotYours("Standing permissions are the owner's.".into()));
+        return refused(DirectionError::NotYours(
+            "Standing permissions are the owner's.".into(),
+        ));
     }
     if let Err(response) = setup(&state, &principal, &company).await {
         return response;
     }
-    match direction::revoke_grant(&state.daemon.authority, &company, grant, viewer(&principal)).await {
+    match direction::revoke_grant(&state.daemon.authority, &company, grant, viewer(&principal))
+        .await
+    {
         Ok(()) => no_store(StatusCode::NO_CONTENT.into_response()),
         Err(error) => refused(error),
     }
@@ -261,7 +351,15 @@ pub(super) async fn digest(
         Err(response) => return response,
     };
     let day = query.day.unwrap_or_else(|| Utc::now().date_naive());
-    match direction::digest(&state.daemon.authority, &company, &names, reader(&principal, false), day).await {
+    match direction::digest(
+        &state.daemon.authority,
+        &company,
+        &names,
+        reader(&principal, false),
+        day,
+    )
+    .await
+    {
         Ok(digest) => no_store(Json(digest).into_response()),
         Err(error) => unavailable(error),
     }

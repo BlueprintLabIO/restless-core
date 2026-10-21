@@ -20,7 +20,9 @@ pub(super) async fn show(
         .await
     {
         Ok(records) => records,
-        Err(error) => return api_error(StatusCode::BAD_REQUEST, "publication", format!("{error:#}")),
+        Err(error) => {
+            return api_error(StatusCode::BAD_REQUEST, "publication", format!("{error:#}"))
+        }
     };
     let bodies = |kind: &str| -> Vec<serde_json::Value> {
         records
@@ -42,7 +44,10 @@ pub(super) async fn show(
                 .is_some_and(|id| id.starts_with("owner-launch-"))
         })
         .map(|body| {
-            let id = body["invitation_id"].as_str().unwrap_or_default().to_string();
+            let id = body["invitation_id"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
             serde_json::json!({
                 "invitation_id": id,
                 "subject": body["subject"],
@@ -72,7 +77,11 @@ pub(super) async fn authorize(
     let org = match state.daemon.orgintel.get(&company).await {
         Ok(org) => org,
         Err(error) => {
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}"))
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
         }
     };
     match state
@@ -107,19 +116,34 @@ pub(super) async fn invite(
     }
     let invitee = input.invitee.trim();
     if invitee.is_empty() || invitee.len() > 200 {
-        return api_error(StatusCode::BAD_REQUEST, "publication", "Name who the invitation is for.");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "publication",
+            "Name who the invitation is for.",
+        );
     }
     let org = match state.daemon.orgintel.get(&company).await {
         Ok(org) => org,
         Err(error) => {
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}"))
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
         }
     };
     let invitation = format!("invite-{}", Uuid::new_v4().simple());
     match state
         .daemon
         .publication
-        .invite(&org, &company, &publication, &invitation, invitee, input.expires_at)
+        .invite(
+            &org,
+            &company,
+            &publication,
+            &invitation,
+            invitee,
+            input.expires_at,
+        )
         .await
     {
         Ok(value) => Json(serde_json::json!({
@@ -175,7 +199,11 @@ pub(super) async fn stop(
     let org = match state.daemon.orgintel.get(&company).await {
         Ok(org) => org,
         Err(error) => {
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}"))
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
         }
     };
     let reason = match input.reason.trim() {

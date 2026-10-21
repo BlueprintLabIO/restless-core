@@ -183,8 +183,12 @@ pub(super) async fn preferences(
     if let Err(refusal) = gate(&state, &company, &principal).await {
         return refusal;
     }
-    match telegram::set_decisions_only(state.daemon.authority.pool(), &company, input.decisions_only)
-        .await
+    match telegram::set_decisions_only(
+        state.daemon.authority.pool(),
+        &company,
+        input.decisions_only,
+    )
+    .await
     {
         Ok(Some(link)) => Json(view(Some(link))).into_response(),
         Ok(None) => api_error(
@@ -321,14 +325,13 @@ async fn delivery_loop(state: OwnerState) {
                 let bot = bots.get(&link.token_reference).await?;
                 let config = runtime::CompanyConfig::load(&state.daemon.root, &link.company)?;
                 let org = state.daemon.orgintel.get(&link.company).await?;
-                let attention =
-                    attention::project_with_spend(
-                        &config,
-                        &state.daemon.authority,
-                        Some(&org),
-                        &state.daemon.spend,
-                    )
-                    .await?;
+                let attention = attention::project_with_spend(
+                    &config,
+                    &state.daemon.authority,
+                    Some(&org),
+                    &state.daemon.spend,
+                )
+                .await?;
                 let display = config
                     .display_name
                     .clone()

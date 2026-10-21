@@ -158,7 +158,10 @@ pub(super) async fn store_secret(
 
 /// Store the value where the reference points, and answer only once Infisical confirms it.
 async fn store_and_confirm(reference: &str, secret: &str, binding: Option<&str>) -> Response {
-    if credential::store_reference(reference, secret).await.is_err() {
+    if credential::store_reference(reference, secret)
+        .await
+        .is_err()
+    {
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "vault",
@@ -236,7 +239,10 @@ pub(super) async fn delete_secret(
         .filter(|(_, reference)| **reference == input.reference)
         .map(|(name, _)| name.clone())
         .collect();
-    if unbound.iter().any(|name| name.starts_with("model.inference")) {
+    if unbound
+        .iter()
+        .any(|name| name.starts_with("model.inference"))
+    {
         return api_error(
             StatusCode::CONFLICT,
             "vault_in_use",
@@ -251,12 +257,16 @@ pub(super) async fn delete_secret(
         );
     }
     if !unbound.is_empty() {
-        config.credentials.retain(|_, reference| *reference != input.reference);
+        config
+            .credentials
+            .retain(|_, reference| *reference != input.reference);
         if runtime::CompanyConfig::save(&state.daemon.root, &config).is_err() {
             return api_error(StatusCode::SERVICE_UNAVAILABLE, "vault", "The secret was deleted, but the connections that used it could not be updated. Retry after checking host storage.");
         }
     }
-    no_store(Json(serde_json::json!({ "deleted": input.reference, "unbound": unbound })))
+    no_store(Json(
+        serde_json::json!({ "deleted": input.reference, "unbound": unbound }),
+    ))
 }
 
 #[cfg(test)]
@@ -265,12 +275,30 @@ mod tests {
 
     #[test]
     fn only_this_companys_vault_secrets_can_be_changed_by_reference() {
-        assert!(company_secret_reference("aris", "infisical:/companies/aris/stripe-key"));
-        assert!(company_secret_reference("aris", "infisical:/companies/aris/apps/mail_token"));
-        assert!(!company_secret_reference("aris", "infisical:/companies/other/stripe-key"));
-        assert!(!company_secret_reference("aris", "infisical:/companies/aris/../other/key"));
-        assert!(!company_secret_reference("aris", "infisical:/companies/aris/"));
-        assert!(!company_secret_reference("aris", "infisical:/companies/aris2/key"));
+        assert!(company_secret_reference(
+            "aris",
+            "infisical:/companies/aris/stripe-key"
+        ));
+        assert!(company_secret_reference(
+            "aris",
+            "infisical:/companies/aris/apps/mail_token"
+        ));
+        assert!(!company_secret_reference(
+            "aris",
+            "infisical:/companies/other/stripe-key"
+        ));
+        assert!(!company_secret_reference(
+            "aris",
+            "infisical:/companies/aris/../other/key"
+        ));
+        assert!(!company_secret_reference(
+            "aris",
+            "infisical:/companies/aris/"
+        ));
+        assert!(!company_secret_reference(
+            "aris",
+            "infisical:/companies/aris2/key"
+        ));
         assert!(!company_secret_reference("aris", "env:STRIPE_KEY"));
     }
 }
