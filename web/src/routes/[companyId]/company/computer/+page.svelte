@@ -11,6 +11,7 @@
 	import Monitor from '@lucide/svelte/icons/monitor';
 	import { desktopWindows, focusDesktopWindow, type DesktopWindow } from '$lib/model/desktop';
 	import DesktopViewport from '$lib/components/DesktopViewport.svelte';
+	import BrowserFeed from '$lib/components/BrowserFeed.svelte';
 	import ComputerFiles from '$lib/components/ComputerFiles.svelte';
 	import CompanyMachines from '$lib/components/CompanyMachines.svelte';
 	import { dropComputerFile } from '$lib/model/computer-files';
@@ -51,6 +52,57 @@
 
 	let clientId = $state('');
 	let desktopUrl = $state('');
+	/* What the live computer shows (S104 F4): Chrome's own feed of the company browser by
+	 * default, or the whole desktop. Remembered in this browser. */
+	const SCREEN_KEY = 'restless.computer-screen';
+	function storedScreen(): 'browser' | 'desktop' {
+		try {
+			return localStorage.getItem(SCREEN_KEY) === 'desktop' ? 'desktop' : 'browser';
+		} catch {
+			return 'browser';
+		}
+	}
+	let screen = $state<'browser' | 'desktop'>(storedScreen());
+	let desktopSrc = $state('');
+	let feedAttached = $state('');
+	/* The attach ticket is single-use: whichever view opens first redeems it, and the other then
+	 * rides on the attachment cookie it set (the desktop through its observe route). */
+	let consumedTicket = '';
+	function chooseScreen(next: 'browser' | 'desktop') {
+		screen = next;
+		try {
+			localStorage.setItem(SCREEN_KEY, next);
+		} catch {
+			/* Remembering is a convenience. */
+		}
+	}
+	async function syncScreen(url: string, mode: 'browser' | 'desktop') {
+		if (!url) {
+			desktopSrc = '';
+			feedAttached = '';
+			return;
+		}
+		if (mode === 'desktop') {
+			desktopSrc =
+				consumedTicket === url
+					? `/desktop/${encodeURIComponent(companyId)}/observe?client_id=${encodeURIComponent(clientId)}`
+					: url;
+			consumedTicket = url;
+			feedAttached = url;
+			return;
+		}
+		if (feedAttached === url) return;
+		if (consumedTicket !== url) {
+			consumedTicket = url;
+			await fetch(url, { credentials: 'same-origin', redirect: 'manual' }).catch(() => undefined);
+		}
+		feedAttached = url;
+	}
+	$effect(() => {
+		const url = desktopUrl;
+		const mode = screen;
+		untrack(() => void syncScreen(url, mode));
+	});
 	const browserStatus = $derived(browserProjection.view);
 	const control = new DesktopControl(
 		() => companyId,
@@ -473,7 +525,23 @@
 					{controllerLabel}
 				</span>
 			</div>
-			{#if control.owner && windowCompany === companyId && windows.length > 1}
+			<div class="computer-screen-switch" role="group" aria-label="What the computer shows">
+				<button
+					type="button"
+					class:active={screen === 'browser'}
+					aria-pressed={screen === 'browser'}
+					title="Chrome's own feed of the company browser: sharp, and light on the connection."
+					onclick={() => chooseScreen('browser')}>Browser</button
+				>
+				<button
+					type="button"
+					class:active={screen === 'desktop'}
+					aria-pressed={screen === 'desktop'}
+					title="The whole desktop, with every open application."
+					onclick={() => chooseScreen('desktop')}>Desktop</button
+				>
+			</div>
+			{#if screen === 'desktop' && control.owner && windowCompany === companyId && windows.length > 1}
 				<div
 					class="computer-app-switcher"
 					title={windowsError || 'Bring an open application to the front'}
@@ -549,17 +617,29 @@
 					completes.
 				</div>{/if}
 		</div>
-		<DesktopViewport
-			src={desktopUrl}
-			title="Live Company computer"
-			interactive={control.owner}
-			canResize={canResize || control.owner}
-			onclaim={claimControl}
-			ondropfile={(file) => dropComputerFile(companyId, file)}
-			ondisplayresize={requestDisplayResize}
-			onload={() => void desktopReady()}
-			onactivity={desktopActivity}
-		/>
+		{#if screen === 'browser'}
+			{#if feedAttached && feedAttached === desktopUrl}
+				<BrowserFeed
+					{companyId}
+					{clientId}
+					interactive={control.owner}
+					onclaim={claimControl}
+					onactivity={desktopActivity}
+				/>
+			{/if}
+		{:else}
+			<DesktopViewport
+				src={desktopSrc}
+				title="Live Company computer"
+				interactive={control.owner}
+				canResize={canResize || control.owner}
+				onclaim={claimControl}
+				ondropfile={(file) => dropComputerFile(companyId, file)}
+				ondisplayresize={requestDisplayResize}
+				onload={() => void desktopReady()}
+				onactivity={desktopActivity}
+			/>
+		{/if}
 	</div>
 {:else}
 	<div class="company-computer-portal">
@@ -637,7 +717,9 @@
 							<Activity size={13} strokeWidth={1.8} aria-hidden="true" /> See what needs fixing
 						</a>
 					{:else}
-						<p class="computer-unavailable-copy">The computer isn’t ready, so it can’t be opened.</p>
+						<p class="computer-unavailable-copy">
+							The computer isn’t ready, so it can’t be opened.
+						</p>
 						<a class="btn primary" href={`/${companyId}/company/doctor`}>
 							<Activity size={14} strokeWidth={1.8} aria-hidden="true" /> See what needs fixing
 						</a>

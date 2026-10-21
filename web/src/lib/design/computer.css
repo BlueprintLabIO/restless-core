@@ -3,6 +3,34 @@
  * rules these surfaces still use. Settings pages use the shared page system
  * in lib/ui/page instead. */
 
+/* Browser | Desktop: what the live computer shows (S104 F4). */
+.bridge-root .computer-screen-switch {
+	display: inline-flex;
+	gap: 2px;
+	padding: 2px;
+	border-radius: calc(var(--radius-control) + 2px);
+	background: color-mix(in srgb, var(--accent-soft) 70%, transparent);
+}
+
+.bridge-root .computer-screen-switch button {
+	height: 26px;
+	padding: 0 10px;
+	border: 0;
+	border-radius: var(--radius-control);
+	background: transparent;
+	color: var(--text-secondary);
+	font: 500 var(--t-body) var(--font-ui);
+	cursor: pointer;
+}
+
+.bridge-root .computer-screen-switch button.active {
+	background: var(--surface-raised);
+	box-shadow:
+		var(--shadow-soft),
+		0 0 0 1px var(--border);
+	color: var(--ink);
+}
+
 .bridge-root .computer-focus-identity {
 	display: flex;
 	align-items: center;
