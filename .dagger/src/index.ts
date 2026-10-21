@@ -416,8 +416,10 @@ export class RestlessCore {
       () => publishImage('native-documents-collaboration', revision, platform, nativeContext,
         async () => this.nativeDocuments(source, revision, platform), async image => { console.log(await verifyNativeDocumentsImage(image)); },
         username, password, scanPeriod),
+      // The label names everything the computer is built from, its Rust binaries' inputs too, so a
+      // plane keeps a computer whose label matches across a release that changed none of it (S104 A1).
       () => publishImage('company-runtime', revision, platform, source.filter({
-        include: RUNTIME_INPUTS, exclude: [...EXCLUDES, 'infra/company-image/test_supervision_contract.py'],
+        include: [...new Set([...RUNTIME_INPUTS, ...RUST_INPUTS])], exclude: [...EXCLUDES, 'infra/company-image/test_supervision_contract.py'],
       }), async () => this.companyRuntime(source, revision, platform, tools.reference, binaries),
         async image => { console.log(await verifyCompanyRuntimeImage(image, revision)); }, username, password, scanPeriod),
     ];
