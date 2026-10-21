@@ -1259,6 +1259,61 @@ impl OrgIntel {
         Ok(message_ids)
     }
 
+    /// A platform restart killed this Work's Attempt mid-turn, so its outcome
+    /// was recorded as unknown (Sprint 104 A3). The restart is the concrete
+    /// changed mechanism: the daemon grants one successor Attempt, which
+    /// reloads the agent's saved session and continues. A second restart in
+    /// the same revision leaves the Work blocked for its lead, so a crash
+    /// loop never retries forever. Returns whether the Work resumed.
+    pub async fn resume_after_platform_restart(&self, work_id: Uuid) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query("SELECT status, revision FROM work WHERE id=$1 FOR UPDATE")
+            .bind(work_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        let status: WorkStatus = row.get("status");
+        let revision: i64 = row.get("revision");
+        if status != WorkStatus::Blocked {
+            return Ok(false);
+        }
+        let held: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM owner_handoffs WHERE work_id=$1 AND state='pending') \
+             OR EXISTS(SELECT 1 FROM events WHERE kind='work_resumed_after_restart' \
+                       AND body->>'work_id'=$1::text AND (body->>'revision')::bigint=$2)",
+        )
+        .bind(work_id)
+        .bind(revision)
+        .fetch_one(&mut *tx)
+        .await?;
+        if held {
+            return Ok(false);
+        }
+        sqlx::query(
+            "UPDATE work SET status='active', \
+                    resolution='resumed by the daemon after a platform restart', \
+                    attempt_limit=CASE WHEN attempt_limit IS NOT NULL \
+                                            AND attempt_limit < 2147483647 \
+                                            AND (SELECT count(*) FROM work_attempts \
+                                                 WHERE work_id=$1 AND revision=$2 \
+                                                   AND state <> 'superseded') >= attempt_limit \
+                                       THEN attempt_limit + 1 ELSE attempt_limit END \
+             WHERE id=$1",
+        )
+        .bind(work_id)
+        .bind(revision)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO events (kind, actor_id, body) \
+             VALUES ('work_resumed_after_restart','daemon',$1)",
+        )
+        .bind(serde_json::json!({"work_id": work_id, "revision": revision}))
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(true)
+    }
+
     /// Resume a repaired Work node. The reason is operational evidence of
     /// what changed; retrying the same vague instruction is deliberately not
     /// an automatic scheduler behaviour.

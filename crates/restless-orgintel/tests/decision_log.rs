@@ -23,11 +23,10 @@ async fn a_decision_is_recorded_once_and_settled_once() {
         latency_ms: 431,
     };
 
-    assert!(
-        org.record_decision(decision("101", "skip_wake"))
-            .await
-            .unwrap()
-    );
+    assert!(org
+        .record_decision(decision("101", "skip_wake"))
+        .await
+        .unwrap());
     assert!(
         !org.record_decision(decision("101", "wake")).await.unwrap(),
         "a subject keeps its first decision"
@@ -69,10 +68,9 @@ async fn a_decision_is_recorded_once_and_settled_once() {
         ("skip_wake", Some("quiet"))
     );
     assert_eq!(first.answers["owner_update"]["noul"], 0.04);
-    assert!(
-        org.recent_decisions(Some("routing"), 10)
-            .await
-            .unwrap()
-            .is_empty()
-    );
+    assert!(org
+        .recent_decisions(Some("routing"), 10)
+        .await
+        .unwrap()
+        .is_empty());
 }

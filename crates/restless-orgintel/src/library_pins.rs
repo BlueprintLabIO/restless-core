@@ -92,7 +92,16 @@ mod tests {
         ] {
             assert!(valid_library_pin(key), "{key}");
         }
-        for key in ["", "doc", "doc:", ":id", "Doc:id", "doc:a b", "doc:<script>", "doc:a/b"] {
+        for key in [
+            "",
+            "doc",
+            "doc:",
+            ":id",
+            "Doc:id",
+            "doc:a b",
+            "doc:<script>",
+            "doc:a/b",
+        ] {
             assert!(!valid_library_pin(key), "{key}");
         }
         assert!(!valid_library_pin(&format!("doc:{}", "a".repeat(201))));

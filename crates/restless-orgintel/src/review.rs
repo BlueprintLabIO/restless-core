@@ -465,9 +465,17 @@ impl OrgIntel {
         actor_id: &str,
         resolution: &str,
     ) -> Result<()> {
-        self.resolve_handoff(id, actor_id, OwnerHandoffState::Resolved, resolution, false, true, false)
-            .await
-            .map(|_| ())
+        self.resolve_handoff(
+            id,
+            actor_id,
+            OwnerHandoffState::Resolved,
+            resolution,
+            false,
+            true,
+            false,
+        )
+        .await
+        .map(|_| ())
     }
 
     /// Resolve an irreducible-human handoff from a live external observation.
@@ -543,7 +551,9 @@ impl OrgIntel {
         .bind(id)
         .fetch_optional(&self.pool)
         .await?
-        .ok_or_else(|| OrgIntelError::InvalidWork("no pending owner handoff with that id".into()))?;
+        .ok_or_else(|| {
+            OrgIntelError::InvalidWork("no pending owner handoff with that id".into())
+        })?;
         let category: OwnerHandoffCategory = row.get("category");
         if category == OwnerHandoffCategory::PaymentConfirmation {
             return Err(OrgIntelError::InvalidWork(
@@ -591,8 +601,14 @@ impl OrgIntel {
                 || row.get::<bool, _>("produced_review"));
         match (review, answer) {
             (true, OwnerChatAnswer::Yes) => {
-                self.decide_review(id, "owner", OwnerReviewDecision::Accepted, &answer_text, true)
-                    .await
+                self.decide_review(
+                    id,
+                    "owner",
+                    OwnerReviewDecision::Accepted,
+                    &answer_text,
+                    true,
+                )
+                .await
             }
             (true, OwnerChatAnswer::Changes) => {
                 self.decide_review(
@@ -719,7 +735,9 @@ impl OrgIntel {
                 "external owner-step observations must be attributed to daemon".into(),
             ));
         }
-        if resolved_by == "owner" && category == OwnerHandoffCategory::OwnerJudgement && !owner_words
+        if resolved_by == "owner"
+            && category == OwnerHandoffCategory::OwnerJudgement
+            && !owner_words
         {
             let brief = row
                 .get::<Option<serde_json::Value>, _>("owner_brief")
@@ -831,7 +849,8 @@ impl OrgIntel {
         decision: OwnerReviewDecision,
         feedback: &str,
     ) -> Result<()> {
-        self.decide_review(id, reviewer, decision, feedback, false).await
+        self.decide_review(id, reviewer, decision, feedback, false)
+            .await
     }
 
     /// `owner_words`: the owner decided in conversation, so their own words stand in for the
@@ -891,8 +910,7 @@ impl OrgIntel {
         };
         if !reviewer_owns {
             return Err(OrgIntelError::InvalidWork(
-                "this review is still assigned below you, or is waiting on someone else"
-                    .into(),
+                "this review is still assigned below you, or is waiting on someone else".into(),
             ));
         }
         if !owner_words {

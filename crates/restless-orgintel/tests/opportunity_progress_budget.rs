@@ -18,7 +18,9 @@ async fn settled_linked_work_gets_one_bounded_adjudication_wake() {
         .unwrap();
     // Sub-microsecond time on purpose: Postgres rounds text timestamps to the microsecond and
     // bound ones truncate, so a retry stored from text once landed after the moment it was due.
-    let start = (Utc::now() - Duration::seconds(1)).with_nanosecond(999_999_999).unwrap();
+    let start = (Utc::now() - Duration::seconds(1))
+        .with_nanosecond(999_999_999)
+        .unwrap();
     let responsibility = Uuid::new_v4();
     org.create_exact_schedule_with_responsibility(
         "exec",

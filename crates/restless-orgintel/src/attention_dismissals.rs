@@ -38,12 +38,14 @@ impl OrgIntel {
 
     /// Bring a set-aside item back to the Inbox.
     pub async fn restore_attention(&self, item_id: &str) -> Result<bool> {
-        Ok(sqlx::query("DELETE FROM attention_dismissals WHERE item_id=$1")
-            .bind(item_id)
-            .execute(&self.pool)
-            .await?
-            .rows_affected()
-            == 1)
+        Ok(
+            sqlx::query("DELETE FROM attention_dismissals WHERE item_id=$1")
+                .bind(item_id)
+                .execute(&self.pool)
+                .await?
+                .rows_affected()
+                == 1,
+        )
     }
 
     /// Forget set-aside rows whose request has gone away (resolved, withdrawn,
@@ -52,24 +54,24 @@ impl OrgIntel {
         if item_ids.is_empty() {
             return Ok(0);
         }
-        Ok(sqlx::query("DELETE FROM attention_dismissals WHERE item_id = ANY($1)")
-            .bind(item_ids)
-            .execute(&self.pool)
-            .await?
-            .rows_affected())
+        Ok(
+            sqlx::query("DELETE FROM attention_dismissals WHERE item_id = ANY($1)")
+                .bind(item_ids)
+                .execute(&self.pool)
+                .await?
+                .rows_affected(),
+        )
     }
 
     /// When each dismissed item was set aside.
     pub async fn attention_dismissals(&self) -> Result<HashMap<String, DateTime<Utc>>> {
-        Ok(
-            sqlx::query_as::<_, (String, DateTime<Utc>)>(
-                "SELECT item_id, dismissed_at FROM attention_dismissals",
-            )
-            .fetch_all(&self.pool)
-            .await?
-            .into_iter()
-            .collect(),
+        Ok(sqlx::query_as::<_, (String, DateTime<Utc>)>(
+            "SELECT item_id, dismissed_at FROM attention_dismissals",
         )
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .collect())
     }
 
     /// The newest set-aside items, for the Inbox archive and agents' context.

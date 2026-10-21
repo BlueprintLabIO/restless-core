@@ -1716,7 +1716,13 @@ impl OrgIntel {
         let now = Utc::now();
         // The schedule after the change: an interval, or a time of day on chosen days.
         let (recurrence, interval, local, zone, days) = if interval_seconds.is_some() {
-            (Some("interval".to_string()), interval_seconds, None, None, None)
+            (
+                Some("interval".to_string()),
+                interval_seconds,
+                None,
+                None,
+                None,
+            )
         } else if calendar_change {
             let local = local_time.or(row.local_time);
             let zone = timezone.clone().or_else(|| row.timezone.clone());
@@ -1732,7 +1738,13 @@ impl OrgIntel {
                 None => None,
             };
             validate_calendar_days(days.as_deref())?;
-            (Some("weekdays".to_string()), None, Some(local), Some(zone), days)
+            (
+                Some("weekdays".to_string()),
+                None,
+                Some(local),
+                Some(zone),
+                days,
+            )
         } else {
             (
                 row.recurrence.clone(),
@@ -2561,7 +2573,15 @@ mod tests {
                 .to_rfc3339(),
             "2026-09-30T08:00:00+00:00"
         );
-        for invalid in ["weekly:", "weekly:8", "weekly:1,1", "monthly:0", "monthly:32", "monthly:07", "hourly"] {
+        for invalid in [
+            "weekly:",
+            "weekly:8",
+            "weekly:1,1",
+            "monthly:0",
+            "monthly:32",
+            "monthly:07",
+            "hourly",
+        ] {
             assert!(validate_calendar_days(Some(invalid)).is_err(), "{invalid}");
         }
     }

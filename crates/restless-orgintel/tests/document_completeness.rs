@@ -21,7 +21,9 @@ async fn company(prefix: &str) -> Option<(OrgIntel, String)> {
     org.ensure_actor("owner", "owner", "owner", "The Owner")
         .await
         .unwrap();
-    org.ensure_actor("exec", "exec", "exec", "Exec").await.unwrap();
+    org.ensure_actor("exec", "exec", "exec", "Exec")
+        .await
+        .unwrap();
     for (id, display) in [("alex", "Alex"), ("bianca", "Bianca"), ("casey", "Casey")] {
         org.ensure_actor(id, "human", "member", display)
             .await
@@ -128,7 +130,10 @@ async fn an_ask_for_access_reaches_only_sharing_managers_and_closes_when_granted
         org.list_document_access_requests(notes, "casey").await,
         Err(DocumentError::Unavailable)
     ));
-    let listed = org.list_document_access_requests(notes, "alex").await.unwrap();
+    let listed = org
+        .list_document_access_requests(notes, "alex")
+        .await
+        .unwrap();
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].actor_id, "bianca");
 
@@ -136,7 +141,13 @@ async fn an_ask_for_access_reaches_only_sharing_managers_and_closes_when_granted
     org.request_document_access(notes, "casey", DocumentAccess::Read)
         .await
         .unwrap();
-    assert_eq!(org.list_document_access_requests(notes, "alex").await.unwrap().len(), 1);
+    assert_eq!(
+        org.list_document_access_requests(notes, "alex")
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
     // Casey may read and asks to edit: that is an ask of its own.
     org.request_document_access(notes, "casey", DocumentAccess::Edit)
         .await
@@ -150,7 +161,10 @@ async fn an_ask_for_access_reaches_only_sharing_managers_and_closes_when_granted
     share(&org, notes, "alex", "bianca", DocumentAccess::Comment).await;
     let alex = asks(&org, "alex").await;
     assert!(alex.iter().all(|item| item.actor_ids != ["bianca"]));
-    let listed = org.list_document_access_requests(notes, "alex").await.unwrap();
+    let listed = org
+        .list_document_access_requests(notes, "alex")
+        .await
+        .unwrap();
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].actor_id, "casey");
 
@@ -172,10 +186,13 @@ async fn an_ask_for_access_reaches_only_sharing_managers_and_closes_when_granted
     }
     assert!(asks(&org, "alex").await.is_empty());
     let mut db = PgConnection::connect(&url).await.unwrap();
-    sqlx::query(&format!("SET search_path TO {}, pg_catalog, pg_temp", org.schema()))
-        .execute(&mut db)
-        .await
-        .unwrap();
+    sqlx::query(&format!(
+        "SET search_path TO {}, pg_catalog, pg_temp",
+        org.schema()
+    ))
+    .execute(&mut db)
+    .await
+    .unwrap();
     sqlx::query("UPDATE native_document_access_requests SET closed_at=closed_at-interval '2 days'")
         .execute(&mut db)
         .await
@@ -231,7 +248,10 @@ async fn a_comment_is_its_authors_to_edit_or_take_back_and_threads_reopen() {
     };
 
     // Only Bianca edits her comment; the edit carries its mention and says it was edited.
-    assert!(matches!(edit("alex", "Changed").await, Err(DocumentError::Unavailable)));
+    assert!(matches!(
+        edit("alex", "Changed").await,
+        Err(DocumentError::Unavailable)
+    ));
     let edited = edit("bianca", "Is this figure right?").await.unwrap();
     assert!(edited.plain_text.starts_with("Is this figure right?"));
     assert_eq!(edited.mentioned_actor_ids, ["alex"]);
@@ -240,15 +260,20 @@ async fn a_comment_is_its_authors_to_edit_or_take_back_and_threads_reopen() {
 
     // Changing a comment any other way is still refused.
     let mut db = PgConnection::connect(&url).await.unwrap();
-    sqlx::query(&format!("SET search_path TO {}, pg_catalog, pg_temp", org.schema()))
-        .execute(&mut db)
-        .await
-        .unwrap();
-    assert!(sqlx::query("UPDATE native_document_comments SET plain_text='x' WHERE id=$1")
-        .bind(first)
-        .execute(&mut db)
-        .await
-        .is_err());
+    sqlx::query(&format!(
+        "SET search_path TO {}, pg_catalog, pg_temp",
+        org.schema()
+    ))
+    .execute(&mut db)
+    .await
+    .unwrap();
+    assert!(
+        sqlx::query("UPDATE native_document_comments SET plain_text='x' WHERE id=$1")
+            .bind(first)
+            .execute(&mut db)
+            .await
+            .is_err()
+    );
     assert!(sqlx::query(
         "UPDATE native_document_comments SET author_actor_id='alex',edited_at=now() WHERE id=$1"
     )
@@ -294,7 +319,8 @@ async fn a_comment_is_its_authors_to_edit_or_take_back_and_threads_reopen() {
     // Alex cannot take back Bianca's comment; Bianca can, and it leaves the thread. Taking back
     // the last comment takes the thread out of the list. The company's owner may take back any.
     assert!(matches!(
-        org.delete_document_comment(notes, thread, first, "alex").await,
+        org.delete_document_comment(notes, thread, first, "alex")
+            .await,
         Err(DocumentError::Unavailable)
     ));
     org.delete_document_comment(notes, thread, first, "bianca")
@@ -338,10 +364,13 @@ async fn history_names_the_people_who_were_editing() {
     let version = &page.items[0];
     assert!(version.editor_actor_ids.is_empty());
     let mut db = PgConnection::connect(&url).await.unwrap();
-    sqlx::query(&format!("SET search_path TO {}, pg_catalog, pg_temp", org.schema()))
-        .execute(&mut db)
-        .await
-        .unwrap();
+    sqlx::query(&format!(
+        "SET search_path TO {}, pg_catalog, pg_temp",
+        org.schema()
+    ))
+    .execute(&mut db)
+    .await
+    .unwrap();
     for actor in ["bianca", "alex"] {
         sqlx::query(
             "INSERT INTO native_document_version_editors (document_id,version_id,actor_id) \

@@ -120,7 +120,9 @@ fn an_image_is_a_block_that_names_a_company_file_and_nothing_else() {
     assert!(validated
         .rendered_html
         .contains(&format!("<figure data-block-id=\"chart\"><img data-attachment-id=\"{id}\" alt=\"Q3 [draft]\"></figure>")));
-    assert!(validated.markdown.contains(&format!("![Q3 \\[draft\\]](attachments/{id})")));
+    assert!(validated
+        .markdown
+        .contains(&format!("![Q3 \\[draft\\]](attachments/{id})")));
     assert!(validated.plain_text.contains("Q3 [draft]"));
 
     // A source address, a non-UUID, an upper-case UUID or an image inside a paragraph is refused.
@@ -169,14 +171,18 @@ async fn a_document_image_opens_for_its_readers_only_when_an_editor_placed_it() 
     assert!(!sees(&org, unshown, "blair").await);
 
     // The Markdown export names the company's own file route.
-    let view = org.get_document_for_actor(document_id, "blair").await.unwrap();
+    let view = org
+        .get_document_for_actor(document_id, "blair")
+        .await
+        .unwrap();
     let export = org
         .export_document_version_as_markdown(document_id, view.current_version.version.id, "blair")
         .await
         .unwrap();
-    assert!(export
-        .markdown
-        .contains(&format!("](/api/companies/{}/attachments/{chart})", org.schema())));
+    assert!(export.markdown.contains(&format!(
+        "](/api/companies/{}/attachments/{chart})",
+        org.schema()
+    )));
 
     // Someone who can only read cannot publish their own file by having it pasted in: Blair's
     // file in Alex's page opens for Alex only once Blair may edit the page.
@@ -231,7 +237,11 @@ async fn people_who_may_comment_react_to_comments_and_readers_see_the_reactions(
         .await
         .unwrap();
     assert_eq!(
-        (seen.len(), seen[0].actor_id.as_str(), seen[0].emoji.as_str()),
+        (
+            seen.len(),
+            seen[0].actor_id.as_str(),
+            seen[0].emoji.as_str()
+        ),
         (1, "blair", "👍")
     );
 
@@ -283,7 +293,10 @@ async fn a_duplicate_shows_the_images_it_was_made_with() {
         .document_id;
     // Casey can open only the copy, and still sees the chart it was made with.
     share(&org, copy, "blair", "casey", DocumentAccess::Read).await;
-    assert!(sees(&org, chart, "casey").await, "a duplicate keeps its images");
+    assert!(
+        sees(&org, chart, "casey").await,
+        "a duplicate keeps its images"
+    );
 
     // Pasting someone else's file id into your own document shows nothing, copy or not.
     let secret = keep_file(&org, "alex").await;
@@ -319,7 +332,10 @@ async fn a_comment_on_selected_words_keeps_the_words_and_only_on_a_block() {
         .create_document_comment_thread_on_words(input(Some("p")), Some("  on Friday "))
         .await
         .unwrap();
-    assert_eq!(created.thread.thread.anchor_quote.as_deref(), Some("on Friday"));
+    assert_eq!(
+        created.thread.thread.anchor_quote.as_deref(),
+        Some("on Friday")
+    );
     let listed = org
         .list_document_comment_threads(document_id, "alex", None, 10)
         .await

@@ -104,7 +104,9 @@ impl OrgIntel {
             )),
             "sheet" => {
                 let mut tx = self.pool.begin().await?;
-                let editable = crate::sheets::access(&mut tx, id, actor_id, true).await.is_ok();
+                let editable = crate::sheets::access(&mut tx, id, actor_id, true)
+                    .await
+                    .is_ok();
                 tx.commit().await?;
                 Ok(editable)
             }
@@ -148,15 +150,15 @@ impl OrgIntel {
         let label = clean(Some(label), "file name", 200)?.ok_or_else(|| {
             OrgIntelError::InvalidContext("a file name has 1 to 200 characters".into())
         })?;
-        Ok(sqlx::query(
-            "UPDATE artifact_refs SET label=$2 WHERE id=$1 AND work_id IS NOT NULL",
+        Ok(
+            sqlx::query("UPDATE artifact_refs SET label=$2 WHERE id=$1 AND work_id IS NOT NULL")
+                .bind(artifact_id)
+                .bind(label)
+                .execute(&self.pool)
+                .await?
+                .rows_affected()
+                == 1,
         )
-        .bind(artifact_id)
-        .bind(label)
-        .execute(&self.pool)
-        .await?
-        .rows_affected()
-            == 1)
     }
 
     /// Take a Work file the owner archived out of the Library for good. Only an owner-archived

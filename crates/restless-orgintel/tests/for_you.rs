@@ -5,10 +5,9 @@
 use chrono::{Duration, Utc};
 use restless_orgintel::{
     CompanyAccessIdentity, DocumentAccess, DocumentError, DocumentKind, DocumentVisibility,
-    ForYouCursor, ForYouItem, ForYouShow, ForYouTarget, HumanAccessContext, InboxMarkChange, NewDocument,
-    NewDocumentCommentThread,
-    NewNamedDocumentVersion, NewRoomMessageMention, OrgIntel, RemoveDocumentParticipant,
-    ReplyToDocumentComment, RoomKind, SetDocumentParticipant,
+    ForYouCursor, ForYouItem, ForYouShow, ForYouTarget, HumanAccessContext, InboxMarkChange,
+    NewDocument, NewDocumentCommentThread, NewNamedDocumentVersion, NewRoomMessageMention,
+    OrgIntel, RemoveDocumentParticipant, ReplyToDocumentComment, RoomKind, SetDocumentParticipant,
 };
 use serde_json::{json, Value};
 use sqlx::{Connection as _, PgConnection};
@@ -23,7 +22,9 @@ async fn company(prefix: &str) -> Option<(OrgIntel, String)> {
     org.ensure_actor("owner", "owner", "owner", "The Owner")
         .await
         .unwrap();
-    org.ensure_actor("exec", "exec", "exec", "Exec").await.unwrap();
+    org.ensure_actor("exec", "exec", "exec", "Exec")
+        .await
+        .unwrap();
     for (id, display) in [("alex", "Alex"), ("bianca", "Bianca")] {
         org.ensure_actor(id, "human", "member", display)
             .await
@@ -180,8 +181,16 @@ async fn mentions_replies_and_comments_reach_the_right_people_with_read_state_pe
     org.mark_for_you_read("bianca", &[thread_key.clone()])
         .await
         .unwrap();
-    assert!(!find(&items(&org, "bianca").await.0, &thread_key).unwrap().unread);
-    assert!(find(&items(&org, "owner").await.0, &thread_key).unwrap().unread);
+    assert!(
+        !find(&items(&org, "bianca").await.0, &thread_key)
+            .unwrap()
+            .unread
+    );
+    assert!(
+        find(&items(&org, "owner").await.0, &thread_key)
+            .unwrap()
+            .unread
+    );
 
     // Mark all read is a cursor; anything newer is unread again, naming only who came after.
     org.mark_all_for_you_read("owner").await.unwrap();
@@ -192,20 +201,34 @@ async fn mentions_replies_and_comments_reach_the_right_people_with_read_state_pe
     assert_eq!(owner_unread, 1);
     assert_eq!(find(&owner, &thread_key).unwrap().actor_ids, ["bianca"]);
     // Bianca's own reply is not news to her.
-    assert!(!find(&items(&org, "bianca").await.0, &thread_key).unwrap().unread);
+    assert!(
+        !find(&items(&org, "bianca").await.0, &thread_key)
+            .unwrap()
+            .unread
+    );
 
     // Explicitly leaving a document stops new threads on it; a thread you are in still reaches you.
-    org.set_document_follow(pricing, "owner", false).await.unwrap();
+    org.set_document_follow(pricing, "owner", false)
+        .await
+        .unwrap();
     let later = thread(&org, pricing, "bianca", None).await;
     let (owner, _) = items(&org, "owner").await;
     assert!(find(&owner, &format!("thread:{later}")).is_none());
-    assert!(!org.document_follow_state(pricing, "owner").await.unwrap().following);
-    org.set_document_follow(pricing, "owner", true).await.unwrap();
+    assert!(
+        !org.document_follow_state(pricing, "owner")
+            .await
+            .unwrap()
+            .following
+    );
+    org.set_document_follow(pricing, "owner", true)
+        .await
+        .unwrap();
     assert!(find(&items(&org, "owner").await.0, &format!("thread:{later}")).is_some());
 
     // Malformed read marks are refused.
     assert!(matches!(
-        org.mark_for_you_read("owner", &["anything:else".into()]).await,
+        org.mark_for_you_read("owner", &["anything:else".into()])
+            .await,
         Err(DocumentError::Invalid(_))
     ));
 }
@@ -230,7 +253,11 @@ async fn an_item_disappears_once_its_source_is_no_longer_readable() {
         .unwrap();
     }
     thread(&org, private, "bianca", Some("alex")).await;
-    assert_eq!(items(&org, "alex").await.1, 2, "the mention, and being given the document");
+    assert_eq!(
+        items(&org, "alex").await.1,
+        2,
+        "the mention, and being given the document"
+    );
     // Someone who cannot read the document cannot follow it or learn it exists.
     assert!(matches!(
         org.set_document_follow(private, "exec", true).await,
@@ -251,12 +278,21 @@ async fn an_item_disappears_once_its_source_is_no_longer_readable() {
     .await
     .unwrap();
     let (alex, unread) = items(&org, "alex").await;
-    assert!(alex.is_empty(), "the mention went with access to its document");
+    assert!(
+        alex.is_empty(),
+        "the mention went with access to its document"
+    );
     assert_eq!(unread, 0);
 
     // A Room mention reaches its person only while they are in the Room.
     let room = org
-        .create_room("owner", RoomKind::Group, "Launch", &["owner", "alex", "bianca"], "launch")
+        .create_room(
+            "owner",
+            RoomKind::Group,
+            "Launch",
+            &["owner", "alex", "bianca"],
+            "launch",
+        )
         .await
         .unwrap();
     org.send_room_message_with_mentions(
@@ -274,7 +310,11 @@ async fn an_item_disappears_once_its_source_is_no_longer_readable() {
     assert_eq!(unread, 1);
     assert!(matches!(alex[0].target, ForYouTarget::Room { room_id, .. } if room_id == room.id));
     assert_eq!(alex[0].excerpt, "Can you check the launch copy?");
-    assert!(items(&org, "bianca").await.0.iter().all(|item| !item.key.starts_with("room-mention:")));
+    assert!(items(&org, "bianca")
+        .await
+        .0
+        .iter()
+        .all(|item| !item.key.starts_with("room-mention:")));
     org.remove_room_participant("owner", room.id, "alex")
         .await
         .unwrap();
@@ -327,21 +367,30 @@ async fn changes_by_others_coalesce_per_document_and_say_who_changed_it() {
     assert_eq!(find(&bianca, &key).unwrap().actor_ids, ["exec"]);
 
     // Opening the document reads it.
-    org.mark_for_you_read("owner", &[key.clone()]).await.unwrap();
+    org.mark_for_you_read("owner", &[key.clone()])
+        .await
+        .unwrap();
     let state = org.document_follow_state(pricing, "owner").await.unwrap();
     assert!(state.following);
     assert!(state.changed_since_you_looked.is_none());
     assert!(!find(&items(&org, "owner").await.0, &key).unwrap().unread);
     version(&org, pricing, "owner", "The owner's prices").await;
-    assert_eq!(items(&org, "owner").await.1, 0, "your own change is not news");
+    assert_eq!(
+        items(&org, "owner").await.1,
+        0,
+        "your own change is not news"
+    );
 
     // A live edit saved by the daemon is credited to whoever held a write session; the person
     // editing does not hear about it.
     let mut db = PgConnection::connect(&url).await.unwrap();
-    sqlx::query(&format!("SET search_path TO {}, pg_catalog, pg_temp", org.schema()))
-        .execute(&mut db)
-        .await
-        .unwrap();
+    sqlx::query(&format!(
+        "SET search_path TO {}, pg_catalog, pg_temp",
+        org.schema()
+    ))
+    .execute(&mut db)
+    .await
+    .unwrap();
     let now = Utc::now();
     let consumed: bool = sqlx::query_scalar(
         "SELECT orgintel_native_document_collaboration_consume($1,$2,$3,$4,$5,$6,$7)",
@@ -399,7 +448,9 @@ async fn changes_by_others_coalesce_per_document_and_say_who_changed_it() {
 
     // Bianca anchors a comment while Alex's next live edit is unsaved. Her comment saves the live
     // body first, but the change is still Alex's: commenting is not changing the document.
-    org.mark_for_you_read("owner", &[key.clone()]).await.unwrap();
+    org.mark_for_you_read("owner", &[key.clone()])
+        .await
+        .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
     let (revision, checkpoint): (i64, Uuid) = sqlx::query_as(
         "SELECT state_revision,checkpoint_named_version_id FROM orgintel_native_document_yjs_load($1,$2)",
@@ -439,14 +490,13 @@ async fn changes_by_others_coalesce_per_document_and_say_who_changed_it() {
     .await
     .unwrap();
     assert!(consumed);
-    let noted: i32 =
-        sqlx::query_scalar("SELECT orgintel_native_document_note_editors($1,$2,$3)")
-            .bind(company_id)
-            .bind(pricing)
-            .bind(vec!["alex".to_string(), "mallory".to_string()])
-            .fetch_one(&mut db)
-            .await
-            .unwrap();
+    let noted: i32 = sqlx::query_scalar("SELECT orgintel_native_document_note_editors($1,$2,$3)")
+        .bind(company_id)
+        .bind(pricing)
+        .bind(vec!["alex".to_string(), "mallory".to_string()])
+        .fetch_one(&mut db)
+        .await
+        .unwrap();
     assert_eq!(noted, 1);
     org.create_document_comment_thread(NewDocumentCommentThread {
         document_id: pricing,
@@ -460,7 +510,11 @@ async fn changes_by_others_coalesce_per_document_and_say_who_changed_it() {
     let (owner, _) = items(&org, "owner").await;
     let changed = find(&owner, &key).unwrap();
     assert!(changed.unread);
-    assert_eq!(changed.actor_ids, ["alex"], "Bianca commented; Alex changed it");
+    assert_eq!(
+        changed.actor_ids,
+        ["alex"],
+        "Bianca commented; Alex changed it"
+    );
 
     // Pages walk back by cursor without repeating an item.
     let first = org.for_you_page("owner", None, 1).await.unwrap();
@@ -476,10 +530,19 @@ async fn changes_by_others_coalesce_per_document_and_say_who_changed_it() {
     assert!(ForYouCursor::parse("not a cursor").is_none());
 
     // Follows and editors go with the document when it is deleted for good.
-    org.set_document_follow(pricing, "alex", true).await.unwrap();
-    org.set_document_archived(pricing, "owner", true).await.unwrap();
-    assert!(find(&items(&org, "owner").await.0, &key).is_none(), "archived documents fall quiet");
-    org.delete_archived_document(pricing, "owner").await.unwrap();
+    org.set_document_follow(pricing, "alex", true)
+        .await
+        .unwrap();
+    org.set_document_archived(pricing, "owner", true)
+        .await
+        .unwrap();
+    assert!(
+        find(&items(&org, "owner").await.0, &key).is_none(),
+        "archived documents fall quiet"
+    );
+    org.delete_archived_document(pricing, "owner")
+        .await
+        .unwrap();
     let left: i64 = sqlx::query_scalar(
         "SELECT (SELECT count(*) FROM native_document_follows WHERE document_id=$1) \
               + (SELECT count(*) FROM native_document_version_editors WHERE document_id=$1)",
@@ -493,10 +556,13 @@ async fn changes_by_others_coalesce_per_document_and_say_who_changed_it() {
 
 async fn scratch_db(org: &OrgIntel, url: &str) -> PgConnection {
     let mut db = PgConnection::connect(url).await.unwrap();
-    sqlx::query(&format!("SET search_path TO {}, pg_catalog, pg_temp", org.schema()))
-        .execute(&mut db)
-        .await
-        .unwrap();
+    sqlx::query(&format!(
+        "SET search_path TO {}, pg_catalog, pg_temp",
+        org.schema()
+    ))
+    .execute(&mut db)
+    .await
+    .unwrap();
     db
 }
 
@@ -535,40 +601,75 @@ async fn being_shared_a_document_or_sheet_reaches_only_that_person_while_they_ha
     let key = format!("share:{board}");
     let (alex, unread) = items(&org, "alex").await;
     let shared = find(&alex, &key).expect("Alex hears he was given the document");
-    assert_eq!((shared.kind.as_str(), shared.excerpt.as_str()), ("share", "Can comment"));
+    assert_eq!(
+        (shared.kind.as_str(), shared.excerpt.as_str()),
+        ("share", "Can comment")
+    );
     assert_eq!(shared.actor_names, ["The Owner"]);
-    assert_eq!(shared.target, ForYouTarget::Document { document_id: board, thread_id: None });
+    assert_eq!(
+        shared.target,
+        ForYouTarget::Document {
+            document_id: board,
+            thread_id: None
+        }
+    );
     assert_eq!(unread, 1);
-    assert!(find(&items(&org, "owner").await.0, &key).is_none(), "making it is not being shared it");
+    assert!(
+        find(&items(&org, "owner").await.0, &key).is_none(),
+        "making it is not being shared it"
+    );
     assert!(find(&items(&org, "bianca").await.0, &key).is_none());
 
     // A sheet shared with Alex, and with Exec, who takes part like a person.
     let sheet = Uuid::new_v4();
-    org.create_sheet(sheet, "owner", "Deals", "participants", &json!({"revisionId": "r0"}))
+    org.create_sheet(
+        sheet,
+        "owner",
+        "Deals",
+        "participants",
+        &json!({"revisionId": "r0"}),
+    )
+    .await
+    .unwrap();
+    org.share_sheet(sheet, "owner", "alex", Some("edit"))
         .await
         .unwrap();
-    org.share_sheet(sheet, "owner", "alex", Some("edit")).await.unwrap();
     let sheet_key = format!("sheet-share:{sheet}");
     let (alex, _) = items(&org, "alex").await;
     let shared = find(&alex, &sheet_key).expect("Alex hears he was given the sheet");
-    assert_eq!(shared.target, ForYouTarget::Sheet { sheet_id: sheet, thread_id: None });
+    assert_eq!(
+        shared.target,
+        ForYouTarget::Sheet {
+            sheet_id: sheet,
+            thread_id: None
+        }
+    );
     assert_eq!(shared.excerpt, "Can edit");
     assert!(find(&items(&org, "bianca").await.0, &sheet_key).is_none());
 
     // Changes others make to a sheet he follows reach him; his own never do.
     let mut db = scratch_db(&org, &url).await;
     sheet_edit(&mut db, sheet, "alex").await;
-    assert!(org.sheet_following(sheet, "alex").await.unwrap(), "editing follows a sheet");
+    assert!(
+        org.sheet_following(sheet, "alex").await.unwrap(),
+        "editing follows a sheet"
+    );
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
     sheet_edit(&mut db, sheet, "owner").await;
     let changes = format!("sheet-changes:{sheet}");
     let (alex, _) = items(&org, "alex").await;
     let changed = find(&alex, &changes).expect("the owner's edit reaches Alex");
-    assert_eq!((changed.kind.as_str(), changed.actor_ids.clone()), ("change", vec!["owner".to_string()]));
+    assert_eq!(
+        (changed.kind.as_str(), changed.actor_ids.clone()),
+        ("change", vec!["owner".to_string()])
+    );
     let (owner, _) = items(&org, "owner").await;
     assert!(find(&owner, &changes).is_some_and(|item| item.actor_ids == ["alex"]));
     org.set_sheet_follow(sheet, "alex", false).await.unwrap();
-    assert!(find(&items(&org, "alex").await.0, &changes).is_none(), "leaving a sheet quiets it");
+    assert!(
+        find(&items(&org, "alex").await.0, &changes).is_none(),
+        "leaving a sheet quiets it"
+    );
     // Bianca cannot follow a sheet she cannot open, nor learn it exists.
     assert!(matches!(
         org.set_sheet_follow(sheet, "bianca", true).await,
@@ -587,7 +688,10 @@ async fn being_shared_a_document_or_sheet_reaches_only_that_person_while_they_ha
     .await
     .unwrap();
     let (alex, unread) = items(&org, "alex").await;
-    assert!(alex.is_empty(), "nothing is left from what Alex can no longer open");
+    assert!(
+        alex.is_empty(),
+        "nothing is left from what Alex can no longer open"
+    );
     assert_eq!(unread, 0);
 }
 
@@ -598,7 +702,13 @@ async fn replies_in_a_room_thread_reach_the_people_in_it() {
         return;
     };
     let room = org
-        .create_room("owner", RoomKind::Group, "Launch", &["owner", "alex", "bianca", "exec"], "launch")
+        .create_room(
+            "owner",
+            RoomKind::Group,
+            "Launch",
+            &["owner", "alex", "bianca", "exec"],
+            "launch",
+        )
         .await
         .unwrap();
     let root = org
@@ -625,8 +735,14 @@ async fn replies_in_a_room_thread_reach_the_people_in_it() {
             if thread_root_message_id == root && message_id == answer
     ));
     assert_eq!(unread, 1);
-    assert!(find(&items(&org, "bianca").await.0, &key).is_none(), "Bianca is not in the thread");
-    assert!(find(&items(&org, "exec").await.0, &key).is_none(), "Exec's own reply is not news to it");
+    assert!(
+        find(&items(&org, "bianca").await.0, &key).is_none(),
+        "Bianca is not in the thread"
+    );
+    assert!(
+        find(&items(&org, "exec").await.0, &key).is_none(),
+        "Exec's own reply is not news to it"
+    );
 
     // A reply that mentions Alex is his mention, not also a thread item.
     org.mark_for_you_read("alex", &[key.clone()]).await.unwrap();
@@ -644,7 +760,9 @@ async fn replies_in_a_room_thread_reach_the_people_in_it() {
     let (alex, unread) = items(&org, "alex").await;
     assert_eq!(unread, 1);
     assert!(!find(&alex, &key).unwrap().unread);
-    assert!(alex.iter().any(|item| item.unread && item.key.starts_with("room-mention:")));
+    assert!(alex
+        .iter()
+        .any(|item| item.unread && item.key.starts_with("room-mention:")));
 
     // Reading the conversation in the Room reads its thread here too.
     let late = org
@@ -654,11 +772,15 @@ async fn replies_in_a_room_thread_reach_the_people_in_it() {
         .message
         .id;
     assert!(find(&items(&org, "alex").await.0, &key).unwrap().unread);
-    org.mark_room_read_through(room.id, "alex", late).await.unwrap();
+    org.mark_room_read_through(room.id, "alex", late)
+        .await
+        .unwrap();
     assert!(!find(&items(&org, "alex").await.0, &key).unwrap().unread);
 
     // Leaving the Room takes the thread with it.
-    org.remove_room_participant("owner", room.id, "alex").await.unwrap();
+    org.remove_room_participant("owner", room.id, "alex")
+        .await
+        .unwrap();
     assert!(find(&items(&org, "alex").await.0, &key).is_none());
 }
 
@@ -676,19 +798,41 @@ async fn marks_are_per_person_unread_wins_over_all_read_and_archive_lasts_until_
 
     // Marked unread, it stays unread past "mark all read" until it is opened.
     org.mark_all_for_you_read("alex").await.unwrap();
-    org.mark_for_you_unread("alex", &[key.clone()]).await.unwrap();
-    let page = org.for_you_page_filtered("alex", None, 50, true).await.unwrap();
-    assert_eq!(page.items.iter().map(|item| item.key.as_str()).collect::<Vec<_>>(), [key.as_str()]);
+    org.mark_for_you_unread("alex", &[key.clone()])
+        .await
+        .unwrap();
+    let page = org
+        .for_you_page_filtered("alex", None, 50, true)
+        .await
+        .unwrap();
+    assert_eq!(
+        page.items
+            .iter()
+            .map(|item| item.key.as_str())
+            .collect::<Vec<_>>(),
+        [key.as_str()]
+    );
     assert_eq!(page.unread_count, 1);
-    assert!(find(&items(&org, "owner").await.0, &key).unwrap().unread, "Alex's marks are his own");
+    assert!(
+        find(&items(&org, "owner").await.0, &key).unwrap().unread,
+        "Alex's marks are his own"
+    );
     org.mark_all_for_you_read("alex").await.unwrap();
-    assert_eq!(items(&org, "alex").await.1, 0, "mark all read clears a marked-unread item");
-    org.mark_for_you_unread("alex", &[key.clone()]).await.unwrap();
+    assert_eq!(
+        items(&org, "alex").await.1,
+        0,
+        "mark all read clears a marked-unread item"
+    );
+    org.mark_for_you_unread("alex", &[key.clone()])
+        .await
+        .unwrap();
     org.mark_for_you_read("alex", &[key.clone()]).await.unwrap();
     assert_eq!(items(&org, "alex").await.1, 0, "opening it reads it");
 
     // Archived, it leaves the list; unarchived it comes back; news brings it back by itself.
-    org.archive_for_you("alex", &[key.clone()], true).await.unwrap();
+    org.archive_for_you("alex", &[key.clone()], true)
+        .await
+        .unwrap();
     assert!(find(&items(&org, "alex").await.0, &key).is_none());
     let archived = |org: &OrgIntel| {
         let org = org.clone();
@@ -699,36 +843,68 @@ async fn marks_are_per_person_unread_wins_over_all_read_and_archive_lasts_until_
                 .items
         }
     };
-    assert!(find(&archived(&org).await, &key).is_some(), "Archived shows it");
-    assert!(org
-        .for_you_page_showing("bianca", None, 50, ForYouShow::Archived)
-        .await
-        .unwrap()
-        .items
-        .is_empty(), "Alex's archive is Alex's own");
+    assert!(
+        find(&archived(&org).await, &key).is_some(),
+        "Archived shows it"
+    );
+    assert!(
+        org.for_you_page_showing("bianca", None, 50, ForYouShow::Archived)
+            .await
+            .unwrap()
+            .items
+            .is_empty(),
+        "Alex's archive is Alex's own"
+    );
     org.mark_all_for_you_read("alex").await.unwrap();
-    assert!(find(&items(&org, "alex").await.0, &key).is_none(), "mark all read keeps it archived");
-    org.archive_for_you("alex", &[key.clone()], false).await.unwrap();
+    assert!(
+        find(&items(&org, "alex").await.0, &key).is_none(),
+        "mark all read keeps it archived"
+    );
+    org.archive_for_you("alex", &[key.clone()], false)
+        .await
+        .unwrap();
     assert!(find(&items(&org, "alex").await.0, &key).is_some_and(|item| !item.unread));
-    assert!(find(&archived(&org).await, &key).is_none(), "unarchived leaves Archived");
+    assert!(
+        find(&archived(&org).await, &key).is_none(),
+        "unarchived leaves Archived"
+    );
     // Undo puts back exactly what was archived: an unread item comes back unread.
-    org.mark_for_you_unread("alex", &[key.clone()]).await.unwrap();
-    org.archive_for_you("alex", &[key.clone()], true).await.unwrap();
-    assert_eq!(items(&org, "alex").await.1, 0, "an archived item is not counted");
-    org.archive_for_you("alex", &[key.clone()], false).await.unwrap();
+    org.mark_for_you_unread("alex", &[key.clone()])
+        .await
+        .unwrap();
+    org.archive_for_you("alex", &[key.clone()], true)
+        .await
+        .unwrap();
+    assert_eq!(
+        items(&org, "alex").await.1,
+        0,
+        "an archived item is not counted"
+    );
+    org.archive_for_you("alex", &[key.clone()], false)
+        .await
+        .unwrap();
     assert!(find(&items(&org, "alex").await.0, &key).is_some_and(|item| item.unread));
     org.mark_for_you_read("alex", &[key.clone()]).await.unwrap();
-    org.archive_for_you("alex", &[key.clone()], true).await.unwrap();
+    org.archive_for_you("alex", &[key.clone()], true)
+        .await
+        .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
     reply(&org, pricing, started, "bianca").await;
     let (alex, unread) = items(&org, "alex").await;
-    assert!(find(&alex, &key).is_some_and(|item| item.unread), "a new reply resurfaces it");
-    assert!(find(&archived(&org).await, &key).is_none(), "news takes it out of Archived");
+    assert!(
+        find(&alex, &key).is_some_and(|item| item.unread),
+        "a new reply resurfaces it"
+    );
+    assert!(
+        find(&archived(&org).await, &key).is_none(),
+        "news takes it out of Archived"
+    );
     assert_eq!(unread, 1);
 
     // Malformed marks are refused; a Room thread mark names its Room and root.
     assert!(matches!(
-        org.archive_for_you("alex", &["attention:x".into()], true).await,
+        org.archive_for_you("alex", &["attention:x".into()], true)
+            .await,
         Err(DocumentError::Invalid(_))
     ));
     org.mark_for_you_read("alex", &[format!("room-thread:{}:7", Uuid::new_v4())])
@@ -767,7 +943,10 @@ async fn inbox_marks_follow_the_person_and_only_that_person() {
     let marks = org.inbox_marks("owner").await.unwrap();
     assert_eq!(marks.len(), 1);
     assert_eq!(marks[0].seen_stamp.as_deref(), Some("2026-10-13T01:00:00Z"));
-    assert_eq!(marks[0].snoozed_until.map(|at| at.timestamp()), Some(until.timestamp()));
+    assert_eq!(
+        marks[0].snoozed_until.map(|at| at.timestamp()),
+        Some(until.timestamp())
+    );
     org.set_inbox_marks(
         "owner",
         &[InboxMarkChange {
@@ -781,7 +960,10 @@ async fn inbox_marks_follow_the_person_and_only_that_person() {
     let marks = org.inbox_marks("owner").await.unwrap();
     assert_eq!(marks[0].snoozed_until, None);
     assert_eq!(marks[0].seen_stamp.as_deref(), Some("2026-10-13T01:00:00Z"));
-    assert!(org.inbox_marks("alex").await.unwrap().is_empty(), "marks are the owner's own");
+    assert!(
+        org.inbox_marks("alex").await.unwrap().is_empty(),
+        "marks are the owner's own"
+    );
     assert!(org.set_inbox_marks("owner", &[]).await.is_err());
 }
 
@@ -817,13 +999,30 @@ async fn a_document_mention_still_unread_after_a_while_is_owed_an_email_until_it
     let pricing = document(&org, "Pricing", DocumentVisibility::Company).await;
     let started = thread(&org, pricing, "bianca", Some(member)).await;
     // Fresh, it waits for the cockpit.
-    assert!(org.pending_human_for_you_notifications(Utc::now()).await.unwrap().is_empty());
+    assert!(org
+        .pending_human_for_you_notifications(Utc::now())
+        .await
+        .unwrap()
+        .is_empty());
     let later = Utc::now() + Duration::minutes(15);
-    let owed = org.pending_human_for_you_notifications(later).await.unwrap();
-    assert_eq!(owed.len(), 1, "only the hosted person is owed; the local owner has no binding");
+    let owed = org
+        .pending_human_for_you_notifications(later)
+        .await
+        .unwrap();
+    assert_eq!(
+        owed.len(),
+        1,
+        "only the hosted person is owed; the local owner has no binding"
+    );
     assert_eq!(owed[0].recipient.actor_id, member);
     assert!(owed[0].item.key.starts_with("doc-mention:"));
-    assert_eq!(owed[0].item.target, ForYouTarget::Document { document_id: pricing, thread_id: Some(started) });
+    assert_eq!(
+        owed[0].item.target,
+        ForYouTarget::Document {
+            document_id: pricing,
+            thread_id: Some(started)
+        }
+    );
     let _ = started;
     // History is not news.
     assert!(org
@@ -832,9 +1031,21 @@ async fn a_document_mention_still_unread_after_a_while_is_owed_an_email_until_it
         .unwrap()
         .is_empty());
     // Opened in the cockpit, it is withdrawn.
-    org.mark_for_you_read(member, &[owed[0].item.key.clone()]).await.unwrap();
-    assert!(org.pending_human_for_you_notifications(later).await.unwrap().is_empty());
+    org.mark_for_you_read(member, &[owed[0].item.key.clone()])
+        .await
+        .unwrap();
+    assert!(org
+        .pending_human_for_you_notifications(later)
+        .await
+        .unwrap()
+        .is_empty());
     // Marking it unread again is a reminder to themselves, never an email.
-    org.mark_for_you_unread(member, &[owed[0].item.key.clone()]).await.unwrap();
-    assert!(org.pending_human_for_you_notifications(later).await.unwrap().is_empty());
+    org.mark_for_you_unread(member, &[owed[0].item.key.clone()])
+        .await
+        .unwrap();
+    assert!(org
+        .pending_human_for_you_notifications(later)
+        .await
+        .unwrap()
+        .is_empty());
 }

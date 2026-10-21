@@ -268,8 +268,18 @@ mod tests {
 
     #[test]
     fn invitee_addresses_are_read_as_invitations_hold_them() {
-        assert_eq!(invitee_email(" Ana@Example.COM ").as_deref(), Some("ana@example.com"));
-        for bad in ["", "ana", "@example.com", "ana@example", "ana@.com", "a b@example.com"] {
+        assert_eq!(
+            invitee_email(" Ana@Example.COM ").as_deref(),
+            Some("ana@example.com")
+        );
+        for bad in [
+            "",
+            "ana",
+            "@example.com",
+            "ana@example",
+            "ana@.com",
+            "a b@example.com",
+        ] {
             assert_eq!(invitee_email(bad), None, "{bad:?}");
         }
     }

@@ -86,11 +86,13 @@ async fn a_kept_file_outlives_staging_collection_and_opens_only_for_its_sender()
 
     // Age the row past the staging window: an unlinked stage would now be collected.
     let mut connection = schema_connection(&org).await;
-    sqlx::query("UPDATE owner_attachments SET created_at=now()-interval '2 hours' WHERE attachment_id=$1")
-        .bind(attachment_id)
-        .execute(&mut connection)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE owner_attachments SET created_at=now()-interval '2 hours' WHERE attachment_id=$1",
+    )
+    .bind(attachment_id)
+    .execute(&mut connection)
+    .await
+    .unwrap();
     assert!(org
         .claim_owner_attachment_gc(8, 3600, 300)
         .await
