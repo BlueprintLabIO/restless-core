@@ -445,6 +445,24 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 Err(error) => Response::err(format!("{error:#}")),
             }
         }
+        "job-run" | "job-status" => {
+            let actor = if principal == Principal::Owner { "owner" } else {
+                match request.orgintel.actor.as_deref() { Some(actor) => actor, None => return Response::err("Missing authenticated actor") }
+            };
+            let job = match crate::burst_jobs::request(request.job.as_ref()) {
+                Ok(job) => job,
+                Err(error) => return Response::err(format!("{error:#}")),
+            };
+            let outcome = if request.cmd == "job-run" {
+                crate::burst_jobs::run(company, actor, &job).await
+            } else {
+                crate::burst_jobs::status(company, job.id.as_deref().unwrap_or_default()).await
+            };
+            match outcome {
+                Ok(value) => Response::ok(value),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
         "decision-ask" => {
             let actor = if principal == Principal::Owner { "owner" } else {
                 match request.orgintel.actor.as_deref() { Some(actor) => actor, None => return Response::err("Missing authenticated actor") }
@@ -4590,6 +4608,8 @@ pub fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Re
         | "sheet-operation"
         | "room-operation"
         | "decision-ask"
+        | "job-run"
+        | "job-status"
         | "tools-list"
         | "tools-check"
         | "account-ask"

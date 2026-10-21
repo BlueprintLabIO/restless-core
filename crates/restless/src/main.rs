@@ -37,6 +37,29 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+enum JobCommand {
+    /// Start a job. Everything after `--` is the shell command.
+    Run {
+        /// CPUs for the job (default: all of this machine's).
+        #[arg(long)]
+        cpus: Option<f64>,
+        /// Memory for the job, such as 2g (default: the company's bound).
+        #[arg(long)]
+        memory: Option<String>,
+        /// Seconds before it is stopped (default 3600, at most 21600).
+        #[arg(long)]
+        timeout: Option<u64>,
+        /// Where it runs, under /company (default /company).
+        #[arg(long)]
+        workdir: Option<String>,
+        #[arg(last = true, required = true)]
+        command: Vec<String>,
+    },
+    /// Whether a job is running, succeeded, failed or timed out.
+    Status { id: String },
+}
+
+#[derive(Subcommand)]
 enum AppsCommand {
     /// Search by words, such as "frontend design" or "calendar".
     Search {
@@ -177,6 +200,16 @@ enum Command {
         /// The typed questions as a JSON object keyed by question id, or @path to a file.
         #[arg(long)]
         questions: String,
+    },
+    /// Run heavy work, such as a simulation or a large build, as a burst job instead of inside your
+    /// own session: `restless job run --cpus 2 --timeout 3600 -- python sim.py` returns a job id at
+    /// once, and `restless job status <id>` says whether it is running, succeeded, failed or timed
+    /// out. Output goes to /company/run/jobs/<id>.log; the job sees the same /company files.
+    Job {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: JobCommand,
     },
     /// See the company's apps as you can use them, and check one again after fixing it.
     ///
@@ -2811,6 +2844,27 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             match command {
                 ToolsCommand::List { name } => serde_json::json!({ "cmd": "tools-list", "company": company, "tool": name }),
                 ToolsCommand::Check { name } => serde_json::json!({ "cmd": "tools-check", "company": company, "tool": name }),
+            }
+        }
+        Command::Job { company, command } => {
+            let company = company.context("no company: pass -c or set RESTLESS_COMPANY")?;
+            match command {
+                JobCommand::Run { cpus, memory, timeout, workdir, command } => serde_json::json!({
+                    "cmd": "job-run",
+                    "company": company,
+                    "job": {
+                        "command": command.join(" "),
+                        "cpus": cpus,
+                        "memory": memory,
+                        "timeout_secs": timeout,
+                        "workdir": workdir,
+                    },
+                }),
+                JobCommand::Status { id } => serde_json::json!({
+                    "cmd": "job-status",
+                    "company": company,
+                    "job": { "id": id },
+                }),
             }
         }
         Command::Decide { company, state, questions } => serde_json::json!({
