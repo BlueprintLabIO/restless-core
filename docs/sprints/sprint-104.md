@@ -40,7 +40,7 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 ### C. Chat
 - [x] C1 Every send scrolls the owner's message to the top (option answers missed it).
 - [x] C2 New focus scrolls clear and keeps "Company memory retained" and the capability hint.
-- [~] C3 People shows when an agent is busy with Work ("working on … and will reply when it finishes") and offers Interrupt, which keeps the Work. Still open: delivering the message into the running Attempt without stopping it (needs harness steering).
+- [x] C3 People shows when an agent is busy with Work and offers Interrupt, which keeps the Work. A DM to a busy agent now steers the running Attempt. The live turn checks for a person's unread direct message every 15 s; when one arrives it stops the turn and hands the message to the same session as a checkpoint input. The agent answers with `restless message` and continues the Work. The message counts as delivered, so no second conversation turn repeats it.
 - [x] C4 "Thinking" sits inline as the last transcript item.
 - [x] C5 People replies don't snap narrow when they finish.
 - [x] C6 Upload progress is drawn on the file's thumbnail.

@@ -842,6 +842,8 @@ const SPECIALIST_TERMINATION_PROMPT: &str = "Your assigned specialist task is en
     Judge only your assignment. Other company work, later review, or another actor's task does not make your completed task blocked.";
 
 const STAFF_TERMINATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2 * 60);
+/// How often a running Work turn looks for a person's direct message.
+const STAFF_STEER_POLL: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// A lead that owns Work judges it exactly as Staff judge theirs.
 pub fn termination_prompt() -> &'static str {
@@ -1417,18 +1419,48 @@ impl StaffDrive {
         let mut spent: Vec<acp::TurnUsage> = Vec::new();
         loop {
             session.set_live_observer_enabled(true);
+            // A person's direct message steers a running Work turn: the turn
+            // stops at once and the message is handed to the same session as
+            // its next input, so the owner is answered mid-task (Sprint 104 C3).
+            let turn = self.cancellation.child_token();
+            let steer = match (self.turn_kind.is_conversation(), self.attempt_id) {
+                (false, Some(attempt_id)) => {
+                    let org = self.org.clone();
+                    let turn = turn.clone();
+                    Some(tokio::spawn(async move {
+                        loop {
+                            tokio::time::sleep(STAFF_STEER_POLL).await;
+                            if org
+                                .attempt_has_human_input(attempt_id)
+                                .await
+                                .unwrap_or(false)
+                            {
+                                turn.cancel();
+                                return;
+                            }
+                        }
+                    }))
+                }
+                _ => None,
+            };
             let end = session
                 .prompt_staff(
                     &next,
                     self.enforce_spend_budget,
                     self.remaining_budget_usd,
-                    &self.cancellation,
+                    &turn,
                 )
                 .await;
+            if let Some(steer) = steer {
+                steer.abort();
+            }
             if let Some(usage) = end.usage() {
                 spent.push(usage);
             }
-            if let Some(halt) = staff_halt(&end) {
+            let steered = turn.is_cancelled() && !self.cancellation.is_cancelled();
+            if steered {
+                tracing::info!(actor = %self.event_actor, "owner message steered a running Work turn");
+            } else if let Some(halt) = staff_halt(&end) {
                 match halt {
                     StaffHalt::Resume(reason) => {
                         return Ok((
@@ -1490,7 +1522,7 @@ impl StaffDrive {
                 let feedback = self.org.checkpoint_attempt_feedback(attempt_id).await?;
                 if !feedback.is_empty() {
                     next = format!(
-                        "# Work feedback and peer messages delivered at a safe checkpoint\n{}\n\nUse these facts in the same Attempt. If a colleague asked a concrete question and you know the answer, reply directly with `restless message --to <actor>`. Do not send a courtesy acknowledgement; react with `restless react --message <id> --emoji 👍` if one is useful. Preserve useful work already completed, then continue until the assigned outcome is done or genuinely blocked.",
+                        "# Work feedback and peer messages delivered at a safe checkpoint\n{}\n\nUse these facts in the same Attempt. If a person wrote to you while you work, answer them now with one short `restless message --to <their id>` (what you are doing, and the answer if you have it), and change course if they asked you to. If a colleague asked a concrete question and you know the answer, reply directly with `restless message --to <actor>`. Do not send a courtesy acknowledgement; react with `restless react --message <id> --emoji 👍` if one is useful. Preserve useful work already completed, then continue until the assigned outcome is done or genuinely blocked.",
                         feedback
                             .iter()
                             .map(|message| format!(
@@ -1502,6 +1534,11 @@ impl StaffDrive {
                     );
                     continue;
                 }
+            }
+            if steered {
+                // The message was already taken (or withdrawn); resume the Work.
+                next = "Continue the task. If it is done or you are stuck, stop writing.".to_string();
+                continue;
             }
 
             session.set_live_observer_enabled(false);

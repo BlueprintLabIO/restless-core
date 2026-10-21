@@ -210,9 +210,34 @@ impl OrgIntel {
         Ok(attempt_id)
     }
 
-    /// Consume Work feedback and ordinary agent peer mail at a safe model-turn
-    /// boundary. Both become attributable Attempt inputs; an idle peer reply
-    /// can therefore reach a running worker without a second actor session.
+    /// Whether a person has written to this running Attempt's actor in a
+    /// direct Room and the message is still unread. The live turn polls this
+    /// so the owner's message reaches a busy agent mid-task (Sprint 104 C3).
+    pub async fn attempt_has_human_input(&self, attempt_id: Uuid) -> Result<bool> {
+        let waiting: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM work_attempts attempt \
+               JOIN messages message ON message.to_actor=attempt.actor_id \
+               JOIN actors sender ON sender.id=message.from_actor \
+               JOIN rooms room ON room.id=message.room_id \
+             WHERE attempt.id=$1 AND attempt.state='running' \
+               AND message.deleted_at IS NULL AND message.read_at IS NULL \
+               AND sender.actor_class='human' \
+               AND room.kind='direct' AND room.archived_at IS NULL \
+               AND NOT EXISTS (SELECT 1 FROM work_feedback feedback \
+                               WHERE feedback.message_id=message.id) \
+               AND NOT EXISTS (SELECT 1 FROM message_mentions mention \
+                               WHERE mention.message_id=message.id))",
+        )
+        .bind(attempt_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(waiting)
+    }
+
+    /// Consume Work feedback, ordinary agent peer mail and a person's direct
+    /// messages at a safe model-turn boundary. All become attributable Attempt
+    /// inputs; an idle peer reply or the owner's question can therefore reach
+    /// a running worker without a second actor session.
     pub async fn checkpoint_attempt_feedback(&self, attempt_id: Uuid) -> Result<Vec<MessageRow>> {
         let mut tx = self.pool.begin().await?;
         let attempt = sqlx::query(
@@ -243,7 +268,11 @@ impl OrgIntel {
                   AND COALESCE(feedback.routed_to_actor,message.to_actor)=$2 \
                   AND message.id>$3) \
                  OR (feedback.message_id IS NULL AND message.to_actor=$2 \
-                     AND sender.actor_class='agent' AND message.from_actor<>$2 \
+                     AND (sender.actor_class='agent' \
+                          OR (sender.actor_class='human' AND EXISTS (SELECT 1 FROM rooms room \
+                              WHERE room.id=message.room_id AND room.kind='direct' \
+                                AND room.archived_at IS NULL))) \
+                     AND message.from_actor<>$2 \
                      AND message.read_at IS NULL \
                      AND NOT EXISTS (SELECT 1 FROM message_mentions mention \
                                      WHERE mention.message_id=message.id))\
