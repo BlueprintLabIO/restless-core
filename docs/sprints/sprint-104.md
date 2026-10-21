@@ -28,7 +28,7 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 - [ ] A1 Serve the UI apart from the runtime; a UI-only release restarts no company.
 - [ ] A2 Install runtime updates when a company is idle; never interrupt Work, chat or computer use.
 - [ ] A3 Resume agent sessions after a restart (session record written as it goes).
-- [ ] A4 Stop works while reconnecting (queued, sent through the plane).
+- [x] A4 Stop keeps trying for up to a minute while the company is unreachable (network errors, 5xx, 408, 429) instead of failing the moment the connection drops.
 - [~] A5 Checked: the gateway already reloads within ~5s when credentials or sign-ins change (restlessd's fingerprint loop), so the "Ready once the company restarts" hint is stale. Still open: an agent assigned to a removed key's connection should fall back to the provider's remaining connection (needs a reproduction).
 - [x] A6 Exec reports platform faults instead of "nothing we control".
 - [x] A7 Rewrite the connection error screens.
@@ -47,7 +47,7 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 
 ### D. Models and credit
 - [x] D1 One model picker everywhere (`lib/primitives/ModelPicker.svelte`); one entry per release.
-- [ ] D2 Gemini, Grok, OpenRouter, and Meta (Muse) through the Meta Model API.
+- [~] D2 Checked: Google Gemini, xAI (now labelled "xAI Grok"), OpenRouter, Groq, Mistral, DeepSeek, Z.ai and Moonshot already connect with an API key. Still open: Meta's Muse through the Meta Model API, which needs a new provider in the model gateway's OMP config.
 - [x] D3 Usage limits name the account they read.
 - [x] D4 Operator grant for unlimited AI credit (Cloud #118, migration 0063); the row for blueprintlabio is inserted after deploy.
 - [ ] D5 Budget guards: hard per-company caps, loop detection.
@@ -87,7 +87,7 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 - [x] T2 Automatic computer setup dropped its error; "Exec can't start" had no cause anywhere. The error is logged and reported (`setup_error`).
 - [x] T3 A plane restart drops every browser session (in-memory session store).
 - [x] T4 The plane exits when Postgres isn't up yet at boot instead of waiting for it.
-- [ ] T5 Cloud has no plane-move tooling; the 19 and 21 October moves were done by hand.
+- [x] T5 Cloud `docs/operations/move-plane.md` and `scripts/ops/move-plane.sh` (BlueprintLabIO/restless-cloud#119).
 - [ ] T6 Cloud's server price list includes types retired in Singapore (cpx21, cpx31).
 - [x] T7 The Inbox intercepted every Library link (fixed with E1). Audited the other `beforeNavigate` handlers: all are unsaved-change guards.
 - [ ] T8 A container memory cap of 4 GB is larger than a 4 GB host; caps should fit the host too.

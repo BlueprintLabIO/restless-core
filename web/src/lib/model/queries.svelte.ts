@@ -843,9 +843,22 @@ export function conversationQuery(
 		async stopTurn() {
 			const messageId = live?.triggerMessageId ?? followingMessageId;
 			if (!messageId) throw new Error('There is no reply in progress to stop.');
-			const result = await interruptActorMessage(companyId, actorId, messageId);
-			void client.invalidateQueries({ queryKey: key });
-			return result;
+			/* Stop keeps trying while the company is unreachable (a release restarting the plane),
+			 * for up to a minute, instead of failing the moment the connection drops (21 October). */
+			const deadline = Date.now() + 60_000;
+			for (let wait = 1_000; ; wait = Math.min(wait * 2, 8_000)) {
+				try {
+					const result = await interruptActorMessage(companyId, actorId, messageId);
+					void client.invalidateQueries({ queryKey: key });
+					return result;
+				} catch (cause) {
+					const status = (cause as { status?: number } | null)?.status;
+					const unreachable =
+						typeof status !== 'number' || status >= 500 || status === 408 || status === 429;
+					if (!unreachable || Date.now() + wait > deadline) throw cause;
+					await new Promise((resolve) => setTimeout(resolve, wait));
+				}
+			}
 		},
 		/** Answer the same message again after its turn failed; it streams on the open connection. */
 		async retryTurn() {
