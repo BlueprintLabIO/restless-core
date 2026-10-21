@@ -2329,6 +2329,18 @@ async fn company_busy(daemon: &Daemon, company: &str) -> Option<String> {
     None
 }
 
+/// Why the plane shouldn't restart right now, if anything: the first company that is busy (Exec
+/// working, Work running, the owner mid-conversation). A plane update waits for this to clear, so a
+/// release no longer ends running Work (S104 A1).
+pub async fn plane_busy(daemon: &Daemon) -> Option<String> {
+    for company in crate::configured_companies(&daemon.root).ok()? {
+        if let Some(reason) = company_busy(daemon, &company).await {
+            return Some(format!("{company}: {reason}"));
+        }
+    }
+    None
+}
+
 /// Each company's latest roll-forward look on this plane, for the plane's /health: what it saw and
 /// did. Process memory only; a restarted plane starts empty and looks again.
 static ROLL_FORWARD: std::sync::LazyLock<std::sync::Mutex<std::collections::BTreeMap<String, serde_json::Value>>> =
