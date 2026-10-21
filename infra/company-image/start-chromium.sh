@@ -5,6 +5,10 @@ set -eu
 
 tabs=/company/browser-profile/restless-tabs.json
 
+# Renderers are capped so a session with many tabs shares a few processes: on a 4 GB plane one
+# company's Chrome reached 1.8 GB on 22 October and the plane thrashed. RESTLESS_BROWSER_RENDERER_LIMIT
+# overrides it.
+#
 # The owner's own timezone and language, when the plane knows them (S104 F3): a browser on
 # Singapore time with no language preference reads as a server to the sites it visits.
 if [ -n "${RESTLESS_BROWSER_TIMEZONE:-}" ]; then
@@ -30,6 +34,7 @@ set -- \
 	--no-default-browser-check \
 	--disable-dev-shm-usage \
 	--disable-background-networking \
+	--renderer-process-limit="${RESTLESS_BROWSER_RENDERER_LIMIT:-4}" \
 	--no-sandbox
 
 urls=/company/run/restless-tabs.urls

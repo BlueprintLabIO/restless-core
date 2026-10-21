@@ -2590,6 +2590,7 @@ async fn open_local_worker(
         if crate::runtime::status(company).await? != crate::runtime::ContainerStatus::Running {
             bail!("{} uses the company computer's browser; start the company computer first", connection.name);
         }
+        crate::runtime::wake_company_browser(company).await;
         docker.arg("--network").arg(format!("container:{computer}"));
         docker.args(["--env", "RESTLESS_BROWSER_CDP=http://127.0.0.1:9222"]);
     }

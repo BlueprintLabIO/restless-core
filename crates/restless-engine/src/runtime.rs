@@ -2596,7 +2596,7 @@ async fn browser_doctor(company: &str, supervisor: &SupervisorDoctor) -> Browser
             .into()
     };
     let desktop = process("desktop");
-    let chromium = process("chromium");
+    let mut chromium = process("chromium");
     let web_transport = process("desktop-web");
     let automation: String = match docker_observe(&[
         "exec",
@@ -2608,10 +2608,20 @@ async fn browser_doctor(company: &str, supervisor: &SupervisorDoctor) -> Browser
         "--silent",
         "--max-time",
         "2",
+        // A probe never wakes a sleeping browser (S104 F6); the broker says it is asleep.
+        "--header",
+        "x-restless-probe: 1",
         "http://127.0.0.1:9223/json/version",
     ])
     .await
     {
+        Ok(output)
+            if output.status.success()
+                && String::from_utf8_lossy(&output.stdout).contains("\"asleep\":true") =>
+        {
+            chromium = "asleep".into();
+            "asleep".into()
+        }
         Ok(output) if output.status.success() => "available".into(),
         Ok(output) if String::from_utf8_lossy(&output.stdout).contains("owner_controls") => {
             "owner_paused".into()
@@ -2624,10 +2634,12 @@ async fn browser_doctor(company: &str, supervisor: &SupervisorDoctor) -> Browser
         .flatten()
         .and_then(|value| value["controller"].as_str().map(str::to_string))
         .unwrap_or_else(|| "unclaimed".into());
-    let status = if [&desktop, &chromium, &web_transport]
+    // A browser asleep after idling is healthy: the next agent request or viewer wakes it.
+    let status = if [&desktop, &web_transport]
         .iter()
         .all(|part| part.as_str() == "available")
-        && matches!(automation.as_str(), "available" | "owner_paused")
+        && matches!(chromium.as_str(), "available" | "asleep")
+        && matches!(automation.as_str(), "available" | "owner_paused" | "asleep")
     {
         "available"
     } else {
@@ -2671,7 +2683,13 @@ async fn supervisor_doctor(company: &str) -> SupervisorDoctor {
         _ => Vec::new(),
     };
     let status =
-        if !services.is_empty() && services.iter().all(|service| service.state == "running") {
+        // Chrome stopped on request is the browser asleep (S104 F6); a crash is BACKOFF, FATAL or
+        // EXITED, never STOPPED.
+        if !services.is_empty()
+            && services.iter().all(|service| {
+                service.state == "running" || (service.name == "chromium" && service.state == "stopped")
+            })
+        {
             "available"
         } else {
             "degraded"
@@ -3505,7 +3523,23 @@ pub async fn desktop_stream(company: &str) -> Result<DesktopStream> {
 
 /// The same private bridge to Chrome's DevTools port, for host-side automation only.
 pub async fn devtools_stream(company: &str) -> Result<DesktopStream> {
+    wake_company_browser(company).await;
     private_tcp_stream(company, 9222).await
+}
+
+/// Start the company browser if it went to sleep after idling (S104 F6), and wait for its DevTools
+/// port. Core and apps that use Chrome's port directly call this first; the broker wakes it for
+/// agents. Best effort: a browser that will not start is reported by whatever uses it next.
+pub async fn wake_company_browser(company: &str) {
+    const WAKE: &str = "[ -f /company/run/browser-asleep ] || exit 0; \
+        supervisorctl -c /etc/supervisor/conf.d/company.conf start chromium >/dev/null 2>&1; \
+        i=0; while [ $i -lt 60 ]; do curl -fsS -m 1 http://127.0.0.1:9222/json/version >/dev/null 2>&1 && break; i=$((i+1)); sleep 0.5; done; \
+        rm -f /company/run/browser-asleep";
+    let _ = docker_bounded(
+        &["exec", "-u", "company", &container_name(company), "sh", "-c", WAKE],
+        Duration::from_secs(45),
+    )
+    .await;
 }
 
 async fn private_tcp_stream(company: &str, port: u16) -> Result<DesktopStream> {
@@ -3603,6 +3637,7 @@ pub async fn try_register_browser_agent_session(
     // Only Core reads Chrome's private endpoint. The opaque ticket is minted
     // after Core verified the signed capability and is stored atomically for
     // the broker; the issuer key never enters the company container.
+    wake_company_browser(company).await;
     let output = docker_observe(&[
         "exec", &container_name(company), "curl", "--fail", "--silent", "--show-error",
         "--max-time", "5", "http://127.0.0.1:9222/json/version",
