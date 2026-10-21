@@ -25,8 +25,8 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 ## Tracks
 
 ### A. Deploys and durability
-- [ ] A1 Serve the UI apart from the runtime; a UI-only release restarts no company.
-- [ ] A2 Install runtime updates when a company is idle; never interrupt Work, chat or computer use.
+- [ ] A1 Serve the UI apart from the runtime; a UI-only release restarts no company. Root cause confirmed: Core images aren't reproducible, so a UI-only release (d31c8e5b, 6e7e00fd) still gives company-runtime and account-plane new digests, and every plane restarts. Options: reuse an unchanged component's previous image by input digest, or serve the UI as its own container or CDN artifact.
+- [x] A2 Checked: release roll-forward already waits for a quiet company (`company_busy`, up to `MAX_DEFERRAL_HOURS`) before rebuilding its computer. The remaining restart on every release is the plane service itself (A1).
 - [~] A3 Checked: a Work attempt's agent session is already resumable. Its ACP locator is written to the company volume (`work:<id>`), and the next attempt calls `session/load`, so a restart costs the in-flight turn, not the context. Fixed: an attempt whose computer restarted under it (so `/tmp` and its ownership marker were gone) no longer fails with "marker is missing; broad process cleanup was refused" (Aang's attempt 2). Still open: continuing the interrupted attempt itself, rather than closing it as unknown for the lead to review.
 - [x] A4 Stop keeps trying for up to a minute while the company is unreachable (network errors, 5xx, 408, 429) instead of failing the moment the connection drops.
 - [~] A5 Checked: the gateway already reloads within ~5s when credentials or sign-ins change (restlessd's fingerprint loop), so the "Ready once the company restarts" hint is stale. Still open: an agent assigned to a removed key's connection should fall back to the provider's remaining connection (needs a reproduction).
@@ -50,7 +50,7 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 - [~] D2 Checked: Google Gemini, xAI (now labelled "xAI Grok"), OpenRouter, Groq, Mistral, DeepSeek, Z.ai and Moonshot already connect with an API key. Still open: Meta's Muse through the Meta Model API, which needs a new provider in the model gateway's OMP config.
 - [x] D3 Usage limits name the account they read.
 - [x] D4 Operator grant for unlimited AI credit (Cloud #118, migration 0063); the row for blueprintlabio is inserted after deploy.
-- [ ] D5 Budget guards: hard per-company caps, loop detection.
+- [~] D5 Model spend already has a hard per-company ceiling with Inbox warnings (`spend_ceiling_usd`, spend_warning and spend_stopped). Still open: loop detection on model calls, and caps for burst jobs and sandboxes once G4 and F2 exist.
 
 ### E. Library
 - [x] E1 "Open in Library" opens the Library; the viewer fills its pane (no 150px frame).
@@ -66,7 +66,7 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 - [ ] F6 Browsers sleep on their own.
 - [x] F7 Checked: it can. `REFUSED_METHODS` blocks cookie and storage reads, but `Runtime.evaluate` is relayed, so page script can read a typed password, `document.cookie` and `localStorage`. Fix tracked as S1.
 - [ ] F8 Website login form failure (needs the error or time from the owner).
-- [ ] F9 Recover "The desktop isn't answering".
+- [x] F9 When a running computer's desktop doesn't answer, the page's primary action is "Restart the desktop" (files and profile kept), with Health as a secondary link.
 
 ### G. Cost and capacity
 - [x] G1 Memory telemetry in the plane heartbeat (Cloud #118).
@@ -88,9 +88,9 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 - [x] T3 A plane restart drops every browser session (in-memory session store).
 - [x] T4 The plane exits when Postgres isn't up yet at boot instead of waiting for it.
 - [x] T5 Cloud `docs/operations/move-plane.md` and `scripts/ops/move-plane.sh` (BlueprintLabIO/restless-cloud#119).
-- [ ] T6 Cloud's server price list includes types retired in Singapore (cpx21, cpx31).
+- [x] T6 Not a bug: Cloud's own fallback list for Singapore (cpx32, ccx13) only names types still sold, and the provider checks live stock. It was Hetzner's price list that still showed cpx21 and cpx31.
 - [x] T7 The Inbox intercepted every Library link (fixed with E1). Audited the other `beforeNavigate` handlers: all are unsaved-change guards.
-- [ ] T8 A container memory cap of 4 GB is larger than a 4 GB host; caps should fit the host too.
+- [x] T8 The company memory bound is kept to three quarters of the host's memory (a 4 GB host gives 3 GB companies).
 
 Measured 21 Oct on cpx22: plane service 680 MB, Postgres 490 MB, one login browser 240 MB, Reno
 840 MB (Chrome ~750 MB), Potion Scheme 450 MB. Two companies awake used 3.26 of 3.8 GB; a 4 GB

@@ -219,6 +219,44 @@ fn company_cpus() -> Option<String> {
     )
 }
 
+/// The memory bound for a company container, kept under this host's memory: a 4 GB bound on a
+/// 4 GB server is no bound at all, so one company could take the whole plane down (21 October).
+fn company_memory() -> Option<String> {
+    let host = std::fs::read_to_string("/proc/meminfo").ok().and_then(|meminfo| {
+        meminfo
+            .lines()
+            .find_map(|line| line.strip_prefix("MemTotal:"))
+            .and_then(|rest| rest.trim().trim_end_matches("kB").trim().parse::<u64>().ok())
+            .map(|kib| kib * 1024)
+    });
+    fit_memory(resource_bound("RESTLESS_COMPANY_MEMORY", DEFAULT_MEMORY), host)
+}
+
+fn fit_memory(bound: Option<String>, host_bytes: Option<u64>) -> Option<String> {
+    let bound = bound?;
+    let (Some(wanted), Some(host)) = (memory_bytes(&bound), host_bytes) else {
+        return Some(bound);
+    };
+    // Leave a quarter of the host for the plane itself and the other companies.
+    let ceiling = host / 4 * 3;
+    Some(if wanted > ceiling { format!("{}m", ceiling / (1024 * 1024)) } else { bound })
+}
+
+/// Docker's memory notation (`4g`, `512m`, `1073741824`) in bytes.
+fn memory_bytes(value: &str) -> Option<u64> {
+    let value = value.trim().to_ascii_lowercase();
+    let (number, unit) = value.split_at(value.find(|c: char| !c.is_ascii_digit()).unwrap_or(value.len()));
+    let number: u64 = number.parse().ok()?;
+    let scale = match unit.trim_end_matches('b') {
+        "" => 1,
+        "k" => 1024,
+        "m" => 1024 * 1024,
+        "g" => 1024 * 1024 * 1024,
+        _ => return None,
+    };
+    Some(number * scale)
+}
+
 fn fit_cpus(bound: Option<String>, host_cpus: usize) -> Option<String> {
     let bound = bound?;
     let Ok(wanted) = bound.parse::<f64>() else {
@@ -1990,7 +2028,7 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             .await?;
             let name = container_name(company);
             let cpus = company_cpus();
-            let memory = resource_bound("RESTLESS_COMPANY_MEMORY", DEFAULT_MEMORY);
+            let memory = company_memory();
             let pids = resource_bound("RESTLESS_COMPANY_PIDS_LIMIT", DEFAULT_PIDS_LIMIT);
             // Keep one noisy company from filling the shared host disk. The
             // local driver also supports `docker logs` for diagnosis.
@@ -4735,6 +4773,18 @@ mission = "Choose intelligence"
             resolve_resource_bound(Some("  6g \n"), DEFAULT_MEMORY).as_deref(),
             Some("6g")
         );
+    }
+
+    #[test]
+    fn the_memory_bound_leaves_room_for_the_rest_of_the_host() {
+        let gib = 1024 * 1024 * 1024;
+        assert_eq!(super::fit_memory(Some("4g".into()), Some(4 * gib)).as_deref(), Some("3072m"));
+        assert_eq!(super::fit_memory(Some("4g".into()), Some(16 * gib)).as_deref(), Some("4g"));
+        assert_eq!(super::fit_memory(Some("4g".into()), None).as_deref(), Some("4g"));
+        assert_eq!(super::fit_memory(None, Some(4 * gib)), None);
+        assert_eq!(super::memory_bytes("512m"), Some(512 * 1024 * 1024));
+        assert_eq!(super::memory_bytes("2GB"), Some(2 * gib));
+        assert_eq!(super::memory_bytes("lots"), None);
     }
 
     #[test]

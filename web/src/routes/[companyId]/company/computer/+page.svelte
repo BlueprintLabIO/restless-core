@@ -619,12 +619,25 @@
 								>files</a
 							> and applications. Click or type on the desktop to join in.
 						</p>
-					{:else}
+					{:else if container === 'Running'}
+						<!-- A running computer whose desktop stopped answering (often after an update) is
+						     fixed by restarting it, so that is the action, not a trip to Health (21 October). -->
 						<p class="computer-unavailable-copy">
-							{container === 'Running'
-								? 'The desktop isn’t answering, so it can’t be opened.'
-								: 'The computer isn’t ready, so it can’t be opened.'}
+							The desktop isn’t answering. Restarting it usually fixes this; files and the browser
+							profile are kept.
 						</p>
+						<button
+							class="btn primary"
+							type="button"
+							disabled={!!working}
+							onclick={() => void restartComputer()}
+							>{working === 'restart' ? 'Restarting…' : 'Restart the desktop'}</button
+						>
+						<a class="computer-health-link" href={`/${companyId}/company/doctor`}>
+							<Activity size={13} strokeWidth={1.8} aria-hidden="true" /> See what needs fixing
+						</a>
+					{:else}
+						<p class="computer-unavailable-copy">The computer isn’t ready, so it can’t be opened.</p>
 						<a class="btn primary" href={`/${companyId}/company/doctor`}>
 							<Activity size={14} strokeWidth={1.8} aria-hidden="true" /> See what needs fixing
 						</a>
