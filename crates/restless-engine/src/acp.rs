@@ -1746,6 +1746,7 @@ where
     // tree. A before/after PID diff is not ownership: a staff turn may start
     // while the Exec is running, and the Exec must never kill it on exit.
     let launch_id = auth.session_id.clone();
+    let launched_at = chrono::Utc::now();
     let session_marker = format!("/tmp/restless-agent-{launch_id}.sid");
     let system_prompt_path = format!("/tmp/restless-agent-{launch_id}.system.md");
     let session_runtime = format!("/company/run/agent-sessions/{launch_id}");
@@ -2343,6 +2344,11 @@ where
     let process_cleanup = if let Some(session_id) = owned_session {
         let _ = reap_session(container, &session_id).await;
         verify_session_reaped(container, &session_id).await
+    } else if container_started_after(container, launched_at).await {
+        // The computer restarted under the session (a release rebuilt it): /tmp and every process
+        // in it went with it, so nothing is left to reap. This used to fail the Attempt with a
+        // missing-marker error (Aang's attempt 2, 21 October).
+        Ok(())
     } else {
         Err(anyhow::anyhow!(
             "agent session ownership marker {session_marker} is missing; broad process cleanup was refused"
@@ -2603,6 +2609,22 @@ pub async fn reap_session(container: &str, session_id: &str) -> usize {
 /// Reap sessions whose owning daemon disappeared. The marker is the
 /// ownership record; a process-name search is incomplete (`omp` replaced
 /// `codex-acp`) and can claim unrelated work.
+/// Whether the container's current run began after `at`: everything it ran before then is gone.
+async fn container_started_after(container: &str, at: chrono::DateTime<chrono::Utc>) -> bool {
+    let Ok(output) = crate::runtime::docker_bounded(
+        &["inspect", "-f", "{{.State.StartedAt}}", container],
+        std::time::Duration::from_secs(8),
+    )
+    .await
+    else {
+        return false;
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse::<chrono::DateTime<chrono::Utc>>()
+        .is_ok_and(|started| started > at)
+}
+
 pub async fn reap_orphan_sessions(container: &str) -> usize {
     let Ok(output) = crate::runtime::docker_bounded(
         &[
