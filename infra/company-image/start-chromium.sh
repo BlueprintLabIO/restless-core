@@ -5,8 +5,20 @@ set -eu
 
 tabs=/company/browser-profile/restless-tabs.json
 
+# The owner's own timezone and language, when the plane knows them (S104 F3): a browser on
+# Singapore time with no language preference reads as a server to the sites it visits.
+if [ -n "${RESTLESS_BROWSER_TIMEZONE:-}" ]; then
+	export TZ="$RESTLESS_BROWSER_TIMEZONE"
+fi
+lang_flags=""
+if [ -n "${RESTLESS_BROWSER_LANG:-}" ]; then
+	lang_flags="--lang=$RESTLESS_BROWSER_LANG --accept-lang=$RESTLESS_BROWSER_LANG,en"
+fi
+
+# shellcheck disable=SC2086
 set -- \
 	/usr/bin/chromium \
+	$lang_flags \
 	--display=:1 \
 	--user-data-dir=/company/browser-profile \
 	--download-default-directory=/company/downloads \
