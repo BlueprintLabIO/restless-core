@@ -1274,7 +1274,10 @@
 					files,
 					contextPath,
 					false,
-					!!actorConversation?.working && directAgent && mayInterrupt && interruptNext,
+					!!(actorConversation?.working || actorConversation?.busyWork) &&
+						directAgent &&
+						mayInterrupt &&
+						interruptNext,
 					skills
 				);
 				if (result.interrupted && stillCurrent())
@@ -1989,7 +1992,7 @@
 				),
 				...personOptions(roomPeople, roster)
 			]}
-			interruptible={!!actorConversation?.working &&
+			interruptible={!!(actorConversation?.working || actorConversation?.busyWork) &&
 				directAgent &&
 				mayInterrupt &&
 				threadRootId === null}
@@ -2059,6 +2062,14 @@
 				>
 			</div>
 		{/if}
+		{#if actorConversation?.busyWork && !actorConversation.working && directPartner && threadRootId === null}<p
+				class="room-draft-state"
+				role="status"
+			>
+				{actorName(directPartner)} is working on “{actorConversation.busyWork.title}” and will reply when
+				it finishes.{#if mayInterrupt}
+					Turn on Interrupt to have them answer now; the Work is kept.{/if}
+			</p>{/if}
 		{#if sendError}<p class="room-send-error" role="alert">{sendError}</p>{/if}
 		{#if sendNotice}<p class="room-send-notice" role="status">{sendNotice}</p>{/if}
 		{#if uploadProgress === null && composerFiles.length}<p

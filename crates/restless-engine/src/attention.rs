@@ -389,6 +389,9 @@ async fn teammate_messages(
 struct ConversationRequest {
     item: AttentionItem,
     handoff_id: Option<uuid::Uuid>,
+    /// The same reference as written, which may name a setting proposal (a number) rather than a
+    /// prepared handoff (a UUID).
+    handoff_ref: Option<String>,
 }
 
 async fn conversation_requests(
@@ -412,6 +415,57 @@ async fn conversation_requests(
         };
         let message_id = message.id;
         let created_at = message.created_at;
+        if let Some((body, review)) = crate::transcript::conversation_owner_review(&message) {
+            // A finished result is an Inbox item the owner opens, not only a chat message.
+            let href = format!("/{company}/people?person={}&focus={message_id}", actor.id);
+            requests.push(ConversationRequest {
+                handoff_id: None,
+                handoff_ref: None,
+                item: AttentionItem {
+                    id: format!("conversation-review:{}:{message_id}", actor.id),
+                    work_id: None,
+                    source: AttentionSource {
+                        plane: "orgintel",
+                        kind: "conversation_owner_review".into(),
+                        reference: message_id.to_string(),
+                        party: None,
+                        call_key: None,
+                    },
+                    category: "conversation".into(),
+                    title: format!("Ready for you: {review}"),
+                    what_happened: body,
+                    why_it_matters: format!("{} finished this and is waiting for you to look.", actor.display),
+                    recommendation: format!("Open {review} and tell {} what you think.", actor.display),
+                    requested_action: format!("Look at {review}"),
+                    if_no_action: "It stays here until you reply or dismiss it.".into(),
+                    uncertainty: None,
+                    deadline: None,
+                    brief_status: "source-authored",
+                    brief_author: Some(actor.clone()),
+                    briefed_at: Some(created_at),
+                    evidence: Vec::new(),
+                    review_sources: Vec::new(),
+                    responsible_actor: Some(actor),
+                    runtime_attach: None,
+                    review_target: None,
+                    native_document: None,
+                    direction_request: None,
+                    charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
+                    actions: vec![AttentionAction {
+                        id: "continue-conversation".into(),
+                        label: "Open".into(),
+                        role: "conversation",
+                        consequence: "Open the message with the result and its link.".into(),
+                        next_state: "Your reply clears this item.".into(),
+                        href: Some(href),
+                    }],
+                    preparing: false,
+                    can_continue: false,
+                    created_at,
+                },
+            });
+            continue;
+        }
         let Some(crate::transcript::OwnerNeed { body, need, handoff, replies, fields }) =
             crate::transcript::conversation_owner_need(message)
         else {
@@ -432,6 +486,7 @@ async fn conversation_requests(
         // the conversation has a longer history.
         let href = format!("/{company}/people?person={}&focus={message_id}", actor.id);
         requests.push(ConversationRequest {
+            handoff_ref: handoff.as_ref().map(|id| id.trim().to_string()),
             handoff_id: handoff.and_then(|id| uuid::Uuid::parse_str(id.trim()).ok()),
             item: AttentionItem {
                 id: format!("conversation:{}:{message_id}", actor.id),
@@ -486,10 +541,17 @@ fn merge_conversation_requests(
     items: &mut Vec<AttentionItem>,
     mut requests: Vec<ConversationRequest>,
     handoffs: &[restless_orgintel::OwnerHandoffRow],
-) {
+) -> Vec<ConversationRequest> {
     let known: HashSet<_> = handoffs.iter().map(|handoff| handoff.id).collect();
+    let mut about_settings = Vec::new();
     requests.sort_by_key(|request| (Reverse(request.item.created_at), request.item.id.clone()));
     for request in requests {
+        // A question naming a setting proposal waits for the setting items (see
+        // merge_setting_questions); they are composed later in the queue.
+        if request.handoff_ref.as_deref().is_some_and(|reference| reference.parse::<i64>().is_ok()) {
+            about_settings.push(request);
+            continue;
+        }
         if let Some(id) = request.handoff_id.filter(|id| known.contains(id)) {
             if let Some(decision) = items
                 .iter_mut()
@@ -525,6 +587,34 @@ fn merge_conversation_requests(
         }
         // Missing, malformed or unknown provenance must never swallow an independent question.
         items.push(request.item);
+    }
+    about_settings
+}
+
+/// A question about a setting Exec also proposed is that proposal's context, not a second item:
+/// the $200 budget question and "Set the spend limit to US$200" were two (21 October). A question
+/// naming no live proposal stays a question.
+fn merge_setting_questions(items: &mut Vec<AttentionItem>, requests: Vec<ConversationRequest>) {
+    for request in requests {
+        let reference = request.handoff_ref.clone().unwrap_or_default();
+        let Some(setting) = items.iter_mut().find(|item| item.id == format!("authority:setting:{reference}")) else {
+            items.push(request.item);
+            continue;
+        };
+        if !setting.review_sources.iter().any(|source| source.provider == "conversation") {
+            setting.review_sources.push(ReviewSourceRef {
+                label: format!(
+                    "{}'s context",
+                    request.item.responsible_actor.as_ref().map_or("Agent", |actor| actor.display.as_str())
+                ),
+                provider: "conversation".into(),
+                reference: request.item.source.reference,
+                verification: "source-authored".into(),
+                uri: None,
+                content: request.item.what_happened,
+                observed_at: request.item.created_at,
+            });
+        }
     }
 }
 
@@ -1822,6 +1912,7 @@ async fn project_queue(
     assignee: Option<&str>,
     spend: Option<&crate::spend::SpendLedger>,
 ) -> Result<AttentionView> {
+    let mut setting_questions: Vec<ConversationRequest> = Vec::new();
     let approved = approval::approved_parties(authority, &config.name).await?;
     let approvals = authority
         .records_of_kind(&config.name, "approval_required")
@@ -2891,7 +2982,7 @@ async fn project_queue(
             .filter_map(|id| actors.get(id).cloned())
             .collect();
         match conversation_requests(org, &config.name, contacts).await {
-            Ok(requests) => merge_conversation_requests(
+            Ok(requests) => setting_questions = merge_conversation_requests(
                 &mut items, requests,
                 work_graph.as_ref().map(|graph| graph.handoffs.as_slice()).unwrap_or_default(),
             ),
@@ -3344,6 +3435,7 @@ async fn project_queue(
         }
         Err(error) => tracing::warn!(%error, "setting proposals unavailable"),
     }
+    merge_setting_questions(&mut items, std::mem::take(&mut setting_questions));
     match effect_outcome_items(config, authority, &actors).await {
         Ok(outcomes) => items.extend(outcomes),
         Err(error) => tracing::warn!(%error, "outside-action outcomes unavailable"),
@@ -4448,6 +4540,18 @@ mod tests {
             read().await.unwrap().is_empty(),
             "a superseding reply clears obsolete requests"
         );
+        // A finished result named in `ownerReview` is an Inbox item until the owner replies.
+        let done = "The site is built.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Site built\",\"ownerReview\":\"The redesigned card site\"}-->";
+        org.send_message(&contact.id, None, done).await.unwrap();
+        let review = read().await.unwrap();
+        assert_eq!(review.len(), 1);
+        assert_eq!(review[0].title, "Ready for you: The redesigned card site");
+        assert_eq!(review[0].source.kind, "conversation_owner_review");
+        assert_eq!(review[0].what_happened, "The site is built.");
+        org.send_owner_conversation_message(&contact.id, "Looks great", false)
+            .await
+            .unwrap();
+        assert!(read().await.unwrap().is_empty(), "the owner's reply clears the review");
         org.drop_schema().await.unwrap();
     }
 

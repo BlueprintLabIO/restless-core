@@ -3448,6 +3448,7 @@ model = \"anthropic/claude-sonnet-5-5\"
             .expect("fixture timestamp")
             .with_timezone(&Utc);
         let view = ConversationView {
+            busy_work: None,
             actor: ConversationActorView {
                 id: "exec".into(),
                 display: "Exec".into(),
@@ -3478,6 +3479,7 @@ model = \"anthropic/claude-sonnet-5-5\"
                     next_step: Some("Exec checks the prepared plan.".into()),
                     owner_need: None,
                     owner_need_handoff: None,
+                    owner_review: None,
                     owner_replies: Vec::new(),
                     owner_fields: Vec::new(),
                     readback: Vec::new(),

@@ -34,13 +34,13 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 - [x] A7 Rewrite the connection error screens.
 
 ### B. Attention
-- [ ] B1 Exec can raise an Inbox item for anything that needs the owner, including finished deliverables.
-- [ ] B2 Items for the same request merge (the $200 budget question and the spend-limit setting).
+- [x] B1 A finished result Exec names in `ownerReview` becomes an Inbox item ("Ready for you: …") until the owner replies. Exec files missing logins itself with `restless apps ask-account` instead of sending the owner to Settings.
+- [x] B2 A question whose `ownerNeedHandoff` names a setting proposal becomes that proposal's context, so one item shows instead of two.
 
 ### C. Chat
 - [x] C1 Every send scrolls the owner's message to the top (option answers missed it).
 - [x] C2 New focus scrolls clear and keeps "Company memory retained" and the capability hint.
-- [ ] C3 DMs reach a busy agent mid-task; show "mid-task" until picked up.
+- [~] C3 People shows when an agent is busy with Work ("working on … and will reply when it finishes") and offers Interrupt, which keeps the Work. Still open: delivering the message into the running Attempt without stopping it (needs harness steering).
 - [x] C4 "Thinking" sits inline as the last transcript item.
 - [x] C5 People replies don't snap narrow when they finish.
 - [x] C6 Upload progress is drawn on the file's thumbnail.
