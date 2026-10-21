@@ -15,7 +15,7 @@
 	import ComputerFiles from '$lib/components/ComputerFiles.svelte';
 	import CompanyMachines from '$lib/components/CompanyMachines.svelte';
 	import { dropComputerFile } from '$lib/model/computer-files';
-	import { issueDesktopTicket } from '$lib/model/attention';
+	import { issueDesktopTicket, redeemDesktopTicket } from '$lib/model/attention';
 	import { DesktopControl } from '$lib/model/desktop-control.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
@@ -94,7 +94,7 @@
 		if (feedAttached === url) return;
 		if (consumedTicket !== url) {
 			consumedTicket = url;
-			await fetch(url, { credentials: 'same-origin', redirect: 'manual' }).catch(() => undefined);
+			await redeemDesktopTicket(url);
 		}
 		feedAttached = url;
 	}
