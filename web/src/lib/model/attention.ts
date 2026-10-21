@@ -610,6 +610,14 @@ export async function issueDesktopTicket(
 	return (await response.json()).desktop_url;
 }
 
+/** Redeem a desktop ticket without showing the desktop: its one-time URL sets this tab's
+ * attachment cookie, which the company browser feed then rides on (S104 F4). */
+export async function redeemDesktopTicket(desktopUrl: string): Promise<void> {
+	await fetch(desktopUrl, { credentials: 'same-origin', redirect: 'manual' }).catch(
+		() => undefined
+	);
+}
+
 /** A ticket for the review's isolated origin. Asking wakes a computer that fell asleep; a text
  * outcome has no origin, so it answers null and the next projection carries the text. */
 export async function issueReviewTicket(
