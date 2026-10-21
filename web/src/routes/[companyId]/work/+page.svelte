@@ -1217,14 +1217,29 @@
 {/if}
 
 <style>
+	/* Filters are controls like the buttons beside them: same height, corners and type, with a
+	 * chevron saying they open a menu. Full-round pills read as out of place (21 October). */
 	.goal-picker :global(summary) {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
 		width: auto;
-		height: 26px;
-		padding: 0 8px;
+		min-height: 28px;
+		padding: 0 8px 0 10px;
 		border: 1px solid var(--border);
-		border-radius: 999px;
+		border-radius: var(--radius-control);
 		color: var(--text-secondary);
-		font-size: var(--t-label);
+		font-size: var(--t-body);
+	}
+	.goal-picker :global(summary)::after {
+		content: '';
+		width: 6px;
+		height: 6px;
+		margin-top: -3px;
+		border-right: 1.5px solid currentColor;
+		border-bottom: 1.5px solid currentColor;
+		transform: rotate(45deg);
+		opacity: 0.7;
 	}
 	.goal-picker :global(.action-menu-panel button) {
 		justify-content: space-between;

@@ -208,6 +208,46 @@ fn resource_bound(var: &str, default: &str) -> Option<String> {
     resolve_resource_bound(std::env::var(var).ok().as_deref(), default)
 }
 
+/// The CPU bound for a company container, fitted to this host. Docker refuses
+/// to start a container whose `--cpus` exceeds the host's CPUs, and the default
+/// of four left every company unable to start when the plane moved to a
+/// two-core server (21 October). An explicit override is fitted the same way.
+fn company_cpus() -> Option<String> {
+    fit_cpus(
+        resource_bound("RESTLESS_COMPANY_CPUS", DEFAULT_CPUS),
+        std::thread::available_parallelism().map_or(1, usize::from),
+    )
+}
+
+fn fit_cpus(bound: Option<String>, host_cpus: usize) -> Option<String> {
+    let bound = bound?;
+    let Ok(wanted) = bound.parse::<f64>() else {
+        return Some(bound);
+    };
+    let host = host_cpus.max(1) as f64;
+    Some(if wanted > host { format!("{host:.1}") } else { bound })
+}
+
+/// A stopped container keeps the CPU bound it was created with. Refit it
+/// before starting, so a container made on a larger host still starts.
+async fn refit_container_cpus(name: &str) {
+    let Some(cpus) = company_cpus() else { return };
+    let Ok(output) = docker(&["inspect", "-f", "{{.HostConfig.NanoCpus}}", name]).await else {
+        return;
+    };
+    let current = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse::<f64>()
+        .unwrap_or(0.0)
+        / 1e9;
+    let Ok(wanted) = cpus.parse::<f64>() else { return };
+    if current > wanted + f64::EPSILON {
+        if let Err(error) = run_ok(&["update", "--cpus", &cpus, name]).await {
+            tracing::warn!(container = name, %error, "could not fit the container's CPU bound to this host");
+        }
+    }
+}
+
 /// The bound decision, split from the environment read so it is testable
 /// without mutating process-global state from concurrent tests.
 fn resolve_resource_bound(override_value: Option<&str>, default: &str) -> Option<String> {
@@ -1926,6 +1966,7 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             if let Some(network) = internal_network.as_deref() {
                 ensure_container_on_network(company, network).await?;
             }
+            refit_container_cpus(&name).await;
             run_ok(&["start", &name]).await?;
         }
         ContainerStatus::Absent => {
@@ -1948,7 +1989,7 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             ])
             .await?;
             let name = container_name(company);
-            let cpus = resource_bound("RESTLESS_COMPANY_CPUS", DEFAULT_CPUS);
+            let cpus = company_cpus();
             let memory = resource_bound("RESTLESS_COMPANY_MEMORY", DEFAULT_MEMORY);
             let pids = resource_bound("RESTLESS_COMPANY_PIDS_LIMIT", DEFAULT_PIDS_LIMIT);
             // Keep one noisy company from filling the shared host disk. The
@@ -4691,6 +4732,15 @@ mission = "Choose intelligence"
             resolve_resource_bound(Some("  6g \n"), DEFAULT_MEMORY).as_deref(),
             Some("6g")
         );
+    }
+
+    #[test]
+    fn the_cpu_bound_never_exceeds_the_host() {
+        assert_eq!(super::fit_cpus(Some("4.0".into()), 2).as_deref(), Some("2.0"));
+        assert_eq!(super::fit_cpus(Some("4.0".into()), 8).as_deref(), Some("4.0"));
+        assert_eq!(super::fit_cpus(Some("1.5".into()), 2).as_deref(), Some("1.5"));
+        assert_eq!(super::fit_cpus(Some("4.0".into()), 0).as_deref(), Some("1.0"));
+        assert_eq!(super::fit_cpus(None, 2), None);
     }
 
     #[test]

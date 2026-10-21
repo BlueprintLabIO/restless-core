@@ -17,10 +17,9 @@
 	import Popover from '$lib/ui/controls/Popover.svelte';
 	import EffortSlider from './editors/EffortSlider.svelte';
 	import { untrack } from 'svelte';
-	import Check from '@lucide/svelte/icons/check';
 	import Brain from '@lucide/svelte/icons/brain';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
-	import { FILTER_FROM, filterModels, splitModels } from '$lib/model/model-groups';
+	import ModelPicker from '$lib/primitives/ModelPicker.svelte';
 
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
@@ -47,14 +46,6 @@
 			)
 	);
 	const current = $derived(assignment?.model ?? '');
-	/* Newest of each family up front, older versions on request, a filter for long catalogues. */
-	let query = $state('');
-	let showOlder = $state(false);
-	const filtered = $derived(filterModels(choices, query));
-	const grouped = $derived(splitModels(filtered, current));
-	const shown = $derived(
-		query ? filtered : showOlder ? [...grouped.latest, ...grouped.older] : grouped.latest
-	);
 	let busy = $state(false);
 	let failure = $state('');
 
@@ -64,8 +55,6 @@
 		untrack(() => {
 			busy = false;
 			failure = '';
-			query = '';
-			showOlder = false;
 		});
 	});
 
@@ -150,38 +139,13 @@
 						onchange={(effort) => chooseEffort(effort)}
 					/>
 				</div>
-				{#if choices.length >= FILTER_FROM || assignment?.connection.includes('openrouter')}<input
-						class="filter"
-						type="search"
-						placeholder="Find a model"
-						aria-label="Find a model"
-						bind:value={query}
-					/>{/if}
-				<div class="models">
-					{#each shown as model (model.id)}
-						<button
-							type="button"
-							disabled={busy || !assignment}
-							aria-current={model.id === current ? 'true' : undefined}
-							onclick={() => choose(model.id, close)}
-							><span>{model.name}</span>{#if model.id === current}<Check
-									size={14}
-									aria-label="Current"
-								/>{/if}</button
-						>
-					{:else}<p class="none">No listed model matches.</p>{/each}
-					{#if query.trim() && !choices.some((model) => model.id === query.trim())}<button
-							type="button"
-							disabled={busy || !assignment}
-							title="Use a model ID this provider offers that the list does not show"
-							onclick={() => choose(query.trim(), close)}>Use “{query.trim()}”</button
-						>{/if}
-					{#if !query && grouped.older.length && !showOlder}<button
-							type="button"
-							class="older"
-							onclick={() => (showOlder = true)}>Older models</button
-						>{/if}
-				</div>
+				<ModelPicker
+					models={choices}
+					{current}
+					disabled={busy || !assignment}
+					label={`Model for ${name}`}
+					onchoose={(model) => choose(model, close)}
+				/>
 				{#if failure}<p class="failure" role="alert">{failure}</p>{/if}
 				<a class="more" href={`/${encodeURIComponent(companyId)}/company/provider`}>More settings</a
 				>
@@ -235,64 +199,6 @@
 		border-bottom: 1px solid var(--border);
 	}
 
-	.filter {
-		width: calc(100% - 8px);
-		margin: 2px 4px 4px;
-		padding: 4px 8px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
-		background: var(--surface-raised);
-		color: var(--ink);
-		font: inherit;
-		font-size: var(--t-label);
-	}
-	.models {
-		display: grid;
-		max-height: min(232px, 38dvh);
-		overflow-y: auto;
-	}
-	.models button {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 8px;
-		width: 100%;
-		min-height: 30px;
-		padding: 5px 8px;
-		border: 0;
-		border-radius: 4px;
-		background: transparent;
-		color: var(--ink);
-		font: inherit;
-		text-align: left;
-		cursor: pointer;
-	}
-	.models button:hover {
-		background: var(--surface-hover);
-	}
-	.models button:focus-visible {
-		outline: 2px solid var(--intent-feedback);
-		outline-offset: -2px;
-	}
-	.models button span {
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.models button :global(svg) {
-		flex: none;
-		color: var(--fill-primary);
-	}
-	.models .older {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.none {
-		margin: 6px 8px;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
 	.more {
 		display: block;
 		margin-top: 4px;

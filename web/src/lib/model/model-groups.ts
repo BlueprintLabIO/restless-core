@@ -35,12 +35,12 @@ export function splitModels(
 	const facts = models.map((model, index) => ({ model, index, ...release(model.name || model.id) }));
 	const named = new Map<string, (typeof facts)[number]>();
 	for (const fact of facts) {
-		const key = fact.base.toLowerCase();
+		const key = familyKey(fact.base);
 		const held = named.get(key);
 		if (!held || (held.alias && !fact.alias)) named.set(key, fact);
 	}
 	const kept = facts.filter(
-		(fact) => named.get(fact.base.toLowerCase()) === fact || fact.model.id === current
+		(fact) => named.get(familyKey(fact.base)) === fact || fact.model.id === current
 	);
 	kept.sort((a, b) => b.version - a.version || a.index - b.index);
 	const ordered = kept.map((fact) => fact.model);
@@ -49,6 +49,12 @@ export function splitModels(
 	const inUse = older.findIndex((model) => model.id === current);
 	if (inUse >= 0) latest.push(...older.splice(inUse, 1));
 	return { latest, older };
+}
+
+/** One key per release whatever the word order: catalogues list both "Claude Sonnet 4" and
+ * "Claude 4 Sonnet" for one model (21 October). */
+function familyKey(base: string): string {
+	return base.toLowerCase().split(/[\s-]+/).filter(Boolean).sort().join(' ');
 }
 
 /** Models whose name or id contains every word typed. */

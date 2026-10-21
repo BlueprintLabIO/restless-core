@@ -85,3 +85,14 @@ test('a new connection starts on the newest everyday tier, not the flagship', ()
 	assert.equal(defaultChoice(openai)?.id, 'gpt-5.6-terra');
 	assert.equal(defaultChoice([{ id: 'x-large', name: 'X Large', default: true }, { id: 'x-small', name: 'X Small' }])?.id, 'x-large');
 });
+
+test("one release listed under two word orders, or twice, shows once", () => {
+	const listed = [
+		{ id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4" },
+		{ id: "claude-4-sonnet", name: "Claude 4 Sonnet" },
+		{ id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5" },
+		{ id: "claude-sonnet-4-5-20250929", name: "Claude Sonnet 4.5" }
+	];
+	const { latest, older } = splitModels(listed);
+	assert.deepEqual([...latest, ...older].map((m) => m.name), ["Claude Sonnet 4.5", "Claude Sonnet 4"]);
+});

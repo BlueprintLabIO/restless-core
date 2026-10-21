@@ -264,7 +264,7 @@ pub async fn startup_doctor(
     capabilities: crate::capability::CapabilityIssuer,
     org: restless_orgintel::OrgIntel,
 ) {
-    let (documents, setup_failed) = tokio::join!(
+    let (documents, setup) = tokio::join!(
         async {
             let owner_config = crate::owner_config::OwnerConfig::from_env()?;
             if let Some(issuer) = owner_config.local_documents_issuer() {
@@ -281,9 +281,15 @@ pub async fn startup_doctor(
                 runtime::install_runtime_bridge_capability(&config.name, &bridge).await
             }
             .await
-            .is_err()
         }
     );
+    // The reason used to be dropped, so "Exec can't start" had no cause anywhere: on 21 October
+    // a CPU bound larger than the host refused every start in silence.
+    let setup_error = setup.err().map(|error| {
+        tracing::warn!(company=%config.name, error=%format!("{error:#}"), "automatic computer setup failed");
+        format!("{error:#}")
+    });
+    let setup_failed = setup_error.is_some();
     let documents = match documents {
         Ok(status) => status,
         Err(error) => {
@@ -294,7 +300,7 @@ pub async fn startup_doctor(
     let result = runtime::doctor(&config.name).await;
     let report = match result {
         Ok(report) => {
-            json!({"ran_at":chrono::Utc::now(),"setup_failed":setup_failed,"documents":documents,"report":report})
+            json!({"ran_at":chrono::Utc::now(),"setup_failed":setup_failed,"setup_error":setup_error,"documents":documents,"report":report})
         }
         Err(_) => {
             json!({"ran_at":chrono::Utc::now(),"documents":documents,"error":"Automatic computer setup or its startup check failed. The checks below are current."})

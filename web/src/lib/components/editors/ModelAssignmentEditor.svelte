@@ -5,6 +5,7 @@
 	 * which runs it. The action says what it does: "Run Exec on GPT-6.1 Sol", or "Put Exec on the
 	 * company model" when the choice is the company's own. */
 	import Field from '$lib/ui/forms/Field.svelte';
+	import ModelPicker from '$lib/primitives/ModelPicker.svelte';
 	import { connectionLabel, modelLabel } from '$lib/model/intelligence-labels';
 	import { failureSentence } from '$lib/model/failure';
 	import { assignModel, type IntelligenceView } from '$lib/model/intelligence.svelte';
@@ -193,27 +194,19 @@
 		: ''}
 	for={`${id}-model`}
 >
-	<select
+	<ModelPicker
 		id={`${id}-model`}
-		value={custom ? '__custom' : model}
-		onchange={(event) => {
-			custom = event.currentTarget.value === '__custom';
-			if (!custom) model = event.currentTarget.value;
+		framed
+		models={model && !presets.some((m) => m.id === model)
+			? [{ id: model, name: `${modelLabel(model)} (current)` }, ...presets]
+			: presets}
+		current={model}
+		onchoose={(next) => {
+			custom = false;
+			model = next;
 		}}
-	>
-		{#if model && !presets.some((m) => m.id === model)}<option value={model}
-				>{modelLabel(model)} (current)</option
-			>{/if}
-		{#each presets as m (m.id)}<option value={m.id}
-				>{m.name}{'default' in m && m.default ? ' (recommended)' : ''}</option
-			>{/each}<option value="__custom">Custom model ID…</option>
-	</select>
+	/>
 </Field>
-{#if custom}
-	<Field label="Full model ID" for={`${id}-custom`}>
-		<input id={`${id}-custom`} bind:value={model} required />
-	</Field>
-{/if}
 {#if harnesses.length > 1}<details class="form-more" open={harnessName(connection) !== 'Built in'}>
 		<summary>More options</summary>
 		<Field
