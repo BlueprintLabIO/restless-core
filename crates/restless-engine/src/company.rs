@@ -2424,6 +2424,20 @@ async fn roll_forward_once(daemon: &Daemon, configs: &[runtime::CompanyConfig]) 
         if let Ok(mut deferred) = DEFERRED_SINCE.lock() {
             deferred.remove(&config.name);
         }
+        // An asleep company is brought onto the release without waking it.
+        match runtime::retire_stale_stopped(config).await {
+            Ok(true) => {
+                note_roll_forward(&config.name, "retired_while_asleep", None);
+                tracing::info!(company = %config.name, "asleep company computer retired; it wakes on this release");
+                continue;
+            }
+            Ok(false) => {}
+            Err(error) => {
+                note_roll_forward(&config.name, "failed", Some(format!("{error:#}")));
+                tracing::warn!(company = %config.name, "could not retire the asleep company computer: {error:#}");
+                continue;
+            }
+        }
         tracing::info!(company = %config.name, "rebuilding the company computer on this plane's release");
         match recover(daemon, config, RecoveryAction::Reconcile, "daemon").await {
             Ok(_) => {
