@@ -1934,6 +1934,31 @@ fn running_company_names(configs: &[CompanyConfig], docker_names: &str) -> Vec<S
 /// fetch the configured company image and replace an outdated container while
 /// keeping its named volume. Building and publishing that image belongs to the
 /// release/Fleet path, not to the credential-holding account plane.
+/// Bring a stopped (asleep) company onto this release without waking it: its old container is
+/// removed, keeping the company volume and its kept files, so the next wake creates the new one.
+/// Rebuilding by starting it woke every sleeping company at once on each release, and four awake
+/// companies thrashed a 4 GB plane (22 October). True when a stale container was retired.
+pub async fn retire_stale_stopped(config: &CompanyConfig) -> Result<bool> {
+    let company = &config.name;
+    let _start = company_start_guard(company).await;
+    if status(company).await? != ContainerStatus::Stopped || !is_sleeping(company) {
+        return Ok(false);
+    }
+    if !(container_uses_old_image(company).await?
+        || !container_uses_company_volume(company).await?
+        || !container_mounts_attachments(company).await?)
+    {
+        return Ok(false);
+    }
+    let image = company_image();
+    ensure_image_available(&image).await?;
+    // Kept files move to their own volume before the shell that held them goes; on failure the
+    // old computer stays as it was.
+    preserve_attachments(company, &image).await?;
+    run_ok(&["rm", &container_name(company)]).await?;
+    Ok(true)
+}
+
 pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
     let outcome = up_locked(config, reconcile).await;
     if outcome.is_ok() {
