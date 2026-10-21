@@ -440,6 +440,103 @@ pub async fn signed_in(account_id: &str, domains: &[String]) -> Result<bool> {
 }
 
 /// Whether an open page on the account's domains shows a password field.
+/// The fields `Storage.setCookies` takes, from a cookie `Storage.getCookies` returned.
+fn cookie_param(cookie: &serde_json::Value) -> Option<serde_json::Value> {
+    let mut param = serde_json::json!({
+        "name": cookie["name"].as_str()?,
+        "value": cookie["value"].as_str()?,
+        "domain": cookie["domain"].as_str()?,
+        "path": cookie["path"].as_str().unwrap_or("/"),
+        "secure": cookie["secure"].as_bool().unwrap_or(false),
+        "httpOnly": cookie["httpOnly"].as_bool().unwrap_or(false),
+    });
+    if let Some(same_site) = cookie["sameSite"].as_str() {
+        param["sameSite"] = serde_json::json!(same_site);
+    }
+    if cookie["session"] != true {
+        if let Some(expires) = cookie["expires"].as_f64().filter(|expires| *expires > 0.0) {
+            param["expires"] = serde_json::json!(expires);
+        }
+    }
+    Some(param)
+}
+
+/// Sign the account's browser in from the company computer, where the owner signed in to the
+/// same site (S104 F5: both browsers work at once). The session moves browser to browser inside
+/// the plane; no agent sees it. Copies only the account's own domains, and only when the company
+/// browser is signed in there. Returns whether the account's browser is signed in afterwards.
+pub async fn sign_in_from_company(
+    account_id: &str,
+    company: &str,
+    domains: &[String],
+) -> Result<bool> {
+    let output = crate::runtime::docker_observe(&[
+        "exec",
+        &crate::runtime::container_name(company),
+        "curl",
+        "--fail",
+        "--silent",
+        "--max-time",
+        "3",
+        "http://127.0.0.1:9222/json/version",
+    ])
+    .await?;
+    let version: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    let path = url::Url::parse(
+        version["webSocketDebuggerUrl"]
+            .as_str()
+            .context("the company browser gave no DevTools socket")?,
+    )?
+    .path()
+    .to_string();
+    let stream = crate::runtime::devtools_stream(company).await?;
+    let (socket, _) = tokio_tungstenite::client_async(format!("ws://127.0.0.1:9222{path}"), stream)
+        .await
+        .context("open the company browser's DevTools")?;
+    let mut company_cdp = Cdp { socket, next: 1 };
+    let cookies = company_cdp
+        .call("Storage.getCookies", serde_json::json!({}), None)
+        .await?;
+    let ours: Vec<serde_json::Value> = cookies["cookies"]
+        .as_array()
+        .map(|cookies| {
+            cookies
+                .iter()
+                .filter(|cookie| {
+                    cookie["domain"].as_str().is_some_and(|domain| {
+                        on_account_domain(domain.trim_start_matches('.'), domains)
+                    })
+                })
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+    let names: Vec<(&str, &str)> = ours
+        .iter()
+        .filter_map(|cookie| {
+            Some((
+                cookie["domain"].as_str()?.trim_start_matches('.'),
+                cookie["name"].as_str()?,
+            ))
+        })
+        .collect();
+    // Copy only a real sign-in: a known site's session cookie, or for others any cookie at all.
+    if ours.is_empty() || known_session(&names, domains) == Some(false) {
+        return Ok(false);
+    }
+    let params: Vec<serde_json::Value> = ours.iter().filter_map(cookie_param).collect();
+    ensure_running(account_id).await?;
+    let mut account = Cdp::open(account_id).await?;
+    account
+        .call(
+            "Storage.setCookies",
+            serde_json::json!({ "cookies": params }),
+            None,
+        )
+        .await?;
+    signed_in(account_id, domains).await
+}
+
 /// Session cookies of sites whose sign-in we know, by registrable domain: every one listed must be
 /// present for the account to be signed in. `None` when none of the account's domains is known.
 const KNOWN_SESSIONS: &[(&str, &[&str])] = &[
@@ -1058,6 +1155,28 @@ pub async fn act(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_copied_cookie_keeps_its_flags_and_only_a_real_expiry() {
+        let lasting = cookie_param(&serde_json::json!({
+            "name": "xs", "value": "v", "domain": ".facebook.com", "path": "/", "secure": true,
+            "httpOnly": true, "sameSite": "None", "expires": 1.9e9, "session": false, "size": 3
+        }))
+        .unwrap();
+        assert_eq!(lasting["httpOnly"], true);
+        assert_eq!(lasting["sameSite"], "None");
+        assert_eq!(lasting["expires"], 1.9e9);
+        assert!(
+            lasting.get("size").is_none(),
+            "only fields setCookies takes"
+        );
+        let session = cookie_param(&serde_json::json!({
+            "name": "s", "value": "v", "domain": ".facebook.com", "expires": -1, "session": true
+        }))
+        .unwrap();
+        assert!(session.get("expires").is_none());
+        assert_eq!(session["path"], "/");
+    }
 
     #[test]
     fn facebook_consent_cookies_are_not_a_sign_in() {

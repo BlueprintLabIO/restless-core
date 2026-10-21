@@ -1087,6 +1087,51 @@ impl ServerHandler for ToolScope {
     }
 }
 
+/// Make sure the account's browser is really signed in before an agent gets it. When it is not
+/// but the owner signed in to the same site on the company computer, the session is copied over
+/// inside the plane, so either place to sign in works (S104 F5). The account's health follows.
+async fn account_session(
+    pool: &sqlx::PgPool,
+    account_id: &str,
+    company: &str,
+    domains: &[String],
+    label: &str,
+) -> std::result::Result<(), String> {
+    use crate::account_browser as identity;
+    if identity::signed_in(account_id, domains)
+        .await
+        .unwrap_or(false)
+    {
+        let _ = crate::accounts::set_health(pool, account_id, "signed_in").await;
+        return Ok(());
+    }
+    match identity::sign_in_from_company(account_id, company, domains).await {
+        Ok(true) => {
+            tracing::info!(
+                company,
+                account = account_id,
+                "signed the account's browser in from the company computer"
+            );
+            let _ = crate::accounts::set_health(pool, account_id, "signed_in").await;
+            Ok(())
+        }
+        outcome => {
+            if let Err(error) = outcome {
+                tracing::warn!(
+                    company,
+                    account = account_id,
+                    "could not copy the company computer's sign-in: {error:#}"
+                );
+            }
+            let _ = crate::accounts::set_health(pool, account_id, "signed_out").await;
+            Err(format!(
+                "{label} is not signed in. The owner signs it in from Settings › Accounts, or on the company \
+                 computer's browser (Restless then carries that sign-in over); ask them, then try again."
+            ))
+        }
+    }
+}
+
 impl ToolScope {
     /// Borrow an account's signed-in browser, or type its sign-in into it (S98-04).
     async fn browser_tool(&self, name: &str, arguments: Option<JsonObject>) -> CallToolResponse {
@@ -1281,18 +1326,19 @@ impl ToolScope {
                 if text("purpose").is_none() {
                     return text_error(format!("Acting in {}'s browser acts as the account: add `purpose`, one sentence saying why.", usable.account.label));
                 }
-                if usable.account.health != "signed_in" {
-                    return text_error(format!(
-                        "{} is not signed in yet. The owner signs it in from Settings › Accounts; ask them, then try again.",
-                        usable.account.label
-                    ));
-                }
                 if let Err(busy) = identity::take_lease(&account_id, &company, &actor).await {
                     return text_error(busy);
                 }
                 if let Err(error) = identity::ensure_running(&account_id).await {
                     identity::release_lease(&account_id, &company, &actor).await;
                     return text_error(format!("The account's browser did not start: {error:#}"));
+                }
+                if let Err(refusal) =
+                    account_session(pool, &account_id, &company, &domains, &usable.account.label)
+                        .await
+                {
+                    identity::release_lease(&account_id, &company, &actor).await;
+                    return text_error(refusal);
                 }
             }
             return match identity::act(&account_id, &domains, text("target_id"), step).await {
@@ -1329,18 +1375,18 @@ impl ToolScope {
         if text("purpose").is_none() {
             return text_error(format!("Borrowing {}'s browser acts as the account: add `purpose`, one sentence saying why.", usable.account.label));
         }
-        if usable.account.health != "signed_in" {
-            return text_error(format!(
-                "{} is not signed in yet. The owner signs it in from Settings › Accounts; ask them, then try again.",
-                usable.account.label
-            ));
-        }
         if let Err(busy) = identity::take_lease(&account_id, &company, &actor).await {
             return text_error(busy);
         }
         if let Err(error) = identity::ensure_running(&account_id).await {
             identity::release_lease(&account_id, &company, &actor).await;
             return text_error(format!("The account's browser did not start: {error:#}"));
+        }
+        if let Err(refusal) =
+            account_session(pool, &account_id, &company, &domains, &usable.account.label).await
+        {
+            identity::release_lease(&account_id, &company, &actor).await;
+            return text_error(refusal);
         }
         if let Some(url) = text("url") {
             let host = url::Url::parse(url)
