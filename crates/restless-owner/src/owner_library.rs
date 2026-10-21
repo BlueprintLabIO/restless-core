@@ -366,6 +366,43 @@ pub(super) async fn archive_work_file(
 /// How recently each Library file changed on the computer, by its path. An agent that edits a site
 /// in place records no new output, so the Library's "Updated" kept the day the file was first
 /// made (20 October). Owner only; read at most every 30 seconds per company.
+/// Every file under /company/outputs, for the Library's Folders view. Owner only; read from the
+/// company computer, so a sleeping company answers with its last listing (or none).
+pub(super) async fn library_outputs(
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    static LAST: std::sync::LazyLock<
+        std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, serde_json::Value)>>,
+    > = std::sync::LazyLock::new(Default::default);
+    if principal.membership_role() != "owner" || !principal.permits_company(&company) {
+        return Json(serde_json::json!({ "files": [] })).into_response();
+    }
+    if let Some((at, body)) = LAST.lock().ok().and_then(|cache| cache.get(&company).cloned()) {
+        if at.elapsed() < std::time::Duration::from_secs(30) {
+            return Json(body).into_response();
+        }
+    }
+    let files = restless_engine::runtime_files::output_files(&company).await.unwrap_or_default();
+    if files.is_empty() {
+        // Asleep or unreachable: keep showing what was there.
+        if let Some((_, body)) = LAST.lock().ok().and_then(|cache| cache.get(&company).cloned()) {
+            return Json(body).into_response();
+        }
+    }
+    let body = serde_json::json!({
+        "files": files.iter().map(|file| serde_json::json!({
+            "path": file.path,
+            "bytes": file.bytes,
+            "modified": chrono::DateTime::from_timestamp(file.modified, 0).map(|at| at.to_rfc3339()),
+        })).collect::<Vec<_>>(),
+    });
+    if let Ok(mut cache) = LAST.lock() {
+        cache.insert(company, (std::time::Instant::now(), body.clone()));
+    }
+    Json(body).into_response()
+}
+
 pub(super) async fn library_modified(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,

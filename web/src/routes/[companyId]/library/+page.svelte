@@ -9,6 +9,8 @@
 	import {
 		readArchivedLibrary,
 		readLibraryModified,
+		readLibraryOutputs,
+		type OutputFile,
 		latestTime,
 		readFileBytes,
 		setLibraryArchived
@@ -50,6 +52,7 @@
 	import FileSpreadsheet from '@lucide/svelte/icons/file-spreadsheet';
 	import Upload from '@lucide/svelte/icons/upload';
 	import FolderUp from '@lucide/svelte/icons/folder-up';
+	import FolderOpen from '@lucide/svelte/icons/folder-open';
 	import Pin from '@lucide/svelte/icons/pin';
 	import FileIcon from '@lucide/svelte/icons/file';
 	import Lock from '@lucide/svelte/icons/lock';
@@ -336,7 +339,15 @@
 	}
 
 	type Filter =
-		'all' | 'docs' | 'sheets' | 'review' | 'pinned' | 'archived' | 'yours' | LibraryFileKind;
+		| 'all'
+		| 'docs'
+		| 'sheets'
+		| 'review'
+		| 'pinned'
+		| 'archived'
+		| 'yours'
+		| 'folders'
+		| LibraryFileKind;
 	const filter = $derived((page.url.searchParams.get('show') as Filter) || 'all');
 	const openFileId = $derived(page.url.searchParams.get('file') ?? '');
 	const openUploadId = $derived(page.url.searchParams.get('upload') ?? '');
@@ -793,13 +804,21 @@
 	/* When each file last changed on the computer: an agent that edits a site in place records no
 	 * new output, so "Updated" otherwise kept the day it was first made (20 October). */
 	let fileModified = $state<Record<string, string>>({});
+	/* Everything agents wrote under /company/outputs, linked as an output or not: Calcifer's card
+	 * site was on disk but missing from the Library because nothing linked it (21 October). */
+	let outputFiles = $state<OutputFile[]>([]);
 	$effect(() => {
 		const company = companyId;
 		const controller = new AbortController();
-		const read = () =>
+		const read = () => {
 			void readLibraryModified(company, controller.signal).then((times) => {
 				if (!controller.signal.aborted) fileModified = times;
 			});
+			if (owner)
+				void readLibraryOutputs(company, controller.signal).then((rows) => {
+					if (!controller.signal.aborted) outputFiles = rows;
+				});
+		};
 		read();
 		const timer = setInterval(read, 60_000);
 		return () => {
@@ -860,6 +879,28 @@
 			...archivedFiles,
 			...files.filter(isRetired).map((file) => fileEntry(file, true))
 		].map(organised)
+	);
+	const outputSize = (bytes: number) =>
+		bytes >= 1024 * 1024
+			? `${(bytes / 1024 / 1024).toFixed(1)} MB`
+			: `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
+	/* Folders: every output file by its path, newest first; one already in the Library opens as
+	 * that entry, the rest by their path. */
+	const folderEntries = $derived<Entry[]>(
+		outputFiles.map((file) => {
+			const known = files.find((entry) => entry.uri === file.path);
+			return {
+				id: known?.id ?? `path:${file.path}`,
+				kind: known?.kind ?? libraryKind({ kind: '', uri: file.path, label: '' }) ?? 'other',
+				title: file.path.replace(/^\/company\/outputs\//, ''),
+				href: known ? fileHref(known.id) : `${root}/library?path=${encodeURIComponent(file.path)}`,
+				updatedAt: file.modified ?? '',
+				owner: known ? name(known.createdBy) : 'Agents',
+				status: '',
+				review: false,
+				meta: outputSize(file.bytes)
+			} satisfies Entry;
+		})
 	);
 	const FILE_KINDS: LibraryFileKind[] = [
 		'site',
@@ -1029,6 +1070,7 @@
 		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
 	}
 	const inView = (entry: Entry) =>
+		filter === 'folders' ||
 		filter === 'all' ||
 		filter === 'archived' ||
 		filter === 'pinned' ||
@@ -1038,7 +1080,14 @@
 		(filter === 'review' && entry.review) ||
 		entry.kind === filter;
 	const listed = $derived.by(() => {
-		const pool = filter === 'archived' ? archivedEntries : filter === 'pinned' ? pinned : entries;
+		const pool =
+			filter === 'archived'
+				? archivedEntries
+				: filter === 'pinned'
+					? pinned
+					: filter === 'folders'
+						? folderEntries
+						: entries;
 		const local = pool
 			.filter(
 				(entry) =>
@@ -1427,6 +1476,14 @@
 						count={row.total}
 					/>
 				{/each}
+				{#if owner && folderEntries.length}<SidebarRow
+						href={filterHref('folders')}
+						label="Folders"
+						icon={FolderOpen}
+						active={filter === 'folders' && !fileOpen && !uploadFile}
+						count={folderEntries.length}
+						title="Every file agents wrote to the outputs folder, linked or not"
+					/>{/if}
 				<SidebarRow
 					href={filterHref('yours')}
 					label="From you"
