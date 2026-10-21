@@ -2167,18 +2167,24 @@
 	.library-narrow-search {
 		padding: 10px 12px 4px;
 	}
-	/* On a narrow pane the sidebar steps out for a row of the same views. */
+	/* On a narrow pane the sidebar steps out for one row of the same views, scrolled
+	 * sideways rather than wrapped: wrapped, the eight views took three rows of a phone
+	 * before the first file (S104 E3). */
 	.library-filters {
 		display: flex;
-		flex-wrap: wrap;
 		gap: 2px;
 		padding: 6px 8px;
+		overflow-x: auto;
+		overscroll-behavior-x: contain;
+		scrollbar-width: none;
 		border-bottom: 1px solid var(--border);
+	}
+	.library-filters::-webkit-scrollbar {
+		display: none;
 	}
 	.library-filters a {
 		flex: none;
-		max-width: 100%;
-		overflow-wrap: anywhere;
+		white-space: nowrap;
 		padding: 5px 10px;
 		border-radius: var(--radius-control);
 		color: var(--text-secondary);
