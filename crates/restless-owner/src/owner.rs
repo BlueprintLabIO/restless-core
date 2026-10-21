@@ -65,6 +65,8 @@ mod publications_api;
 mod review_api;
 #[path = "owner_rooms_lifecycle.rs"]
 mod rooms_lifecycle_api;
+#[path = "owner_screencast.rs"]
+mod screencast_api;
 #[path = "owner_sharing.rs"]
 mod sharing_api;
 #[path = "owner_sheets.rs"]
@@ -2208,6 +2210,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/desktop/{company}/observe", get(open_observed_desktop))
         .route("/desktop/{company}/control", get(open_controlled_desktop))
         .route("/desktop/{company}/websockify", get(desktop_websocket))
+        .route(
+            "/desktop/{company}/screencast",
+            get(screencast_api::desktop_screencast),
+        )
         .route("/desktop/{company}/{*asset}", get(desktop_asset))
         // A plane reached over the network serves review tickets on its own host; the
         // response is sandboxed into an opaque origin (owner_review::review_location).
