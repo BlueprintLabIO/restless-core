@@ -8,6 +8,7 @@ export const PROVIDER_LABELS: Record<string, string> = {
 	mistral: 'Mistral',
 	deepseek: 'DeepSeek',
 	xai: 'xAI Grok',
+	meta: 'Meta Muse',
 	zai: 'Z.ai',
 	moonshot: 'Moonshot'
 };

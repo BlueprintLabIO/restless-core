@@ -47,7 +47,7 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 
 ### D. Models and credit
 - [x] D1 One model picker everywhere (`lib/primitives/ModelPicker.svelte`); one entry per release.
-- [~] D2 Checked: Google Gemini, xAI (now labelled "xAI Grok"), OpenRouter, Groq, Mistral, DeepSeek, Z.ai and Moonshot already connect with an API key. Still open: Meta's Muse through the Meta Model API, which needs a new provider in the model gateway's OMP config.
+- [x] D2 Checked: Google Gemini, xAI (now labelled "xAI Grok"), OpenRouter, Groq, Mistral, DeepSeek, Z.ai and Moonshot already connect with an API key. Meta Muse is added as a provider ("Meta Muse", Muse Spark 1.2 and 1.1). The key is validated against `api.meta.ai/v1/models`, and OMP's built-in `meta` provider serves it through the Responses API.
 - [x] D3 Usage limits name the account they read.
 - [x] D4 Operator grant for unlimited AI credit (Cloud #118, migration 0063); the row for blueprintlabio is inserted after deploy.
 - [~] D5 Model spend already has a hard per-company ceiling with Inbox warnings (`spend_ceiling_usd`, spend_warning and spend_stopped). Still open: loop detection on model calls, and caps for burst jobs and sandboxes once G4 and F2 exist.

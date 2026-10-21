@@ -4204,6 +4204,7 @@ async fn provider_view(config: &runtime::CompanyConfig) -> serde_json::Value {
         "xai".into(),
         "zai".into(),
         "moonshot".into(),
+        "meta".into(),
         "litellm".into(),
     ]);
     if !primary.is_empty() {
